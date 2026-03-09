@@ -1,0 +1,50 @@
+@import '../../styles/vars.css';
+
+.label {
+    border-radius: var(--radius-large);
+    font-family: var(--font-family-base);
+    font-size: 14px;
+    font-weight: 500;
+    
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    line-height: 1;
+    padding: 5px 10px;
+    
+}
+
+.icon {
+  line-height: 1;
+}
+
+.primary {
+    color: var(--on-primary);
+    background-color: var(--primary);
+}
+
+.black {
+    color: var(--on-surface);
+    background-color: color-mix(in srgb, #141314, transparent 20%);
+
+    .icon {
+        color: var(--primary)
+    }
+}
+
+.transparent {
+    border: 1px solid;
+    border-color: color-mix(in srgb, var(--surface-variant), #FFF9F9 20%);
+    color: color-mix(in srgb, var(--surface-variant), #FFF9F9 20%);
+}
+
+.secondary {
+    color: var(--on-secondary);
+    background-color: var(--secondary);
+}
+
+.tertiary {
+    color: var(--on-tertiary);
+    background-color: var(--tertiary);
+}
