@@ -11,6 +11,7 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
+         <Route path="/auth" element={<GreetingPage />} />
         <Route path="/" element={<Layout />}>
           <Route index element={<UnderConstructionPage />} />
           {pages.map((item) => (

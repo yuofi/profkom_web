@@ -169,7 +169,7 @@
     
     background-color: var(--surface); 
     
-    width: calc(100% - 64px); 
+    width: calc(100% - 76px); 
   }
 
   .menu.open {
