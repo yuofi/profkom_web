@@ -10,3 +10,9 @@ export const pages = [
   { name: "KMB", text: "кмб" },
   { name: "information", text: "информация" },
 ];
+
+type AdminPageSections = "blocks" | "users"
+
+export const getAdminRoute = (route: AdminPageSections) => {
+  return `/admin/${route}`;
+}

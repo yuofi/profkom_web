@@ -6,24 +6,54 @@ import { Layout } from "./components/Layout/Layout";
 import { UnderConstructionPage } from "./pages/fallback/UnderConstruction";
 import { DocViewerPage } from "./pages/DocViewPage/DocViewerPage";
 import { getDocRoute, pages } from "./utils/routes";
+import { UserProvider } from "./utils/ctx";
+import {
+  AdminRoute,
+  AuthRoute,
+  ProtectedRoute,
+} from "./pages/Wrappers/wrappers";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ProfilePage } from "./pages/ProfilePage/ProfilePage";
+import { AdminPanel } from "./pages/Admin/AdminPage";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
 function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-         <Route path="/auth" element={<GreetingPage />} />
-        <Route path="/" element={<Layout />}>
-          <Route index element={<UnderConstructionPage />} />
-          {pages.map((item) => (
-            <Route
-              key={item.name}
-              path={getDocRoute(item.name)}
-              element={<DocViewerPage filename={item.name} />}
-            />
-          ))}
-        </Route>
-      </Routes>
-    </BrowserRouter>
+    <QueryClientProvider client={queryClient}>
+      <UserProvider>
+        <BrowserRouter>
+          <Routes>
+            {/* <Route element={<AuthRoute />}> */}
+            <Route path="/auth" element={<GreetingPage />} />
+            {/* </Route> */}
+            <Route element={<ProtectedRoute />}>
+              <Route path="/" element={<Layout />}>
+                <Route index element={<UnderConstructionPage />} />
+                {pages.map((item) => (
+                  <Route
+                    key={item.name}
+                    path={getDocRoute(item.name)}
+                    element={<DocViewerPage filename={item.name} />}
+                  />
+                ))}
+                <Route path="/profile" element={<ProfilePage />} />
+                <Route element={<AdminRoute />}>
+                  <Route path="/admin" element={<AdminPanel />} />
+                </Route>
+              </Route>
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </UserProvider>
+    </QueryClientProvider>
   );
 }
 

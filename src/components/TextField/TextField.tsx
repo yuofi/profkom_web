@@ -7,6 +7,7 @@ interface TextFieldProps extends InputHTMLAttributes<HTMLInputElement> {
   error?: boolean;
   supportingText?: string;
   className?: string;
+  color?: string;
 }
 
 export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(({ 
@@ -14,12 +15,13 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(({
   error, 
   supportingText, 
   className,
+  color = "primary",
   ...props 
 }, ref) => {
   
   return (
     <div className={clsx(styles.wrapper, className)}>
-      <div className={clsx(styles.container, error && styles.error)}>
+      <div className={clsx(styles.container, styles[color], error && styles.error)}>
         <input
           ref={ref}
           className={styles.input}

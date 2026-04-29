@@ -1,6 +1,15 @@
 @import '../../styles/vars.css';
 
-/* обёртка элемента, чтобы не расширяться по содержимому */
+.primary {
+  --field-color: var(--primary);
+}
+.secondary {
+  --field-color: var(--secondary);
+}
+.tertiary {
+  --field-color: var(--tertiary);
+}
+
 .wrapper {
   width: 100%;
   max-width: 300px;
@@ -21,11 +30,12 @@
 .fieldset {
   position: absolute;
   inset: 0;
+  top: -4px;
   margin: 0;
   padding: 0 20px;
   pointer-events: none;
   
-  border: 2px solid var(--primary);
+  border: 2px solid var(--field-color);
   border-radius: var(--radius-large);
   transition: all 0.2s ease;
 }
@@ -44,8 +54,8 @@
 
 .legend span {
   display: inline-block;
-  padding: 0 4px; /* Совпадает с padding у label */
-  opacity: 0; /* Делаем текст невидимым */
+  padding: 0 4px;
+  opacity: 0;
   visibility: visible;
 }
 
@@ -57,11 +67,11 @@
 
 /* Переносим hover и focus-стейты рамки на fieldset */
 .container:hover .fieldset {
-  border-color: color-mix(in srgb, var(--primary), white 20%);
+  border-color: color-mix(in srgb, var(--field-color), white 20%);
 }
 .container:focus-within .fieldset {
   border-width: 3px;
-  border-color: var(--primary);
+  border-color: var(--field-color);
 }
 
 
@@ -77,8 +87,9 @@
   font-family: var(--font-family-base);
   font-size: 16px;
   color: var(--on-surface);
-  caret-color: var(--primary);
-  z-index: 2; /* Поднимаем инпут над рамкой */
+  caret-color: var(--field-color);
+  z-index: 2;
+  text-box: trim-both cap alphabetic;
 }
 
 /* === LABEL === */
@@ -89,27 +100,29 @@
   left: 20px;
   font-family: var(--font-family-base);
   font-size: 16px;
-  color: var(--primary);
+  color: var(--field-color);
   pointer-events: none;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   padding: 0 4px;
   border-radius: 4px;
-  /* ИСПРАВЛЕНИЕ: Фон всегда прозрачный! */
+  text-box: trim-both cap alphabetic;
+
   background-color: transparent; 
   z-index: 1;
 }
 
 .input:focus ~ .label,
 .input:not(:placeholder-shown) ~ .label {
-  top: 5%;
+  /* top: 5%; */
+  top: 0;
   transform: translateY(-50%) scale(0.9); 
-  color: var(--primary);
+  color: var(--field-color);
   font-weight: 500;
   /* background-color: var(--surface); - БОЛЬШЕ НЕ НУЖНО */
 }
 
 .input:not(:placeholder-shown):not(:focus) ~ .label {
-  color: color-mix(in srgb, var(--primary), transparent 50%);
+  color: color-mix(in srgb, var(--field-color), transparent 50%);
 }
 
 

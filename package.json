@@ -7,11 +7,13 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest --reporter=verbose"
   },
   "dependencies": {
     "@lit/react": "^1.0.8",
     "@material/web": "^2.4.1",
+    "@tanstack/react-query": "^5.100.1",
     "axios": "^1.13.6",
     "clsx": "^2.1.1",
     "formik": "^2.4.9",
@@ -24,6 +26,7 @@
     "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.1",
     "swiper": "^12.1.2",
+    "vitest": "^4.1.4",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -33,14 +36,17 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
+    "axios-mock-adapter": "^2.1.0",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
+    "jsdom": "^29.0.2",
     "lightningcss": "^1.31.1",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.48.0",
-    "vite": "^7.3.1"
+    "vite": "^7.3.1",
+    "vite-plugin-svgr": "^5.2.0"
   },
   "overrides": {
     "formik-validator-zod": {

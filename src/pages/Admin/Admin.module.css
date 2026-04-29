@@ -1,0 +1,78 @@
+@import '../../styles/vars.css';
+
+.layout {
+  display: flex;
+  min-height: 100vh;
+  /* background-color: color-mix(in srgb, var(--surface), white 5%);  */
+  color: var(--on-surface);
+  font-family: system-ui, sans-serif;
+  width: 100%;
+}
+
+.sidebar {
+  width: 260px;
+  /* background-color: color-mix(in srgb, var(--surface), white 10%);  */
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.logoIcon {
+  width: 40px;
+  height: 40px;
+  background-color: var(--on-secondary-container); /* Розовый акцент */
+  color: color-mix(in srgb, var(--surface), white 5%); ;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  color: #a0a0a0;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.menuItem:hover, .menuItemActive {
+  background-color: rgba(251, 207, 232, 0.1);
+  color: var(--on-secondary-container);
+}
+
+/* --- КОНТЕНТ --- */
+.contentWrapper {
+  flex: 1;
+  padding: 24px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: color-mix(in srgb, var(--surface), white 10%); ;
+  padding: 16px 24px;
+  border-radius: 16px;
+}
+
+.pageTitle {
+  font-size: 24px;
+  margin: 0;
+}

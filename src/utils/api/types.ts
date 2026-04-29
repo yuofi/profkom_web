@@ -1,8 +1,3 @@
-export interface LoginIn {
-  user_name: string;
-  password: string;
-}
-
 export interface TokenPair {
   access_token: string;
   refresh_token: string;
@@ -20,22 +15,35 @@ export interface RefreshResponse {
 
 // То, что отправляется при регистрации пользователя
 export interface UserIn {
-  user_name: string;
+  name: string;
+  surname: string;
+  patronymic: string;
   password: string;
-  kkr_score: number;
-  group_number: string;
-  blocks: string;
+  kkr_score?: number;
+  group_number: number;
+  tg: string;
+  blocks?: string;
   banned?: boolean; 
   super_user?: boolean;
-  admin?: boolean; 
+  admin?: boolean;
+  email: string;
+}
+
+export interface LoginIn {
+  email: string;
+  password: string;
 }
 
 // То, что приходит с бэкенда при запросе профиля
 export interface UserOut {
   user_id: number;
-  user_name: string;
+  email: string;
+  name: string;
+  surname: string;
+  patronymic: string;
   kkr_score: number;
-  group_number: string;
+  group_number: number;
+  tg: string;
   blocks: string;
   banned: boolean;
   super_user: boolean;
@@ -44,7 +52,9 @@ export interface UserOut {
 
 // Данные контакта (используется при регистрации)
 export interface ContactInfoIn {
-  fio: string;
+  surname: string;
+  name: string;
+  patronymic: string;
   kkr_name: string;
   group_number: string;
   location: string;
@@ -64,9 +74,8 @@ export interface ContactInfoOut extends ContactInfoIn {
 
 
 export interface ProfileUpdate {
-  fio?: string;
   kkr_name?: string;
-  group_number?: string;
+  group_number?: number;
   location?: string;
   blocks?: string;
   phone?: string;
@@ -78,7 +87,7 @@ export interface ProfileUpdate {
 }
 
 export interface ContactFilter {
-  group_number?: string;
+  group_number?: number;
   blocks?: string;
   in_profcom?: boolean;
   budget?: boolean;
@@ -93,4 +102,27 @@ export interface GuideIn {
 
 export interface GuideOut extends GuideIn {
   guide_id: number;
+}
+
+export interface BlockOut {
+  name: string;
+  master: string;
+  hr: string;
+  cnt_of_human: number;
+  arr_of_human: number[];
+}
+
+export interface BlockIn {
+  name: string;
+  master: string;
+  hr?: string;
+  cnt_of_human?: number;
+  arr_of_human?: number[];
+}
+
+export interface BlockUpdate {
+  master?: string;
+  hr?: string;
+  cnt_of_human?: number;
+  arr_of_human?: number[];
 }

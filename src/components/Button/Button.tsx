@@ -8,7 +8,7 @@ interface ButtonProps {
   children?: ReactNode;
   className?: string;
   type?: 'submit' | 'reset';
-  disabled: boolean;
+  disabled?: boolean;
 }
 
 export const Button = ({ variant, onClick, children, className="", ...props }: ButtonProps) => {

@@ -74,7 +74,9 @@ export const Navbar = () => {
       </div>
 
       <div className={styles.profile}>
+        <Link className={styles.logoLink} to={"/profile"}>
         <Icon size={isMobile ? 40 : 60} filled={true} name="account_circle" />
+        </Link>
       </div>
     </div>
   );

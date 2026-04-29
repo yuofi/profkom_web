@@ -1,0 +1,215 @@
+@import '../../../styles/vars.css';
+
+.statsContainer {
+  display: flex;
+  gap: 24px;
+}
+
+.statCard {
+  flex: 1;
+  background-color: color-mix(in srgb, black, #703860 70%);
+  border-radius: 16px;
+  padding: 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.statNumber {
+  font-size: 36px;
+  font-weight: bold;
+}
+
+.statLabel {
+  color: var(--on-secondary-container);
+  font-size: 14px;
+}
+
+/* --- ПАНЕЛЬ ДЕЙСТВИЙ (КОНСТРУКТОР) --- */
+.actionBar {
+  border: 1px solid var(--surface-variant);
+  border-radius: 16px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.actionBarHeader {
+  display: flex;
+  justify-content: space-between;
+}
+
+.controlsRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #1a1a1a;
+  padding: 12px;
+  border-radius: 32px;
+}
+
+/* --- ТАБЛИЦА --- */
+.tableContainer {
+  border: 1px solid #404040;
+  border-radius: 16px;
+  padding: 24px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.table th {
+  color: #a0a0a0;
+  font-weight: 500;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--surface-variant);
+  text-align: center;
+}
+
+.table td {
+  padding: 16px 0;
+  border-bottom: 1px solid #333333;
+}
+
+.chip {
+  background-color: #fbcfe8;
+  color: #1e1e1e;
+  padding: 4px 12px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: bold;
+  display: inline-block;
+}
+
+/* --- МОДАЛЬНОЕ ОКНО --- */
+.modalOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal {
+  background-color: #1e1e1e;
+  border-radius: 24px;
+  padding: 32px;
+  /* width: 100%; */
+  max-width: 500px;
+  border: 1px solid var(--surface-variant);
+  display: flex;
+  flex-direction: column;
+  /* align-items: center; */
+  gap: 24px;
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: ;
+  align-items: center;
+}
+
+.modalForm {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.modalActions {
+  display: flex;
+  /* justify-content: flex-end; */
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.deleteButton {
+  color: #ffb4ab;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+}
+
+.editButton {
+  color: #fbcfe8;
+  cursor: pointer;
+  margin-right: 16px;
+}
+
+.errorText {
+  color: var(--error);
+  font-size: 14px;
+}
+
+.managementPanel {
+  max-width: 600px; /* Немного шире для списка людей */
+}
+
+.managementHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.managementHeader h3 {
+  margin: 0;
+  color: var(--secondary);
+}
+
+.membersList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 40vh;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+.memberItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background-color: #1a1a1a;
+  border-radius: 12px;
+  border: 1px solid #333;
+}
+
+.memberName {
+  font-weight: 500;
+}
+
+.addMemberSection {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.addMemberAutocomplete {
+  flex: 1;
+}
+
+.selectedRow {
+  background-color: rgba(251, 207, 232, 0.05);
+}
+
+.clickableRow {
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.clickableRow:hover {
+  background-color: rgba(255, 255, 255, 0.03);
+}

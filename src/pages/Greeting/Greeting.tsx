@@ -7,6 +7,10 @@ import { FormikProvider } from "formik";
 import { FormTextField } from "../../components/Form/FormTextFiled";
 import { Button } from "../../components/Button/Button";
 import { useState } from "react";
+import { authApi } from "../../utils/api/auth.api";
+import Cookies from "js-cookie";
+import type z from "zod";
+
 
 export const GreetingPage = () => {
   const [signUp, setSignUp] = useState(true);
@@ -19,9 +23,46 @@ export const GreetingPage = () => {
       email: "",
       password: "",
       passwordAgain: "",
+      groupNumber: "",
+      telegram: "",
+      name: "",
+      surname: "",
+      patronymic: ""
     },
     validationSchema: signUp ? SignUpValidationSchema : SignInValidationSchema,
-    onSubmit: async (data) => console.log("submitted with data", data),
+    onSubmit: async (data) => {
+      try {
+        if (signUp) {
+          const formData = data as z.infer<typeof SignUpValidationSchema>;
+          console.log("Данные формы:", formData);
+          const response = await authApi.register({
+            email: formData.email,
+            password: formData.password,
+            name: formData.name,
+            surname: formData.surname,
+            patronymic: formData.patronymic,
+            group_number: Number(formData.groupNumber), 
+            tg: formData.telegram
+          });
+          console.log("Успешная регистрация:", response);
+          Cookies.set("access_token", response.data.access_token, {expires: 1/8});
+          Cookies.set("refresh_token", response.data.refresh_token, {expires: 7});
+          console.log("Успешный вход:", response);
+          window.location.href = "/";
+        } else {
+          const response = await authApi.login({
+            email: data.email,
+            password: data.password
+          });
+          Cookies.set("access_token", response.data.access_token, {expires: 1/8});
+          Cookies.set("refresh_token", response.data.refresh_token, {expires: 7});
+          console.log("Успешный вход:", response);
+          window.location.href = "/";
+        }
+      } catch (error) {
+        console.error("Ошибка при отправке:", error);
+      }
+    },
   });
 
   return (
@@ -89,11 +130,43 @@ export const GreetingPage = () => {
             />
             
             {signUp && (
+              <>
               <FormTextField
                 name="passwordAgain"
                 label="пароль снова"
                 type="password"
+                />
+
+              <FormTextField
+                name="groupNumber"
+                label="номер группы"
+                type="text"
+                />
+              
+              <FormTextField
+                name="telegram"
+                label="@ник в тг"
+                type="text"
               />
+
+              <FormTextField
+                name="name"
+                label="Имя"
+                type="text"
+              />
+
+              <FormTextField
+                name="surname"
+                label="Фамилия"
+                type="text"
+              />
+
+              <FormTextField
+                name="patronymic"
+                label="Отчество"
+                type="text"
+              />
+              </>
             )}
 
             <Button variant="primary" type="submit" disabled={formik.isSubmitting}>

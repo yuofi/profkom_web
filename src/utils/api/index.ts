@@ -5,7 +5,7 @@ import type { RefreshResponse } from "./types";
 import { tryCatch } from "../tryCatch";
 
 
-const api = axios.create({
+export const api = axios.create({
     baseURL: env.VITE_BACKEND_URL,
     timeout: 10000,
     headers: {
@@ -34,11 +34,11 @@ async function fetchRefresh(config: CustomAxiosRequestConfig): Promise<CustomAxi
     const refreshToken = Cookies.get("refresh_token");
     if (!refreshToken) throw new Error("No refresh token found");
     const response: AxiosResponse<RefreshResponse> = await axios.post(`${env.VITE_BACKEND_URL}/auth/refresh`, {
-        refreshToken: refreshToken
+        refresh_token: refreshToken
     });
 
-    Cookies.set("acecss_token", response.data.access_token);
-    Cookies.set("refresh_token", response.data.refresh_token);
+    Cookies.set("access_token", response.data.access_token, {expires: 1/8});
+    Cookies.set("refresh_token", response.data.refresh_token, {expires: 7});
 
     if (config.headers) {
         config.headers.Authorization = `Bearer ${response.data.access_token}`;
@@ -58,7 +58,7 @@ api.interceptors.response.use(
             if (error) {
                 Cookies.remove("access_token");
                 Cookies.remove("refresh_token");
-                window.location.href = "/login";
+                //window.location.href = "/login";
                 return Promise.reject(error);
             }
             
