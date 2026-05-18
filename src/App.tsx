@@ -5,7 +5,8 @@ import "./App.css";
 import { Layout } from "./components/Layout/Layout";
 import { UnderConstructionPage } from "./pages/fallback/UnderConstruction";
 import { DocViewerPage } from "./pages/DocViewPage/DocViewerPage";
-import { getDocRoute, pages } from "./utils/routes";
+import { DocEditPage } from "./pages/DocEditPage/DocEditPage";
+import { getDocRoute, getDocEditRoute, pages } from "./utils/routes";
 import { UserProvider } from "./utils/ctx";
 import {
   AdminRoute,
@@ -37,16 +38,20 @@ function App() {
             <Route element={<ProtectedRoute />}>
               <Route path="/" element={<Layout />}>
                 <Route index element={<UnderConstructionPage />} />
-                {pages.map((item) => (
-                  <Route
-                    key={item.name}
-                    path={getDocRoute(item.name)}
-                    element={<DocViewerPage filename={item.name} />}
-                  />
-                ))}
+                <Route
+                  path={getDocRoute()}
+                  element={<DocViewerPage />}
+                />
                 <Route path="/profile" element={<ProfilePage />} />
                 <Route element={<AdminRoute />}>
                   <Route path="/admin" element={<AdminPanel />} />
+                  {pages.map((item) => (
+                    <Route
+                      key={`${item.name}-edit`}
+                      path={getDocEditRoute(item.name)}
+                      element={<DocEditPage filename={item.name} />}
+                    />
+                  ))}
                 </Route>
               </Route>
             </Route>

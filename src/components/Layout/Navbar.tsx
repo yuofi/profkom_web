@@ -5,11 +5,13 @@ import styles from "./Navbar.module.css";
 import { Link } from "react-router-dom";
 import { getDocRoute, getHomeRoute } from "../../utils/routes";
 import { useMediaQuery } from "../../utils/hooks/useMediaQuery";
-import { pages } from "../../utils/routes";
+import { useGuides } from "../../utils/hooks/useGuides";
+import type { GuideOut } from "../../utils/api/types";
 
 
 export const Navbar = () => {
   const isMobile = useMediaQuery("(max-width: 768px)");
+  const { data: guides } = useGuides();
   
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -50,16 +52,16 @@ export const Navbar = () => {
         <span className={styles.menuLabel}>меню</span>
 
         <ul className={styles.menuList}>
-          {pages.map((item) => {
+          {guides?.map((item: GuideOut) => {
             return (
-              <li className={styles.menuItem} key={item.name}>
+              <li className={styles.menuItem} key={item.guide_id}>
                 <Link
                   className={styles.menuLink}
-                  to={getDocRoute(item.name)}
-                  data-text={item.text}
+                  to={getDocRoute(item.guide_id)}
+                  data-text={item.title}
                   onClick={() => isMobile && setIsOpen(false)} 
                 >
-                  <span>{item.text}</span>
+                  <span>{item.title}</span>
                 </Link>
               </li>
             );

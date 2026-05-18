@@ -1,11 +1,16 @@
 import { useState, useEffect, useMemo } from "react";
+import { useParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
-import { generateSlug, extractToc } from "../../utils/idGen";
-import styles from "./DocViewerPage.module.css";
 import { SwiperSlide, Swiper } from "swiper/react";
 import { Navigation, Pagination } from "swiper/modules";
+
+import { generateSlug, extractToc } from "../../utils/idGen";
+import { api } from "../../utils/api";
+import styles from "./DocViewerPage.module.css";
+
 import "swiper/css";
 import "swiper/css/navigation";
 import "swiper/css/pagination";
@@ -14,6 +19,14 @@ interface Toc {
   id: string;
   title: string;
   isActive: boolean;
+}
+
+interface GuideOut {
+  title: string;
+  owner_block: string;
+  text: string;
+  origingal_link?: string;
+  guide_id: number;
 }
 
 const extractTextFromChildren = (children: any): string => {
@@ -27,48 +40,47 @@ const extractTextFromChildren = (children: any): string => {
   return "";
 };
 
-interface DocViewerProps {
-  filename: string;
-}
-
-export const DocViewerPage = ({filename}: DocViewerProps) => {
-  const [mdText, setMdText] = useState("");
-  const [toc, setToc] = useState<Toc[]>([]);
-
+export const DocViewerPage = () => {
+  // const [toc, setToc] = useState<Toc[]>([]);
   const [activeId, setActiveId] = useState<string>("");
 
+  const { id } = useParams<{ id: string }>();
+
+  // 2. Загружаем и фильтруем гайды через React Query
+  const {
+    data: guide,
+    isLoading,
+    isError,
+  } = useQuery({
+    queryKey: ["guides"],
+    queryFn: async () => {
+      const response = await api.get<GuideOut[]>("/guides");
+      return response.data;
+    },
+    staleTime: 10 * 60 * 1000,
+    select: (allGuides) => {
+      // id из URL всегда строка, переводим в Number
+      return allGuides.find((g) => g.guide_id === Number(id));
+    },
+  });
+
+  const toc = useMemo(() => {
+    if (!guide || !guide.text) return [];
+    return extractToc(guide.text);
+  }, [guide]);
+
+  // 4. Отслеживание скролла
   useEffect(() => {
-    const loadMarkdown = async () => {
-      try {
-        const response = await fetch(`/md/${filename}.md`);
-        const text = await response.text();
-
-        setMdText(text);
-
-        const extractedToc = extractToc(text);
-        setToc(extractedToc);
-
-        if (extractedToc.length > 0) {
-          setActiveId(extractedToc[0].id);
-        }
-      } catch (e) {
-        console.error("Ошибка загрузки:", e);
-      }
-    };
-
-    loadMarkdown();
-  }, [filename]);
-
-  
-  useEffect(() => {
-    if (!mdText || toc.length === 0) return;
+    if (!guide?.text || toc.length === 0) return;
 
     const handleScroll = () => {
-      const headings = Array.from(document.querySelectorAll(`.${styles.markdownWrapper} h2[id]`));
-      const offset = 120; 
+      const headings = Array.from(
+        document.querySelectorAll(`.${styles.markdownWrapper} h2[id]`),
+      );
+      const offset = 120;
 
       const passedHeadings = headings.filter(
-        (heading) => heading.getBoundingClientRect().top <= offset
+        (heading) => heading.getBoundingClientRect().top <= offset,
       );
 
       if (passedHeadings.length > 0) {
@@ -81,30 +93,33 @@ export const DocViewerPage = ({filename}: DocViewerProps) => {
 
     window.addEventListener("scroll", handleScroll);
     handleScroll();
+
     return () => {
       window.removeEventListener("scroll", handleScroll);
     };
-  }, [mdText, toc]);
-
+  }, [guide?.text, toc]);
 
   const markdownComponents = useMemo(() => {
     return {
       h2(props: any) {
         const { node, children, ...rest } = props;
         const headingText = extractTextFromChildren(children);
-        const id = generateSlug(headingText);
-        
-        return <h2 id={id} {...rest}>{children}</h2>;
+        const slugId = generateSlug(headingText);
+
+        return (
+          <h2 id={slugId} {...rest}>
+            {children}
+          </h2>
+        );
       },
       code(props: any) {
         const { children, className, node, ...rest } = props;
         const match = /language-(\w+)/.exec(className || "");
-        
+
         if (match && match[1] === "gallery") {
           const content = String(children).replace(/\n$/, "");
-          
-          const lines = content.split('\n');
-          
+          const lines = content.split("\n");
+
           return (
             <div className={styles.carouselContainer}>
               <Swiper
@@ -115,11 +130,14 @@ export const DocViewerPage = ({filename}: DocViewerProps) => {
                 slidesPerView={1}
               >
                 {lines.map((line, index) => {
-                  const [src, caption] = line.split('|');
+                  const [src, caption] = line.split("|");
                   return (
                     <SwiperSlide key={index}>
                       <figure className={styles.carouselFigure}>
-                        <img src={src.trim()} alt={caption?.trim() || "Слайд"} />
+                        <img
+                          src={src.trim()}
+                          alt={caption?.trim() || "Слайд"}
+                        />
                         {caption && <figcaption>{caption.trim()}</figcaption>}
                       </figure>
                     </SwiperSlide>
@@ -130,11 +148,23 @@ export const DocViewerPage = ({filename}: DocViewerProps) => {
           );
         }
 
-        return <code className={className} {...rest}>{children}</code>;
-      }
+        return (
+          <code className={className} {...rest}>
+            {children}
+          </code>
+        );
+      },
     };
   }, []);
-  
+
+  // Обработка состояний загрузки и отсутствия данных
+  if (isLoading)
+    return <div className={styles.container}>Загрузка документа...</div>;
+  if (isError)
+    return <div className={styles.container}>Ошибка при загрузке данных.</div>;
+  if (!guide)
+    return <div className={styles.container}>Документ не найден.</div>;
+
   return (
     <div className={styles.container}>
       <aside className={styles.sidebar}>
@@ -143,7 +173,6 @@ export const DocViewerPage = ({filename}: DocViewerProps) => {
             <li key={item.id}>
               <a
                 href={`#${item.id}`}
-                // 3. ИЗМЕНЕНО: Сравниваем ID элемента с текущим activeId
                 className={`${styles.navLink} ${item.id === activeId ? styles.active : ""}`}
               >
                 {item.title}
@@ -153,28 +182,14 @@ export const DocViewerPage = ({filename}: DocViewerProps) => {
         </ul>
       </aside>
 
-{/* <div style={{
-  position: 'fixed',
-  top: '80px', // Должно совпадать с первым значением rootMargin
-  bottom: '80%', // Должно совпадать с третьим значением rootMargin (но инвертировано для CSS)
-  left: 0,
-  right: 0,
-  backgroundColor: 'rgba(255, 0, 0, 0.1)', // Прозрачный красный
-  borderTop: '2px dashed red',
-  borderBottom: '2px dashed red',
-  pointerEvents: 'none', // Чтобы слой не мешал кликать по ссылкам
-  zIndex: 9999
-}}>
-  <span style={{ color: 'red', background: 'white', fontSize: '12px' }}>Зона Observer</span>
-</div> */}
-
       <article className={styles.mainContent}>
         <div className={styles.markdownWrapper}>
+          {/* 5. ПРАВИЛЬНО: Рендерим текст напрямую из объекта guide */}
           <ReactMarkdown
             remarkPlugins={[remarkGfm, remarkBreaks]}
             components={markdownComponents}
           >
-            {mdText}
+            {guide.text}
           </ReactMarkdown>
         </div>
       </article>

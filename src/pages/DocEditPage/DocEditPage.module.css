@@ -1,0 +1,180 @@
+@import "../../styles/vars.css";
+
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 48px 32px;
+  min-height: calc(100vh - 100px);
+  position: relative;
+}
+
+@media (max-width: 1024px) {
+  .container {
+    padding: 24px 16px;
+  }
+}
+
+.mainContent {
+  width: 100%;
+  max-width: 800px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Toolbar Styles */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px;
+  background-color: var(--surface-container);
+  border-radius: var(--radius-medium);
+  border: 1px solid var(--outline-variant);
+  position: sticky;
+  top: 80px;
+  z-index: 10;
+}
+
+.toolbarSection {
+  display: flex;
+  gap: 4px;
+  padding-right: 8px;
+  border-right: 1px solid var(--outline-variant);
+}
+
+.toolbarSection:last-child {
+  border-right: none;
+}
+
+.toolbarBtn {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--on-surface);
+  padding: 6px 10px;
+  border-radius: var(--radius-small);
+  cursor: pointer;
+  font-family: var(--font-family-base);
+  font-size: 14px;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toolbarBtn:hover {
+  background-color: var(--secondary-container);
+  color: var(--on-secondary-container);
+}
+
+.toolbarBtn.active {
+  background-color: var(--tertiary) !important;
+  color: var(--on-tertiary) !important;
+}
+
+.saveBtn {
+  margin-left: auto;
+  background-color: var(--primary);
+  color: var(--on-primary);
+  border: none;
+  padding: 6px 20px;
+  border-radius: 20px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.saveBtn:hover {
+  opacity: 0.9;
+}
+
+.saveBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Tiptap Styles - Matching DocViewerPage markdownWrapper */
+.editorWrapper {
+  font-family: var(--font-family-base);
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--on-surface);
+  min-height: 500px;
+  width: 100%;
+}
+
+/* Глобальные стили для Tiptap внутри компонента */
+.tiptapEditor {
+  outline: none;
+  min-height: 500px;
+}
+
+.tiptapEditor :global(.tiptap) {
+  outline: none;
+}
+
+.tiptapEditor p,
+.tiptapEditor :global(.tiptap p) {
+  margin-bottom: 16px;
+}
+
+.tiptapEditor h2,
+.tiptapEditor :global(.tiptap h2) {
+  font-family: var(--font-family-base);
+  font-size: 28px;
+  font-weight: 500;
+  color: white;
+  margin-top: 48px;
+  margin-bottom: 24px;
+}
+
+.tiptapEditor blockquote,
+.tiptapEditor :global(.tiptap blockquote) {
+  margin: 24px 0;
+  padding: 12px 20px;
+  border-left: 4px solid var(--tertiary);
+  border-radius: 0 var(--radius-small) var(--radius-small) 0;
+  font-style: italic;
+  display: block; /* Важно для цитат */
+}
+
+.tiptapEditor pre,
+.tiptapEditor :global(.tiptap pre) {
+  background: #2d2d2d;
+  color: #ccc;
+  font-family: monospace;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  margin: 24px 0;
+}
+
+.tiptapEditor a,
+.tiptapEditor :global(.tiptap a) {
+  color: var(--tertiary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.tiptapEditor strong,
+.tiptapEditor :global(.tiptap strong) {
+  color: color-mix(in srgb, var(--on-surface), white 30%);
+  font-weight: bold;
+}
+
+.tiptapEditor em,
+.tiptapEditor :global(.tiptap em) {
+  font-style: italic;
+  color: color-mix(in srgb, transparent, var(--on-surface) 80%);
+}
+
+.statusInfoTop {
+  font-size: 14px;
+  color: var(--on-surface-variant);
+  background-color: var(--surface-container-low);
+  padding: 8px 16px;
+  border-radius: var(--radius-small);
+  border: 1px dashed var(--outline-variant);
+}
+
