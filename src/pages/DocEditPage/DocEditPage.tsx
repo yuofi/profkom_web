@@ -4,6 +4,7 @@ import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
 import { Markdown, type MarkdownStorage } from "tiptap-markdown";
 import { Icon } from "../../components/Icon";
+import { GalleryExtension } from "../../components/Gallery/GalleryExtension";
 import styles from "./DocEditPage.module.css";
 
 interface DocEditorProps {
@@ -20,8 +21,6 @@ export const DocEditPage = ({ filename }: DocEditorProps) => {
         heading: {
           levels: [2],
         },
-        // Отключаем стандартный HardBreak, чтобы настроить его поведение если нужно, 
-        // но здесь нам важнее как Markdown парсит строки
       }),
       Link.configure({
         openOnClick: false,
@@ -34,8 +33,9 @@ export const DocEditPage = ({ filename }: DocEditorProps) => {
         html: false,
         tightLists: true,
         tightListClass: "tight",
-        breaks: true, // Это включает поведение аналогичное remark-breaks
+        breaks: true,
       }),
+      GalleryExtension,
     ],
     content: "",
     editorProps: {
@@ -161,9 +161,16 @@ export const DocEditPage = ({ filename }: DocEditorProps) => {
             <button 
               onClick={() => editor?.chain().focus().toggleCodeBlock().run()}
               className={`${styles.toolbarBtn} ${editor?.isActive('codeBlock') ? styles.active : ""}`}
-              title="Блок кода / Галерея"
+              title="Блок кода"
             >
               <Icon name="code_blocks" size={20} />
+            </button>
+            <button 
+              onClick={() => editor?.chain().focus().insertContent({ type: 'gallery', attrs: { content: '' } }).run()}
+              className={`${styles.toolbarBtn} ${editor?.isActive('gallery') ? styles.active : ""}`}
+              title="Галерея"
+            >
+              <Icon name="add_photo_alternate" size={20} />
             </button>
           </div>
 

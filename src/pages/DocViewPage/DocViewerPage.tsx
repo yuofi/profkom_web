@@ -4,16 +4,11 @@ import { useQuery } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
-import { SwiperSlide, Swiper } from "swiper/react";
-import { Navigation, Pagination } from "swiper/modules";
 
 import { generateSlug, extractToc } from "../../utils/idGen";
 import { api } from "../../utils/api";
+import { Gallery } from "../../components/Gallery/Gallery";
 import styles from "./DocViewerPage.module.css";
-
-import "swiper/css";
-import "swiper/css/navigation";
-import "swiper/css/pagination";
 
 interface Toc {
   id: string;
@@ -118,34 +113,7 @@ export const DocViewerPage = () => {
 
         if (match && match[1] === "gallery") {
           const content = String(children).replace(/\n$/, "");
-          const lines = content.split("\n");
-
-          return (
-            <div className={styles.carouselContainer}>
-              <Swiper
-                modules={[Navigation, Pagination]}
-                navigation
-                pagination={{ clickable: true }}
-                spaceBetween={20}
-                slidesPerView={1}
-              >
-                {lines.map((line, index) => {
-                  const [src, caption] = line.split("|");
-                  return (
-                    <SwiperSlide key={index}>
-                      <figure className={styles.carouselFigure}>
-                        <img
-                          src={src.trim()}
-                          alt={caption?.trim() || "Слайд"}
-                        />
-                        {caption && <figcaption>{caption.trim()}</figcaption>}
-                      </figure>
-                    </SwiperSlide>
-                  );
-                })}
-              </Swiper>
-            </div>
-          );
+          return <Gallery initialContent={content} mode="view" />;
         }
 
         return (
