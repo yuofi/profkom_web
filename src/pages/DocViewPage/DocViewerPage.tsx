@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -7,14 +7,15 @@ import remarkBreaks from "remark-breaks";
 
 import { generateSlug, extractToc } from "../../utils/idGen";
 import { api } from "../../utils/api";
+import { getDocEditRoute } from "../../utils/routes";
+import { Icon } from "../../components/Icon";
 import { Gallery } from "../../components/Gallery/Gallery";
-import styles from "./DocViewerPage.module.css";
 
-interface Toc {
-  id: string;
-  title: string;
-  isActive: boolean;
-}
+import styles from "./DocViewerPage.module.css";
+import { ContactChip, type ContactInfo } from "../../components/ContactChip/ContactChip";
+import { ContactDirectory, type FilterCriteria } from "../../components/ContactDirectory/ContactPage";
+import { parseContent } from "../../utils/parsing";
+import React from "react";
 
 interface GuideOut {
   title: string;
@@ -35,13 +36,34 @@ const extractTextFromChildren = (children: any): string => {
   return "";
 };
 
-export const DocViewerPage = () => {
-  // const [toc, setToc] = useState<Toc[]>([]);
-  const [activeId, setActiveId] = useState<string>("");
+const matchesFilters = (info: ContactInfo, filters: FilterCriteria[]): boolean => {
+  if (filters.length === 0) return true;
 
+  return filters.every((filter) => {
+    const value = info[filter.field]?.toLowerCase() || "";
+    const search = filter.value.toLowerCase();
+
+    // Обработка диапазона для группы (напр. 101-105)
+    if (filter.field === 'group' && search.includes('-')) {
+      const [minStr, maxStr] = search.split('-');
+      const min = parseInt(minStr);
+      const max = parseInt(maxStr);
+      const current = parseInt(value);
+      
+      if (!isNaN(min) && !isNaN(max) && !isNaN(current)) {
+        return current >= min && current <= max;
+      }
+    }
+
+    return value.includes(search);
+  });
+};
+
+export const DocViewerPage = () => {
+  const [activeId, setActiveId] = useState<string>("");
+  const [activeFilters, setActiveFilters] = useState<FilterCriteria[]>([]);
   const { id } = useParams<{ id: string }>();
 
-  // 2. Загружаем и фильтруем гайды через React Query
   const {
     data: guide,
     isLoading,
@@ -53,10 +75,7 @@ export const DocViewerPage = () => {
       return response.data;
     },
     staleTime: 10 * 60 * 1000,
-    select: (allGuides) => {
-      // id из URL всегда строка, переводим в Number
-      return allGuides.find((g) => g.guide_id === Number(id));
-    },
+    select: (allGuides) => allGuides.find((g) => g.guide_id === Number(id)),
   });
 
   const toc = useMemo(() => {
@@ -64,7 +83,6 @@ export const DocViewerPage = () => {
     return extractToc(guide.text);
   }, [guide]);
 
-  // 4. Отслеживание скролла
   useEffect(() => {
     if (!guide?.text || toc.length === 0) return;
 
@@ -94,6 +112,25 @@ export const DocViewerPage = () => {
     };
   }, [guide?.text, toc]);
 
+
+  const { cleanText, isDirectory } = useMemo(() => {
+    if (!guide?.text) return { cleanText: "", isDirectory: false };
+
+    let text = guide.text;
+    let isDir = false;
+
+    // Регулярка для поиска filter=true в начале файла (игнорируя BOM и пробелы)
+    const filterRegex = /^\s*filter\s*=\s*true\s*(\r?\n)?/;
+    const match = text.match(filterRegex);
+
+    if (match) {
+      isDir = true;
+      text = text.replace(filterRegex, "");
+    }
+
+    return { cleanText: text, isDirectory: isDir };
+  }, [guide]);
+
   const markdownComponents = useMemo(() => {
     return {
       h2(props: any) {
@@ -107,13 +144,48 @@ export const DocViewerPage = () => {
           </h2>
         );
       },
+      pre(props: any) {
+        const { children, ...rest } = props;
+        
+        // Если все дочерние элементы вернули null (скрытые чипы), скрываем и сам контейнер
+        const childrenArray = React.Children.toArray(children);
+        if (childrenArray.length === 0 || childrenArray.every(child => child === null || (typeof child === 'object' && child !== null && 'type' in child && child.type === React.Fragment && !React.Children.count((child as any).props.children)))) {
+          return null;
+        }
+
+        // Проверяем, не чип ли это внутри
+        const isChip = childrenArray.some((child: any) => 
+          child?.props?.className?.includes('language-chip') || 
+          (child?.props?.children?.props?.className?.includes('language-chip'))
+        );
+
+        if (isChip) {
+          return <div className={styles.chipBlock}>{children}</div>;
+        }
+
+        return <pre {...rest}>{children}</pre>;
+      },
       code(props: any) {
         const { children, className, node, ...rest } = props;
         const match = /language-(\w+)/.exec(className || "");
 
+
         if (match && match[1] === "gallery") {
           const content = String(children).replace(/\n$/, "");
           return <Gallery initialContent={content} mode="view" />;
+        }
+
+        if (match && match[1] === "chip") {
+          const content = String(children).replace(/\n$/, "");
+          
+          if (isDirectory) {
+            const info = parseContent(content);
+            if (!matchesFilters(info, activeFilters)) {
+              return null;
+            }
+          }
+          
+          return <ContactChip initialContent={content} mode="view" />;
         }
 
         return (
@@ -123,9 +195,8 @@ export const DocViewerPage = () => {
         );
       },
     };
-  }, []);
+  }, [isDirectory, activeFilters]);
 
-  // Обработка состояний загрузки и отсутствия данных
   if (isLoading)
     return <div className={styles.container}>Загрузка документа...</div>;
   if (isError)
@@ -136,31 +207,47 @@ export const DocViewerPage = () => {
   return (
     <div className={styles.container}>
       <aside className={styles.sidebar}>
-        <ul className={styles.navLinks}>
-          {toc.map((item) => (
-            <li key={item.id}>
-              <a
-                href={`#${item.id}`}
-                className={`${styles.navLink} ${item.id === activeId ? styles.active : ""}`}
-              >
-                {item.title}
-              </a>
-            </li>
-          ))}
-        </ul>
+          <ul className={styles.navLinks}>
+            {toc.map((item) => (
+              <li key={item.id}>
+                <a
+                  href={`#${item.id}`}
+                  className={`${styles.navLink} ${item.id === activeId ? styles.active : ""}`}
+                >
+                  {item.title}
+                </a>
+              </li>
+            ))}
+          </ul>
       </aside>
 
       <article className={styles.mainContent}>
         <div className={styles.markdownWrapper}>
-          {/* 5. ПРАВИЛЬНО: Рендерим текст напрямую из объекта guide */}
           <ReactMarkdown
             remarkPlugins={[remarkGfm, remarkBreaks]}
             components={markdownComponents}
           >
-            {guide.text}
+            {cleanText}
           </ReactMarkdown>
         </div>
       </article>
+
+      {isDirectory && (
+        <aside className={styles.rightSidebar}>
+          <ContactDirectory 
+            activeFilters={activeFilters} 
+            onFiltersChange={setActiveFilters} 
+          />
+        </aside>
+      )}
+
+      <Link 
+        to={getDocEditRoute(guide.guide_id)} 
+        className={styles.editFab}
+        title="Редактировать"
+      >
+        <Icon name="edit" size={24} />
+      </Link>
     </div>
   );
 };

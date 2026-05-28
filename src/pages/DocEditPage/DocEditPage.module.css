@@ -19,46 +19,88 @@
 
 .mainContent {
   width: 100%;
-  max-width: 800px;
+  max-width: 1000px;
   display: flex;
   flex-direction: column;
   gap: 24px;
 }
 
+.statusInfoTop {
+  font-size: 14px;
+  color: var(--on-surface-variant);
+  background-color: var(--surface-container-low);
+  padding: 8px 16px;
+  border-radius: var(--radius-small);
+  border: 1px dashed var(--outline-variant);
+  align-self: flex-start;
+}
+
+.editorLayout {
+  display: flex;
+  gap: 32px;
+  align-items: flex-start;
+}
+
+@media (max-width: 768px) {
+  .editorLayout {
+    flex-direction: column;
+    gap: 16px;
+  }
+}
+
 /* Toolbar Styles */
 .toolbar {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-direction: column;
+  gap: 12px;
   padding: 12px;
   background-color: var(--surface-container);
   border-radius: var(--radius-medium);
   border: 1px solid var(--outline-variant);
   position: sticky;
-  top: 80px;
+  top: 100px;
   z-index: 10;
+  width: fit-content;
+}
+
+@media (max-width: 768px) {
+  .toolbar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    width: 100%;
+    top: 80px;
+  }
 }
 
 .toolbarSection {
   display: flex;
+  flex-direction: column;
   gap: 4px;
-  padding-right: 8px;
-  border-right: 1px solid var(--outline-variant);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--outline-variant);
 }
 
 .toolbarSection:last-child {
-  border-right: none;
+  border-bottom: none;
+}
+
+@media (max-width: 768px) {
+  .toolbarSection {
+    flex-direction: row;
+    padding-bottom: 0;
+    padding-right: 8px;
+    border-bottom: none;
+    border-right: 1px solid var(--outline-variant);
+  }
 }
 
 .toolbarBtn {
   background: none;
   border: 1px solid transparent;
   color: var(--on-surface);
-  padding: 6px 10px;
+  padding: 8px;
   border-radius: var(--radius-small);
   cursor: pointer;
-  font-family: var(--font-family-base);
-  font-size: 14px;
   transition: all 0.2s;
   display: flex;
   align-items: center;
@@ -66,8 +108,8 @@
 }
 
 .toolbarBtn:hover {
-  background-color: var(--secondary-container);
-  color: var(--on-secondary-container);
+  background-color: var(--tertiary-container);
+  color: var(--on-tertiary-container);
 }
 
 .toolbarBtn.active {
@@ -75,37 +117,87 @@
   color: var(--on-tertiary) !important;
 }
 
-.saveBtn {
-  margin-left: auto;
-  background-color: var(--primary);
-  color: var(--on-primary);
+/* Save Floating Action Button */
+.saveFab {
+  width: 56px;
+  height: 56px;
+  background-color: var(--tertiary);
+  color: var(--on-tertiary);
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 100;
   border: none;
-  padding: 6px 20px;
-  border-radius: 20px;
-  font-weight: 500;
   cursor: pointer;
+  text-decoration: none;
 }
 
-.saveBtn:hover {
-  opacity: 0.9;
+.saveFab:hover {
+  transform: scale(1.05) translateY(-1px);
+  background-color: color-mix(in srgb, var(--tertiary), white 10%);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
 
-.saveBtn:disabled {
-  opacity: 0.5;
+.saveFab:active {
+  transform: scale(0.95);
+}
+
+.saveFab:disabled {
+  opacity: 0.7;
   cursor: not-allowed;
+  transform: none;
 }
 
-/* Tiptap Styles - Matching DocViewerPage markdownWrapper */
+.statusInfoBottom {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  position: fixed;
+  bottom: 40px;
+  right: 40px;
+}
+
+@media (max-width: 768px) {
+  .saveFab {
+    bottom: 24px;
+    right: 24px;
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+  }
+}
+
+.loader {
+  width: 24px;
+  height: 24px;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: #fff;
+  animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Tiptap Styles */
 .editorWrapper {
+  flex: 1;
   font-family: var(--font-family-base);
   font-size: 16px;
   line-height: 1.6;
   color: var(--on-surface);
   min-height: 500px;
-  width: 100%;
+  max-width: 800px;
 }
 
-/* Глобальные стили для Tiptap внутри компонента */
 .tiptapEditor {
   outline: none;
   min-height: 500px;
@@ -137,7 +229,7 @@
   border-left: 4px solid var(--tertiary);
   border-radius: 0 var(--radius-small) var(--radius-small) 0;
   font-style: italic;
-  display: block; /* Важно для цитат */
+  display: block;
 }
 
 .tiptapEditor pre,
@@ -168,13 +260,3 @@
   font-style: italic;
   color: color-mix(in srgb, transparent, var(--on-surface) 80%);
 }
-
-.statusInfoTop {
-  font-size: 14px;
-  color: var(--on-surface-variant);
-  background-color: var(--surface-container-low);
-  padding: 8px 16px;
-  border-radius: var(--radius-small);
-  border: 1px dashed var(--outline-variant);
-}
-

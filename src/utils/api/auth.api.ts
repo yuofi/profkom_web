@@ -1,5 +1,4 @@
 import {api} from "./index"
-import { tryCatch } from "../tryCatch"
 import type { LoginIn, TokenPair, UserIn, UserOut } from "./types"
 import type { AxiosResponse } from "axios";
 

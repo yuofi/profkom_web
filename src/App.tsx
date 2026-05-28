@@ -45,13 +45,10 @@ function App() {
                 <Route path="/profile" element={<ProfilePage />} />
                 <Route element={<AdminRoute />}>
                   <Route path="/admin" element={<AdminPanel />} />
-                  {pages.map((item) => (
-                    <Route
-                      key={`${item.name}-edit`}
-                      path={getDocEditRoute(item.name)}
-                      element={<DocEditPage filename={item.name} />}
-                    />
-                  ))}
+                <Route
+                  path={getDocEditRoute()}
+                  element={<DocEditPage />}
+                />
                 </Route>
               </Route>
             </Route>

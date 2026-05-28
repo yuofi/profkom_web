@@ -9,6 +9,7 @@ interface ButtonProps {
   className?: string;
   type?: 'submit' | 'reset';
   disabled?: boolean;
+  title?: string;
 }
 
 export const Button = ({ variant, onClick, children, className="", ...props }: ButtonProps) => {
