@@ -9,10 +9,12 @@
 .tertiary {
   --field-color: var(--tertiary);
 }
+.on-surface {
+  --field-color: var(--on-surface);
+}
 
 .wrapper {
   width: 100%;
-  max-width: 300px;
   display: flex;
   flex-direction: column;
 }

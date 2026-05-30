@@ -6,6 +6,8 @@ import clsx from 'clsx';
 import { stringifyContent, parseContent } from '../../utils/parsing';
 import { useMediaQuery } from '../../utils/hooks/useMediaQuery';
 import { CardLabel } from '../CardLabel/CardLabel';
+import { TextField } from '../TextField/TextField';
+import { Button } from '../Button/Button';
 
 export interface ContactInfo {
   surname: string;
@@ -82,28 +84,29 @@ interface ContactChipProps {
     }
   };
 
-  const renderField = (label: string, value: string, key: keyof ContactInfo) => {
+  const renderField = (label: string, value: string, key: keyof ContactInfo, iconName?: string) => {
     const isDisabled = disabledFields.includes(key);
 
     if (mode === 'edit') {
       if (isDisabled) return null;
       return (
-        <div className={styles.field}>
-          <label>{label}:</label>
-          <input 
-            type="text" 
-            value={value} 
-            onChange={(e) => handleInputChange(key, e.target.value)} 
-            onKeyDown={(e) => e.stopPropagation()}
-            placeholder={`Введите ${label.toLowerCase()}...`}
-          />
-        </div>
+        <TextField 
+          label={label}
+          value={value} 
+          onChange={(e) => handleInputChange(key, e.target.value)} 
+          onKeyDown={(e) => e.stopPropagation()}
+          className={styles.field}
+          color="on-surface"
+        />
       );
     }
     return value ? (
-      <div className={styles.field}>
-        <span className={styles.label}>{label}:</span>
-        <span className={styles.value}>{value}</span>
+      <div className={styles.fieldView}>
+        {iconName && <Icon name={iconName} size={20} className={styles.fieldIcon} />}
+        <div className={styles.fieldContent}>
+          <span className={styles.label}>{label}</span>
+          <span className={styles.value}>{value}</span>
+        </div>
       </div>
     ) : null;
   };
@@ -143,24 +146,24 @@ interface ContactChipProps {
                   onUpload={(url) => handleInputChange('photo_url', url)} 
                 />
               </div>
-              {renderField('Фамилия', info.surname, 'surname')}
-              {renderField('Имя', info.name, 'name')}
-              {renderField('Отчество', info.patronymic, 'patronymic')}
-              {renderField('Имя в таблице ККР', info.kkr_name, 'kkr_name')}
-              {renderField('Номер группы', info.group, 'group')}
-              {renderField('Место жительства', info.residence, 'residence')}
-              {renderField('Блоки', info.blocks, 'blocks')}
-              {renderField('Телефон', info.phone, 'phone')}
-              {renderField('ВК', info.vk, 'vk')}
-              {renderField('Телеграмм', info.tg, 'tg')}
-              {renderField('Почта', info.email, 'email')}
-              {renderField('Форма обучения', info.education, 'education')}
+              {renderField('Фамилия', info.surname, 'surname', 'person')}
+              {renderField('Имя', info.name, 'name', 'person')}
+              {renderField('Отчество', info.patronymic, 'patronymic', 'person')}
+              {renderField('Имя в таблице ККР', info.kkr_name, 'kkr_name', 'badge')}
+              {renderField('Номер группы', info.group, 'group', 'groups')}
+              {renderField('Место жительства', info.residence, 'residence', 'home')}
+              {renderField('Блоки', info.blocks, 'blocks', 'layers')}
+              {renderField('Телефон', info.phone, 'phone', 'call')}
+              {renderField('ВК', info.vk, 'vk', 'share')}
+              {renderField('Телеграмм', info.tg, 'tg', 'send')}
+              {renderField('Почта', info.email, 'email', 'mail')}
+              {renderField('Форма обучения', info.education, 'education', 'school')}
             </div>
             {mode === 'edit' && onSave && (
               <div className={styles.modalFooter}>
-                <button className={styles.saveBtn} onClick={handleSave}>
+                <Button variant="primary" onClick={handleSave}>
                   Сохранить
-                </button>
+                </Button>
               </div>
             )}
           </div>
