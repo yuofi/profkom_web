@@ -1,17 +1,19 @@
 import { useState, useRef, useEffect } from "react";
 import ProfkomLogo from "../profkomLogo";
-import { Icon } from "../Icon";
 import styles from "./Navbar.module.css";
 import { Link } from "react-router-dom";
 import { getDocRoute, getHomeRoute } from "../../utils/routes";
 import { useMediaQuery } from "../../utils/hooks/useMediaQuery";
 import { useGuides } from "../../utils/hooks/useGuides";
 import type { GuideOut } from "../../utils/api/types";
+import { useMe } from "../../utils/me";
+import { Avatar } from "../Avatar/Avatar";
 
 
 export const Navbar = () => {
   const isMobile = useMediaQuery("(max-width: 768px)");
   const { data: guides } = useGuides();
+  const user = useMe();
   
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -43,7 +45,13 @@ export const Navbar = () => {
 
   return (
     <div className={styles.wrapper}>
-      
+      <div className={styles.logoWrapper}>
+        <Link className={`${styles.logoLink} ${styles.logo}`} to={getHomeRoute()}>
+          <ProfkomLogo variant={isMobile ? "mobile" : "desktop"} 
+          strokeWidth={isMobile ? 25 : 20}/>
+        </Link>
+      </div>
+
       <div 
         className={`${styles.menu} ${isOpen ? styles.open : ""}`} 
         ref={menuRef}
@@ -66,18 +74,23 @@ export const Navbar = () => {
               </li>
             );
           })}
+        
+        <li className={styles.menuItem} key={"info"}>
+          <Link
+            className={styles.menuLink}
+            to={"/info"}
+            data-text={"информация"}
+            onClick={() => isMobile && setIsOpen(false)} 
+          >
+            <span>информация</span>
+          </Link>
+        </li>
         </ul>
       </div>
 
-      <div className={styles.logoWrapper}>
-        <Link className={styles.logoLink} to={getHomeRoute()}>
-          <ProfkomLogo variant={isMobile ? "mobile" : "desktop"} />
-        </Link>
-      </div>
-
       <div className={styles.profile}>
-        <Link className={styles.logoLink} to={"/profile"}>
-        <Icon size={isMobile ? 40 : 60} filled={true} name="account_circle" />
+        <Link className={`${styles.logoLink} ${styles.profileIcon}`} to={"/profile"}>
+          <Avatar src={user?.photo_url} size={isMobile ? 40 : 60} />
         </Link>
       </div>
     </div>

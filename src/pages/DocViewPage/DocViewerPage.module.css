@@ -35,14 +35,8 @@
   top: 100px; 
 }
 
-.rightSidebar {
-  flex: 0 0 300px;
-  position: sticky;
-  top: 100px;
-}
-
 @media (max-width: 1200px) {
-  .sidebar, .rightSidebar {
+  .sidebar {
     position: static;
     flex: none;
     width: 100%;

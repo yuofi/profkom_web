@@ -12,9 +12,7 @@ import { Icon } from "../../components/Icon";
 import { Gallery } from "../../components/Gallery/Gallery";
 
 import styles from "./DocViewerPage.module.css";
-import { ContactChip, type ContactInfo } from "../../components/ContactChip/ContactChip";
-import { ContactDirectory, type FilterCriteria } from "../../components/ContactDirectory/ContactPage";
-import { parseContent } from "../../utils/parsing";
+import { ContactChip } from "../../components/ContactChip/ContactChip";
 import React from "react";
 
 interface GuideOut {
@@ -36,32 +34,8 @@ const extractTextFromChildren = (children: any): string => {
   return "";
 };
 
-const matchesFilters = (info: ContactInfo, filters: FilterCriteria[]): boolean => {
-  if (filters.length === 0) return true;
-
-  return filters.every((filter) => {
-    const value = info[filter.field]?.toLowerCase() || "";
-    const search = filter.value.toLowerCase();
-
-    // Обработка диапазона для группы (напр. 101-105)
-    if (filter.field === 'group' && search.includes('-')) {
-      const [minStr, maxStr] = search.split('-');
-      const min = parseInt(minStr);
-      const max = parseInt(maxStr);
-      const current = parseInt(value);
-      
-      if (!isNaN(min) && !isNaN(max) && !isNaN(current)) {
-        return current >= min && current <= max;
-      }
-    }
-
-    return value.includes(search);
-  });
-};
-
 export const DocViewerPage = () => {
   const [activeId, setActiveId] = useState<string>("");
-  const [activeFilters, setActiveFilters] = useState<FilterCriteria[]>([]);
   const { id } = useParams<{ id: string }>();
 
   const {
@@ -113,24 +87,6 @@ export const DocViewerPage = () => {
   }, [guide?.text, toc]);
 
 
-  const { cleanText, isDirectory } = useMemo(() => {
-    if (!guide?.text) return { cleanText: "", isDirectory: false };
-
-    let text = guide.text;
-    let isDir = false;
-
-    // Регулярка для поиска filter=true в начале файла (игнорируя BOM и пробелы)
-    const filterRegex = /^\s*filter\s*=\s*true\s*(\r?\n)?/;
-    const match = text.match(filterRegex);
-
-    if (match) {
-      isDir = true;
-      text = text.replace(filterRegex, "");
-    }
-
-    return { cleanText: text, isDirectory: isDir };
-  }, [guide]);
-
   const markdownComponents = useMemo(() => {
     return {
       h2(props: any) {
@@ -178,13 +134,6 @@ export const DocViewerPage = () => {
         if (match && match[1] === "chip") {
           const content = String(children).replace(/\n$/, "");
           
-          if (isDirectory) {
-            const info = parseContent(content);
-            if (!matchesFilters(info, activeFilters)) {
-              return null;
-            }
-          }
-          
           return <ContactChip initialContent={content} mode="view" />;
         }
 
@@ -195,7 +144,7 @@ export const DocViewerPage = () => {
         );
       },
     };
-  }, [isDirectory, activeFilters]);
+  }, []);
 
   if (isLoading)
     return <div className={styles.container}>Загрузка документа...</div>;
@@ -227,19 +176,10 @@ export const DocViewerPage = () => {
             remarkPlugins={[remarkGfm, remarkBreaks]}
             components={markdownComponents}
           >
-            {cleanText}
+            {guide.text}
           </ReactMarkdown>
         </div>
       </article>
-
-      {isDirectory && (
-        <aside className={styles.rightSidebar}>
-          <ContactDirectory 
-            activeFilters={activeFilters} 
-            onFiltersChange={setActiveFilters} 
-          />
-        </aside>
-      )}
 
       <Link 
         to={getDocEditRoute(guide.guide_id)} 

@@ -1,7 +1,8 @@
 @import "../../styles/vars.css";
 
 .filterPanel {
-  background-color: var(--surface-variant);
+  /* border: 2px solid var(--tertiary); */
+  background-color: color-mix(in srgb, var(--surface), white 5%);
   border-radius: var(--radius-medium);
   padding: 24px;
   width: 300px;
@@ -50,7 +51,7 @@
 .select {
   background-color: var(--surface);
   color: white;
-  border: 1px solid var(--outline);
+  border: 1px solid var(--surface-variant);
   padding: 8px 12px;
   border-radius: var(--radius-small);
   outline: none;
@@ -66,7 +67,7 @@
   flex: 1;
   background-color: var(--surface);
   color: white;
-  border: 1px solid var(--outline);
+  /* border: 1px solid var(--surface-variant); */
   padding: 8px 12px;
   border-radius: var(--radius-small);
   outline: none;
@@ -107,7 +108,7 @@
 
 .filterTag {
   background-color: var(--surface);
-  border: 1px solid var(--outline-variant);
+  border: 1px solid var(--surface-variant);
   border-radius: 8px;
   padding: 8px 12px;
   display: flex;

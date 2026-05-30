@@ -4,22 +4,22 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background-color: var(--primary);
-  color: var(--on-primary);
-  padding: 6px 16px;
+  background-color: transparent;
+  color: var(--surface-text);
+  padding: 12px 16px;
   border-radius: 20px;
   cursor: pointer;
   font-family: var(--font-family-base);
   font-weight: 500;
-  font-size: 14px;
+  font-size: 16px;
   transition: transform 0.2s, background-color 0.2s;
   user-select: none;
   margin: 4px;
+  border: 1px solid var(--surface-variant);
 }
 
 .chip:hover {
-  background-color: color-mix(in srgb, var(--primary), white 10%);
-  transform: translateY(-1px);
+  background-color: color-mix(in srgb, transparent, white 10%);
 }
 
 .chip:active {
@@ -27,11 +27,26 @@
 }
 
 .editMode {
-  border: 1px dashed var(--on-primary);
+  border: 1px dashed var(--surface-variant);
 }
 
 .chipText {
   white-space: nowrap;
+}
+
+.chipInfo {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  padding-left: 4px;
+  gap: 8px;
+}
+
+.chipTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 /* Modal Styles */
@@ -101,6 +116,14 @@
   padding: 24px;
   max-height: 70vh;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.avatarSection {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 24px;
 }
 
 .field {
@@ -148,4 +171,28 @@
 
 .field input::placeholder {
   color: rgba(255, 255, 255, 0.3);
+}
+
+.modalFooter {
+  padding: 16px 24px;
+  background-color: var(--surface-variant);
+  border-top: 1px solid var(--outline-variant);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.saveBtn {
+  background-color: var(--primary);
+  color: var(--on-primary);
+  border: none;
+  padding: 8px 24px;
+  border-radius: 20px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.saveBtn:hover {
+  background-color: color-mix(in srgb, var(--primary), white 10%);
+  transform: translateY(-1px);
 }

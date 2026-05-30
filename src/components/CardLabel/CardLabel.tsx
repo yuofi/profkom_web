@@ -7,12 +7,17 @@ interface LabelProps {
   variant: "primary" | "black" | "tertiary" | "secondary" | "transparent";
   children: ReactNode;
   iconName?: string;
+  fontSize?: number;
 }
 
-export const CardLabel = ({ variant, children, iconName}: LabelProps) => {
-  return <div className={clsx(styles.label, styles[variant])}>
+export const CardLabel = ({ variant, children, iconName, fontSize=14}: LabelProps) => {
+  return <div className={clsx(styles.label, styles[variant])}
+    style={{
+      fontSize: `${fontSize}px`,
+    }}
+  >
     {iconName && (
-        <Icon name={iconName} className={styles.icon} size={16}/>
+        <Icon name={iconName} className={styles.icon} size={fontSize}/>
       )}
     {children}
     </div>;

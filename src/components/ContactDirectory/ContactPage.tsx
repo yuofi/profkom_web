@@ -14,8 +14,10 @@ interface FilterPanelProps {
   onFiltersChange: (filters: FilterCriteria[]) => void;
 }
 
-const FIELD_LABELS: Record<keyof ContactInfo, string> = {
+const FIELD_LABELS: Record<keyof Omit<ContactInfo, 'photo_url'>, string> = {
   name: 'Имя',
+  surname: 'Фамилия',
+  patronymic: 'Отчество',
   kkr_name: 'Имя ККР',
   group: 'Группа',
   residence: 'Место жительства',
@@ -99,7 +101,7 @@ export const ContactDirectory: React.FC<FilterPanelProps> = ({
           activeFilters.map((filter) => (
             <div key={filter.id} className={styles.filterTag}>
               <span className={styles.filterInfo}>
-                <span className={styles.filterField}>{FIELD_LABELS[filter.field]}:</span>
+                <span className={styles.filterField}>{FIELD_LABELS[filter.field as keyof typeof FIELD_LABELS]}:</span>
                 <span className={styles.filterValue}>{filter.value}</span>
               </span>
               <button className={styles.removeTag} onClick={() => removeFilter(filter.id)}>

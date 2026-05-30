@@ -6,6 +6,7 @@ import { Layout } from "./components/Layout/Layout";
 import { UnderConstructionPage } from "./pages/fallback/UnderConstruction";
 import { DocViewerPage } from "./pages/DocViewPage/DocViewerPage";
 import { DocEditPage } from "./pages/DocEditPage/DocEditPage";
+import { InfoPage } from "./pages/InfoPage/InfoPage";
 import { getDocRoute, getDocEditRoute, pages } from "./utils/routes";
 import { UserProvider } from "./utils/ctx";
 import {
@@ -42,6 +43,7 @@ function App() {
                   path={getDocRoute()}
                   element={<DocViewerPage />}
                 />
+                <Route path="/info" element={<InfoPage />} />
                 <Route path="/profile" element={<ProfilePage />} />
                 <Route element={<AdminRoute />}>
                   <Route path="/admin" element={<AdminPanel />} />

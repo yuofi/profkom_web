@@ -2,28 +2,118 @@ import type { FC } from "react";
 import type { MainElementVariant, MainElementProps } from "./componetsTypes";
 
 const WIDTHS: Record<MainElementVariant, number> = {
-    desktop: 105,
-    mobile: 60
+    desktop: 53,
+    mobile: 40
 }
 
 
-const ProfkomLogo: FC<MainElementProps & {width?: number}> = ({variant="desktop", width}) => {
-  if(!width) {
+const ProfkomLogo: FC<MainElementProps & { width?: number; strokeWidth?: number }> = ({
+  variant = "desktop",
+  width,
+  strokeWidth: customStrokeWidth,
+  ...props
+}) => {
+  if (!width) {
     width = WIDTHS[variant];
   }
-  const height = (width * 9) / 16;
+
+  // Если strokeWidth не передан, можно использовать базовое значение (5).
+  // Если вы хотите, чтобы на маленьких размерах линии казались толще, 
+  // можно добавить логику в зависимости от variant или width.
+  const strokeWidth = customStrokeWidth ?? (variant === "mobile" ? 6 : 5);
+
+  const height = (width * 454) / 625;
+
   return (
     <svg
       width={width}
       height={height}
-      viewBox="0 0 619 391"
-      fill="currentColor"
+      viewBox="0 0 625 454"
+      fill="none"
+      stroke="currentColor"
       xmlns="http://www.w3.org/2000/svg"
+      {...props}
     >
-      <path
-        d="M299.393 1.17121C300.955 -0.390395 303.487 -0.390413 305.049 1.17121L362.96 59.0814L420.869 1.17317C422.431 -0.388894 424.964 -0.38882 426.526 1.17317L617.704 192.35C619.266 193.912 619.266 196.445 617.704 198.007L426.526 389.184C424.964 390.746 422.431 390.746 420.869 389.184L362.959 331.274L305.049 389.183C303.487 390.745 300.955 390.745 299.393 389.183L248.699 338.489L198.006 389.183C196.444 390.745 193.91 390.745 192.348 389.183L1.17156 198.006C-0.390513 196.444 -0.390528 193.911 1.17156 192.349L192.348 1.17219C193.91 -0.38986 196.443 -0.389872 198.006 1.17219L248.699 51.8655L299.393 1.17121ZM305.62 77.1976C304.058 75.6358 301.526 75.6359 299.964 77.1976L184.688 192.473C183.126 194.035 183.126 196.567 184.688 198.129L299.964 313.405C301.526 314.966 304.058 314.966 305.62 313.405L420.895 198.129C422.457 196.567 422.457 194.035 420.895 192.473L305.62 77.1976ZM198.105 79.7894C196.543 78.2273 194.01 78.2273 192.448 79.7894L79.7907 192.447C78.2289 194.009 78.2289 196.541 79.7907 198.103L192.448 310.76C194.01 312.322 196.543 312.322 198.105 310.76L209.537 299.326L108.216 198.005C106.654 196.443 106.654 193.911 108.216 192.349L209.44 91.1243L198.105 79.7894ZM414.415 79.7894C412.853 78.2274 410.32 78.2273 408.757 79.7894L396.212 92.3333L496.227 192.349C497.789 193.911 497.789 196.443 496.227 198.005L396.115 298.118L408.757 310.76C410.32 312.322 412.853 312.322 414.415 310.76L527.071 198.103C528.633 196.541 528.633 194.008 527.071 192.446L414.415 79.7894ZM299.205 91.4564C300.767 89.8943 303.3 89.8945 304.862 91.4564L405.12 191.714C406.682 193.276 406.682 195.809 405.12 197.371L304.862 297.629C303.3 299.191 300.767 299.191 299.205 297.629L198.947 197.371C197.385 195.809 197.385 193.276 198.947 191.714L299.205 91.4564Z"
-        fill="currentColor"
+      <circle cx="204" cy="23" r="20.5" stroke="currentColor" strokeWidth={strokeWidth} />
+      <line
+        x1="212.536"
+        y1="176"
+        x2="237.284"
+        y2="200.749"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
       />
+      <line
+        x1="335.536"
+        y1="310"
+        x2="360.284"
+        y2="334.749"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+      />
+      <line
+        x1="233.536"
+        y1="152"
+        x2="258.284"
+        y2="176.749"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+      />
+      <line
+        x1="356.536"
+        y1="286"
+        x2="381.284"
+        y2="310.749"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+      />
+      <line
+        x1="256.536"
+        y1="130"
+        x2="281.284"
+        y2="154.749"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+      />
+      <line
+        x1="379.536"
+        y1="264"
+        x2="404.284"
+        y2="288.749"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+      />
+      <path
+        d="M239 356L112.357 230.335C111.011 228.999 110.338 228.332 110.337 227.499C110.337 226.667 111.009 225.998 112.353 224.661L311.672 26.3146C313.005 24.9875 313.672 24.324 314.499 24.325C315.326 24.326 315.991 24.9912 317.322 26.3215L336 45"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+      />
+      <path
+        d="M388 98L516.071 225.082C516.859 225.864 516.86 227.137 516.073 227.92L313.914 429.093C313.133 429.87 311.869 429.869 311.089 429.089L291 409"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+      />
+      <path
+        d="M434 413.5L620.082 227.914C620.865 227.133 620.866 225.866 620.084 225.084L417.911 22.9108C417.131 22.1311 415.867 22.1295 415.086 22.9073L211.935 225.072C211.145 225.858 211.15 227.137 211.946 227.918L312.5 326.5"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+      />
+      <path
+        d="M191 38.9307L4.42124 224.586C3.63688 225.366 3.63531 226.635 4.41773 227.418L206.589 429.589C207.369 430.369 208.633 430.37 209.414 429.593L412.565 227.428C413.355 226.642 413.35 225.363 412.554 224.582L312 126"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+      />
+      <circle cx="420" cy="431" r="20.5" stroke="currentColor" strokeWidth={strokeWidth} />
     </svg>
   );
 };

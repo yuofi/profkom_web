@@ -43,11 +43,11 @@ export interface UserOut {
   patronymic: string;
   kkr_score: number;
   group_number: number;
-  tg: string;
   blocks: string;
   banned: boolean;
   super_user: boolean;
   admin: boolean;
+  photo_url?: string;
 }
 
 // Данные контакта (используется при регистрации)
@@ -65,17 +65,28 @@ export interface ContactInfoIn {
   email: string;
   budget: boolean;
   in_profcom: boolean;
+  photo_url?: string;
 }
 
 
 export interface ContactInfoOut extends ContactInfoIn {
+  kkr_score: number;
   user_id: number;
+}
+
+export interface MeOut extends ContactInfoOut  {
+    banned: boolean;
+    super_user: boolean;
+    admin: boolean;
 }
 
 
 export interface ProfileUpdate {
+  surname?: string;
+  name?: string;
+  patronymic?: string;
   kkr_name?: string;
-  group_number?: number;
+  group_number?: string;
   location?: string;
   blocks?: string;
   phone?: string;
@@ -84,6 +95,7 @@ export interface ProfileUpdate {
   email?: string;
   budget?: boolean;
   in_profcom?: boolean;
+  photo_url?: string;
 }
 
 export interface ContactFilter {

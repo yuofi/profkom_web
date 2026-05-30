@@ -1,7 +1,7 @@
 import { createContext, useContext } from "react";
-import type { UserOut } from "./api/types";
+import type { MeOut } from "./api/types";
 
-export const UserContext = createContext<UserOut | null>(null);
+export const UserContext = createContext<MeOut | null>(null);
 
 const useUser = () => {
   return useContext(UserContext);

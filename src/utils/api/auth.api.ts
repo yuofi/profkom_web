@@ -1,5 +1,5 @@
 import {api} from "./index"
-import type { LoginIn, TokenPair, UserIn, UserOut } from "./types"
+import type { LoginIn, MeOut, TokenPair, UserIn } from "./types"
 import type { AxiosResponse } from "axios";
 
 async function register(userData: UserIn): Promise<AxiosResponse<TokenPair>> {
@@ -21,7 +21,7 @@ async function login(userData: LoginIn): Promise<AxiosResponse<TokenPair>> {
     return api.post("/auth/login", userData);
 }
 
-async function getMe(): Promise<AxiosResponse<UserOut>> {
+async function getMe(): Promise<AxiosResponse<MeOut>> {
     // const {data, error} = await tryCatch(api.get("/profile/me"));
     // if (error) {
     //     throw error;

@@ -3,7 +3,6 @@
 .label {
     border-radius: var(--radius-large);
     font-family: var(--font-family-base);
-    font-size: 14px;
     font-weight: 500;
     
     display: inline-flex;
