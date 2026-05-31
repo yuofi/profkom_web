@@ -3,8 +3,10 @@
 .carouselContainer {
   width: 100%;
   max-width: 100%;
+  min-width: 0;
   margin: 32px 0;
   position: relative;
+  overflow: hidden;
   
   --swiper-navigation-sides-offset: 16px;
   --swiper-navigation-color: var(--primary);
@@ -12,6 +14,7 @@
 }
 
 .swiper {
+  width: 100%;
   border-radius: var(--radius-medium);
   background-color: color-mix(in srgb, var(--surface-variant), transparent 90%);
 }

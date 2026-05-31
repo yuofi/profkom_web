@@ -17,7 +17,7 @@
 .mainContent {
   flex: 1;
   max-width: 720px;
-  min-width: 400px;
+  width: 100%;
 }
 
 .rightSidebar {
@@ -46,6 +46,12 @@
         flex-direction: column-reverse; 
         align-items: stretch;
         gap: 32px;
+        padding: 24px 16px;
+        box-sizing: border-box;
+    }
+    
+    .mainContent {
+        max-width: 100%;
     }
     
     .rightSidebar {

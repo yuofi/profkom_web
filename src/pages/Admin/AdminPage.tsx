@@ -36,7 +36,7 @@ export const AdminPanel = () => {
           </div>
         </div>
 
-        <nav style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "24px" }}>
+        <nav className={styles.nav}>
             <Button variant="transparent"
              onClick={() => setActiveTab("users")}>
                <Icon name="account_circle" filled={true}size={20}/>

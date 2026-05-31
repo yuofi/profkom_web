@@ -109,14 +109,19 @@ export const DocViewerPage = () => {
           return null;
         }
 
-        // Проверяем, не чип ли это внутри
+        // Проверяем, не чип ли это внутри или галерея
         const isChip = childrenArray.some((child: any) => 
           child?.props?.className?.includes('language-chip') || 
           (child?.props?.children?.props?.className?.includes('language-chip'))
         );
 
-        if (isChip) {
-          return <div className={styles.chipBlock}>{children}</div>;
+        const isGallery = childrenArray.some((child: any) => 
+          child?.props?.className?.includes('language-gallery') || 
+          (child?.props?.children?.props?.className?.includes('language-gallery'))
+        );
+
+        if (isChip || isGallery) {
+          return <div className={isChip ? styles.chipBlock : styles.galleryBlock}>{children}</div>;
         }
 
         return <pre {...rest}>{children}</pre>;

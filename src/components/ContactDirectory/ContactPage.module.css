@@ -168,5 +168,8 @@
   .filterPanel {
     width: 100%;
     position: static;
+    padding: 16px;
+    box-sizing: border-box;
+    gap: 16px;
   }
 }

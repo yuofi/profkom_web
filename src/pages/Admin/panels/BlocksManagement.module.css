@@ -5,6 +5,13 @@
   gap: 24px;
 }
 
+@media (max-width: 768px) {
+  .statsContainer {
+    flex-direction: column;
+    gap: 16px;
+  }
+}
+
 .statCard {
   flex: 1;
   background-color: color-mix(in srgb, black, #703860 70%);
@@ -51,17 +58,34 @@
   border-radius: 32px;
 }
 
+@media (max-width: 768px) {
+  .controlsRow {
+    flex-direction: column;
+    border-radius: 16px;
+    gap: 16px;
+    align-items: stretch;
+  }
+}
+
 /* --- ТАБЛИЦА --- */
 .tableContainer {
   border: 1px solid #404040;
   border-radius: 16px;
   padding: 24px;
+  overflow-x: auto;
+}
+
+@media (max-width: 768px) {
+  .tableContainer {
+    padding: 12px;
+  }
 }
 
 .table {
   width: 100%;
   border-collapse: collapse;
   text-align: left;
+  min-width: 500px;
 }
 
 .table th {
@@ -106,17 +130,25 @@
   border-radius: 24px;
   padding: 32px;
   /* width: 100%; */
+  width: 90%;
   max-width: 500px;
   border: 1px solid var(--surface-variant);
   display: flex;
   flex-direction: column;
   /* align-items: center; */
   gap: 24px;
+  box-sizing: border-box;
+}
+
+@media (max-width: 768px) {
+  .modal {
+    padding: 24px 20px;
+  }
 }
 
 .modalHeader {
   display: flex;
-  justify-content: ;
+  justify-content: space-between;
   align-items: center;
 }
 
@@ -131,6 +163,12 @@
   /* justify-content: flex-end; */
   gap: 12px;
   margin-top: 8px;
+}
+
+@media (max-width: 480px) {
+  .modalActions {
+    flex-direction: column;
+  }
 }
 
 .deleteButton {
@@ -187,6 +225,14 @@
   border: 1px solid #333;
 }
 
+@media (max-width: 480px) {
+  .memberItem {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}
+
 .memberName {
   font-weight: 500;
 }
@@ -195,6 +241,13 @@
   display: flex;
   gap: 12px;
   align-items: flex-start;
+}
+
+@media (max-width: 480px) {
+  .addMemberSection {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
 
 .addMemberAutocomplete {

@@ -74,6 +74,12 @@
     flex-direction: column;
     height: auto;
     min-height: 100vh;
+    padding: 0;
+    gap: 0;
+  }
+
+  .card:first-child {
+    display: none; /* Скрываем левую декоративную часть на мобилках */
   }
 
   .bottomText {
