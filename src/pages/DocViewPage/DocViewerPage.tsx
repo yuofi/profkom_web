@@ -1,40 +1,33 @@
-import { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, type ReactNode, isValidElement } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
-
+import {useMe} from "../../utils/me";
 import { generateSlug, extractToc } from "../../utils/idGen";
 import { api } from "../../utils/api";
+import type { GuideOut } from "../../utils/api/types";
 import { getDocEditRoute } from "../../utils/routes";
 import { Icon } from "../../components/Icon";
 import { Gallery } from "../../components/Gallery/Gallery";
 
 import styles from "./DocViewerPage.module.css";
 import { ContactChip } from "../../components/ContactChip/ContactChip";
-import React from "react";
 
-interface GuideOut {
-  title: string;
-  owner_block: string;
-  text: string;
-  origingal_link?: string;
-  guide_id: number;
-}
-
-const extractTextFromChildren = (children: any): string => {
+const extractTextFromChildren = (children: ReactNode): string => {
   if (typeof children === "string") return children;
   if (typeof children === "number") return children.toString();
   if (Array.isArray(children))
     return children.map(extractTextFromChildren).join("");
-  if (children && children.props && children.props.children) {
-    return extractTextFromChildren(children.props.children);
+  if (isValidElement<{ children?: ReactNode }>(children) && children.props.children) {
+    return extractTextFromChildren(children.props.children as ReactNode);
   }
   return "";
 };
 
 export const DocViewerPage = () => {
+  const user = useMe();
   const [activeId, setActiveId] = useState<string>("");
   const { id } = useParams<{ id: string }>();
 
@@ -87,10 +80,11 @@ export const DocViewerPage = () => {
   }, [guide?.text, toc]);
 
 
-  const markdownComponents = useMemo(() => {
+  const markdownComponents: Components = useMemo(() => {
     return {
-      h2(props: any) {
+      h2(props: React.ComponentPropsWithoutRef<"h2"> & ExtraProps) {
         const { node, children, ...rest } = props;
+        void node;
         const headingText = extractTextFromChildren(children);
         const slugId = generateSlug(headingText);
 
@@ -100,24 +94,29 @@ export const DocViewerPage = () => {
           </h2>
         );
       },
-      pre(props: any) {
-        const { children, ...rest } = props;
+      pre(props: React.ComponentPropsWithoutRef<"pre"> & ExtraProps) {
+        const { node, children, ...rest } = props;
+        void node;
         
         // Если все дочерние элементы вернули null (скрытые чипы), скрываем и сам контейнер
         const childrenArray = React.Children.toArray(children);
-        if (childrenArray.length === 0 || childrenArray.every(child => child === null || (typeof child === 'object' && child !== null && 'type' in child && child.type === React.Fragment && !React.Children.count((child as any).props.children)))) {
+        if (childrenArray.length === 0 || childrenArray.every(child => child === null || (isValidElement(child) && child.type === React.Fragment && !React.Children.count((child.props as { children?: ReactNode }).children)))) {
           return null;
         }
 
         // Проверяем, не чип ли это внутри или галерея
-        const isChip = childrenArray.some((child: any) => 
-          child?.props?.className?.includes('language-chip') || 
-          (child?.props?.children?.props?.className?.includes('language-chip'))
+        const isChip = childrenArray.some((child) => 
+          isValidElement<{ className?: string; children?: ReactNode }>(child) && (
+            child.props.className?.includes('language-chip') || 
+            (isValidElement<{ className?: string }>(child.props.children) && child.props.children.props.className?.includes('language-chip'))
+          )
         );
 
-        const isGallery = childrenArray.some((child: any) => 
-          child?.props?.className?.includes('language-gallery') || 
-          (child?.props?.children?.props?.className?.includes('language-gallery'))
+        const isGallery = childrenArray.some((child) => 
+          isValidElement<{ className?: string; children?: ReactNode }>(child) && (
+            child.props.className?.includes('language-gallery') || 
+            (isValidElement<{ className?: string }>(child.props.children) && child.props.children.props.className?.includes('language-gallery'))
+          )
         );
 
         if (isChip || isGallery) {
@@ -126,8 +125,10 @@ export const DocViewerPage = () => {
 
         return <pre {...rest}>{children}</pre>;
       },
-      code(props: any) {
-        const { children, className, node, ...rest } = props;
+      code(props: React.ComponentPropsWithoutRef<"code"> & ExtraProps) {
+        const { node, children, className, ...rest } = props;
+        void node;
+
         const match = /language-(\w+)/.exec(className || "");
 
 
@@ -158,6 +159,7 @@ export const DocViewerPage = () => {
   if (!guide)
     return <div className={styles.container}>Документ не найден.</div>;
 
+
   return (
     <div className={styles.container}>
       <aside className={styles.sidebar}>
@@ -185,7 +187,8 @@ export const DocViewerPage = () => {
           </ReactMarkdown>
         </div>
       </article>
-
+      
+      {!!user?.admin && (
       <Link 
         to={getDocEditRoute(guide.guide_id)} 
         className={styles.editFab}
@@ -193,6 +196,8 @@ export const DocViewerPage = () => {
       >
         <Icon name="edit" size={24} />
       </Link>
+    )}
     </div>
+    
   );
 };

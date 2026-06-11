@@ -7,11 +7,10 @@ import { UnderConstructionPage } from "./pages/fallback/UnderConstruction";
 import { DocViewerPage } from "./pages/DocViewPage/DocViewerPage";
 import { DocEditPage } from "./pages/DocEditPage/DocEditPage";
 import { InfoPage } from "./pages/InfoPage/InfoPage";
-import { getDocRoute, getDocEditRoute, pages } from "./utils/routes";
+import { getDocRoute, getDocEditRoute } from "./utils/routes";
 import { UserProvider } from "./utils/ctx";
 import {
   AdminRoute,
-  AuthRoute,
   ProtectedRoute,
 } from "./pages/Wrappers/wrappers";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

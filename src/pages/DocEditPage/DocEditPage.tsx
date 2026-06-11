@@ -69,7 +69,8 @@ export const DocEditPage = () => {
     if (!editor || !guide) return;
 
     setIsSaving(true);
-    const storage = editor.storage.markdown as MarkdownStorage;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const storage = (editor.storage as any).markdown as MarkdownStorage;
     const markdownOutput = storage.getMarkdown();
     
     try {

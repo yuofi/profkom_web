@@ -1,6 +1,5 @@
 import { useField } from 'formik';
 import { useState, useRef, useEffect } from 'react';
-import clsx from 'clsx';
 import { TextField } from '../TextField/TextField';
 import styles from './FormAutocompleteField.module.css';
 

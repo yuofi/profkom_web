@@ -27,6 +27,7 @@ describe("apiClient Interceptors", () => {
     const mockDoc = { id: "1", title: "Secret Doc" };
     const newTokens = { access_token: "new_acc", refresh_token: "new_ref" };
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     vi.mocked(Cookies.get).mockReturnValue("old_refresh_token" as any);
 
     mock
@@ -46,6 +47,7 @@ describe("apiClient Interceptors", () => {
   });
 
   it("должен редиректить на /login, если refresh-токен невалиден", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     vi.mocked(Cookies.get).mockReturnValue("bad_refresh_token" as any);
 
     mock.onGet("/docs").reply(401);

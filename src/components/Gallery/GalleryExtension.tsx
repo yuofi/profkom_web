@@ -37,10 +37,10 @@ export const GalleryExtension = Node.create({
     return ['pre', ['code', { class: 'language-gallery' }, HTMLAttributes.content]];
   },
 
-  // This helps tiptap-markdown know how to save this node
   addStorage() {
     return {
       markdown: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         serialize: (state: any, node: any) => {
           state.write('```gallery\n');
           state.text(node.attrs.content);

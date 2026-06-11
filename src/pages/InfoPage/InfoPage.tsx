@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { contactsApi } from '../../utils/api/contacts.api';
 import { ContactDirectory, type FilterCriteria } from '../../components/ContactDirectory/ContactPage';
@@ -118,7 +118,7 @@ export const InfoPage = () => {
   return (
     <div className={styles.container}>
       <article className={styles.mainContent}>
-        <h1 className={styles.title}>Информационный справочник</h1>
+        <h1 className={styles.title}>Контакнтая информация</h1>
         <div className={styles.chipList}>
           {filteredContacts.sort((a, b) => a.surname.localeCompare(b.surname)).map(contact => {
             const initialContent = stringifyContent(mapContactToInfo(contact));

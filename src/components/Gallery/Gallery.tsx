@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo } from 'react';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { Navigation, Pagination } from 'swiper/modules';
 import { uploadImage } from '../../utils/s3-utils';
@@ -25,32 +25,20 @@ export const Gallery: React.FC<GalleryProps> = ({
   mode = 'view', 
   onChange 
 }) => {
-  const [items, setItems] = useState<GalleryItem[]>([]);
-
-  useEffect(() => {
-    const parsedItems = initialContent
+  const items = useMemo(() => {
+    return initialContent
       .split('\n')
       .filter(line => line.trim() !== '')
       .map(line => {
         const [src, caption] = line.split('|');
         return { 
           src: src.trim(), 
-          caption: caption ? caption.trim() : '' 
+          caption: caption ? caption.trim() : ''
         };
       });
-    
-    // Only update if the content is actually different to avoid cursor jumps
-    const currentContent = items
-      .map(item => `${item.src}${item.caption ? `|${item.caption}` : ''}`)
-      .join('\n');
-    
-    if (initialContent.trim() !== currentContent.trim()) {
-      setItems(parsedItems);
-    }
   }, [initialContent]);
 
   const updateContent = (newItems: GalleryItem[]) => {
-    setItems(newItems);
     if (onChange) {
       const newContent = newItems
         .map(item => `${item.src}${item.caption ? `|${item.caption}` : ''}`)

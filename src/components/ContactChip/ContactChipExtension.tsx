@@ -40,6 +40,7 @@ export const ContactChipExtension = Node.create({
   addStorage() {
     return {
       markdown: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         serialize: (state: any, node: any) => {
           state.write('```chip\n');
           state.text(node.attrs.content);

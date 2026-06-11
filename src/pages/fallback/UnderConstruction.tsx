@@ -1,6 +1,5 @@
 import styles from "./UnderConstruction.module.css";
 import { useMediaQuery } from "../../utils/hooks/useMediaQuery";
-import { Layout } from "../../components/Layout/Layout";
 
 export const UnderConstructionPage = () => {
   const isMobile = useMediaQuery("(max-width: 768px)");

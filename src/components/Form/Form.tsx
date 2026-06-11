@@ -2,7 +2,9 @@ import { useState } from "react";
 import { useFormik, type FormikHelpers } from "formik";
 import { withZodSchema } from "formik-validator-zod";
 import { z } from "zod";
+import {tryCatch} from "../../utils/tryCatch"
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const useForm = <UserSchema extends z.ZodType<Record<string, any>>>({
   initialValues,
   successMessage = false,
@@ -28,7 +30,7 @@ export const useForm = <UserSchema extends z.ZodType<Record<string, any>>>({
       setIsSuccess(false);
       setGlobalError(null);
 
-      try {
+      const sendForm = async () => {
         if (onSubmit) {
           await onSubmit(values, actions);
         }
@@ -37,11 +39,28 @@ export const useForm = <UserSchema extends z.ZodType<Record<string, any>>>({
           setIsSuccess(true);
           actions.resetForm();
         }
-      } catch (error: any) {
-        setGlobalError(error?.message || "Произошла непредвиденная ошибка");
-      } finally {
-        actions.setSubmitting(false);
+      };
+
+      const result = await tryCatch(sendForm());
+      if (result.error) {
+         setGlobalError(result.error?.message || "Произошла непредвиденная ошибка");
       }
+       actions.setSubmitting(false);
+      
+      // try {
+      //   if (onSubmit) {
+      //     await onSubmit(values, actions);
+      //   }
+        
+      //   if (successMessage) {
+      //     setIsSuccess(true);
+      //     actions.resetForm();
+      //   }
+      // } catch (error) {
+      //   setGlobalError(error?.message || "Произошла непредвиденная ошибка");
+      // } finally {
+      //   actions.setSubmitting(false);
+      // }
     },
   });
 

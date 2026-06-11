@@ -4,7 +4,7 @@ import { UserContext } from "./me";
 
 
 export const UserProvider = ({ children }: { children: React.ReactNode }) => {
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["currentUser"],
     queryFn: authApi.getMe,
   });

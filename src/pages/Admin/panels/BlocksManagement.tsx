@@ -13,11 +13,11 @@ import { useForm } from "../../../components/Form/Form";
 import type { BlockOut } from "../../../utils/api/types";
 import clsx from "clsx";
 
-type BlockFormValues = {
-  name: string;
-  master: string;
-  hr?: string;
-};
+// type BlockFormValues = {
+//   name: string;
+//   master: string;
+//   hr?: string;
+// };
 
 export const BlocksManagement = () => {
   const queryClient = useQueryClient();
@@ -326,7 +326,6 @@ export const BlocksManagement = () => {
                 variant="secondary" 
                 onClick={() => addMemberFormik.handleSubmit()}
                 disabled={!addMemberFormik.values.userId || addMemberMutation.isPending}
-                style={{ marginTop: "8px" }}
               >
                 Добавить
               </Button>
