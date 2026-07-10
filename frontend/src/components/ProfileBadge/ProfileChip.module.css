@@ -1,0 +1,44 @@
+@import '../../styles/vars.css'; /* Убедитесь, что путь правильный */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--font-family-base);
+  font-size: 20px; /* Размер шрифта примерно как на макете */
+  font-weight: 500;
+  line-height: 1;
+}
+
+/* 1 Вариация: Без фона (верхняя на картинке) */
+.minimal {
+  color: var(--on-surface);
+}
+
+/* 2 Вариация: Желтый фон (средняя на картинке) */
+.primary {
+  background-color: var(--primary);
+  color: var(--on-primary);
+  padding: 10px 20px;
+  border-radius: 100px; /* Делает форму скругленной со всех сторон (pill) */
+}
+
+/* 3 Вариация: Фон только у иконки (нижняя на картинке) */
+.iconBg {
+  color: var(--on-surface);
+}
+
+/* Обертка для иконки в 3-й вариации */
+.iconWrapper {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Используем цвет поверхности, немного осветленный или затемненный */
+  background-color: color-mix(in srgb, #141314, transparent 10%); 
+  padding: 6px;
+  border-radius: var(--radius-small);
+}
+
+.icon {
+  display: block;
+}

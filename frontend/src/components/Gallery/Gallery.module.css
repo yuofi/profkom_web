@@ -1,0 +1,178 @@
+@import "../../styles/vars.css";
+
+.carouselContainer {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 32px 0;
+  position: relative;
+  overflow: hidden;
+  
+  --swiper-navigation-sides-offset: 16px;
+  --swiper-navigation-color: var(--primary);
+  --swiper-pagination-color: var(--primary);
+}
+
+.swiper {
+  width: 100%;
+  border-radius: var(--radius-medium);
+  background-color: color-mix(in srgb, var(--surface-variant), transparent 90%);
+}
+
+.carouselFigure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  padding-bottom: 48px;
+  box-sizing: border-box;
+  height: 100%; 
+}
+
+.imageWrapper {
+  position: relative;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.carouselFigure img {
+  max-width: 100%;
+  max-height: 450px;
+  object-fit: contain;
+  border-radius: var(--radius-small);
+  display: block;
+}
+
+.carouselFigure figcaption {
+  margin-top: 16px;
+  font-size: 14px;
+  color: var(--on-surface);
+  text-align: center;
+  font-style: italic;
+  opacity: 0.8; 
+}
+
+.removeBtn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: var(--error);
+  color: var(--on-error);
+  border: none;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0.8;
+  transition: opacity 0.2s;
+}
+
+.removeBtn:hover {
+  opacity: 1;
+}
+
+.captionInput {
+  margin-top: 16px;
+  width: 100%;
+  max-width: 400px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--outline);
+  color: var(--on-surface);
+  text-align: center;
+  padding: 8px;
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+}
+
+.captionInput:focus {
+  border-bottom-color: var(--primary);
+}
+
+.uploadSlide {
+  height: 450px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--surface-variant), transparent 80%);
+  border: 2px dashed var(--outline);
+  border-radius: var(--radius-small);
+  margin: 16px;
+}
+
+.uploadLabel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  cursor: pointer;
+  color: var(--on-surface-variant);
+  transition: color 0.2s;
+}
+
+.uploadLabel:hover {
+  color: var(--primary);
+}
+
+.floatingAddBtn {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  z-index: 10;
+  
+  background-color: var(--primary);
+  color: var(--on-primary);
+  
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transition: transform 0.2s, background-color 0.2s;
+}
+
+.floatingAddBtn:hover {
+  transform: scale(1.1);
+  background-color: color-mix(in srgb, var(--primary), white 10%);
+}
+
+.floatingAddBtn:active {
+  transform: scale(0.95);
+}
+
+@media (max-width: 768px) {
+  .carouselContainer {
+    margin: 24px 0;
+    --swiper-navigation-size: 0; 
+  }
+
+  .carouselContainer :global(.swiper-button-next),
+  .carouselContainer :global(.swiper-button-prev) {
+    display: none; 
+  }
+
+  .carouselFigure {
+    padding: 8px; 
+    padding-bottom: 32px;
+  }
+
+  .carouselFigure img {
+    max-height: 300px; 
+  }
+
+  .uploadSlide {
+    height: 300px;
+  }
+}
