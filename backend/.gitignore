@@ -8,3 +8,4 @@ repomix-output.xml
 *.xlsx
 *.csv
 *.log
+*.db
