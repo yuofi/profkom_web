@@ -3,6 +3,7 @@ import { Icon } from '../Icon';
 import { uploadImage } from '../../utils/s3-utils';
 import styles from './Avatar.module.css';
 import clsx from 'clsx';
+import { Image } from '../Image/Image';
 
 interface AvatarProps {
   src?: string;
@@ -51,7 +52,7 @@ export const Avatar: React.FC<AvatarProps> = ({
     const imageSrc = src?.trim();
 
     if (imageSrc) {
-      return <img src={imageSrc} alt="Avatar" className={styles.image} />;
+      return <Image src={imageSrc} alt="Avatar" className={styles.image} disableModal={mode === 'edit'} />;
     }
 
     return <Icon name="account_circle" size={size} filled={true} />;

@@ -2,6 +2,7 @@ import { CardLabel } from "../CardLabel/CardLabel";
 import { Button } from "../Button/Button";
 import styles from "./NewsCard.module.css";
 import clsx from "clsx";
+import { Image } from "../Image/Image";
 
 interface NewsCardProps {
   variant: "news" | "event" | "important";
@@ -56,7 +57,7 @@ export const NewsCard = ({
       </div>
       <div className={styles.main}>
       {picLink && (
-        <img src={picLink} alt="picture" />
+        <Image src={picLink} alt="picture" />
       )}
       <h3 className={styles.heading}>{heading}</h3>
       <p className={styles.text}>{text}</p>

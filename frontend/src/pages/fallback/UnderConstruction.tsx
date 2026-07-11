@@ -1,5 +1,6 @@
 import styles from "./UnderConstruction.module.css";
 import { useMediaQuery } from "../../utils/hooks/useMediaQuery";
+import { Image } from "../../components/Image/Image";
 
 export const UnderConstructionPage = () => {
   const isMobile = useMediaQuery("(max-width: 768px)");
@@ -8,9 +9,9 @@ export const UnderConstructionPage = () => {
       <h3 className={styles.heading}>Этот раздел пока в разработке</h3>
       <h6 className={styles.subheading}>но вы можете посмотреть гайды!</h6>
       {isMobile ? (
-        <img src="/uc-mobile-capy.webp" />
+        <Image src="/uc-mobile-capy.webp" disableModal={true} />
       ) : (
-        <img src="/uc-desktop-capy-edit.webp" />
+        <Image src="/uc-desktop-capy-edit.webp" disableModal={true} />
       )}
     </div>
   );

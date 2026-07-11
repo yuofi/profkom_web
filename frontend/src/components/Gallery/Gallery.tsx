@@ -4,6 +4,7 @@ import { Navigation, Pagination } from 'swiper/modules';
 import { uploadImage } from '../../utils/s3-utils';
 import { Icon } from '../Icon';
 import styles from './Gallery.module.css';
+import { Image } from '../Image/Image';
 
 import 'swiper/css';
 import 'swiper/css/navigation';
@@ -88,7 +89,7 @@ export const Gallery: React.FC<GalleryProps> = ({
           <SwiperSlide key={index}>
             <figure className={styles.carouselFigure}>
               <div className={styles.imageWrapper}>
-                <img src={item.src} alt={item.caption || 'Слайд'} />
+                <Image src={item.src} alt={item.caption || 'Слайд'} />
                 {mode === 'edit' && (
                   <button 
                     className={styles.removeBtn} 
