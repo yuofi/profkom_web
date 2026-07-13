@@ -1,0 +1,11 @@
+*venv
+.venv
+*vscode
+__pycache__
+*.pyc
+.env
+repomix-output.xml
+*.xlsx
+*.csv
+*.log
+*.db

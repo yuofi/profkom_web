@@ -1,0 +1,139 @@
+@import "../../styles/vars.css";
+
+.card {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 600px;
+  
+  border-radius: var(--radius-large, 32px);
+  overflow: hidden;
+
+  /* ИСПРАВЛЕНИЕ 2: Уменьшаем размеры cutout */
+  --min-cutout-w: calc(var(--radius-large, 32px) * 1.5); /* Было 2.5 */
+  --cutout-w: clamp(var(--min-cutout-w), 10vw, 100px);   /* Было 15vw, 150px */
+  --cutout-h: clamp(32px, 6vh, 60px);                    /* Было 60px, 10vh, 110px */
+  --overlap: 1px;
+  --page-bg: white;
+  --cutout-radius: var(--radius-large);
+  background-color: transparent; 
+}
+
+/* === СЛОИ ФОНОВ (Лежат на самом дне) === */
+.darkBg {
+  position: absolute;
+  inset: 0;
+  background-color: var(--surface, #2C2C2C);
+  z-index: 0;
+  overflow: hidden;
+  box-shadow: 0 0 10px 0px white;
+}
+
+.gradientLayer {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    circle at 0% 0%, 
+    #EBE2E5 0%,      
+    #F0EBE5 40%,     
+    var(--primary, #FBFFA1) 100% 
+  );
+  z-index: 1;
+  transition: clip-path 0.3s ease;
+  transform: scale(1.008);
+}
+
+.noise {
+  position: absolute;
+  inset: 0;
+  opacity: 0.5;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 600 600' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  mix-blend-mode: multiply; 
+  pointer-events: none;
+}
+
+/* === ЗАПЛАТКА (Перекрывает фон) === */
+.cutout {
+  position: absolute;
+  bottom: 0;
+  width: var(--cutout-w);
+  height: var(--cutout-h);
+  background: var(--page-bg);
+
+  z-index: 2; 
+}
+
+.cutoutLeft, .cutoutRight {
+  will-change: transform;
+}
+
+.cutout::before, 
+.cutout::after {
+  content: "";
+  position: absolute;
+  width: var(--radius-large);
+  height: var(--radius-large);
+  background-repeat: no-repeat;
+}
+
+.cutoutRight {
+  right: 0;
+  border-top-left-radius: var(--cutout-radius);
+}
+
+/* Верхнее внешнее скругление */
+.cutoutRight::before {
+  bottom: calc(100% - var(--overlap)); 
+  right: 0;
+  background: radial-gradient(circle at 0% 0%, transparent var(--cutout-radius), var(--page-bg) calc(var(--cutout-radius) + 0.5px));
+}
+
+/* Боковое внешнее скругление */
+.cutoutRight::after {
+  bottom: 0;
+  right: calc(100% - var(--overlap));
+  background: radial-gradient(circle at 0% 0%, transparent var(--cutout-radius), var(--page-bg) calc(var(--cutout-radius) + 0.5px));
+}
+
+/* === ЛЕВАЯ СТОРОНА === */
+.cutoutLeft {
+  left: 0;
+  border-top-right-radius: var(--cutout-radius);
+}
+
+/* Верхнее внешнее скругление */
+.cutoutLeft::before {
+  bottom: calc(100% - var(--overlap));
+  left: 0;
+  background: radial-gradient(circle at 100% 0%, transparent var(--cutout-radius), var(--page-bg) calc(var(--cutout-radius) + 0.5px));
+}
+
+/* Боковое внешнее скругление */
+.cutoutLeft::after {
+  bottom: 0;
+  left: calc(100% - var(--overlap));
+  background: radial-gradient(circle at 100% 0%, transparent var(--cutout-radius), var(--page-bg) calc(var(--cutout-radius) + 0.5px));
+}
+
+/* @media (max-width: 768px) {
+  .cutoutRight::before {
+    bottom: calc(100% - 5px); right: 0;
+  }
+
+  .cutoutLeft::before {
+    bottom: calc(100% - 5px); left: 0;
+  }
+} */
+
+
+.content {
+  position: absolute;
+  z-index: 3; 
+  width: 100%;
+  height: 100%;
+  overflow-y: auto; 
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
