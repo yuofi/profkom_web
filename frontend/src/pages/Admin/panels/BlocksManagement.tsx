@@ -25,6 +25,10 @@ export const BlocksManagement = () => {
   const [editingBlock, setEditingBlock] = useState<BlockOut | null>(null);
   const [selectedBlockName, setSelectedBlockName] = useState<string | null>(null);
 
+  type SortType = "default" | "peopleCount" | "alphabetical";
+  const [sortType, setSortType] = useState<SortType>("default");
+  const [hrFilter, setHrFilter] = useState<string | null>(null);
+
   const { data: blocks, isLoading: isBlocksLoading } = useQuery({
     queryKey: ["blocks"],
     queryFn: blocksApi.getAll,
@@ -34,6 +38,30 @@ export const BlocksManagement = () => {
     queryKey: ["contacts"],
     queryFn: contactsApi.getAll,
   });
+
+  const uniqueHRs = useMemo(() => {
+    if (!blocks) return [];
+    const hrs = blocks.map(b => b.hr).filter(Boolean) as string[];
+    return Array.from(new Set(hrs)).sort();
+  }, [blocks]);
+
+  const processedBlocks = useMemo(() => {
+    if (!blocks) return [];
+    
+    let result = [...blocks];
+    
+    if (hrFilter) {
+      result = result.filter(b => b.hr === hrFilter);
+    }
+    
+    if (sortType === "peopleCount") {
+      result.sort((a, b) => b.arr_of_human.length - a.arr_of_human.length);
+    } else if (sortType === "alphabetical") {
+      result.sort((a, b) => a.name.localeCompare(b.name));
+    }
+    
+    return result;
+  }, [blocks, sortType, hrFilter]);
 
   const selectedBlock = useMemo(() => 
     blocks?.find(b => b.name === selectedBlockName) || null
@@ -201,26 +229,35 @@ export const BlocksManagement = () => {
           <div className={styles.filtersLeft}>
             <div className={styles.filtersHeader}>
               <h2 className={styles.filtersTitle}>Фильтры</h2>
-              <button className={styles.clearFilters}>очистить</button>
+              <button 
+                className={styles.clearFilters}
+                onClick={() => { setSortType("default"); setHrFilter(null); }}
+              >
+                очистить
+              </button>
             </div>
             
             <div className={styles.filtersChipsContainer}>
-              <div className={styles.filterChip}>
-                <span>сортировка = "по умолчанию"</span>
-                <button className={styles.removeFilterBtn}>
-                  <Icon name="close" size={14} />
-                </button>
-              </div>
+              <select 
+                className={styles.filterSelect}
+                value={sortType}
+                onChange={(e) => setSortType(e.target.value as SortType)}
+              >
+                <option value="default">Сортировка: по умолчанию</option>
+                <option value="alphabetical">Сортировка: по алфавиту</option>
+                <option value="peopleCount">Сортировка: по кол-ву людей</option>
+              </select>
 
-              <button className={styles.addFilterBtn}>
-                <Icon name="add" size={16} />
-                Добавить флаг
-              </button>
-
-              <button className={styles.searchBtn}>
-                <Icon name="search" size={16} />
-                Найти
-              </button>
+              <select
+                className={styles.filterSelect}
+                value={hrFilter || ""}
+                onChange={(e) => setHrFilter(e.target.value || null)}
+              >
+                <option value="">Все HR</option>
+                {uniqueHRs.map(hr => (
+                  <option key={hr} value={hr}>{hr}</option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -246,7 +283,7 @@ export const BlocksManagement = () => {
               </tr>
             </thead>
             <tbody>
-              {blocks?.map((block) => (
+              {processedBlocks.map((block) => (
                 <tr 
                   key={block.name} 
                   onClick={() => setSelectedBlockName(block.name)}
@@ -286,7 +323,7 @@ export const BlocksManagement = () => {
       {selectedBlock && (
         <div className={styles.modalOverlay} onClick={() => setSelectedBlockName(null)}>
           <div className={clsx(styles.modal, styles.managementPanel)} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.managementHeader}>
+            <div className={styles.modalHeader}>
               <h3>Управление блоком: {selectedBlock.name}</h3>
               <Icon 
                 name="close" 

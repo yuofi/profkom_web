@@ -37,4 +37,15 @@
   --radius-large: 32px;
   --radius-medium: 16px;
   --radius-small: 8px;
+
+  /* --- Experimental md3 colors --- */
+  --md3-surface: #141218;
+  --md3-on-surface: #E6E0E9;
+  --md3-surface-container: #211F26;
+  --md3-secondary: var(--secondary);
+  --md3-on-secondary: var(--on-secondary);
+  --md3-secondary-container: var(--secondary-container);
+  --md3-on-secondary-container: var(--on-secondary-container);
+  --md3-surface-variant: #CAC4D0;
+  --md3-surface-container-high: rgba(255, 255, 255, 0.05);;
 }

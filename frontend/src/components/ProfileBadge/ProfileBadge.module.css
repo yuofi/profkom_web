@@ -104,7 +104,6 @@
 }
 
 
-/* Блок с кнопками */
 .actions {
     width: 100%;
     display: flex;
@@ -119,12 +118,14 @@
     font-size: 14px; /* Немного уменьшаем шрифт для компактности */
 }
 
+.actions button:first-child {
+    flex: 0 0 auto;
+    min-width: 60px;
+    padding: 10px;
+}
+
 @media (max-width: 480px) {
     .actions {
-        flex-direction: column;
         gap: 8px;
-    }
-    .actions button {
-        width: 100%;
     }
 }

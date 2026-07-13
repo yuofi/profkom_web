@@ -3,9 +3,9 @@
 .layout {
   display: flex;
   min-height: 100vh;
-  background-color: #141218; /* md-surface */
-  color: #E6E0E9; /* md-on-surface */
-  font-family: 'Inter', sans-serif;
+  background-color: var(--md3-surface); /* md-surface */
+  color: var(--md3-on-surface); /* md-on-surface */
+  font-family: 'Roboto', sans-serif;
   width: 100%;
   overflow: hidden;
 }
@@ -17,12 +17,12 @@
 }
 
 .sidebar {
-  width: 300px;
+  width: 200px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  background-color: #141218;
-  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  background-color: var(--md3-surface); /* md-surface-container */
+  border-right: 1px solid var(--md3-surface-container); /* md-on-surface */
   padding-top: 32px;
   padding-bottom: 32px;
 }
@@ -36,7 +36,7 @@
     overflow-x: auto;
     gap: 12px;
     align-items: center;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid var(--md3-surface-container);
     border-right: none;
   }
 }
@@ -45,11 +45,10 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 20px;
+  align-items: flex-end;
+  gap: 8px;
   overflow-y: auto;
   width: 100%;
-  padding: 0 16px;
 }
 
 @media (max-width: 1024px) {
@@ -62,52 +61,55 @@
 }
 
 .menuItem {
-  padding: 10px 24px;
-  color: #CAC4D0; /* md-on-surface-variant */
+  padding: 5px 12px;
+  margin-right: 16px;
+  color: #CAC4D0;
   cursor: pointer;
-  transition: colors 0.2s;
+  transition: all 0.2s ease;
   font-size: 15px;
   font-weight: 500;
-  letter-spacing: 0.025em;
   background: transparent;
-  border: none;
-  border-radius: 9999px;
+  border: 1px solid transparent;
+  border-radius: 20px;
   text-decoration: none;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-end;
   gap: 8px;
-  width: 100%;
+  white-space: nowrap;
 }
 
 .menuItem:hover {
-  color: #E6E0E9; /* md-on-surface */
+  color: var(--md3-on-surface); /* md-on-surface */
+  background-color: rgba(255, 255, 255, 0.05);
 }
 
 .menuItemActive {
-  color: #E6E0E9;
-  border: 1px solid rgba(240, 161, 216, 0.7); /* md-primary */
+  color: var(--md3-on-surface); /* md-on-surface */
+  border: 1.5px solid var(--md3-secondary); /* md-primary */
 }
 
 .backButton {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-end;
   gap: 8px;
   padding: 10px 24px;
-  color: #CAC4D0;
+  color: var(--md3-on-surface); /* md-on-surface */
   cursor: pointer;
   transition: all 0.2s;
   font-size: 15px;
   font-weight: 500;
   background: transparent;
   border: none;
-  border-radius: 9999px;
+  border-radius: 20px;
   margin-bottom: 24px;
+  align-self: flex-end;
+  margin-right: 16px;
 }
 
 .backButton:hover {
-  color: #F0A1D8;
+  color: var(--md3-secondary);
   background: rgba(255, 255, 255, 0.05);
 }
 
@@ -117,7 +119,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background-color: #141218;
+  background-color: var(--md3-surface); /* md-surface */
 }
 
 .header {
@@ -127,7 +129,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 0 32px;
-  background-color: #141218;
+  background-color: var(--md3-surface); /* md-surface */
   position: relative;
   z-index: 10;
 }
@@ -148,7 +150,7 @@
   font-weight: 400;
   letter-spacing: -0.025em;
   margin: 0;
-  color: #E6E0E9;
+  color: var(--md3-on-surface);
 }
 
 .profileButton {
@@ -165,7 +167,7 @@
 }
 
 .profileButton:hover {
-  background-color: #211F26; /* md-surface-container */
+  background-color: var(--md3-surface-container); /* md-surface-container */
 }
 
 .profileAvatar {
@@ -173,7 +175,7 @@
   height: 36px;
   border-radius: 50%;
   object-fit: cover;
-  background-color: #F0A1D8;
+  background-color: var(--md3-secondary); /* md-secondary */
 }
 
 .profileInfo {
@@ -191,13 +193,13 @@
 .profileName {
   font-size: 14px;
   font-weight: 500;
-  color: #E6E0E9;
+  color: var(--md3-on-surface);
   line-height: 1.25;
 }
 
 .profileRole {
   font-size: 12px;
-  color: #CAC4D0;
+  color: var(--md3-on-surface);
   line-height: 1.25;
 }
 

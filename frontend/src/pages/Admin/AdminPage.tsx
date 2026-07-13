@@ -75,7 +75,10 @@ export const AdminPanel = () => {
                 <span className={styles.profileName}>
                   {user?.name ? `${user.name} ${user.surname}` : "Пользователь"}
                 </span>
-                <span className={styles.profileRole}>superuser</span>
+                <span className={styles.profileRole}>{
+                  user?.super_user ? "superuser" : "admin"
+                  }
+                  </span>
               </div>
               <Icon name="expand_more" size={20} style={{ color: '#CAC4D0', marginLeft: '4px' }} />
             </button>

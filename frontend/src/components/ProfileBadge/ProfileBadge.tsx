@@ -207,8 +207,7 @@ export const ProfileBadge = ({ user }: ProfileBadgeProps) => {
           disabled={false}
           onClick={() => handleLogout()}
         >
-          <Icon name="close" size={20} />
-          выйти
+          <Icon name="move_item" size={20} />
         </Button>
         <Button
           variant="bordered"
