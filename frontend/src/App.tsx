@@ -45,12 +45,15 @@ function App() {
                 <Route path="/info" element={<InfoPage />} />
                 <Route path="/profile" element={<ProfilePage />} />
                 <Route element={<AdminRoute />}>
-                  <Route path="/admin" element={<AdminPanel />} />
-                <Route
-                  path={getDocEditRoute()}
-                  element={<DocEditPage />}
-                />
+                  <Route
+                    path={getDocEditRoute()}
+                    element={<DocEditPage />}
+                  />
                 </Route>
+              </Route>
+              
+              <Route element={<AdminRoute />}>
+                <Route path="/admin" element={<AdminPanel />} />
               </Route>
             </Route>
           </Routes>

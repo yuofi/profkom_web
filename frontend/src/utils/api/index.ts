@@ -35,7 +35,7 @@ interface CustomAxiosRequestConfig extends InternalAxiosRequestConfig {
 async function fetchRefresh(config: CustomAxiosRequestConfig): Promise<CustomAxiosRequestConfig> {
     const refreshToken = Cookies.get("refresh_token");
     if (!refreshToken) throw new Error("No refresh token found");
-    const response: AxiosResponse<RefreshResponse> = await axios.post(`${env.VITE_BACKEND_URL}/auth/refresh`, {
+    const response: AxiosResponse<RefreshResponse> = await axios.post(`${env.VITE_BACKEND_URL}/api/auth/refresh`, {
         refresh_token: refreshToken
     });
 

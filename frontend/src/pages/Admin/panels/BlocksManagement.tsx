@@ -194,84 +194,94 @@ export const BlocksManagement = () => {
 
   if (isBlocksLoading) return <div>Загрузка блоков...</div>;
 
-  const totalPeople = blocks?.reduce((acc, block) => acc + block.arr_of_human.length, 0) || 0;
-  // console.log(blocks)
   return (
     <>
-      <div className={styles.statsContainer}>
-        <div className={styles.statCard}>
-          <div className={styles.statNumber}>{blocks?.length || 0}</div>
-          <div className={styles.statLabel}>всего блоков</div>
-        </div>
-        <div className={styles.statCard}>
-          <div className={styles.statNumber}>{totalPeople}</div>
-          <div className={styles.statLabel}>человек в блоках</div>
-        </div>
-      </div>
+      <section className={styles.filtersSection}>
+        <div className={styles.filtersFlex}>
+          <div className={styles.filtersLeft}>
+            <div className={styles.filtersHeader}>
+              <h2 className={styles.filtersTitle}>Фильтры</h2>
+              <button className={styles.clearFilters}>очистить</button>
+            </div>
+            
+            <div className={styles.filtersChipsContainer}>
+              <div className={styles.filterChip}>
+                <span>сортировка = "по умолчанию"</span>
+                <button className={styles.removeFilterBtn}>
+                  <Icon name="close" size={14} />
+                </button>
+              </div>
 
-      <div className={styles.actionBar}>
-        <div className={styles.actionBarHeader}>
-          <h3>Управление блоками</h3>
-          <Button variant="secondary" onClick={openCreateModal}>
-            <Icon name="add_circle" size={20} />
-            Создать блок
-          </Button>
-        </div>
-        {/* <div className={styles.controlsRow}>
-          <div style={{ display: "flex", gap: "12px" }}>
-            <span className={styles.chip} style={{ backgroundColor: "#404040", color: "#fff" }}>
-              сортировка = "по умолчанию" ⊗
-            </span>
+              <button className={styles.addFilterBtn}>
+                <Icon name="add" size={16} />
+                Добавить флаг
+              </button>
+
+              <button className={styles.searchBtn}>
+                <Icon name="search" size={16} />
+                Найти
+              </button>
+            </div>
           </div>
-        </div> */}
-      </div>
 
-      <div className={styles.tableContainer}>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th>Название блока</th>
-              <th>Мастер</th>
-              <th>HR</th>
-              <th>Кол-во людей</th>
-              <th>Действия</th>
-            </tr>
-          </thead>
-          <tbody>
-            {blocks?.map((block) => (
-              <tr 
-                key={block.name} 
-                onClick={() => setSelectedBlockName(block.name)}
-                className={clsx(styles.clickableRow, selectedBlockName === block.name && styles.selectedRow)}
-              >
-                <td>
-                  <span className={styles.chip}>{block.name}</span>
-                </td>
-                <td>{block.master || "Не назначен"}</td>
-                <td>{block.hr || "Не назначен"}</td>
-                <td>{block.arr_of_human.length}</td>
-                <td>
-                  <div style={{ display: "flex", alignItems: "center" }}>
-                    <span 
-                      className={styles.editButton} 
-                      onClick={(e) => openEditModal(e, block)}
-                    >
-                      редактировать
-                    </span>
-                    <span 
-                      className={styles.deleteButton}
-                      onClick={(e) => handleDelete(e, block.name)}
-                    >
-                      <Icon name="delete" size={18} />
-                      удалить
-                    </span>
-                  </div>
-                </td>
+          <div className={styles.filtersRight}>
+            <button className={styles.createBlockBtn} onClick={openCreateModal}>
+              <Icon name="add" size={20} />
+              Создать блок
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section className={styles.tableContainer}>
+        <div className={styles.tableWrapper}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Название блока</th>
+                <th>Мастер</th>
+                <th>HR</th>
+                <th className={styles.tdCenter}>Кол-во людей</th>
+                <th></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {blocks?.map((block) => (
+                <tr 
+                  key={block.name} 
+                  onClick={() => setSelectedBlockName(block.name)}
+                  className={selectedBlockName === block.name ? styles.selectedRow : ""}
+                >
+                  <td>
+                    <span className={styles.chip}>{block.name}</span>
+                  </td>
+                  <td className={styles.tdPrimary}>{block.master || "Не назначен"}</td>
+                  <td className={styles.tdSecondary}>{block.hr || "Не назначен"}</td>
+                  <td className={clsx(styles.tdPrimary, styles.tdCenter)}>{block.arr_of_human.length}</td>
+                  <td>
+                    <div className={styles.actionsContainer}>
+                      <button 
+                        className={clsx(styles.actionBtn, styles.actionBtnEdit)} 
+                        onClick={(e) => openEditModal(e, block)}
+                        title="Редактировать"
+                      >
+                        <Icon name="edit" size={20} />
+                      </button>
+                      <button 
+                        className={clsx(styles.actionBtn, styles.actionBtnDelete)}
+                        onClick={(e) => handleDelete(e, block.name)}
+                        title="Удалить"
+                      >
+                        <Icon name="delete" size={20} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       {selectedBlock && (
         <div className={styles.modalOverlay} onClick={() => setSelectedBlockName(null)}>

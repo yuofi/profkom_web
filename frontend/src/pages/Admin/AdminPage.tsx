@@ -1,14 +1,15 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import clsx from "clsx";
 import styles from "./Admin.module.css";
-import { Button } from "../../components/Button/Button";
 import { Icon } from "../../components/Icon";
 import { BlocksManagement } from "./panels/BlocksManagement";
-// import { Icon } from "../Icon"; // Ваши иконки
-
-
+import { useMe } from "../../utils/me";
 
 export const AdminPanel = () => {
   const [activeTab, setActiveTab] = useState<"users" | "events" | "blocks">("blocks");
+  const navigate = useNavigate();
+  const user = useMe();
 
   const renderContent = () => {
     switch (activeTab) {
@@ -25,58 +26,68 @@ export const AdminPanel = () => {
 
   return (
     <div className={styles.layout}>
-      
       {/* SIDEBAR */}
       <aside className={styles.sidebar}>
-        <div className={styles.logo}>
-          <div className={styles.logoIcon}>S</div>
-          <div>
-            <div>superadmin</div>
-            <div style={{ fontSize: "12px", color: "#a0a0a0" }}>panel</div>
-          </div>
-        </div>
+        <button className={styles.backButton} onClick={() => navigate(-1)}>
+          <Icon name="arrow_back" size={20} />
+          Назад
+        </button>
 
         <nav className={styles.nav}>
-            <Button variant="transparent"
-             onClick={() => setActiveTab("users")}>
-               <Icon name="account_circle" filled={true}size={20}/>
-               Активисты 
-            </Button>
-            <Button variant="transparent"
-             onClick={() => setActiveTab("blocks")}
-            >
-                <Icon name="deployed_code" filled={true}size={20}/>
-                Блоки
-            </Button>
-            <Button variant="transparent"
-             onClick={() => setActiveTab("events")}>
-                <Icon name="event" filled={true}size={20}/>
-                Мероприятия
-            </Button>
+          <button
+            className={clsx(styles.menuItem, activeTab === "users" && styles.menuItemActive)}
+            onClick={() => setActiveTab("users")}
+          >
+            Активисты
+          </button>
+          <button
+            className={clsx(styles.menuItem, activeTab === "blocks" && styles.menuItemActive)}
+            onClick={() => setActiveTab("blocks")}
+          >
+            Блоки
+          </button>
+          <button
+            className={clsx(styles.menuItem, activeTab === "events" && styles.menuItemActive)}
+            onClick={() => setActiveTab("events")}
+          >
+            Мероприятия
+          </button>
         </nav>
       </aside>
 
       {/* MAIN CONTENT */}
       <main className={styles.contentWrapper}>
-        {/* Верхняя панель (Header) */}
         <header className={styles.header}>
-          <h1 className={styles.pageTitle}>
-            {activeTab === "blocks" ? "Управление блоками" : "База"}
-          </h1>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <div style={{ textAlign: "right" }}>
-              <div>Юлов Павел</div>
-              <div style={{ fontSize: "12px", color: "#a0a0a0" }}>superuser</div>
-            </div>
-            {/* Круглая аватарка пользователя */}
-            <div style={{ width: "40px", height: "40px", borderRadius: "50%", backgroundColor: "#fbcfe8" }} />
+          <div className={styles.headerLeft}>
+            <h1 className={styles.pageTitle}>
+              {activeTab === "blocks" ? "Управление блоками" : "База"}
+            </h1>
+          </div>
+
+          <div className={styles.headerRight}>
+            <button className={styles.profileButton}>
+              <img
+                src={user?.photo_url || `https://placehold.co/100x100/F0A1D8/4A003E?text=${user?.name?.[0] || ""}${user?.surname?.[0] || ""}`}
+                className={styles.profileAvatar}
+                alt="Profile"
+              />
+              <div className={styles.profileInfo}>
+                <span className={styles.profileName}>
+                  {user?.name ? `${user.name} ${user.surname}` : "Пользователь"}
+                </span>
+                <span className={styles.profileRole}>superuser</span>
+              </div>
+              <Icon name="expand_more" size={20} style={{ color: '#CAC4D0', marginLeft: '4px' }} />
+            </button>
           </div>
         </header>
 
-        {/* Динамическая область, куда рендерится выбранный компонент */}
-        {renderContent()}
+        <div className={styles.mainContentArea}>
+          <div className={styles.mainContentInner}>
+            {renderContent()}
+          </div>
+        </div>
       </main>
-      
     </div>
   );
 };
