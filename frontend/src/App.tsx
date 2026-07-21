@@ -9,13 +9,11 @@ import { DocEditPage } from "./pages/DocEditPage/DocEditPage";
 import { InfoPage } from "./pages/InfoPage/InfoPage";
 import { getDocRoute, getDocEditRoute } from "./utils/routes";
 import { UserProvider } from "./utils/ctx";
-import {
-  AdminRoute,
-  ProtectedRoute,
-} from "./pages/Wrappers/wrappers";
+import { AdminRoute, ProtectedRoute } from "./pages/Wrappers/wrappers";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ProfilePage } from "./pages/ProfilePage/ProfilePage";
 import { AdminPanel } from "./pages/Admin/AdminPage";
+import { ProfileEditPage } from "./pages/ProfileEditPage/ProfileEditPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -38,20 +36,15 @@ function App() {
             <Route element={<ProtectedRoute />}>
               <Route path="/" element={<Layout />}>
                 <Route index element={<UnderConstructionPage />} />
-                <Route
-                  path={getDocRoute()}
-                  element={<DocViewerPage />}
-                />
+                <Route path={getDocRoute()} element={<DocViewerPage />} />
                 <Route path="/info" element={<InfoPage />} />
                 <Route path="/profile" element={<ProfilePage />} />
                 <Route element={<AdminRoute />}>
-                  <Route
-                    path={getDocEditRoute()}
-                    element={<DocEditPage />}
-                  />
+                  <Route path={getDocEditRoute()} element={<DocEditPage />} />
                 </Route>
+                <Route path="/profile/edit" element={<ProfileEditPage />}/>
               </Route>
-              
+
               <Route element={<AdminRoute />}>
                 <Route path="/admin" element={<AdminPanel />} />
               </Route>

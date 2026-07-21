@@ -54,7 +54,8 @@ api.interceptors.response.use(
     async (error: AxiosError) => {
         const originalConfig = error.config as CustomAxiosRequestConfig;
 
-        if (error.response?.status === 401 && !originalConfig._isRetry) {
+        if (error.response?.status === 401 && !originalConfig._isRetry 
+            && !originalConfig.url?.includes('/auth/login')) {
             originalConfig._isRetry = true;
             const { data, error } = await tryCatch(fetchRefresh(originalConfig));
             if (error) {

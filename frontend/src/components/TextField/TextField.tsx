@@ -1,13 +1,15 @@
-import { type InputHTMLAttributes, forwardRef } from 'react';
+import { type InputHTMLAttributes, forwardRef, useState } from 'react';
 import clsx from 'clsx';
 import styles from './TextField.module.css';
+import { Icon } from '../Icon';
 
 interface TextFieldProps extends InputHTMLAttributes<HTMLInputElement> {
   label: string;
   error?: boolean;
   supportingText?: string;
   className?: string;
-  color?: string;
+  color?: "primary" | "secondary" | "tertiary" | "on-surface";
+  isPassword?: boolean;
 }
 
 export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(({ 
@@ -16,16 +18,21 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(({
   supportingText, 
   className,
   color = "primary",
+  isPassword,
+  type,
   ...props 
 }, ref) => {
+  const [showPassword, setShowPassword] = useState(false);
+  const inputType = isPassword ? (showPassword ? "text" : "password") : type;
   
   return (
     <div className={clsx(styles.wrapper, className)}>
       <div className={clsx(styles.container, styles[color], error && styles.error)}>
         <input
           ref={ref}
-          className={styles.input}
+          className={clsx(styles.input, isPassword && styles.hasAdornment)}
           placeholder=" "
+          type={inputType}
           {...props}
         />
         
@@ -38,6 +45,16 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(({
             <span>{label}</span>
           </legend>
         </fieldset>
+
+        {isPassword && (
+          <button 
+            type="button"
+            className={styles.passwordToggle}
+            onClick={() => setShowPassword(!showPassword)}
+          >
+            <Icon name={showPassword ? 'visibility_off' : 'visibility'} size={24} />
+          </button>
+        )}
       </div>
 
       {supportingText && (

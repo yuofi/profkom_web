@@ -1,0 +1,293 @@
+.container {
+  min-height: 100vh;
+  color: var(--on-surface);
+  font-family: var(--font-family-base);
+  width: 100%;
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: var(--surface);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--md3-surface-container-high, rgba(255,255,255,0.1));
+}
+
+.headerContent {
+  max-width: 1024px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+}
+
+.headerContent h1 {
+  font-size: 20px;
+  font-weight: 500;
+  margin: 0;
+}
+
+.main {
+  max-width: 1024px;
+  margin: 0 auto;
+  padding: 32px 16px;
+  box-sizing: border-box;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px;
+}
+
+@media (min-width: 1024px) {
+  .grid {
+    grid-template-columns: 1fr 1fr;
+    align-items: flex-start;
+  }
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.card {
+  background: var(--md3-surface-container, var(--surface));
+  border-radius: 28px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  box-sizing: border-box;
+}
+
+@media (min-width: 768px) {
+  .card {
+    padding: 32px;
+  }
+}
+
+.cardTitle {
+  font-size: 20px;
+  font-weight: 400;
+  color: var(--on-surface);
+  margin-bottom: 24px;
+  margin-top: 0;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+}
+
+@media (min-width: 640px) {
+  .formGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.submitBtn {
+  align-self: flex-end;
+  margin-top: 16px;
+}
+
+/* Basic Info Card */
+.basicInfoHeader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  margin-bottom: 32px;
+}
+
+@media (min-width: 640px) {
+  .basicInfoHeader {
+    flex-direction: row;
+    align-items: center;
+  }
+}
+
+.basicInfoText {
+  text-align: center;
+}
+@media (min-width: 640px) {
+  .basicInfoText {
+    text-align: left;
+  }
+}
+
+.basicInfoText h2 {
+  font-size: 24px;
+  font-weight: 400;
+  margin: 0 0 4px 0;
+}
+
+.basicInfoText p {
+  font-size: 14px;
+  color: var(--on-surface);
+  opacity: 0.7;
+  margin: 0;
+}
+
+/* Security Card */
+.securityHeader {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.securityIcon {
+  padding: 12px;
+  background: var(--surface-variant, #474747);
+  border-radius: 50%;
+  color: var(--on-surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.securityText h2 {
+  font-size: 20px;
+  font-weight: 400;
+  margin: 0 0 4px 0;
+}
+
+.securityText p {
+  font-size: 14px;
+  color: var(--on-surface);
+  opacity: 0.7;
+  margin: 0;
+}
+
+.changePasswordBtn, .adminBtn {
+  width: 100%;
+  border-radius: 9999px;
+  border: 1px solid var(--md3-surface-variant, #CAC4D0);
+  background: transparent;
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--on-surface);
+  cursor: pointer;
+  transition: background 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.changePasswordBtn:hover, .adminBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Modal */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.modalBackdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px);
+}
+
+.modalContent {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  max-width: 400px;
+  background: var(--md3-surface-container);
+  border-radius: 28px;
+  padding: 24px;
+  box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+  box-sizing: border-box;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.modalHeader h3 {
+  font-size: 24px;
+  font-weight: 400;
+  margin: 0;
+}
+
+.closeBtn {
+  background: transparent;
+  border: none;
+  color: var(--on-surface);
+  opacity: 0.7;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+.closeBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  opacity: 1;
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 32px;
+}
+
+.cancelBtn {
+  background: transparent;
+  border: none;
+  color: var(--primary);
+  padding: 10px 24px;
+  border-radius: 9999px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.cancelBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.iconButton {
+  background: transparent;
+  border: none;
+  color: var(--on-surface);
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.iconButton:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.avatarContainer {
+  position: relative;
+}

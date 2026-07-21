@@ -14,6 +14,7 @@ import { ContactChip, type ContactInfo } from "../ContactChip/ContactChip";
 import { parseContent, stringifyContent } from "../../utils/parsing";
 import { parseProfileUrl } from "../../utils/parsing";
 import { logger } from "../../utils/logger";
+import { useNavigate } from "react-router-dom";
 interface ProfileBadgeProps {
   user: ContactInfoOut | null;
 }
@@ -47,6 +48,7 @@ export const ProfileBadge = ({ user }: ProfileBadgeProps) => {
   const [editContent, setEditContent] = useState(() => 
   user ? stringifyContent(mapUserToInfo(user)) : ''
 );
+  const navigate = useNavigate();
   const [photoUrl, setPhotoUrl] = useState(user?.photo_url);
   const queryClient = useQueryClient();
   
@@ -88,7 +90,6 @@ export const ProfileBadge = ({ user }: ProfileBadgeProps) => {
 
   const handleSave = () => {
     const parsed = parseContent(editContent);
-
     const updateData: ProfileUpdate = {
       surname: parsed.surname,
       name: parsed.name,
@@ -212,7 +213,7 @@ export const ProfileBadge = ({ user }: ProfileBadgeProps) => {
         <Button
           variant="bordered"
           disabled={false}
-          onClick={() => setIsEditing(true)}
+          onClick={() => navigate("/profile/edit")}
         >
           <Icon name="edit" size={20} />
           редактировать

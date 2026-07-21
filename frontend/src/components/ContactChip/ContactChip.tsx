@@ -146,7 +146,7 @@ interface ContactChipProps {
                   onUpload={(url) => handleInputChange('photo_url', url)} 
                 />
               </div>
-              
+
               <div className={styles.row}>
                 {renderField('Имя', info.name, 'name', 'person')}
                 {renderField('Фамилия', info.surname, 'surname', 'person')}

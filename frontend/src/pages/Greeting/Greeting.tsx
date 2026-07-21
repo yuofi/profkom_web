@@ -13,7 +13,7 @@ import { useState } from "react";
 import { authApi } from "../../utils/api/auth.api";
 import Cookies from "js-cookie";
 import type z from "zod";
-import {VKOneTap, VKAuthButton} from "../../components/VKAuth/authButton";
+import {VKAuthButton} from "../../components/VKAuth/authButton";
 import { logger } from "../../utils/logger";
 
 export const GreetingPage = () => {
@@ -76,6 +76,7 @@ export const GreetingPage = () => {
         }
       } catch (error) {
         console.error("Ошибка при отправке:", error);
+        throw error;
       }
     },
   });
@@ -139,52 +140,20 @@ export const GreetingPage = () => {
         className={styles.card}
       >
         <FormikProvider value={formik}>
-          <form className={styles.form} onSubmit={formik.handleSubmit}>
-            <div className={styles.formHeader}>
-              <h3 className={styles.formHeaderText}>
-                {signUp ? "Зарегистрироваться" : "Войти"}
-              </h3>
-
-              <h5
-                className={styles.formSubheading}
-                onClick={() => {
-                  setSignUp(!signUp);
-                  formik.resetForm();
-                }}
-              >
-                {signUp ? "или войти" : "или создать аккаунт"}
-              </h5>
-            </div>
-
+          <form className={styles.form} onSubmit={formik.handleSubmit}>            
+            {signUp ?  (
+              <VKAuthButton 
+              onSuccess={handleLoginSuccess}
+              onError={handleLoginError}
+              />
+            ) :
+            (
+            <>
             <FormTextField name="email" label="email" type="email" />
 
-            <FormTextField name="password" label="пароль" type="password" />
-
-            {signUp && (
-              <>
-                <FormTextField
-                  name="passwordAgain"
-                  label="пароль снова"
-                  type="password"
-                />
-
-                <FormTextField
-                  name="groupNumber"
-                  label="номер группы"
-                  type="text"
-                />
-
-                <FormTextField name="telegram" label="@ник в тг" type="text" />
-
-                <FormTextField name="name" label="Имя" type="text" />
-
-                <FormTextField name="surname" label="Фамилия" type="text" />
-
-                <FormTextField name="patronymic" label="Отчество" type="text" />
-              </>
-            )}
-
-            <Button
+            <FormTextField name="password" label="пароль" type="password" isPassword />
+            
+             <Button
               variant="primary"
               type="submit"
               disabled={formik.isSubmitting}
@@ -195,18 +164,21 @@ export const GreetingPage = () => {
                   ? "Создать аккаунт"
                   : "Войти"}
             </Button>
-
+            </>
+          )}
+          <h5
+                className={styles.formSubheading}
+                onClick={() => {
+                  setSignUp(!signUp);
+                  formik.resetForm();
+                }}
+              >
+                {signUp ? "или войти c паролем" : "войти с вк"}
+              </h5>
             {isSuccess && <div>Успешно!</div>}
             {globalError && <div style={{ color: "red" }}>{globalError}</div>}
           </form>
         </FormikProvider>
-
-        <VKAuthButton 
-        //appId={54678274}
-        //redirectUrl={"https://5x4kxnk4-5173.euw.devtunnels.ms/"}
-        onSuccess={handleLoginSuccess}
-        onError={handleLoginError}
-        />
 
       </CurvedRectangle>
     </div>
