@@ -115,7 +115,7 @@ interface ContactChipProps {
     <>
       {!hideChip && (
         <div className={clsx(styles.chip, mode === 'edit' && styles.editMode)} onClick={handleToggle}>
-          <Avatar src={info.photo_url} size={isMobile ? 50 : 80} />
+          <Avatar src={info.photo_url} size={isMobile ? 50 : 80} mode="disable" />
           <div className={styles.chipInfo}>
           <span className={styles.chipText}>
             {`${info.surname} ${info.name} ${info.patronymic}`.trim() || 'ФИО'} {info.group ? `(${info.group})` : ''}
@@ -146,18 +146,25 @@ interface ContactChipProps {
                   onUpload={(url) => handleInputChange('photo_url', url)} 
                 />
               </div>
-              {renderField('Фамилия', info.surname, 'surname', 'person')}
-              {renderField('Имя', info.name, 'name', 'person')}
+              
+              <div className={styles.row}>
+                {renderField('Имя', info.name, 'name', 'person')}
+                {renderField('Фамилия', info.surname, 'surname', 'person')}
+              </div>
               {renderField('Отчество', info.patronymic, 'patronymic', 'person')}
               {renderField('Имя в таблице ККР', info.kkr_name, 'kkr_name', 'badge')}
               {renderField('Номер группы', info.group, 'group', 'groups')}
-              {renderField('Место жительства', info.residence, 'residence', 'home')}
+              <div className={styles.row}>
+                {renderField('Место жительства', info.residence, 'residence', 'home')}
+                {renderField('Форма обучения', info.education, 'education', 'school')}
+              </div>
               {renderField('Блоки', info.blocks, 'blocks', 'layers')}
               {renderField('Телефон', info.phone, 'phone', 'call')}
-              {renderField('ВК', info.vk, 'vk', 'share')}
-              {renderField('Телеграмм', info.tg, 'tg', 'send')}
+              <div className={styles.row}>
+                {renderField('ВК', info.vk, 'vk', 'share')}
+                {renderField('Телеграмм', info.tg, 'tg', 'send')}
+              </div>
               {renderField('Почта', info.email, 'email', 'mail')}
-              {renderField('Форма обучения', info.education, 'education', 'school')}
             </div>
             {mode === 'edit' && onSave && (
               <div className={styles.modalFooter}>

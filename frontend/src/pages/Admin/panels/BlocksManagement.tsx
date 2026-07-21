@@ -76,7 +76,7 @@ export const BlocksManagement = () => {
     if (!contacts) return [];
     return contacts.map(c => ({
       label: `${c.surname} ${c.name} ${c.patronymic}`.trim(),
-      value: `${c.surname} ${c.name} ${c.patronymic}`.trim()
+      value: c.kkr_name
     }));
   }, [contacts]);
 

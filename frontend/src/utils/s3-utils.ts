@@ -1,5 +1,6 @@
 import { imageApi } from "./api/imges.api";
 import axios from "axios";
+import { logger } from "./logger";
 
 export const uploadImage = async (folder: string, file: File) => {
   try {
@@ -7,7 +8,7 @@ export const uploadImage = async (folder: string, file: File) => {
       await imageApi.GetPresignedUrl(folder, file)
     ).data;
 
-    console.log(`upload image :: ${upload_url} ${public_url}`);
+    logger.log(`upload image :: ${upload_url} ${public_url}`);
 
     await axios.put(upload_url, file, {
       headers: {
@@ -17,7 +18,7 @@ export const uploadImage = async (folder: string, file: File) => {
 
     return public_url;
   } catch (error) {
-    console.log(error);
+    logger.log(error);
     throw error;
   }
 };

@@ -3,6 +3,7 @@ import { Button } from "../Button/Button";
 import styles from "./NewsCard.module.css";
 import clsx from "clsx";
 import { Image } from "../Image/Image";
+import { logger } from "../../utils/logger";
 
 interface NewsCardProps {
   variant: "news" | "event" | "important";
@@ -64,7 +65,7 @@ export const NewsCard = ({
       </div>
       <div className={styles.footer}>
         {hasButton && (
-            <Button variant={cardVariant} onClick={()=>console.log("clicked")}>
+            <Button variant={cardVariant} onClick={()=>logger.log("clicked")}>
                 записаться
             </Button>
         )}

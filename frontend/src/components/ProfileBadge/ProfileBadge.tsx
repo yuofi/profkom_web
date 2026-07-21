@@ -13,7 +13,7 @@ import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { ContactChip, type ContactInfo } from "../ContactChip/ContactChip";
 import { parseContent, stringifyContent } from "../../utils/parsing";
 import { parseProfileUrl } from "../../utils/parsing";
-
+import { logger } from "../../utils/logger";
 interface ProfileBadgeProps {
   user: ContactInfoOut | null;
 }
@@ -49,7 +49,7 @@ export const ProfileBadge = ({ user }: ProfileBadgeProps) => {
 );
   const [photoUrl, setPhotoUrl] = useState(user?.photo_url);
   const queryClient = useQueryClient();
-
+  
   // Synchronize local state with user prop when it changes
 
   const updateMutation = useMutation({
@@ -79,7 +79,7 @@ export const ProfileBadge = ({ user }: ProfileBadgeProps) => {
       // Invalidate both current user and contacts list
       queryClient.invalidateQueries({ queryKey: ["currentUser"] });
       queryClient.invalidateQueries({ queryKey: ["contacts"] });
-      console.log("Profile photo updated successfully");
+      logger.log("Profile photo updated successfully");
       setPhotoUrl(url);
     } catch (error) {
       console.error("Failed to update profile photo:", error);

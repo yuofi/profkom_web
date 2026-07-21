@@ -9,6 +9,7 @@ from pydantic import BaseModel, EmailStr, Field
 from database import db
 from models import Block, ContactInfo, User, Guide
 import logging
+import re
 # ── Import the NEW auth module instead of inline helpers ───
 from auth import (
     hash_password,
@@ -90,7 +91,7 @@ class RegisterIn(BaseModel):
 
 class UserOut(BaseModel):
     user_id: int
-    user_name: str
+    kkr_name: str
     kkr_score: int
     group_number: int
     blocks: str
@@ -111,11 +112,12 @@ class ContactInfoOut(ContactInfoIn):
 
 
 class MeOut(ContactInfoOut):
-    user_name: str
+    kkr_name: str
     kkr_score: int
     banned: bool
     super_user: bool
     admin: bool
+    has_password: bool = True
 
 
 class GuideIn(BaseModel):
@@ -161,6 +163,15 @@ class RefreshRequest(BaseModel):
 class LoginIn(BaseModel):
     email: EmailStr
     password: str
+
+class ChangePasswordIn(BaseModel):
+    old_password: Optional[str] = None
+    new_password: str
+
+
+class VKLoginIn(BaseModel):
+    access_token: str
+    id_token: Optional[str] = None
 
 
 class ProfileUpdate(BaseModel):
@@ -219,20 +230,20 @@ def register(payload: RegisterIn):
     if db.get_user_by_email(str(payload.email)):
         raise HTTPException(409, "Email already registered")
 
-    user_name = " ".join(
+    kkr_name = " ".join(
         part.strip()
-        for part in [payload.surname, payload.name, payload.patronymic]
+        for part in [payload.name, payload.surname]
         if part and part.strip()
     ).strip()
-    if not user_name:
-        user_name = str(payload.email)
+    if not kkr_name:
+        kkr_name = str(payload.email)
 
     contact_model = ContactInfo(
         user_id=0,
         surname=payload.surname,
         name=payload.name,
         patronymic=payload.patronymic,
-        kkr_name="",
+        kkr_name=kkr_name,
         group_number=str(payload.group_number),
         location="",
         blocks="",
@@ -240,12 +251,11 @@ def register(payload: RegisterIn):
         vk="",
         tg=payload.tg,
         email=str(payload.email),
-        budget=False,
+        budget=True,
         in_profcom=False,
     )
     user_model = User(
         user_id=0,
-        user_name=user_name,
         hashed_password=hash_password(payload.password),   # ← hash!
         kkr_score=0,
         group_number=str(payload.group_number),
@@ -269,12 +279,171 @@ def login(body: LoginIn):
     if not user:
         raise HTTPException(401, "Invalid credentials")
 
+    if not user.hashed_password:
+        raise HTTPException(401, "No password set for this account. Please login via VK.")
+
     if not verify_password(body.password, user.hashed_password):
         raise HTTPException(401, "Invalid credentials")
 
     if user.banned:
         raise HTTPException(403, "User is banned")
 
+    return create_token_pair(user.user_id)
+
+
+@router.post("/auth/change-password")
+def change_password(
+    payload: ChangePasswordIn,
+    cur: User = Depends(get_current_user),
+):
+    if cur.hashed_password:
+        if not payload.old_password:
+            raise HTTPException(400, "Old password is required")
+        if not verify_password(payload.old_password, cur.hashed_password):
+            raise HTTPException(400, "Invalid old password")
+    
+    new_hashed = hash_password(payload.new_password)
+    db.update_user(cur.user_id, hashed_password=new_hashed)
+    return {"detail": "Password updated successfully"}
+
+
+@router.post("/auth/vk", response_model=TokenPair)
+def vk_login(payload: VKLoginIn):
+    import urllib.request
+    import urllib.parse
+    import json
+    from jose import jwt
+    from utils.s3_service import upload_image_from_url
+
+    email = None
+    first_name = "VK"
+    last_name = "User"
+    vk_id = None
+    avatar_url = None
+
+    if payload.id_token:
+        try:
+            claims = jwt.get_unverified_claims(payload.id_token)
+            email = claims.get("email")
+            first_name = claims.get("first_name", first_name)
+            last_name = claims.get("last_name", last_name)
+        except Exception:
+            pass
+
+    try:
+        url = "https://id.vk.ru/oauth2/user_info"
+        data = urllib.parse.urlencode({
+            "client_id": "54678274",
+            "access_token": payload.access_token
+        }).encode("utf-8")
+        req = urllib.request.Request(url, data=data)
+        logging.info(f"Requesting VK user info with access_token: {payload.access_token}")
+        with urllib.request.urlopen(req) as response:
+            vk_data = json.loads(response.read().decode())
+            vk_user = vk_data.get("user")
+            logging.info(f"VK user info response: {vk_user}")
+            if "error" in vk_data:
+                raise Exception("VK API error")
+            
+            vk_id = str(vk_user.get("user_id"))
+            if not email:
+                email = vk_user.get("email")
+            if "first_name" in vk_user:
+                first_name = vk_user["first_name"]
+            if "last_name" in vk_user:
+                last_name = vk_user["last_name"]
+            if "avatar" in vk_user:
+                avatar_url = vk_user["avatar"]
+    except Exception:
+        try:
+            url2 = f"https://api.vk.com/method/users.get?v=5.131&access_token={payload.access_token}"
+            req2 = urllib.request.Request(url2)
+            with urllib.request.urlopen(req2) as response2:
+                vk_data2 = json.loads(response2.read().decode())
+                if "error" in vk_data2:
+                    raise HTTPException(401, "Invalid VK token")
+                vk_user = vk_data2["response"][0]
+                vk_id = str(vk_user["id"])
+                if "first_name" in vk_user:
+                    first_name = vk_user["first_name"]
+                if "last_name" in vk_user:
+                    last_name = vk_user["last_name"]
+                if "photo_max" in vk_user:
+                    avatar_url = vk_user["photo_max"]
+                elif "photo_200" in vk_user:
+                    avatar_url = vk_user["photo_200"]
+        except Exception as e:
+            if isinstance(e, HTTPException):
+                raise e
+            raise HTTPException(401, "Failed to verify VK token")
+
+    if not vk_id:
+        raise HTTPException(401, "Could not identify VK user")
+        
+    user = None
+    if email:
+        logging.info(f"Looking up user by email: {email}") 
+        user = db.get_user_by_email(email)
+        
+    kkr_name_to_check = f"{first_name} {last_name}".strip()
+    
+    if not user:
+        logging.info(f"Looking up user by name: {kkr_name_to_check}")
+        user = db.get_user_by_name(kkr_name_to_check)
+        
+    if not user:
+        if not email:
+            email = f"vk_{vk_id}@vk.com"
+            
+        kkr_name = kkr_name_to_check
+        contact_model = ContactInfo(
+            user_id=0,
+            surname=last_name,
+            name=first_name,
+            patronymic="",
+            kkr_name=kkr_name,
+            group_number="0",
+            location="",
+            blocks="",
+            phone="",
+            vk=f"https://vk.com/id{vk_id}",
+            tg="",
+            email=email,
+            budget=True,
+            in_profcom=False,
+        )
+        s3_photo_url = None
+        if avatar_url:
+            pattern = r"cs=.*$"
+            avatar_url = re.sub(pattern, "cs=150x150", avatar_url)
+            s3_photo_url = upload_image_from_url(avatar_url, folder="avatars")
+            
+        user_model = User(
+            user_id=0,
+            hashed_password="", 
+            kkr_score=0,
+            group_number="0",
+            blocks="",
+            photo_url=s3_photo_url,
+            banned=False,
+            super_user=False,
+            admin=False,
+        )
+        user = db.create_user_with_contact(contact_model, user_model)
+        logger.info(f"Created new user from VK login: {user.user_id} ({kkr_name})")
+    else:
+        # Update existing user photo if missing
+        if avatar_url and not user.photo_url:
+            
+            pattern = r"cs=.*$"
+            avatar_url = re.sub(pattern, "cs=150x150", avatar_url)
+            s3_photo_url = upload_image_from_url(avatar_url, folder="avatars")
+            if s3_photo_url:
+                db.update_user(user.user_id, photo_url=s3_photo_url)
+        
+    if user.banned:
+        raise HTTPException(403, "User is banned")
+        
     return create_token_pair(user.user_id)
 
 
@@ -318,11 +487,11 @@ def my_profile(cur: User = Depends(get_current_user)):
     # Combine contact info with user-level flags
     return MeOut(
         **contact.__dict__,
-        user_name=cur.user_name,
         kkr_score=cur.kkr_score,
         banned=cur.banned,
         super_user=cur.super_user,
-        admin=cur.admin
+        admin=cur.admin,
+        has_password=bool(cur.hashed_password)
     )
 
 
@@ -334,7 +503,7 @@ def get_profile(user_id: int):
     contact = db.get_contact(user_id)
     if not contact:
         raise HTTPException(500, "Contact info missing for user")
-    return ProfileOut(**user.__dict__, email=contact.email, tg=contact.tg)
+    return ProfileOut(**user.__dict__, kkr_name=contact.kkr_name, email=contact.email, tg=contact.tg)
 
 
 @router.patch("/profile/{user_id}", response_model=UserOut)
@@ -349,10 +518,24 @@ def update_profile(
     if cur.user_id != user_id and not (cur.admin or cur.super_user):
         raise HTTPException(403, "Forbidden")
 
+    contact = db.get_contact(user_id)
+    new_surname = payload.surname if payload.surname is not None else (contact.surname if contact else "")
+    new_name = payload.name if payload.name is not None else (contact.name if contact else "")
+    new_patronymic = payload.patronymic if payload.patronymic is not None else (contact.patronymic if contact else "")
+    
+    new_kkr_name = " ".join(
+        part.strip()
+        for part in [new_name, new_surname]
+        if part and part.strip()
+    ).strip()
+
+    if payload.kkr_name is not None:
+        new_kkr_name = payload.kkr_name
+
     db.update_contact(
         user_id,
         surname=payload.surname, name=payload.name, patronymic=payload.patronymic,
-        kkr_name=payload.kkr_name,
+        kkr_name=new_kkr_name,
         group_number=payload.group_number, location=payload.location,
         blocks=payload.blocks, phone=payload.phone,
         vk=payload.vk, tg=payload.tg,
@@ -366,7 +549,8 @@ def update_profile(
         photo_url=payload.photo_url
     )
     updated = db.get_user(user_id)
-    return UserOut(**updated.__dict__)
+    updated_contact = db.get_contact(user_id)
+    return UserOut(**updated.__dict__, kkr_name=updated_contact.kkr_name)
 
 
 @router.delete("/profile/{user_id}")

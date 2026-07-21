@@ -99,6 +99,7 @@
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
+  transform-origin: left center;
   left: 20px;
   font-family: var(--font-family-base);
   font-size: 16px;
@@ -106,7 +107,7 @@
   pointer-events: none;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   padding: 0 4px;
-  border-radius: 4px;
+  border-radius: var(--radius-small);
   text-box: trim-both cap alphabetic;
 
   background-color: transparent; 
@@ -115,12 +116,10 @@
 
 .input:focus ~ .label,
 .input:not(:placeholder-shown) ~ .label {
-  /* top: 5%; */
   top: 0;
   transform: translateY(-50%) scale(0.9); 
   color: var(--field-color);
   font-weight: 500;
-  /* background-color: var(--surface); - БОЛЬШЕ НЕ НУЖНО */
 }
 
 .input:not(:placeholder-shown):not(:focus) ~ .label {

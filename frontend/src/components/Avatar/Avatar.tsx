@@ -8,7 +8,7 @@ import { Image } from '../Image/Image';
 interface AvatarProps {
   src?: string;
   size?: number;
-  mode?: 'view' | 'edit';
+  mode?: 'view' | 'edit' | 'disable';
   onUpload?: (url: string) => void;
   className?: string;
 }
@@ -52,7 +52,7 @@ export const Avatar: React.FC<AvatarProps> = ({
     const imageSrc = src?.trim();
 
     if (imageSrc) {
-      return <Image src={imageSrc} alt="Avatar" className={styles.image} disableModal={mode === 'edit'} />;
+      return <Image src={imageSrc} alt="Avatar" className={styles.image} disableModal={mode === 'edit' || mode === 'disable'} />;
     }
 
     return <Icon name="account_circle" size={size} filled={true} />;

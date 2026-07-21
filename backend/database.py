@@ -22,7 +22,6 @@ class UserORM(Base):
     __tablename__ = "users"
 
     user_id = Column(Integer, primary_key=True, autoincrement=True)
-    user_name = Column(String, nullable=False)
     hashed_password = Column(String, nullable=False, default="")
     kkr_score = Column(Integer, nullable=False)
     group_number = Column(String, nullable=False)
@@ -266,7 +265,6 @@ _ensure_sqlite_unique_contact_email()
 def _user_orm_to_dc(u: UserORM) -> UserDC:
     return UserDC(
         user_id=u.user_id,
-        user_name=u.user_name,
         hashed_password=u.hashed_password,
         kkr_score=u.kkr_score,
         group_number=u.group_number,
@@ -441,7 +439,6 @@ class Database:
     ) -> UserDC:
         with self._session() as session:
             u = UserORM(
-                user_name=user.user_name,
                 hashed_password=user.hashed_password,
                 kkr_score=user.kkr_score,
                 group_number=user.group_number,
@@ -489,11 +486,12 @@ class Database:
                 return None
             return _user_orm_to_dc(u)
 
-    def get_user_by_name(self, user_name: str) -> Optional[UserDC]:
+    def get_user_by_name(self, kkr_name: str) -> Optional[UserDC]:
         with self._session() as session:
             u = (
                 session.query(UserORM)
-                .filter(UserORM.user_name == user_name)
+                .join(ContactInfoORM, ContactInfoORM.user_id == UserORM.user_id)
+                .filter(ContactInfoORM.kkr_name == kkr_name)
                 .first()
             )
             if not u:

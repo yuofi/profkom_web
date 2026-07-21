@@ -1,6 +1,7 @@
 import { guideApi } from "../utils/api/docs.api";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { logger } from "../utils/logger";
 
 const names = ["guides", "information", "KMB"];
 
@@ -20,7 +21,7 @@ async function presetGuides() {
             }; 
 
             await guideApi.SaveGuide(guide);
-            console.log(`Успешно сохранен гайд: ${name}`);
+            logger.log(`Успешно сохранен гайд: ${name}`);
         } catch (err) {
             console.error(`Ошибка при обработке файла ${name}.md:`, err);
         }

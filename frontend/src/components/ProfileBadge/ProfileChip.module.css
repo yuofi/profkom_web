@@ -20,7 +20,7 @@
   background-color: var(--primary);
   color: var(--on-primary);
   padding: 10px 20px;
-  border-radius: 100px; /* Делает форму скругленной со всех сторон (pill) */
+  border-radius: var(--radius-large); /* Делает форму скругленной со всех сторон (pill) */
 }
 
 /* 3 Вариация: Фон только у иконки (нижняя на картинке) */

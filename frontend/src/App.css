@@ -15,7 +15,7 @@ body {
 
 .component-preview {
   border: 1px dashed var(--surface-variant);
-  border-radius: 16px;
+  border-radius: var(--radius-large);
   padding: 24px;
   display: flex;
   flex-direction: column;

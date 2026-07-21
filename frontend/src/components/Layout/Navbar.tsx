@@ -79,10 +79,10 @@ export const Navbar = () => {
           <Link
             className={styles.menuLink}
             to={"/info"}
-            data-text={"информация"}
+            data-text={"контакты"}
             onClick={() => isMobile && setIsOpen(false)} 
           >
-            <span>информация</span>
+            <span>контакты</span>
           </Link>
         </li>
         </ul>
@@ -90,7 +90,7 @@ export const Navbar = () => {
 
       <div className={styles.profile}>
         <Link className={`${styles.logoLink} ${styles.profileIcon}`} to={"/profile"}>
-          <Avatar src={user?.photo_url} size={isMobile ? 40 : 60} />
+          <Avatar src={user?.photo_url} size={isMobile ? 40 : 60} mode="disable"/>
         </Link>
       </div>
     </div>

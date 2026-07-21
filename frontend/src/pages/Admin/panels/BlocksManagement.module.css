@@ -2,7 +2,7 @@
 
 .filtersSection {
   background-color: var(--md3-surface-container); /* md-surface-container */
-  border-radius: 24px;
+  border-radius: var(--radius-large);
   padding: 20px 24px;
   box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
 }
@@ -65,7 +65,7 @@
 .filterSelect {
   background-color: var(--md3-surface-container-high); /* md-surface-container-high */
   border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
+  border-radius: var(--radius-medium);
   font-size: 13px;
   font-weight: 500;
   color: var(--md3-on-surface); /* md-on-surface */
@@ -131,7 +131,7 @@
 /* --- ТАБЛИЦА --- */
 .tableContainer {
   background-color: var(--md3-surface-container); /* md-surface-container */
-  border-radius: 24px;
+  border-radius: var(--radius-large);
   overflow: hidden;
   box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
 }
@@ -252,7 +252,7 @@
 
 .modal {
   background-color: #141218;
-  border-radius: 24px;
+  border-radius: var(--radius-large);
   padding: 32px;
   width: 90%;
   max-width: 500px;
@@ -370,7 +370,7 @@
   background: transparent;
   border: none;
   padding: 6px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-medium);
   transition: background-color 0.2s;
 }
 

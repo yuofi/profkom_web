@@ -8,12 +8,11 @@
   /* gap: 32px; */
   align-items: center;
   padding: 16px 32px;
-  background-color: transparent;
+  /* background-color: transparent; */
+  backdrop-filter: blur(20px);
   width: 100%;
   max-height: 100px;
   box-sizing: border-box;
-  backdrop-filter: blur(20px);
-  /* background-color: var(--surface); */
 }
 
 

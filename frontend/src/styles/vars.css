@@ -31,12 +31,12 @@
   --on-surface: #EDE0DC; 
   
   /* --- Typography --- */
-  --font-family-base: 'Roboto', system-ui, -apple-system, sans-serif;
-  --font-family-heading: 'Geist', system-ui, -apple-system, sans-serif;
+  --font-family-base: 'GoogleSans', system-ui, -apple-system, sans-serif;
+  --font-family-heading: 'GoogleSans', system-ui, -apple-system, sans-serif;
   /* --- Radius --- */
-  --radius-large: 32px;
-  --radius-medium: 16px;
-  --radius-small: 8px;
+  --radius-large: 16px;
+  --radius-medium: 8px;
+  --radius-small: 4px;
 
   /* --- Experimental md3 colors --- */
   --md3-surface: #141218;

@@ -13,6 +13,8 @@ import { useState } from "react";
 import { authApi } from "../../utils/api/auth.api";
 import Cookies from "js-cookie";
 import type z from "zod";
+import {VKOneTap, VKAuthButton} from "../../components/VKAuth/authButton";
+import { logger } from "../../utils/logger";
 
 export const GreetingPage = () => {
   const [signUp, setSignUp] = useState(true);
@@ -39,7 +41,7 @@ export const GreetingPage = () => {
       try {
         if (signUp) {
           const formData = data as z.infer<typeof SignUpValidationSchema>;
-          console.log("Данные формы:", formData);
+          logger.log("Данные формы:", formData);
           const response = await authApi.register({
             email: formData.email,
             password: formData.password,
@@ -49,14 +51,14 @@ export const GreetingPage = () => {
             group_number: Number(formData.groupNumber),
             tg: formData.telegram,
           });
-          console.log("Успешная регистрация:", response);
+          logger.log("Успешная регистрация:", response);
           Cookies.set("access_token", response.data.access_token, {
             expires: 1 / 8,
           });
           Cookies.set("refresh_token", response.data.refresh_token, {
             expires: 7,
           });
-          console.log("Успешный вход:", response);
+          logger.log("Успешный вход:", response);
           window.location.href = "/";
         } else {
           const response = await authApi.login({
@@ -69,7 +71,7 @@ export const GreetingPage = () => {
           Cookies.set("refresh_token", response.data.refresh_token, {
             expires: 7,
           });
-          console.log("Успешный вход:", response);
+          logger.log("Успешный вход:", response);
           window.location.href = "/";
         }
       } catch (error) {
@@ -77,6 +79,30 @@ export const GreetingPage = () => {
       }
     },
   });
+
+  const handleLoginSuccess = async (data: any) => {
+    logger.log('Успешная авторизация VK:', data);
+    try {
+      const response = await authApi.vkLogin({
+        access_token: data.access_token,
+        id_token: data.id_token
+      });
+      Cookies.set("access_token", response.data.access_token, {
+        expires: 1 / 8,
+      });
+      Cookies.set("refresh_token", response.data.refresh_token, {
+        expires: 7,
+      });
+      logger.log("Успешный вход через VK:", response);
+      window.location.href = "/";
+    } catch (error) {
+      console.error("Ошибка при VK авторизации на бэкенде:", error);
+    }
+  };
+
+  const handleLoginError = (error) => {
+    console.error('Ошибка авторизации:', error);
+  };
 
   return (
     <div className={styles.container}>
@@ -174,6 +200,14 @@ export const GreetingPage = () => {
             {globalError && <div style={{ color: "red" }}>{globalError}</div>}
           </form>
         </FormikProvider>
+
+        <VKAuthButton 
+        //appId={54678274}
+        //redirectUrl={"https://5x4kxnk4-5173.euw.devtunnels.ms/"}
+        onSuccess={handleLoginSuccess}
+        onError={handleLoginError}
+        />
+
       </CurvedRectangle>
     </div>
   );

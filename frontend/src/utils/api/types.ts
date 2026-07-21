@@ -78,6 +78,7 @@ export interface MeOut extends ContactInfoOut  {
     banned: boolean;
     super_user: boolean;
     admin: boolean;
+    has_password?: boolean;
 }
 
 

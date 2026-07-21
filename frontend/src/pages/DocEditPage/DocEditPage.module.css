@@ -136,7 +136,7 @@
   height: 56px;
   background-color: var(--tertiary);
   color: var(--on-tertiary);
-  border-radius: 16px;
+  border-radius: var(--radius-large);
   display: flex;
   align-items: center;
   justify-content: center;

@@ -54,15 +54,13 @@ def set_admin():
         "group_number": 0,
         "tg": "",
         "email": f'{settings.ADMIN_NAME}@example.com',
-        "user_name": settings.ADMIN_NAME
     }
-
     contact_model = ContactInfo(
         user_id=0,
         surname=payload["surname"],
         name=payload["name"],
         patronymic=payload["patronymic"],
-        kkr_name="",
+        kkr_name=f"{payload['surname']} {payload['name']}".strip(),
         group_number=str(payload["group_number"]),
         location="",
         blocks="",
@@ -75,7 +73,6 @@ def set_admin():
     )
     user_model = User(
         user_id=0,
-        user_name=payload["user_name"],
         hashed_password=hash_password(payload["password"]),   # ← hash!
         kkr_score=0,
         group_number=str(payload["group_number"]),

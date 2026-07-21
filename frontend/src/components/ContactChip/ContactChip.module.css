@@ -61,7 +61,6 @@
   align-items: center;
   justify-content: center;
   z-index: 2000;
-  backdrop-filter: blur(4px);
 }
 
 .modalContent {
@@ -127,6 +126,28 @@
   margin-bottom: 32px;
 }
 
+.row {
+  display: flex;
+  gap: 16px;
+  width: 100%;
+}
+
+.row > * {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .row {
+      display: block;
+  }
+
+  .row > * {
+    width: 100%;
+  }
+}
+
+
 .field {
   margin-bottom: 24px;
 }
@@ -174,8 +195,7 @@
 
 .modalFooter {
   padding: 16px 24px;
-  /* background-color: var(--surface-variant); */
-  backdrop-filter: blur(20px);
+  background-color: var(--surface-variant);
   border-top: 1px solid var(--surface-variant);
   display: flex;
   justify-content: center;

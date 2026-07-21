@@ -6,7 +6,7 @@
   justify-content: space-between;
   
   background-color: var(--surface-container, #2C2C2C); 
-  border-radius: 16px; 
+  border-radius: var(--radius-large); 
   padding: 12px 16px;
   
   cursor: pointer;

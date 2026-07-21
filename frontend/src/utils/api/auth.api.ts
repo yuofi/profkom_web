@@ -13,7 +13,7 @@ async function register(userData: UserIn): Promise<AxiosResponse<TokenPair>> {
 
 async function login(userData: LoginIn): Promise<AxiosResponse<TokenPair>> {
     // const {data, error} = await tryCatch(api.post("/auth/login", userData));
-    // // console.log("data: ", data?.data);
+    // // logger.log("data: ", data?.data);
     // if (error) {
     //     throw error;
     // }
@@ -30,8 +30,18 @@ async function getMe(): Promise<AxiosResponse<MeOut>> {
     return api.get("/profile/me");
 }
 
+async function vkLogin(data: { access_token: string, id_token?: string }): Promise<AxiosResponse<TokenPair>> {
+    return api.post("/auth/vk", data);
+}
+
+async function changePassword(data: { old_password: string, new_password: string }): Promise<AxiosResponse<any>> {
+    return api.post("/auth/change-password", data);
+}
+
 export const authApi = {
     register,
     login,
-    getMe
+    getMe,
+    vkLogin,
+    changePassword
 };

@@ -27,7 +27,7 @@ describe("Auth API", () => {
 
     it("should register a user", async () => {
         const response = await authApi.register(currentUser);
-        console.log("data: ", response.data);
+        logger.log("data: ", response.data);
         expect([409, 201]).toContain(response.status);
         
     });
@@ -43,7 +43,7 @@ describe("Auth API", () => {
         Cookies.set("access_token", loginRes.data.access_token);
 
         const response = await authApi.getMe();
-        console.log("profile data: ", response.data);        
+        logger.log("profile data: ", response.data);        
         expect(response.status).toBe(200);
         expect(response.data.email).toBe(currentUser.email);
     });

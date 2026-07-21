@@ -65,7 +65,7 @@
   font-family: var(--font-family-base);
   font-size: 14px;
   padding: 6px 16px;
-  border-radius: 20px;
+  border-radius: var(--radius-large);
   transition: all 0.2s ease;
   white-space: nowrap;
 }
@@ -215,7 +215,7 @@
   height: 56px;
   background-color: var(--tertiary);
   color: var(--on-tertiary);
-  border-radius: 16px;
+  border-radius: var(--radius-large);
   display: flex;
   align-items: center;
   justify-content: center;

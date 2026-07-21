@@ -26,7 +26,6 @@ class ContactInfo:
 @dataclass
 class User:
     user_id: int
-    user_name: str
     hashed_password: str
     kkr_score: int = 0
     group_number: str = ""

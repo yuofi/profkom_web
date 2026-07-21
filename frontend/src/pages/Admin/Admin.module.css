@@ -5,7 +5,7 @@
   min-height: 100vh;
   background-color: var(--md3-surface); /* md-surface */
   color: var(--md3-on-surface); /* md-on-surface */
-  font-family: 'Roboto', sans-serif;
+  font-family: var(--font-family-base);
   width: 100%;
   overflow: hidden;
 }
