@@ -37,7 +37,7 @@
   padding: 0 20px;
   pointer-events: none;
   
-  border: 2px solid var(--field-color);
+  border: 1px solid var(--field-color);
   border-radius: var(--radius-large);
   transition: all 0.2s ease;
 }

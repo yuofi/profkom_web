@@ -7,6 +7,7 @@
   margin: 32px 0;
   position: relative;
   overflow: hidden;
+  box-sizing: border-box;
   
   --swiper-navigation-sides-offset: 16px;
   --swiper-navigation-color: var(--primary);
@@ -15,6 +16,8 @@
 
 .swiper {
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   border-radius: var(--radius-medium);
   background-color: color-mix(in srgb, var(--surface-variant), transparent 90%);
 }
@@ -39,8 +42,9 @@
 }
 
 .carouselFigure img {
-  max-width: 100%;
-  max-height: 450px;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 75vh;
   object-fit: contain;
   border-radius: var(--radius-small);
   display: block;
@@ -97,7 +101,9 @@
 }
 
 .uploadSlide {
-  height: 450px;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 75vh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -105,6 +111,7 @@
   border: 2px dashed var(--outline);
   border-radius: var(--radius-small);
   margin: 16px;
+  box-sizing: border-box;
 }
 
 .uploadLabel {
@@ -169,10 +176,12 @@
   }
 
   .carouselFigure img {
-    max-height: 300px; 
+    aspect-ratio: 4 / 3;
+    max-height: 60vh; 
   }
 
   .uploadSlide {
-    height: 300px;
+    aspect-ratio: 4 / 3;
+    max-height: 60vh;
   }
 }

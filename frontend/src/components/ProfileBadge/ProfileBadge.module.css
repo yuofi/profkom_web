@@ -1,14 +1,15 @@
 @import '../../styles/vars.css';
 
 .card {
-    background-color: #242424; /* Темно-серый фон карточки */
+    /* background-color: color-mix(in srgb, var(--on-surface), transparent 92%); */
+    background-color: var(--md3-surface-container);
     border-radius: var(--radius-large);
     padding: 48px 32px 32px;
     display: flex;
     flex-direction: column;
     align-items: center;
     width: 100%;
-    max-width: 420px; /* Ограничиваем ширину, как на дизайне */
+    max-width: 420px;
     box-sizing: border-box;
     font-family: var(--font-family-base);
 }

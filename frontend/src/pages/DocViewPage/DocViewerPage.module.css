@@ -8,6 +8,8 @@
   gap: 48px;
   
   max-width: 1600px;
+  width: 100%;
+  box-sizing: border-box;
   margin: 0 auto;
   padding: 48px 32px;
   min-height: calc(100vh - 100px);
