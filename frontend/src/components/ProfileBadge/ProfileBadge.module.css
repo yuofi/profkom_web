@@ -2,8 +2,9 @@
 
 .card {
     /* background-color: color-mix(in srgb, var(--on-surface), transparent 92%); */
-    background-color: var(--md3-surface-container);
+    background-color: var(--surface);
     border-radius: var(--radius-large);
+    border: 1px solid color-mix(in srgb, var(--on-surface), transparent 85%);
     padding: 48px 32px 32px;
     display: flex;
     flex-direction: column;
@@ -106,7 +107,7 @@
 
 
 .actions {
-    width: 100%;
+    width: 70%;
     display: flex;
     gap: 12px;
     justify-content: space-between;
@@ -114,9 +115,9 @@
 
 .actions button {
     flex: 1;
-    min-width: 0; /* Позволяет кнопке сжиматься */
-    padding: 10px 12px; /* Уменьшаем боковые отступы */
-    font-size: 14px; /* Немного уменьшаем шрифт для компактности */
+    min-width: 0;
+    padding: 10px 12px;
+    font-size: 14px;
 }
 
 .actions button:first-child {

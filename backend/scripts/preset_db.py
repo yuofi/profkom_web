@@ -44,17 +44,18 @@ def preset_guides():
         except Exception as err:
             print(f"Ошибка при обработке файла {name}.md: {err}")
 
-def set_admin():
-
-    payload = {
-        "name": settings.ADMIN_NAME,
-        "password": settings.ADMIN_PASSWORD,
-        "surname": "",
-        "patronymic": "",
-        "group_number": 0,
-        "tg": "",
-        "email": f'{settings.ADMIN_NAME}@example.com',
-    }
+def set_admin(superadmin: bool, custom_payload=None):
+    if (custom_payload is not None):
+        payload = {
+            "name": settings.ADMIN_NAME,
+            "password": settings.ADMIN_PASSWORD,
+            "surname": "",
+            "patronymic": "",
+            "group_number": 0,
+            "tg": "",
+            "email": f'{settings.ADMIN_NAME}@example.com',
+        }
+    payload = custom_payload
     contact_model = ContactInfo(
         user_id=0,
         surname=payload["surname"],
@@ -78,11 +79,24 @@ def set_admin():
         group_number=str(payload["group_number"]),
         blocks="",
         banned=False,
-        super_user=True,
+        super_user=superadmin,
         admin=True,
     )
     db.create_user_with_contact(contact_model, user_model)
 
+
 if __name__ == "__main__":
-    preset_guides()
-    set_admin()
+    # preset_guides()
+    # set_admin()
+
+    payload = {
+            "name": "Admin",
+            "password": "12345678",
+            "surname": "Adminovich",
+            "patronymic": "",
+            "group_number": 0,
+            "tg": "",
+            "email": f'test_email@vk.com',
+        }
+
+    set_admin(superadmin=False, custom_payload=payload)

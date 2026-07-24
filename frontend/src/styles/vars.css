@@ -1,51 +1,74 @@
 @import './fonts.css';
 
 :root {
-  /* --- Primary (Lemon) --- */
-  --primary: #f2f69d;
-  --on-primary: #000000;
-  --primary-container: #c4c875;
-  --on-primary-container: #0b0c00;
+  /* Material Design Colors (from dark-hc) */
+  --primary: #f2f69e;
+  --surface-tint: rgb(200 204 120);
+  --on-primary: rgb(0 0 0);
+  --primary-container: rgb(196 200 117);
+  --on-primary-container: rgb(11 12 0);
+  --secondary: rgb(243 242 205);
+  --on-secondary: rgb(0 0 0);
+  --secondary-container: rgb(197 197 162);
+  --on-secondary-container: rgb(11 12 0);
+  --tertiary: rgb(204 250 232);
+  --on-tertiary: rgb(0 0 0);
+  --tertiary-container: rgb(159 204 187);
+  --on-tertiary-container: rgb(0 14 9);
+  --error: rgb(255 236 233);
+  --on-error: rgb(0 0 0);
+  --error-container: rgb(255 174 164);
+  --on-error-container: rgb(34 0 1);
+  --background: rgb(20 20 12);
+  --on-background: rgb(229 227 214);
+  --surface: rgb(20 20 12);
+  --on-surface: rgb(255 255 255);
+  --surface-variant: rgb(72 71 59);
+  --on-surface-variant: rgb(255 255 255);
+  --outline: rgb(243 241 223);
+  --outline-variant: rgb(197 195 178);
+  --shadow: rgb(0 0 0);
+  --scrim: rgb(0 0 0);
+  --inverse-surface: rgb(229 227 214);
+  --inverse-on-surface: rgb(0 0 0);
+  --inverse-primary: rgb(72 75 3);
+  --primary-fixed: rgb(228 232 145);
+  --on-primary-fixed: rgb(0 0 0);
+  --primary-fixed-dim: rgb(200 204 120);
+  --on-primary-fixed-variant: rgb(17 18 0);
+  --secondary-fixed: rgb(229 229 192);
+  --on-secondary-fixed: rgb(0 0 0);
+  --secondary-fixed-dim: rgb(201 201 165);
+  --on-secondary-fixed-variant: rgb(17 18 1);
+  --tertiary-fixed: rgb(191 236 218);
+  --on-tertiary-fixed: rgb(0 0 0);
+  --tertiary-fixed-dim: rgb(163 208 191);
+  --on-tertiary-fixed-variant: rgb(0 21 14);
+  --surface-dim: rgb(20 20 12);
+  --surface-bright: rgb(81 80 71);
+  --surface-container-lowest: rgb(0 0 0);
+  --surface-container-low: rgb(32 32 24);
+  --surface-container: rgb(49 49 40);
+  --surface-container-high: rgb(60 60 51);
+  --surface-container-highest: rgb(72 71 62);
 
-  /* --- Secondary (Pink) --- */
-  --secondary: #f3f2cd;
-  --on-secondary: #000000;
-  --secondary-container: #c5c5a2;
-  --on-secondary-container: #0b0c00;
-
-  /* --- Tertiary (Lilac) --- */
-  --tertiary: #ccfae8;
-  --on-tertiary: #000000;
-  --tertiary-container: #9fccbb;
-  --on-tertiary-container: #000e09;
-
-  /* --- Error --- */
-  --error: #ffece9;
-  --on-error: #000000;
-  --error-container: #ffaea4;
-  --on-error-container: #220001;
-
-  /* --- Surface (Backgrounds) --- */
-  --surface: #14140c;
-  --surface-variant: #515047;
-  --on-surface: #f7f4f4; 
-  
-  /* --- Typography --- */
+  /* Typography */
   --font-family-base: 'GoogleSans', system-ui, -apple-system, sans-serif;
   --font-family-heading: 'GoogleSans', system-ui, -apple-system, sans-serif;
-  /* --- Radius --- */
+  
+  /* Radius */
   --radius-large: 16px;
   --radius-medium: 8px;
   --radius-small: 4px;
 
-  /* --- Experimental md3 colors --- */
-  --md3-surface: var(--surface);
-  --md3-on-surface: var(--on-surface);
-  --md3-surface-container: var(--surface-container);
-  --md3-secondary: var(--secondary);
-  --md3-on-secondary: var(--on-secondary);
-  --md3-secondary-container: var(--secondary-container);
-  --md3-on-secondary-container: var(--on-secondary-container);
-  --md3-surface-variant: var(--surface-variant);
-  --md3-surface-container-high: rgba(255, 255, 255, 0.05);;
+  /* State Layers */
+  --hover-opacity: 8%;
+  --focus-opacity: 12%;
+  --pressed-opacity: 12%;
+  --dragged-opacity: 16%;
+
+  /* Elevation */
+  --elevation-1: 0px 1px 2px 0px rgba(0, 0, 0, 0.3), 0px 1px 3px 1px rgba(0, 0, 0, 0.15);
+  --elevation-2: 0px 1px 2px 0px rgba(0, 0, 0, 0.3), 0px 2px 6px 2px rgba(0, 0, 0, 0.15);
+  --elevation-3: 0px 1px 3px 0px rgba(0, 0, 0, 0.3), 0px 4px 8px 3px rgba(0, 0, 0, 0.15);
 }

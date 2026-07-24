@@ -96,7 +96,7 @@ interface ContactChipProps {
           onChange={(e) => handleInputChange(key, e.target.value)} 
           onKeyDown={(e) => e.stopPropagation()}
           className={styles.field}
-          color="on-surface"
+          color="primary"
         />
       );
     }

@@ -572,7 +572,7 @@ def list_guides():
 
 
 @router.post("/guides", response_model=GuideOut)
-def create_guide(guide: GuideIn, cur: User = Depends(require_admin)):
+def create_guide(guide: GuideIn, cur: User = Depends(require_superuser)):
     g = Guide(guide_id=0, title=guide.title, owner_block=guide.owner_block,
               text=guide.text, original_link=guide.original_link)
     created = db.create_guide(g)
@@ -583,7 +583,7 @@ def create_guide(guide: GuideIn, cur: User = Depends(require_admin)):
 def edit_guide(
     guide_id: int,
     guide: GuideIn,
-    cur: User = Depends(require_admin),
+    cur: User = Depends(require_superuser),
 ):
     updated = db.update_guide(
         guide_id,
@@ -626,8 +626,15 @@ def create_block(payload: BlockIn, cur: User = Depends(require_superuser)):
 def update_block(
     block_name: str,
     payload: BlockUpdate,
-    cur: User = Depends(require_superuser),
+    cur: User = Depends(require_admin),
 ):
+    if not cur.super_user:
+        block = db.get_block(block_name)
+        if not block:
+            raise HTTPException(404, "Block not found")
+        contact = db.get_contact(cur.user_id)
+        if not contact or (contact.kkr_name != block.master and contact.kkr_name != block.hr):
+            raise HTTPException(403, "You can only edit a block if you are its Master or HR")
     updated = db.update_block(
         block_name,
         master=payload.master,
@@ -693,10 +700,10 @@ def get_presigned_url(
 ):
     """
     Generate a presigned URL for direct S3 upload.
-    If folder is 'guides', only admins can upload.
+    If folder is 'guides', only superusers can upload.
     """
-    if payload.folder == 'guides' and not cur.admin:
-        raise HTTPException(403, "Only admins can upload to 'guides' folder")
+    if payload.folder == 'guides' and not cur.super_user:
+        raise HTTPException(403, "Only superusers can upload to 'guides' folder")
 
     urls = generate_presigned_url(payload.folder, payload.content_type)
     return urls

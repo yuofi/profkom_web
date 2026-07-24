@@ -180,9 +180,7 @@ export const ProfileEditPage = () => {
                   <FormTextField name="name" label="Имя" color="on-surface" />
                   <FormTextField name="patronymic" label="Отчество" color="on-surface" />
                   
-                  <Button variant="primary" className={styles.submitBtn} type="submit" disabled={profileFormik.isSubmitting}>
-                    Сохранить
-                  </Button>
+
                 </div>
               </section>
 
@@ -205,7 +203,7 @@ export const ProfileEditPage = () => {
                   Изменить пароль
                 </button>
 
-                {user.admin && (
+                {(user.admin || user.super_user) && (
                   <button 
                     type="button"
                     className={styles.adminBtn}
@@ -230,9 +228,7 @@ export const ProfileEditPage = () => {
                   </div>
                   <FormTextField name="location" label="Место жительства" color="on-surface" />
                   
-                  <Button variant="primary" className={styles.submitBtn} type="submit" disabled={profileFormik.isSubmitting}>
-                    Сохранить
-                  </Button>
+
                 </div>
               </section>
 
@@ -245,12 +241,25 @@ export const ProfileEditPage = () => {
                   <FormTextField name="email" label="Почта" type="email" color="on-surface" />
                   <FormTextField name="vk" label="ВК (ссылка)" color="on-surface" />
                   
-                  <Button variant="primary" className={styles.submitBtn} type="submit" disabled={profileFormik.isSubmitting}>
-                    Сохранить
-                  </Button>
+
                 </div>
               </section>
             </div>
+
+            {/* Save FAB */}
+            <Button 
+              variant="primary"
+              type="submit"
+              className={styles.saveFab} 
+              disabled={profileFormik.isSubmitting}
+              title="Сохранить"
+            >
+              {profileFormik.isSubmitting ? (
+                <div className={styles.loader} />
+              ) : (
+                <Icon name="save" size={24} />
+              )}
+            </Button>
           </form>
         </FormikProvider>
       </main>

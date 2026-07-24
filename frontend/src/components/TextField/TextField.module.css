@@ -37,9 +37,9 @@
   padding: 0 20px;
   pointer-events: none;
   
-  border: 1px solid var(--field-color);
-  border-radius: var(--radius-large);
-  transition: all 0.2s ease;
+  border: 1px solid color-mix(in srgb, var(--outline), transparent 30%);
+  border-radius: var(--radius-small);
+  transition: border-color 0.2s ease;
 }
 
 .legend {
@@ -69,10 +69,10 @@
 
 /* Переносим hover и focus-стейты рамки на fieldset */
 .container:hover .fieldset {
-  border-color: color-mix(in srgb, var(--field-color), white 20%);
+  border-color: var(--on-surface);
 }
 .container:focus-within .fieldset {
-  border-width: 3px;
+  border-width: 2px;
   border-color: var(--field-color);
 }
 
@@ -88,7 +88,7 @@
   box-sizing: border-box;
   font-family: var(--font-family-base);
   font-size: 16px;
-  color: var(--on-surface);
+  color: solid color-mix(in srgb, var(--outline), transparent 40%);
   caret-color: var(--field-color);
   z-index: 2;
   text-box: trim-both cap alphabetic;
@@ -103,7 +103,7 @@
   left: 20px;
   font-family: var(--font-family-base);
   font-size: 16px;
-  color: var(--field-color);
+  color: color-mix(in srgb, var(--on-surface-variant), transparent 30%);
   pointer-events: none;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   padding: 0 4px;
@@ -118,12 +118,15 @@
 .input:not(:placeholder-shown) ~ .label {
   top: 0;
   transform: translateY(-50%) scale(0.9); 
-  color: var(--field-color);
   font-weight: 500;
 }
 
+.input:focus ~ .label {
+  color: var(--field-color);
+}
+
 .input:not(:placeholder-shown):not(:focus) ~ .label {
-  color: color-mix(in srgb, var(--field-color), transparent 50%);
+  color: color-mix(in srgb, var(--on-surface-variant), transparent 40%);
 }
 
 

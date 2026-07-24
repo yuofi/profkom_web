@@ -188,7 +188,7 @@ export const DocViewerPage = () => {
         </div>
       </article>
       
-      {!!user?.admin && (
+      {(user?.admin || user?.super_user) && (
       <Link 
         to={getDocEditRoute(guide.guide_id)} 
         className={styles.editFab}

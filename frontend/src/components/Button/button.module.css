@@ -30,45 +30,56 @@
   background-color: var(--primary);
   color: var(--on-primary);
 }
-
 .primary:hover {
-  background-color: color-mix(in srgb, var(--primary), black 20%)
+  background-color: color-mix(in srgb, var(--on-primary) var(--hover-opacity), var(--primary));
+}
+.primary:active {
+  background-color: color-mix(in srgb, var(--on-primary) var(--pressed-opacity), var(--primary));
 }
 
 .secondary {
   background-color: var(--secondary);
   color: var(--on-secondary);
 }
-
 .secondary:hover {
-  background-color: color-mix(in srgb, var(--secondary), black 20%)
+  background-color: color-mix(in srgb, var(--on-secondary) var(--hover-opacity), var(--secondary));
 }
-
+.secondary:active {
+  background-color: color-mix(in srgb, var(--on-secondary) var(--pressed-opacity), var(--secondary));
+}
 
 .tertiary {
   background-color: var(--tertiary);
   color: var(--on-tertiary);
 }
 .tertiary:hover {
-  background-color: color-mix(in srgb, var(--tertiary), black 20%)
+  background-color: color-mix(in srgb, var(--on-tertiary) var(--hover-opacity), var(--tertiary));
 }
-
+.tertiary:active {
+  background-color: color-mix(in srgb, var(--on-tertiary) var(--pressed-opacity), var(--tertiary));
+}
 
 .bordered {
   background-color: transparent;
-  border-color: var(--on-surface);
-  color: var(--on-surface);
+  border-color: var(--outline);
+  color: var(--outline);
 }
 .bordered:hover {
-  background-color: color-mix(in srgb, var(--on-surface), transparent 90%);
+  background-color: color-mix(in srgb, var(--primary) var(--hover-opacity), transparent);
+}
+.bordered:active {
+  background-color: color-mix(in srgb, var(--primary) var(--pressed-opacity), transparent);
 }
 
 .transparent {
   background-color: transparent;
-  color: var(--on-secondary-container);
+  color: var(--primary);
 }
 .transparent:hover {
-  background-color: color-mix(in srgb, var(--secondary-container), transparent 50%);
+  background-color: color-mix(in srgb, var(--primary) var(--hover-opacity), transparent);
+}
+.transparent:active {
+  background-color: color-mix(in srgb, var(--primary) var(--pressed-opacity), transparent);
 }
 
 

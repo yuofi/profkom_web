@@ -15,6 +15,25 @@
   color: var(--on-surface);
 }
 
+.highlighted {
+  color: var(--on-surface);
+  background-color: color-mix(in srgb, var(--primary-container) 3%, transparent);
+  padding: 10px 10px;
+  border-radius: var(--radius-large);
+}
+
+.highlighted.iconOnly {
+  padding: 0;
+}
+
+.iconHighlighted {
+  color: var(--primary);
+}
+
+.iconHighlighted > svg {
+  display: block;
+}
+
 
 .primary {
   background-color: var(--primary);
@@ -24,20 +43,46 @@
 }
 
 
-.iconBg {
-  color: var(--on-surface);
+.fieldView {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  background-color: color-mix(in srgb, var(--primary-container) 3%, transparent);
+  border-radius: var(--radius-medium);
+  transition: background-color 0.2s;
+  font-family: var(--font-family-base);
 }
 
+.fieldView:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+}
 
-.iconWrapper {
-  display: inline-flex;
+.fieldIcon {
+  color: var(--primary);
+  flex-shrink: 0;
+  display: flex;
   align-items: center;
   justify-content: center;
-  background-color: color-mix(in srgb, #141314, transparent 10%); 
-  padding: 6px;
-  border-radius: var(--radius-small);
 }
 
-.iconWrapper > svg {
-  display: block;
+.fieldContent {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.label {
+  font-size: 11px;
+  color: var(--on-surface-variant);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.value {
+  font-size: 15px;
+  color: var(--on-surface);
+  word-break: break-word;
+  line-height: 1.4;
 }

@@ -11,7 +11,7 @@
   z-index: 40;
   background: var(--surface);
   backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--md3-surface-container-high, rgba(255,255,255,0.1));
+  border-bottom: 1px solid var(--surface-container-high, rgba(255,255,255,0.1));
 }
 
 .headerContent {
@@ -56,7 +56,7 @@
 }
 
 .card {
-  background: var(--md3-surface-container, var(--surface));
+  background: var(--surface-container-low, var(--surface));
   border-radius: 28px;
   padding: 24px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.1);
@@ -95,9 +95,66 @@
   }
 }
 
-.submitBtn {
-  align-self: flex-end;
-  margin-top: 16px;
+/* Save FAB */
+.saveFab {
+  width: 56px;
+  height: 56px;
+  background-color: var(--tertiary);
+  color: var(--on-tertiary);
+  border-radius: var(--radius-large);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 100;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  position: fixed;
+  bottom: 40px;
+  right: 40px;
+}
+
+.saveFab:hover {
+  transform: scale(1.05) translateY(-1px);
+  background-color: color-mix(in srgb, var(--tertiary), white 10%);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.saveFab:active {
+  transform: scale(0.95);
+}
+
+.saveFab:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  transform: none;
+}
+
+@media (max-width: 768px) {
+  .saveFab {
+    bottom: 24px;
+    right: 24px;
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+  }
+}
+
+.loader {
+  width: 24px;
+  height: 24px;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: var(--on-surface);
+  animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Basic Info Card */

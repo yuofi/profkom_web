@@ -16,9 +16,9 @@ export const ProfilePage = () => {
     <div className={styles.mainContainer}>
       <ProfileBadge user={user} />
 
-      {user?.admin && (
+      {(user?.admin || user?.super_user) && (
         <Button
-          variant="secondary"
+          variant="primary"
           disabled={false}
           onClick={() => navigate("/admin")}
         >

@@ -154,7 +154,7 @@ export const ProfileBadge = ({ user }: ProfileBadgeProps) => {
               style={{ textDecoration: "none" }} // чтобы не было стандартного подчеркивания ссылок
             >
               <ProfileChip
-                variant="iconBg"
+                variant="highlighted"
                 customIcon={<VKIcon width={24} height={24} />}
               >
                 {" "}
@@ -169,7 +169,7 @@ export const ProfileBadge = ({ user }: ProfileBadgeProps) => {
               style={{ textDecoration: "none" }} // чтобы не было стандартного подчеркивания ссылок
             >
               <ProfileChip
-                variant="iconBg"
+                variant="highlighted"
                 customIcon={<TelegramIcon width={24} height={24} />}
               >
                 {" "}
@@ -188,15 +188,15 @@ export const ProfileBadge = ({ user }: ProfileBadgeProps) => {
       {/* Контакты */}
       <div className={styles.contacts}>
         {user.phone && (
-          <ProfileChip variant="iconBg" iconName="call">
+          <ProfileChip variant="iconBg" label="телефон" iconName="call">
             {user.phone}
           </ProfileChip>
         )}
-        <ProfileChip variant="iconBg" iconName="mail">
+        <ProfileChip variant="iconBg" label="почта" iconName="mail">
           {user.email}
         </ProfileChip>
         {user.location && (
-          <ProfileChip variant="iconBg" iconName="location_on">
+          <ProfileChip variant="iconBg" label="локация" iconName="location_on">
             {user.location}
           </ProfileChip>
         )}
@@ -204,14 +204,15 @@ export const ProfileBadge = ({ user }: ProfileBadgeProps) => {
       {/* Кнопки действий */}
       <div className={styles.actions}>
         <Button
-          variant="bordered"
+          variant="transparent"
           disabled={false}
           onClick={() => handleLogout()}
         >
           <Icon name="move_item" size={20} />
+          выйти
         </Button>
         <Button
-          variant="bordered"
+          variant="primary"
           disabled={false}
           onClick={() => navigate("/profile/edit")}
         >

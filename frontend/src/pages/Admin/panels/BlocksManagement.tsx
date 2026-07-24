@@ -12,6 +12,7 @@ import { FormAutocompleteField } from "../../../components/Form/FormAutocomplete
 import { useForm } from "../../../components/Form/Form";
 import type { BlockOut } from "../../../utils/api/types";
 import clsx from "clsx";
+import { useMe } from "../../../utils/me";
 
 // type BlockFormValues = {
 //   name: string;
@@ -20,6 +21,7 @@ import clsx from "clsx";
 // };
 
 export const BlocksManagement = () => {
+  const me = useMe();
   const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingBlock, setEditingBlock] = useState<BlockOut | null>(null);
@@ -60,8 +62,14 @@ export const BlocksManagement = () => {
       result.sort((a, b) => a.name.localeCompare(b.name));
     }
     
+    result.sort((a, b) => {
+      const isAMyBlock = me && (a.master === me.kkr_name || a.hr === me.kkr_name || a.arr_of_human.includes(me.user_id)) ? 1 : 0;
+      const isBMyBlock = me && (b.master === me.kkr_name || b.hr === me.kkr_name || b.arr_of_human.includes(me.user_id)) ? 1 : 0;
+      return isBMyBlock - isAMyBlock;
+    });
+    
     return result;
-  }, [blocks, sortType, hrFilter]);
+  }, [blocks, sortType, hrFilter, me]);
 
   const selectedBlock = useMemo(() => 
     blocks?.find(b => b.name === selectedBlockName) || null
@@ -262,10 +270,12 @@ export const BlocksManagement = () => {
           </div>
 
           <div className={styles.filtersRight}>
-            <button className={styles.createBlockBtn} onClick={openCreateModal}>
-              <Icon name="add" size={20} />
-              Создать блок
-            </button>
+            {me?.super_user && (
+              <button className={styles.createBlockBtn} onClick={openCreateModal}>
+                <Icon name="add" size={20} />
+                Создать блок
+              </button>
+            )}
           </div>
         </div>
       </section>
@@ -297,20 +307,24 @@ export const BlocksManagement = () => {
                   <td className={clsx(styles.tdPrimary, styles.tdCenter)}>{block.arr_of_human.length}</td>
                   <td>
                     <div className={styles.actionsContainer}>
-                      <button 
-                        className={clsx(styles.actionBtn, styles.actionBtnEdit)} 
-                        onClick={(e) => openEditModal(e, block)}
-                        title="Редактировать"
-                      >
-                        <Icon name="edit" size={20} />
-                      </button>
-                      <button 
-                        className={clsx(styles.actionBtn, styles.actionBtnDelete)}
-                        onClick={(e) => handleDelete(e, block.name)}
-                        title="Удалить"
-                      >
-                        <Icon name="delete" size={20} />
-                      </button>
+                      { (me?.super_user || (block.master === me?.kkr_name || block.hr === me?.kkr_name)) && (
+                        <button 
+                          className={clsx(styles.actionBtn, styles.actionBtnEdit)} 
+                          onClick={(e) => openEditModal(e, block)}
+                          title="Редактировать"
+                        >
+                          <Icon name="edit" size={20} />
+                        </button>
+                      )}
+                      { me?.super_user && (
+                        <button 
+                          className={clsx(styles.actionBtn, styles.actionBtnDelete)}
+                          onClick={(e) => handleDelete(e, block.name)}
+                          title="Удалить"
+                        >
+                          <Icon name="delete" size={20} />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -344,39 +358,43 @@ export const BlocksManagement = () => {
                     <span className={styles.memberName}>
                       {member.surname} {member.name} {member.patronymic}
                     </span>
-                    <span 
-                      className={styles.deleteButton}
-                      onClick={() => removeMemberMutation.mutate({ 
-                        blockName: selectedBlock.name, 
-                        userId: member.user_id 
-                      })}
-                    >
-                      <Icon name="person_remove" size={20} />
-                      удалить
-                    </span>
+                    { (me?.super_user || (selectedBlock.master === me?.kkr_name || selectedBlock.hr === me?.kkr_name)) && (
+                      <span 
+                        className={styles.deleteButton}
+                        onClick={() => removeMemberMutation.mutate({ 
+                          blockName: selectedBlock.name, 
+                          userId: member.user_id 
+                        })}
+                      >
+                        <Icon name="person_remove" size={20} />
+                        удалить
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>
             </div>
 
-            <div className={styles.addMemberSection}>
-              <div className={styles.addMemberAutocomplete}>
-                <FormikProvider value={addMemberFormik}>
-                  <FormAutocompleteField 
-                    name="userId" 
-                    label="Добавить участника" 
-                    options={availablePeopleOptions} 
-                  />
-                </FormikProvider>
+            { (me?.super_user || (selectedBlock.master === me?.kkr_name || selectedBlock.hr === me?.kkr_name)) && (
+              <div className={styles.addMemberSection}>
+                <div className={styles.addMemberAutocomplete}>
+                  <FormikProvider value={addMemberFormik}>
+                    <FormAutocompleteField 
+                      name="userId" 
+                      label="Добавить участника" 
+                      options={availablePeopleOptions} 
+                    />
+                  </FormikProvider>
+                </div>
+                <Button 
+                  variant="tertiary" 
+                  onClick={() => addMemberFormik.handleSubmit()}
+                  disabled={!addMemberFormik.values.userId || addMemberMutation.isPending}
+                >
+                  Добавить
+                </Button>
               </div>
-              <Button 
-                variant="secondary" 
-                onClick={() => addMemberFormik.handleSubmit()}
-                disabled={!addMemberFormik.values.userId || addMemberMutation.isPending}
-              >
-                Добавить
-              </Button>
-            </div>
+            )}
           </div>
         </div>
       )}
@@ -410,13 +428,13 @@ export const BlocksManagement = () => {
 
                 <div className={styles.modalActions}>
                   <Button 
-                    variant="secondary"
+                    variant="tertiary"
                     onClick={closeModal}
                   >
                     Отмена
                   </Button>
                   <Button 
-                    variant="secondary" 
+                    variant="tertiary" 
                     type="submit" 
                     disabled={formik.isSubmitting}
                   >

@@ -63,7 +63,7 @@
 
 .navLink {
   text-decoration: none;
-  color: var(--on-tertiary-container);
+  color: var(--on-surface);
   font-family: var(--font-family-base);
   font-size: 14px;
   padding: 6px 16px;
@@ -73,13 +73,13 @@
 }
 
 .navLink:hover {
-  background-color: color-mix(in srgb, var(--tertiary-container), transparent 50%);
+  background-color: color-mix(in srgb, var(--secondary-container), transparent 50%);
 }
 
 
 .navLink.active {
-  border: 1px solid var(--tertiary);
-  background-color: transparent;
+  background-color: var(--secondary-container);
+  color: var(--on-secondary-container);
   transition: cubic-bezier(0.895, 0.03, 0.685, 0.22);
 }
 
@@ -112,7 +112,9 @@
   max-width: 100%;
   
   a {
-    color: color-mix(in srgb, var(--tertiary), transparent 20%);
+    color: var(--primary);
+    text-decoration: none;
+    font-style: normal;
   }
   
 }
@@ -154,9 +156,9 @@
   margin: 24px 0;
   padding: 12px 20px; 
   
-  border-left: 4px solid var(--tertiary); 
+  border-left: 4px solid var(--primary); 
   
-  /* background-color: color-mix(in srgb, var(--surface-variant) 30%, transparent); */
+  /* background-color: var(--surface-container); */
   
   border-radius: 0 var(--radius-small) var(--radius-small) 0;
   
@@ -215,8 +217,8 @@
   right: 40px;
   width: 56px;
   height: 56px;
-  background-color: var(--tertiary);
-  color: var(--on-tertiary);
+  background-color: var(--primary);
+  color: var(--on-primary);
   border-radius: var(--radius-large);
   display: flex;
   align-items: center;
@@ -229,7 +231,7 @@
 
 .editFab:hover {
   transform: scale(1.1) translateY(-4px);
-  background-color: color-mix(in srgb, var(--tertiary), white 10%);
+  background-color: color-mix(in srgb, var(--primary), white 10%);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
 

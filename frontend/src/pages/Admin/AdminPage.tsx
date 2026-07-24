@@ -4,6 +4,7 @@ import clsx from "clsx";
 import styles from "./Admin.module.css";
 import { Icon } from "../../components/Icon";
 import { BlocksManagement } from "./panels/BlocksManagement";
+import { UsersManagement } from "./panels/UsersManagement";
 import { useMe } from "../../utils/me";
 
 export const AdminPanel = () => {
@@ -16,7 +17,7 @@ export const AdminPanel = () => {
       case "blocks":
         return <BlocksManagement />;
       case "users":
-        return <div>Компонент управления активистами (скоро будет)</div>;
+        return <UsersManagement />;
       case "events":
         return <div>Компонент управления мероприятиями (скоро будет)</div>;
       default:
@@ -67,7 +68,7 @@ export const AdminPanel = () => {
           <div className={styles.headerRight}>
             <button className={styles.profileButton}>
               <img
-                src={user?.photo_url || `https://placehold.co/100x100/F0A1D8/4A003E?text=${user?.name?.[0] || ""}${user?.surname?.[0] || ""}`}
+                src={user?.photo_url || `https://placehold.co/100x100/ccfae8/4A003E?text=${user?.name?.[0] || ""}${user?.surname?.[0] || ""}`}
                 className={styles.profileAvatar}
                 alt="Profile"
               />

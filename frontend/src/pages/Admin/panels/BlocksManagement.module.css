@@ -1,7 +1,7 @@
 @import '../../../styles/vars.css';
 
 .filtersSection {
-  background-color: var(--md3-surface-container); /* md-surface-container */
+  background-color: var(--surface-container-low); /* md-surface-container */
   border-radius: var(--radius-large);
   padding: 20px 24px;
   box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
@@ -35,14 +35,14 @@
 .filtersTitle {
   font-size: 16px;
   font-weight: 500;
-  color: var(--md3-on-surface); /* md-on-surface */
+  color: var(--on-surface); /* md-on-surface */
   margin: 0;
 }
 
 .clearFilters {
   font-size: 12px;
   font-weight: 500;
-  color: var(--md3-on-surface-variant); /* md-on-surface-variant */
+  color: var(--on-surface-variant); /* md-on-surface-variant */
   background: transparent;
   border: none;
   cursor: pointer;
@@ -52,7 +52,7 @@
 
 .clearFilters:hover {
   /* color: #F0A1D8; md-primary */
-  color: var(--md3-secondary);
+  color: var(--tertiary);
 }
 
 .filtersChipsContainer {
@@ -63,12 +63,12 @@
 }
 
 .filterSelect {
-  background-color: var(--md3-surface-container-high); /* md-surface-container-high */
+  background-color: var(--surface-container-high); /* md-surface-container-high */
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: var(--radius-medium);
   font-size: 13px;
   font-weight: 500;
-  color: var(--md3-on-surface); /* md-on-surface */
+  color: var(--on-surface); /* md-on-surface */
   padding: 6px 32px 6px 12px;
   cursor: pointer;
   appearance: none;
@@ -85,12 +85,12 @@
 }
 
 .filterSelect:focus {
-  border-color: var(--md3-secondary); /* md-primary */
+  border-color: var(--tertiary); /* md-primary */
 }
 
 .filterSelect option {
-  background-color: var(--md3-surface-container); /* md-surface-container */
-  color: var(--md3-on-surface); /* md-on-surface */
+  background-color: var(--surface-container-low); /* md-surface-container */
+  color: var(--on-surface); /* md-on-surface */
 }
 
 .createBlockBtn {
@@ -98,8 +98,8 @@
   align-items: center;
   gap: 8px;
   padding: 12px 24px;
-  background-color: var(--md3-secondary); /* md-secondary */
-  color: var(--md3-on-secondary); /* md-on-secondary */
+  background-color: var(--tertiary); /* md-tertiary */
+  color: var(--on-tertiary); /* md-on-tertiary */
   border: none;
   border-radius: 9999px;
   font-size: 14px;
@@ -109,7 +109,7 @@
 }
 
 .createBlockBtn:hover {
-  background-color: var(--md3-secondary); /* md-secondary-container */
+  background-color: var(--tertiary); /* md-tertiary-container */
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
 }
 
@@ -130,7 +130,7 @@
 
 /* --- ТАБЛИЦА --- */
 .tableContainer {
-  background-color: var(--md3-surface-container); /* md-surface-container */
+  background-color: var(--surface-container-low); /* md-surface-container */
   border-radius: var(--radius-large);
   overflow: hidden;
   box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
@@ -150,17 +150,17 @@
 }
 
 .table th {
-  color: var(--md3-surface-variant); /* md-surface-variant */
+  color: var(--on-surface); /* md-surface-variant */
   font-weight: 500;
   letter-spacing: 0.025em;
   padding: 16px 24px;
-  border-bottom: 1px solid var(--md3-surface-container-high); /* md-surface-container */
-  background-color: var(--md3-surface-container); /* md-surface-container */
+  border-bottom: 1px solid var(--surface-container-high); /* md-surface-container */
+  background-color: var(--surface-container-low); /* md-surface-container */
 }
 
 .table td {
   padding: 16px 24px;
-  border-bottom: 1px solid var(--md3-surface-container-high); /* md-surface-container */
+  border-bottom: 1px solid var(--surface-container-high); /* md-surface-container */
 }
 
 .table tbody tr {
@@ -169,11 +169,11 @@
 }
 
 .table tbody tr:hover {
-  background-color: var(--md3-surface-container-high); /* md-surface-container */
+  background-color: var(--surface-container-low); /* md-surface-container */
 }
 
 .selectedRow {
-  background-color: var(--md3-surface-container-high); /* md-surface-container */
+  background-color: var(--surface-container-low); /* md-surface-container */
 }
 
 .chip {
@@ -181,19 +181,19 @@
   align-items: center;
   padding: 4px 10px;
   border-radius: 6px;
-  background-color: color-mix(in srgb, var(--md3-secondary-container) 20%, transparent);
-  color: var(--md3-on-secondary-container);
+  background-color: var(--tertiary-container);
+  color: var(--on-tertiary-container);
   font-size: 12px;
   font-weight: 500;
 }
 
 .tdPrimary {
-  color: var(--md3-on-surface); /* md-on-surface */
+  color: var(--on-surface); /* md-on-surface */
   font-weight: 500;
 }
 
-.tdSecondary {
-  color: var(--md3-surface-variant); /* md-surface-variant */
+.tdtertiary {
+  color: var(--surface-variant); /* md-surface-variant */
 }
 
 .tdCenter {
@@ -214,7 +214,7 @@
 }
 
 .actionBtn {
-  color: var(--md3-surface-variant); /* md-surface-variant */
+  color: var(--outline-variant); /* md-surface-variant */
   background: transparent;
   border: none;
   padding: 8px;
@@ -227,13 +227,13 @@
 }
 
 .actionBtnEdit:hover {
-  color: var(--secondary);
-  background-color: rgba(240, 161, 216, 0.1);
+  color: var(--on-tertiary);
+  background-color: var(--tertiary-container);
 }
 
 .actionBtnDelete:hover {
-  color: var(--error); /* red-400 */
-  background-color: rgba(248, 113, 113, 0.1);
+  color: var(--on-error);
+  background-color: var(--error-container);
 }
 
 /* Модалки оставляем как были, может чуть обновим цвета */
@@ -251,7 +251,7 @@
 }
 
 .modal {
-  background-color: #141218;
+  background-color: var(--surface-container-low);
   border-radius: var(--radius-large);
   padding: 32px;
   width: 90%;
@@ -277,7 +277,7 @@
 
 .modalHeader h3 {
   margin: 0;
-  color: var(--md3-on-surface); /* md-on-surface */
+  color: var(--on-surface);
   font-weight: 500;
   font-size: 20px;
 }
@@ -324,7 +324,7 @@
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  background-color: var(--md3-surface-container); /* md-surface-container */
+  background-color: var(--surface-container-low); /* md-surface-container */
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
@@ -339,7 +339,7 @@
 
 .memberName {
   font-weight: 500;
-  color: var(--md3-on-surface); /* md-on-surface */
+  color: var(--on-surface); /* md-on-surface */
 }
 
 .addMemberSection {
@@ -375,5 +375,5 @@
 }
 
 .deleteButton:hover {
-  background-color: rgba(248, 113, 113, 0.1);
+  background-color: var(--error-container);
 }

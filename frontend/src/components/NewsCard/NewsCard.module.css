@@ -4,7 +4,7 @@
   display: flex;
   flex-direction: column;
   
-  background-color: var(--surface-variant, #2C2C2C); 
+  background-color: var(--surface-container); 
   border-radius: var(--radius-large);
   padding: 16px;
   gap: 16px;
@@ -22,15 +22,18 @@
 }
 
 .news {
-    background-color: color-mix(in srgb, var(--on-tertiary), transparent 80%);
+    background-color: var(--tertiary-container);
+    color: var(--on-tertiary-container);
 }
 
 .event {
-    background-color: color-mix(in srgb, var(--on-secondary), transparent 80%);
+    background-color: var(--secondary-container);
+    color: var(--on-secondary-container);
 }
 
 .important {
-    background-color: color-mix(in srgb, var(--on-primary), transparent 80%);
+    background-color: var(--primary-container);
+    color: var(--on-primary-container);
 }
 
 

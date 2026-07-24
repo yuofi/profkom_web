@@ -4,29 +4,45 @@ import styles from "./ProfileChip.module.css";
 import { Icon } from "../Icon";
 
 interface ProfileChipProps {
-  variant?: "minimal" | "primary" | "iconBg";
+  variant?: "minimal" | "primary" | "iconBg" | "highlighted";
   children: ReactNode;
   iconName?: string;        // Для стандартных иконок Google
-  customIcon?: ReactNode;   // НОВЫЙ ПРОПС: Для любых своих иконок (SVG, компоненты)
+  customIcon?: ReactNode; 
+  label?: ReactNode;
 }
 
 export const ProfileChip = ({ 
   variant = "minimal", 
   children, 
   iconName = "chart-line",
-  customIcon
+  customIcon,
+  label
 }: ProfileChipProps) => {
 
-  const renderIcon = () => {
-    const iconContent = customIcon ? (
-      <>{customIcon}</>
-    ) : (
-      <Icon name={iconName} className={styles.icon} size={24} />
-    );
+  const iconContent = customIcon ? (
+    <>{customIcon}</>
+  ) : (
+    <Icon name={iconName} className={styles.icon} size={24} />
+  );
 
-    if (variant === "iconBg") {
+  if (variant === "iconBg") {
+    return (
+      <div className={styles.fieldView}>
+        <div className={styles.fieldIcon}>
+          {iconContent}
+        </div>
+        <div className={styles.fieldContent}>
+          {label && <span className={styles.label}>{label}</span>}
+          <span className={styles.value}>{children}</span>
+        </div>
+      </div>
+    );
+  }
+
+  const renderIcon = () => {
+    if (variant === "highlighted") {
       return (
-        <div className={styles.iconWrapper}>
+        <div className={styles.iconHighlighted}>
           {iconContent}
         </div>
       );
@@ -36,9 +52,9 @@ export const ProfileChip = ({
   };
 
   return (
-    <div className={clsx(styles.chip, styles[variant])}>
+    <div className={clsx(styles.chip, styles[variant], !children && styles.iconOnly)}>
       {renderIcon()}
-      <span>{children}</span>
+      {Boolean(children) && <span>{children}</span>}
     </div>
   );
 };

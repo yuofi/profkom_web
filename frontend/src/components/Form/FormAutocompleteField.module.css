@@ -9,24 +9,24 @@
   left: 0;
   right: 0;
   z-index: 100;
-  background-color: #2c2c2c;
-  border: 1px solid #404040;
+  background-color: var(--surface-container);
+  border: 1px solid var(--outline-variant);
   border-radius: var(--radius-small);
   margin-top: 4px;
   padding: 0;
   list-style: none;
   max-height: 200px;
   overflow-y: auto;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--elevation-2);
 }
 
 .optionItem {
   padding: 8px 12px;
   cursor: pointer;
-  color: #fff;
+  color: var(--on-surface);
   transition: background-color 0.2s;
 }
 
 .optionItem:hover {
-  background-color: #404040;
+  background-color: color-mix(in srgb, var(--on-surface) var(--hover-opacity), var(--surface-container));
 }

@@ -432,6 +432,24 @@ class Database:
 
     # --- Users & ContactInfo ---
 
+    def _sync_admin_rights(self, session: Session, kkr_names: set[str]) -> None:
+        session.flush()
+        for kkr_name in kkr_names:
+            if not kkr_name:
+                continue
+            u = (
+                session.query(UserORM)
+                .join(ContactInfoORM, ContactInfoORM.user_id == UserORM.user_id)
+                .filter(ContactInfoORM.kkr_name == kkr_name)
+                .first()
+            )
+            if u:
+                is_admin = session.query(BlockORM).filter(
+                    (BlockORM.master == kkr_name) | (BlockORM.hr == kkr_name)
+                ).first() is not None
+                if u.admin != is_admin:
+                    u.admin = is_admin
+
     def create_user_with_contact(
         self,
         contact: ContactInfoDC,
@@ -473,6 +491,8 @@ class Database:
             initial_blocks = user.blocks or contact.blocks
             if initial_blocks:
                 self._sync_blocks_for_user(session, u.user_id, initial_blocks)
+
+            self._sync_admin_rights(session, {contact.kkr_name})
 
             session.commit()
             session.refresh(u)
@@ -649,8 +669,17 @@ class Database:
             session.flush()
             
             # If creating a block with humans already listed in dataclass
-            if block.arr_of_human:
-                self._sync_users_for_block(session, block.name, block.arr_of_human)
+            arr = list(block.arr_of_human) if block.arr_of_human else []
+            
+            if block.master:
+                u = session.query(UserORM).join(ContactInfoORM).filter(ContactInfoORM.kkr_name == block.master).first()
+                if u and u.user_id not in arr:
+                    arr.append(u.user_id)
+                    
+            if arr:
+                self._sync_users_for_block(session, block.name, arr)
+
+            self._sync_admin_rights(session, {block.master, block.hr})
 
             session.commit()
             session.refresh(b)
@@ -669,15 +698,36 @@ class Database:
             if not b:
                 return None
 
-            if fields.get("master") is not None:
+            affected_kkr_names = set()
+            if "master" in fields and fields["master"] is not None:
+                affected_kkr_names.add(b.master)
+                affected_kkr_names.add(fields["master"])
                 b.master = fields["master"]
-            if fields.get("hr") is not None:
+            if "hr" in fields and fields["hr"] is not None:
+                affected_kkr_names.add(b.hr)
+                affected_kkr_names.add(fields["hr"])
                 b.hr = fields["hr"]
             
+            arr = None
             if fields.get("arr_of_human") is not None:
-                self._sync_users_for_block(session, name, fields["arr_of_human"])
-                # cnt_of_human is updated inside _sync_users_for_block or we can force it
-                b.cnt_of_human = len(fields["arr_of_human"])
+                arr = list(fields["arr_of_human"])
+            elif "master" in fields and fields["master"] is not None:
+                try:
+                    arr = json.loads(b.arr_of_human) if b.arr_of_human else []
+                except json.JSONDecodeError:
+                    arr = []
+            
+            if arr is not None and b.master:
+                u = session.query(UserORM).join(ContactInfoORM).filter(ContactInfoORM.kkr_name == b.master).first()
+                if u and u.user_id not in arr:
+                    arr.append(u.user_id)
+
+            if arr is not None:
+                self._sync_users_for_block(session, name, arr)
+                b.cnt_of_human = len(arr)
+
+            if affected_kkr_names:
+                self._sync_admin_rights(session, affected_kkr_names)
 
             session.commit()
             session.refresh(b)
@@ -687,6 +737,7 @@ class Database:
         with self._session() as session:
             b = session.get(BlockORM, name)
             if b:
+                affected_kkr_names = {b.master, b.hr}
                 # Remove this block from all users
                 try:
                     user_ids = json.loads(b.arr_of_human) if b.arr_of_human else []
@@ -709,6 +760,7 @@ class Database:
                             c.blocks = _format_blocks(sorted(list(bl)))
 
                 session.delete(b)
+                self._sync_admin_rights(session, affected_kkr_names)
             session.commit()
 
     def enter_user_to_block(self, user_id: int, block_name: str) -> Optional[BlockDC]:
