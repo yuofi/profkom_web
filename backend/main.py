@@ -336,7 +336,8 @@ def vk_login(payload: VKLoginIn):
         url = "https://id.vk.ru/oauth2/user_info"
         data = urllib.parse.urlencode({
             "client_id": "54678274",
-            "access_token": payload.access_token
+            "access_token": payload.access_token,
+            "Accept-Language": "ru"
         }).encode("utf-8")
         req = urllib.request.Request(url, data=data)
         logging.info(f"Requesting VK user info with access_token: {payload.access_token}")
@@ -362,7 +363,7 @@ def vk_login(payload: VKLoginIn):
                 phone = str(vk_user["phone_number"])
     except Exception:
         try:
-            url2 = f"https://api.vk.com/method/users.get?v=5.131&access_token={payload.access_token}&fields=contacts,photo_max,photo_200"
+            url2 = f"https://api.vk.com/method/users.get?v=5.131&access_token={payload.access_token}&fields=contacts,photo_max,photo_200&lang=ru"
             req2 = urllib.request.Request(url2)
             with urllib.request.urlopen(req2) as response2:
                 vk_data2 = json.loads(response2.read().decode())

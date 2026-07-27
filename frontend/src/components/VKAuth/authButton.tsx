@@ -18,7 +18,7 @@ export const VKAuthButton = ({ onSuccess, onError }: VKAuthButtonProps) => {
       redirectUrl: env.VITE_REDIRECT_URL,
       responseMode: VKID.ConfigResponseMode.Callback,
       source: VKID.ConfigSource.LOWCODE, 
-      scope: "email phone", 
+      scope: "email phone",
     });
 
     const oneTap = new VKID.OneTap();
