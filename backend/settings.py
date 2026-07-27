@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     S3_TENANT_ID: str = ""
     ADMIN_NAME: str = ""
     ADMIN_PASSWORD: str = ""
-    
+    DATABASE_PATH: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env"

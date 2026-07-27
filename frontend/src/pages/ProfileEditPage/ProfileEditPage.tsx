@@ -14,6 +14,7 @@ import { Avatar } from "../../components/Avatar/Avatar";
 import { ProfileValidationSchema, ChangePasswordValidationSchema } from "../../utils/zod";
 import styles from "./ProfileEditPage.module.css";
 import type { ProfileUpdate } from "../../utils/api/types";
+import { Helmet } from "react-helmet-async";
 
 export const ProfileEditPage = () => {
   const user = useMe();
@@ -86,6 +87,7 @@ export const ProfileEditPage = () => {
         photo_url: user.photo_url || ""
       });
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const handlePhotoUpload = async (url: string) => {
@@ -126,10 +128,6 @@ export const ProfileEditPage = () => {
         throw new Error("Ошибка при смене пароля. Возможно, старый пароль неверен.");
       } else {
         setPasswordSuccess(true);
-        setTimeout(() => {
-          setIsPasswordModalOpen(false);
-          window.location.reload();
-        }, 1500);
       }
     }
   });
@@ -144,6 +142,9 @@ export const ProfileEditPage = () => {
 
   return (
     <div className={styles.container}>
+      <Helmet>
+        <title>Редактирование профиля | Профком ВМК</title>
+      </Helmet>
       <header className={styles.header}>
         <div className={styles.headerContent}>
           <button type="button" className={styles.iconButton} onClick={() => navigate(-1)}>

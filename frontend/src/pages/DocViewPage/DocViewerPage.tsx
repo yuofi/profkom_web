@@ -14,6 +14,8 @@ import { Gallery } from "../../components/Gallery/Gallery";
 
 import styles from "./DocViewerPage.module.css";
 import { ContactChip } from "../../components/ContactChip/ContactChip";
+import { Helmet } from "react-helmet-async";
+import { filterRoles } from "../../utils/filterRoles";
 
 const extractTextFromChildren = (children: ReactNode): string => {
   if (typeof children === "string") return children;
@@ -162,6 +164,9 @@ export const DocViewerPage = () => {
 
   return (
     <div className={styles.container}>
+      <Helmet>
+        <title>{guide ? `${guide.title} | Профком ВМК` : "База знаний | Профком ВМК"}</title>
+      </Helmet>
       <aside className={styles.sidebar}>
           <ul className={styles.navLinks}>
             {toc.map((item) => (
@@ -188,7 +193,7 @@ export const DocViewerPage = () => {
         </div>
       </article>
       
-      {(user?.admin || user?.super_user) && (
+      {filterRoles(["super_user"], user) && (
       <Link 
         to={getDocEditRoute(guide.guide_id)} 
         className={styles.editFab}

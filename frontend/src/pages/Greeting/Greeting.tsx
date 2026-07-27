@@ -14,10 +14,16 @@ import { authApi } from "../../utils/api/auth.api";
 import Cookies from "js-cookie";
 import type z from "zod";
 import {VKAuthButton} from "../../components/VKAuth/authButton";
+import { type AuthError, type TokenResult } from "@vkid/sdk";
 import { logger } from "../../utils/logger";
+import { useNavigate } from "react-router-dom";
+import { Helmet } from "react-helmet-async";
+import { useQueryClient } from "@tanstack/react-query";
 
 export const GreetingPage = () => {
   const [signUp, setSignUp] = useState(true);
+  const navigate = useNavigate()
+  const queryClient = useQueryClient();
 
   const gradientClipPath =
     "M0.5 344.087V0.5H294.828C345.087 35.9281 365.664 60.4296 398.609 106.688L400.5 438.5H158.273C119.065 370.449 83.4742 347.686 0.5 344.087Z";
@@ -59,7 +65,9 @@ export const GreetingPage = () => {
             expires: 7,
           });
           logger.log("Успешный вход:", response);
-          window.location.href = "/";
+          await queryClient.invalidateQueries({ queryKey: ["currentUser"] });
+          navigate("/", {replace: true})
+          //window.location.href = "/";
         } else {
           const response = await authApi.login({
             email: data.email,
@@ -72,7 +80,9 @@ export const GreetingPage = () => {
             expires: 7,
           });
           logger.log("Успешный вход:", response);
-          window.location.href = "/";
+          await queryClient.invalidateQueries({ queryKey: ["currentUser"] });
+          navigate("/", {replace: true})
+          // window.location.href = "/";
         }
       } catch (error) {
         console.error("Ошибка при отправке:", error);
@@ -81,9 +91,9 @@ export const GreetingPage = () => {
     },
   });
 
-  const handleLoginSuccess = async (data: any) => {
-    logger.log('Успешная авторизация VK:', data);
+  const handleLoginSuccess = async (data: TokenResult) => {
     try {
+      logger.log('Успешная авторизация VK:', data);
       const response = await authApi.vkLogin({
         access_token: data.access_token,
         id_token: data.id_token
@@ -95,18 +105,23 @@ export const GreetingPage = () => {
         expires: 7,
       });
       logger.log("Успешный вход через VK:", response);
-      window.location.href = "/";
+      await queryClient.invalidateQueries({ queryKey: ["currentUser"] });
+      navigate("/", {replace: true})
+      // window.location.href = "/";
     } catch (error) {
       console.error("Ошибка при VK авторизации на бэкенде:", error);
     }
   };
 
-  const handleLoginError = (error) => {
+  const handleLoginError = (error: AuthError) => {
     console.error('Ошибка авторизации:', error);
   };
 
   return (
     <div className={styles.container}>
+      <Helmet>
+        <title>{signUp ? "Регистрация | Профком ВМК" : "Вход | Профком ВМК"}</title>
+      </Helmet>
       <CurvedRectangle
         theme="dark"
         cutoutPosition="bottom-right"
@@ -114,7 +129,7 @@ export const GreetingPage = () => {
       >
         <div className={styles.innerContent}>
           <div className={styles.logo}>
-            <ProfkomLogo variant="desktop" />
+            <ProfkomLogo variant="desktop" width={70} strokeWidth={15}/>
           </div>
 
           <h1 className={styles.headerText}>

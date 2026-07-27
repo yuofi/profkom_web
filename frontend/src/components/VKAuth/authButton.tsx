@@ -1,8 +1,9 @@
 import { useEffect, useRef } from "react";
 import * as VKID from "@vkid/sdk";
+import { env } from "../../utils/env";
 
 export interface VKAuthButtonProps {
-  onSuccess?: (data: Omit<VKID.TokenResult, "id_token">) => void; // Можно заменить `any` на точный тип ответа вашего бэкенда/VK
+  onSuccess?: (data: VKID.TokenResult) => void;
   onError?: (error: VKID.AuthError) => void;
 }
 
@@ -13,8 +14,8 @@ export const VKAuthButton = ({ onSuccess, onError }: VKAuthButtonProps) => {
     if (!containerRef.current) return;
     const ref = containerRef.current;
     VKID.Config.init({
-      app: 54678274,
-      redirectUrl: "https://5x4kxnk4-5173.euw.devtunnels.ms/",
+      app: Number.parseInt(env.VITE_APP_ID),
+      redirectUrl: env.VITE_REDIRECT_URL,
       responseMode: VKID.ConfigResponseMode.Callback,
       source: VKID.ConfigSource.LOWCODE, 
       scope: "email phone", 
@@ -44,14 +45,13 @@ export const VKAuthButton = ({ onSuccess, onError }: VKAuthButtonProps) => {
 
         VKID.Auth.exchangeCode(code, deviceId)
           .then((data) => {
-            if (onSuccess) onSuccess(data);
+            if (onSuccess) onSuccess(data as VKID.TokenResult);
           })
           .catch((error: VKID.AuthError) => {
             if (onError) onError(error);
           });
       });
 
-    // Функция очистки при размонтировании
     return () => {
       if (ref) {
         ref.innerHTML = "";
@@ -95,7 +95,6 @@ export const VKOneTap = ({
 
     const ref = containerRef.current;
 
-    // 1. Инициализация конфигурации
     VKID.Config.init({
       app: appId,
       redirectUrl: redirectUrl,
@@ -104,14 +103,11 @@ export const VKOneTap = ({
       scope: scope,
     });
 
-    // 2. Создание экземпляра виджета
     const oneTap = new VKID.OneTap();
 
-    // Очищаем контейнер перед рендером, чтобы избежать дублирования кнопок
-    // при перерисовках компонента (например, в React Strict Mode)
+
     ref.innerHTML = "";
 
-    // 3. Рендер виджета и подписка на события
     oneTap
       .render({ container: ref })
       .on(VKID.OneTapInternalEvents.LOGIN_SUCCESS, (payload: VKID.AuthResponse) => {

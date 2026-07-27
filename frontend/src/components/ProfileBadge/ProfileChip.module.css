@@ -22,10 +22,6 @@
   border-radius: var(--radius-large);
 }
 
-.highlighted.iconOnly {
-  padding: 0;
-}
-
 .iconHighlighted {
   color: var(--primary);
 }

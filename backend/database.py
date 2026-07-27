@@ -8,9 +8,9 @@ from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Text, creat
 from sqlalchemy.orm import Session, declarative_base, relationship, sessionmaker, joinedload
 
 from models import Block as BlockDC, ContactInfo as ContactInfoDC, Guide as GuideDC, User as UserDC
+from settings import settings
 
-
-DATABASE_URL = "sqlite:///./profcom.db"
+DATABASE_URL = "sqlite:///" + settings.DATABASE_PATH
 
 engine = create_engine(DATABASE_URL, future=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)

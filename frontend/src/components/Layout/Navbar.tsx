@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import ProfkomLogo from "../profkomLogo";
 import styles from "./Navbar.module.css";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { getDocRoute, getHomeRoute } from "../../utils/routes";
 import { useMediaQuery } from "../../utils/hooks/useMediaQuery";
 import { useGuides } from "../../utils/hooks/useGuides";
@@ -9,8 +9,10 @@ import type { GuideOut } from "../../utils/api/types";
 import { useMe } from "../../utils/me";
 import { Avatar } from "../Avatar/Avatar";
 
+import { Button } from "../Button/Button";
 
 export const Navbar = () => {
+  const navigate = useNavigate();
   const isMobile = useMediaQuery("(max-width: 768px)");
   const { data: guides } = useGuides();
   const user = useMe();
@@ -37,62 +39,111 @@ export const Navbar = () => {
     };
   }, [isOpen]);
 
-  const handleMenuClick = () => {
-    if (isMobile && !isOpen) {
-      setIsOpen(true);
-    }
-  };
 
   return (
     <div className={styles.wrapper}>
-      <div className={styles.logoWrapper}>
-        <Link className={`${styles.logoLink} ${styles.logo}`} to={getHomeRoute()}>
-          <ProfkomLogo variant={isMobile ? "mobile" : "desktop"} 
-          strokeWidth={isMobile ? 25 : 20}/>
-        </Link>
-      </div>
+      {isMobile ? (
+        <>
+          <div className={styles.mobileLeftSection} ref={menuRef}>
+            <div 
+              className={styles.mobileLogoBtn}
+              onClick={() => setIsOpen(!isOpen)}
+            >
+              <ProfkomLogo variant="mobile" strokeWidth={25}/>
+            </div>
 
-      <div 
-        className={`${styles.menu} ${isOpen ? styles.open : ""}`} 
-        ref={menuRef}
-        onClick={handleMenuClick}
-      >
-        <span className={styles.menuLabel}>меню</span>
+            {isOpen && (
+              <div className={styles.mobileDropdown}>
 
-        <ul className={styles.menuList}>
-          {guides && guides?.map((item: GuideOut) => {
-            return (
-              <li className={styles.menuItem} key={item.guide_id}>
+                <Button
+                  variant="secondary"
+                  className={styles.mobileDropdownBtn}
+                  onClick={() => {
+                    setIsOpen(false);
+                    navigate("/");
+                  }}
+                >
+                  главная
+                </Button>
+
+                {guides?.map((item: GuideOut) => (
+                  <Button
+                    key={item.guide_id}
+                    variant="secondary"
+                    className={styles.mobileDropdownBtn}
+                    onClick={() => {
+                      setIsOpen(false);
+                      navigate(getDocRoute(item.guide_id));
+                    }}
+                  >
+                    {item.title}
+                  </Button>
+                ))}
+                <Button
+                  variant="secondary"
+                  className={styles.mobileDropdownBtn}
+                  onClick={() => {
+                    setIsOpen(false);
+                    navigate("/info");
+                  }}
+                >
+                  контакты
+                </Button>
+              </div>
+            )}
+          </div>
+
+          <div className={styles.profile}>
+            <Link className={`${styles.logoLink} ${styles.profileIcon}`} to={"/profile"}>
+              <Avatar src={user?.photo_url} size={40} mode="disable"/>
+            </Link>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className={styles.logoWrapper}>
+            <Link className={`${styles.logoLink} ${styles.logo}`} to={getHomeRoute()}>
+              <ProfkomLogo variant="desktop" strokeWidth={20}/>
+            </Link>
+          </div>
+
+          <div 
+            className={styles.menu} 
+          >
+            <span className={styles.menuLabel}>меню</span>
+
+            <ul className={styles.menuList}>
+              {guides && guides?.map((item: GuideOut) => (
+                <li className={styles.menuItem} key={item.guide_id}>
+                  <Link
+                    className={styles.menuLink}
+                    to={getDocRoute(item.guide_id)}
+                    data-text={item.title}
+                  >
+                    <span>{item.title}</span>
+                  </Link>
+                </li>
+              ))}
+            
+              <li className={styles.menuItem} key={"info"}>
                 <Link
                   className={styles.menuLink}
-                  to={getDocRoute(item.guide_id)}
-                  data-text={item.title}
-                  onClick={() => isMobile && setIsOpen(false)} 
+                  to={"/info"}
+                  data-text={"контакты"}
                 >
-                  <span>{item.title}</span>
+                  <span>контакты</span>
                 </Link>
               </li>
-            );
-          })}
-        
-        <li className={styles.menuItem} key={"info"}>
-          <Link
-            className={styles.menuLink}
-            to={"/info"}
-            data-text={"контакты"}
-            onClick={() => isMobile && setIsOpen(false)} 
-          >
-            <span>контакты</span>
-          </Link>
-        </li>
-        </ul>
-      </div>
+            </ul>
+          </div>
 
-      <div className={styles.profile}>
-        <Link className={`${styles.logoLink} ${styles.profileIcon}`} to={"/profile"}>
-          <Avatar src={user?.photo_url} size={isMobile ? 40 : 60} mode="disable"/>
-        </Link>
-      </div>
+          <div className={styles.profile}>
+            <Link className={`${styles.logoLink} ${styles.profileIcon}`} to={"/profile"}>
+              <Avatar src={user?.photo_url} size={40} mode="disable"/>
+            </Link>
+          </div>
+        </>
+      )}
     </div>
   );
 };

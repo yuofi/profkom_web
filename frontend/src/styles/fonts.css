@@ -1,6 +1,6 @@
 @font-face {
   font-family: 'GoogleSans';
-  src: url('../assets/fonts/GoogleSans.ttf') format('truetype');
+  src: url('../assets/fonts/GoogleSans-subset.woff2') format('truetype');
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;
@@ -8,7 +8,7 @@
 
 @font-face {
   font-family: 'GoogleSans';
-  src: url('../assets/fonts/GoogleSans-Italic.ttf') format('truetype');
+  src: url('../assets/fonts/GoogleSans-Italic-subset.woff2') format('truetype');
   font-weight: 100 900;
   font-style: italic;
   font-display: swap;

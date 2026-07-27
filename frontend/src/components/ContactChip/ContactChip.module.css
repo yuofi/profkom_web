@@ -31,7 +31,8 @@
 }
 
 .chipText {
-  white-space: nowrap;
+  white-space: normal;
+  word-wrap: break-word;
 }
 
 .chipInfo {

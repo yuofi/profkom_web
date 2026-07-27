@@ -6,6 +6,7 @@ import { Icon } from "../../components/Icon";
 import { BlocksManagement } from "./panels/BlocksManagement";
 import { UsersManagement } from "./panels/UsersManagement";
 import { useMe } from "../../utils/me";
+import { Helmet } from "react-helmet-async";
 
 export const AdminPanel = () => {
   const [activeTab, setActiveTab] = useState<"users" | "events" | "blocks">("blocks");
@@ -27,6 +28,9 @@ export const AdminPanel = () => {
 
   return (
     <div className={styles.layout}>
+      <Helmet>
+        <title>Админ-панель | Профком ВМК</title>
+      </Helmet>
       {/* SIDEBAR */}
       <aside className={styles.sidebar}>
         <button className={styles.backButton} onClick={() => navigate(-1)}>
@@ -95,3 +99,5 @@ export const AdminPanel = () => {
     </div>
   );
 };
+
+export default AdminPanel;

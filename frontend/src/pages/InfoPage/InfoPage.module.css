@@ -46,8 +46,8 @@
         flex-direction: column-reverse; 
         align-items: stretch;
         gap: 32px;
-        padding: 24px 16px;
         box-sizing: border-box;
+        padding: 32px 16px;
     }
     
     .mainContent {

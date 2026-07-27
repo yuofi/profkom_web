@@ -2,8 +2,8 @@ import type { FC } from "react";
 import type { MainElementVariant, MainElementProps } from "./componetsTypes";
 
 const WIDTHS: Record<MainElementVariant, number> = {
-    desktop: 53,
-    mobile: 40
+    desktop: 44,
+    mobile: 32
 }
 
 
@@ -17,12 +17,10 @@ const ProfkomLogo: FC<MainElementProps & { width?: number; strokeWidth?: number 
     width = WIDTHS[variant];
   }
 
-  // Если strokeWidth не передан, можно использовать базовое значение (5).
-  // Если вы хотите, чтобы на маленьких размерах линии казались толще, 
-  // можно добавить логику в зависимости от variant или width.
+
   const strokeWidth = customStrokeWidth ?? (variant === "mobile" ? 6 : 5);
 
-  const height = (width * 454) / 625;
+  const height = (width * 454) / 600;
 
   return (
     <svg

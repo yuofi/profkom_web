@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, Depends, APIRouter
@@ -29,13 +30,11 @@ app = FastAPI(
     title="Profcom backend",
     )
 
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 router = APIRouter(prefix="/api")
 origins = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:3000",
-    "http://localhost:80",
-    "https://5x4kxnk4-5173.euw.devtunnels.ms"
+    FRONTEND_URL
+    # "https://5x4kxnk4-5173.euw.devtunnels.ms"
 ]
 
 app.add_middleware(
@@ -321,6 +320,7 @@ def vk_login(payload: VKLoginIn):
     last_name = "User"
     vk_id = None
     avatar_url = None
+    phone = None
 
     if payload.id_token:
         try:
@@ -328,6 +328,7 @@ def vk_login(payload: VKLoginIn):
             email = claims.get("email")
             first_name = claims.get("first_name", first_name)
             last_name = claims.get("last_name", last_name)
+            phone = claims.get("phone") or claims.get("phone_number")
         except Exception:
             pass
 
@@ -355,9 +356,13 @@ def vk_login(payload: VKLoginIn):
                 last_name = vk_user["last_name"]
             if "avatar" in vk_user:
                 avatar_url = vk_user["avatar"]
+            if "phone" in vk_user and vk_user["phone"]:
+                phone = str(vk_user["phone"])
+            elif "phone_number" in vk_user and vk_user["phone_number"]:
+                phone = str(vk_user["phone_number"])
     except Exception:
         try:
-            url2 = f"https://api.vk.com/method/users.get?v=5.131&access_token={payload.access_token}"
+            url2 = f"https://api.vk.com/method/users.get?v=5.131&access_token={payload.access_token}&fields=contacts,photo_max,photo_200"
             req2 = urllib.request.Request(url2)
             with urllib.request.urlopen(req2) as response2:
                 vk_data2 = json.loads(response2.read().decode())
@@ -373,6 +378,12 @@ def vk_login(payload: VKLoginIn):
                     avatar_url = vk_user["photo_max"]
                 elif "photo_200" in vk_user:
                     avatar_url = vk_user["photo_200"]
+                if "mobile_phone" in vk_user and vk_user["mobile_phone"]:
+                    phone = phone or str(vk_user["mobile_phone"])
+                elif "home_phone" in vk_user and vk_user["home_phone"]:
+                    phone = phone or str(vk_user["home_phone"])
+                elif "phone" in vk_user and vk_user["phone"]:
+                    phone = phone or str(vk_user["phone"])
         except Exception as e:
             if isinstance(e, HTTPException):
                 raise e
@@ -380,7 +391,12 @@ def vk_login(payload: VKLoginIn):
 
     if not vk_id:
         raise HTTPException(401, "Could not identify VK user")
-        
+
+    if phone:
+        phone = str(phone).strip()
+        if not phone.startswith("+"):
+            phone = "+" + phone
+
     user = None
     if email:
         logging.info(f"Looking up user by email: {email}") 
@@ -406,7 +422,7 @@ def vk_login(payload: VKLoginIn):
             group_number="0",
             location="",
             blocks="",
-            phone="",
+            phone=phone or "",
             vk=f"https://vk.com/id{vk_id}",
             tg="",
             email=email,
@@ -435,12 +451,13 @@ def vk_login(payload: VKLoginIn):
     else:
         # Update existing user photo if missing
         if avatar_url and not user.photo_url:
-            
             pattern = r"cs=.*$"
             avatar_url = re.sub(pattern, "cs=150x150", avatar_url)
             s3_photo_url = upload_image_from_url(avatar_url, folder="avatars")
             if s3_photo_url:
                 db.update_user(user.user_id, photo_url=s3_photo_url)
+        if phone:
+            db.update_contact(user.user_id, phone=phone)
         
     if user.banned:
         raise HTTPException(403, "User is banned")

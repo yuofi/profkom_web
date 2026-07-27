@@ -1,13 +1,17 @@
 services:
   backend:
     build: ./backend
+    ports:
+      - "${BACKEND_PORT}:8000"
     restart: always
 
   frontend:
     build: ./frontend
     restart: always
     ports:
-      - "80:80"
+      - "${FRONTEND_PORT}:443"
+    volumes:
+      - /home/yulov/certs:/etc/ngnix/ssl
     depends_on:
       - backend
       

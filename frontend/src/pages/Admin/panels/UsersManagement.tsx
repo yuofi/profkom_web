@@ -38,9 +38,9 @@ export const UsersManagement = () => {
             <thead>
               <tr>
                 <th>ФИО</th>
-                <th>Группа</th>
+                <th>Телефон</th>
                 <th>ВК</th>
-                <th>ТГ</th>
+                <th>Email</th>
                 <th></th>
               </tr>
             </thead>
@@ -55,9 +55,9 @@ export const UsersManagement = () => {
                   <td className={styles.tdPrimary}>
                     {user.surname} {user.name} {user.patronymic}
                   </td>
-                  <td className={styles.tdSecondary}>{user.group_number}</td>
+                  <td className={styles.tdSecondary}>{user.phone}</td>
                   <td className={styles.tdSecondary}>{user.vk || "-"}</td>
-                  <td className={styles.tdSecondary}>{user.tg || "-"}</td>
+                  <td className={styles.tdSecondary}>{user.email || "-"}</td>
                   <td>
                     <div className={styles.actionsContainer}>
                       <Button 

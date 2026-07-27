@@ -4,6 +4,8 @@ import { ProfileBadge } from "../../components/ProfileBadge/ProfileBadge";
 import { useMe } from "../../utils/me";
 import { useNavigate } from "react-router-dom";
 import styles from "./ProfilePage.module.css";
+import { filterRoles } from "../../utils/filterRoles";
+import { Helmet } from "react-helmet-async";
 
 
 export const ProfilePage = () => {
@@ -14,9 +16,12 @@ export const ProfilePage = () => {
 
   return (
     <div className={styles.mainContainer}>
+      <Helmet>
+        <title>Профиль | Профком ВМК</title>
+      </Helmet>
       <ProfileBadge user={user} />
 
-      {(user?.admin || user?.super_user) && (
+      {filterRoles(["admin", "super_user"], user) && (
         <Button
           variant="primary"
           disabled={false}

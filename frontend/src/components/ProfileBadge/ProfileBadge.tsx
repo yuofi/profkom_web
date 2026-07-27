@@ -37,22 +37,22 @@ const mapUserToInfo = (user: ContactInfoOut): ContactInfo => {
   };
 };
 
-function handleLogout() {
-  Cookies.remove("access_token");
-  Cookies.remove("refresh_token");
-  window.location.href = "/auth";
-}
-
 export const ProfileBadge = ({ user }: ProfileBadgeProps) => {
   const [isEditing, setIsEditing] = useState(false);
-  const [editContent, setEditContent] = useState(() => 
-  user ? stringifyContent(mapUserToInfo(user)) : ''
-);
+  const [editContent, setEditContent] = useState(() =>
+    user ? stringifyContent(mapUserToInfo(user)) : "",
+  );
   const navigate = useNavigate();
   const [photoUrl, setPhotoUrl] = useState(user?.photo_url);
   const queryClient = useQueryClient();
-  
-  // Synchronize local state with user prop when it changes
+
+  function handleLogout() {
+    Cookies.remove("access_token");
+    Cookies.remove("refresh_token");
+    // await queryClient.invalidateQueries({ queryKey: ["currentUser"] });
+    navigate("/auth", { replace: true });
+    // window.location.href = "/auth";
+  }
 
   const updateMutation = useMutation({
     mutationFn: (data: ProfileUpdate) =>
@@ -151,14 +151,12 @@ export const ProfileBadge = ({ user }: ProfileBadgeProps) => {
               href={parseProfileUrl(user.vk, "vk.com")}
               target="_blank"
               rel="noopener noreferrer"
-              style={{ textDecoration: "none" }} // чтобы не было стандартного подчеркивания ссылок
+              style={{ textDecoration: "none" }}
             >
               <ProfileChip
                 variant="highlighted"
                 customIcon={<VKIcon width={24} height={24} />}
-              >
-                {" "}
-              </ProfileChip>
+              ></ProfileChip>
             </a>
           )}
           {user.tg && (
@@ -171,9 +169,7 @@ export const ProfileBadge = ({ user }: ProfileBadgeProps) => {
               <ProfileChip
                 variant="highlighted"
                 customIcon={<TelegramIcon width={24} height={24} />}
-              >
-                {" "}
-              </ProfileChip>
+              ></ProfileChip>
             </a>
           )}
         </div>
@@ -201,7 +197,6 @@ export const ProfileBadge = ({ user }: ProfileBadgeProps) => {
           </ProfileChip>
         )}
       </div>
-      {/* Кнопки действий */}
       <div className={styles.actions}>
         <Button
           variant="transparent"

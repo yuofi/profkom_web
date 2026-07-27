@@ -2,6 +2,7 @@
 import {describe, it, expect, beforeEach} from "vitest"
 import {authApi} from "../auth.api"
 import Cookies from "js-cookie";
+import { logger } from "../../logger";
 
 const generateTestUser = () => ({
     email: `test_${Date.now()}@example.com`,

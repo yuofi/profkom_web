@@ -16,6 +16,7 @@ import styles from "./DocEditPage.module.css";
 import { getDocRoute } from "../../utils/routes";
 import { GalleryExtension } from "../../components/Gallery/GalleryExtension";
 import { ContactChipExtension } from "../../components/ContactChip/ContactChipExtension";
+import { Helmet } from "react-helmet-async";
 
 export const DocEditPage = () => {
   const [isSaving, setIsSaving] = useState(false);
@@ -108,6 +109,9 @@ export const DocEditPage = () => {
 
   return (
     <div className={styles.container}>
+      <Helmet>
+        <title>{guide ? `Редактирование: ${guide.title} | Профком ВМК` : "Редактирование | Профком ВМК"}</title>
+      </Helmet>
       <article className={styles.mainContent}>
         <div className={styles.statusInfoTop}>
           <CardLabel variant="black" iconName="edit_note">
@@ -237,3 +241,5 @@ export const DocEditPage = () => {
     </div>
   );
 };
+
+export default DocEditPage;

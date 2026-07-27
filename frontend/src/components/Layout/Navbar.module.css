@@ -54,14 +54,14 @@
   position: relative;
   display: flex;
   align-items: center;
-  height: 44px;
+  height: 41px;
   
-  /* Desktop: always expanded */
+  box-sizing: border-box;
   max-width: 1000px;
   padding: 0 28px 0 12px;
   
   border: 1px solid var(--on-surface);
-  border-radius: 0 var(--radius-large) var(--radius-large) 0;
+  border-radius: 0 var(--radius-medium) var(--radius-medium) 0;
   overflow: hidden;
   
   transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
@@ -152,7 +152,7 @@
   position: absolute;
   top: 100%; 
   left: 0;
-  color: var(--primary, #FBFFA1);
+  color: var(--secondary);
   display: block;
   transition: transform 0.4s cubic-bezier(0.76, 0, 0.24, 1);
 }
@@ -165,46 +165,47 @@
 
 @media (max-width: 768px) {
   .wrapper {
-    padding: 16px 20px;
-    /* gap: 16px; */
+    padding: 8px 20px;
   }
 
-  .menu {
+  .mobileLeftSection {
+    display: flex;
+    flex-direction: column;
     position: relative;
-    z-index: 10;
-    background-color: var(--surface); 
-    height: 33px;
-    /* Mobile closed state */
-    max-width: 60px;
+  }
+
+  .mobileLogoBtn {
+    background-color: var(--on-surface);
+    color: var(--surface);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+    border-radius: var(--radius-medium);
     cursor: pointer;
-    width: auto; 
+    transition: transform 0.2s ease;
+    width: 32px;
+    height: 32px;
   }
 
-  .menuLabel {
-    opacity: 1;
+  .mobileLogoBtn:hover {
+    transform: scale(1.05);
   }
 
-  .menuList {
-    opacity: 0;
-    transform: translateY(10px);
-    pointer-events: none;
-    gap: 12px;
+  .mobileDropdown {
+    position: absolute;
+    top: calc(100% + 12px);
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 100;
   }
 
-  .menu.open {
-    max-width: calc(100% - 114px); 
-    width: calc(100% - 76px);
-    justify-content: center; 
-  }
-
-  .menu.open .menuLabel {
-    opacity: 0;
-    transform: translateX(80px);
-  }
-
-  .menu.open .menuList {
-    opacity: 1;
-    transform: translateY(0);
-    pointer-events: auto;
+  .mobileDropdownBtn {
+    justify-content: flex-start;
+    align-self: flex-start;
+    width: max-content;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
   }
 }

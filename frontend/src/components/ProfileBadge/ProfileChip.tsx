@@ -5,7 +5,7 @@ import { Icon } from "../Icon";
 
 interface ProfileChipProps {
   variant?: "minimal" | "primary" | "iconBg" | "highlighted";
-  children: ReactNode;
+  children?: ReactNode;
   iconName?: string;        // Для стандартных иконок Google
   customIcon?: ReactNode; 
   label?: ReactNode;
@@ -52,7 +52,7 @@ export const ProfileChip = ({
   };
 
   return (
-    <div className={clsx(styles.chip, styles[variant], !children && styles.iconOnly)}>
+    <div className={clsx(styles.chip, styles[variant])}>
       {renderIcon()}
       {Boolean(children) && <span>{children}</span>}
     </div>

@@ -123,21 +123,21 @@
 }
 
 .toolbarBtn:hover {
-  background-color: var(--tertiary-container);
-  color: var(--on-tertiary-container);
+  background-color: var(--primary-container);
+  color: var(--on-primary-container);
 }
 
 .toolbarBtn.active {
-  background-color: var(--tertiary) !important;
-  color: var(--on-tertiary) !important;
+  background-color: var(--primary) !important;
+  color: var(--on-primary) !important;
 }
 
 /* Save Floating Action Button */
 .saveFab {
   width: 56px;
   height: 56px;
-  background-color: var(--tertiary);
-  color: var(--on-tertiary);
+  background-color: var(--primary);
+  color: var(--on-primary);
   border-radius: var(--radius-large);
   display: flex;
   align-items: center;
@@ -152,7 +152,7 @@
 
 .saveFab:hover {
   transform: scale(1.05) translateY(-1px);
-  background-color: color-mix(in srgb, var(--tertiary), white 10%);
+  background-color: color-mix(in srgb, var(--primary), white 10%);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
 
@@ -250,7 +250,7 @@
 .tiptapEditor :global(.tiptap blockquote) {
   margin: 24px 0;
   padding: 12px 20px;
-  border-left: 4px solid var(--tertiary);
+  border-left: 4px solid var(--primary);
   border-radius: 0 var(--radius-small) var(--radius-small) 0;
   font-style: italic;
   display: block;
@@ -270,7 +270,7 @@
 
 .tiptapEditor a,
 .tiptapEditor :global(.tiptap a) {
-  color: var(--tertiary);
+  color: var(--primary);
   text-decoration: underline;
   cursor: pointer;
 }
