@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     S3_SECRET_KEY: str = ""
     S3_BUCKET_NAME: str = ""
     S3_TENANT_ID: str = ""
+    S3_REGION_NAME: str = ""
     ADMIN_NAME: str = ""
     ADMIN_PASSWORD: str = ""
     DATABASE_PATH: str = ""
