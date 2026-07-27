@@ -2,6 +2,7 @@ FROM python:3.12-slim
 
 RUN groupadd -r profkom && useradd -r -g profkom -m admin
 WORKDIR /app
+RUN mkdir /app/data
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

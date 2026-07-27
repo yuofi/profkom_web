@@ -18,8 +18,12 @@ def preset_guides():
     md_dir = os.path.join(os.getcwd(), "./", "md")
     
     names = ["гайды", "информация", "КМБ"]
+    existing_titles = {guide.title for guide in db.list_guides()}
     
     for name in names:
+        if name in existing_titles:
+            print(f"Гайд '{name}' уже существует. Пропуск.")
+            continue
         file_path = os.path.join(md_dir, f"{name}.md")
         
         try:
@@ -56,6 +60,9 @@ def set_admin(superadmin: bool, custom_payload=None):
             "tg": "",
             "email": f'{settings.ADMIN_NAME}@example.com',
         }
+    if db.get_user_by_email(str(payload["email"])):
+        print(f"Пользователь с email '{payload['email']}' уже существует. Пропуск.")
+        return
     contact_model = ContactInfo(
         user_id=0,
         surname=payload["surname"],

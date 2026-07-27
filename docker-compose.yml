@@ -3,6 +3,8 @@ services:
     build: ./backend
     ports:
       - "${BACKEND_PORT}:8000"
+    volumes:
+      - ./data:/app/data
     restart: unless-stopped
 
   frontend:
@@ -12,6 +14,7 @@ services:
       - "${FRONTEND_PORT}:443"
     volumes:
       - /home/yulov/certs:/etc/ngnix/ssl
+      # - ./certs:/etc/nginx/ssl
     depends_on:
       - backend
       
