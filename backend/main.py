@@ -337,9 +337,14 @@ def vk_login(payload: VKLoginIn):
         data = urllib.parse.urlencode({
             "client_id": "54678274",
             "access_token": payload.access_token,
-            "Accept-Language": "ru"
         }).encode("utf-8")
-        req = urllib.request.Request(url, data=data)
+
+        headers = {
+            "Accept-Language": "ru-RU, ru;q=0.9",
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+
+        req = urllib.request.Request(url, data=data, headers=headers)
         logging.info(f"Requesting VK user info with access_token: {payload.access_token}")
         with urllib.request.urlopen(req) as response:
             vk_data = json.loads(response.read().decode())
