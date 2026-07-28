@@ -33,8 +33,8 @@ app = FastAPI(
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 router = APIRouter(prefix="/api")
 origins = [
-    FRONTEND_URL
-    # "https://5x4kxnk4-5173.euw.devtunnels.ms"
+    FRONTEND_URL,
+    "https://5x4kxnk4-5173.euw.devtunnels.ms"
 ]
 
 app.add_middleware(

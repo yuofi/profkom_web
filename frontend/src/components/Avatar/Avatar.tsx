@@ -1,14 +1,14 @@
-import React, { useRef, useState } from 'react';
-import { Icon } from '../Icon';
-import { uploadImage } from '../../utils/s3-utils';
-import styles from './Avatar.module.css';
-import clsx from 'clsx';
-import { Image } from '../Image/Image';
+import React, { useRef, useState } from "react";
+import { Icon } from "../Icon";
+import { uploadImage } from "../../utils/s3-utils";
+import styles from "./Avatar.module.css";
+import clsx from "clsx";
+import { Image } from "../Image/Image";
 
 interface AvatarProps {
   src?: string;
   size?: number;
-  mode?: 'view' | 'edit' | 'disable';
+  mode?: "view" | "edit" | "disable";
   onUpload?: (url: string) => void;
   className?: string;
 }
@@ -16,9 +16,9 @@ interface AvatarProps {
 export const Avatar: React.FC<AvatarProps> = ({
   src,
   size = 64,
-  mode = 'view',
+  mode = "view",
   onUpload,
-  className
+  className,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -28,10 +28,10 @@ export const Avatar: React.FC<AvatarProps> = ({
     if (file && onUpload) {
       setIsUploading(true);
       try {
-        const url = await uploadImage('avatars', file);
+        const url = await uploadImage("avatars", file);
         onUpload(url);
       } catch (error) {
-        console.error('Failed to upload image', error);
+        console.error("Failed to upload image", error);
       } finally {
         setIsUploading(false);
       }
@@ -39,7 +39,7 @@ export const Avatar: React.FC<AvatarProps> = ({
   };
 
   const triggerUpload = () => {
-    if (mode === 'edit' && !isUploading) {
+    if (mode === "edit" && !isUploading) {
       fileInputRef.current?.click();
     }
   };
@@ -52,36 +52,58 @@ export const Avatar: React.FC<AvatarProps> = ({
     const imageSrc = src?.trim();
 
     if (imageSrc) {
-      return <Image src={imageSrc} alt="Avatar" className={styles.image} disableModal={mode === 'edit' || mode === 'disable'} />;
+      return (
+        <Image
+          src={imageSrc}
+          alt="Avatar"
+          className={styles.image}
+          disableModal={mode === "edit" || mode === "disable"}
+        />
+      );
     }
 
     return <Icon name="account_circle" size={size} filled={true} />;
   };
 
   return (
-    <div 
-      className={clsx(styles.avatar, mode === 'edit' && styles.editable, className)}
-      style={{ 
-        width: size, 
-        height: size,
-        '--avatar-size': `${size}px` 
-      } as React.CSSProperties}
+    <div
+      className={clsx(
+        styles.avatar,
+        mode === "edit" && styles.editable,
+        className,
+      )}
+      style={{
+        width: `${size}px`,
+        height: `${size}px`,
+        minWidth: `${size}px`,
+        minHeight: `${size}px`,
+        maxWidth: `${size}px`,
+        maxHeight: `${size}px`,
+        borderRadius: "50%",
+        overflow: "hidden",
+        flexShrink: 0,
+        aspectRatio: "1 / 1",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        position: "relative",
+      }}
       onClick={triggerUpload}
     >
       {renderContent()}
-      
-      {mode === 'edit' && !isUploading && (
+
+      {mode === "edit" && !isUploading && (
         <div className={styles.overlay}>
           <Icon name="add_a_photo" size={size * 0.4} />
         </div>
       )}
-      
-      <input 
-        type="file" 
-        ref={fileInputRef} 
-        style={{ display: 'none' }} 
-        accept="image/*" 
-        onChange={handleFileChange} 
+
+      <input
+        type="file"
+        ref={fileInputRef}
+        style={{ display: "none" }}
+        accept="image/*"
+        onChange={handleFileChange}
       />
     </div>
   );
