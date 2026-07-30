@@ -34,8 +34,14 @@ async function vkLogin(data: { access_token: string, id_token?: string }): Promi
     return api.post("/auth/vk", data);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function changePassword(data: { old_password: string, new_password: string }): Promise<AxiosResponse<any>> {
     return api.post("/auth/change-password", data);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function logout(): Promise<AxiosResponse<any>> {
+    return api.post("/auth/logout");
 }
 
 export const authApi = {
@@ -43,5 +49,6 @@ export const authApi = {
     login,
     getMe,
     vkLogin,
-    changePassword
+    changePassword,
+    logout
 };

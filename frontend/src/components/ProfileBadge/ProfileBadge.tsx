@@ -46,9 +46,13 @@ export const ProfileBadge = ({ user }: ProfileBadgeProps) => {
   const [photoUrl, setPhotoUrl] = useState(user?.photo_url);
   const queryClient = useQueryClient();
 
-  function handleLogout() {
+  async function handleLogout() {
+    try {
+      await authApi.logout();
+    } catch (e) {
+      console.error(e);
+    }
     Cookies.remove("access_token");
-    Cookies.remove("refresh_token");
     // await queryClient.invalidateQueries({ queryKey: ["currentUser"] });
     navigate("/auth", { replace: true });
     // window.location.href = "/auth";

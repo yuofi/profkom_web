@@ -32,21 +32,16 @@ interface CustomAxiosRequestConfig extends InternalAxiosRequestConfig {
     _isRetry?: boolean;
 }
 
-async function fetchRefresh(config: CustomAxiosRequestConfig): Promise<CustomAxiosRequestConfig> {
-    const refreshToken = Cookies.get("refresh_token");
-    if (!refreshToken) throw new Error("No refresh token found");
-    const response: AxiosResponse<RefreshResponse> = await axios.post(`${env.VITE_BACKEND_URL}/api/auth/refresh`, {
-        refresh_token: refreshToken
-    });
+let refreshPromise: Promise<void> | null = null;
+
+async function fetchRefresh(): Promise<void> {
+    const response: AxiosResponse<RefreshResponse> = await axios.post(
+        `${env.VITE_BACKEND_URL}/api/auth/refresh`,
+        {}, // No body needed, refresh token is in httpOnly cookie
+        { withCredentials: true }
+    );
 
     Cookies.set("access_token", response.data.access_token, {expires: 1/8});
-    Cookies.set("refresh_token", response.data.refresh_token, {expires: 7});
-
-    if (config.headers) {
-        config.headers.Authorization = `Bearer ${response.data.access_token}`;
-    }
-
-    return config;
 }
 
 api.interceptors.response.use(
@@ -55,17 +50,32 @@ api.interceptors.response.use(
         const originalConfig = error.config as CustomAxiosRequestConfig;
 
         if (error.response?.status === 401 && !originalConfig._isRetry 
-            && !originalConfig.url?.includes('/auth/login')) {
+            && !originalConfig.url?.includes('/auth/login')
+            && !originalConfig.url?.includes('/auth/refresh')
+            && !originalConfig.url?.includes('/auth/vk')
+            && !originalConfig.url?.includes('/auth/register')
+        ) {
             originalConfig._isRetry = true;
-            const { data, error } = await tryCatch(fetchRefresh(originalConfig));
-            if (error) {
+
+            if (!refreshPromise) {
+                refreshPromise = fetchRefresh().finally(() => {
+                    refreshPromise = null;
+                });
+            }
+
+            const { error: refreshError } = await tryCatch(refreshPromise);
+            
+            if (refreshError) {
                 Cookies.remove("access_token");
-                Cookies.remove("refresh_token");
-                //window.location.href = "/login";
-                return Promise.reject(error);
+                return Promise.reject(refreshError);
             }
             
-            return api(data);
+            const token = Cookies.get("access_token");
+            if (token && originalConfig.headers) {
+                originalConfig.headers.Authorization = `Bearer ${token}`;
+            }
+            
+            return api(originalConfig);
         }
         return Promise.reject(error);
     }

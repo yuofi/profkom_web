@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException, Depends, APIRouter
+from fastapi import FastAPI, HTTPException, Depends, APIRouter, Response, Cookie
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field
 
@@ -22,6 +22,7 @@ from auth import (
     get_current_user,      # replaces old get_current_user
     require_admin,         # replaces old require_admin
     require_superuser,     # replaces old require_superuser
+    REFRESH_TTL_DAYS,
 )
 from utils.s3_service import generate_presigned_url
 
@@ -157,7 +158,7 @@ class TokenPair(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    refresh_token: Optional[str] = None
 
 
 class LoginIn(BaseModel):
@@ -212,7 +213,7 @@ class UrlsResponse(BaseModel):
 # ═══════════════════════════════════════════════════════════
 
 @router.post("/auth/register", response_model=TokenPair, status_code=201)
-def register(payload: RegisterIn):
+def register(payload: RegisterIn, response: Response):
     """
     Register a new user.
     Body JSON:
@@ -267,11 +268,20 @@ def register(payload: RegisterIn):
     created = db.create_user_with_contact(contact_model, user_model)
 
     # Return tokens so the user is logged-in right away
-    return create_token_pair(created.user_id)
+    tokens = create_token_pair(created.user_id)
+    response.set_cookie(
+        key="refresh_token",
+        value=tokens["refresh_token"],
+        httponly=True,
+        max_age=REFRESH_TTL_DAYS * 24 * 60 * 60,
+        samesite="none",
+        secure=True
+    )
+    return tokens
 
 
 @router.post("/auth/login", response_model=TokenPair)
-def login(body: LoginIn):
+def login(body: LoginIn, response: Response):
     """
     Authenticate with email + password → get tokens.
     """
@@ -288,7 +298,16 @@ def login(body: LoginIn):
     if user.banned:
         raise HTTPException(403, "User is banned")
 
-    return create_token_pair(user.user_id)
+    tokens = create_token_pair(user.user_id)
+    response.set_cookie(
+        key="refresh_token",
+        value=tokens["refresh_token"],
+        httponly=True,
+        max_age=REFRESH_TTL_DAYS * 24 * 60 * 60,
+        samesite="none",
+        secure=True
+    )
+    return tokens
 
 
 @router.post("/auth/change-password")
@@ -308,7 +327,7 @@ def change_password(
 
 
 @router.post("/auth/vk", response_model=TokenPair)
-def vk_login(payload: VKLoginIn):
+def vk_login(payload: VKLoginIn, response: Response):
     import urllib.request
     import urllib.parse
     import json
@@ -346,8 +365,8 @@ def vk_login(payload: VKLoginIn):
 
         req = urllib.request.Request(url, data=data, headers=headers)
         logging.info(f"Requesting VK user info with access_token: {payload.access_token}")
-        with urllib.request.urlopen(req) as response:
-            vk_data = json.loads(response.read().decode())
+        with urllib.request.urlopen(req) as vk_response:
+            vk_data = json.loads(vk_response.read().decode())
             vk_user = vk_data.get("user")
             logging.info(f"VK user info response: {vk_user}")
             if "error" in vk_data:
@@ -468,25 +487,49 @@ def vk_login(payload: VKLoginIn):
     if user.banned:
         raise HTTPException(403, "User is banned")
         
-    return create_token_pair(user.user_id)
+    tokens = create_token_pair(user.user_id)
+    response.set_cookie(
+        key="refresh_token",
+        value=tokens["refresh_token"],
+        httponly=True,
+        max_age=REFRESH_TTL_DAYS * 24 * 60 * 60,
+        samesite="none",
+        secure=True
+    )
+    return tokens
 
 
 @router.post("/auth/refresh", response_model=TokenPair)
-def refresh(body: RefreshRequest):
+def refresh(response: Response, refresh_token: str = Cookie(None)):
     """
     Exchange a refresh token for a new access + refresh pair.
     Old refresh token is deleted (rotation).
     """
-    return refresh_tokens(body.refresh_token)
+    if not refresh_token:
+        raise HTTPException(401, "Refresh token missing in cookies")
+    
+    tokens = refresh_tokens(refresh_token)
+    response.set_cookie(
+        key="refresh_token",
+        value=tokens["refresh_token"],
+        httponly=True,
+        max_age=REFRESH_TTL_DAYS * 24 * 60 * 60,
+        samesite="none",
+        secure=True
+    )
+    return tokens
 
 
 @router.post("/auth/logout")
 def logout(
-    body: RefreshRequest,
+    response: Response,
+    refresh_token: str = Cookie(None),
     cur: User = Depends(get_current_user),    # must be authenticated
 ):
     """Revoke a single refresh token (one device)."""
-    revoke_refresh_token(body.refresh_token)
+    if refresh_token:
+        revoke_refresh_token(refresh_token)
+    response.delete_cookie("refresh_token", samesite="none", secure=True)
     return {"detail": "Logged out"}
 
 

@@ -143,7 +143,7 @@ export const InfoPage = () => {
         <title>Контакты | Профком ВМК</title>
       </Helmet>
       <article className={styles.mainContent}>
-        <h1 className={styles.title}>Контакнтая информация</h1>
+        <h1 className={styles.title}>Контактная информация</h1>
         <div className={styles.chipList}>
           {filteredContacts
             .sort((a, b) => a.surname.localeCompare(b.surname))

@@ -61,9 +61,6 @@ export const GreetingPage = () => {
           Cookies.set("access_token", response.data.access_token, {
             expires: 1 / 8,
           });
-          Cookies.set("refresh_token", response.data.refresh_token, {
-            expires: 7,
-          });
           logger.log("Успешный вход:", response);
           await queryClient.invalidateQueries({ queryKey: ["currentUser"] });
           navigate("/", {replace: true})
@@ -75,9 +72,6 @@ export const GreetingPage = () => {
           });
           Cookies.set("access_token", response.data.access_token, {
             expires: 1 / 8,
-          });
-          Cookies.set("refresh_token", response.data.refresh_token, {
-            expires: 7,
           });
           logger.log("Успешный вход:", response);
           await queryClient.invalidateQueries({ queryKey: ["currentUser"] });
@@ -100,9 +94,6 @@ export const GreetingPage = () => {
       });
       Cookies.set("access_token", response.data.access_token, {
         expires: 1 / 8,
-      });
-      Cookies.set("refresh_token", response.data.refresh_token, {
-        expires: 7,
       });
       logger.log("Успешный вход через VK:", response);
       await queryClient.invalidateQueries({ queryKey: ["currentUser"] });
@@ -138,7 +129,7 @@ export const GreetingPage = () => {
             пожаловать!
           </h1>
 
-          <h1 className={styles.accentHeaderText}>В профком ВМК</h1>
+          <h1 className={styles.accentHeaderText}>В Профком ВМК</h1>
 
           <div className={styles.dashedBox}>
             Сначала больно, потом приятно <br />© Павел Юлов

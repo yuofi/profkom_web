@@ -21,7 +21,6 @@ describe("Auth API", () => {
 
     beforeEach(() => {
         Cookies.remove("access_token");
-        Cookies.remove("refresh_token");
         currentUser = generateTestUser();
     });
 
