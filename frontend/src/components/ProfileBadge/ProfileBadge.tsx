@@ -15,6 +15,7 @@ import { parseContent, stringifyContent } from "../../utils/parsing";
 import { parseProfileUrl } from "../../utils/parsing";
 import { logger } from "../../utils/logger";
 import { useNavigate } from "react-router-dom";
+import { authApi } from "../../utils/api/auth.api";
 interface ProfileBadgeProps {
   user: ContactInfoOut | null;
 }
