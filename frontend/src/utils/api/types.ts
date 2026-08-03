@@ -108,13 +108,24 @@ export interface ContactFilter {
 
 export interface GuideIn {
   title: string;
-  owner_block: string;
-  text: string;
+  owner_block?: string;
+  text?: string;
   original_link?: string | null; 
 }
 
-export interface GuideOut extends GuideIn {
+export interface GuideUpdate {
+  title?: string;
+  owner_block?: string;
+  text?: string;
+  original_link?: string | null;
+}
+
+export interface GuideOut {
   guide_id: number;
+  title: string;
+  owner_block: string;
+  text: string;
+  original_link?: string | null;
 }
 
 export interface BlockOut {

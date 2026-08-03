@@ -5,11 +5,12 @@ import styles from "./Admin.module.css";
 import { Icon } from "../../components/Icon";
 import { BlocksManagement } from "./panels/BlocksManagement";
 import { UsersManagement } from "./panels/UsersManagement";
+import { GuidesManagement } from "./panels/GuidesManagement";
 import { useMe } from "../../utils/me";
 import { Helmet } from "react-helmet-async";
 
 export const AdminPanel = () => {
-  const [activeTab, setActiveTab] = useState<"users" | "events" | "blocks">("blocks");
+  const [activeTab, setActiveTab] = useState<"users" | "events" | "blocks" | "guides">("blocks");
   const navigate = useNavigate();
   const user = useMe();
 
@@ -17,12 +18,29 @@ export const AdminPanel = () => {
     switch (activeTab) {
       case "blocks":
         return <BlocksManagement />;
+      case "guides":
+        return <GuidesManagement />;
       case "users":
         return <UsersManagement />;
       case "events":
         return <div>Компонент управления мероприятиями (скоро будет)</div>;
       default:
         return null;
+    }
+  };
+
+  const getPageTitle = () => {
+    switch (activeTab) {
+      case "blocks":
+        return "Управление блоками";
+      case "guides":
+        return "Управление гайдами";
+      case "users":
+        return "Активисты";
+      case "events":
+        return "Мероприятия";
+      default:
+        return "Админ-панель";
     }
   };
 
@@ -52,6 +70,12 @@ export const AdminPanel = () => {
             Блоки
           </button>
           <button
+            className={clsx(styles.menuItem, activeTab === "guides" && styles.menuItemActive)}
+            onClick={() => setActiveTab("guides")}
+          >
+            Гайды
+          </button>
+          <button
             className={clsx(styles.menuItem, activeTab === "events" && styles.menuItemActive)}
             onClick={() => setActiveTab("events")}
           >
@@ -65,7 +89,7 @@ export const AdminPanel = () => {
         <header className={styles.header}>
           <div className={styles.headerLeft}>
             <h1 className={styles.pageTitle}>
-              {activeTab === "blocks" ? "Управление блоками" : "База"}
+              {getPageTitle()}
             </h1>
           </div>
 

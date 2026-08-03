@@ -13,11 +13,11 @@ export const getDocEditRoute = (id: string | number = ":id") => {
 export const getHomeRoute = () => "/";
 export const getProflePAge = () => "/profile";
 
-export const pages = [
-  { name: "guides", text: "гайды" },
-  { name: "KMB", text: "кмб" },
-  { name: "information", text: "информация" },
-];
+// export const pages = [
+//   { name: "guides", text: "гайды" },
+//   { name: "KMB", text: "кмб" },
+//   { name: "information", text: "информация" },
+// ];
 
 type AdminPageSections = "blocks" | "users"
 

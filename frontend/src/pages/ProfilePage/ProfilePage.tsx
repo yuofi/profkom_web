@@ -13,7 +13,6 @@ export const ProfilePage = () => {
   const navigate = useNavigate();
 
 
-
   return (
     <div className={styles.mainContainer}>
       <Helmet>

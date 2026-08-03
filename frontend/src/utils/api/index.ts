@@ -10,6 +10,7 @@ const prefix = isDevelopment ? `${env.VITE_BACKEND_URL}/api` : "/api";
 export const api = axios.create({
     baseURL: prefix,
     timeout: 10000,
+    withCredentials: true,
     headers: {
         'Content-Type': 'application/json'
     },
@@ -37,7 +38,7 @@ let refreshPromise: Promise<void> | null = null;
 async function fetchRefresh(): Promise<void> {
     const response: AxiosResponse<RefreshResponse> = await axios.post(
         `${prefix}/auth/refresh`,
-        {}, // No body needed, refresh token is in httpOnly cookie
+        {},
         { withCredentials: true }
     );
 

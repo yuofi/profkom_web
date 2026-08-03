@@ -54,7 +54,8 @@ export const ProfileBadge = ({ user }: ProfileBadgeProps) => {
       console.error(e);
     }
     Cookies.remove("access_token");
-    // await queryClient.invalidateQueries({ queryKey: ["currentUser"] });
+    queryClient.setQueryData(["currentUser"], null);
+    queryClient.removeQueries();
     navigate("/auth", { replace: true });
     // window.location.href = "/auth";
   }

@@ -6,8 +6,8 @@ import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import {useMe} from "../../utils/me";
 import { generateSlug, extractToc } from "../../utils/idGen";
-import { api } from "../../utils/api";
-import type { GuideOut } from "../../utils/api/types";
+import { guidesApi } from "../../utils/api/guides.api";
+import { blocksApi } from "../../utils/api/blocks.api";
 import { getDocEditRoute } from "../../utils/routes";
 import { Icon } from "../../components/Icon";
 import { Gallery } from "../../components/Gallery/Gallery";
@@ -15,7 +15,7 @@ import { Gallery } from "../../components/Gallery/Gallery";
 import styles from "./DocViewerPage.module.css";
 import { ContactChip } from "../../components/ContactChip/ContactChip";
 import { Helmet } from "react-helmet-async";
-import { filterRoles } from "../../utils/filterRoles";
+import { canEditGuide } from "../../utils/filterRoles";
 
 const extractTextFromChildren = (children: ReactNode): string => {
   if (typeof children === "string") return children;
@@ -37,14 +37,18 @@ export const DocViewerPage = () => {
     data: guide,
     isLoading,
     isError,
+    error,
   } = useQuery({
-    queryKey: ["guides"],
-    queryFn: async () => {
-      const response = await api.get<GuideOut[]>("/guides");
-      return response.data;
-    },
-    staleTime: 10 * 60 * 1000,
-    select: (allGuides) => allGuides.find((g) => g.guide_id === Number(id)),
+    queryKey: ["guide", id, user?.user_id ?? "anon"],
+    queryFn: () => guidesApi.getById(id!),
+    enabled: !!id,
+    retry: false,
+  });
+
+  const { data: blocks } = useQuery({
+    queryKey: ["blocks"],
+    queryFn: blocksApi.getAll,
+    enabled: !!user,
   });
 
   const toc = useMemo(() => {
@@ -156,8 +160,14 @@ export const DocViewerPage = () => {
 
   if (isLoading)
     return <div className={styles.container}>Загрузка документа...</div>;
-  if (isError)
+  if (isError) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const status = (error as any)?.response?.status;
+    if (status === 403) {
+      return <div className={styles.container}>Доступ к данному документу ограничен.</div>;
+    }
     return <div className={styles.container}>Ошибка при загрузке данных.</div>;
+  }
   if (!guide)
     return <div className={styles.container}>Документ не найден.</div>;
 
@@ -193,7 +203,7 @@ export const DocViewerPage = () => {
         </div>
       </article>
       
-      {filterRoles(["super_user"], user) && (
+      {canEditGuide(guide, user, blocks) && (
       <Link 
         to={getDocEditRoute(guide.guide_id)} 
         className={styles.editFab}

@@ -1,15 +1,12 @@
-
 import { useQuery } from "@tanstack/react-query";
-import { api } from "../api";
+import { guidesApi } from "../api/guides.api";
+import { useMe } from "../me";
 
 export const useGuides = () => {
+  const user = useMe();
   return useQuery({
-    queryKey: ["guides"],
-    queryFn: async () => {
-      const response = await api.get("/guides");
-      return response.data;
-    },
-
-    staleTime: 10 * 60 * 1000, 
+    queryKey: ["guides", user?.user_id ?? "anon"],
+    queryFn: guidesApi.getAll,
+    staleTime: 5 * 60 * 1000,
   });
 };

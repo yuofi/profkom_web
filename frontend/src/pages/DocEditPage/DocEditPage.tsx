@@ -10,8 +10,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Icon } from "../../components/Icon";
 import { Button } from "../../components/Button/Button";
 import { CardLabel } from "../../components/CardLabel/CardLabel";
-import { api } from "../../utils/api";
-import type { GuideOut } from "../../utils/api/types";
+import { guidesApi } from "../../utils/api/guides.api";
+import { useMe } from "../../utils/me";
 import styles from "./DocEditPage.module.css";
 import { getDocRoute } from "../../utils/routes";
 import { GalleryExtension } from "../../components/Gallery/GalleryExtension";
@@ -19,6 +19,7 @@ import { ContactChipExtension } from "../../components/ContactChip/ContactChipEx
 import { Helmet } from "react-helmet-async";
 
 export const DocEditPage = () => {
+  const user = useMe();
   const [isSaving, setIsSaving] = useState(false);
   const { id } = useParams<{ id: string }>();
 
@@ -26,14 +27,12 @@ export const DocEditPage = () => {
     data: guide,
     isLoading,
     isError,
+    error,
   } = useQuery({
-    queryKey: ["guides"],
-    queryFn: async () => {
-      const response = await api.get<GuideOut[]>("/guides");
-      return response.data;
-    },
-    staleTime: 10 * 60 * 1000,
-    select: (allGuides) => allGuides.find((g) => g.guide_id === Number(id)),
+    queryKey: ["guide", id, user?.user_id ?? "anon"],
+    queryFn: () => guidesApi.getById(id!),
+    enabled: !!id,
+    retry: false,
   });
 
   const editor = useEditor({
@@ -67,7 +66,7 @@ export const DocEditPage = () => {
   }, [guide, editor]);
 
   const handleSave = useCallback(async () => {
-    if (!editor || !guide) return;
+    if (!editor || !guide || !id) return;
 
     setIsSaving(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -80,7 +79,7 @@ export const DocEditPage = () => {
         text: markdownOutput,
         owner_block: guide.owner_block
       };
-      await api.post<GuideOut>(`/guides/${id}`, doc);
+      await guidesApi.update(id, doc);
       alert("Документ успешно сохранен!");
     } catch (error) {
       console.error("Ошибка сохранения:", error);
@@ -104,7 +103,14 @@ export const DocEditPage = () => {
   }, [editor]);
 
   if (isLoading) return <div className={styles.container}>Загрузка редактора...</div>;
-  if (isError) return <div className={styles.container}>Ошибка при загрузке данных.</div>;
+  if (isError) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const status = (error as any)?.response?.status;
+    if (status === 403) {
+      return <div className={styles.container}>Доступ к редактированию данного документа ограничен.</div>;
+    }
+    return <div className={styles.container}>Ошибка при загрузке данных.</div>;
+  }
   if (!guide) return <div className={styles.container}>Документ не найден.</div>;
 
   return (

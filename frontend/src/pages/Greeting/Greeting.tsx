@@ -13,7 +13,7 @@ import { useState } from "react";
 import { authApi } from "../../utils/api/auth.api";
 import Cookies from "js-cookie";
 import type z from "zod";
-import {VKAuthButton} from "../../components/VKAuth/authButton";
+import { VKAuthButton } from "../../components/VKAuth/authButton";
 import { type AuthError, type TokenResult } from "@vkid/sdk";
 import { logger } from "../../utils/logger";
 import { useNavigate } from "react-router-dom";
@@ -22,7 +22,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 export const GreetingPage = () => {
   const [signUp, setSignUp] = useState(true);
-  const navigate = useNavigate()
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const gradientClipPath =
@@ -62,9 +62,12 @@ export const GreetingPage = () => {
             expires: 1 / 8,
           });
           logger.log("Успешный вход:", response);
-          await queryClient.invalidateQueries({ queryKey: ["currentUser"] });
-          navigate("/", {replace: true})
-          //window.location.href = "/";
+          const meResponse = await authApi.getMe();
+          queryClient.setQueryData(["currentUser"], meResponse);
+          queryClient.removeQueries({
+            predicate: (query) => query.queryKey[0] !== "currentUser",
+          });
+          navigate("/", { replace: true });
         } else {
           const response = await authApi.login({
             email: data.email,
@@ -74,9 +77,12 @@ export const GreetingPage = () => {
             expires: 1 / 8,
           });
           logger.log("Успешный вход:", response);
-          await queryClient.invalidateQueries({ queryKey: ["currentUser"] });
-          navigate("/", {replace: true})
-          // window.location.href = "/";
+          const meResponse = await authApi.getMe();
+          queryClient.setQueryData(["currentUser"], meResponse);
+          queryClient.removeQueries({
+            predicate: (query) => query.queryKey[0] !== "currentUser",
+          });
+          navigate("/", { replace: true });
         }
       } catch (error) {
         console.error("Ошибка при отправке:", error);
@@ -87,31 +93,36 @@ export const GreetingPage = () => {
 
   const handleLoginSuccess = async (data: TokenResult) => {
     try {
-      logger.log('Успешная авторизация VK:', data);
+      logger.log("Успешная авторизация VK:", data);
       const response = await authApi.vkLogin({
         access_token: data.access_token,
-        id_token: data.id_token
+        id_token: data.id_token,
       });
       Cookies.set("access_token", response.data.access_token, {
         expires: 1 / 8,
       });
       logger.log("Успешный вход через VK:", response);
-      await queryClient.invalidateQueries({ queryKey: ["currentUser"] });
-      navigate("/", {replace: true})
-      // window.location.href = "/";
+      const meResponse = await authApi.getMe();
+      queryClient.setQueryData(["currentUser"], meResponse);
+      queryClient.removeQueries({
+        predicate: (query) => query.queryKey[0] !== "currentUser",
+      });
+      navigate("/", { replace: true });
     } catch (error) {
       console.error("Ошибка при VK авторизации на бэкенде:", error);
     }
   };
 
   const handleLoginError = (error: AuthError) => {
-    console.error('Ошибка авторизации:', error);
+    console.error("Ошибка авторизации:", error);
   };
 
   return (
     <div className={styles.container}>
       <Helmet>
-        <title>{signUp ? "Регистрация | Профком ВМК" : "Вход | Профком ВМК"}</title>
+        <title>
+          {signUp ? "Регистрация | Профком ВМК" : "Вход | Профком ВМК"}
+        </title>
       </Helmet>
       <CurvedRectangle
         theme="dark"
@@ -120,7 +131,7 @@ export const GreetingPage = () => {
       >
         <div className={styles.innerContent}>
           <div className={styles.logo}>
-            <ProfkomLogo variant="desktop" width={70} strokeWidth={15}/>
+            <ProfkomLogo variant="desktop" width={70} strokeWidth={15} />
           </div>
 
           <h1 className={styles.headerText}>
@@ -146,46 +157,49 @@ export const GreetingPage = () => {
         className={styles.card}
       >
         <FormikProvider value={formik}>
-          <form className={styles.form} onSubmit={formik.handleSubmit}>            
-            {signUp ?  (
-              <VKAuthButton 
-              onSuccess={handleLoginSuccess}
-              onError={handleLoginError}
+          <form className={styles.form} onSubmit={formik.handleSubmit}>
+            {signUp ? (
+              <VKAuthButton
+                onSuccess={handleLoginSuccess}
+                onError={handleLoginError}
               />
-            ) :
-            (
-            <>
-            <FormTextField name="email" label="email" type="email" />
+            ) : (
+              <>
+                <FormTextField name="email" label="email" type="email" />
 
-            <FormTextField name="password" label="пароль" type="password" isPassword />
-            
-             <Button
-              variant="primary"
-              type="submit"
-              disabled={formik.isSubmitting}
+                <FormTextField
+                  name="password"
+                  label="пароль"
+                  type="password"
+                  isPassword
+                />
+
+                <Button
+                  variant="primary"
+                  type="submit"
+                  disabled={formik.isSubmitting}
+                >
+                  {formik.isSubmitting
+                    ? "Отправка..."
+                    : signUp
+                      ? "Создать аккаунт"
+                      : "Войти"}
+                </Button>
+              </>
+            )}
+            <h5
+              className={styles.formSubheading}
+              onClick={() => {
+                setSignUp(!signUp);
+                formik.resetForm();
+              }}
             >
-              {formik.isSubmitting
-                ? "Отправка..."
-                : signUp
-                  ? "Создать аккаунт"
-                  : "Войти"}
-            </Button>
-            </>
-          )}
-          <h5
-                className={styles.formSubheading}
-                onClick={() => {
-                  setSignUp(!signUp);
-                  formik.resetForm();
-                }}
-              >
-                {signUp ? "или войти c паролем" : "войти с вк"}
-              </h5>
+              {signUp ? "или войти c паролем" : "войти с вк"}
+            </h5>
             {isSuccess && <div>Успешно!</div>}
             {globalError && <div style={{ color: "red" }}>{globalError}</div>}
           </form>
         </FormikProvider>
-
       </CurvedRectangle>
     </div>
   );

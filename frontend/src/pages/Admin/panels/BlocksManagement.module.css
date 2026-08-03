@@ -377,3 +377,45 @@
 .deleteButton:hover {
   background-color: var(--error-container);
 }
+
+.searchInput {
+  background-color: var(--surface-container-high);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-medium);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--on-surface);
+  padding: 6px 12px;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.searchInput:focus {
+  border-color: var(--tertiary);
+}
+
+.docEditBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background-color: var(--surface-container-high);
+  color: var(--tertiary);
+  border: 1px solid var(--tertiary);
+  border-radius: var(--radius-medium);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.docEditBtn:hover {
+  background-color: var(--tertiary);
+  color: var(--on-tertiary);
+}
+
+.actionBtnDoc:hover {
+  color: var(--on-tertiary);
+  background-color: var(--tertiary-container);
+}

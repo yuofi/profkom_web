@@ -11,7 +11,7 @@ import { GreetingPage } from "./pages/Greeting/Greeting";
 import { InfoPage } from "./pages/InfoPage/InfoPage";
 import { getDocRoute, getDocEditRoute } from "./utils/routes";
 import { UserProvider } from "./utils/ctx";
-import { ExtendedRoute, ProtectedRoute } from "./pages/Wrappers/wrappers";
+import { ExtendedRoute, ProtectedRoute, GuideEditRoute } from "./pages/Wrappers/wrappers";
 import { ProfilePage } from "./pages/ProfilePage/ProfilePage";
 import { ProfileEditPage } from "./pages/ProfileEditPage/ProfileEditPage";
 // import { AdminPanel } from "./pages/Admin/AdminPage";
@@ -33,34 +33,34 @@ function App() {
   return (
     <HelmetProvider>
       <QueryClientProvider client={queryClient}>
-        <Suspense fallback={<div>Загрузка страницы...</div>}>
-        <UserProvider>
-          <BrowserRouter>
-            <Routes>
-              {/* <Route element={<AuthRoute />}> */}
-              <Route path="/auth" element={<GreetingPage />} />
-              {/* </Route> */}
-              <Route element={<ProtectedRoute />}>
-                <Route path="/" element={<Layout />}>
-                  <Route index element={<UnderConstructionPage />} />
-                  <Route path={getDocRoute()} element={<DocViewerPage />} />
-                  <Route path="/info" element={<InfoPage />} />
-                  <Route path="/profile" element={<ProfilePage />} />
-                  <Route element={<ExtendedRoute allowedRoles={[]} />}>
-                    <Route path={getDocEditRoute()} element={<DocEditPage />} />
+        <BrowserRouter>
+          <Suspense fallback={<div>Загрузка страницы...</div>}>
+            <UserProvider>
+              <Routes>
+                {/* <Route element={<AuthRoute />}> */}
+                <Route path="/auth" element={<GreetingPage />} />
+                {/* </Route> */}
+                <Route element={<ProtectedRoute />}>
+                  <Route path="/" element={<Layout />}>
+                    <Route index element={<UnderConstructionPage />} />
+                    <Route path={getDocRoute()} element={<DocViewerPage />} />
+                    <Route path="/info" element={<InfoPage />} />
+                    <Route path="/profile" element={<ProfilePage />} />
+                    <Route element={<GuideEditRoute />}>
+                      <Route path={getDocEditRoute()} element={<DocEditPage />} />
+                    </Route>
+                    <Route path="/profile/edit" element={<ProfileEditPage />} />
                   </Route>
-                  <Route path="/profile/edit" element={<ProfileEditPage />} />
-                </Route>
 
-                <Route element={<ExtendedRoute allowedRoles={["admin"]} />}>
-                  <Route path="/admin" element={<AdminPanel />} />
+                  <Route element={<ExtendedRoute allowedRoles={["admin"]} />}>
+                    <Route path="/admin" element={<AdminPanel />} />
+                  </Route>
                 </Route>
-              </Route>
-              <Route path="*" element={<NotFoundPage />} />
-            </Routes>
-          </BrowserRouter>
-        </UserProvider>
-        </Suspense>
+                <Route path="*" element={<NotFoundPage />} />
+              </Routes>
+            </UserProvider>
+          </Suspense>
+        </BrowserRouter>
       </QueryClientProvider>
     </HelmetProvider>
   );

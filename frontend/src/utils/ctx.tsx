@@ -7,6 +7,7 @@ export const UserProvider = ({ children }: { children: React.ReactNode }) => {
   const { data, isLoading } = useQuery({
     queryKey: ["currentUser"],
     queryFn: authApi.getMe,
+    retry: false,
   });
 
   if (isLoading) {
