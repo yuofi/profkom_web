@@ -13,7 +13,7 @@ services:
     ports:
       - "${FRONTEND_PORT}:443"
     volumes:
-      - /home/yulov/certs:/etc/ngnix/ssl
+      - /home/yulov/certs:/etc/nginx/ssl
       # - ./certs:/etc/nginx/ssl
     depends_on:
       - backend

@@ -153,19 +153,20 @@ export const InfoPage = () => {
               );
               const currentContent =
                 editingContents[contact.user_id] || initialContent;
-
-              return (
-                <ContactChip
-                  key={contact.user_id}
-                  initialContent={currentContent}
-                  mode={isSuperAdmin ? "edit" : "view"}
-                  onChange={(newContent) =>
-                    handleChipChange(contact.user_id, newContent)
-                  }
-                  onSave={() => handleSave(contact.user_id)}
-                  disabledFields={["blocks"]}
-                />
-              );
+              if (contact.in_profcom === true) {
+                return (
+                  <ContactChip
+                    key={contact.user_id}
+                    initialContent={currentContent}
+                    mode={isSuperAdmin ? "edit" : "view"}
+                    onChange={(newContent) =>
+                      handleChipChange(contact.user_id, newContent)
+                    }
+                    onSave={() => handleSave(contact.user_id)}
+                    disabledFields={["blocks"]}
+                  />
+                );
+              }
             })}
           {filteredContacts.length === 0 && (
             <p>Контакты не найдены по заданным фильтрам.</p>
