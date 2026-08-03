@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isValidGroupNumber, SignUpValidationSchema, ProfileValidationSchema } from "../zod";
+import { isValidGroupNumber, SignUpValidationSchema, ProfileValidationSchema } from "../../zod";
 
 describe("isValidGroupNumber", () => {
   it("should accept valid group numbers from 100 to 700", () => {
