@@ -30,3 +30,4 @@ dist-ssr
 stats.html
 certs/*
 *.pem
+profcom.session.sql
