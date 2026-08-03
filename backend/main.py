@@ -80,7 +80,7 @@ class RegisterIn(BaseModel):
     name: str = ""
     patronymic: str = ""
     password: str                    # ← NEW: plain-text password from client
-    group_number: int = Field(..., ge=1)
+    group_number: int = Field(..., ge=100, le=700)
     tg: str = Field(
         ...,
         min_length=5,

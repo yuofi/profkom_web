@@ -1,10 +1,10 @@
 import {z} from 'zod'
 
-const isValidGroupEnding = (ending: number) => {
-    const isStandardGroup = ending >= 1 && ending <= 20; // 01 - 20
-    const isSpecialGroup = ending === 41 || ending === 42; // 41, 42
-    
-    return isStandardGroup || isSpecialGroup;
+export const isValidGroupNumber = (value: string | number) => {
+    const str = String(value).trim();
+    if (!/^\d+$/.test(str)) return false;
+    const num = parseInt(str, 10);
+    return num >= 100 && num <= 700;
 };
 
 export const SignUpValidationSchema = z.object({
@@ -12,13 +12,9 @@ export const SignUpValidationSchema = z.object({
     password: z.string().min(8, "длина пароля должна быть хотя бы 8 символов"),
     passwordAgain: z.string().min(8, "длина пароля должна быть хотя бы 8 символов"),
     groupNumber: z.string().refine((value) => {
-        const match = value.match(/(\d{2})$/);
-        if (!match) return false; // Нет двух последних цифр
-        
-        const groupEnding = parseInt(match[1], 10);
-        return isValidGroupEnding(groupEnding);
+        return isValidGroupNumber(value);
     }, {
-        message: "Номер группы должен оканчиваться на 01-20, 41 или 42",
+        message: "Номер группы должен быть числом от 100 до 700",
     }),
     telegram: z.string().min(1, "Telegram не может быть пустым"),
     name: z.string().min(1, "Имя не может быть пустым"),
@@ -42,13 +38,9 @@ export const ProfileValidationSchema = z.object({
   patronymic: z.string().min(1, "Отчество не может быть пустым"),
   group_number: z.string().refine((value) => {
       if (!value) return true;
-      const match = value.match(/(\d{2})$/);
-      if (!match) return false; 
-      
-      const groupEnding = parseInt(match[1], 10);
-      return isValidGroupEnding(groupEnding);
+      return isValidGroupNumber(value);
   }, {
-      message: "Номер группы должен оканчиваться на 01-20, 41 или 42",
+      message: "Номер группы должен быть числом от 100 до 700",
   }).optional().or(z.literal("")),
   budget: z.enum(["Бюджет", "Контракт"], "Выберите Бюджет или Контракт").optional(),
   location: z.string().optional().or(z.literal("")),
