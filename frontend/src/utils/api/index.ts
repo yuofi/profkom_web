@@ -36,7 +36,7 @@ let refreshPromise: Promise<void> | null = null;
 
 async function fetchRefresh(): Promise<void> {
     const response: AxiosResponse<RefreshResponse> = await axios.post(
-        `${prefix}/api/auth/refresh`,
+        `${prefix}/auth/refresh`,
         {}, // No body needed, refresh token is in httpOnly cookie
         { withCredentials: true }
     );
