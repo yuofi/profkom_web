@@ -71,6 +71,7 @@ uvicorn main:app --reload
 - `title` – название гайда
 - `owner_block` – блок‑владелец
 - `text` – текст гайда
+- `description` – краткое описание гайда
 - `original_link` – ссылка на оригинал
 
 ---
@@ -312,6 +313,7 @@ GET /guides
     "title": "Как вступить в профком",
     "owner_block": "КН",
     "text": "Длинный текст гайда...",
+    "description": "Краткое описание гайда...",
     "original_link": "https://example.com/guide1"
   }
 ]
@@ -338,6 +340,7 @@ GET /guides
   "title": "Как вступить в профком",
   "owner_block": "КН",
   "text": "Подробный гайд...",
+  "description": "Краткое описание гайда...",
   "original_link": "https://example.com/guide1"
 }
 ```
@@ -350,6 +353,7 @@ GET /guides
   "title": "Как вступить в профком",
   "owner_block": "КН",
   "text": "Подробный гайд...",
+  "description": "Краткое описание гайда...",
   "original_link": "https://example.com/guide1"
 }
 ```

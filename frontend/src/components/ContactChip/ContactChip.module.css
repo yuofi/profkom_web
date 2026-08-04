@@ -1,53 +1,23 @@
 @import "../../styles/vars.css";
 
 .chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  background-color: var(--surface);
-  color: var(--surface-text);
-  padding: 12px 16px;
-  border-radius: 20px;
-  cursor: pointer;
-  font-family: var(--font-family-base);
-  font-weight: 500;
-  font-size: 16px;
-  transition: transform 0.2s, background-color 0.2s;
-  user-select: none;
-  margin: 4px;
-  border: 1px solid var(--surface-variant);
-}
-
-.chip:hover {
-  background-color: color-mix(in srgb, transparent, white 10%);
-}
-
-.chip:active {
-  transform: translateY(0);
+  composes: card from "./Card.module.css";
 }
 
 .editMode {
-  border: 1px dashed var(--surface-variant);
-}
-
-.chipText {
-  white-space: normal;
-  word-wrap: break-word;
+  composes: editMode from "./Card.module.css";
 }
 
 .chipInfo {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: flex-start;
-  padding-left: 4px;
-  gap: 8px;
+  composes: cardInfo from "./Card.module.css";
+}
+
+.chipText {
+  composes: cardTitle from "./Card.module.css";
 }
 
 .chipTags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  composes: cardTags from "./Card.module.css";
 }
 
 /* Modal Styles */
@@ -140,14 +110,13 @@
 
 @media (max-width: 768px) {
   .row {
-      display: block;
+    display: block;
   }
 
   .row > * {
     width: 100%;
   }
 }
-
 
 .field {
   margin-bottom: 24px;

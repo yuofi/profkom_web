@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom";
 import styles from "./ProfilePage.module.css";
 import { filterRoles } from "../../utils/filterRoles";
 import { Helmet } from "react-helmet-async";
+import { getAdminTabRoute } from "../../utils/routes";
 
 
 export const ProfilePage = () => {
@@ -24,7 +25,7 @@ export const ProfilePage = () => {
         <Button
           variant="primary"
           disabled={false}
-          onClick={() => navigate("/admin")}
+          onClick={() => navigate(getAdminTabRoute("blocks"))}
         >
           <Icon name="arrow_back" size={20} />
           админская панель

@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import clsx from "clsx";
 import styles from "./Admin.module.css";
 import { Icon } from "../../components/Icon";
@@ -8,11 +7,12 @@ import { UsersManagement } from "./panels/UsersManagement";
 import { GuidesManagement } from "./panels/GuidesManagement";
 import { useMe } from "../../utils/me";
 import { Helmet } from "react-helmet-async";
+import { getAdminTabRoute } from "../../utils/routes";
 
 export const AdminPanel = () => {
-  const [activeTab, setActiveTab] = useState<"users" | "events" | "blocks" | "guides">("blocks");
   const navigate = useNavigate();
   const user = useMe();
+  const activeTab = useParams<{ tab: string }>().tab;
 
   const renderContent = () => {
     switch (activeTab) {
@@ -51,7 +51,7 @@ export const AdminPanel = () => {
       </Helmet>
       {/* SIDEBAR */}
       <aside className={styles.sidebar}>
-        <button className={styles.backButton} onClick={() => navigate(-1)}>
+        <button className={styles.backButton} onClick={() => navigate("/profile")}>
           <Icon name="arrow_back" size={20} />
           Назад
         </button>
@@ -59,25 +59,25 @@ export const AdminPanel = () => {
         <nav className={styles.nav}>
           <button
             className={clsx(styles.menuItem, activeTab === "users" && styles.menuItemActive)}
-            onClick={() => setActiveTab("users")}
+            onClick={() => navigate(getAdminTabRoute("users"))}
           >
             Активисты
           </button>
           <button
             className={clsx(styles.menuItem, activeTab === "blocks" && styles.menuItemActive)}
-            onClick={() => setActiveTab("blocks")}
+            onClick={() => navigate(getAdminTabRoute("blocks"))}
           >
             Блоки
           </button>
           <button
             className={clsx(styles.menuItem, activeTab === "guides" && styles.menuItemActive)}
-            onClick={() => setActiveTab("guides")}
+            onClick={() => navigate(getAdminTabRoute("guides"))}
           >
             Гайды
           </button>
           <button
             className={clsx(styles.menuItem, activeTab === "events" && styles.menuItemActive)}
-            onClick={() => setActiveTab("events")}
+            onClick={() => navigate(getAdminTabRoute("events"))}
           >
             Мероприятия
           </button>

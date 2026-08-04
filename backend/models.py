@@ -42,6 +42,7 @@ class Guide:
     title: str                 # Название гайда
     owner_block: str           # Блок "owner"
     text: str                  # Текст
+    description: str = ""      # Краткое описание гайда
     original_link: Optional[str] = None  # Ссылка на оригинал
 
 

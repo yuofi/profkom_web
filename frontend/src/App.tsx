@@ -9,11 +9,12 @@ import { UnderConstructionPage } from "./pages/fallback/UnderConstruction";
 import { DocViewerPage } from "./pages/DocViewPage/DocViewerPage";
 import { GreetingPage } from "./pages/Greeting/Greeting";
 import { InfoPage } from "./pages/InfoPage/InfoPage";
-import { getDocRoute, getDocEditRoute } from "./utils/routes";
+import { getDocRoute, getDocEditRoute, getAdminTabRoute } from "./utils/routes";
 import { UserProvider } from "./utils/ctx";
 import { ExtendedRoute, ProtectedRoute, GuideEditRoute } from "./pages/Wrappers/wrappers";
 import { ProfilePage } from "./pages/ProfilePage/ProfilePage";
 import { ProfileEditPage } from "./pages/ProfileEditPage/ProfileEditPage";
+import { GuidesPage } from "./pages/Guides/GuidesPage";
 // import { AdminPanel } from "./pages/Admin/AdminPage";
 const AdminPanel = lazy(() => import("./pages/Admin/AdminPage"))
 const DocEditPage = lazy(() => import("./pages/DocEditPage/DocEditPage"))
@@ -50,10 +51,11 @@ function App() {
                       <Route path={getDocEditRoute()} element={<DocEditPage />} />
                     </Route>
                     <Route path="/profile/edit" element={<ProfileEditPage />} />
+                  <Route path="/guides" element={<GuidesPage />} />
                   </Route>
 
                   <Route element={<ExtendedRoute allowedRoles={["admin"]} />}>
-                    <Route path="/admin" element={<AdminPanel />} />
+                    <Route path={getAdminTabRoute()} element={<AdminPanel />} />
                   </Route>
                 </Route>
                 <Route path="*" element={<NotFoundPage />} />

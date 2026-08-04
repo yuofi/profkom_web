@@ -5,7 +5,6 @@ import { Link, useNavigate } from "react-router-dom";
 import { getDocRoute, getHomeRoute } from "../../utils/routes";
 import { useMediaQuery } from "../../utils/hooks/useMediaQuery";
 import { useGuides } from "../../utils/hooks/useGuides";
-import type { GuideOut } from "../../utils/api/types";
 import { useMe } from "../../utils/me";
 import { Avatar } from "../Avatar/Avatar";
 
@@ -19,6 +18,8 @@ export const Navbar = () => {
   
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const kmb = guides?.find((guide) => guide.title === "КМБ");
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent | TouchEvent) => {
@@ -66,19 +67,30 @@ export const Navbar = () => {
                   главная
                 </Button>
 
-                {guides?.map((item: GuideOut) => (
                   <Button
-                    key={item.guide_id}
                     variant="secondary"
                     className={styles.mobileDropdownBtn}
                     onClick={() => {
                       setIsOpen(false);
-                      navigate(getDocRoute(item.guide_id));
+                      navigate("/guides");
                     }}
                   >
-                    {item.title}
+                    гайды
                   </Button>
-                ))}
+                
+                {kmb && (
+                  <Button
+                    variant="secondary"
+                    className={styles.mobileDropdownBtn}
+                    onClick={() => {
+                      setIsOpen(false);
+                      navigate(getDocRoute(kmb?.guide_id || ""));
+                    }}
+                  >
+                    {kmb?.title || ""}
+                  </Button>
+                )}
+
                 <Button
                   variant="secondary"
                   className={styles.mobileDropdownBtn}
@@ -113,17 +125,26 @@ export const Navbar = () => {
             <span className={styles.menuLabel}>меню</span>
 
             <ul className={styles.menuList}>
-              {guides && guides?.map((item: GuideOut) => (
-                <li className={styles.menuItem} key={item.guide_id}>
+                <li className={styles.menuItem}>
                   <Link
                     className={styles.menuLink}
-                    to={getDocRoute(item.guide_id)}
-                    data-text={item.title}
+                    to="/guides"
+                    data-text="гайды"
                   >
-                    <span>{item.title}</span>
+                    <span>гайды</span>
                   </Link>
                 </li>
-              ))}
+
+                <li className={styles.menuItem} key={kmb?.guide_id}>
+                  <Link
+                  className={styles.menuLink}
+                  to={getDocRoute(kmb?.guide_id || "")}
+                  data-text={kmb?.title || ""}
+                  >
+                    <span>{kmb?.title || ""}</span>
+                  </Link>
+                </li>
+
             
               <li className={styles.menuItem} key={"info"}>
                 <Link

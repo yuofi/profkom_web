@@ -1,0 +1,51 @@
+@import "../../styles/vars.css";
+
+.card {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--surface);
+  color: var(--surface-text);
+  padding: 12px 16px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-family: var(--font-family-base);
+  font-weight: 500;
+  font-size: 16px;
+  transition: transform 0.2s, background-color 0.2s;
+  user-select: none;
+  margin: 4px;
+  border: 1px solid var(--surface-variant);
+}
+
+.card:hover {
+  background-color: color-mix(in srgb, transparent, white 10%);
+}
+
+.card:active {
+  transform: translateY(0);
+}
+
+.editMode {
+  border: 1px dashed var(--surface-variant);
+}
+
+.cardInfo {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  padding-left: 4px;
+  gap: 8px;
+}
+
+.cardTitle {
+  white-space: normal;
+  word-wrap: break-word;
+}
+
+.cardTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

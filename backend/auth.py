@@ -27,6 +27,7 @@ pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # tokenUrl is only used by the Swagger "Authorize" button
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -100,6 +101,24 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
     if user.banned:
         raise HTTPException(403, "User is banned")
     return user
+
+
+def get_current_user_optional(token: Optional[str] = Depends(oauth2_scheme_optional)) -> Optional[User]:
+    """
+    FastAPI dependency: reads optional Bearer token, returns User or None.
+    Does not raise HTTPException if unauthenticated or token expired.
+    """
+    if not token:
+        return None
+    try:
+        payload = _decode_access(token)
+        user_id = int(payload["sub"])
+        user = db.get_user(user_id)
+        if not user or user.banned:
+            return None
+        return user
+    except Exception:
+        return None
 
 
 def require_admin(cur: User = Depends(get_current_user)) -> User:

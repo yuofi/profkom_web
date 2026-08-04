@@ -62,6 +62,7 @@ class GuideORM(Base):
     title = Column(String, nullable=False)
     owner_block = Column(String, nullable=False)
     text = Column(Text, nullable=False)
+    description = Column(String, nullable=False, default="")
     original_link = Column(String, nullable=True)
 
 
@@ -112,6 +113,20 @@ def _ensure_sqlite_users_photo_url_column() -> None:
 
 
 _ensure_sqlite_users_photo_url_column()
+
+
+def _ensure_sqlite_guides_description_column() -> None:
+    """Add description to existing SQLite DBs."""
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(guides)")).fetchall()
+        col_names = {r[1] for r in rows}
+        if "description" not in col_names:
+            conn.execute(
+                text("ALTER TABLE guides ADD COLUMN description VARCHAR NOT NULL DEFAULT ''")
+            )
+
+
+_ensure_sqlite_guides_description_column()
 
 
 def _ensure_sqlite_block_hr_column() -> None:
@@ -302,6 +317,7 @@ def _guide_orm_to_dc(g: GuideORM) -> GuideDC:
         title=g.title,
         owner_block=g.owner_block,
         text=g.text,
+        description=g.description or "",
         original_link=g.original_link,
     )
 
@@ -636,18 +652,66 @@ class Database:
             rows = session.query(GuideORM).all()
             return [_guide_orm_to_dc(g) for g in rows]
 
+    def get_guide(self, guide_id: int) -> Optional[GuideDC]:
+        with self._session() as session:
+            g = session.get(GuideORM, guide_id)
+            if not g:
+                return None
+            return _guide_orm_to_dc(g)
+
     def create_guide(self, guide: GuideDC) -> GuideDC:
         with self._session() as session:
             g = GuideORM(
                 title=guide.title,
-                owner_block=guide.owner_block,
+                owner_block=guide.owner_block or "none",
                 text=guide.text,
+                description=guide.description or "",
                 original_link=guide.original_link,
             )
             session.add(g)
             session.commit()
             session.refresh(g)
             return _guide_orm_to_dc(g)
+
+    def delete_guide(self, guide_id: int) -> bool:
+        with self._session() as session:
+            g = session.get(GuideORM, guide_id)
+            if not g:
+                return False
+            session.delete(g)
+            session.commit()
+            return True
+
+    def get_user_block_names(self, user_id: int) -> list[str]:
+        with self._session() as session:
+            u = session.get(UserORM, user_id)
+            c = session.get(ContactInfoORM, user_id)
+            blocks: set[str] = set()
+            if u and u.blocks:
+                blocks.update(_parse_blocks(u.blocks))
+            if c and c.blocks:
+                blocks.update(_parse_blocks(c.blocks))
+            if c and c.kkr_name:
+                master_or_hr = (
+                    session.query(BlockORM.name)
+                    .filter((BlockORM.master == c.kkr_name) | (BlockORM.hr == c.kkr_name))
+                    .all()
+                )
+                for (b_name,) in master_or_hr:
+                    blocks.add(b_name)
+            return list(blocks)
+
+    def get_user_master_block_names(self, user_id: int) -> list[str]:
+        with self._session() as session:
+            c = session.get(ContactInfoORM, user_id)
+            if not c or not c.kkr_name:
+                return []
+            master_blocks = (
+                session.query(BlockORM.name)
+                .filter(BlockORM.master == c.kkr_name)
+                .all()
+            )
+            return [b_name for (b_name,) in master_blocks]
 
     # --- Blocks ---
 

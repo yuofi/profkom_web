@@ -12,7 +12,7 @@ import { Icon } from "../../../components/Icon";
 import { FormTextField } from "../../../components/Form/FormTextFiled";
 import { FormAutocompleteField } from "../../../components/Form/FormAutocompleteField";
 import { useForm } from "../../../components/Form/Form";
-import { getDocEditRoute } from "../../../utils/routes";
+import { getDocEditRoute, getDocRoute } from "../../../utils/routes";
 import { useMe } from "../../../utils/me";
 import { canEditGuide } from "../../../utils/filterRoles";
 import type { GuideOut } from "../../../utils/api/types";
@@ -40,15 +40,18 @@ export const GuidesManagement = () => {
     queryFn: blocksApi.getAll,
   });
 
-  // Find the block where current user is a master
-  const userMasterBlock = useMemo(() => {
-    if (!blocks || !me) return null;
-    return blocks.find(b => b.master === me.kkr_name)?.name || null;
+  // Find the blocks where current user is a master
+  const userMasterBlocks = useMemo(() => {
+    if (!blocks || !me || !me.kkr_name) return [];
+    return blocks.filter(b => b.master === me.kkr_name).map(b => b.name);
   }, [blocks, me]);
 
-  // Options for selecting owner block in modal
-  const blockOptions = useMemo(() => {
-    const list = [{ label: "Глобальный (без блока)", value: "none" }];
+  const userMasterBlock = userMasterBlocks[0] || null;
+  const canCreateGuide = !!me?.super_user || userMasterBlocks.length > 0;
+
+  // Options for selecting owner block in modal for superusers
+  const superUserBlockOptions = useMemo(() => {
+    const list = [{ label: "Глобальный (для всех)", value: "none" }];
     if (blocks) {
       blocks.forEach(b => {
         list.push({ label: b.name, value: b.name });
@@ -57,14 +60,22 @@ export const GuidesManagement = () => {
     return list;
   }, [blocks]);
 
+  // Options for selecting owner block in modal for masters (can toggle between global and their block)
+  const masterBlockOptions = useMemo(() => {
+    const list = [{ label: "Глобальный (для всех)", value: "none" }];
+    userMasterBlocks.forEach(bName => {
+      list.push({ label: `Только для блока ${bName}`, value: bName });
+    });
+    return list;
+  }, [userMasterBlocks]);
+
   // Check if current user has permission to edit/delete a given guide
   const canManageGuide = (guide: GuideOut) => {
     return canEditGuide(guide, me, blocks);
-
-};
+  };
 
   const createMutation = useMutation({
-    mutationFn: (data: { title: string; owner_block?: string; text?: string }) =>
+    mutationFn: (data: { title: string; owner_block?: string; text?: string; description?: string }) =>
       guidesApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["guides"] });
@@ -91,6 +102,7 @@ export const GuidesManagement = () => {
   const GuideValidationSchema = useMemo(() => {
     return z.object({
       title: z.string().min(1, "Название обязательно"),
+      description: z.string().optional(),
       owner_block: z.string().optional(),
     });
   }, []);
@@ -98,16 +110,19 @@ export const GuidesManagement = () => {
   const { formik, isSuccess, globalError } = useForm({
     initialValues: {
       title: "",
-      owner_block: me?.super_user ? "none" : (userMasterBlock || ""),
+      description: "",
+      owner_block: me?.super_user ? "none" : (userMasterBlock || "none"),
     },
     validationSchema: GuideValidationSchema,
     onSubmit: async (values) => {
+      const selectedOwnerBlock = values.owner_block || "none";
       if (editingGuide) {
         await updateMutation.mutateAsync({
           id: editingGuide.guide_id,
           data: {
             title: values.title,
-            owner_block: me?.super_user ? (values.owner_block || "none") : (userMasterBlock || editingGuide.owner_block),
+            description: values.description || "",
+            owner_block: selectedOwnerBlock,
             text: editingGuide.text,
             original_link: editingGuide.original_link,
           },
@@ -115,7 +130,8 @@ export const GuidesManagement = () => {
       } else {
         await createMutation.mutateAsync({
           title: values.title,
-          owner_block: me?.super_user ? (values.owner_block || "none") : (userMasterBlock || undefined),
+          description: values.description || "",
+          owner_block: me?.super_user ? selectedOwnerBlock : (userMasterBlock || selectedOwnerBlock),
           text: `# ${values.title}\n\n`,
         });
       }
@@ -127,13 +143,15 @@ export const GuidesManagement = () => {
       if (editingGuide) {
         formik.setValues({
           title: editingGuide.title,
+          description: editingGuide.description || "",
           owner_block: editingGuide.owner_block || "none",
         });
       } else {
         formik.resetForm();
         formik.setValues({
           title: "",
-          owner_block: me?.super_user ? "none" : (userMasterBlock || ""),
+          description: "",
+          owner_block: me?.super_user ? "none" : (userMasterBlock || "none"),
         });
       }
     }
@@ -252,7 +270,7 @@ export const GuidesManagement = () => {
                 onChange={(e) => setBlockFilter(e.target.value || null)}
               >
                 <option value="">Все блоки</option>
-                <option value="none">Глобальные (без блока)</option>
+                <option value="none">Глобальные (для всех)</option>
                 {uniqueBlocksInGuides.map(b => (
                   <option key={b} value={b}>{b}</option>
                 ))}
@@ -261,7 +279,7 @@ export const GuidesManagement = () => {
           </div>
 
           <div className={styles.filtersRight}>
-            {(me?.super_user || userMasterBlock || me?.admin) && (
+            {canCreateGuide && (
               <button className={styles.createBlockBtn} onClick={openCreateModal}>
                 <Icon name="add" size={20} />
                 Создать гайд
@@ -277,7 +295,7 @@ export const GuidesManagement = () => {
             <thead>
               <tr>
                 <th>Название гайда</th>
-                <th>Блок</th>
+                <th>Видимость</th>
                 <th>Текст статьи</th>
                 <th></th>
               </tr>
@@ -299,21 +317,35 @@ export const GuidesManagement = () => {
                     <td className={styles.tdPrimary}>{guide.title}</td>
                     <td>
                       <span className={styles.chip}>
-                        {isSuper ? "Глобальный" : guide.owner_block}
+                        {isSuper ? "Глобальный (для всех)" : guide.owner_block}
                       </span>
                     </td>
                     <td>
-                      <button
-                        className={styles.docEditBtn}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate(getDocEditRoute(guide.guide_id));
-                        }}
-                        title="Перейти к редактированию статьи"
-                      >
-                        <Icon name="edit_document" size={16} />
-                        Редактировать статью
-                      </button>
+                      {hasManageRights ? (
+                        <button
+                          className={styles.docEditBtn}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(getDocEditRoute(guide.guide_id));
+                          }}
+                          title="Перейти к редактированию статьи"
+                        >
+                          <Icon name="edit_document" size={16} />
+                          Редактировать статью
+                        </button>
+                      ) : (
+                        <button
+                          className={styles.docEditBtn}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(getDocRoute(guide.guide_id));
+                          }}
+                          title="Просмотр статьи"
+                        >
+                          <Icon name="visibility" size={16} />
+                          Просмотр статьи
+                        </button>
+                      )}
                     </td>
                     <td>
                       <div className={styles.actionsContainer}>
@@ -360,21 +392,17 @@ export const GuidesManagement = () => {
                   color="secondary"
                 />
 
-                {me?.super_user ? (
-                  <FormAutocompleteField
-                    name="owner_block"
-                    label="Блок гайда"
-                    options={blockOptions}
-                  />
-                ) : (
-                  <FormTextField
-                    name="owner_block"
-                    label="Блок (назначается автоматически)"
-                    value={userMasterBlock || "Ваш блок"}
-                    disabled
-                    color="secondary"
-                  />
-                )}
+                <FormTextField
+                  name="description"
+                  label="Краткое описание"
+                  color="secondary"
+                />
+
+                <FormAutocompleteField
+                  name="owner_block"
+                  label="Видимость / Блок гайда"
+                  options={me?.super_user ? superUserBlockOptions : masterBlockOptions}
+                />
 
                 {globalError && (
                   <div className={styles.errorText}>

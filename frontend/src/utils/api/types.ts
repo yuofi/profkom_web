@@ -110,6 +110,7 @@ export interface GuideIn {
   title: string;
   owner_block?: string;
   text?: string;
+  description?: string;
   original_link?: string | null; 
 }
 
@@ -117,6 +118,7 @@ export interface GuideUpdate {
   title?: string;
   owner_block?: string;
   text?: string;
+  description?: string;
   original_link?: string | null;
 }
 
@@ -125,6 +127,7 @@ export interface GuideOut {
   title: string;
   owner_block: string;
   text: string;
+  description?: string;
   original_link?: string | null;
 }
 

@@ -43,9 +43,8 @@ export const canEditGuide = (
 ): boolean => {
     if (!guide || !user) return false;
     if (user.super_user) return true;
-    if (!user.admin) return false;
 
-    // Superuser guides can only be edited by superusers
+    // Superuser / global guides can only be edited by superusers
     if (isSuperUserGuide(guide)) {
         return false;
     }
@@ -53,25 +52,11 @@ export const canEditGuide = (
     const guideBlock = guide.owner_block?.trim().toLowerCase();
     if (!guideBlock) return false;
 
-    // Check user's assigned blocks string
-    const userBlocks = (user.blocks || "")
-        .split(/[,;\n]+/)
-        .map((b) => b.trim().toLowerCase())
-        .filter(Boolean);
-    if (userBlocks.includes(guideBlock)) {
-        return true;
-    }
-
-    // Check blocks list if provided (user is master, hr, or in arr_of_human)
-    if (blocks && blocks.length > 0) {
+    // A block master can only edit guides of their own block
+    if (blocks && blocks.length > 0 && user.kkr_name) {
         const matchedBlock = blocks.find((b) => b.name.trim().toLowerCase() === guideBlock);
-        if (matchedBlock) {
-            if (user.kkr_name && (matchedBlock.master === user.kkr_name || matchedBlock.hr === user.kkr_name)) {
-                return true;
-            }
-            if (matchedBlock.arr_of_human && matchedBlock.arr_of_human.includes(user.user_id)) {
-                return true;
-            }
+        if (matchedBlock && matchedBlock.master === user.kkr_name) {
+            return true;
         }
     }
 

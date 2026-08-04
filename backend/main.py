@@ -19,9 +19,10 @@ from auth import (
     refresh_tokens,
     revoke_refresh_token,
     revoke_all_user_tokens,
-    get_current_user,      # replaces old get_current_user
-    require_admin,         # replaces old require_admin
-    require_superuser,     # replaces old require_superuser
+    get_current_user,          # replaces old get_current_user
+    get_current_user_optional, # optional auth
+    require_admin,             # replaces old require_admin
+    require_superuser,         # replaces old require_superuser
     REFRESH_TTL_DAYS,
 )
 from utils.s3_service import generate_presigned_url
@@ -123,13 +124,27 @@ class MeOut(ContactInfoOut):
 
 class GuideIn(BaseModel):
     title: str
-    owner_block: str
-    text: str
+    owner_block: Optional[str] = "none"
+    text: Optional[str] = ""
+    description: Optional[str] = ""
     original_link: Optional[str] = None
 
 
-class GuideOut(GuideIn):
+class GuideUpdate(BaseModel):
+    title: Optional[str] = None
+    owner_block: Optional[str] = None
+    text: Optional[str] = None
+    description: Optional[str] = None
+    original_link: Optional[str] = None
+
+
+class GuideOut(BaseModel):
     guide_id: int
+    title: str
+    owner_block: str
+    text: str
+    description: str = ""
+    original_link: Optional[str] = None
 
 
 class BlockIn(BaseModel):
@@ -633,34 +648,141 @@ def delete_user(user_id: int, cur: User = Depends(require_superuser)):
 # ═══════════════════════════════════════════════════════════
 
 @router.get("/guides", response_model=List[GuideOut])
-def list_guides():
-    return [GuideOut(**g.__dict__) for g in db.list_guides()]
+def list_guides(cur: Optional[User] = Depends(get_current_user_optional)):
+    all_guides = db.list_guides()
+    if cur and cur.super_user:
+        return [GuideOut(**g.__dict__) for g in all_guides]
+
+    user_blocks = set()
+    if cur:
+        user_blocks = {b.strip().lower() for b in db.get_user_block_names(cur.user_id)}
+
+    result = []
+    for g in all_guides:
+        ob = (g.owner_block or "").strip().lower()
+        if ob in ("", "none", "all"):
+            result.append(GuideOut(**g.__dict__))
+        elif cur and ob in user_blocks:
+            result.append(GuideOut(**g.__dict__))
+    logger.info(f"user blocks: {user_blocks}, guides found: {[(i.title, i.owner_block) for i in result]}")
+    return result
+
+
+@router.get("/guides/{guide_id}", response_model=GuideOut)
+def get_guide(guide_id: int, cur: Optional[User] = Depends(get_current_user_optional)):
+    g = db.get_guide(guide_id)
+    if not g:
+        raise HTTPException(404, "Guide not found")
+
+    ob = (g.owner_block or "").strip().lower()
+    if ob in ("", "none", "all"):
+        return GuideOut(**g.__dict__)
+
+    if not cur:
+        raise HTTPException(403, "Access forbidden")
+
+    if cur.super_user:
+        return GuideOut(**g.__dict__)
+
+    user_blocks = {b.strip().lower() for b in db.get_user_block_names(cur.user_id)}
+    if ob in user_blocks:
+        return GuideOut(**g.__dict__)
+
+    raise HTTPException(403, "Access forbidden")
 
 
 @router.post("/guides", response_model=GuideOut)
-def create_guide(guide: GuideIn, cur: User = Depends(require_superuser)):
-    g = Guide(guide_id=0, title=guide.title, owner_block=guide.owner_block,
-              text=guide.text, original_link=guide.original_link)
+def create_guide(guide: GuideIn, cur: User = Depends(get_current_user)):
+    if cur.super_user:
+        owner_block = (guide.owner_block or "none").strip()
+    else:
+        master_blocks = db.get_user_master_block_names(cur.user_id)
+        if not master_blocks:
+            raise HTTPException(403, "Only block masters and superusers can create guides")
+
+        requested_ob = (guide.owner_block or "").strip()
+        matched = next((mb for mb in master_blocks if mb.lower() == requested_ob.lower()), None)
+        owner_block = matched if matched else master_blocks[0]
+
+    g = Guide(
+        guide_id=0,
+        title=guide.title,
+        owner_block=owner_block if owner_block else "none",
+        text=guide.text if guide.text else f"# {guide.title}\n\n",
+        description=guide.description if guide.description is not None else "",
+        original_link=guide.original_link,
+    )
     created = db.create_guide(g)
     return GuideOut(**created.__dict__)
 
 
 @router.post("/guides/{guide_id}", response_model=GuideOut)
+@router.put("/guides/{guide_id}", response_model=GuideOut)
+@router.patch("/guides/{guide_id}", response_model=GuideOut)
 def edit_guide(
     guide_id: int,
-    guide: GuideIn,
-    cur: User = Depends(require_superuser),
+    guide: GuideUpdate,
+    cur: User = Depends(get_current_user),
 ):
+    existing = db.get_guide(guide_id)
+    if not existing:
+        raise HTTPException(404, "Guide not found")
+
+    if cur.super_user:
+        new_owner_block = guide.owner_block if guide.owner_block is not None else existing.owner_block
+    else:
+        master_blocks = db.get_user_master_block_names(cur.user_id)
+        master_blocks_lower = {mb.lower(): mb for mb in master_blocks}
+        existing_ob = (existing.owner_block or "").strip().lower()
+
+        if existing_ob not in master_blocks_lower:
+            raise HTTPException(403, "You can only edit guides belonging to your own block as a master")
+
+        current_master_block = master_blocks_lower[existing_ob]
+
+        if guide.owner_block is not None:
+            req_ob = guide.owner_block.strip().lower()
+            if req_ob in ("", "none", "all"):
+                new_owner_block = "none"
+            elif req_ob == existing_ob:
+                new_owner_block = current_master_block
+            elif req_ob in master_blocks_lower:
+                new_owner_block = master_blocks_lower[req_ob]
+            else:
+                raise HTTPException(403, "You can only set visibility to 'none' (for all) or your own block")
+        else:
+            new_owner_block = existing.owner_block
+
     updated = db.update_guide(
         guide_id,
-        title=guide.title,
-        owner_block=guide.owner_block,
-        text=guide.text,
-        original_link=guide.original_link,
+        title=guide.title if guide.title is not None else existing.title,
+        owner_block=new_owner_block if new_owner_block else "none",
+        text=guide.text if guide.text is not None else existing.text,
+        description=guide.description if guide.description is not None else existing.description,
+        original_link=guide.original_link if guide.original_link is not None else existing.original_link,
     )
     if not updated:
         raise HTTPException(404, "Guide not found")
     return GuideOut(**updated.__dict__)
+
+
+@router.delete("/guides/{guide_id}")
+def delete_guide(guide_id: int, cur: User = Depends(get_current_user)):
+    existing = db.get_guide(guide_id)
+    if not existing:
+        raise HTTPException(404, "Guide not found")
+
+    if not cur.super_user:
+        master_blocks = db.get_user_master_block_names(cur.user_id)
+        master_blocks_lower = {mb.lower() for mb in master_blocks}
+        existing_ob = (existing.owner_block or "").strip().lower()
+        if existing_ob not in master_blocks_lower:
+            raise HTTPException(403, "You can only delete guides of your own block")
+
+    success = db.delete_guide(guide_id)
+    if not success:
+        raise HTTPException(404, "Guide not found")
+    return {"status": "deleted"}
 
 
 # ═══════════════════════════════════════════════════════════
@@ -768,8 +890,8 @@ def get_presigned_url(
     Generate a presigned URL for direct S3 upload.
     If folder is 'guides', only superusers can upload.
     """
-    if payload.folder == 'guides' and not cur.super_user:
-        raise HTTPException(403, "Only superusers can upload to 'guides' folder")
+    if payload.folder == 'guides' and not cur.super_user and not db.get_user_master_block_names(cur.user_id):
+        raise HTTPException(403, "Only superusers and block masters can upload to 'guides' folder")
 
     urls = generate_presigned_url(payload.folder, payload.content_type)
     return urls
