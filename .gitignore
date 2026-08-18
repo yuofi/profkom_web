@@ -24,9 +24,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-*.py
 *.log
-*.txt
 stats.html
 certs/*
 *.pem
