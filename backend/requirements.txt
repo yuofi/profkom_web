@@ -9,3 +9,4 @@ python-jose==3.5.0
 SQLAlchemy==2.0.36
 pydantic[email]
 uvicorn==0.32.0
+pytest
