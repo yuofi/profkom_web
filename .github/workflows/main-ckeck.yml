@@ -24,7 +24,7 @@ jobs:
 
       - name: Run tests & linters
         run: |
-          pytest
+          python -m pytest
 
   frontend-checks:
     runs-on: ubuntu-latest

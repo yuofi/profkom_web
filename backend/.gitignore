@@ -9,3 +9,4 @@ repomix-output.xml
 *.csv
 *.log
 *.db
+.pytest_cache
