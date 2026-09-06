@@ -16,6 +16,7 @@ export const getDocEditRoute = (id: string | number = ":id") => {
 
 export const getHomeRoute = () => "/";
 export const getProfilePage = () => "/profile";
+export const getPgasRoute = () => "/pgas";
 
 // export const pages = [
 //   { name: "guides", text: "гайды" },

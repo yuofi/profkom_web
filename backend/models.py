@@ -34,6 +34,7 @@ class User:
     banned: bool = False
     super_user: bool = False
     admin: bool = False
+    pgas_admin: bool = False   # Права на раздел ПГАС
 
 
 @dataclass
@@ -44,6 +45,18 @@ class Guide:
     text: str                  # Текст
     description: str = ""      # Краткое описание гайда
     original_link: Optional[str] = None  # Ссылка на оригинал
+
+
+@dataclass
+class PgasEntry:
+    entry_id: int              # PK
+    title: str                 # Название мероприятия
+    year: int = 0              # Год
+    file_url: str = ""         # Публичная ссылка на файл в S3
+    file_name: str = ""        # Исходное имя файла
+    file_type: str = ""        # MIME-тип файла
+    created_at: str = ""       # Дата загрузки, ISO-8601 UTC
+    uploaded_by: Optional[int] = None  # Кто загрузил
 
 
 @dataclass
