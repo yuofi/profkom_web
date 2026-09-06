@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, Depends, APIRouter, Response, Cookie
@@ -8,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field
 
 from database import db
-from models import Block, ContactInfo, User, Guide
+from models import Block, ContactInfo, User, Guide, PgasEntry
 import logging
 import re
 # ── Import the NEW auth module instead of inline helpers ───
@@ -23,6 +24,7 @@ from auth import (
     get_current_user_optional, # optional auth
     require_admin,             # replaces old require_admin
     require_superuser,         # replaces old require_superuser
+    require_pgas_admin,        # права на раздел ПГАС
     REFRESH_TTL_DAYS,
 )
 from utils.s3_service import generate_presigned_url
@@ -101,6 +103,7 @@ class UserOut(BaseModel):
     banned: bool
     super_user: bool
     admin: bool
+    pgas_admin: bool = False
 
 
 class ProfileOut(UserOut):
@@ -119,6 +122,7 @@ class MeOut(ContactInfoOut):
     banned: bool
     super_user: bool
     admin: bool
+    pgas_admin: bool = False
     has_password: bool = True
 
 
@@ -145,6 +149,25 @@ class GuideOut(BaseModel):
     text: str
     description: str = ""
     original_link: Optional[str] = None
+
+
+class PgasEntryIn(BaseModel):
+    title: str = Field(..., min_length=1)
+    year: int = Field(..., ge=1900, le=2200)
+    file_url: str = Field(..., min_length=1)
+    file_name: str = ""
+    file_type: str = ""
+
+
+class PgasEntryOut(BaseModel):
+    entry_id: int
+    title: str
+    year: int
+    file_url: str
+    file_name: str = ""
+    file_type: str = ""
+    created_at: str = ""
+    uploaded_by: Optional[int] = None
 
 
 class BlockIn(BaseModel):
@@ -573,6 +596,7 @@ def my_profile(cur: User = Depends(get_current_user)):
         banned=cur.banned,
         super_user=cur.super_user,
         admin=cur.admin,
+        pgas_admin=cur.pgas_admin,
         has_password=bool(cur.hashed_password)
     )
 
@@ -786,6 +810,65 @@ def delete_guide(guide_id: int, cur: User = Depends(get_current_user)):
 
 
 # ═══════════════════════════════════════════════════════════
+#  PGAS
+# ═══════════════════════════════════════════════════════════
+
+#: Допустимые MIME-типы файлов ПГАС
+PGAS_ALLOWED_CONTENT_TYPES = ("application/pdf", "image/png", "image/jpeg", "image/jpg")
+#: Допустимые расширения файлов ПГАС
+PGAS_ALLOWED_EXTENSIONS = ("pdf", "png", "jpg", "jpeg")
+PGAS_BAD_FILE = "Only pdf, png and jpg files are allowed for PGAS"
+
+
+def _validate_pgas_file(file_url: str, file_type: str) -> None:
+    """Пускаем только pdf/png/jpg: сверяем и MIME-тип (если он передан), и расширение ссылки."""
+    ct = (file_type or "").strip().lower()
+    if ct and ct not in PGAS_ALLOWED_CONTENT_TYPES:
+        raise HTTPException(400, PGAS_BAD_FILE)
+
+    ext = file_url.split("?")[0].rsplit(".", 1)[-1].strip().lower()
+    if ext not in PGAS_ALLOWED_EXTENSIONS:
+        raise HTTPException(400, PGAS_BAD_FILE)
+
+
+@router.get("/pgas", response_model=List[PgasEntryOut])
+def list_pgas(cur: User = Depends(get_current_user)):
+    """Таблицу ПГАС видит любой авторизованный пользователь."""
+    return [PgasEntryOut(**e.__dict__) for e in db.list_pgas_entries()]
+
+
+@router.post("/pgas", response_model=PgasEntryOut)
+def create_pgas(payload: PgasEntryIn, cur: User = Depends(require_pgas_admin)):
+    """Добавить запись в таблицу ПГАС. Доступно pgas_admin и суперюзеру."""
+    _validate_pgas_file(payload.file_url, payload.file_type)
+
+    entry = PgasEntry(
+        entry_id=0,
+        title=payload.title,
+        year=payload.year,
+        file_url=payload.file_url,
+        file_name=payload.file_name,
+        file_type=payload.file_type,
+        created_at=datetime.now(timezone.utc).isoformat(),
+        uploaded_by=cur.user_id,
+    )
+    created = db.create_pgas_entry(entry)
+    return PgasEntryOut(**created.__dict__)
+
+
+@router.delete("/pgas/{entry_id}")
+def delete_pgas(entry_id: int, cur: User = Depends(require_pgas_admin)):
+    """Удалить запись ПГАС. Доступно pgas_admin и суперюзеру."""
+    if not db.get_pgas_entry(entry_id):
+        raise HTTPException(404, "PGAS entry not found")
+
+    success = db.delete_pgas_entry(entry_id)
+    if not success:
+        raise HTTPException(404, "PGAS entry not found")
+    return {"status": "deleted"}
+
+
+# ═══════════════════════════════════════════════════════════
 #  BLOCKS
 # ═══════════════════════════════════════════════════════════
 
@@ -889,9 +972,16 @@ def get_presigned_url(
     """
     Generate a presigned URL for direct S3 upload.
     If folder is 'guides', only superusers can upload.
+    If folder is 'pgas', only pgas admins and superusers can upload, and only pdf/png/jpg.
     """
     if payload.folder == 'guides' and not cur.super_user and not db.get_user_master_block_names(cur.user_id):
         raise HTTPException(403, "Only superusers and block masters can upload to 'guides' folder")
+
+    if payload.folder == 'pgas':
+        if not cur.pgas_admin and not cur.super_user:
+            raise HTTPException(403, "Only PGAS admins and superusers can upload to 'pgas' folder")
+        if payload.content_type.strip().lower() not in PGAS_ALLOWED_CONTENT_TYPES:
+            raise HTTPException(400, PGAS_BAD_FILE)
 
     urls = generate_presigned_url(payload.folder, payload.content_type)
     return urls

@@ -79,6 +79,7 @@ export interface MeOut extends ContactInfoOut  {
     super_user: boolean;
     admin: boolean;
     has_password?: boolean;
+    pgas_admin?: boolean;
 }
 
 
@@ -152,4 +153,23 @@ export interface BlockUpdate {
   hr?: string;
   cnt_of_human?: number;
   arr_of_human?: number[];
+}
+
+export interface PgasEntryIn {
+  title: string;
+  year: number;
+  file_url: string;
+  file_name?: string;
+  file_type?: string;
+}
+
+export interface PgasEntryOut {
+  entry_id: number;
+  title: string;
+  year: number;
+  file_url: string;
+  file_name: string;
+  file_type: string;
+  created_at: string;
+  uploaded_by: number | null;
 }

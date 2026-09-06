@@ -451,6 +451,60 @@ GET /contacts
 
 ---
 
+### 10. Роль `pgas_admin` и раздел ПГАС
+
+Таблица `pgas_entries`:
+
+- `entry_id` – PK
+- `title` – название мероприятия
+- `year` – год (целое число)
+- `file_url` – публичная ссылка на файл в S3
+- `file_name` – исходное имя файла
+- `file_type` – MIME-тип файла
+- `created_at` – дата загрузки, ISO‑8601 UTC
+- `uploaded_by` – FK на `users.user_id`, кто загрузил
+
+Флаг `users.pgas_admin` – права на раздел ПГАС. Он же приходит в `GET /profile/me`
+(`MeOut.pgas_admin`) – по нему фронт решает, показывать ли кнопки загрузки и удаления.
+
+**Эндпоинты:**
+
+- `GET /pgas` – список `PgasEntryOut`, новые записи первыми. Доступно **любому авторизованному**.
+- `POST /pgas` – создать запись, тело `PgasEntryIn` (`title`, `year`, `file_url`,
+  `file_name`, `file_type`). Доступно **pgas_admin или super_user**. Файл только pdf/png/jpg,
+  иначе 400.
+- `DELETE /pgas/{entry_id}` – удалить запись, ответ `{"status": "deleted"}`. Доступно
+  **pgas_admin или super_user**, 404 – если записи нет.
+- `POST /upload/presigned-url` с `folder: "pgas"` – доступно **pgas_admin или super_user**;
+  `content_type` только `application/pdf`, `image/png`, `image/jpeg`, `image/jpg`, иначе 400.
+
+Файл кладётся по обычной схеме S3: presigned‑ссылка → `PUT` файла → `POST /pgas` с полученным
+`public_url`.
+
+**Как выдать роль человеку:**
+
+```bash
+# по почте
+python scripts/set_pgas_admin.py --email ivan@example.com
+# по ID или по имени ККР
+python scripts/set_pgas_admin.py --user-id 42
+python scripts/set_pgas_admin.py --kkr-name "Иван Петров"
+# снять роль / посмотреть всех, у кого она есть
+python scripts/set_pgas_admin.py --email ivan@example.com --revoke
+python scripts/set_pgas_admin.py --list
+```
+
+В докере то же самое:
+
+```bash
+docker compose exec backend python scripts/set_pgas_admin.py --email ivan@example.com
+```
+
+Схема правится аддитивно (`ALTER TABLE ... ADD COLUMN` / `CREATE TABLE IF NOT EXISTS`),
+поэтому на уже развёрнутой базе достаточно перезапустить бэкенд – данные не теряются.
+
+---
+
 Если захочешь, можно в README дополнительно описать:
 - схему прав доступа (кто что видит/может править),
 - пример последовательности запросов (регистрация → логин → обновление профиля → фильтрация контактов).

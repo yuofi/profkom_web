@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import ProfkomLogo from "../profkomLogo";
 import styles from "./Navbar.module.css";
 import { Link, useNavigate } from "react-router-dom";
-import { getDocRoute, getHomeRoute } from "../../utils/routes";
+import { getDocRoute, getHomeRoute, getPgasRoute } from "../../utils/routes";
 import { useMediaQuery } from "../../utils/hooks/useMediaQuery";
 import { useGuides } from "../../utils/hooks/useGuides";
 import { useMe } from "../../utils/me";
@@ -96,6 +96,17 @@ export const Navbar = () => {
                   className={styles.mobileDropdownBtn}
                   onClick={() => {
                     setIsOpen(false);
+                    navigate(getPgasRoute());
+                  }}
+                >
+                  ПГАС
+                </Button>
+
+                <Button
+                  variant="secondary"
+                  className={styles.mobileDropdownBtn}
+                  onClick={() => {
+                    setIsOpen(false);
                     navigate("/info");
                   }}
                 >
@@ -142,6 +153,16 @@ export const Navbar = () => {
                   data-text={kmb?.title || ""}
                   >
                     <span>{kmb?.title || ""}</span>
+                  </Link>
+                </li>
+
+                <li className={styles.menuItem} key={"pgas"}>
+                  <Link
+                    className={styles.menuLink}
+                    to={getPgasRoute()}
+                    data-text="ПГАС"
+                  >
+                    <span>ПГАС</span>
                   </Link>
                 </li>
 

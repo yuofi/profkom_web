@@ -133,6 +133,12 @@ def require_superuser(cur: User = Depends(get_current_user)) -> User:
     return cur
 
 
+def require_pgas_admin(cur: User = Depends(get_current_user)) -> User:
+    if not cur.pgas_admin and not cur.super_user:
+        raise HTTPException(403, "PGAS admin rights required")
+    return cur
+
+
 # ═══════════════════════════════════════════════════════════
 # Refresh & revoke
 # ═══════════════════════════════════════════════════════════

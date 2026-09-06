@@ -7,7 +7,13 @@ from typing import List, Optional
 from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Text, create_engine, text
 from sqlalchemy.orm import Session, declarative_base, relationship, sessionmaker, joinedload
 
-from models import Block as BlockDC, ContactInfo as ContactInfoDC, Guide as GuideDC, User as UserDC
+from models import (
+    Block as BlockDC,
+    ContactInfo as ContactInfoDC,
+    Guide as GuideDC,
+    PgasEntry as PgasEntryDC,
+    User as UserDC,
+)
 from settings import settings
 
 DATABASE_URL = "sqlite:///" + settings.DATABASE_PATH
@@ -29,6 +35,7 @@ class UserORM(Base):
     banned = Column(Boolean, default=False, nullable=False)
     super_user = Column(Boolean, default=False, nullable=False)
     admin = Column(Boolean, default=False, nullable=False)
+    pgas_admin = Column(Boolean, default=False, nullable=False, server_default="0")
     photo_url = Column(String, nullable=True)
 
     contact = relationship("ContactInfoORM", back_populates="user", uselist=False)
@@ -76,6 +83,19 @@ class BlockORM(Base):
     arr_of_human = Column(Text, nullable=False, default="[]")
 
 
+class PgasEntryORM(Base):
+    __tablename__ = "pgas_entries"
+
+    entry_id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String, nullable=False)
+    year = Column(Integer, nullable=False, default=0)
+    file_url = Column(String, nullable=False)
+    file_name = Column(String, nullable=False, default="")
+    file_type = Column(String, nullable=False, default="")
+    created_at = Column(String, nullable=False, default="")
+    uploaded_by = Column(Integer, ForeignKey("users.user_id"), nullable=True)
+
+
 class RefreshTokenORM(Base):
     __tablename__ = "refresh_tokens"
 
@@ -113,6 +133,40 @@ def _ensure_sqlite_users_photo_url_column() -> None:
 
 
 _ensure_sqlite_users_photo_url_column()
+
+
+def _ensure_sqlite_users_pgas_admin_column() -> None:
+    """Add pgas_admin to existing SQLite DBs created before the PGAS section."""
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(users)")).fetchall()
+        col_names = {r[1] for r in rows}
+        if "pgas_admin" not in col_names:
+            conn.execute(
+                text("ALTER TABLE users ADD COLUMN pgas_admin BOOLEAN NOT NULL DEFAULT 0")
+            )
+
+
+_ensure_sqlite_users_pgas_admin_column()
+
+
+def _ensure_sqlite_pgas_entries_columns() -> None:
+    """Переименовать поля ПГАС в базах, созданных до смены смысла колонок.
+
+    full_name (ФИО) → title (название мероприятия), group_number → year.
+    """
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(pgas_entries)")).fetchall()
+        if not rows:
+            return
+        col_names = {r[1] for r in rows}
+        if "full_name" in col_names and "title" not in col_names:
+            conn.execute(text("ALTER TABLE pgas_entries RENAME COLUMN full_name TO title"))
+        if "group_number" in col_names and "year" not in col_names:
+            conn.execute(text("ALTER TABLE pgas_entries RENAME COLUMN group_number TO year"))
+            conn.execute(text("UPDATE pgas_entries SET year = CAST(year AS INTEGER)"))
+
+
+_ensure_sqlite_pgas_entries_columns()
 
 
 def _ensure_sqlite_guides_description_column() -> None:
@@ -288,6 +342,7 @@ def _user_orm_to_dc(u: UserORM) -> UserDC:
         banned=u.banned,
         super_user=u.super_user,
         admin=u.admin,
+        pgas_admin=u.pgas_admin,
     )
 
 
@@ -319,6 +374,19 @@ def _guide_orm_to_dc(g: GuideORM) -> GuideDC:
         text=g.text,
         description=g.description or "",
         original_link=g.original_link,
+    )
+
+
+def _pgas_orm_to_dc(p: PgasEntryORM) -> PgasEntryDC:
+    return PgasEntryDC(
+        entry_id=p.entry_id,
+        title=p.title,
+        year=int(p.year or 0),
+        file_url=p.file_url,
+        file_name=p.file_name or "",
+        file_type=p.file_type or "",
+        created_at=p.created_at or "",
+        uploaded_by=p.uploaded_by,
     )
 
 
@@ -712,6 +780,49 @@ class Database:
                 .all()
             )
             return [b_name for (b_name,) in master_blocks]
+
+    # --- ПГАС ---
+
+    def list_pgas_entries(self) -> List[PgasEntryDC]:
+        with self._session() as session:
+            rows = (
+                session.query(PgasEntryORM)
+                .order_by(PgasEntryORM.entry_id.desc())
+                .all()
+            )
+            return [_pgas_orm_to_dc(p) for p in rows]
+
+    def get_pgas_entry(self, entry_id: int) -> Optional[PgasEntryDC]:
+        with self._session() as session:
+            p = session.get(PgasEntryORM, entry_id)
+            if not p:
+                return None
+            return _pgas_orm_to_dc(p)
+
+    def create_pgas_entry(self, entry: PgasEntryDC) -> PgasEntryDC:
+        with self._session() as session:
+            p = PgasEntryORM(
+                title=entry.title,
+                year=entry.year or 0,
+                file_url=entry.file_url,
+                file_name=entry.file_name or "",
+                file_type=entry.file_type or "",
+                created_at=entry.created_at or "",
+                uploaded_by=entry.uploaded_by,
+            )
+            session.add(p)
+            session.commit()
+            session.refresh(p)
+            return _pgas_orm_to_dc(p)
+
+    def delete_pgas_entry(self, entry_id: int) -> bool:
+        with self._session() as session:
+            p = session.get(PgasEntryORM, entry_id)
+            if not p:
+                return False
+            session.delete(p)
+            session.commit()
+            return True
 
     # --- Blocks ---
 

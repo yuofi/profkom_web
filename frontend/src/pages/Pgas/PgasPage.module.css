@@ -1,0 +1,450 @@
+@import "../../styles/vars.css";
+
+.pgasPage {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 32px;
+  padding: 32px 24px 64px 24px;
+  max-width: 1440px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+.pageHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.pageHeaderText {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.pageTitle {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--on-surface);
+  margin: 0;
+  font-family: var(--font-family-base);
+}
+
+.pageSubtitle {
+  font-size: 16px;
+  color: var(--on-surface-variant);
+  margin: 0;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* --- ФИЛЬТРАЦИЯ --- */
+.filterWrapper {
+  position: relative;
+}
+
+.filterBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background-color: var(--surface-container-high);
+  color: var(--on-surface);
+  border: 1px solid var(--outline-variant);
+  border-radius: 9999px;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: var(--font-family-base);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.filterBtn:hover,
+.filterBtnActive {
+  border-color: var(--tertiary);
+  color: var(--tertiary);
+}
+
+.filterDropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  gap: 4px;
+  background-color: var(--surface-container);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-large);
+  box-shadow: var(--elevation-2);
+}
+
+.filterOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-medium);
+  color: var(--on-surface);
+  font-size: 14px;
+  font-family: var(--font-family-base);
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.filterOption:hover {
+  background-color: var(--surface-container-high);
+}
+
+.filterOptionActive {
+  color: var(--tertiary);
+  font-weight: 500;
+}
+
+.uploadBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  background-color: var(--tertiary);
+  color: var(--on-tertiary);
+  border: none;
+  border-radius: 9999px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: var(--font-family-base);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.uploadBtn:hover {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.uploadBtn:active {
+  transform: scale(0.98);
+}
+
+/* --- ТАБЛИЦА --- */
+.tableContainer {
+  background-color: var(--surface-container-low);
+  border-radius: var(--radius-large);
+  overflow: hidden;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.tableWrapper {
+  overflow-x: auto;
+  width: 100%;
+}
+
+.table {
+  width: 100%;
+  text-align: left;
+  font-size: 14px;
+  white-space: nowrap;
+  border-collapse: collapse;
+}
+
+.table th {
+  color: var(--on-surface);
+  font-weight: 500;
+  letter-spacing: 0.025em;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--surface-container-high);
+  background-color: var(--surface-container-low);
+}
+
+.table td {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--surface-container-high);
+}
+
+.table tbody tr {
+  transition: background-color 0.2s;
+}
+
+.table tbody tr:hover {
+  background-color: var(--surface-container);
+}
+
+.tdPrimary {
+  color: var(--on-surface);
+  font-weight: 500;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background-color: var(--tertiary-container);
+  color: var(--on-tertiary-container);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.fileLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 320px;
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+
+.fileLink:hover {
+  color: var(--tertiary);
+  text-decoration: underline;
+}
+
+.fileName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actionsContainer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+
+.table tbody tr:hover .actionsContainer {
+  opacity: 1;
+}
+
+.actionBtn {
+  color: var(--outline-variant);
+  background: transparent;
+  border: none;
+  padding: 8px;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.actionBtn:hover {
+  color: var(--on-error);
+  background-color: var(--error-container);
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  color: var(--on-surface-variant);
+  font-size: 16px;
+  gap: 12px;
+}
+
+/* --- МОДАЛКА --- */
+.modalOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal {
+  background-color: var(--surface-container-low);
+  border-radius: var(--radius-large);
+  padding: 32px;
+  width: 90%;
+  max-width: 500px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  box-sizing: border-box;
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modalHeader h3 {
+  margin: 0;
+  color: var(--on-surface);
+  font-weight: 500;
+  font-size: 20px;
+}
+
+.modalForm {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.selectField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fieldLabel {
+  color: var(--on-surface-variant);
+  font-size: 13px;
+}
+
+.select {
+  padding: 12px 16px;
+  background-color: var(--surface-container-high);
+  color: var(--on-surface);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-medium);
+  font-size: 14px;
+  font-family: var(--font-family-base);
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.select:focus {
+  outline: none;
+  border-color: var(--tertiary);
+}
+
+.fileField {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.chooseFileBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background-color: var(--surface-container-high);
+  color: var(--on-surface);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-medium);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--font-family-base);
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.chooseFileBtn:hover {
+  border-color: var(--tertiary);
+  color: var(--tertiary);
+}
+
+.chosenFileName {
+  color: var(--on-surface-variant);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modalActions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.errorText {
+  color: var(--error);
+  font-size: 14px;
+}
+
+@media (max-width: 768px) {
+  .pgasPage {
+    padding: 20px 16px 48px 16px;
+    gap: 24px;
+  }
+
+  .pageHeader {
+    align-items: flex-start;
+  }
+
+  .pageTitle {
+    font-size: 26px;
+  }
+
+  .pageSubtitle {
+    font-size: 14px;
+  }
+
+  .headerActions {
+    width: 100%;
+  }
+
+  .uploadBtn,
+  .filterBtn {
+    padding: 10px 18px;
+    font-size: 13px;
+  }
+
+  .table {
+    font-size: 13px;
+  }
+
+  .table th,
+  .table td {
+    padding: 12px 16px;
+  }
+
+  .fileLink {
+    max-width: 180px;
+  }
+
+  .modal {
+    padding: 24px 20px;
+  }
+}
+
+@media (max-width: 480px) {
+  .fileField {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .chosenFileName {
+    max-width: 100%;
+  }
+
+  .modalActions {
+    flex-direction: column;
+  }
+}
