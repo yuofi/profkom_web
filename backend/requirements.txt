@@ -11,3 +11,4 @@ pydantic[email]
 uvicorn==0.32.0
 pytest
 httpx
+bcrypt
