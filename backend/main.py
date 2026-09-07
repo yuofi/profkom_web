@@ -814,14 +814,14 @@ def delete_guide(guide_id: int, cur: User = Depends(get_current_user)):
 # ═══════════════════════════════════════════════════════════
 
 #: Допустимые MIME-типы файлов ПГАС
-PGAS_ALLOWED_CONTENT_TYPES = ("application/pdf", "image/png", "image/jpeg", "image/jpg")
+PGAS_ALLOWED_CONTENT_TYPES = ("application/pdf", "image/png", "image/jpeg", "image/jpg", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 #: Допустимые расширения файлов ПГАС
-PGAS_ALLOWED_EXTENSIONS = ("pdf", "png", "jpg", "jpeg")
-PGAS_BAD_FILE = "Only pdf, png and jpg files are allowed for PGAS"
+PGAS_ALLOWED_EXTENSIONS = ("pdf", "png", "jpg", "jpeg", "docx")
+PGAS_BAD_FILE = "Only pdf, docx, png and jpg files are allowed for PGAS"
 
 
 def _validate_pgas_file(file_url: str, file_type: str) -> None:
-    """Пускаем только pdf/png/jpg: сверяем и MIME-тип (если он передан), и расширение ссылки."""
+    """Пускаем только pdf/docx/png/jpg: сверяем и MIME-тип (если он передан), и расширение ссылки."""
     ct = (file_type or "").strip().lower()
     if ct and ct not in PGAS_ALLOWED_CONTENT_TYPES:
         raise HTTPException(400, PGAS_BAD_FILE)
@@ -972,7 +972,7 @@ def get_presigned_url(
     """
     Generate a presigned URL for direct S3 upload.
     If folder is 'guides', only superusers can upload.
-    If folder is 'pgas', only pgas admins and superusers can upload, and only pdf/png/jpg.
+    If folder is 'pgas', only pgas admins and superusers can upload, and only pdf/docx/png/jpg.
     """
     if payload.folder == 'guides' and not cur.super_user and not db.get_user_master_block_names(cur.user_id):
         raise HTTPException(403, "Only superusers and block masters can upload to 'guides' folder")

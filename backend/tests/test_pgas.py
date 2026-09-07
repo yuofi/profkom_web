@@ -37,7 +37,7 @@ PGAS_ENTRY_FIELDS = {
 #: отказ require_pgas_admin (auth.py)
 DENIED = "PGAS admin rights required"
 #: отказ валидации типа файла (main.py, PGAS_BAD_FILE)
-BAD_FILE = "Only pdf, png and jpg files are allowed for PGAS"
+BAD_FILE = "Only pdf, docx, png and jpg files are allowed for PGAS"
 #: отказ presigned-url для папки pgas
 UPLOAD_DENIED = "Only PGAS admins and superusers can upload to 'pgas' folder"
 
@@ -422,10 +422,11 @@ def test_отказ_по_правам_приходит_раньше_валида
         (f"{S3_BASE}/f.jpg", "image/jpeg"),
         (f"{S3_BASE}/f.jpg", "image/jpg"),
         (f"{S3_BASE}/f.jpeg", "image/jpeg"),
+        (f"{S3_BASE}/f.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
         (f"{S3_BASE}/f.PDF", "APPLICATION/PDF"),
         (f"{S3_BASE}/f.pdf", ""),
     ],
-    ids=["pdf", "png", "jpg", "jpg-как-image/jpg", "jpeg", "верхний-регистр", "без-типа"],
+    ids=["pdf", "png", "jpg", "jpg-как-image/jpg", "jpeg", "docx", "верхний-регистр", "без-типа"],
 )
 def test_разрешённые_типы_файлов_принимаются(client, pgas_admin, file_url, file_type):
     r = client.post(
@@ -446,7 +447,7 @@ def test_разрешённые_типы_файлов_принимаются(cli
         (f"{S3_BASE}/f.exe", "application/x-msdownload"),
         (f"{S3_BASE}/f.html", "text/html"),
         (f"{S3_BASE}/f.svg", "image/svg+xml"),
-        (f"{S3_BASE}/f.docx", "application/msword"),
+        (f"{S3_BASE}/f.doc", "application/msword"),
         (f"{S3_BASE}/f.gif", "image/gif"),
         (f"{S3_BASE}/f.pdf", "text/html"),
         (f"{S3_BASE}/f.exe", ""),
@@ -456,7 +457,7 @@ def test_разрешённые_типы_файлов_принимаются(cli
         "exe",
         "html",
         "svg",
-        "docx",
+        "doc",
         "gif",
         "тип-не-совпадает-с-расширением",
         "запрещённое-расширение-без-типа",
@@ -623,7 +624,7 @@ def test_профиль_по_id_тоже_отдаёт_pgas_admin(client, pgas_ad
 # ─────────────────────────────────────────────────────────────
 @pytest.mark.parametrize(
     "content_type",
-    ["application/pdf", "image/png", "image/jpeg", "image/jpg"],
+    ["application/pdf", "image/png", "image/jpeg", "image/jpg", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
 )
 def test_pgas_admin_получает_ссылку_на_загрузку(client, pgas_admin, mock_s3, content_type):
     r = client.post(

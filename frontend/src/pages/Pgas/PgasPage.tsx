@@ -14,12 +14,12 @@ import { useForm } from "../../components/Form/Form";
 import type { PgasEntryOut } from "../../utils/api/types";
 import styles from "./PgasPage.module.css";
 
-// Бэкенд принимает в папку "pgas" только эти типы файлов
 const ALLOWED_FILE_TYPES = [
   "application/pdf",
   "image/png",
   "image/jpeg",
   "image/jpg",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ];
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 МБ
@@ -167,7 +167,7 @@ export const PgasPage = () => {
 
     if (!ALLOWED_FILE_TYPES.includes(file.type)) {
       setSelectedFile(null);
-      setFileError("Допустимы только файлы формата PDF, PNG или JPG");
+      setFileError("Допустимы только файлы формата PDF, DOCX, PNG или JPG");
       return;
     }
     if (file.size > MAX_FILE_SIZE) {
@@ -377,7 +377,7 @@ export const PgasPage = () => {
                     type="file"
                     ref={fileInputRef}
                     style={{ display: "none" }}
-                    accept="application/pdf,image/png,image/jpeg,.pdf,.png,.jpg,.jpeg"
+                    accept="application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg,.pdf,.docx,.png,.jpg,.jpeg"
                     onChange={handleFileChange}
                   />
                 </div>

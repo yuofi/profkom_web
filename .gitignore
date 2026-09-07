@@ -29,3 +29,5 @@ stats.html
 certs/*
 *.pem
 profcom.session.sql
+graphify-out
+.gemini
