@@ -240,6 +240,7 @@ class ContactFilter(BaseModel):
 class PresignedUrlRequest(BaseModel):
     folder: str
     content_type: str  # например, 'image/jpeg'
+    file_name: Optional[str] = None
 
 class UrlsResponse(BaseModel):
     upload_url: str
@@ -814,14 +815,23 @@ def delete_guide(guide_id: int, cur: User = Depends(get_current_user)):
 # ═══════════════════════════════════════════════════════════
 
 #: Допустимые MIME-типы файлов ПГАС
-PGAS_ALLOWED_CONTENT_TYPES = ("application/pdf", "image/png", "image/jpeg", "image/jpg", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+PGAS_ALLOWED_CONTENT_TYPES = (
+    "application/pdf", 
+    "image/png", 
+    "image/jpeg", 
+    "image/jpg", 
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/msword",
+    "application/zip",
+    "application/x-zip-compressed"
+)
 #: Допустимые расширения файлов ПГАС
-PGAS_ALLOWED_EXTENSIONS = ("pdf", "png", "jpg", "jpeg", "docx")
-PGAS_BAD_FILE = "Only pdf, docx, png and jpg files are allowed for PGAS"
+PGAS_ALLOWED_EXTENSIONS = ("pdf", "png", "jpg", "jpeg", "docx", "doc")
+PGAS_BAD_FILE = "Only pdf, doc, docx, png and jpg files are allowed for PGAS"
 
 
 def _validate_pgas_file(file_url: str, file_type: str) -> None:
-    """Пускаем только pdf/docx/png/jpg: сверяем и MIME-тип (если он передан), и расширение ссылки."""
+    """Пускаем только pdf/doc/docx/png/jpg: сверяем и MIME-тип (если он передан), и расширение ссылки."""
     ct = (file_type or "").strip().lower()
     if ct and ct not in PGAS_ALLOWED_CONTENT_TYPES:
         raise HTTPException(400, PGAS_BAD_FILE)
@@ -980,10 +990,11 @@ def get_presigned_url(
     if payload.folder == 'pgas':
         if not cur.pgas_admin and not cur.super_user:
             raise HTTPException(403, "Only PGAS admins and superusers can upload to 'pgas' folder")
-        if payload.content_type.strip().lower() not in PGAS_ALLOWED_CONTENT_TYPES:
+        ct = payload.content_type.strip().lower()
+        if ct and ct not in PGAS_ALLOWED_CONTENT_TYPES:
             raise HTTPException(400, PGAS_BAD_FILE)
 
-    urls = generate_presigned_url(payload.folder, payload.content_type)
+    urls = generate_presigned_url(payload.folder, payload.content_type, payload.file_name)
     return urls
 
 app.include_router(router)

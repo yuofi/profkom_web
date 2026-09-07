@@ -422,12 +422,31 @@ def test_отказ_по_правам_приходит_раньше_валида
         (f"{S3_BASE}/f.jpg", "image/jpeg"),
         (f"{S3_BASE}/f.jpg", "image/jpg"),
         (f"{S3_BASE}/f.jpeg", "image/jpeg"),
+        # Стандартный MIME-тип для docx
         (f"{S3_BASE}/f.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+        # Альтернативные MIME-типы, с которыми браузеры или python-magic могут отправлять docx
+        (f"{S3_BASE}/f.docx", "application/zip"),
+        (f"{S3_BASE}/f.docx", "application/x-zip-compressed"),
+        # Поддержка старого формата .doc
+        (f"{S3_BASE}/f.doc", "application/msword"),
         (f"{S3_BASE}/f.PDF", "APPLICATION/PDF"),
         (f"{S3_BASE}/f.pdf", ""),
     ],
-    ids=["pdf", "png", "jpg", "jpg-как-image/jpg", "jpeg", "docx", "верхний-регистр", "без-типа"],
+    ids=[
+        "pdf",
+        "png",
+        "jpg",
+        "jpg-как-image/jpg",
+        "jpeg",
+        "docx",
+        "docx-как-zip",
+        "docx-как-x-zip-compressed",
+        "doc",
+        "верхний-регистр",
+        "без-типа",
+    ],
 )
+
 def test_разрешённые_типы_файлов_принимаются(client, pgas_admin, file_url, file_type):
     r = client.post(
         PGAS_URL,

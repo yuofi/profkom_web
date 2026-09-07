@@ -11,6 +11,7 @@ async function GetPresignedUrl(folder: string, file: File): Promise<AxiosRespons
     return api.post<UrlsResponse>(`/upload/presigned-url`, {
         folder: folder,
         content_type: file.type,
+        file_name: file.name,
     });
 }
 

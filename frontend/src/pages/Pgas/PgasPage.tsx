@@ -20,6 +20,9 @@ const ALLOWED_FILE_TYPES = [
   "image/jpeg",
   "image/jpg",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/zip",
+  "application/x-zip-compressed",
+  "application/msword",
 ];
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 МБ
@@ -165,9 +168,13 @@ export const PgasPage = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+    const fileExt = file.name.includes('.') ? file.name.substring(file.name.lastIndexOf('.')).toLowerCase() : '';
+    const isTypeAllowed = ALLOWED_FILE_TYPES.includes(file.type);
+    const isExtAllowed = [".pdf", ".doc", ".docx", ".png", ".jpg", ".jpeg"].includes(fileExt);
+
+    if (!isTypeAllowed && !isExtAllowed) {
       setSelectedFile(null);
-      setFileError("Допустимы только файлы формата PDF, DOCX, PNG или JPG");
+      setFileError("Допустимы только файлы формата PDF, DOC, DOCX, PNG или JPG");
       return;
     }
     if (file.size > MAX_FILE_SIZE) {
@@ -377,7 +384,7 @@ export const PgasPage = () => {
                     type="file"
                     ref={fileInputRef}
                     style={{ display: "none" }}
-                    accept="application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg,.pdf,.docx,.png,.jpg,.jpeg"
+                    accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg,.pdf,.doc,.docx,.png,.jpg,.jpeg"
                     onChange={handleFileChange}
                   />
                 </div>

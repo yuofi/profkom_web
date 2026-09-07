@@ -12,13 +12,31 @@ s3_client = boto3.client(
     config=Config(signature_version='s3v4')
 )
 
-def generate_presigned_url(folder: str, content_type: str) -> dict[str, str]:
+from typing import Optional
+
+def generate_presigned_url(folder: str, content_type: str, file_name: Optional[str] = None) -> dict[str, str]:
     """Генерирует временную ссылку для прямой загрузки файла"""
-    file_extension = content_type.split("/")[-1]
-    if file_extension == "jpeg":
-        file_extension = "jpg"
+    if file_name and "." in file_name:
+        file_extension = file_name.rsplit(".", 1)[-1].lower()
+    else:
+        file_extension = content_type.split("/")[-1]
         
-    object_name = f"{folder}/{uuid.uuid4()}.{file_extension}"
+    import urllib.parse
+    import re
+    
+    if file_name and folder in ('pgas', 'guides'):
+        # Убираем опасные символы, но оставляем пробелы и кириллицу
+        safe_name = re.sub(r'[^a-zA-Z0-9а-яА-ЯёЁ_. \-]', '_', file_name)
+        object_name = f"{folder}/{safe_name}"
+    else:
+        if file_extension == "jpeg":
+            file_extension = "jpg"
+        elif file_extension == "vnd.openxmlformats-officedocument.wordprocessingml.document":
+            file_extension = "docx"
+        elif file_extension == "msword":
+            file_extension = "doc"
+            
+        object_name = f"{folder}/{uuid.uuid4()}.{file_extension}"
     
 
     presigned_url = s3_client.generate_presigned_url(
@@ -33,7 +51,7 @@ def generate_presigned_url(folder: str, content_type: str) -> dict[str, str]:
     
     # domain_only = settings.S3_ENDPOINT.replace('https://', '').replace('http://', '').rstrip('/')
     # base_url = settings.S3_ENDPOINT.rstrip('/')
-    public_url = f"https://global.s3.cloud.ru/{settings.S3_BUCKET_NAME}/{object_name}"
+    public_url = f"https://global.s3.cloud.ru/{settings.S3_BUCKET_NAME}/{urllib.parse.quote(object_name, safe='/')}"
     
     return {
         "upload_url": presigned_url,
@@ -57,6 +75,10 @@ def upload_image_from_url(url: str, folder: str = "avatars") -> str:
             file_extension = content_type.split("/")[-1]
             if file_extension == "jpeg":
                 file_extension = "jpg"
+            elif file_extension == "vnd.openxmlformats-officedocument.wordprocessingml.document":
+                file_extension = "docx"
+            elif file_extension == "msword":
+                file_extension = "doc"
             
             object_name = f"{folder}/{uuid.uuid4()}.{file_extension}"
             
