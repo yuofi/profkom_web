@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Navigate, Routes, Route } from "react-router-dom";
 import { HelmetProvider } from "react-helmet-async";
 import { lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -9,6 +9,7 @@ import { UnderConstructionPage } from "./pages/fallback/UnderConstruction";
 import { DocViewerPage } from "./pages/DocViewPage/DocViewerPage";
 import { GreetingPage } from "./pages/Greeting/Greeting";
 import { InfoPage } from "./pages/InfoPage/InfoPage";
+import { EventsPage } from "./pages/EventsPage/EventsPage";
 import { getDocRoute, getDocEditRoute, getAdminTabRoute, getPgasRoute } from "./utils/routes";
 import { UserProvider } from "./utils/ctx";
 import { ExtendedRoute, ProtectedRoute, GuideEditRoute } from "./pages/Wrappers/wrappers";
@@ -16,6 +17,7 @@ import { ProfilePage } from "./pages/ProfilePage/ProfilePage";
 import { ProfileEditPage } from "./pages/ProfileEditPage/ProfileEditPage";
 import { GuidesPage } from "./pages/Guides/GuidesPage";
 import { PgasPage } from "./pages/Pgas/PgasPage";
+import { isDemoMode } from "./utils/demoData";
 // import { AdminPanel } from "./pages/Admin/AdminPage";
 const AdminPanel = lazy(() => import("./pages/Admin/AdminPage"))
 const DocEditPage = lazy(() => import("./pages/DocEditPage/DocEditPage"))
@@ -44,8 +46,18 @@ function App() {
                 {/* </Route> */}
                 <Route element={<ProtectedRoute />}>
                   <Route path="/" element={<Layout />}>
-                    <Route index element={<UnderConstructionPage />} />
+                    <Route
+                      index
+                      element={
+                        isDemoMode ? (
+                          <Navigate to="/profile" replace />
+                        ) : (
+                          <UnderConstructionPage />
+                        )
+                      }
+                    />
                     <Route path={getDocRoute()} element={<DocViewerPage />} />
+                    <Route path="/events" element={<EventsPage />} />
                     <Route path="/info" element={<InfoPage />} />
                     <Route path="/profile" element={<ProfilePage />} />
                     <Route element={<GuideEditRoute />}>

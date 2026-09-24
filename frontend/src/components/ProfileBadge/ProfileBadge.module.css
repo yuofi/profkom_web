@@ -15,6 +15,49 @@
     font-family: var(--font-family-base);
 }
 
+.cardCompact {
+    max-width: 360px;
+    padding: 28px 24px 24px;
+    background-color: var(--surface-container-low);
+    box-shadow: var(--elevation-1);
+}
+
+.cardCompact .avatarOverride {
+    margin-bottom: 16px;
+}
+
+.cardCompact .info {
+    margin-bottom: 18px;
+}
+
+.cardCompact .name {
+    margin-bottom: 8px;
+    font-size: 24px;
+    line-height: 1.2;
+}
+
+.cardCompact .group {
+    font-size: 14px;
+}
+
+.cardCompact .creditsRow {
+    margin-bottom: 18px;
+}
+
+.cardCompact .divider {
+    margin-bottom: 16px;
+}
+
+.cardCompact .contacts {
+    gap: 8px;
+    padding-left: 0;
+    margin-bottom: 22px;
+}
+
+.cardCompact .actions {
+    width: 100%;
+}
+
 @media (max-width: 768px) {
     .card {
         padding: 32px 20px 24px;

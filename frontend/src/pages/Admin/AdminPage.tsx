@@ -5,6 +5,7 @@ import { Icon } from "../../components/Icon";
 import { BlocksManagement } from "./panels/BlocksManagement";
 import { UsersManagement } from "./panels/UsersManagement";
 import { GuidesManagement } from "./panels/GuidesManagement";
+import { EventsManagement } from "./panels/EventsManagement";
 import { useMe } from "../../utils/me";
 import { Helmet } from "react-helmet-async";
 import { getAdminTabRoute } from "../../utils/routes";
@@ -23,7 +24,7 @@ export const AdminPanel = () => {
       case "users":
         return <UsersManagement />;
       case "events":
-        return <div>Компонент управления мероприятиями (скоро будет)</div>;
+        return <EventsManagement />;
       default:
         return null;
     }

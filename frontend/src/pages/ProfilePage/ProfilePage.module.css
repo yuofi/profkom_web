@@ -1,28 +1,647 @@
 .mainContainer {
-    display: flex;
+  width: 100%;
+  min-height: calc(100vh - 96px);
+  padding: 48px 24px 72px;
+  box-sizing: border-box;
+  color: var(--on-surface);
+  font-family: var(--font-family-base);
+}
+
+.pageShell {
+  width: 100%;
+  max-width: 1040px;
+  margin: 0 auto;
+}
+
+.pageHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 28px;
+}
+
+.eyebrow {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pageHeader h1 {
+  max-width: 620px;
+  margin: 0;
+  color: var(--on-surface);
+  font-size: clamp(28px, 4vw, 44px);
+  font-weight: 500;
+  line-height: 1.08;
+}
+
+.adminButton {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.sectionNav {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--on-surface), transparent 88%);
+  border-radius: 24px;
+  background: var(--surface-container-low);
+  box-shadow: var(--elevation-1);
+}
+
+.sectionTab {
+  min-width: 0;
+  padding: 14px 18px;
+  border: 0;
+  border-radius: var(--radius-large);
+  background: transparent;
+  color: var(--on-surface-variant);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.sectionTab:hover {
+  background: color-mix(in srgb, var(--on-surface), transparent 94%);
+  color: var(--on-surface);
+}
+
+.sectionTab:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.sectionTabActive,
+.sectionTabActive:hover {
+  background: var(--primary);
+  color: var(--on-primary);
+  box-shadow: var(--elevation-1);
+}
+
+.sectionContent {
+  margin-top: 24px;
+}
+
+.profileSection {
+  display: flex;
+  justify-content: center;
+}
+
+.contentCard {
+  padding: 32px;
+  border: 1px solid color-mix(in srgb, var(--on-surface), transparent 88%);
+  border-radius: 28px;
+  background: var(--surface-container-low);
+  box-shadow: var(--elevation-1);
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 28px;
+}
+
+.sectionIcon,
+.itemIcon,
+.eventDateMark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary), transparent 88%);
+}
+
+.sectionIcon {
+  width: 52px;
+  height: 52px;
+  border-radius: 18px;
+}
+
+.sectionHeader h2 {
+  margin: 0 0 5px;
+  font-size: 26px;
+  font-weight: 500;
+}
+
+.sectionHeader p {
+  margin: 0;
+  color: var(--on-surface-variant);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.cardsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 16px;
+}
+
+.itemCard {
+  min-height: 176px;
+  padding: 22px;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--on-surface), transparent 90%);
+  border-radius: 22px;
+  background: var(--surface-container);
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.itemCard:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--primary), transparent 55%);
+}
+
+.itemCardTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.itemIcon {
+  width: 44px;
+  height: 44px;
+  border-radius: 15px;
+}
+
+.roleBadge,
+.eventRole {
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: var(--tertiary-container);
+  color: var(--on-tertiary-container);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.itemCard h3 {
+  margin: 22px 0 12px;
+  font-size: 21px;
+  font-weight: 500;
+}
+
+.itemMeta {
+  margin-top: auto;
+  color: var(--on-surface-variant);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+}
+
+.eventsList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.eventItem {
+  padding: 18px 20px;
+  border: 1px solid color-mix(in srgb, var(--on-surface), transparent 90%);
+  border-radius: 20px;
+  background: var(--surface-container);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+}
+
+.eventDateMark {
+  width: 46px;
+  height: 46px;
+  border-radius: 15px;
+}
+
+.eventInfo {
+  min-width: 0;
+}
+
+.eventInfo h3 {
+  margin: 0 0 4px;
+  overflow: hidden;
+  color: var(--on-surface);
+  font-size: 17px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eventInfo span {
+  color: var(--on-surface-variant);
+  font-size: 13px;
+}
+
+.eventRole {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stateBox {
+  min-height: 240px;
+  padding: 32px;
+  box-sizing: border-box;
+  border: 1px dashed color-mix(in srgb, var(--on-surface), transparent 78%);
+  border-radius: 22px;
+  color: var(--on-surface-variant);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.stateBox strong {
+  color: var(--on-surface);
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.stateBox > :global(.material-symbols-rounded) {
+  color: var(--primary);
+}
+
+@media (max-width: 768px) {
+  .mainContainer {
+    min-height: calc(100vh - 72px);
+    padding: 28px 16px 48px;
+  }
+
+  .pageHeader {
+    align-items: flex-start;
     flex-direction: column;
-    align-items: center;
+    margin-bottom: 22px;
+  }
+
+  .adminButton {
     width: 100%;
+  }
+
+  .sectionNav {
+    gap: 4px;
+    padding: 6px;
+    border-radius: 20px;
+  }
+
+  .sectionTab {
+    padding: 12px 6px;
+    gap: 6px;
+    flex-direction: column;
+    font-size: 12px;
+  }
+
+  .contentCard {
+    padding: 22px 18px;
+    border-radius: 24px;
+  }
+
+  .sectionHeader {
+    align-items: flex-start;
+    gap: 14px;
+    margin-bottom: 22px;
+  }
+
+  .sectionIcon {
+    width: 44px;
+    height: 44px;
+    border-radius: 15px;
+  }
+
+  .sectionHeader h2 {
+    font-size: 22px;
+  }
+
+  .eventItem {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .eventRole {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
+@media (max-width: 420px) {
+  .pageHeader h1 {
+    font-size: 30px;
+  }
+
+  .sectionTab :global(.material-symbols-rounded) {
+    font-size: 20px !important;
+  }
+}
+
+/* Dashboard layout: profile on the left, switchable work sections on the right. */
+.mainContainer {
+  min-height: calc(100vh - 74px);
+  padding: 48px 32px 72px;
+}
+
+.dashboard {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  align-items: start;
+  gap: 40px;
+}
+
+.profileColumn {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+}
+
+.adminButton {
+  width: 100%;
+  justify-content: center;
+}
+
+.workspace {
+  min-width: 0;
+}
+
+.workspaceHeader {
+  min-height: 66px;
+  margin-bottom: 18px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.eyebrow {
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.workspaceHeader h1 {
+  margin: 0;
+  font-size: clamp(26px, 3vw, 34px);
+  font-weight: 500;
+  line-height: 1.1;
+}
+
+.sectionNav {
+  grid-template-columns: none;
+  flex: 0 0 auto;
+  padding: 5px;
+  border-radius: 18px;
+  display: flex;
+  gap: 4px;
+}
+
+.sectionTab {
+  min-height: 42px;
+  padding: 9px 14px;
+  border-radius: 13px;
+  flex-direction: row;
+  font-size: 14px;
+  gap: 8px;
+}
+
+.contentCard {
+  min-height: 360px;
+  padding: 24px;
+  border-radius: 24px;
+}
+
+.sectionHeading {
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.sectionHeading h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.sectionHeading p {
+  margin: 0;
+  color: color-mix(in srgb, var(--on-surface), transparent 38%);
+  font-size: 13px;
+}
+
+.countBadge {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 999px;
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--primary), transparent 86%);
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.itemsList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.listItem {
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid transparent;
+  border-radius: 16px;
+  background: var(--surface-container);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.listItem:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--primary), transparent 62%);
+}
+
+.itemIcon {
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+}
+
+.itemInfo {
+  min-width: 0;
+}
+
+.itemInfo h3 {
+  margin: 0 0 3px;
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemInfo span {
+  color: color-mix(in srgb, var(--on-surface), transparent 45%);
+  font-size: 12px;
+}
+
+.roleBadge {
+  max-width: 160px;
+  padding: 6px 11px;
+  overflow: hidden;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stateBox {
+  min-height: 250px;
+  padding: 28px;
+  border-radius: 18px;
+}
+
+.statsGrid {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.statCard {
+  min-width: 0;
+  padding: 18px 12px;
+  border: 1px solid color-mix(in srgb, var(--primary), transparent 88%);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--primary), transparent 91%);
+  color: var(--primary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.statCard strong {
+  color: var(--on-surface);
+  font-size: 25px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.statCard span {
+  color: var(--primary);
+  font-size: 12px;
+}
+
+@media (max-width: 960px) {
+  .dashboard {
+    grid-template-columns: minmax(270px, 320px) minmax(0, 1fr);
+    gap: 24px;
+  }
+
+  .workspaceHeader {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .sectionNav {
+    align-self: flex-start;
+  }
+}
+
+@media (max-width: 768px) {
+  .mainContainer {
+    min-height: calc(100vh - 58px);
+    padding: 24px 0 48px;
+  }
+
+  .dashboard {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+  }
+
+  .profileColumn {
+    width: 100%;
+    max-width: 480px;
+    margin: 0 auto;
+  }
+
+  .workspaceHeader {
+    margin-bottom: 14px;
+  }
+
+  .sectionNav {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .sectionTab {
+    flex: 1;
+    flex-direction: row;
+    font-size: 14px;
+  }
+
+  .contentCard {
+    min-height: 330px;
+    padding: 20px 16px;
+    border-radius: 20px;
+  }
+
+  .statsGrid {
     gap: 8px;
-    padding: 16px;
+  }
 }
 
-.passwordSection {
-    display: flex;
-    flex-direction: column;
-    width: 100%;
-    max-width: 400px;
-    gap: 16px;
-    margin-top: 24px;
-    padding: 24px;
-    background: var(--surface);
-    border-radius: var(--radius-large);
-    border: 1px solid var(--outline-variant);
-}
+@media (max-width: 460px) {
+  .sectionTab {
+    padding-inline: 9px;
+    font-size: 13px;
+  }
 
-.passwordSection h3 {
-    margin: 0;
-    color: var(--on-surface);
-    font-size: 20px;
-    font-weight: 500;
+  .listItem {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .roleBadge {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .statCard {
+    padding: 14px 6px;
+  }
+
+  .statCard strong {
+    font-size: 21px;
+  }
 }

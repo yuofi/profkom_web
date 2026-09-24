@@ -104,6 +104,7 @@ class UserOut(BaseModel):
     super_user: bool
     admin: bool
     pgas_admin: bool = False
+    events_roles: str = "[]"
 
 
 class ProfileOut(UserOut):
@@ -124,6 +125,7 @@ class MeOut(ContactInfoOut):
     admin: bool
     pgas_admin: bool = False
     has_password: bool = True
+    events_roles: str = "[]"
 
 
 class GuideIn(BaseModel):
@@ -228,6 +230,7 @@ class ProfileUpdate(BaseModel):
     budget: Optional[bool] = None
     in_profcom: Optional[bool] = None
     photo_url: Optional[str] = None
+    events_roles: Optional[str] = None
 
 
 class ContactFilter(BaseModel):
@@ -598,7 +601,8 @@ def my_profile(cur: User = Depends(get_current_user)):
         super_user=cur.super_user,
         admin=cur.admin,
         pgas_admin=cur.pgas_admin,
-        has_password=bool(cur.hashed_password)
+        has_password=bool(cur.hashed_password),
+        events_roles=cur.events_roles
     )
 
 
@@ -653,7 +657,8 @@ def update_profile(
         user_id, 
         group_number=payload.group_number, 
         blocks=payload.blocks, 
-        photo_url=payload.photo_url
+        photo_url=payload.photo_url,
+        events_roles=payload.events_roles
     )
     updated = db.get_user(user_id)
     updated_contact = db.get_contact(user_id)

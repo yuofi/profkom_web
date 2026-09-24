@@ -35,6 +35,7 @@ class User:
     super_user: bool = False
     admin: bool = False
     pgas_admin: bool = False   # Права на раздел ПГАС
+    events_roles: str = "[]"   # JSON string representing List[{event: str, role: str}]
 
 
 @dataclass

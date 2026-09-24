@@ -18,6 +18,8 @@ import { useNavigate } from "react-router-dom";
 import { authApi } from "../../utils/api/auth.api";
 interface ProfileBadgeProps {
   user: ContactInfoOut | null;
+  readOnly?: boolean;
+  compact?: boolean;
 }
 
 const mapUserToInfo = (user: ContactInfoOut): ContactInfo => {
@@ -38,7 +40,11 @@ const mapUserToInfo = (user: ContactInfoOut): ContactInfo => {
   };
 };
 
-export const ProfileBadge = ({ user }: ProfileBadgeProps) => {
+export const ProfileBadge = ({
+  user,
+  readOnly = false,
+  compact = false,
+}: ProfileBadgeProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(() =>
     user ? stringifyContent(mapUserToInfo(user)) : "",
@@ -116,7 +122,7 @@ export const ProfileBadge = ({ user }: ProfileBadgeProps) => {
   };
 
   return (
-    <div className={styles.card}>
+    <div className={`${styles.card} ${compact ? styles.cardCompact : ""}`}>
       <ContactChip
         initialContent={editContent}
         mode="edit"
@@ -131,7 +137,7 @@ export const ProfileBadge = ({ user }: ProfileBadgeProps) => {
       {/* Аватар */}
       <Avatar
         src={photoUrl}
-        size={140}
+        size={compact ? 96 : 140}
         mode={isEditing ? "edit" : "view"}
         onUpload={handlePhotoUpload}
         className={styles.avatarOverride}
@@ -203,24 +209,26 @@ export const ProfileBadge = ({ user }: ProfileBadgeProps) => {
           </ProfileChip>
         )}
       </div>
-      <div className={styles.actions}>
-        <Button
-          variant="transparent"
-          disabled={false}
-          onClick={() => handleLogout()}
-        >
-          <Icon name="move_item" size={20} />
-          выйти
-        </Button>
-        <Button
-          variant="primary"
-          disabled={false}
-          onClick={() => navigate("/profile/edit")}
-        >
-          <Icon name="edit" size={20} />
-          редактировать
-        </Button>
-      </div>
+      {!readOnly && (
+        <div className={styles.actions}>
+          <Button
+            variant="transparent"
+            disabled={false}
+            onClick={() => handleLogout()}
+          >
+            <Icon name="move_item" size={20} />
+            выйти
+          </Button>
+          <Button
+            variant="primary"
+            disabled={false}
+            onClick={() => navigate("/profile/edit")}
+          >
+            <Icon name="edit" size={20} />
+            редактировать
+          </Button>
+        </div>
+      )}
     </div>
   );
 };
