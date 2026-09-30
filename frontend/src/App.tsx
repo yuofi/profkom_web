@@ -9,7 +9,6 @@ import { UnderConstructionPage } from "./pages/fallback/UnderConstruction";
 import { DocViewerPage } from "./pages/DocViewPage/DocViewerPage";
 import { GreetingPage } from "./pages/Greeting/Greeting";
 import { InfoPage } from "./pages/InfoPage/InfoPage";
-import { EventsPage } from "./pages/EventsPage/EventsPage";
 import { getDocRoute, getDocEditRoute, getAdminTabRoute, getPgasRoute } from "./utils/routes";
 import { UserProvider } from "./utils/ctx";
 import { ExtendedRoute, ProtectedRoute, GuideEditRoute } from "./pages/Wrappers/wrappers";
@@ -57,7 +56,6 @@ function App() {
                       }
                     />
                     <Route path={getDocRoute()} element={<DocViewerPage />} />
-                    <Route path="/events" element={<EventsPage />} />
                     <Route path="/info" element={<InfoPage />} />
                     <Route path="/profile" element={<ProfilePage />} />
                     <Route element={<GuideEditRoute />}>

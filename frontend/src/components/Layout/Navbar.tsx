@@ -107,17 +107,6 @@ export const Navbar = () => {
                   className={styles.mobileDropdownBtn}
                   onClick={() => {
                     setIsOpen(false);
-                    navigate("/events");
-                  }}
-                >
-                  мероприятия
-                </Button>
-
-                <Button
-                  variant="secondary"
-                  className={styles.mobileDropdownBtn}
-                  onClick={() => {
-                    setIsOpen(false);
                     navigate("/info");
                   }}
                 >
@@ -178,16 +167,6 @@ export const Navbar = () => {
                 </li>
 
             
-              <li className={styles.menuItem} key={"events"}>
-                <Link
-                  className={styles.menuLink}
-                  to={"/events"}
-                  data-text={"мероприятия"}
-                >
-                  <span>мероприятия</span>
-                </Link>
-              </li>
-
               <li className={styles.menuItem} key={"info"}>
                 <Link
                   className={styles.menuLink}

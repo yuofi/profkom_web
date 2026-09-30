@@ -154,34 +154,23 @@ export const ProfilePage = () => {
         </aside>
 
         <section className={styles.workspace} aria-label="Работа в профкоме">
-          <header className={styles.workspaceHeader}>
-            <div>
-              <span className={styles.eyebrow}>
-                {isDemoMode ? "Личный кабинет · демо" : "Личный кабинет"}
-              </span>
-              <h1>
-                {activeSection === "blocks" ? "Мои блоки" : "Мои мероприятия"}
-              </h1>
-            </div>
-
-            <nav className={styles.sectionNav} aria-label="Разделы личного кабинета">
-              {sections.map((section) => {
-                const isActive = activeSection === section.id;
-                return (
-                  <button
-                    key={section.id}
-                    type="button"
-                    className={`${styles.sectionTab} ${isActive ? styles.sectionTabActive : ""}`}
-                    aria-pressed={isActive}
-                    onClick={() => selectSection(section.id)}
-                  >
-                    <Icon name={section.icon} size={20} filled={isActive} />
-                    <span>{section.label}</span>
-                  </button>
-                );
-              })}
-            </nav>
-          </header>
+          <nav className={styles.sectionNav} aria-label="Разделы личного кабинета">
+            {sections.map((section) => {
+              const isActive = activeSection === section.id;
+              return (
+                <button
+                  key={section.id}
+                  type="button"
+                  className={`${styles.sectionTab} ${isActive ? styles.sectionTabActive : ""}`}
+                  aria-pressed={isActive}
+                  onClick={() => selectSection(section.id)}
+                >
+                  <Icon name={section.icon} size={20} filled={isActive} />
+                  <span>{section.label}</span>
+                </button>
+              );
+            })}
+          </nav>
 
           <div className={styles.contentCard}>
             {activeSection === "blocks" ? (
@@ -268,23 +257,6 @@ export const ProfilePage = () => {
             )}
           </div>
 
-          <div className={styles.statsGrid} aria-label="Сводка">
-            <article className={styles.statCard}>
-              <Icon name="event" size={27} />
-              <strong>{eventRoles.length}</strong>
-              <span>мероприятий</span>
-            </article>
-            <article className={styles.statCard}>
-              <Icon name="bar_chart" size={27} />
-              <strong>{user.kkr_score ?? 0}</strong>
-              <span>баллов ККР</span>
-            </article>
-            <article className={styles.statCard}>
-              <Icon name="diversity_3" size={27} />
-              <strong>{userBlocks.length}</strong>
-              <span>блоков</span>
-            </article>
-          </div>
         </section>
       </main>
     </div>
