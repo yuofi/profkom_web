@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Navigate, Routes, Route } from "react-router-dom";
 import { HelmetProvider } from "react-helmet-async";
 import { lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -16,6 +16,7 @@ import { ProfilePage } from "./pages/ProfilePage/ProfilePage";
 import { ProfileEditPage } from "./pages/ProfileEditPage/ProfileEditPage";
 import { GuidesPage } from "./pages/Guides/GuidesPage";
 import { PgasPage } from "./pages/Pgas/PgasPage";
+import { isDemoMode } from "./utils/demoData";
 // import { AdminPanel } from "./pages/Admin/AdminPage";
 const AdminPanel = lazy(() => import("./pages/Admin/AdminPage"))
 const DocEditPage = lazy(() => import("./pages/DocEditPage/DocEditPage"))
@@ -44,7 +45,16 @@ function App() {
                 {/* </Route> */}
                 <Route element={<ProtectedRoute />}>
                   <Route path="/" element={<Layout />}>
-                    <Route index element={<UnderConstructionPage />} />
+                    <Route
+                      index
+                      element={
+                        isDemoMode ? (
+                          <Navigate to="/profile" replace />
+                        ) : (
+                          <UnderConstructionPage />
+                        )
+                      }
+                    />
                     <Route path={getDocRoute()} element={<DocViewerPage />} />
                     <Route path="/info" element={<InfoPage />} />
                     <Route path="/profile" element={<ProfilePage />} />

@@ -1,6 +1,7 @@
 import { authApi } from "./api/auth.api";
 import { useQuery } from "@tanstack/react-query";
 import { UserContext } from "./me";
+import { demoUser, isDemoMode } from "./demoData";
 
 
 export const UserProvider = ({ children }: { children: React.ReactNode }) => {
@@ -8,18 +9,15 @@ export const UserProvider = ({ children }: { children: React.ReactNode }) => {
     queryKey: ["currentUser"],
     queryFn: authApi.getMe,
     retry: false,
+    enabled: !isDemoMode,
   });
 
-  if (isLoading) {
+  if (!isDemoMode && isLoading) {
     return <div>Loading...</div>;
   }
 
-  // if (isError) {
-  //   return <div>Error loading user data</div>;
-  // }
-
   return (
-    <UserContext.Provider value={data?.data || null}>
+    <UserContext.Provider value={isDemoMode ? demoUser : data?.data || null}>
       {children}
     </UserContext.Provider>
   );

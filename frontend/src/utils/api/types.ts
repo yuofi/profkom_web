@@ -48,6 +48,7 @@ export interface UserOut {
   super_user: boolean;
   admin: boolean;
   photo_url?: string;
+  events_roles?: string;
 }
 
 // Данные контакта (используется при регистрации)
@@ -72,6 +73,7 @@ export interface ContactInfoIn {
 export interface ContactInfoOut extends ContactInfoIn {
   kkr_score: number;
   user_id: number;
+  events_roles?: string;
 }
 
 export interface MeOut extends ContactInfoOut  {
@@ -98,6 +100,7 @@ export interface ProfileUpdate {
   budget?: boolean;
   in_profcom?: boolean;
   photo_url?: string;
+  events_roles?: string;
 }
 
 export interface ContactFilter {

@@ -1,0 +1,141 @@
+@import "../../styles/vars.css";
+
+.container {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 48px;
+  
+  max-width: 1600px;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 auto;
+  padding: 48px 32px;
+  min-height: calc(100vh - 100px);
+  position: relative;
+}
+
+@media (max-width: 1400px) {
+  .container {
+    gap: 24px;
+    padding: 32px 16px;
+  }
+}
+
+@media (max-width: 1200px) {
+    .container {
+        flex-direction: column; 
+        align-items: stretch;
+        gap: 32px;
+    }
+}
+
+.sidebar {
+  flex: 0 0 200px;
+  position: sticky;
+  top: 100px; 
+}
+
+@media (max-width: 1200px) {
+  .sidebar {
+    position: static;
+    flex: none;
+    width: 100%;
+  }
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    display: none;
+  }
+}
+
+.navLinks {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.navLink {
+  text-decoration: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--on-surface);
+  font-family: var(--font-family-base);
+  font-size: 14px;
+  padding: 6px 16px;
+  border-radius: var(--radius-large);
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.navLink:hover {
+  background-color: color-mix(in srgb, var(--secondary-container), transparent 50%);
+}
+
+.navLink.active {
+  background-color: var(--secondary-container);
+  color: var(--on-secondary-container);
+  transition: cubic-bezier(0.895, 0.03, 0.685, 0.22);
+}
+
+.mainContent {
+  flex: 1;
+  max-width: 720px;
+  width: 100%;
+  min-width: 0;
+  color: var(--on-surface);
+}
+
+.pageTitle {
+  font-family: var(--font-family-base);
+  font-size: clamp(28px, 3vw, 36px);
+  font-weight: 500;
+  color: white;
+  margin-top: 0;
+  margin-bottom: 32px;
+}
+
+.pageDescription {
+  font-family: var(--font-family-base);
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+@media (max-width: 1024px) {
+  .container {
+    flex-direction: column;
+    gap: 32px;
+    padding: 24px;
+  }
+
+  .sidebar {
+    flex: none;
+    width: 100%;
+  }
+
+  .navLinks {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 768px) {
+  .container {
+    padding: 24px 16px;
+  }
+
+  .mainContent {
+    max-width: 100%; 
+    box-sizing: border-box;
+    width: 100%;
+  }
+}
