@@ -69,7 +69,7 @@ fi
 
 # ── прогон ─────────────────────────────────────────────────
 echo "${BOLD}Тесты бэкенда${OFF} $("$PY" -V)"
-echo "${YELLOW}база: временный файл в $TMPDIR — data/profcom.db не затрагивается${OFF}"
+echo "${YELLOW}база: временный файл в ${TMPDIR:-/tmp} — data/profcom.db не затрагивается${OFF}"
 echo
 
 ARGS=(-p no:cacheprovider)

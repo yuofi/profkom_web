@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { contactsApi } from "../../utils/api/contacts.api";
+import type { ContactInfoOut } from "../../utils/api/types";
 import styles from "./EventsPage.module.css";
 import { Helmet } from "react-helmet-async";
 
@@ -62,18 +63,20 @@ export const EventsPage = () => {
               {(() => {
                 if (isLoading) return <div>Загрузка участников...</div>;
                 
-                const participants: Record<string, any[]> = {};
+                const participants: Record<string, ContactInfoOut[]> = {};
                 
                 (contacts || []).forEach(user => {
                   try {
                     const roles = JSON.parse(user.events_roles || "[]");
-                    roles.forEach((r: any) => {
+                    roles.forEach((r: { event: string; role: string }) => {
                       if (r.event === activeEvent.title) {
                         if (!participants[r.role]) participants[r.role] = [];
                         participants[r.role].push(user);
                       }
                     });
-                  } catch (e) {}
+                  } catch {
+                    return;
+                  }
                 });
 
                 if (Object.keys(participants).length === 0) {
@@ -87,7 +90,7 @@ export const EventsPage = () => {
                       {role}
                     </h3>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                      {(users as any[])?.map(u => (
+                      {users?.map(u => (
                         <div key={u.user_id} style={{ 
                           background: "var(--surface-container-high)", 
                           padding: "6px 12px", 

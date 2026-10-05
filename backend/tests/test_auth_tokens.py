@@ -650,6 +650,7 @@ class TestAccessTokenSemantics:
             "group_number", "location", "blocks", "phone", "vk", "tg",
             "budget", "in_profcom", "photo_url", "kkr_score",
             "banned", "super_user", "admin", "pgas_admin", "has_password",
+            "events_roles",
         }, f"состав полей MeOut изменился: {sorted(body)}"
 
         assert body["user_id"] == actor.user_id and isinstance(body["user_id"], int)

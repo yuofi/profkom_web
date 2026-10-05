@@ -119,9 +119,12 @@ def mock_s3(monkeypatch) -> dict[str, Any]:
 
     calls: dict[str, list] = {"presigned": [], "upload": []}
 
-    def fake_presigned(folder: str, content_type: str) -> dict[str, str]:
+    def fake_presigned(folder: str, content_type: str, file_name: Optional[str] = None) -> dict[str, str]:
         calls["presigned"].append({"folder": folder, "content_type": content_type})
-        ext = content_type.split("/")[-1]
+        if file_name and "." in file_name:
+            ext = file_name.rsplit(".", 1)[-1].lower()
+        else:
+            ext = content_type.split("/")[-1]
         if ext == "jpeg":
             ext = "jpg"
         key = f"{folder}/{uuid.uuid4()}.{ext}"

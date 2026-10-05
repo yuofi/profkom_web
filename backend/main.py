@@ -996,7 +996,16 @@ def get_presigned_url(
         if not cur.pgas_admin and not cur.super_user:
             raise HTTPException(403, "Only PGAS admins and superusers can upload to 'pgas' folder")
         ct = payload.content_type.strip().lower()
+        ext = (
+            payload.file_name.split("?")[0].rsplit(".", 1)[-1].strip().lower()
+            if (payload.file_name and "." in payload.file_name)
+            else ""
+        )
         if ct and ct not in PGAS_ALLOWED_CONTENT_TYPES:
+            raise HTTPException(400, PGAS_BAD_FILE)
+        if ext and ext not in PGAS_ALLOWED_EXTENSIONS:
+            raise HTTPException(400, PGAS_BAD_FILE)
+        if not ct and not ext:
             raise HTTPException(400, PGAS_BAD_FILE)
 
     urls = generate_presigned_url(payload.folder, payload.content_type, payload.file_name)

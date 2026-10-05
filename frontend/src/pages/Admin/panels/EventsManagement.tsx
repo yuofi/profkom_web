@@ -35,10 +35,12 @@ export const EventsManagement = () => {
   const handleAddEvent = () => {
     if (!editingUser) return;
     
-    let currentEvents: any[] = [];
+    let currentEvents: { event: string; role: string }[] = [];
     try {
       currentEvents = JSON.parse(editingUser.events_roles || "[]");
-    } catch (e) {}
+    } catch {
+      currentEvents = [];
+    }
 
     // Check if already exists
     const exists = currentEvents.find(e => e.event === selectedEvent);
@@ -55,10 +57,12 @@ export const EventsManagement = () => {
   };
 
   const handleRemoveEvent = (user: ContactInfoOut, eventName: string) => {
-    let currentEvents: any[] = [];
+    let currentEvents: { event: string; role: string }[] = [];
     try {
       currentEvents = JSON.parse(user.events_roles || "[]");
-    } catch (e) {}
+    } catch {
+      currentEvents = [];
+    }
 
     currentEvents = currentEvents.filter(e => e.event !== eventName);
     updateMutation.mutate({
@@ -68,10 +72,12 @@ export const EventsManagement = () => {
   };
 
   const renderUserEvents = (user: ContactInfoOut) => {
-    let currentEvents: any[] = [];
+    let currentEvents: { event: string; role: string }[] = [];
     try {
       currentEvents = JSON.parse(user.events_roles || "[]");
-    } catch (e) {}
+    } catch {
+      currentEvents = [];
+    }
 
     if (currentEvents.length === 0) return <span>-</span>;
     return (
