@@ -37,7 +37,7 @@ PGAS_ENTRY_FIELDS = {
 #: отказ require_pgas_admin (auth.py)
 DENIED = "PGAS admin rights required"
 #: отказ валидации типа файла (main.py, PGAS_BAD_FILE)
-BAD_FILE = "Only pdf, docx, png and jpg files are allowed for PGAS"
+BAD_FILE = "Only pdf, doc, docx, png and jpg files are allowed for PGAS"
 #: отказ presigned-url для папки pgas
 UPLOAD_DENIED = "Only PGAS admins and superusers can upload to 'pgas' folder"
 
@@ -466,7 +466,7 @@ def test_разрешённые_типы_файлов_принимаются(cli
         (f"{S3_BASE}/f.exe", "application/x-msdownload"),
         (f"{S3_BASE}/f.html", "text/html"),
         (f"{S3_BASE}/f.svg", "image/svg+xml"),
-        (f"{S3_BASE}/f.doc", "application/msword"),
+        (f"{S3_BASE}/f.bmp", "image/bmp"),
         (f"{S3_BASE}/f.gif", "image/gif"),
         (f"{S3_BASE}/f.pdf", "text/html"),
         (f"{S3_BASE}/f.exe", ""),
@@ -476,7 +476,7 @@ def test_разрешённые_типы_файлов_принимаются(cli
         "exe",
         "html",
         "svg",
-        "doc",
+        "bmp",
         "gif",
         "тип-не-совпадает-с-расширением",
         "запрещённое-расширение-без-типа",

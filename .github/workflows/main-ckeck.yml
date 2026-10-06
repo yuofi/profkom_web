@@ -26,7 +26,7 @@ jobs:
       - name: Run tests & linters
         working-directory: ./backend
         run: |
-          python -m pytest
+          ./run_tests.sh tests -q
 
   frontend-checks:
     runs-on: ubuntu-latest

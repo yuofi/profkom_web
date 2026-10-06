@@ -77,6 +77,7 @@ ME_FIELDS = {
     "admin": bool,
     "pgas_admin": bool,
     "has_password": bool,
+    "events_roles": str,
 }
 
 
@@ -288,6 +289,7 @@ PROFILE_FIELDS = {
     "pgas_admin": bool,
     "email": str,
     "tg": str,
+    "events_roles": str,
 }
 
 
@@ -430,6 +432,7 @@ USEROUT_FIELDS = {
     "super_user": bool,
     "admin": bool,
     "pgas_admin": bool,
+    "events_roles": str,
 }
 
 

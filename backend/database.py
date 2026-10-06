@@ -36,6 +36,7 @@ class UserORM(Base):
     super_user = Column(Boolean, default=False, nullable=False)
     admin = Column(Boolean, default=False, nullable=False)
     pgas_admin = Column(Boolean, default=False, nullable=False, server_default="0")
+    events_roles = Column(Text, nullable=False, default="[]", server_default="[]")
     photo_url = Column(String, nullable=True)
 
     contact = relationship("ContactInfoORM", back_populates="user", uselist=False)
@@ -147,6 +148,20 @@ def _ensure_sqlite_users_pgas_admin_column() -> None:
 
 
 _ensure_sqlite_users_pgas_admin_column()
+
+
+def _ensure_sqlite_users_events_roles_column() -> None:
+    """Add events_roles to existing SQLite DBs."""
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(users)")).fetchall()
+        col_names = {r[1] for r in rows}
+        if "events_roles" not in col_names:
+            conn.execute(
+                text("ALTER TABLE users ADD COLUMN events_roles TEXT NOT NULL DEFAULT '[]'")
+            )
+
+
+_ensure_sqlite_users_events_roles_column()
 
 
 def _ensure_sqlite_pgas_entries_columns() -> None:
@@ -343,6 +358,7 @@ def _user_orm_to_dc(u: UserORM) -> UserDC:
         super_user=u.super_user,
         admin=u.admin,
         pgas_admin=u.pgas_admin,
+        events_roles=u.events_roles,
     )
 
 
@@ -549,6 +565,7 @@ class Database:
                 banned=user.banned,
                 super_user=user.super_user,
                 admin=user.admin,
+                events_roles=user.events_roles,
             )
             session.add(u)
             session.flush()  # assign user_id
