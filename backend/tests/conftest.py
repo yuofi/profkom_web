@@ -52,7 +52,23 @@ assert str(_TMP_DB) in database_module.DATABASE_URL, (
     "Проверь приоритет переменных окружения в settings.py."
 )
 
-TABLES = ("refresh_tokens", "contact_info", "guides", "block", "pgas_entries", "users")
+TABLES = (
+    "season_corrections",
+    "notifications",
+    "meetings",
+    "subevents",
+    "events",
+    "report_series",
+    "seasons",
+    "role_assignments",
+    "leadership",
+    "refresh_tokens",
+    "contact_info",
+    "guides",
+    "block",
+    "pgas_entries",
+    "users",
+)
 
 
 def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001

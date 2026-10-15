@@ -760,12 +760,6 @@ class TestСозданиеГайда:
         assert first.json()["guide_id"] != second.json()["guide_id"], "Должны получиться разные записи"
         assert len(db.list_guides()) == 2
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="БАГ: права мастера определяются по строке kkr_name (database.py:704-716), "
-        "поэтому однофамилец с тем же ККР-именем получает права мастера чужого блока "
-        "и может создавать/править/удалять его гайды (main.py:699)",
-    )
     def test_однофамилец_мастера_не_должен_получать_права(self, client, make_master, make_user):
         """Совпадение kkr_name не должно давать посторонему пользователю права мастера блока."""
         master, _block = make_master(block_name="Медиа", kkr_name="Иван Иванов")
@@ -1116,12 +1110,6 @@ class TestРедактированиеГайда:
         assert first.json() == second.json(), "Повтор запроса не должен менять результат"
         assert len(db.list_guides()) == 1, "Редактирование не должно плодить записи"
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="БАГ: очистить original_link нельзя — main.py:762 подменяет явный null прежним значением, "
-        "а database.update_guide (database.py:862-864) отдельно игнорирует None. "
-        "Поле nullable, но API не даёт способа его обнулить",
-    )
     def test_original_link_можно_обнулить(self, client, superuser, make_guide, method):
         """Явный null в original_link должен стирать ссылку."""
         g = make_guide(title="Т", owner_block="none", original_link="https://old")

@@ -250,8 +250,8 @@ def test_создание_блока_с_существующим_мастеро�
     assert db.get_user(victim.user_id).admin is True, "мастер обязан получить admin"
 
 
-def test_создание_блока_с_hr_выдаёт_права_админа(client, superuser, make_user):
-    """HR блока тоже автоматически становится админом."""
+def test_создание_блока_с_hr_не_выдаёт_права_админа(client, superuser, make_user):
+    """По BE-01 передача прав через block.hr исключена: HR блока не становится админом."""
     hr_user = make_user(name="Эйч", surname="Аров")
     r = client.post(
         BLOCKS_URL,
@@ -259,7 +259,7 @@ def test_создание_блока_с_hr_выдаёт_права_админа(
         headers=superuser.headers,
     )
     assert r.status_code == 200, r.text
-    assert db.get_user(hr_user.user_id).admin is True, "HR обязан получить admin"
+    assert db.get_user(hr_user.user_id).admin is False, "HR не должен получать admin"
     assert db.get_block("Медиа").arr_of_human == [], (
         "HR, в отличие от мастера, в состав блока автоматически не попадает"
     )
@@ -465,11 +465,6 @@ def test_блок_со_спецсимволами_в_имени_остаётся
     assert db.get_block(name) is None
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: имя блока с '/' принимается (main.py:797), но блок становится "
-           "неудаляемым и неизменяемым — путь /api/blocks/{block_name} не матчит слэш (main.py:813, 838)",
-)
 def test_блок_с_косой_чертой_в_имени_должен_оставаться_адресуемым(client, superuser):
     """Либо имя со слэшем отвергается на входе, либо блок обязан быть адресуем."""
     name = "Медиа/Дизайн"
@@ -481,17 +476,13 @@ def test_блок_с_косой_чертой_в_имени_должен_оста
     assert deleted.status_code == 200, "созданный блок обязан удаляться"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: пустое имя блока принимается (main.py:797) и создаёт запись с PK='', "
-           "которую невозможно ни изменить, ни удалить (PATCH /api/blocks/ → 405)",
-)
 def test_блок_с_пустым_именем_должен_отвергаться(client, superuser):
     """Пустое имя — невалидные данные: ожидается 400/422."""
     r = client.post(BLOCKS_URL, json={"name": "", "master": ""}, headers=superuser.headers)
     assert r.status_code in (400, 422), f"пустое имя обязано отвергаться, получено {r.status_code}"
 
 
+@pytest.mark.skip(reason="Пустые имена и имена из одних пробелов отклоняются с 422")
 def test_блок_из_одних_пробелов_создаётся_как_есть(client, superuser):
     """Имя из пробелов не триммится — фиксируем фактическое поведение (см. отчёт)."""
     r = client.post(BLOCKS_URL, json={"name": "   ", "master": "  "}, headers=superuser.headers)
@@ -500,11 +491,6 @@ def test_блок_из_одних_пробелов_создаётся_как_е�
     assert db.get_block("   ") is not None
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: arr_of_human принимает несуществующие user_id (database.py:743 → "
-           "_sync_users_for_block, database.py:446) — в блок попадают фантомные участники",
-)
 def test_создание_блока_не_должно_принимать_несуществующих_участников(client, superuser):
     """Ссылка на несуществующего пользователя обязана отвергаться или отфильтровываться."""
     r = client.post(
@@ -518,12 +504,6 @@ def test_создание_блока_не_должно_принимать_нес
     assert db.get_block("Медиа").arr_of_human == [], "фантомный участник не должен попадать в блок"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: регистрация выдаёт admin=True любому, чьё имя+фамилия совпали с master "
-           "существующего блока (database.py:511 _sync_admin_rights в create_user_with_contact) — "
-           "эскалация привилегий через публичный /api/auth/register",
-)
 def test_регистрация_с_именем_мастера_не_должна_давать_админку(client, superuser):
     """
     Мастер блока задаётся строкой-ФИО. Любой аноним может зарегистрироваться
@@ -723,6 +703,7 @@ def test_старый_мастер_сохраняет_админку_если_в
     )
 
 
+@pytest.mark.skip(reason="По BE-01 передача прав через block.hr исключена, ручная админка не снимается блоками")
 def test_смена_hr_снимает_ручную_админку(client, superuser, make_user):
     """
     Права админа пересчитываются исключительно по блокам: снятие с должности HR
@@ -791,12 +772,6 @@ def test_cnt_of_human_пересчитывается_по_новому_сост�
     assert body["cnt_of_human"] == len(body["arr_of_human"]), "счётчик обязан совпадать с составом"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: update_block ставит cnt_of_human = len(arr) с дубликатами (database.py:791), "
-           "затирая корректное len(set) из _sync_users_for_block (database.py:447) — "
-           "счётчик участников начинает врать",
-)
 def test_дубликаты_в_arr_of_human_не_должны_раздувать_счётчик(client, superuser, make_user, make_block):
     """cnt_of_human обязан всегда совпадать с длиной arr_of_human."""
     u = make_user()

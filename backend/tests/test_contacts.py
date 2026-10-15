@@ -132,13 +132,6 @@ def test_аноним_получает_полный_справочник_с_пе
     assert leaked["user_id"] == victim.user_id
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "БАГ: GET /api/contacts объявлен без Depends(get_current_user) — весь справочник "
-        "персональных данных (email, телефон, ВК, ТГ, адрес) доступен анониму (main.py:866-868)"
-    ),
-)
 def test_анониму_должны_отказывать_в_справочнике_контактов(client, anon, make_user):
     """Справочник персональных данных обязан требовать авторизацию."""
     make_user()
@@ -317,15 +310,6 @@ def test_поле_blocks_содержит_блоки_через_запятую(c
     assert item["blocks"] == "Медиа,Спорт", "Блоки сортируются и склеиваются запятой"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "БАГ: при создании пользователя _sync_blocks_for_user получает ещё не сброшенный в БД "
-        "ContactInfoORM (session.get на pending-объекте при autoflush=False, database.py:360 "
-        "и database.py:488-509), поэтому users.blocks заполняется, а contact_info.blocks "
-        "остаётся пустым — справочник и фильтр показывают человека без блоков"
-    ),
-)
 def test_блоки_в_справочнике_должны_совпадать_с_блоками_пользователя(
     client, make_user, make_block, admin
 ):
@@ -469,12 +453,12 @@ def test_мастер_блока_получает_200(client, make_master):
     assert response.status_code == 200, response.text
 
 
-def test_hr_блока_получает_200(client, make_hr):
-    """HR блока тоже получает admin=True (database.py:463-467)."""
+def test_hr_блока_не_получает_права_админа(client, make_hr):
+    """По BE-01 передача прав через block.hr исключена: HR не получает admin=True и получает 403 к админскому фильтру."""
     hr, _block = make_hr(block_name="Медиа")
-    assert db.get_user(hr.user_id).admin is True
+    assert db.get_user(hr.user_id).admin is False
     response = client.post(FILTER_URL, json={}, headers=hr.headers)
-    assert response.status_code == 200, response.text
+    assert response.status_code == 403, response.text
 
 
 def test_авторизация_проверяется_раньше_валидации_тела(client, anon):
@@ -747,14 +731,6 @@ def test_фильтр_по_блоку_совпадает_только_с_пол�
     assert reordered.json() == [], "Порядок блоков важен — база хранит их отсортированными"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "БАГ: db.filter_contacts сравнивает blocks строгим равенством (database.py:639-640), "
-        "хотя блоки хранятся списком через запятую — пользователь, состоящий более чем "
-        "в одном блоке, не находится фильтром по одному блоку (main.py:871-877)"
-    ),
-)
 def test_фильтр_по_блоку_должен_находить_участника_нескольких_блоков(
     client, make_user, make_block, admin
 ):

@@ -5,9 +5,11 @@ Works with the project's custom `db` singleton.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from jose import jwt, JWTError
 from passlib.context import CryptContext
@@ -34,11 +36,25 @@ oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_e
 # Password helpers
 # ═══════════════════════════════════════════════════════════
 def hash_password(plain: str) -> str:
-    return pwd_ctx.hash(plain)
+    digest = hashlib.sha256(plain.encode("utf-8")).hexdigest()
+    return pwd_ctx.hash(digest)
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_ctx.verify(plain, hashed)
+    if not hashed or not plain:
+        return False
+    digest = hashlib.sha256(plain.encode("utf-8")).hexdigest()
+    try:
+        if pwd_ctx.verify(digest, hashed):
+            return True
+    except Exception:
+        pass
+    if len(plain.encode("utf-8")) <= 72:
+        try:
+            return pwd_ctx.verify(plain, hashed)
+        except Exception:
+            return False
+    return False
 
 
 # ═══════════════════════════════════════════════════════════
@@ -79,7 +95,24 @@ def _decode_access(token: str) -> dict:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         if payload.get("type") != "access":
             raise HTTPException(401, "Not an access token")
+        sub = payload.get("sub")
+        if sub is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Access token invalid or expired",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        try:
+            int(sub)
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Access token invalid or expired",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         return payload
+    except HTTPException:
+        raise
     except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -100,6 +133,8 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
         raise HTTPException(401, "User not found")
     if user.banned:
         raise HTTPException(403, "User is banned")
+    if getattr(user, "account_state", "active") == "archived":
+        raise HTTPException(403, "Account is archived")
     return user
 
 
@@ -114,7 +149,7 @@ def get_current_user_optional(token: Optional[str] = Depends(oauth2_scheme_optio
         payload = _decode_access(token)
         user_id = int(payload["sub"])
         user = db.get_user(user_id)
-        if not user or user.banned:
+        if not user or user.banned or getattr(user, "account_state", "active") == "archived":
             return None
         return user
     except Exception:
@@ -122,19 +157,19 @@ def get_current_user_optional(token: Optional[str] = Depends(oauth2_scheme_optio
 
 
 def require_admin(cur: User = Depends(get_current_user)) -> User:
-    if not cur.admin and not cur.super_user:
+    if not cur.admin and not cur.super_user and not db.is_tachki(cur.user_id):
         raise HTTPException(403, "Admin rights required")
     return cur
 
 
 def require_superuser(cur: User = Depends(get_current_user)) -> User:
-    if not cur.super_user:
+    if not cur.super_user and not db.is_chair(cur.user_id):
         raise HTTPException(403, "SuperUser rights required")
     return cur
 
 
 def require_pgas_admin(cur: User = Depends(get_current_user)) -> User:
-    if not cur.pgas_admin and not cur.super_user:
+    if not cur.pgas_admin and not cur.super_user and not db.is_chair(cur.user_id):
         raise HTTPException(403, "PGAS admin rights required")
     return cur
 
@@ -153,6 +188,17 @@ def refresh_tokens(refresh_token_value: str) -> dict:
         raise HTTPException(401, "Refresh token expired")
 
     user_id = rt["user_id"]
+    user = db.get_user(user_id)
+    if not user:
+        db.delete_refresh_token(refresh_token_value)
+        raise HTTPException(401, "User not found")
+    if user.banned:
+        db.delete_refresh_token(refresh_token_value)
+        raise HTTPException(403, "User is banned")
+    if getattr(user, "account_state", "active") == "archived":
+        db.delete_refresh_token(refresh_token_value)
+        raise HTTPException(403, "Account is archived")
+
     db.delete_refresh_token(refresh_token_value)   # rotation
     return create_token_pair(user_id)
 

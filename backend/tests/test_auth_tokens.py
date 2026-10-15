@@ -318,11 +318,6 @@ class TestRefreshErrors:
     def test_метод_get_не_поддерживается(self, client):
         assert _get(client, REFRESH_URL).status_code == 405
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="БАГ: refresh_tokens() не проверяет пользователя — забаненному выдаётся "
-               "новая пара токенов со статусом 200 (auth.py:139, main.py:517)",
-    )
     def test_refresh_забаненного_пользователя_отклоняется(self, client, banned_user):
         """
         Забаненному пользователю нельзя выдавать новые токены.
@@ -335,11 +330,6 @@ class TestRefreshErrors:
             f"забаненному не должны выдаваться новые токены, получили {resp.status_code}"
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="БАГ: refresh_tokens() не проверяет существование пользователя — осиротевшая "
-               "строка refresh_tokens позволяет чеканить токены для удалённого id (auth.py:139)",
-    )
     def test_refresh_для_несуществующего_пользователя_отклоняется(self, client):
         """
         Строка refresh_tokens может пережить пользователя (FK в SQLite не включены),
@@ -461,11 +451,6 @@ class TestLogout:
         assert resp.status_code == 401
         assert resp.json()["detail"] == DETAIL_USER_NOT_FOUND
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="БАГ: logout отзывает токен из куки без проверки владельца — любой "
-               "аутентифицированный пользователь может разлогинить чужую сессию (main.py:538-546)",
-    )
     def test_logout_не_отзывает_чужой_refresh_токен(self, client, user, make_user):
         """
         Пользователь A предъявляет свой access-токен и чужую refresh-куку.
@@ -564,11 +549,6 @@ class TestLogoutAll:
             "документируем текущее поведение: выданный access-токен переживает logout-all"
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="БАГ: logout-all не вызывает delete_cookie — браузер остаётся с мёртвой "
-               "refresh-кукой, в отличие от logout (main.py:551-555)",
-    )
     def test_кука_не_очищается(self, client, user):
         """
         logout-all не гасит куку refresh_token, в отличие от logout.
@@ -807,11 +787,6 @@ class TestAccessTokenSemantics:
         resp = _get(client, ME_URL, headers=banned_user.headers)
         assert resp.status_code == 200, "после снятия бана доступ должен восстановиться"
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="БАГ: int(payload['sub']) без обработки ValueError — токен с нечисловым sub "
-               "вызывает необработанное исключение и 500 вместо 401 (auth.py:97)",
-    )
     def test_нечисловой_sub_отклоняется_с_401(self, client, user):
         """
         auth.py:97 делает int(payload["sub"]) без обработки ошибок.
@@ -825,11 +800,6 @@ class TestAccessTokenSemantics:
         assert resp.status_code == 401, f"ожидали 401, получили {resp.status_code}"
         assert resp.json()["detail"] == DETAIL_ACCESS_BAD
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="БАГ: payload['sub'] по ключу без обработки KeyError — токен без claim sub "
-               "вызывает необработанное исключение и 500 вместо 401 (auth.py:97)",
-    )
     def test_отсутствующий_sub_отклоняется_с_401(self, client, user):
         """
         auth.py:97 обращается к payload["sub"] по ключу.

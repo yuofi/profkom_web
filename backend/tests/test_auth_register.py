@@ -365,12 +365,6 @@ def test_регистр_домена_в_email_нормализуется_и_да
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: проверка уникальности email регистрозависима — db.get_user_by_email сравнивает "
-           "строки побайтово (database.py:537), а UNIQUE-индекс ux_contact_info_email тоже BINARY "
-           "(database.py:270). Ivan@test.ru регистрируется поверх ivan@test.ru (main.py:246)",
-)
 def test_регистр_локальной_части_email_не_позволяет_завести_второй_аккаунт(client):
     """Ivan@test.ru — тот же адрес, что ivan@test.ru: второй регистрации быть не должно."""
     client.post(REGISTER_URL, json=body(email="ivan@test.ru"))
@@ -549,11 +543,6 @@ def test_неверный_тип_поля_даёт_422(client, field, value):
     assert row_counts()["users"] == 0, "Пользователь не должен создаваться при неверном типе поля"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: RegisterIn.password не имеет min_length (main.py:83) — регистрация с пустым "
-           "паролем проходит и создаёт аккаунт, в который пускает login с пустой строкой",
-)
 def test_пустой_пароль_отклоняется(client):
     """Пустая строка не является паролем."""
     response = client.post(REGISTER_URL, json=body(password=""))
@@ -562,6 +551,7 @@ def test_пустой_пароль_отклоняется(client):
     assert row_counts()["users"] == 0, "Аккаунт с пустым паролем создаваться не должен"
 
 
+@pytest.mark.skip(reason="Пустой пароль теперь отбивается валидацией 422")
 def test_пустой_пароль_всё_равно_хешируется(client):
     """
     Пока пустой пароль принимается (см. xfail выше) — он обязан хотя бы храниться хешем,
@@ -744,12 +734,6 @@ def test_две_регистрации_с_разными_email_независи�
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: _sync_admin_rights вызывается на создании пользователя (database.py:512) и выдаёт "
-           "admin=True любому, чей kkr_name ('имя фамилия') совпал с block.master/block.hr — "
-           "самоназначение админом через регистрацию (main.py:249)",
-)
 def test_регистрация_под_именем_мастера_блока_не_даёт_админку(client, make_block):
     """Совпадение ФИО с мастером блока не должно давать права администратора."""
     make_block(name="Медиа", master="Иван Иванов")
@@ -761,11 +745,6 @@ def test_регистрация_под_именем_мастера_блока_н
     assert user.admin is False, "Регистрация не должна выдавать admin по совпадению ФИО с мастером блока"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: тот же _sync_admin_rights (database.py:512) выдаёт admin=True при совпадении "
-           "kkr_name с block.hr — самоназначение админом через регистрацию (main.py:249)",
-)
 def test_регистрация_под_именем_hr_блока_не_даёт_админку(client, make_block):
     """То же самое для поля hr."""
     make_block(name="Медиа", master="Кто-то Другой", hr="Иван Иванов")

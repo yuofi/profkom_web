@@ -329,6 +329,7 @@ def test_профиль_по_id_не_отдаёт_хеш_пароля(client, us
     )
 
 
+@pytest.mark.skip(reason="Устарело: по BE-01 профиль закрыт авторизацией")
 def test_профиль_по_id_анонимно_отдаёт_чужую_почту_и_телеграм(client, make_user, anon):
     """
     ДЕФЕКТ (main.py:580): у ручки нет ни одной зависимости авторизации.
@@ -345,11 +346,6 @@ def test_профиль_по_id_анонимно_отдаёт_чужую_поч�
     assert resp.json()["tg"] == "@victim_tg", "аноним видит чужой телеграм — утечка ПДн"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: GET /api/profile/{user_id} объявлен без Depends(get_current_user) — "
-           "персональные данные (email, tg) доступны анониму (main.py:580-588)",
-)
 def test_профиль_по_id_должен_требовать_авторизацию(client, make_user, anon):
     """Правильное поведение: чужой профиль читается только по токену."""
     victim = make_user()
@@ -372,9 +368,9 @@ def test_профиль_по_id_несуществующий_404(client, user):
     ["abc", "1.5", "%20", "-", "1e5", "0x10", "١٢٣"],
     ids=["буквы", "дробное", "пробел", "дефис", "экспонента", "hex", "арабские-цифры"],
 )
-def test_профиль_по_id_нечисловой_идентификатор_422(client, raw_id):
+def test_профиль_по_id_нечисловой_идентификатор_422(client, raw_id, user):
     """Нечисловой path-параметр отбивается pydantic-валидацией пути."""
-    resp = client.get(f"{API}/{raw_id}")
+    resp = client.get(f"{API}/{raw_id}", headers=user.headers)
 
     assert resp.status_code == 422, f"id={raw_id!r} должен давать 422, а пришло {resp.status_code}"
     assert resp.json()["detail"][0]["loc"] == ["path", "user_id"], (
@@ -383,9 +379,9 @@ def test_профиль_по_id_нечисловой_идентификатор_
 
 
 @pytest.mark.parametrize("raw_id", ["0", "-1", "-999"], ids=["ноль", "минус-один", "минус-много"])
-def test_профиль_по_id_неположительный_идентификатор_404(client, raw_id):
+def test_профиль_по_id_неположительный_идентификатор_404(client, raw_id, user):
     """0 и отрицательные id парсятся как int, пользователя нет — 404."""
-    resp = client.get(f"{API}/{raw_id}")
+    resp = client.get(f"{API}/{raw_id}", headers=user.headers)
 
     assert resp.status_code == 404, f"id={raw_id!r} должен давать 404"
     assert resp.json()["detail"] == "User not found", "неожиданный detail"
@@ -404,7 +400,7 @@ def test_профиль_по_id_без_contact_info_500(client, user):
     """Пользователь есть, строки contact_info нет — 500 Contact info missing for user."""
     _drop_contact(user.user_id)
 
-    resp = client.get(f"{API}/{user.user_id}")
+    resp = client.get(f"{API}/{user.user_id}", headers=user.headers)
 
     assert resp.status_code == 500, "рассинхрон базы обязан давать явную 500"
     assert resp.json()["detail"] == "Contact info missing for user", "неожиданный detail"
@@ -582,6 +578,7 @@ def test_patch_несуществующего_пользователя_404(clien
     assert resp.json()["detail"] == "User not found", "неожиданный detail"
 
 
+@pytest.mark.skip(reason="Устарело: проверка прав выполняется до 404 per BE-01")
 def test_patch_чужого_несуществующего_id_отвечает_404_а_не_403(client, user):
     """
     ДЕФЕКТ (main.py:597-601): проверка существования цели идёт ДО проверки прав.
@@ -597,11 +594,6 @@ def test_patch_чужого_несуществующего_id_отвечает_4
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: 404 'User not found' выдаётся до проверки прав, поэтому по коду ответа "
-           "(404 vs 403) любой авторизованный перечисляет существующие user_id (main.py:597-601)",
-)
 def test_patch_не_должен_различать_отсутствие_цели_и_отсутствие_прав(client, user, make_user):
     """Правильное поведение: непривилегированный получает 403 в обоих случаях."""
     resp = client.patch(f"{API}/{MISSING_ID}", headers=user.headers, json={"phone": "1"})
@@ -935,12 +927,6 @@ def test_patch_group_number_вне_диапазона_регистрации_п�
     assert db.get_contact(user.user_id).group_number == "99999", "и остаётся в базе"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: ProfileUpdate.group_number объявлен как Optional[str] без валидации "
-           "(main.py:198), поэтому нечисловое значение сначала пишется в базу, а затем "
-           "UserOut(group_number: int) падает ValidationError → 500 (main.py:637)",
-)
 def test_patch_нечисловая_группа_должна_отбиваться_422(client, user):
     """Правильное поведение: 'не-число' — это 422, и база не меняется."""
     try:
@@ -959,6 +945,7 @@ def test_patch_нечисловая_группа_должна_отбиватьс
     assert status == 422, "нечисловая группа обязана отбиваться валидацией запроса"
 
 
+@pytest.mark.skip(reason="Устарело: нечисловая группа валидируется и не попадает в БД")
 def test_patch_нечисловая_группа_ломает_чтение_профиля_навсегда(client, user):
     """
     Последствие того же дефекта: после неудачного PATCH в базе остаётся
@@ -974,6 +961,7 @@ def test_patch_нечисловая_группа_ломает_чтение_пр�
         client.get(f"{API}/{user.user_id}")
 
 
+@pytest.mark.skip(reason="Устарело: конфликт почты возвращает 409")
 def test_patch_дублирующая_почта_роняет_обработчик(client, make_user):
     """
     ДЕФЕКТ (main.py:616-626): contact_info.email объявлен UNIQUE (database.py:51),
@@ -993,11 +981,6 @@ def test_patch_дублирующая_почта_роняет_обработчи
     assert db.get_contact(first.user_id).email == "taken@test.ru", "чужая почта не пострадала"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: занятость email не проверяется, UNIQUE-нарушение уходит наружу "
-           "необработанным IntegrityError вместо 409 (main.py:616-626)",
-)
 def test_patch_дублирующая_почта_должна_давать_409(client, make_user):
     """Правильное поведение: попытка занять чужую почту — 409, а не падение."""
     make_user(email="taken2@test.ru")
@@ -1018,6 +1001,7 @@ def test_patch_своя_же_почта_проходит(client, make_user):
     assert db.get_contact(actor.user_id).email == "same@test.ru", "почта осталась прежней"
 
 
+@pytest.mark.skip(reason="Устарело: обработчик возвращает управляемую 500")
 def test_patch_без_contact_info_роняет_обработчик(client, user):
     """
     ДЕФЕКТ (main.py:637): GET-ручки честно отдают 500 'Contact info missing for user',
@@ -1029,12 +1013,6 @@ def test_patch_без_contact_info_роняет_обработчик(client, use
         client.patch(f"{API}/{user.user_id}", headers=user.headers, json={"phone": "+7"})
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: PATCH не проверяет наличие contact_info и падает AttributeError "
-           "'NoneType' object has no attribute 'kkr_name' вместо 500 с текстом "
-           "'Contact info missing for user' (main.py:603, 637)",
-)
 def test_patch_без_contact_info_должен_давать_понятную_500(client, user):
     """Правильное поведение: тот же явный detail, что и в GET-ручках."""
     _drop_contact(user.user_id)
@@ -1103,6 +1081,7 @@ def test_patch_несуществующий_блок_игнорируется(cl
     assert db.get_user(user.user_id).blocks == "", "в базу тоже ничего не пишется"
 
 
+@pytest.mark.skip(reason="Устарело: kkr_name не затирается при патче других полей")
 def test_patch_неродственного_поля_молча_переписывает_kkr_name(client, make_user, make_block):
     """
     ДЕФЕКТ (main.py:604-612): kkr_name пересчитывается из ФИО на КАЖДОМ патче,
@@ -1126,12 +1105,6 @@ def test_patch_неродственного_поля_молча_переписы
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: kkr_name пересчитывается из name+surname при любом PATCH, даже если "
-           "ни одно из этих полей не передано, и молча затирает ранее заданное значение "
-           "(main.py:604-612)",
-)
 def test_patch_не_должен_менять_kkr_name_если_его_не_просили(client, make_user):
     """Правильное поведение: патч телефона не трогает kkr_name."""
     actor = make_user(name="Иван", surname="Иванов", kkr_name="Ванёк Мастеров")
@@ -1143,11 +1116,6 @@ def test_patch_не_должен_менять_kkr_name_если_его_не_пр
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: db.update_contact не вызывает _sync_admin_rights (database.py:606-623), "
-           "поэтому после смены kkr_name флаг admin остаётся протухшим",
-)
 def test_patch_смена_kkr_name_должна_пересчитывать_флаг_admin(client, make_master):
     """Правильное поведение: перестал быть мастером — потерял admin."""
     master, _block = make_master(block_name="Медиа", name="Иван", surname="Иванов")
@@ -1334,6 +1302,7 @@ def test_delete_последнего_суперюзера_оставляет_с�
     assert left == 0, "система осталась вообще без суперюзеров — защиты нет"
 
 
+@pytest.mark.skip(reason="Устарело: при удалении мастера ссылка в блоке очищается")
 def test_delete_мастера_блока_оставляет_блок_с_битой_ссылкой(client, superuser, make_master):
     """
     ДЕФЕКТ (database.py:561-585): delete_user вычищает пользователя из
@@ -1359,12 +1328,6 @@ def test_delete_мастера_блока_оставляет_блок_с_бит�
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: delete_user не чистит block.master/block.hr (database.py:561-585) — "
-           "блок остаётся с ФИО удалённого мастера, и права наследует любой, "
-           "кто поставит себе такой же kkr_name",
-)
 def test_delete_мастера_должно_очищать_ссылку_в_блоке(client, superuser, make_master):
     """Правильное поведение: после удаления мастера block.master пуст."""
     master, _block = make_master(block_name="Медиа", kkr_name="Мастер Блока")
@@ -1374,6 +1337,7 @@ def test_delete_мастера_должно_очищать_ссылку_в_бл�
     assert db.get_block("Медиа").master == "", "ссылка на удалённого мастера должна быть снята"
 
 
+@pytest.mark.skip(reason="Устарело: осиротевший блок больше не наследуется однофамильцем")
 def test_delete_мастера_наследуется_новым_однофамильцем(client, superuser, make_master, make_user):
     """Практическое следствие висячей ссылки: новый пользователь получает чужой блок."""
     master, _block = make_master(block_name="Медиа", kkr_name="Мастер Блока")
@@ -1421,11 +1385,11 @@ def test_delete_не_ходит_в_s3(client, superuser, make_user, mock_s3):
 def test_delete_профиль_становится_недоступен_для_чтения(client, superuser, make_user):
     """После удаления GET /profile/{id} отдаёт 404."""
     victim = make_user()
-    assert client.get(f"{API}/{victim.user_id}").status_code == 200, "до удаления профиль читается"
+    assert client.get(f"{API}/{victim.user_id}", headers=superuser.headers).status_code == 200, "до удаления профиль читается"
 
     client.delete(f"{API}/{victim.user_id}", headers=superuser.headers)
 
-    resp = client.get(f"{API}/{victim.user_id}")
+    resp = client.get(f"{API}/{victim.user_id}", headers=superuser.headers)
     assert resp.status_code == 404, "после удаления профиль читаться не должен"
     assert resp.json()["detail"] == "User not found", "неожиданный detail"
 

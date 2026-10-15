@@ -255,11 +255,6 @@ def test_pri_nesovpadenii_i_email_i_imeni_sozdaetsya_novyy(client, mock_vk, make
     assert len(db.list_contacts()) == 2, "должно быть два независимых пользователя"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: vk-ссылка не проставляется существующему пользователю при входе через VK — "
-           "аккаунт остаётся никак не связан с VK id (main.py:491-500)",
-)
 def test_vk_ssylka_propisyvaetsya_sushchestvuyushchemu_polzovatelyu(client, mock_vk, make_user):
     """Вход через VK должен связывать существующий аккаунт с VK id."""
     victim = make_user(email="ivan@test.ru", name="Иван", surname="Иванов")
@@ -272,11 +267,6 @@ def test_vk_ssylka_propisyvaetsya_sushchestvuyushchemu_polzovatelyu(client, mock
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: VK-пользователи без имени и фамилии получают kkr_name='' и склеиваются "
-           "в один аккаунт через get_user_by_name('') (main.py:445-449)",
-)
 def test_raznye_vk_akkaunty_bez_imeni_ne_skleivayutsya(client, mock_vk):
     """Два разных VK id без имени/фамилии обязаны стать двумя разными пользователями."""
     mock_vk(user_id="111", first_name="", last_name="")
@@ -291,12 +281,6 @@ def test_raznye_vk_akkaunty_bez_imeni_ne_skleivayutsya(client, mock_vk):
     assert len(db.list_contacts()) == 2, "должно быть два независимых пользователя"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: повышение привилегий — create_user_with_contact вызывает _sync_admin_rights, "
-           "и новый VK-пользователь с ФИО мастера блока получает admin=True "
-           "(main.py:489 → database.py:509)",
-)
 def test_novyy_vk_polzovatel_s_fio_mastera_ne_stanovitsya_adminom(client, mock_vk, make_block):
     """Совпадение отображаемого имени VK с master блока не должно давать прав админа."""
     make_block(name="Медиа", master="Пётр Сидоров")
@@ -411,11 +395,6 @@ def test_avatar_ne_perezapisyvaetsya_esli_photo_url_uzhe_est(client, mock_vk, mo
     assert db.get_user(victim.user_id).photo_url == "https://cdn.test/old.jpg", "photo_url затёрт"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: жадная регулярка r'cs=.*$' срезает все query-параметры после cs=, "
-           "ломая подписанные URL аватаров VK (main.py:474-475 и main.py:494-495)",
-)
 def test_perepisyvanie_cs_ne_teryaet_ostalnye_parametry(client, mock_vk, mock_s3):
     """Переписывать надо только значение cs=, остальные параметры обязаны сохраниться."""
     mock_vk(user_id="777", avatar="https://sun1.vk.com/p.jpg?cs=400x400&ava=1&sign=abc")
@@ -445,11 +424,6 @@ def test_zabanennyy_polzovatel_403(client, mock_vk, make_user):
     assert _refresh_rows(banned.user_id) == 1, "у забаненного появились новые refresh-токены"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: проверка banned стоит ПОСЛЕ записи в БД, поэтому вход забаненного "
-           "всё равно перезаписывает его телефон и аватар (main.py:499-503)",
-)
 def test_zabanennyy_ne_modificiruetsya_pered_otkazom(client, mock_vk, make_user):
     """403 не должен сопровождаться записью данных в аккаунт забаненного."""
     banned = make_user(email="ban@test.ru", banned=True, phone="+70000000000")
@@ -534,12 +508,6 @@ def test_pustoy_user_id_401(client, mock_vk):
     assert _refresh_rows() == 0, "выдан refresh-токен без идентификации пользователя"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: vk_id = str(vk_user.get('user_id')) превращает отсутствующий id в строку 'None', "
-           "которая проходит проверку `if not vk_id` и создаёт аккаунт с "
-           "vk=https://vk.com/idNone (main.py:390, 432)",
-)
 def test_otsutstvuyushchiy_user_id_401(client, mock_vk):
     """Ключ user_id = null в ответе VK — это тоже 'Could not identify VK user'."""
     mock_vk(user_id=None)
@@ -656,12 +624,6 @@ def test_musornyy_id_token_ne_lomaet_endpoint(client, mock_vk):
     assert db.get_contact(uid).kkr_name == "Пётр Сидоров", "данные должны прийти из VK API"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="УЯЗВИМОСТЬ: jwt.get_unverified_claims читает id_token БЕЗ проверки подписи, "
-           "поэтому email из подделанного JWT позволяет войти в чужой аккаунт "
-           "(main.py:361-362 → main.py:441-443)",
-)
 def test_podpisannyy_chuzhim_klyuchom_id_token_ne_daet_zahvatit_akkaunt(client, mock_vk, make_user):
     """Claims из JWT с чужой подписью не должны определять, в чей аккаунт мы входим."""
     victim = make_user(email="victim@test.ru", name="Жертва", surname="Жертвина")
@@ -675,11 +637,6 @@ def test_podpisannyy_chuzhim_klyuchom_id_token_ne_daet_zahvatit_akkaunt(client, 
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="УЯЗВИМОСТЬ: JWT с alg=none и пустой подписью принимается как источник email "
-           "(main.py:361-362)",
-)
 def test_id_token_bez_podpisi_ne_ispolzuetsya(client, mock_vk):
     """JWT с alg=none вообще не имеет подписи — его claims нельзя использовать."""
     mock_vk(user_id="777")
@@ -710,12 +667,6 @@ def test_telefon_iz_id_token_ispolzuetsya_esli_vk_ego_ne_vernul(client, mock_vk)
 # ─────────────────────────────────────────────────────────────
 #  9. Утечка и инъекция access_token
 # ─────────────────────────────────────────────────────────────
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: access_token подставляется в URL fallback-запроса f-строкой без "
-           "urllib.parse.quote — символы & и = позволяют дописать чужие query-параметры "
-           "(main.py:405)",
-)
 def test_access_token_ekraniruetsya_v_url_fallbacka(client, mock_vk):
     """Токен обязан быть закодирован, иначе в запрос к VK можно вписать свои параметры."""
     from urllib.parse import parse_qs, urlparse
@@ -730,11 +681,6 @@ def test_access_token_ekraniruetsya_v_url_fallbacka(client, mock_vk):
     assert "user_ids" not in query, "через access_token в запрос внедрён чужой параметр"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: логгирование секрета — logging.info пишет сырой VK access_token в логи "
-           "приложения (main.py:382)",
-)
 def test_access_token_ne_popadaet_v_logi(client, mock_vk, caplog):
     """Секрет пользователя не должен утекать в логи."""
     mock_vk(user_id="777")

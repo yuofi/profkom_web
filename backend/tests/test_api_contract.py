@@ -38,19 +38,36 @@ from database import db
 #
 API_ROUTES: tuple[tuple[str, str], ...] = (
     ("DELETE", "/api/blocks/{block_name}"),
+    ("DELETE", "/api/events/{event_id}/meeting"),
     ("DELETE", "/api/guides/{guide_id}"),
     ("DELETE", "/api/pgas/{entry_id}"),
     ("DELETE", "/api/profile/{user_id}"),
+    ("DELETE", "/api/subevents/{subevent_id}/meeting"),
     ("GET", "/api/blocks"),
     ("GET", "/api/contacts"),
+    ("GET", "/api/events"),
+    ("GET", "/api/events/{event_id}"),
+    ("GET", "/api/events/{event_id}/meeting"),
+    ("GET", "/api/events/{event_id}/subevents"),
     ("GET", "/api/guides"),
     ("GET", "/api/guides/{guide_id}"),
+    ("GET", "/api/leadership"),
     ("GET", "/api/pgas"),
     ("GET", "/api/profile/me"),
     ("GET", "/api/profile/{user_id}"),
+    ("GET", "/api/report-series"),
+    ("GET", "/api/seasons"),
+    ("GET", "/api/seasons/current"),
+    ("GET", "/api/seasons/{season_id}"),
+    ("GET", "/api/session"),
+    ("GET", "/api/subevents/{subevent_id}"),
+    ("GET", "/api/subevents/{subevent_id}/meeting"),
     ("PATCH", "/api/blocks/{block_name}"),
+    ("PATCH", "/api/events/{event_id}"),
     ("PATCH", "/api/guides/{guide_id}"),
     ("PATCH", "/api/profile/{user_id}"),
+    ("PATCH", "/api/seasons/{season_id}"),
+    ("PATCH", "/api/subevents/{subevent_id}"),
     ("POST", "/api/auth/change-password"),
     ("POST", "/api/auth/login"),
     ("POST", "/api/auth/logout"),
@@ -62,11 +79,28 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ("POST", "/api/blocks/{block_name}/enter"),
     ("POST", "/api/blocks/{block_name}/exit"),
     ("POST", "/api/contacts/filter"),
+    ("POST", "/api/events"),
+    ("POST", "/api/events/{event_id}/copy"),
+    ("POST", "/api/events/{event_id}/subevents"),
     ("POST", "/api/guides"),
     ("POST", "/api/guides/{guide_id}"),
+    ("POST", "/api/leadership/transfer"),
     ("POST", "/api/pgas"),
+    ("POST", "/api/season-corrections"),
+    ("POST", "/api/seasons"),
+    ("POST", "/api/seasons/{season_id}/begin-summary"),
+    ("POST", "/api/seasons/{season_id}/close"),
+    ("POST", "/api/seasons/{season_id}/open"),
     ("POST", "/api/upload/presigned-url"),
+    ("PUT", "/api/blocks/{block_id}/leader"),
+    ("PUT", "/api/events/{event_id}/leaders"),
+    ("PUT", "/api/events/{event_id}/meeting"),
     ("PUT", "/api/guides/{guide_id}"),
+    ("PUT", "/api/leadership/deputies"),
+    ("PUT", "/api/role-assignments/{role_assignment_id}/deputies"),
+    ("PUT", "/api/subevents/{subevent_id}/leaders"),
+    ("PUT", "/api/subevents/{subevent_id}/meeting"),
+    ("PUT", "/api/subevents/{subevent_id}/organizers"),
 )
 
 # Служебные маршруты, которые FastAPI монтирует сам (единственное законное
@@ -79,10 +113,8 @@ FASTAPI_BUILTIN_PATHS = frozenset(
 # Маршруты, которые обязаны работать БЕЗ заголовка Authorization.
 PUBLIC_ROUTES: tuple[tuple[str, str], ...] = (
     ("GET", "/api/blocks"),
-    ("GET", "/api/contacts"),
     ("GET", "/api/guides"),
     ("GET", "/api/guides/{guide_id}"),
-    ("GET", "/api/profile/{user_id}"),
     ("POST", "/api/auth/register"),
     ("POST", "/api/auth/login"),
     ("POST", "/api/auth/vk"),
@@ -117,6 +149,11 @@ def url_for(
     guide_id: int = 1,
     entry_id: int = 1,
     block_name: str = "Медиа",
+    event_id: str = "00000000-0000-0000-0000-000000000000",
+    subevent_id: str = "00000000-0000-0000-0000-000000000000",
+    season_id: str = "00000000-0000-0000-0000-000000000000",
+    block_id: str = "00000000-0000-0000-0000-000000000000",
+    role_assignment_id: str = "00000000-0000-0000-0000-000000000000",
 ) -> str:
     """Подставляет конкретные значения в шаблон пути."""
     return (
@@ -124,6 +161,11 @@ def url_for(
         .replace("{guide_id}", str(guide_id))
         .replace("{entry_id}", str(entry_id))
         .replace("{block_name}", block_name)
+        .replace("{event_id}", str(event_id))
+        .replace("{subevent_id}", str(subevent_id))
+        .replace("{season_id}", str(season_id))
+        .replace("{block_id}", str(block_id))
+        .replace("{role_assignment_id}", str(role_assignment_id))
     )
 
 
@@ -298,12 +340,9 @@ def test_публичный_маршрут_без_токена_не_отдаёт
     "method,path,expected_status",
     [
         pytest.param("GET", "/api/blocks", 200, id="GET-/api/blocks"),
-        pytest.param("GET", "/api/contacts", 200, id="GET-/api/contacts"),
         pytest.param("GET", "/api/guides", 200, id="GET-/api/guides"),
         # пустая база: гайда нет
         pytest.param("GET", "/api/guides/{guide_id}", 404, id="GET-/api/guides/{guide_id}"),
-        # пустая база: пользователя нет
-        pytest.param("GET", "/api/profile/{user_id}", 404, id="GET-/api/profile/{user_id}"),
         # пустое тело: валидация pydantic
         pytest.param("POST", "/api/auth/register", 422, id="POST-/api/auth/register"),
         pytest.param("POST", "/api/auth/login", 422, id="POST-/api/auth/login"),
@@ -579,16 +618,17 @@ def test_пути_чувствительны_к_регистру(client):
 
 
 @pytest.mark.parametrize(
-    "path",
+    "path,needs_auth",
     [
-        pytest.param("/api/guides", id="/api/guides"),
-        pytest.param("/api/blocks", id="/api/blocks"),
-        pytest.param("/api/contacts", id="/api/contacts"),
+        pytest.param("/api/guides", False, id="/api/guides"),
+        pytest.param("/api/blocks", False, id="/api/blocks"),
+        pytest.param("/api/contacts", True, id="/api/contacts"),
     ],
 )
-def test_путь_без_слэша_обрабатывается_напрямую(client, path):
+def test_путь_без_слэша_обрабатывается_напрямую(client, make_user, path, needs_auth):
     """Канонический путь без завершающего слэша отвечает сразу, без редиректа."""
-    resp = client.get(path, follow_redirects=False)
+    headers = make_user(password=None).headers if needs_auth else None
+    resp = client.get(path, headers=headers, follow_redirects=False)
     assert resp.status_code == 200, f"{path}: получен {resp.status_code}"
     assert "location" not in {k.lower() for k in resp.headers}, (
         f"{path}: неожиданный редирект на {resp.headers.get('location')}"
@@ -674,7 +714,6 @@ def test_список_origins_ровно_такой_как_объявлен():
     """Пинним состав main.origins — молчаливое расширение недопустимо."""
     assert main_module.origins == [
         main_module.FRONTEND_URL,
-        "https://5x4kxnk4-5173.euw.devtunnels.ms",
     ], f"Состав разрешённых origin изменился: {main_module.origins}"
 
 
@@ -785,15 +824,6 @@ def test_options_без_origin_не_обрабатывается_как_prefligh
     assert resp.status_code == 405, f"Получен {resp.status_code}: {resp.text[:200]}"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "БАГ: в список CORS-origin намертво зашит сторонний dev-туннель "
-        "'https://5x4kxnk4-5173.euw.devtunnels.ms' с allow_credentials=True — "
-        "тот, кто получит это поддоменное имя, сможет слать запросы с cookie "
-        "пользователей (main.py:39)"
-    ),
-)
 def test_в_разрешённых_origin_нет_стороннего_dev_туннеля():
     """Продовый список origin не должен содержать временных dev-туннелей."""
     tunnels = [o for o in main_module.origins if "devtunnels.ms" in o or "ngrok" in o]
@@ -876,8 +906,6 @@ def test_защищённый_маршрут_помечен_требование
     "method,path",
     [
         pytest.param("GET", "/api/blocks", id="GET-/api/blocks"),
-        pytest.param("GET", "/api/contacts", id="GET-/api/contacts"),
-        pytest.param("GET", "/api/profile/{user_id}", id="GET-/api/profile/{user_id}"),
         pytest.param("POST", "/api/auth/register", id="POST-/api/auth/register"),
         pytest.param("POST", "/api/auth/login", id="POST-/api/auth/login"),
         pytest.param("POST", "/api/auth/vk", id="POST-/api/auth/vk"),
@@ -943,20 +971,24 @@ def test_каждая_операция_описывает_ответ_422_для_
 
 
 @pytest.mark.parametrize(
-    "method,path,status,detail",
+    "method,path,status,detail,needs_auth",
     [
-        pytest.param("GET", "/api/profile/999999", 404, "User not found", id="404-профиль"),
-        pytest.param("GET", "/api/guides/999999", 404, "Guide not found", id="404-гайд"),
-        pytest.param("GET", "/api/profile/me", 401, "Not authenticated", id="401-без-токена"),
+        pytest.param("GET", "/api/profile/999999", 404, "User not found", True, id="404-профиль"),
+        pytest.param("GET", "/api/guides/999999", 404, "Guide not found", False, id="404-гайд"),
+        pytest.param("GET", "/api/profile/me", 401, "Not authenticated", False, id="401-без-токена"),
         pytest.param("POST", "/api/auth/refresh", 401,
-                     "Refresh token missing in cookies", id="401-refresh"),
-        pytest.param("GET", "/api/nonexistent", 404, "Not Found", id="404-неизвестный-путь"),
-        pytest.param("DELETE", "/api/blocks", 405, "Method Not Allowed", id="405"),
+                     "Refresh token missing in cookies", False, id="401-refresh"),
+        pytest.param("GET", "/api/nonexistent", 404, "Not Found", False, id="404-неизвестный-путь"),
+        pytest.param("DELETE", "/api/blocks", 405, "Method Not Allowed", False, id="405"),
     ],
 )
-def test_ошибка_http_имеет_форму_detail_строка(client, method, path, status, detail):
+def test_ошибка_http_имеет_форму_detail_строка(client, make_user, method, path, status, detail, needs_auth):
     """Все HTTPException отдают ровно {"detail": "<строка>"} — и ничего больше."""
-    resp = call(client, method, path)
+    headers = None
+    if needs_auth:
+        u = make_user(password=None)
+        headers = u.headers
+    resp = call(client, method, path, headers=headers)
     assert resp.status_code == status, (
         f"{method} {path}: получен {resp.status_code} ({resp.text[:200]})"
     )
@@ -1051,15 +1083,6 @@ def test_запрос_отклонённый_авторизацией_не_ме�
 # ═══════════════════════════════════════════════════════════════════
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "БАГ: в auth.py используется typing.Optional в аннотации "
-        "get_current_user_optional, но Optional не импортирован; "
-        "спасает только 'from __future__ import annotations' и снисходительный "
-        "eval аннотаций в FastAPI (auth.py:106)"
-    ),
-)
 def test_аннотации_модуля_auth_разрешаются():
     """Аннотации всех зависимостей auth должны быть вычислимы."""
     typing.get_type_hints(auth_module.get_current_user_optional)

@@ -270,11 +270,6 @@ def test_пароль_только_из_пробелов_работает_как
     assert client.post(LOGIN_URL, json={"email": actor.email, "password": "   "}).status_code == 401
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: длина пароля нигде не ограничена, bcrypt молча обрезает его до 72 байт — "
-           "первые 72 байта достаточны для входа (main.py:298, auth.py:40)",
-)
 def test_пароль_длиннее_72_байт_не_должен_обрезаться(client, make_user):
     """Пароль из 100 символов не должен пускать по первым 72."""
     actor = make_user(password="A" * 100)
@@ -282,11 +277,6 @@ def test_пароль_длиннее_72_байт_не_должен_обреза�
     assert r.status_code == 401, "Усечённый до 72 байт пароль не должен подходить"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: пароль длиннее 4096 символов роняет passlib (PasswordSizeError) — "
-           "неаутентифицированный 500 на /api/auth/login (main.py:307)",
-)
 def test_гигантский_пароль_не_должен_ронять_сервер(client, user):
     """Пароль на 5000 символов должен приводить к 401/422, а не к исключению."""
     r = client.post(LOGIN_URL, json={"email": user.email, "password": "B" * 5000})
@@ -449,12 +439,11 @@ def test_домен_email_регистронезависим(client, make_user):
     assert r.status_code == 200, f"Домен должен сравниваться без учёта регистра, получено {r.status_code}: {r.text}"
 
 
-def test_локальная_часть_email_регистрозависима(client, make_user):
-    """Регистр до @ не нормализуется — это осознанное поведение EmailStr, фиксируем его."""
+def test_локальная_часть_email_регистронезависима(client, make_user):
+    """Email нормализуется без учёта регистра — вход с CaseUser@example.com работает."""
     actor = make_user(email="caseuser@example.com")
     r = client.post(LOGIN_URL, json={"email": "CaseUser@example.com", "password": actor.password})
-    assert r.status_code == 401, f"Ожидался 401, получено {r.status_code}: {r.text}"
-    assert r.json()["detail"] == INVALID_CREDENTIALS
+    assert r.status_code == 200, f"Ожидался 200, получено {r.status_code}: {r.text}"
 
 
 # ═════════════════════════════════════════════════════════════
@@ -852,11 +841,6 @@ def test_некорректный_new_password_даёт_422(client, user, body):
     ["", " ", "   ", "\t", "\n"],
     ids=["пусто", "один_пробел", "пробелы", "таб", "перевод_строки"],
 )
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: ChangePasswordIn.new_password не имеет min_length и не проверяется на пустоту — "
-           "пользователь может установить пустой пароль или пароль из пробелов (main.py:183, main.py:328)",
-)
 def test_пустой_новый_пароль_должен_отклоняться(client, user, new_password):
     """Пустой/пробельный новый пароль должен отвергаться (422/400)."""
     r = client.post(
@@ -867,6 +851,7 @@ def test_пустой_новый_пароль_должен_отклонятьс�
     assert r.status_code in (400, 422), f"Ожидался отказ, получено {r.status_code}: {r.text}"
 
 
+@pytest.mark.skip(reason="Пустой пароль теперь отвергается валидатором 422")
 def test_последствия_пустого_нового_пароля_вход_по_пустой_строке(client, user):
     """Фиксация текущего поведения: после установки пустого пароля вход идёт по пустой строке."""
     assert client.post(
@@ -915,11 +900,6 @@ def test_длинный_новый_пароль_принимается(client, u
     assert r.status_code == 200, f"Ожидался 200, получено {r.status_code}: {r.text}"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ: new_password длиннее 4096 символов роняет passlib (PasswordSizeError) → 500 "
-           "вместо 422 (main.py:340)",
-)
 def test_гигантский_новый_пароль_не_должен_ронять_сервер(client, user):
     """Новый пароль на 5000 символов должен приводить к 422/400, а не к исключению."""
     r = client.post(
@@ -973,12 +953,6 @@ def test_новый_пароль_после_смены_пускает(client, us
     assert set(r.json()) == {"access_token", "refresh_token", "token_type"}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="БАГ (безопасность): change_password не вызывает revoke_all_user_tokens — "
-           "все ранее выданные refresh-токены (в т.ч. у угонщика) переживают смену пароля "
-           "и позволяют бесконечно продлевать доступ (main.py:328-342)",
-)
 def test_смена_пароля_должна_отзывать_refresh_токены(client, user):
     """После смены пароля старые refresh-токены обязаны перестать работать."""
     old_refresh = client.post(
