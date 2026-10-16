@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from models import Block, ContactInfo, User, Guide, PgasEntry, Season, Event, Subevent, Meeting, Leader, ReportSeries
-from database import db
+from database import db, SeasonNotReadyError, generate_summary_xlsx
 import database as database_module
 
 
@@ -502,6 +502,374 @@ class SeasonCorrectionOut(BaseModel):
     source_season_id: str
     target_season_id: str
     revision: int
+
+
+# ─────────────────────────────────────────────────────────────
+#  BE-03 SCHEMAS
+# ─────────────────────────────────────────────────────────────
+
+class CriteriaSchema(BaseModel):
+    unique: bool = False
+    creative: bool = False
+    external_communication: bool = False
+    in_person: bool = False
+    fixed_time: bool = False
+
+
+class TaskAssigneeIn(BaseModel):
+    user_id: int
+    hours: float = 0.0
+
+
+class TaskCreateIn(BaseModel):
+    season_id: str
+    scope: dict
+    title: str
+    description: Union[RichTextSchema, str] = ""
+    deadline_at: str
+    criteria: CriteriaSchema = CriteriaSchema()
+    assignees: list[TaskAssigneeIn]
+
+
+class TaskPatchIn(BaseModel):
+    expected_revision: int
+    title: Optional[str] = None
+    description: Optional[Union[RichTextSchema, str]] = None
+
+
+class FileRefOut(BaseModel):
+    file_id: str
+    name: str
+    mime_type: str
+    size_bytes: int
+
+
+class SubmissionOut(BaseModel):
+    submission_id: str
+    submitted_at: str
+    text: RichTextSchema
+    links: list[str] = []
+    files: list[FileRefOut] = []
+
+
+class AssignmentPublicOut(BaseModel):
+    assignment_id: str
+    assignee: UserRefOut
+    status: str
+    submissions: list[SubmissionOut] = []
+    revision: int = 1
+    assignee_unavailable_reason: Optional[str] = None
+    review_note: Optional[str] = None
+    capabilities: list[str] = []
+
+
+class TaskPublicOut(BaseModel):
+    task_id: str
+    season_id: str
+    scope: dict
+    title: str
+    description: RichTextSchema
+    deadline_at: str
+    assignments: list[AssignmentPublicOut] = []
+    revision: int = 1
+    capabilities: list[str] = []
+
+
+class UnresolvedAssignmentOut(BaseModel):
+    assignment: AssignmentPublicOut
+    task_id: str
+    task_title: str
+    season_id: str
+    scope: dict
+    deadline_at: str
+
+
+class StartAssignmentIn(BaseModel):
+    expected_revision: int
+
+
+class RequestHelpIn(BaseModel):
+    expected_revision: int
+    message: Optional[Union[RichTextSchema, str]] = None
+
+
+class ResumeAssignmentIn(BaseModel):
+    expected_revision: int
+
+
+class SubmitAssignmentIn(BaseModel):
+    expected_revision: int
+    text: Union[RichTextSchema, str] = ""
+    links: list[str] = []
+    file_ids: list[str] = []
+
+
+class AcceptAssignmentIn(BaseModel):
+    expected_revision: int
+    evaluation: float
+    review_note: Optional[str] = None
+
+
+class RequestRevisionIn(BaseModel):
+    expected_revision: int
+    review_note: str
+
+
+class NotCompleteAssignmentIn(BaseModel):
+    expected_revision: int
+    evaluation: float
+    reason: str
+
+
+class CancelAssignmentIn(BaseModel):
+    expected_revision: int
+    reason: str
+
+
+class ReassignAssignmentIn(BaseModel):
+    expected_revision: int
+    new_assignee_user_id: int
+    hours: float
+    previous_outcome: str
+    evaluation: Optional[float] = None
+    reason: str
+
+
+class ReassignAssignmentOut(BaseModel):
+    previous_assignment: AssignmentPublicOut
+    assignment: AssignmentPublicOut
+
+
+class TaskInputsPatchIn(BaseModel):
+    expected_revision: int
+    reason: str
+    assigned_at: Optional[str] = None
+    deadline_at: Optional[str] = None
+    criteria: Optional[CriteriaSchema] = None
+
+
+class TaskInputsOut(BaseModel):
+    task_id: str
+    assigned_at: str
+    deadline_at: str
+    criteria: CriteriaSchema
+    revision: int = 1
+    capabilities: list[str] = []
+
+
+class AssignmentInputsPatchIn(BaseModel):
+    expected_revision: int
+    reason: str
+    hours: Optional[float] = None
+    evaluation: Optional[float] = None
+    effective_completed_at: Optional[str] = None
+
+
+class AssessmentInputsOut(BaseModel):
+    assignment_id: str
+    hours: Optional[float] = None
+    evaluation: Optional[float] = None
+    effective_completed_at: Optional[str] = None
+    revision: int = 1
+    capabilities: list[str] = []
+
+
+class BulkHoursItemIn(BaseModel):
+    assignment_id: str
+    expected_revision: int
+
+
+class BulkHoursIn(BaseModel):
+    items: list[BulkHoursItemIn]
+    hours: float
+    reason: str
+
+
+class BulkHoursOut(BaseModel):
+    items: list[AssessmentInputsOut]
+
+
+class CalculatedContributionOut(BaseModel):
+    contribution_id: str
+    season_id: str
+    participant_id: str
+    user: UserRefOut
+    source_kind: str
+    source_id: str
+    source_title: str
+    score: Optional[float] = None
+    calculation_version: str
+    assignment_inputs: Optional[AssessmentInputsOut] = None
+    merit_id: Optional[str] = None
+    bonus_id: Optional[str] = None
+    capabilities: list[str] = []
+
+
+class MeritRecipientIn(BaseModel):
+    user_id: int
+    hours: float = 0.0
+    evaluation: float = 1.0
+    completed_at: Optional[str] = None
+
+
+class MeritCreateIn(BaseModel):
+    season_id: str
+    source_kind: str
+    event_id: Optional[str] = None
+    scope: Optional[dict] = None
+    title: str
+    description: Union[RichTextSchema, str] = ""
+    assigned_at: str
+    deadline_at: str
+    criteria: CriteriaSchema = CriteriaSchema()
+    recipients: list[MeritRecipientIn]
+    reason: str
+
+
+class MeritPatchIn(BaseModel):
+    expected_revision: int
+    reason: str
+    title: Optional[str] = None
+    description: Optional[Union[RichTextSchema, str]] = None
+    assigned_at: Optional[str] = None
+    deadline_at: Optional[str] = None
+    criteria: Optional[CriteriaSchema] = None
+    recipients: Optional[list[MeritRecipientIn]] = None
+
+
+class MeritOut(BaseModel):
+    merit_id: str
+    season_id: str
+    source_kind: str
+    event_id: Optional[str] = None
+    scope: Optional[dict] = None
+    title: str
+    description: RichTextSchema
+    assigned_at: str
+    deadline_at: str
+    criteria: CriteriaSchema
+    recipients: list[dict] = []
+    reason: str
+    created_by: UserRefOut
+    created_at: str
+    revision: int = 1
+    capabilities: list[str] = []
+
+
+class MasterBonusBasisItemOut(BaseModel):
+    participant_id: str
+    user: UserRefOut
+    member_task_score: float
+    included: bool
+    exclusion: Optional[str] = None
+
+
+class MasterBonusOut(BaseModel):
+    bonus_id: str
+    season_id: str
+    block_id: str
+    recipient_participant_id: Optional[str] = None
+    recipient: Optional[UserRefOut] = None
+    eligible_organizer_count: int
+    amount: float
+    basis: list[MasterBonusBasisItemOut] = []
+    calculation_version: str = "master_bonus_v1"
+    is_final: bool = False
+
+
+class SummaryRowBlockOut(BaseModel):
+    block_id: str
+    name: str
+
+
+class SummaryRowSourceScoreOut(BaseModel):
+    source_kind: str
+    source_id: str
+    title: str
+    score: float
+
+
+class SummaryRowOut(BaseModel):
+    participant_id: str
+    user: UserRefOut
+    group_number: Optional[str] = None
+    category: str
+    blocks: list[SummaryRowBlockOut] = []
+    is_master: bool
+    is_archived: bool
+    source_scores: list[SummaryRowSourceScoreOut] = []
+    total_score: float
+    evaluated_task_count: int
+    rank: int
+    previous_rank: Optional[int] = None
+    decisions: list[str] = []
+    previous_decisions: list[str] = []
+
+
+class SeasonSummaryOut(BaseModel):
+    season_id: str
+    state: str
+    version: int
+    approved_at: Optional[str] = None
+    rows: list[SummaryRowOut] = []
+    capabilities: list[str] = []
+
+
+class SummaryDecisionsIn(BaseModel):
+    expected_version: int
+    decisions: list[str]
+    reason: Optional[str] = None
+
+
+class SummaryCorrectionItemIn(BaseModel):
+    kind: str
+    id: str
+    expected_revision: int
+    values: dict
+
+
+class SummaryCorrectionIn(BaseModel):
+    expected_version: int
+    reason: str
+    changes: list[SummaryCorrectionItemIn]
+
+
+class CommentIn(BaseModel):
+    content: Union[RichTextSchema, str]
+
+
+class CommentOut(BaseModel):
+    comment_id: str
+    task_id: str
+    author: UserRefOut
+    content: RichTextSchema
+    created_at: str
+    updated_at: Optional[str] = None
+    history: list[dict] = []
+    capabilities: list[str] = []
+
+
+class UploadIntentIn(BaseModel):
+    owner_kind: str
+    owner_id: Optional[str] = None
+    purpose: str
+    name: str
+    mime_type: str
+    size_bytes: int
+
+
+class UploadIntentOut(BaseModel):
+    file_id: str
+    upload_url: str
+    method: str = "PUT"
+    headers: dict = {}
+    expires_at: str
+
+
+class FileDownloadOut(BaseModel):
+    download_url: str
+    expires_at: str
+
 
 
 
@@ -1587,6 +1955,210 @@ def _to_meeting_out(m: Meeting) -> MeetingOut:
     )
 
 
+def _to_user_ref_out(u) -> UserRefOut:
+    if u is None:
+        return UserRefOut(user_id=None, display_name="", avatar_url=None)
+    return UserRefOut(user_id=u.user_id, display_name=u.display_name, avatar_url=u.avatar_url)
+
+
+def _to_assignment_public_out(a) -> AssignmentPublicOut:
+    subs = []
+    for s in a.submissions:
+        subs.append(
+            SubmissionOut(
+                submission_id=s.submission_id,
+                submitted_at=s.submitted_at,
+                text=RichTextSchema(format=s.text.format, body=s.text.body),
+                links=s.links,
+                files=[
+                    FileRefOut(
+                        file_id=f.file_id,
+                        name=f.name,
+                        mime_type=f.mime_type,
+                        size_bytes=f.size_bytes,
+                    )
+                    for f in s.files
+                ],
+            )
+        )
+    return AssignmentPublicOut(
+        assignment_id=a.assignment_id,
+        assignee=_to_user_ref_out(a.assignee),
+        status=a.status,
+        submissions=subs,
+        revision=a.revision,
+        assignee_unavailable_reason=a.assignee_unavailable_reason,
+        review_note=a.review_note,
+        capabilities=a.capabilities,
+    )
+
+
+def _to_task_public_out(t) -> TaskPublicOut:
+    return TaskPublicOut(
+        task_id=t.task_id,
+        season_id=t.season_id,
+        scope={"kind": t.scope.kind, "id": t.scope.id},
+        title=t.title,
+        description=RichTextSchema(format=t.description.format, body=t.description.body),
+        deadline_at=t.deadline_at,
+        assignments=[_to_assignment_public_out(a) for a in t.assignments],
+        revision=t.revision,
+        capabilities=t.capabilities,
+    )
+
+
+def _to_merit_out(m) -> MeritOut:
+    scope_dict = {"kind": m.scope.kind, "id": m.scope.id} if m.scope else None
+    return MeritOut(
+        merit_id=m.merit_id,
+        season_id=m.season_id,
+        source_kind=m.source_kind,
+        event_id=m.event_id,
+        scope=scope_dict,
+        title=m.title,
+        description=RichTextSchema(format=m.description.format, body=m.description.body),
+        assigned_at=m.assigned_at,
+        deadline_at=m.deadline_at,
+        criteria=CriteriaSchema(
+            unique=m.criteria.unique,
+            creative=m.criteria.creative,
+            external_communication=m.criteria.external_communication,
+            in_person=m.criteria.in_person,
+            fixed_time=m.criteria.fixed_time,
+        ),
+        recipients=m.recipients,
+        reason=m.reason,
+        created_by=_to_user_ref_out(m.created_by),
+        created_at=m.created_at,
+        revision=m.revision,
+        capabilities=m.capabilities,
+    )
+
+
+def _to_comment_out(c) -> CommentOut:
+    return CommentOut(
+        comment_id=c.comment_id,
+        task_id=c.task_id,
+        author=_to_user_ref_out(c.author),
+        content=RichTextSchema(format=c.content.format, body=c.content.body),
+        created_at=c.created_at,
+        updated_at=c.updated_at,
+        history=c.history,
+        capabilities=c.capabilities,
+    )
+
+
+def _to_task_inputs_out(t) -> TaskInputsOut:
+    return TaskInputsOut(
+        task_id=t.task_id,
+        assigned_at=t.assigned_at,
+        deadline_at=t.deadline_at,
+        criteria=CriteriaSchema(
+            unique=t.criteria.unique,
+            creative=t.criteria.creative,
+            external_communication=t.criteria.external_communication,
+            in_person=t.criteria.in_person,
+            fixed_time=t.criteria.fixed_time,
+        ),
+        revision=t.revision,
+        capabilities=t.capabilities,
+    )
+
+
+def _to_assessment_inputs_out(a) -> AssessmentInputsOut:
+    return AssessmentInputsOut(
+        assignment_id=a.assignment_id,
+        hours=a.hours,
+        evaluation=a.evaluation,
+        effective_completed_at=a.effective_completed_at,
+        revision=a.revision,
+        capabilities=a.capabilities,
+    )
+
+
+def _to_calculated_contribution_out(c) -> CalculatedContributionOut:
+    ai = _to_assessment_inputs_out(c.assignment_inputs) if c.assignment_inputs else None
+    return CalculatedContributionOut(
+        contribution_id=c.contribution_id,
+        season_id=c.season_id,
+        participant_id=c.participant_id,
+        user=_to_user_ref_out(c.user),
+        source_kind=c.source_kind,
+        source_id=c.source_id,
+        source_title=c.source_title,
+        score=c.score,
+        calculation_version=c.calculation_version,
+        assignment_inputs=ai,
+        merit_id=c.merit_id,
+        bonus_id=c.bonus_id,
+        capabilities=c.capabilities,
+    )
+
+
+def _to_master_bonus_out(mb) -> MasterBonusOut:
+    return MasterBonusOut(
+        bonus_id=mb.bonus_id,
+        season_id=mb.season_id,
+        block_id=mb.block_id,
+        recipient_participant_id=mb.recipient_participant_id,
+        recipient=_to_user_ref_out(mb.recipient) if mb.recipient else None,
+        eligible_organizer_count=mb.eligible_organizer_count,
+        amount=mb.amount,
+        basis=[
+            MasterBonusBasisItemOut(
+                participant_id=b.participant_id,
+                user=_to_user_ref_out(b.user),
+                member_task_score=b.member_task_score,
+                included=b.included,
+                exclusion=b.exclusion,
+            )
+            for b in mb.basis
+        ],
+        calculation_version=mb.calculation_version,
+        is_final=mb.is_final,
+    )
+
+
+def _to_season_summary_out(s) -> SeasonSummaryOut:
+    rows = []
+    for r in s.rows:
+        rows.append(
+            SummaryRowOut(
+                participant_id=r.participant_id,
+                user=_to_user_ref_out(r.user),
+                group_number=r.group_number,
+                category=r.category,
+                blocks=[SummaryRowBlockOut(block_id=b.block_id, name=b.name) for b in r.blocks],
+                is_master=r.is_master,
+                is_archived=r.is_archived,
+                source_scores=[
+                    SummaryRowSourceScoreOut(
+                        source_kind=ss.source_kind,
+                        source_id=ss.source_id,
+                        title=ss.title,
+                        score=ss.score,
+                    )
+                    for ss in r.source_scores
+                ],
+                total_score=r.total_score,
+                evaluated_task_count=r.evaluated_task_count,
+                rank=r.rank,
+                previous_rank=r.previous_rank,
+                decisions=r.decisions,
+                previous_decisions=r.previous_decisions,
+            )
+        )
+    return SeasonSummaryOut(
+        season_id=s.season_id,
+        state=s.state,
+        version=s.version,
+        approved_at=s.approved_at,
+        rows=rows,
+        capabilities=s.capabilities,
+    )
+
+
+
 # ── Seasons ──
 
 @router.get("/seasons", response_model=List[SeasonOut])
@@ -1668,32 +2240,22 @@ def close_season(season_id: str, payload: SeasonRevisionIn = Body(default=Season
     if not db.is_chair(cur.user_id):
         raise HTTPException(403, "Only the chair can close a season")
     try:
-        s = db.close_season(season_id, payload.expected_revision)
-        return {"season": _to_season_out(s), "summary": {}}
+        s, summary = db.close_season(season_id, payload.expected_revision)
+        return {"season": _to_season_out(s), "summary": summary}
     except LookupError as e:
         raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        if "previous_season_not_closed" in msg:
-            target_s = db.get_season(season_id)
-            prev_id = target_s.previous_season_id if target_s else ""
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "detail": "season_not_ready",
-                    "fields": {
-                        "blockers": [
-                            {
-                                "kind": "previous_season_not_closed",
-                                "owner_kind": "season",
-                                "owner_id": prev_id,
-                                "title": "Previous season not closed",
-                            }
-                        ]
-                    },
+    except SeasonNotReadyError as e:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "detail": "season_not_ready",
+                "fields": {
+                    "blockers": e.blockers,
                 },
-            )
-        raise HTTPException(409, msg)
+            },
+        )
+    except ValueError as e:
+        raise HTTPException(409, str(e))
 
 
 # ── Report Series ──
@@ -2144,6 +2706,697 @@ def correct_season(payload: SeasonCorrectionIn, cur: User = Depends(get_current_
         if "differ" in msg or "deadline exceeds" in msg:
             raise HTTPException(422, msg)
         raise HTTPException(409, msg)
+
+
+# ═══════════════════════════════════════════════════════════
+#  BE-03: TASKS & ASSIGNMENTS ENDPOINTS
+# ═══════════════════════════════════════════════════════════
+
+@router.post("/tasks", response_model=TaskPublicOut)
+def create_task(payload: TaskCreateIn, cur: User = Depends(get_current_user)):
+    try:
+        desc_body = _to_rich_text_body(payload.description)
+        scope_kind = payload.scope.get("kind", "")
+        scope_id = payload.scope.get("id", "")
+        crit_dict = {
+            "unique": payload.criteria.unique,
+            "creative": payload.criteria.creative,
+            "external_communication": payload.criteria.external_communication,
+            "in_person": payload.criteria.in_person,
+            "fixed_time": payload.criteria.fixed_time,
+        }
+        assignees = [a.model_dump() for a in payload.assignees]
+        t = db.create_task(
+            season_id=payload.season_id,
+            scope_kind=scope_kind,
+            scope_id=scope_id,
+            title=payload.title,
+            description=desc_body,
+            deadline_at=payload.deadline_at,
+            criteria_dict=crit_dict,
+            assignees=assignees,
+            created_by_user_id=cur.user_id,
+        )
+        return _to_task_public_out(t)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        if "409" in msg or "already" in msg:
+            raise HTTPException(409, msg)
+        if "Forbidden" in msg:
+            raise HTTPException(403, msg)
+        raise HTTPException(422, msg)
+
+
+@router.get("/tasks")
+def list_tasks(
+    season_id: Optional[str] = None,
+    scope_kind: Optional[str] = None,
+    scope_id: Optional[str] = None,
+    mine: bool = False,
+    status: Optional[str] = None,
+    cur: User = Depends(get_current_user),
+):
+    try:
+        tasks = db.list_tasks(
+            current_user_id=cur.user_id,
+            season_id=season_id,
+            scope_kind=scope_kind,
+            scope_id=scope_id,
+            mine_user_id=cur.user_id if mine else None,
+            status=status,
+        )
+        return {"items": [_to_task_public_out(t) for t in tasks]}
+    except ValueError as e:
+        if "Forbidden" in str(e):
+            raise HTTPException(403, str(e))
+        raise HTTPException(422, str(e))
+
+
+@router.get("/tasks/{task_id}", response_model=TaskPublicOut)
+def get_task(task_id: str, cur: User = Depends(get_current_user)):
+    try:
+        t = db.get_task(task_id, cur.user_id)
+        if not t:
+            raise HTTPException(404, "Task not found")
+        return _to_task_public_out(t)
+    except ValueError as e:
+        if "Forbidden" in str(e):
+            raise HTTPException(403, str(e))
+        raise HTTPException(422, str(e))
+
+
+@router.patch("/tasks/{task_id}", response_model=TaskPublicOut)
+def patch_task(task_id: str, payload: TaskPatchIn, cur: User = Depends(get_current_user)):
+    try:
+        desc_body = _to_rich_text_body(payload.description) if payload.description is not None else None
+        t = db.patch_task(
+            task_id=task_id,
+            expected_revision=payload.expected_revision,
+            title=payload.title,
+            description=desc_body,
+            user_id=cur.user_id,
+        )
+        return _to_task_public_out(t)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        if "Conflict" in msg:
+            raise HTTPException(409, msg)
+        if "Forbidden" in msg:
+            raise HTTPException(403, msg)
+        raise HTTPException(422, msg)
+
+
+@router.post("/assignments/{assignment_id}/start", response_model=AssignmentPublicOut)
+def start_assignment(assignment_id: str, payload: StartAssignmentIn, cur: User = Depends(get_current_user)):
+    try:
+        a = db.start_assignment(assignment_id, payload.expected_revision, cur.user_id)
+        return _to_assignment_public_out(a)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        if "Conflict" in msg:
+            raise HTTPException(409, msg)
+        if "Forbidden" in msg:
+            raise HTTPException(403, msg)
+        raise HTTPException(422, msg)
+
+
+@router.post("/assignments/{assignment_id}/request-help", response_model=AssignmentPublicOut)
+def request_help_assignment(assignment_id: str, payload: RequestHelpIn, cur: User = Depends(get_current_user)):
+    try:
+        msg = _to_rich_text_body(payload.message) if payload.message else None
+        a = db.request_help_assignment(assignment_id, payload.expected_revision, cur.user_id, msg)
+        return _to_assignment_public_out(a)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        if "Conflict" in msg:
+            raise HTTPException(409, msg)
+        if "Forbidden" in msg:
+            raise HTTPException(403, msg)
+        raise HTTPException(422, msg)
+
+
+@router.post("/assignments/{assignment_id}/resume", response_model=AssignmentPublicOut)
+def resume_assignment(assignment_id: str, payload: ResumeAssignmentIn, cur: User = Depends(get_current_user)):
+    try:
+        a = db.resume_assignment(assignment_id, payload.expected_revision, cur.user_id)
+        return _to_assignment_public_out(a)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        if "Conflict" in msg:
+            raise HTTPException(409, msg)
+        if "Forbidden" in msg:
+            raise HTTPException(403, msg)
+        raise HTTPException(422, msg)
+
+
+@router.post("/assignments/{assignment_id}/submit", response_model=AssignmentPublicOut)
+def submit_assignment(assignment_id: str, payload: SubmitAssignmentIn, cur: User = Depends(get_current_user)):
+    try:
+        text_body = _to_rich_text_body(payload.text)
+        a = db.submit_assignment(assignment_id, payload.expected_revision, cur.user_id, text_body, payload.links, payload.file_ids)
+        return _to_assignment_public_out(a)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        if "Conflict" in msg:
+            raise HTTPException(409, msg)
+        if "Forbidden" in msg:
+            raise HTTPException(403, msg)
+        raise HTTPException(422, msg)
+
+
+@router.post("/assignments/{assignment_id}/accept", response_model=AssignmentPublicOut)
+def accept_assignment(assignment_id: str, payload: AcceptAssignmentIn, cur: User = Depends(get_current_user)):
+    try:
+        a = db.accept_assignment(assignment_id, payload.expected_revision, payload.evaluation, payload.review_note, cur.user_id)
+        return _to_assignment_public_out(a)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        if "Conflict" in msg:
+            raise HTTPException(409, msg)
+        if "Forbidden" in msg:
+            raise HTTPException(403, msg)
+        raise HTTPException(422, msg)
+
+
+@router.post("/assignments/{assignment_id}/request-revision", response_model=AssignmentPublicOut)
+def request_revision_assignment(assignment_id: str, payload: RequestRevisionIn, cur: User = Depends(get_current_user)):
+    try:
+        a = db.request_revision_assignment(assignment_id, payload.expected_revision, payload.review_note, cur.user_id)
+        return _to_assignment_public_out(a)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        if "Conflict" in msg:
+            raise HTTPException(409, msg)
+        if "Forbidden" in msg:
+            raise HTTPException(403, msg)
+        raise HTTPException(422, msg)
+
+
+@router.post("/assignments/{assignment_id}/not-complete", response_model=AssignmentPublicOut)
+def not_complete_assignment(assignment_id: str, payload: NotCompleteAssignmentIn, cur: User = Depends(get_current_user)):
+    try:
+        a = db.not_complete_assignment(assignment_id, payload.expected_revision, payload.evaluation, payload.reason, cur.user_id)
+        return _to_assignment_public_out(a)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        if "Conflict" in msg:
+            raise HTTPException(409, msg)
+        if "Forbidden" in msg:
+            raise HTTPException(403, msg)
+        raise HTTPException(422, msg)
+
+
+@router.post("/assignments/{assignment_id}/cancel", response_model=AssignmentPublicOut)
+def cancel_assignment(assignment_id: str, payload: CancelAssignmentIn, cur: User = Depends(get_current_user)):
+    try:
+        a = db.cancel_assignment(assignment_id, payload.expected_revision, payload.reason, cur.user_id)
+        return _to_assignment_public_out(a)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        if "Conflict" in msg:
+            raise HTTPException(409, msg)
+        if "Forbidden" in msg:
+            raise HTTPException(403, msg)
+        raise HTTPException(422, msg)
+
+
+@router.get("/assignments/unresolved")
+def list_unresolved_assignments(
+    season_id: Optional[str] = None,
+    scope_kind: Optional[str] = None,
+    scope_id: Optional[str] = None,
+    orphaned_only: bool = False,
+    cur: User = Depends(get_current_user),
+):
+    items = db.list_unresolved_assignments(
+        season_id=season_id,
+        scope_kind=scope_kind,
+        scope_id=scope_id,
+        orphaned_only=orphaned_only,
+        current_user_id=cur.user_id,
+    )
+    return {
+        "items": [
+            UnresolvedAssignmentOut(
+                assignment=_to_assignment_public_out(u.assignment),
+                task_id=u.task_id,
+                task_title=u.task_title,
+                season_id=u.season_id,
+                scope={"kind": u.scope.kind, "id": u.scope.id},
+                deadline_at=u.deadline_at,
+            )
+            for u in items
+        ]
+    }
+
+
+@router.post("/assignments/{assignment_id}/reassign", response_model=ReassignAssignmentOut)
+def reassign_assignment(assignment_id: str, payload: ReassignAssignmentIn, cur: User = Depends(get_current_user)):
+    try:
+        old_dc, new_dc = db.reassign_assignment(
+            assignment_id=assignment_id,
+            expected_revision=payload.expected_revision,
+            new_assignee_user_id=payload.new_assignee_user_id,
+            hours=payload.hours,
+            previous_outcome=payload.previous_outcome,
+            evaluation=payload.evaluation,
+            reason=payload.reason,
+            manager_user_id=cur.user_id,
+        )
+        return ReassignAssignmentOut(
+            previous_assignment=_to_assignment_public_out(old_dc),
+            assignment=_to_assignment_public_out(new_dc),
+        )
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        if "Conflict" in msg or "409" in msg:
+            raise HTTPException(409, msg)
+        if "Forbidden" in msg:
+            raise HTTPException(403, msg)
+        raise HTTPException(422, msg)
+
+
+# ── Assessment Inputs ──
+
+@router.get("/tasks/{task_id}/assessment-inputs", response_model=TaskInputsOut)
+def get_task_assessment_inputs(task_id: str, cur: User = Depends(get_current_user)):
+    try:
+        t = db.get_task_assessment_inputs(task_id, cur.user_id)
+        return _to_task_inputs_out(t)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        if "Forbidden" in str(e):
+            raise HTTPException(403, str(e))
+        raise HTTPException(422, str(e))
+
+
+@router.patch("/tasks/{task_id}/assessment-inputs", response_model=TaskInputsOut)
+def patch_task_assessment_inputs(task_id: str, payload: TaskInputsPatchIn, cur: User = Depends(get_current_user)):
+    try:
+        crit = payload.criteria.model_dump() if payload.criteria else None
+        t = db.patch_task_assessment_inputs(
+            task_id=task_id,
+            expected_revision=payload.expected_revision,
+            reason=payload.reason,
+            assigned_at=payload.assigned_at,
+            deadline_at=payload.deadline_at,
+            criteria=crit,
+            user_id=cur.user_id,
+        )
+        return _to_task_inputs_out(t)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        if "Conflict" in msg:
+            raise HTTPException(409, msg)
+        if "Forbidden" in msg or "Only chair" in msg:
+            raise HTTPException(403, msg)
+        raise HTTPException(422, msg)
+
+
+@router.get("/assignments/{assignment_id}/assessment-inputs", response_model=AssessmentInputsOut)
+def get_assignment_assessment_inputs(assignment_id: str, cur: User = Depends(get_current_user)):
+    try:
+        a = db.get_assignment_assessment_inputs(assignment_id, cur.user_id)
+        return _to_assessment_inputs_out(a)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        if "Forbidden" in str(e):
+            raise HTTPException(403, str(e))
+        raise HTTPException(422, str(e))
+
+
+@router.patch("/assignments/{assignment_id}/assessment-inputs", response_model=AssessmentInputsOut)
+def patch_assignment_assessment_inputs(assignment_id: str, payload: AssignmentInputsPatchIn, cur: User = Depends(get_current_user)):
+    try:
+        a = db.patch_assignment_assessment_inputs(
+            assignment_id=assignment_id,
+            expected_revision=payload.expected_revision,
+            reason=payload.reason,
+            hours=payload.hours,
+            evaluation=payload.evaluation,
+            effective_completed_at=payload.effective_completed_at,
+            user_id=cur.user_id,
+        )
+        return _to_assessment_inputs_out(a)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        if "Conflict" in msg:
+            raise HTTPException(409, msg)
+        if "Forbidden" in msg or "Only chair" in msg:
+            raise HTTPException(403, msg)
+        raise HTTPException(422, msg)
+
+
+@router.post("/assessment-inputs/bulk-hours", response_model=BulkHoursOut)
+def bulk_hours(payload: BulkHoursIn, cur: User = Depends(get_current_user)):
+    try:
+        items = db.bulk_hours(
+            items=[i.model_dump() for i in payload.items],
+            hours=payload.hours,
+            reason=payload.reason,
+            user_id=cur.user_id,
+        )
+        return BulkHoursOut(items=[_to_assessment_inputs_out(i) for i in items])
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        if "Conflict" in msg:
+            raise HTTPException(409, msg)
+        if "Forbidden" in msg or "Only chair" in msg:
+            raise HTTPException(403, msg)
+        raise HTTPException(422, msg)
+
+
+# ── Assessments ──
+
+@router.get("/assessments")
+def list_assessments(
+    season_id: Optional[str] = None,
+    source_kind: Optional[str] = None,
+    source_id: Optional[str] = None,
+    participant_id: Optional[str] = None,
+    user_id: Optional[int] = None,
+    cur: User = Depends(get_current_user),
+):
+    try:
+        items = db.list_assessments(
+            current_user_id=cur.user_id,
+            season_id=season_id,
+            source_kind=source_kind,
+            source_id=source_id,
+            participant_id=participant_id,
+            user_id=user_id,
+        )
+        return {"items": [_to_calculated_contribution_out(c) for c in items]}
+    except ValueError as e:
+        if "Forbidden" in str(e):
+            raise HTTPException(403, str(e))
+        raise HTTPException(422, str(e))
+
+
+# ── Merits & Volunteers ──
+
+@router.get("/merits")
+def list_merits(
+    season_id: Optional[str] = None,
+    source_kind: Optional[str] = None,
+    event_id: Optional[str] = None,
+    cur: User = Depends(get_current_user),
+):
+    items = db.list_merits(
+        current_user_id=cur.user_id,
+        season_id=season_id,
+        source_kind=source_kind,
+        event_id=event_id,
+    )
+    return {"items": [_to_merit_out(m) for m in items]}
+
+
+@router.post("/merits", response_model=MeritOut)
+def create_merit(payload: MeritCreateIn, cur: User = Depends(get_current_user)):
+    try:
+        m = db.create_merit(payload.model_dump(), cur.user_id)
+        return _to_merit_out(m)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        if "Conflict" in msg:
+            raise HTTPException(409, msg)
+        if "Forbidden" in msg:
+            raise HTTPException(403, msg)
+        raise HTTPException(422, msg)
+
+
+@router.get("/merits/{merit_id}", response_model=MeritOut)
+def get_merit(merit_id: str, cur: User = Depends(get_current_user)):
+    try:
+        m = db.get_merit(merit_id, cur.user_id)
+        return _to_merit_out(m)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        if "Forbidden" in str(e):
+            raise HTTPException(403, str(e))
+        raise HTTPException(422, str(e))
+
+
+@router.patch("/merits/{merit_id}", response_model=MeritOut)
+def patch_merit(merit_id: str, payload: MeritPatchIn, cur: User = Depends(get_current_user)):
+    try:
+        vals = payload.model_dump(exclude_unset=True)
+        vals.pop("expected_revision", None)
+        vals.pop("reason", None)
+        m = db.patch_merit(
+            merit_id=merit_id,
+            expected_revision=payload.expected_revision,
+            values=vals,
+            reason=payload.reason,
+            user_id=cur.user_id,
+        )
+        return _to_merit_out(m)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        if "Conflict" in msg:
+            raise HTTPException(409, msg)
+        if "Forbidden" in msg or "Only chair" in msg:
+            raise HTTPException(403, msg)
+        raise HTTPException(422, msg)
+
+
+# ── Master Bonuses ──
+
+@router.get("/seasons/{season_id}/master-bonuses")
+def list_master_bonuses(season_id: str, block_id: Optional[str] = None, cur: User = Depends(get_current_user)):
+    try:
+        items = db.list_master_bonuses(season_id=season_id, current_user_id=cur.user_id, block_id=block_id)
+        return {"items": [_to_master_bonus_out(b) for b in items]}
+    except ValueError as e:
+        if "Forbidden" in str(e):
+            raise HTTPException(403, str(e))
+        raise HTTPException(422, str(e))
+
+
+# ── Season Summary ──
+
+@router.get("/seasons/{season_id}/summary", response_model=SeasonSummaryOut)
+def get_season_summary(season_id: str, cur: User = Depends(get_current_user)):
+    try:
+        s = db.get_season_summary(season_id, cur.user_id)
+        return _to_season_summary_out(s)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        if "Forbidden" in str(e):
+            raise HTTPException(403, str(e))
+        raise HTTPException(422, str(e))
+
+
+@router.get("/seasons/{season_id}/summary.xlsx")
+def get_season_summary_xlsx(season_id: str, cur: User = Depends(get_current_user)):
+    try:
+        summary = db.get_season_summary(season_id, cur.user_id)
+        contribs = db.list_assessments(cur.user_id, season_id=season_id)
+        xlsx_bytes = generate_summary_xlsx(summary, contribs)
+        return Response(
+            content=xlsx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="summary_{season_id}.xlsx"'},
+        )
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        if "Forbidden" in str(e):
+            raise HTTPException(403, str(e))
+        raise HTTPException(422, str(e))
+
+
+@router.put("/seasons/{season_id}/summary/decisions/{user_id}", response_model=SeasonSummaryOut)
+def update_summary_decisions(
+    season_id: str,
+    user_id: int,
+    payload: SummaryDecisionsIn,
+    cur: User = Depends(get_current_user),
+):
+    try:
+        s = db.update_summary_decisions(
+            season_id=season_id,
+            target_user_id=user_id,
+            decisions=payload.decisions,
+            expected_version=payload.expected_version,
+            reason=payload.reason,
+            user_id=cur.user_id,
+        )
+        return _to_season_summary_out(s)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        if "Conflict" in msg:
+            raise HTTPException(409, msg)
+        if "Forbidden" in msg:
+            raise HTTPException(403, msg)
+        raise HTTPException(422, msg)
+
+
+@router.post("/seasons/{season_id}/summary/correct", response_model=SeasonSummaryOut)
+def correct_season_summary(
+    season_id: str,
+    payload: SummaryCorrectionIn,
+    cur: User = Depends(get_current_user),
+):
+    try:
+        s = db.correct_season_summary(
+            season_id=season_id,
+            expected_version=payload.expected_version,
+            reason=payload.reason,
+            changes=[c.model_dump() for c in payload.changes],
+            user_id=cur.user_id,
+        )
+        return _to_season_summary_out(s)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        if "Conflict" in msg:
+            raise HTTPException(409, msg)
+        if "Forbidden" in msg:
+            raise HTTPException(403, msg)
+        raise HTTPException(422, msg)
+
+
+# ── Comments ──
+
+@router.get("/tasks/{task_id}/comments", response_model=List[CommentOut])
+def list_task_comments(task_id: str, cur: User = Depends(get_current_user)):
+    try:
+        items = db.list_comments(task_id, cur.user_id)
+        return [_to_comment_out(c) for c in items]
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        if "Forbidden" in str(e):
+            raise HTTPException(403, str(e))
+        raise HTTPException(422, str(e))
+
+
+@router.post("/tasks/{task_id}/comments", response_model=CommentOut)
+def create_task_comment(task_id: str, payload: CommentIn, cur: User = Depends(get_current_user)):
+    try:
+        c = db.create_comment(
+            task_id=task_id,
+            content=payload.content if isinstance(payload.content, dict) else {"format": "markdown", "body": str(payload.content)},
+            author_user_id=cur.user_id,
+        )
+        return _to_comment_out(c)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        if "Forbidden" in str(e):
+            raise HTTPException(403, str(e))
+        raise HTTPException(422, str(e))
+
+
+@router.patch("/comments/{comment_id}", response_model=CommentOut)
+def patch_comment(comment_id: str, payload: CommentIn, cur: User = Depends(get_current_user)):
+    try:
+        c = db.patch_comment(
+            comment_id=comment_id,
+            content=payload.content if isinstance(payload.content, dict) else {"format": "markdown", "body": str(payload.content)},
+            user_id=cur.user_id,
+        )
+        return _to_comment_out(c)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        if "Forbidden" in str(e):
+            raise HTTPException(403, str(e))
+        raise HTTPException(422, str(e))
+
+
+# ── Files ──
+
+@router.post("/files/upload-intents", response_model=UploadIntentOut)
+def create_upload_intent(payload: UploadIntentIn, cur: User = Depends(get_current_user)):
+    try:
+        fr = db.create_upload_intent(
+            owner_kind=payload.owner_kind,
+            owner_id=payload.owner_id,
+            purpose=payload.purpose,
+            name=payload.name,
+            mime_type=payload.mime_type,
+            size_bytes=payload.size_bytes,
+            user_id=cur.user_id,
+        )
+        return UploadIntentOut(
+            file_id=fr.file_id,
+            upload_url=f"/api/files/{fr.file_id}/mock-upload",
+            method="PUT",
+            headers={"Content-Type": fr.mime_type},
+            expires_at=fr.expires_at,
+        )
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+
+@router.post("/files/{file_id}/complete")
+def complete_file_upload(file_id: str, cur: User = Depends(get_current_user)):
+    try:
+        fr = db.complete_file_upload(file_id, cur.user_id)
+        return {
+            "file_id": fr.file_id,
+            "state": fr.state,
+            "download_url": fr.download_url,
+        }
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(403, str(e))
+
+
+@router.get("/files/{file_id}/download", response_model=FileDownloadOut)
+def get_file_download(file_id: str, cur: User = Depends(get_current_user)):
+    try:
+        fr = db.get_file_download(file_id, cur.user_id)
+        return FileDownloadOut(
+            download_url=fr.download_url or f"/api/files/{fr.file_id}/download",
+            expires_at=fr.expires_at,
+        )
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(403, str(e))
 
 
 app.include_router(router)

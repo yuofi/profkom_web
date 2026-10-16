@@ -1,29 +1,50 @@
 from __future__ import annotations
 
 import json
+import math
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Text, create_engine, func, text
+from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, String, Text, create_engine, func, text
 from sqlalchemy.orm import Session, declarative_base, relationship, sessionmaker, joinedload
 
 from models import (
+    AssignmentPublic as AssignmentPublicDC,
+    AssessmentInputs as AssessmentInputsDC,
     Block as BlockDC,
+    CalculatedContribution as CalculatedContributionDC,
+    Comment as CommentDC,
     ContactInfo as ContactInfoDC,
+    Criteria as CriteriaDC,
     Event as EventDC,
+    FileRecord as FileRecordDC,
+    FileRef as FileRefDC,
     Guide as GuideDC,
     Leader as LeaderDC,
     Leadership as LeadershipDC,
+    MasterBonus as MasterBonusDC,
+    MasterBonusBasisItem as MasterBonusBasisItemDC,
     Meeting as MeetingDC,
+    Merit as MeritDC,
     PgasEntry as PgasEntryDC,
+    Report as ReportDC,
     ReportSeries as ReportSeriesDC,
     RichText as RichTextDC,
     RoleAssignment as RoleAssignmentDC,
+    ScopeRef as ScopeRefDC,
     Season as SeasonDC,
     SeasonCorrectionResult as SeasonCorrectionResultDC,
+    SeasonSummary as SeasonSummaryDC,
     SessionDC,
     Subevent as SubeventDC,
+    Submission as SubmissionDC,
+    SummaryRow as SummaryRowDC,
+    SummaryRowBlock as SummaryRowBlockDC,
+    SummaryRowSourceScore as SummaryRowSourceScoreDC,
+    TaskInputs as TaskInputsDC,
+    TaskPublic as TaskPublicDC,
+    UnresolvedAssignment as UnresolvedAssignmentDC,
     User as UserDC,
     UserRef as UserRefDC,
 )
@@ -52,6 +73,7 @@ class UserORM(Base):
     events_roles = Column(Text, nullable=False, default="[]", server_default="[]")
     photo_url = Column(String, nullable=True)
     account_state = Column(String, nullable=False, default="active", server_default="active")
+    category = Column(String, nullable=False, default="junior", server_default="junior")
 
     contact = relationship("ContactInfoORM", back_populates="user", uselist=False)
 
@@ -227,7 +249,348 @@ class SeasonCorrectionORM(Base):
     created_at = Column(String, nullable=False)
 
 
+class TaskORM(Base):
+    __tablename__ = "tasks"
+
+    task_id = Column(String, primary_key=True)
+    season_id = Column(String, ForeignKey("seasons.season_id"), nullable=False, index=True)
+    scope_kind = Column(String, nullable=False)  # "block" | "subevent"
+    scope_id = Column(String, nullable=False, index=True)
+    title = Column(String, nullable=False)
+    description_json = Column(Text, nullable=False, default='{"format":"markdown","body":""}')
+    deadline_at = Column(String, nullable=False)
+    assigned_at = Column(String, nullable=False)
+    criteria_json = Column(Text, nullable=False, default='{"unique":false,"creative":false,"external_communication":false,"in_person":false,"fixed_time":false}')
+    created_by_user_id = Column(Integer, nullable=False)
+    created_at = Column(String, nullable=False)
+    revision = Column(Integer, default=1, nullable=False)
+
+
+class AssignmentORM(Base):
+    __tablename__ = "assignments"
+
+    assignment_id = Column(String, primary_key=True)
+    task_id = Column(String, ForeignKey("tasks.task_id"), nullable=False, index=True)
+    assignee_user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False, index=True)
+    status = Column(String, nullable=False, default="assigned")  # "assigned"|"in_progress"|"help_required"|"submitted"|"accepted"|"needs_revision"|"not_completed"|"cancelled"
+    hours = Column(Float, nullable=True)
+    evaluation = Column(Float, nullable=True)
+    effective_completed_at = Column(String, nullable=True)
+    review_note = Column(Text, nullable=True)
+    assignee_unavailable_reason = Column(String, nullable=True)  # "left_scope" | "archived"
+    revision = Column(Integer, default=1, nullable=False)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=True)
+
+
+class SubmissionORM(Base):
+    __tablename__ = "submissions"
+
+    submission_id = Column(String, primary_key=True)
+    assignment_id = Column(String, ForeignKey("assignments.assignment_id"), nullable=False, index=True)
+    submitted_at = Column(String, nullable=False)
+    text_json = Column(Text, nullable=False, default='{"format":"markdown","body":""}')
+    links_json = Column(Text, nullable=False, default='[]')
+    files_json = Column(Text, nullable=False, default='[]')
+    created_by_user_id = Column(Integer, nullable=False)
+
+
+class CommentORM(Base):
+    __tablename__ = "task_comments"
+
+    comment_id = Column(String, primary_key=True)
+    task_id = Column(String, ForeignKey("tasks.task_id"), nullable=False, index=True)
+    author_user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False, index=True)
+    content_json = Column(Text, nullable=False, default='{"format":"markdown","body":""}')
+    history_json = Column(Text, nullable=False, default='[]')
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=True)
+
+
+class FileRecordORM(Base):
+    __tablename__ = "file_records"
+
+    file_id = Column(String, primary_key=True)
+    owner_kind = Column(String, nullable=False)
+    owner_id = Column(String, nullable=True)
+    purpose = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    mime_type = Column(String, nullable=False)
+    size_bytes = Column(Integer, nullable=False)
+    uploaded_by_user_id = Column(Integer, nullable=False)
+    state = Column(String, nullable=False, default="pending")  # "pending" | "completed"
+    created_at = Column(String, nullable=False)
+    expires_at = Column(String, nullable=False)
+
+
+class MeritORM(Base):
+    __tablename__ = "merits"
+
+    merit_id = Column(String, primary_key=True)
+    season_id = Column(String, ForeignKey("seasons.season_id"), nullable=False, index=True)
+    source_kind = Column(String, nullable=False)  # "head_merit"|"chair_merit"|"block_volunteer"|"subevent_volunteer"
+    event_id = Column(String, nullable=True, index=True)
+    scope_kind = Column(String, nullable=True)
+    scope_id = Column(String, nullable=True)
+    title = Column(String, nullable=False)
+    description_json = Column(Text, nullable=False, default='{"format":"markdown","body":""}')
+    assigned_at = Column(String, nullable=False)
+    deadline_at = Column(String, nullable=False)
+    criteria_json = Column(Text, nullable=False, default='{"unique":false,"creative":false,"external_communication":false,"in_person":false,"fixed_time":false}')
+    recipients_json = Column(Text, nullable=False, default='[]')
+    reason = Column(Text, nullable=False)
+    created_by_user_id = Column(Integer, nullable=False)
+    created_at = Column(String, nullable=False)
+    revision = Column(Integer, default=1, nullable=False)
+
+
+class ContributionORM(Base):
+    __tablename__ = "contributions"
+
+    contribution_id = Column(String, primary_key=True)
+    season_id = Column(String, ForeignKey("seasons.season_id"), nullable=False, index=True)
+    participant_id = Column(String, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False, index=True)
+    source_kind = Column(String, nullable=False, index=True)  # "block_task"|"subevent_task"|"head_merit"|"chair_merit"|"block_volunteer"|"subevent_volunteer"|"master_bonus"
+    source_id = Column(String, nullable=False, index=True)
+    source_title = Column(String, nullable=False)
+    score = Column(Float, nullable=True)
+    calculation_version = Column(String, nullable=False, default="kkr_v1")
+    assignment_id = Column(String, nullable=True, index=True)
+    merit_id = Column(String, nullable=True, index=True)
+    bonus_id = Column(String, nullable=True, index=True)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=True)
+
+
+class MasterBonusORM(Base):
+    __tablename__ = "master_bonuses"
+
+    bonus_id = Column(String, primary_key=True)
+    season_id = Column(String, ForeignKey("seasons.season_id"), nullable=False, index=True)
+    block_id = Column(String, ForeignKey("block.name"), nullable=False, index=True)
+    recipient_participant_id = Column(String, nullable=False)
+    recipient_user_id = Column(Integer, nullable=True)
+    eligible_organizer_count = Column(Integer, nullable=False, default=0)
+    amount = Column(Float, nullable=False, default=0.0)
+    basis_json = Column(Text, nullable=False, default='[]')
+    calculation_version = Column(String, nullable=False, default="master_bonus_v1")
+    is_final = Column(Boolean, nullable=False, default=False)
+    created_at = Column(String, nullable=False)
+
+
+class SeasonSummaryORM(Base):
+    __tablename__ = "season_summaries"
+
+    summary_id = Column(String, primary_key=True)
+    season_id = Column(String, ForeignKey("seasons.season_id"), nullable=False, index=True)
+    state = Column(String, nullable=False, default="draft")  # "draft" | "approved"
+    version = Column(Integer, nullable=False, default=1)
+    approved_at = Column(String, nullable=True)
+    rows_json = Column(Text, nullable=False, default='[]')
+    created_at = Column(String, nullable=False)
+
+
+class SeasonDecisionORM(Base):
+    __tablename__ = "season_decisions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    season_id = Column(String, ForeignKey("seasons.season_id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False, index=True)
+    decisions_json = Column(Text, nullable=False, default='[]')
+    changed_by_user_id = Column(Integer, nullable=False)
+    reason = Column(Text, nullable=True)
+    updated_at = Column(String, nullable=False)
+
+
+class ReportORM(Base):
+    __tablename__ = "reports"
+
+    report_id = Column(String, primary_key=True)
+    owner_kind = Column(String, nullable=False, index=True)  # "event" | "subevent"
+    owner_id = Column(String, nullable=False, index=True)
+    report_series_id = Column(String, nullable=False, index=True)
+    season_id = Column(String, ForeignKey("seasons.season_id"), nullable=False, index=True)
+    kind = Column(String, nullable=False)  # "regular" | "final"
+    title = Column(String, nullable=False)
+    content_json = Column(Text, nullable=False, default='{"format":"markdown","body":""}')
+    files_json = Column(Text, nullable=False, default='[]')
+    state = Column(String, nullable=False, default="draft")  # "draft" | "published"
+    published_at = Column(String, nullable=True)
+    published_version = Column(Integer, nullable=True)
+    revision = Column(Integer, nullable=False, default=1)
+    created_by_user_id = Column(Integer, nullable=False)
+    created_at = Column(String, nullable=False)
+
+
+class AuditLogORM(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    target_kind = Column(String, nullable=False, index=True)
+    target_id = Column(String, nullable=False, index=True)
+    changed_by_user_id = Column(Integer, nullable=False)
+    reason = Column(Text, nullable=True)
+    old_values_json = Column(Text, nullable=True)
+    new_values_json = Column(Text, nullable=True)
+    created_at = Column(String, nullable=False)
+
+
 Base.metadata.create_all(bind=engine)
+
+
+class SeasonNotReadyError(ValueError):
+    def __init__(self, blockers: list[dict]):
+        super().__init__("season_not_ready")
+        self.blockers = blockers
+
+
+def calculate_kkr_score(
+    assigned_at_str: str,
+    deadline_at_str: str,
+    criteria_dict: dict,
+    hours: Optional[float],
+    evaluation: Optional[float],
+    effective_completed_at_str: Optional[str] = None,
+) -> Optional[float]:
+    if evaluation is None or hours is None:
+        return None
+    if evaluation == 0 or evaluation == 0.0:
+        return 0.0
+
+    def _parse_dt(s: str) -> datetime:
+        s = s.replace("Z", "+00:00")
+        return datetime.fromisoformat(s)
+
+    try:
+        assigned_at = _parse_dt(assigned_at_str)
+        deadline_at = _parse_dt(deadline_at_str)
+    except Exception:
+        return 0.0
+
+    available_days = max(0.0, (deadline_at - assigned_at).total_seconds() / 86400.0)
+    weight = float(hours) * (1.0 + 1.0 / math.sqrt(available_days + 1.0))
+
+    factors = {
+        "unique": 1.2,
+        "creative": 1.3,
+        "external_communication": 1.1,
+        "in_person": 1.2,
+        "fixed_time": 1.1,
+    }
+    criteria_factor = 1.0
+    for k, v in factors.items():
+        if criteria_dict.get(k):
+            criteria_factor *= v
+
+    if evaluation == -1 or evaluation == -1.0:
+        return -criteria_factor * weight
+
+    # Positive evaluation (1 or 1.5)
+    if effective_completed_at_str:
+        try:
+            completed_at = _parse_dt(effective_completed_at_str)
+            overdue_days = max(0.0, (completed_at - deadline_at).total_seconds() / 86400.0)
+        except Exception:
+            overdue_days = 0.0
+    else:
+        overdue_days = 0.0
+
+    deadline_factor = max(0.0, 1.0 - overdue_days / 3.0)
+    score = deadline_factor * criteria_factor * float(evaluation) * weight
+    return score
+
+
+def generate_summary_xlsx(summary: SeasonSummaryDC, contributions: list[CalculatedContributionDC]) -> bytes:
+    import zipfile, io, xml.sax.saxutils
+
+    def _col_letter(idx: int) -> str:
+        res = ""
+        while idx > 0:
+            idx, rem = divmod(idx - 1, 26)
+            res = chr(ord("A") + rem) + res
+        return res
+
+    summary_headers = ["Место", "Участник", "Группа", "Категория", "Блоки", "Мастер", "Статус", "Кол-во задач", "Итоговый ККР", "Прошлое место", "Решения"]
+    summary_rows = [summary_headers]
+    for r in summary.rows:
+        blocks_str = ", ".join(b.name for b in r.blocks)
+        status_str = "Уже исключён" if r.is_archived else "Действующий"
+        master_str = "Да" if r.is_master else "Нет"
+        dec_str = ", ".join(r.decisions)
+        summary_rows.append([
+            r.rank,
+            r.user.display_name,
+            r.group_number,
+            r.category,
+            blocks_str,
+            master_str,
+            status_str,
+            r.evaluated_task_count,
+            round(r.total_score, 2),
+            r.previous_rank if r.previous_rank is not None else "",
+            dec_str,
+        ])
+
+    contrib_headers = ["ID", "Сезон", "Участник", "Тип источника", "Источник", "Баллы", "Версия расчёта"]
+    contrib_rows = [contrib_headers]
+    for c in contributions:
+        contrib_rows.append([
+            c.contribution_id,
+            c.season_id,
+            c.user.display_name,
+            c.source_kind,
+            c.source_title,
+            round(c.score, 2) if c.score is not None else "",
+            c.calculation_version,
+        ])
+
+    sheets = {"Сводная": summary_rows, "Начисления": contrib_rows}
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        content_types = [
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">',
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>',
+            '<Default Extension="xml" ContentType="application/xml"/>',
+            '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>',
+        ]
+        for i in range(1, len(sheets) + 1):
+            content_types.append(f'<Override PartName="/xl/worksheets/sheet{i}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>')
+        content_types.append("</Types>")
+        z.writestr("[Content_Types].xml", "".join(content_types))
+
+        z.writestr("_rels/.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>')
+
+        wb_rels = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">']
+        for i in range(1, len(sheets) + 1):
+            wb_rels.append(f'<Relationship Id="rId{i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{i}.xml"/>')
+        wb_rels.append("</Relationships>")
+        z.writestr("xl/_rels/workbook.xml.rels", "".join(wb_rels))
+
+        wb = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>']
+        for i, name in enumerate(sheets.keys(), start=1):
+            wb.append(f'<sheet name="{xml.sax.saxutils.escape(name)}" sheetId="{i}" r:id="rId{i}"/>')
+        wb.append("</sheets></workbook>")
+        z.writestr("xl/workbook.xml", "".join(wb))
+
+        for i, (name, rows) in enumerate(sheets.items(), start=1):
+            s = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>']
+            for r_idx, row in enumerate(rows, start=1):
+                s.append(f'<row r="{r_idx}">')
+                for c_idx, val in enumerate(row, start=1):
+                    ref = f"{_col_letter(c_idx)}{r_idx}"
+                    if isinstance(val, (int, float)):
+                        s.append(f'<c r="{ref}"><v>{val}</v></c>')
+                    else:
+                        esc = xml.sax.saxutils.escape(str(val))
+                        s.append(f'<c r="{ref}" t="inlineStr"><is><t>{esc}</t></is></c>')
+                s.append("</row>")
+            s.append("</sheetData></worksheet>")
+            z.writestr(f"xl/worksheets/sheet{i}.xml", "".join(s))
+
+    return buf.getvalue()
+
 
 
 
@@ -349,6 +712,20 @@ def _ensure_sqlite_users_account_state_column() -> None:
 
 
 _ensure_sqlite_users_account_state_column()
+
+
+def _ensure_sqlite_users_category_column() -> None:
+    """Add category to existing SQLite DBs."""
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(users)")).fetchall()
+        col_names = {r[1] for r in rows}
+        if "category" not in col_names:
+            conn.execute(
+                text("ALTER TABLE users ADD COLUMN category VARCHAR NOT NULL DEFAULT 'junior'")
+            )
+
+
+_ensure_sqlite_users_category_column()
 
 
 def _ensure_sqlite_block_is_hr_column() -> None:
@@ -532,6 +909,7 @@ def _user_orm_to_dc(u: UserORM) -> UserDC:
         pgas_admin=u.pgas_admin,
         events_roles=u.events_roles,
         account_state=getattr(u, "account_state", "active") or "active",
+        category=getattr(u, "category", "junior") or "junior",
     )
 
 
@@ -614,6 +992,690 @@ def _parse_blocks(raw: str) -> list[str]:
 
 def _format_blocks(items: list[str]) -> str:
     return ",".join(items)
+
+
+
+def _user_to_ref_dc(u: Optional[UserORM]) -> Optional[UserRefDC]:
+    if not u:
+        return None
+    display_name = f"User {u.user_id}"
+    photo_url = u.photo_url
+    if u.contact:
+        parts = [u.contact.surname, u.contact.name, u.contact.patronymic]
+        display_name = " ".join([p for p in parts if p]).strip() or u.contact.kkr_name or display_name
+    return UserRefDC(user_id=u.user_id, display_name=display_name, avatar_url=photo_url)
+
+
+def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: Optional[int] = None) -> AssignmentPublicDC:
+    u = session.get(UserORM, a.assignee_user_id)
+    assignee_ref = _user_to_ref_dc(u) or UserRefDC(user_id=a.assignee_user_id, display_name=f"User {a.assignee_user_id}", avatar_url=None)
+
+    sub_orms = session.query(SubmissionORM).filter(SubmissionORM.assignment_id == a.assignment_id).order_by(SubmissionORM.submitted_at.asc()).all()
+    submissions = []
+    for s in sub_orms:
+        links = []
+        file_ids = []
+        try:
+            links = json.loads(s.links_json or "[]")
+        except Exception:
+            pass
+        try:
+            file_ids = json.loads(s.files_json or "[]")
+        except Exception:
+            pass
+        file_refs = []
+        for fid in file_ids:
+            fr = session.get(FileRecordORM, fid)
+            if fr:
+                file_refs.append(FileRefDC(file_id=fr.file_id, name=fr.name, mime_type=fr.mime_type, size_bytes=fr.size_bytes))
+            else:
+                file_refs.append(FileRefDC(file_id=fid, name="file", mime_type="application/octet-stream", size_bytes=0))
+        sub_body = ""
+        try:
+            tj = json.loads(s.text_json or "{}")
+            if isinstance(tj, dict):
+                sub_body = tj.get("body", "")
+            else:
+                sub_body = str(s.text_json or "")
+        except Exception:
+            sub_body = str(s.text_json or "")
+
+        submissions.append(
+            SubmissionDC(
+                submission_id=s.submission_id,
+                submitted_at=s.submitted_at,
+                text=RichTextDC(format="markdown", body=sub_body),
+                links=links,
+                files=file_refs,
+            )
+        )
+
+    unavail = None
+    if u and (u.banned or getattr(u, "account_state", "active") != "active"):
+        unavail = "archived"
+
+    caps = []
+    if current_user_id == a.assignee_user_id:
+        if a.status == "assigned":
+            caps.extend(["start", "submit", "request_help"])
+        elif a.status == "in_progress":
+            caps.extend(["submit", "request_help"])
+        elif a.status == "help_required":
+            caps.extend(["resume", "submit"])
+        elif a.status == "needs_revision":
+            caps.extend(["submit"])
+
+    return AssignmentPublicDC(
+        assignment_id=a.assignment_id,
+        assignee=assignee_ref,
+        status=a.status,
+        submissions=submissions,
+        revision=a.revision,
+        assignee_unavailable_reason=unavail,
+        review_note=a.review_note,
+        capabilities=caps,
+    )
+
+
+def _task_orm_to_dc(session: Session, t: TaskORM, current_user_id: Optional[int] = None) -> TaskPublicDC:
+    a_orms = session.query(AssignmentORM).filter(AssignmentORM.task_id == t.task_id).all()
+    assignments = [_assignment_orm_to_dc(session, a, current_user_id) for a in a_orms]
+    caps = ["comment_task"]
+    desc_body = ""
+    try:
+        dj = json.loads(t.description_json or "{}")
+        if isinstance(dj, dict):
+            desc_body = dj.get("body", "")
+        else:
+            desc_body = str(t.description_json or "")
+    except Exception:
+        desc_body = str(t.description_json or "")
+
+    return TaskPublicDC(
+        task_id=t.task_id,
+        season_id=t.season_id,
+        scope=ScopeRefDC(kind=t.scope_kind, id=t.scope_id),
+        title=t.title,
+        description=RichTextDC(format="markdown", body=desc_body),
+        deadline_at=t.deadline_at,
+        assignments=assignments,
+        revision=t.revision,
+        capabilities=caps,
+    )
+
+
+def _comment_orm_to_dc(session: Session, c: CommentORM, current_user_id: Optional[int] = None) -> CommentDC:
+    u = session.get(UserORM, c.author_user_id)
+    author_ref = _user_to_ref_dc(u) or UserRefDC(user_id=c.author_user_id, display_name=f"User {c.author_user_id}", avatar_url=None)
+    caps = ["edit_comment"] if (current_user_id == c.author_user_id) else []
+    hist = []
+    try:
+        hist = json.loads(c.history_json or "[]")
+    except Exception:
+        pass
+    content_body = ""
+    try:
+        cj = json.loads(c.content_json or "{}")
+        if isinstance(cj, dict):
+            content_body = cj.get("body", "")
+        else:
+            content_body = str(c.content_json or "")
+    except Exception:
+        content_body = str(c.content_json or "")
+
+    return CommentDC(
+        comment_id=c.comment_id,
+        task_id=c.task_id,
+        author=author_ref,
+        content=RichTextDC(format="markdown", body=content_body),
+        created_at=c.created_at,
+        updated_at=c.updated_at,
+        history=hist,
+        capabilities=caps,
+    )
+
+
+def _merit_orm_to_dc(session: Session, m: MeritORM, current_user_id: Optional[int] = None) -> MeritDC:
+    u = session.get(UserORM, m.created_by_user_id)
+    creator_ref = _user_to_ref_dc(u) or UserRefDC(user_id=m.created_by_user_id, display_name=f"User {m.created_by_user_id}", avatar_url=None)
+    crit_dict = {}
+    try:
+        crit_dict = json.loads(m.criteria_json or "{}")
+    except Exception:
+        pass
+    crit = CriteriaDC(
+        unique=bool(crit_dict.get("unique", False)),
+        creative=bool(crit_dict.get("creative", False)),
+        external_communication=bool(crit_dict.get("external_communication", False)),
+        in_person=bool(crit_dict.get("in_person", False)),
+        fixed_time=bool(crit_dict.get("fixed_time", False)),
+    )
+    recips = []
+    try:
+        recips = json.loads(m.recipients_json or "[]")
+    except Exception:
+        pass
+    desc_text = ""
+    try:
+        dj = json.loads(m.description_json or "{}")
+        if isinstance(dj, dict):
+            desc_text = dj.get("body", "")
+        else:
+            desc_text = str(m.description_json or "")
+    except Exception:
+        desc_text = str(m.description_json or "")
+
+    scope = ScopeRefDC(kind=m.scope_kind, id=m.scope_id) if (m.scope_kind and m.scope_id) else None
+    caps = ["view_merit"]
+    return MeritDC(
+        merit_id=m.merit_id,
+        season_id=m.season_id,
+        source_kind=m.source_kind,
+        title=m.title,
+        description=RichTextDC(format="markdown", body=desc_text),
+        assigned_at=m.assigned_at,
+        deadline_at=m.deadline_at,
+        criteria=crit,
+        recipients=recips,
+        reason=m.reason or "",
+        created_by=creator_ref,
+        created_at=m.created_at,
+        event_id=m.event_id,
+        scope=scope,
+        revision=m.revision,
+        capabilities=caps,
+    )
+
+
+def _file_orm_to_dc(f: FileRecordORM) -> FileRecordDC:
+    return FileRecordDC(
+        file_id=f.file_id,
+        owner_kind=f.owner_kind,
+        owner_id=f.owner_id,
+        purpose=f.purpose,
+        name=f.name,
+        mime_type=f.mime_type,
+        size_bytes=f.size_bytes,
+        uploaded_by_user_id=f.uploaded_by_user_id,
+        state=f.state,
+        created_at=f.created_at,
+        expires_at=f.expires_at,
+        download_url=f"/api/files/{f.file_id}/download",
+    )
+
+
+def _report_orm_to_dc(session: Session, r: ReportORM, current_user_id: Optional[int] = None) -> ReportDC:
+    u = session.get(UserORM, r.created_by_user_id)
+    author_ref = _user_to_ref_dc(u) or UserRefDC(user_id=r.created_by_user_id, display_name=f"User {r.created_by_user_id}", avatar_url=None)
+    fids = []
+    try:
+        fids = json.loads(r.files_json or "[]")
+    except Exception:
+        pass
+    file_refs = []
+    for fid in fids:
+        fr = session.get(FileRecordORM, fid)
+        if fr:
+            file_refs.append(FileRefDC(file_id=fr.file_id, name=fr.name, mime_type=fr.mime_type, size_bytes=fr.size_bytes))
+    return ReportDC(
+        report_id=r.report_id,
+        season_id=r.season_id,
+        series_id=r.report_series_id,
+        owner_kind=r.owner_kind,
+        owner_id=r.owner_id,
+        kind=r.kind,
+        title=r.title,
+        content=RichTextDC(format="markdown", body=r.content_json or ""),
+        author=author_ref,
+        state=r.state,
+        published_version=r.published_version,
+        files=file_refs,
+        revision=r.revision,
+        capabilities=["edit_report", "publish_report"],
+    )
+
+
+def _recalculate_assignment_contribution(session: Session, a: AssignmentORM, t: TaskORM):
+    if a.status in ("accepted", "not_completed") and a.evaluation is not None:
+        crit_dict = {}
+        try:
+            crit_dict = json.loads(t.criteria_json or "{}")
+        except Exception:
+            pass
+        eff_comp = a.effective_completed_at
+        if not eff_comp and a.status == "accepted":
+            last_sub = session.query(SubmissionORM).filter(
+                SubmissionORM.assignment_id == a.assignment_id
+            ).order_by(SubmissionORM.submitted_at.desc()).first()
+            if last_sub:
+                eff_comp = last_sub.submitted_at
+                a.effective_completed_at = eff_comp
+        score = calculate_kkr_score(
+            assigned_at_str=t.assigned_at,
+            deadline_at_str=t.deadline_at,
+            criteria_dict=crit_dict,
+            hours=a.hours,
+            evaluation=a.evaluation,
+            effective_completed_at_str=eff_comp,
+        )
+        if score is not None:
+            contrib = session.query(ContributionORM).filter(
+                ContributionORM.assignment_id == a.assignment_id
+            ).first()
+            source_kind = "block_task" if t.scope_kind == "block" else "subevent_task"
+            if contrib:
+                contrib.season_id = t.season_id
+                contrib.score = score
+                contrib.source_kind = source_kind
+                contrib.source_id = t.scope_id
+                contrib.source_title = t.title
+                contrib.updated_at = datetime.now(timezone.utc).isoformat()
+            else:
+                contrib = ContributionORM(
+                    contribution_id=f"contrib-{a.assignment_id}",
+                    season_id=t.season_id,
+                    participant_id=f"participant-{a.assignee_user_id}",
+                    user_id=a.assignee_user_id,
+                    source_kind=source_kind,
+                    source_id=t.scope_id,
+                    source_title=t.title,
+                    score=score,
+                    calculation_version="kkr_v1",
+                    assignment_id=a.assignment_id,
+                    created_at=datetime.now(timezone.utc).isoformat(),
+                )
+                session.add(contrib)
+        else:
+            session.query(ContributionORM).filter(
+                ContributionORM.assignment_id == a.assignment_id
+            ).delete(synchronize_session=False)
+    else:
+        session.query(ContributionORM).filter(
+            ContributionORM.assignment_id == a.assignment_id
+        ).delete(synchronize_session=False)
+
+
+def _recalculate_merit_contribution(session: Session, m: MeritORM):
+    crit_dict = {}
+    try:
+        crit_dict = json.loads(m.criteria_json or "{}")
+    except Exception:
+        pass
+    recipients = []
+    try:
+        recipients = json.loads(m.recipients_json or "[]")
+    except Exception:
+        pass
+
+    seen_uids = set()
+    source_id = (m.scope_id if m.scope_kind else m.event_id) or "merit"
+    now_str = datetime.now(timezone.utc).isoformat()
+
+    for r in recipients:
+        uid = r.get("user_id")
+        if uid is None:
+            continue
+        seen_uids.add(uid)
+        hrs = r.get("hours", 0.0)
+        ev = r.get("evaluation")
+        comp = r.get("completed_at")
+        score = calculate_kkr_score(
+            assigned_at_str=m.assigned_at,
+            deadline_at_str=m.deadline_at,
+            criteria_dict=crit_dict,
+            hours=hrs,
+            evaluation=ev,
+            effective_completed_at_str=comp,
+        )
+        contrib_id = f"contrib-{m.merit_id}-{uid}"
+        contrib = session.query(ContributionORM).filter(
+            ContributionORM.contribution_id == contrib_id
+        ).first()
+        if not contrib:
+            contrib = session.query(ContributionORM).filter(
+                ContributionORM.merit_id == m.merit_id,
+                ContributionORM.user_id == uid,
+            ).first()
+        if contrib:
+            contrib.season_id = m.season_id
+            contrib.score = score if score is not None else 0.0
+            contrib.source_kind = m.source_kind
+            contrib.source_id = source_id
+            contrib.source_title = m.title
+            contrib.updated_at = now_str
+        else:
+            contrib = ContributionORM(
+                contribution_id=contrib_id,
+                season_id=m.season_id,
+                participant_id=f"participant-{uid}",
+                user_id=uid,
+                source_kind=m.source_kind,
+                source_id=source_id,
+                source_title=m.title,
+                score=score if score is not None else 0.0,
+                calculation_version="kkr_v1",
+                merit_id=m.merit_id,
+                created_at=now_str,
+            )
+            session.add(contrib)
+
+    # Delete any removed recipients' contributions
+    all_merit_contribs = session.query(ContributionORM).filter(
+        ContributionORM.merit_id == m.merit_id
+    ).all()
+    for c in all_merit_contribs:
+        if c.user_id not in seen_uids:
+            session.delete(c)
+
+
+def _calculate_master_bonuses_for_session(session: Session, season_id: str) -> list[MasterBonusDC]:
+    blocks = session.query(BlockORM).all()
+    bonuses = []
+    for b in blocks:
+        master_uid = b.master_user_id
+        if not master_uid:
+            r = session.query(RoleAssignmentORM).filter(
+                RoleAssignmentORM.scope_kind == "block",
+                RoleAssignmentORM.scope_id == b.name,
+                RoleAssignmentORM.role == "master",
+            ).first()
+            if r:
+                master_uid = r.user_id
+
+        candidate_uids = set()
+        if b.arr_of_human:
+            try:
+                candidate_uids.update(json.loads(b.arr_of_human))
+            except Exception:
+                pass
+
+        contribs = session.query(ContributionORM).filter(
+            ContributionORM.season_id == season_id,
+            ContributionORM.source_kind == "block_task",
+            ContributionORM.source_id == b.name,
+        ).all()
+        for c in contribs:
+            candidate_uids.add(c.user_id)
+
+        member_task_scores: dict[int, float] = {uid: 0.0 for uid in candidate_uids}
+        for c in contribs:
+            member_task_scores[c.user_id] = member_task_scores.get(c.user_id, 0.0) + (c.score or 0.0)
+
+        basis_items = []
+        for uid in sorted(candidate_uids):
+            u = session.get(UserORM, uid)
+            u_ref = _user_to_ref_dc(u) or UserRefDC(user_id=uid, display_name=f"User {uid}", avatar_url=None)
+            score = member_task_scores.get(uid, 0.0)
+            included = False
+            exclusion = None
+            if master_uid is not None and uid == master_uid:
+                exclusion = "master"
+            elif score <= 0:
+                exclusion = "zero_or_negative"
+            else:
+                included = True
+            basis_items.append(
+                MasterBonusBasisItemDC(
+                    participant_id=f"participant-{uid}",
+                    user=u_ref,
+                    member_task_score=score,
+                    included=included,
+                    exclusion=exclusion,
+                )
+            )
+
+        eligible = [item for item in basis_items if item.included]
+        eligible_count = len(eligible)
+        amount = sum(item.member_task_score for item in eligible) / eligible_count if eligible_count > 0 else 0.0
+
+        recip_u = session.get(UserORM, master_uid) if master_uid else None
+        recip_ref = _user_to_ref_dc(recip_u) if recip_u else None
+        season_row = session.get(SeasonORM, season_id)
+        is_final = bool(season_row and season_row.state == "closed")
+
+        bonuses.append(
+            MasterBonusDC(
+                bonus_id=f"bonus-{season_id}-{b.name}",
+                season_id=season_id,
+                block_id=b.name,
+                recipient_participant_id=f"participant-{master_uid}" if master_uid else None,
+                recipient=recip_ref,
+                eligible_organizer_count=eligible_count,
+                amount=amount,
+                basis=basis_items,
+                calculation_version="master_bonus_v1",
+                is_final=is_final,
+            )
+        )
+    return bonuses
+
+
+def _recalculate_closed_master_bonuses_for_session(session: Session, season_id: str):
+    bonuses = session.query(MasterBonusORM).filter(MasterBonusORM.season_id == season_id).all()
+    for mb in bonuses:
+        basis_items_data = []
+        try:
+            basis_items_data = json.loads(mb.basis_json or "[]")
+        except Exception:
+            pass
+        if not basis_items_data:
+            continue
+
+        new_basis = []
+        for item in basis_items_data:
+            uid = item.get("user", {}).get("user_id")
+            if not uid:
+                continue
+            contribs = (
+                session.query(ContributionORM)
+                .filter(
+                    ContributionORM.season_id == season_id,
+                    ContributionORM.source_kind == "block_task",
+                    ContributionORM.source_id == mb.block_id,
+                    ContributionORM.user_id == uid,
+                )
+                .all()
+            )
+            score = sum(c.score or 0.0 for c in contribs)
+
+            included = False
+            exclusion = None
+            if mb.recipient_user_id is not None and uid == mb.recipient_user_id:
+                exclusion = "master"
+            elif score <= 0:
+                exclusion = "zero_or_negative"
+            else:
+                included = True
+
+            new_basis.append(
+                {
+                    "participant_id": item.get("participant_id"),
+                    "user": item.get("user"),
+                    "member_task_score": score,
+                    "included": included,
+                    "exclusion": exclusion,
+                }
+            )
+
+        eligible = [b for b in new_basis if b["included"]]
+        eligible_count = len(eligible)
+        amount = sum(b["member_task_score"] for b in eligible) / eligible_count if eligible_count > 0 else 0.0
+
+        mb.eligible_organizer_count = eligible_count
+        mb.amount = amount
+        mb.basis_json = json.dumps(new_basis)
+
+        if mb.recipient_user_id:
+            c = (
+                session.query(ContributionORM)
+                .filter(
+                    ContributionORM.season_id == season_id,
+                    ContributionORM.bonus_id == mb.bonus_id,
+                )
+                .first()
+            )
+            if amount > 0:
+                if c:
+                    c.score = amount
+                    c.updated_at = datetime.now(timezone.utc).isoformat()
+                else:
+                    c = ContributionORM(
+                        contribution_id=f"contrib-{mb.bonus_id}",
+                        season_id=season_id,
+                        participant_id=mb.recipient_participant_id,
+                        user_id=mb.recipient_user_id,
+                        source_kind="master_bonus",
+                        source_id=mb.block_id,
+                        source_title=f"Мастер: {mb.block_id}",
+                        score=amount,
+                        calculation_version="master_bonus_v1",
+                        bonus_id=mb.bonus_id,
+                        created_at=datetime.now(timezone.utc).isoformat(),
+                    )
+                    session.add(c)
+            else:
+                if c:
+                    c.score = 0.0
+                    c.updated_at = datetime.now(timezone.utc).isoformat()
+
+
+def _calculate_season_summary_for_session(session: Session, season_id: str, is_approved: bool = False) -> SeasonSummaryDC:
+    all_users = session.query(UserORM).all()
+    included_users = []
+    season_task_ids = [t[0] for t in session.query(TaskORM.task_id).filter(TaskORM.season_id == season_id).all()]
+    for u in all_users:
+        is_arch = bool(u.banned or getattr(u, "account_state", "active") != "active")
+        if not is_arch:
+            included_users.append(u)
+        else:
+            has_contrib = session.query(ContributionORM).filter(
+                ContributionORM.season_id == season_id,
+                ContributionORM.user_id == u.user_id,
+            ).count() > 0
+            if has_contrib:
+                included_users.append(u)
+            elif season_task_ids:
+                has_assign = session.query(AssignmentORM).filter(
+                    AssignmentORM.task_id.in_(season_task_ids),
+                    AssignmentORM.assignee_user_id == u.user_id,
+                ).count() > 0
+                if has_assign:
+                    included_users.append(u)
+
+    prev_ranks: dict[int, int] = {}
+    prev_decisions: dict[int, list[str]] = {}
+    season_orm = session.get(SeasonORM, season_id)
+    if season_orm and season_orm.previous_season_id:
+        prev_sum = session.query(SeasonSummaryORM).filter(
+            SeasonSummaryORM.season_id == season_orm.previous_season_id,
+            SeasonSummaryORM.state == "approved",
+        ).first()
+        if prev_sum and prev_sum.rows_json:
+            try:
+                for r in json.loads(prev_sum.rows_json):
+                    uid = r.get("user", {}).get("user_id")
+                    if uid:
+                        prev_ranks[uid] = r.get("rank")
+                        prev_decisions[uid] = r.get("decisions", [])
+            except Exception:
+                pass
+
+    curr_decisions: dict[int, list[str]] = {}
+    dec_rows = session.query(SeasonDecisionORM).filter(SeasonDecisionORM.season_id == season_id).all()
+    for dr in dec_rows:
+        try:
+            curr_decisions[dr.user_id] = json.loads(dr.decisions_json or "[]")
+        except Exception:
+            curr_decisions[dr.user_id] = []
+
+    rows: list[SummaryRowDC] = []
+    for u in included_users:
+        u_ref = _user_to_ref_dc(u) or UserRefDC(user_id=u.user_id, display_name=f"User {u.user_id}", avatar_url=None)
+        group_num = u.contact.group_number if u.contact else None
+        category = getattr(u, "category", "activist") or "activist"
+        user_blocks = _parse_blocks(u.blocks) if u.blocks else []
+        blocks_dc = [SummaryRowBlockDC(block_id=b, name=b) for b in user_blocks]
+        is_master = bool(
+            session.query(RoleAssignmentORM).filter(
+                RoleAssignmentORM.user_id == u.user_id,
+                RoleAssignmentORM.role == "master",
+                RoleAssignmentORM.scope_kind == "block",
+            ).count() > 0
+            or session.query(BlockORM).filter(BlockORM.master_user_id == u.user_id).count() > 0
+        )
+        is_archived = bool(u.banned or getattr(u, "account_state", "active") != "active")
+
+        contribs = session.query(ContributionORM).filter(
+            ContributionORM.season_id == season_id,
+            ContributionORM.user_id == u.user_id,
+        ).all()
+        source_scores = [
+            SummaryRowSourceScoreDC(
+                source_kind=c.source_kind,
+                source_id=c.source_id,
+                title=c.source_title,
+                score=c.score or 0.0,
+            )
+            for c in contribs
+        ]
+        total_score = sum(c.score or 0.0 for c in contribs)
+
+        eval_count = (
+            session.query(AssignmentORM).filter(
+                AssignmentORM.task_id.in_(season_task_ids),
+                AssignmentORM.assignee_user_id == u.user_id,
+                AssignmentORM.status.in_(["accepted", "not_completed"]),
+                AssignmentORM.evaluation.isnot(None),
+            ).count()
+            if season_task_ids
+            else 0
+        )
+
+        rows.append(
+            SummaryRowDC(
+                participant_id=f"participant-{u.user_id}",
+                user=u_ref,
+                group_number=group_num,
+                category=category,
+                blocks=blocks_dc,
+                is_master=is_master,
+                is_archived=is_archived,
+                source_scores=source_scores,
+                total_score=total_score,
+                evaluated_task_count=eval_count,
+                rank=1,
+                previous_rank=prev_ranks.get(u.user_id),
+                decisions=curr_decisions.get(u.user_id, []),
+                previous_decisions=prev_decisions.get(u.user_id, []),
+            )
+        )
+
+    rows.sort(key=lambda r: r.total_score, reverse=True)
+    rank = 1
+    for i, r in enumerate(rows):
+        if i > 0 and r.total_score < rows[i - 1].total_score:
+            rank = i + 1
+        r.rank = rank
+
+    summary_state = "approved" if is_approved else "draft"
+    caps = ["view_summary", "export_xlsx"]
+    if summary_state == "approved":
+        caps.append("correct_summary")
+    else:
+        caps.append("edit_decisions")
+
+    summary_orm = session.query(SeasonSummaryORM).filter(SeasonSummaryORM.season_id == season_id).first()
+    version = summary_orm.version if summary_orm else 1
+    approved_at = summary_orm.approved_at if (summary_orm and summary_orm.state == "approved") else None
+
+    return SeasonSummaryDC(
+        season_id=season_id,
+        state=summary_state,
+        version=version,
+        approved_at=approved_at,
+        rows=rows,
+        capabilities=caps,
+    )
 
 
 class Database:
@@ -756,6 +1818,7 @@ class Database:
                 admin=user.admin,
                 events_roles=user.events_roles,
                 account_state=getattr(user, "account_state", "active") or "active",
+                category=getattr(user, "category", "junior") or "junior",
             )
             session.add(u)
             session.flush()  # assign user_id
@@ -1583,6 +2646,9 @@ class Database:
             except Exception:
                 return False
 
+    def is_chair_deputy(self, user_id: int) -> bool:
+        return self.is_deputy_chair(user_id)
+
     def is_tachki(self, user_id: int) -> bool:
         return self.is_chair(user_id) or self.is_deputy_chair(user_id)
 
@@ -1755,7 +2821,7 @@ class Database:
             session.commit()
             return _season_orm_to_dc(row)
 
-    def close_season(self, season_id: str, expected_revision: Optional[int] = None) -> SeasonDC:
+    def close_season(self, season_id: str, expected_revision: Optional[int] = None) -> tuple[SeasonDC, SeasonSummaryDC]:
         with self._session() as session:
             row = session.get(SeasonORM, season_id)
             if not row:
@@ -1764,16 +2830,223 @@ class Database:
                 raise ValueError(f"Cannot close season in state '{row.state}'")
             if expected_revision is not None and row.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
+
+            blockers = []
             if row.previous_season_id:
                 prev = session.get(SeasonORM, row.previous_season_id)
                 if prev and prev.state != "closed":
-                    raise ValueError("previous_season_not_closed")
+                    blockers.append({
+                        "kind": "previous_season_not_closed",
+                        "owner_kind": "season",
+                        "owner_id": row.previous_season_id,
+                        "title": "Previous season not closed",
+                    })
+
+            # Check unfinished assignments & missing assessments
+            season_tasks = session.query(TaskORM).filter(TaskORM.season_id == season_id).all()
+            task_map = {t.task_id: t for t in season_tasks}
+            if season_tasks:
+                assignments = session.query(AssignmentORM).filter(AssignmentORM.task_id.in_(list(task_map.keys()))).all()
+                for a in assignments:
+                    if a.status not in ("accepted", "not_completed", "cancelled"):
+                        t = task_map.get(a.task_id)
+                        blockers.append({
+                            "kind": "unfinished_assignment",
+                            "owner_kind": "assignment",
+                            "owner_id": a.assignment_id,
+                            "title": f"Unfinished assignment on task '{t.title if t else a.task_id}'",
+                        })
+                    elif a.status in ("accepted", "not_completed"):
+                        if a.evaluation is None or (a.status == "accepted" and a.hours is None):
+                            blockers.append({
+                                "kind": "missing_assessment",
+                                "owner_kind": "assignment",
+                                "owner_id": a.assignment_id,
+                                "title": f"Missing assessment for assignment '{a.assignment_id}'",
+                            })
+
+            # Check missing final reports for events and subevents
+            events = session.query(EventORM).filter(EventORM.season_id == season_id).all()
+            for ev in events:
+                final_rep = session.query(ReportORM).filter(
+                    ReportORM.owner_kind == "event",
+                    ReportORM.owner_id == ev.event_id,
+                    ReportORM.kind == "final",
+                    ReportORM.state == "published",
+                ).first()
+                if not final_rep:
+                    blockers.append({
+                        "kind": "missing_final_report",
+                        "owner_kind": "event",
+                        "owner_id": ev.event_id,
+                        "title": f"Missing final report for event '{ev.title}'",
+                    })
+                subevents = session.query(SubeventORM).filter(SubeventORM.event_id == ev.event_id).all()
+                for sub in subevents:
+                    sub_rep = session.query(ReportORM).filter(
+                        ReportORM.owner_kind == "subevent",
+                        ReportORM.owner_id == sub.subevent_id,
+                        ReportORM.kind == "final",
+                        ReportORM.state == "published",
+                    ).first()
+                    if not sub_rep:
+                        blockers.append({
+                            "kind": "missing_final_report",
+                            "owner_kind": "subevent",
+                            "owner_id": sub.subevent_id,
+                            "title": f"Missing final report for subevent '{sub.title}'",
+                        })
+
+            if blockers:
+                raise SeasonNotReadyError(blockers)
+
+            # Persist master bonuses
+            bonuses = _calculate_master_bonuses_for_session(session, season_id)
+            for mb in bonuses:
+                orm_b = session.query(MasterBonusORM).filter(
+                    MasterBonusORM.season_id == season_id,
+                    MasterBonusORM.block_id == mb.block_id,
+                ).first()
+                basis_json = json.dumps([
+                    {
+                        "participant_id": b.participant_id,
+                        "user": {"user_id": b.user.user_id, "display_name": b.user.display_name, "avatar_url": b.user.avatar_url},
+                        "member_task_score": b.member_task_score,
+                        "included": b.included,
+                        "exclusion": b.exclusion,
+                    }
+                    for b in mb.basis
+                ])
+                recipient_uid = mb.recipient.user_id if mb.recipient else None
+                if orm_b:
+                    orm_b.recipient_participant_id = mb.recipient_participant_id
+                    orm_b.recipient_user_id = recipient_uid
+                    orm_b.eligible_organizer_count = mb.eligible_organizer_count
+                    orm_b.amount = mb.amount
+                    orm_b.basis_json = basis_json
+                    orm_b.is_final = True
+                else:
+                    orm_b = MasterBonusORM(
+                        bonus_id=mb.bonus_id,
+                        season_id=season_id,
+                        block_id=mb.block_id,
+                        recipient_participant_id=mb.recipient_participant_id,
+                        recipient_user_id=recipient_uid,
+                        eligible_organizer_count=mb.eligible_organizer_count,
+                        amount=mb.amount,
+                        basis_json=basis_json,
+                        calculation_version="master_bonus_v1",
+                        is_final=True,
+                        created_at=datetime.now(timezone.utc).isoformat(),
+                    )
+                    session.add(orm_b)
+
+                # Contribution for master bonus
+                if recipient_uid and mb.amount > 0:
+                    c = session.query(ContributionORM).filter(
+                        ContributionORM.season_id == season_id,
+                        ContributionORM.bonus_id == mb.bonus_id,
+                    ).first()
+                    if not c:
+                        c = ContributionORM(
+                            contribution_id=f"contrib-{mb.bonus_id}",
+                            season_id=season_id,
+                            participant_id=mb.recipient_participant_id,
+                            user_id=recipient_uid,
+                            source_kind="master_bonus",
+                            source_id=mb.block_id,
+                            source_title=f"Мастер: {mb.block_id}",
+                            score=mb.amount,
+                            calculation_version="master_bonus_v1",
+                            bonus_id=mb.bonus_id,
+                            created_at=datetime.now(timezone.utc).isoformat(),
+                        )
+                        session.add(c)
+                    else:
+                        c.score = mb.amount
+
+            # Snapshot approved summary
+            summary = _calculate_season_summary_for_session(session, season_id, is_approved=True)
+            summary_orm = session.query(SeasonSummaryORM).filter(SeasonSummaryORM.season_id == season_id).first()
+            now_iso = datetime.now(timezone.utc).isoformat()
+            rows_data = [
+                {
+                    "participant_id": r.participant_id,
+                    "user": {"user_id": r.user.user_id, "display_name": r.user.display_name, "avatar_url": r.user.avatar_url},
+                    "group_number": r.group_number,
+                    "category": r.category,
+                    "blocks": [{"block_id": b.block_id, "name": b.name} for b in r.blocks],
+                    "is_master": r.is_master,
+                    "is_archived": r.is_archived,
+                    "source_scores": [{"source_kind": s.source_kind, "source_id": s.source_id, "title": s.title, "score": s.score} for s in r.source_scores],
+                    "total_score": r.total_score,
+                    "evaluated_task_count": r.evaluated_task_count,
+                    "rank": r.rank,
+                    "previous_rank": r.previous_rank,
+                    "decisions": r.decisions,
+                    "previous_decisions": r.previous_decisions,
+                }
+                for r in summary.rows
+            ]
+            if summary_orm:
+                summary_orm.state = "approved"
+                summary_orm.approved_at = now_iso
+                summary_orm.rows_json = json.dumps(rows_data)
+                summary_orm.version += 1
+            else:
+                summary_orm = SeasonSummaryORM(
+                    summary_id=f"summary-{season_id}",
+                    season_id=season_id,
+                    state="approved",
+                    version=1,
+                    approved_at=now_iso,
+                    rows_json=json.dumps(rows_data),
+                    created_at=now_iso,
+                )
+                session.add(summary_orm)
+
+            # Automatic promotion of juniors to activists
+            try:
+                def _parse_iso_dt(s: str) -> datetime:
+                    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+                s_start = _parse_iso_dt(row.starts_at)
+                s_end = _parse_iso_dt(row.ends_at)
+                duration = max(0.0, (s_end - s_start).total_seconds())
+                threshold = duration / 2.0
+
+                juniors = session.query(UserORM).filter(
+                    UserORM.category == "junior",
+                    UserORM.banned == False,
+                ).all()
+
+                for j in juniors:
+                    j.category = "activist"
+                    session.add(
+                        AuditLogORM(
+                            target_kind="user",
+                            target_id=str(j.user_id),
+                            changed_by_user_id=0,
+                            reason=f"Automatic promotion to activist upon season close {season_id}",
+                            old_values_json=json.dumps({"category": "junior"}),
+                            new_values_json=json.dumps({
+                                "category": "activist",
+                                "season_id": season_id,
+                                "participation": duration,
+                                "threshold": threshold,
+                            }),
+                            created_at=now_iso,
+                        )
+                    )
+            except Exception:
+                pass
+
             row.state = "closed"
             if row.is_current:
                 row.is_current = False
             row.revision += 1
             session.commit()
-            return _season_orm_to_dc(row)
+            return _season_orm_to_dc(row), summary
 
     # ─────────────────────────────────────────────────────────────
     #  BE-02: REPORT SERIES
@@ -2372,6 +3645,14 @@ class Database:
                     created_at=datetime.now(timezone.utc).isoformat(),
                 )
                 session.add(sc)
+                # Also update subevents, tasks, and contributions for this event
+                subs = session.query(SubeventORM).filter(SubeventORM.event_id == object_id).all()
+                for sub in subs:
+                    sub_tasks = session.query(TaskORM).filter(TaskORM.scope_kind == "subevent", TaskORM.scope_id == sub.subevent_id).all()
+                    for st in sub_tasks:
+                        st.season_id = target_season_id
+                        st.revision += 1
+                        session.query(ContributionORM).filter(ContributionORM.source_kind == "subevent_task", ContributionORM.source_id == sub.subevent_id).update({"season_id": target_season_id})
                 session.commit()
                 return SeasonCorrectionResultDC(
                     object_kind="event",
@@ -2379,6 +3660,93 @@ class Database:
                     source_season_id=source_sid,
                     target_season_id=target_season_id,
                     revision=ev.revision,
+                )
+            elif object_kind == "block_task":
+                task = session.get(TaskORM, object_id)
+                if not task or task.scope_kind != "block":
+                    raise LookupError("Block task not found")
+                if task.revision != expected_revision:
+                    raise ValueError("Conflict: revision mismatch")
+                if task.season_id == target_season_id:
+                    raise ValueError("Target season must differ from current season")
+                if target_season.state == "planned":
+                    raise ValueError("Target season cannot be planned for block tasks")
+                source_season = session.get(SeasonORM, task.season_id)
+                if source_season and source_season.state == "closed":
+                    raise ValueError("Source season cannot be closed")
+                if target_season.ends_at and task.deadline_at and task.deadline_at > target_season.ends_at:
+                    raise ValueError("Task deadline exceeds target season ends_at")
+
+                source_sid = task.season_id
+                task.season_id = target_season_id
+                task.revision += 1
+
+                # Update associated contributions
+                a_ids = [a.assignment_id for a in session.query(AssignmentORM).filter(AssignmentORM.task_id == task.task_id).all()]
+                if a_ids:
+                    session.query(ContributionORM).filter(ContributionORM.assignment_id.in_(a_ids)).update({"season_id": target_season_id}, synchronize_session=False)
+
+                sc = SeasonCorrectionORM(
+                    correction_id=str(uuid.uuid4()),
+                    object_kind="block_task",
+                    object_id=object_id,
+                    source_season_id=source_sid,
+                    target_season_id=target_season_id,
+                    changed_by_user_id=user_id,
+                    reason=reason,
+                    created_at=datetime.now(timezone.utc).isoformat(),
+                )
+                session.add(sc)
+                session.commit()
+                return SeasonCorrectionResultDC(
+                    object_kind="block_task",
+                    object_id=object_id,
+                    source_season_id=source_sid,
+                    target_season_id=target_season_id,
+                    revision=task.revision,
+                )
+            elif object_kind == "merit":
+                merit = session.get(MeritORM, object_id)
+                if not merit:
+                    raise LookupError("Merit not found")
+                if merit.source_kind not in ("block_volunteer", "chair_merit"):
+                    raise ValueError("Only block_volunteer and chair_merit can independently change season")
+                if merit.revision != expected_revision:
+                    raise ValueError("Conflict: revision mismatch")
+                if merit.season_id == target_season_id:
+                    raise ValueError("Target season must differ from current season")
+                if target_season.state == "planned":
+                    raise ValueError("Target season cannot be planned for merit")
+                source_season = session.get(SeasonORM, merit.season_id)
+                if source_season and source_season.state == "closed":
+                    raise ValueError("Source season cannot be closed")
+                if target_season.ends_at and merit.deadline_at and merit.deadline_at > target_season.ends_at:
+                    raise ValueError("Merit deadline exceeds target season ends_at")
+
+                source_sid = merit.season_id
+                merit.season_id = target_season_id
+                merit.revision += 1
+
+                session.query(ContributionORM).filter(ContributionORM.merit_id == merit.merit_id).update({"season_id": target_season_id}, synchronize_session=False)
+
+                sc = SeasonCorrectionORM(
+                    correction_id=str(uuid.uuid4()),
+                    object_kind="merit",
+                    object_id=object_id,
+                    source_season_id=source_sid,
+                    target_season_id=target_season_id,
+                    changed_by_user_id=user_id,
+                    reason=reason,
+                    created_at=datetime.now(timezone.utc).isoformat(),
+                )
+                session.add(sc)
+                session.commit()
+                return SeasonCorrectionResultDC(
+                    object_kind="merit",
+                    object_id=object_id,
+                    source_season_id=source_sid,
+                    target_season_id=target_season_id,
+                    revision=merit.revision,
                 )
             else:
                 raise ValueError(f"Unsupported object_kind '{object_kind}'")
@@ -2446,7 +3814,1675 @@ class Database:
                 RoleAssignmentORM.role == "deputy_master",
                 RoleAssignmentORM.user_id == user_id,
             ).count()
+    def is_block_master(self, user_id: int, block_name: str) -> bool:
+        with self._session() as session:
+            b = session.get(BlockORM, block_name)
+            if b and b.master_user_id == user_id:
+                return True
+            count = session.query(RoleAssignmentORM).filter(
+                RoleAssignmentORM.scope_kind == "block",
+                RoleAssignmentORM.scope_id == block_name,
+                RoleAssignmentORM.role == "master",
+                RoleAssignmentORM.user_id == user_id,
+            ).count()
             return count > 0
+
+    def is_block_member(self, user_id: int, block_name: str) -> bool:
+        with self._session() as session:
+            b = session.get(BlockORM, block_name)
+            if not b or not b.arr_of_human:
+                return False
+            try:
+                member_ids = json.loads(b.arr_of_human)
+                return user_id in member_ids
+            except Exception:
+                return False
+
+    def can_manage_scope(self, user_id: int, scope_kind: str, scope_id: str) -> bool:
+        if self.is_tachki(user_id):
+            return True
+        if scope_kind == "block":
+            return self.is_block_master(user_id, scope_id) or self.is_block_master_deputy(user_id, scope_id)
+        elif scope_kind == "subevent":
+            if self.is_subevent_leader(user_id, scope_id) or self.is_subevent_leader_deputy(user_id, scope_id):
+                return True
+            with self._session() as session:
+                sub = session.get(SubeventORM, scope_id)
+                if sub and (self.is_event_leader(user_id, sub.event_id) or self.is_event_leader_deputy(user_id, sub.event_id)):
+                    return True
+        return False
+
+    def can_view_scope(self, user_id: int, scope_kind: str, scope_id: str) -> bool:
+        if self.is_tachki(user_id) or self.is_hr_master(user_id):
+            return True
+        if self.can_manage_scope(user_id, scope_kind, scope_id):
+            return True
+        if scope_kind == "block":
+            return self.is_block_member(user_id, scope_id)
+        elif scope_kind == "subevent":
+            return self.is_subevent_organizer(user_id, scope_id)
+        return False
+
+    def is_member_or_leader_in_scope(self, user_id: int, scope_kind: str, scope_id: str) -> bool:
+        if scope_kind == "block":
+            return self.is_block_member(user_id, scope_id) or self.is_block_master(user_id, scope_id) or self.is_block_master_deputy(user_id, scope_id)
+        elif scope_kind == "subevent":
+            if self.is_subevent_organizer(user_id, scope_id) or self.is_subevent_leader(user_id, scope_id) or self.is_subevent_leader_deputy(user_id, scope_id):
+                return True
+    def get_scope_leads(self, scope_kind: str, scope_id: str) -> list[int]:
+        with self._session() as session:
+            uids = set()
+            if scope_kind == "block":
+                b = session.get(BlockORM, scope_id)
+                if b and b.master_user_id:
+                    uids.add(b.master_user_id)
+                rows = session.query(RoleAssignmentORM).filter(
+                    RoleAssignmentORM.scope_kind == "block",
+                    RoleAssignmentORM.scope_id == scope_id,
+                    RoleAssignmentORM.role.in_(("master", "deputy_master")),
+                ).all()
+                for r in rows:
+                    uids.add(r.user_id)
+            elif scope_kind == "subevent":
+                rows = session.query(RoleAssignmentORM).filter(
+                    RoleAssignmentORM.scope_kind == "subevent",
+                    RoleAssignmentORM.scope_id == scope_id,
+                    RoleAssignmentORM.role.in_(("subevent_leader", "deputy_subevent_leader")),
+                ).all()
+                for r in rows:
+                    uids.add(r.user_id)
+            return sorted(uids)
+
+    # ─────────────────────────────────────────────────────────────
+    #  BE-03: TASKS
+    # ─────────────────────────────────────────────────────────────
+
+    def create_task(
+        self,
+        season_id: str,
+        scope_kind: str,
+        scope_id: str,
+        title: str,
+        description: str,
+        deadline_at: str,
+        criteria_dict: dict,
+        assignees: list[dict],
+        created_by_user_id: int,
+    ) -> TaskPublicDC:
+        with self._session() as session:
+            season = session.get(SeasonORM, season_id)
+            if not season:
+                raise LookupError("Season not found")
+            if scope_kind == "block":
+                block = session.get(BlockORM, scope_id)
+                if not block:
+                    raise LookupError("Block not found")
+                if season.state != "open":
+                    raise ValueError("Block tasks can only be created in an open season")
+            elif scope_kind == "subevent":
+                sub = session.get(SubeventORM, scope_id)
+                if not sub:
+                    raise LookupError("Subevent not found")
+                ev = session.get(EventORM, sub.event_id)
+                if not ev or ev.season_id != season_id:
+                    raise ValueError("Subevent season mismatch")
+                if season.state not in ("planned", "open"):
+                    raise ValueError("Tasks cannot be created in summarizing or closed season")
+            else:
+                raise ValueError(f"Unsupported scope_kind '{scope_kind}'")
+
+            if not self.can_manage_scope(created_by_user_id, scope_kind, scope_id):
+                raise ValueError("Forbidden: cannot create task in this scope")
+
+            if season.ends_at and deadline_at > season.ends_at:
+                raise ValueError("Task deadline exceeds season ends_at")
+
+            if not assignees:
+                raise ValueError("At least one assignee is required")
+
+            for a in assignees:
+                uid = a.get("user_id")
+                u = session.get(UserORM, uid)
+                if not u or u.banned or getattr(u, "account_state", "active") != "active":
+                    raise ValueError(f"Invalid assignee user {uid}: user must be active and approved")
+                if not self.is_member_or_leader_in_scope(uid, scope_kind, scope_id):
+                    raise ValueError(f"User {uid} is not a member or leader of this scope")
+
+            now_str = datetime.now(timezone.utc).isoformat()
+            task_id = f"task-{uuid.uuid4()}"
+            t = TaskORM(
+                task_id=task_id,
+                season_id=season_id,
+                scope_kind=scope_kind,
+                scope_id=scope_id,
+                title=title,
+                description_json=json.dumps({"format": "markdown", "body": description}),
+                deadline_at=deadline_at,
+                assigned_at=now_str,
+                criteria_json=json.dumps(criteria_dict or {}),
+                created_by_user_id=created_by_user_id,
+                created_at=now_str,
+                revision=1,
+            )
+            session.add(t)
+
+            for a in assignees:
+                uid = a.get("user_id")
+                hrs = a.get("hours", 0.0)
+                assignment_id = f"assignment-{uuid.uuid4()}"
+                asgn = AssignmentORM(
+                    assignment_id=assignment_id,
+                    task_id=task_id,
+                    assignee_user_id=uid,
+                    status="assigned",
+                    hours=hrs,
+                    revision=1,
+                    created_at=now_str,
+                )
+                session.add(asgn)
+                session.add(
+                    NotificationORM(
+                        notification_id=str(uuid.uuid4()),
+                        user_id=uid,
+                        kind="task_assignment",
+                        payload_json=json.dumps({
+                            "task_id": task_id,
+                            "assignment_id": assignment_id,
+                            "title": title,
+                            "deadline_at": deadline_at,
+                        }),
+                        is_read=False,
+                        created_at=now_str,
+                    )
+                )
+
+            session.commit()
+            return self.get_task(task_id, created_by_user_id)
+
+    def get_task(self, task_id: str, current_user_id: Optional[int] = None) -> Optional[TaskPublicDC]:
+        with self._session() as session:
+            t = session.get(TaskORM, task_id)
+            if not t:
+                return None
+            if current_user_id is not None:
+                if not (self.can_view_scope(current_user_id, t.scope_kind, t.scope_id) or self.is_chair(current_user_id) or self.is_chair_deputy(current_user_id) or self.is_hr_master(current_user_id)):
+                    raise ValueError("Forbidden: cannot view this task")
+            return _task_orm_to_dc(session, t, current_user_id)
+
+    def list_tasks(
+        self,
+        season_id: Optional[str] = None,
+        scope_kind: Optional[str] = None,
+        scope_id: Optional[str] = None,
+        mine_user_id: Optional[int] = None,
+        status: Optional[str] = None,
+        sort: Optional[str] = None,
+        current_user_id: Optional[int] = None,
+    ) -> list[TaskPublicDC]:
+        with self._session() as session:
+            if current_user_id is not None and scope_kind and scope_id:
+                if not (self.can_view_scope(current_user_id, scope_kind, scope_id) or self.is_chair(current_user_id) or self.is_chair_deputy(current_user_id) or self.is_hr_master(current_user_id)):
+                    raise ValueError("Forbidden: cannot view tasks for this scope")
+
+            query = session.query(TaskORM)
+            if season_id:
+                query = query.filter(TaskORM.season_id == season_id)
+            if scope_kind:
+                query = query.filter(TaskORM.scope_kind == scope_kind)
+            if scope_id:
+                query = query.filter(TaskORM.scope_id == scope_id)
+            if mine_user_id is not None:
+                task_ids = [
+                    a.task_id
+                    for a in session.query(AssignmentORM.task_id)
+                    .filter(AssignmentORM.assignee_user_id == mine_user_id)
+                    .all()
+                ]
+                query = query.filter(TaskORM.task_id.in_(task_ids))
+            if status:
+                task_ids = [
+                    a.task_id
+                    for a in session.query(AssignmentORM.task_id)
+                    .filter(AssignmentORM.status == status)
+                    .all()
+                ]
+                query = query.filter(TaskORM.task_id.in_(task_ids))
+
+            if sort == "deadline":
+                query = query.order_by(TaskORM.deadline_at.asc())
+            else:
+                query = query.order_by(TaskORM.created_at.desc())
+
+            rows = query.all()
+            if current_user_id is not None:
+                filtered_rows = []
+                for r in rows:
+                    if self.can_view_scope(current_user_id, r.scope_kind, r.scope_id) or self.is_chair(current_user_id) or self.is_chair_deputy(current_user_id) or self.is_hr_master(current_user_id):
+                        filtered_rows.append(r)
+                rows = filtered_rows
+            return [_task_orm_to_dc(session, r, current_user_id) for r in rows]
+
+    def patch_task(
+        self,
+        task_id: str,
+        expected_revision: int,
+        title: Optional[str],
+        description: Optional[str],
+        user_id: int,
+    ) -> TaskPublicDC:
+        with self._session() as session:
+            t = session.get(TaskORM, task_id)
+            if not t:
+                raise LookupError("Task not found")
+            if t.revision != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+
+            season = session.get(SeasonORM, t.season_id)
+            if season and season.state == "closed" and not self.is_chair(user_id):
+                raise ValueError("Only chair can edit tasks in closed season")
+
+            if title is not None:
+                t.title = title
+            if description is not None:
+                t.description_json = json.dumps({"format": "markdown", "body": description})
+            t.revision += 1
+            session.commit()
+            return _task_orm_to_dc(session, t, user_id)
+
+    # ─────────────────────────────────────────────────────────────
+    #  BE-03: ASSIGNMENT ACTIONS
+    # ─────────────────────────────────────────────────────────────
+
+    def start_assignment(self, assignment_id: str, expected_revision: int, user_id: int) -> AssignmentPublicDC:
+        with self._session() as session:
+            a = session.get(AssignmentORM, assignment_id)
+            if not a:
+                raise LookupError("Assignment not found")
+            if a.assignee_user_id != user_id:
+                raise ValueError("Forbidden: only assignee can start assignment")
+            if a.revision != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+            if a.status != "assigned":
+                raise ValueError(f"Cannot start assignment with status '{a.status}'")
+
+            a.status = "in_progress"
+            a.revision += 1
+            a.updated_at = datetime.now(timezone.utc).isoformat()
+            session.commit()
+            return _assignment_orm_to_dc(session, a, user_id)
+
+    def request_help_assignment(
+        self, assignment_id: str, expected_revision: int, user_id: int, message: Optional[str] = None
+    ) -> AssignmentPublicDC:
+        with self._session() as session:
+            a = session.get(AssignmentORM, assignment_id)
+            if not a:
+                raise LookupError("Assignment not found")
+            if a.assignee_user_id != user_id:
+                raise ValueError("Forbidden: only assignee can request help")
+            if a.revision != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+            if a.status not in ("assigned", "in_progress", "needs_revision"):
+                raise ValueError(f"Cannot request help in status '{a.status}'")
+
+            now_str = datetime.now(timezone.utc).isoformat()
+            a.status = "help_required"
+            a.revision += 1
+            a.updated_at = now_str
+
+            if message and message.strip():
+                comm = CommentORM(
+                    comment_id=f"comment-{uuid.uuid4()}",
+                    task_id=a.task_id,
+                    author_user_id=user_id,
+                    content_json=json.dumps({"format": "markdown", "body": message}),
+                    history_json="[]",
+                    created_at=now_str,
+                )
+                session.add(comm)
+
+            t = session.get(TaskORM, a.task_id)
+            if t:
+                leads = self.get_scope_leads(t.scope_kind, t.scope_id)
+                for lead_uid in leads:
+                    if lead_uid != user_id:
+                        session.add(
+                            NotificationORM(
+                                notification_id=str(uuid.uuid4()),
+                                user_id=lead_uid,
+                                kind="task_help_required",
+                                payload_json=json.dumps({
+                                    "task_id": t.task_id,
+                                    "assignment_id": a.assignment_id,
+                                    "assignee_user_id": user_id,
+                                    "title": t.title,
+                                }),
+                                is_read=False,
+                                created_at=now_str,
+                            )
+                        )
+
+            session.commit()
+            return _assignment_orm_to_dc(session, a, user_id)
+
+    def resume_assignment(self, assignment_id: str, expected_revision: int, user_id: int) -> AssignmentPublicDC:
+        with self._session() as session:
+            a = session.get(AssignmentORM, assignment_id)
+            if not a:
+                raise LookupError("Assignment not found")
+            if a.assignee_user_id != user_id:
+                raise ValueError("Forbidden: only assignee can resume assignment")
+            if a.revision != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+            if a.status != "help_required":
+                raise ValueError(f"Cannot resume assignment in status '{a.status}'")
+
+            a.status = "in_progress"
+            a.revision += 1
+            a.updated_at = datetime.now(timezone.utc).isoformat()
+            session.commit()
+            return _assignment_orm_to_dc(session, a, user_id)
+
+    def submit_assignment(
+        self,
+        assignment_id: str,
+        expected_revision: int,
+        user_id: int,
+        text: str,
+        links: list[str],
+        file_ids: list[str],
+    ) -> AssignmentPublicDC:
+        with self._session() as session:
+            a = session.get(AssignmentORM, assignment_id)
+            if not a:
+                raise LookupError("Assignment not found")
+            if a.assignee_user_id != user_id:
+                raise ValueError("Forbidden: only assignee can submit assignment")
+            if a.revision != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+            if a.status not in ("assigned", "in_progress", "help_required", "needs_revision"):
+                raise ValueError(f"Cannot submit in status '{a.status}'")
+
+            now_str = datetime.now(timezone.utc).isoformat()
+            sub = SubmissionORM(
+                submission_id=f"submission-{uuid.uuid4()}",
+                assignment_id=a.assignment_id,
+                submitted_at=now_str,
+                text_json=json.dumps({"format": "markdown", "body": text}),
+                links_json=json.dumps(links or []),
+                files_json=json.dumps(file_ids or []),
+                created_by_user_id=user_id,
+            )
+            session.add(sub)
+
+            a.status = "submitted"
+            a.effective_completed_at = now_str
+            a.revision += 1
+            a.updated_at = now_str
+            session.commit()
+            return _assignment_orm_to_dc(session, a, user_id)
+
+    def accept_assignment(
+        self,
+        assignment_id: str,
+        expected_revision: int,
+        evaluation: float,
+        review_note: Optional[str],
+        reviewer_user_id: int,
+    ) -> AssignmentPublicDC:
+        with self._session() as session:
+            a = session.get(AssignmentORM, assignment_id)
+            if not a:
+                raise LookupError("Assignment not found")
+            t = session.get(TaskORM, a.task_id)
+            if not t:
+                raise LookupError("Task not found")
+
+            season = session.get(SeasonORM, t.season_id)
+            if season and season.state == "closed" and not self.is_chair(reviewer_user_id):
+                raise ValueError("Only chair can accept/evaluate in a closed season")
+
+            if not (self.can_manage_scope(reviewer_user_id, t.scope_kind, t.scope_id) or self.is_hr_master(reviewer_user_id)):
+                raise ValueError("Forbidden: cannot accept assignment for this scope")
+
+            if a.revision != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+
+            if evaluation not in (1.0, 1.5):
+                raise ValueError("Evaluation for accepted assignment must be 1.0 or 1.5")
+
+            if a.hours is None:
+                raise ValueError("Hours must be set before accepting assignment")
+
+            if not a.effective_completed_at:
+                last_sub = (
+                    session.query(SubmissionORM)
+                    .filter(SubmissionORM.assignment_id == a.assignment_id)
+                    .order_by(SubmissionORM.submitted_at.desc())
+                    .first()
+                )
+                a.effective_completed_at = last_sub.submitted_at if last_sub else datetime.now(timezone.utc).isoformat()
+
+            a.status = "accepted"
+            a.evaluation = evaluation
+            a.review_note = review_note
+            a.revision += 1
+            a.updated_at = datetime.now(timezone.utc).isoformat()
+
+            _recalculate_assignment_contribution(session, a, t)
+            session.commit()
+            return _assignment_orm_to_dc(session, a, reviewer_user_id)
+
+    def request_revision_assignment(
+        self,
+        assignment_id: str,
+        expected_revision: int,
+        review_note: str,
+        reviewer_user_id: int,
+    ) -> AssignmentPublicDC:
+        with self._session() as session:
+            a = session.get(AssignmentORM, assignment_id)
+            if not a:
+                raise LookupError("Assignment not found")
+            t = session.get(TaskORM, a.task_id)
+            if not t:
+                raise LookupError("Task not found")
+
+            season = session.get(SeasonORM, t.season_id)
+            if season and season.state == "closed" and not self.is_chair(reviewer_user_id):
+                raise ValueError("Only chair can request revision in a closed season")
+
+            if not (self.can_manage_scope(reviewer_user_id, t.scope_kind, t.scope_id) or self.is_hr_master(reviewer_user_id)):
+                raise ValueError("Forbidden: cannot review assignment for this scope")
+
+            if a.revision != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+
+            if not review_note or not review_note.strip():
+                raise ValueError("Review note is required")
+
+            a.status = "needs_revision"
+            a.review_note = review_note
+            a.revision += 1
+            a.updated_at = datetime.now(timezone.utc).isoformat()
+
+            session.add(
+                NotificationORM(
+                    notification_id=str(uuid.uuid4()),
+                    user_id=a.assignee_user_id,
+                    kind="task_revision_requested",
+                    payload_json=json.dumps({
+                        "task_id": t.task_id,
+                        "assignment_id": a.assignment_id,
+                        "title": t.title,
+                        "review_note": review_note,
+                    }),
+                    is_read=False,
+                    created_at=a.updated_at,
+                )
+            )
+
+            _recalculate_assignment_contribution(session, a, t)
+            session.commit()
+            return _assignment_orm_to_dc(session, a, reviewer_user_id)
+
+    def not_complete_assignment(
+        self,
+        assignment_id: str,
+        expected_revision: int,
+        evaluation: float,
+        reason: str,
+        reviewer_user_id: int,
+    ) -> AssignmentPublicDC:
+        with self._session() as session:
+            a = session.get(AssignmentORM, assignment_id)
+            if not a:
+                raise LookupError("Assignment not found")
+            t = session.get(TaskORM, a.task_id)
+            if not t:
+                raise LookupError("Task not found")
+
+            season = session.get(SeasonORM, t.season_id)
+            if season and season.state == "closed" and not self.is_chair(reviewer_user_id):
+                raise ValueError("Only chair can mark not completed in a closed season")
+
+            if not (self.can_manage_scope(reviewer_user_id, t.scope_kind, t.scope_id) or self.is_hr_master(reviewer_user_id)):
+                raise ValueError("Forbidden: cannot manage assignment for this scope")
+
+            if a.revision != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+
+            if evaluation not in (0.0, -1.0):
+                raise ValueError("Evaluation for not completed assignment must be 0 or -1")
+
+            if not reason or not reason.strip():
+                raise ValueError("Reason is required")
+
+            a.status = "not_completed"
+            a.evaluation = evaluation
+            a.review_note = reason
+            a.revision += 1
+            a.updated_at = datetime.now(timezone.utc).isoformat()
+
+            _recalculate_assignment_contribution(session, a, t)
+            session.commit()
+            return _assignment_orm_to_dc(session, a, reviewer_user_id)
+
+    def cancel_assignment(
+        self,
+        assignment_id: str,
+        expected_revision: int,
+        reason: str,
+        reviewer_user_id: int,
+    ) -> AssignmentPublicDC:
+        with self._session() as session:
+            a = session.get(AssignmentORM, assignment_id)
+            if not a:
+                raise LookupError("Assignment not found")
+            t = session.get(TaskORM, a.task_id)
+            if not t:
+                raise LookupError("Task not found")
+
+            season = session.get(SeasonORM, t.season_id)
+            if season and season.state == "closed" and not self.is_chair(reviewer_user_id):
+                raise ValueError("Only chair can cancel assignment in a closed season")
+
+            if not (self.can_manage_scope(reviewer_user_id, t.scope_kind, t.scope_id) or self.is_hr_master(reviewer_user_id)):
+                raise ValueError("Forbidden: cannot cancel assignment for this scope")
+
+            if a.revision != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+
+            if not reason or not reason.strip():
+                raise ValueError("Reason is required")
+
+            old_status = a.status
+            a.status = "cancelled"
+            a.review_note = reason
+            a.revision += 1
+            a.updated_at = datetime.now(timezone.utc).isoformat()
+
+            session.add(
+                AuditLogORM(
+                    target_kind="assignment",
+                    target_id=a.assignment_id,
+                    changed_by_user_id=reviewer_user_id,
+                    reason=reason,
+                    old_values_json=json.dumps({"status": old_status}),
+                    new_values_json=json.dumps({"status": "cancelled"}),
+                    created_at=a.updated_at,
+                )
+            )
+
+            _recalculate_assignment_contribution(session, a, t)
+            session.commit()
+            return _assignment_orm_to_dc(session, a, reviewer_user_id)
+
+    def list_unresolved_assignments(
+        self,
+        season_id: Optional[str] = None,
+        scope_kind: Optional[str] = None,
+        scope_id: Optional[str] = None,
+        orphaned_only: bool = False,
+        current_user_id: Optional[int] = None,
+    ) -> list[UnresolvedAssignmentDC]:
+        with self._session() as session:
+            active_statuses = ("assigned", "in_progress", "help_required", "submitted", "needs_revision")
+            query = (
+                session.query(AssignmentORM, TaskORM)
+                .join(TaskORM, AssignmentORM.task_id == TaskORM.task_id)
+                .filter(AssignmentORM.status.in_(active_statuses))
+            )
+            if season_id:
+                query = query.filter(TaskORM.season_id == season_id)
+            if scope_kind:
+                query = query.filter(TaskORM.scope_kind == scope_kind)
+            if scope_id:
+                query = query.filter(TaskORM.scope_id == scope_id)
+
+            pairs = query.all()
+            results = []
+            for a, t in pairs:
+                if current_user_id is not None:
+                    if not (self.can_manage_scope(current_user_id, t.scope_kind, t.scope_id) or self.is_hr_master(current_user_id)):
+                        continue
+
+                u = session.get(UserORM, a.assignee_user_id)
+                unavail = None
+                if not u or u.banned or getattr(u, "account_state", "active") != "active":
+                    unavail = "archived"
+                elif not self.is_member_or_leader_in_scope(a.assignee_user_id, t.scope_kind, t.scope_id):
+                    unavail = "left_scope"
+
+                if orphaned_only and unavail is None:
+                    continue
+
+                a_dc = _assignment_orm_to_dc(session, a, current_user_id)
+                a_dc.assignee_unavailable_reason = unavail
+                results.append(
+                    UnresolvedAssignmentDC(
+                        assignment=a_dc,
+                        task_id=t.task_id,
+                        task_title=t.title,
+                        season_id=t.season_id,
+                        scope=ScopeRefDC(kind=t.scope_kind, id=t.scope_id),
+                        deadline_at=t.deadline_at,
+                    )
+                )
+            return results
+
+    def reassign_assignment(
+        self,
+        assignment_id: str,
+        expected_revision: int,
+        new_assignee_user_id: int,
+        hours: float,
+        previous_outcome: str,
+        evaluation: Optional[float],
+        reason: str,
+        manager_user_id: int,
+    ) -> tuple[AssignmentPublicDC, AssignmentPublicDC]:
+        with self._session() as session:
+            a = session.get(AssignmentORM, assignment_id)
+            if not a:
+                raise LookupError("Assignment not found")
+            t = session.get(TaskORM, a.task_id)
+            if not t:
+                raise LookupError("Task not found")
+
+            season = session.get(SeasonORM, t.season_id)
+            if season and season.state == "closed" and not self.is_chair(manager_user_id):
+                raise ValueError("Only chair can reassign in a closed season")
+
+            if not (self.can_manage_scope(manager_user_id, t.scope_kind, t.scope_id) or self.is_hr_master(manager_user_id)):
+                raise ValueError("Forbidden: cannot manage assignments for this scope")
+
+            if a.revision != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+
+            if previous_outcome not in ("cancelled", "not_completed"):
+                raise ValueError("previous_outcome must be 'cancelled' or 'not_completed'")
+
+            if previous_outcome == "not_completed":
+                if evaluation not in (0.0, -1.0):
+                    raise ValueError("evaluation of 0 or -1 is required when outcome is not_completed")
+            elif previous_outcome == "cancelled":
+                if evaluation is not None:
+                    raise ValueError("evaluation must not be provided when outcome is cancelled")
+
+            if not reason or not reason.strip():
+                raise ValueError("Reason is required")
+
+            # Check new assignee
+            new_u = session.get(UserORM, new_assignee_user_id)
+            if not new_u or new_u.banned or getattr(new_u, "account_state", "active") != "active":
+                raise ValueError(f"Invalid new assignee {new_assignee_user_id}: user must be active and approved")
+            if not self.is_member_or_leader_in_scope(new_assignee_user_id, t.scope_kind, t.scope_id):
+                raise ValueError(f"New assignee {new_assignee_user_id} is not in scope")
+
+            # Check new assignee does not already have an active unresolved assignment on this task
+            existing_active = (
+                session.query(AssignmentORM)
+                .filter(
+                    AssignmentORM.task_id == t.task_id,
+                    AssignmentORM.assignee_user_id == new_assignee_user_id,
+                    AssignmentORM.status.in_(("assigned", "in_progress", "help_required", "submitted", "needs_revision")),
+                )
+                .count()
+            )
+            if existing_active > 0:
+                raise ValueError("409: New assignee already has an active assignment on this task")
+
+            now_str = datetime.now(timezone.utc).isoformat()
+            old_status = a.status
+            a.status = previous_outcome
+            a.evaluation = evaluation
+            a.review_note = reason
+            a.revision += 1
+            a.updated_at = now_str
+            _recalculate_assignment_contribution(session, a, t)
+
+            new_asgn = AssignmentORM(
+                assignment_id=f"assignment-{uuid.uuid4()}",
+                task_id=t.task_id,
+                assignee_user_id=new_assignee_user_id,
+                status="assigned",
+                hours=hours,
+                revision=1,
+                created_at=now_str,
+            )
+            session.add(new_asgn)
+            session.add(
+                NotificationORM(
+                    notification_id=str(uuid.uuid4()),
+                    user_id=new_assignee_user_id,
+                    kind="task_assignment",
+                    payload_json=json.dumps({
+                        "task_id": t.task_id,
+                        "assignment_id": new_asgn.assignment_id,
+                        "title": t.title,
+                        "deadline_at": t.deadline_at,
+                    }),
+                    is_read=False,
+                    created_at=now_str,
+                )
+            )
+            session.add(
+                AuditLogORM(
+                    target_kind="assignment",
+                    target_id=a.assignment_id,
+                    changed_by_user_id=manager_user_id,
+                    reason=reason,
+                    old_values_json=json.dumps({"status": old_status, "assignee_user_id": a.assignee_user_id}),
+                    new_values_json=json.dumps({"status": a.status, "evaluation": a.evaluation, "new_assignment_id": new_asgn.assignment_id, "new_assignee_user_id": new_assignee_user_id}),
+                    created_at=now_str,
+                )
+            )
+            session.commit()
+
+            old_dc = _assignment_orm_to_dc(session, a, manager_user_id)
+            new_dc = _assignment_orm_to_dc(session, new_asgn, manager_user_id)
+            return old_dc, new_dc
+
+    def get_task_assessment_inputs(self, task_id: str, current_user_id: int) -> TaskInputsDC:
+        with self._session() as session:
+            t = session.get(TaskORM, task_id)
+            if not t:
+                raise LookupError("Task not found")
+            if not (self.can_manage_scope(current_user_id, t.scope_kind, t.scope_id) or self.is_hr_master(current_user_id) or self.is_chair(current_user_id) or self.is_chair_deputy(current_user_id)):
+                raise ValueError("Forbidden: cannot view task assessment inputs")
+            crit_dict = {}
+            try:
+                crit_dict = json.loads(t.criteria_json or "{}")
+            except Exception:
+                pass
+            crit = CriteriaDC(
+                unique=bool(crit_dict.get("unique", False)),
+                creative=bool(crit_dict.get("creative", False)),
+                external_communication=bool(crit_dict.get("external_communication", False)),
+                in_person=bool(crit_dict.get("in_person", False)),
+                fixed_time=bool(crit_dict.get("fixed_time", False)),
+            )
+            return TaskInputsDC(
+                task_id=t.task_id,
+                assigned_at=t.assigned_at,
+                deadline_at=t.deadline_at,
+                criteria=crit,
+                revision=t.revision,
+                capabilities=["edit_assessment_inputs"],
+            )
+
+    def patch_task_assessment_inputs(
+        self,
+        task_id: str,
+        expected_revision: int,
+        reason: str,
+        assigned_at: Optional[str] = None,
+        deadline_at: Optional[str] = None,
+        criteria: Optional[dict] = None,
+        user_id: int = 0,
+    ) -> TaskInputsDC:
+        with self._session() as session:
+            t = session.get(TaskORM, task_id)
+            if not t:
+                raise LookupError("Task not found")
+            season = session.get(SeasonORM, t.season_id)
+            if season and season.state == "closed" and not self.is_chair(user_id):
+                raise ValueError("Only chair can edit assessment inputs in a closed season")
+            if not (self.can_manage_scope(user_id, t.scope_kind, t.scope_id) or self.is_hr_master(user_id) or self.is_chair(user_id) or self.is_chair_deputy(user_id)):
+                raise ValueError("Forbidden: cannot edit task assessment inputs")
+            if t.revision != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+            if not reason or not reason.strip():
+                raise ValueError("Reason is required")
+
+            old_assigned = t.assigned_at
+            old_deadline = t.deadline_at
+            old_criteria = json.loads(t.criteria_json or "{}")
+
+            if assigned_at is not None:
+                t.assigned_at = assigned_at
+            if deadline_at is not None:
+                t.deadline_at = deadline_at
+            if criteria is not None:
+                t.criteria_json = json.dumps(criteria)
+
+            t.revision += 1
+            t.updated_at = datetime.now(timezone.utc).isoformat()
+
+            session.add(
+                AuditLogORM(
+                    target_kind="task",
+                    target_id=t.task_id,
+                    changed_by_user_id=user_id,
+                    reason=reason,
+                    old_values_json=json.dumps({"assigned_at": old_assigned, "deadline_at": old_deadline, "criteria": old_criteria}),
+                    new_values_json=json.dumps({"assigned_at": t.assigned_at, "deadline_at": t.deadline_at, "criteria": json.loads(t.criteria_json or "{}")}),
+                    created_at=t.updated_at,
+                )
+            )
+
+            assignments = session.query(AssignmentORM).filter(AssignmentORM.task_id == t.task_id).all()
+            for a in assignments:
+                _recalculate_assignment_contribution(session, a, t)
+
+            session.commit()
+            return self.get_task_assessment_inputs(task_id, user_id)
+
+    def get_assignment_assessment_inputs(self, assignment_id: str, current_user_id: int) -> AssessmentInputsDC:
+        with self._session() as session:
+            a = session.get(AssignmentORM, assignment_id)
+            if not a:
+                raise LookupError("Assignment not found")
+            t = session.get(TaskORM, a.task_id)
+            if not t:
+                raise LookupError("Task not found")
+            if not (self.can_manage_scope(current_user_id, t.scope_kind, t.scope_id) or self.is_hr_master(current_user_id) or self.is_chair(current_user_id) or self.is_chair_deputy(current_user_id)):
+                raise ValueError("Forbidden: cannot view assignment assessment inputs")
+            return AssessmentInputsDC(
+                assignment_id=a.assignment_id,
+                hours=a.hours,
+                evaluation=a.evaluation,
+                effective_completed_at=a.effective_completed_at,
+                revision=a.revision,
+                capabilities=["edit_assessment_inputs"],
+            )
+
+    def patch_assignment_assessment_inputs(
+        self,
+        assignment_id: str,
+        expected_revision: int,
+        reason: str,
+        hours: Optional[float] = None,
+        evaluation: Optional[float] = None,
+        effective_completed_at: Optional[str] = None,
+        user_id: int = 0,
+    ) -> AssessmentInputsDC:
+        with self._session() as session:
+            a = session.get(AssignmentORM, assignment_id)
+            if not a:
+                raise LookupError("Assignment not found")
+            t = session.get(TaskORM, a.task_id)
+            if not t:
+                raise LookupError("Task not found")
+            season = session.get(SeasonORM, t.season_id)
+            if season and season.state == "closed" and not self.is_chair(user_id):
+                raise ValueError("Only chair can edit assessment inputs in a closed season")
+            if not (self.can_manage_scope(user_id, t.scope_kind, t.scope_id) or self.is_hr_master(user_id) or self.is_chair(user_id) or self.is_chair_deputy(user_id)):
+                raise ValueError("Forbidden: cannot edit assignment assessment inputs")
+            if a.revision != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+            if not reason or not reason.strip():
+                raise ValueError("Reason is required")
+
+            old_hours = a.hours
+            old_eval = a.evaluation
+            old_completed = a.effective_completed_at
+
+            if hours is not None:
+                if hours < 0:
+                    raise ValueError("Hours cannot be negative")
+                a.hours = hours
+            if evaluation is not None:
+                if evaluation not in (-1.0, 0.0, 1.0, 1.5):
+                    raise ValueError("Evaluation must be -1, 0, 1, or 1.5")
+                a.evaluation = evaluation
+                if evaluation in (1.0, 1.5):
+                    a.status = "accepted"
+                elif evaluation in (0.0, -1.0):
+                    a.status = "not_completed"
+            if effective_completed_at is not None:
+                a.effective_completed_at = effective_completed_at
+
+            a.revision += 1
+            a.updated_at = datetime.now(timezone.utc).isoformat()
+            _recalculate_assignment_contribution(session, a, t)
+
+            session.add(
+                AuditLogORM(
+                    target_kind="assignment",
+                    target_id=a.assignment_id,
+                    changed_by_user_id=user_id,
+                    reason=reason,
+                    old_values_json=json.dumps({"hours": old_hours, "evaluation": old_eval, "effective_completed_at": old_completed}),
+                    new_values_json=json.dumps({"hours": a.hours, "evaluation": a.evaluation, "effective_completed_at": a.effective_completed_at}),
+                    created_at=a.updated_at,
+                )
+            )
+
+            session.commit()
+            return AssessmentInputsDC(
+                assignment_id=a.assignment_id,
+                hours=a.hours,
+                evaluation=a.evaluation,
+                effective_completed_at=a.effective_completed_at,
+                revision=a.revision,
+                capabilities=["edit_assessment_inputs"],
+            )
+
+    def bulk_hours(self, items: list[dict], hours: float, reason: str, user_id: int) -> list[AssessmentInputsDC]:
+        if hours < 0:
+            raise ValueError("Hours cannot be negative")
+        if not reason or not reason.strip():
+            raise ValueError("Reason is required")
+        with self._session() as session:
+            loaded_items = []
+            for item in items:
+                aid = item.get("assignment_id")
+                exp_rev = item.get("expected_revision")
+                a = session.get(AssignmentORM, aid)
+                if not a:
+                    raise LookupError(f"Assignment {aid} not found")
+                t = session.get(TaskORM, a.task_id)
+                if not t:
+                    raise LookupError(f"Task for assignment {aid} not found")
+                season = session.get(SeasonORM, t.season_id)
+                if season and season.state == "closed" and not self.is_chair(user_id):
+                    raise ValueError("Only chair can edit assessment inputs in a closed season")
+                if not (self.can_manage_scope(user_id, t.scope_kind, t.scope_id) or self.is_hr_master(user_id) or self.is_chair(user_id) or self.is_chair_deputy(user_id)):
+                    raise ValueError(f"Forbidden: cannot edit assessment inputs for assignment {aid}")
+                if a.revision != exp_rev:
+                    raise ValueError(f"Conflict: revision mismatch for assignment {aid}")
+                loaded_items.append((a, t))
+
+            res = []
+            now_str = datetime.now(timezone.utc).isoformat()
+            for a, t in loaded_items:
+                old_h = a.hours
+                a.hours = hours
+                a.revision += 1
+                a.updated_at = now_str
+                _recalculate_assignment_contribution(session, a, t)
+                session.add(
+                    AuditLogORM(
+                        target_kind="assignment",
+                        target_id=a.assignment_id,
+                        changed_by_user_id=user_id,
+                        reason=reason,
+                        old_values_json=json.dumps({"hours": old_h}),
+                        new_values_json=json.dumps({"hours": a.hours}),
+                        created_at=now_str,
+                    )
+                )
+                res.append(
+                    AssessmentInputsDC(
+                        assignment_id=a.assignment_id,
+                        hours=a.hours,
+                        evaluation=a.evaluation,
+                        effective_completed_at=a.effective_completed_at,
+                        revision=a.revision,
+                        capabilities=["edit_assessment_inputs"],
+                    )
+                )
+            session.commit()
+            return res
+
+    def list_assessments(
+        self,
+        current_user_id: int,
+        season_id: Optional[str] = None,
+        source_kind: Optional[str] = None,
+        source_id: Optional[str] = None,
+        participant_id: Optional[str] = None,
+        user_id: Optional[int] = None,
+    ) -> list[CalculatedContributionDC]:
+        if not (self.is_chair(current_user_id) or self.is_chair_deputy(current_user_id) or self.is_hr_master(current_user_id)):
+            raise ValueError("Forbidden: only HR master and ta4ki can view assessments")
+
+        with self._session() as session:
+            q = session.query(ContributionORM)
+            if season_id:
+                q = q.filter(ContributionORM.season_id == season_id)
+            if source_kind:
+                q = q.filter(ContributionORM.source_kind == source_kind)
+            if source_id:
+                q = q.filter(ContributionORM.source_id == source_id)
+            if user_id:
+                q = q.filter(ContributionORM.user_id == user_id)
+            if participant_id:
+                q = q.filter(ContributionORM.participant_id == participant_id)
+
+            contribs = q.order_by(ContributionORM.created_at.desc()).all()
+            results = []
+            for c in contribs:
+                u = session.get(UserORM, c.user_id)
+                u_ref = _user_to_ref_dc(u) or UserRefDC(user_id=c.user_id, display_name=f"User {c.user_id}", avatar_url=None)
+                asgn_inputs = None
+                if c.assignment_id:
+                    a = session.get(AssignmentORM, c.assignment_id)
+                    if a:
+                        asgn_inputs = AssessmentInputsDC(
+                            assignment_id=a.assignment_id,
+                            hours=a.hours,
+                            evaluation=a.evaluation,
+                            effective_completed_at=a.effective_completed_at,
+                            revision=a.revision,
+                            capabilities=[],
+                        )
+                results.append(
+                    CalculatedContributionDC(
+                        contribution_id=c.contribution_id,
+                        season_id=c.season_id,
+                        participant_id=c.participant_id,
+                        user=u_ref,
+                        source_kind=c.source_kind,
+                        source_id=c.source_id,
+                        source_title=c.source_title,
+                        score=c.score,
+                        calculation_version=c.calculation_version,
+                        assignment_inputs=asgn_inputs,
+                        merit_id=c.merit_id,
+                        bonus_id=getattr(c, "bonus_id", None),
+                        capabilities=[],
+                    )
+                )
+            return results
+
+    def create_merit(self, merit_data: dict, created_by_user_id: int) -> MeritDC:
+        season_id = merit_data.get("season_id")
+        source_kind = merit_data.get("source_kind")
+        if not season_id or not source_kind:
+            raise ValueError("season_id and source_kind are required")
+        if source_kind not in ("head_merit", "chair_merit", "block_volunteer", "subevent_volunteer"):
+            raise ValueError(f"Invalid source_kind: {source_kind}")
+
+        with self._session() as session:
+            season = session.get(SeasonORM, season_id)
+            if not season:
+                raise LookupError("Season not found")
+            if season.state == "closed" and not self.is_chair(created_by_user_id):
+                raise ValueError("Only chair can create merits in a closed season")
+            if season.state == "planned" and source_kind not in ("head_merit", "subevent_volunteer"):
+                raise ValueError("Only head_merit and subevent_volunteer are allowed in a planned season")
+
+            event_id = merit_data.get("event_id")
+            scope = merit_data.get("scope") or {}
+            scope_kind = scope.get("kind")
+            scope_id = scope.get("id")
+
+            if source_kind == "chair_merit":
+                if not (self.is_chair(created_by_user_id) or self.is_chair_deputy(created_by_user_id)):
+                    raise ValueError("Forbidden: only chair and deputies can create chair_merit")
+            elif source_kind == "head_merit":
+                if not event_id:
+                    raise ValueError("event_id is required for head_merit")
+                if not (self.is_event_leader(created_by_user_id, event_id) or self.is_event_leader_deputy(created_by_user_id, event_id) or self.is_chair(created_by_user_id) or self.is_chair_deputy(created_by_user_id)):
+                    raise ValueError("Forbidden: cannot create head_merit for this event")
+            elif source_kind == "block_volunteer":
+                if not scope_id:
+                    raise ValueError("scope.id is required for block_volunteer")
+                scope_kind = "block"
+                if not (self.is_block_master(created_by_user_id, scope_id) or self.is_block_master_deputy(created_by_user_id, scope_id) or self.is_chair(created_by_user_id) or self.is_chair_deputy(created_by_user_id) or self.is_hr_master(created_by_user_id)):
+                    raise ValueError("Forbidden: cannot create volunteer merit for this block")
+            elif source_kind == "subevent_volunteer":
+                if not scope_id:
+                    raise ValueError("scope.id is required for subevent_volunteer")
+                scope_kind = "subevent"
+                sub = session.get(SubeventORM, scope_id)
+                if not sub:
+                    raise LookupError("Subevent not found")
+                if not (self.is_subevent_leader(created_by_user_id, scope_id) or self.is_subevent_leader_deputy(created_by_user_id, scope_id) or self.is_event_leader(created_by_user_id, sub.event_id) or self.is_event_leader_deputy(created_by_user_id, sub.event_id) or self.is_chair(created_by_user_id) or self.is_chair_deputy(created_by_user_id)):
+                    raise ValueError("Forbidden: cannot create volunteer merit for this subevent")
+
+            reason = merit_data.get("reason")
+            if not reason or not str(reason).strip():
+                raise ValueError("Reason is required")
+
+            recipients = merit_data.get("recipients", [])
+            if not recipients:
+                raise ValueError("Recipients list cannot be empty")
+            for r in recipients:
+                uid = r.get("user_id")
+                u = session.get(UserORM, uid)
+                if not u or u.banned or getattr(u, "account_state", "active") != "active":
+                    raise ValueError(f"Recipient {uid} must be active and approved")
+                hrs = r.get("hours", 0.0)
+                if hrs < 0:
+                    raise ValueError("Hours cannot be negative")
+                ev = r.get("evaluation")
+                if ev not in (-1.0, 0.0, 1.0, 1.5):
+                    raise ValueError("Evaluation must be -1, 0, 1, or 1.5")
+                if source_kind in ("block_volunteer", "subevent_volunteer"):
+                    if self.is_member_or_leader_in_scope(uid, scope_kind, scope_id):
+                        raise ValueError(f"Recipient {uid} is already in scope; volunteer merits are only for participants outside scope")
+
+            assigned_at = merit_data.get("assigned_at")
+            deadline_at = merit_data.get("deadline_at")
+            if not assigned_at or not deadline_at:
+                raise ValueError("assigned_at and deadline_at are required")
+
+            title = merit_data.get("title")
+            if not title or not title.strip():
+                raise ValueError("Title is required")
+
+            desc = merit_data.get("description", {})
+            desc_json = json.dumps(desc if isinstance(desc, dict) else {"format": "markdown", "body": str(desc)})
+            crit_json = json.dumps(merit_data.get("criteria", {}))
+            now_str = datetime.now(timezone.utc).isoformat()
+            merit_id = f"merit-{uuid.uuid4()}"
+
+            m = MeritORM(
+                merit_id=merit_id,
+                season_id=season_id,
+                source_kind=source_kind,
+                title=title,
+                description_json=desc_json,
+                assigned_at=assigned_at,
+                deadline_at=deadline_at,
+                criteria_json=crit_json,
+                recipients_json=json.dumps(recipients),
+                reason=reason,
+                created_by_user_id=created_by_user_id,
+                created_at=now_str,
+                event_id=event_id,
+                scope_kind=scope_kind,
+                scope_id=scope_id,
+                revision=1,
+            )
+            session.add(m)
+            _recalculate_merit_contribution(session, m)
+            session.commit()
+            return _merit_orm_to_dc(session, m, created_by_user_id)
+
+    def list_merits(
+        self,
+        current_user_id: int,
+        season_id: Optional[str] = None,
+        source_kind: Optional[str] = None,
+        event_id: Optional[str] = None,
+    ) -> list[MeritDC]:
+        with self._session() as session:
+            q = session.query(MeritORM)
+            if season_id:
+                q = q.filter(MeritORM.season_id == season_id)
+            if source_kind:
+                q = q.filter(MeritORM.source_kind == source_kind)
+            if event_id:
+                q = q.filter(MeritORM.event_id == event_id)
+
+            rows = q.order_by(MeritORM.created_at.desc()).all()
+            res = []
+            is_global = self.is_chair(current_user_id) or self.is_chair_deputy(current_user_id) or self.is_hr_master(current_user_id)
+            for m in rows:
+                if not is_global:
+                    can_view = False
+                    if m.created_by_user_id == current_user_id:
+                        can_view = True
+                    elif m.source_kind == "head_merit" and m.event_id and (self.is_event_leader(current_user_id, m.event_id) or self.is_event_leader_deputy(current_user_id, m.event_id)):
+                        can_view = True
+                    elif m.source_kind == "block_volunteer" and m.scope_id and (self.is_block_master(current_user_id, m.scope_id) or self.is_block_master_deputy(current_user_id, m.scope_id)):
+                        can_view = True
+                    elif m.source_kind == "subevent_volunteer" and m.scope_id and (self.is_subevent_leader(current_user_id, m.scope_id) or self.is_subevent_leader_deputy(current_user_id, m.scope_id)):
+                        can_view = True
+                    if not can_view:
+                        continue
+                res.append(_merit_orm_to_dc(session, m, current_user_id))
+            return res
+
+    def get_merit(self, merit_id: str, current_user_id: int) -> MeritDC:
+        with self._session() as session:
+            m = session.get(MeritORM, merit_id)
+            if not m:
+                raise LookupError("Merit not found")
+            is_global = self.is_chair(current_user_id) or self.is_chair_deputy(current_user_id) or self.is_hr_master(current_user_id)
+            if not is_global:
+                can_view = False
+                if m.created_by_user_id == current_user_id:
+                    can_view = True
+                elif m.source_kind == "head_merit" and m.event_id and (self.is_event_leader(current_user_id, m.event_id) or self.is_event_leader_deputy(current_user_id, m.event_id)):
+                    can_view = True
+                elif m.source_kind == "block_volunteer" and m.scope_id and (self.is_block_master(current_user_id, m.scope_id) or self.is_block_master_deputy(current_user_id, m.scope_id)):
+                    can_view = True
+                elif m.source_kind == "subevent_volunteer" and m.scope_id and (self.is_subevent_leader(current_user_id, m.scope_id) or self.is_subevent_leader_deputy(current_user_id, m.scope_id)):
+                    can_view = True
+                if not can_view:
+                    raise ValueError("Forbidden: cannot view this merit")
+            return _merit_orm_to_dc(session, m, current_user_id)
+
+    def patch_merit(self, merit_id: str, expected_revision: int, values: dict, reason: str, user_id: int) -> MeritDC:
+        with self._session() as session:
+            m = session.get(MeritORM, merit_id)
+            if not m:
+                raise LookupError("Merit not found")
+            season = session.get(SeasonORM, m.season_id)
+            if season and season.state == "closed" and not self.is_chair(user_id):
+                raise ValueError("Only chair can edit merits in a closed season")
+
+            is_global = self.is_chair(user_id) or self.is_chair_deputy(user_id) or self.is_hr_master(user_id)
+            if not is_global:
+                can_edit = False
+                if m.created_by_user_id == user_id:
+                    can_edit = True
+                elif m.source_kind == "head_merit" and m.event_id and (self.is_event_leader(user_id, m.event_id) or self.is_event_leader_deputy(user_id, m.event_id)):
+                    can_edit = True
+                elif m.source_kind == "block_volunteer" and m.scope_id and (self.is_block_master(user_id, m.scope_id) or self.is_block_master_deputy(user_id, m.scope_id)):
+                    can_edit = True
+                elif m.source_kind == "subevent_volunteer" and m.scope_id and (self.is_subevent_leader(user_id, m.scope_id) or self.is_subevent_leader_deputy(user_id, m.scope_id)):
+                    can_edit = True
+                if not can_edit:
+                    raise ValueError("Forbidden: cannot edit this merit")
+
+            if m.revision != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+            if not reason or not reason.strip():
+                raise ValueError("Reason is required")
+
+            if "title" in values:
+                m.title = values["title"]
+            if "description" in values:
+                desc = values["description"]
+                m.description_json = json.dumps(desc if isinstance(desc, dict) else {"format": "markdown", "body": str(desc)})
+            if "assigned_at" in values:
+                m.assigned_at = values["assigned_at"]
+            if "deadline_at" in values:
+                m.deadline_at = values["deadline_at"]
+            if "criteria" in values:
+                m.criteria_json = json.dumps(values["criteria"])
+            if "recipients" in values:
+                recips = values["recipients"]
+                for r in recips:
+                    hrs = r.get("hours", 0.0)
+                    if hrs < 0:
+                        raise ValueError("Hours cannot be negative")
+                    ev = r.get("evaluation")
+                    if ev not in (-1.0, 0.0, 1.0, 1.5):
+                        raise ValueError("Evaluation must be -1, 0, 1, or 1.5")
+                m.recipients_json = json.dumps(recips)
+
+            m.reason = reason
+            m.revision += 1
+            _recalculate_merit_contribution(session, m)
+            session.commit()
+            return _merit_orm_to_dc(session, m, user_id)
+
+    def list_master_bonuses(self, season_id: str, current_user_id: int, block_id: Optional[str] = None) -> list[MasterBonusDC]:
+        if not (self.is_chair(current_user_id) or self.is_chair_deputy(current_user_id) or self.is_hr_master(current_user_id)):
+            raise ValueError("Forbidden: only HR master and ta4ki can view master bonuses")
+        with self._session() as session:
+            season = session.get(SeasonORM, season_id)
+            if season and season.state == "closed":
+                saved = session.query(MasterBonusORM).filter(MasterBonusORM.season_id == season_id).all()
+                if saved:
+                    res = []
+                    for b in saved:
+                        if block_id and b.block_id != block_id:
+                            continue
+                        basis_items = []
+                        try:
+                            for item in json.loads(b.basis_json or "[]"):
+                                u_data = item.get("user", {})
+                                u_ref = UserRefDC(user_id=u_data.get("user_id"), display_name=u_data.get("display_name", ""), avatar_url=u_data.get("avatar_url"))
+                                basis_items.append(
+                                    MasterBonusBasisItemDC(
+                                        participant_id=item.get("participant_id"),
+                                        user=u_ref,
+                                        member_task_score=item.get("member_task_score", 0.0),
+                                        included=item.get("included", False),
+                                        exclusion=item.get("exclusion"),
+                                    )
+                                )
+                        except Exception:
+                            pass
+                        recip_u = session.get(UserORM, b.recipient_user_id) if b.recipient_user_id else None
+                        recip_ref = _user_to_ref_dc(recip_u) if recip_u else None
+                        res.append(
+                            MasterBonusDC(
+                                bonus_id=b.bonus_id,
+                                season_id=b.season_id,
+                                block_id=b.block_id,
+                                recipient_participant_id=b.recipient_participant_id,
+                                recipient=recip_ref,
+                                eligible_organizer_count=b.eligible_organizer_count,
+                                amount=b.amount,
+                                basis=basis_items,
+                                calculation_version=b.calculation_version,
+                                is_final=bool(b.is_final),
+                            )
+                        )
+                    return res
+
+            bonuses = _calculate_master_bonuses_for_session(session, season_id)
+            if block_id:
+                bonuses = [b for b in bonuses if b.block_id == block_id]
+            return bonuses
+
+    def get_season_summary(self, season_id: str, current_user_id: int) -> SeasonSummaryDC:
+        if not (self.is_chair(current_user_id) or self.is_chair_deputy(current_user_id) or self.is_hr_master(current_user_id)):
+            raise ValueError("Forbidden: only HR master and ta4ki can view season summary")
+        with self._session() as session:
+            season = session.get(SeasonORM, season_id)
+            if not season:
+                raise LookupError("Season not found")
+            if season.state == "closed":
+                sum_orm = session.query(SeasonSummaryORM).filter(SeasonSummaryORM.season_id == season_id).first()
+                if sum_orm and sum_orm.rows_json:
+                    rows_raw = json.loads(sum_orm.rows_json)
+                    rows = []
+                    for r in rows_raw:
+                        u_data = r.get("user", {})
+                        u_ref = UserRefDC(user_id=u_data.get("user_id"), display_name=u_data.get("display_name", ""), avatar_url=u_data.get("avatar_url"))
+                        blocks_dc = [SummaryRowBlockDC(block_id=b["block_id"], name=b["name"]) for b in r.get("blocks", [])]
+                        source_scores = [SummaryRowSourceScoreDC(source_kind=s["source_kind"], source_id=s["source_id"], title=s["title"], score=s["score"]) for s in r.get("source_scores", [])]
+                        rows.append(
+                            SummaryRowDC(
+                                participant_id=r.get("participant_id"),
+                                user=u_ref,
+                                group_number=r.get("group_number"),
+                                category=r.get("category", "activist"),
+                                blocks=blocks_dc,
+                                is_master=bool(r.get("is_master")),
+                                is_archived=bool(r.get("is_archived")),
+                                source_scores=source_scores,
+                                total_score=r.get("total_score", 0.0),
+                                evaluated_task_count=r.get("evaluated_task_count", 0),
+                                rank=r.get("rank", 1),
+                                previous_rank=r.get("previous_rank"),
+                                decisions=r.get("decisions", []),
+                                previous_decisions=r.get("previous_decisions", []),
+                            )
+                        )
+                    caps = ["view_summary", "export_xlsx"]
+                    if self.is_chair(current_user_id):
+                        caps.append("correct_summary")
+                    return SeasonSummaryDC(
+                        season_id=season_id,
+                        state="approved",
+                        version=sum_orm.version,
+                        approved_at=sum_orm.approved_at,
+                        rows=rows,
+                        capabilities=caps,
+                    )
+            return _calculate_season_summary_for_session(session, season_id)
+
+    def update_summary_decisions(
+        self,
+        season_id: str,
+        target_user_id: int,
+        decisions: list[str],
+        expected_version: int,
+        reason: Optional[str],
+        user_id: int,
+    ) -> SeasonSummaryDC:
+        with self._session() as session:
+            season = session.get(SeasonORM, season_id)
+            if not season:
+                raise LookupError("Season not found")
+
+            sum_orm = session.query(SeasonSummaryORM).filter(SeasonSummaryORM.season_id == season_id).first()
+            current_ver = sum_orm.version if sum_orm else 1
+            if current_ver != expected_version:
+                raise ValueError("Conflict: version mismatch")
+
+            if season.state == "closed":
+                if not self.is_chair(user_id):
+                    raise ValueError("Forbidden: only chair can edit decisions in a closed season")
+                if not reason or not reason.strip():
+                    raise ValueError("Reason is required in closed season")
+            elif not (self.is_chair(user_id) or self.is_chair_deputy(user_id) or self.is_hr_master(user_id)):
+                raise ValueError("Forbidden: cannot edit decisions")
+
+            dec_orm = session.query(SeasonDecisionORM).filter(
+                SeasonDecisionORM.season_id == season_id,
+                SeasonDecisionORM.user_id == target_user_id,
+            ).first()
+            if not dec_orm:
+                dec_orm = SeasonDecisionORM(
+                    season_id=season_id,
+                    user_id=target_user_id,
+                    decisions_json=json.dumps(decisions),
+                    updated_by_user_id=user_id,
+                    updated_at=datetime.now(timezone.utc).isoformat(),
+                )
+                session.add(dec_orm)
+            else:
+                dec_orm.decisions_json = json.dumps(decisions)
+                dec_orm.updated_by_user_id = user_id
+                dec_orm.updated_at = datetime.now(timezone.utc).isoformat()
+
+            if season.state == "closed" and sum_orm and sum_orm.rows_json:
+                rows_raw = json.loads(sum_orm.rows_json)
+                for r in rows_raw:
+                    if r.get("user", {}).get("user_id") == target_user_id:
+                        r["decisions"] = decisions
+                sum_orm.rows_json = json.dumps(rows_raw)
+                sum_orm.version += 1
+
+            session.commit()
+            return self.get_season_summary(season_id, user_id)
+
+    def correct_season_summary(
+        self,
+        season_id: str,
+        expected_version: int,
+        reason: str,
+        changes: list[dict],
+        user_id: int,
+    ) -> SeasonSummaryDC:
+        if not self.is_chair(user_id):
+            raise ValueError("Forbidden: only chair can correct closed season summary")
+        if not reason or not reason.strip():
+            raise ValueError("Reason is required")
+
+        with self._session() as session:
+            season = session.get(SeasonORM, season_id)
+            if not season or season.state != "closed":
+                raise ValueError("Can only correct a closed season")
+
+            sum_orm = session.query(SeasonSummaryORM).filter(SeasonSummaryORM.season_id == season_id).first()
+            if not sum_orm or sum_orm.version != expected_version:
+                raise ValueError("Conflict: version mismatch")
+
+        # Apply changes
+        for ch in changes:
+            kind = ch.get("kind")
+            cid = ch.get("id")
+            exp_rev = ch.get("expected_revision")
+            vals = ch.get("values", {})
+            if kind == "task_inputs":
+                self.patch_task_assessment_inputs(cid, exp_rev, reason, vals.get("assigned_at"), vals.get("deadline_at"), vals.get("criteria"), user_id)
+            elif kind == "assessment_inputs":
+                self.patch_assignment_assessment_inputs(cid, exp_rev, reason, vals.get("hours"), vals.get("evaluation"), vals.get("effective_completed_at"), user_id)
+            elif kind == "merit":
+                self.patch_merit(cid, exp_rev, vals, reason, user_id)
+
+        # Recalculate summary & update version
+        with self._session() as session:
+            _recalculate_closed_master_bonuses_for_session(session, season_id)
+            new_sum = _calculate_season_summary_for_session(session, season_id, is_approved=True)
+            rows_data = [
+                {
+                    "participant_id": r.participant_id,
+                    "user": {"user_id": r.user.user_id, "display_name": r.user.display_name, "avatar_url": r.user.avatar_url},
+                    "group_number": r.group_number,
+                    "category": r.category,
+                    "blocks": [{"block_id": b.block_id, "name": b.name} for b in r.blocks],
+                    "is_master": r.is_master,
+                    "is_archived": r.is_archived,
+                    "source_scores": [{"source_kind": s.source_kind, "source_id": s.source_id, "title": s.title, "score": s.score} for s in r.source_scores],
+                    "total_score": r.total_score,
+                    "evaluated_task_count": r.evaluated_task_count,
+                    "rank": r.rank,
+                    "previous_rank": r.previous_rank,
+                    "decisions": r.decisions,
+                    "previous_decisions": r.previous_decisions,
+                }
+                for r in new_sum.rows
+            ]
+            sum_orm = session.query(SeasonSummaryORM).filter(SeasonSummaryORM.season_id == season_id).first()
+            sum_orm.version += 1
+            sum_orm.rows_json = json.dumps(rows_data)
+            session.commit()
+
+        return self.get_season_summary(season_id, user_id)
+
+    def list_comments(self, task_id: str, current_user_id: int) -> list[CommentDC]:
+        with self._session() as session:
+            t = session.get(TaskORM, task_id)
+            if not t:
+                raise LookupError("Task not found")
+            if not (self.can_view_scope(current_user_id, t.scope_kind, t.scope_id) or self.is_chair(current_user_id) or self.is_chair_deputy(current_user_id) or self.is_hr_master(current_user_id)):
+                raise ValueError("Forbidden: cannot view comments for this task")
+            rows = session.query(CommentORM).filter(CommentORM.task_id == task_id).order_by(CommentORM.created_at.asc()).all()
+            return [_comment_orm_to_dc(session, c, current_user_id) for c in rows]
+
+    def create_comment(self, task_id: str, content: dict, author_user_id: int) -> CommentDC:
+        with self._session() as session:
+            t = session.get(TaskORM, task_id)
+            if not t:
+                raise LookupError("Task not found")
+            if not (self.can_view_scope(author_user_id, t.scope_kind, t.scope_id) or self.is_chair(author_user_id) or self.is_chair_deputy(author_user_id) or self.is_hr_master(author_user_id)):
+                raise ValueError("Forbidden: cannot comment on this task")
+
+            body = content.get("body", "") if isinstance(content, dict) else str(content)
+            if not body or not body.strip():
+                raise ValueError("Comment body cannot be empty")
+
+            c = CommentORM(
+                comment_id=f"comment-{uuid.uuid4()}",
+                task_id=task_id,
+                author_user_id=author_user_id,
+                content_json=json.dumps({"format": "markdown", "body": body}),
+                history_json="[]",
+                created_at=datetime.now(timezone.utc).isoformat(),
+                revision=1,
+            )
+            session.add(c)
+            session.commit()
+            return _comment_orm_to_dc(session, c, author_user_id)
+
+    def patch_comment(self, comment_id: str, content: dict, user_id: int) -> CommentDC:
+        with self._session() as session:
+            c = session.get(CommentORM, comment_id)
+            if not c:
+                raise LookupError("Comment not found")
+            if c.author_user_id != user_id:
+                raise ValueError("Forbidden: cannot edit someone else's comment")
+
+            body = content.get("body", "") if isinstance(content, dict) else str(content)
+            if not body or not body.strip():
+                raise ValueError("Comment body cannot be empty")
+
+            now_str = datetime.now(timezone.utc).isoformat()
+            hist = []
+            try:
+                hist = json.loads(c.history_json or "[]")
+            except Exception:
+                pass
+            prev_content = {}
+            try:
+                prev_content = json.loads(c.content_json or "{}")
+            except Exception:
+                pass
+            hist.append({"content": prev_content, "edited_at": now_str})
+
+            c.content_json = json.dumps({"format": "markdown", "body": body})
+            c.history_json = json.dumps(hist)
+            c.updated_at = now_str
+            c.revision += 1
+            session.commit()
+            return _comment_orm_to_dc(session, c, user_id)
+
+    def create_upload_intent(
+        self,
+        owner_kind: str,
+        owner_id: Optional[str],
+        purpose: str,
+        name: str,
+        mime_type: str,
+        size_bytes: int,
+        user_id: int,
+    ) -> FileRecordDC:
+        with self._session() as session:
+            fid = f"file-{uuid.uuid4()}"
+            now = datetime.now(timezone.utc)
+            expires = (now + timedelta(hours=24)).isoformat()
+            fr = FileRecordORM(
+                file_id=fid,
+                owner_kind=owner_kind,
+                owner_id=owner_id or str(user_id),
+                purpose=purpose,
+                name=name,
+                mime_type=mime_type,
+                size_bytes=size_bytes,
+                uploaded_by_user_id=user_id,
+                state="pending",
+                created_at=now.isoformat(),
+                expires_at=expires,
+            )
+            session.add(fr)
+            session.commit()
+            return _file_orm_to_dc(fr)
+
+    def complete_file_upload(self, file_id: str, user_id: int) -> FileRecordDC:
+        with self._session() as session:
+            fr = session.get(FileRecordORM, file_id)
+            if not fr:
+                raise LookupError("File not found")
+            fr.state = "completed"
+            session.commit()
+            return _file_orm_to_dc(fr)
+
+    def get_file_download(self, file_id: str, user_id: int) -> FileRecordDC:
+        with self._session() as session:
+            fr = session.get(FileRecordORM, file_id)
+            if not fr:
+                raise LookupError("File not found")
+
+            # Access check: uploader, chair, deputy chair, and HR master have access
+            if not (fr.uploaded_by_user_id == user_id or self.is_chair(user_id) or self.is_chair_deputy(user_id) or self.is_hr_master(user_id)):
+                scope_checked = False
+                if fr.owner_kind == "task" and fr.owner_id:
+                    t = session.get(TaskORM, fr.owner_id)
+                    if t:
+                        if not self.can_view_scope(user_id, t.scope_kind, t.scope_id):
+                            raise ValueError("Forbidden: cannot access this file")
+                        scope_checked = True
+                elif fr.owner_kind == "assignment" and fr.owner_id:
+                    a = session.get(AssignmentORM, fr.owner_id)
+                    if a:
+                        t = session.get(TaskORM, a.task_id)
+                        if t:
+                            if not self.can_view_scope(user_id, t.scope_kind, t.scope_id):
+                                raise ValueError("Forbidden: cannot access this file")
+                            scope_checked = True
+
+                if not scope_checked:
+                    sub = (
+                        session.query(SubmissionORM)
+                        .filter(SubmissionORM.files_json.contains(file_id))
+                        .first()
+                    )
+                    if sub:
+                        a = session.get(AssignmentORM, sub.assignment_id)
+                        if a:
+                            t = session.get(TaskORM, a.task_id)
+                            if t and not self.can_view_scope(user_id, t.scope_kind, t.scope_id):
+                                raise ValueError("Forbidden: cannot access this file")
+                            scope_checked = True
+
+            return _file_orm_to_dc(fr)
+
+    def get_audit_logs(self, target_kind: str, target_id: str) -> list[dict]:
+        with self._session() as session:
+            rows = (
+                session.query(AuditLogORM)
+                .filter(AuditLogORM.target_kind == target_kind, AuditLogORM.target_id == target_id)
+                .order_by(AuditLogORM.created_at.asc())
+                .all()
+            )
+            return [
+                {
+                    "id": r.id,
+                    "target_kind": r.target_kind,
+                    "target_id": r.target_id,
+                    "changed_by_user_id": r.changed_by_user_id,
+                    "reason": r.reason,
+                    "old_values": json.loads(r.old_values_json or "{}"),
+                    "new_values": json.loads(r.new_values_json or "{}"),
+                    "created_at": r.created_at,
+                }
+                for r in rows
+            ]
 
 
 def _season_orm_to_dc(orm: SeasonORM) -> SeasonDC:

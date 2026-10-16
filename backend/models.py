@@ -37,6 +37,7 @@ class User:
     pgas_admin: bool = False   # Права на раздел ПГАС
     events_roles: str = "[]"   # JSON string representing List[{event: str, role: str}]
     account_state: str = "active"  # "pending" | "active" | "archived"
+    category: str = "junior"       # "junior" | "activist"
 
 
 @dataclass
@@ -192,4 +193,240 @@ class SeasonCorrectionResult:
     source_season_id: str
     target_season_id: str
     revision: int = 1
+
+
+@dataclass
+class ScopeRef:
+    kind: str  # "block" | "subevent"
+    id: str
+
+
+@dataclass
+class FileRef:
+    file_id: str
+    name: str
+    mime_type: str
+    size_bytes: int
+
+
+@dataclass
+class Criteria:
+    unique: bool = False
+    creative: bool = False
+    external_communication: bool = False
+    in_person: bool = False
+    fixed_time: bool = False
+
+
+@dataclass
+class Submission:
+    submission_id: str
+    submitted_at: str
+    text: RichText
+    links: list[str] = field(default_factory=list)
+    files: list[FileRef] = field(default_factory=list)
+
+
+@dataclass
+class AssignmentPublic:
+    assignment_id: str
+    assignee: UserRef
+    status: str
+    submissions: list[Submission] = field(default_factory=list)
+    revision: int = 1
+    assignee_unavailable_reason: Optional[str] = None
+    review_note: Optional[str] = None
+    capabilities: list[str] = field(default_factory=list)
+
+
+@dataclass
+class TaskPublic:
+    task_id: str
+    season_id: str
+    scope: ScopeRef
+    title: str
+    description: RichText
+    deadline_at: str
+    assignments: list[AssignmentPublic] = field(default_factory=list)
+    revision: int = 1
+    capabilities: list[str] = field(default_factory=list)
+
+
+@dataclass
+class UnresolvedAssignment:
+    assignment: AssignmentPublic
+    task_id: str
+    task_title: str
+    season_id: str
+    scope: ScopeRef
+    deadline_at: str
+
+
+@dataclass
+class TaskInputs:
+    task_id: str
+    assigned_at: str
+    deadline_at: str
+    criteria: Criteria
+    revision: int = 1
+    capabilities: list[str] = field(default_factory=list)
+
+
+@dataclass
+class AssessmentInputs:
+    assignment_id: str
+    hours: Optional[float] = None
+    evaluation: Optional[float] = None
+    effective_completed_at: Optional[str] = None
+    revision: int = 1
+    capabilities: list[str] = field(default_factory=list)
+
+
+@dataclass
+class CalculatedContribution:
+    contribution_id: str
+    season_id: str
+    participant_id: str
+    user: UserRef
+    source_kind: str
+    source_id: str
+    source_title: str
+    score: Optional[float] = None
+    calculation_version: str = "kkr_v1"
+    assignment_inputs: Optional[AssessmentInputs] = None
+    merit_id: Optional[str] = None
+    bonus_id: Optional[str] = None
+    capabilities: list[str] = field(default_factory=list)
+
+
+@dataclass
+class Merit:
+    merit_id: str
+    season_id: str
+    source_kind: str
+    title: str
+    description: RichText
+    assigned_at: str
+    deadline_at: str
+    criteria: Criteria
+    recipients: list[dict]
+    reason: str
+    created_by: UserRef
+    created_at: str
+    event_id: Optional[str] = None
+    scope: Optional[ScopeRef] = None
+    revision: int = 1
+    capabilities: list[str] = field(default_factory=list)
+
+
+@dataclass
+class MasterBonusBasisItem:
+    participant_id: str
+    user: UserRef
+    member_task_score: float
+    included: bool
+    exclusion: Optional[str] = None
+
+
+@dataclass
+class MasterBonus:
+    bonus_id: str
+    season_id: str
+    block_id: str
+    recipient_participant_id: Optional[str]
+    recipient: Optional[UserRef]
+    eligible_organizer_count: int
+    amount: float
+    basis: list[MasterBonusBasisItem] = field(default_factory=list)
+    calculation_version: str = "master_bonus_v1"
+    is_final: bool = False
+
+
+@dataclass
+class SummaryRowSourceScore:
+    source_kind: str
+    source_id: str
+    title: str
+    score: float
+
+
+@dataclass
+class SummaryRowBlock:
+    block_id: str
+    name: str
+
+
+@dataclass
+class SummaryRow:
+    participant_id: str
+    user: UserRef
+    group_number: Optional[str]
+    category: str
+    blocks: list[SummaryRowBlock]
+    is_master: bool
+    is_archived: bool
+    source_scores: list[SummaryRowSourceScore]
+    total_score: float
+    evaluated_task_count: int
+    rank: int
+    previous_rank: Optional[int] = None
+    decisions: list[str] = field(default_factory=list)
+    previous_decisions: list[str] = field(default_factory=list)
+
+
+@dataclass
+class SeasonSummary:
+    season_id: str
+    state: str
+    version: int
+    approved_at: Optional[str]
+    rows: list[SummaryRow]
+    capabilities: list[str] = field(default_factory=list)
+
+
+@dataclass
+class Comment:
+    comment_id: str
+    task_id: str
+    author: UserRef
+    content: RichText
+    created_at: str
+    updated_at: Optional[str] = None
+    history: list[dict] = field(default_factory=list)
+    capabilities: list[str] = field(default_factory=list)
+
+
+@dataclass
+class FileRecord:
+    file_id: str
+    owner_kind: str
+    owner_id: Optional[str]
+    purpose: str
+    name: str
+    mime_type: str
+    size_bytes: int
+    uploaded_by_user_id: int
+    state: str
+    created_at: str
+    expires_at: str
+    download_url: Optional[str] = None
+
+
+@dataclass
+class Report:
+    report_id: str
+    owner_kind: str
+    owner_id: str
+    report_series_id: str
+    season_id: str
+    kind: str
+    title: str
+    content: RichText
+    files: list[FileRef] = field(default_factory=list)
+    state: str = "draft"
+    published_at: Optional[str] = None
+    published_version: Optional[int] = None
+    revision: int = 1
+    capabilities: list[str] = field(default_factory=list)
+
 
