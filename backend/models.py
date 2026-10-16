@@ -423,10 +423,35 @@ class Report:
     title: str
     content: RichText
     files: list[FileRef] = field(default_factory=list)
+    draft_title: Optional[str] = None
+    draft_content: Optional[RichText] = None
+    draft_files: Optional[list[FileRef]] = None
     state: str = "draft"
     published_at: Optional[str] = None
     published_version: Optional[int] = None
     revision: int = 1
     capabilities: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ReportVersion:
+    report_id: str
+    version: int
+    title: str
+    content: RichText
+    files: list[FileRef] = field(default_factory=list)
+    published_at: str = ""
+    published_by: Optional[UserRef] = None
+
+
+@dataclass
+class Notification:
+    notification_id: str
+    user_id: int
+    kind: str
+    payload: dict = field(default_factory=dict)
+    is_read: bool = False
+    created_at: str = ""
+
 
 

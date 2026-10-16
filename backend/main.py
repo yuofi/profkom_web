@@ -8,7 +8,7 @@ from fastapi import FastAPI, HTTPException, Depends, APIRouter, Response, Cookie
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
-from models import Block, ContactInfo, User, Guide, PgasEntry, Season, Event, Subevent, Meeting, Leader, ReportSeries
+from models import Block, ContactInfo, User, Guide, PgasEntry, Season, Event, Subevent, Meeting, Leader, ReportSeries, Report, ReportVersion, Notification
 from database import db, SeasonNotReadyError, generate_summary_xlsx
 import database as database_module
 
@@ -869,6 +869,113 @@ class UploadIntentOut(BaseModel):
 class FileDownloadOut(BaseModel):
     download_url: str
     expires_at: str
+
+
+class ReportCreateIn(BaseModel):
+    owner_kind: str
+    owner_id: str
+    kind: str
+    title: str
+    content: Union[RichTextSchema, str] = ""
+    file_ids: list[str] = Field(default_factory=list)
+
+
+class ReportPatchIn(BaseModel):
+    expected_revision: int
+    title: Optional[str] = None
+    content: Optional[Union[RichTextSchema, str]] = None
+    file_ids: Optional[list[str]] = None
+
+
+class ReportPublishIn(BaseModel):
+    expected_revision: int
+
+
+class ReportOut(BaseModel):
+    report_id: str
+    owner_kind: str
+    owner_id: str
+    report_series_id: str
+    season_id: str
+    kind: str
+    title: str
+    content: RichTextSchema
+    files: list[FileRefOut] = Field(default_factory=list)
+    draft_title: Optional[str] = None
+    draft_content: Optional[RichTextSchema] = None
+    draft_files: Optional[list[FileRefOut]] = None
+    state: str
+    published_at: Optional[str] = None
+    published_version: Optional[int] = None
+    revision: int
+    capabilities: list[str] = Field(default_factory=list)
+
+
+class ReportVersionOut(BaseModel):
+    report_id: str
+    version: int
+    title: str
+    content: RichTextSchema
+    files: list[FileRefOut] = Field(default_factory=list)
+    published_at: str
+    published_by: Optional[UserRefOut] = None
+
+
+class NotificationOut(BaseModel):
+    notification_id: str
+    kind: str
+    payload: dict = Field(default_factory=dict)
+    is_read: bool
+    created_at: str
+
+
+class DashboardTaskOut(BaseModel):
+    task_id: str
+    assignment_id: str
+    title: str
+    status: str
+    deadline_at: str
+    scope_kind: str
+    scope_id: str
+
+
+class DashboardMeetingOut(BaseModel):
+    meeting_id: str
+    title: str
+    starts_at: str
+    join_url: str
+    owner_kind: str
+    owner_id: str
+
+
+class DashboardBlockOut(BaseModel):
+    name: str
+    is_master: bool
+
+
+class DashboardEventOut(BaseModel):
+    event_id: Optional[str] = None
+    subevent_id: Optional[str] = None
+    title: str
+    role: str
+
+
+class DashboardOut(BaseModel):
+    my_tasks: list[DashboardTaskOut]
+    upcoming_meetings: list[DashboardMeetingOut]
+    my_blocks: list[DashboardBlockOut]
+    my_events: list[DashboardEventOut]
+    pending_review_count: int
+
+
+class CalendarItemOut(BaseModel):
+    id: str
+    kind: str
+    title: str
+    date: str
+    scope_kind: str
+    scope_id: str
+    join_url: Optional[str] = None
 
 
 
@@ -2158,6 +2265,63 @@ def _to_season_summary_out(s) -> SeasonSummaryOut:
     )
 
 
+def _to_file_ref_out(f) -> FileRefOut:
+    return FileRefOut(
+        file_id=f.file_id,
+        name=f.name,
+        mime_type=f.mime_type,
+        size_bytes=f.size_bytes,
+    )
+
+
+def _to_report_out(r: Report) -> ReportOut:
+    files = [_to_file_ref_out(f) for f in r.files]
+    draft_files = [_to_file_ref_out(f) for f in r.draft_files] if r.draft_files is not None else None
+    draft_content = RichTextSchema(format=r.draft_content.format, body=r.draft_content.body) if r.draft_content is not None else None
+    return ReportOut(
+        report_id=r.report_id,
+        owner_kind=r.owner_kind,
+        owner_id=r.owner_id,
+        report_series_id=r.report_series_id,
+        season_id=r.season_id,
+        kind=r.kind,
+        title=r.title,
+        content=RichTextSchema(format=r.content.format, body=r.content.body),
+        files=files,
+        draft_title=r.draft_title,
+        draft_content=draft_content,
+        draft_files=draft_files,
+        state=r.state,
+        published_at=r.published_at,
+        published_version=r.published_version,
+        revision=r.revision,
+        capabilities=r.capabilities,
+    )
+
+
+def _to_report_version_out(rv: ReportVersion) -> ReportVersionOut:
+    files = [_to_file_ref_out(f) for f in rv.files]
+    pub = _to_user_ref_out(rv.published_by) if rv.published_by else None
+    return ReportVersionOut(
+        report_id=rv.report_id,
+        version=rv.version,
+        title=rv.title,
+        content=RichTextSchema(format=rv.content.format, body=rv.content.body),
+        files=files,
+        published_at=rv.published_at,
+        published_by=pub,
+    )
+
+
+def _to_notification_out(n: Notification) -> NotificationOut:
+    return NotificationOut(
+        notification_id=n.notification_id,
+        kind=n.kind,
+        payload=n.payload,
+        is_read=n.is_read,
+        created_at=n.created_at,
+    )
+
 
 # ── Seasons ──
 
@@ -3397,6 +3561,196 @@ def get_file_download(file_id: str, cur: User = Depends(get_current_user)):
         raise HTTPException(404, str(e))
     except ValueError as e:
         raise HTTPException(403, str(e))
+
+
+# ── Reports ──
+
+@router.post("/reports", response_model=ReportOut)
+def create_report(payload: ReportCreateIn, cur: User = Depends(get_current_user)):
+    try:
+        content_str = _to_rich_text_body(payload.content)
+        r = db.create_report(
+            owner_kind=payload.owner_kind,
+            owner_id=payload.owner_id,
+            kind=payload.kind,
+            title=payload.title,
+            content=content_str,
+            file_ids=payload.file_ids,
+            user_id=cur.user_id,
+        )
+        return _to_report_out(r)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        if "Conflict" in msg:
+            raise HTTPException(409, msg)
+        if "Forbidden" in msg:
+            raise HTTPException(403, msg)
+        raise HTTPException(422, msg)
+
+
+@router.get("/reports", response_model=List[ReportOut])
+def list_reports(
+    season_id: Optional[str] = None,
+    owner_kind: Optional[str] = None,
+    owner_id: Optional[str] = None,
+    report_series_id: Optional[str] = None,
+    kind: Optional[str] = None,
+    state: Optional[str] = None,
+    cur: User = Depends(get_current_user),
+):
+    items = db.list_reports(
+        season_id=season_id,
+        owner_kind=owner_kind,
+        owner_id=owner_id,
+        report_series_id=report_series_id,
+        kind=kind,
+        state=state,
+        current_user_id=cur.user_id,
+    )
+    return [_to_report_out(r) for r in items]
+
+
+@router.get("/reports/{report_id}", response_model=ReportOut)
+def get_report(report_id: str, cur: User = Depends(get_current_user)):
+    try:
+        r = db.get_report(report_id, cur.user_id)
+        if not r:
+            raise HTTPException(404, "Report not found")
+        return _to_report_out(r)
+    except ValueError as e:
+        msg = str(e)
+        if "Forbidden" in msg:
+            raise HTTPException(403, msg)
+        raise HTTPException(422, msg)
+
+
+@router.patch("/reports/{report_id}", response_model=ReportOut)
+def patch_report(report_id: str, payload: ReportPatchIn, cur: User = Depends(get_current_user)):
+    try:
+        content_str = _to_rich_text_body(payload.content) if payload.content is not None else None
+        r = db.patch_report(
+            report_id=report_id,
+            expected_revision=payload.expected_revision,
+            title=payload.title,
+            content=content_str,
+            file_ids=payload.file_ids,
+            user_id=cur.user_id,
+        )
+        return _to_report_out(r)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        if "Conflict" in msg:
+            raise HTTPException(409, msg)
+        if "Forbidden" in msg:
+            raise HTTPException(403, msg)
+        raise HTTPException(422, msg)
+
+
+@router.post("/reports/{report_id}/publish", response_model=ReportOut)
+def publish_report(report_id: str, payload: ReportPublishIn, cur: User = Depends(get_current_user)):
+    try:
+        r = db.publish_report(
+            report_id=report_id,
+            expected_revision=payload.expected_revision,
+            user_id=cur.user_id,
+        )
+        return _to_report_out(r)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        if "Conflict" in msg:
+            raise HTTPException(409, msg)
+        if "Forbidden" in msg:
+            raise HTTPException(403, msg)
+        raise HTTPException(422, msg)
+
+
+@router.get("/reports/{report_id}/versions", response_model=List[ReportVersionOut])
+def list_report_versions(report_id: str, cur: User = Depends(get_current_user)):
+    try:
+        versions = db.list_report_versions(report_id, cur.user_id)
+        return [_to_report_version_out(rv) for rv in versions]
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        if "Forbidden" in msg:
+            raise HTTPException(403, msg)
+        raise HTTPException(422, msg)
+
+
+@router.get("/report-history", response_model=List[ReportOut])
+def list_report_history(
+    series_id: str,
+    year: Optional[int] = None,
+    cur: User = Depends(get_current_user),
+):
+    try:
+        items = db.list_report_history(series_id, year, cur.user_id)
+        return [_to_report_out(r) for r in items]
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        if "Forbidden" in msg:
+            raise HTTPException(403, msg)
+        raise HTTPException(422, msg)
+
+
+# ── Dashboard & Calendar ──
+
+@router.get("/dashboard", response_model=DashboardOut)
+def get_dashboard(cur: User = Depends(get_current_user)):
+    d = db.get_dashboard(cur.user_id)
+    return DashboardOut(
+        my_tasks=[DashboardTaskOut(**t) for t in d["my_tasks"]],
+        upcoming_meetings=[DashboardMeetingOut(**m) for m in d["upcoming_meetings"]],
+        my_blocks=[DashboardBlockOut(**b) for b in d["my_blocks"]],
+        my_events=[DashboardEventOut(**ev) for ev in d["my_events"]],
+        pending_review_count=d["pending_review_count"],
+    )
+
+
+@router.get("/calendar", response_model=List[CalendarItemOut])
+def get_calendar(
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    cur: User = Depends(get_current_user),
+):
+    from_d = from_date or "1970-01-01"
+    to_d = to_date or "2099-12-31"
+    items = db.get_calendar(from_d, to_d, cur.user_id)
+    return [CalendarItemOut(**item) for item in items]
+
+
+# ── Notifications ──
+
+@router.get("/notifications", response_model=List[NotificationOut])
+def list_notifications(cur: User = Depends(get_current_user)):
+    items = db.list_notifications(cur.user_id)
+    return [_to_notification_out(n) for n in items]
+
+
+@router.post("/notifications/{notification_id}/read")
+def mark_notification_read(notification_id: str, cur: User = Depends(get_current_user)):
+    try:
+        db.mark_notification_read(notification_id, cur.user_id)
+        return {"status": "ok"}
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(403, str(e))
+
+
+@router.post("/notifications/read-all")
+def mark_all_notifications_read(cur: User = Depends(get_current_user)):
+    cnt = db.mark_all_notifications_read(cur.user_id)
+    return {"status": "ok", "marked_count": cnt}
 
 
 app.include_router(router)

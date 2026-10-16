@@ -47,7 +47,9 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ("GET", "/api/assignments/unresolved"),
     ("GET", "/api/assignments/{assignment_id}/assessment-inputs"),
     ("GET", "/api/blocks"),
+    ("GET", "/api/calendar"),
     ("GET", "/api/contacts"),
+    ("GET", "/api/dashboard"),
     ("GET", "/api/events"),
     ("GET", "/api/events/{event_id}"),
     ("GET", "/api/events/{event_id}/meeting"),
@@ -58,10 +60,15 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ("GET", "/api/leadership"),
     ("GET", "/api/merits"),
     ("GET", "/api/merits/{merit_id}"),
+    ("GET", "/api/notifications"),
     ("GET", "/api/pgas"),
     ("GET", "/api/profile/me"),
     ("GET", "/api/profile/{user_id}"),
+    ("GET", "/api/report-history"),
     ("GET", "/api/report-series"),
+    ("GET", "/api/reports"),
+    ("GET", "/api/reports/{report_id}"),
+    ("GET", "/api/reports/{report_id}/versions"),
     ("GET", "/api/seasons"),
     ("GET", "/api/seasons/current"),
     ("GET", "/api/seasons/{season_id}"),
@@ -82,6 +89,7 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ("PATCH", "/api/guides/{guide_id}"),
     ("PATCH", "/api/merits/{merit_id}"),
     ("PATCH", "/api/profile/{user_id}"),
+    ("PATCH", "/api/reports/{report_id}"),
     ("PATCH", "/api/seasons/{season_id}"),
     ("PATCH", "/api/subevents/{subevent_id}"),
     ("PATCH", "/api/tasks/{task_id}"),
@@ -116,7 +124,11 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ("POST", "/api/guides/{guide_id}"),
     ("POST", "/api/leadership/transfer"),
     ("POST", "/api/merits"),
+    ("POST", "/api/notifications/read-all"),
+    ("POST", "/api/notifications/{notification_id}/read"),
     ("POST", "/api/pgas"),
+    ("POST", "/api/reports"),
+    ("POST", "/api/reports/{report_id}/publish"),
     ("POST", "/api/season-corrections"),
     ("POST", "/api/seasons"),
     ("POST", "/api/seasons/{season_id}/begin-summary"),
@@ -194,6 +206,8 @@ def url_for(
     merit_id: str = "00000000-0000-0000-0000-000000000000",
     comment_id: str = "00000000-0000-0000-0000-000000000000",
     file_id: str = "00000000-0000-0000-0000-000000000000",
+    report_id: str = "00000000-0000-0000-0000-000000000000",
+    notification_id: str = "00000000-0000-0000-0000-000000000000",
 ) -> str:
     """Подставляет конкретные значения в шаблон пути."""
     return (
@@ -211,6 +225,8 @@ def url_for(
         .replace("{merit_id}", str(merit_id))
         .replace("{comment_id}", str(comment_id))
         .replace("{file_id}", str(file_id))
+        .replace("{report_id}", str(report_id))
+        .replace("{notification_id}", str(notification_id))
     )
 
 

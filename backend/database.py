@@ -27,9 +27,11 @@ from models import (
     MasterBonusBasisItem as MasterBonusBasisItemDC,
     Meeting as MeetingDC,
     Merit as MeritDC,
+    Notification as NotificationDC,
     PgasEntry as PgasEntryDC,
     Report as ReportDC,
     ReportSeries as ReportSeriesDC,
+    ReportVersion as ReportVersionDC,
     RichText as RichTextDC,
     RoleAssignment as RoleAssignmentDC,
     ScopeRef as ScopeRefDC,
@@ -415,11 +417,40 @@ class ReportORM(Base):
     title = Column(String, nullable=False)
     content_json = Column(Text, nullable=False, default='{"format":"markdown","body":""}')
     files_json = Column(Text, nullable=False, default='[]')
+    draft_title = Column(String, nullable=True)
+    draft_content_json = Column(Text, nullable=True)
+    draft_files_json = Column(Text, nullable=True)
     state = Column(String, nullable=False, default="draft")  # "draft" | "published"
     published_at = Column(String, nullable=True)
     published_version = Column(Integer, nullable=True)
     revision = Column(Integer, nullable=False, default=1)
     created_by_user_id = Column(Integer, nullable=False)
+    created_at = Column(String, nullable=False)
+
+
+class ReportVersionORM(Base):
+    __tablename__ = "report_versions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    report_id = Column(String, ForeignKey("reports.report_id"), nullable=False, index=True)
+    version = Column(Integer, nullable=False)
+    title = Column(String, nullable=False)
+    content_json = Column(Text, nullable=False)
+    files_json = Column(Text, nullable=False, default="[]")
+    published_at = Column(String, nullable=False)
+    published_by_user_id = Column(Integer, nullable=False)
+
+
+class ReportEditorORM(Base):
+    __tablename__ = "report_editors"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    season_id = Column(String, nullable=False, index=True)
+    owner_kind = Column(String, nullable=False)  # "event" | "subevent"
+    owner_id = Column(String, nullable=False, index=True)
+    report_id = Column(String, nullable=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    role = Column(String, nullable=False)  # "leader" | "deputy" | "author"
     created_at = Column(String, nullable=False)
 
 
@@ -761,6 +792,24 @@ def _ensure_sqlite_block_master_user_id_column() -> None:
 
 
 _ensure_sqlite_block_master_user_id_column()
+
+
+def _ensure_sqlite_reports_columns() -> None:
+    """Add draft fields to reports table if missing."""
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(reports)")).fetchall()
+        if not rows:
+            return
+        col_names = {r[1] for r in rows}
+        if "draft_title" not in col_names:
+            conn.execute(text("ALTER TABLE reports ADD COLUMN draft_title VARCHAR"))
+        if "draft_content_json" not in col_names:
+            conn.execute(text("ALTER TABLE reports ADD COLUMN draft_content_json TEXT"))
+        if "draft_files_json" not in col_names:
+            conn.execute(text("ALTER TABLE reports ADD COLUMN draft_files_json TEXT"))
+
+
+_ensure_sqlite_reports_columns()
 
 
 def _split_fio(raw: str) -> tuple[str, str, str]:
@@ -1204,7 +1253,7 @@ def _file_orm_to_dc(f: FileRecordORM) -> FileRecordDC:
     )
 
 
-def _report_orm_to_dc(session: Session, r: ReportORM, current_user_id: Optional[int] = None) -> ReportDC:
+def _report_orm_to_dc(session: Session, r: ReportORM, current_user_id: Optional[int] = None, is_editor: bool = False) -> ReportDC:
     u = session.get(UserORM, r.created_by_user_id)
     author_ref = _user_to_ref_dc(u) or UserRefDC(user_id=r.created_by_user_id, display_name=f"User {r.created_by_user_id}", avatar_url=None)
     fids = []
@@ -1217,21 +1266,87 @@ def _report_orm_to_dc(session: Session, r: ReportORM, current_user_id: Optional[
         fr = session.get(FileRecordORM, fid)
         if fr:
             file_refs.append(FileRefDC(file_id=fr.file_id, name=fr.name, mime_type=fr.mime_type, size_bytes=fr.size_bytes))
+
+    draft_title = None
+    draft_content = None
+    draft_files = None
+    caps = []
+
+    if is_editor:
+        caps = ["edit_report", "publish_report"]
+        draft_title = r.draft_title if r.draft_title is not None else r.title
+        d_body = r.draft_content_json if r.draft_content_json is not None else (r.content_json or "")
+        draft_content = RichTextDC(format="markdown", body=d_body)
+        dfids = []
+        try:
+            dfids = json.loads(r.draft_files_json or r.files_json or "[]")
+        except Exception:
+            pass
+        d_refs = []
+        for fid in dfids:
+            fr = session.get(FileRecordORM, fid)
+            if fr:
+                d_refs.append(FileRefDC(file_id=fr.file_id, name=fr.name, mime_type=fr.mime_type, size_bytes=fr.size_bytes))
+        draft_files = d_refs
+
     return ReportDC(
         report_id=r.report_id,
         season_id=r.season_id,
-        series_id=r.report_series_id,
+        report_series_id=r.report_series_id,
         owner_kind=r.owner_kind,
         owner_id=r.owner_id,
         kind=r.kind,
         title=r.title,
         content=RichTextDC(format="markdown", body=r.content_json or ""),
-        author=author_ref,
-        state=r.state,
-        published_version=r.published_version,
         files=file_refs,
+        draft_title=draft_title,
+        draft_content=draft_content,
+        draft_files=draft_files,
+        state=r.state,
+        published_at=r.published_at,
+        published_version=r.published_version,
         revision=r.revision,
-        capabilities=["edit_report", "publish_report"],
+        capabilities=caps,
+    )
+
+
+def _report_version_orm_to_dc(session: Session, rv: ReportVersionORM) -> ReportVersionDC:
+    u = session.get(UserORM, rv.published_by_user_id)
+    pub_ref = _user_to_ref_dc(u) or UserRefDC(user_id=rv.published_by_user_id, display_name=f"User {rv.published_by_user_id}", avatar_url=None)
+    fids = []
+    try:
+        fids = json.loads(rv.files_json or "[]")
+    except Exception:
+        pass
+    file_refs = []
+    for fid in fids:
+        fr = session.get(FileRecordORM, fid)
+        if fr:
+            file_refs.append(FileRefDC(file_id=fr.file_id, name=fr.name, mime_type=fr.mime_type, size_bytes=fr.size_bytes))
+    return ReportVersionDC(
+        report_id=rv.report_id,
+        version=rv.version,
+        title=rv.title,
+        content=RichTextDC(format="markdown", body=rv.content_json or ""),
+        files=file_refs,
+        published_at=rv.published_at,
+        published_by=pub_ref,
+    )
+
+
+def _notification_orm_to_dc(n: NotificationORM) -> NotificationDC:
+    pl = {}
+    try:
+        pl = json.loads(n.payload_json or "{}")
+    except Exception:
+        pass
+    return NotificationDC(
+        notification_id=n.notification_id,
+        user_id=n.user_id,
+        kind=n.kind,
+        payload=pl,
+        is_read=bool(n.is_read),
+        created_at=n.created_at,
     )
 
 
@@ -3041,6 +3156,57 @@ class Database:
             except Exception:
                 pass
 
+            # Snapshot historical report editors
+            try:
+                events = session.query(EventORM).filter(EventORM.season_id == season_id).all()
+                for ev in events:
+                    ev_leaders = session.query(RoleAssignmentORM).filter(
+                        RoleAssignmentORM.scope_kind == "event",
+                        RoleAssignmentORM.scope_id == ev.event_id,
+                        RoleAssignmentORM.role.in_(["leader", "deputy"]),
+                    ).all()
+                    for rl in ev_leaders:
+                        session.add(ReportEditorORM(
+                            season_id=season_id,
+                            owner_kind="event",
+                            owner_id=ev.event_id,
+                            report_id=None,
+                            user_id=rl.user_id,
+                            role=rl.role,
+                            created_at=now_iso,
+                        ))
+                    subs = session.query(SubeventORM).filter(SubeventORM.event_id == ev.event_id).all()
+                    for sub in subs:
+                        sub_leaders = session.query(RoleAssignmentORM).filter(
+                            RoleAssignmentORM.scope_kind == "subevent",
+                            RoleAssignmentORM.scope_id == sub.subevent_id,
+                            RoleAssignmentORM.role.in_(["leader", "deputy"]),
+                        ).all()
+                        for rl in sub_leaders:
+                            session.add(ReportEditorORM(
+                                season_id=season_id,
+                                owner_kind="subevent",
+                                owner_id=sub.subevent_id,
+                                report_id=None,
+                                user_id=rl.user_id,
+                                role=rl.role,
+                                created_at=now_iso,
+                            ))
+
+                season_reps = session.query(ReportORM).filter(ReportORM.season_id == season_id).all()
+                for rep in season_reps:
+                    session.add(ReportEditorORM(
+                        season_id=season_id,
+                        owner_kind=rep.owner_kind,
+                        owner_id=rep.owner_id,
+                        report_id=rep.report_id,
+                        user_id=rep.created_by_user_id,
+                        role="author",
+                        created_at=now_iso,
+                    ))
+            except Exception:
+                pass
+
             row.state = "closed"
             if row.is_current:
                 row.is_current = False
@@ -3080,6 +3246,596 @@ class Database:
             session.add(rs)
             session.commit()
             return _report_series_orm_to_dc(rs)
+
+    # ─────────────────────────────────────────────────────────────
+    #  BE-04: REPORTS, DASHBOARD, CALENDAR & NOTIFICATIONS
+    # ─────────────────────────────────────────────────────────────
+
+    def is_report_editor(self, user_id: int, r: ReportORM, session: Session) -> bool:
+        u = session.get(UserORM, user_id)
+        if not u or u.banned or getattr(u, "account_state", "active") != "active":
+            return False
+
+        s = session.get(SeasonORM, r.season_id)
+        if s and s.state == "closed":
+            ed = session.query(ReportEditorORM).filter(
+                ReportEditorORM.season_id == r.season_id,
+                ReportEditorORM.user_id == user_id,
+                (
+                    ((ReportEditorORM.owner_kind == r.owner_kind) & (ReportEditorORM.owner_id == r.owner_id))
+                    | (ReportEditorORM.report_id == r.report_id)
+                )
+            ).first()
+            return ed is not None
+
+        if r.owner_kind == "event":
+            if self.is_event_leader(user_id, r.owner_id) or self.is_event_leader_deputy(user_id, r.owner_id):
+                return True
+        elif r.owner_kind == "subevent":
+            if self.is_subevent_leader(user_id, r.owner_id) or self.is_subevent_leader_deputy(user_id, r.owner_id):
+                return True
+        if r.created_by_user_id == user_id:
+            return True
+        return False
+
+    def can_read_report(self, user_id: int, r: ReportORM, session: Session) -> bool:
+        if self.is_report_editor(user_id, r, session):
+            return True
+        if r.state == "draft":
+            return False
+        if self.is_tachki(user_id):
+            return True
+        if r.owner_kind == "event":
+            if self.is_event_leader(user_id, r.owner_id) or self.is_event_leader_deputy(user_id, r.owner_id):
+                return True
+            subs = session.query(SubeventORM).filter(SubeventORM.event_id == r.owner_id).all()
+            for sub in subs:
+                if self.is_subevent_leader(user_id, sub.subevent_id) or self.is_subevent_leader_deputy(user_id, sub.subevent_id):
+                    return True
+        elif r.owner_kind == "subevent":
+            if (
+                self.is_subevent_leader(user_id, r.owner_id)
+                or self.is_subevent_leader_deputy(user_id, r.owner_id)
+                or self.is_subevent_organizer(user_id, r.owner_id)
+            ):
+                return True
+            sub = session.get(SubeventORM, r.owner_id)
+            if sub and (self.is_event_leader(user_id, sub.event_id) or self.is_event_leader_deputy(user_id, sub.event_id)):
+                return True
+        return False
+
+    def create_report(
+        self,
+        owner_kind: str,
+        owner_id: str,
+        kind: str,
+        title: str,
+        content: str,
+        file_ids: list[str],
+        user_id: int,
+    ) -> ReportDC:
+        with self._session() as session:
+            if owner_kind == "event":
+                ev = session.get(EventORM, owner_id)
+                if not ev:
+                    raise LookupError("Event not found")
+                season_id = ev.season_id
+                series_id = ev.report_series_id
+                can_create = self.is_event_leader(user_id, owner_id) or self.is_event_leader_deputy(user_id, owner_id)
+                s = session.get(SeasonORM, season_id)
+                if s and s.state == "closed":
+                    ed = session.query(ReportEditorORM).filter(
+                        ReportEditorORM.season_id == season_id,
+                        ReportEditorORM.user_id == user_id,
+                        ReportEditorORM.owner_kind == "event",
+                        ReportEditorORM.owner_id == owner_id,
+                    ).first()
+                    can_create = ed is not None
+                if not can_create:
+                    raise ValueError("Forbidden: cannot create report for this event")
+            elif owner_kind == "subevent":
+                sub = session.get(SubeventORM, owner_id)
+                if not sub:
+                    raise LookupError("Subevent not found")
+                ev = session.get(EventORM, sub.event_id)
+                season_id = ev.season_id if ev else None
+                series_id = sub.report_series_id
+                can_create = self.is_subevent_leader(user_id, owner_id) or self.is_subevent_leader_deputy(user_id, owner_id)
+                s = session.get(SeasonORM, season_id)
+                if s and s.state == "closed":
+                    ed = session.query(ReportEditorORM).filter(
+                        ReportEditorORM.season_id == season_id,
+                        ReportEditorORM.user_id == user_id,
+                        ReportEditorORM.owner_kind == "subevent",
+                        ReportEditorORM.owner_id == owner_id,
+                    ).first()
+                    can_create = ed is not None
+                if not can_create:
+                    raise ValueError("Forbidden: cannot create report for this subevent")
+            else:
+                raise ValueError(f"Invalid owner_kind '{owner_kind}'")
+
+            if kind == "final":
+                existing_final = session.query(ReportORM).filter(
+                    ReportORM.owner_kind == owner_kind,
+                    ReportORM.owner_id == owner_id,
+                    ReportORM.kind == "final",
+                ).first()
+                if existing_final:
+                    raise ValueError("Conflict: a final report already exists for this instance")
+
+            now_str = datetime.now(timezone.utc).isoformat()
+            r = ReportORM(
+                report_id=f"report-{uuid.uuid4()}",
+                owner_kind=owner_kind,
+                owner_id=owner_id,
+                report_series_id=series_id,
+                season_id=season_id,
+                kind=kind,
+                title=title,
+                content_json=content,
+                files_json=json.dumps(file_ids),
+                draft_title=title,
+                draft_content_json=content,
+                draft_files_json=json.dumps(file_ids),
+                state="draft",
+                published_at=None,
+                published_version=None,
+                revision=1,
+                created_by_user_id=user_id,
+                created_at=now_str,
+            )
+            session.add(r)
+            session.commit()
+            return _report_orm_to_dc(session, r, user_id, is_editor=True)
+
+    def get_report(self, report_id: str, current_user_id: int) -> Optional[ReportDC]:
+        with self._session() as session:
+            r = session.get(ReportORM, report_id)
+            if not r:
+                return None
+            is_editor = self.is_report_editor(current_user_id, r, session)
+            if not is_editor and not self.can_read_report(current_user_id, r, session):
+                raise ValueError("Forbidden: cannot view this report")
+            return _report_orm_to_dc(session, r, current_user_id, is_editor=is_editor)
+
+    def list_reports(
+        self,
+        season_id: Optional[str] = None,
+        owner_kind: Optional[str] = None,
+        owner_id: Optional[str] = None,
+        report_series_id: Optional[str] = None,
+        kind: Optional[str] = None,
+        state: Optional[str] = None,
+        current_user_id: Optional[int] = None,
+    ) -> list[ReportDC]:
+        with self._session() as session:
+            q = session.query(ReportORM)
+            if season_id:
+                q = q.filter(ReportORM.season_id == season_id)
+            if owner_kind:
+                q = q.filter(ReportORM.owner_kind == owner_kind)
+            if owner_id:
+                q = q.filter(ReportORM.owner_id == owner_id)
+            if report_series_id:
+                q = q.filter(ReportORM.report_series_id == report_series_id)
+            if kind:
+                q = q.filter(ReportORM.kind == kind)
+            if state:
+                q = q.filter(ReportORM.state == state)
+
+            reports = q.all()
+            res = []
+            for r in reports:
+                is_ed = self.is_report_editor(current_user_id, r, session) if current_user_id else False
+                can_rd = self.can_read_report(current_user_id, r, session) if current_user_id else False
+                if is_ed or can_rd:
+                    res.append(_report_orm_to_dc(session, r, current_user_id, is_editor=is_ed))
+            return res
+
+    def patch_report(
+        self,
+        report_id: str,
+        expected_revision: int,
+        title: Optional[str],
+        content: Optional[str],
+        file_ids: Optional[list[str]],
+        user_id: int,
+    ) -> ReportDC:
+        with self._session() as session:
+            r = session.get(ReportORM, report_id)
+            if not r:
+                raise LookupError("Report not found")
+            if not self.is_report_editor(user_id, r, session):
+                raise ValueError("Forbidden: cannot edit this report")
+            if r.revision != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+
+            if r.state == "published":
+                if title is not None:
+                    r.draft_title = title
+                if content is not None:
+                    r.draft_content_json = content
+                if file_ids is not None:
+                    r.draft_files_json = json.dumps(file_ids)
+            else:
+                if title is not None:
+                    r.title = title
+                    r.draft_title = title
+                if content is not None:
+                    r.content_json = content
+                    r.draft_content_json = content
+                if file_ids is not None:
+                    r.files_json = json.dumps(file_ids)
+                    r.draft_files_json = json.dumps(file_ids)
+
+            r.revision += 1
+            session.commit()
+            return _report_orm_to_dc(session, r, user_id, is_editor=True)
+
+    def publish_report(
+        self,
+        report_id: str,
+        expected_revision: int,
+        user_id: int,
+    ) -> ReportDC:
+        with self._session() as session:
+            r = session.get(ReportORM, report_id)
+            if not r:
+                raise LookupError("Report not found")
+            if not self.is_report_editor(user_id, r, session):
+                raise ValueError("Forbidden: cannot publish this report")
+            if r.revision != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+
+            new_title = r.draft_title if r.draft_title is not None else r.title
+            new_content = r.draft_content_json if r.draft_content_json is not None else r.content_json
+            new_files = r.draft_files_json if r.draft_files_json is not None else r.files_json
+
+            # Idempotent: duplicate publish without edits does not create new version
+            if (
+                r.state == "published"
+                and new_title == r.title
+                and new_content == r.content_json
+                and new_files == r.files_json
+            ):
+                return _report_orm_to_dc(session, r, user_id, is_editor=True)
+
+            now_str = datetime.now(timezone.utc).isoformat()
+            new_ver = (r.published_version or 0) + 1
+            r.state = "published"
+            r.published_at = now_str
+            r.published_version = new_ver
+            r.title = new_title
+            r.content_json = new_content
+            r.files_json = new_files
+            r.draft_title = None
+            r.draft_content_json = None
+            r.draft_files_json = None
+            r.revision += 1
+
+            session.add(
+                ReportVersionORM(
+                    report_id=r.report_id,
+                    version=new_ver,
+                    title=new_title,
+                    content_json=new_content,
+                    files_json=new_files,
+                    published_at=now_str,
+                    published_by_user_id=user_id,
+                )
+            )
+            session.commit()
+            return _report_orm_to_dc(session, r, user_id, is_editor=True)
+
+    def list_report_versions(self, report_id: str, current_user_id: int) -> list[ReportVersionDC]:
+        with self._session() as session:
+            r = session.get(ReportORM, report_id)
+            if not r:
+                raise LookupError("Report not found")
+            if not (self.can_read_report(current_user_id, r, session) or self.is_report_editor(current_user_id, r, session)):
+                raise ValueError("Forbidden: cannot view report versions")
+            versions = session.query(ReportVersionORM).filter(
+                ReportVersionORM.report_id == report_id
+            ).order_by(ReportVersionORM.version.asc()).all()
+            return [_report_version_orm_to_dc(session, rv) for rv in versions]
+
+    def list_report_history(self, series_id: str, year: Optional[int], current_user_id: int) -> list[ReportDC]:
+        with self._session() as session:
+            series = session.get(ReportSeriesORM, series_id)
+            if not series:
+                raise LookupError("Report series not found")
+
+            has_access = self.is_tachki(current_user_id)
+            if not has_access:
+                evs = session.query(EventORM).all()
+                for ev in evs:
+                    if self.is_event_leader(current_user_id, ev.event_id) or self.is_event_leader_deputy(current_user_id, ev.event_id):
+                        if ev.report_series_id == series_id:
+                            has_access = True
+                            break
+                        child_series = session.query(ReportSeriesORM).filter(ReportSeriesORM.parent_series_id == ev.report_series_id).all()
+                        if any(cs.series_id == series_id for cs in child_series):
+                            has_access = True
+                            break
+
+                if not has_access:
+                    subs = session.query(SubeventORM).filter(SubeventORM.report_series_id == series_id).all()
+                    for sub in subs:
+                        if self.is_subevent_leader(current_user_id, sub.subevent_id) or self.is_subevent_leader_deputy(current_user_id, sub.subevent_id):
+                            has_access = True
+                            break
+
+                if not has_access:
+                    ed = session.query(ReportEditorORM).join(
+                        ReportORM, ReportEditorORM.report_id == ReportORM.report_id
+                    ).filter(
+                        ReportEditorORM.user_id == current_user_id,
+                        ReportORM.report_series_id == series_id,
+                    ).first()
+                    if ed:
+                        has_access = True
+
+            if not has_access:
+                raise ValueError("Forbidden: no access to report series history")
+
+            q = session.query(ReportORM).filter(
+                ReportORM.report_series_id == series_id,
+                ReportORM.state == "published",
+            )
+            reports = q.order_by(ReportORM.published_at.desc()).all()
+            res = []
+            for r in reports:
+                if year is not None:
+                    if not r.published_at or not r.published_at.startswith(str(year)):
+                        continue
+                if self.can_read_report(current_user_id, r, session) or self.is_report_editor(current_user_id, r, session):
+                    is_ed = self.is_report_editor(current_user_id, r, session)
+                    res.append(_report_orm_to_dc(session, r, current_user_id, is_editor=is_ed))
+            return res
+
+    def get_dashboard(self, current_user_id: int) -> dict:
+        with self._session() as session:
+            # 1. My tasks
+            my_asgns = session.query(AssignmentORM).filter(
+                AssignmentORM.assignee_user_id == current_user_id,
+                AssignmentORM.status.in_(["assigned", "in_progress", "help_required", "needs_revision"]),
+            ).all()
+            tasks_data = []
+            for a in my_asgns:
+                t = session.get(TaskORM, a.task_id)
+                if t:
+                    tasks_data.append({
+                        "task_id": t.task_id,
+                        "assignment_id": a.assignment_id,
+                        "title": t.title,
+                        "status": a.status,
+                        "deadline_at": t.deadline_at,
+                        "scope_kind": t.scope_kind,
+                        "scope_id": t.scope_id,
+                    })
+
+            # 2. Upcoming meetings
+            all_meetings = session.query(MeetingORM).all()
+            meetings_data = []
+            for m in all_meetings:
+                can_v = False
+                if m.owner_kind == "subevent":
+                    can_v = (
+                        self.is_tachki(current_user_id)
+                        or self.is_subevent_leader(current_user_id, m.owner_id)
+                        or self.is_subevent_leader_deputy(current_user_id, m.owner_id)
+                        or self.is_subevent_organizer(current_user_id, m.owner_id)
+                    )
+                    if not can_v:
+                        sub = session.get(SubeventORM, m.owner_id)
+                        if sub and (self.is_event_leader(current_user_id, sub.event_id) or self.is_event_leader_deputy(current_user_id, sub.event_id)):
+                            can_v = True
+                elif m.owner_kind == "event":
+                    can_v = (
+                        self.is_tachki(current_user_id)
+                        or self.is_event_leader(current_user_id, m.owner_id)
+                        or self.is_event_leader_deputy(current_user_id, m.owner_id)
+                    )
+                    if not can_v:
+                        subs = session.query(SubeventORM).filter(SubeventORM.event_id == m.owner_id).all()
+                        for s in subs:
+                            if self.is_subevent_leader(current_user_id, s.subevent_id) or self.is_subevent_leader_deputy(current_user_id, s.subevent_id):
+                                can_v = True
+                                break
+                if can_v:
+                    meetings_data.append({
+                        "meeting_id": m.meeting_id,
+                        "title": m.title,
+                        "starts_at": m.starts_at,
+                        "join_url": m.join_url,
+                        "owner_kind": m.owner_kind,
+                        "owner_id": m.owner_id,
+                    })
+            meetings_data.sort(key=lambda x: x["starts_at"])
+
+            # 3. My blocks
+            all_blocks = session.query(BlockORM).all()
+            blocks_data = []
+            for b in all_blocks:
+                is_mem = False
+                try:
+                    humans = json.loads(b.arr_of_human or "[]")
+                    is_mem = current_user_id in humans
+                except Exception:
+                    pass
+                is_lead = b.master_user_id == current_user_id or self.is_block_master(current_user_id, b.name) or self.is_block_master_deputy(current_user_id, b.name)
+                if is_mem or is_lead:
+                    blocks_data.append({
+                        "name": b.name,
+                        "is_master": is_lead,
+                    })
+
+            # 4. My events / subevents
+            events_data = []
+            evs = session.query(EventORM).all()
+            for ev in evs:
+                if self.is_event_leader(current_user_id, ev.event_id) or self.is_event_leader_deputy(current_user_id, ev.event_id):
+                    events_data.append({
+                        "event_id": ev.event_id,
+                        "title": ev.title,
+                        "role": "leader",
+                    })
+            subs = session.query(SubeventORM).all()
+            for sub in subs:
+                if self.is_subevent_leader(current_user_id, sub.subevent_id) or self.is_subevent_leader_deputy(current_user_id, sub.subevent_id):
+                    events_data.append({
+                        "subevent_id": sub.subevent_id,
+                        "title": sub.title,
+                        "role": "leader",
+                    })
+                elif self.is_subevent_organizer(current_user_id, sub.subevent_id):
+                    events_data.append({
+                        "subevent_id": sub.subevent_id,
+                        "title": sub.title,
+                        "role": "organizer",
+                    })
+
+            # 5. Pending requests (review queue)
+            pending_count = 0
+            tasks_in_scope = session.query(TaskORM).all()
+            for t in tasks_in_scope:
+                if self.can_manage_scope(current_user_id, t.scope_kind, t.scope_id):
+                    cnt = session.query(AssignmentORM).filter(
+                        AssignmentORM.task_id == t.task_id,
+                        AssignmentORM.status.in_(["help_required", "submitted"]),
+                    ).count()
+                    pending_count += cnt
+
+            return {
+                "my_tasks": tasks_data,
+                "upcoming_meetings": meetings_data,
+                "my_blocks": blocks_data,
+                "my_events": events_data,
+                "pending_review_count": pending_count,
+            }
+
+    def get_calendar(self, from_date: str, to_date: str, current_user_id: int) -> list[dict]:
+        with self._session() as session:
+            items = []
+            tasks = session.query(TaskORM).filter(
+                TaskORM.deadline_at >= from_date,
+                TaskORM.deadline_at <= to_date,
+            ).all()
+            for t in tasks:
+                can_see = False
+                asgns = session.query(AssignmentORM).filter(AssignmentORM.task_id == t.task_id).all()
+                if any(a.assignee_user_id == current_user_id for a in asgns):
+                    can_see = True
+                elif self.can_view_scope(current_user_id, t.scope_kind, t.scope_id) or self.is_chair(current_user_id) or self.is_chair_deputy(current_user_id) or self.is_hr_master(current_user_id):
+                    can_see = True
+                if can_see:
+                    items.append({
+                        "id": f"task-{t.task_id}",
+                        "kind": "task_deadline",
+                        "title": t.title,
+                        "date": t.deadline_at,
+                        "scope_kind": t.scope_kind,
+                        "scope_id": t.scope_id,
+                    })
+
+            meetings = session.query(MeetingORM).filter(
+                MeetingORM.starts_at >= from_date,
+                MeetingORM.starts_at <= to_date,
+            ).all()
+            for m in meetings:
+                can_v = False
+                if m.owner_kind == "subevent":
+                    can_v = (
+                        self.is_tachki(current_user_id)
+                        or self.is_subevent_leader(current_user_id, m.owner_id)
+                        or self.is_subevent_leader_deputy(current_user_id, m.owner_id)
+                        or self.is_subevent_organizer(current_user_id, m.owner_id)
+                    )
+                    if not can_v:
+                        sub = session.get(SubeventORM, m.owner_id)
+                        if sub and (self.is_event_leader(current_user_id, sub.event_id) or self.is_event_leader_deputy(current_user_id, sub.event_id)):
+                            can_v = True
+                elif m.owner_kind == "event":
+                    can_v = (
+                        self.is_tachki(current_user_id)
+                        or self.is_event_leader(current_user_id, m.owner_id)
+                        or self.is_event_leader_deputy(current_user_id, m.owner_id)
+                    )
+                    if not can_v:
+                        subs = session.query(SubeventORM).filter(SubeventORM.event_id == m.owner_id).all()
+                        for s in subs:
+                            if self.is_subevent_leader(current_user_id, s.subevent_id) or self.is_subevent_leader_deputy(current_user_id, s.subevent_id):
+                                can_v = True
+                                break
+                if can_v:
+                    items.append({
+                        "id": f"meeting-{m.meeting_id}",
+                        "kind": "meeting",
+                        "title": m.title,
+                        "date": m.starts_at,
+                        "scope_kind": m.owner_kind,
+                        "scope_id": m.owner_id,
+                        "join_url": m.join_url,
+                    })
+
+            items.sort(key=lambda x: x["date"])
+            return items
+
+    def list_notifications(self, current_user_id: int) -> list[NotificationDC]:
+        with self._session() as session:
+            rows = session.query(NotificationORM).filter(
+                NotificationORM.user_id == current_user_id,
+            ).order_by(NotificationORM.created_at.desc()).all()
+            res = []
+            for n in rows:
+                pl = {}
+                try:
+                    pl = json.loads(n.payload_json or "{}")
+                except Exception:
+                    pass
+                task_id = pl.get("task_id")
+                if task_id:
+                    t = session.get(TaskORM, task_id)
+                    if t:
+                        has_acc = (
+                            self.can_view_scope(current_user_id, t.scope_kind, t.scope_id)
+                            or self.is_chair(current_user_id)
+                            or self.is_chair_deputy(current_user_id)
+                            or self.is_hr_master(current_user_id)
+                        )
+                        if not has_acc:
+                            asgn = session.query(AssignmentORM).filter(
+                                AssignmentORM.task_id == task_id,
+                                AssignmentORM.assignee_user_id == current_user_id,
+                            ).first()
+                            if not asgn:
+                                continue
+                res.append(_notification_orm_to_dc(n))
+            return res
+
+    def mark_notification_read(self, notification_id: str, current_user_id: int) -> bool:
+        with self._session() as session:
+            n = session.get(NotificationORM, notification_id)
+            if not n:
+                raise LookupError("Notification not found")
+            if n.user_id != current_user_id:
+                raise ValueError("Forbidden: cannot mark others' notifications")
+            n.is_read = True
+            session.commit()
+            return True
+
+    def mark_all_notifications_read(self, current_user_id: int) -> int:
+        with self._session() as session:
+            rows = session.query(NotificationORM).filter(
+                NotificationORM.user_id == current_user_id,
+                NotificationORM.is_read == False,
+            ).all()
+            count = len(rows)
+            for r in rows:
+                r.is_read = True
+            session.commit()
+            return count
 
     # ─────────────────────────────────────────────────────────────
     #  BE-02: EVENTS & SUBEVENTS
