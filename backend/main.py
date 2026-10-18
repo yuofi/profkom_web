@@ -1203,7 +1203,7 @@ def my_profile(cur: User = Depends(get_current_user)):
 @router.get("/profile/{user_id}", response_model=ProfileOut, response_model_exclude_none=True)
 def get_profile(user_id: int, cur: User = Depends(get_current_user)):
     user = db.get_user(user_id)
-    if not user:
+    if not user or user.account_state!="active":
         raise HTTPException(404, "User not found")
     contact = db.get_contact(user_id)
     if not contact:
@@ -1274,10 +1274,8 @@ def update_profile(
 
 @router.delete("/profile/{user_id}")
 def delete_user(user_id: int, cur: User = Depends(require_superuser)):
-    if not db.get_user(user_id):
-        raise HTTPException(404, "User not found")
-    db.delete_user(user_id)
-    return {"status": "deleted"}
+    from accounts import archive
+    return archive(user_id,'Archived through legacy account removal',cur.user_id)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -3454,5 +3452,8 @@ register_material_routes(router)
 
 from directory import register_routes as register_directory_routes
 register_directory_routes(router)
+
+from accounts import register_routes as register_account_routes
+register_account_routes(router)
 
 app.include_router(router)

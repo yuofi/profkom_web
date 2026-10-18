@@ -122,3 +122,19 @@ class FormerContactORM(Base):
     fields_json=Column(Text,nullable=False)
     created_at=Column(String,nullable=False)
     updated_at=Column(String,nullable=False)
+
+class AccountArchiveORM(Base):
+    __tablename__='account_archives'
+    user_id=Column(Integer,ForeignKey('users.user_id'),primary_key=True)
+    archived_at=Column(String,nullable=False)
+    reason=Column(Text,nullable=False)
+    snapshot_json=Column(Text,nullable=False)
+    restored_at=Column(String,nullable=True)
+    purged_at=Column(String,nullable=True)
+    anonymous_participant_id=Column(String,nullable=True,unique=True)
+
+class ObjectDeletionORM(Base):
+    __tablename__='object_deletions'
+    object_key=Column(String,primary_key=True)
+    requested_at=Column(String,nullable=False)
+    completed_at=Column(String,nullable=True)

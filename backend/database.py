@@ -53,6 +53,7 @@ from models import (
     UserRef as UserRefDC,
 )
 from settings import settings
+from identity import participant_id as accounting_participant_id
 
 DATABASE_URL = "sqlite:///" + settings.DATABASE_PATH
 
@@ -1098,6 +1099,7 @@ def _format_blocks(items: list[str]) -> str:
 def _user_to_ref_dc(u: Optional[UserORM]) -> Optional[UserRefDC]:
     if not u:
         return None
+    if u.account_state=='purged':return UserRefDC(user_id=None,display_name='Обезличенный участник',avatar_url=None)
     display_name = f"User {u.user_id}"
     from directory import avatar_url
     photo_url = avatar_url(u.user_id)
@@ -1524,7 +1526,7 @@ def _recalculate_merit_contribution(session: Session, m: MeritORM):
             contrib = ContributionORM(
                 contribution_id=contrib_id,
                 season_id=m.season_id,
-                participant_id=f"participant-{uid}",
+                participant_id=accounting_participant_id(uid),
                 user_id=uid,
                 source_kind=m.source_kind,
                 source_id=source_id,
@@ -1602,7 +1604,7 @@ def _calculate_master_bonuses_for_session(session: Session, season_id: str) -> l
                 included = True
             basis_items.append(
                 MasterBonusBasisItemDC(
-                    participant_id=f"participant-{uid}",
+                    participant_id=accounting_participant_id(uid),
                     user=u_ref,
                     member_task_score=score,
                     included=included,
@@ -1737,7 +1739,7 @@ def _calculate_season_summary_for_session(session: Session, season_id: str, is_a
             from domain_models import ParticipationORM
             from participation import dt
             season=session.get(SeasonORM,season_id)
-            participated=any(dt(p.started_at)<dt(season.ends_at) and (not p.ended_at or dt(p.ended_at)>dt(season.starts_at)) for p in session.query(ParticipationORM).filter_by(participant_id=f"participant-{u.user_id}"))
+            participated=any(dt(p.started_at)<dt(season.ends_at) and (not p.ended_at or dt(p.ended_at)>dt(season.starts_at)) for p in session.query(ParticipationORM).filter_by(participant_id=accounting_participant_id(u.user_id)))
             if participated:
                 included_users.append(u)
                 continue
@@ -1804,7 +1806,7 @@ def _calculate_season_summary_for_session(session: Session, season_id: str, is_a
             ContributionORM.user_id == u.user_id,
         ).all()
         from season_summaries import totals
-        source_scores=[SummaryRowSourceScoreDC(**x) for x in totals(session,season_id,f"participant-{u.user_id}")]
+        source_scores=[SummaryRowSourceScoreDC(**x) for x in totals(session,season_id,accounting_participant_id(u.user_id))]
         total_score = sum(c.score or 0.0 for c in contribs)
 
         eval_count = (
@@ -1820,7 +1822,7 @@ def _calculate_season_summary_for_session(session: Session, season_id: str, is_a
 
         rows.append(
             SummaryRowDC(
-                participant_id=f"participant-{u.user_id}",
+                participant_id=accounting_participant_id(u.user_id),
                 user=u_ref,
                 group_number=group_num,
                 category=category,
@@ -2616,24 +2618,7 @@ class Database:
     # --- Leadership and Roles ---
 
     def _get_user_ref(self, session: Session, user_id: Optional[int]) -> Optional[UserRefDC]:
-        if user_id is None:
-            return None
-        u = session.get(UserORM, user_id)
-        if not u:
-            return None
-        c = session.get(ContactInfoORM, user_id)
-        display_name = ""
-        if c:
-            display_name = f"{c.surname} {c.name}".strip()
-            if not display_name:
-                display_name = c.kkr_name
-        if not display_name:
-            display_name = f"User #{user_id}"
-        return UserRefDC(
-            user_id=user_id,
-            display_name=display_name,
-            avatar_url=u.photo_url,
-        )
+        return _user_to_ref_dc(session.get(UserORM,user_id)) if user_id is not None else None
 
     def get_leadership(self) -> LeadershipDC:
         with self._session() as session:
@@ -4025,7 +4010,7 @@ class Database:
             elif u:
                 photo_url = u.photo_url
 
-            user_ref = UserRefDC(user_id=assignment.user_id, display_name=display_name, avatar_url=photo_url)
+            user_ref = _user_to_ref_dc(u) or UserRefDC(user_id=None,display_name="Обезличенный участник",avatar_url=None)
             return LeaderDC(
                 role_assignment_id=assignment.role_assignment_id,
                 user=user_ref,
@@ -5854,7 +5839,7 @@ def _load_leaders(session: Session, scope_kind: str, scope_id: str, role: str) -
             photo_url = u.photo_url
         elif u:
             photo_url = u.photo_url
-        user_ref = UserRefDC(user_id=r.user_id, display_name=display_name, avatar_url=photo_url)
+        user_ref = _user_to_ref_dc(u) or UserRefDC(user_id=None,display_name="Обезличенный участник",avatar_url=None)
         leaders.append(
             LeaderDC(
                 role_assignment_id=r.role_assignment_id,
