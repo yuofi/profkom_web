@@ -56,7 +56,7 @@ def dashboard(uid):
             requests=[r for r in requests_for(uid) if any(c in r['capabilities'] for c in ('hr_review_request','block_review_request'))]
         except ImportError:
             blocks=[];requests=[]
-        unresolved=[dict(assignment=asdict(u.assignment),task_id=u.task_id,task_title=u.task_title,season_id=u.season_id,scope=asdict(u.scope),deadline_at=u.deadline_at) for u in db.list_unresolved_assignments(current_user_id=uid) if live(u.season_id)]
+        unresolved=[dict(assignment=asdict(u.assignment),task_id=u.task_id,task_title=u.task_title,season_id=u.season_id,scope=__import__('membership').scope_out(u.scope),deadline_at=u.deadline_at) for u in db.list_unresolved_assignments(current_user_id=uid) if live(u.season_id)]
         return dict(my_tasks=[main._to_task_public_out(t) for t in tasks],upcoming_meetings=sorted(meetings,key=lambda m:m['starts_at']),my_blocks=blocks,my_events=events,actionable_requests=requests,unresolved_assignments=unresolved,unread_notification_count=sum(n['read_at'] is None for n in notifications(uid)))
 
 

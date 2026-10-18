@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import access
+import membership
 from api_contract import Page, install_errors
 from datetime import datetime, timezone
 from typing import List, Optional, Union
@@ -208,15 +209,20 @@ class BlockIn(BaseModel):
         return v
 
 
-class BlockUpdate(BaseModel):
-    master: Optional[str] = None
-    hr: Optional[str] = None
-    cnt_of_human: Optional[int] = None
-    arr_of_human: Optional[list[int]] = None
+from membership import BlockPatch as BlockUpdate
 
 
-class BlockOut(BlockIn):
-    pass
+class BlockOut(BaseModel):
+    block_id: str
+    name: str
+    is_hr: bool
+    description: dict
+    master: Optional[dict] = None
+    members: list[dict]
+    guide_material_id: Optional[str] = None
+    community_url: Optional[str] = None
+    revision: int
+    capabilities: list[str]
 
 
 class TokenPair(BaseModel):
@@ -472,7 +478,7 @@ class UserIdsIn(BaseModel):
 
 class BlockLeaderIn(BaseModel):
     user_id: int
-    expected_revision: Optional[int] = None
+    expected_revision: int
 
 
 class MeetingIn(BaseModel):
@@ -1443,23 +1449,13 @@ def delete_pgas(entry_id: int, cur: User = Depends(require_pgas_admin)):
 
 @router.get("/blocks", response_model=List[BlockOut])
 def list_blocks():
-    return [BlockOut(**b.__dict__) for b in db.list_blocks()]
+    from membership import blocks_for
+    return blocks_for(access.actor_id.get())
 
 
 @router.post("/blocks", response_model=BlockOut)
 def create_block(payload: BlockIn, cur: User = Depends(require_superuser)):
-    existing = db.get_block(payload.name)
-    if existing:
-        raise HTTPException(409, "Block already exists")
-    block = Block(
-        name=payload.name,
-        master=payload.master,
-        hr=payload.hr,
-        cnt_of_human=payload.cnt_of_human,
-        arr_of_human=payload.arr_of_human,
-    )
-    created = db.create_block(block)
-    return BlockOut(**created.__dict__)
+    raise HTTPException(409,"Existing blocks are maintained; creating new blocks is disabled")
 
 
 @router.patch("/blocks/{block_name}", response_model=BlockOut)
@@ -1468,15 +1464,13 @@ def update_block(
     payload: BlockUpdate,
     cur: User = Depends(get_current_user),
 ):
-    raise HTTPException(409, "Use block settings and role/application operations")
+    from membership import patch_block
+    return patch_block(block_name,payload,cur.user_id)
 
 
 @router.delete("/blocks/{block_name}")
 def delete_block(block_name: str, cur: User = Depends(require_superuser)):
-    if not db.get_block(block_name):
-        raise HTTPException(404, "Block not found")
-    db.delete_block(block_name)
-    return {"status": "deleted"}
+    raise HTTPException(409,"Block removal is disabled to preserve history")
 
 
 @router.post("/blocks/{block_name}/enter", response_model=BlockOut)
@@ -1484,12 +1478,10 @@ def enter_block(block_name: str, cur: User = Depends(get_current_user)):
     raise HTTPException(409, "Use a block application; direct entry is disabled")
 
 
-@router.post("/blocks/{block_name}/exit", response_model=BlockOut)
+@router.post("/blocks/{block_name}/exit")
 def exit_block(block_name: str, cur: User = Depends(get_current_user)):
-    updated = db.exit_user_from_block(cur.user_id, block_name)
-    if not updated:
-        raise HTTPException(404, "User or block not found")
-    return BlockOut(**updated.__dict__)
+    from membership import leave
+    return leave(block_name,cur.user_id,cur.user_id)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1533,7 +1525,7 @@ def get_session(cur: User = Depends(get_current_user)):
             user_id=a.user_id,
             role=a.role,
             scope_kind=a.scope_kind,
-            scope_id=a.scope_id,
+            scope_id=membership.block_id_for(a.scope_id) if a.scope_kind=="block" else a.scope_id,
             principal_assignment_id=a.principal_assignment_id,
             revision=a.revision,
             capabilities=access.global_caps(cur.user_id) if a.scope_kind == "global" else (["create_head_merit"] if a.scope_kind == "event" else ["create_volunteer_merit"] if a.scope_kind in {"block","subevent"} else []),
@@ -1867,7 +1859,7 @@ def _to_task_public_out(t) -> TaskPublicOut:
     return TaskPublicOut(
         task_id=t.task_id,
         season_id=t.season_id,
-        scope={"kind": t.scope.kind, "id": t.scope.id},
+        scope=membership.scope_out(t.scope),
         title=t.title,
         description=RichTextSchema(format=t.description.format, body=t.description.body),
         deadline_at=t.deadline_at,
@@ -1878,7 +1870,7 @@ def _to_task_public_out(t) -> TaskPublicOut:
 
 
 def _to_merit_out(m) -> MeritOut:
-    scope_dict = {"kind": m.scope.kind, "id": m.scope.id} if m.scope else None
+    scope_dict = membership.scope_out(m.scope) if m.scope else None
     return MeritOut(
         merit_id=m.merit_id,
         season_id=m.season_id,
@@ -1954,7 +1946,7 @@ def _to_calculated_contribution_out(c) -> CalculatedContributionOut:
         participant_id=c.participant_id,
         user=_to_user_ref_out(c.user),
         source_kind=c.source_kind,
-        source_id=c.source_id,
+        source_id=membership.block_id_for(c.source_id) if c.source_kind in ("block_task","block_volunteer","master_bonus") else c.source_id,
         source_title=c.source_title,
         score=c.score,
         calculation_version=c.calculation_version,
@@ -1969,7 +1961,7 @@ def _to_master_bonus_out(mb) -> MasterBonusOut:
     return MasterBonusOut(
         bonus_id=mb.bonus_id,
         season_id=mb.season_id,
-        block_id=mb.block_id,
+        block_id=membership.block_id_for(mb.block_id),
         recipient_participant_id=mb.recipient_participant_id,
         recipient=_to_user_ref_out(mb.recipient) if mb.recipient else None,
         eligible_organizer_count=mb.eligible_organizer_count,
@@ -1998,7 +1990,7 @@ def _to_season_summary_out(s) -> SeasonSummaryOut:
                 user=_to_user_ref_out(r.user),
                 group_number=r.group_number,
                 category=r.category,
-                blocks=[SummaryRowBlockOut(block_id=b.block_id, name=b.name) for b in r.blocks],
+                blocks=[SummaryRowBlockOut(block_id=membership.block_id_for(b.block_id), name=b.name) for b in r.blocks],
                 is_master=r.is_master,
                 is_archived=r.is_archived,
                 source_scores=[
@@ -2431,8 +2423,15 @@ def set_block_leader(block_id: str, payload: BlockLeaderIn, cur: User = Depends(
     if not db.is_tachki(cur.user_id):
         raise HTTPException(403, "Only tachki can assign block master")
     try:
-        b = db.set_block_leader(block_id, payload.user_id, payload.expected_revision)
-        return BlockOut(**b.__dict__)
+        from membership import legacy_name,meta_for,version,get_card
+        name=legacy_name(block_id)
+        with db._session() as session:
+            meta=meta_for(session,name)
+            version(meta,payload.expected_revision)
+            db.set_block_leader(name,payload.user_id)
+            meta.revision+=1
+            session.commit()
+        return get_card(block_id,cur.user_id)
     except LookupError as e:
         raise HTTPException(404, str(e))
     except ValueError as e:
@@ -2645,6 +2644,9 @@ def create_task(payload: TaskCreateIn, cur: User = Depends(get_current_user)):
         desc_body = _to_rich_text_body(payload.description)
         scope_kind = payload.scope.get("kind", "")
         scope_id = payload.scope.get("id", "")
+        if scope_kind=="block":
+            from membership import legacy_name
+            scope_id=legacy_name(scope_id)
         crit_dict = {
             "unique": payload.criteria.unique,
             "creative": payload.criteria.creative,
@@ -2690,7 +2692,7 @@ def list_tasks(
             current_user_id=cur.user_id,
             season_id=season_id,
             scope_kind=scope_kind,
-            scope_id=scope_id,
+            scope_id=membership.legacy_name(scope_id) if scope_kind=="block" and scope_id else scope_id,
             mine_user_id=cur.user_id if mine else None,
             status=status,
         )
@@ -2890,7 +2892,7 @@ def list_unresolved_assignments(
                 task_id=u.task_id,
                 task_title=u.task_title,
                 season_id=u.season_id,
-                scope={"kind": u.scope.kind, "id": u.scope.id},
+                scope=membership.scope_out(u.scope),
                 deadline_at=u.deadline_at,
             )
             for u in items
@@ -3072,7 +3074,10 @@ def list_merits(
 @router.post("/merits", response_model=MeritOut)
 def create_merit(payload: MeritCreateIn, cur: User = Depends(get_current_user)):
     try:
-        m = db.create_merit(payload.model_dump(), cur.user_id)
+        data=payload.model_dump()
+        if (data.get("scope") or {}).get("kind")=="block":
+            data["scope"]["id"]=membership.legacy_name(data["scope"]["id"])
+        m = db.create_merit(data, cur.user_id)
         return _to_merit_out(m)
     except LookupError as e:
         raise HTTPException(404, str(e))
@@ -3497,5 +3502,7 @@ def mark_all_notifications_read(cur: User = Depends(get_current_user)):
 
 from registration import register_routes as register_registration_routes
 register_registration_routes(router)
+from membership import register_routes as register_membership_routes
+register_membership_routes(router)
 
 app.include_router(router)

@@ -2301,17 +2301,8 @@ class Database:
 
     def create_block(self, block: BlockDC) -> BlockDC:
         with self._session() as session:
-            is_hr_val = bool(block.is_hr or (block.name and block.name.strip().lower() == "hr"))
             master_uid = block.master_user_id
-            if master_uid is None and block.master:
-                u = (
-                    session.query(UserORM)
-                    .join(ContactInfoORM, ContactInfoORM.user_id == UserORM.user_id)
-                    .filter(ContactInfoORM.kkr_name == block.master)
-                    .first()
-                )
-                if u:
-                    master_uid = u.user_id
+            is_hr_val = bool(block.is_hr)
 
             b = BlockORM(
                 name=block.name,
@@ -2326,18 +2317,6 @@ class Database:
             session.flush()
 
             arr = list(block.arr_of_human) if block.arr_of_human else []
-            if master_uid and master_uid not in arr:
-                arr.append(master_uid)
-            elif block.master:
-                u = (
-                    session.query(UserORM)
-                    .join(ContactInfoORM, ContactInfoORM.user_id == UserORM.user_id)
-                    .filter(ContactInfoORM.kkr_name == block.master)
-                    .first()
-                )
-                if u and u.user_id not in arr:
-                    arr.append(u.user_id)
-
             if arr:
                 seen = set()
                 unique_arr = [x for x in arr if not (x in seen or seen.add(x))]
@@ -2406,19 +2385,6 @@ class Database:
                     arr = json.loads(b.arr_of_human) if b.arr_of_human else []
                 except json.JSONDecodeError:
                     arr = []
-
-            if arr is not None and b.master_user_id:
-                if b.master_user_id not in arr:
-                    arr.append(b.master_user_id)
-            elif arr is not None and b.master:
-                u = (
-                    session.query(UserORM)
-                    .join(ContactInfoORM, ContactInfoORM.user_id == UserORM.user_id)
-                    .filter(ContactInfoORM.kkr_name == b.master)
-                    .first()
-                )
-                if u and u.user_id not in arr:
-                    arr.append(u.user_id)
 
             if arr is not None:
                 seen = set()
