@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import {
   Page,
   Card,
@@ -27,7 +27,11 @@ function Category({ userId }: { userId: number }) {
   });
   return query.data ? (
     <Badge>{query.data.category === "junior" ? "Джуниор" : "Активист"}</Badge>
-  ) : null;
+  ) : (
+    <span>
+      {query.isError ? "Категория недоступна" : "Категория загружается…"}
+    </span>
+  );
 }
 function ContactLinks({
   email,
@@ -76,7 +80,20 @@ export function DirectoryPage() {
   });
   const [search, setSearch] = useState("");
   const [block, setBlock] = useState("");
+  const [category, setCategory] = useState("");
   const [emails, setEmails] = useState("");
+  const active = query.data?.filter((p) => p.in_profcom) ?? [];
+  const categories = useQueries({
+    queries: active.map((p) => ({
+      queryKey: ["participantCategory", p.user_id],
+      queryFn: () => membershipApi.category(p.user_id),
+    })),
+  });
+  const categoryByUser = new Map(
+    active.map((p, i) => [p.user_id, categories[i]]),
+  );
+  const categoriesPending = categories.some((q) => q.isPending);
+  const categoryFailed = categories.some((q) => q.isError);
   const blocks = Array.from(
     new Set(
       query.data?.flatMap((p) =>
@@ -90,6 +107,8 @@ export function DirectoryPage() {
   const filtered = query.data?.filter(
     (p) =>
       p.in_profcom &&
+      (!category ||
+        categoryByUser.get(p.user_id)?.data?.category === category) &&
       (!block ||
         p.blocks
           .split(",")
@@ -119,7 +138,36 @@ export function DirectoryPage() {
               ))}
             </select>
           </label>
+          <label className={s.field}>
+            Категория
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+            >
+              <option value="">Все категории</option>
+              <option value="junior">Джуниоры</option>
+              <option value="activist">Активисты</option>
+            </select>
+          </label>
         </div>
+        {category && categoriesPending && (
+          <p role="status">Загружаем категории участников…</p>
+        )}
+        {categoryFailed && (
+          <p role="alert">
+            Часть категорий недоступна. Результат фильтра может быть неполным.{" "}
+            <button
+              className={s.button}
+              onClick={() =>
+                categories
+                  .filter((q) => q.isError)
+                  .forEach((q) => void q.refetch())
+              }
+            >
+              Повторить загрузку категорий
+            </button>
+          </p>
+        )}
         <details className={s.details}>
           <summary>Почтовая выгрузка</summary>
           <ActionForm
@@ -202,7 +250,10 @@ export function DirectoryPage() {
               </Card>
             ))}
           </div>
-          {filtered?.length === 0 && <Empty>Подходящих контактов нет.</Empty>}
+          {filtered?.length === 0 &&
+            !(category && (categoriesPending || categoryFailed)) && (
+              <Empty>Подходящих контактов нет.</Empty>
+            )}
         </QueryState>
       </div>
     </Page>

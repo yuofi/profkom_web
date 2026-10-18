@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import {
   Page,
   Card,
@@ -11,6 +11,7 @@ import {
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { workspaceApi } from "../../utils/api/workspace.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
+import { eventsApi } from "../../utils/api/events.api";
 import {
   targetRoute,
   getTaskRoute,
@@ -34,6 +35,37 @@ export function DashboardPage() {
   const seasons = useSeasons();
   const [seasonId, setSeasonId] = useState("");
   const data = query.data;
+  const meetings = data?.upcoming_meetings ?? [];
+  const meetingSeasons = useQueries({
+    queries: meetings.map((m) => ({
+      queryKey: ["dashboard", "meeting-season", m.owner_kind, m.owner_id],
+      queryFn: async () => {
+        const eventId =
+          m.owner_kind === "event"
+            ? m.owner_id
+            : (await eventsApi.subevent(m.owner_id)).event_id;
+        return (await eventsApi.get(eventId)).season_id;
+      },
+      initialData:
+        m.owner_kind === "event"
+          ? data?.my_events.find((e) => e.event_id === m.owner_id)?.season_id
+          : undefined,
+      retry: false,
+    })),
+  });
+  const inSeason = (id: string) =>
+    (!seasonId || id === seasonId) &&
+    !!seasons.data?.items.some(
+      (s) => s.season_id === id && s.state !== "closed",
+    );
+  const tasks = data?.my_tasks.filter((t) => inSeason(t.season_id)) ?? [];
+  const events = data?.my_events.filter((e) => inSeason(e.season_id)) ?? [];
+  const unresolved =
+    data?.unresolved_assignments.filter((a) => inSeason(a.season_id)) ?? [];
+  const filteredMeetings = meetings
+    .map((meeting, index) => ({ meeting, season: meetingSeasons[index] }))
+    .filter(({ season }) => (season.data ? inSeason(season.data) : !seasonId));
+  const unknownMeetings = meetingSeasons.filter((q) => !q.data).length;
   const seasonTitle = (id: string) =>
     seasons.data?.items.find((s) => s.season_id === id)?.title ?? "Сезон";
   return (
@@ -64,40 +96,39 @@ export function DashboardPage() {
         </select>
       </label>
       <QueryState
-        loading={query.isLoading}
-        error={query.error}
+        loading={query.isLoading || seasons.isLoading}
+        error={query.error ?? seasons.error}
         retry={() => {
           void query.refetch();
+          void seasons.refetch();
         }}
       >
         {data && (
           <div className={s.grid}>
             <Card title="Мои задачи">
               <ul className={s.list}>
-                {data.my_tasks
-                  .filter((t) => !seasonId || t.season_id === seasonId)
-                  .map((t) => (
-                    <li key={t.task_id}>
-                      <Badge>{seasonTitle(t.season_id)}</Badge>
-                      <p>
-                        <RouteLink to={getTaskRoute(t.task_id)}>
-                          {t.title}
-                        </RouteLink>
-                      </p>
-                      <span className={s.muted}>
-                        Дедлайн {displayDate(t.deadline_at)}
-                      </span>
-                    </li>
-                  ))}
+                {tasks.map((t) => (
+                  <li key={t.task_id}>
+                    <Badge>{seasonTitle(t.season_id)}</Badge>
+                    <p>
+                      <RouteLink to={getTaskRoute(t.task_id)}>
+                        {t.title}
+                      </RouteLink>
+                    </p>
+                    <span className={s.muted}>
+                      Дедлайн {displayDate(t.deadline_at)}
+                    </span>
+                  </li>
+                ))}
               </ul>
-              {!data.my_tasks.length && (
-                <Empty>Назначенных задач пока нет.</Empty>
+              {!tasks.length && (
+                <Empty>В выбранных сезонах назначенных задач нет.</Empty>
               )}
               <RouteLink to="/tasks">Открыть трекер</RouteLink>
             </Card>
             <Card title="Ближайшие созвоны">
               <ul className={s.list}>
-                {data.upcoming_meetings.map((m) => (
+                {filteredMeetings.map(({ meeting: m, season }) => (
                   <li key={m.meeting_id}>
                     <RouteLink
                       to={`/meetings/${m.owner_kind}/${encodeURIComponent(m.owner_id)}`}
@@ -105,11 +136,35 @@ export function DashboardPage() {
                       {m.title}
                     </RouteLink>
                     <p>{displayDate(m.starts_at)}</p>
+                    <Badge>
+                      {season.data
+                        ? seasonTitle(season.data)
+                        : season.isError
+                          ? "Сезон недоступен"
+                          : "Сезон уточняется…"}
+                    </Badge>
                   </li>
                 ))}
               </ul>
-              {!data.upcoming_meetings.length && (
-                <Empty>Созвоны пока не назначены.</Empty>
+              {!filteredMeetings.length && !unknownMeetings && (
+                <Empty>В выбранных сезонах созвонов нет.</Empty>
+              )}
+              {unknownMeetings > 0 && (
+                <p role="status">
+                  Уточняем сезон для {unknownMeetings} созвонов.{" "}
+                  {seasonId &&
+                    "Они появятся после проверки принадлежности к сезону."}{" "}
+                  <button
+                    className={s.button}
+                    onClick={() =>
+                      meetingSeasons
+                        .filter((q) => !q.data)
+                        .forEach((q) => void q.refetch())
+                    }
+                  >
+                    Обновить созвоны
+                  </button>
+                </p>
               )}
               <RouteLink to="/calendar">Календарь</RouteLink>
             </Card>
@@ -120,35 +175,43 @@ export function DashboardPage() {
                     <RouteLink to={getBlockRoute(b.block_id)}>
                       {b.name}
                     </RouteLink>
+                    <Badge>Между сезонами</Badge>
                   </li>
                 ))}
-                {data.my_events
-                  .filter((e) => !seasonId || e.season_id === seasonId)
-                  .map((e) => (
-                    <li key={e.event_id}>
-                      <RouteLink to={getEventRoute(e.event_id)}>
-                        {e.title}
-                      </RouteLink>{" "}
-                      <Badge>{seasonTitle(e.season_id)}</Badge>
-                    </li>
-                  ))}
+                {events.map((e) => (
+                  <li key={e.event_id}>
+                    <RouteLink to={getEventRoute(e.event_id)}>
+                      {e.title}
+                    </RouteLink>{" "}
+                    <Badge>{seasonTitle(e.season_id)}</Badge>
+                  </li>
+                ))}
               </ul>
+              {!events.length && (
+                <Empty>В выбранных сезонах мероприятий нет.</Empty>
+              )}
             </Card>
             <Card title="Требуют решения">
-              <p>Заявки в блоки: {data.actionable_requests.length}</p>
+              <p>
+                Заявки в блоки (не зависят от сезона):{" "}
+                {data.actionable_requests.length}
+              </p>
               <RouteLink to="/blocks/requests">Рассмотреть заявки</RouteLink>
-              {data.unresolved_assignments.length > 0 && (
+              {unresolved.length > 0 && (
                 <>
-                  <p>Оставшаяся работа: {data.unresolved_assignments.length}</p>
-                  <RouteLink to="/tasks/unresolved">
+                  <p>
+                    Оставшаяся работа в выбранных сезонах: {unresolved.length}
+                  </p>
+                  <RouteLink
+                    to={`/tasks/unresolved${seasonId ? `?season_id=${encodeURIComponent(seasonId)}` : ""}`}
+                  >
                     Разобрать назначения
                   </RouteLink>
                 </>
               )}
-              {!data.actionable_requests.length &&
-                !data.unresolved_assignments.length && (
-                  <Empty>В очереди нет решений.</Empty>
-                )}
+              {!data.actionable_requests.length && !unresolved.length && (
+                <Empty>В очереди нет решений.</Empty>
+              )}
             </Card>
           </div>
         )}

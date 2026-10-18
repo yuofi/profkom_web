@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
@@ -37,7 +37,7 @@ import {
 } from "../../utils/api/contract";
 import { can, useSession } from "../../utils/session";
 import { displayDate, toUtc } from "../../utils/dates";
-import { getTaskRoute } from "../../utils/routes";
+import { getTaskRoute, getSeasonRoute } from "../../utils/routes";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import s from "../../components/Workspace/Workspace.module.css";
 const statusNames: Record<Assignment["status"], string> = {
@@ -290,6 +290,34 @@ export function TasksListPage() {
         )}
       </div>
     </Page>
+  );
+}
+function FocusedAssignment({
+  assignment,
+  focused,
+}: {
+  assignment: Assignment;
+  focused: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (focused) {
+      ref.current?.focus();
+      ref.current?.scrollIntoView?.({ block: "center" });
+    }
+  }, [focused]);
+  return (
+    <div
+      ref={ref}
+      tabIndex={-1}
+      aria-label={`Назначение: ${assignment.assignee.display_name}`}
+      className={focused ? s.focusedAssignment : undefined}
+    >
+      {focused && (
+        <p role="status">Назначение из препятствий закрытию сезона</p>
+      )}
+      <AssignmentCard assignment={assignment} />
+    </div>
   );
 }
 function AssignmentCard({ assignment: a }: { assignment: Assignment }) {
@@ -574,6 +602,9 @@ function TaskComments({ task }: { task: Task }) {
 }
 export function TaskPage() {
   const { id = "" } = useParams();
+  const [params] = useSearchParams();
+  const assignmentId = params.get("assignment_id");
+  const returnSeason = params.get("return_season");
   const { perform, refresh } = useWorkspaceActions();
   const query = useQuery({
     queryKey: ["tasks", id],
@@ -583,7 +614,16 @@ export function TaskPage() {
   return (
     <Page
       title={task?.title ?? "Задача"}
-      actions={<RouteLink to="/tasks">Все задачи</RouteLink>}
+      actions={
+        <>
+          <RouteLink to="/tasks">Все задачи</RouteLink>
+          {returnSeason && (
+            <RouteLink to={getSeasonRoute(returnSeason)}>
+              К закрытию сезона
+            </RouteLink>
+          )}
+        </>
+      }
     >
       <QueryState
         loading={query.isLoading}
@@ -643,8 +683,16 @@ export function TaskPage() {
               <TaskInputsPanel task={task} />
               <BulkHoursPanel task={task} />
             </Card>
+            {assignmentId &&
+              !task.assignments.some(
+                (a) => a.assignment_id === assignmentId,
+              ) && <Empty>Назначение больше недоступно.</Empty>}
             {task.assignments.map((a) => (
-              <AssignmentCard key={a.assignment_id} assignment={a} />
+              <FocusedAssignment
+                key={a.assignment_id}
+                assignment={a}
+                focused={a.assignment_id === assignmentId}
+              />
             ))}
             <TaskComments task={task} />
           </div>
@@ -722,6 +770,8 @@ function ReassignForm({ item }: { item: UnresolvedAssignment }) {
 }
 export function UnresolvedPage() {
   const { session } = useSession();
+  const [params] = useSearchParams();
+  const seasonId = params.get("season_id");
   const [onlyUnavailable, setOnlyUnavailable] = useState(false);
   const query = useQuery({
     queryKey: ["tasks", "unresolved"],
@@ -735,12 +785,17 @@ export function UnresolvedPage() {
       </Page>
     );
   const items = query.data?.items.filter(
-    (x) => !onlyUnavailable || x.assignment.assignee_unavailable_reason,
+    (x) =>
+      (!seasonId || x.season_id === seasonId) &&
+      (!onlyUnavailable || x.assignment.assignee_unavailable_reason),
   );
   return (
     <Page
       title="Оставшаяся работа"
       description="Прежняя история сохраняется. Новое назначение создаётся отдельно."
+      actions={
+        seasonId && <RouteLink to="/tasks/unresolved">Все сезоны</RouteLink>
+      }
     >
       <label className={s.row}>
         <input

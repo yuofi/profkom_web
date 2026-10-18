@@ -15,7 +15,8 @@ import { seasonsApi } from "../../utils/api/seasons.api";
 import { normalizeApiError } from "../../utils/api/request";
 import { can, useSession } from "../../utils/session";
 import { displayDate, moscowInput, toUtc } from "../../utils/dates";
-import { getSeasonRoute, targetRoute } from "../../utils/routes";
+import { getSeasonRoute } from "../../utils/routes";
+import { SeasonBlockerLink } from "../../components/Workspace/SeasonBlockerLink";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import type {
   Decision,
@@ -149,23 +150,11 @@ function SeasonCommand({
       />
       {failure?.blockers.length ? (
         <ul className={s.list} aria-label="Препятствия закрытию">
-          {failure.blockers.map((b, index) => {
-            const link = targetRoute({ kind: b.owner_kind, id: b.owner_id });
-            return (
-              <li key={index}>
-                {link ? (
-                  <RouteLink to={link}>{b.title}</RouteLink>
-                ) : (
-                  <>
-                    <span>{b.title} </span>
-                    <RouteLink to="/tasks/unresolved">
-                      Открыть оставшуюся работу
-                    </RouteLink>
-                  </>
-                )}
-              </li>
-            );
-          })}
+          {failure.blockers.map((b, index) => (
+            <li key={index}>
+              <SeasonBlockerLink blocker={b} seasonId={season.season_id} />
+            </li>
+          ))}
         </ul>
       ) : null}
     </div>

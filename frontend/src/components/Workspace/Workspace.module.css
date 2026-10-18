@@ -272,3 +272,9 @@
   padding: 12px;
   border-radius: 12px;
 }
+.focusedAssignment {
+  outline: 2px solid var(--primary);
+  outline-offset: 4px;
+  border-radius: 12px;
+  scroll-margin-block: 1rem;
+}

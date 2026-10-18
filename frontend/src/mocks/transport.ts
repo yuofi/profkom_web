@@ -1301,7 +1301,7 @@ export function installMockTransport(
             .map((r) => ({ ...clone(r), capabilities: requestCapabilities(r) }))
             .filter(
               (r) =>
-                r.user.user_id === state.session.user_id ||
+                state.global || r.user.user_id === state.session.user_id ||
                 r.capabilities.length,
             ),
         );

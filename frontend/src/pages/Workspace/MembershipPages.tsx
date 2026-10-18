@@ -16,6 +16,7 @@ import { eventsApi } from "../../utils/api/events.api";
 import { richText, type BlockRequest } from "../../utils/api/contract";
 import { can, useSession } from "../../utils/session";
 import { displayDate } from "../../utils/dates";
+import { useDeadlineRefresh } from "../../utils/hooks/useDeadlineRefresh";
 import {
   usePeopleOptions,
   useWorkspaceActions,
@@ -330,7 +331,22 @@ export function BlockRequestsPage() {
   const query = useQuery({
     queryKey: ["blockRequests"],
     queryFn: membershipApi.requests,
+    refetchOnWindowFocus: "always",
+    refetchInterval: (query) =>
+      query.state.data?.items.some((r) =>
+        ["pending_hr", "pending_block"].includes(r.state),
+      )
+        ? 60_000
+        : false,
   });
+  useDeadlineRefresh(
+    query.data?.items
+      .filter((r) => ["pending_hr", "pending_block"].includes(r.state))
+      .flatMap((r) =>
+        r.substitute_available_at ? [r.substitute_available_at] : [],
+      ) ?? [],
+    query.refetch,
+  );
   const blocks = useQuery({
     queryKey: ["workspaceBlocks"],
     queryFn: membershipApi.blocks,
@@ -339,6 +355,15 @@ export function BlockRequestsPage() {
     <Page
       title="Заявки в блоки"
       description="Обычный блок: HR, затем мастер. В HR-блок вступление завершается после одного решения HR."
+      actions={
+        <button
+          className={s.button}
+          disabled={query.isFetching}
+          onClick={() => void query.refetch()}
+        >
+          Обновить заявки
+        </button>
+      }
     >
       <QueryState loading={query.isLoading} error={query.error}>
         <div className={s.stack}>
