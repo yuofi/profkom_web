@@ -4,8 +4,9 @@ import os
 import access
 import membership
 from api_contract import Page, install_errors
+from validation import Command
 from datetime import datetime, timezone
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Literal
 
 from fastapi import FastAPI, HTTPException, Depends, APIRouter, Response, Cookie, Body, Query, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -361,18 +362,18 @@ class LeaderOut(BaseModel):
 
 
 class RichTextSchema(BaseModel):
-    format: str = "markdown"
+    format: Literal["markdown"] = "markdown"
     body: str = ""
 
 
-class SeasonIn(BaseModel):
+class SeasonIn(Command):
     title: str
-    type: str = "winter_spring"
+    type: Literal["winter_spring","summer_autumn","autumn_winter"] = "winter_spring"
     starts_at: str
     ends_at: str
 
 
-class SeasonPatchIn(BaseModel):
+class SeasonPatchIn(Command):
     expected_revision: int
     title: Optional[str] = None
     starts_at: Optional[str] = None
@@ -380,7 +381,7 @@ class SeasonPatchIn(BaseModel):
     reason: Optional[str] = None
 
 
-class SeasonRevisionIn(BaseModel):
+class SeasonRevisionIn(Command):
     expected_revision: int
 
 
@@ -405,7 +406,7 @@ class ReportSeriesOut(BaseModel):
     parent_series_id: Optional[str] = None
 
 
-class EventCreateIn(BaseModel):
+class EventCreateIn(Command):
     season_id: str
     title: str
     description: Union[RichTextSchema, str] = ""
@@ -414,7 +415,7 @@ class EventCreateIn(BaseModel):
     report_series_id: Optional[str] = None
 
 
-class EventPatchIn(BaseModel):
+class EventPatchIn(Command):
     expected_revision: int
     title: Optional[str] = None
     description: Optional[Union[RichTextSchema, str]] = None
@@ -422,7 +423,7 @@ class EventPatchIn(BaseModel):
     ends_at: Optional[str] = None
 
 
-class EventCopyIn(BaseModel):
+class EventCopyIn(Command):
     season_id: str
     title: str
     starts_at: Optional[str] = None
@@ -442,13 +443,13 @@ class EventOut(BaseModel):
     capabilities: list[str] = []
 
 
-class SubeventCreateIn(BaseModel):
+class SubeventCreateIn(Command):
     title: str
     description: Union[RichTextSchema, str] = ""
     report_series_id: Optional[str] = None
 
 
-class SubeventPatchIn(BaseModel):
+class SubeventPatchIn(Command):
     expected_revision: int
     title: Optional[str] = None
     description: Optional[Union[RichTextSchema, str]] = None
@@ -471,17 +472,17 @@ class EventCopyOut(BaseModel):
     subevents: list[SubeventOut] = []
 
 
-class UserIdsIn(BaseModel):
+class UserIdsIn(Command):
     user_ids: list[int]
     expected_revision: int
 
 
-class BlockLeaderIn(BaseModel):
+class BlockLeaderIn(Command):
     user_id: int
     expected_revision: int
 
 
-class MeetingIn(BaseModel):
+class MeetingIn(Command):
     expected_revision: Optional[int] = None
     title: str
     starts_at: str
@@ -499,7 +500,7 @@ class MeetingOut(BaseModel):
     capabilities: list[str] = []
 
 
-class SeasonCorrectionIn(BaseModel):
+class SeasonCorrectionIn(Command):
     object_kind: str
     object_id: str
     expected_revision: int
@@ -519,7 +520,7 @@ class SeasonCorrectionOut(BaseModel):
 #  BE-03 SCHEMAS
 # ─────────────────────────────────────────────────────────────
 
-class CriteriaSchema(BaseModel):
+class CriteriaSchema(Command):
     unique: bool = False
     creative: bool = False
     external_communication: bool = False
@@ -527,12 +528,12 @@ class CriteriaSchema(BaseModel):
     fixed_time: bool = False
 
 
-class TaskAssigneeIn(BaseModel):
+class TaskAssigneeIn(Command):
     user_id: int
     hours: float = 0.0
 
 
-class TaskCreateIn(BaseModel):
+class TaskCreateIn(Command):
     season_id: str
     scope: dict
     title: str
@@ -542,7 +543,7 @@ class TaskCreateIn(BaseModel):
     assignees: list[TaskAssigneeIn]
 
 
-class TaskPatchIn(BaseModel):
+class TaskPatchIn(Command):
     expected_revision: int
     title: Optional[str] = None
     description: Optional[Union[RichTextSchema, str]] = None
@@ -595,49 +596,49 @@ class UnresolvedAssignmentOut(BaseModel):
     deadline_at: str
 
 
-class StartAssignmentIn(BaseModel):
+class StartAssignmentIn(Command):
     expected_revision: int
 
 
-class RequestHelpIn(BaseModel):
+class RequestHelpIn(Command):
     expected_revision: int
     message: Optional[Union[RichTextSchema, str]] = None
 
 
-class ResumeAssignmentIn(BaseModel):
+class ResumeAssignmentIn(Command):
     expected_revision: int
 
 
-class SubmitAssignmentIn(BaseModel):
+class SubmitAssignmentIn(Command):
     expected_revision: int
     text: Union[RichTextSchema, str] = ""
     links: list[str] = []
     file_ids: list[str] = []
 
 
-class AcceptAssignmentIn(BaseModel):
+class AcceptAssignmentIn(Command):
     expected_revision: int
     evaluation: float
     review_note: Optional[str] = None
 
 
-class RequestRevisionIn(BaseModel):
+class RequestRevisionIn(Command):
     expected_revision: int
     review_note: str
 
 
-class NotCompleteAssignmentIn(BaseModel):
+class NotCompleteAssignmentIn(Command):
     expected_revision: int
     evaluation: float
     reason: str
 
 
-class CancelAssignmentIn(BaseModel):
+class CancelAssignmentIn(Command):
     expected_revision: int
     reason: str
 
 
-class ReassignAssignmentIn(BaseModel):
+class ReassignAssignmentIn(Command):
     expected_revision: int
     new_assignee_user_id: int
     hours: float
@@ -651,7 +652,7 @@ class ReassignAssignmentOut(BaseModel):
     assignment: AssignmentPublicOut
 
 
-class TaskInputsPatchIn(BaseModel):
+class TaskInputsPatchIn(Command):
     expected_revision: int
     reason: str
     assigned_at: Optional[str] = None
@@ -668,7 +669,7 @@ class TaskInputsOut(BaseModel):
     capabilities: list[str] = []
 
 
-class AssignmentInputsPatchIn(BaseModel):
+class AssignmentInputsPatchIn(Command):
     expected_revision: int
     reason: str
     hours: Optional[float] = None
@@ -685,12 +686,12 @@ class AssessmentInputsOut(BaseModel):
     capabilities: list[str] = []
 
 
-class BulkHoursItemIn(BaseModel):
+class BulkHoursItemIn(Command):
     assignment_id: str
     expected_revision: int
 
 
-class BulkHoursIn(BaseModel):
+class BulkHoursIn(Command):
     items: list[BulkHoursItemIn]
     hours: float
     reason: str
@@ -716,14 +717,14 @@ class CalculatedContributionOut(BaseModel):
     capabilities: list[str] = []
 
 
-class MeritRecipientIn(BaseModel):
+class MeritRecipientIn(Command):
     user_id: int
     hours: float = 0.0
     evaluation: float = 1.0
     completed_at: Optional[str] = None
 
 
-class MeritCreateIn(BaseModel):
+class MeritCreateIn(Command):
     season_id: str
     source_kind: str
     event_id: Optional[str] = None
@@ -737,7 +738,7 @@ class MeritCreateIn(BaseModel):
     reason: str
 
 
-class MeritPatchIn(BaseModel):
+class MeritPatchIn(Command):
     expected_revision: int
     reason: str
     title: Optional[str] = None
@@ -826,26 +827,26 @@ class SeasonSummaryOut(BaseModel):
     capabilities: list[str] = []
 
 
-class SummaryDecisionsIn(BaseModel):
+class SummaryDecisionsIn(Command):
     expected_version: int
     decisions: list[str]
     reason: Optional[str] = None
 
 
-class SummaryCorrectionItemIn(BaseModel):
+class SummaryCorrectionItemIn(Command):
     kind: str
     id: str
     expected_revision: int
     values: dict
 
 
-class SummaryCorrectionIn(BaseModel):
+class SummaryCorrectionIn(Command):
     expected_version: int
     reason: str
     changes: list[SummaryCorrectionItemIn]
 
 
-class CommentIn(BaseModel):
+class CommentIn(Command):
     content: Union[RichTextSchema, str]
 
 
@@ -860,7 +861,7 @@ class CommentOut(BaseModel):
     capabilities: list[str] = []
 
 
-class UploadIntentIn(BaseModel):
+class UploadIntentIn(Command):
     owner_kind: str
     owner_id: Optional[str] = None
     purpose: str
@@ -882,7 +883,7 @@ class FileDownloadOut(BaseModel):
     expires_at: str
 
 
-class ReportCreateIn(BaseModel):
+class ReportCreateIn(Command):
     owner_kind: str
     owner_id: str
     kind: str
@@ -891,14 +892,14 @@ class ReportCreateIn(BaseModel):
     file_ids: list[str] = Field(default_factory=list)
 
 
-class ReportPatchIn(BaseModel):
+class ReportPatchIn(Command):
     expected_revision: int
     title: Optional[str] = None
     content: Optional[Union[RichTextSchema, str]] = None
     file_ids: Optional[list[str]] = None
 
 
-class ReportPublishIn(BaseModel):
+class ReportPublishIn(Command):
     expected_revision: int
 
 
@@ -2109,7 +2110,7 @@ def create_season(payload: SeasonIn, cur: User = Depends(get_current_user)):
         s = db.create_season(payload.title, payload.type, payload.starts_at, payload.ends_at)
         return _to_season_out(s)
     except ValueError as e:
-        raise HTTPException(409, str(e))
+        raise HTTPException(409 if "Conflict" in str(e) else 422, str(e))
 
 
 @router.patch("/seasons/{season_id}", response_model=SeasonOut)

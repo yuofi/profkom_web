@@ -1121,6 +1121,9 @@ def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: O
     unavail = None
     if u and (u.banned or getattr(u, "account_state", "active") != "active"):
         unavail = "archived"
+    elif u:
+        task=session.get(TaskORM,a.task_id)
+        if task and not db.is_member_or_leader_in_scope(u.user_id,task.scope_kind,task.scope_id):unavail="left_scope"
 
     caps = []
     task=session.get(TaskORM,a.task_id)
@@ -1240,7 +1243,8 @@ def _merit_orm_to_dc(session: Session, m: MeritORM, current_user_id: Optional[in
         desc_text = str(m.description_json or "")
 
     scope = ScopeRefDC(kind=m.scope_kind, id=m.scope_id) if (m.scope_kind and m.scope_id) else None
-    caps = ["view_merit"]
+    from merit_rules import can_manage
+    caps = ["edit_assessment_inputs"] if current_user_id and can_manage(m,current_user_id,True) else []
     return MeritDC(
         merit_id=m.merit_id,
         season_id=m.season_id,
@@ -2839,6 +2843,10 @@ class Database:
     # ─────────────────────────────────────────────────────────────
 
     def create_season(self, title: str, type: str, starts_at: str, ends_at: str) -> SeasonDC:
+        from validation import timestamp
+        from participation import dt
+        starts_at,ends_at=timestamp(starts_at),timestamp(ends_at)
+        if dt(starts_at)>=dt(ends_at):raise ValueError("Season must have positive duration")
         with self._session() as session:
             planned = session.query(SeasonORM).filter(SeasonORM.state == "planned").first()
             if planned:
@@ -2914,6 +2922,17 @@ class Database:
             row = session.get(SeasonORM, season_id)
             if not row:
                 raise LookupError("Season not found")
+            from validation import timestamp
+            from participation import dt
+            if row.state=="closed":raise ValueError("Conflict: closed season dates are immutable")
+            if not reason or not reason.strip():raise ValueError("Reason is required")
+            starts_at=timestamp(starts_at) if starts_at is not None else None
+            ends_at=timestamp(ends_at) if ends_at is not None else None
+            if dt(starts_at or row.starts_at)>=dt(ends_at or row.ends_at):raise ValueError("Season must have positive duration")
+            for task in session.query(TaskORM).filter_by(season_id=season_id):
+                if dt(task.deadline_at)>dt(ends_at or row.ends_at):raise ValueError("Cannot shorten season before task deadline")
+            for merit in session.query(MeritORM).filter_by(season_id=season_id):
+                if dt(merit.deadline_at)>dt(ends_at or row.ends_at):raise ValueError("Cannot shorten season before merit deadline")
             if row.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
             if title is not None:
@@ -4064,6 +4083,7 @@ class Database:
             ev = session.get(EventORM, event_id)
             if not ev:
                 raise LookupError("Event not found")
+            if session.get(SeasonORM,ev.season_id).state=="closed":raise ValueError("Conflict: closed roster is immutable")
             if ev.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
             for uid in user_ids:
@@ -4107,6 +4127,8 @@ class Database:
                     ))
 
             ev.revision += 1
+            from participation import record_roster
+            record_roster(session,"event",event_id)
             session.commit()
             return _event_orm_to_dc(session, ev)
 
@@ -4115,6 +4137,7 @@ class Database:
             sub = session.get(SubeventORM, subevent_id)
             if not sub:
                 raise LookupError("Subevent not found")
+            if session.get(SeasonORM,session.get(EventORM,sub.event_id).season_id).state=="closed":raise ValueError("Conflict: closed roster is immutable")
             if sub.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
             for uid in user_ids:
@@ -4156,6 +4179,8 @@ class Database:
                     ))
 
             sub.revision += 1
+            from participation import record_roster
+            record_roster(session,"subevent",subevent_id)
             session.commit()
             return _subevent_orm_to_dc(session, sub)
 
@@ -4164,6 +4189,7 @@ class Database:
             sub = session.get(SubeventORM, subevent_id)
             if not sub:
                 raise LookupError("Subevent not found")
+            if session.get(SeasonORM,session.get(EventORM,sub.event_id).season_id).state=="closed":raise ValueError("Conflict: closed roster is immutable")
             if sub.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
             for uid in user_ids:
@@ -4189,6 +4215,8 @@ class Database:
 
             sub.organizer_user_ids_json = json.dumps(user_ids)
             sub.revision += 1
+            from participation import record_roster
+            record_roster(session,"subevent",subevent_id)
             session.commit()
             return _subevent_orm_to_dc(session, sub)
 
@@ -4229,6 +4257,8 @@ class Database:
                     scope_id=block_name,
                     revision=1,
                 ))
+            from participation import record_roster
+            record_roster(session,"block",block_name)
             session.commit()
             return self.get_block(block_name)
 
@@ -4237,6 +4267,9 @@ class Database:
             assignment = session.get(RoleAssignmentORM, role_assignment_id)
             if not assignment:
                 raise LookupError("Role assignment not found")
+            if assignment.scope_kind in ("event","subevent"):
+                ev=session.get(EventORM,assignment.scope_id) if assignment.scope_kind=="event" else session.get(EventORM,session.get(SubeventORM,assignment.scope_id).event_id)
+                if session.get(SeasonORM,ev.season_id).state=="closed":raise ValueError("Conflict: closed roster is immutable")
             if assignment.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
             if len(deputy_user_ids) > 2:
@@ -4280,6 +4313,8 @@ class Database:
                         created_at=datetime.now(timezone.utc).isoformat(),
                     ))
 
+            from participation import record_roster
+            record_roster(session,assignment.scope_kind,assignment.scope_id)
             assignment.revision += 1
             session.commit()
 
@@ -4700,8 +4735,11 @@ class Database:
             if not self.can_manage_scope(created_by_user_id, scope_kind, scope_id):
                 raise ValueError("Forbidden: cannot create task in this scope")
 
-            if season.ends_at and deadline_at > season.ends_at:
-                raise ValueError("Task deadline exceeds season ends_at")
+            from validation import period, timestamp, hours as check_hours
+            deadline_at=timestamp(deadline_at)
+            period(datetime.now(timezone.utc).isoformat(),deadline_at,season.ends_at)
+            if len({a.get("user_id") for a in assignees})!=len(assignees):raise ValueError("Duplicate assignees")
+            for item in assignees:check_hours(item.get("hours",0))
 
             if not assignees:
                 raise ValueError("At least one assignee is required")
@@ -4864,6 +4902,9 @@ class Database:
             a = session.get(AssignmentORM, assignment_id)
             if not a:
                 raise LookupError("Assignment not found")
+            task=session.get(TaskORM,a.task_id)
+            if not task or not self.can_view_scope(user_id,task.scope_kind,task.scope_id):raise ValueError("Forbidden: scope access ended")
+            if session.get(SeasonORM,task.season_id).state=="closed":raise ValueError("Conflict: season is closed")
             if a.assignee_user_id != user_id:
                 raise ValueError("Forbidden: only assignee can start assignment")
             if a.revision != expected_revision:
@@ -4884,6 +4925,9 @@ class Database:
             a = session.get(AssignmentORM, assignment_id)
             if not a:
                 raise LookupError("Assignment not found")
+            task=session.get(TaskORM,a.task_id)
+            if not task or not self.can_view_scope(user_id,task.scope_kind,task.scope_id):raise ValueError("Forbidden: scope access ended")
+            if session.get(SeasonORM,task.season_id).state=="closed":raise ValueError("Conflict: season is closed")
             if a.assignee_user_id != user_id:
                 raise ValueError("Forbidden: only assignee can request help")
             if a.revision != expected_revision:
@@ -4936,6 +4980,9 @@ class Database:
             a = session.get(AssignmentORM, assignment_id)
             if not a:
                 raise LookupError("Assignment not found")
+            task=session.get(TaskORM,a.task_id)
+            if not task or not self.can_view_scope(user_id,task.scope_kind,task.scope_id):raise ValueError("Forbidden: scope access ended")
+            if session.get(SeasonORM,task.season_id).state=="closed":raise ValueError("Conflict: season is closed")
             if a.assignee_user_id != user_id:
                 raise ValueError("Forbidden: only assignee can resume assignment")
             if a.revision != expected_revision:
@@ -4962,6 +5009,9 @@ class Database:
             a = session.get(AssignmentORM, assignment_id)
             if not a:
                 raise LookupError("Assignment not found")
+            task=session.get(TaskORM,a.task_id)
+            if not task or not self.can_view_scope(user_id,task.scope_kind,task.scope_id):raise ValueError("Forbidden: scope access ended")
+            if session.get(SeasonORM,task.season_id).state=="closed":raise ValueError("Conflict: season is closed")
             if a.assignee_user_id != user_id:
                 raise ValueError("Forbidden: only assignee can submit assignment")
             if a.revision != expected_revision:
@@ -4969,6 +5019,9 @@ class Database:
             if a.status not in ("assigned", "in_progress", "help_required", "needs_revision"):
                 raise ValueError(f"Cannot submit in status '{a.status}'")
 
+            from file_access import check_attachments
+            check_attachments(session,file_ids,"assignment",assignment_id,user_id)
+            if any(not link.startswith(("https://","http://")) for link in links):raise ValueError("Invalid result link")
             now_str = datetime.now(timezone.utc).isoformat()
             sub = SubmissionORM(
                 submission_id=f"submission-{uuid.uuid4()}",
@@ -5014,6 +5067,7 @@ class Database:
             if a.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
 
+            if a.status != "submitted":raise ValueError("Conflict: only submitted assignments can be accepted")
             if evaluation not in (1.0, 1.5):
                 raise ValueError("Evaluation for accepted assignment must be 1.0 or 1.5")
 
@@ -5027,7 +5081,8 @@ class Database:
                     .order_by(SubmissionORM.submitted_at.desc())
                     .first()
                 )
-                a.effective_completed_at = last_sub.submitted_at if last_sub else datetime.now(timezone.utc).isoformat()
+                if not last_sub:raise ValueError("Submission required")
+                a.effective_completed_at = last_sub.submitted_at
 
             a.status = "accepted"
             a.evaluation = evaluation
@@ -5035,6 +5090,7 @@ class Database:
             a.revision += 1
             a.updated_at = datetime.now(timezone.utc).isoformat()
 
+            session.add(AuditLogORM(target_kind="assignment",target_id=a.assignment_id,changed_by_user_id=reviewer_user_id,reason=review_note or "Assignment accepted",old_values_json=json.dumps({"status":"submitted"}),new_values_json=json.dumps({"status":"accepted","evaluation":evaluation}),created_at=a.updated_at))
             _recalculate_assignment_contribution(session, a, t)
             session.commit()
             return _assignment_orm_to_dc(session, a, reviewer_user_id)
@@ -5064,6 +5120,7 @@ class Database:
             if a.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
 
+            if a.status not in ("submitted","accepted"):raise ValueError("Conflict: assignment has no reviewable result")
             if not review_note or not review_note.strip():
                 raise ValueError("Review note is required")
 
@@ -5266,6 +5323,9 @@ class Database:
             if a.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
 
+            if a.status not in ("assigned","in_progress","help_required","submitted","needs_revision"):raise ValueError("Conflict: only unresolved assignments can be reassigned")
+            from validation import hours as check_hours
+            check_hours(hours)
             if previous_outcome not in ("cancelled", "not_completed"):
                 raise ValueError("previous_outcome must be 'cancelled' or 'not_completed'")
 
@@ -5402,6 +5462,10 @@ class Database:
             if not reason or not reason.strip():
                 raise ValueError("Reason is required")
 
+            from validation import period, timestamp
+            if assigned_at is not None:assigned_at=timestamp(assigned_at)
+            if deadline_at is not None:deadline_at=timestamp(deadline_at)
+            period(assigned_at or t.assigned_at,deadline_at or t.deadline_at,season.ends_at)
             old_assigned = t.assigned_at
             old_deadline = t.deadline_at
             old_criteria = json.loads(t.criteria_json or "{}")
@@ -5481,6 +5545,10 @@ class Database:
             if not reason or not reason.strip():
                 raise ValueError("Reason is required")
 
+            from validation import assessment, hours as check_hours, timestamp
+            if hours is not None:check_hours(hours)
+            if effective_completed_at is not None:effective_completed_at=timestamp(effective_completed_at)
+            assessment(evaluation if evaluation is not None else a.evaluation,effective_completed_at or a.effective_completed_at)
             old_hours = a.hours
             old_eval = a.evaluation
             old_completed = a.effective_completed_at
@@ -5690,6 +5758,8 @@ class Database:
                 if not (self.is_subevent_leader(created_by_user_id, scope_id) or self.is_subevent_leader_deputy(created_by_user_id, scope_id) or self.is_event_leader(created_by_user_id, sub.event_id) or self.is_event_leader_deputy(created_by_user_id, sub.event_id) or self.is_chair(created_by_user_id) or self.is_chair_deputy(created_by_user_id)):
                     raise ValueError("Forbidden: cannot create volunteer merit for this subevent")
 
+            from merit_rules import validate
+            validate(session,merit_data)
             reason = merit_data.get("reason")
             if not reason or not str(reason).strip():
                 raise ValueError("Reason is required")
@@ -5708,9 +5778,7 @@ class Database:
                 ev = r.get("evaluation")
                 if ev not in (-1.0, 0.0, 1.0, 1.5):
                     raise ValueError("Evaluation must be -1, 0, 1, or 1.5")
-                if source_kind in ("block_volunteer", "subevent_volunteer"):
-                    if self.is_member_or_leader_in_scope(uid, scope_kind, scope_id):
-                        raise ValueError(f"Recipient {uid} is already in scope; volunteer merits are only for participants outside scope")
+
 
             assigned_at = merit_data.get("assigned_at")
             deadline_at = merit_data.get("deadline_at")
@@ -5772,9 +5840,7 @@ class Database:
             for m in rows:
                 if not is_global:
                     can_view = False
-                    if m.created_by_user_id == current_user_id:
-                        can_view = True
-                    elif m.source_kind == "head_merit" and m.event_id and (self.is_event_leader(current_user_id, m.event_id) or self.is_event_leader_deputy(current_user_id, m.event_id)):
+                    if m.source_kind == "head_merit" and m.event_id and (self.is_event_leader(current_user_id, m.event_id) or self.is_event_leader_deputy(current_user_id, m.event_id)):
                         can_view = True
                     elif m.source_kind == "block_volunteer" and m.scope_id and (self.is_block_master(current_user_id, m.scope_id) or self.is_block_master_deputy(current_user_id, m.scope_id)):
                         can_view = True
@@ -5793,9 +5859,7 @@ class Database:
             is_global = self.is_chair(current_user_id) or self.is_chair_deputy(current_user_id) or self.is_hr_master(current_user_id)
             if not is_global:
                 can_view = False
-                if m.created_by_user_id == current_user_id:
-                    can_view = True
-                elif m.source_kind == "head_merit" and m.event_id and (self.is_event_leader(current_user_id, m.event_id) or self.is_event_leader_deputy(current_user_id, m.event_id)):
+                if m.source_kind == "head_merit" and m.event_id and (self.is_event_leader(current_user_id, m.event_id) or self.is_event_leader_deputy(current_user_id, m.event_id)):
                     can_view = True
                 elif m.source_kind == "block_volunteer" and m.scope_id and (self.is_block_master(current_user_id, m.scope_id) or self.is_block_master_deputy(current_user_id, m.scope_id)):
                     can_view = True
@@ -5817,9 +5881,7 @@ class Database:
             is_global = self.is_chair(user_id) or self.is_chair_deputy(user_id) or self.is_hr_master(user_id)
             if not is_global:
                 can_edit = False
-                if m.created_by_user_id == user_id:
-                    can_edit = True
-                elif m.source_kind == "head_merit" and m.event_id and (self.is_event_leader(user_id, m.event_id) or self.is_event_leader_deputy(user_id, m.event_id)):
+                if m.source_kind == "head_merit" and m.event_id and (self.is_event_leader(user_id, m.event_id) or self.is_event_leader_deputy(user_id, m.event_id)):
                     can_edit = True
                 elif m.source_kind == "block_volunteer" and m.scope_id and (self.is_block_master(user_id, m.scope_id) or self.is_block_master_deputy(user_id, m.scope_id)):
                     can_edit = True
@@ -5833,6 +5895,10 @@ class Database:
             if not reason or not reason.strip():
                 raise ValueError("Reason is required")
 
+            from merit_rules import validate
+            candidate=dict(season_id=m.season_id,source_kind=m.source_kind,event_id=m.event_id,scope={"kind":m.scope_kind,"id":m.scope_id} if m.scope_kind else None,assigned_at=m.assigned_at,deadline_at=m.deadline_at,recipients=json.loads(m.recipients_json))
+            candidate.update(values)
+            validate(session,candidate)
             if "title" in values:
                 m.title = values["title"]
             if "description" in values:

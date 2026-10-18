@@ -63,3 +63,14 @@ class MigrationORM(Base):
     version=Column(String,primary_key=True)
     completed_at=Column(String,nullable=False)
     report_json=Column(Text,nullable=False)
+
+class ScopeTenureORM(Base):
+    __tablename__='scope_tenures'
+    tenure_id=Column(String,primary_key=True)
+    user_id=Column(Integer,nullable=True,index=True)
+    scope_kind=Column(String,nullable=False,index=True)
+    scope_id=Column(String,nullable=False,index=True)
+    role=Column(String,nullable=False)
+    principal_id=Column(String,nullable=True)
+    started_at=Column(String,nullable=False)
+    ended_at=Column(String,nullable=True)

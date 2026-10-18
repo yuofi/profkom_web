@@ -54,3 +54,39 @@ def close_intervals(session,uid,at):
 
 def open_interval(session,uid,at):
     if not session.query(ParticipationORM).filter_by(user_id=uid,ended_at=None).first():session.add(ParticipationORM(interval_id=str(uuid.uuid4()),participant_id=f'participant-{uid}',user_id=uid,started_at=at))
+
+
+def record_roster(session,kind,id):
+    from database import RoleAssignmentORM,SubeventORM
+    from domain_models import ScopeTenureORM
+    session.flush()
+    desired={(r.user_id,r.role,r.principal_assignment_id) for r in session.query(RoleAssignmentORM).filter_by(scope_kind=kind,scope_id=id)}
+    if kind=='subevent':
+        import json
+        sub=session.get(SubeventORM,id)
+        if sub:desired.update((uid,'organizer',None) for uid in json.loads(sub.organizer_user_ids_json or '[]'))
+    current=session.query(ScopeTenureORM).filter_by(scope_kind=kind,scope_id=id,ended_at=None).all()
+    existing={(r.user_id,r.role,r.principal_id) for r in current};stamp=now()
+    for row in current:
+        if (row.user_id,row.role,row.principal_id) not in desired:row.ended_at=stamp
+    for uid,role,principal in desired-existing:session.add(ScopeTenureORM(tenure_id=str(uuid.uuid4()),user_id=uid,scope_kind=kind,scope_id=id,role=role,principal_id=principal,started_at=stamp))
+
+
+def in_scope_at(session,uid,kind,id,at):
+    from domain_models import ScopeTenureORM,BlockMetaORM
+    from database import db,SubeventORM
+    point=dt(at)
+    if kind=='block':
+        meta=session.query(BlockMetaORM).filter_by(legacy_name=id).first() or session.get(BlockMetaORM,id)
+        if meta:
+            for m in session.query(MembershipORM).filter_by(user_id=uid,block_id=meta.block_id):
+                if (m.joined_at is None or dt(m.joined_at)<=point) and (m.left_at is None or point<dt(m.left_at)):return True
+    tenures=session.query(ScopeTenureORM).filter_by(user_id=uid,scope_kind=kind,scope_id=id).all()
+    for r in tenures:
+        if dt(r.started_at)<=point and (r.ended_at is None or point<dt(r.ended_at)):return True
+    # No history for imported current assignments: do not invent a historical absence.
+    if not tenures and db.is_member_or_leader_in_scope(uid,kind,id):return True
+    if kind=='subevent':
+        sub=session.get(SubeventORM,id)
+        if sub:return in_scope_at(session,uid,'event',sub.event_id,at)
+    return False
