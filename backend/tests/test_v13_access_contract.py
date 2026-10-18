@@ -1,0 +1,64 @@
+"""API 1.3 regressions, using the isolated DB and external mocks from conftest."""
+import pytest
+from database import db
+from models import Guide
+
+REGISTER = dict(email='new-v13@example.com', password='synthetic-password', surname='Иванов', name='Иван', group_number=101, tg='ivanov', phone='+79990000000', vk='https://vk.com/id1', funding='budget', residence='Москва')
+
+def test_registration_is_pending_and_does_not_log_password(client, caplog):
+    r=client.post('/api/auth/register',json=REGISTER)
+    assert r.status_code == 201
+    assert REGISTER['password'] not in caplog.text
+    s=client.get('/api/session',headers={'Authorization':'Bearer '+r.json()['access_token']}).json()
+    assert (s['account_state'],s['registration_status']) == ('pending','pending')
+
+@pytest.mark.parametrize('path',['/blocks','/guides','/events','/seasons','/reports','/dashboard','/calendar','/notifications'])
+def test_working_content_requires_approval(client,make_user,path):
+    u=make_user(); db.update_user(u.user_id,account_state='pending')
+    assert client.get('/api'+path,headers=u.headers).status_code == 403
+    assert client.get('/api'+path,headers={}).status_code == 401
+
+@pytest.mark.parametrize('data',[{'blocks':'IT'},{'in_profcom':True},{'events_roles':'[]'},{'photo_url':'https://example.com/a'}])
+def test_self_profile_rejects_non_contact_fields(client,user,data):
+    assert client.patch(f'/api/profile/{user.user_id}',headers=user.headers,json=data).status_code == 422
+
+def test_profile_does_not_expose_score_or_private_roles(client,user):
+    for path in ['/profile/me',f'/profile/{user.user_id}']:
+        r=client.get('/api'+path,headers=user.headers)
+        assert r.status_code == 200
+        assert 'kkr_score' not in r.json()
+        assert 'events_roles' not in r.json()
+
+def test_only_owner_writes_current_contacts(client,user,superuser):
+    assert client.patch(f'/api/profile/{user.user_id}',headers=superuser.headers,json={'phone':'+79990000000'}).status_code == 403
+
+def test_legacy_enter_cannot_bypass_application(client,user,make_block):
+    b=make_block()
+    assert client.post(f'/api/blocks/{b.name}/enter',headers=user.headers,json={}).status_code == 409
+    assert not db.is_block_member(user.user_id,b.name)
+
+@pytest.mark.parametrize('path',['/seasons','/events','/report-series','/tasks','/reports','/notifications','/calendar'])
+def test_new_lists_use_cursor_envelope(client,user,path):
+    r=client.get('/api'+path,headers=user.headers)
+    assert r.status_code == 200
+    assert set(r.json()) == {'items','next_cursor'}
+    assert isinstance(r.json()['items'],list)
+    assert r.json()['next_cursor'] is None
+
+def test_chair_session_uses_contract_capabilities(client,superuser):
+    caps=client.get('/api/session',headers=superuser.headers).json()['capabilities']
+    assert {'create_event','view_kkr','view_summary','review_registrations','transfer_chair','manage_chair_deputies'} <= set(caps)
+
+def test_global_guide_is_private(client):
+    g=db.create_guide(Guide(guide_id=0,title='Private',owner_block='none',text='Synthetic'))
+    assert client.get(f'/api/guides/{g.guide_id}').status_code == 401
+
+def test_file_limits_and_complete_ownership(client,user,make_user):
+    other=make_user()
+    base=dict(owner_kind='avatar',purpose='avatar',name='a.png',mime_type='image/png',size_bytes=4)
+    assert client.post('/api/files/upload-intents',headers=user.headers,json={**base,'size_bytes':11*1024*1024}).status_code == 422
+    r=client.post('/api/files/upload-intents',headers=user.headers,json=base)
+    assert r.status_code == 200
+    fid=r.json()['file_id']
+    assert client.post(f'/api/files/{fid}/complete',headers=other.headers,json={}).status_code == 404
+    assert client.post(f'/api/files/{fid}/complete',headers=user.headers,json={}).status_code == 409
