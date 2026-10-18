@@ -6,6 +6,11 @@ import { tryCatch } from "../tryCatch";
 
 const isDevelopment = env.VITE_ENVIRONMENT === "development";
 const prefix = isDevelopment ? `${env.VITE_BACKEND_URL}/api` : "/api";
+let authGeneration = 0;
+interface CustomAxiosRequestConfig extends InternalAxiosRequestConfig {
+    _isRetry?: boolean;
+    _authGeneration?: number;
+}
 
 export const api = axios.create({
     baseURL: prefix,
@@ -18,6 +23,10 @@ export const api = axios.create({
 
 api.interceptors.request.use(
     (config) => {
+        const tagged = config as CustomAxiosRequestConfig;
+        tagged._authGeneration ??= authGeneration;
+        if (tagged._authGeneration !== authGeneration)
+            throw new axios.CanceledError("Сессия изменилась", config);
         const token = Cookies.get("access_token");
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
@@ -29,26 +38,36 @@ api.interceptors.request.use(
     }
 );
 
-interface CustomAxiosRequestConfig extends InternalAxiosRequestConfig {
-    _isRetry?: boolean;
+let refreshPromise: Promise<void> | null = null;
+/** Prevent a prior account's in-flight refresh/response from reviving its session. */
+export function beginAuthTransition() {
+    authGeneration++;
+    refreshPromise = null;
 }
 
-let refreshPromise: Promise<void> | null = null;
-
 async function fetchRefresh(): Promise<void> {
+    const generation = authGeneration;
     const response: AxiosResponse<RefreshResponse> = await axios.post(
         `${prefix}/auth/refresh`,
         {}, // No body needed, refresh token is in httpOnly cookie
         { withCredentials: true }
     );
 
+    if (generation !== authGeneration) throw new axios.CanceledError("Сессия изменилась");
     Cookies.set("access_token", response.data.access_token, {expires: 1/8});
 }
 
 api.interceptors.response.use(
-    (response) => response,
+    (response) => {
+        if ((response.config as CustomAxiosRequestConfig)._authGeneration !== authGeneration)
+            throw new axios.CanceledError("Сессия изменилась", response.config);
+        return response;
+    },
     async (error: AxiosError) => {
         const originalConfig = error.config as CustomAxiosRequestConfig;
+        const generation = originalConfig?._authGeneration ?? authGeneration;
+        if (generation !== authGeneration)
+            return Promise.reject(new axios.CanceledError("Сессия изменилась", originalConfig));
 
         if (error.response?.status === 401 && originalConfig && !originalConfig._isRetry
             && !originalConfig.url?.includes('/auth/login')
@@ -59,15 +78,16 @@ api.interceptors.response.use(
             originalConfig._isRetry = true;
 
             if (!refreshPromise) {
-                refreshPromise = fetchRefresh().finally(() => {
-                    refreshPromise = null;
+                const pending = fetchRefresh().finally(() => {
+                    if (refreshPromise === pending) refreshPromise = null;
                 });
+                refreshPromise = pending;
             }
 
             const { error: refreshError } = await tryCatch(refreshPromise);
             
             if (refreshError) {
-                Cookies.remove("access_token");
+                if (generation === authGeneration) Cookies.remove("access_token");
                 return Promise.reject(refreshError);
             }
             

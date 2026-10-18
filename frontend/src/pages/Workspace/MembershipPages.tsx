@@ -69,6 +69,7 @@ export function BlockPage() {
     queryFn: () => membershipApi.block(id),
   });
   const b = query.data;
+  const canViewTracker = can(b, "view_tasks");
   const requests = useQuery({
     queryKey: ["blockRequests"],
     queryFn: membershipApi.requests,
@@ -86,11 +87,11 @@ export function BlockPage() {
     >
       <div className={s.tabs}>
         <RouteLink to={`/blocks/${encodeURIComponent(id)}`}>О блоке</RouteLink>
-        <RouteLink
+        {canViewTracker && <RouteLink
           to={`/tasks?scope_kind=block&scope_id=${encodeURIComponent(id)}`}
         >
           Задачи
-        </RouteLink>
+        </RouteLink>}
       </div>
       <QueryState keepDataOnError={!!query.data}
         loading={query.isLoading} error={query.error}>
@@ -540,7 +541,7 @@ export function ParticipantCategoryPanel({ userId }: { userId: number }) {
           {can(category, "edit_participant_category") && (
             <ActionForm
               key={category.user_id}
-                  revision={category.revision}
+              revision={category.revision}
               fields={[
                 {
                   name: "category",

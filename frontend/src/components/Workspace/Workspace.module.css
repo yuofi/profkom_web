@@ -114,6 +114,10 @@
   padding: 14px 18px;
   line-height: 1.5;
 }
+.error .button {
+  color: var(--on-error-container);
+  border-color: currentColor;
+}
 .success {
   color: var(--tertiary);
 }
@@ -247,6 +251,10 @@
   min-height: 36px;
   cursor: pointer;
   color: var(--primary);
+}
+.details dd {
+  margin-inline-start: 0;
+  overflow-wrap: anywhere;
 }
 .decision {
   display: inline-block;

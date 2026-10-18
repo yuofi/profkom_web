@@ -148,7 +148,7 @@ export function LeadershipPage() {
             </p>
             <ActionForm
               key="transfer"
-                  revision={current.revision}
+              revision={current.revision}
               fields={[
                 {
                   name: "user",
@@ -175,7 +175,7 @@ export function LeadershipPage() {
           <Card title="Заместители председателя">
             <ActionForm
               key="deputies"
-                  revision={current.revision}
+              revision={current.revision}
               fields={[
                 {
                   name: "users",

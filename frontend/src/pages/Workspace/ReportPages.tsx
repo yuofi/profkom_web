@@ -378,7 +378,7 @@ export function MeetingPage() {
       <div className={s.stack}>
         <QueryState
           keepDataOnError={!!query.data}
-        loading={query.isLoading}
+          loading={query.isLoading}
           error={query.error}
           retry={() => {
             void query.refetch();
@@ -409,7 +409,7 @@ export function MeetingPage() {
             <Card title="Объявление созвона">
               <ActionForm
                 key={`${apiKind}/${id}`}
-                  revision={meeting?.revision ?? 0}
+                revision={meeting?.revision ?? 0}
                 fields={[
                   {
                     name: "title",

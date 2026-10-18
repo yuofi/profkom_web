@@ -49,7 +49,7 @@ export function Leaders({ leaders }: { leaders: Leader[] }) {
               <summary>Изменить заместителей</summary>
               <ActionForm
                 key={leader.role_assignment_id}
-                  revision={leader.revision}
+                revision={leader.revision}
                 fields={[
                   {
                     name: "users",
@@ -250,7 +250,7 @@ export function EventPage() {
                     <summary>Изменить главоргов</summary>
                     <ActionForm
                       key={event.event_id}
-                  revision={event.revision}
+                      revision={event.revision}
                       fields={[
                         {
                           name: "users",
@@ -457,7 +457,7 @@ export function SubeventPage() {
                     <summary>Изменить ответственных</summary>
                     <ActionForm
                       key={sub.subevent_id}
-                  revision={sub.revision}
+                      revision={sub.revision}
                       fields={[
                         {
                           name: "users",
@@ -493,7 +493,7 @@ export function SubeventPage() {
                     <summary>Изменить состав</summary>
                     <ActionForm
                       key={sub.subevent_id}
-                  revision={sub.revision}
+                      revision={sub.revision}
                       fields={[
                         {
                           name: "users",

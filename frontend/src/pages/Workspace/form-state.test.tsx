@@ -111,10 +111,14 @@ it("A06: selected missing recipients keep their fields and values until explicit
   for (const id of ids.slice(0, 2)) await act(async () => page!.container.querySelector<HTMLInputElement>(`input[type="checkbox"][value="${id}"]`)!.click());
   await meritBase(page.container);
   for (const id of ids.slice(0, 2)) { await change(field(page.container, `hours_${id}`), "7"); await change(field(page.container, `evaluation_${id}`), "0"); }
+  await change(field(page.container, `evaluation_${ids[0]}`), "1");
+  await change(field(page.container, `completed_${ids[0]}`), "2026-10-05T13:00");
   const contacts = page.client.getQueryData<{ user_id: number }[]>(["contacts"])!;
   await act(async () => page!.client.setQueryData(["contacts"], contacts.filter((p) => p.user_id !== ids[0] && p.user_id !== ids[2])));
   await settle();
   expect(field(page.container, `hours_${ids[0]}`).value).toBe("7");
+  expect(field(page.container, `evaluation_${ids[0]}`).value).toBe("1");
+  expect(field(page.container, `completed_${ids[0]}`).value).toBe("2026-10-05T13:00");
   expect(page.container.textContent).toContain("нет в актуальном справочнике");
   expect(page.container.querySelector(`input[type="checkbox"][value="${ids[2]}"]`)).toBeNull();
   await submit(page.container.querySelector("form")!);

@@ -3,6 +3,7 @@ import Cookies from "js-cookie";
 import { authApi } from "./api/auth.api";
 import { sessionApi } from "./api/session.api";
 import { normalizeApiError } from "./api/request";
+import { beginAuthTransition } from "./api";
 
 async function discardPrivateData(client: QueryClient) {
   await client.cancelQueries();
@@ -13,6 +14,7 @@ async function discardPrivateData(client: QueryClient) {
 
 /** The provider loads a profile only after this session is confirmed active. */
 export async function completeAuthentication(client: QueryClient, accessToken: string) {
+  beginAuthTransition();
   await discardPrivateData(client);
   Cookies.set("access_token", accessToken, { expires: 1 / 8 });
   return client.fetchQuery({ queryKey: ["session"], queryFn: sessionApi.get, staleTime: 0 });
@@ -25,6 +27,7 @@ export async function endSession(client: QueryClient) {
     // A rejected/expired session is already signed out; a network failure is not.
     if (normalizeApiError(error).status !== 401) throw error;
   }
+  beginAuthTransition();
   Cookies.remove("access_token");
   await discardPrivateData(client);
 }

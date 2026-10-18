@@ -175,3 +175,36 @@ it("A02: the actual profile form awaits its mutation and shows structured field 
   expect(page.container.textContent).toContain("Неверный телефон");
   expect(field(page.container, "phone").value).toBe("Мой ввод");
 });
+
+it("A01/FE-04: an approved outsider sees block information without a tracker entry", async () => {
+  const mock = installMockTransport("organizer", { delay: 0 }); restore = mock.restore;
+  const block = mock.state.blocks[0];
+  block.members = block.members.filter((m) => m.user.user_id !== mock.state.session.user_id);
+  block.capabilities = block.capabilities.filter((cap) => cap !== "view_tasks");
+  page = await mountWorkspace(<Routes><Route path="/blocks/:id" element={<BlockPage />} /></Routes>, { role: "organizer", path: `/blocks/${block.block_id}` });
+  await settle(); await settle();
+  expect(page.container.textContent).toContain("Состав блока");
+  expect(page.container.querySelector('a[href^="/tasks?scope_kind=block"]')).toBeNull();
+});
+
+it.each(["head_merit", "subevent_volunteer"] as const)("A04: %s belongs to its event's planned season", async (kind) => {
+  const mock = installMockTransport("leader", { delay: 0 }); restore = mock.restore;
+  const planned = mock.state.seasons.find((s) => s.state === "planned")!;
+  mock.state.events[0].season_id = planned.season_id;
+  const session = { ...mock.state.session, capabilities: mock.state.session.capabilities.filter((cap) => !["create_volunteer_merit", "view_summary"].includes(cap)) };
+  const scopeId = kind === "head_merit" ? "event-1" : "subevent-1";
+  page = await mountWorkspace(<SessionContext.Provider value={{ session, loading: false, error: null, refresh: () => {} }}><Routes><Route path="/seasons/:id/merits" element={<MeritsPage />} /></Routes></SessionContext.Provider>, { role: "leader", path: `/seasons/${planned.season_id}/merits?source_kind=${kind}&scope_id=${scopeId}` });
+  await settle(); await settle();
+  await fillMerit(page.container, mock.state.people[0].user_id!);
+  expect(mock.state.merits[0]).toMatchObject({ source_kind: kind, season_id: planned.season_id });
+  if (kind === "head_merit") expect(mock.state.merits[0].event_id).toBe(scopeId);
+  else expect(mock.state.merits[0].scope).toEqual({ kind: "subevent", id: scopeId });
+});
+
+it("A04: material editorship does not grant merit creation", async () => {
+  const mock = installMockTransport("editor", { delay: 0 }); restore = mock.restore;
+  page = await mountWorkspace(<Routes><Route path="/seasons/:id/merits" element={<MeritsPage />} /></Routes>, { role: "editor", path: "/seasons/season-1/merits" });
+  await settle(); await settle();
+  expect(page.container.querySelector("form")).toBeNull();
+  expect(page.container.textContent).toContain("Нет доступа к исходным полям");
+});

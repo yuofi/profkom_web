@@ -49,7 +49,7 @@ export function RegistrationForm({
     <div className={s.stack}>
       <ActionForm
         key={application.user_id}
-                  revision={application.revision}
+        revision={application.revision}
         fields={fields}
         onSubmit={async (v, expectedRevision) => {
           const form = Object.fromEntries(

@@ -317,7 +317,7 @@ function DecisionsForm({
       </p>
       <ActionForm
         key={`${summary.season_id}/${row.user.user_id}`}
-                  revision={summary.version}
+        revision={summary.version}
         fields={[
           {
             name: "decisions",

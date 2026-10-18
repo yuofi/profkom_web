@@ -67,7 +67,7 @@ export function MaterialsPage() {
         </div>
         <QueryState
           keepDataOnError={!!query.data}
-        loading={query.isLoading}
+          loading={query.isLoading}
           error={query.error}
           retry={() => {
             void query.refetch();
