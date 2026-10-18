@@ -84,6 +84,7 @@ export const seasonsApi = {
     }>("post", "/season-corrections", data),
   assessments: (params?: object) => page<Contribution>("/assessments", params),
   merits: (params?: object) => page<Merit>("/merits", params),
+  merit: (id: string) => request<Merit>("get", `/merits/${idPath(id)}`),
   createMerit: (data: MeritCreate) => request<Merit>("post", "/merits", data),
   updateMerit: (
     id: string,

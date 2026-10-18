@@ -34,10 +34,23 @@ const states = {
 };
 const decisions: Record<Decision, string> = {
   golden_red_bull: "Золотой Red Bull",
-  kick_warning: "Предупреждение",
-  kick: "Исключение",
-  nice: "Молодец",
+  kick_warning: "Предупреждение о кике",
+  kick: "Кик",
+  nice: "Найс",
 };
+export function DecisionBadges({ values }: { values: Decision[] }) {
+  return values.length ? (
+    <div className={s.row}>
+      {values.map((d) => (
+        <span key={d} className={`${s.decision} ${s[d]}`}>
+          {decisions[d]}
+        </span>
+      ))}
+    </div>
+  ) : (
+    <span>Нет отметок</span>
+  );
+}
 export function SeasonsPage() {
   const { session } = useSession();
   const { perform } = useWorkspaceActions();
@@ -459,15 +472,15 @@ export function SummaryPage() {
                               {row.evaluated_task_count}
                             </td>
                             <td>
-                              {row.decisions
-                                .map((d) => decisions[d])
-                                .join(", ") || "—"}
-                              <p className={s.muted}>
-                                Ранее:{" "}
-                                {row.previous_decisions
-                                  .map((d) => decisions[d])
-                                  .join(", ") || "—"}
-                              </p>
+                              <div aria-label="Решения текущего сезона">
+                                <DecisionBadges values={row.decisions} />
+                              </div>
+                              <div aria-label="Решения прошлого сезона">
+                                <p className={s.muted}>Ранее:</p>
+                                <DecisionBadges
+                                  values={row.previous_decisions}
+                                />
+                              </div>
                               {can(summary, "edit_decisions") &&
                                 row.user.user_id && (
                                   <DecisionsForm row={row} summary={summary} />

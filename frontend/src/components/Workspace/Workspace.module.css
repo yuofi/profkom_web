@@ -240,8 +240,10 @@
   color: var(--primary);
 }
 .decision {
-  color: var(--on-primary);
-  background: var(--primary);
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: var(--radius-small);
+  overflow-wrap: anywhere;
 }
 .warning {
   color: var(--on-error-container);
@@ -277,4 +279,27 @@
   outline-offset: 4px;
   border-radius: 12px;
   scroll-margin-block: 1rem;
+}
+.recipientOptions {
+  display: grid;
+  gap: 0.5rem;
+  max-height: 16rem;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+.decision.golden_red_bull {
+  background: #f2d477;
+  color: #302300;
+}
+.decision.kick_warning {
+  background: #ffbd83;
+  color: #341b00;
+}
+.decision.kick {
+  background: var(--error-container);
+  color: var(--on-error-container);
+}
+.decision.nice {
+  background: var(--tertiary-container);
+  color: var(--on-tertiary-container);
 }

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { normalizeApiError } from "../../utils/api/request";
 import s from "./Workspace.module.css";
 import type { Values } from "./formValues";
+import { RecipientPicker } from "./RecipientPicker";
 export interface Field {
   name: string;
   label: string;
@@ -22,7 +23,16 @@ export interface Field {
   hint?: string;
   min?: number;
   max?: number;
+  searchable?: boolean;
+  whenSelected?: { name: string; value: string };
 }
+
+const visible = (field: Field, values: Values) =>
+  !field.whenSelected ||
+  (Array.isArray(values[field.whenSelected.name]) &&
+    (values[field.whenSelected.name] as string[]).includes(
+      field.whenSelected.value,
+    ));
 
 export function ActionForm({
   title,
@@ -48,49 +58,54 @@ export function ActionForm({
   const [failure, setFailure] = useState<ReturnType<
     typeof normalizeApiError
   > | null>(null);
-  const schema = z.object(
-    Object.fromEntries(
-      fields.map((f) => [
-        f.name,
-        f.type === "multi"
-          ? f.required
-            ? z.array(z.string()).min(1, "Выберите хотя бы одного участника")
-            : z.array(z.string())
-          : z
-              .string()
-              .refine(
-                (v) => !f.required || v.trim().length > 0,
-                "Обязательное поле",
-              )
-              .refine(
-                (v) =>
-                  !v ||
-                  f.type !== "number" ||
-                  (Number.isFinite(Number(v)) &&
-                    (f.min === undefined || Number(v) >= f.min) &&
-                    (f.max === undefined || Number(v) <= f.max)),
-                "Проверьте число",
-              )
-              .refine(
-                (v) => !v || f.type !== "url" || /^https?:\/\//i.test(v),
-                "Используйте ссылку https:// или http://",
-              )
-              .refine(
-                (v) =>
-                  !v ||
-                  f.type !== "email" ||
-                  /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v),
-                "Проверьте адрес почты",
-              ),
-      ]),
-    ),
-  );
+  const schema = (values: Values) =>
+    z.object(
+      Object.fromEntries(
+        fields
+          .filter((f) => visible(f, values))
+          .map((f) => [
+            f.name,
+            f.type === "multi"
+              ? f.required
+                ? z
+                    .array(z.string())
+                    .min(1, "Выберите хотя бы одного участника")
+                : z.array(z.string())
+              : z
+                  .string()
+                  .refine(
+                    (v) => !f.required || v.trim().length > 0,
+                    "Обязательное поле",
+                  )
+                  .refine(
+                    (v) =>
+                      !v ||
+                      f.type !== "number" ||
+                      (Number.isFinite(Number(v)) &&
+                        (f.min === undefined || Number(v) >= f.min) &&
+                        (f.max === undefined || Number(v) <= f.max)),
+                    "Проверьте число",
+                  )
+                  .refine(
+                    (v) => !v || f.type !== "url" || /^https?:\/\//i.test(v),
+                    "Используйте ссылку https:// или http://",
+                  )
+                  .refine(
+                    (v) =>
+                      !v ||
+                      f.type !== "email" ||
+                      /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v),
+                    "Проверьте адрес почты",
+                  ),
+          ]),
+      ),
+    );
   const form = useFormik<Values>({
     initialValues: Object.fromEntries(
       fields.map((f) => [f.name, f.value ?? (f.type === "multi" ? [] : "")]),
     ),
     validate: (values) => {
-      const result = schema.safeParse(values);
+      const result = schema(values).safeParse(values);
       return result.success
         ? {}
         : Object.fromEntries(
@@ -127,73 +142,93 @@ export function ActionForm({
         disabled={form.isSubmitting || disabled}
       >
         {title && <h3>{title}</h3>}
-        {fields.map((field) => {
-          const id = `${formId}-${field.name}`;
-          const error = form.touched[field.name] && form.errors[field.name];
-          const props = {
-            id,
-            name: field.name,
-            onBlur: form.handleBlur,
-            "aria-invalid": !!error,
-            "aria-describedby": error ? `${id}-error` : undefined,
-            required: field.required,
-            disabled: form.isSubmitting,
-          };
-          return (
-            <label className={s.field} key={field.name} htmlFor={id}>
-              <span>
-                {field.label}
-                {field.required ? " *" : ""}
-              </span>
-              {field.type === "textarea" ? (
-                <textarea
-                  {...props}
-                  value={String(form.values[field.name])}
-                  onChange={form.handleChange}
-                />
-              ) : field.type === "select" || field.type === "multi" ? (
-                <select
-                  {...props}
-                  multiple={field.type === "multi"}
-                  value={form.values[field.name]}
-                  onChange={(e) => {
-                    void form.setFieldValue(
-                      field.name,
-                      field.type === "multi"
-                        ? Array.from(e.target.selectedOptions, (o) => o.value)
-                        : e.target.value,
-                    );
-                  }}
+        {fields
+          .filter((field) => visible(field, form.values))
+          .map((field) => {
+            const id = `${formId}-${field.name}`;
+            const error = form.touched[field.name] && form.errors[field.name];
+            const props = {
+              id,
+              name: field.name,
+              onBlur: form.handleBlur,
+              "aria-invalid": !!error,
+              "aria-describedby": error ? `${id}-error` : undefined,
+              required: field.required,
+              disabled: form.isSubmitting,
+            };
+            return (
+              <div className={s.field} key={field.name}>
+                <label
+                  id={`${id}-label`}
+                  htmlFor={field.searchable ? `${id}-search` : id}
                 >
-                  {field.type !== "multi" && (
-                    <option value="">Выберите…</option>
-                  )}
-                  {field.options?.map((o) => (
-                    <option value={o.value} key={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  {...props}
-                  type={field.type ?? "text"}
-                  min={field.min}
-                  max={field.max}
-                  step={field.type === "number" ? "any" : undefined}
-                  value={String(form.values[field.name])}
-                  onChange={form.handleChange}
-                />
-              )}
-              {field.hint && <small>{field.hint}</small>}
-              {error && (
-                <span className={s.fieldError} id={`${id}-error`}>
-                  {String(error)}
-                </span>
-              )}
-            </label>
-          );
-        })}
+                  {field.label}
+                  {field.required ? " *" : ""}
+                </label>
+                {field.type === "multi" && field.searchable ? (
+                  <RecipientPicker
+                    id={id}
+                    invalid={!!error}
+                    describedBy={error ? `${id}-error` : undefined}
+                    options={field.options ?? []}
+                    value={form.values[field.name] as string[]}
+                    onChange={(value) =>
+                      void form.setFieldValue(field.name, value)
+                    }
+                  />
+                ) : field.type === "textarea" ? (
+                  <textarea
+                    {...props}
+                    value={String(form.values[field.name])}
+                    onChange={(e) =>
+                      void form.setFieldValue(field.name, e.target.value)
+                    }
+                  />
+                ) : field.type === "select" || field.type === "multi" ? (
+                  <select
+                    {...props}
+                    multiple={field.type === "multi"}
+                    value={form.values[field.name]}
+                    onChange={(e) => {
+                      void form.setFieldValue(
+                        field.name,
+                        field.type === "multi"
+                          ? Array.from(e.target.selectedOptions, (o) => o.value)
+                          : e.target.value,
+                      );
+                    }}
+                  >
+                    {field.type !== "multi" && (
+                      <option value="">Выберите…</option>
+                    )}
+                    {field.options?.map((o) => (
+                      <option value={o.value} key={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    {...props}
+                    type={field.type ?? "text"}
+                    min={field.min}
+                    max={field.max}
+                    step={field.type === "number" ? "any" : undefined}
+                    value={String(form.values[field.name])}
+                    onChange={(e) =>
+                      void form.setFieldValue(field.name, e.target.value)
+                    }
+                  />
+                )}
+                {field.hint && <small>{field.hint}</small>}
+                {error && (
+                  <span className={s.fieldError} id={`${id}-error`}>
+                    {String(error)}
+                  </span>
+                )}
+              </div>
+            );
+          })}
         {children}
         {failure && (
           <div className={s.error} role="alert">

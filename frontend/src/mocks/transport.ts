@@ -391,22 +391,53 @@ export function installMockTransport(
           if (!state.chair || season.state !== "closed") return denied();
           if (data.expected_version !== summary.version) return conflict();
           const changes = data.changes as {
+            kind: "task_inputs" | "assessment_inputs" | "merit";
             id: string;
             expected_revision: number;
             values: object;
           }[];
+          const recordFor = (c: (typeof changes)[number]) =>
+            c.kind === "task_inputs"
+              ? taskInputs.get(c.id)
+              : c.kind === "merit"
+                ? state.merits.find((m) => m.merit_id === c.id)
+                : c.kind === "assessment_inputs"
+                  ? state.assessments.find((a) => a.assignment_id === c.id)
+                  : undefined;
           if (
+            !changes?.length ||
+            !String(data.reason ?? "").trim() ||
             changes.some(
               (c) =>
-                state.assessments.find((a) => a.assignment_id === c.id)
-                  ?.revision !== c.expected_revision,
+                !recordFor(c) ||
+                Object.keys(c.values).some((k) =>
+                  [
+                    "score",
+                    "total_score",
+                    "season_id",
+                    "capabilities",
+                    "revision",
+                  ].includes(k),
+                ),
             )
+          )
+            return fail(
+              422,
+              "invalid_correction",
+              "Проверьте исходные поля и причину",
+            );
+          if (
+            changes.some((c) => recordFor(c)!.revision !== c.expected_revision)
           )
             return conflict();
           changes.forEach((c) => {
-            const a = state.assessments.find((a) => a.assignment_id === c.id)!;
+            const a = recordFor(c)!;
             Object.assign(a, c.values);
             a.revision++;
+            if (c.kind === "task_inputs") {
+              const task = state.tasks.find((t) => t.task_id === c.id);
+              if (task && "deadline_at" in a) task.deadline_at = a.deadline_at;
+            }
           });
           summary.version++;
           return [200, clone(summary)];
@@ -1301,7 +1332,8 @@ export function installMockTransport(
             .map((r) => ({ ...clone(r), capabilities: requestCapabilities(r) }))
             .filter(
               (r) =>
-                state.global || r.user.user_id === state.session.user_id ||
+                state.global ||
+                r.user.user_id === state.session.user_id ||
                 r.capabilities.length,
             ),
         );
@@ -1673,7 +1705,15 @@ export function installMockTransport(
         : denied();
     if (path === "/merits" || parts[0] === "merits") {
       if (!state.manager) return denied();
-      if (method === "get") return list(clone(filter(state.merits, url)));
+      if (method === "get") {
+        if (parts[1]) {
+          const merit = state.merits.find((m) => m.merit_id === parts[1]);
+          return merit
+            ? [200, clone(merit)]
+            : fail(404, "not_found", "Запись недоступна");
+        }
+        return list(clone(filter(state.merits, url)));
+      }
       if (method === "patch") {
         const merit = state.merits.find((m) => m.merit_id === parts[1]);
         if (!merit || mismatch(data, merit)) return conflict();

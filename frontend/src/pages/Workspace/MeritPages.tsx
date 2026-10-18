@@ -20,6 +20,8 @@ import {
   richText,
   type Merit,
   type MeritCreate,
+  type TaskInputs,
+  type AssessmentInputs,
 } from "../../utils/api/contract";
 import { can, useSession } from "../../utils/session";
 import { toUtc, displayDate, moscowInput } from "../../utils/dates";
@@ -41,9 +43,10 @@ const criteriaLabels = {
   in_person: "Очное присутствие",
   fixed_time: "В определённое время",
 };
-function useMeritContexts() {
+function useMeritContexts(enabled: boolean) {
   return useQuery({
     queryKey: ["merits", "contexts"],
+    enabled,
     queryFn: async () => {
       const [blocks, events] = await Promise.all([
         membershipApi.blocks(),
@@ -58,17 +61,31 @@ function useMeritContexts() {
     },
   });
 }
-function MeritForm({
+export function MeritForm({
   seasonId,
   existing,
+  save,
 }: {
   seasonId: string;
   existing?: Merit;
+  save?: (data: MeritCreate) => Promise<void>;
 }) {
   const { session } = useSession();
-  const { perform } = useWorkspaceActions();
+  const { perform, refresh } = useWorkspaceActions();
   const people = usePeopleOptions();
-  const contexts = useMeritContexts();
+  const contexts = useMeritContexts(!existing);
+  const recipientOptions = [...people.options];
+  for (const recipient of existing?.recipients ?? []) {
+    if (!recipientOptions.some((p) => p.value === String(recipient.user_id))) {
+      const person = people.data?.find((p) => p.user_id === recipient.user_id);
+      recipientOptions.push({
+        value: String(recipient.user_id),
+        label: person
+          ? `${person.surname} ${person.name}`
+          : `Участник #${recipient.user_id} · сохранённый получатель`,
+      });
+    }
+  }
   const [source, setSource] = useState<MeritCreate["source_kind"]>(
     existing?.source_kind ?? "block_volunteer",
   );
@@ -140,11 +157,14 @@ function MeritForm({
       type: "multi",
       required: true,
       value: existing?.recipients.map((r) => String(r.user_id)),
-      options: people.options,
+      options: recipientOptions,
+      searchable: true,
     },
-    ...people.options.flatMap((p) => [
+    ...recipientOptions.flatMap((p) => [
       {
         name: `hours_${p.value}`,
+        whenSelected: { name: "users", value: p.value },
+        required: true,
         label: `Часы: ${p.label}`,
         type: "number" as const,
         min: 0,
@@ -155,6 +175,8 @@ function MeritForm({
       },
       {
         name: `evaluation_${p.value}`,
+        whenSelected: { name: "users", value: p.value },
+        required: true,
         label: `Оценка: ${p.label}`,
         type: "select" as const,
         value: String(
@@ -168,6 +190,7 @@ function MeritForm({
       },
       {
         name: `completed_${p.value}`,
+        whenSelected: { name: "users", value: p.value },
         label: `Дата выполнения, МСК: ${p.label}`,
         type: "datetime-local" as const,
         value: existing?.recipients.find((r) => r.user_id === Number(p.value))
@@ -188,10 +211,31 @@ function MeritForm({
   ];
   return (
     <QueryState
-      loading={contexts.isLoading || people.isLoading}
-      error={contexts.error ?? people.error}
+      loading={(!existing && contexts.isLoading) || people.isLoading}
+      error={(!existing && contexts.error) || people.error}
     >
       <div className={s.form}>
+        {existing && (
+          <details>
+            <summary>Текущие сохранённые значения заслуги</summary>
+            <p>
+              {existing.title}: {displayDate(existing.assigned_at)} —{" "}
+              {displayDate(existing.deadline_at)}
+            </p>
+            <ul>
+              {existing.recipients.map((r) => (
+                <li key={r.user_id}>
+                  {
+                    recipientOptions.find((p) => p.value === String(r.user_id))
+                      ?.label
+                  }
+                  : часы {r.hours}, оценка {r.evaluation}, выполнено{" "}
+                  {displayDate(r.completed_at)}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
         <label className={s.field}>
           Вид записи
           <select
@@ -203,7 +247,10 @@ function MeritForm({
             }}
           >
             <option value="">Выберите…</option>
-            {allowedKinds.map(([value, label]) => (
+            {(existing
+              ? [[existing.source_kind, kinds[existing.source_kind]]]
+              : allowedKinds
+            ).map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
               </option>
@@ -219,7 +266,10 @@ function MeritForm({
               onChange={(e) => setScopeId(e.target.value)}
             >
               <option value="">Выберите…</option>
-              {scopeOptions?.map((p) => (
+              {(existing
+                ? [{ value: scopeId, label: scopeId }]
+                : scopeOptions
+              )?.map((p) => (
                 <option key={p.value} value={p.value}>
                   {p.label}
                 </option>
@@ -234,11 +284,15 @@ function MeritForm({
         </p>
         {!people.isLoading && (
           <ActionForm
-            key={`${source}/${scopeId}/${existing?.revision ?? 0}/${people.options.length}`}
+            key={`${source}/${scopeId}/${existing?.merit_id ?? "new"}`}
             fields={fields}
+            onConflict={() => {
+              void people.refetch();
+              void refresh();
+            }}
             onSubmit={async (v) => {
               if (
-                !allowedKinds.some(([k]) => k === source) ||
+                (!existing && !allowedKinds.some(([k]) => k === source)) ||
                 (source !== "chair_merit" && !scopeId)
               )
                 throw Error("Выберите доступную область работы");
@@ -307,6 +361,10 @@ function MeritForm({
                 recipients,
                 reason: text(v, "reason"),
               };
+              if (save) {
+                await save(data);
+                return;
+              }
               await perform(() =>
                 existing
                   ? seasonsApi.updateMerit(existing.merit_id, {
@@ -418,116 +476,336 @@ export function SourcesPage() {
     </Page>
   );
 }
+type CorrectionKind = "task_inputs" | "assessment_inputs" | "merit";
+type CorrectionRecord =
+  | { kind: "task_inputs"; record: TaskInputs }
+  | { kind: "assessment_inputs"; record: AssessmentInputs }
+  | { kind: "merit"; record: Merit };
+function ClosedCorrectionEditor({
+  kind,
+  objectId,
+  seasonId,
+  save,
+}: {
+  kind: CorrectionKind;
+  objectId: string;
+  seasonId: string;
+  save: (revision: number, values: object, reason: string) => Promise<void>;
+}) {
+  const { refresh } = useWorkspaceActions();
+  const query = useQuery<CorrectionRecord>({
+    queryKey: [
+      kind === "merit" ? "merits" : "assessments",
+      "closed",
+      kind,
+      objectId,
+    ],
+    queryFn: async () => {
+      if (kind === "task_inputs")
+        return { kind, record: await tasksApi.inputs(objectId) };
+      if (kind === "assessment_inputs")
+        return { kind, record: await tasksApi.assessment(objectId) };
+      return { kind, record: await seasonsApi.merit(objectId) };
+    },
+  });
+  const data = query.data;
+  let fields: Field[] = [];
+  if (data?.kind === "task_inputs")
+    fields = [
+      {
+        name: "assigned",
+        label: "Дата выдачи, МСК",
+        type: "datetime-local",
+        required: true,
+        value: moscowInput(data.record.assigned_at),
+      },
+      {
+        name: "deadline",
+        label: "Дедлайн, МСК",
+        type: "datetime-local",
+        required: true,
+        value: moscowInput(data.record.deadline_at),
+      },
+      ...Object.entries(criteriaLabels).map(([name, label]) => ({
+        name,
+        label,
+        type: "select" as const,
+        required: true,
+        value: String(
+          data.record.criteria[name as keyof typeof criteriaLabels],
+        ),
+        options: [
+          { value: "true", label: "Да" },
+          { value: "false", label: "Нет" },
+        ],
+      })),
+    ];
+  if (data?.kind === "assessment_inputs")
+    fields = [
+      {
+        name: "hours",
+        label: "Часы",
+        type: "number",
+        min: 0,
+        required: true,
+        value: String(data.record.hours ?? ""),
+      },
+      {
+        name: "evaluation",
+        label: "Оценка",
+        type: "select",
+        required: true,
+        value: String(data.record.evaluation ?? ""),
+        options: [-1, 0, 1, 1.5].map((n) => ({
+          value: String(n),
+          label: String(n),
+        })),
+      },
+      {
+        name: "completed",
+        label: "Дата выполнения, МСК",
+        type: "datetime-local",
+        value: data.record.effective_completed_at
+          ? moscowInput(data.record.effective_completed_at)
+          : "",
+      },
+    ];
+  return (
+    <QueryState
+      loading={query.isLoading}
+      error={query.error}
+      retry={() => void query.refetch()}
+    >
+      {data && (
+        <>
+          <p>Версия исходной записи: {data.record.revision}</p>
+          {data.kind === "merit" ? (
+            <MeritForm
+              seasonId={seasonId}
+              existing={data.record}
+              save={async (value) => {
+                await save(
+                  data.record.revision,
+                  {
+                    title: value.title,
+                    description: value.description,
+                    assigned_at: value.assigned_at,
+                    deadline_at: value.deadline_at,
+                    criteria: value.criteria,
+                    recipients: value.recipients,
+                  },
+                  value.reason,
+                );
+              }}
+            />
+          ) : (
+            <>
+              <details>
+                <summary>Текущие сохранённые значения</summary>
+                <dl>
+                  {fields.map((f) => (
+                    <div key={f.name}>
+                      <dt>{f.label}</dt>
+                      <dd>
+                        {f.options?.find((o) => o.value === f.value)?.label ??
+                          f.value ??
+                          "—"}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </details>
+              <ActionForm
+                fields={[
+                  ...fields,
+                  {
+                    name: "reason",
+                    label: "Причина корректировки",
+                    required: true,
+                    type: "textarea",
+                  },
+                ]}
+                onConflict={() => void refresh()}
+                onSubmit={async (v) => {
+                  let values: object;
+                  if (data.kind === "task_inputs") {
+                    const assigned_at = toUtc(text(v, "assigned")),
+                      deadline_at = toUtc(text(v, "deadline"));
+                    if (assigned_at > deadline_at)
+                      throw Error("Дата выдачи позже дедлайна");
+                    values = {
+                      assigned_at,
+                      deadline_at,
+                      criteria: Object.fromEntries(
+                        Object.keys(criteriaLabels).map((k) => [
+                          k,
+                          text(v, k) === "true",
+                        ]),
+                      ),
+                    };
+                  } else {
+                    const evaluation = number(v, "evaluation");
+                    if (evaluation > 0 && !text(v, "completed"))
+                      throw Error(
+                        "Для положительной оценки нужна дата выполнения",
+                      );
+                    values = {
+                      hours: number(v, "hours"),
+                      evaluation,
+                      effective_completed_at: text(v, "completed")
+                        ? toUtc(text(v, "completed"))
+                        : null,
+                    };
+                  }
+                  await save(data.record.revision, values, text(v, "reason"));
+                }}
+              />
+            </>
+          )}
+        </>
+      )}
+    </QueryState>
+  );
+}
 export function CorrectionsPage() {
   const { id = "" } = useParams();
   const { session } = useSession();
   const { perform } = useWorkspaceActions();
+  const [kind, setKind] = useState<CorrectionKind>("assessment_inputs");
+  const [objectId, setObjectId] = useState("");
+  const chair = can(session, "close_season");
   const summary = useQuery({
     queryKey: ["summary", id],
     queryFn: () => seasonsApi.summary(id),
-    enabled: can(session, "view_summary"),
+    enabled: chair && can(session, "view_summary"),
   });
-  const sources = useQuery({
-    queryKey: ["assessments", "sources", id],
-    queryFn: () => seasonsApi.assessments({ season_id: id }),
-    enabled: can(summary.data, "correct_summary"),
+  const allowed = chair && can(summary.data, "correct_summary");
+  const tasks = useQuery({
+    queryKey: ["tasks", "closed-correction", id],
+    queryFn: () => tasksApi.list({ season_id: id, mine: false }),
+    enabled: allowed,
   });
-  if (!can(session, "close_season"))
-    return (
-      <Page title="Исправление закрытых итогов">
-        <Empty>Исправление доступно председателю.</Empty>
-      </Page>
-    );
+  const merits = useQuery({
+    queryKey: ["merits", id],
+    queryFn: () => seasonsApi.merits({ season_id: id }),
+    enabled: allowed,
+  });
+  const options =
+    kind === "merit"
+      ? merits.data?.items.map((m) => ({ value: m.merit_id, label: m.title }))
+      : kind === "task_inputs"
+        ? tasks.data?.items.map((t) => ({ value: t.task_id, label: t.title }))
+        : tasks.data?.items.flatMap((t) =>
+            t.assignments.map((a) => ({
+              value: a.assignment_id,
+              label: `${a.assignee.display_name}: ${t.title}`,
+            })),
+          );
   return (
-    <Page title="Исправление закрытых итогов">
-      <Card>
-        <p>
-          Изменение создаёт новую версию сводной. Баллы пересчитывает сервер с
-          сохранённым составом сезона.
-        </p>
-        {can(summary.data, "correct_summary") ? (
-          <ActionForm
-            fields={[
-              {
-                name: "assignment",
-                label: "Оцениваемое назначение",
-                type: "select",
-                required: true,
-                options: sources.data?.items
-                  .filter((c) => c.assignment_inputs)
-                  .map((c) => ({
-                    value: c.assignment_inputs!.assignment_id,
-                    label: `${c.user.display_name}: ${c.source_title}`,
-                  })),
-              },
-              {
-                name: "hours",
-                label: "Часы",
-                type: "number",
-                min: 0,
-                required: true,
-              },
-              {
-                name: "evaluation",
-                label: "Оценка",
-                type: "select",
-                required: true,
-                options: [-1, 0, 1, 1.5].map((n) => ({
-                  value: String(n),
-                  label: String(n),
-                })),
-              },
-              {
-                name: "completed",
-                label: "Исправленная дата выполнения, МСК — при необходимости",
-                type: "datetime-local",
-              },
-              {
-                name: "reason",
-                label: "Причина корректировки",
-                required: true,
-                type: "textarea",
-              },
-            ]}
-            onSubmit={async (v) => {
-              const source = sources.data?.items.find(
-                (c) =>
-                  c.assignment_inputs?.assignment_id === text(v, "assignment"),
-              )?.assignment_inputs;
-              if (!source || !summary.data)
-                throw Error("Обновите исходные данные");
-              await perform(() =>
-                seasonsApi.correctSummary(id, {
-                  expected_version: summary.data.version,
-                  reason: text(v, "reason"),
-                  changes: [
-                    {
-                      kind: "assessment_inputs",
-                      id: source.assignment_id,
-                      expected_revision: source.revision,
-                      values: {
-                        hours: number(v, "hours"),
-                        evaluation: number(v, "evaluation"),
-                        ...(text(v, "completed")
-                          ? {
-                              effective_completed_at: toUtc(
-                                text(v, "completed"),
-                              ),
-                            }
-                          : {}),
-                      },
-                    },
-                  ],
-                }),
-              );
-            }}
-          />
-        ) : (
-          <Empty>
-            Исправление доступно председателю после закрытия сезона.
-          </Empty>
-        )}
-      </Card>
+    <Page
+      title="Исправление закрытых итогов"
+      actions={
+        <RouteLink to={`/seasons/${encodeURIComponent(id)}`}>
+          К сезону
+        </RouteLink>
+      }
+    >
+      {!chair ? (
+        <Empty>Исправление доступно председателю.</Empty>
+      ) : (
+        <QueryState
+          loading={summary.isLoading}
+          error={summary.error}
+          retry={() => void summary.refetch()}
+        >
+          {allowed ? (
+            <Card>
+              <p>
+                Версия сводной: {summary.data!.version}. Исправление создаёт
+                новую версию. Баллы и бонусы пересчитывает сервер по
+                сохранённому составу сезона.
+              </p>
+              <label className={s.field}>
+                Тип исправления
+                <select
+                  value={kind}
+                  onChange={(e) => {
+                    setKind(e.target.value as CorrectionKind);
+                    setObjectId("");
+                  }}
+                >
+                  <option value="assessment_inputs">
+                    Оценивание назначения
+                  </option>
+                  <option value="task_inputs">Даты и критерии задачи</option>
+                  <option value="merit">Заслуга или волонтёрская работа</option>
+                </select>
+              </label>
+              <QueryState
+                loading={kind === "merit" ? merits.isLoading : tasks.isLoading}
+                error={kind === "merit" ? merits.error : tasks.error}
+                retry={() =>
+                  void (kind === "merit" ? merits.refetch() : tasks.refetch())
+                }
+              >
+                <label className={s.field}>
+                  {kind === "assessment_inputs"
+                    ? "Оцениваемое назначение"
+                    : kind === "task_inputs"
+                      ? "Задача"
+                      : "Запись заслуги"}
+                  <select
+                    value={objectId}
+                    onChange={(e) => setObjectId(e.target.value)}
+                  >
+                    <option value="">Выберите…</option>
+                    {options?.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {options?.length === 0 && (
+                  <Empty>Нет доступных записей этого типа.</Empty>
+                )}
+                {objectId && (
+                  <ClosedCorrectionEditor
+                    key={`${kind}/${objectId}`}
+                    kind={kind}
+                    objectId={objectId}
+                    seasonId={id}
+                    save={async (revision, values, reason) => {
+                      if (!can(summary.data, "correct_summary"))
+                        throw Error(
+                          "Право исправления отозвано. Обновите данные.",
+                        );
+                      await perform(() =>
+                        seasonsApi.correctSummary(id, {
+                          expected_version: summary.data!.version,
+                          reason,
+                          changes: [
+                            {
+                              kind,
+                              id: objectId,
+                              expected_revision: revision,
+                              values,
+                            },
+                          ],
+                        }),
+                      );
+                    }}
+                  />
+                )}
+              </QueryState>
+            </Card>
+          ) : (
+            <Empty>
+              Исправление доступно председателю после закрытия сезона.
+            </Empty>
+          )}
+        </QueryState>
+      )}
     </Page>
   );
 }
