@@ -16,6 +16,7 @@ import { ApiError } from "../../utils/api/request";
 import { MeritForm } from "./MeritPages";
 import { AvatarPicker } from "../../components/Workspace/AvatarPicker";
 import { filesApi } from "../../utils/api/files.api";
+import { MaterialsPage } from "./MaterialPages";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let mock: ReturnType<typeof installMockTransport> | undefined;
@@ -160,4 +161,40 @@ it.each([
     expect(intent).not.toHaveBeenCalled();
     expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("до 10 МиБ");
   }
+});
+
+it("A09: empty filtered materials explain the result and reset search and kind together", async () => {
+  mock = installMockTransport("organizer", { delay: 0 });
+  mock.state.materials.push({ ...mock.state.materials[0], material_id: "general-test", title: "Общий документ", kind: "general" });
+  page = await mountWorkspace(<MaterialsPage />, { role: "organizer" }); await settle();
+  await change(page.container.querySelector("select")!, "general");
+  await change(page.container.querySelector("input")!, "НЕСУЩЕСТВУЮЩИЙ МАТЕРИАЛ");
+  expect(page.container.textContent).toContain("Ничего не найдено");
+  expect(page.container.querySelector("h2")).toBeNull();
+  await clickButton(page.container, "Сбросить фильтры");
+  expect(page.container.querySelector("select")!.value).toBe("");
+  expect(page.container.querySelector("input")!.value).toBe("");
+  expect(page.container.textContent).toContain("Общий документ");
+  expect(page.container.textContent).toContain(mock.state.materials[0].title);
+});
+
+it("A09: an empty catalogue differs from a filtered result and an error", async () => {
+  mock = installMockTransport("organizer", { delay: 0 }); mock.state.materials.length = 0;
+  page = await mountWorkspace(<MaterialsPage />, { role: "organizer" }); await settle();
+  expect(page.container.textContent).toContain("Материалы готовятся");
+  expect(page.container.textContent).not.toContain("Ничего не найдено");
+  await page.cleanup(); page = undefined; mock.restore();
+  mock = installMockTransport("organizer", { delay: 0, scenario: "error" });
+  page = await mountWorkspace(<MaterialsPage />, { role: "organizer" }); await settle();
+  expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("Сервис временно недоступен");
+  expect(page.container.textContent).not.toMatch(/Материалы готовятся|Ничего не найдено/);
+});
+
+it("A09: initial loading does not claim that the catalogue is empty", async () => {
+  mock = installMockTransport("organizer", { delay: 40 });
+  page = await mountWorkspace(<MaterialsPage />, { role: "organizer" });
+  expect(page.container.textContent).toContain("Загружаем данные");
+  expect(page.container.textContent).not.toMatch(/Материалы готовятся|Ничего не найдено/);
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 65)));
+  expect(page.container.querySelector("h2")).not.toBeNull();
 });

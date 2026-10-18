@@ -36,6 +36,10 @@ export function MaterialsPage() {
     queryKey: ["workspaceBlocks"],
     queryFn: membershipApi.blocks,
   });
+  const visibleItems = (query.data?.items ?? []).filter((m) =>
+    (!kind || m.kind === kind) && `${m.title} ${m.description}`.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru")),
+  );
+  const clearFilters = () => { setSearch(""); setKind(""); };
   return (
     <Page
       title="Материалы"
@@ -70,15 +74,7 @@ export function MaterialsPage() {
           }}
         >
           <div className={s.grid}>
-            {query.data?.items
-              .filter(
-                (m) =>
-                  (!kind || m.kind === kind) &&
-                  `${m.title} ${m.description}`
-                    .toLowerCase()
-                    .includes(search.toLowerCase()),
-              )
-              .map((m) => (
+            {visibleItems.map((m) => (
                 <Card key={m.material_id} title={m.title}>
                   <Badge>
                     {m.kind === "kmb"
@@ -96,6 +92,9 @@ export function MaterialsPage() {
                 </Card>
               ))}
           </div>
+          {!!query.data?.items.length && !visibleItems.length && (
+            <Empty>Ничего не найдено. Измените условия поиска или <button className={s.button} onClick={clearFilters}>Сбросить фильтры</button>.</Empty>
+          )}
           {query.data?.items.length === 0 && (
             <Empty>
               Материалы готовятся. Начните с КМБ или уточните у мастера блока,
