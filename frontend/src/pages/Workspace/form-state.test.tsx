@@ -14,6 +14,8 @@ import { seasonsApi } from "../../utils/api/seasons.api";
 import { QueryState } from "../../components/Workspace/WorkspaceUI";
 import { ApiError } from "../../utils/api/request";
 import { MeritForm } from "./MeritPages";
+import { AvatarPicker } from "../../components/Workspace/AvatarPicker";
+import { filesApi } from "../../utils/api/files.api";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let mock: ReturnType<typeof installMockTransport> | undefined;
@@ -136,4 +138,26 @@ it("A06: a newly fetched recipient gets valid empty optional fields", async () =
   await change(field(page.container, "hours_9999"), "2"); await change(field(page.container, "evaluation_9999"), "0");
   await submit(page.container.querySelector("form")!);
   expect(mock.state.merits[0].recipients).toEqual([{ user_id: 9999, hours: 2, evaluation: 0, completed_at: null }]);
+});
+
+it.each([
+  [6 * 1024 * 1024, "image/jpeg", true],
+  [10 * 1024 * 1024 - 1, "image/png", true],
+  [10 * 1024 * 1024, "image/webp", true],
+  [10 * 1024 * 1024 + 1, "image/jpeg", false],
+  [100, "text/html", false],
+])("A07: photo size %i / %s reaches upload intent only when allowed", async (size, mime, allowed) => {
+  mock = installMockTransport("organizer", { delay: 0 });
+  const intent = vi.spyOn(filesApi, "intent");
+  page = await mountWorkspace(<AvatarPicker />, { role: "organizer" }); await settle();
+  const input = page.container.querySelector<HTMLInputElement>('input[type="file"]')!;
+  Object.defineProperty(input, "files", { value: [new File([new Uint8Array(size)], "size-probe", { type: mime })] });
+  await act(async () => input.dispatchEvent(new Event("change", { bubbles: true }))); await settle(); await settle();
+  if (allowed) {
+    expect(intent).toHaveBeenCalledWith(expect.objectContaining({ size_bytes: size, mime_type: mime, owner_kind: "avatar" }));
+    expect(page.container.textContent).toContain("Аватар сохранён");
+  } else {
+    expect(intent).not.toHaveBeenCalled();
+    expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("до 10 МиБ");
+  }
 });

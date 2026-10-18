@@ -53,7 +53,7 @@ export function AvatarPicker() {
         </div>
       </QueryState>
       <label className={s.field}>
-        Своё фото: PNG, JPEG или WebP до 5 МБ
+        Своё фото: PNG, JPEG или WebP до 10 МиБ
         <input
           type="file"
           accept="image/png,image/jpeg,image/webp"
@@ -67,9 +67,9 @@ export function AvatarPicker() {
                 !["image/png", "image/jpeg", "image/webp"].includes(
                   file.type,
                 ) ||
-                file.size > 5 * 1024 * 1024
+                file.size > 10 * 1024 * 1024
               )
-                throw Error("Выберите PNG, JPEG или WebP до 5 МБ");
+                throw Error("Выберите PNG, JPEG или WebP до 10 МиБ");
               const uploaded = await filesApi.upload(
                 file,
                 { owner_kind: "avatar", purpose: "avatar" },
