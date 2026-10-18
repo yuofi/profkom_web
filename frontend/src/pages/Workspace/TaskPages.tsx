@@ -33,8 +33,7 @@ function TaskCreateForm({ scope }: { scope: ScopeRef }) {
     ...Object.entries(criteriaLabels).map(([name, label]) => ({ name, label, type: 'select' as const, value: 'false', options: [{ value: 'false', label: 'Нет' }, { value: 'true', label: 'Да' }] }))];
   return <Card title="Новая задача"><QueryState loading={members.loading} error={members.error}><ActionForm fields={fields} submitLabel="Создать задачу" onSubmit={async v => {
     const deadline = toUtc(text(v, 'deadline')); const seasonId = context.data?.season ?? text(v, 'season'); const season = seasons.data?.items.find(x => x.season_id === seasonId);
-    if (!season || season.state !== 'open') throw Error('Для выдачи задачи нужен открытый сезон');
-    if (deadline < season.starts_at || deadline > season.ends_at) throw Error('Дедлайн должен попадать в сезон');
+    if (!season || !(scope.kind === 'block' ? ['open'] : ['open', 'planned']).includes(season.state)) throw Error('В этом состоянии сезона новые задачи недоступны');
     await perform(async () => { const created = await tasksApi.create({ season_id: seasonId, scope, title: text(v, 'title'), description: richText(text(v, 'description')), deadline_at: deadline, criteria: { ...emptyCriteria(), ...Object.fromEntries(Object.keys(criteriaLabels).map(k => [k, text(v, k) === 'true'])) }, assignees: ids(v, 'users').map(user_id => ({ user_id, hours: number(v, 'hours') })) }); navigate(getTaskRoute(created.task_id)); });
   }} /></QueryState></Card>;
 }

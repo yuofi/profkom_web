@@ -35,6 +35,24 @@ describe('Safe contract fixtures', () => {
   });
 });
 describe('API commands through mock transport', () => {
+  it('opens the next season without hiding or changing the previous open work', async () => {
+    useMock('chair'); await seasonsApi.command('season-next', 'open', { expected_revision: 1 });
+    const seasons = (await seasonsApi.list()).items;
+    expect(seasons.find(s => s.season_id === 'season-1')).toMatchObject({ state: 'open', is_current: false });
+    expect((await tasksApi.list({ mine: false })).items[0].season_id).toBe('season-1');
+    expect(seasons.filter(s => s.is_current)).toHaveLength(1);
+  });
+  it('moves all event-owned records with the explicit season correction', async () => {
+    useMock('chair'); await seasonsApi.correctSeason({ object_kind: 'event', object_id: 'event-1', expected_revision: 1, target_season_id: 'season-next', reason: 'Ошибочный сезон' });
+    expect((await tasksApi.get('task-1')).season_id).toBe('season-next');
+    expect((await reportsApi.get('report-1')).season_id).toBe('season-next');
+  });
+  it('saves several decisions without archiving an account or altering another season', async () => {
+    const fixture = useMock('hr'); const before = (await seasonsApi.summary('season-1')).version;
+    const result = await seasonsApi.decisions('season-1', 101, { expected_version: before, decisions: ['kick', 'nice'], reason: 'Решение' });
+    expect(result.rows[0].decisions).toEqual(['kick', 'nice']); expect(fixture.state.session.account_state).toBe('active');
+    expect((await seasonsApi.summary('season-previous')).rows[0].decisions).not.toEqual(['kick', 'nice']);
+  });
   it('retains old assignment history and records an independent replacement', async () => {
     useMock('leader');
     const result = await tasksApi.reassign('assignment-2', { expected_revision: 1, new_assignee_user_id: 101, hours: 4, previous_outcome: 'not_completed', evaluation: -1, reason: 'Исполнитель вышел' });

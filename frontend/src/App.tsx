@@ -8,6 +8,8 @@ import { WorkspaceStartPage, ComingPage, LeadershipPage } from './pages/Workspac
 import { Loading } from './components/Workspace/WorkspaceUI';
 import { EventsListPage, EventPage, SubeventPage } from './pages/Workspace/EventPages';
 import { TasksListPage, TaskPage, UnresolvedPage } from './pages/Workspace/TaskPages';
+import { SeasonsPage, SeasonPage, SummaryPage } from './pages/Workspace/SeasonPages';
+import { MeritsPage, SourcesPage, CorrectionsPage } from './pages/Workspace/MeritPages';
 import { ReportsPage, ReportPage, ReportHistoryPage, MeetingPage } from './pages/Workspace/ReportPages';
 import { DocViewerPage } from './pages/DocViewPage/DocViewerPage';
 import { GreetingPage } from './pages/Greeting/Greeting';
@@ -47,7 +49,13 @@ function App() {
       <Route path="reports/history" element={<ReportHistoryPage />} />
       <Route path="reports/:id" element={<ReportPage />} />
       <Route path="meetings/:kind/:id" element={<MeetingPage />} />
-      {['blocks', 'calendar', 'notifications', 'seasons', 'registrations'].map(path => <Route key={path} path={`${path}/*`} element={<ComingPage title={{ blocks: 'Блоки', calendar: 'Календарь', notifications: 'Уведомления', seasons: 'Сезоны и ККР', registrations: 'Регистрации' }[path]!} />} />)}
+      <Route path="seasons" element={<SeasonsPage />} />
+      <Route path="seasons/:id" element={<SeasonPage />} />
+      <Route path="seasons/:id/summary" element={<SummaryPage />} />
+      <Route path="seasons/:id/merits" element={<MeritsPage />} />
+      <Route path="seasons/:id/sources" element={<SourcesPage />} />
+      <Route path="seasons/:id/corrections" element={<CorrectionsPage />} />
+      {['blocks', 'calendar', 'notifications', 'registrations'].map(path => <Route key={path} path={`${path}/*`} element={<ComingPage title={{ blocks: 'Блоки', calendar: 'Календарь', notifications: 'Уведомления', seasons: 'Сезоны и ККР', registrations: 'Регистрации' }[path]!} />} />)}
       <Route element={<ExtendedRoute />}><Route path="admin/:tab" element={<AdminPanel />} /></Route>
     </Route></Route>
     <Route path="*" element={<NotFoundPage />} />

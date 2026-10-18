@@ -21,6 +21,7 @@ export function installMockTransport(role: MockRole = 'organizer', options: { de
   const taskInputs = new Map<string, TaskInputs>([[state.inputs.task_id, state.inputs]]);
   const snapshot = (r: Report): ReportVersion => ({ report_id: r.report_id, version: r.published_version!, title: r.title, content: clone(r.content), files: clone(r.files), published_at: r.published_at!, published_by: clone(state.user) });
   const versions = new Map<string, ReportVersion[]>(state.reports.filter(r => r.published_version).map(r => [r.report_id, [snapshot(r)]]));
+  const summaries = new Map(state.seasons.map(s => [s.season_id, { ...clone(state.summary), season_id: s.season_id }]));
   const visibleReport = (report: Report) => { const r = clone(report); if (!r.capabilities.includes('edit_report')) { delete r.draft_title; delete r.draft_content; delete r.draft_files; } return r; };
   let sequence = 10;
   let leadership = { chair: state.people[3], deputies: [state.people[4]], revision: 1, capabilities: state.chair ? ['transfer_chair', 'manage_chair_deputies'] : [] };
@@ -107,19 +108,39 @@ export function installMockTransport(role: MockRole = 'organizer', options: { de
       if (parts[2] === 'summary.xlsx') return state.global ? [200, new Blob(['Synthetic export fixture'], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })] : denied();
       if (parts[2] === 'summary') {
         if (!state.global) return denied();
-        if (method === 'put') {
-          if (data.expected_version !== state.summary.version) return conflict();
-          const row = state.summary.rows.find(r => r.user.user_id === Number(parts[4]));
-          if (row) row.decisions = data.decisions as Decision[];
-          state.summary.version++;
+        const summary = summaries.get(season.season_id)!;
+        summary.capabilities = season.state === 'closed' ? state.chair ? ['edit_decisions', 'correct_summary'] : [] : ['edit_decisions'];
+        if (parts[3] === 'correct') {
+          if (!state.chair || season.state !== 'closed') return denied();
+          if (data.expected_version !== summary.version) return conflict();
+          const changes = data.changes as { id: string; expected_revision: number; values: object }[];
+          if (changes.some(c => state.assessments.find(a => a.assignment_id === c.id)?.revision !== c.expected_revision)) return conflict();
+          changes.forEach(c => { const a = state.assessments.find(a => a.assignment_id === c.id)!; Object.assign(a, c.values); a.revision++; });
+          summary.version++; return [200, clone(summary)];
         }
-        return [200, clone({ ...state.summary, season_id: season.season_id })];
+        if (method === 'put') {
+          if (season.state === 'closed' && !state.chair) return denied();
+          if (data.expected_version !== summary.version) return conflict();
+          const row = summary.rows.find(r => r.user.user_id === Number(parts[4]));
+          if (row) row.decisions = data.decisions as Decision[];
+          summary.version++;
+        }
+        return [200, clone(summary)];
       }
-      if (parts[2] === 'master-bonuses') return state.global ? list([]) : denied();
+      if (parts[2] === 'master-bonuses') return state.global ? list([{ bonus_id: 'bonus-1', season_id: season.season_id, block_id: 'block-info', recipient_participant_id: 'participant-102', recipient: state.people[1], eligible_organizer_count: 1, amount: 2.5, calculation_version: 'master_bonus_v1', basis: [{ participant_id: 'participant-101', user: state.people[0], member_task_score: 10, included: true, exclusion: null }, { participant_id: 'participant-105', user: state.people[4], member_task_score: 0, included: false, exclusion: 'non_positive' }, { participant_id: 'participant-102', user: state.people[1], member_task_score: 4, included: false, exclusion: 'master' }] }]) : denied();
       if (method === 'get') return [200, clone(season)];
       if (!state.chair) return denied();
       if (mismatch(data, season)) return conflict();
-      if (parts[2] === 'close') return fail(409, 'season_not_ready', 'Сезон пока нельзя закрыть', { blockers: [{ kind: 'missing_final_report', owner_kind: 'subevent', owner_id: 'subevent-1', title: 'Финальный отчёт: Лекции и встречи' }] });
+      if (parts[2] === 'close') {
+        const owners = [...state.events.filter(e => e.season_id === season.season_id).map(e => ({ kind: 'event', id: e.event_id, title: e.title })), ...state.subevents.filter(s => state.events.some(e => e.event_id === s.event_id && e.season_id === season.season_id)).map(s => ({ kind: 'subevent', id: s.subevent_id, title: s.title }))];
+        const blockers = owners.filter(o => !state.reports.some(r => r.owner_kind === o.kind && r.owner_id === o.id && r.kind === 'final' && r.state === 'published')).map(o => ({ kind: 'missing_final_report', owner_kind: o.kind, owner_id: o.id, title: `Финальный отчёт: ${o.title}` }));
+        const previous = state.seasons.find(s => s.season_id === season.previous_season_id); if (previous && previous.state !== 'closed') blockers.push({ kind: 'previous_season_not_closed', owner_kind: 'season', owner_id: previous.season_id, title: previous.title });
+        state.tasks.filter(t => t.season_id === season.season_id).forEach(t => t.assignments.filter(a => !['accepted', 'not_completed', 'cancelled'].includes(a.status)).forEach(a => blockers.push({ kind: 'unfinished_assignment', owner_kind: 'assignment', owner_id: a.assignment_id, title: `${t.title}: ${a.assignee.display_name}` })));
+        if (blockers.length) return fail(409, 'season_not_ready', 'Сезон пока нельзя закрыть', { blockers });
+        season.state = 'closed'; season.is_current = false; season.capabilities = [];
+        const summary = summaries.get(season.season_id)!; summary.state = 'approved'; summary.approved_at = mockNow; summary.version++;
+        return [200, { season: clone(season), summary: clone(summary) }];
+      }
       if (parts[2] === 'open') { state.seasons.forEach(s => { s.is_current = false; }); season.is_current = true; season.state = 'open'; season.capabilities = ['begin_summary', 'edit_season']; }
       else if (parts[2] === 'begin-summary') { season.state = 'summarizing'; season.capabilities = ['close_season']; }
       else Object.assign(season, data);
@@ -129,7 +150,12 @@ export function installMockTransport(role: MockRole = 'organizer', options: { de
       if (!state.session.capabilities.includes('correct_season')) return denied();
       const event = state.events.find(e => e.event_id === data.object_id);
       if (!event || mismatch(data, event)) return conflict();
+      if (state.seasons.find(s => s.season_id === event.season_id)?.state === 'closed' || state.seasons.find(s => s.season_id === data.target_season_id)?.state === 'closed') return conflict();
       const source = event.season_id; event.season_id = String(data.target_season_id); event.revision++;
+      const subs = state.subevents.filter(s => s.event_id === event.event_id).map(s => s.subevent_id);
+      state.tasks.filter(t => t.scope.kind === 'subevent' && subs.includes(t.scope.id)).forEach(t => { t.season_id = event.season_id; });
+      state.reports.filter(r => r.owner_id === event.event_id || subs.includes(r.owner_id)).forEach(r => { r.season_id = event.season_id; });
+      state.merits.filter(m => m.event_id === event.event_id || m.scope?.kind === 'subevent' && subs.includes(m.scope.id)).forEach(m => { m.season_id = event.season_id; });
       return [200, { object_kind: data.object_kind, object_id: data.object_id, source_season_id: source, target_season_id: event.season_id, revision: event.revision }];
     }
     if (path === '/events' && parts.length === 1) {
@@ -371,10 +397,11 @@ export function installMockTransport(role: MockRole = 'organizer', options: { de
     if (path === '/calendar') return list([...state.tasks.map(t => ({ id: `calendar-${t.task_id}`, season_id: t.season_id, kind: 'task_deadline', title: t.title, starts_at: t.deadline_at, ends_at: null, target: { kind: 'task', id: t.task_id } })), ...state.meetings.map(m => ({ id: `calendar-${m.meeting_id}`, season_id: 'season-1', kind: 'meeting', title: m.title, starts_at: m.starts_at, ends_at: null, target: { kind: m.owner_kind, id: m.owner_id } }))].filter(item => (!url.searchParams.get('from') || item.starts_at >= url.searchParams.get('from')!) && (!url.searchParams.get('to') || item.starts_at <= url.searchParams.get('to')!)));
     if (path === '/notifications') return list(clone(state.notifications));
     if (parts[0] === 'notifications') { state.notifications.filter(n => parts[1] === 'read-all' || n.id === parts[1]).forEach(n => { n.read_at = mockNow; }); return [200, {}]; }
-    if (path === '/assessments') return state.global ? list([]) : denied();
+    if (path === '/assessments') return state.global ? list(state.tasks.filter(t => !url.searchParams.get('season_id') || t.season_id === url.searchParams.get('season_id')).flatMap(t => t.assignments.map(a => ({ contribution_id: `contribution-${a.assignment_id}`, season_id: t.season_id, participant_id: `participant-${a.assignee.user_id}`, user: a.assignee, source_kind: t.scope.kind === 'block' ? 'block_task' : 'subevent_task', source_id: t.scope.id, source_title: t.title, score: a.status === 'accepted' ? 12.5 : null, calculation_version: 'synthetic_fixture', assignment_inputs: clone(state.assessments.find(i => i.assignment_id === a.assignment_id)), capabilities: [] })))) : denied();
     if (path === '/merits' || parts[0] === 'merits') {
       if (!state.manager) return denied();
-      if (method === 'get') return list(clone(state.merits));
+      if (method === 'get') return list(clone(filter(state.merits, url)));
+      if (method === 'patch') { const merit = state.merits.find(m => m.merit_id === parts[1]); if (!merit || mismatch(data, merit)) return conflict(); Object.assign(merit, data); return changed(merit); }
       const merit: Merit = { ...data as unknown as Merit, merit_id: parts[1] ?? id('merit'), created_by: state.user, created_at: mockNow, revision: 1, capabilities: ['edit_assessment_inputs'] };
       state.merits.push(merit); return [201, clone(merit)];
     }
