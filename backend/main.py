@@ -2017,7 +2017,7 @@ def _to_season_summary_out(s) -> SeasonSummaryOut:
         version=s.version,
         approved_at=s.approved_at,
         rows=rows,
-        capabilities=access.season_caps(s),
+        capabilities=s.capabilities,
     )
 
 
@@ -2161,7 +2161,7 @@ def close_season(season_id: str, payload: SeasonRevisionIn, cur: User = Depends(
         raise HTTPException(403, "Only the chair can close a season")
     try:
         s, summary = db.close_season(season_id, payload.expected_revision)
-        return {"season": _to_season_out(s), "summary": summary}
+        return {"season": _to_season_out(s), "summary": _to_season_summary_out(summary)}
     except LookupError as e:
         raise HTTPException(404, str(e))
     except SeasonNotReadyError as e:
@@ -3505,5 +3505,7 @@ from registration import register_routes as register_registration_routes
 register_registration_routes(router)
 from membership import register_routes as register_membership_routes
 register_membership_routes(router)
+from season_summaries import register_routes as register_summary_routes
+register_summary_routes(router)
 
 app.include_router(router)

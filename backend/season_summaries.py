@@ -1,0 +1,148 @@
+"""Immutable approved summaries and atomic scoring corrections."""
+import json,copy,uuid
+from collections import defaultdict
+from contextvars import ContextVar
+from dataclasses import asdict
+from fastapi import Depends,HTTPException
+from models import User
+from auth import get_current_user
+from database import db,SeasonORM,SeasonSummaryORM,SeasonDecisionORM,ContributionORM,MasterBonusORM,TaskORM,AssignmentORM,MeritORM,_recalculate_closed_master_bonuses_for_session,_calculate_season_summary_for_session
+from domain_models import SummaryVersionORM
+from registration import now,audit
+from api_contract import Page
+
+_suppress=ContextVar('suppress_summary_snapshot',default=False)
+DECISIONS={'golden_red_bull','kick_warning','kick','nice'}
+
+def source_id(c):
+    from membership import block_id_for
+    return block_id_for(c.source_id) if c.source_kind in ('block_task','block_volunteer','master_bonus') else c.source_id
+
+def totals(session,season_id,participant_id):
+    groups=defaultdict(float);titles={}
+    for c in session.query(ContributionORM).filter_by(season_id=season_id,participant_id=participant_id):
+        k=(c.source_kind,source_id(c));groups[k]+=c.score or 0;titles[k]=c.source_title
+    return [dict(source_kind=k[0],source_id=k[1],title=titles[k],score=value) for k,value in sorted(groups.items())]
+
+def rerank(rows):
+    rows.sort(key=lambda r:(-r['total_score'],r['participant_id']))
+    for i,row in enumerate(rows):row['rank']=i+1 if i==0 or row['total_score']!=rows[i-1]['total_score'] else rows[i-1]['rank']
+
+def current(session,season_id):return session.query(SeasonSummaryORM).filter_by(season_id=season_id).first()
+
+def store_snapshot(session,season_id,uid,reason):
+    session.flush();row=current(session,season_id)
+    if not row or row.state!='approved':return
+    existing=session.query(SummaryVersionORM).filter_by(season_id=season_id,version=row.version).first()
+    if existing:return
+    previous=session.get(SeasonORM,season_id).previous_season_id
+    previous_row=current(session,previous) if previous else None
+    older=session.query(SummaryVersionORM).filter_by(season_id=season_id).order_by(SummaryVersionORM.version).first()
+    data=dict(season_id=season_id,state='approved',version=row.version,approved_at=row.approved_at,rows=json.loads(row.rows_json),capabilities=['view_summary'])
+    ledger=[dict(contribution_id=c.contribution_id,participant_id=c.participant_id,source_kind=c.source_kind,source_id=source_id(c),source_title=c.source_title,score=c.score,calculation_version=c.calculation_version) for c in session.query(ContributionORM).filter_by(season_id=season_id)]
+    bonuses=[dict(bonus_id=b.bonus_id,recipient_participant_id=b.recipient_participant_id,basis=json.loads(b.basis_json),amount=b.amount,calculation_version=b.calculation_version) for b in session.query(MasterBonusORM).filter_by(season_id=season_id)]
+    session.add(SummaryVersionORM(snapshot_id=str(uuid.uuid4()),season_id=season_id,version=row.version,summary_json=json.dumps(data,ensure_ascii=False),contributions_json=json.dumps(ledger,ensure_ascii=False),bonuses_json=json.dumps(bonuses,ensure_ascii=False),previous_summary_version=older.previous_summary_version if older else (previous_row.version if previous_row else None),changed_by_user_id=uid,reason=reason,created_at=now()))
+
+
+def refresh(session,season_id,uid,reason):
+    if _suppress.get():return
+    season=session.get(SeasonORM,season_id)
+    if not season:return
+    session.flush();row=current(session,season_id)
+    if season.state!='closed':
+        if not row:
+            row=SeasonSummaryORM(summary_id='summary-'+season_id,season_id=season_id,state='draft',version=1,created_at=now(),rows_json='[]');session.add(row)
+        row.version+=1;session.flush();return
+    if not row:raise ValueError('Closed summary snapshot missing')
+    if not db.is_chair(uid):raise ValueError('Forbidden: only chair can correct closed scoring')
+    store_snapshot(session,season_id,uid,'Initial preserved snapshot')
+    rows=json.loads(row.rows_json);old_version=row.version
+    allowed={r['participant_id'] for r in rows}
+    if any(c.participant_id not in allowed for c in session.query(ContributionORM).filter_by(season_id=season_id)):raise ValueError('Recipient is outside the closed participant snapshot')
+    _recalculate_closed_master_bonuses_for_session(session,season_id);session.flush()
+    decisions={d.user_id:json.loads(d.decisions_json) for d in session.query(SeasonDecisionORM).filter_by(season_id=season_id)}
+    for r in rows:
+        r['source_scores']=totals(session,season_id,r['participant_id']);r['total_score']=sum(x['score'] for x in r['source_scores'])
+        uid_row=r['user']['user_id']
+        r['evaluated_task_count']=session.query(AssignmentORM).join(TaskORM).filter(TaskORM.season_id==season_id,AssignmentORM.assignee_user_id==uid_row,AssignmentORM.status.in_(['accepted','not_completed']),AssignmentORM.evaluation.isnot(None)).count() if uid_row is not None else r['evaluated_task_count']
+        if uid_row in decisions:r['decisions']=decisions[uid_row]
+    rerank(rows);row.rows_json=json.dumps(rows,ensure_ascii=False);row.version+=1;session.flush()
+    audit(session,'season_summary',season_id,uid,reason,dict(version=old_version),dict(version=row.version))
+    store_snapshot(session,season_id,uid,reason)
+
+
+def correct(season_id,expected_version,reason,changes,uid):
+    if not db.is_chair(uid):raise ValueError('Forbidden: only chair can correct summary')
+    if not reason or not reason.strip():raise ValueError('Reason is required')
+    with db.atomic():
+        with db._session() as s:
+            season=s.get(SeasonORM,season_id);row=current(s,season_id)
+            if not season or season.state!='closed':raise ValueError('Only closed summaries can be corrected')
+            if not row or row.version!=expected_version:raise ValueError('Conflict: version mismatch')
+            if not changes or len({(x['kind'],x['id']) for x in changes})!=len(changes):raise ValueError('Changes must be nonempty and unique')
+            # Validate the whole command, including object/season ownership, before mutation.
+            from main import TaskInputsPatchIn,AssignmentInputsPatchIn,MeritPatchIn
+            schemas={'task_inputs':TaskInputsPatchIn,'assessment_inputs':AssignmentInputsPatchIn,'merit':MeritPatchIn}
+            prepared=[]
+            for c in changes:
+                if c['kind'] not in schemas:raise ValueError('Invalid correction kind')
+                cls={'task_inputs':TaskORM,'assessment_inputs':AssignmentORM,'merit':MeritORM}[c['kind']]
+                obj=s.get(cls,c['id'])
+                if not obj:raise LookupError('Correction object not found')
+                sid=s.get(TaskORM,obj.task_id).season_id if cls is AssignmentORM else obj.season_id
+                if sid!=season_id:raise ValueError('Correction object belongs to another season')
+                if obj.revision!=c['expected_revision']:raise ValueError('Conflict: object revision mismatch')
+                if {'expected_revision','reason'} & set(c['values']):raise ValueError('Invalid correction values')
+                value=schemas[c['kind']].model_validate(dict(expected_revision=c['expected_revision'],reason=reason,**c['values'])).model_dump(exclude_unset=True)
+                value.pop('reason');value.pop('expected_revision');prepared.append((c,value))
+            marker=_suppress.set(True)
+            try:
+                for c,v in prepared:
+                    if c['kind']=='task_inputs':db.patch_task_assessment_inputs(c['id'],c['expected_revision'],reason,v.get('assigned_at'),v.get('deadline_at'),v.get('criteria'),uid)
+                    elif c['kind']=='assessment_inputs':db.patch_assignment_assessment_inputs(c['id'],c['expected_revision'],reason,v.get('hours'),v.get('evaluation'),v.get('effective_completed_at'),uid)
+                    else:db.patch_merit(c['id'],c['expected_revision'],v,reason,uid)
+            finally:_suppress.reset(marker)
+            refresh(s,season_id,uid,reason);s.commit()
+            return db.get_season_summary(season_id,uid)
+
+
+def decisions(season_id,target,values,expected_version,reason,uid):
+    if len(set(values))!=len(values) or not set(values)<=DECISIONS:raise ValueError('Invalid decisions')
+    with db._session() as s:
+        season=s.get(SeasonORM,season_id)
+        if not season:raise LookupError('Season not found')
+        if season.state=='closed':
+            if not db.is_chair(uid):raise ValueError('Forbidden: only chair can edit closed decisions')
+            if not reason or not reason.strip():raise ValueError('Reason is required')
+        elif not (db.is_tachki(uid) or db.is_hr_master(uid)):raise ValueError('Forbidden: decision editor required')
+        row=current(s,season_id)
+        if (row.version if row else 1)!=expected_version:raise ValueError('Conflict: summary version mismatch')
+        summary=db.get_season_summary(season_id,uid)
+        if not any(r.user.user_id==target for r in summary.rows):raise ValueError('Participant is outside this summary')
+        d=s.query(SeasonDecisionORM).filter_by(season_id=season_id,user_id=target).first()
+        old=json.loads(d.decisions_json) if d else []
+        if not d:d=SeasonDecisionORM(season_id=season_id,user_id=target,changed_by_user_id=uid,decisions_json='[]',updated_at=now());s.add(d)
+        d.decisions_json=json.dumps(values);d.changed_by_user_id=uid;d.reason=reason;d.updated_at=now()
+        audit(s,'summary_decisions',season_id+':'+str(target),uid,reason,dict(decisions=old),dict(decisions=values))
+        refresh(s,season_id,uid,reason or 'Summary decisions updated');s.commit()
+        return db.get_season_summary(season_id,uid)
+
+
+def register_routes(router):
+    def require_reader(uid):
+        if not(db.is_tachki(uid) or db.is_hr_master(uid)):raise HTTPException(403,'Summary reader required')
+    def metadata(row):
+        with db._session() as s:
+            author=db._get_user_ref(s,row.changed_by_user_id) if row.changed_by_user_id else None
+            return dict(version=row.version,changed_by=asdict(author) if author else dict(user_id=None,display_name='Система',avatar_url=None),changed_at=row.created_at,reason=row.reason,previous_summary_version=row.previous_summary_version)
+    @router.get('/seasons/{season_id}/summary/versions')
+    def versions(season_id:str,cur:User=Depends(get_current_user)):
+        require_reader(cur.user_id)
+        with db._session() as s:return Page(items=[metadata(r) for r in s.query(SummaryVersionORM).filter_by(season_id=season_id).order_by(SummaryVersionORM.version.desc())])
+    @router.get('/seasons/{season_id}/summary/versions/{version}')
+    def version(season_id:str,version:int,cur:User=Depends(get_current_user)):
+        require_reader(cur.user_id)
+        with db._session() as s:
+            r=s.query(SummaryVersionORM).filter_by(season_id=season_id,version=version).first()
+            if not r:raise HTTPException(404,'Summary version not found')
+            return dict(**metadata(r),summary=json.loads(r.summary_json),contributions=json.loads(r.contributions_json),master_bonuses=json.loads(r.bonuses_json))

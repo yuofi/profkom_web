@@ -74,3 +74,17 @@ class ScopeTenureORM(Base):
     principal_id=Column(String,nullable=True)
     started_at=Column(String,nullable=False)
     ended_at=Column(String,nullable=True)
+
+class SummaryVersionORM(Base):
+    __tablename__='summary_versions'
+    snapshot_id=Column(String,primary_key=True)
+    season_id=Column(String,nullable=False,index=True)
+    version=Column(Integer,nullable=False)
+    summary_json=Column(Text,nullable=False)
+    contributions_json=Column(Text,nullable=False)
+    bonuses_json=Column(Text,nullable=False)
+    previous_summary_version=Column(Integer,nullable=True)
+    changed_by_user_id=Column(Integer,nullable=True)
+    reason=Column(Text,nullable=False)
+    created_at=Column(String,nullable=False)
+    __table_args__=(Index('unique_summary_version',season_id,version,unique=True),)

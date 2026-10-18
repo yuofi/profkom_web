@@ -380,7 +380,7 @@ class MasterBonusORM(Base):
     bonus_id = Column(String, primary_key=True)
     season_id = Column(String, ForeignKey("seasons.season_id"), nullable=False, index=True)
     block_id = Column(String, ForeignKey("block.name"), nullable=False, index=True)
-    recipient_participant_id = Column(String, nullable=False)
+    recipient_participant_id = Column(String, nullable=True)
     recipient_user_id = Column(Integer, nullable=True)
     eligible_organizer_count = Column(Integer, nullable=False, default=0)
     amount = Column(Float, nullable=False, default=0.0)
@@ -634,6 +634,23 @@ def generate_summary_xlsx(summary: SeasonSummaryDC, contributions: list[Calculat
     return buf.getvalue()
 
 
+
+
+def _ensure_nullable_bonus_recipient():
+    with engine.begin() as conn:
+        info=conn.execute(text("PRAGMA table_info(master_bonuses)")).fetchall()
+        if not any(r[1]=="recipient_participant_id" and r[3] for r in info):return
+        from sqlalchemy.schema import CreateTable
+        conn.exec_driver_sql("BEGIN IMMEDIATE")
+        ddl=str(CreateTable(MasterBonusORM.__table__).compile(engine)).replace("CREATE TABLE master_bonuses", "CREATE TABLE master_bonuses_v13")
+        conn.exec_driver_sql(ddl)
+        columns=", ".join(c.name for c in MasterBonusORM.__table__.columns)
+        conn.exec_driver_sql(f"INSERT INTO master_bonuses_v13 ({columns}) SELECT {columns} FROM master_bonuses")
+        conn.exec_driver_sql("DROP TABLE master_bonuses")
+        conn.exec_driver_sql("ALTER TABLE master_bonuses_v13 RENAME TO master_bonuses")
+        for index in MasterBonusORM.__table__.indexes:index.create(conn,checkfirst=True)
+
+_ensure_nullable_bonus_recipient()
 
 
 def _ensure_sqlite_users_password_column() -> None:
@@ -1533,6 +1550,15 @@ def _calculate_master_bonuses_for_session(session: Session, season_id: str) -> l
             except Exception:
                 pass
 
+        from domain_models import MembershipORM,BlockMetaORM
+        from participation import dt
+        meta=session.query(BlockMetaORM).filter_by(legacy_name=b.name).first()
+        period=session.get(SeasonORM,season_id)
+        if meta:
+            for member in session.query(MembershipORM).filter_by(block_id=meta.block_id):
+                if member.user_id is not None and (not member.joined_at or dt(member.joined_at)<=dt(period.ends_at)) and (not member.left_at or dt(member.left_at)>=dt(period.starts_at)):
+                    candidate_uids.add(member.user_id)
+
         contribs = session.query(ContributionORM).filter(
             ContributionORM.season_id == season_id,
             ContributionORM.source_kind == "block_task",
@@ -1555,7 +1581,7 @@ def _calculate_master_bonuses_for_session(session: Session, season_id: str) -> l
             if master_uid is not None and uid == master_uid:
                 exclusion = "master"
             elif score <= 0:
-                exclusion = "zero_or_negative"
+                exclusion = "non_positive"
             else:
                 included = True
             basis_items.append(
@@ -1627,7 +1653,7 @@ def _recalculate_closed_master_bonuses_for_session(session: Session, season_id: 
             if mb.recipient_user_id is not None and uid == mb.recipient_user_id:
                 exclusion = "master"
             elif score <= 0:
-                exclusion = "zero_or_negative"
+                exclusion = "non_positive"
             else:
                 included = True
 
@@ -1692,6 +1718,13 @@ def _calculate_season_summary_for_session(session: Session, season_id: str, is_a
         if not is_arch:
             included_users.append(u)
         else:
+            from domain_models import ParticipationORM
+            from participation import dt
+            season=session.get(SeasonORM,season_id)
+            participated=any(dt(p.started_at)<dt(season.ends_at) and (not p.ended_at or dt(p.ended_at)>dt(season.starts_at)) for p in session.query(ParticipationORM).filter_by(participant_id=f"participant-{u.user_id}"))
+            if participated:
+                included_users.append(u)
+                continue
             has_contrib = session.query(ContributionORM).filter(
                 ContributionORM.season_id == season_id,
                 ContributionORM.user_id == u.user_id,
@@ -1738,7 +1771,8 @@ def _calculate_season_summary_for_session(session: Session, season_id: str, is_a
         group_num = u.contact.group_number if u.contact else None
         category = getattr(u, "category", "activist") or "activist"
         user_blocks = _parse_blocks(u.blocks) if u.blocks else []
-        blocks_dc = [SummaryRowBlockDC(block_id=b, name=b) for b in user_blocks]
+        from domain_seed import meta_for
+        blocks_dc = [SummaryRowBlockDC(block_id=meta_for(session,b).block_id, name=b) for b in user_blocks if session.get(BlockORM,b)]
         is_master = bool(
             session.query(RoleAssignmentORM).filter(
                 RoleAssignmentORM.user_id == u.user_id,
@@ -1753,15 +1787,8 @@ def _calculate_season_summary_for_session(session: Session, season_id: str, is_a
             ContributionORM.season_id == season_id,
             ContributionORM.user_id == u.user_id,
         ).all()
-        source_scores = [
-            SummaryRowSourceScoreDC(
-                source_kind=c.source_kind,
-                source_id=c.source_id,
-                title=c.source_title,
-                score=c.score or 0.0,
-            )
-            for c in contribs
-        ]
+        from season_summaries import totals
+        source_scores=[SummaryRowSourceScoreDC(**x) for x in totals(session,season_id,f"participant-{u.user_id}")]
         total_score = sum(c.score or 0.0 for c in contribs)
 
         eval_count = (
@@ -3107,6 +3134,8 @@ class Database:
                     else:
                         c.score = mb.amount
 
+            # Flush the first and second calculation pass before freezing totals.
+            session.flush()
             # Snapshot approved summary
             summary = _calculate_season_summary_for_session(session, season_id, is_approved=True)
             summary_orm = session.query(SeasonSummaryORM).filter(SeasonSummaryORM.season_id == season_id).first()
@@ -3147,41 +3176,8 @@ class Database:
                 )
                 session.add(summary_orm)
 
-            # Automatic promotion of juniors to activists
-            try:
-                def _parse_iso_dt(s: str) -> datetime:
-                    return datetime.fromisoformat(s.replace("Z", "+00:00"))
-
-                s_start = _parse_iso_dt(row.starts_at)
-                s_end = _parse_iso_dt(row.ends_at)
-                duration = max(0.0, (s_end - s_start).total_seconds())
-                threshold = duration / 2.0
-
-                juniors = session.query(UserORM).filter(
-                    UserORM.category == "junior",
-                    UserORM.banned == False,
-                ).all()
-
-                for j in juniors:
-                    j.category = "activist"
-                    session.add(
-                        AuditLogORM(
-                            target_kind="user",
-                            target_id=str(j.user_id),
-                            changed_by_user_id=0,
-                            reason=f"Automatic promotion to activist upon season close {season_id}",
-                            old_values_json=json.dumps({"category": "junior"}),
-                            new_values_json=json.dumps({
-                                "category": "activist",
-                                "season_id": season_id,
-                                "participation": duration,
-                                "threshold": threshold,
-                            }),
-                            created_at=now_iso,
-                        )
-                    )
-            except Exception:
-                pass
+            from participation import promote
+            promote(session,row,now_iso)
 
             # Snapshot historical report editors
             try:
@@ -3238,6 +3234,12 @@ class Database:
             if row.is_current:
                 row.is_current = False
             row.revision += 1
+            session.flush()
+            from season_summaries import store_snapshot
+            import access
+            store_snapshot(session,season_id,access.actor_id.get(),"Season closed")
+            summary.version=summary_orm.version
+            summary.approved_at=summary_orm.approved_at
             session.commit()
             return _season_orm_to_dc(row), summary
 
@@ -4406,149 +4408,8 @@ class Database:
         reason: str,
         user_id: int,
     ) -> SeasonCorrectionResultDC:
-        with self._session() as session:
-            target_season = session.get(SeasonORM, target_season_id)
-            if not target_season:
-                raise LookupError("Target season not found")
-            if target_season.state == "closed":
-                raise ValueError("Target season cannot be closed")
-            if not reason or not reason.strip():
-                raise ValueError("Reason is required")
-
-            if object_kind == "event":
-                ev = session.get(EventORM, object_id)
-                if not ev:
-                    raise LookupError("Event not found")
-                if ev.revision != expected_revision:
-                    raise ValueError("Conflict: revision mismatch")
-                if ev.season_id == target_season_id:
-                    raise ValueError("Target season must differ from current season")
-                source_season = session.get(SeasonORM, ev.season_id)
-                if source_season and source_season.state == "closed":
-                    raise ValueError("Source season cannot be closed")
-                if target_season.ends_at and ev.ends_at and ev.ends_at > target_season.ends_at:
-                    raise ValueError("Event deadline exceeds target season ends_at")
-
-                source_sid = ev.season_id
-                ev.season_id = target_season_id
-                ev.revision += 1
-
-                sc = SeasonCorrectionORM(
-                    correction_id=str(uuid.uuid4()),
-                    object_kind="event",
-                    object_id=object_id,
-                    source_season_id=source_sid,
-                    target_season_id=target_season_id,
-                    changed_by_user_id=user_id,
-                    reason=reason,
-                    created_at=datetime.now(timezone.utc).isoformat(),
-                )
-                session.add(sc)
-                # Also update subevents, tasks, and contributions for this event
-                subs = session.query(SubeventORM).filter(SubeventORM.event_id == object_id).all()
-                for sub in subs:
-                    sub_tasks = session.query(TaskORM).filter(TaskORM.scope_kind == "subevent", TaskORM.scope_id == sub.subevent_id).all()
-                    for st in sub_tasks:
-                        st.season_id = target_season_id
-                        st.revision += 1
-                        session.query(ContributionORM).filter(ContributionORM.source_kind == "subevent_task", ContributionORM.source_id == sub.subevent_id).update({"season_id": target_season_id})
-                session.commit()
-                return SeasonCorrectionResultDC(
-                    object_kind="event",
-                    object_id=object_id,
-                    source_season_id=source_sid,
-                    target_season_id=target_season_id,
-                    revision=ev.revision,
-                )
-            elif object_kind == "block_task":
-                task = session.get(TaskORM, object_id)
-                if not task or task.scope_kind != "block":
-                    raise LookupError("Block task not found")
-                if task.revision != expected_revision:
-                    raise ValueError("Conflict: revision mismatch")
-                if task.season_id == target_season_id:
-                    raise ValueError("Target season must differ from current season")
-                if target_season.state == "planned":
-                    raise ValueError("Target season cannot be planned for block tasks")
-                source_season = session.get(SeasonORM, task.season_id)
-                if source_season and source_season.state == "closed":
-                    raise ValueError("Source season cannot be closed")
-                if target_season.ends_at and task.deadline_at and task.deadline_at > target_season.ends_at:
-                    raise ValueError("Task deadline exceeds target season ends_at")
-
-                source_sid = task.season_id
-                task.season_id = target_season_id
-                task.revision += 1
-
-                # Update associated contributions
-                a_ids = [a.assignment_id for a in session.query(AssignmentORM).filter(AssignmentORM.task_id == task.task_id).all()]
-                if a_ids:
-                    session.query(ContributionORM).filter(ContributionORM.assignment_id.in_(a_ids)).update({"season_id": target_season_id}, synchronize_session=False)
-
-                sc = SeasonCorrectionORM(
-                    correction_id=str(uuid.uuid4()),
-                    object_kind="block_task",
-                    object_id=object_id,
-                    source_season_id=source_sid,
-                    target_season_id=target_season_id,
-                    changed_by_user_id=user_id,
-                    reason=reason,
-                    created_at=datetime.now(timezone.utc).isoformat(),
-                )
-                session.add(sc)
-                session.commit()
-                return SeasonCorrectionResultDC(
-                    object_kind="block_task",
-                    object_id=object_id,
-                    source_season_id=source_sid,
-                    target_season_id=target_season_id,
-                    revision=task.revision,
-                )
-            elif object_kind == "merit":
-                merit = session.get(MeritORM, object_id)
-                if not merit:
-                    raise LookupError("Merit not found")
-                if merit.source_kind not in ("block_volunteer", "chair_merit"):
-                    raise ValueError("Only block_volunteer and chair_merit can independently change season")
-                if merit.revision != expected_revision:
-                    raise ValueError("Conflict: revision mismatch")
-                if merit.season_id == target_season_id:
-                    raise ValueError("Target season must differ from current season")
-                if target_season.state == "planned":
-                    raise ValueError("Target season cannot be planned for merit")
-                source_season = session.get(SeasonORM, merit.season_id)
-                if source_season and source_season.state == "closed":
-                    raise ValueError("Source season cannot be closed")
-                if target_season.ends_at and merit.deadline_at and merit.deadline_at > target_season.ends_at:
-                    raise ValueError("Merit deadline exceeds target season ends_at")
-
-                source_sid = merit.season_id
-                merit.season_id = target_season_id
-                merit.revision += 1
-
-                session.query(ContributionORM).filter(ContributionORM.merit_id == merit.merit_id).update({"season_id": target_season_id}, synchronize_session=False)
-
-                sc = SeasonCorrectionORM(
-                    correction_id=str(uuid.uuid4()),
-                    object_kind="merit",
-                    object_id=object_id,
-                    source_season_id=source_sid,
-                    target_season_id=target_season_id,
-                    changed_by_user_id=user_id,
-                    reason=reason,
-                    created_at=datetime.now(timezone.utc).isoformat(),
-                )
-                session.add(sc)
-                session.commit()
-                return SeasonCorrectionResultDC(
-                    object_kind="merit",
-                    object_id=object_id,
-                    source_season_id=source_sid,
-                    target_season_id=target_season_id,
-                    revision=merit.revision,
-                )
-            else:
-                raise ValueError(f"Unsupported object_kind '{object_kind}'")
+        from season_corrections import correct
+        return correct(object_kind,object_id,expected_revision,target_season_id,reason,user_id)
 
     # ─────────────────────────────────────────────────────────────
     #  BE-02: ROLE & PERMISSION HELPERS
@@ -5092,6 +4953,8 @@ class Database:
 
             session.add(AuditLogORM(target_kind="assignment",target_id=a.assignment_id,changed_by_user_id=reviewer_user_id,reason=review_note or "Assignment accepted",old_values_json=json.dumps({"status":"submitted"}),new_values_json=json.dumps({"status":"accepted","evaluation":evaluation}),created_at=a.updated_at))
             _recalculate_assignment_contribution(session, a, t)
+            from season_summaries import refresh
+            refresh(session,t.season_id,reviewer_user_id,review_note or "Assignment accepted")
             session.commit()
             return _assignment_orm_to_dc(session, a, reviewer_user_id)
 
@@ -5146,6 +5009,8 @@ class Database:
             )
 
             _recalculate_assignment_contribution(session, a, t)
+            from season_summaries import refresh
+            refresh(session,t.season_id,reviewer_user_id,review_note)
             session.commit()
             return _assignment_orm_to_dc(session, a, reviewer_user_id)
 
@@ -5188,6 +5053,8 @@ class Database:
             a.updated_at = datetime.now(timezone.utc).isoformat()
 
             _recalculate_assignment_contribution(session, a, t)
+            from season_summaries import refresh
+            refresh(session,t.season_id,reviewer_user_id,reason)
             session.commit()
             return _assignment_orm_to_dc(session, a, reviewer_user_id)
 
@@ -5238,6 +5105,8 @@ class Database:
             )
 
             _recalculate_assignment_contribution(session, a, t)
+            from season_summaries import refresh
+            refresh(session,t.season_id,reviewer_user_id,reason)
             session.commit()
             return _assignment_orm_to_dc(session, a, reviewer_user_id)
 
@@ -5404,6 +5273,8 @@ class Database:
                     created_at=now_str,
                 )
             )
+            from season_summaries import refresh
+            refresh(session,t.season_id,manager_user_id,reason)
             session.commit()
 
             old_dc = _assignment_orm_to_dc(session, a, manager_user_id)
@@ -5496,6 +5367,8 @@ class Database:
             for a in assignments:
                 _recalculate_assignment_contribution(session, a, t)
 
+            from season_summaries import refresh
+            refresh(session,t.season_id,user_id,reason)
             session.commit()
             return self.get_task_assessment_inputs(task_id, user_id)
 
@@ -5584,6 +5457,8 @@ class Database:
                 )
             )
 
+            from season_summaries import refresh
+            refresh(session,t.season_id,user_id,reason)
             session.commit()
             return AssessmentInputsDC(
                 assignment_id=a.assignment_id,
@@ -5648,6 +5523,11 @@ class Database:
                         capabilities=["edit_assessment_inputs"],
                     )
                 )
+            from season_summaries import refresh
+            session.flush()
+            ids=[item["assignment_id"] for item in items]
+            season_ids={row[0] for row in session.query(TaskORM.season_id).join(AssignmentORM).filter(AssignmentORM.assignment_id.in_(ids))}
+            for sid in season_ids:refresh(session,sid,user_id,reason)
             session.commit()
             return res
 
@@ -5815,6 +5695,8 @@ class Database:
             )
             session.add(m)
             _recalculate_merit_contribution(session, m)
+            from season_summaries import refresh
+            refresh(session,m.season_id,created_by_user_id,reason)
             session.commit()
             return _merit_orm_to_dc(session, m, created_by_user_id)
 
@@ -5924,6 +5806,8 @@ class Database:
             m.reason = reason
             m.revision += 1
             _recalculate_merit_contribution(session, m)
+            from season_summaries import refresh
+            refresh(session,m.season_id,user_id,reason)
             session.commit()
             return _merit_orm_to_dc(session, m, user_id)
 
@@ -6035,52 +5919,8 @@ class Database:
         reason: Optional[str],
         user_id: int,
     ) -> SeasonSummaryDC:
-        with self._session() as session:
-            season = session.get(SeasonORM, season_id)
-            if not season:
-                raise LookupError("Season not found")
-
-            sum_orm = session.query(SeasonSummaryORM).filter(SeasonSummaryORM.season_id == season_id).first()
-            current_ver = sum_orm.version if sum_orm else 1
-            if current_ver != expected_version:
-                raise ValueError("Conflict: version mismatch")
-
-            if season.state == "closed":
-                if not self.is_chair(user_id):
-                    raise ValueError("Forbidden: only chair can edit decisions in a closed season")
-                if not reason or not reason.strip():
-                    raise ValueError("Reason is required in closed season")
-            elif not (self.is_chair(user_id) or self.is_chair_deputy(user_id) or self.is_hr_master(user_id)):
-                raise ValueError("Forbidden: cannot edit decisions")
-
-            dec_orm = session.query(SeasonDecisionORM).filter(
-                SeasonDecisionORM.season_id == season_id,
-                SeasonDecisionORM.user_id == target_user_id,
-            ).first()
-            if not dec_orm:
-                dec_orm = SeasonDecisionORM(
-                    season_id=season_id,
-                    user_id=target_user_id,
-                    decisions_json=json.dumps(decisions),
-                    updated_by_user_id=user_id,
-                    updated_at=datetime.now(timezone.utc).isoformat(),
-                )
-                session.add(dec_orm)
-            else:
-                dec_orm.decisions_json = json.dumps(decisions)
-                dec_orm.updated_by_user_id = user_id
-                dec_orm.updated_at = datetime.now(timezone.utc).isoformat()
-
-            if season.state == "closed" and sum_orm and sum_orm.rows_json:
-                rows_raw = json.loads(sum_orm.rows_json)
-                for r in rows_raw:
-                    if r.get("user", {}).get("user_id") == target_user_id:
-                        r["decisions"] = decisions
-                sum_orm.rows_json = json.dumps(rows_raw)
-                sum_orm.version += 1
-
-            session.commit()
-            return self.get_season_summary(season_id, user_id)
+        from season_summaries import decisions as update
+        return update(season_id,target_user_id,decisions,expected_version,reason,user_id)
 
     def correct_season_summary(
         self,
@@ -6090,62 +5930,8 @@ class Database:
         changes: list[dict],
         user_id: int,
     ) -> SeasonSummaryDC:
-        if not self.is_chair(user_id):
-            raise ValueError("Forbidden: only chair can correct closed season summary")
-        if not reason or not reason.strip():
-            raise ValueError("Reason is required")
-
-        with self._session() as session:
-            season = session.get(SeasonORM, season_id)
-            if not season or season.state != "closed":
-                raise ValueError("Can only correct a closed season")
-
-            sum_orm = session.query(SeasonSummaryORM).filter(SeasonSummaryORM.season_id == season_id).first()
-            if not sum_orm or sum_orm.version != expected_version:
-                raise ValueError("Conflict: version mismatch")
-
-        # Apply changes
-        for ch in changes:
-            kind = ch.get("kind")
-            cid = ch.get("id")
-            exp_rev = ch.get("expected_revision")
-            vals = ch.get("values", {})
-            if kind == "task_inputs":
-                self.patch_task_assessment_inputs(cid, exp_rev, reason, vals.get("assigned_at"), vals.get("deadline_at"), vals.get("criteria"), user_id)
-            elif kind == "assessment_inputs":
-                self.patch_assignment_assessment_inputs(cid, exp_rev, reason, vals.get("hours"), vals.get("evaluation"), vals.get("effective_completed_at"), user_id)
-            elif kind == "merit":
-                self.patch_merit(cid, exp_rev, vals, reason, user_id)
-
-        # Recalculate summary & update version
-        with self._session() as session:
-            _recalculate_closed_master_bonuses_for_session(session, season_id)
-            new_sum = _calculate_season_summary_for_session(session, season_id, is_approved=True)
-            rows_data = [
-                {
-                    "participant_id": r.participant_id,
-                    "user": {"user_id": r.user.user_id, "display_name": r.user.display_name, "avatar_url": r.user.avatar_url},
-                    "group_number": r.group_number,
-                    "category": r.category,
-                    "blocks": [{"block_id": b.block_id, "name": b.name} for b in r.blocks],
-                    "is_master": r.is_master,
-                    "is_archived": r.is_archived,
-                    "source_scores": [{"source_kind": s.source_kind, "source_id": s.source_id, "title": s.title, "score": s.score} for s in r.source_scores],
-                    "total_score": r.total_score,
-                    "evaluated_task_count": r.evaluated_task_count,
-                    "rank": r.rank,
-                    "previous_rank": r.previous_rank,
-                    "decisions": r.decisions,
-                    "previous_decisions": r.previous_decisions,
-                }
-                for r in new_sum.rows
-            ]
-            sum_orm = session.query(SeasonSummaryORM).filter(SeasonSummaryORM.season_id == season_id).first()
-            sum_orm.version += 1
-            sum_orm.rows_json = json.dumps(rows_data)
-            session.commit()
-
-        return self.get_season_summary(season_id, user_id)
+        from season_summaries import correct
+        return correct(season_id,expected_version,reason,changes,user_id)
 
     def list_comments(self, task_id: str, current_user_id: int) -> list[CommentDC]:
         with self._session() as session:

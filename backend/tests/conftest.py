@@ -53,6 +53,7 @@ assert str(_TMP_DB) in database_module.DATABASE_URL, (
 )
 
 TABLES = (
+    "summary_versions",
     "scope_tenures",
     "block_applications", "memberships", "category_revisions", "block_metadata",
     "participation_intervals", "registration_applications",
