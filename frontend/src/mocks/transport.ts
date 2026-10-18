@@ -13,7 +13,7 @@ const dataOf = (config: AxiosRequestConfig): Body => typeof config.data === 'str
 const clone = <T>(value: T): T => structuredClone(value);
 const publicSubmission = (text: unknown) => typeof text === 'object' && text ? text as ReturnType<typeof richText> : richText(String(text ?? ''));
 
-export function installMockTransport(role: MockRole = 'organizer', options: { delay?: number; scenario?: 'normal' | 'empty' | 'error' | 'conflict' } = {}) {
+export function installMockTransport(role: MockRole = 'organizer', options: { delay?: number; scenario?: 'normal' | 'empty' | 'error' | 'conflict'; now?: string } = {}) {
   const state = createFixtures(role);
   const adapter = new MockAdapter(api, { delayResponse: options.delay ?? 100 });
   const uploads = new MockAdapter(axios);
@@ -22,6 +22,14 @@ export function installMockTransport(role: MockRole = 'organizer', options: { de
   const snapshot = (r: Report): ReportVersion => ({ report_id: r.report_id, version: r.published_version!, title: r.title, content: clone(r.content), files: clone(r.files), published_at: r.published_at!, published_by: clone(state.user) });
   const versions = new Map<string, ReportVersion[]>(state.reports.filter(r => r.published_version).map(r => [r.report_id, [snapshot(r)]]));
   const summaries = new Map(state.seasons.map(s => [s.season_id, { ...clone(state.summary), season_id: s.season_id }]));
+  const categories = new Map(state.people.map(p => [p.user_id, { user_id: p.user_id!, category: 'junior' as 'junior' | 'activist', revision: 1, capabilities: state.global ? ['edit_participant_category'] : [] }]));
+  const queueApplication = { ...clone(state.registration), user_id: 105, status: 'pending' as typeof state.registration.status, capabilities: ['reset_registration_limit'] };
+  const requestCapabilities = (r: typeof state.requests[number]) => {
+    if (!['pending_hr', 'pending_block'].includes(r.state)) return [];
+    const expired = !!r.substitute_available_at && Date.parse(options.now ?? mockNow) >= Date.parse(r.substitute_available_at);
+    const substitute = (state.chair || role === 'chair-deputy') && expired;
+    return [...(r.user.user_id === state.session.user_id ? ['withdraw_request'] : []), ...(r.state === 'pending_hr' ? role === 'hr' || substitute ? ['hr_review_request'] : [] : state.blocks.find(b => b.block_id === r.block_id)?.master?.user.user_id === state.session.user_id || substitute ? ['block_review_request'] : [])];
+  };
   const visibleReport = (report: Report) => { const r = clone(report); if (!r.capabilities.includes('edit_report')) { delete r.draft_title; delete r.draft_content; delete r.draft_files; } return r; };
   let sequence = 10;
   let leadership = { chair: state.people[3], deputies: [state.people[4]], revision: 1, capabilities: state.chair ? ['transfer_chair', 'manage_chair_deputies'] : [] };
@@ -54,6 +62,7 @@ export function installMockTransport(role: MockRole = 'organizer', options: { de
     if (path.startsWith('/auth/')) return [200, { access_token: 'development-only', refresh_token: 'development-only', token_type: 'bearer' }];
     if (path === '/registrations/me') {
       if (method === 'patch') {
+        if (state.registration.status === 'approved') return denied();
         if (mismatch(data, state.registration)) return conflict();
         state.registration.fields = clone(data.fields as typeof state.registration.fields);
         return changed(state.registration);
@@ -66,6 +75,7 @@ export function installMockTransport(role: MockRole = 'organizer', options: { de
       if (state.registration.attempts_used >= 5) return fail(409, 'registration_attempt_limit', 'Исчерпан лимит отправок');
       state.registration.attempts_used++; state.registration.total_submissions++;
       state.registration.status = 'pending'; state.session.registration_status = 'pending';
+      state.registration.capabilities = [];
       return changed(state.registration);
     }
     if (state.session.account_state !== 'active') return denied();
@@ -338,27 +348,40 @@ export function installMockTransport(role: MockRole = 'organizer', options: { de
       return changed(block);
     }
     if (parts[0] === 'block-requests') {
-      if (parts.length === 1 && method === 'get') return list(clone(state.requests));
-      if (parts.length === 1) { const req = { ...clone(state.requests[0]), request_id: id('request'), user: state.user, block_id: String(data.block_id), state: 'pending_hr' as const, created_at: mockNow, stage_entered_at: mockNow, revision: 1, capabilities: ['withdraw_request'] }; state.requests.push(req); return [201, clone(req)]; }
+      if (parts.length === 1 && method === 'get') return list(state.requests.map(r => ({ ...clone(r), capabilities: requestCapabilities(r) })).filter(r => r.user.user_id === state.session.user_id || r.capabilities.length));
+      if (parts.length === 1) {
+        if (state.requests.some(r => r.user.user_id === state.session.user_id && r.block_id === data.block_id && ['pending_hr', 'pending_block'].includes(r.state))) return conflict();
+        if (state.blocks.find(b => b.block_id === data.block_id)?.members.some(m => m.user.user_id === state.session.user_id)) return conflict();
+        const created = options.now ?? mockNow;
+        const req = { ...clone(state.requests[0]), request_id: id('request'), user: state.user, block_id: String(data.block_id), state: 'pending_hr' as const, created_at: created, stage_entered_at: created, substitute_available_at: new Date(Date.parse(created) + 72 * 3600_000).toISOString(), revision: 1, capabilities: ['withdraw_request'] }; state.requests.push(req); return [201, clone(req)];
+      }
       const req = state.requests.find(r => r.request_id === parts[1]);
       if (!req || mismatch(data, req)) return conflict();
-      if (parts[2] !== 'withdraw' && !state.manager) return denied();
+      if (!['pending_hr', 'pending_block'].includes(req.state)) return conflict();
+      const caps = requestCapabilities(req);
+      if (parts[2] === 'withdraw' ? !caps.includes('withdraw_request') : !caps.includes(req.state === 'pending_hr' ? 'hr_review_request' : 'block_review_request')) return denied();
+      if (parts[2] === 'block-approve' && req.state !== 'pending_block' || parts[2] === 'hr-approve' && req.state !== 'pending_hr') return conflict();
       const states = { 'hr-approve': 'pending_block', 'block-approve': 'approved', reject: 'rejected', withdraw: 'withdrawn' } as const;
-      req.state = states[parts[2] as keyof typeof states]; req.stage_entered_at = mockNow;
-      if (req.state === 'approved') state.blocks.find(b => b.block_id === req.block_id)?.members.push({ user: req.user, block_category: 'junior' });
+      req.state = parts[2] === 'hr-approve' && state.blocks.find(b => b.block_id === req.block_id)?.is_hr ? 'approved' : states[parts[2] as keyof typeof states]; req.stage_entered_at = options.now ?? mockNow;
+      req.substitute_available_at = ['pending_hr', 'pending_block'].includes(req.state) ? new Date(Date.parse(req.stage_entered_at) + 72 * 3600_000).toISOString() : null;
+      req.capabilities = requestCapabilities(req);
+      const block = state.blocks.find(b => b.block_id === req.block_id);
+      if (req.state === 'approved' && block && !block.members.some(m => m.user.user_id === req.user.user_id)) block.members.push({ user: req.user, block_category: 'junior' });
       return changed(req);
     }
     if (parts[0] === 'registrations') {
       if (!state.session.capabilities.includes('review_registrations')) return denied();
-      if (method === 'get') return list([clone(state.registration)]);
-      if (mismatch(data, state.registration)) return conflict();
-      if (parts[2] === 'reset-attempts') state.registration.attempts_used = 0;
-      else { state.registration.status = parts[2] === 'approve' ? 'approved' : 'rejected'; state.registration.rejection_reason = data.reason ? String(data.reason) : null; }
-      return changed(state.registration);
+      if (method === 'get') return list([clone(queueApplication)]);
+      if (mismatch(data, queueApplication)) return conflict();
+      if (parts[2] === 'reset-attempts') queueApplication.attempts_used = 0;
+      else { queueApplication.status = parts[2] === 'approve' ? 'approved' : 'rejected'; queueApplication.rejection_reason = data.reason ? String(data.reason) : null; }
+      return changed(queueApplication);
     }
     if (parts[0] === 'participants') {
       if (method !== 'get' && !state.global) return denied();
-      return [200, { user_id: Number(parts[1]), category: data.category ?? 'junior', revision: 1, capabilities: state.global ? ['edit_participant_category'] : [] }];
+      const category = categories.get(Number(parts[1])); if (!category) return fail(404, 'not_found', 'Участник не найден');
+      if (method === 'patch') { if (mismatch(data, category)) return conflict(); category.category = data.category as typeof category.category; category.revision++; }
+      return [200, clone(category)];
     }
     if (path === '/contacts/archive') {
       if (method === 'get') return list(clone(state.former));

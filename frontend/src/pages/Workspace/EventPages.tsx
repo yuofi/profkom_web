@@ -11,7 +11,7 @@ import { getEventRoute, getSubeventRoute } from '../../utils/routes';
 import { usePeopleOptions, useWorkspaceActions } from '../../utils/hooks/useWorkspace';
 import s from '../../components/Workspace/Workspace.module.css';
 
-function Leaders({ leaders }: { leaders: Leader[] }) {
+export function Leaders({ leaders }: { leaders: Leader[] }) {
   const people = usePeopleOptions(); const { perform } = useWorkspaceActions();
   return <div className={s.stack}>{leaders.length === 0 && <p className={s.muted}>Руководители пока не назначены</p>}{leaders.map(leader => <div key={leader.role_assignment_id}><h3>{leader.user.display_name}</h3><p className={s.muted}>Заместители: {leader.deputy_user_ids.map(id => people.options.find(p => p.value === String(id))?.label ?? 'Участник').join(', ') || 'не назначены'}</p>{can(leader, 'manage_deputies') && <details className={s.details}><summary>Изменить заместителей</summary><ActionForm key={leader.revision} fields={[{ name: 'users', label: 'До двух заместителей', type: 'multi', value: leader.deputy_user_ids.map(String), options: people.options.filter(p => p.value !== String(leader.user.user_id)) }]} onSubmit={async v => { const users = ids(v, 'users'); if (users.length > 2) throw Error('У руководителя может быть не более двух заместителей'); await perform(() => eventsApi.deputies(leader.role_assignment_id, users, { expected_revision: leader.revision })); }} /></details>}</div>)}</div>;
 }

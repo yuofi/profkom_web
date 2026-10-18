@@ -4,10 +4,11 @@ import { lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "./App.css";
 import { WorkspaceLayout } from './components/Workspace/WorkspaceLayout';
-import { ComingPage, LeadershipPage } from './pages/Workspace/SessionPages';
+import { LeadershipPage } from './pages/Workspace/SessionPages';
 import { Loading } from './components/Workspace/WorkspaceUI';
 import { EventsListPage, EventPage, SubeventPage } from './pages/Workspace/EventPages';
 import { TasksListPage, TaskPage, UnresolvedPage } from './pages/Workspace/TaskPages';
+import { BlocksPage, BlockPage, BlockRequestsPage, RegistrationsPage } from './pages/Workspace/MembershipPages';
 import { DashboardPage, CalendarPage, NotificationsPage } from './pages/Workspace/WorkspacePages';
 import { SeasonsPage, SeasonPage, SummaryPage } from './pages/Workspace/SeasonPages';
 import { MeritsPage, SourcesPage, CorrectionsPage } from './pages/Workspace/MeritPages';
@@ -58,7 +59,10 @@ function App() {
       <Route path="seasons/:id/corrections" element={<CorrectionsPage />} />
       <Route path="calendar" element={<CalendarPage />} />
       <Route path="notifications" element={<NotificationsPage />} />
-      {['blocks', 'registrations'].map(path => <Route key={path} path={`${path}/*`} element={<ComingPage title={{ blocks: 'Блоки', calendar: 'Календарь', notifications: 'Уведомления', seasons: 'Сезоны и ККР', registrations: 'Регистрации' }[path]!} />} />)}
+      <Route path="blocks" element={<BlocksPage />} />
+      <Route path="blocks/requests" element={<BlockRequestsPage />} />
+      <Route path="blocks/:id" element={<BlockPage />} />
+      <Route path="registrations" element={<RegistrationsPage />} />
       <Route element={<ExtendedRoute />}><Route path="admin/:tab" element={<AdminPanel />} /></Route>
     </Route></Route>
     <Route path="*" element={<NotFoundPage />} />

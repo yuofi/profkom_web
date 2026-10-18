@@ -36,6 +36,39 @@ describe('Safe contract fixtures', () => {
   });
 });
 describe('API commands through mock transport', () => {
+  it('requires separate HR and master decisions and resets the stage deadline', async () => {
+    const fixture = useMock('hr'); const request = await membershipApi.join('block-info');
+    const approvedHr = await membershipApi.requestCommand(request.request_id, 'hr-approve', { expected_revision: request.revision });
+    expect(approvedHr.state).toBe('pending_block'); expect(approvedHr.substitute_available_at).toBe('2026-10-21T12:00:00.000Z');
+    expect(fixture.state.blocks[0].members.some(m => m.user.user_id === 103)).toBe(false);
+    await expect(membershipApi.requestCommand(request.request_id, 'block-approve', { expected_revision: approvedHr.revision })).rejects.toMatchObject({ status: 403 });
+  });
+  it('uses one HR decision for the HR block and never creates membership twice', async () => {
+    useMock('hr'); const request = await membershipApi.join('block-hr');
+    const approved = await membershipApi.requestCommand(request.request_id, 'hr-approve', { expected_revision: request.revision });
+    expect(approved.state).toBe('approved'); expect(approved.substitute_available_at).toBeNull();
+    await expect(membershipApi.requestCommand(request.request_id, 'hr-approve', { expected_revision: approved.revision })).rejects.toMatchObject({ status: 409 });
+    expect((await membershipApi.block('block-hr')).members).toHaveLength(1);
+  });
+  it.each([['2026-10-17T11:59:59Z', false], ['2026-10-17T12:00:00Z', true]] as const)('uses the server capability at the 72-hour boundary %s', async (now, allowed) => {
+    mock = installMockTransport('chair', { delay: 0, now });
+    if (allowed) expect((await membershipApi.requestCommand('request-1', 'block-approve', { expected_revision: 1 })).state).toBe('approved');
+    else await expect(membershipApi.requestCommand('request-1', 'block-approve', { expected_revision: 1 })).rejects.toMatchObject({ status: 403 });
+  });
+  it('keeps one registration account and does not spend attempts on conflicts', async () => {
+    const fixture = useMock('rejected'); const application = await membershipApi.registration();
+    const resubmitted = await membershipApi.resubmit({ expected_revision: application.revision }); expect(resubmitted.user_id).toBe(application.user_id);
+    await expect(membershipApi.resubmit({ expected_revision: application.revision })).rejects.toMatchObject({ status: 409 });
+    expect((await membershipApi.registration()).attempts_used).toBe(2);
+    fixture.state.registration.status = 'rejected'; fixture.state.registration.attempts_used = 5;
+    await expect(membershipApi.resubmit({ expected_revision: resubmitted.revision })).rejects.toMatchObject({ code: 'registration_attempt_limit' });
+  });
+  it('changes global category without changing the block newcomer flag', async () => {
+    useMock('hr'); const before = await membershipApi.category(101);
+    await membershipApi.updateCategory(101, { expected_revision: before.revision, category: 'activist', reason: 'Решение HR' });
+    expect((await membershipApi.category(101)).category).toBe('activist');
+    expect((await membershipApi.block('block-info')).members[0].block_category).toBe('junior');
+  });
   it('marks notifications without changing their safe target and refreshes the dashboard count', async () => {
     useMock(); const initial = (await workspaceApi.notifications()).items[0];
     await workspaceApi.read(initial.id); expect((await workspaceApi.dashboard()).unread_notification_count).toBe(0);

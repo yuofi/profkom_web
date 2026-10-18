@@ -10,11 +10,12 @@ import { sessionApi } from '../../utils/api/session.api';
 import { directoryApi } from '../../utils/api/directory.api';
 import { clearPrivateCache } from '../../utils/api/invalidation';
 import s from '../../components/Workspace/Workspace.module.css';
+import { RegistrationForm } from '../../components/Workspace/RegistrationForm';
 import { DemoRolePicker } from '../../components/Workspace/DemoRolePicker';
 export function AccountStatePage() {
   const { session } = useSession();
   const application = useQuery({ queryKey: ['registrations', 'me'], queryFn: membershipApi.registration, enabled: session?.account_state === 'pending', retry: false });
-  return <Page title={session?.account_state === 'archived' ? 'Аккаунт в архиве' : session?.registration_status === 'rejected' ? 'Нужно уточнить сведения' : 'Заявка на рассмотрении'} description="Рабочие разделы станут доступны после одобрения регистрации."><Card><DemoRolePicker />{application.isLoading ? <Loading /> : application.error ? <ErrorState error={application.error} /> : <><p>{application.data?.rejection_reason ?? 'Дождитесь решения руководства Профкома.'}</p>{application.data && <p>Использовано отправок: {application.data.attempts_used} из {application.data.attempt_limit}.</p>}</>}<Link className={s.linkButton} to="/auth" onClick={() => Cookies.remove('access_token')}>Ко входу</Link></Card></Page>;
+  return <Page title={session?.account_state === 'archived' ? 'Аккаунт в архиве' : session?.registration_status === 'rejected' ? 'Нужно уточнить сведения' : 'Заявка на рассмотрении'} description="Рабочие разделы станут доступны после одобрения регистрации."><Card><DemoRolePicker />{application.isLoading ? <Loading /> : application.error ? <ErrorState error={application.error} /> : <><p>{application.data?.rejection_reason ?? 'Дождитесь решения руководства Профкома.'}</p>{application.data && <p>Использовано отправок: {application.data.attempts_used} из {application.data.attempt_limit}.</p>}{application.data && application.data.status !== 'approved' && <RegistrationForm application={application.data} />}</>}<Link className={s.linkButton} to="/auth" onClick={() => Cookies.remove('access_token')}>Ко входу</Link></Card></Page>;
 }
 export function WorkspaceStartPage() {
   return <Page title="Рабочий экран" description="Задачи, команды и ближайшие встречи в одном месте."><div className={s.grid}><Card title="Мои задачи"><Link className={s.linkButton} to="/tasks">Открыть задачи</Link></Card><Card title="Мероприятия"><Link className={s.linkButton} to="/events">Мои команды</Link></Card><Card title="Блоки"><Link className={s.linkButton} to="/blocks">Открыть блоки</Link></Card></div></Page>;
