@@ -1,74 +1,775 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Page, Card, QueryState, Markdown, RouteLink, Badge, Empty } from '../../components/Workspace/WorkspaceUI';
-import { ActionForm, type Field } from '../../components/Workspace/ActionForm';
-import { text, ids, number } from '../../components/Workspace/formValues';
-import { Attachments, AttachmentPicker } from '../../components/Workspace/Attachments';
-import { AssessmentPanel, TaskInputsPanel, BulkHoursPanel } from '../../components/Workspace/AssessmentPanel';
-import { useScopeMembers } from '../../components/Workspace/ScopeMembers';
-import { tasksApi } from '../../utils/api/tasks.api';
-import { seasonsApi } from '../../utils/api/seasons.api';
-import { membershipApi } from '../../utils/api/membership.api';
-import { eventsApi } from '../../utils/api/events.api';
-import { richText, emptyCriteria, type Assignment, type FileRef, type ScopeRef, type Task, type UnresolvedAssignment } from '../../utils/api/contract';
-import { can, useSession } from '../../utils/session';
-import { displayDate, toUtc } from '../../utils/dates';
-import { getTaskRoute } from '../../utils/routes';
-import { useWorkspaceActions } from '../../utils/hooks/useWorkspace';
-import s from '../../components/Workspace/Workspace.module.css';
-const statusNames: Record<Assignment['status'], string> = { assigned: 'Назначена', in_progress: 'В работе', help_required: 'Нужна помощь', submitted: 'На проверке', accepted: 'Принята', needs_revision: 'На доработке', not_completed: 'Не выполнена', cancelled: 'Отменена' };
-const criteriaLabels = { unique: 'Уникальная', creative: 'Творческая', external_communication: 'Общение вне вуза', in_person: 'Очное присутствие', fixed_time: 'В определённое время' };
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import {
+  Page,
+  Card,
+  QueryState,
+  Markdown,
+  RouteLink,
+  Badge,
+  Empty,
+} from "../../components/Workspace/WorkspaceUI";
+import { ActionForm, type Field } from "../../components/Workspace/ActionForm";
+import { text, ids, number } from "../../components/Workspace/formValues";
+import {
+  Attachments,
+  AttachmentPicker,
+} from "../../components/Workspace/Attachments";
+import {
+  AssessmentPanel,
+  TaskInputsPanel,
+  BulkHoursPanel,
+} from "../../components/Workspace/AssessmentPanel";
+import { useScopeMembers } from "../../components/Workspace/ScopeMembers";
+import { tasksApi } from "../../utils/api/tasks.api";
+import { seasonsApi } from "../../utils/api/seasons.api";
+import { membershipApi } from "../../utils/api/membership.api";
+import { eventsApi } from "../../utils/api/events.api";
+import {
+  richText,
+  emptyCriteria,
+  type Assignment,
+  type FileRef,
+  type ScopeRef,
+  type Task,
+  type UnresolvedAssignment,
+} from "../../utils/api/contract";
+import { can, useSession } from "../../utils/session";
+import { displayDate, toUtc } from "../../utils/dates";
+import { getTaskRoute } from "../../utils/routes";
+import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
+import s from "../../components/Workspace/Workspace.module.css";
+const statusNames: Record<Assignment["status"], string> = {
+  assigned: "Назначена",
+  in_progress: "В работе",
+  help_required: "Нужна помощь",
+  submitted: "На проверке",
+  accepted: "Принята",
+  needs_revision: "На доработке",
+  not_completed: "Не выполнена",
+  cancelled: "Отменена",
+};
+const criteriaLabels = {
+  unique: "Уникальная",
+  creative: "Творческая",
+  external_communication: "Общение вне вуза",
+  in_person: "Очное присутствие",
+  fixed_time: "В определённое время",
+};
 function TaskCreateForm({ scope }: { scope: ScopeRef }) {
-  const navigate = useNavigate(); const { perform } = useWorkspaceActions(); const members = useScopeMembers(scope);
-  const seasons = useQuery({ queryKey: ['seasons'], queryFn: seasonsApi.list });
-  const context = useQuery({ queryKey: ['tasks', 'create-scope', scope.kind, scope.id], queryFn: async () => {
-    if (scope.kind === 'block') return { source: await membershipApi.block(scope.id), season: null };
-    const source = await eventsApi.subevent(scope.id); return { source, season: (await eventsApi.get(source.event_id)).season_id };
-  } });
-  if (!can(context.data?.source, 'create_task')) return null;
-  const fields: Field[] = [{ name: 'title', label: 'Название', required: true }, { name: 'description', label: 'Описание', type: 'textarea', required: true },
-    ...(scope.kind === 'block' ? [{ name: 'season', label: 'Открытый сезон', type: 'select' as const, required: true, options: seasons.data?.items.filter(x => x.state === 'open').map(x => ({ value: x.season_id, label: x.title })) }] : []),
-    { name: 'deadline', label: 'Дедлайн, МСК', type: 'datetime-local', required: true }, { name: 'users', label: 'Исполнители из команды', type: 'multi', required: true, options: members.options }, { name: 'hours', label: 'Начальные часы каждому исполнителю', type: 'number', min: 0, required: true },
-    ...Object.entries(criteriaLabels).map(([name, label]) => ({ name, label, type: 'select' as const, value: 'false', options: [{ value: 'false', label: 'Нет' }, { value: 'true', label: 'Да' }] }))];
-  return <Card title="Новая задача"><QueryState loading={members.loading} error={members.error}><ActionForm fields={fields} submitLabel="Создать задачу" onSubmit={async v => {
-    const deadline = toUtc(text(v, 'deadline')); const seasonId = context.data?.season ?? text(v, 'season'); const season = seasons.data?.items.find(x => x.season_id === seasonId);
-    if (!season || !(scope.kind === 'block' ? ['open'] : ['open', 'planned']).includes(season.state)) throw Error('В этом состоянии сезона новые задачи недоступны');
-    await perform(async () => { const created = await tasksApi.create({ season_id: seasonId, scope, title: text(v, 'title'), description: richText(text(v, 'description')), deadline_at: deadline, criteria: { ...emptyCriteria(), ...Object.fromEntries(Object.keys(criteriaLabels).map(k => [k, text(v, k) === 'true'])) }, assignees: ids(v, 'users').map(user_id => ({ user_id, hours: number(v, 'hours') })) }); navigate(getTaskRoute(created.task_id)); });
-  }} /></QueryState></Card>;
+  const navigate = useNavigate();
+  const { perform } = useWorkspaceActions();
+  const members = useScopeMembers(scope);
+  const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
+  const context = useQuery({
+    queryKey: ["tasks", "create-scope", scope.kind, scope.id],
+    queryFn: async () => {
+      if (scope.kind === "block")
+        return { source: await membershipApi.block(scope.id), season: null };
+      const source = await eventsApi.subevent(scope.id);
+      return {
+        source,
+        season: (await eventsApi.get(source.event_id)).season_id,
+      };
+    },
+  });
+  if (!can(context.data?.source, "create_task")) return null;
+  const fields: Field[] = [
+    { name: "title", label: "Название", required: true },
+    {
+      name: "description",
+      label: "Описание",
+      type: "textarea",
+      required: true,
+    },
+    ...(scope.kind === "block"
+      ? [
+          {
+            name: "season",
+            label: "Открытый сезон",
+            type: "select" as const,
+            required: true,
+            options: seasons.data?.items
+              .filter((x) => x.state === "open")
+              .map((x) => ({ value: x.season_id, label: x.title })),
+          },
+        ]
+      : []),
+    {
+      name: "deadline",
+      label: "Дедлайн, МСК",
+      type: "datetime-local",
+      required: true,
+    },
+    {
+      name: "users",
+      label: "Исполнители из команды",
+      type: "multi",
+      required: true,
+      options: members.options,
+    },
+    {
+      name: "hours",
+      label: "Начальные часы каждому исполнителю",
+      type: "number",
+      min: 0,
+      required: true,
+    },
+    ...Object.entries(criteriaLabels).map(([name, label]) => ({
+      name,
+      label,
+      type: "select" as const,
+      value: "false",
+      options: [
+        { value: "false", label: "Нет" },
+        { value: "true", label: "Да" },
+      ],
+    })),
+  ];
+  return (
+    <Card title="Новая задача">
+      <QueryState loading={members.loading} error={members.error}>
+        <ActionForm
+          fields={fields}
+          submitLabel="Создать задачу"
+          onSubmit={async (v) => {
+            const deadline = toUtc(text(v, "deadline"));
+            const seasonId = context.data?.season ?? text(v, "season");
+            const season = seasons.data?.items.find(
+              (x) => x.season_id === seasonId,
+            );
+            if (
+              !season ||
+              !(
+                scope.kind === "block" ? ["open"] : ["open", "planned"]
+              ).includes(season.state)
+            )
+              throw Error("В этом состоянии сезона новые задачи недоступны");
+            await perform(async () => {
+              const created = await tasksApi.create({
+                season_id: seasonId,
+                scope,
+                title: text(v, "title"),
+                description: richText(text(v, "description")),
+                deadline_at: deadline,
+                criteria: {
+                  ...emptyCriteria(),
+                  ...Object.fromEntries(
+                    Object.keys(criteriaLabels).map((k) => [
+                      k,
+                      text(v, k) === "true",
+                    ]),
+                  ),
+                },
+                assignees: ids(v, "users").map((user_id) => ({
+                  user_id,
+                  hours: number(v, "hours"),
+                })),
+              });
+              navigate(getTaskRoute(created.task_id));
+            });
+          }}
+        />
+      </QueryState>
+    </Card>
+  );
 }
 export function TasksListPage() {
-  const [params, setParams] = useSearchParams(); const { session } = useSession();
-  const filters = { mine: params.get('mine') ?? 'true', status: params.get('status') ?? '', season_id: params.get('season_id') ?? '', scope_kind: params.get('scope_kind') ?? '', scope_id: params.get('scope_id') ?? '' };
-  const query = useQuery({ queryKey: ['tasks', filters], queryFn: () => tasksApi.list(filters) });
-  const seasons = useQuery({ queryKey: ['seasons'], queryFn: seasonsApi.list });
-  const update = (key: string, value: string) => { const next = new URLSearchParams(params); if (value) next.set(key, value); else next.delete(key); setParams(next); };
-  const tasks = [...(query.data?.items ?? [])].sort((a, b) => a.deadline_at.localeCompare(b.deadline_at));
-  const scope: ScopeRef | null = ['block', 'subevent'].includes(filters.scope_kind) && filters.scope_id ? { kind: filters.scope_kind as ScopeRef['kind'], id: filters.scope_id } : null;
-  return <Page title="Задачи" actions={can(session, 'view_unresolved_assignments') && <RouteLink to="/tasks/unresolved">Оставшаяся работа</RouteLink>}><div className={s.stack}><div className={s.filters}><label className={s.field}>Назначения<select value={filters.mine} onChange={e => update('mine', e.target.value)}><option value="true">Мои задачи</option><option value="false">Все доступные</option></select></label><label className={s.field}>Статус<select value={filters.status} onChange={e => update('status', e.target.value)}><option value="">Все статусы</option>{Object.entries(statusNames).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className={s.field}>Сезон<select value={filters.season_id} onChange={e => update('season_id', e.target.value)}><option value="">Все сезоны</option>{seasons.data?.items.map(x => <option key={x.season_id} value={x.season_id}>{x.title}</option>)}</select></label></div><QueryState loading={query.isLoading} error={query.error} retry={() => { void query.refetch(); }}><div className={s.grid}>{tasks.map(task => <Card title={task.title} key={task.task_id}><Badge>{seasons.data?.items.find(x => x.season_id === task.season_id)?.title ?? 'Сезон'}</Badge><p>Дедлайн: {displayDate(task.deadline_at)}</p>{task.assignments.map(a => <p key={a.assignment_id}>{a.assignee.display_name}: {statusNames[a.status]}</p>)}<RouteLink to={getTaskRoute(task.task_id)}>Открыть</RouteLink></Card>)}</div>{!tasks.length && <Empty>Подходящих задач нет. Новую задачу можно создать на странице блока или подмероприятия.</Empty>}</QueryState>{scope && <TaskCreateForm key={`${scope.kind}/${scope.id}`} scope={scope} />}</div></Page>;
+  const [params, setParams] = useSearchParams();
+  const { session } = useSession();
+  const filters = {
+    mine: params.get("mine") ?? "true",
+    status: params.get("status") ?? "",
+    season_id: params.get("season_id") ?? "",
+    scope_kind: params.get("scope_kind") ?? "",
+    scope_id: params.get("scope_id") ?? "",
+  };
+  const query = useQuery({
+    queryKey: ["tasks", filters],
+    queryFn: () => tasksApi.list(filters),
+  });
+  const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
+  const update = (key: string, value: string) => {
+    const next = new URLSearchParams(params);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    setParams(next);
+  };
+  const tasks = [...(query.data?.items ?? [])].sort((a, b) =>
+    a.deadline_at.localeCompare(b.deadline_at),
+  );
+  const scope: ScopeRef | null =
+    ["block", "subevent"].includes(filters.scope_kind) && filters.scope_id
+      ? { kind: filters.scope_kind as ScopeRef["kind"], id: filters.scope_id }
+      : null;
+  return (
+    <Page
+      title="Задачи"
+      actions={
+        can(session, "view_unresolved_assignments") && (
+          <RouteLink to="/tasks/unresolved">Оставшаяся работа</RouteLink>
+        )
+      }
+    >
+      <div className={s.stack}>
+        <div className={s.filters}>
+          <label className={s.field}>
+            Назначения
+            <select
+              value={filters.mine}
+              onChange={(e) => update("mine", e.target.value)}
+            >
+              <option value="true">Мои задачи</option>
+              <option value="false">Все доступные</option>
+            </select>
+          </label>
+          <label className={s.field}>
+            Статус
+            <select
+              value={filters.status}
+              onChange={(e) => update("status", e.target.value)}
+            >
+              <option value="">Все статусы</option>
+              {Object.entries(statusNames).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={s.field}>
+            Сезон
+            <select
+              value={filters.season_id}
+              onChange={(e) => update("season_id", e.target.value)}
+            >
+              <option value="">Все сезоны</option>
+              {seasons.data?.items.map((x) => (
+                <option key={x.season_id} value={x.season_id}>
+                  {x.title}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <QueryState
+          loading={query.isLoading}
+          error={query.error}
+          retry={() => {
+            void query.refetch();
+          }}
+        >
+          <div className={s.grid}>
+            {tasks.map((task) => (
+              <Card title={task.title} key={task.task_id}>
+                <Badge>
+                  {seasons.data?.items.find(
+                    (x) => x.season_id === task.season_id,
+                  )?.title ?? "Сезон"}
+                </Badge>
+                <p>Дедлайн: {displayDate(task.deadline_at)}</p>
+                {task.assignments.map((a) => (
+                  <p key={a.assignment_id}>
+                    {a.assignee.display_name}: {statusNames[a.status]}
+                  </p>
+                ))}
+                <RouteLink to={getTaskRoute(task.task_id)}>Открыть</RouteLink>
+              </Card>
+            ))}
+          </div>
+          {!tasks.length && (
+            <Empty>
+              Подходящих задач нет. Новую задачу можно создать на странице блока
+              или подмероприятия.
+            </Empty>
+          )}
+        </QueryState>
+        {scope && (
+          <TaskCreateForm key={`${scope.kind}/${scope.id}`} scope={scope} />
+        )}
+      </div>
+    </Page>
+  );
 }
 function AssignmentCard({ assignment: a }: { assignment: Assignment }) {
-  const { perform, refresh } = useWorkspaceActions(); const [files, setFiles] = useState<FileRef[]>([]); const [uploading, setUploading] = useState(false);
-  const active = !['accepted', 'not_completed', 'cancelled'].includes(a.status);
-  return <Card title={a.assignee.display_name}><Badge>{statusNames[a.status]}</Badge>{a.assignee_unavailable_reason && <p className={s.warning}>Исполнитель недоступен: {a.assignee_unavailable_reason === 'archived' ? 'аккаунт архивирован' : 'вышел из команды'}. Назначение и сдачи сохранены.</p>}{a.review_note && <p>Комментарий к решению: {a.review_note}</p>}<div className={s.stack}>{a.submissions.map((submission, index) => <details key={submission.submission_id} className={s.details} open={index === a.submissions.length - 1}><summary>Сдача {index + 1} · {displayDate(submission.submitted_at)}</summary><Markdown content={submission.text} /><ul>{submission.links.map(link => <li key={link}><a href={link} target="_blank" rel="noopener noreferrer">{link}</a></li>)}</ul><Attachments files={submission.files} /></details>)}</div><div className={s.row}>{active && can(a, 'start_assignment') && a.status === 'assigned' && <ActionForm fields={[]} submitLabel="Начать работу" onSubmit={async () => { await perform(() => tasksApi.command(a.assignment_id, 'start', { expected_revision: a.revision })); }} />}{active && can(a, 'resume_assignment') && a.status === 'help_required' && <ActionForm fields={[]} submitLabel="Продолжить работу" onSubmit={async () => { await perform(() => tasksApi.command(a.assignment_id, 'resume', { expected_revision: a.revision })); }} />}</div>{active && can(a, 'request_help') && a.status !== 'help_required' && <details className={s.details}><summary>Попросить помощь</summary><ActionForm fields={[{ name: 'message', label: 'Какая помощь нужна', type: 'textarea', required: true }]} onSubmit={async v => { await perform(() => tasksApi.command(a.assignment_id, 'request-help', { expected_revision: a.revision, message: richText(text(v, 'message')) })); }} /></details>}{can(a, 'submit_result') && ['assigned', 'in_progress', 'help_required', 'needs_revision'].includes(a.status) && <details className={s.details}><summary>{a.status === 'needs_revision' ? 'Сдать исправленный результат' : 'Сдать результат'}</summary><AttachmentPicker owner_kind="assignment" owner_id={a.assignment_id} purpose="submission" files={files} onChange={setFiles} onBusyChange={setUploading} /><ActionForm key={a.revision} disabled={uploading} fields={[{ name: 'body', label: 'Результат работы', type: 'textarea', required: true }, { name: 'links', label: 'Ссылки — каждая с новой строки', type: 'textarea' }]} onSubmit={async v => { const links = text(v, 'links').split('\n').map(x => x.trim()).filter(Boolean); if (links.some(x => !/^https?:\/\//i.test(x))) throw Error('Ссылки должны начинаться с https:// или http://'); await perform(() => tasksApi.command(a.assignment_id, 'submit', { expected_revision: a.revision, text: richText(text(v, 'body')), links, file_ids: files.map(f => f.file_id) })); setFiles([]); }} submitLabel="Отправить на проверку" onConflict={() => { void refresh(); }} /></details>}{can(a, 'review_assignment') && active && <details className={s.details}><summary>Решение руководителя</summary><ActionForm key={a.revision} fields={[{ name: 'decision', label: 'Исход', type: 'select', required: true, options: [...(a.status === 'submitted' ? [{ value: 'accept:1', label: 'Принять — 1' }, { value: 'accept:1.5', label: 'Принять — 1,5' }, { value: 'request-revision', label: 'На доработку' }] : []), { value: 'not-complete:0', label: 'Не выполнена — 0' }, { value: 'not-complete:-1', label: 'Не выполнена — −1' }, { value: 'cancel', label: 'Отменить без оценки' }] }, { name: 'note', label: 'Пояснение / причина', type: 'textarea', required: true }]} onSubmit={async v => { const [command, evaluation] = text(v, 'decision').split(':'); await perform(() => tasksApi.command(a.assignment_id, command as 'accept' | 'request-revision' | 'not-complete' | 'cancel', { expected_revision: a.revision, ...(evaluation ? { evaluation: Number(evaluation) } : {}), review_note: text(v, 'note'), reason: text(v, 'note') })); }} onConflict={() => { void refresh(); }} /></details>}<AssessmentPanel assignment={a} /></Card>;
+  const { perform, refresh } = useWorkspaceActions();
+  const [files, setFiles] = useState<FileRef[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const active = !["accepted", "not_completed", "cancelled"].includes(a.status);
+  return (
+    <Card title={a.assignee.display_name}>
+      <Badge>{statusNames[a.status]}</Badge>
+      {a.assignee_unavailable_reason && (
+        <p className={s.warning}>
+          Исполнитель недоступен:{" "}
+          {a.assignee_unavailable_reason === "archived"
+            ? "аккаунт архивирован"
+            : "вышел из команды"}
+          . Назначение и сдачи сохранены.
+        </p>
+      )}
+      {a.review_note && <p>Комментарий к решению: {a.review_note}</p>}
+      <div className={s.stack}>
+        {a.submissions.map((submission, index) => (
+          <details
+            key={submission.submission_id}
+            className={s.details}
+            open={index === a.submissions.length - 1}
+          >
+            <summary>
+              Сдача {index + 1} · {displayDate(submission.submitted_at)}
+            </summary>
+            <Markdown content={submission.text} />
+            <ul>
+              {submission.links.map((link) => (
+                <li key={link}>
+                  <a href={link} target="_blank" rel="noopener noreferrer">
+                    {link}
+                  </a>
+                </li>
+              ))}
+            </ul>
+            <Attachments files={submission.files} />
+          </details>
+        ))}
+      </div>
+      <div className={s.row}>
+        {active && can(a, "start_assignment") && a.status === "assigned" && (
+          <ActionForm
+            fields={[]}
+            submitLabel="Начать работу"
+            onSubmit={async () => {
+              await perform(() =>
+                tasksApi.command(a.assignment_id, "start", {
+                  expected_revision: a.revision,
+                }),
+              );
+            }}
+          />
+        )}
+        {active &&
+          can(a, "resume_assignment") &&
+          a.status === "help_required" && (
+            <ActionForm
+              fields={[]}
+              submitLabel="Продолжить работу"
+              onSubmit={async () => {
+                await perform(() =>
+                  tasksApi.command(a.assignment_id, "resume", {
+                    expected_revision: a.revision,
+                  }),
+                );
+              }}
+            />
+          )}
+      </div>
+      {active &&
+        can(a, "request_help") &&
+        ["assigned", "in_progress", "needs_revision"].includes(a.status) && (
+          <details className={s.details}>
+            <summary>Попросить помощь</summary>
+            <ActionForm
+              fields={[
+                {
+                  name: "message",
+                  label: "Какая помощь нужна — необязательно",
+                  type: "textarea",
+                },
+              ]}
+              onSubmit={async (v) => {
+                await perform(() =>
+                  tasksApi.command(a.assignment_id, "request-help", {
+                    expected_revision: a.revision,
+                    message: richText(text(v, "message")),
+                  }),
+                );
+              }}
+            />
+          </details>
+        )}
+      {can(a, "submit_result") &&
+        ["assigned", "in_progress", "help_required", "needs_revision"].includes(
+          a.status,
+        ) && (
+          <details className={s.details}>
+            <summary>
+              {a.status === "needs_revision"
+                ? "Сдать исправленный результат"
+                : "Сдать результат"}
+            </summary>
+            <AttachmentPicker
+              owner_kind="assignment"
+              owner_id={a.assignment_id}
+              purpose="submission"
+              files={files}
+              onChange={setFiles}
+              onBusyChange={setUploading}
+            />
+            <ActionForm
+              key={a.revision}
+              disabled={uploading}
+              fields={[
+                {
+                  name: "body",
+                  label: "Результат работы",
+                  type: "textarea",
+                  required: true,
+                },
+                {
+                  name: "links",
+                  label: "Ссылки — каждая с новой строки",
+                  type: "textarea",
+                },
+              ]}
+              onSubmit={async (v) => {
+                const links = text(v, "links")
+                  .split("\n")
+                  .map((x) => x.trim())
+                  .filter(Boolean);
+                if (links.some((x) => !/^https?:\/\//i.test(x)))
+                  throw Error(
+                    "Ссылки должны начинаться с https:// или http://",
+                  );
+                await perform(() =>
+                  tasksApi.command(a.assignment_id, "submit", {
+                    expected_revision: a.revision,
+                    text: richText(text(v, "body")),
+                    links,
+                    file_ids: files.map((f) => f.file_id),
+                  }),
+                );
+                setFiles([]);
+              }}
+              submitLabel="Отправить на проверку"
+              onConflict={() => {
+                void refresh();
+              }}
+            />
+          </details>
+        )}
+      {can(a, "review_assignment") && active && (
+        <details className={s.details}>
+          <summary>Решение руководителя</summary>
+          <ActionForm
+            key={a.revision}
+            fields={[
+              {
+                name: "decision",
+                label: "Исход",
+                type: "select",
+                required: true,
+                options: [
+                  ...(a.status === "submitted"
+                    ? [
+                        { value: "accept:1", label: "Принять — 1" },
+                        { value: "accept:1.5", label: "Принять — 1,5" },
+                        { value: "request-revision", label: "На доработку" },
+                      ]
+                    : []),
+                  { value: "not-complete:0", label: "Не выполнена — 0" },
+                  { value: "not-complete:-1", label: "Не выполнена — −1" },
+                  { value: "cancel", label: "Отменить без оценки" },
+                ],
+              },
+              {
+                name: "note",
+                label: "Пояснение / причина",
+                type: "textarea",
+                required: true,
+              },
+            ]}
+            onSubmit={async (v) => {
+              const [command, evaluation] = text(v, "decision").split(":");
+              await perform(() =>
+                tasksApi.command(
+                  a.assignment_id,
+                  command as
+                    | "accept"
+                    | "request-revision"
+                    | "not-complete"
+                    | "cancel",
+                  {
+                    expected_revision: a.revision,
+                    ...(evaluation ? { evaluation: Number(evaluation) } : {}),
+                    review_note: text(v, "note"),
+                    reason: text(v, "note"),
+                  },
+                ),
+              );
+            }}
+            onConflict={() => {
+              void refresh();
+            }}
+          />
+        </details>
+      )}
+      <AssessmentPanel assignment={a} />
+    </Card>
+  );
 }
 function TaskComments({ task }: { task: Task }) {
-  const { perform } = useWorkspaceActions(); const query = useQuery({ queryKey: ['tasks', task.task_id, 'comments'], queryFn: () => tasksApi.comments(task.task_id) });
-  return <Card title="Обсуждение"><QueryState loading={query.isLoading} error={query.error}>{query.data?.items.map(c => <div key={c.comment_id} className={s.details}><p>{c.author.display_name} · {displayDate(c.created_at)} {c.updated_at && '(изменён)'}</p><Markdown content={c.content} />{can(c, 'edit_comment') && <details><summary>Редактировать свой комментарий</summary><ActionForm fields={[{ name: 'body', label: 'Текст', type: 'textarea', value: c.content.body, required: true }]} onSubmit={async v => { await perform(() => tasksApi.editComment(c.comment_id, richText(text(v, 'body')))); }} /></details>}</div>)}</QueryState>{can(task, 'comment_task') && <ActionForm fields={[{ name: 'body', label: 'Новый комментарий', type: 'textarea', required: true }]} onSubmit={async v => { await perform(() => tasksApi.comment(task.task_id, richText(text(v, 'body')))); }} submitLabel="Добавить комментарий" />}</Card>;
+  const { perform } = useWorkspaceActions();
+  const query = useQuery({
+    queryKey: ["tasks", task.task_id, "comments"],
+    queryFn: () => tasksApi.comments(task.task_id),
+  });
+  return (
+    <Card title="Обсуждение">
+      <QueryState loading={query.isLoading} error={query.error}>
+        {query.data?.items.map((c) => (
+          <div key={c.comment_id} className={s.details}>
+            <p>
+              {c.author.display_name} · {displayDate(c.created_at)}{" "}
+              {c.updated_at && "(изменён)"}
+            </p>
+            <Markdown content={c.content} />
+            {can(c, "edit_comment") && (
+              <details>
+                <summary>Редактировать свой комментарий</summary>
+                <ActionForm
+                  fields={[
+                    {
+                      name: "body",
+                      label: "Текст",
+                      type: "textarea",
+                      value: c.content.body,
+                      required: true,
+                    },
+                  ]}
+                  onSubmit={async (v) => {
+                    await perform(() =>
+                      tasksApi.editComment(
+                        c.comment_id,
+                        richText(text(v, "body")),
+                      ),
+                    );
+                  }}
+                />
+              </details>
+            )}
+          </div>
+        ))}
+      </QueryState>
+      {can(task, "comment_task") && (
+        <ActionForm
+          fields={[
+            {
+              name: "body",
+              label: "Новый комментарий",
+              type: "textarea",
+              required: true,
+            },
+          ]}
+          onSubmit={async (v) => {
+            await perform(() =>
+              tasksApi.comment(task.task_id, richText(text(v, "body"))),
+            );
+          }}
+          submitLabel="Добавить комментарий"
+        />
+      )}
+    </Card>
+  );
 }
 export function TaskPage() {
-  const { id = '' } = useParams(); const { perform, refresh } = useWorkspaceActions();
-  const query = useQuery({ queryKey: ['tasks', id], queryFn: () => tasksApi.get(id) }); const task = query.data;
-  return <Page title={task?.title ?? 'Задача'} actions={<RouteLink to="/tasks">Все задачи</RouteLink>}><QueryState loading={query.isLoading} error={query.error} retry={() => { void query.refetch(); }}>{task && <div className={s.stack}><Card><p>Дедлайн: {displayDate(task.deadline_at)}</p><Markdown content={task.description} /><RouteLink to={task.scope.kind === 'block' ? `/blocks/${encodeURIComponent(task.scope.id)}` : `/subevents/${encodeURIComponent(task.scope.id)}`}>Команда задачи</RouteLink>{can(task, 'edit_task') && <details className={s.details}><summary>Править описание</summary><ActionForm key={task.revision} fields={[{ name: 'title', label: 'Название', required: true, value: task.title }, { name: 'body', label: 'Описание', type: 'textarea', value: task.description.body }]} onSubmit={async v => { await perform(() => tasksApi.update(id, { expected_revision: task.revision, title: text(v, 'title'), description: richText(text(v, 'body')) })); }} onConflict={() => { void refresh(); }} /></details>}<TaskInputsPanel task={task} /><BulkHoursPanel task={task} /></Card>{task.assignments.map(a => <AssignmentCard key={a.assignment_id} assignment={a} />)}<TaskComments task={task} /></div>}</QueryState></Page>;
+  const { id = "" } = useParams();
+  const { perform, refresh } = useWorkspaceActions();
+  const query = useQuery({
+    queryKey: ["tasks", id],
+    queryFn: () => tasksApi.get(id),
+  });
+  const task = query.data;
+  return (
+    <Page
+      title={task?.title ?? "Задача"}
+      actions={<RouteLink to="/tasks">Все задачи</RouteLink>}
+    >
+      <QueryState
+        loading={query.isLoading}
+        error={query.error}
+        retry={() => {
+          void query.refetch();
+        }}
+      >
+        {task && (
+          <div className={s.stack}>
+            <Card>
+              <p>Дедлайн: {displayDate(task.deadline_at)}</p>
+              <Markdown content={task.description} />
+              <RouteLink
+                to={
+                  task.scope.kind === "block"
+                    ? `/blocks/${encodeURIComponent(task.scope.id)}`
+                    : `/subevents/${encodeURIComponent(task.scope.id)}`
+                }
+              >
+                Команда задачи
+              </RouteLink>
+              {can(task, "edit_task") && (
+                <details className={s.details}>
+                  <summary>Править описание</summary>
+                  <ActionForm
+                    key={task.revision}
+                    fields={[
+                      {
+                        name: "title",
+                        label: "Название",
+                        required: true,
+                        value: task.title,
+                      },
+                      {
+                        name: "body",
+                        label: "Описание",
+                        type: "textarea",
+                        value: task.description.body,
+                      },
+                    ]}
+                    onSubmit={async (v) => {
+                      await perform(() =>
+                        tasksApi.update(id, {
+                          expected_revision: task.revision,
+                          title: text(v, "title"),
+                          description: richText(text(v, "body")),
+                        }),
+                      );
+                    }}
+                    onConflict={() => {
+                      void refresh();
+                    }}
+                  />
+                </details>
+              )}
+              <TaskInputsPanel task={task} />
+              <BulkHoursPanel task={task} />
+            </Card>
+            {task.assignments.map((a) => (
+              <AssignmentCard key={a.assignment_id} assignment={a} />
+            ))}
+            <TaskComments task={task} />
+          </div>
+        )}
+      </QueryState>
+    </Page>
+  );
 }
 function ReassignForm({ item }: { item: UnresolvedAssignment }) {
-  const members = useScopeMembers(item.scope); const { perform, refresh } = useWorkspaceActions(); const a = item.assignment;
-  return <QueryState loading={members.loading} error={members.error}><ActionForm key={a.revision} fields={[{ name: 'user', label: 'Новый исполнитель', type: 'select', required: true, options: members.options.filter(p => p.value !== String(a.assignee.user_id)) }, { name: 'hours', label: 'Часы нового назначения', type: 'number', min: 0, required: true }, { name: 'outcome', label: 'Исход прежнего назначения', type: 'select', required: true, options: [{ value: 'cancelled', label: 'Отменить без оценки' }, { value: '0', label: 'Не выполнено — 0' }, { value: '-1', label: 'Не выполнено — −1' }] }, { name: 'reason', label: 'Причина переназначения', required: true, type: 'textarea' }]} onSubmit={async v => { const outcome = text(v, 'outcome'); await perform(() => tasksApi.reassign(a.assignment_id, { expected_revision: a.revision, new_assignee_user_id: number(v, 'user'), hours: number(v, 'hours'), previous_outcome: outcome === 'cancelled' ? 'cancelled' : 'not_completed', ...(outcome === 'cancelled' ? {} : { evaluation: Number(outcome) as 0 | -1 }), reason: text(v, 'reason') })); }} onConflict={() => { void refresh(); }} submitLabel="Закрыть прежнее и назначить заново" /></QueryState>;
+  const members = useScopeMembers(item.scope);
+  const { perform, refresh } = useWorkspaceActions();
+  const a = item.assignment;
+  return (
+    <QueryState loading={members.loading} error={members.error}>
+      <ActionForm
+        key={a.revision}
+        fields={[
+          {
+            name: "user",
+            label: "Новый исполнитель",
+            type: "select",
+            required: true,
+            options: members.options.filter(
+              (p) => p.value !== String(a.assignee.user_id),
+            ),
+          },
+          {
+            name: "hours",
+            label: "Часы нового назначения",
+            type: "number",
+            min: 0,
+            required: true,
+          },
+          {
+            name: "outcome",
+            label: "Исход прежнего назначения",
+            type: "select",
+            required: true,
+            options: [
+              { value: "cancelled", label: "Отменить без оценки" },
+              { value: "0", label: "Не выполнено — 0" },
+              { value: "-1", label: "Не выполнено — −1" },
+            ],
+          },
+          {
+            name: "reason",
+            label: "Причина переназначения",
+            required: true,
+            type: "textarea",
+          },
+        ]}
+        onSubmit={async (v) => {
+          const outcome = text(v, "outcome");
+          await perform(() =>
+            tasksApi.reassign(a.assignment_id, {
+              expected_revision: a.revision,
+              new_assignee_user_id: number(v, "user"),
+              hours: number(v, "hours"),
+              previous_outcome:
+                outcome === "cancelled" ? "cancelled" : "not_completed",
+              ...(outcome === "cancelled"
+                ? {}
+                : { evaluation: Number(outcome) as 0 | -1 }),
+              reason: text(v, "reason"),
+            }),
+          );
+        }}
+        onConflict={() => {
+          void refresh();
+        }}
+        submitLabel="Закрыть прежнее и назначить заново"
+      />
+    </QueryState>
+  );
 }
 export function UnresolvedPage() {
-  const { session } = useSession(); const [onlyUnavailable, setOnlyUnavailable] = useState(false);
-  const query = useQuery({ queryKey: ['tasks', 'unresolved'], queryFn: () => tasksApi.unresolved(), enabled: can(session, 'view_unresolved_assignments') });
-  if (!can(session, 'view_unresolved_assignments')) return <Page title="Оставшаяся работа"><Empty>Нет доступа к очереди.</Empty></Page>;
-  const items = query.data?.items.filter(x => !onlyUnavailable || x.assignment.assignee_unavailable_reason);
-  return <Page title="Оставшаяся работа" description="Прежняя история сохраняется. Новое назначение создаётся отдельно."><label className={s.row}><input type="checkbox" checked={onlyUnavailable} onChange={e => setOnlyUnavailable(e.target.checked)} /> Только без доступного исполнителя</label><QueryState loading={query.isLoading} error={query.error}><div className={s.stack}>{items?.map(item => <Card title={item.task_title} key={item.assignment.assignment_id}><p>{item.assignment.assignee.display_name} · {statusNames[item.assignment.status]} · {displayDate(item.deadline_at)}</p><RouteLink to={getTaskRoute(item.task_id)}>Задача и история</RouteLink>{can(item.assignment, 'reassign_assignment') && <ReassignForm item={item} />}</Card>)}{items?.length === 0 && <Empty>Оставшейся работы нет.</Empty>}</div></QueryState></Page>;
+  const { session } = useSession();
+  const [onlyUnavailable, setOnlyUnavailable] = useState(false);
+  const query = useQuery({
+    queryKey: ["tasks", "unresolved"],
+    queryFn: () => tasksApi.unresolved(),
+    enabled: can(session, "view_unresolved_assignments"),
+  });
+  if (!can(session, "view_unresolved_assignments"))
+    return (
+      <Page title="Оставшаяся работа">
+        <Empty>Нет доступа к очереди.</Empty>
+      </Page>
+    );
+  const items = query.data?.items.filter(
+    (x) => !onlyUnavailable || x.assignment.assignee_unavailable_reason,
+  );
+  return (
+    <Page
+      title="Оставшаяся работа"
+      description="Прежняя история сохраняется. Новое назначение создаётся отдельно."
+    >
+      <label className={s.row}>
+        <input
+          type="checkbox"
+          checked={onlyUnavailable}
+          onChange={(e) => setOnlyUnavailable(e.target.checked)}
+        />{" "}
+        Только без доступного исполнителя
+      </label>
+      <QueryState loading={query.isLoading} error={query.error}>
+        <div className={s.stack}>
+          {items?.map((item) => (
+            <Card title={item.task_title} key={item.assignment.assignment_id}>
+              <p>
+                {item.assignment.assignee.display_name} ·{" "}
+                {statusNames[item.assignment.status]} ·{" "}
+                {displayDate(item.deadline_at)}
+              </p>
+              <RouteLink to={getTaskRoute(item.task_id)}>
+                Задача и история
+              </RouteLink>
+              {can(item.assignment, "reassign_assignment") && (
+                <ReassignForm item={item} />
+              )}
+            </Card>
+          ))}
+          {items?.length === 0 && <Empty>Оставшейся работы нет.</Empty>}
+        </div>
+      </QueryState>
+    </Page>
+  );
 }

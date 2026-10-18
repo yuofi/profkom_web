@@ -5,7 +5,7 @@ import { visualizer } from "rollup-plugin-visualizer";
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), svgr(), visualizer({ open: true })],
+  plugins: [react(), svgr(), visualizer({ open: false })],
   css: {
     transformer: "lightningcss",
     lightningcss: {

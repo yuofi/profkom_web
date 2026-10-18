@@ -50,13 +50,13 @@ Run from `frontend/`.
 ```bash
 npm run lint
 npm run build
-npm test -- --run src/utils/api/tests/zod.test.ts
+npm test -- --run
 ```
 
 - `npm run build` runs TypeScript project compilation before Vite. The Rollup visualizer is enabled and may generate ignored `stats.html`; large chunks currently produce a warning rather than failure.
-- The Zod file is a self-contained unit suite.
-- `src/utils/api/tests/auth.test.ts` is actually a live integration test: it calls `http://127.0.0.1:8000/api`, registers users, and needs a running backend. Do not include it in an isolated unit claim or point it at shared/production data.
-- The test environment mocks `js-cookie`, but not HTTP.
+- The default Vitest suite is isolated: Zod, client refresh, contract transport, privacy/render, dates and Markdown tests. Mock transports must be restored after each test.
+- `src/utils/api/tests/auth.integration.test.ts` is actually a live integration test: it calls `http://127.0.0.1:8000/api`, registers users, and needs a running backend. Do not include it in an isolated unit claim or point it at shared/production data.
+- Default Vitest excludes `*.integration.test.ts`. `npm run test:integration` is a separate explicit run against disposable local data. Shared/prod API is out of scope for isolated frontend checks.
 - CI uses Node 20, `npm ci`, lint, and build. The Docker builder currently uses Node 24.
 
 ## Cross-stack verification matrix

@@ -1,62 +1,639 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { useParams } from 'react-router-dom';
-import { Page, Card, QueryState, Markdown, Empty, RouteLink } from '../../components/Workspace/WorkspaceUI';
-import { ActionForm, type Field } from '../../components/Workspace/ActionForm';
-import { text, number, ids } from '../../components/Workspace/formValues';
-import { seasonsApi } from '../../utils/api/seasons.api';
-import { tasksApi } from '../../utils/api/tasks.api';
-import { eventsApi } from '../../utils/api/events.api';
-import { membershipApi } from '../../utils/api/membership.api';
-import { emptyCriteria, richText, type Merit, type MeritCreate } from '../../utils/api/contract';
-import { can, useSession } from '../../utils/session';
-import { toUtc, displayDate, moscowInput } from '../../utils/dates';
-import { usePeopleOptions, useWorkspaceActions } from '../../utils/hooks/useWorkspace';
-import s from '../../components/Workspace/Workspace.module.css';
-const kinds: Record<MeritCreate['source_kind'], string> = { head_merit: 'Особая заслуга на мероприятии', chair_merit: 'Заслуга председателя', block_volunteer: 'Волонтёрская работа блока', subevent_volunteer: 'Волонтёрская работа подмероприятия' };
-const criteriaLabels = { unique: 'Уникальная работа', creative: 'Творческая', external_communication: 'Общение вне вуза', in_person: 'Очное присутствие', fixed_time: 'В определённое время' };
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useParams } from "react-router-dom";
+import {
+  Page,
+  Card,
+  QueryState,
+  Markdown,
+  Empty,
+  RouteLink,
+} from "../../components/Workspace/WorkspaceUI";
+import { ActionForm, type Field } from "../../components/Workspace/ActionForm";
+import { text, number, ids } from "../../components/Workspace/formValues";
+import { seasonsApi } from "../../utils/api/seasons.api";
+import { tasksApi } from "../../utils/api/tasks.api";
+import { eventsApi } from "../../utils/api/events.api";
+import { membershipApi } from "../../utils/api/membership.api";
+import {
+  emptyCriteria,
+  richText,
+  type Merit,
+  type MeritCreate,
+} from "../../utils/api/contract";
+import { can, useSession } from "../../utils/session";
+import { toUtc, displayDate, moscowInput } from "../../utils/dates";
+import {
+  usePeopleOptions,
+  useWorkspaceActions,
+} from "../../utils/hooks/useWorkspace";
+import s from "../../components/Workspace/Workspace.module.css";
+const kinds: Record<MeritCreate["source_kind"], string> = {
+  head_merit: "Особая заслуга на мероприятии",
+  chair_merit: "Заслуга председателя",
+  block_volunteer: "Волонтёрская работа блока",
+  subevent_volunteer: "Волонтёрская работа подмероприятия",
+};
+const criteriaLabels = {
+  unique: "Уникальная работа",
+  creative: "Творческая",
+  external_communication: "Общение вне вуза",
+  in_person: "Очное присутствие",
+  fixed_time: "В определённое время",
+};
 function useMeritContexts() {
-  return useQuery({ queryKey: ['merits', 'contexts'], queryFn: async () => {
-    const [blocks, events] = await Promise.all([membershipApi.blocks(), eventsApi.list()]);
-    const subs = (await Promise.all(events.items.map(e => eventsApi.subevents(e.event_id)))).flatMap(x => x.items);
-    return { blocks, events: events.items, subs };
-  } });
+  return useQuery({
+    queryKey: ["merits", "contexts"],
+    queryFn: async () => {
+      const [blocks, events] = await Promise.all([
+        membershipApi.blocks(),
+        eventsApi.list(),
+      ]);
+      const subs = (
+        await Promise.all(
+          events.items.map((e) => eventsApi.subevents(e.event_id)),
+        )
+      ).flatMap((x) => x.items);
+      return { blocks, events: events.items, subs };
+    },
+  });
 }
-function MeritForm({ seasonId, existing }: { seasonId: string; existing?: Merit }) {
-  const { session } = useSession(); const { perform } = useWorkspaceActions(); const people = usePeopleOptions(); const contexts = useMeritContexts();
-  const [source, setSource] = useState<MeritCreate['source_kind']>(existing?.source_kind ?? 'block_volunteer');
-  const [scopeId, setScopeId] = useState(existing?.scope?.id ?? existing?.event_id ?? '');
-  const scopeOptions = source === 'block_volunteer' ? contexts.data?.blocks.filter(x => can(x, 'create_volunteer_merit')).map(x => ({ value: x.block_id, label: x.name })) : source === 'subevent_volunteer' ? contexts.data?.subs.filter(x => can(x, 'create_volunteer_merit')).map(x => ({ value: x.subevent_id, label: x.title })) : contexts.data?.events.filter(x => can(x, 'create_head_merit')).map(x => ({ value: x.event_id, label: x.title }));
-  const allowedKinds = Object.entries(kinds).filter(([k]) => k === 'chair_merit' ? can(session, 'create_chair_merit') : k === 'head_merit' ? contexts.data?.events.some(x => can(x, 'create_head_merit')) : can(session, 'create_volunteer_merit'));
-  const fields: Field[] = [{ name: 'title', label: 'Название', value: existing?.title ?? '', required: true }, { name: 'body', label: 'Описание', type: 'textarea', required: true, value: existing?.description.body ?? '' }, { name: 'assigned', label: 'Дата выдачи, МСК', type: 'datetime-local', required: true, value: existing ? moscowInput(existing.assigned_at) : '' }, { name: 'deadline', label: 'Дедлайн, МСК', type: 'datetime-local', required: true, value: existing ? moscowInput(existing.deadline_at) : '' }, ...Object.entries(criteriaLabels).map(([name, label]) => ({ name, label, type: 'select' as const, value: String(existing?.criteria[name as keyof typeof criteriaLabels] ?? false), options: [{ value: 'false', label: 'Нет' }, { value: 'true', label: 'Да' }] })), { name: 'users', label: 'Получатели', type: 'multi', required: true, value: existing?.recipients.map(r => String(r.user_id)), options: people.options }, ...people.options.flatMap(p => [{ name: `hours_${p.value}`, label: `Часы: ${p.label}`, type: 'number' as const, min: 0, value: String(existing?.recipients.find(r => r.user_id === Number(p.value))?.hours ?? '') }, { name: `evaluation_${p.value}`, label: `Оценка: ${p.label}`, type: 'select' as const, value: String(existing?.recipients.find(r => r.user_id === Number(p.value))?.evaluation ?? ''), options: [-1, 0, 1, 1.5].map(n => ({ value: String(n), label: String(n) })) }, { name: `completed_${p.value}`, label: `Дата выполнения, МСК: ${p.label}`, type: 'datetime-local' as const }]), { name: 'reason', label: 'Основание записи / причина исправления', required: true, type: 'textarea' }];
-  return <QueryState loading={contexts.isLoading || people.isLoading} error={contexts.error ?? people.error}><div className={s.form}><label className={s.field}>Вид записи<select disabled={!!existing} value={source} onChange={e => { setSource(e.target.value as typeof source); setScopeId(''); }}><option value="">Выберите…</option>{allowedKinds.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>{source !== 'chair_merit' && <label className={s.field}>Область работы<select disabled={!!existing} value={scopeId} onChange={e => setScopeId(e.target.value)}><option value="">Выберите…</option>{scopeOptions?.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}</select></label>}<p className={s.muted}>Укажите часы и оценку только выбранным получателям. Волонтёрская запись не создаёт членство или доступ к задачам. Исторический состав на дату работы проверяет сервер.</p>{!people.isLoading && <ActionForm key={`${source}/${scopeId}/${existing?.revision ?? 0}/${people.options.length}`} fields={fields} onSubmit={async v => {
-    if (!allowedKinds.some(([k]) => k === source) || (source !== 'chair_merit' && !scopeId)) throw Error('Выберите доступную область работы');
-    const eventId = source === 'head_merit' ? scopeId : source === 'subevent_volunteer' ? contexts.data?.subs.find(x => x.subevent_id === scopeId)?.event_id : undefined;
-    const fixedSeason = contexts.data?.events.find(x => x.event_id === eventId)?.season_id;
-    if (fixedSeason && fixedSeason !== seasonId) throw Error('Откройте форму из сезона выбранного мероприятия');
-    const assigned = toUtc(text(v, 'assigned')), deadline = toUtc(text(v, 'deadline')); if (assigned > deadline) throw Error('Дата выдачи позже дедлайна');
-    const recipients = ids(v, 'users').map(user_id => { const evaluation = text(v, `evaluation_${user_id}`), hours = text(v, `hours_${user_id}`), completed = text(v, `completed_${user_id}`); if (!hours || !evaluation || (Number(evaluation) > 0 && !completed)) throw Error('Заполните часы, оценку и дату положительного результата каждого получателя'); return { user_id, hours: Number(hours), evaluation: Number(evaluation) as -1 | 0 | 1 | 1.5, completed_at: completed ? toUtc(completed) : null }; });
-    const data: MeritCreate = { season_id: fixedSeason ?? seasonId, source_kind: source, ...(source === 'head_merit' ? { event_id: scopeId } : source === 'chair_merit' ? {} : { scope: { kind: source === 'block_volunteer' ? 'block' : 'subevent', id: scopeId } }), title: text(v, 'title'), description: richText(text(v, 'body')), assigned_at: assigned, deadline_at: deadline, criteria: { ...emptyCriteria(), ...Object.fromEntries(Object.keys(criteriaLabels).map(k => [k, text(v, k) === 'true'])) }, recipients, reason: text(v, 'reason') };
-    await perform(() => existing ? seasonsApi.updateMerit(existing.merit_id, { ...data, expected_revision: existing.revision }) : seasonsApi.createMerit(data));
-  }} submitLabel={existing ? 'Сохранить исправление' : 'Записать выполненную работу'} />}</div></QueryState>;
+function MeritForm({
+  seasonId,
+  existing,
+}: {
+  seasonId: string;
+  existing?: Merit;
+}) {
+  const { session } = useSession();
+  const { perform } = useWorkspaceActions();
+  const people = usePeopleOptions();
+  const contexts = useMeritContexts();
+  const [source, setSource] = useState<MeritCreate["source_kind"]>(
+    existing?.source_kind ?? "block_volunteer",
+  );
+  const [scopeId, setScopeId] = useState(
+    existing?.scope?.id ?? existing?.event_id ?? "",
+  );
+  const scopeOptions =
+    source === "block_volunteer"
+      ? contexts.data?.blocks
+          .filter((x) => can(x, "create_volunteer_merit"))
+          .map((x) => ({ value: x.block_id, label: x.name }))
+      : source === "subevent_volunteer"
+        ? contexts.data?.subs
+            .filter((x) => can(x, "create_volunteer_merit"))
+            .map((x) => ({ value: x.subevent_id, label: x.title }))
+        : contexts.data?.events
+            .filter((x) => can(x, "create_head_merit"))
+            .map((x) => ({ value: x.event_id, label: x.title }));
+  const allowedKinds = Object.entries(kinds).filter(([k]) =>
+    k === "chair_merit"
+      ? can(session, "create_chair_merit")
+      : k === "head_merit"
+        ? contexts.data?.events.some((x) => can(x, "create_head_merit"))
+        : can(session, "create_volunteer_merit"),
+  );
+  const fields: Field[] = [
+    {
+      name: "title",
+      label: "Название",
+      value: existing?.title ?? "",
+      required: true,
+    },
+    {
+      name: "body",
+      label: "Описание",
+      type: "textarea",
+      required: true,
+      value: existing?.description.body ?? "",
+    },
+    {
+      name: "assigned",
+      label: "Дата выдачи, МСК",
+      type: "datetime-local",
+      required: true,
+      value: existing ? moscowInput(existing.assigned_at) : "",
+    },
+    {
+      name: "deadline",
+      label: "Дедлайн, МСК",
+      type: "datetime-local",
+      required: true,
+      value: existing ? moscowInput(existing.deadline_at) : "",
+    },
+    ...Object.entries(criteriaLabels).map(([name, label]) => ({
+      name,
+      label,
+      type: "select" as const,
+      value: String(
+        existing?.criteria[name as keyof typeof criteriaLabels] ?? false,
+      ),
+      options: [
+        { value: "false", label: "Нет" },
+        { value: "true", label: "Да" },
+      ],
+    })),
+    {
+      name: "users",
+      label: "Получатели",
+      type: "multi",
+      required: true,
+      value: existing?.recipients.map((r) => String(r.user_id)),
+      options: people.options,
+    },
+    ...people.options.flatMap((p) => [
+      {
+        name: `hours_${p.value}`,
+        label: `Часы: ${p.label}`,
+        type: "number" as const,
+        min: 0,
+        value: String(
+          existing?.recipients.find((r) => r.user_id === Number(p.value))
+            ?.hours ?? "",
+        ),
+      },
+      {
+        name: `evaluation_${p.value}`,
+        label: `Оценка: ${p.label}`,
+        type: "select" as const,
+        value: String(
+          existing?.recipients.find((r) => r.user_id === Number(p.value))
+            ?.evaluation ?? "",
+        ),
+        options: [-1, 0, 1, 1.5].map((n) => ({
+          value: String(n),
+          label: String(n),
+        })),
+      },
+      {
+        name: `completed_${p.value}`,
+        label: `Дата выполнения, МСК: ${p.label}`,
+        type: "datetime-local" as const,
+        value: existing?.recipients.find((r) => r.user_id === Number(p.value))
+          ?.completed_at
+          ? moscowInput(
+              existing.recipients.find((r) => r.user_id === Number(p.value))!
+                .completed_at!,
+            )
+          : "",
+      },
+    ]),
+    {
+      name: "reason",
+      label: "Основание записи / причина исправления",
+      required: true,
+      type: "textarea",
+    },
+  ];
+  return (
+    <QueryState
+      loading={contexts.isLoading || people.isLoading}
+      error={contexts.error ?? people.error}
+    >
+      <div className={s.form}>
+        <label className={s.field}>
+          Вид записи
+          <select
+            disabled={!!existing}
+            value={source}
+            onChange={(e) => {
+              setSource(e.target.value as typeof source);
+              setScopeId("");
+            }}
+          >
+            <option value="">Выберите…</option>
+            {allowedKinds.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {source !== "chair_merit" && (
+          <label className={s.field}>
+            Область работы
+            <select
+              disabled={!!existing}
+              value={scopeId}
+              onChange={(e) => setScopeId(e.target.value)}
+            >
+              <option value="">Выберите…</option>
+              {scopeOptions?.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <p className={s.muted}>
+          Укажите часы и оценку только выбранным получателям. Волонтёрская
+          запись не создаёт членство или доступ к задачам. Исторический состав
+          на дату работы проверяет сервер.
+        </p>
+        {!people.isLoading && (
+          <ActionForm
+            key={`${source}/${scopeId}/${existing?.revision ?? 0}/${people.options.length}`}
+            fields={fields}
+            onSubmit={async (v) => {
+              if (
+                !allowedKinds.some(([k]) => k === source) ||
+                (source !== "chair_merit" && !scopeId)
+              )
+                throw Error("Выберите доступную область работы");
+              const eventId =
+                source === "head_merit"
+                  ? scopeId
+                  : source === "subevent_volunteer"
+                    ? contexts.data?.subs.find((x) => x.subevent_id === scopeId)
+                        ?.event_id
+                    : undefined;
+              const fixedSeason = contexts.data?.events.find(
+                (x) => x.event_id === eventId,
+              )?.season_id;
+              if (fixedSeason && fixedSeason !== seasonId)
+                throw Error("Откройте форму из сезона выбранного мероприятия");
+              const assigned = toUtc(text(v, "assigned")),
+                deadline = toUtc(text(v, "deadline"));
+              if (assigned > deadline)
+                throw Error("Дата выдачи позже дедлайна");
+              const recipients = ids(v, "users").map((user_id) => {
+                const evaluation = text(v, `evaluation_${user_id}`),
+                  hours = text(v, `hours_${user_id}`),
+                  completed = text(v, `completed_${user_id}`);
+                if (
+                  !hours ||
+                  !evaluation ||
+                  (Number(evaluation) > 0 && !completed)
+                )
+                  throw Error(
+                    "Заполните часы, оценку и дату положительного результата каждого получателя",
+                  );
+                return {
+                  user_id,
+                  hours: Number(hours),
+                  evaluation: Number(evaluation) as -1 | 0 | 1 | 1.5,
+                  completed_at: completed ? toUtc(completed) : null,
+                };
+              });
+              const data: MeritCreate = {
+                season_id: fixedSeason ?? seasonId,
+                source_kind: source,
+                ...(source === "head_merit"
+                  ? { event_id: scopeId }
+                  : source === "chair_merit"
+                    ? {}
+                    : {
+                        scope: {
+                          kind:
+                            source === "block_volunteer" ? "block" : "subevent",
+                          id: scopeId,
+                        },
+                      }),
+                title: text(v, "title"),
+                description: richText(text(v, "body")),
+                assigned_at: assigned,
+                deadline_at: deadline,
+                criteria: {
+                  ...emptyCriteria(),
+                  ...Object.fromEntries(
+                    Object.keys(criteriaLabels).map((k) => [
+                      k,
+                      text(v, k) === "true",
+                    ]),
+                  ),
+                },
+                recipients,
+                reason: text(v, "reason"),
+              };
+              await perform(() =>
+                existing
+                  ? seasonsApi.updateMerit(existing.merit_id, {
+                      ...data,
+                      expected_revision: existing.revision,
+                    })
+                  : seasonsApi.createMerit(data),
+              );
+            }}
+            submitLabel={
+              existing ? "Сохранить исправление" : "Записать выполненную работу"
+            }
+          />
+        )}
+      </div>
+    </QueryState>
+  );
 }
 export function MeritsPage() {
-  const { id = '' } = useParams(); const { session } = useSession(); const query = useQuery({ queryKey: ['merits', id], queryFn: () => seasonsApi.merits({ season_id: id }), enabled: can(session, 'create_volunteer_merit') || can(session, 'view_summary') });
-  return <Page title="Особые заслуги и волонтёры" actions={<RouteLink to={`/seasons/${encodeURIComponent(id)}`}>Сезон</RouteLink>}><div className={s.stack}><QueryState loading={query.isLoading} error={query.error}>{query.data?.items.map(m => <Card key={m.merit_id} title={m.title}><p>{kinds[m.source_kind]} · {displayDate(m.assigned_at)}</p><Markdown content={m.description} />{can(m, 'edit_assessment_inputs') && <details className={s.details}><summary>Исправить исходные поля</summary><MeritForm seasonId={id} existing={m} /></details>}</Card>)}</QueryState>{can(session, 'create_volunteer_merit') && <Card title="Учесть выполненную работу"><MeritForm seasonId={id} /></Card>}</div></Page>;
+  const { id = "" } = useParams();
+  const { session } = useSession();
+  const query = useQuery({
+    queryKey: ["merits", id],
+    queryFn: () => seasonsApi.merits({ season_id: id }),
+    enabled:
+      can(session, "create_volunteer_merit") || can(session, "view_summary"),
+  });
+  if (!can(session, "create_volunteer_merit") && !can(session, "view_summary"))
+    return (
+      <Page title="Особые заслуги">
+        <Empty>Нет доступа к исходным полям.</Empty>
+      </Page>
+    );
+  return (
+    <Page
+      title="Особые заслуги и волонтёры"
+      actions={
+        <RouteLink to={`/seasons/${encodeURIComponent(id)}`}>Сезон</RouteLink>
+      }
+    >
+      <div className={s.stack}>
+        <QueryState loading={query.isLoading} error={query.error}>
+          {query.data?.items.map((m) => (
+            <Card key={m.merit_id} title={m.title}>
+              <p>
+                {kinds[m.source_kind]} · {displayDate(m.assigned_at)}
+              </p>
+              <Markdown content={m.description} />
+              {can(m, "edit_assessment_inputs") && (
+                <details className={s.details}>
+                  <summary>Исправить исходные поля</summary>
+                  <MeritForm seasonId={id} existing={m} />
+                </details>
+              )}
+            </Card>
+          ))}
+        </QueryState>
+        {can(session, "create_volunteer_merit") && (
+          <Card title="Учесть выполненную работу">
+            <MeritForm seasonId={id} />
+          </Card>
+        )}
+      </div>
+    </Page>
+  );
 }
 export function SourcesPage() {
-  const { id = '' } = useParams(); const { session } = useSession(); const query = useQuery({ queryKey: ['assessments', 'sources', id], queryFn: () => seasonsApi.assessments({ season_id: id }), enabled: can(session, 'view_kkr') });
-  return <Page title="Подробные начисления"><QueryState loading={query.isLoading} error={query.error}><div className={s.stack}>{query.data?.items.map(c => <Card key={c.contribution_id} title={c.source_title}><p>{c.user.display_name} · ККР: {c.score?.toFixed(2) ?? 'не рассчитан'}</p><p className={s.muted}>Версия расчёта: {c.calculation_version}</p>{c.assignment_inputs && <p>Часы {c.assignment_inputs.hours ?? '—'} · оценка {c.assignment_inputs.evaluation ?? '—'} · дата {displayDate(c.assignment_inputs.effective_completed_at)}</p>}</Card>)}{query.data?.items.length === 0 && <Empty>Начислений пока нет.</Empty>}{!can(session, 'view_kkr') && <Empty>Нет доступа к расчётным данным.</Empty>}</div></QueryState></Page>;
+  const { id = "" } = useParams();
+  const { session } = useSession();
+  const query = useQuery({
+    queryKey: ["assessments", "sources", id],
+    queryFn: () => seasonsApi.assessments({ season_id: id }),
+    enabled: can(session, "view_kkr"),
+  });
+  if (!can(session, "view_kkr"))
+    return (
+      <Page title="Подробные начисления">
+        <Empty>Нет доступа к расчётным данным.</Empty>
+      </Page>
+    );
+  return (
+    <Page title="Подробные начисления">
+      <QueryState loading={query.isLoading} error={query.error}>
+        <div className={s.stack}>
+          {query.data?.items.map((c) => (
+            <Card key={c.contribution_id} title={c.source_title}>
+              <p>
+                {c.user.display_name} · ККР:{" "}
+                {c.score?.toFixed(2) ?? "не рассчитан"}
+              </p>
+              <p className={s.muted}>Версия расчёта: {c.calculation_version}</p>
+              {c.assignment_inputs && (
+                <p>
+                  Часы {c.assignment_inputs.hours ?? "—"} · оценка{" "}
+                  {c.assignment_inputs.evaluation ?? "—"} · дата{" "}
+                  {displayDate(c.assignment_inputs.effective_completed_at)}
+                </p>
+              )}
+            </Card>
+          ))}
+          {query.data?.items.length === 0 && (
+            <Empty>Начислений пока нет.</Empty>
+          )}
+          {!can(session, "view_kkr") && (
+            <Empty>Нет доступа к расчётным данным.</Empty>
+          )}
+        </div>
+      </QueryState>
+    </Page>
+  );
 }
 export function CorrectionsPage() {
-  const { id = '' } = useParams(); const { session } = useSession(); const { perform } = useWorkspaceActions();
-  const summary = useQuery({ queryKey: ['summary', id], queryFn: () => seasonsApi.summary(id), enabled: can(session, 'view_summary') });
-  const sources = useQuery({ queryKey: ['assessments', 'sources', id], queryFn: () => seasonsApi.assessments({ season_id: id }), enabled: can(summary.data, 'correct_summary') });
-  return <Page title="Исправление закрытых итогов"><Card><p>Изменение создаёт новую версию сводной. Баллы пересчитывает сервер с сохранённым составом сезона.</p>{can(summary.data, 'correct_summary') ? <ActionForm fields={[{ name: 'assignment', label: 'Оцениваемое назначение', type: 'select', required: true, options: sources.data?.items.filter(c => c.assignment_inputs).map(c => ({ value: c.assignment_inputs!.assignment_id, label: `${c.user.display_name}: ${c.source_title}` })) }, { name: 'hours', label: 'Часы', type: 'number', min: 0, required: true }, { name: 'evaluation', label: 'Оценка', type: 'select', required: true, options: [-1, 0, 1, 1.5].map(n => ({ value: String(n), label: String(n) })) }, { name: 'reason', label: 'Причина корректировки', required: true, type: 'textarea' }]} onSubmit={async v => { const source = sources.data?.items.find(c => c.assignment_inputs?.assignment_id === text(v, 'assignment'))?.assignment_inputs; if (!source || !summary.data) throw Error('Обновите исходные данные'); await perform(() => seasonsApi.correctSummary(id, { expected_version: summary.data.version, reason: text(v, 'reason'), changes: [{ kind: 'assessment_inputs', id: source.assignment_id, expected_revision: source.revision, values: { hours: number(v, 'hours'), evaluation: number(v, 'evaluation') } }] })); }} /> : <Empty>Исправление доступно председателю после закрытия сезона.</Empty>}</Card></Page>;
+  const { id = "" } = useParams();
+  const { session } = useSession();
+  const { perform } = useWorkspaceActions();
+  const summary = useQuery({
+    queryKey: ["summary", id],
+    queryFn: () => seasonsApi.summary(id),
+    enabled: can(session, "view_summary"),
+  });
+  const sources = useQuery({
+    queryKey: ["assessments", "sources", id],
+    queryFn: () => seasonsApi.assessments({ season_id: id }),
+    enabled: can(summary.data, "correct_summary"),
+  });
+  if (!can(session, "close_season"))
+    return (
+      <Page title="Исправление закрытых итогов">
+        <Empty>Исправление доступно председателю.</Empty>
+      </Page>
+    );
+  return (
+    <Page title="Исправление закрытых итогов">
+      <Card>
+        <p>
+          Изменение создаёт новую версию сводной. Баллы пересчитывает сервер с
+          сохранённым составом сезона.
+        </p>
+        {can(summary.data, "correct_summary") ? (
+          <ActionForm
+            fields={[
+              {
+                name: "assignment",
+                label: "Оцениваемое назначение",
+                type: "select",
+                required: true,
+                options: sources.data?.items
+                  .filter((c) => c.assignment_inputs)
+                  .map((c) => ({
+                    value: c.assignment_inputs!.assignment_id,
+                    label: `${c.user.display_name}: ${c.source_title}`,
+                  })),
+              },
+              {
+                name: "hours",
+                label: "Часы",
+                type: "number",
+                min: 0,
+                required: true,
+              },
+              {
+                name: "evaluation",
+                label: "Оценка",
+                type: "select",
+                required: true,
+                options: [-1, 0, 1, 1.5].map((n) => ({
+                  value: String(n),
+                  label: String(n),
+                })),
+              },
+              {
+                name: "completed",
+                label: "Исправленная дата выполнения, МСК — при необходимости",
+                type: "datetime-local",
+              },
+              {
+                name: "reason",
+                label: "Причина корректировки",
+                required: true,
+                type: "textarea",
+              },
+            ]}
+            onSubmit={async (v) => {
+              const source = sources.data?.items.find(
+                (c) =>
+                  c.assignment_inputs?.assignment_id === text(v, "assignment"),
+              )?.assignment_inputs;
+              if (!source || !summary.data)
+                throw Error("Обновите исходные данные");
+              await perform(() =>
+                seasonsApi.correctSummary(id, {
+                  expected_version: summary.data.version,
+                  reason: text(v, "reason"),
+                  changes: [
+                    {
+                      kind: "assessment_inputs",
+                      id: source.assignment_id,
+                      expected_revision: source.revision,
+                      values: {
+                        hours: number(v, "hours"),
+                        evaluation: number(v, "evaluation"),
+                        ...(text(v, "completed")
+                          ? {
+                              effective_completed_at: toUtc(
+                                text(v, "completed"),
+                              ),
+                            }
+                          : {}),
+                      },
+                    },
+                  ],
+                }),
+              );
+            }}
+          />
+        ) : (
+          <Empty>
+            Исправление доступно председателю после закрытия сезона.
+          </Empty>
+        )}
+      </Card>
+    </Page>
+  );
 }
 export function SeasonCorrectionForm() {
-  const { session } = useSession(); const { perform } = useWorkspaceActions(); const seasons = useQuery({ queryKey: ['seasons'], queryFn: seasonsApi.list });
-  const objects = useQuery({ queryKey: ['events', 'correction-objects'], queryFn: async () => { const [events, tasks, merits] = await Promise.all([eventsApi.list(), tasksApi.list({ mine: false }), seasonsApi.merits()]); return [...events.items.map(e => ({ kind: 'event' as const, id: e.event_id, title: e.title, revision: e.revision })), ...tasks.items.filter(t => t.scope.kind === 'block').map(t => ({ kind: 'block_task' as const, id: t.task_id, title: t.title, revision: t.revision })), ...merits.items.filter(m => ['block_volunteer', 'chair_merit'].includes(m.source_kind)).map(m => ({ kind: 'merit' as const, id: m.merit_id, title: m.title, revision: m.revision }))]; }, enabled: can(session, 'correct_season') });
-  if (!can(session, 'correct_season')) return null;
-  return <Card title="Исправить ошибочную принадлежность к сезону"><p>Для мероприятия изменятся также сезоны связанных задач, отчётов и начислений. Оба сезона должны быть незакрыты; операция выполняется целиком.</p><QueryState loading={objects.isLoading} error={objects.error}><ActionForm fields={[{ name: 'object', label: 'Объект', type: 'select', required: true, options: objects.data?.map(o => ({ value: `${o.kind}/${o.id}`, label: o.title })) }, { name: 'target', label: 'Правильный сезон', type: 'select', required: true, options: seasons.data?.items.filter(s => s.state !== 'closed').map(s => ({ value: s.season_id, label: s.title })) }, { name: 'reason', label: 'Причина', type: 'textarea', required: true }]} onSubmit={async v => { const object = objects.data?.find(o => `${o.kind}/${o.id}` === text(v, 'object')); if (!object) throw Error('Выберите объект'); await perform(() => seasonsApi.correctSeason({ object_kind: object.kind, object_id: object.id, expected_revision: object.revision, target_season_id: text(v, 'target'), reason: text(v, 'reason') })); }} /></QueryState></Card>;
+  const { session } = useSession();
+  const { perform } = useWorkspaceActions();
+  const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
+  const objects = useQuery({
+    queryKey: ["events", "correction-objects"],
+    queryFn: async () => {
+      const [events, tasks, merits] = await Promise.all([
+        eventsApi.list(),
+        tasksApi.list({ mine: false }),
+        seasonsApi.merits(),
+      ]);
+      return [
+        ...events.items.map((e) => ({
+          kind: "event" as const,
+          id: e.event_id,
+          title: e.title,
+          revision: e.revision,
+        })),
+        ...tasks.items
+          .filter((t) => t.scope.kind === "block")
+          .map((t) => ({
+            kind: "block_task" as const,
+            id: t.task_id,
+            title: t.title,
+            revision: t.revision,
+          })),
+        ...merits.items
+          .filter((m) =>
+            ["block_volunteer", "chair_merit"].includes(m.source_kind),
+          )
+          .map((m) => ({
+            kind: "merit" as const,
+            id: m.merit_id,
+            title: m.title,
+            revision: m.revision,
+          })),
+      ];
+    },
+    enabled: can(session, "correct_season"),
+  });
+  if (!can(session, "correct_season")) return null;
+  return (
+    <Card title="Исправить ошибочную принадлежность к сезону">
+      <p>
+        Для мероприятия изменятся также сезоны связанных задач, отчётов и
+        начислений. Оба сезона должны быть незакрыты; операция выполняется
+        целиком.
+      </p>
+      <QueryState loading={objects.isLoading} error={objects.error}>
+        <ActionForm
+          fields={[
+            {
+              name: "object",
+              label: "Объект",
+              type: "select",
+              required: true,
+              options: objects.data?.map((o) => ({
+                value: `${o.kind}/${o.id}`,
+                label: o.title,
+              })),
+            },
+            {
+              name: "target",
+              label: "Правильный сезон",
+              type: "select",
+              required: true,
+              options: seasons.data?.items
+                .filter((s) => s.state !== "closed")
+                .map((s) => ({ value: s.season_id, label: s.title })),
+            },
+            {
+              name: "reason",
+              label: "Причина",
+              type: "textarea",
+              required: true,
+            },
+          ]}
+          onSubmit={async (v) => {
+            const object = objects.data?.find(
+              (o) => `${o.kind}/${o.id}` === text(v, "object"),
+            );
+            if (!object) throw Error("Выберите объект");
+            if (
+              object.kind !== "event" &&
+              seasons.data?.items.find((s) => s.season_id === text(v, "target"))
+                ?.state === "planned"
+            )
+              throw Error(
+                "Этой записи нужен открытый сезон или подведение итогов",
+              );
+            await perform(() =>
+              seasonsApi.correctSeason({
+                object_kind: object.kind,
+                object_id: object.id,
+                expected_revision: object.revision,
+                target_season_id: text(v, "target"),
+                reason: text(v, "reason"),
+              }),
+            );
+          }}
+        />
+      </QueryState>
+    </Card>
+  );
 }

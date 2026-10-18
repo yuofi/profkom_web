@@ -62,7 +62,7 @@ Important invariants:
 - `get_current_user` rejects missing/invalid/deleted/banned users. `get_current_user_optional` converts all authentication failures to anonymous access for public guide filtering.
 - `require_admin` accepts `admin` or `super_user`; `require_pgas_admin` accepts `pgas_admin` or `super_user`; `require_superuser` accepts only `super_user`.
 
-Current backend permission map:
+Legacy backend permission snapshot (verify current routes and contract tests before reuse):
 
 | Domain | Read | Mutate |
 | --- | --- | --- |
@@ -77,21 +77,21 @@ Current backend permission map:
 Frontend gating is different and must not replace backend checks:
 
 - `/auth` is public.
-- The main layout requires `/profile/me`; users with `in_profcom === false` see pending approval unless they are superusers.
-- `/admin/:tab` accepts frontend `admin`, with a superuser override.
+- The main layout requires an active/approved `/session`. Pending/rejected/archived accounts are gated before working queries; the profile is a separate query.
+- New actions and routes use session/object capabilities. The legacy admin entry is gated by `review_registrations`; legacy guide editing retains its compatibility helper.
 - Guide edit access mirrors the block-master rule using the fetched block list.
 
 ## Frontend ownership
 
 - `src/App.tsx`: provider stack and route tree.
-- `src/utils/ctx.tsx` and `me.tsx`: current-user query/context.
-- `src/utils/demoData.ts`: development-only fallback user and block fixtures. Vite dev mode uses them by default; set `VITE_DEMO_MODE=false` to exercise the real backend locally. Production never enables this fallback.
+- `src/utils/ctx.tsx`, `session.ts`, `me.tsx`: session and separate profile contexts. A changed access fingerprint cancels/removes private cache before publishing the new session.
+- `src/mocks/`: explicit development/test Axios transport with synthetic role/scenario fixtures, loaded before first render only in DEV. `demoData.ts` holds the DEV guard; set `VITE_DEMO_MODE=false` for real API. There is no error-to-mock fallback or production mock transport.
 - `src/pages/Wrappers/wrappers.tsx`: route gating.
-- `src/pages/ProfilePage/`: personal dashboard with a persistent profile card on the left and a URL-backed `blocks`/`events` switcher on the right; mobile stacks the two columns.
+- `src/pages/Workspace/` and `components/Workspace/`: dashboard, responsive shell, events, shared tasks/assessment inputs, reports, seasons, membership, materials and directory. Routes are loaded by domain. `/profile` is separate and includes avatar selection.
 - `src/utils/api/index.ts`: shared Axios client and token refresh.
-- `src/utils/api/*.api.ts`: domain calls; `types.ts` mirrors API DTOs.
+- `src/utils/api/*.api.ts`: domain calls. `contract.ts` holds API 1.3 DTOs separated into public data, assessment inputs and calculated results; `types.ts` retains legacy DTOs. `request.ts` validates errors/list wrappers and follows bounded cursor chains.
 - `src/utils/filterRoles.ts`: UI permission helpers, especially guide ownership.
-- `src/utils/s3-utils.ts`: request presigned URL, then direct PUT to S3.
+- `src/utils/api/files.api.ts`: new intent -> binary upload -> complete/download flow. `s3-utils.ts` remains for legacy PGAS/gallery upload compatibility.
 - `src/pages/Admin/panels/`: admin UI; `BlocksManagement.module.css` is currently shared by more than one panel.
 - `src/styles/vars.css`: canonical palette, typography, radii, and elevation tokens.
 
@@ -104,5 +104,7 @@ The API client returns a mix of full Axios responses (`authApi`, image upload) a
 - The frontend runtime schema requires `VITE_BACKEND_URL`, `VITE_ENVIRONMENT`, `VITE_APP_ID`, and `VITE_REDIRECT_URL`. Production still validates `VITE_BACKEND_URL` even though API requests use same-origin `/api`.
 - `VITE_DEMO_MODE` is intentionally read outside the runtime schema: in `import.meta.env.DEV`, every value except the literal string `false` enables the local no-backend demo; production builds always bypass it.
 - The Nginx config serves HTTPS on 443 and expects certificate files mounted at `/etc/nginx/ssl`.
-- S3 uploads are two-step: obtain a presigned URL from the backend, PUT directly from the browser, and persist/use the returned public URL.
+- New files require intent, binary PUT and complete, then object-checked temporary download URLs. Legacy S3 helpers still use their old presigned/public-URL flow; verify the owning feature before changing it.
 - `preset_db.py` is idempotent by guide title and admin email, but it mutates whichever database `DATABASE_PATH` selects. Treat it as a real data mutation.
+
+Frontend planning and acceptance evidence live in `frontend/docs/PLAN.md`, `CHECKLIST.md`, `MOCKS.md` and `ACCEPTANCE.md`. Mock-ready is separate from real API/deployment readiness. No client KKR/rank/tenure computation.

@@ -1,16 +1,109 @@
-.shell { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 36px; max-width: 1460px; margin: auto; padding: 28px; }
-.sidebar { position: sticky; top: 24px; height: max-content; display: grid; gap: 28px; }
-.brand { color: var(--primary); text-decoration: none; font-size: 24px; font-weight: 700; letter-spacing: -.04em; }
-.brand small { display: block; font-size: 12px; letter-spacing: .14em; margin-top: 7px; opacity: .65; }
-.nav { display: grid; gap: 6px; }
-.nav a { padding: 11px 14px; border-radius: 12px; color: var(--on-surface); text-decoration: none; min-height: 22px; }
-.nav a[aria-current=page] { background: var(--primary); color: var(--on-primary); }
-.content { min-width: 0; padding: 8px 0 60px; }
-.profile { border-top: 1px solid var(--surface-variant); padding-top: 20px; }
-.profile a { color: var(--on-surface); }
-.mobile { display: none; }
-.demo { padding: 12px; border: 1px dashed var(--outline-variant); border-radius: 12px; font-size: 12px; line-height: 1.5; }
-.demo select { width: 100%; background: var(--surface-container); color: var(--on-surface); padding: 8px; margin-top: 8px; border-radius: 6px; }
-@media(max-width: 768px) { .shell { grid-template-columns: 1fr; gap: 22px; padding: 18px 16px; } .sidebar { position: static; gap: 16px; } .sidebar > .nav, .sidebar > .profile { display: none; } .brand { font-size: 21px; } .mobile { display: block; border-bottom: 1px solid var(--surface-variant); padding-bottom: 12px; } .mobile summary { cursor: pointer; min-height: 38px; color: var(--primary); } .demo { padding: 8px; } }
+.shell {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 36px;
+  max-width: 1460px;
+  margin: auto;
+  padding: 28px;
+}
+.sidebar {
+  position: sticky;
+  top: 24px;
+  height: max-content;
+  display: grid;
+  gap: 28px;
+}
+.brand {
+  color: var(--primary);
+  text-decoration: none;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+.brand small {
+  display: block;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  margin-top: 7px;
+  opacity: 0.65;
+}
+.nav {
+  display: grid;
+  gap: 6px;
+}
+.nav a {
+  padding: 11px 14px;
+  border-radius: 12px;
+  color: var(--on-surface);
+  text-decoration: none;
+  min-height: 22px;
+}
+.nav a[aria-current="page"] {
+  background: var(--primary);
+  color: var(--on-primary);
+}
+.content {
+  min-width: 0;
+  padding: 8px 0 60px;
+}
+.profile {
+  border-top: 1px solid var(--surface-variant);
+  padding-top: 20px;
+}
+.profile a {
+  color: var(--on-surface);
+}
+.mobile {
+  display: none;
+}
+.demo {
+  padding: 12px;
+  border: 1px dashed var(--outline-variant);
+  border-radius: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.demo select {
+  width: 100%;
+  background: var(--surface-container);
+  color: var(--on-surface);
+  padding: 8px;
+  margin-top: 8px;
+  border-radius: 6px;
+}
+@media (max-width: 768px) {
+  .shell {
+    grid-template-columns: 1fr;
+    gap: 22px;
+    padding: 18px 16px;
+  }
+  .sidebar {
+    position: static;
+    gap: 16px;
+  }
+  .sidebar > .nav,
+  .sidebar > .profile {
+    display: none;
+  }
+  .brand {
+    font-size: 21px;
+  }
+  .mobile {
+    display: block;
+    border-bottom: 1px solid var(--surface-variant);
+    padding-bottom: 12px;
+  }
+  .mobile summary {
+    cursor: pointer;
+    min-height: 38px;
+    color: var(--primary);
+  }
+  .demo {
+    padding: 8px;
+  }
+}
 
-.demo label { display: block; margin-top: 6px; }
+.demo label {
+  display: block;
+  margin-top: 6px;
+}
