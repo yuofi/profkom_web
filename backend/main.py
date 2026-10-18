@@ -2077,14 +2077,6 @@ def _to_report_version_out(rv: ReportVersion) -> ReportVersionOut:
     )
 
 
-def _to_notification_out(n: Notification) -> NotificationOut:
-    return NotificationOut(
-        notification_id=n.notification_id,
-        kind=n.kind,
-        payload=n.payload,
-        is_read=n.is_read,
-        created_at=n.created_at,
-    )
 
 
 # ── Seasons ──
@@ -2190,15 +2182,10 @@ def close_season(season_id: str, payload: SeasonRevisionIn, cur: User = Depends(
 
 @router.get("/report-series", response_model=Page[ReportSeriesOut])
 def list_report_series(cur: User = Depends(get_current_user)):
-    return Page(items=[
-        ReportSeriesOut(
-            series_id=r.series_id,
-            owner_kind=r.owner_kind,
-            title=r.title,
-            parent_series_id=r.parent_series_id,
-        )
-        for r in db.list_report_series()
-    ])
+    from report_access import historical_reader
+    with db._session() as session:
+        items=[r for r in db.list_report_series() if historical_reader(session,r.series_id,cur.user_id) or any(db.can_read_report(cur.user_id,report,session) for report in session.query(database_module.ReportORM).filter_by(report_series_id=r.series_id))]
+        return Page(items=[ReportSeriesOut(series_id=r.series_id,owner_kind=r.owner_kind,title=r.title,parent_series_id=r.parent_series_id) for r in items])
 
 
 # ── Events ──
@@ -3475,11 +3462,15 @@ def get_dashboard(cur: User = Depends(get_current_user)):
 def get_calendar(
     from_date: Optional[str] = Query(None, alias="from"),
     to_date: Optional[str] = Query(None, alias="to"),
+    timezone: str = "Europe/Moscow",
     cur: User = Depends(get_current_user),
 ):
     from_d = from_date or "1970-01-01"
     to_d = to_date or "2099-12-31"
     from workspace import calendar
+    from workspace import date_range
+    try:from_d,to_d=date_range(from_d,to_d,timezone)
+    except ValueError as exc:raise HTTPException(422,str(exc))
     items = calendar(cur.user_id, from_d, to_d)
     return Page(items=[CalendarItemOut(**item) for item in items])
 

@@ -24,6 +24,8 @@ class Command(BaseModel):
     def normalize(cls,value,info:ValidationInfo):
         if value is not None and info.field_name in {'assigned_at','deadline_at','completed_at','effective_completed_at','starts_at','ends_at'}:return timestamp(value)
         if info.field_name=='hours':hours(value)
+        if info.field_name in {'expected_revision','expected_version'} and value<1:raise ValueError('Version must be positive')
+        if info.field_name=='join_url' and not value.startswith(('https://','http://')):raise ValueError('HTTP(S) meeting URL required')
         if info.field_name=='scope' and value is not None:
             if set(value)!={'kind','id'} or value['kind'] not in ('block','subevent') or not isinstance(value['id'],str) or not value['id']:raise ValueError('Exactly one block or subevent scope is required')
         if info.field_name in {'title','reason'} and value is not None and not value.strip():raise ValueError('Value cannot be empty')

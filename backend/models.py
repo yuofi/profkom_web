@@ -456,3 +456,5 @@ class Notification:
 
 
 
+    read_at: Optional[str] = None
+

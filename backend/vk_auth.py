@@ -49,7 +49,7 @@ def login_user(token: str):
     name=identity.get('first_name') or 'VK'
     surname=identity.get('last_name') or 'User'
     user=db.create_user_with_contact(
-        ContactInfo(user_id=0,email=email,name=name,surname=surname,kkr_name=f'{name} {surname}',group_number='0',vk=f"https://vk.com/id{identity['vk_id']}"),
+        ContactInfo(user_id=0,email=email,name=name,surname=surname,kkr_name=f'{name} {surname}',group_number='0',phone=str(identity.get('phone') or identity.get('phone_number') or identity.get('mobile_phone') or ''),vk=f"https://vk.com/id{identity['vk_id']}"),
         User(user_id=0,hashed_password='',group_number='0',account_state='pending'),
     )
     db.link_external_identity(user.user_id,identity['subject'])

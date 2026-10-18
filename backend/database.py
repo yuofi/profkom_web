@@ -243,6 +243,8 @@ class NotificationORM(Base):
     user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False, index=True)
     kind = Column(String, nullable=False)
     payload_json = Column(Text, nullable=False, default="{}", server_default="{}")
+    event_key = Column(String, nullable=True)
+    read_at = Column(String, nullable=True)
     is_read = Column(Boolean, default=False, nullable=False)
     created_at = Column(String, nullable=False)
 
@@ -553,7 +555,7 @@ def generate_summary_xlsx(summary: SeasonSummaryDC, contributions: list[Calculat
             res = chr(ord("A") + rem) + res
         return res
 
-    summary_headers = ["Место", "Участник", "Группа", "Категория", "Блоки", "Мастер", "Статус", "Кол-во задач", "Итоговый ККР", "Прошлое место", "Решения"]
+    summary_headers = ["Место", "Участник", "Группа", "Категория", "Блоки", "Мастер", "Статус", "Кол-во задач", "Итоговый ККР", "Прошлое место", "Решения", "Прошлые решения"]
     summary_rows = [summary_headers]
     for r in summary.rows:
         blocks_str = ", ".join(b.name for b in r.blocks)
@@ -572,6 +574,7 @@ def generate_summary_xlsx(summary: SeasonSummaryDC, contributions: list[Calculat
             round(r.total_score, 2),
             r.previous_rank if r.previous_rank is not None else "",
             dec_str,
+            ", ".join(r.previous_decisions),
         ])
 
     contrib_headers = ["ID", "Сезон", "Участник", "Тип источника", "Источник", "Баллы", "Версия расчёта"]
@@ -651,6 +654,18 @@ def _ensure_nullable_bonus_recipient():
         for index in MasterBonusORM.__table__.indexes:index.create(conn,checkfirst=True)
 
 _ensure_nullable_bonus_recipient()
+
+
+def _ensure_notification_read_at():
+    with engine.begin() as conn:
+        names={r[1] for r in conn.execute(text("PRAGMA table_info(notifications)"))}
+        if "event_key" not in names:conn.execute(text("ALTER TABLE notifications ADD COLUMN event_key VARCHAR"))
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_notification_event ON notifications(user_id,event_key) WHERE event_key IS NOT NULL"))
+        if "read_at" not in names:
+            conn.execute(text("ALTER TABLE notifications ADD COLUMN read_at VARCHAR"))
+            conn.execute(text("UPDATE notifications SET read_at=created_at WHERE is_read=1"))
+
+_ensure_notification_read_at()
 
 
 def _ensure_sqlite_users_password_column() -> None:
@@ -1146,7 +1161,7 @@ def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: O
     task=session.get(TaskORM,a.task_id)
     accessible=task and current_user_id and db.can_view_scope(current_user_id,task.scope_kind,task.scope_id)
     if accessible and current_user_id==a.assignee_user_id:
-        if a.status=="assigned": caps += ["start_assignment","submit_result"]
+        if a.status=="assigned": caps += ["start_assignment","submit_result","request_help"]
         if a.status in ("in_progress","help_required","needs_revision"): caps += ["submit_result"]
         if a.status in ("in_progress","needs_revision"): caps += ["request_help"]
         if a.status=="help_required": caps += ["resume_assignment"]
@@ -2716,6 +2731,8 @@ class Database:
 
             new_chair.super_user = True
             new_chair.admin = True
+            from notifications import emit
+            emit(session,[uid for uid in [former_chair_id,*former_deputy_ids,new_chair_user_id] if uid],"leadership_changed",{},"leadership:"+str(row.revision))
             session.commit()
             return self.get_leadership()
 
@@ -2779,6 +2796,8 @@ class Database:
 
             row.deputies_json = json.dumps(deputy_user_ids)
             row.revision += 1
+            from notifications import emit
+            emit(session,set(deputy_user_ids)^old_deputy_ids,"leadership_changed",{},"leadership:"+str(row.revision))
             session.commit()
             return self.get_leadership()
 
@@ -3455,6 +3474,8 @@ class Database:
                     published_by_user_id=user_id,
                 )
             )
+            from notifications import report_published
+            report_published(session,r,user_id)
             session.commit()
             return _report_orm_to_dc(session, r, user_id, is_editor=True)
 
@@ -3500,224 +3521,16 @@ class Database:
             return res
 
     def get_dashboard(self, current_user_id: int) -> dict:
-        with self._session() as session:
-            # 1. My tasks
-            my_asgns = session.query(AssignmentORM).filter(
-                AssignmentORM.assignee_user_id == current_user_id,
-                AssignmentORM.status.in_(["assigned", "in_progress", "help_required", "needs_revision"]),
-            ).all()
-            tasks_data = []
-            for a in my_asgns:
-                t = session.get(TaskORM, a.task_id)
-                if t:
-                    tasks_data.append({
-                        "task_id": t.task_id,
-                        "assignment_id": a.assignment_id,
-                        "title": t.title,
-                        "status": a.status,
-                        "deadline_at": t.deadline_at,
-                        "scope_kind": t.scope_kind,
-                        "scope_id": t.scope_id,
-                    })
-
-            # 2. Upcoming meetings
-            all_meetings = session.query(MeetingORM).all()
-            meetings_data = []
-            for m in all_meetings:
-                can_v = False
-                if m.owner_kind == "subevent":
-                    can_v = (
-                        self.is_tachki(current_user_id)
-                        or self.is_subevent_leader(current_user_id, m.owner_id)
-                        or self.is_subevent_leader_deputy(current_user_id, m.owner_id)
-                        or self.is_subevent_organizer(current_user_id, m.owner_id)
-                    )
-                    if not can_v:
-                        sub = session.get(SubeventORM, m.owner_id)
-                        if sub and (self.is_event_leader(current_user_id, sub.event_id) or self.is_event_leader_deputy(current_user_id, sub.event_id)):
-                            can_v = True
-                elif m.owner_kind == "event":
-                    can_v = (
-                        self.is_tachki(current_user_id)
-                        or self.is_event_leader(current_user_id, m.owner_id)
-                        or self.is_event_leader_deputy(current_user_id, m.owner_id)
-                    )
-                    if not can_v:
-                        subs = session.query(SubeventORM).filter(SubeventORM.event_id == m.owner_id).all()
-                        for s in subs:
-                            if self.is_subevent_leader(current_user_id, s.subevent_id) or self.is_subevent_leader_deputy(current_user_id, s.subevent_id):
-                                can_v = True
-                                break
-                if can_v:
-                    meetings_data.append({
-                        "meeting_id": m.meeting_id,
-                        "title": m.title,
-                        "starts_at": m.starts_at,
-                        "join_url": m.join_url,
-                        "owner_kind": m.owner_kind,
-                        "owner_id": m.owner_id,
-                    })
-            meetings_data.sort(key=lambda x: x["starts_at"])
-
-            # 3. My blocks
-            all_blocks = session.query(BlockORM).all()
-            blocks_data = []
-            for b in all_blocks:
-                is_mem = False
-                try:
-                    humans = json.loads(b.arr_of_human or "[]")
-                    is_mem = current_user_id in humans
-                except Exception:
-                    pass
-                is_lead = b.master_user_id == current_user_id or self.is_block_master(current_user_id, b.name) or self.is_block_master_deputy(current_user_id, b.name)
-                if is_mem or is_lead:
-                    blocks_data.append({
-                        "name": b.name,
-                        "is_master": is_lead,
-                    })
-
-            # 4. My events / subevents
-            events_data = []
-            evs = session.query(EventORM).all()
-            for ev in evs:
-                if self.is_event_leader(current_user_id, ev.event_id) or self.is_event_leader_deputy(current_user_id, ev.event_id):
-                    events_data.append({
-                        "event_id": ev.event_id,
-                        "title": ev.title,
-                        "role": "leader",
-                    })
-            subs = session.query(SubeventORM).all()
-            for sub in subs:
-                if self.is_subevent_leader(current_user_id, sub.subevent_id) or self.is_subevent_leader_deputy(current_user_id, sub.subevent_id):
-                    events_data.append({
-                        "subevent_id": sub.subevent_id,
-                        "title": sub.title,
-                        "role": "leader",
-                    })
-                elif self.is_subevent_organizer(current_user_id, sub.subevent_id):
-                    events_data.append({
-                        "subevent_id": sub.subevent_id,
-                        "title": sub.title,
-                        "role": "organizer",
-                    })
-
-            # 5. Pending requests (review queue)
-            pending_count = 0
-            tasks_in_scope = session.query(TaskORM).all()
-            for t in tasks_in_scope:
-                if self.can_manage_scope(current_user_id, t.scope_kind, t.scope_id):
-                    cnt = session.query(AssignmentORM).filter(
-                        AssignmentORM.task_id == t.task_id,
-                        AssignmentORM.status.in_(["help_required", "submitted"]),
-                    ).count()
-                    pending_count += cnt
-
-            return {
-                "my_tasks": tasks_data,
-                "upcoming_meetings": meetings_data,
-                "my_blocks": blocks_data,
-                "my_events": events_data,
-                "pending_review_count": pending_count,
-            }
+        from workspace import dashboard
+        return dashboard(current_user_id)
 
     def get_calendar(self, from_date: str, to_date: str, current_user_id: int) -> list[dict]:
-        with self._session() as session:
-            items = []
-            tasks = session.query(TaskORM).filter(
-                TaskORM.deadline_at >= from_date,
-                TaskORM.deadline_at <= to_date,
-            ).all()
-            for t in tasks:
-                can_see = False
-                asgns = session.query(AssignmentORM).filter(AssignmentORM.task_id == t.task_id).all()
-                if any(a.assignee_user_id == current_user_id for a in asgns):
-                    can_see = True
-                elif self.can_view_scope(current_user_id, t.scope_kind, t.scope_id) or self.is_chair(current_user_id) or self.is_chair_deputy(current_user_id) or self.is_hr_master(current_user_id):
-                    can_see = True
-                if can_see:
-                    items.append({
-                        "id": f"task-{t.task_id}",
-                        "kind": "task_deadline",
-                        "title": t.title,
-                        "date": t.deadline_at,
-                        "scope_kind": t.scope_kind,
-                        "scope_id": t.scope_id,
-                    })
-
-            meetings = session.query(MeetingORM).filter(
-                MeetingORM.starts_at >= from_date,
-                MeetingORM.starts_at <= to_date,
-            ).all()
-            for m in meetings:
-                can_v = False
-                if m.owner_kind == "subevent":
-                    can_v = (
-                        self.is_tachki(current_user_id)
-                        or self.is_subevent_leader(current_user_id, m.owner_id)
-                        or self.is_subevent_leader_deputy(current_user_id, m.owner_id)
-                        or self.is_subevent_organizer(current_user_id, m.owner_id)
-                    )
-                    if not can_v:
-                        sub = session.get(SubeventORM, m.owner_id)
-                        if sub and (self.is_event_leader(current_user_id, sub.event_id) or self.is_event_leader_deputy(current_user_id, sub.event_id)):
-                            can_v = True
-                elif m.owner_kind == "event":
-                    can_v = (
-                        self.is_tachki(current_user_id)
-                        or self.is_event_leader(current_user_id, m.owner_id)
-                        or self.is_event_leader_deputy(current_user_id, m.owner_id)
-                    )
-                    if not can_v:
-                        subs = session.query(SubeventORM).filter(SubeventORM.event_id == m.owner_id).all()
-                        for s in subs:
-                            if self.is_subevent_leader(current_user_id, s.subevent_id) or self.is_subevent_leader_deputy(current_user_id, s.subevent_id):
-                                can_v = True
-                                break
-                if can_v:
-                    items.append({
-                        "id": f"meeting-{m.meeting_id}",
-                        "kind": "meeting",
-                        "title": m.title,
-                        "date": m.starts_at,
-                        "scope_kind": m.owner_kind,
-                        "scope_id": m.owner_id,
-                        "join_url": m.join_url,
-                    })
-
-            items.sort(key=lambda x: x["date"])
-            return items
+        from workspace import calendar,date_range
+        return calendar(current_user_id,*date_range(from_date,to_date))
 
     def list_notifications(self, current_user_id: int) -> list[NotificationDC]:
-        with self._session() as session:
-            rows = session.query(NotificationORM).filter(
-                NotificationORM.user_id == current_user_id,
-            ).order_by(NotificationORM.created_at.desc()).all()
-            res = []
-            for n in rows:
-                pl = {}
-                try:
-                    pl = json.loads(n.payload_json or "{}")
-                except Exception:
-                    pass
-                task_id = pl.get("task_id")
-                if task_id:
-                    t = session.get(TaskORM, task_id)
-                    if t:
-                        has_acc = (
-                            self.can_view_scope(current_user_id, t.scope_kind, t.scope_id)
-                            or self.is_chair(current_user_id)
-                            or self.is_chair_deputy(current_user_id)
-                            or self.is_hr_master(current_user_id)
-                        )
-                        if not has_acc:
-                            asgn = session.query(AssignmentORM).filter(
-                                AssignmentORM.task_id == task_id,
-                                AssignmentORM.assignee_user_id == current_user_id,
-                            ).first()
-                            if not asgn:
-                                continue
-                res.append(_notification_orm_to_dc(n))
-            return res
+        from workspace import notifications
+        return notifications(current_user_id)
 
     def mark_notification_read(self, notification_id: str, current_user_id: int) -> bool:
         with self._session() as session:
@@ -3726,6 +3539,7 @@ class Database:
                 raise LookupError("Notification not found")
             if n.user_id != current_user_id:
                 raise ValueError("Forbidden: cannot mark others' notifications")
+            if not n.is_read:n.read_at=datetime.now(timezone.utc).isoformat()
             n.is_read = True
             session.commit()
             return True
@@ -3739,6 +3553,7 @@ class Database:
             count = len(rows)
             for r in rows:
                 r.is_read = True
+                r.read_at=datetime.now(timezone.utc).isoformat()
             session.commit()
             return count
 
@@ -4145,6 +3960,7 @@ class Database:
             assignment = session.get(RoleAssignmentORM, role_assignment_id)
             if not assignment:
                 raise LookupError("Role assignment not found")
+            if assignment.role not in ("master","event_leader","subevent_leader"):raise ValueError("Only principal leaders can have deputies")
             if assignment.scope_kind in ("event","subevent"):
                 ev=session.get(EventORM,assignment.scope_id) if assignment.scope_kind=="event" else session.get(EventORM,session.get(SubeventORM,assignment.scope_id).event_id)
                 if session.get(SeasonORM,ev.season_id).state=="closed":raise ValueError("Conflict: closed roster is immutable")
@@ -4221,6 +4037,9 @@ class Database:
 
     def get_meeting(self, owner_kind: str, owner_id: str) -> Optional[MeetingDC]:
         with self._session() as session:
+            event=session.get(EventORM,owner_id) if owner_kind=="event" else session.get(EventORM,session.get(SubeventORM,owner_id).event_id) if session.get(SubeventORM,owner_id) else None
+            if not event:raise LookupError("Meeting owner not found")
+            if session.get(SeasonORM,event.season_id).state=="closed":return None
             row = session.query(MeetingORM).filter(
                 MeetingORM.owner_kind == owner_kind,
                 MeetingORM.owner_id == owner_id,
@@ -4237,18 +4056,23 @@ class Database:
         expected_revision: Optional[int] = None,
     ) -> MeetingDC:
         with self._session() as session:
+            event=session.get(EventORM,owner_id) if owner_kind=="event" else session.get(EventORM,session.get(SubeventORM,owner_id).event_id) if session.get(SubeventORM,owner_id) else None
+            if not event:raise LookupError("Meeting owner not found")
+            if session.get(SeasonORM,event.season_id).state=="closed":raise ValueError("Conflict: closed meetings are not available")
             row = session.query(MeetingORM).filter(
                 MeetingORM.owner_kind == owner_kind,
                 MeetingORM.owner_id == owner_id,
             ).first()
             if row:
-                if expected_revision is not None and row.revision != expected_revision:
+                if expected_revision is None or row.revision != expected_revision:
                     raise ValueError("Conflict: revision mismatch")
+                if (row.title,row.starts_at,row.join_url)==(title,starts_at,join_url):return _meeting_orm_to_dc(row)
                 row.title = title
                 row.starts_at = starts_at
                 row.join_url = join_url
                 row.revision += 1
             else:
+                if expected_revision is not None:raise ValueError("Conflict: meeting was deleted")
                 row = MeetingORM(
                     meeting_id=str(uuid.uuid4()),
                     owner_kind=owner_kind,
@@ -4259,6 +4083,9 @@ class Database:
                     revision=1,
                 )
                 session.add(row)
+            from notifications import meeting_changed
+            import access
+            meeting_changed(session,row,access.actor_id.get())
             session.commit()
             return _meeting_orm_to_dc(row)
 
@@ -4429,6 +4256,9 @@ class Database:
                 ).all()
                 for r in rows:
                     uids.add(r.user_id)
+                sub=session.get(SubeventORM,scope_id)
+                if sub:
+                    uids.update(r.user_id for r in session.query(RoleAssignmentORM).filter(RoleAssignmentORM.scope_kind=="event",RoleAssignmentORM.scope_id==sub.event_id,RoleAssignmentORM.role.in_(("event_leader","deputy_event_leader"))))
             return sorted(uids)
 
     # ─────────────────────────────────────────────────────────────
@@ -4831,6 +4661,8 @@ class Database:
             _recalculate_assignment_contribution(session, a, t)
             from season_summaries import refresh
             refresh(session,t.season_id,reviewer_user_id,review_note or "Assignment accepted")
+            from notifications import emit
+            emit(session,[a.assignee_user_id],"task_accepted",dict(task_id=t.task_id,title=t.title),"accepted:"+a.assignment_id+":"+str(a.revision),reviewer_user_id)
             session.commit()
             return _assignment_orm_to_dc(session, a, reviewer_user_id)
 
@@ -5838,9 +5670,10 @@ class Database:
                 content_json=json.dumps({"format": "markdown", "body": body}),
                 history_json="[]",
                 created_at=datetime.now(timezone.utc).isoformat(),
-                revision=1,
             )
             session.add(c)
+            from notifications import comment_added
+            comment_added(session,c,t,author_user_id)
             session.commit()
             return _comment_orm_to_dc(session, c, author_user_id)
 
@@ -5849,6 +5682,8 @@ class Database:
             c = session.get(CommentORM, comment_id)
             if not c:
                 raise LookupError("Comment not found")
+            task=session.get(TaskORM,c.task_id)
+            if not task or not self.can_view_scope(user_id,task.scope_kind,task.scope_id):raise ValueError("Forbidden: scope access ended")
             if c.author_user_id != user_id:
                 raise ValueError("Forbidden: cannot edit someone else's comment")
 
@@ -5872,7 +5707,6 @@ class Database:
             c.content_json = json.dumps({"format": "markdown", "body": body})
             c.history_json = json.dumps(hist)
             c.updated_at = now_str
-            c.revision += 1
             session.commit()
             return _comment_orm_to_dc(session, c, user_id)
 
