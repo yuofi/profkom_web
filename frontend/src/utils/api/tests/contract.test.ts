@@ -117,6 +117,17 @@ describe('API commands through mock transport', () => {
     expect(draft.content).toEqual(before.content); expect(draft.draft_content?.body).toBe('Новая версия');
     const published = await reportsApi.publish(draft.report_id, { expected_revision: draft.revision });
     expect(published.content.body).toBe('Новая версия'); expect(published.published_version).toBe(2);
+    const history = await reportsApi.versions(published.report_id); expect(history.items).toHaveLength(2); expect(history.items[0].content).toEqual(before.content);
+  });
+  it('removes draft access after a report role is revoked, including history reads', async () => {
+    const fixture = useMock('leader'); const report = fixture.state.reports[0]; report.capabilities = ['view_report_versions'];
+    expect(await reportsApi.get(report.report_id)).not.toHaveProperty('draft_content');
+    expect((await reportsApi.history(report.report_series_id, 2026)).items[0]).not.toHaveProperty('draft_content');
+    await expect(reportsApi.update(report.report_id, { expected_revision: report.revision, content: richText('Старый автор') })).rejects.toMatchObject({ status: 403 });
+  });
+  it('keeps main meetings hidden from an organizer while showing the team meeting', async () => {
+    useMock(); await expect(eventsApi.meeting('events', 'event-1')).rejects.toMatchObject({ status: 403 });
+    expect((await eventsApi.meeting('subevents', 'subevent-1'))?.meeting_id).toBe('meeting-1');
   });
   it('returns structured blockers without closing the season', async () => {
     useMock('chair'); const season = (await seasonsApi.list()).items.find(s => s.season_id === 'season-1')!;

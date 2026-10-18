@@ -8,6 +8,7 @@ import { WorkspaceStartPage, ComingPage, LeadershipPage } from './pages/Workspac
 import { Loading } from './components/Workspace/WorkspaceUI';
 import { EventsListPage, EventPage, SubeventPage } from './pages/Workspace/EventPages';
 import { TasksListPage, TaskPage, UnresolvedPage } from './pages/Workspace/TaskPages';
+import { ReportsPage, ReportPage, ReportHistoryPage, MeetingPage } from './pages/Workspace/ReportPages';
 import { DocViewerPage } from './pages/DocViewPage/DocViewerPage';
 import { GreetingPage } from './pages/Greeting/Greeting';
 import { InfoPage } from './pages/InfoPage/InfoPage';
@@ -42,6 +43,10 @@ function App() {
       <Route path="tasks" element={<TasksListPage />} />
       <Route path="tasks/unresolved" element={<UnresolvedPage />} />
       <Route path="tasks/:id" element={<TaskPage />} />
+      <Route path="reports" element={<ReportsPage />} />
+      <Route path="reports/history" element={<ReportHistoryPage />} />
+      <Route path="reports/:id" element={<ReportPage />} />
+      <Route path="meetings/:kind/:id" element={<MeetingPage />} />
       {['blocks', 'calendar', 'notifications', 'seasons', 'registrations'].map(path => <Route key={path} path={`${path}/*`} element={<ComingPage title={{ blocks: 'Блоки', calendar: 'Календарь', notifications: 'Уведомления', seasons: 'Сезоны и ККР', registrations: 'Регистрации' }[path]!} />} />)}
       <Route element={<ExtendedRoute />}><Route path="admin/:tab" element={<AdminPanel />} /></Route>
     </Route></Route>

@@ -3,7 +3,7 @@ import axios, { type AxiosRequestConfig } from 'axios';
 import MockAdapter from 'axios-mock-adapter';
 import { api } from '../utils/api';
 import { createFixtures, mockNow, type MockRole } from './fixtures';
-import { richText, type AssignmentStatus, type Event, type Subevent, type Task, type TaskInputs, type Report, type Material, type FileRef, type Meeting, type Merit, type Decision, type Season } from '../utils/api/contract';
+import { richText, type AssignmentStatus, type Event, type Subevent, type Task, type TaskInputs, type Report, type ReportVersion, type Material, type FileRef, type Meeting, type Merit, type Decision, type Season } from '../utils/api/contract';
 
 type Reply = [number, unknown];
 type Body = Record<string, unknown>;
@@ -19,6 +19,9 @@ export function installMockTransport(role: MockRole = 'organizer', options: { de
   const uploads = new MockAdapter(axios);
   const files = new Map<string, FileRef & { complete: boolean; uploaded: boolean }>();
   const taskInputs = new Map<string, TaskInputs>([[state.inputs.task_id, state.inputs]]);
+  const snapshot = (r: Report): ReportVersion => ({ report_id: r.report_id, version: r.published_version!, title: r.title, content: clone(r.content), files: clone(r.files), published_at: r.published_at!, published_by: clone(state.user) });
+  const versions = new Map<string, ReportVersion[]>(state.reports.filter(r => r.published_version).map(r => [r.report_id, [snapshot(r)]]));
+  const visibleReport = (report: Report) => { const r = clone(report); if (!r.capabilities.includes('edit_report')) { delete r.draft_title; delete r.draft_content; delete r.draft_files; } return r; };
   let sequence = 10;
   let leadership = { chair: state.people[3], deputies: [state.people[4]], revision: 1, capabilities: state.chair ? ['transfer_chair', 'manage_chair_deputies'] : [] };
   const id = (prefix: string) => `${prefix}-${++sequence}`;
@@ -141,6 +144,7 @@ export function installMockTransport(role: MockRole = 'organizer', options: { de
       if (!item) return fail(404, 'not_found', 'Мероприятие недоступно');
       if (parts[2] === 'meeting') {
         const kind = isEvent ? 'event' : 'subevent';
+        if (isEvent && !state.eventManager) return denied();
         const meeting = state.meetings.find(m => m.owner_kind === kind && m.owner_id === parts[1]);
         if (method === 'get') return [200, clone(meeting ?? null)];
         if (!state.manager) return denied();
@@ -261,19 +265,20 @@ export function installMockTransport(role: MockRole = 'organizer', options: { de
     }
     if (parts[0] === 'reports' || path === '/report-history') {
       if (parts.length === 1) {
-        if (method === 'get') return list(clone(state.reports.filter(r => (!url.searchParams.get('owner_id') || r.owner_id === url.searchParams.get('owner_id')) && (!url.searchParams.get('series_id') || r.report_series_id === url.searchParams.get('series_id')))));
+        if (method === 'get') return list(state.reports.filter(r => (r.state === 'published' || r.capabilities.includes('edit_report')) && (path !== '/report-history' || r.state === 'published') && (!url.searchParams.get('owner_id') || r.owner_id === url.searchParams.get('owner_id')) && (!url.searchParams.get('series_id') || r.report_series_id === url.searchParams.get('series_id')) && (!url.searchParams.get('year') || r.published_at?.startsWith(url.searchParams.get('year')!))).map(visibleReport));
         if (!state.manager) return denied();
         const report: Report = { ...data as unknown as Report, report_id: id('report'), season_id: 'season-1', report_series_id: data.owner_kind === 'event' ? 'series-event-1' : 'series-sub-1', content: publicSubmission(data.content), files: [], draft_content: publicSubmission(data.content), draft_title: String(data.title), draft_files: [], state: 'draft', published_at: null, published_version: null, revision: 1, capabilities: ['edit_report', 'publish_report', 'view_report_versions'] };
         state.reports.push(report); return [201, clone(report)];
       }
       const report = state.reports.find(r => r.report_id === parts[1]);
       if (!report) return fail(404, 'not_found', 'Отчёт недоступен');
-      if (parts[2] === 'versions') return list(report.published_version ? [{ report_id: report.report_id, version: report.published_version, title: report.title, content: report.content, files: report.files, published_at: report.published_at, published_by: state.people[1] }] : []);
-      if (method === 'get') return [200, clone(report)];
+      if (parts[2] === 'versions') return report.capabilities.includes('view_report_versions') ? list(clone(versions.get(report.report_id) ?? [])) : denied();
+      if (method === 'get') return report.state === 'published' || report.capabilities.includes('edit_report') ? [200, visibleReport(report)] : denied();
       if (!report.capabilities.includes('edit_report')) return denied();
       if (mismatch(data, report)) return conflict();
       if (parts[2] === 'publish') { report.title = report.draft_title ?? report.title; report.content = clone(report.draft_content ?? report.content); report.files = clone(report.draft_files ?? report.files); report.state = 'published'; report.published_at = mockNow; report.published_version = (report.published_version ?? 0) + 1; }
       else { if (data.title) report.draft_title = String(data.title); if (data.content) report.draft_content = publicSubmission(data.content); if (data.file_ids) report.draft_files = (data.file_ids as string[]).map(fid => files.get(fid)!).filter(Boolean); }
+      if (parts[2] === 'publish') versions.set(report.report_id, [...(versions.get(report.report_id) ?? []), snapshot(report)]);
       return changed(report);
     }
     if (path === '/materials') {
