@@ -3,7 +3,7 @@ import axios, { type AxiosRequestConfig } from 'axios';
 import MockAdapter from 'axios-mock-adapter';
 import { api } from '../utils/api';
 import { createFixtures, mockNow, type MockRole } from './fixtures';
-import { richText, type AssignmentStatus, type Event, type Subevent, type Task, type Report, type Material, type FileRef, type Meeting, type Merit, type Decision, type Season } from '../utils/api/contract';
+import { richText, type AssignmentStatus, type Event, type Subevent, type Task, type TaskInputs, type Report, type Material, type FileRef, type Meeting, type Merit, type Decision, type Season } from '../utils/api/contract';
 
 type Reply = [number, unknown];
 type Body = Record<string, unknown>;
@@ -18,6 +18,7 @@ export function installMockTransport(role: MockRole = 'organizer', options: { de
   const adapter = new MockAdapter(api, { delayResponse: options.delay ?? 100 });
   const uploads = new MockAdapter(axios);
   const files = new Map<string, FileRef & { complete: boolean; uploaded: boolean }>();
+  const taskInputs = new Map<string, TaskInputs>([[state.inputs.task_id, state.inputs]]);
   let sequence = 10;
   let leadership = { chair: state.people[3], deputies: [state.people[4]], revision: 1, capabilities: state.chair ? ['transfer_chair', 'manage_chair_deputies'] : [] };
   const id = (prefix: string) => `${prefix}-${++sequence}`;
@@ -186,6 +187,8 @@ export function installMockTransport(role: MockRole = 'organizer', options: { de
       }
       if (!state.manager) return denied();
       const task: Task = { ...data as unknown as Task, task_id: id('task'), revision: 1, capabilities: ['edit_task', 'comment_task', 'view_assessment_inputs'], assignments: (data.assignees as { user_id: number; hours: number }[]).map(a => ({ assignment_id: id('assignment'), assignee: state.people.find(p => p.user_id === a.user_id)!, status: 'assigned', submissions: [], assignee_unavailable_reason: null, review_note: null, revision: 1, capabilities: ['review_assignment', 'view_assessment_inputs', 'edit_assessment_inputs'] })) };
+      taskInputs.set(task.task_id, { task_id: task.task_id, assigned_at: mockNow, deadline_at: task.deadline_at, criteria: clone(data.criteria) as TaskInputs['criteria'], revision: 1, capabilities: ['edit_assessment_inputs'] });
+      task.assignments.forEach((a, i) => state.assessments.push({ assignment_id: a.assignment_id, hours: (data.assignees as { hours: number }[])[i].hours, evaluation: null, effective_completed_at: null, revision: 1, capabilities: ['edit_assessment_inputs'] }));
       state.tasks.push(task); return [201, clone(task)];
     }
     if (parts[0] === 'tasks') {
@@ -198,8 +201,10 @@ export function installMockTransport(role: MockRole = 'organizer', options: { de
       }
       if (parts[2] === 'assessment-inputs') {
         if (!state.manager) return denied();
-        if (method === 'patch') { if (mismatch(data, state.inputs)) return conflict(); Object.assign(state.inputs, data); state.inputs.revision++; }
-        return [200, clone({ ...state.inputs, task_id: task.task_id })];
+        const inputs = taskInputs.get(task.task_id) ?? { ...clone(state.inputs), task_id: task.task_id, assigned_at: mockNow, deadline_at: task.deadline_at };
+        taskInputs.set(task.task_id, inputs);
+        if (method === 'patch') { if (mismatch(data, inputs)) return conflict(); Object.assign(inputs, data); inputs.revision++; task.deadline_at = inputs.deadline_at; }
+        return [200, clone(inputs)];
       }
       if (method === 'get') return [200, clone(task)];
       if (!state.manager) return denied();
@@ -222,15 +227,23 @@ export function installMockTransport(role: MockRole = 'organizer', options: { de
       const own = assignment.assignee.user_id === state.session.user_id;
       if (['start', 'resume', 'request-help', 'submit'].includes(parts[2]) ? !own : !state.manager) return denied();
       if (parts[2] === 'reassign') {
+        if (['accepted', 'not_completed', 'cancelled'].includes(assignment.status)) return conflict();
         const previous = clone(assignment); assignment.status = data.previous_outcome === 'cancelled' ? 'cancelled' : 'not_completed'; assignment.review_note = String(data.reason); assignment.revision++;
         const next = { ...clone(previous), assignment_id: id('assignment'), assignee: state.people.find(p => p.user_id === data.new_assignee_user_id)!, status: 'assigned' as const, submissions: [], revision: 1, assignee_unavailable_reason: null };
+        const previousInputs = state.assessments.find(a => a.assignment_id === assignment.assignment_id);
+        if (previousInputs) { previousInputs.evaluation = data.previous_outcome === 'cancelled' ? null : data.evaluation as 0 | -1; previousInputs.revision++; }
+        state.assessments.push({ assignment_id: next.assignment_id, hours: Number(data.hours), evaluation: null, effective_completed_at: null, revision: 1, capabilities: ['edit_assessment_inputs'] });
         task.assignments.push(next); return [200, { previous_assignment: clone(assignment), assignment: clone(next) }];
       }
       const statuses: Record<string, AssignmentStatus> = { start: 'in_progress', resume: 'in_progress', 'request-help': 'help_required', submit: 'submitted', accept: 'accepted', 'request-revision': 'needs_revision', 'not-complete': 'not_completed', cancel: 'cancelled' };
       if (!statuses[parts[2]]) return fail(404, 'not_found', 'Команда не найдена');
+      const allowed: Record<string, AssignmentStatus[]> = { start: ['assigned'], resume: ['help_required'], 'request-help': ['assigned', 'in_progress', 'needs_revision'], submit: ['assigned', 'in_progress', 'help_required', 'needs_revision'], accept: ['submitted'], 'request-revision': ['submitted'], 'not-complete': ['assigned', 'in_progress', 'help_required', 'submitted', 'needs_revision'], cancel: ['assigned', 'in_progress', 'help_required', 'submitted', 'needs_revision'] };
+      if (!allowed[parts[2]].includes(assignment.status)) return conflict();
       assignment.status = statuses[parts[2]];
       if (data.review_note || data.reason) assignment.review_note = String(data.review_note ?? data.reason);
       if (parts[2] === 'submit') assignment.submissions.push({ submission_id: id('submission'), submitted_at: mockNow, text: publicSubmission(data.text), links: data.links as string[] ?? [], files: (data.file_ids as string[] ?? []).map(fid => files.get(fid)!).filter(Boolean).map(({ file_id, name, mime_type, size_bytes }) => ({ file_id, name, mime_type, size_bytes })) });
+      const assessment = state.assessments.find(a => a.assignment_id === assignment.assignment_id);
+      if (assessment && ['accept', 'not-complete', 'cancel'].includes(parts[2])) { assessment.evaluation = parts[2] === 'cancel' ? null : data.evaluation as 0 | -1 | 1 | 1.5; assessment.effective_completed_at = parts[2] === 'accept' ? assignment.submissions.at(-1)?.submitted_at ?? null : null; assessment.revision++; }
       assignment.capabilities = own && !['accepted', 'cancelled', 'not_completed'].includes(assignment.status) ? ['start_assignment', 'resume_assignment', 'request_help', 'submit_result'] : state.manager ? ['review_assignment', 'view_assessment_inputs', 'edit_assessment_inputs', 'reassign_assignment'] : [];
       return changed(assignment);
     }

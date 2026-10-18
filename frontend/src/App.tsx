@@ -7,6 +7,7 @@ import { WorkspaceLayout } from './components/Workspace/WorkspaceLayout';
 import { WorkspaceStartPage, ComingPage, LeadershipPage } from './pages/Workspace/SessionPages';
 import { Loading } from './components/Workspace/WorkspaceUI';
 import { EventsListPage, EventPage, SubeventPage } from './pages/Workspace/EventPages';
+import { TasksListPage, TaskPage, UnresolvedPage } from './pages/Workspace/TaskPages';
 import { DocViewerPage } from './pages/DocViewPage/DocViewerPage';
 import { GreetingPage } from './pages/Greeting/Greeting';
 import { InfoPage } from './pages/InfoPage/InfoPage';
@@ -38,7 +39,10 @@ function App() {
       <Route path="events/:id" element={<EventPage />} />
       <Route path="subevents/:id" element={<SubeventPage />} />
       <Route path="leadership" element={<LeadershipPage />} />
-      {['tasks', 'blocks', 'calendar', 'notifications', 'seasons', 'registrations'].map(path => <Route key={path} path={`${path}/*`} element={<ComingPage title={{ events: 'Мероприятия', tasks: 'Задачи', blocks: 'Блоки', calendar: 'Календарь', notifications: 'Уведомления', seasons: 'Сезоны и ККР', registrations: 'Регистрации' }[path]!} />} />)}
+      <Route path="tasks" element={<TasksListPage />} />
+      <Route path="tasks/unresolved" element={<UnresolvedPage />} />
+      <Route path="tasks/:id" element={<TaskPage />} />
+      {['blocks', 'calendar', 'notifications', 'seasons', 'registrations'].map(path => <Route key={path} path={`${path}/*`} element={<ComingPage title={{ blocks: 'Блоки', calendar: 'Календарь', notifications: 'Уведомления', seasons: 'Сезоны и ККР', registrations: 'Регистрации' }[path]!} />} />)}
       <Route element={<ExtendedRoute />}><Route path="admin/:tab" element={<AdminPanel />} /></Route>
     </Route></Route>
     <Route path="*" element={<NotFoundPage />} />

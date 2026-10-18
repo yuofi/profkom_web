@@ -35,6 +35,31 @@ describe('Safe contract fixtures', () => {
   });
 });
 describe('API commands through mock transport', () => {
+  it('retains old assignment history and records an independent replacement', async () => {
+    useMock('leader');
+    const result = await tasksApi.reassign('assignment-2', { expected_revision: 1, new_assignee_user_id: 101, hours: 4, previous_outcome: 'not_completed', evaluation: -1, reason: 'Исполнитель вышел' });
+    expect(result.previous_assignment.status).toBe('not_completed'); expect(result.assignment.assignment_id).not.toBe('assignment-2');
+    expect((await tasksApi.assessment(result.assignment.assignment_id)).hours).toBe(4);
+    expect((await tasksApi.get('task-1')).assignments).toHaveLength(3);
+    expect((await tasksApi.assessment('assignment-2')).evaluation).toBe(-1);
+  });
+  it('applies bulk hours atomically and rejects a stale item', async () => {
+    useMock('leader');
+    await expect(tasksApi.bulkHours([{ assignment_id: 'assignment-1', expected_revision: 1 }, { assignment_id: 'assignment-2', expected_revision: 0 }], 9, 'Правка')).rejects.toMatchObject({ status: 409 });
+    expect((await tasksApi.assessment('assignment-1')).hours).toBe(2);
+    await tasksApi.bulkHours([{ assignment_id: 'assignment-1', expected_revision: 1 }, { assignment_id: 'assignment-2', expected_revision: 1 }], 9, 'Правка');
+    expect((await tasksApi.assessment('assignment-2')).hours).toBe(9);
+  });
+  it('reviews a submission using its server submission time and retains revision history', async () => {
+    const fixture = useMock('leader'); const a = fixture.state.tasks[0].assignments[0];
+    a.status = 'submitted'; a.submissions.push({ submission_id: 's1', submitted_at: '2026-10-17T09:00:00Z', text: richText('Результат'), links: [], files: [] });
+    const reviewed = await tasksApi.command(a.assignment_id, 'request-revision', { expected_revision: 1, review_note: 'Уточнить' });
+    expect(reviewed.submissions).toHaveLength(1);
+    a.status = 'submitted';
+    await tasksApi.command(a.assignment_id, 'accept', { expected_revision: reviewed.revision, evaluation: 1.5 });
+    expect((await tasksApi.assessment(a.assignment_id)).effective_completed_at).toBe('2026-10-17T09:00:00Z');
+    await expect(tasksApi.command(a.assignment_id, 'cancel', { expected_revision: a.revision, reason: 'Повтор' })).rejects.toMatchObject({ status: 409 });
+  });
   it('copies annual structure with empty assignments and no historical work', async () => {
     useMock('chair'); const copied = await eventsApi.copy('event-1', { season_id: 'season-next', title: 'Новый экземпляр' });
     expect(copied.event.event_id).not.toBe('event-1'); expect(copied.event.leaders).toEqual([]);
