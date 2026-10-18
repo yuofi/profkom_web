@@ -25,6 +25,7 @@ export interface Field {
   max?: number;
   searchable?: boolean;
   whenSelected?: { name: string; value: string };
+  onSelectionChange?: (values: string[]) => void;
 }
 
 const visible = (field: Field, values: Values) =>
@@ -111,19 +112,22 @@ export function ActionForm({
           ]),
       ),
     );
-  const form = useFormik<Values>({
-    initialValues: Object.fromEntries(
+  const initialValues: Values = Object.fromEntries(
       fields.map((f) => [f.name, f.value ?? (f.type === "multi" ? [] : "")]),
-    ),
+    );
+  const form = useFormik<Values>({
+    initialValues,
     validate: (values) => {
-      const result = schema(values).safeParse(values);
+      const current = { ...initialValues, ...values };
+      const result = schema(current).safeParse(current);
       return result.success
         ? {}
         : Object.fromEntries(
             result.error.issues.map((i) => [String(i.path[0]), i.message]),
           );
     },
-    onSubmit: async (values) => {
+    onSubmit: async (draft) => {
+      const values = { ...initialValues, ...draft };
       setMessage("");
       setFailure(null);
       try {
@@ -186,14 +190,15 @@ export function ActionForm({
                     describedBy={error ? `${id}-error` : undefined}
                     options={field.options ?? []}
                     value={form.values[field.name] as string[]}
-                    onChange={(value) =>
-                      void form.setFieldValue(field.name, value)
-                    }
+                    onChange={(value) => {
+                      void form.setFieldValue(field.name, value);
+                      field.onSelectionChange?.(value);
+                    }}
                   />
                 ) : field.type === "textarea" ? (
                   <textarea
                     {...props}
-                    value={String(form.values[field.name])}
+                    value={String(form.values[field.name] ?? initialValues[field.name])}
                     onChange={(e) =>
                       void form.setFieldValue(field.name, e.target.value)
                     }
@@ -202,7 +207,7 @@ export function ActionForm({
                   <select
                     {...props}
                     multiple={field.type === "multi"}
-                    value={form.values[field.name]}
+                    value={form.values[field.name] ?? initialValues[field.name]}
                     onChange={(e) => {
                       void form.setFieldValue(
                         field.name,
@@ -228,7 +233,7 @@ export function ActionForm({
                     min={field.min}
                     max={field.max}
                     step={field.type === "number" ? "any" : undefined}
-                    value={String(form.values[field.name])}
+                    value={String(form.values[field.name] ?? initialValues[field.name])}
                     onChange={(e) =>
                       void form.setFieldValue(field.name, e.target.value)
                     }

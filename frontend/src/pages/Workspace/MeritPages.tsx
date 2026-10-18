@@ -5,6 +5,7 @@ import {
   Page,
   Card,
   QueryState,
+  ErrorState,
   Markdown,
   Empty,
   RouteLink,
@@ -25,6 +26,7 @@ import {
   type TaskInputs,
   type AssessmentInputs,
 } from "../../utils/api/contract";
+import { canRetainData } from "../../utils/api/request";
 import { can, useSession } from "../../utils/session";
 import { toUtc, displayDate, moscowInput } from "../../utils/dates";
 import {
@@ -119,7 +121,15 @@ export function MeritForm({
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list, enabled: !existing });
   const season = seasons.data?.items.find((x) => x.season_id === seasonId);
   const allowedKinds = allowedMeritKinds(session, contexts.data, season);
-  const recipientOptions = [...people.options];
+  const [selectedPeople, setSelectedPeople] = useState<{ value: string; label: string }[]>(() =>
+    (existing?.recipients ?? []).map((r) => {
+      const person = people.data?.find((p) => p.user_id === r.user_id);
+      return { value: String(r.user_id), label: person ? `${person.surname} ${person.name}` : `Участник #${r.user_id} · сохранённый получатель` };
+    }),
+  );
+  const recipientOptions = [...people.options,
+    ...selectedPeople.filter((p) => !people.options.some((current) => current.value === p.value)).map((p) => ({ ...p, label: `${p.label} · нет в актуальном справочнике` })),
+  ];
   for (const recipient of existing?.recipients ?? []) {
     if (!recipientOptions.some((p) => p.value === String(recipient.user_id))) {
       const person = people.data?.find((p) => p.user_id === recipient.user_id);
@@ -198,6 +208,9 @@ export function MeritForm({
       value: existing?.recipients.map((r) => String(r.user_id)),
       options: recipientOptions,
       searchable: true,
+      onSelectionChange: (values) => setSelectedPeople(values.map((value) =>
+        people.options.find((p) => p.value === value) ?? selectedPeople.find((p) => p.value === value) ?? { value, label: `Участник #${value}` },
+      )),
     },
     ...recipientOptions.flatMap((p) => [
       {
@@ -250,6 +263,7 @@ export function MeritForm({
   ];
   return (
     <QueryState
+      keepDataOnError={!!people.data && (!!existing || (!!contexts.data && !!seasons.data))}
       loading={(!existing && (contexts.isLoading || seasons.isLoading)) || people.isLoading}
       error={(!existing && (contexts.error || seasons.error)) || people.error}
     >
@@ -283,6 +297,7 @@ export function MeritForm({
             onChange={(e) => {
               setSource(e.target.value as typeof source);
               setScopeId("");
+              setSelectedPeople([]);
             }}
           >
             <option value="">Выберите…</option>
@@ -302,7 +317,7 @@ export function MeritForm({
             <select
               disabled={!!existing}
               value={scopeId}
-              onChange={(e) => setScopeId(e.target.value)}
+              onChange={(e) => { setScopeId(e.target.value); setSelectedPeople([]); }}
             >
               <option value="">Выберите…</option>
               {(existing
@@ -324,12 +339,13 @@ export function MeritForm({
         {!people.isLoading && (
           <ActionForm
             key={`${source}/${scopeId}/${existing?.merit_id ?? "new"}`}
+            revision={save ? undefined : existing?.revision}
             fields={fields}
             onConflict={() => {
               void people.refetch();
               void refresh();
             }}
-            onSubmit={async (v) => {
+            onSubmit={async (v, expectedRevision) => {
               if (
                 (!existing && !allowedKinds.some(([k]) => k === source)) ||
                 (source !== "chair_merit" && (!scopeId || (!existing && !scopeOptions?.some((option) => option.value === scopeId))))
@@ -408,7 +424,7 @@ export function MeritForm({
                 existing
                   ? seasonsApi.updateMerit(existing.merit_id, {
                       ...data,
-                      expected_revision: existing.revision,
+                      expected_revision: expectedRevision!,
                     })
                   : seasonsApi.createMerit(data),
               );
@@ -437,7 +453,7 @@ export function MeritsPage() {
     enabled: readable,
   });
   if (contexts.isLoading || seasons.isLoading) return <QueryState loading error={null}>{null}</QueryState>;
-  if (contexts.error || seasons.error) return <QueryState loading={false} error={contexts.error || seasons.error}>{null}</QueryState>;
+  if ((contexts.error && (!contexts.data || !canRetainData(contexts.error))) || (seasons.error && (!seasons.data || !canRetainData(seasons.error)))) return <QueryState loading={false} error={contexts.error || seasons.error}>{null}</QueryState>;
   if (!readable) return <Page title="Особые заслуги"><Empty>Нет доступа к исходным полям.</Empty></Page>;
   return (
     <Page
@@ -447,7 +463,8 @@ export function MeritsPage() {
       }
     >
       <div className={s.stack}>
-        <QueryState loading={query.isLoading} error={query.error}>
+        {(contexts.error || seasons.error) && <ErrorState error={contexts.error || seasons.error} />}
+        <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!query.data}>
           {query.data?.items.map((m) => (
             <Card key={m.merit_id} title={m.title}>
               <p>
@@ -465,7 +482,7 @@ export function MeritsPage() {
         </QueryState>
         {allowedKinds.length > 0 && (
           <Card title="Учесть выполненную работу">
-            <MeritForm key={id} seasonId={id}
+            <MeritForm key={`${id}/${params.get("source_kind")}/${params.get("scope_id")}`} seasonId={id}
               initialSource={allowedKinds.find(([kind]) => kind === params.get("source_kind"))?.[0] as MeritCreate["source_kind"] | undefined}
               initialScopeId={params.get("scope_id") ?? undefined} />
           </Card>

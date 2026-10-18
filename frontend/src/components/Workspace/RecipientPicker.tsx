@@ -47,6 +47,7 @@ export function RecipientPicker({
           <label className={s.row} key={p.value}>
             <input
               type="checkbox"
+              value={p.value}
               checked={value.includes(p.value)}
               onChange={(e) =>
                 onChange(
