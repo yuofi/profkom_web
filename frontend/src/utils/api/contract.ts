@@ -1,0 +1,131 @@
+/** API 1.3. Public, assessment-input and calculated DTOs are deliberately separate. */
+export interface Page<T> { items: T[]; next_cursor: string | null }
+export interface Versioned { revision: number; capabilities: string[] }
+export interface Revision { expected_revision: number }
+export interface RichText { format: 'markdown'; body: string }
+export interface UserRef { user_id: number | null; display_name: string; avatar_url: string | null }
+export interface ScopeRef { kind: 'block' | 'subevent'; id: string }
+export interface FileRef { file_id: string; name: string; mime_type: string; size_bytes: number }
+export interface RoleAssignment extends Versioned {
+  role_assignment_id: string; role: string;
+  scope_kind: 'global' | 'block' | 'event' | 'subevent' | 'material';
+  scope_id: string | null; principal_assignment_id?: string;
+}
+export interface Session {
+  user_id: number; account_state: 'pending' | 'active' | 'archived';
+  registration_status: 'pending' | 'approved' | 'rejected';
+  capabilities: string[]; assignments?: RoleAssignment[];
+}
+export interface Leadership extends Versioned { chair: UserRef; deputies: UserRef[] }
+export interface Leader extends Versioned { role_assignment_id: string; user: UserRef; deputy_user_ids: number[] }
+export type Category = 'junior' | 'activist';
+export interface ParticipantCategory extends Versioned { user_id: number; category: Category }
+export interface RegistrationFields {
+  surname: string; name: string; patronymic: string | null; group_number: string;
+  phone: string; email: string; tg: string; vk: string; funding: 'budget' | 'contract'; residence: string;
+}
+export interface RegistrationApplication extends Versioned {
+  user_id: number; status: 'pending' | 'approved' | 'rejected'; attempts_used: number;
+  attempt_limit: 5; total_submissions: number; rejection_reason: string | null; fields: RegistrationFields;
+}
+export interface BlockRequest extends Versioned {
+  request_id: string; user: UserRef; block_id: string;
+  state: 'pending_hr' | 'pending_block' | 'approved' | 'rejected' | 'withdrawn';
+  created_at: string; stage_entered_at: string; substitute_available_at: string | null;
+}
+export interface Block extends Versioned {
+  block_id: string; name: string; is_hr: boolean; description: RichText; master: Leader | null;
+  members: { user: UserRef; block_category: 'junior' | 'member' }[];
+  guide_material_id: string | null; community_url: string | null;
+}
+export type SeasonState = 'planned' | 'open' | 'summarizing' | 'closed';
+export interface Season extends Versioned {
+  season_id: string; title: string; sequence_number: number; previous_season_id: string | null;
+  type: 'winter_spring' | 'summer_autumn' | 'autumn_winter'; starts_at: string; ends_at: string;
+  state: SeasonState; is_current: boolean;
+}
+export interface Event extends Versioned {
+  event_id: string; season_id: string; title: string; description: RichText; leaders: Leader[];
+  report_series_id: string; starts_at: string | null; ends_at: string | null;
+}
+export interface Subevent extends Versioned {
+  subevent_id: string; event_id: string; title: string; description: RichText;
+  leaders: Leader[]; organizer_user_ids: number[]; report_series_id: string;
+}
+export interface ReportSeries { series_id: string; owner_kind: 'event' | 'subevent'; title: string; parent_series_id: string | null }
+export interface Criteria { unique: boolean; creative: boolean; external_communication: boolean; in_person: boolean; fixed_time: boolean }
+export type AssignmentStatus = 'assigned' | 'in_progress' | 'help_required' | 'submitted' | 'accepted' | 'needs_revision' | 'not_completed' | 'cancelled';
+export interface Submission { submission_id: string; submitted_at: string; text: RichText; links: string[]; files: FileRef[] }
+export interface Assignment extends Versioned {
+  assignment_id: string; assignee: UserRef; status: AssignmentStatus; submissions: Submission[];
+  assignee_unavailable_reason: 'left_scope' | 'archived' | null; review_note: string | null;
+}
+export interface Task extends Versioned {
+  task_id: string; season_id: string; scope: ScopeRef; title: string; description: RichText;
+  deadline_at: string; assignments: Assignment[];
+}
+export interface UnresolvedAssignment { assignment: Assignment; task_id: string; task_title: string; season_id: string; scope: ScopeRef; deadline_at: string }
+export interface TaskInputs extends Versioned { task_id: string; assigned_at: string; deadline_at: string; criteria: Criteria }
+export interface AssessmentInputs extends Versioned {
+  assignment_id: string; hours: number | null; evaluation: -1 | 0 | 1 | 1.5 | null; effective_completed_at: string | null;
+}
+export type SourceKind = 'block_task' | 'subevent_task' | 'head_merit' | 'chair_merit' | 'block_volunteer' | 'subevent_volunteer' | 'master_bonus';
+export interface Contribution {
+  contribution_id: string; season_id: string; participant_id: string; user: UserRef;
+  source_kind: SourceKind; source_id: string; source_title: string; score: number | null;
+  calculation_version: string; assignment_inputs?: AssessmentInputs; merit_id?: string; bonus_id?: string; capabilities: string[];
+}
+export interface MeritCreate {
+  season_id: string; source_kind: 'head_merit' | 'chair_merit' | 'block_volunteer' | 'subevent_volunteer';
+  event_id?: string; scope?: ScopeRef; title: string; description: RichText; assigned_at: string;
+  deadline_at: string; criteria: Criteria;
+  recipients: { user_id: number; hours: number; evaluation: -1 | 0 | 1 | 1.5; completed_at: string | null }[]; reason: string;
+}
+export interface Merit extends MeritCreate, Versioned { merit_id: string; created_by: UserRef; created_at: string }
+export type Decision = 'golden_red_bull' | 'kick_warning' | 'kick' | 'nice';
+export interface SummaryRow {
+  participant_id: string; user: UserRef; group_number: string; category: Category;
+  blocks: { block_id: string; name: string }[]; is_master: boolean; is_archived: boolean;
+  source_scores: { source_kind: SourceKind; source_id: string; title: string; score: number }[];
+  total_score: number; evaluated_task_count: number; rank: number; previous_rank: number | null;
+  decisions: Decision[]; previous_decisions: Decision[];
+}
+export interface SeasonSummary { season_id: string; state: 'draft' | 'approved'; version: number; approved_at: string | null; rows: SummaryRow[]; capabilities: string[] }
+export interface MasterBonus {
+  bonus_id: string; season_id: string; block_id: string; recipient_participant_id: string; recipient: UserRef;
+  eligible_organizer_count: number; amount: number;
+  basis: { participant_id: string; user: UserRef; member_task_score: number; included: boolean; exclusion: 'master' | 'non_positive' | null }[];
+  calculation_version: 'master_bonus_v1';
+}
+export interface Report extends Versioned {
+  report_id: string; owner_kind: 'event' | 'subevent'; owner_id: string; report_series_id: string;
+  season_id: string; kind: 'regular' | 'final'; title: string; content: RichText; files: FileRef[];
+  draft_title?: string; draft_content?: RichText; draft_files?: FileRef[];
+  state: 'draft' | 'published'; published_at: string | null; published_version: number | null;
+}
+export interface ReportVersion { report_id: string; version: number; title: string; content: RichText; files: FileRef[]; published_at: string; published_by: UserRef }
+export interface Material extends Versioned {
+  material_id: string; kind: string; owner_block_id: string | null; title: string; description: string;
+  original_link: string | null; published_content: RichText | null; draft_content?: RichText;
+}
+export interface Comment { comment_id: string; task_id: string; author: UserRef; content: RichText; created_at: string; updated_at: string | null; capabilities: string[] }
+export interface Meeting extends Versioned { meeting_id: string; owner_kind: 'event' | 'subevent'; owner_id: string; title: string; starts_at: string; join_url: string }
+export interface Target { kind: string; id: string }
+export interface Notification { id: string; kind: string; text: string; created_at: string; read_at: string | null; target: Target | null }
+export interface CalendarItem { id: string; season_id: string; kind: 'task_deadline' | 'meeting' | 'event'; title: string; starts_at: string; ends_at: string | null; target: Target }
+export interface Dashboard {
+  my_tasks: Task[]; upcoming_meetings: Meeting[]; my_blocks: Block[]; my_events: Event[];
+  actionable_requests: BlockRequest[]; unresolved_assignments: UnresolvedAssignment[]; unread_notification_count: number;
+}
+export interface UploadIntent { file_id: string; upload_url: string; method: string; headers: Record<string, string>; expires_at: string }
+export interface UploadIntentCreate { owner_kind: string; owner_id?: string; purpose: string; name: string; mime_type: string; size_bytes: number }
+export interface AvatarPreset { preset_id: string; title: string; image_url: string }
+export interface FormerContact {
+  contact_id: string; surname: string; name: string; patronymic?: string; phone: string;
+  email: string; tg: string; vk: string; participation_periods: { from_year: number; to_year: number }[];
+}
+export interface ArchivedAccount { user_id: number; display_name: string; archived_at: string; master_conflicts?: { block_id: string; current_master: UserRef }[] }
+export interface TaskCreate { season_id: string; scope: ScopeRef; title: string; description: RichText; deadline_at: string; criteria: Criteria; assignees: { user_id: number; hours: number }[] }
+export interface SeasonBlocker { kind: 'unfinished_assignment' | 'missing_assessment' | 'missing_final_report' | 'previous_season_not_closed'; owner_kind: string; owner_id: string; title: string }
+export const richText = (body = ''): RichText => ({ format: 'markdown', body });
+export const emptyCriteria = (): Criteria => ({ unique: false, creative: false, external_communication: false, in_person: false, fixed_time: false });

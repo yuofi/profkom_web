@@ -1,0 +1,20 @@
+export const keys = {
+  session: ['session'] as const,
+  leadership: ['leadership'] as const,
+  seasons: ['seasons'] as const,
+  events: ['events'] as const,
+  tasks: ['tasks'] as const,
+  reports: ['reports'] as const,
+  blocks: ['workspaceBlocks'] as const,
+  materials: ['materials'] as const,
+  registrations: ['registrations'] as const,
+  requests: ['blockRequests'] as const,
+  dashboard: ['dashboard'] as const,
+  calendar: ['calendar'] as const,
+  notifications: ['notifications'] as const,
+  summary: (id: string) => ['summary', id] as const,
+  task: (id: string) => ['tasks', id] as const,
+  event: (id: string) => ['events', id] as const,
+  report: (id: string) => ['reports', id] as const,
+};
+export const workspaceKeys = [keys.session, keys.seasons, keys.events, keys.tasks, keys.reports, keys.blocks, keys.requests, keys.dashboard, keys.calendar, keys.notifications, ['summary'], ['assessments'], ['merits'], ['masterBonuses']] as const;

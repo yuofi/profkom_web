@@ -19,7 +19,6 @@ export interface UserIn {
   surname: string;
   patronymic: string;
   password: string;
-  kkr_score?: number;
   group_number: number;
   tg: string;
   blocks?: string;
@@ -41,7 +40,8 @@ export interface UserOut {
   name: string;
   surname: string;
   patronymic: string;
-  kkr_score: number;
+  /** Legacy only; never display or use as a contribution source. */
+  kkr_score?: number;
   group_number: number;
   blocks: string;
   banned: boolean;
@@ -71,7 +71,8 @@ export interface ContactInfoIn {
 
 
 export interface ContactInfoOut extends ContactInfoIn {
-  kkr_score: number;
+  /** Legacy only; absent in safe API responses. */
+  kkr_score?: number;
   user_id: number;
   events_roles?: string;
 }
