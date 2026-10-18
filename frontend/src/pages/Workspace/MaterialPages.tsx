@@ -62,7 +62,8 @@ export function MaterialsPage() {
           </label>
         </div>
         <QueryState
-          loading={query.isLoading}
+          keepDataOnError={!!query.data}
+        loading={query.isLoading}
           error={query.error}
           retry={() => {
             void query.refetch();
@@ -231,7 +232,8 @@ export function MaterialPage() {
       title={m?.title ?? "Материал"}
       actions={<RouteLink to="/materials">Все материалы</RouteLink>}
     >
-      <QueryState loading={query.isLoading} error={query.error}>
+      <QueryState keepDataOnError={!!query.data}
+        loading={query.isLoading} error={query.error}>
         {m && (
           <div className={s.stack}>
             <Card>

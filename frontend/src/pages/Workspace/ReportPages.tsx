@@ -1,3 +1,4 @@
+import { canRetainData } from "../../utils/api/request";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -71,7 +72,8 @@ export function ReportsPage() {
       actions={<RouteLink to="/reports/history">Поиск по истории</RouteLink>}
     >
       <div className={s.stack}>
-        <QueryState loading={query.isLoading} error={query.error}>
+        <QueryState keepDataOnError={!!query.data}
+        loading={query.isLoading} error={query.error}>
           <Card>
             <ReportLinks reports={query.data?.items ?? []} />
             {query.data?.items.length === 0 && <Empty>Отчётов пока нет.</Empty>}
@@ -171,9 +173,7 @@ function ReportEditor({ report }: { report: Report }) {
             }),
           );
         }}
-        onConflict={() => {
-          void refresh();
-        }}
+        onConflict={refresh}
         submitLabel="Сохранить черновик"
       />
       <button
@@ -221,6 +221,7 @@ export function ReportPage() {
       actions={<RouteLink to="/reports">Все отчёты</RouteLink>}
     >
       <QueryState
+        keepDataOnError={!!query.data}
         loading={query.isLoading}
         error={query.error}
         retry={() => {
@@ -376,7 +377,8 @@ export function MeetingPage() {
     >
       <div className={s.stack}>
         <QueryState
-          loading={query.isLoading}
+          keepDataOnError={!!query.data}
+        loading={query.isLoading}
           error={query.error}
           retry={() => {
             void query.refetch();
@@ -401,12 +403,13 @@ export function MeetingPage() {
             )}
           </Card>
         </QueryState>
-        {!query.error &&
+        {(!query.error || (query.data && canRetainData(query.error))) &&
           (can(meeting, "edit_meeting") ||
             (!meeting && can(owner.data, "edit_meeting"))) && (
             <Card title="Объявление созвона">
               <ActionForm
-                key={meeting?.revision ?? 0}
+                key={`${apiKind}/${id}`}
+                  revision={meeting?.revision ?? 0}
                 fields={[
                   {
                     name: "title",
@@ -429,21 +432,19 @@ export function MeetingPage() {
                     value: meeting?.join_url ?? "",
                   },
                 ]}
-                onSubmit={async (v) => {
+                onSubmit={async (v, expectedRevision) => {
                   await perform(() =>
                     eventsApi.saveMeeting(apiKind, id, {
                       title: text(v, "title"),
                       starts_at: toUtc(text(v, "starts")),
                       join_url: text(v, "url"),
                       ...(meeting
-                        ? { expected_revision: meeting.revision }
+                        ? { expected_revision: expectedRevision! }
                         : {}),
                     }),
                   );
                 }}
-                onConflict={() => {
-                  void refresh();
-                }}
+                onConflict={refresh}
               />
               {meeting && can(meeting, "delete_meeting") && (
                 <ActionForm

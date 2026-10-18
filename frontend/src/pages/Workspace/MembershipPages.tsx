@@ -42,7 +42,8 @@ export function BlocksPage() {
         <RouteLink to="/blocks/requests">Мои заявки и решения</RouteLink>
       }
     >
-      <QueryState loading={query.isLoading} error={query.error}>
+      <QueryState keepDataOnError={!!query.data}
+        loading={query.isLoading} error={query.error}>
         <div className={s.grid}>
           {query.data?.map((b) => (
             <Card key={b.block_id} title={b.name}>
@@ -91,7 +92,8 @@ export function BlockPage() {
           Задачи
         </RouteLink>
       </div>
-      <QueryState loading={query.isLoading} error={query.error}>
+      <QueryState keepDataOnError={!!query.data}
+        loading={query.isLoading} error={query.error}>
         {b && (
           <div className={s.stack}>
             <Card>
@@ -122,7 +124,8 @@ export function BlockPage() {
               <Leaders leaders={b.master ? [b.master] : []} />
               {can(b, "manage_leaders") && (
                 <ActionForm
-                  key={b.revision}
+                  key={b.block_id}
+                  revision={b.revision}
                   fields={[
                     {
                       name: "user",
@@ -135,16 +138,14 @@ export function BlockPage() {
                       options: people.options,
                     },
                   ]}
-                  onSubmit={async (v) => {
+                  onSubmit={async (v, expectedRevision) => {
                     await perform(() =>
                       eventsApi.blockLeader(id, number(v, "user"), {
-                        expected_revision: b.revision,
+                        expected_revision: expectedRevision!,
                       }),
                     );
                   }}
-                  onConflict={() => {
-                    void refresh();
-                  }}
+                  onConflict={refresh}
                 />
               )}
             </Card>
@@ -210,7 +211,8 @@ export function BlockPage() {
             {can(b, "edit_block") && (
               <Card title="Изменить описание">
                 <ActionForm
-                  key={b.revision}
+                  key={b.block_id}
+                  revision={b.revision}
                   fields={[
                     {
                       name: "body",
@@ -225,18 +227,16 @@ export function BlockPage() {
                       value: b.community_url ?? "",
                     },
                   ]}
-                  onSubmit={async (v) => {
+                  onSubmit={async (v, expectedRevision) => {
                     await perform(() =>
                       membershipApi.updateBlock(id, {
-                        expected_revision: b.revision,
+                        expected_revision: expectedRevision!,
                         description: richText(text(v, "body")),
                         community_url: text(v, "url"),
                       }),
                     );
                   }}
-                  onConflict={() => {
-                    void refresh();
-                  }}
+                  onConflict={refresh}
                 />
               </Card>
             )}
@@ -366,7 +366,8 @@ export function BlockRequestsPage() {
         </button>
       }
     >
-      <QueryState loading={query.isLoading} error={query.error}>
+      <QueryState keepDataOnError={!!query.data}
+        loading={query.isLoading} error={query.error}>
         <div className={s.stack}>
           {query.data?.items.map((r) => (
             <RequestCard
@@ -400,7 +401,8 @@ export function RegistrationsPage() {
     );
   return (
     <Page title="Регистрации">
-      <QueryState loading={query.isLoading} error={query.error}>
+      <QueryState keepDataOnError={!!query.data}
+        loading={query.isLoading} error={query.error}>
         {!can(session, "review_registrations") && (
           <Empty>Нет доступа к заявкам.</Empty>
         )}
@@ -480,9 +482,7 @@ export function RegistrationsPage() {
                       ),
                     );
                   }}
-                  onConflict={() => {
-                    void refresh();
-                  }}
+                  onConflict={refresh}
                 />
               )}
               {r.status !== "approved" &&
@@ -519,7 +519,7 @@ export function RegistrationsPage() {
 }
 export function ParticipantCategoryPanel({ userId }: { userId: number }) {
   const { session } = useSession();
-  const { perform } = useWorkspaceActions();
+  const { perform, refresh } = useWorkspaceActions();
   const query = useQuery({
     queryKey: ["participantCategory", userId],
     queryFn: () => membershipApi.category(userId),
@@ -528,7 +528,8 @@ export function ParticipantCategoryPanel({ userId }: { userId: number }) {
   const category = query.data;
   if (!can(session, "edit_participant_category")) return null;
   return (
-    <QueryState loading={query.isLoading} error={query.error}>
+    <QueryState keepDataOnError={!!query.data}
+        loading={query.isLoading} error={query.error}>
       {category && (
         <div>
           <p>
@@ -538,7 +539,8 @@ export function ParticipantCategoryPanel({ userId }: { userId: number }) {
           </p>
           {can(category, "edit_participant_category") && (
             <ActionForm
-              key={category.revision}
+              key={category.user_id}
+                  revision={category.revision}
               fields={[
                 {
                   name: "category",
@@ -558,15 +560,16 @@ export function ParticipantCategoryPanel({ userId }: { userId: number }) {
                   required: true,
                 },
               ]}
-              onSubmit={async (v) => {
+              onSubmit={async (v, expectedRevision) => {
                 await perform(() =>
                   membershipApi.updateCategory(userId, {
-                    expected_revision: category.revision,
+                    expected_revision: expectedRevision!,
                     category: text(v, "category") as "junior" | "activist",
                     reason: text(v, "reason"),
                   }),
                 );
               }}
+              onConflict={refresh}
             />
           )}
         </div>

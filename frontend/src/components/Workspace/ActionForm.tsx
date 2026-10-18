@@ -1,7 +1,7 @@
 import { useId, useState, type ReactNode } from "react";
 import { useFormik } from "formik";
 import { z } from "zod";
-import { normalizeApiError } from "../../utils/api/request";
+import { ApiError, normalizeApiError } from "../../utils/api/request";
 import s from "./Workspace.module.css";
 import type { Values } from "./formValues";
 import { RecipientPicker } from "./RecipientPicker";
@@ -43,17 +43,28 @@ export function ActionForm({
   successMessage = "Изменения сохранены",
   children,
   disabled = false,
+  revision,
 }: {
   title?: string;
   fields: Field[];
   submitLabel?: string;
-  onSubmit: (values: Values) => Promise<void>;
-  onConflict?: () => void;
+  onSubmit: (values: Values, expectedRevision?: number) => Promise<void>;
+  onConflict?: () => unknown | Promise<unknown>;
   successMessage?: string;
   children?: ReactNode;
   disabled?: boolean;
+  revision?: number;
 }) {
   const formId = useId();
+  const [expectedRevision, setExpectedRevision] = useState(revision);
+  const [savedRevision, setSavedRevision] = useState<number>();
+  const [refreshing, setRefreshing] = useState(false);
+  // A successful mutation has already re-read the object. Other updates need consent.
+  if (savedRevision !== undefined && revision !== savedRevision) {
+    setExpectedRevision(revision);
+    setSavedRevision(undefined);
+  }
+  const changedRevision = revision !== expectedRevision;
   const [message, setMessage] = useState("");
   const [failure, setFailure] = useState<ReturnType<
     typeof normalizeApiError
@@ -116,7 +127,10 @@ export function ActionForm({
       setMessage("");
       setFailure(null);
       try {
-        await onSubmit(values);
+        if (revision !== undefined && (changedRevision || failure?.status === 409))
+          throw new ApiError("Сначала обновите данные и подтвердите версию для сохранения.", 409);
+        await onSubmit(values, expectedRevision);
+        setSavedRevision(expectedRevision);
         setMessage(successMessage);
       } catch (error) {
         const failure = normalizeApiError(error);
@@ -139,7 +153,7 @@ export function ActionForm({
     <form className={s.form} onSubmit={form.handleSubmit} noValidate>
       <fieldset
         className={s.formFields}
-        disabled={form.isSubmitting || disabled}
+        disabled={form.isSubmitting || refreshing || disabled}
       >
         {title && <h3>{title}</h3>}
         {fields
@@ -235,11 +249,29 @@ export function ActionForm({
             {failure.message}
             {failure.status === 409 && onConflict && (
               <p>
-                <button type="button" className={s.button} onClick={onConflict}>
+                <button type="button" className={s.button} onClick={async () => {
+                  setRefreshing(true);
+                  try { await onConflict(); }
+                  catch (error) { setFailure(normalizeApiError(error)); }
+                  finally { setRefreshing(false); }
+                }}>
                   Обновить данные
                 </button>
               </p>
             )}
+          </div>
+        )}
+        {changedRevision && (
+          <div role="status" className={s.details}>
+            <p>Запись изменилась на сервере. Ваш ввод сохранён. Сверьте актуальные значения перед сохранением.</p>
+            <details><summary>Актуальные сохранённые значения</summary>
+              <dl>{fields.filter((f) => f.value !== undefined).map((f) => <div key={f.name}><dt>{f.label}</dt><dd>{Array.isArray(f.value) ? f.value.map((value) => f.options?.find((o) => o.value === value)?.label ?? value).join(", ") : f.value || "—"}</dd></div>)}</dl>
+            </details>
+            <button type="button" className={s.button} onClick={() => { setExpectedRevision(revision); setFailure(null); setMessage(""); }}>Сохранить мой ввод с обновлённой версией</button>
+            <button type="button" className={s.button} onClick={() => {
+              form.resetForm({ values: Object.fromEntries(fields.map((f) => [f.name, f.value ?? (f.type === "multi" ? [] : "")])) });
+              setExpectedRevision(revision); setFailure(null); setMessage("");
+            }}>Заменить мой ввод сохранёнными значениями</button>
           </div>
         )}
         {message && (
@@ -251,7 +283,7 @@ export function ActionForm({
           <button
             className={`${s.button} ${s.primary}`}
             type="submit"
-            disabled={form.isSubmitting || disabled}
+            disabled={form.isSubmitting || refreshing || disabled || (revision !== undefined && (changedRevision || failure?.status === 409))}
           >
             {form.isSubmitting ? "Сохраняем…" : submitLabel}
           </button>

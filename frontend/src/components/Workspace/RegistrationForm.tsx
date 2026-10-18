@@ -48,15 +48,16 @@ export function RegistrationForm({
   return (
     <div className={s.stack}>
       <ActionForm
-        key={application.revision}
+        key={application.user_id}
+                  revision={application.revision}
         fields={fields}
-        onSubmit={async (v) => {
+        onSubmit={async (v, expectedRevision) => {
           const form = Object.fromEntries(
             Object.keys(names).map((k) => [k, text(v, k)]),
           );
           await perform(() =>
             membershipApi.updateRegistration({
-              expected_revision: application.revision,
+              expected_revision: expectedRevision!,
               fields: {
                 ...form,
                 patronymic: text(v, "patronymic") || null,
@@ -66,9 +67,7 @@ export function RegistrationForm({
           );
         }}
         submitLabel="Сохранить сведения"
-        onConflict={() => {
-          void refresh();
-        }}
+        onConflict={refresh}
       />
       {application.status === "rejected" && (
         <>

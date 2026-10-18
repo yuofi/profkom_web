@@ -63,6 +63,11 @@ export function normalizeApiError(error: unknown): ApiError {
     error instanceof Error ? error.message : "Неизвестная ошибка",
   );
 }
+/** Retain an editor on transient failures, never after denied or removed access. */
+export function canRetainData(error: unknown) {
+  const status = normalizeApiError(error).status;
+  return status === 0 || status >= 500;
+}
 export async function request<T>(
   method: "get" | "post" | "put" | "patch" | "delete",
   url: string,

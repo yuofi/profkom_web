@@ -25,7 +25,7 @@ import s from "../../components/Workspace/Workspace.module.css";
 
 export function Leaders({ leaders }: { leaders: Leader[] }) {
   const people = usePeopleOptions();
-  const { perform } = useWorkspaceActions();
+  const { perform, refresh } = useWorkspaceActions();
   return (
     <div className={s.stack}>
       {leaders.length === 0 && (
@@ -48,7 +48,8 @@ export function Leaders({ leaders }: { leaders: Leader[] }) {
             <details className={s.details}>
               <summary>Изменить заместителей</summary>
               <ActionForm
-                key={leader.revision}
+                key={leader.role_assignment_id}
+                  revision={leader.revision}
                 fields={[
                   {
                     name: "users",
@@ -60,7 +61,7 @@ export function Leaders({ leaders }: { leaders: Leader[] }) {
                     ),
                   },
                 ]}
-                onSubmit={async (v) => {
+                onSubmit={async (v, expectedRevision) => {
                   const users = ids(v, "users");
                   if (users.length > 2)
                     throw Error(
@@ -68,10 +69,11 @@ export function Leaders({ leaders }: { leaders: Leader[] }) {
                     );
                   await perform(() =>
                     eventsApi.deputies(leader.role_assignment_id, users, {
-                      expected_revision: leader.revision,
+                      expected_revision: expectedRevision!,
                     }),
                   );
                 }}
+                onConflict={refresh}
               />
             </details>
           )}
@@ -207,6 +209,7 @@ export function EventPage() {
       actions={<RouteLink to="/events">Все мероприятия</RouteLink>}
     >
       <QueryState
+        keepDataOnError={!!query.data}
         loading={query.isLoading}
         error={query.error}
         retry={() => {
@@ -246,7 +249,8 @@ export function EventPage() {
                   <details className={s.details}>
                     <summary>Изменить главоргов</summary>
                     <ActionForm
-                      key={event.revision}
+                      key={event.event_id}
+                  revision={event.revision}
                       fields={[
                         {
                           name: "users",
@@ -258,16 +262,14 @@ export function EventPage() {
                           options: people.options,
                         },
                       ]}
-                      onSubmit={async (v) => {
+                      onSubmit={async (v, expectedRevision) => {
                         await perform(() =>
                           eventsApi.leaders("events", id, ids(v, "users"), {
-                            expected_revision: event.revision,
+                            expected_revision: expectedRevision!,
                           }),
                         );
                       }}
-                      onConflict={() => {
-                        void refresh();
-                      }}
+                      onConflict={refresh}
                     />
                   </details>
                 )}
@@ -312,7 +314,8 @@ export function EventPage() {
             {can(event, "edit_event") && (
               <Card title="Описание мероприятия">
                 <ActionForm
-                  key={event.revision}
+                  key={event.event_id}
+                  revision={event.revision}
                   fields={[
                     {
                       name: "title",
@@ -341,12 +344,12 @@ export function EventPage() {
                       value: event.ends_at ? moscowInput(event.ends_at) : "",
                     },
                   ]}
-                  onSubmit={async (v) => {
+                  onSubmit={async (v, expectedRevision) => {
                     await perform(() =>
                       eventsApi.update(id, {
                         title: text(v, "title"),
                         description: richText(text(v, "description")),
-                        expected_revision: event.revision,
+                        expected_revision: expectedRevision!,
                         starts_at: text(v, "starts")
                           ? toUtc(text(v, "starts"))
                           : null,
@@ -356,9 +359,7 @@ export function EventPage() {
                       }),
                     );
                   }}
-                  onConflict={() => {
-                    void refresh();
-                  }}
+                  onConflict={refresh}
                 />
               </Card>
             )}
@@ -417,6 +418,7 @@ export function SubeventPage() {
   return (
     <Page title={sub?.title ?? "Подмероприятие"}>
       <QueryState
+        keepDataOnError={!!query.data}
         loading={query.isLoading}
         error={query.error}
         retry={() => {
@@ -454,7 +456,8 @@ export function SubeventPage() {
                   <details className={s.details}>
                     <summary>Изменить ответственных</summary>
                     <ActionForm
-                      key={sub.revision}
+                      key={sub.subevent_id}
+                  revision={sub.revision}
                       fields={[
                         {
                           name: "users",
@@ -464,16 +467,14 @@ export function SubeventPage() {
                           options: people.options,
                         },
                       ]}
-                      onSubmit={async (v) => {
+                      onSubmit={async (v, expectedRevision) => {
                         await perform(() =>
                           eventsApi.leaders("subevents", id, ids(v, "users"), {
-                            expected_revision: sub.revision,
+                            expected_revision: expectedRevision!,
                           }),
                         );
                       }}
-                      onConflict={() => {
-                        void refresh();
-                      }}
+                      onConflict={refresh}
                     />
                   </details>
                 )}
@@ -491,7 +492,8 @@ export function SubeventPage() {
                   <details className={s.details}>
                     <summary>Изменить состав</summary>
                     <ActionForm
-                      key={sub.revision}
+                      key={sub.subevent_id}
+                  revision={sub.revision}
                       fields={[
                         {
                           name: "users",
@@ -501,16 +503,14 @@ export function SubeventPage() {
                           options: people.options,
                         },
                       ]}
-                      onSubmit={async (v) => {
+                      onSubmit={async (v, expectedRevision) => {
                         await perform(() =>
                           eventsApi.organizers(id, ids(v, "users"), {
-                            expected_revision: sub.revision,
+                            expected_revision: expectedRevision!,
                           }),
                         );
                       }}
-                      onConflict={() => {
-                        void refresh();
-                      }}
+                      onConflict={refresh}
                     />
                   </details>
                 )}
@@ -519,7 +519,8 @@ export function SubeventPage() {
             {can(sub, "edit_subevent") && (
               <Card title="Описание">
                 <ActionForm
-                  key={sub.revision}
+                  key={sub.subevent_id}
+                  revision={sub.revision}
                   fields={[
                     {
                       name: "title",
@@ -534,15 +535,16 @@ export function SubeventPage() {
                       value: sub.description.body,
                     },
                   ]}
-                  onSubmit={async (v) => {
+                  onSubmit={async (v, expectedRevision) => {
                     await perform(() =>
                       eventsApi.updateSubevent(id, {
-                        expected_revision: sub.revision,
+                        expected_revision: expectedRevision!,
                         title: text(v, "title"),
                         description: richText(text(v, "description")),
                       }),
                     );
                   }}
+                  onConflict={refresh}
                 />
               </Card>
             )}

@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
-import { normalizeApiError } from "../../utils/api/request";
+import { normalizeApiError, canRetainData } from "../../utils/api/request";
 import type { RichText } from "../../utils/api/contract";
 import s from "./Workspace.module.css";
 export function Page({
@@ -103,17 +103,17 @@ export function QueryState({
   error,
   children,
   retry,
+  keepDataOnError = false,
 }: {
   loading: boolean;
   error: unknown;
   children: ReactNode;
   retry?: () => void;
+  keepDataOnError?: boolean;
 }) {
-  return loading ? (
-    <Loading />
-  ) : error ? (
-    <ErrorState error={error} retry={retry} />
-  ) : (
-    children
-  );
+  if (loading) return <Loading />;
+  return <>
+    {error && <ErrorState error={error} retry={retry} />}
+    {(!error || (keepDataOnError && canRetainData(error))) ? children : null}
+  </>;
 }

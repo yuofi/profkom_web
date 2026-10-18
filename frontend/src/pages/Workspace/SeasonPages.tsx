@@ -58,7 +58,8 @@ export function SeasonsPage() {
   return (
     <Page title="Сезоны">
       <div className={s.stack}>
-        <QueryState loading={query.isLoading} error={query.error}>
+        <QueryState keepDataOnError={!!query.data}
+        loading={query.isLoading} error={query.error}>
           <div className={s.grid}>
             {query.data?.items.map((season) => (
               <Card key={season.season_id} title={season.title}>
@@ -184,7 +185,8 @@ export function SeasonPage() {
       title={season?.title ?? "Сезон"}
       actions={<RouteLink to="/seasons">Все сезоны</RouteLink>}
     >
-      <QueryState loading={query.isLoading} error={query.error}>
+      <QueryState keepDataOnError={!!query.data}
+        loading={query.isLoading} error={query.error}>
         {season ? (
           <div className={s.stack}>
             <Card>
@@ -248,7 +250,8 @@ export function SeasonPage() {
             {can(season, "edit_season") && (
               <Card title="Исправление периода">
                 <ActionForm
-                  key={season.revision}
+                  key={season.season_id}
+                  revision={season.revision}
                   fields={[
                     {
                       name: "title",
@@ -272,12 +275,12 @@ export function SeasonPage() {
                     },
                     { name: "reason", label: "Причина", required: true },
                   ]}
-                  onSubmit={async (v) => {
+                  onSubmit={async (v, expectedRevision) => {
                     if (text(v, "start") >= text(v, "end"))
                       throw Error("Начало должно быть раньше конца");
                     await perform(() =>
                       seasonsApi.update(id, {
-                        expected_revision: season.revision,
+                        expected_revision: expectedRevision!,
                         title: text(v, "title"),
                         starts_at: toUtc(text(v, "start")),
                         ends_at: toUtc(text(v, "end")),
@@ -285,9 +288,7 @@ export function SeasonPage() {
                       }),
                     );
                   }}
-                  onConflict={() => {
-                    void refresh();
-                  }}
+                  onConflict={refresh}
                 />
               </Card>
             )}
@@ -315,7 +316,8 @@ function DecisionsForm({
         отдельно.
       </p>
       <ActionForm
-        key={summary.version}
+        key={`${summary.season_id}/${row.user.user_id}`}
+                  revision={summary.version}
         fields={[
           {
             name: "decisions",
@@ -329,18 +331,16 @@ function DecisionsForm({
           },
           { name: "reason", label: "Основание", required: true },
         ]}
-        onSubmit={async (v) => {
+        onSubmit={async (v, expectedRevision) => {
           await perform(() =>
             seasonsApi.decisions(summary.season_id, row.user.user_id!, {
-              expected_version: summary.version,
+              expected_version: expectedRevision!,
               decisions: v.decisions as Decision[],
               reason: text(v, "reason"),
             }),
           );
         }}
-        onConflict={() => {
-          void refresh();
-        }}
+        onConflict={refresh}
       />
     </details>
   );
@@ -375,7 +375,8 @@ export function SummaryPage() {
       actions={<RouteLink to={getSeasonRoute(id)}>Сезон</RouteLink>}
     >
       <div className={s.stack}>
-        <QueryState loading={query.isLoading} error={query.error}>
+        <QueryState keepDataOnError={!!query.data}
+        loading={query.isLoading} error={query.error}>
           {summary && (
             <>
               <Card>

@@ -254,7 +254,8 @@ export function TasksListPage() {
           </label>
         </div>
         <QueryState
-          loading={query.isLoading}
+          keepDataOnError={!!query.data}
+        loading={query.isLoading}
           error={query.error}
           retry={() => {
             void query.refetch();
@@ -550,7 +551,8 @@ function TaskComments({ task }: { task: Task }) {
   });
   return (
     <Card title="Обсуждение">
-      <QueryState loading={query.isLoading} error={query.error}>
+      <QueryState keepDataOnError={!!query.data}
+        loading={query.isLoading} error={query.error}>
         {query.data?.items.map((c) => (
           <div key={c.comment_id} className={s.details}>
             <p>
@@ -632,6 +634,7 @@ export function TaskPage() {
       }
     >
       <QueryState
+        keepDataOnError={!!query.data}
         loading={query.isLoading}
         error={query.error}
         retry={() => {
@@ -811,7 +814,8 @@ export function UnresolvedPage() {
         />{" "}
         Только без доступного исполнителя
       </label>
-      <QueryState loading={query.isLoading} error={query.error}>
+      <QueryState keepDataOnError={!!query.data}
+        loading={query.isLoading} error={query.error}>
         <div className={s.stack}>
           {items?.map((item) => (
             <Card title={item.task_title} key={item.assignment.assignment_id}>

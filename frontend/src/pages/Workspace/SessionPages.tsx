@@ -1,3 +1,4 @@
+import { canRetainData } from "../../utils/api/request";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { useLogout } from "../../utils/hooks/useLogout";
@@ -6,6 +7,7 @@ import {
   Card,
   Loading,
   ErrorState,
+  QueryState,
 } from "../../components/Workspace/WorkspaceUI";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { number, ids } from "../../components/Workspace/formValues";
@@ -39,11 +41,7 @@ export function AccountStatePage() {
     >
       <Card>
         <DemoRolePicker />
-        {application.isLoading ? (
-          <Loading />
-        ) : application.error ? (
-          <ErrorState error={application.error} />
-        ) : (
+        <QueryState loading={application.isLoading} error={application.error} keepDataOnError={!!application.data}>
           <>
             <p>
               {application.data?.rejection_reason ??
@@ -59,7 +57,7 @@ export function AccountStatePage() {
               <RegistrationForm application={application.data} />
             )}
           </>
-        )}
+        </QueryState>
         <button className={s.button} disabled={busy} onClick={() => void logout()}>
           {busy ? "Выходим…" : "Ко входу"}
         </button>
@@ -115,9 +113,9 @@ export function LeadershipPage() {
     queryFn: directoryApi.contacts,
   });
   if (leadership.isLoading) return <Loading />;
-  if (leadership.error) return <ErrorState error={leadership.error} />;
+  if (leadership.error && (!leadership.data || !canRetainData(leadership.error))) return <ErrorState error={leadership.error} />;
   if (contacts.isLoading) return <Loading />;
-  if (contacts.error) return <ErrorState error={contacts.error} retry={() => { void contacts.refetch(); }} />;
+  if (contacts.error && (!contacts.data || !canRetainData(contacts.error))) return <ErrorState error={contacts.error} retry={() => { void contacts.refetch(); }} />;
   const current = leadership.data!;
   const choices =
     contacts.data
@@ -132,6 +130,7 @@ export function LeadershipPage() {
   };
   return (
     <Page title="Руководство Профкома">
+      {(leadership.error || contacts.error) && <ErrorState error={leadership.error || contacts.error} />}
       <div className={s.stack}>
         <Card title="Текущий состав">
           <p>Председатель: {current.chair.display_name}</p>
@@ -148,7 +147,8 @@ export function LeadershipPage() {
               потеряют глобальные права; остальные назначения сохранятся.
             </p>
             <ActionForm
-              key={`transfer-${current.revision}`}
+              key="transfer"
+                  revision={current.revision}
               fields={[
                 {
                   name: "user",
@@ -159,21 +159,23 @@ export function LeadershipPage() {
                 },
               ]}
               submitLabel="Передать пост"
-              onSubmit={async (v) => {
+              onSubmit={async (v, expectedRevision) => {
                 const userId = number(v, "user");
                 requireEligible([userId]);
                 await sessionApi.transfer(userId, {
-                  expected_revision: current.revision,
+                  expected_revision: expectedRevision!,
                 });
                 await clearPrivateCache(client);
               }}
+              onConflict={() => leadership.refetch({ throwOnError: true })}
             />
           </Card>
         )}
         {can(current, "manage_chair_deputies") && (
           <Card title="Заместители председателя">
             <ActionForm
-              key={`deputies-${current.revision}`}
+              key="deputies"
+                  revision={current.revision}
               fields={[
                 {
                   name: "users",
@@ -183,17 +185,18 @@ export function LeadershipPage() {
                   options: choices,
                 },
               ]}
-              onSubmit={async (v) => {
+              onSubmit={async (v, expectedRevision) => {
                 const selected = ids(v, "users");
                 requireEligible(selected);
                 if (selected.length > 3)
                   throw Error("Можно назначить не более трёх заместителей");
                 await sessionApi.deputies(selected, {
-                  expected_revision: current.revision,
+                  expected_revision: expectedRevision!,
                 });
                 await client.invalidateQueries({ queryKey: ["leadership"] });
                 await clearPrivateCache(client);
               }}
+              onConflict={() => leadership.refetch({ throwOnError: true })}
             />
           </Card>
         )}
