@@ -163,7 +163,7 @@ export function installMockTransport(role: MockRole = 'organizer', options: { de
       if (method === 'get') return [200, clone(item)];
       if (!state.manager) return denied();
       if (mismatch(data, item)) return conflict();
-      if (parts[2] === 'leaders') item.leaders = (data.user_ids as number[]).map(uid => ({ role_assignment_id: id('leader'), user: state.people.find(p => p.user_id === uid)!, deputy_user_ids: [], revision: 1, capabilities: ['manage_deputies'] }));
+      if (parts[2] === 'leaders') item.leaders = (data.user_ids as number[]).map(uid => item.leaders.find(l => l.user.user_id === uid) ?? ({ role_assignment_id: id('leader'), user: state.people.find(p => p.user_id === uid)!, deputy_user_ids: [], revision: 1, capabilities: ['manage_deputies'] }));
       else if (parts[2] === 'organizers' && !isEvent) (item as Subevent).organizer_user_ids = data.user_ids as number[];
       else Object.assign(item, data);
       return changed(item);

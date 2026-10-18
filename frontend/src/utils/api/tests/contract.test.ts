@@ -11,6 +11,7 @@ import { page, normalizeApiError, ApiError } from '../request';
 import { richText } from '../contract';
 import { QueryClient } from '@tanstack/react-query';
 import { clearPrivateCache } from '../invalidation';
+import { eventsApi } from '../events.api';
 let mock: ReturnType<typeof installMockTransport> | undefined;
 afterEach(() => { mock?.restore(); mock = undefined; });
 const useMock = (role: Parameters<typeof installMockTransport>[0] = 'organizer') => (mock = installMockTransport(role, { delay: 0 }));
@@ -34,6 +35,21 @@ describe('Safe contract fixtures', () => {
   });
 });
 describe('API commands through mock transport', () => {
+  it('copies annual structure with empty assignments and no historical work', async () => {
+    useMock('chair'); const copied = await eventsApi.copy('event-1', { season_id: 'season-next', title: 'Новый экземпляр' });
+    expect(copied.event.event_id).not.toBe('event-1'); expect(copied.event.leaders).toEqual([]);
+    expect(copied.subevents[0].organizer_user_ids).toEqual([]); expect(copied.subevents[0].leaders).toEqual([]);
+    expect(copied.event.report_series_id).toBe('series-event-1');
+  });
+  it('preserves a shared deputy at another principal when one leader is removed', async () => {
+    useMock('chair'); let event = await eventsApi.get('event-1');
+    event = await eventsApi.leaders('events', event.event_id, [101, 102], { expected_revision: event.revision }) as typeof event;
+    await eventsApi.deputies(event.leaders[0].role_assignment_id, [105], { expected_revision: event.leaders[0].revision });
+    await eventsApi.deputies(event.leaders[1].role_assignment_id, [105], { expected_revision: event.leaders[1].revision });
+    event = await eventsApi.get('event-1');
+    await eventsApi.leaders('events', event.event_id, [102], { expected_revision: event.revision });
+    expect((await eventsApi.get('event-1')).leaders[0].deputy_user_ids).toEqual([105]);
+  });
   it('updates chair deputies and revokes global actions after a chair transfer', async () => {
     useMock('chair'); const initial = await sessionApi.leadership();
     const deputies = await sessionApi.deputies([101, 102], { expected_revision: initial.revision });
