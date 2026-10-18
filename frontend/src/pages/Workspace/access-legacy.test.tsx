@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { Route, Routes } from "react-router-dom";
 import { act } from "react";
+import { QueryClient } from "@tanstack/react-query";
+import { createFixtures } from "../../mocks/fixtures";
 import { afterEach, expect, it } from "vitest";
 import { AxiosError } from "axios";
 import MockAdapter from "axios-mock-adapter";
@@ -17,6 +19,7 @@ import { EventPage } from "./EventPages";
 import { BlockPage } from "./MembershipPages";
 import { MeritsPage, MeritEntryPage } from "./MeritPages";
 import { SessionContext } from "../../utils/session";
+import { LeadershipPage } from "./SessionPages";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let restore: (() => void) | undefined;
@@ -128,7 +131,31 @@ it("A04: readers cannot create merits or select a block in a planned season", as
   expect(mock.adapter.history.get.some((r) => r.url === "/merits")).toBe(false);
   await page.cleanup(); page = undefined; mock.restore();
   const leader = installMockTransport("leader", { delay: 0 }); restore = leader.restore;
-  page = await mountWorkspace(<MeritEntryPage />, { role: "leader", path: "/merits?source_kind=block_volunteer&scope_id=block-1" });
+  page = await mountWorkspace(<MeritEntryPage />, { role: "leader", path: `/merits?source_kind=block_volunteer&scope_id=${leader.state.blocks[0].block_id}` });
   await settle(); await settle();
+  expect(page.container.querySelectorAll('a[href*="/merits"]').length).toBeGreaterThan(0);
   for (const season of leader.state.seasons.filter((x) => x.state === "closed" || x.state === "planned")) expect(page.container.querySelector(`a[href*="/seasons/${season.season_id}/merits"]`)).toBeNull();
+});
+
+it("A08: leadership excludes pending candidates, preserves valid candidates outside any block and handles 422", async () => {
+  const f = createFixtures("chair");
+  const adapter = new MockAdapter(api); restore = () => adapter.restore();
+  adapter.onPut("/leadership/deputies").reply(422, { detail: { code: "invalid_input", message: "Нельзя назначить этого участника" } });
+  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+  client.setQueryData(["leadership"], { chair: f.user, deputies: [], revision: 1, capabilities: ["transfer_chair", "manage_chair_deputies"] });
+  client.setQueryData(["contacts"], [{ ...f.profile, user_id: 998, blocks: "", in_profcom: true }, { ...f.profile, user_id: 999, in_profcom: false }]);
+  page = await mountWorkspace(<LeadershipPage />, { client });
+  expect(page.container.querySelector('option[value="999"]')).toBeNull();
+  expect(page.container.querySelector('option[value="998"]')).not.toBeNull();
+  await change(field(page.container, "users"), "998");
+  await submit(field(page.container, "users").closest("form")!);
+  expect(page.container.textContent).toContain("Нельзя назначить этого участника");
+  expect(JSON.parse(adapter.history.put[0].data).user_ids).toEqual([998]);
+  expect(field(page.container, "users").value).toBe("998");
+  await change(field(page.container, "user"), "998");
+  await act(async () => client.setQueryData(["contacts"], [{ ...f.profile, user_id: 998, in_profcom: false }]));
+  await settle();
+  await submit(field(page.container, "user").closest("form")!);
+  expect(page.container.textContent).toContain("больше не доступен для назначения");
+  expect(adapter.history.post).toHaveLength(0);
 });

@@ -116,14 +116,20 @@ export function LeadershipPage() {
   });
   if (leadership.isLoading) return <Loading />;
   if (leadership.error) return <ErrorState error={leadership.error} />;
+  if (contacts.isLoading) return <Loading />;
+  if (contacts.error) return <ErrorState error={contacts.error} retry={() => { void contacts.refetch(); }} />;
   const current = leadership.data!;
   const choices =
     contacts.data
-      ?.filter((p) => p.user_id !== current.chair.user_id)
+      ?.filter((p) => p.in_profcom && p.user_id !== current.chair.user_id)
       .map((p) => ({
         value: String(p.user_id),
         label: `${p.surname} ${p.name}`,
       })) ?? [];
+  const requireEligible = (userIds: number[]) => {
+    if (userIds.some((id) => !choices.some((p) => Number(p.value) === id)))
+      throw Error("Выбранный участник больше не доступен для назначения. Проверьте выбор.");
+  };
   return (
     <Page title="Руководство Профкома">
       <div className={s.stack}>
@@ -154,7 +160,9 @@ export function LeadershipPage() {
               ]}
               submitLabel="Передать пост"
               onSubmit={async (v) => {
-                await sessionApi.transfer(number(v, "user"), {
+                const userId = number(v, "user");
+                requireEligible([userId]);
+                await sessionApi.transfer(userId, {
                   expected_revision: current.revision,
                 });
                 await clearPrivateCache(client);
@@ -177,6 +185,7 @@ export function LeadershipPage() {
               ]}
               onSubmit={async (v) => {
                 const selected = ids(v, "users");
+                requireEligible(selected);
                 if (selected.length > 3)
                   throw Error("Можно назначить не более трёх заместителей");
                 await sessionApi.deputies(selected, {
