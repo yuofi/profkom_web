@@ -38,8 +38,10 @@ export const UserProvider = ({ children }: { children: React.ReactNode }) => {
         loading: sessionQuery.isLoading || (active && profile.isLoading),
         error: sessionQuery.error ?? profile.error,
         refresh: () => {
-          void sessionQuery.refetch();
-          void profile.refetch();
+          void sessionQuery.refetch().then(({ data, error }) => {
+            if (!error && isActiveSession(data))
+              return client.invalidateQueries({ queryKey: ["currentUser", data?.user_id] });
+          });
         },
       }}
     >

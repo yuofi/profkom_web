@@ -11,11 +11,11 @@ import { FormTextField } from "../../components/Form/FormTextFiled";
 import { Button } from "../../components/Button/Button";
 import { useState } from "react";
 import { authApi } from "../../utils/api/auth.api";
-import Cookies from "js-cookie";
 import type z from "zod";
 import { VKAuthButton } from "../../components/VKAuth/authButton";
-import { type AuthError, type TokenResult } from "@vkid/sdk";
-import { logger } from "../../utils/logger";
+import { type TokenResult } from "@vkid/sdk";
+import { completeAuthentication } from "../../utils/authSession";
+import { normalizeApiError } from "../../utils/api/request";
 import { useNavigate } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
 import { useQueryClient } from "@tanstack/react-query";
@@ -28,7 +28,7 @@ export const GreetingPage = () => {
   const gradientClipPath =
     "M0.5 344.087V0.5H294.828C345.087 35.9281 365.664 60.4296 398.609 106.688L400.5 438.5H158.273C119.065 370.449 83.4742 347.686 0.5 344.087Z";
 
-  const { formik, isSuccess, globalError } = useForm({
+  const { formik, isSuccess, globalError, setGlobalError } = useForm({
     initialValues: (signUp
       ? {
           email: "",
@@ -44,80 +44,32 @@ export const GreetingPage = () => {
       z.infer<typeof SignInValidationSchema>,
     validationSchema: signUp ? SignUpValidationSchema : SignInValidationSchema,
     onSubmit: async (data) => {
-      try {
-        if (signUp) {
-          const formData = data as z.infer<typeof SignUpValidationSchema>;
-          logger.log("Данные формы:", formData);
-          const response = await authApi.register({
-            email: formData.email,
-            password: formData.password,
-            name: formData.name,
-            surname: formData.surname,
-            patronymic: formData.patronymic,
-            group_number: Number(formData.groupNumber),
-            tg: formData.telegram,
-          });
-          logger.log("Успешная регистрация:", response);
-          Cookies.set("access_token", response.data.access_token, {
-            expires: 1 / 8,
-          });
-          logger.log("Успешный вход:", response);
-          const meResponse = await authApi.getMe();
-          queryClient.setQueryData(["currentUser"], meResponse);
-          await queryClient.invalidateQueries({ queryKey: ["session"] });
-          queryClient.removeQueries({
-            predicate: (query) => query.queryKey[0] !== "currentUser",
-          });
-          navigate("/", { replace: true });
-        } else {
-          const response = await authApi.login({
-            email: data.email,
-            password: data.password,
-          });
-          Cookies.set("access_token", response.data.access_token, {
-            expires: 1 / 8,
-          });
-          logger.log("Успешный вход:", response);
-          const meResponse = await authApi.getMe();
-          queryClient.setQueryData(["currentUser"], meResponse);
-          await queryClient.invalidateQueries({ queryKey: ["session"] });
-          queryClient.removeQueries({
-            predicate: (query) => query.queryKey[0] !== "currentUser",
-          });
-          navigate("/", { replace: true });
-        }
-      } catch (error) {
-        console.error("Ошибка при отправке:", error);
-        throw error;
-      }
+      const response = signUp
+        ? await authApi.register({
+            email: data.email, password: data.password, name: data.name,
+            surname: data.surname, patronymic: data.patronymic,
+            group_number: Number(data.groupNumber), tg: data.telegram,
+          })
+        : await authApi.login({ email: data.email, password: data.password });
+      await completeAuthentication(queryClient, response.data.access_token);
+      navigate("/", { replace: true });
     },
   });
 
   const handleLoginSuccess = async (data: TokenResult) => {
+    setGlobalError(null);
     try {
-      logger.log("Успешная авторизация VK:", data);
       const response = await authApi.vkLogin({
-        access_token: data.access_token,
-        id_token: data.id_token,
+        access_token: data.access_token, id_token: data.id_token,
       });
-      Cookies.set("access_token", response.data.access_token, {
-        expires: 1 / 8,
-      });
-      logger.log("Успешный вход через VK:", response);
-      const meResponse = await authApi.getMe();
-      queryClient.setQueryData(["currentUser"], meResponse);
-          await queryClient.invalidateQueries({ queryKey: ["session"] });
-      queryClient.removeQueries({
-        predicate: (query) => query.queryKey[0] !== "currentUser",
-      });
+      await completeAuthentication(queryClient, response.data.access_token);
       navigate("/", { replace: true });
     } catch (error) {
-      console.error("Ошибка при VK авторизации на бэкенде:", error);
+      setGlobalError(normalizeApiError(error).message);
     }
   };
-
-  const handleLoginError = (error: AuthError) => {
-    console.error("Ошибка авторизации:", error);
+  const handleLoginError = () => {
+    setGlobalError("Не удалось войти через VK. Повторите попытку.");
   };
 
   return (
@@ -200,7 +152,7 @@ export const GreetingPage = () => {
               {signUp ? "или войти c паролем" : "войти с вк"}
             </h5>
             {isSuccess && <div>Успешно!</div>}
-            {globalError && <div style={{ color: "red" }}>{globalError}</div>}
+            {globalError && <div role="alert" style={{ color: "var(--error)" }}>{globalError}</div>}
           </form>
         </FormikProvider>
       </CurvedRectangle>

@@ -1,6 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
-import Cookies from "js-cookie";
+import { useLogout } from "../../utils/hooks/useLogout";
 import {
   Page,
   Card,
@@ -19,6 +18,7 @@ import { RegistrationForm } from "../../components/Workspace/RegistrationForm";
 import { DemoRolePicker } from "../../components/Workspace/DemoRolePicker";
 export function AccountStatePage() {
   const { session } = useSession();
+  const { logout, busy, error } = useLogout();
   const application = useQuery({
     queryKey: ["registrations", "me"],
     queryFn: membershipApi.registration,
@@ -59,13 +59,10 @@ export function AccountStatePage() {
             )}
           </>
         )}
-        <Link
-          className={s.linkButton}
-          to="/auth"
-          onClick={() => Cookies.remove("access_token")}
-        >
-          Ко входу
-        </Link>
+        <button className={s.button} disabled={busy} onClick={() => void logout()}>
+          {busy ? "Выходим…" : "Ко входу"}
+        </button>
+        {error && <p role="alert" className={s.error}>{error}</p>}
       </Card>
     </Page>
   );

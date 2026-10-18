@@ -6,7 +6,6 @@ import { ProfileChip } from "./ProfileChip";
 import { Avatar } from "../Avatar/Avatar";
 import VKIcon from "../../assets/vk.svg?react";
 import TelegramIcon from "../../assets/telegram.svg?react";
-import Cookies from "js-cookie";
 import { useState } from "react";
 import { contactsApi } from "../../utils/api/contacts.api";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
@@ -15,7 +14,7 @@ import { parseContent, stringifyContent } from "../../utils/parsing";
 import { parseProfileUrl } from "../../utils/parsing";
 import { logger } from "../../utils/logger";
 import { useNavigate } from "react-router-dom";
-import { authApi } from "../../utils/api/auth.api";
+import { useLogout } from "../../utils/hooks/useLogout";
 interface ProfileBadgeProps {
   user: ContactInfoOut | null;
   readOnly?: boolean;
@@ -53,18 +52,7 @@ export const ProfileBadge = ({
   const [photoUrl, setPhotoUrl] = useState(user?.photo_url);
   const queryClient = useQueryClient();
 
-  async function handleLogout() {
-    try {
-      await authApi.logout();
-    } catch (e) {
-      console.error(e);
-    }
-    Cookies.remove("access_token");
-    queryClient.setQueryData(["currentUser"], null);
-    queryClient.removeQueries();
-    navigate("/auth", { replace: true });
-    // window.location.href = "/auth";
-  }
+  const { logout: handleLogout, busy: loggingOut, error: logoutError } = useLogout();
 
   const updateMutation = useMutation({
     mutationFn: (data: ProfileUpdate) =>
@@ -210,12 +198,13 @@ export const ProfileBadge = ({
         <div className={styles.actions}>
           <Button
             variant="transparent"
-            disabled={false}
-            onClick={() => handleLogout()}
+            disabled={loggingOut}
+            onClick={() => void handleLogout()}
           >
             <Icon name="move_item" size={20} />
             выйти
           </Button>
+          {logoutError && <p role="alert">{logoutError}</p>}
           <Button
             variant="primary"
             disabled={false}
