@@ -42,14 +42,6 @@ def fail(code,message):raise HTTPException(code,message)
 def audit(s,kind,id,uid,reason,old,new):
     s.add(AuditLogORM(target_kind=kind,target_id=str(id),changed_by_user_id=uid,reason=reason,old_values_json=json.dumps(old,ensure_ascii=False),new_values_json=json.dumps(new,ensure_ascii=False),created_at=now()))
 
-def ensure_application(s,uid):
-    r=s.get(RegistrationORM,uid)
-    if r:return r
-    u=s.get(UserORM,uid);c=s.get(ContactInfoORM,uid)
-    if not u or not c:fail(404,'Account not found')
-    fields=dict(surname=c.surname,name=c.name,patronymic=c.patronymic or None,group_number=c.group_number,phone=c.phone,email=c.email,tg=c.tg,vk=c.vk,funding='budget' if c.budget else 'contract',residence=c.location)
-    r=RegistrationORM(user_id=uid,status='approved' if u.account_state=='active' else 'pending',fields_json=json.dumps(fields,ensure_ascii=False),attempts_used=1,total_submissions=1,revision=1,history_json=json.dumps([dict(action='initial_submission',at=now(),actor=uid)]))
-    s.add(r);s.flush();return r
 
 def dto(r,uid):
     caps=[]
@@ -128,3 +120,5 @@ def register_routes(router):
             audit(s,'registration',user_id,cur.user_id,reason,old,dict(status=r.status,attempts_used=r.attempts_used))
             s.add(NotificationORM(notification_id=str(uuid.uuid4()),user_id=user_id,kind='registration_'+command,payload_json='{}',is_read=False,created_at=now()))
             s.commit();return dto(r,cur.user_id)
+
+from domain_seed import ensure_application

@@ -27,13 +27,6 @@ class CategoryPatch(Revision):
     reason:str=Field(min_length=1)
 
 
-def meta_for(s,name):
-    m=s.query(BlockMetaORM).filter_by(legacy_name=name).first()
-    if not m:
-        if not s.get(BlockORM,name):fail(404,'Block not found')
-        m=BlockMetaORM(block_id=str(uuid.uuid5(uuid.NAMESPACE_URL,'profkom:block:'+name)),legacy_name=name,description='',revision=1)
-        s.add(m);s.flush()
-    return m
 
 def legacy_name(id):
     with db._session() as s:
@@ -53,12 +46,6 @@ def scope_out(scope):
     if data['kind']=='block':data['id']=block_id_for(data['id'])
     return data
 
-def seed_members(s,b,m):
-    # Existing membership is preserved, with an explicitly unknown start date.
-    for uid in json.loads(b.arr_of_human or '[]'):
-        if s.get(UserORM,uid) and not s.query(MembershipORM).filter_by(user_id=uid,block_id=m.block_id,left_at=None).first():
-            s.add(MembershipORM(membership_id=str(uuid.uuid4()),user_id=uid,participant_id=f'participant-{uid}',block_id=m.block_id,category='junior',joined_at=None))
-    s.flush()
 
 def card(s,b,uid):
     import access
@@ -116,7 +103,9 @@ def set_membership(s,uid,bid,joined,actor,reason):
     name=legacy_name(bid);b=s.get(BlockORM,name);m=meta_for(s,name);seed_members(s,b,m)
     row=s.query(MembershipORM).filter_by(user_id=uid,block_id=bid,left_at=None).first()
     if bool(row)==joined:return False
-    if joined:s.add(MembershipORM(membership_id=str(uuid.uuid4()),user_id=uid,participant_id=f'participant-{uid}',block_id=bid,category='junior',joined_at=now()))
+    if joined:
+        established=s.query(MembershipORM).filter_by(user_id=uid,block_id=bid,category='member').first() is not None
+        s.add(MembershipORM(membership_id=str(uuid.uuid4()),user_id=uid,participant_id=f'participant-{uid}',block_id=bid,category='member' if established else 'junior',joined_at=now()))
     else:row.left_at=now()
     blocks=set(db.get_user(uid).blocks.split(','));blocks.discard('')
     if joined:blocks.add(name)
@@ -218,3 +207,32 @@ def register_routes(router):
         name=legacy_name(block_id)
         if not(db.is_tachki(cur.user_id) or db.is_hr_master(cur.user_id) or db.is_block_master(cur.user_id,name)):fail(403,'Cannot remove member')
         return leave(block_id,user_id,cur.user_id)
+
+    @router.get('/participants/{user_id}/category')
+    def category(user_id:int,cur:User=Depends(get_current_user)):
+        with db._session() as s:
+            u=s.get(UserORM,user_id)
+            if not u or u.account_state!='active' or u.banned:fail(404,'Participant not found')
+            r=s.get(CategoryRevisionORM,user_id)
+            return dict(user_id=user_id,category=u.category,revision=r.revision if r else 1,capabilities=['edit_participant_category'] if db.is_tachki(cur.user_id) or db.is_hr_master(cur.user_id) else [])
+    @router.patch('/participants/{user_id}/category')
+    def set_category(user_id:int,payload:CategoryPatch,cur:User=Depends(get_current_user)):
+        if not(db.is_tachki(cur.user_id) or db.is_hr_master(cur.user_id)):fail(403,'Category editor required')
+        if not payload.reason.strip():fail(422,'Reason is required')
+        with db._session() as s:
+            u=s.get(UserORM,user_id)
+            if not u or u.account_state!='active' or u.banned:fail(404,'Participant not found')
+            r=s.get(CategoryRevisionORM,user_id)
+            if not r:r=CategoryRevisionORM(user_id=user_id,revision=1);s.add(r)
+            version(r,payload.expected_revision)
+            old=u.category;u.category=payload.category;r.revision+=1
+            audit(s,'participant_category',user_id,cur.user_id,payload.reason,dict(category=old),dict(category=u.category))
+            s.commit();return dict(user_id=user_id,category=u.category,revision=r.revision,capabilities=['edit_participant_category'])
+
+from domain_seed import meta_for, seed_members
+
+
+def source_storage_id(value):
+    with db._session() as s:
+        m=s.get(BlockMetaORM,value) if value else None
+        return m.legacy_name if m else value

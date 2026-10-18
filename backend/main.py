@@ -3042,7 +3042,7 @@ def list_assessments(
             current_user_id=cur.user_id,
             season_id=season_id,
             source_kind=source_kind,
-            source_id=source_id,
+            source_id=membership.source_storage_id(source_id),
             participant_id=participant_id,
             user_id=user_id,
         )

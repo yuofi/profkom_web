@@ -57,3 +57,9 @@ class CategoryRevisionORM(Base):
     __tablename__='category_revisions'
     user_id=Column(Integer,primary_key=True)
     revision=Column(Integer,nullable=False,default=1)
+
+class MigrationORM(Base):
+    __tablename__='domain_migrations'
+    version=Column(String,primary_key=True)
+    completed_at=Column(String,nullable=False)
+    report_json=Column(Text,nullable=False)

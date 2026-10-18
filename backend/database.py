@@ -790,9 +790,7 @@ def _ensure_sqlite_block_is_hr_column() -> None:
             conn.execute(
                 text("ALTER TABLE block ADD COLUMN is_hr BOOLEAN NOT NULL DEFAULT 0")
             )
-            conn.execute(
-                text("UPDATE block SET is_hr = 1 WHERE LOWER(name) = 'hr'")
-            )
+            # HR designation is an explicit migration/configuration by stable ID.
 
 
 _ensure_sqlite_block_is_hr_column()
@@ -6342,4 +6340,7 @@ def _subevent_orm_to_dc(session: Session, orm: SubeventORM) -> SubeventDC:
 
 
 db = Database()
+
+from migrations_v13 import migrate_core
+migrate_core()
 
