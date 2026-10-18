@@ -12,6 +12,7 @@ import { richText } from '../contract';
 import { QueryClient } from '@tanstack/react-query';
 import { clearPrivateCache } from '../invalidation';
 import { eventsApi } from '../events.api';
+import { workspaceApi } from '../workspace.api';
 let mock: ReturnType<typeof installMockTransport> | undefined;
 afterEach(() => { mock?.restore(); mock = undefined; });
 const useMock = (role: Parameters<typeof installMockTransport>[0] = 'organizer') => (mock = installMockTransport(role, { delay: 0 }));
@@ -35,6 +36,11 @@ describe('Safe contract fixtures', () => {
   });
 });
 describe('API commands through mock transport', () => {
+  it('marks notifications without changing their safe target and refreshes the dashboard count', async () => {
+    useMock(); const initial = (await workspaceApi.notifications()).items[0];
+    await workspaceApi.read(initial.id); expect((await workspaceApi.dashboard()).unread_notification_count).toBe(0);
+    expect((await workspaceApi.notifications()).items[0].target).toEqual(initial.target);
+  });
   it('opens the next season without hiding or changing the previous open work', async () => {
     useMock('chair'); await seasonsApi.command('season-next', 'open', { expected_revision: 1 });
     const seasons = (await seasonsApi.list()).items;

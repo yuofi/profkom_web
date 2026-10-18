@@ -4,10 +4,11 @@ import { lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "./App.css";
 import { WorkspaceLayout } from './components/Workspace/WorkspaceLayout';
-import { WorkspaceStartPage, ComingPage, LeadershipPage } from './pages/Workspace/SessionPages';
+import { ComingPage, LeadershipPage } from './pages/Workspace/SessionPages';
 import { Loading } from './components/Workspace/WorkspaceUI';
 import { EventsListPage, EventPage, SubeventPage } from './pages/Workspace/EventPages';
 import { TasksListPage, TaskPage, UnresolvedPage } from './pages/Workspace/TaskPages';
+import { DashboardPage, CalendarPage, NotificationsPage } from './pages/Workspace/WorkspacePages';
 import { SeasonsPage, SeasonPage, SummaryPage } from './pages/Workspace/SeasonPages';
 import { MeritsPage, SourcesPage, CorrectionsPage } from './pages/Workspace/MeritPages';
 import { ReportsPage, ReportPage, ReportHistoryPage, MeetingPage } from './pages/Workspace/ReportPages';
@@ -28,7 +29,7 @@ function App() {
   return <HelmetProvider><QueryClientProvider client={queryClient}><BrowserRouter><Suspense fallback={<Loading />}><UserProvider><Routes>
     <Route path="/auth" element={<GreetingPage />} />
     <Route element={<ProtectedRoute />}><Route path="/" element={<WorkspaceLayout />}>
-      <Route index element={<WorkspaceStartPage />} />
+      <Route index element={<DashboardPage />} />
       <Route path="profile" element={<ProfilePage />} />
       <Route path="profile/edit" element={<ProfileEditPage />} />
       <Route path="contacts" element={<InfoPage />} />
@@ -55,7 +56,9 @@ function App() {
       <Route path="seasons/:id/merits" element={<MeritsPage />} />
       <Route path="seasons/:id/sources" element={<SourcesPage />} />
       <Route path="seasons/:id/corrections" element={<CorrectionsPage />} />
-      {['blocks', 'calendar', 'notifications', 'registrations'].map(path => <Route key={path} path={`${path}/*`} element={<ComingPage title={{ blocks: 'Блоки', calendar: 'Календарь', notifications: 'Уведомления', seasons: 'Сезоны и ККР', registrations: 'Регистрации' }[path]!} />} />)}
+      <Route path="calendar" element={<CalendarPage />} />
+      <Route path="notifications" element={<NotificationsPage />} />
+      {['blocks', 'registrations'].map(path => <Route key={path} path={`${path}/*`} element={<ComingPage title={{ blocks: 'Блоки', calendar: 'Календарь', notifications: 'Уведомления', seasons: 'Сезоны и ККР', registrations: 'Регистрации' }[path]!} />} />)}
       <Route element={<ExtendedRoute />}><Route path="admin/:tab" element={<AdminPanel />} /></Route>
     </Route></Route>
     <Route path="*" element={<NotFoundPage />} />

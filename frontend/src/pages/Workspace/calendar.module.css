@@ -1,0 +1,10 @@
+.calendar { border: 1px solid var(--surface-variant); border-radius: 18px; overflow: hidden; margin-top: 20px; }
+.week, .days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.week { background: var(--surface-container-high); padding: 14px 0; text-align: center; color: var(--primary); }
+.day, .empty { min-height: 120px; border: 1px solid var(--surface-variant); padding: 9px; min-width: 0; }
+.dayNumber { font-size: 13px; opacity: .7; }
+.entry { display: grid; gap: 8px; margin: 10px 0; overflow-wrap: anywhere; }
+.entry a { color: var(--on-surface); text-decoration: none; font-size: 14px; }
+.entry small { font-size: 11px; opacity: .7; }
+.mobileList { display: none; }
+@media(max-width: 1000px) { .calendar { display: none; } .mobileList { display: grid; gap: 12px; margin-top: 20px; } }

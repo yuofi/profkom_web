@@ -17,4 +17,4 @@ export const keys = {
   event: (id: string) => ['events', id] as const,
   report: (id: string) => ['reports', id] as const,
 };
-export const workspaceKeys = [keys.session, keys.seasons, keys.events, keys.tasks, keys.reports, keys.blocks, keys.requests, keys.dashboard, keys.calendar, keys.notifications, ['summary'], ['assessments'], ['merits'], ['masterBonuses']] as const;
+export const workspaceKeys = [keys.session, keys.seasons, keys.events, keys.tasks, keys.reports, keys.blocks, keys.requests, keys.dashboard, keys.calendar, keys.notifications, keys.materials, keys.registrations, ['summary'], ['assessments'], ['merits'], ['masterBonuses'], ['scopeMembers'], ['contacts'], ['formerContacts'], ['archivedAccounts'], ['leadership'], ['participantCategory'], ['blocks'], ['currentUser']] as const;
