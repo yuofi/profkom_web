@@ -214,16 +214,25 @@ def revoke_refresh_token(token_value: str):
 def revoke_all_user_tokens(user_id: int):
     db.revoke_sessions(user_id)
 
-def guard_working_access(request: Request, token: Optional[str] = Depends(oauth2_scheme_optional)):
-    """All working routes, including compatibility routes, require an approved account."""
-    path = request.url.path.removeprefix("/api")
-    if path.startswith("/auth/") or path == "/session" or path == "/registrations/me" or path == "/registrations/me/resubmit":
-        return
-    if not token:
-        raise HTTPException(401, "Authentication required")
-    cur = get_current_user(token)
-    if cur.account_state != "active":
-        raise HTTPException(403, "Approved active account required")
+async def guard_working_access(request: Request, token: Optional[str] = Depends(oauth2_scheme_optional)):
+    from access import actor_id
+    path=request.url.path.removeprefix("/api")
+    exempt=path.startswith("/auth/") or path=="/session" or path in {"/registrations/me","/registrations/me/resubmit"}
+    uid=None
+    if not exempt:
+        if not token:
+            raise HTTPException(401,"Authentication required")
+        cur=get_current_user(token)
+        if cur.account_state!="active":
+            raise HTTPException(403,"Approved active account required")
+        uid=cur.user_id
+    elif token:
+        uid=get_current_user(token).user_id
+    marker=actor_id.set(uid)
+    try:
+        yield
+    finally:
+        actor_id.reset(marker)
 
 
 async def unit_of_work(request: Request):

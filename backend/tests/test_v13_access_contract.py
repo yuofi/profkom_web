@@ -94,3 +94,8 @@ def test_legacy_superuser_flag_does_not_grant_domain_role(client,user):
 def test_revoke_sessions_also_revokes_access_token(client,user):
     db.revoke_sessions(user.user_id)
     assert client.get('/api/session',headers=user.headers).status_code == 401
+
+def test_workspace_aggregate_contract(client,user):
+    r=client.get('/api/dashboard',headers=user.headers)
+    assert r.status_code == 200
+    assert set(r.json())=={'my_tasks','upcoming_meetings','my_blocks','my_events','actionable_requests','unresolved_assignments','unread_notification_count'}

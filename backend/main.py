@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import os
+import access
+from api_contract import Page, install_errors
 from datetime import datetime, timezone
 from typing import List, Optional, Union
 
-from fastapi import FastAPI, HTTPException, Depends, APIRouter, Response, Cookie, Body, status
+from fastapi import FastAPI, HTTPException, Depends, APIRouter, Response, Cookie, Body, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict
 
@@ -38,6 +40,8 @@ from utils.s3_service import generate_presigned_url
 app = FastAPI(
     title="Profcom backend",
     )
+
+install_errors(app)
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 router = APIRouter(prefix="/api", dependencies=[Depends(unit_of_work), Depends(guard_working_access)])
@@ -316,13 +320,13 @@ class LeadershipOut(BaseModel):
 
 class LeadershipTransferIn(BaseModel):
     new_chair_user_id: int
-    expected_revision: Optional[int] = None
+    expected_revision: int
 
 
 class LeadershipDeputiesIn(BaseModel):
     user_ids: Optional[list[int]] = None
     deputy_user_ids: Optional[list[int]] = None
-    expected_revision: Optional[int] = None
+    expected_revision: int
 
 
 class SessionOut(BaseModel):
@@ -371,7 +375,7 @@ class SeasonPatchIn(BaseModel):
 
 
 class SeasonRevisionIn(BaseModel):
-    expected_revision: Optional[int] = None
+    expected_revision: int
 
 
 class SeasonOut(BaseModel):
@@ -923,62 +927,32 @@ class ReportVersionOut(BaseModel):
 
 
 class NotificationOut(BaseModel):
-    notification_id: str
+    id: str
     kind: str
-    payload: dict = Field(default_factory=dict)
-    is_read: bool
+    text: str
     created_at: str
-
-
-class DashboardTaskOut(BaseModel):
-    task_id: str
-    assignment_id: str
-    title: str
-    status: str
-    deadline_at: str
-    scope_kind: str
-    scope_id: str
-
-
-class DashboardMeetingOut(BaseModel):
-    meeting_id: str
-    title: str
-    starts_at: str
-    join_url: str
-    owner_kind: str
-    owner_id: str
-
-
-class DashboardBlockOut(BaseModel):
-    name: str
-    is_master: bool
-
-
-class DashboardEventOut(BaseModel):
-    event_id: Optional[str] = None
-    subevent_id: Optional[str] = None
-    title: str
-    role: str
+    read_at: Optional[str] = None
+    target: Optional[dict] = None
 
 
 class DashboardOut(BaseModel):
-    my_tasks: list[DashboardTaskOut]
-    upcoming_meetings: list[DashboardMeetingOut]
-    my_blocks: list[DashboardBlockOut]
-    my_events: list[DashboardEventOut]
-    pending_review_count: int
+    my_tasks: list[TaskPublicOut]
+    upcoming_meetings: list[MeetingOut]
+    my_blocks: list[dict]
+    my_events: list[EventOut]
+    actionable_requests: list[dict]
+    unresolved_assignments: list[UnresolvedAssignmentOut]
+    unread_notification_count: int
 
 
 class CalendarItemOut(BaseModel):
     id: str
+    season_id: str
     kind: str
     title: str
-    date: str
-    scope_kind: str
-    scope_id: str
-    join_url: Optional[str] = None
-
-
+    starts_at: str
+    ends_at: Optional[str] = None
+    target: dict
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1540,11 +1514,7 @@ def get_session(cur: User = Depends(get_current_user)):
             assignments=[],
         )
 
-    caps = ["session:read", "contacts:read", "guides:read", "profile:read"]
-    if db.is_chair(cur.user_id):
-        caps.extend(["leadership:manage", "leadership:transfer", "leadership:deputies", "admin"])
-    elif cur.admin or db.is_deputy_chair(cur.user_id):
-        caps.extend(["admin"])
+    caps = access.global_caps(cur.user_id)
 
     assignments_dc = db.get_user_assignments(cur.user_id)
     assignments_out = [
@@ -1556,7 +1526,7 @@ def get_session(cur: User = Depends(get_current_user)):
             scope_id=a.scope_id,
             principal_assignment_id=a.principal_assignment_id,
             revision=a.revision,
-            capabilities=a.capabilities,
+            capabilities=access.global_caps(cur.user_id) if a.scope_kind == "global" else (["create_head_merit"] if a.scope_kind == "event" else ["create_volunteer_merit"] if a.scope_kind in {"block","subevent"} else []),
         )
         for a in assignments_dc
     ]
@@ -1589,7 +1559,7 @@ def get_leadership(cur: User = Depends(get_current_user)):
     lead = db.get_leadership()
     caps = ["read"]
     if db.is_chair(cur.user_id):
-        caps.extend(["leadership:transfer", "leadership:deputies"])
+        caps.extend(["transfer_chair", "manage_chair_deputies"])
 
     chair_out = (
         UserRefOut(
@@ -1705,7 +1675,7 @@ def set_deputies(payload: LeadershipDeputiesIn, cur: User = Depends(get_current_
         chair=chair_out,
         deputies=deputies_out,
         revision=lead.revision,
-        capabilities=["read", "leadership:transfer", "leadership:deputies"],
+        capabilities=["transfer_chair", "manage_chair_deputies"],
     )
 
 
@@ -1781,7 +1751,7 @@ def _to_season_out(s: Season) -> SeasonOut:
         state=s.state,
         is_current=s.is_current,
         revision=s.revision,
-        capabilities=s.capabilities,
+        capabilities=access.season_caps(s),
     )
 
 
@@ -1797,7 +1767,7 @@ def _to_event_out(ev: Event) -> EventOut:
                 user=UserRefOut(user_id=l.user.user_id, display_name=l.user.display_name, avatar_url=l.user.avatar_url),
                 deputy_user_ids=l.deputy_user_ids,
                 revision=l.revision,
-                capabilities=l.capabilities,
+                capabilities=access.leader_caps(l),
             )
             for l in ev.leaders
         ],
@@ -1805,7 +1775,7 @@ def _to_event_out(ev: Event) -> EventOut:
         starts_at=ev.starts_at,
         ends_at=ev.ends_at,
         revision=ev.revision,
-        capabilities=ev.capabilities,
+        capabilities=access.event_caps(ev),
     )
 
 
@@ -1821,14 +1791,14 @@ def _to_subevent_out(sub: Subevent) -> SubeventOut:
                 user=UserRefOut(user_id=l.user.user_id, display_name=l.user.display_name, avatar_url=l.user.avatar_url),
                 deputy_user_ids=l.deputy_user_ids,
                 revision=l.revision,
-                capabilities=l.capabilities,
+                capabilities=access.leader_caps(l),
             )
             for l in sub.leaders
         ],
         organizer_user_ids=sub.organizer_user_ids,
         report_series_id=sub.report_series_id,
         revision=sub.revision,
-        capabilities=sub.capabilities,
+        capabilities=access.subevent_caps(sub),
     )
 
 
@@ -2044,7 +2014,7 @@ def _to_season_summary_out(s) -> SeasonSummaryOut:
         version=s.version,
         approved_at=s.approved_at,
         rows=rows,
-        capabilities=s.capabilities,
+        capabilities=access.season_caps(s),
     )
 
 
@@ -2108,9 +2078,9 @@ def _to_notification_out(n: Notification) -> NotificationOut:
 
 # ── Seasons ──
 
-@router.get("/seasons", response_model=List[SeasonOut])
+@router.get("/seasons", response_model=Page[SeasonOut])
 def list_seasons(cur: User = Depends(get_current_user)):
-    return [_to_season_out(s) for s in db.get_seasons()]
+    return Page(items=[_to_season_out(s) for s in db.get_seasons()])
 
 
 @router.get("/seasons/current", response_model=SeasonOut)
@@ -2157,7 +2127,7 @@ def patch_season(season_id: str, payload: SeasonPatchIn, cur: User = Depends(get
 
 
 @router.post("/seasons/{season_id}/open", response_model=SeasonOut)
-def open_season(season_id: str, payload: SeasonRevisionIn = Body(default=SeasonRevisionIn()), cur: User = Depends(get_current_user)):
+def open_season(season_id: str, payload: SeasonRevisionIn, cur: User = Depends(get_current_user)):
     if not db.is_chair(cur.user_id):
         raise HTTPException(403, "Only the chair can open a season")
     try:
@@ -2170,7 +2140,7 @@ def open_season(season_id: str, payload: SeasonRevisionIn = Body(default=SeasonR
 
 
 @router.post("/seasons/{season_id}/begin-summary", response_model=SeasonOut)
-def begin_summary(season_id: str, payload: SeasonRevisionIn = Body(default=SeasonRevisionIn()), cur: User = Depends(get_current_user)):
+def begin_summary(season_id: str, payload: SeasonRevisionIn, cur: User = Depends(get_current_user)):
     if not db.is_chair(cur.user_id):
         raise HTTPException(403, "Only the chair can begin summary on a season")
     try:
@@ -2183,7 +2153,7 @@ def begin_summary(season_id: str, payload: SeasonRevisionIn = Body(default=Seaso
 
 
 @router.post("/seasons/{season_id}/close")
-def close_season(season_id: str, payload: SeasonRevisionIn = Body(default=SeasonRevisionIn()), cur: User = Depends(get_current_user)):
+def close_season(season_id: str, payload: SeasonRevisionIn, cur: User = Depends(get_current_user)):
     if not db.is_chair(cur.user_id):
         raise HTTPException(403, "Only the chair can close a season")
     try:
@@ -2207,9 +2177,9 @@ def close_season(season_id: str, payload: SeasonRevisionIn = Body(default=Season
 
 # ── Report Series ──
 
-@router.get("/report-series", response_model=List[ReportSeriesOut])
+@router.get("/report-series", response_model=Page[ReportSeriesOut])
 def list_report_series(cur: User = Depends(get_current_user)):
-    return [
+    return Page(items=[
         ReportSeriesOut(
             series_id=r.series_id,
             owner_kind=r.owner_kind,
@@ -2217,14 +2187,14 @@ def list_report_series(cur: User = Depends(get_current_user)):
             parent_series_id=r.parent_series_id,
         )
         for r in db.list_report_series()
-    ]
+    ])
 
 
 # ── Events ──
 
-@router.get("/events", response_model=List[EventOut])
+@router.get("/events", response_model=Page[EventOut])
 def list_events(season_id: Optional[str] = None, cur: User = Depends(get_current_user)):
-    return [_to_event_out(ev) for ev in db.list_events(season_id=season_id)]
+    return Page(items=[_to_event_out(ev) for ev in db.list_events(season_id=season_id)])
 
 
 @router.post("/events", response_model=EventOut)
@@ -2329,7 +2299,7 @@ def create_subevent(event_id: str, payload: SubeventCreateIn, cur: User = Depend
         raise HTTPException(409, str(e))
 
 
-@router.get("/events/{event_id}/subevents", response_model=List[SubeventOut])
+@router.get("/events/{event_id}/subevents", response_model=Page[SubeventOut])
 def list_subevents(event_id: str, cur: User = Depends(get_current_user)):
     ev = db.get_event(event_id)
     if not ev:
@@ -2340,7 +2310,7 @@ def list_subevents(event_id: str, cur: User = Depends(get_current_user)):
         or db.is_event_leader(cur.user_id, event_id)
         or db.is_event_leader_deputy(cur.user_id, event_id)
     ):
-        return [_to_subevent_out(s) for s in all_subs]
+        return Page(items=[_to_subevent_out(s) for s in all_subs])
     # Filter to only subevents user participates in
     filtered = []
     for s in all_subs:
@@ -2350,7 +2320,7 @@ def list_subevents(event_id: str, cur: User = Depends(get_current_user)):
             or db.is_subevent_organizer(cur.user_id, s.subevent_id)
         ):
             filtered.append(_to_subevent_out(s))
-    return filtered
+    return Page(items=filtered)
 
 
 @router.get("/subevents/{subevent_id}", response_model=SubeventOut)
@@ -2714,7 +2684,7 @@ def list_tasks(
             mine_user_id=cur.user_id if mine else None,
             status=status,
         )
-        return {"items": [_to_task_public_out(t) for t in tasks]}
+        return {"items": [_to_task_public_out(t) for t in tasks], "next_cursor": None}
     except ValueError as e:
         if "Forbidden" in str(e):
             raise HTTPException(403, str(e))
@@ -2903,6 +2873,7 @@ def list_unresolved_assignments(
         current_user_id=cur.user_id,
     )
     return {
+        "next_cursor": None,
         "items": [
             UnresolvedAssignmentOut(
                 assignment=_to_assignment_public_out(u.assignment),
@@ -3063,7 +3034,7 @@ def list_assessments(
             participant_id=participant_id,
             user_id=user_id,
         )
-        return {"items": [_to_calculated_contribution_out(c) for c in items]}
+        return {"items": [_to_calculated_contribution_out(c) for c in items], "next_cursor": None}
     except ValueError as e:
         if "Forbidden" in str(e):
             raise HTTPException(403, str(e))
@@ -3085,7 +3056,7 @@ def list_merits(
         source_kind=source_kind,
         event_id=event_id,
     )
-    return {"items": [_to_merit_out(m) for m in items]}
+    return {"items": [_to_merit_out(m) for m in items], "next_cursor": None}
 
 
 @router.post("/merits", response_model=MeritOut)
@@ -3148,7 +3119,7 @@ def patch_merit(merit_id: str, payload: MeritPatchIn, cur: User = Depends(get_cu
 def list_master_bonuses(season_id: str, block_id: Optional[str] = None, cur: User = Depends(get_current_user)):
     try:
         items = db.list_master_bonuses(season_id=season_id, current_user_id=cur.user_id, block_id=block_id)
-        return {"items": [_to_master_bonus_out(b) for b in items]}
+        return {"items": [_to_master_bonus_out(b) for b in items], "next_cursor": None}
     except ValueError as e:
         if "Forbidden" in str(e):
             raise HTTPException(403, str(e))
@@ -3245,11 +3216,11 @@ def correct_season_summary(
 
 # ── Comments ──
 
-@router.get("/tasks/{task_id}/comments", response_model=List[CommentOut])
+@router.get("/tasks/{task_id}/comments", response_model=Page[CommentOut])
 def list_task_comments(task_id: str, cur: User = Depends(get_current_user)):
     try:
         items = db.list_comments(task_id, cur.user_id)
-        return [_to_comment_out(c) for c in items]
+        return Page(items=[_to_comment_out(c) for c in items])
     except LookupError as e:
         raise HTTPException(404, str(e))
     except ValueError as e:
@@ -3373,7 +3344,7 @@ def create_report(payload: ReportCreateIn, cur: User = Depends(get_current_user)
         raise HTTPException(422, msg)
 
 
-@router.get("/reports", response_model=List[ReportOut])
+@router.get("/reports", response_model=Page[ReportOut])
 def list_reports(
     season_id: Optional[str] = None,
     owner_kind: Optional[str] = None,
@@ -3392,7 +3363,7 @@ def list_reports(
         state=state,
         current_user_id=cur.user_id,
     )
-    return [_to_report_out(r) for r in items]
+    return Page(items=[_to_report_out(r) for r in items])
 
 
 @router.get("/reports/{report_id}", response_model=ReportOut)
@@ -3453,11 +3424,11 @@ def publish_report(report_id: str, payload: ReportPublishIn, cur: User = Depends
         raise HTTPException(422, msg)
 
 
-@router.get("/reports/{report_id}/versions", response_model=List[ReportVersionOut])
+@router.get("/reports/{report_id}/versions", response_model=Page[ReportVersionOut])
 def list_report_versions(report_id: str, cur: User = Depends(get_current_user)):
     try:
         versions = db.list_report_versions(report_id, cur.user_id)
-        return [_to_report_version_out(rv) for rv in versions]
+        return Page(items=[_to_report_version_out(rv) for rv in versions])
     except LookupError as e:
         raise HTTPException(404, str(e))
     except ValueError as e:
@@ -3467,7 +3438,7 @@ def list_report_versions(report_id: str, cur: User = Depends(get_current_user)):
         raise HTTPException(422, msg)
 
 
-@router.get("/report-history", response_model=List[ReportOut])
+@router.get("/report-history", response_model=Page[ReportOut])
 def list_report_history(
     series_id: str,
     year: Optional[int] = None,
@@ -3475,7 +3446,7 @@ def list_report_history(
 ):
     try:
         items = db.list_report_history(series_id, year, cur.user_id)
-        return [_to_report_out(r) for r in items]
+        return Page(items=[_to_report_out(r) for r in items])
     except LookupError as e:
         raise HTTPException(404, str(e))
     except ValueError as e:
@@ -3489,34 +3460,29 @@ def list_report_history(
 
 @router.get("/dashboard", response_model=DashboardOut)
 def get_dashboard(cur: User = Depends(get_current_user)):
-    d = db.get_dashboard(cur.user_id)
-    return DashboardOut(
-        my_tasks=[DashboardTaskOut(**t) for t in d["my_tasks"]],
-        upcoming_meetings=[DashboardMeetingOut(**m) for m in d["upcoming_meetings"]],
-        my_blocks=[DashboardBlockOut(**b) for b in d["my_blocks"]],
-        my_events=[DashboardEventOut(**ev) for ev in d["my_events"]],
-        pending_review_count=d["pending_review_count"],
-    )
+    from workspace import dashboard
+    return DashboardOut(**dashboard(cur.user_id))
 
 
-@router.get("/calendar", response_model=List[CalendarItemOut])
+@router.get("/calendar", response_model=Page[CalendarItemOut])
 def get_calendar(
-    from_date: Optional[str] = None,
-    to_date: Optional[str] = None,
+    from_date: Optional[str] = Query(None, alias="from"),
+    to_date: Optional[str] = Query(None, alias="to"),
     cur: User = Depends(get_current_user),
 ):
     from_d = from_date or "1970-01-01"
     to_d = to_date or "2099-12-31"
-    items = db.get_calendar(from_d, to_d, cur.user_id)
-    return [CalendarItemOut(**item) for item in items]
+    from workspace import calendar
+    items = calendar(cur.user_id, from_d, to_d)
+    return Page(items=[CalendarItemOut(**item) for item in items])
 
 
 # ── Notifications ──
 
-@router.get("/notifications", response_model=List[NotificationOut])
+@router.get("/notifications", response_model=Page[NotificationOut])
 def list_notifications(cur: User = Depends(get_current_user)):
-    items = db.list_notifications(cur.user_id)
-    return [_to_notification_out(n) for n in items]
+    from workspace import notifications
+    return Page(items=notifications(cur.user_id))
 
 
 @router.post("/notifications/{notification_id}/read")

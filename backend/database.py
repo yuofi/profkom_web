@@ -1123,15 +1123,17 @@ def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: O
         unavail = "archived"
 
     caps = []
-    if current_user_id == a.assignee_user_id:
-        if a.status == "assigned":
-            caps.extend(["start", "submit", "request_help"])
-        elif a.status == "in_progress":
-            caps.extend(["submit", "request_help"])
-        elif a.status == "help_required":
-            caps.extend(["resume", "submit"])
-        elif a.status == "needs_revision":
-            caps.extend(["submit"])
+    task=session.get(TaskORM,a.task_id)
+    accessible=task and current_user_id and db.can_view_scope(current_user_id,task.scope_kind,task.scope_id)
+    if accessible and current_user_id==a.assignee_user_id:
+        if a.status=="assigned": caps += ["start_assignment","submit_result"]
+        if a.status in ("in_progress","help_required","needs_revision"): caps += ["submit_result"]
+        if a.status in ("in_progress","needs_revision"): caps += ["request_help"]
+        if a.status=="help_required": caps += ["resume_assignment"]
+    if task and current_user_id:
+        import access
+        if access.scope_inputs(current_user_id,task.scope_kind,task.scope_id,task.season_id):caps += ["view_assessment_inputs"]
+        if access.scope_inputs(current_user_id,task.scope_kind,task.scope_id,task.season_id,True):caps += ["review_assignment","reassign_assignment","edit_assessment_inputs"]
 
     return AssignmentPublicDC(
         assignment_id=a.assignment_id,
@@ -1149,6 +1151,10 @@ def _task_orm_to_dc(session: Session, t: TaskORM, current_user_id: Optional[int]
     a_orms = session.query(AssignmentORM).filter(AssignmentORM.task_id == t.task_id).all()
     assignments = [_assignment_orm_to_dc(session, a, current_user_id) for a in a_orms]
     caps = ["comment_task"]
+    if current_user_id:
+        import access
+        if access.scope_inputs(current_user_id,t.scope_kind,t.scope_id,t.season_id):caps += ["view_assessment_inputs"]
+        if access.scope_inputs(current_user_id,t.scope_kind,t.scope_id,t.season_id,True):caps += ["edit_task","edit_assessment_inputs","view_unresolved_assignments"]
     desc_body = ""
     try:
         dj = json.loads(t.description_json or "{}")
