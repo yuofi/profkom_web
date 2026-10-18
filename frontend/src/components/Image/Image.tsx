@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import styles from './Image.module.css';
 import clsx from 'clsx';
@@ -9,12 +9,18 @@ interface ImageProps extends React.ImgHTMLAttributes<HTMLImageElement> {
 
 export const Image: React.FC<ImageProps> = ({ className, disableModal, onClick, ...props }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const close = useRef<HTMLButtonElement>(null);
   
   useEffect(() => {
+    if (!isOpen) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    close.current?.focus();
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
         setIsOpen(false);
       }
+      if (e.key === 'Tab') { e.preventDefault(); close.current?.focus(); }
     };
 
     if (isOpen) {
@@ -24,7 +30,8 @@ export const Image: React.FC<ImageProps> = ({ className, disableModal, onClick, 
 
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = 'auto';
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus();
     };
   }, [isOpen]);
 
@@ -47,13 +54,16 @@ export const Image: React.FC<ImageProps> = ({ className, disableModal, onClick, 
       <img 
         className={clsx(styles.image, !disableModal && styles.zoomable, className)} 
         onClick={handleClick} 
+        role={!disableModal ? 'button' : undefined}
+        tabIndex={!disableModal ? 0 : undefined}
+        onKeyDown={e => { if (!disableModal && ['Enter', ' '].includes(e.key)) { e.preventDefault(); setIsOpen(true); } }}
         {...props} 
       />
       {isOpen && createPortal(
         <div className={styles.modalOverlay} onClick={handleClose}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+          <div className={styles.modalContent} role="dialog" aria-modal="true" aria-label="Просмотр изображения" onClick={(e) => e.stopPropagation()}>
             <img className={styles.modalImage} {...props} />
-            <button className={styles.closeButton} onClick={handleClose}>
+            <button ref={close} type="button" className={styles.closeButton} aria-label="Закрыть изображение" onClick={handleClose}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="18" y1="6" x2="6" y2="18"></line>
                 <line x1="6" y1="6" x2="18" y2="18"></line>

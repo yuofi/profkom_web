@@ -14,6 +14,8 @@ import { clearPrivateCache } from '../invalidation';
 import { eventsApi } from '../events.api';
 import { workspaceApi } from '../workspace.api';
 import { materialsApi } from '../materials.api';
+import { directoryApi } from '../directory.api';
+import { contactsApi } from '../contacts.api';
 let mock: ReturnType<typeof installMockTransport> | undefined;
 afterEach(() => { mock?.restore(); mock = undefined; });
 const useMock = (role: Parameters<typeof installMockTransport>[0] = 'organizer') => (mock = installMockTransport(role, { delay: 0 }));
@@ -37,6 +39,22 @@ describe('Safe contract fixtures', () => {
   });
 });
 describe('API commands through mock transport', () => {
+  it('provides six local avatar choices and a default, and persists the own choice', async () => {
+    useMock(); const avatars = await directoryApi.avatars(); expect(avatars.items.length).toBeGreaterThanOrEqual(7);
+    expect(avatars.items.every(a => a.image_url.startsWith('/avatars/'))).toBe(true);
+    await directoryApi.avatar({ preset_id: 'leaf' }); expect((await directoryApi.contacts()).find(p => p.user_id === 101)?.photo_url).toBe('/avatars/leaf.svg');
+  });
+  it('keeps former-contact editing distinct from active profiles and account restoration', async () => {
+    useMock(); const former = (await directoryApi.former()).items[0];
+    await expect(directoryApi.saveFormer(former, former.contact_id)).rejects.toMatchObject({ status: 403 });
+    await expect(contactsApi.update(105, { name: 'Чужой профиль' })).rejects.toMatchObject({ response: { status: 403 } });
+    await expect(directoryApi.restore(110, [])).rejects.toMatchObject({ status: 403 });
+  });
+  it('protects the current chair and requires an explicit master conflict resolution', async () => {
+    useMock('chair'); await expect(directoryApi.archive(104, 'Тест')).rejects.toMatchObject({ code: 'chair_transfer_required' });
+    await expect(directoryApi.restore(110, [])).rejects.toMatchObject({ code: 'master_conflict' });
+    await directoryApi.restore(110, [{ block_id: 'block-info', keep_user_id: 102 }]); expect((await directoryApi.archived()).items).toEqual([]);
+  });
   it('round trips custom Markdown unchanged while keeping the old material publication', async () => {
     useMock('leader'); const material = await materialsApi.get('material-1');
     const source = '**Жирный** и *курсив*\n\n- [Ссылка](https://example.com)\n\n```gallery\n/avatars/sun.svg | Подпись\n```\n\n```chip\nИмя: Анна\n```\n';

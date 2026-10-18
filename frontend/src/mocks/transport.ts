@@ -79,11 +79,12 @@ export function installMockTransport(role: MockRole = 'organizer', options: { de
       return changed(state.registration);
     }
     if (state.session.account_state !== 'active') return denied();
+    if (parts[0] === 'profile' && /^\d+$/.test(parts[1] ?? '') && Number(parts[1]) !== state.session.user_id && method === 'patch') return denied();
     if (path === '/profile/me' || path === `/profile/${state.profile.user_id}`) {
       if (method === 'patch') Object.assign(state.profile, data);
       return [200, clone(state.profile)];
     }
-    if (path === '/contacts') return [200, state.people.map(p => ({ ...state.profile, user_id: p.user_id, name: p.display_name.split(' ')[0], surname: p.display_name.split(' ')[1], kkr_name: p.display_name, email: `member${p.user_id}@example.com` }))];
+    if (path === '/contacts') return [200, state.people.filter(p => !state.archived.some(a => a.user_id === p.user_id)).map(p => ({ ...state.profile, user_id: p.user_id, name: p.display_name.split(' ')[0], surname: p.display_name.split(' ')[1], kkr_name: p.display_name, email: `member${p.user_id}@example.com`, photo_url: p.user_id === state.session.user_id ? state.profile.photo_url : '/avatars/default.svg' }))];
     if (path === '/contacts/emails') return [200, { emails: state.people.map(p => `member${p.user_id}@example.com`) }];
     if (path === '/leadership') return [200, clone(leadership)];
     if (path === '/leadership/transfer') {
@@ -395,12 +396,17 @@ export function installMockTransport(role: MockRole = 'organizer', options: { de
       if (!contact) return fail(404, 'not_found', 'Контакт не найден');
       Object.assign(contact, data); return [200, clone(contact)];
     }
-    if (path === '/avatars') return [200, { items: ['sun', 'moon', 'leaf', 'wave', 'star', 'mountain'].map(preset_id => ({ preset_id, title: preset_id, image_url: `/avatars/${preset_id}.svg` })) }];
-    if (path === '/profile/me/avatar') { state.profile.photo_url = data.preset_id ? `/avatars/${data.preset_id}.svg` : '/avatars/sun.svg'; return [200, clone(state.profile)]; }
+    if (path === '/avatars') return [200, { items: Object.entries({ sun: 'Солнце', moon: 'Луна', leaf: 'Лист', wave: 'Волна', star: 'Звезда', mountain: 'Горы', default: 'По умолчанию' }).map(([preset_id, title]) => ({ preset_id, title, image_url: `/avatars/${preset_id}.svg` })) }];
+    if (path === '/profile/me/avatar') { if (data.file_id && !files.get(String(data.file_id))?.complete) return conflict(); state.profile.photo_url = data.preset_id ? `/avatars/${data.preset_id}.svg` : '/avatars/wave.svg'; return [200, clone(state.profile)]; }
     if (path === '/accounts/archive') return state.chair ? list(clone(state.archived)) : denied();
     if (parts[0] === 'accounts') {
       if (!state.chair) return denied();
       const account = state.archived.find(a => a.user_id === Number(parts[1]));
+      if (parts[2] === 'archive') {
+        if (Number(parts[1]) === leadership.chair.user_id) return fail(409, 'chair_transfer_required', 'Сначала передайте пост председателя');
+        const person = state.people.find(p => p.user_id === Number(parts[1])); if (!person) return fail(404, 'not_found', 'Аккаунт не найден');
+        if (!account) state.archived.push({ user_id: person.user_id!, display_name: person.display_name, archived_at: mockNow });
+      }
       if (parts[2] === 'restore' && account?.master_conflicts?.length && !(data.master_conflicts as unknown[])?.length) return fail(409, 'master_conflict', 'Выберите мастера для восстановления', { master_conflicts: account.master_conflicts });
       if (parts[2] === 'restore') state.archived = state.archived.filter(a => a !== account);
       return [200, { account_state: parts[2] === 'restore' ? 'active' : 'archived' }];

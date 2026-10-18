@@ -49,7 +49,7 @@ export const Avatar: React.FC<AvatarProps> = ({
       return <div className={styles.loader} />;
     }
 
-    const imageSrc = src?.trim();
+    const imageSrc = src?.trim() || '/avatars/default.svg';
 
     if (imageSrc) {
       return (

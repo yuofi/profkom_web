@@ -8,6 +8,7 @@ import { LeadershipPage } from './pages/Workspace/SessionPages';
 import { Loading } from './components/Workspace/WorkspaceUI';
 import { EventsListPage, EventPage, SubeventPage } from './pages/Workspace/EventPages';
 import { TasksListPage, TaskPage, UnresolvedPage } from './pages/Workspace/TaskPages';
+import { DirectoryPage, FormerContactsPage, AccountArchivePage } from './pages/Workspace/DirectoryPages';
 import { MaterialsPage, MaterialPage } from './pages/Workspace/MaterialPages';
 import { BlocksPage, BlockPage, BlockRequestsPage, RegistrationsPage } from './pages/Workspace/MembershipPages';
 import { DashboardPage, CalendarPage, NotificationsPage } from './pages/Workspace/WorkspacePages';
@@ -16,7 +17,6 @@ import { MeritsPage, SourcesPage, CorrectionsPage } from './pages/Workspace/Meri
 import { ReportsPage, ReportPage, ReportHistoryPage, MeetingPage } from './pages/Workspace/ReportPages';
 import { DocViewerPage } from './pages/DocViewPage/DocViewerPage';
 import { GreetingPage } from './pages/Greeting/Greeting';
-import { InfoPage } from './pages/InfoPage/InfoPage';
 import { UserProvider } from './utils/ctx';
 import { ProtectedRoute, GuideEditRoute, ExtendedRoute } from './pages/Wrappers/wrappers';
 import { ProfilePage } from './pages/ProfilePage/ProfilePage';
@@ -34,7 +34,9 @@ function App() {
       <Route index element={<DashboardPage />} />
       <Route path="profile" element={<ProfilePage />} />
       <Route path="profile/edit" element={<ProfileEditPage />} />
-      <Route path="contacts" element={<InfoPage />} />
+      <Route path="contacts" element={<DirectoryPage />} />
+      <Route path="contacts/former" element={<FormerContactsPage />} />
+      <Route path="accounts/archive" element={<AccountArchivePage />} />
       <Route path="info" element={<Navigate to="/contacts" replace />} />
       <Route path="guides" element={<GuidesPage />} />
       <Route path="materials" element={<MaterialsPage />} />

@@ -65,7 +65,6 @@ export const ProfileEditPage = () => {
         tg: values.tg,
         email: values.email,
         budget: values.budget === "Бюджет",
-        photo_url: values.photo_url,
       };
       updateMutation.mutate(updateData);
     }
@@ -89,18 +88,6 @@ export const ProfileEditPage = () => {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
-
-  const handlePhotoUpload = async (url: string) => {
-    profileFormik.setFieldValue("photo_url", url);
-    if (!user) return;
-    try {
-      await contactsApi.update(user.user_id, { photo_url: url });
-      queryClient.invalidateQueries({ queryKey: ["currentUser"] });
-      queryClient.invalidateQueries({ queryKey: ["contacts"] });
-    } catch (error) {
-      console.error("Failed to update profile photo:", error);
-    }
-  };
 
   const { 
     formik: passwordFormik, 
@@ -164,10 +151,9 @@ export const ProfileEditPage = () => {
                 <div className={styles.basicInfoHeader}>
                   <div className={styles.avatarContainer}>
                     <Avatar 
-                      src={profileFormik.values.photo_url} 
+                      src={user.photo_url} 
                       size={96} 
-                      mode="edit" 
-                      onUpload={handlePhotoUpload} 
+                      mode="view" 
                     />
                   </div>
                   <div className={styles.basicInfoText}>
