@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import {
   Page,
   Card,
@@ -19,6 +19,8 @@ import {
   emptyCriteria,
   richText,
   type Merit,
+  type Session,
+  type Season,
   type MeritCreate,
   type TaskInputs,
   type AssessmentInputs,
@@ -61,19 +63,62 @@ function useMeritContexts(enabled: boolean) {
     },
   });
 }
+function allowedMeritKinds(session: Session | null, contexts: ReturnType<typeof useMeritContexts>["data"], season?: Season) {
+  if (!season || season.state === "closed") return [];
+  const eventIds = new Set(contexts?.events.filter((e) => e.season_id === season.season_id).map((e) => e.event_id));
+  return Object.entries(kinds).filter(([kind]) => {
+    if (kind === "chair_merit") return can(session, "create_chair_merit") && season.state !== "planned";
+    if (kind === "head_merit") return contexts?.events.some((e) => eventIds.has(e.event_id) && can(e, "create_head_merit"));
+    if (kind === "subevent_volunteer") return contexts?.subs.some((sub) => eventIds.has(sub.event_id) && can(sub, "create_volunteer_merit"));
+    return season.state !== "planned" && contexts?.blocks.some((b) => can(b, "create_volunteer_merit"));
+  });
+}
+
+/** Blocks have no fixed season; pick an eligible one before opening its form. */
+export function MeritEntryPage() {
+  const { session } = useSession();
+  const [params] = useSearchParams();
+  const contexts = useMeritContexts(true);
+  const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
+  const requested = params.get("source_kind");
+  const scopeId = params.get("scope_id");
+  const eligible = seasons.data?.items.filter((season) => allowedMeritKinds(session, contexts.data, season).some(([kind]) => {
+    if (requested && requested !== kind) return false;
+    if (!scopeId) return true;
+    return kind === "block_volunteer" ? contexts.data?.blocks.some((b) => b.block_id === scopeId && can(b, "create_volunteer_merit"))
+      : kind === "head_merit" ? contexts.data?.events.some((e) => e.event_id === scopeId && e.season_id === season.season_id && can(e, "create_head_merit"))
+      : kind === "subevent_volunteer" && contexts.data?.subs.some((sub) => sub.subevent_id === scopeId && contexts.data?.events.some((e) => e.event_id === sub.event_id && e.season_id === season.season_id) && can(sub, "create_volunteer_merit"));
+  })) ?? [];
+  return <Page title="Учёт выполненной работы" description="Выберите сезон. Доступны только исходные поля разрешённых вам записей.">
+    <QueryState loading={contexts.isLoading || seasons.isLoading} error={contexts.error || seasons.error}>
+      <div className={s.grid}>{eligible.map((season) => <Card key={season.season_id} title={season.title}>
+        <RouteLink to={`/seasons/${encodeURIComponent(season.season_id)}/merits?${params.toString()}`}>Особые заслуги и волонтёры</RouteLink>
+      </Card>)}</div>
+      {!eligible.length && <Empty>Нет доступных сезонов и областей для записи выполненной работы.</Empty>}
+    </QueryState>
+  </Page>;
+}
+
 export function MeritForm({
   seasonId,
   existing,
   save,
+  initialSource,
+  initialScopeId,
 }: {
   seasonId: string;
   existing?: Merit;
   save?: (data: MeritCreate) => Promise<void>;
+  initialSource?: MeritCreate["source_kind"];
+  initialScopeId?: string;
 }) {
   const { session } = useSession();
   const { perform, refresh } = useWorkspaceActions();
   const people = usePeopleOptions();
   const contexts = useMeritContexts(!existing);
+  const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list, enabled: !existing });
+  const season = seasons.data?.items.find((x) => x.season_id === seasonId);
+  const allowedKinds = allowedMeritKinds(session, contexts.data, season);
   const recipientOptions = [...people.options];
   for (const recipient of existing?.recipients ?? []) {
     if (!recipientOptions.some((p) => p.value === String(recipient.user_id))) {
@@ -86,11 +131,12 @@ export function MeritForm({
       });
     }
   }
-  const [source, setSource] = useState<MeritCreate["source_kind"]>(
-    existing?.source_kind ?? "block_volunteer",
+  const [sourceChoice, setSource] = useState<MeritCreate["source_kind"]>(
+    existing?.source_kind ?? initialSource ?? "block_volunteer",
   );
+  const source = existing?.source_kind ?? (allowedKinds.some(([k]) => k === sourceChoice) ? sourceChoice : allowedKinds[0]?.[0] as MeritCreate["source_kind"] ?? sourceChoice);
   const [scopeId, setScopeId] = useState(
-    existing?.scope?.id ?? existing?.event_id ?? "",
+    existing?.scope?.id ?? existing?.event_id ?? initialScopeId ?? "",
   );
   const scopeOptions =
     source === "block_volunteer"
@@ -99,18 +145,11 @@ export function MeritForm({
           .map((x) => ({ value: x.block_id, label: x.name }))
       : source === "subevent_volunteer"
         ? contexts.data?.subs
-            .filter((x) => can(x, "create_volunteer_merit"))
+            .filter((x) => contexts.data?.events.some((e) => e.event_id === x.event_id && e.season_id === seasonId) && can(x, "create_volunteer_merit"))
             .map((x) => ({ value: x.subevent_id, label: x.title }))
         : contexts.data?.events
-            .filter((x) => can(x, "create_head_merit"))
+            .filter((x) => x.season_id === seasonId && can(x, "create_head_merit"))
             .map((x) => ({ value: x.event_id, label: x.title }));
-  const allowedKinds = Object.entries(kinds).filter(([k]) =>
-    k === "chair_merit"
-      ? can(session, "create_chair_merit")
-      : k === "head_merit"
-        ? contexts.data?.events.some((x) => can(x, "create_head_merit"))
-        : can(session, "create_volunteer_merit"),
-  );
   const fields: Field[] = [
     {
       name: "title",
@@ -211,8 +250,8 @@ export function MeritForm({
   ];
   return (
     <QueryState
-      loading={(!existing && contexts.isLoading) || people.isLoading}
-      error={(!existing && contexts.error) || people.error}
+      loading={(!existing && (contexts.isLoading || seasons.isLoading)) || people.isLoading}
+      error={(!existing && (contexts.error || seasons.error)) || people.error}
     >
       <div className={s.form}>
         {existing && (
@@ -293,7 +332,7 @@ export function MeritForm({
             onSubmit={async (v) => {
               if (
                 (!existing && !allowedKinds.some(([k]) => k === source)) ||
-                (source !== "chair_merit" && !scopeId)
+                (source !== "chair_merit" && (!scopeId || (!existing && !scopeOptions?.some((option) => option.value === scopeId))))
               )
                 throw Error("Выберите доступную область работы");
               const eventId =
@@ -386,18 +425,20 @@ export function MeritForm({
 export function MeritsPage() {
   const { id = "" } = useParams();
   const { session } = useSession();
+  const [params] = useSearchParams();
+  const contexts = useMeritContexts(true);
+  const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
+  const season = seasons.data?.items.find((x) => x.season_id === id);
+  const allowedKinds = allowedMeritKinds(session, contexts.data, season);
+  const readable = allowedKinds.length > 0 || can(session, "view_summary");
   const query = useQuery({
     queryKey: ["merits", id],
     queryFn: () => seasonsApi.merits({ season_id: id }),
-    enabled:
-      can(session, "create_volunteer_merit") || can(session, "view_summary"),
+    enabled: readable,
   });
-  if (!can(session, "create_volunteer_merit") && !can(session, "view_summary"))
-    return (
-      <Page title="Особые заслуги">
-        <Empty>Нет доступа к исходным полям.</Empty>
-      </Page>
-    );
+  if (contexts.isLoading || seasons.isLoading) return <QueryState loading error={null}>{null}</QueryState>;
+  if (contexts.error || seasons.error) return <QueryState loading={false} error={contexts.error || seasons.error}>{null}</QueryState>;
+  if (!readable) return <Page title="Особые заслуги"><Empty>Нет доступа к исходным полям.</Empty></Page>;
   return (
     <Page
       title="Особые заслуги и волонтёры"
@@ -422,9 +463,11 @@ export function MeritsPage() {
             </Card>
           ))}
         </QueryState>
-        {can(session, "create_volunteer_merit") && (
+        {allowedKinds.length > 0 && (
           <Card title="Учесть выполненную работу">
-            <MeritForm seasonId={id} />
+            <MeritForm key={id} seasonId={id}
+              initialSource={allowedKinds.find(([kind]) => kind === params.get("source_kind"))?.[0] as MeritCreate["source_kind"] | undefined}
+              initialScopeId={params.get("scope_id") ?? undefined} />
           </Card>
         )}
       </div>

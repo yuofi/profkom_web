@@ -97,6 +97,7 @@ export function BlockPage() {
             <Card>
               <Markdown content={b.description} />
               <div className={s.row}>
+                {can(b, "create_volunteer_merit") && <RouteLink to={`/merits?source_kind=block_volunteer&scope_id=${encodeURIComponent(id)}`}>Учесть волонтёрскую работу</RouteLink>}
                 {b.guide_material_id ? (
                   <RouteLink
                     to={`/materials/${encodeURIComponent(b.guide_material_id)}`}

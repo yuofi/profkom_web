@@ -208,7 +208,7 @@ export function SeasonPage() {
                     Сводная ККР
                   </RouteLink>
                 )}
-                {can(session, "create_volunteer_merit") && (
+                {["create_volunteer_merit", "create_head_merit", "create_chair_merit", "view_summary"].some((cap) => can(session, cap)) && (
                   <RouteLink to={`/seasons/${encodeURIComponent(id)}/merits`}>
                     Особые заслуги и волонтёры
                   </RouteLink>

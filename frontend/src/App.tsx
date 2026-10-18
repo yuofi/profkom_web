@@ -114,6 +114,7 @@ const MeritsPage = lazy(() =>
     default: m.MeritsPage,
   })),
 );
+const MeritEntryPage = lazy(() => import("./pages/Workspace/MeritPages").then((m) => ({ default: m.MeritEntryPage })));
 const SourcesPage = lazy(() =>
   import("./pages/Workspace/MeritPages").then((m) => ({
     default: m.SourcesPage,
@@ -224,6 +225,7 @@ function App() {
                       element={<SummaryPage />}
                     />
                     <Route path="seasons/:id/merits" element={<MeritsPage />} />
+                    <Route path="merits" element={<MeritEntryPage />} />
                     <Route
                       path="seasons/:id/sources"
                       element={<SourcesPage />}

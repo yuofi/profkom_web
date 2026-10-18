@@ -44,11 +44,12 @@ export const GreetingPage = () => {
       z.infer<typeof SignInValidationSchema>,
     validationSchema: signUp ? SignUpValidationSchema : SignInValidationSchema,
     onSubmit: async (data) => {
+      const registration = data as z.infer<typeof SignUpValidationSchema>;
       const response = signUp
         ? await authApi.register({
-            email: data.email, password: data.password, name: data.name,
-            surname: data.surname, patronymic: data.patronymic,
-            group_number: Number(data.groupNumber), tg: data.telegram,
+            email: data.email, password: data.password, name: registration.name,
+            surname: registration.surname, patronymic: registration.patronymic,
+            group_number: Number(registration.groupNumber), tg: registration.telegram,
           })
         : await authApi.login({ email: data.email, password: data.password });
       await completeAuthentication(queryClient, response.data.access_token);

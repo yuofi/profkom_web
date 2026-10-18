@@ -228,6 +228,7 @@ export function EventPage() {
                 </p>
               )}
               <div className={s.row}>
+                {can(event, "create_head_merit") && <RouteLink to={`/seasons/${encodeURIComponent(event.season_id)}/merits?source_kind=head_merit&scope_id=${encodeURIComponent(id)}`}>Учесть особую заслугу</RouteLink>}
                 <RouteLink
                   to={`/reports?owner_kind=event&owner_id=${encodeURIComponent(id)}`}
                 >
@@ -430,6 +431,7 @@ export function SubeventPage() {
                 <RouteLink to={getEventRoute(sub.event_id)}>
                   Главное мероприятие
                 </RouteLink>
+                {can(sub, "create_volunteer_merit") && <RouteLink to={`/merits?source_kind=subevent_volunteer&scope_id=${encodeURIComponent(id)}`}>Учесть волонтёрскую работу</RouteLink>}
                 <RouteLink
                   to={`/tasks?scope_kind=subevent&scope_id=${encodeURIComponent(id)}`}
                 >

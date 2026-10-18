@@ -46,6 +46,9 @@ export function WorkspaceLayout() {
       {can(session, "view_summary") && (
         <NavLink to="/seasons">Сезоны и ККР</NavLink>
       )}
+      {(["create_volunteer_merit", "create_head_merit", "create_chair_merit"].some((cap) => can(session, cap) || session?.assignments?.some((a) => can(a, cap)))) && (
+        <NavLink to="/merits">Учёт выполненной работы</NavLink>
+      )}
       {can(session, "review_registrations") && (
         <NavLink to="/registrations">Регистрации</NavLink>
       )}
