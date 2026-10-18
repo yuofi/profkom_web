@@ -8,7 +8,7 @@
 
 Независимый набор не обращается к живому backend. `npm run test:integration` запускается отдельно против специально подготовленной локальной временной базы; он регистрирует синтетические аккаунты. Общие или production данные для этого не использовать.
 
-Моки находятся в `src/mocks/`. `startDevelopmentMocks` подключается перед первым запросом приложения только при `import.meta.env.DEV` и включённом `VITE_DEMO_MODE`. Production не использует этот путь. Во время реализации нового каркаса точка запуска подключается в `main.tsx`.
+Моки находятся в `src/mocks/`. `startDevelopmentMocks` подключается перед первым запросом приложения только при `import.meta.env.DEV` и включённом `VITE_DEMO_MODE`. Production не использует этот путь. Точка запуска находится в `main.tsx` перед первым рендером.
 
 Профили: organizer, leader, hr, hr-deputy, chair, chair-deputy, editor, pending, rejected, archived, multi. Выбор в DEV задаётся `VITE_DEMO_ROLE` или ключом sessionStorage `profkom-demo-role`. Рабочие данные хранятся только в памяти транспорта и сбрасываются при перезагрузке; это не серверное сохранение.
 

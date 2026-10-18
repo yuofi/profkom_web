@@ -19,6 +19,7 @@ export function installMockTransport(role: MockRole = 'organizer', options: { de
   const uploads = new MockAdapter(axios);
   const files = new Map<string, FileRef & { complete: boolean; uploaded: boolean }>();
   let sequence = 10;
+  let leadership = { chair: state.people[3], deputies: [state.people[4]], revision: 1, capabilities: state.chair ? ['transfer_chair', 'manage_chair_deputies'] : [] };
   const id = (prefix: string) => `${prefix}-${++sequence}`;
   const changed = <T extends { revision: number }>(item: T) => { item.revision++; return [200, clone(item)] as Reply; };
   const mismatch = (data: Body, item: { revision: number }) => data.expected_revision !== undefined && data.expected_revision !== item.revision;
@@ -69,14 +70,25 @@ export function installMockTransport(role: MockRole = 'organizer', options: { de
     }
     if (path === '/contacts') return [200, state.people.map(p => ({ ...state.profile, user_id: p.user_id, name: p.display_name.split(' ')[0], surname: p.display_name.split(' ')[1], kkr_name: p.display_name, email: `member${p.user_id}@example.com` }))];
     if (path === '/contacts/emails') return [200, { emails: state.people.map(p => `member${p.user_id}@example.com`) }];
-    if (path === '/leadership') return [200, { chair: state.people[3], deputies: [state.people[4]], revision: 1, capabilities: state.chair ? ['transfer_chair', 'manage_chair_deputies'] : [] }];
+    if (path === '/leadership') return [200, clone(leadership)];
     if (path === '/leadership/transfer') {
       if (!state.chair) return denied();
-      state.session.capabilities = state.session.capabilities.filter(c => !['transfer_chair', 'manage_chair_deputies', 'open_season', 'begin_summary', 'close_season', 'archive_account', 'restore_account'].includes(c));
+      if (mismatch(data, leadership)) return conflict();
+      state.session.capabilities = [];
       state.session.assignments = [];
-      return [200, { chair: state.people.find(p => p.user_id === data.new_chair_user_id), deputies: [], revision: 2, capabilities: [] }];
+      state.chair = false; state.global = false; state.manager = false; state.eventManager = false;
+      state.events = []; state.subevents = []; state.tasks = []; state.meetings = []; state.reports = [];
+      state.blocks.forEach(b => { b.capabilities = []; }); state.materials.forEach(m => { m.capabilities = []; });
+      leadership = { chair: state.people.find(p => p.user_id === data.new_chair_user_id)!, deputies: [], revision: leadership.revision + 1, capabilities: [] };
+      return [200, clone(leadership)];
     }
-    if (path === '/leadership/deputies') return state.chair ? [200, { chair: state.user, deputies: state.people.filter(p => (data.user_ids as number[]).includes(p.user_id!)), revision: 2, capabilities: ['transfer_chair', 'manage_chair_deputies'] }] : denied();
+    if (path === '/leadership/deputies') {
+      if (!state.chair) return denied();
+      if (mismatch(data, leadership)) return conflict();
+      if ((data.user_ids as number[]).length > 3) return fail(422, 'deputy_limit', 'Не более трёх заместителей');
+      leadership.deputies = state.people.filter(p => (data.user_ids as number[]).includes(p.user_id!));
+      leadership.revision++; return [200, clone(leadership)];
+    }
     if (path === '/seasons/current') return [200, clone(state.seasons.find(s => s.is_current))];
     if (parts[0] === 'seasons') {
       if (parts.length === 1) {

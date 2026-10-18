@@ -3,81 +3,41 @@ import { HelmetProvider } from "react-helmet-async";
 import { lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "./App.css";
-// import { HomePage } from "./pages/Home/HomePage";
-import { Layout } from "./components/Layout/Layout";
-import { UnderConstructionPage } from "./pages/fallback/UnderConstruction";
-import { DocViewerPage } from "./pages/DocViewPage/DocViewerPage";
-import { GreetingPage } from "./pages/Greeting/Greeting";
-import { InfoPage } from "./pages/InfoPage/InfoPage";
-import { getDocRoute, getDocEditRoute, getAdminTabRoute, getPgasRoute } from "./utils/routes";
-import { UserProvider } from "./utils/ctx";
-import { ExtendedRoute, ProtectedRoute, GuideEditRoute } from "./pages/Wrappers/wrappers";
-import { ProfilePage } from "./pages/ProfilePage/ProfilePage";
-import { ProfileEditPage } from "./pages/ProfileEditPage/ProfileEditPage";
-import { GuidesPage } from "./pages/Guides/GuidesPage";
-import { PgasPage } from "./pages/Pgas/PgasPage";
-import { isDemoMode } from "./utils/demoData";
-// import { AdminPanel } from "./pages/Admin/AdminPage";
-const AdminPanel = lazy(() => import("./pages/Admin/AdminPage"))
-const DocEditPage = lazy(() => import("./pages/DocEditPage/DocEditPage"))
-const NotFoundPage = lazy(() => import("./pages/fallback/NotFoundPage"))
-
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      refetchOnWindowFocus: false,
-      retry: 1,
-    },
-  },
-});
-
+import { WorkspaceLayout } from './components/Workspace/WorkspaceLayout';
+import { WorkspaceStartPage, ComingPage, LeadershipPage } from './pages/Workspace/SessionPages';
+import { Loading } from './components/Workspace/WorkspaceUI';
+import { DocViewerPage } from './pages/DocViewPage/DocViewerPage';
+import { GreetingPage } from './pages/Greeting/Greeting';
+import { InfoPage } from './pages/InfoPage/InfoPage';
+import { UserProvider } from './utils/ctx';
+import { ProtectedRoute, GuideEditRoute, ExtendedRoute } from './pages/Wrappers/wrappers';
+import { ProfilePage } from './pages/ProfilePage/ProfilePage';
+import { ProfileEditPage } from './pages/ProfileEditPage/ProfileEditPage';
+import { GuidesPage } from './pages/Guides/GuidesPage';
+import { PgasPage } from './pages/Pgas/PgasPage';
+const AdminPanel = lazy(() => import('./pages/Admin/AdminPage'));
+const DocEditPage = lazy(() => import('./pages/DocEditPage/DocEditPage'));
+const NotFoundPage = lazy(() => import('./pages/fallback/NotFoundPage'));
+const queryClient = new QueryClient({ defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1 } } });
 function App() {
-  return (
-    <HelmetProvider>
-      <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          <Suspense fallback={<div>Загрузка страницы...</div>}>
-            <UserProvider>
-              <Routes>
-                {/* <Route element={<AuthRoute />}> */}
-                <Route path="/auth" element={<GreetingPage />} />
-                {/* </Route> */}
-                <Route element={<ProtectedRoute />}>
-                  <Route path="/" element={<Layout />}>
-                    <Route
-                      index
-                      element={
-                        isDemoMode ? (
-                          <Navigate to="/profile" replace />
-                        ) : (
-                          <UnderConstructionPage />
-                        )
-                      }
-                    />
-                    <Route path={getDocRoute()} element={<DocViewerPage />} />
-                    <Route path="/info" element={<InfoPage />} />
-                    <Route path="/profile" element={<ProfilePage />} />
-                    <Route element={<GuideEditRoute />}>
-                      <Route path={getDocEditRoute()} element={<DocEditPage />} />
-                    </Route>
-                    <Route path="/profile/edit" element={<ProfileEditPage />} />
-                  <Route path="/guides" element={<GuidesPage />} />
-                  <Route path={getPgasRoute()} element={<PgasPage />} />
-                  </Route>
-
-                  <Route element={<ExtendedRoute allowedRoles={["admin"]} />}>
-                    <Route path={getAdminTabRoute()} element={<AdminPanel />} />
-                  </Route>
-                </Route>
-                <Route path="*" element={<NotFoundPage />} />
-              </Routes>
-            </UserProvider>
-          </Suspense>
-        </BrowserRouter>
-      </QueryClientProvider>
-    </HelmetProvider>
-  );
+  return <HelmetProvider><QueryClientProvider client={queryClient}><BrowserRouter><Suspense fallback={<Loading />}><UserProvider><Routes>
+    <Route path="/auth" element={<GreetingPage />} />
+    <Route element={<ProtectedRoute />}><Route path="/" element={<WorkspaceLayout />}>
+      <Route index element={<WorkspaceStartPage />} />
+      <Route path="profile" element={<ProfilePage />} />
+      <Route path="profile/edit" element={<ProfileEditPage />} />
+      <Route path="contacts" element={<InfoPage />} />
+      <Route path="info" element={<Navigate to="/contacts" replace />} />
+      <Route path="guides" element={<GuidesPage />} />
+      <Route path="materials" element={<GuidesPage />} />
+      <Route path="pgas" element={<PgasPage />} />
+      <Route path="docs/:id" element={<DocViewerPage />} />
+      <Route element={<GuideEditRoute />}><Route path="docs/:id/edit" element={<DocEditPage />} /></Route>
+      <Route path="leadership" element={<LeadershipPage />} />
+      {['events', 'tasks', 'blocks', 'calendar', 'notifications', 'seasons', 'registrations'].map(path => <Route key={path} path={`${path}/*`} element={<ComingPage title={{ events: 'Мероприятия', tasks: 'Задачи', blocks: 'Блоки', calendar: 'Календарь', notifications: 'Уведомления', seasons: 'Сезоны и ККР', registrations: 'Регистрации' }[path]!} />} />)}
+      <Route element={<ExtendedRoute />}><Route path="admin/:tab" element={<AdminPanel />} /></Route>
+    </Route></Route>
+    <Route path="*" element={<NotFoundPage />} />
+  </Routes></UserProvider></Suspense></BrowserRouter></QueryClientProvider></HelmetProvider>;
 }
-
 export default App;

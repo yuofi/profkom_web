@@ -1,46 +1,27 @@
 import { Navigate, Outlet, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useMe } from "../../utils/me";
-import { filterRoles, canEditGuide } from "../../utils/filterRoles";
+import { canEditGuide } from "../../utils/filterRoles";
 import { guidesApi } from "../../utils/api/guides.api";
 import { blocksApi } from "../../utils/api/blocks.api";
 import { getDocRoute } from "../../utils/routes";
-import { PendingApprovalPage } from "../fallback/PendingApproval";
+import { AccountStatePage } from '../Workspace/SessionPages';
+import { useSession, isActiveSession, can } from '../../utils/session';
+import { Loading, ErrorState } from '../../components/Workspace/WorkspaceUI';
+import { normalizeApiError } from '../../utils/api/request';
 
 export const ProtectedRoute = () => {
-  const user = useMe();
-
-  if (!user) {
-    return <Navigate to="/auth" replace />;
-  }
-  
-  if (user.in_profcom === false && !user.super_user) {
-    return <PendingApprovalPage />;
-  }
-
+  const { session, loading, error, refresh } = useSession();
+  if (loading) return <Loading />;
+  if (error) return normalizeApiError(error).status === 401 ? <Navigate to="/auth" replace /> : <ErrorState error={error} retry={refresh} />;
+  if (!session) return <Navigate to="/auth" replace />;
+  if (!isActiveSession(session)) return <AccountStatePage />;
   return <Outlet />;
 };
 
-interface ExtendedRouteProps {
-  allowedRoles?: Array<'admin' | 'super_user'>;
-}
-
-export const ExtendedRoute = ({ allowedRoles }: ExtendedRouteProps) => {
-  const user = useMe();
-
-  if (!user) {
-    return <Navigate to="/" replace />;
-  }
-
-  if (user.super_user) {
-    return <Outlet />;
-  }
-
-  if (!filterRoles(allowedRoles, user)) {
-    return <Navigate to="/" replace />;
-  }
-
-  return <Outlet />;
+export const ExtendedRoute = () => {
+  const { session } = useSession();
+  return can(session, 'review_registrations') ? <Outlet /> : <Navigate to="/" replace />;
 };
 
 export const GuideEditRoute = () => {

@@ -64,6 +64,7 @@ export const GreetingPage = () => {
           logger.log("Успешный вход:", response);
           const meResponse = await authApi.getMe();
           queryClient.setQueryData(["currentUser"], meResponse);
+          await queryClient.invalidateQueries({ queryKey: ["session"] });
           queryClient.removeQueries({
             predicate: (query) => query.queryKey[0] !== "currentUser",
           });
@@ -79,6 +80,7 @@ export const GreetingPage = () => {
           logger.log("Успешный вход:", response);
           const meResponse = await authApi.getMe();
           queryClient.setQueryData(["currentUser"], meResponse);
+          await queryClient.invalidateQueries({ queryKey: ["session"] });
           queryClient.removeQueries({
             predicate: (query) => query.queryKey[0] !== "currentUser",
           });
@@ -104,6 +106,7 @@ export const GreetingPage = () => {
       logger.log("Успешный вход через VK:", response);
       const meResponse = await authApi.getMe();
       queryClient.setQueryData(["currentUser"], meResponse);
+          await queryClient.invalidateQueries({ queryKey: ["session"] });
       queryClient.removeQueries({
         predicate: (query) => query.queryKey[0] !== "currentUser",
       });

@@ -185,9 +185,6 @@ export const ProfileBadge = ({
             </a>
           )}
         </div>
-        <ProfileChip variant="primary" iconName="bar_chart">
-          {user.kkr_score ?? 0} ккр
-        </ProfileChip>
       </div>
 
       {/* Полоса-разделитель */}

@@ -34,6 +34,15 @@ describe('Safe contract fixtures', () => {
   });
 });
 describe('API commands through mock transport', () => {
+  it('updates chair deputies and revokes global actions after a chair transfer', async () => {
+    useMock('chair'); const initial = await sessionApi.leadership();
+    const deputies = await sessionApi.deputies([101, 102], { expected_revision: initial.revision });
+    expect((await sessionApi.leadership()).deputies).toHaveLength(2);
+    await sessionApi.transfer(102, { expected_revision: deputies.revision });
+    expect((await sessionApi.leadership()).deputies).toEqual([]);
+    expect((await sessionApi.get()).capabilities).not.toContain('transfer_chair');
+    await expect(sessionApi.deputies([101], { expected_revision: deputies.revision })).rejects.toMatchObject({ status: 403 });
+  });
   it('keeps empty and unavailable scenarios explicit without a real-network fallback', async () => {
     mock = installMockTransport('organizer', { delay: 0, scenario: 'empty' });
     expect((await tasksApi.list()).items).toEqual([]); mock.restore();
