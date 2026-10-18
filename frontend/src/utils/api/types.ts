@@ -120,6 +120,7 @@ export interface GuideIn {
 }
 
 export interface GuideUpdate {
+  expected_revision?: number;
   title?: string;
   owner_block?: string;
   text?: string;
@@ -128,6 +129,9 @@ export interface GuideUpdate {
 }
 
 export interface GuideOut {
+  material_id?: string;
+  revision?: number;
+  capabilities?: string[];
   guide_id: number;
   title: string;
   owner_block: string;

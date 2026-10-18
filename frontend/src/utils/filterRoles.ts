@@ -43,6 +43,7 @@ export const canEditGuide = (
     blocks?: (BlockOut | Block)[] | null
 ): boolean => {
     if (!guide || !user) return false;
+    if ("capabilities" in guide && Array.isArray(guide.capabilities)) return guide.capabilities.includes("edit_material");
     if (user.super_user) return true;
 
     // Superuser / global guides can only be edited by superusers

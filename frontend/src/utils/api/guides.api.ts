@@ -17,7 +17,7 @@ export const guidesApi = {
     return response.data;
   },
 
-  update: async (id: number | string, data: GuideUpdate | Partial<GuideOut>): Promise<GuideOut> => {
+  update: async (id: number | string, data: GuideUpdate | Partial<GuideOut> & { expected_revision?: number }): Promise<GuideOut> => {
     const response = await api.post<GuideOut>(`/guides/${id}`, data);
     return response.data;
   },

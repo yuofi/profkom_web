@@ -88,3 +88,23 @@ class SummaryVersionORM(Base):
     reason=Column(Text,nullable=False)
     created_at=Column(String,nullable=False)
     __table_args__=(Index('unique_summary_version',season_id,version,unique=True),)
+
+class MaterialORM(Base):
+    __tablename__='materials'
+    material_id=Column(String,primary_key=True)
+    legacy_guide_id=Column(Integer,nullable=True,unique=True,index=True)
+    kind=Column(String,nullable=False)
+    owner_block_id=Column(String,ForeignKey('block_metadata.block_id'),nullable=True,index=True)
+    title=Column(String,nullable=False)
+    description=Column(Text,nullable=False,default='')
+    original_link=Column(String,nullable=True)
+    published_body=Column(Text,nullable=True)
+    draft_title=Column(String,nullable=True)
+    draft_description=Column(Text,nullable=True)
+    draft_original_link=Column(String,nullable=True)
+    draft_body=Column(Text,nullable=True)
+    has_draft=Column(Boolean,nullable=False,default=True)
+    revision=Column(Integer,nullable=False,default=1)
+    placeholder=Column(Boolean,nullable=False,default=False)
+    deleted=Column(Boolean,nullable=False,default=False)
+    created_at=Column(String,nullable=False)

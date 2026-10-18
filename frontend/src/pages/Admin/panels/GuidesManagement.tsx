@@ -85,7 +85,7 @@ export const GuidesManagement = () => {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<GuideOut> }) =>
+    mutationFn: ({ id, data }: { id: number; data: Partial<GuideOut> & { expected_revision?: number } }) =>
       guidesApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["guides"] });
@@ -121,6 +121,7 @@ export const GuidesManagement = () => {
         await updateMutation.mutateAsync({
           id: editingGuide.guide_id,
           data: {
+            expected_revision: editingGuide.revision,
             title: values.title,
             description: values.description || "",
             owner_block: selectedOwnerBlock,

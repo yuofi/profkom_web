@@ -9,7 +9,7 @@ def global_caps(uid):
     if not uid: return []
     u=db.get_user(uid)
     if not u or u.account_state!='active' or u.banned: return []
-    caps={'create_material'} if db.is_tachki(uid) else set()
+    caps={'create_material'} if db.is_tachki(uid) or db.get_user_master_block_names(uid) or any(a.role=='deputy_master' for a in db.get_user_assignments(uid)) else set()
     if db.is_tachki(uid):
         caps.update(['create_event','review_registrations','create_chair_merit','correct_season','edit_former_contacts','manage_material_editors','edit_participant_category'])
     if db.is_tachki(uid) or db.is_hr_master(uid):

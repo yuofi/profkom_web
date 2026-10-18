@@ -17,3 +17,9 @@
 ## Привязка VK
 
 `POST /api/auth/vk/link {access_token}` требует действующую авторизацию существующего аккаунта. Обычный VK-вход ищет только сохранённую внешнюю identity, не ФИО/совпадение почты. Фото VK не загружается.
+
+## Legacy guides and storage
+
+`GET /guides/{guide_id}/material` returns `{guide_id, material_id, revision}`. Legacy guide DTOs carry the same mapping and object capabilities. Old IDs are preserved. Legacy saves require `expected_revision` and refuse to overwrite an existing shared draft. New material publication updates the same old Guide row.
+
+PGAS accepts `file_url: "file:<file_id>"` only for a completed PGAS file uploaded by the actor. The response resolves that reference and existing configured-bucket URLs to temporary GET URLs. External legacy links stay unchanged; no remote content is downloaded by migration. Existing public bucket ACLs require an operator-side private-access rollout; changing a DTO does not revoke an old public URL.

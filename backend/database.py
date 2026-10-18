@@ -2230,12 +2230,14 @@ class Database:
     def list_guides(self) -> List[GuideDC]:
         with self._session() as session:
             rows = session.query(GuideORM).all()
-            return [_guide_orm_to_dc(g) for g in rows]
+            from domain_models import MaterialORM
+            return [_guide_orm_to_dc(g) for g in rows if not session.query(MaterialORM).filter_by(legacy_guide_id=g.guide_id,deleted=True).first()]
 
     def get_guide(self, guide_id: int) -> Optional[GuideDC]:
         with self._session() as session:
             g = session.get(GuideORM, guide_id)
-            if not g:
+            from domain_models import MaterialORM
+            if not g or session.query(MaterialORM).filter_by(legacy_guide_id=guide_id,deleted=True).first():
                 return None
             return _guide_orm_to_dc(g)
 
@@ -5905,4 +5907,7 @@ db = Database()
 
 from migrations_v13 import migrate_core
 migrate_core()
+
+from material_seed import seed_materials
+seed_materials()
 

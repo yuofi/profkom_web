@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { Navigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Page,
@@ -24,6 +24,7 @@ function GuideEditor({ guide }: { guide: GuideOut }) {
         submitLabel="Опубликовать изменения гайда"
         onSubmit={async () => {
           await guidesApi.update(guide.guide_id, {
+            expected_revision: guide.revision,
             title: guide.title,
             text: body,
             owner_block: guide.owner_block,
@@ -48,6 +49,7 @@ export function DocEditPage() {
     enabled: !!id,
     retry: false,
   });
+  if (query.data?.material_id) return <Navigate to={`/materials/${encodeURIComponent(query.data.material_id)}`} replace />;
   return (
     <Page
       title={query.data?.title ?? "Редактор"}

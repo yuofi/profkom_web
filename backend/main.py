@@ -158,6 +158,7 @@ class GuideIn(BaseModel):
 
 
 class GuideUpdate(BaseModel):
+    expected_revision: Optional[int] = None
     title: Optional[str] = None
     owner_block: Optional[str] = None
     text: Optional[str] = None
@@ -166,6 +167,9 @@ class GuideUpdate(BaseModel):
 
 
 class GuideOut(BaseModel):
+    material_id: Optional[str] = None
+    revision: int = 1
+    capabilities: list[str] = []
     guide_id: int
     title: str
     owner_block: str
@@ -1275,41 +1279,22 @@ def delete_user(user_id: int, cur: User = Depends(require_superuser)):
 
 @router.get("/guides", response_model=List[GuideOut])
 def list_guides(cur: User = Depends(get_current_user)):
-    return [GuideOut(**g.__dict__) for g in db.list_guides()]
+    from materials import guide_dto
+    return [guide_dto(g,cur.user_id) for g in db.list_guides()]
 
 
 @router.get("/guides/{guide_id}", response_model=GuideOut)
 def get_guide(guide_id: int, cur: User = Depends(get_current_user)):
-    g = db.get_guide(guide_id)
-    if not g:
-        raise HTTPException(404, "Guide not found")
-
-    return GuideOut(**g.__dict__)
+    from materials import guide_dto
+    g=db.get_guide(guide_id)
+    if not g:raise HTTPException(404,"Guide not found")
+    return guide_dto(g,cur.user_id)
 
 
 @router.post("/guides", response_model=GuideOut)
 def create_guide(guide: GuideIn, cur: User = Depends(get_current_user)):
-    if db.is_chair(cur.user_id):
-        owner_block = (guide.owner_block or "none").strip()
-    else:
-        master_blocks = db.get_user_master_block_names(cur.user_id)
-        if not master_blocks:
-            raise HTTPException(403, "Only block masters and superusers can create guides")
-
-        requested_ob = (guide.owner_block or "").strip()
-        matched = next((mb for mb in master_blocks if mb.lower() == requested_ob.lower()), None)
-        owner_block = matched if matched else master_blocks[0]
-
-    g = Guide(
-        guide_id=0,
-        title=guide.title,
-        owner_block=owner_block if owner_block else "none",
-        text=guide.text if guide.text else f"# {guide.title}\n\n",
-        description=guide.description if guide.description is not None else "",
-        original_link=guide.original_link,
-    )
-    created = db.create_guide(g)
-    return GuideOut(**created.__dict__)
+    from materials import legacy_create
+    return legacy_create(guide,cur.user_id)
 
 
 @router.post("/guides/{guide_id}", response_model=GuideOut)
@@ -1320,68 +1305,14 @@ def edit_guide(
     guide: GuideUpdate,
     cur: User = Depends(get_current_user),
 ):
-    existing = db.get_guide(guide_id)
-    if not existing:
-        raise HTTPException(404, "Guide not found")
-
-    if db.is_chair(cur.user_id):
-        new_owner_block = guide.owner_block if guide.owner_block is not None else existing.owner_block
-    else:
-        master_blocks = db.get_user_master_block_names(cur.user_id)
-        master_blocks_lower = {mb.lower(): mb for mb in master_blocks}
-        existing_ob = (existing.owner_block or "").strip().lower()
-
-        if existing_ob not in master_blocks_lower:
-            raise HTTPException(403, "You can only edit guides belonging to your own block as a master")
-
-        current_master_block = master_blocks_lower[existing_ob]
-
-        if guide.owner_block is not None:
-            req_ob = guide.owner_block.strip().lower()
-            if req_ob in ("", "none", "all"):
-                new_owner_block = "none"
-            elif req_ob == existing_ob:
-                new_owner_block = current_master_block
-            elif req_ob in master_blocks_lower:
-                new_owner_block = master_blocks_lower[req_ob]
-            else:
-                raise HTTPException(403, "You can only set visibility to 'none' (for all) or your own block")
-        else:
-            new_owner_block = existing.owner_block
-
-    fields_set = guide.model_fields_set if hasattr(guide, "model_fields_set") else guide.__fields_set__
-    new_orig_link = guide.original_link if "original_link" in fields_set else existing.original_link
-
-    updated = db.update_guide(
-        guide_id,
-        title=guide.title if guide.title is not None else existing.title,
-        owner_block=new_owner_block if new_owner_block else "none",
-        text=guide.text if guide.text is not None else existing.text,
-        description=guide.description if guide.description is not None else existing.description,
-        original_link=new_orig_link,
-    )
-    if not updated:
-        raise HTTPException(404, "Guide not found")
-    return GuideOut(**updated.__dict__)
+    from materials import legacy_update
+    return legacy_update(guide_id,guide,cur.user_id)
 
 
 @router.delete("/guides/{guide_id}")
 def delete_guide(guide_id: int, cur: User = Depends(get_current_user)):
-    existing = db.get_guide(guide_id)
-    if not existing:
-        raise HTTPException(404, "Guide not found")
-
-    if not db.is_chair(cur.user_id):
-        master_blocks = db.get_user_master_block_names(cur.user_id)
-        master_blocks_lower = {mb.lower() for mb in master_blocks}
-        existing_ob = (existing.owner_block or "").strip().lower()
-        if existing_ob not in master_blocks_lower:
-            raise HTTPException(403, "You can only delete guides of your own block")
-
-    success = db.delete_guide(guide_id)
-    if not success:
-        raise HTTPException(404, "Guide not found")
-    return {"status": "deleted"}
+    from materials import legacy_delete
+    return legacy_delete(guide_id,cur.user_id)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1418,13 +1349,21 @@ def _validate_pgas_file(file_url: str, file_type: str) -> None:
 @router.get("/pgas", response_model=List[PgasEntryOut])
 def list_pgas(cur: User = Depends(get_current_user)):
     """Таблицу ПГАС видит любой авторизованный пользователь."""
-    return [PgasEntryOut(**e.__dict__) for e in db.list_pgas_entries()]
+    from legacy_files import read_url
+    return [PgasEntryOut(**{**e.__dict__, "file_url": read_url(e.file_url,cur.user_id)}) for e in db.list_pgas_entries()]
 
 
 @router.post("/pgas", response_model=PgasEntryOut)
 def create_pgas(payload: PgasEntryIn, cur: User = Depends(require_pgas_admin)):
     """Добавить запись в таблицу ПГАС. Доступно pgas_admin и суперюзеру."""
-    _validate_pgas_file(payload.file_url, payload.file_type)
+    if payload.file_url.startswith("file:"):
+        from database import FileRecordORM
+        with db._session() as s:
+            fr=s.get(FileRecordORM,payload.file_url[5:])
+            if not fr or fr.owner_kind!="pgas" or fr.state!="completed" or fr.uploaded_by_user_id!=cur.user_id:
+                raise HTTPException(422,"Invalid PGAS file")
+    else:
+        _validate_pgas_file(payload.file_url, payload.file_type)
 
     entry = PgasEntry(
         entry_id=0,
@@ -1437,7 +1376,8 @@ def create_pgas(payload: PgasEntryIn, cur: User = Depends(require_pgas_admin)):
         uploaded_by=cur.user_id,
     )
     created = db.create_pgas_entry(entry)
-    return PgasEntryOut(**created.__dict__)
+    from legacy_files import read_url
+    return PgasEntryOut(**{**created.__dict__, "file_url": read_url(created.file_url,cur.user_id)})
 
 
 @router.delete("/pgas/{entry_id}")
@@ -3506,5 +3446,7 @@ from membership import register_routes as register_membership_routes
 register_membership_routes(router)
 from season_summaries import register_routes as register_summary_routes
 register_summary_routes(router)
+from materials import register_routes as register_material_routes
+register_material_routes(router)
 
 app.include_router(router)
