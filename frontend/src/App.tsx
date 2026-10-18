@@ -8,6 +8,7 @@ import { LeadershipPage } from './pages/Workspace/SessionPages';
 import { Loading } from './components/Workspace/WorkspaceUI';
 import { EventsListPage, EventPage, SubeventPage } from './pages/Workspace/EventPages';
 import { TasksListPage, TaskPage, UnresolvedPage } from './pages/Workspace/TaskPages';
+import { MaterialsPage, MaterialPage } from './pages/Workspace/MaterialPages';
 import { BlocksPage, BlockPage, BlockRequestsPage, RegistrationsPage } from './pages/Workspace/MembershipPages';
 import { DashboardPage, CalendarPage, NotificationsPage } from './pages/Workspace/WorkspacePages';
 import { SeasonsPage, SeasonPage, SummaryPage } from './pages/Workspace/SeasonPages';
@@ -36,7 +37,8 @@ function App() {
       <Route path="contacts" element={<InfoPage />} />
       <Route path="info" element={<Navigate to="/contacts" replace />} />
       <Route path="guides" element={<GuidesPage />} />
-      <Route path="materials" element={<GuidesPage />} />
+      <Route path="materials" element={<MaterialsPage />} />
+      <Route path="materials/:id" element={<MaterialPage />} />
       <Route path="pgas" element={<PgasPage />} />
       <Route path="docs/:id" element={<DocViewerPage />} />
       <Route element={<GuideEditRoute />}><Route path="docs/:id/edit" element={<DocEditPage />} /></Route>

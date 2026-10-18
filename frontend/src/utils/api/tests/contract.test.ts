@@ -13,6 +13,7 @@ import { QueryClient } from '@tanstack/react-query';
 import { clearPrivateCache } from '../invalidation';
 import { eventsApi } from '../events.api';
 import { workspaceApi } from '../workspace.api';
+import { materialsApi } from '../materials.api';
 let mock: ReturnType<typeof installMockTransport> | undefined;
 afterEach(() => { mock?.restore(); mock = undefined; });
 const useMock = (role: Parameters<typeof installMockTransport>[0] = 'organizer') => (mock = installMockTransport(role, { delay: 0 }));
@@ -36,6 +37,17 @@ describe('Safe contract fixtures', () => {
   });
 });
 describe('API commands through mock transport', () => {
+  it('round trips custom Markdown unchanged while keeping the old material publication', async () => {
+    useMock('leader'); const material = await materialsApi.get('material-1');
+    const source = '**Жирный** и *курсив*\n\n- [Ссылка](https://example.com)\n\n```gallery\n/avatars/sun.svg | Подпись\n```\n\n```chip\nИмя: Анна\n```\n';
+    const draft = await materialsApi.update(material.material_id, { expected_revision: material.revision, content: richText(source) });
+    expect(draft.published_content).toEqual(material.published_content); expect(draft.draft_content?.body).toBe(source);
+    await materialsApi.publish(material.material_id, { expected_revision: draft.revision }); expect((await materialsApi.get(material.material_id)).published_content?.body).toBe(source);
+  });
+  it('denies an unassigned material editor and removes stale draft fields after revocation', async () => {
+    const fixture = useMock('editor'); await expect(materialsApi.update('material-1', { expected_revision: 1, content: richText('Чужой гайд') })).rejects.toMatchObject({ status: 403 });
+    fixture.state.materials[0].draft_content = richText('Закрытый черновик'); expect(await materialsApi.get('material-1')).not.toHaveProperty('draft_content');
+  });
   it('requires separate HR and master decisions and resets the stage deadline', async () => {
     const fixture = useMock('hr'); const request = await membershipApi.join('block-info');
     const approvedHr = await membershipApi.requestCommand(request.request_id, 'hr-approve', { expected_revision: request.revision });

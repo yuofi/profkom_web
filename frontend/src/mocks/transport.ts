@@ -318,14 +318,15 @@ export function installMockTransport(role: MockRole = 'organizer', options: { de
       return changed(report);
     }
     if (path === '/materials') {
-      if (method === 'get') return list(clone(state.materials));
+      if (method === 'get') return list(state.materials.filter(m => m.published_content || m.capabilities.includes('edit_material')).map(m => { const result = clone(m); if (!m.capabilities.includes('edit_material')) delete result.draft_content; return result; }));
+      if (!state.session.capabilities.includes('create_material')) return denied();
       const material: Material = { ...data as unknown as Material, material_id: id('material'), owner_block_id: String(data.owner_block_id ?? '') || null, published_content: null, draft_content: publicSubmission(data.content), original_link: null, revision: 1, capabilities: ['edit_material', 'publish_material', 'delete_material'] };
       state.materials.push(material); return [201, clone(material)];
     }
     if (parts[0] === 'materials') {
       const material = state.materials.find(m => m.material_id === parts[1]);
       if (!material) return fail(404, 'not_found', 'Материал недоступен');
-      if (method === 'get') return [200, clone(material)];
+      if (method === 'get') { const result = clone(material); if (!material.capabilities.includes('edit_material')) delete result.draft_content; return material.published_content || material.capabilities.includes('edit_material') ? [200, result] : denied(); }
       if (!material.capabilities.includes('edit_material')) return denied();
       if (mismatch(data, material)) return conflict();
       if (method === 'delete') { state.materials = state.materials.filter(m => m !== material); return [200, {}]; }
