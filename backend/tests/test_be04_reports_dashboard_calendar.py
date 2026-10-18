@@ -23,6 +23,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from test_api_contract import error_body
+from api_helpers import post_season
 
 from database import db
 from database import NotificationORM, TaskORM, AssignmentORM, BlockORM, SubeventORM, EventORM, ReportORM, ReportVersionORM, ReportEditorORM
@@ -46,14 +48,14 @@ def test_season(client, superuser):
     ends = (now + timedelta(days=30)).isoformat()
     res = client.post(
         SEASONS_URL,
-        json={"title": f"Сезон BE-04 {uuid.uuid4().hex[:6]}", "type": "autumn", "starts_at": starts, "ends_at": ends},
+        json={"title": f"Сезон BE-04 {uuid.uuid4().hex[:6]}", "type": "summer_autumn", "starts_at": starts, "ends_at": ends},
         headers=superuser.headers,
     )
     assert res.status_code in (200, 201)
     s_data = res.json()
     season_id = s_data["season_id"]
 
-    res_open = client.post(f"{SEASONS_URL}/{season_id}/open", json={"expected_revision": s_data["revision"]}, headers=superuser.headers)
+    res_open = post_season(client,f"{SEASONS_URL}/{season_id}/open", json={"expected_revision": s_data["revision"]}, headers=superuser.headers)
     assert res_open.status_code == 200
     return res_open.json()
 
@@ -224,7 +226,7 @@ def test_report_regular_and_final_draft_publish_and_versions(client, test_event_
     # Проверяем список версий
     res_vers = client.get(f"{REPORTS_URL}/{reg_id}/versions", headers=head_org.headers)
     assert res_vers.status_code == 200
-    vers = res_vers.json()
+    vers = res_vers.json()["items"]
     assert len(vers) == 2
     assert vers[0]["version"] == 1
     assert vers[1]["version"] == 2
@@ -367,10 +369,10 @@ def test_historical_editors_post_close_season(client, test_event_hierarchy, supe
     client.post(f"{REPORTS_URL}/{reg_id}/publish", json={"expected_revision": 1}, headers=head_org.headers)
 
     # 2. Переводим сезон в summarizing и закрываем его
-    res_sum = client.post(f"{SEASONS_URL}/{season_id}/begin-summary", headers=superuser.headers)
+    res_sum = post_season(client,f"{SEASONS_URL}/{season_id}/begin-summary", headers=superuser.headers)
     assert res_sum.status_code == 200
 
-    res_close = client.post(f"{SEASONS_URL}/{season_id}/close", headers=superuser.headers)
+    res_close = post_season(client,f"{SEASONS_URL}/{season_id}/close", headers=superuser.headers)
     assert res_close.status_code == 200
     assert res_close.json()["season"]["state"] == "closed"
 
@@ -458,7 +460,7 @@ def test_meeting_and_calendar_isolation(client, test_event_hierarchy, make_user)
     # Рядовой орг запрашивает календарь: видит созвон квеста и свою задачу, но НЕ главный созвон
     res_cal = client.get(CALENDAR_URL, headers=sub_org.headers)
     assert res_cal.status_code == 200
-    items = res_cal.json()
+    items = res_cal.json()["items"]
     titles = [it["title"] for it in items]
     assert "Созвон квеста" in titles
     assert "Задача для календаря" in titles
@@ -497,16 +499,16 @@ def test_dashboard_and_notifications(client, test_event_hierarchy):
     dash = res_dash.json()
     assert len(dash["my_tasks"]) >= 1
     assert any(t["title"] == "Задача для дашборда" for t in dash["my_tasks"])
-    assert any(e["subevent_id"] == ev["subevent_id"] for e in dash["my_events"])
+    assert any(e["event_id"] == ev["event_id"] for e in dash["my_events"])
 
     # 3. Проверяем уведомления орга (GET /notifications)
     res_notif = client.get(NOTIFICATIONS_URL, headers=sub_org.headers)
     assert res_notif.status_code == 200
-    notifs = res_notif.json()
+    notifs = res_notif.json()["items"]
     assert len(notifs) >= 1
     target_notif = notifs[0]
-    nid = target_notif["notification_id"]
-    assert target_notif["is_read"] is False
+    nid = target_notif["id"]
+    assert target_notif["read_at"] is None
 
     # Посторонний не может пометить чужое уведомление прочитанным -> 403
     res_fail = client.post(f"{NOTIFICATIONS_URL}/{nid}/read", headers=outsider.headers)
@@ -532,14 +534,14 @@ def test_season_close_blocker_missing_final_report(client, superuser, test_event
     season_id = ev["season_id"]
 
     # Переводим сезон в summarizing
-    res_sum = client.post(f"{SEASONS_URL}/{season_id}/begin-summary", headers=superuser.headers)
+    res_sum = post_season(client,f"{SEASONS_URL}/{season_id}/begin-summary", headers=superuser.headers)
     assert res_sum.status_code == 200
 
     # 1. Попытка закрыть сезон без финальных отчетов -> 409 SeasonNotReadyError
-    res_fail = client.post(f"{SEASONS_URL}/{season_id}/close", headers=superuser.headers)
+    res_fail = post_season(client,f"{SEASONS_URL}/{season_id}/close", headers=superuser.headers)
     assert res_fail.status_code == 409
     err = res_fail.json()
-    assert err["detail"]["detail"] == "season_not_ready"
+    assert err["detail"]["code"] == "season_not_ready"
     assert any(b["kind"] == "missing_final_report" for b in err["detail"]["fields"]["blockers"])
 
     # 2. Создание только черновика финального отчета НЕ снимает блокер
@@ -548,7 +550,7 @@ def test_season_close_blocker_missing_final_report(client, superuser, test_event
         json={"owner_kind": "event", "owner_id": ev["event_id"], "kind": "final", "title": "Черновик финала", "content": "Текст", "file_ids": []},
         headers=head_org.headers,
     )
-    res_fail2 = client.post(f"{SEASONS_URL}/{season_id}/close", headers=superuser.headers)
+    res_fail2 = post_season(client,f"{SEASONS_URL}/{season_id}/close", headers=superuser.headers)
     assert res_fail2.status_code == 409
 
     # 3. Публикуем финальный отчет мероприятия и подмероприятия
@@ -562,6 +564,6 @@ def test_season_close_blocker_missing_final_report(client, superuser, test_event
     client.post(f"{REPORTS_URL}/{res_subfin.json()['report_id']}/publish", json={"expected_revision": 1}, headers=sub_lead.headers)
 
     # 4. Теперь все финальные отчеты опубликованы -> сезон закрывается
-    res_ok = client.post(f"{SEASONS_URL}/{season_id}/close", headers=superuser.headers)
+    res_ok = post_season(client,f"{SEASONS_URL}/{season_id}/close", headers=superuser.headers)
     assert res_ok.status_code == 200
     assert res_ok.json()["season"]["state"] == "closed"

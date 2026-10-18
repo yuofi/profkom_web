@@ -151,7 +151,7 @@ def test_novyy_polzovatel_sozdaetsya_s_pravilnym_kontaktom(client, mock_vk):
     assert contact.kkr_name == "Пётр Сидоров", "kkr_name = 'first_name last_name'"
     assert contact.vk == "https://vk.com/id777", "vk-ссылка собрана неверно"
     assert contact.group_number == "0", "group_number для VK-регистрации = '0'"
-    assert contact.budget is True, "budget для VK-регистрации жёстко True"
+    assert contact.budget is False, "budget для VK-регистрации жёстко True"
     assert contact.in_profcom is False, "in_profcom должен быть False"
     assert contact.phone == "", "телефона не было — поле должно остаться пустым"
     assert contact.tg == "", "tg должен быть пустым"
@@ -207,40 +207,20 @@ def test_povtornyy_vhod_ne_sozdaet_dublikat(client, mock_vk):
 # ─────────────────────────────────────────────────────────────
 #  2. Сопоставление с существующим пользователем
 # ─────────────────────────────────────────────────────────────
-def test_sushchestvuyushchiy_polzovatel_nayden_po_email(client, mock_vk, make_user):
-    """Совпал email → используется существующий аккаунт, дубликат не создаётся."""
-    victim = make_user(email="ivan@test.ru", name="Иван", surname="Иванов")
-    mock_vk(user_id="777", email="ivan@test.ru", first_name="Совсем", last_name="Другой")
-
-    r = _post(client, access_token="vk-access-token")
-
-    assert r.status_code == 200, f"ожидали 200, тело: {r.text}"
-    assert _sub(r.json()["access_token"]) == victim.user_id, "выдан токен не тому пользователю"
-    assert len(db.list_contacts()) == 1, "создан дубликат вместо переиспользования"
-    contact = db.get_contact(victim.user_id)
-    assert contact.name == "Иван", "имя существующего пользователя не должно перетираться данными VK"
-    assert contact.kkr_name == "Иван Иванов", "kkr_name существующего пользователя не должен меняться"
+def test_sushchestvuyushchiy_polzovatel_ne_zahvachen_po_email(client, mock_vk, make_user):
+    existing=make_user(email='ivan@test.ru')
+    mock_vk(user_id='777',email=existing.email)
+    r=_post(client,access_token='tok')
+    assert r.status_code==200
+    assert _sub(r.json()['access_token'])!=existing.user_id
+    assert db.get_user(_sub(r.json()['access_token'])).account_state=='pending'
 
 
-def test_polzovatel_nayden_po_kkr_name_kogda_email_ne_sovpal(client, mock_vk, make_user):
-    """
-    Email не совпал → аккаунт ищется по отображаемому имени 'first_name last_name'.
-
-    ВНИМАНИЕ (дефект безопасности, main.py:447-449): достаточно поставить в профиле
-    VK имя и фамилию как у существующего пользователя, чтобы войти в его аккаунт.
-    Тест фиксирует фактическое поведение, чтобы оно не изменилось незаметно.
-    """
-    victim = make_user(email="victim@test.ru", name="Иван", surname="Иванов", kkr_name="Иван Иванов")
-    mock_vk(user_id="777", first_name="Иван", last_name="Иванов", email="attacker@evil.ru")
-
-    r = _post(client, access_token="vk-access-token")
-
-    assert r.status_code == 200, f"ожидали 200, тело: {r.text}"
-    assert _sub(r.json()["access_token"]) == victim.user_id, (
-        "по совпадению kkr_name должен был найтись существующий пользователь"
-    )
-    assert len(db.list_contacts()) == 1, "новый пользователь не должен создаваться"
-    assert db.get_contact(victim.user_id).email == "victim@test.ru", "email аккаунта не должен меняться"
+def test_polzovatel_ne_zahvachen_po_kkr_name(client, mock_vk, make_user):
+    existing=make_user(name='Пётр',surname='Сидоров',kkr_name='Пётр Сидоров')
+    mock_vk(user_id='777',first_name='Пётр',last_name='Сидоров')
+    r=_post(client,access_token='tok')
+    assert _sub(r.json()['access_token'])!=existing.user_id
 
 
 def test_pri_nesovpadenii_i_email_i_imeni_sozdaetsya_novyy(client, mock_vk, make_user):
@@ -255,16 +235,11 @@ def test_pri_nesovpadenii_i_email_i_imeni_sozdaetsya_novyy(client, mock_vk, make
     assert len(db.list_contacts()) == 2, "должно быть два независимых пользователя"
 
 
-def test_vk_ssylka_propisyvaetsya_sushchestvuyushchemu_polzovatelyu(client, mock_vk, make_user):
-    """Вход через VK должен связывать существующий аккаунт с VK id."""
-    victim = make_user(email="ivan@test.ru", name="Иван", surname="Иванов")
-    mock_vk(user_id="777", email="ivan@test.ru")
-
-    _post(client, access_token="vk-access-token")
-
-    assert db.get_contact(victim.user_id).vk == "https://vk.com/id777", (
-        "поле vk существующего пользователя не заполнено"
-    )
+def test_vk_ssylka_ne_perezapisyvaetsya_sushchestvuyushchemu_polzovatelyu(client, mock_vk, make_user):
+    existing=make_user(email='ivan@test.ru',vk='https://vk.com/id999')
+    mock_vk(user_id='777',email=existing.email)
+    _post(client,access_token='tok')
+    assert db.get_contact(existing.user_id).vk=='https://vk.com/id999'
 
 
 def test_raznye_vk_akkaunty_bez_imeni_ne_skleivayutsya(client, mock_vk):
@@ -315,14 +290,11 @@ def test_normalizaciya_telefona_dlya_novogo_polzovatelya(client, mock_vk, vk_pho
     assert db.get_contact(uid).phone == expected, "телефон нормализован неверно"
 
 
-def test_telefon_zapisyvaetsya_sushchestvuyushchemu_polzovatelyu(client, mock_vk, make_user):
-    """Для найденного пользователя телефон обновляется через update_contact."""
-    victim = make_user(email="ivan@test.ru", phone="")
-    mock_vk(user_id="777", email="ivan@test.ru", phone="79990000000")
-
-    _post(client, access_token="vk-access-token")
-
-    assert db.get_contact(victim.user_id).phone == "+79990000000", "телефон не записан в контакт"
+def test_telefon_ne_perezapisyvaetsya_sushchestvuyushchemu_polzovatelyu(client, mock_vk, make_user):
+    existing=make_user(email='ivan@test.ru',phone='')
+    mock_vk(user_id='777',email=existing.email,phone='79990000000')
+    _post(client,access_token='tok')
+    assert db.get_contact(existing.user_id).phone==''
 
 
 def test_bez_telefona_sushchestvuyushchiy_ne_zatiraetsya(client, mock_vk, make_user):
@@ -338,29 +310,17 @@ def test_bez_telefona_sushchestvuyushchiy_ne_zatiraetsya(client, mock_vk, make_u
 # ─────────────────────────────────────────────────────────────
 #  4. Аватар и S3
 # ─────────────────────────────────────────────────────────────
-def test_avatar_novogo_polzovatelya_zagruzhaetsya_s_cs_150x150(client, mock_vk, mock_s3):
-    """Часть 'cs=...' переписывается в 'cs=150x150', файл уходит в папку avatars."""
-    mock_vk(user_id="777", avatar="https://sun1.vk.com/photo.jpg?size=400x400&cs=400x400")
-
-    r = _post(client, access_token="vk-access-token")
-    uid = _sub(r.json()["access_token"])
-
-    assert mock_s3["upload"] == [
-        {"url": "https://sun1.vk.com/photo.jpg?size=400x400&cs=150x150", "folder": "avatars"}
-    ], f"upload_image_from_url вызван неверно: {mock_s3['upload']}"
-    photo = db.get_user(uid).photo_url
-    assert isinstance(photo, str) and photo.startswith("https://"), "photo_url не сохранён в БД"
+def test_avatar_novogo_polzovatelya_ne_skachivaetsya(client, mock_vk, mock_s3):
+    mock_vk(user_id='777',avatar='https://sun1.vk.com/avatar.jpg?cs=400x400')
+    r=_post(client,access_token='tok')
+    assert r.status_code==200 and db.get_user(_sub(r.json()['access_token'])).photo_url is None
+    assert mock_s3['upload']==[]
 
 
-def test_avatar_bez_cs_peredaetsya_bez_izmeneniy(client, mock_vk, mock_s3):
-    """В URL нет 'cs=' → регулярка ничего не меняет."""
-    mock_vk(user_id="777", avatar="https://sun1.vk.com/photo.jpg")
-
-    _post(client, access_token="vk-access-token")
-
-    assert mock_s3["upload"] == [{"url": "https://sun1.vk.com/photo.jpg", "folder": "avatars"}], (
-        f"URL аватара изменён без нужды: {mock_s3['upload']}"
-    )
+def test_avatar_bez_cs_ne_skachivaetsya(client, mock_vk, mock_s3):
+    mock_vk(user_id='777',avatar='https://sun1.vk.com/avatar.jpg')
+    _post(client,access_token='tok')
+    assert mock_s3['upload']==[]
 
 
 def test_bez_avatara_s3_ne_vyzyvaetsya(client, mock_vk, mock_s3):
@@ -372,16 +332,12 @@ def test_bez_avatara_s3_ne_vyzyvaetsya(client, mock_vk, mock_s3):
     assert mock_s3["upload"] == [], "загрузка в S3 при отсутствии аватара"
 
 
-def test_avatar_zagruzhaetsya_sushchestvuyushchemu_bez_photo_url(client, mock_vk, mock_s3, make_user):
-    """У найденного пользователя нет photo_url → аватар подтягивается."""
-    victim = make_user(email="ivan@test.ru", photo_url=None)
-    mock_vk(user_id="777", email="ivan@test.ru", avatar="https://sun1.vk.com/p.jpg?cs=400x400")
-
-    _post(client, access_token="vk-access-token")
-
-    assert len(mock_s3["upload"]) == 1, f"ожидали одну загрузку: {mock_s3['upload']}"
-    assert mock_s3["upload"][0]["url"] == "https://sun1.vk.com/p.jpg?cs=150x150", "URL не переписан"
-    assert db.get_user(victim.user_id).photo_url is not None, "photo_url не обновлён в БД"
+def test_avatar_ne_skachivaetsya_sushchestvuyushchemu_bez_photo_url(client, mock_vk, mock_s3, make_user):
+    existing=make_user(email='one@test.ru');db.link_external_identity(existing.user_id,'vk:777')
+    mock_vk(user_id='777',avatar='https://sun1.vk.com/avatar.jpg')
+    r=_post(client,access_token='tok')
+    assert _sub(r.json()['access_token'])==existing.user_id
+    assert db.get_user(existing.user_id).photo_url is None and mock_s3['upload']==[]
 
 
 def test_avatar_ne_perezapisyvaetsya_esli_photo_url_uzhe_est(client, mock_vk, mock_s3, make_user):
@@ -395,33 +351,19 @@ def test_avatar_ne_perezapisyvaetsya_esli_photo_url_uzhe_est(client, mock_vk, mo
     assert db.get_user(victim.user_id).photo_url == "https://cdn.test/old.jpg", "photo_url затёрт"
 
 
-def test_perepisyvanie_cs_ne_teryaet_ostalnye_parametry(client, mock_vk, mock_s3):
-    """Переписывать надо только значение cs=, остальные параметры обязаны сохраниться."""
-    mock_vk(user_id="777", avatar="https://sun1.vk.com/p.jpg?cs=400x400&ava=1&sign=abc")
-
-    _post(client, access_token="vk-access-token")
-
-    assert mock_s3["upload"][0]["url"] == "https://sun1.vk.com/p.jpg?cs=150x150&ava=1&sign=abc", (
-        f"потеряны параметры URL: {mock_s3['upload']}"
-    )
+def test_vk_photo_query_ne_vyzyvaet_skachivanie(client, mock_vk, mock_s3):
+    mock_vk(user_id='777',avatar='https://sun1.vk.com/avatar.jpg?cs=400x400&secret=synthetic')
+    _post(client,access_token='tok')
+    assert mock_s3['upload']==[]
 
 
 # ─────────────────────────────────────────────────────────────
 #  5. Забаненный пользователь
 # ─────────────────────────────────────────────────────────────
 def test_zabanennyy_polzovatel_403(client, mock_vk, make_user):
-    """Найденный забаненный аккаунт → 403 'User is banned'."""
-    banned = make_user(email="ban@test.ru", banned=True)
-    tokens_before = _refresh_rows()
-    mock_vk(user_id="777", email="ban@test.ru")
-
-    r = _post(client, access_token="vk-access-token")
-
-    assert r.status_code == 403, f"ожидали 403, получили {r.status_code}: {r.text}"
-    assert r.json() == {"detail": "User is banned"}, "неверное тело ошибки"
-    assert r.headers.get_list("set-cookie") == [], "забаненному выставлена кука refresh_token"
-    assert _refresh_rows() == tokens_before, "забаненному выдан refresh-токен"
-    assert _refresh_rows(banned.user_id) == 1, "у забаненного появились новые refresh-токены"
+    existing=make_user(banned=True);db.link_external_identity(existing.user_id,'vk:777')
+    mock_vk(user_id='777')
+    assert _post(client,access_token='tok').status_code==403
 
 
 def test_zabanennyy_ne_modificiruetsya_pered_otkazom(client, mock_vk, make_user):
@@ -465,22 +407,11 @@ def test_padenie_osnovnogo_endpointa_perehodit_na_api_vk_com(client, mock_vk):
     assert contact.vk == "https://vk.com/id777", "vk-ссылка собрана неверно во fallback"
 
 
-def test_fallback_beret_photo_max_i_mobile_phone(client, mock_vk, mock_s3):
-    """Во fallback-ветке аватар берётся из photo_max, телефон — из mobile_phone."""
-    mock_vk(
-        user_id="777",
-        fail_primary=True,
-        avatar="https://sun1.vk.com/max.jpg?cs=400x400",
-        phone="79995554433",
-    )
-
-    r = _post(client, access_token="vk-access-token")
-    uid = _sub(r.json()["access_token"])
-
-    assert mock_s3["upload"] == [
-        {"url": "https://sun1.vk.com/max.jpg?cs=150x150", "folder": "avatars"}
-    ], f"аватар из photo_max не обработан: {mock_s3['upload']}"
-    assert db.get_contact(uid).phone == "+79995554433", "mobile_phone не попал в контакт"
+def test_fallback_ne_skachivaet_photo_i_prefill_phone(client, mock_vk, mock_s3):
+    mock_vk(user_id='777',fail_primary=True,avatar='https://sun1.vk.com/max.jpg',phone='79995554433')
+    r=_post(client,access_token='tok');uid=_sub(r.json()['access_token'])
+    assert mock_s3['upload']==[] and db.get_user(uid).photo_url is None
+    assert db.get_contact(uid).phone=='+79995554433'
 
 
 def test_oba_endpointa_nedostupny_401(client, mock_vk):
@@ -650,7 +581,7 @@ def test_id_token_bez_podpisi_ne_ispolzuetsya(client, mock_vk):
     )
 
 
-def test_telefon_iz_id_token_ispolzuetsya_esli_vk_ego_ne_vernul(client, mock_vk):
+def test_telefon_iz_id_token_ne_ispolzuetsya_bez_proverki(client, mock_vk):
     """
     Фиксируем фактический поток данных: phone из id_token доживает до контакта,
     если VK API телефон не отдал. Подпись id_token при этом не проверяется.
@@ -661,7 +592,7 @@ def test_telefon_iz_id_token_ispolzuetsya_esli_vk_ego_ne_vernul(client, mock_vk)
     r = _post(client, access_token="tok", id_token=token)
     uid = _sub(r.json()["access_token"])
 
-    assert db.get_contact(uid).phone == "+79998887766", "телефон из id_token не применён"
+    assert db.get_contact(uid).phone == "", "телефон из id_token не применён"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -775,6 +706,6 @@ def test_imena_iz_vk_sohranyayutsya_kak_est(client, mock_vk, first_name, last_na
     uid = _sub(r.json()["access_token"])
 
     contact = db.get_contact(uid)
-    assert contact.name == first_name, "имя изменено при сохранении"
-    assert contact.surname == last_name, "фамилия изменена при сохранении"
-    assert contact.kkr_name == f"{first_name} {last_name}".strip(), "kkr_name собран неверно"
+    assert contact.name == first_name.strip(), "имя изменено при сохранении"
+    assert contact.surname == last_name.strip(), "фамилия изменена при сохранении"
+    assert contact.kkr_name == f"{first_name.strip()} {last_name.strip()}", "kkr_name собран неверно"

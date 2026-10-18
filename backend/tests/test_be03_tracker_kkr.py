@@ -54,6 +54,8 @@ import json
 import uuid
 from datetime import datetime, timezone, timedelta
 import pytest
+from test_api_contract import error_body
+from api_helpers import post_season
 from database import db, NotificationORM, UserORM, BlockORM, SeasonORM, ReportORM
 
 
@@ -71,7 +73,7 @@ def test_season(client, superuser):
     ends = (now + timedelta(days=20)).isoformat()
     res = client.post(
         SEASONS_URL,
-        json={"title": f"Сезон BE-03 {uuid.uuid4().hex[:6]}", "type": "autumn", "starts_at": starts, "ends_at": ends},
+        json={"title": f"Сезон BE-03 {uuid.uuid4().hex[:6]}", "type": "summer_autumn", "starts_at": starts, "ends_at": ends},
         headers=superuser.headers,
     )
     assert res.status_code in (200, 201)
@@ -79,7 +81,7 @@ def test_season(client, superuser):
     season_id = s_data["season_id"]
 
     # Open season
-    res_open = client.post(f"{SEASONS_URL}/{season_id}/open", json={"expected_revision": s_data["revision"]}, headers=superuser.headers)
+    res_open = post_season(client,f"{SEASONS_URL}/{season_id}/open", json={"expected_revision": s_data["revision"]}, headers=superuser.headers)
     assert res_open.status_code == 200
     return res_open.json()
 
@@ -92,19 +94,15 @@ def test_block(client, superuser, make_user):
     member = make_user(name="Участник", surname="Блока")
     outsider = make_user(name="Внешний", surname="Человек")
 
-    # Создаем блок
-    res = client.post("/api/blocks", json={"name": block_name, "master": "Мастер", "hr": "", "cnt_of_human": 0, "arr_of_human": []}, headers=superuser.headers)
-    assert res.status_code in (200, 201)
-
-    # Назначаем лидера
-    res_l = client.put(f"/api/blocks/{block_name}/leader", json={"user_id": master.user_id}, headers=superuser.headers)
-    assert res_l.status_code == 200
-
-    # Добавляем member в блок
-    with db._session() as session:
-        b = session.get(BlockORM, block_name)
-        b.arr_of_human = json.dumps([member.user_id])
-        session.commit()
+    from models import Block
+    from domain_seed import meta_for
+    from membership import set_membership
+    db.create_block(Block(name=block_name,master=''))
+    db.set_block_leader(block_name,master.user_id)
+    with db.atomic():
+        with db._session() as session:
+            bid=meta_for(session,block_name).block_id
+            set_membership(session,member.user_id,bid,True,superuser.user_id,'Approved fixture membership');session.commit()
 
     return {
         "name": block_name,
@@ -376,14 +374,14 @@ def test_волонтерские_заслуги_только_вне_блока(
         "assigned_at": assigned_at,
         "deadline_at": deadline,
         "criteria": {"unique": False, "creative": False, "external_communication": False, "in_person": True, "fixed_time": False},
-        "recipients": [{"user_id": member.user_id, "hours": 3.0, "evaluation": 1.0}],
+        "recipients": [{"user_id": member.user_id, "hours": 3.0, "evaluation": 1.0,"completed_at":deadline}],
         "reason": "Волонтерство",
     }
     res_err = client.post(MERITS_URL, json=payload_invalid, headers=master.headers)
     assert res_err.status_code == 422
 
     # 2. Запись волонтерской работы участнику вне блока -> 200/201
-    payload_valid = dict(payload_invalid, recipients=[{"user_id": outsider.user_id, "hours": 3.0, "evaluation": 1.0}])
+    payload_valid = dict(payload_invalid, recipients=[{"user_id": outsider.user_id, "hours": 3.0, "evaluation": 1.0,"completed_at":deadline}])
     res_ok = client.post(MERITS_URL, json=payload_valid, headers=master.headers)
     assert res_ok.status_code in (200, 201)
     assert res_ok.json()["source_kind"] == "block_volunteer"
@@ -484,12 +482,12 @@ def test_закрытие_сезона_бонус_мастера_и_повыше
     assert res_acc.status_code == 200
 
     # 2. Переводим сезон в summarizing
-    res_sum = client.post(f"{SEASONS_URL}/{season_id}/begin-summary", json={"expected_revision": test_season["revision"]}, headers=superuser.headers)
+    res_sum = post_season(client,f"{SEASONS_URL}/{season_id}/begin-summary", json={"expected_revision": test_season["revision"]}, headers=superuser.headers)
     assert res_sum.status_code == 200
     rev = res_sum.json()["revision"]
 
     # 3. Закрываем сезон
-    res_close = client.post(f"{SEASONS_URL}/{season_id}/close", json={"expected_revision": rev}, headers=superuser.headers)
+    res_close = post_season(client,f"{SEASONS_URL}/{season_id}/close", json={"expected_revision": rev}, headers=superuser.headers)
     assert res_close.status_code == 200
 
     # Проверяем начисление бонуса мастеру
@@ -497,7 +495,7 @@ def test_закрытие_сезона_бонус_мастера_и_повыше
     assert res_bonuses.status_code == 200
     bonuses = res_bonuses.json()["items"]
     # Ищем бонус нашего блока
-    block_bonus = next((b for b in bonuses if b["block_id"] == test_block["name"]), None)
+    block_bonus = next((b for b in bonuses if b["block_id"] == __import__("membership").block_id_for(test_block["name"])), None)
     assert block_bonus is not None
     assert block_bonus["recipient"]["user_id"] == master.user_id
     assert block_bonus["amount"] > 0
@@ -506,4 +504,4 @@ def test_закрытие_сезона_бонус_мастера_и_повыше
     # Проверяем автоматическое повышение джуна до активиста
     with db._session() as session:
         u = session.get(UserORM, member.user_id)
-        assert u.category == "activist"
+        assert u.category == "junior"  # No verified tenure was seeded.

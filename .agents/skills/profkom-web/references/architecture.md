@@ -1,110 +1,43 @@
 # Architecture and domain invariants
 
-Read this reference before changing project code. It describes the current source tree, not the older sibling export.
+Use the current source/tests when a recorded detail disagrees. This repository is the live project; sibling export/archive copies are out of scope.
 
-## Runtime shape
+## Runtime and ownership
 
-```text
-browser
-  -> nginx :443
-     -> static Vite build
-     -> /api/* proxy to backend:8000
-        -> FastAPI routes in backend/main.py
-           -> auth.py + Database singleton
-              -> SQLite
-           -> S3 presigned uploads / VK login
-```
+React/Vite -> nginx -> same-origin `/api` -> FastAPI -> SQLite and contextual S3 I/O. FastAPI creates one `/api` router in main.py; domain modules register their routes on it. OpenAPI remains `/openapi.json`.
 
-- `docker-compose.yml` builds two services. The backend mounts `./data` at `/app/data`; the frontend terminates TLS and proxies `/api/` to the backend.
-- `backend/entrypoint.sh` seeds guides and the configured superadmin through `scripts/preset_db.py`, then starts `uvicorn main:app` on port 8000.
-- The frontend is React 19 + TypeScript + Vite, React Router, TanStack Query, Axios, Formik/Zod, TipTap, and CSS Modules.
-- The backend is FastAPI + Pydantic 2 + SQLAlchemy 2 + SQLite, with JWT access tokens, opaque persisted refresh tokens, boto3 S3 integration, and VK login.
+- database.py owns legacy/core ORM, additive import-time schema upgrades, conversions, synchronization and Database.atomic. domain_models.py registers normalized extension tables on the same Base before create_all.
+- models.py contains internal dataclasses; main.py and domain_contract.py define HTTP schemas. New domain services may return validated dictionaries rather than legacy dataclasses.
+- access.py projects capabilities from current domain permissions. registration, membership, participation, season_summaries, season_corrections, report_access, materials, directory, accounts and workspace own their corresponding workflows.
+- auth.py owns passwords, JWT/session versions, refresh rotation and the central approval guard. vk_auth.py verifies provider data and explicit external identities; it never downloads a VK photo.
+- file_access.py owns contextual uploads, actual-object verification and current ACL. legacy_files.py resolves saved configured-bucket references at read time without downloading remote content.
 
-## Backend ownership
+## Authorization and identity
 
-- `main.py`: Pydantic schemas, the `/api` router, endpoint authorization, and most service logic. It is a monolith; keep related validation close to its route unless a deliberate refactor is in scope.
-- `database.py`: ORM tables, import-time SQLite migrations, conversions to dataclasses, transactions, and cross-table synchronization.
-- `models.py`: internal dataclasses returned by `Database`; these are not the HTTP schemas.
-- `auth.py`: password hashing, access-token verification, opaque refresh-token lifecycle, and reusable authorization dependencies.
-- `utils/s3_service.py`: boto3 client, presigned URL generation, and server-side remote image copy for VK avatars.
-- `tests/`: executable API contract and security expectations. Strict `xfail` tests intentionally describe unresolved correct behavior.
+All working content requires an active approved account, including blocks, legacy guides, files and contacts. Public auth operations do not expose content. Pending/rejected users have their own registration/session workflow. Backend checks remain authoritative even when UI buttons are hidden.
 
-All application routes have `/api`; public/anonymous access currently includes block listing and global guides. Some other anonymous exposure is a known defect, not an intended pattern.
+Chair/deputies come from explicit leadership/role assignments. Block master, per-principal deputies, event/subevent leaders and organizers grant scoped rights. The master of the explicitly configured is_hr block has global HR/KKR rights; an HR deputy does not. Material editors are assigned per general material by tachki. PGAS rights remain separate.
 
-## Data model and coupled fields
+Never infer rights from FIO, kkr_name, legacy admin/super_user flags or events_roles. A saved trusted master_user_id or explicit operator-ID mapping is different from matching a display name. VK subject links are explicit; provider email or FIO cannot authenticate an existing local account. Password change, archive and logout-all revoke existing access/refresh sessions. Role changes are checked from current DB state on every request.
 
-The database has six active tables:
+## Transactions, IDs and history
 
-- `users`: credentials and authorization flags, KKR score, group, block string, photo URL, `pgas_admin`, and `events_roles`.
-- `contact_info`: one-to-one row sharing the user's ID; name parts, `kkr_name`, contact details, group, block string, membership approval, study type.
-- `block`: block name primary key, master and HR stored as mutable `kkr_name` strings, count, and member IDs serialized as JSON.
-- `guides`: Markdown content, description, optional source link, and an `owner_block`; `none`, `all`, or empty mean global.
-- `pgas_entries`: downloadable document metadata and uploader.
-- `refresh_tokens`: opaque UUID token, user ID, and ISO expiration.
+Every HTTP command uses one unit of work. Nested Database operations flush instead of independently committing. SQLite BEGIN IMMEDIATE serializes writes; revisions and unique indexes cover competing planned/current seasons, roles, contributions, final reports, summaries and memberships. Invalid bulk commands roll back completely. Do not bypass synchronization helpers with ad-hoc roster writes.
 
-Important invariants:
+Block IDs are stable UUIDs mapped to legacy names in BlockMeta; internal legacy task/role/source storage still uses names in some tables, so use membership boundary conversion helpers. Renaming must preserve IDs and update coupled internal names. Master/deputy service roles are independent from ordinary membership.
 
-- `users.user_id == contact_info.user_id`; a normal user needs both rows.
-- Group and block data are duplicated between `users` and `contact_info`. API output often combines the two.
-- Membership is represented three ways: the delimited, sorted block string on both user/contact rows and JSON `arr_of_human` on the block. `_sync_blocks_for_user` and `_sync_users_for_block` own this relationship.
-- Block masters are forced into their block's member array. Master/HR identity is based on exact `contact_info.kkr_name`, not user ID.
-- `admin` is partly derived by `_sync_admin_rights`: a person whose `kkr_name` equals any block's master or HR receives admin rights. This design is fragile under duplicate or renamed KKR names and is covered by strict-`xfail` security tests.
-- Blocks are serialized as a comma-separated sorted string with no spaces. Parsing accepts commas, semicolons, and newlines, but contact filtering currently compares the entire serialized string exactly.
-- `events_roles` is currently a JSON string in `users`, shaped like `[{"event": "...", "role": "..."}]`. There is no normalized events table or dedicated events API. The current UI duplicates hard-coded event/role lists and should not be treated as a mature contract; validate and centralize it when extending the feature.
-- `group_number` is stored as text internally even though registration and some response types model it as a number. Check each boundary rather than assuming one type throughout.
-- `photo_url` is persisted on `users`; contact conversion exposes it through the joined user relationship.
+Registration applications have a bounded resubmission history. Block requests have separate HR/block stages and server-owned 72-hour clocks. Membership and active/approved participation intervals drive category promotion; scores do not imply tenure. Unknown imported dates remain unknown. A separate observed-state migration records participation from its observation timestamp onward, enabling future tenure without backdating a legacy join.
 
-## Authentication and authorization
+Closed summary versions freeze participants, categories, master recipients, bonus bases and the previous-summary version. Corrections are atomic and versioned. Report publication/version history is independent of KKR. Closed report editors are saved actual leaders/deputies; removed authors get no fallback right. Current corresponding-series leadership grants published historical read, not draft/edit or past tracker access.
 
-- Passwords use bcrypt through Passlib.
-- Access tokens are signed JWTs with a `sub`, `type=access`, and a short TTL. The browser keeps the access token in a JavaScript-readable cookie.
-- Refresh tokens are random UUIDs persisted in SQLite and sent as `HttpOnly; Secure; SameSite=None` cookies. Refresh rotates the token.
-- `get_current_user` rejects missing/invalid/deleted/banned users. `get_current_user_optional` converts all authentication failures to anonymous access for public guide filtering.
-- `require_admin` accepts `admin` or `super_user`; `require_pgas_admin` accepts `pgas_admin` or `super_user`; `require_superuser` accepts only `super_user`.
+Materials separate shared draft and published content. Legacy guide IDs/texts and PGAS references survive explicit adapters. Current contact writes are owner-only; former cards are independent records edited by tachki/HR. Avatars use local presets or a completed owned file. Draft attachments remain private until publication.
 
-Legacy backend permission snapshot (verify current routes and contract tests before reuse):
+Archive preserves inactive assignments, closes intervals and revokes sessions. Restore resolves occupied master positions and never resurrects global roles from a previous chair term. After three calendar years, retention replaces account identity with an anonymous accounting participant, preserving agreed former cards and numeric history. Avatar deletion uses a retry queue after the DB transaction. Internal disabled tombstones preserve historical non-null FKs; do not physically delete an account through HTTP.
 
-| Domain | Read | Mutate |
-| --- | --- | --- |
-| Own profile | authenticated | self, admin, or superuser |
-| Other profile | currently anonymous (known defect) | admin/superuser; delete is superuser only |
-| Guides | global guides anonymous; block guides members; all guides superuser | owning block master or superuser |
-| Blocks | anonymous list | enter/exit authenticated; update own master/HR or superuser; create/delete superuser |
-| Contacts | currently anonymous list (known personal-data defect) | filter is admin/superuser; profile PATCH performs edits |
-| PGAS | authenticated | `pgas_admin` or superuser |
-| Upload URLs | authenticated | `guides`: block master/superuser; `pgas`: PGAS admin/superuser; other folders have no extra role check |
+## Migration and deployment
 
-Frontend gating is different and must not replace backend checks:
+Startup migrations are idempotent, but can reject conflicting legacy rows. Rehearse on a backed-up copy using scripts/migrate_v13.py; dry-run must not import the app or write schema. Privileged/VK/HR mappings use verified IDs; never guess historical dates. See backend/docs/MIGRATION_V13.md and ACCOUNT_RETENTION.md.
 
-- `/auth` is public.
-- The main layout requires an active/approved `/session`. Pending/rejected/archived accounts are gated before working queries; the profile is a separate query.
-- New actions and routes use session/object capabilities. The legacy admin entry is gated by `review_registrations`; legacy guide editing retains its compatibility helper.
-- Guide edit access mirrors the block-master rule using the fetched block list.
+The backend Docker image runs Python 3.12 in production mode and excludes secret files. Compose injects backend/.env at runtime. Production requires a unique JWT secret; empty-install chair bootstrap uses explicit configured credentials and never resets/elevates an existing account by email. Private bucket ACL/CORS, provider credentials, actual image build and deployment need environment-specific verification.
 
-## Frontend ownership
-
-- `src/App.tsx`: provider stack and route tree.
-- `src/utils/ctx.tsx`, `session.ts`, `me.tsx`: session and separate profile contexts. A changed access fingerprint cancels/removes private cache before publishing the new session.
-- `src/mocks/`: explicit development/test Axios transport with synthetic role/scenario fixtures, loaded before first render only in DEV. `demoData.ts` holds the DEV guard; set `VITE_DEMO_MODE=false` for real API. There is no error-to-mock fallback or production mock transport.
-- `src/pages/Wrappers/wrappers.tsx`: route gating.
-- `src/pages/Workspace/` and `components/Workspace/`: dashboard, responsive shell, events, shared tasks/assessment inputs, reports, seasons, membership, materials and directory. Routes are loaded by domain. `/profile` is separate and includes avatar selection.
-- `src/utils/api/index.ts`: shared Axios client and token refresh.
-- `src/utils/api/*.api.ts`: domain calls. `contract.ts` holds API 1.3 DTOs separated into public data, assessment inputs and calculated results; `types.ts` retains legacy DTOs. `request.ts` validates errors/list wrappers and follows bounded cursor chains.
-- `src/utils/filterRoles.ts`: UI permission helpers, especially guide ownership.
-- `src/utils/api/files.api.ts`: new intent -> binary upload -> complete/download flow. `s3-utils.ts` remains for legacy PGAS/gallery upload compatibility.
-- `src/pages/Admin/panels/`: admin UI; `BlocksManagement.module.css` is currently shared by more than one panel.
-- `src/styles/vars.css`: canonical palette, typography, radii, and elevation tokens.
-
-The API client returns a mix of full Axios responses (`authApi`, image upload) and unwrapped data (blocks, contacts, guides, PGAS). Preserve the local convention of the module being edited or deliberately normalize all affected callers.
-
-## Deployment and configuration traps
-
-- Backend settings load `.env` relative to the process working directory. `DATABASE_PATH` is required for a useful SQLite URL but is absent from the tracked backend example; verify it without exposing its value.
-- JWT settings are read directly with `os.getenv` in `auth.py`, separate from `Settings`.
-- The frontend runtime schema requires `VITE_BACKEND_URL`, `VITE_ENVIRONMENT`, `VITE_APP_ID`, and `VITE_REDIRECT_URL`. Production still validates `VITE_BACKEND_URL` even though API requests use same-origin `/api`.
-- `VITE_DEMO_MODE` is intentionally read outside the runtime schema: in `import.meta.env.DEV`, every value except the literal string `false` enables the local no-backend demo; production builds always bypass it.
-- The Nginx config serves HTTPS on 443 and expects certificate files mounted at `/etc/nginx/ssl`.
-- New files require intent, binary PUT and complete, then object-checked temporary download URLs. Legacy S3 helpers still use their old presigned/public-URL flow; verify the owning feature before changing it.
-- `preset_db.py` is idempotent by guide title and admin email, but it mutates whichever database `DATABASE_PATH` selects. Treat it as a real data mutation.
-
-Frontend planning and acceptance evidence live in `frontend/docs/PLAN.md`, `CHECKLIST.md`, `MOCKS.md` and `ACCEPTANCE.md`. Mock-ready is separate from real API/deployment readiness. No client KKR/rank/tenure computation.
+Frontend uses shared CSS Modules/tokens, TanStack Query, Axios single-flight refresh and focused API modules. API 1.3 types are in utils/api/contract.ts; legacy adapters remain in types.ts. Development demo mode is separate from real-local API integration and disabled in production. Old unscoped upload is deprecated; use filesApi intent/upload/complete.

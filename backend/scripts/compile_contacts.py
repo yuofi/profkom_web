@@ -1,4 +1,4 @@
-import pandas as pd
+import csv
 import os
 
 files = [
@@ -9,10 +9,10 @@ lines = []
 
 for f in files:
     if os.path.exists(f):
-        df = pd.read_csv(f)
-        df.columns = df.columns.str.strip()
-        
-        for index, row in df.iterrows():
+        with open(f, encoding="utf-8-sig", newline="") as source:
+            rows = list(csv.DictReader(source))
+        for original in rows:
+            row = {key.strip(): value or "" for key,value in original.items() if key is not None}
             fio = str(row.get("ФИО", "")).strip()
             if not fio or fio.lower() == "nan": continue
             

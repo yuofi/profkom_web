@@ -73,6 +73,7 @@ TABLES = (
     "season_summaries",
     "season_decisions",
     "merits",
+    "report_editors", "report_versions",
     "reports",
     "season_corrections",
     "notifications",
@@ -91,6 +92,8 @@ TABLES = (
     "users",
 )
 
+
+assert set(database_module.Base.metadata.tables) <= set(TABLES) | {"domain_migrations"}, "Add every persisted table to the test cleanup list"
 
 def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001
     """Удаляем временную базу после прогона."""
@@ -466,7 +469,8 @@ def make_master(make_user, make_block):
     def _make(block_name: str = "Медиа", **user_kwargs) -> tuple[Actor, Block]:
         actor = make_user(**user_kwargs)
         block = make_block(name=block_name, master=actor.kkr_name)
-        return actor, block
+        db.set_block_leader(block.name,actor.user_id)
+        return actor, db.get_block(block.name)
 
     return _make
 
@@ -478,7 +482,11 @@ def make_hr(make_user, make_block):
     def _make(block_name: str = "Медиа", master_name: str = "Мастер Мастеров", **user_kwargs):
         actor = make_user(**user_kwargs)
         block = make_block(name=block_name, master=master_name, hr=actor.kkr_name)
-        return actor, block
+        from database import BlockORM
+        with db._session() as session:
+            session.get(BlockORM,block.name).is_hr=True;session.commit()
+        db.set_block_leader(block.name,actor.user_id)
+        return actor, db.get_block(block.name)
 
     return _make
 

@@ -3,3 +3,16 @@
 __pycache__
 *.xslx
 *db
+.env
+.env.*
+!.env.example
+tests
+.pytest_cache
+htmlcov
+.coverage
+*.xlsx
+*.csv
+*.sql
+*.log
+temp.txt
+docs

@@ -44,6 +44,8 @@ Acceptance tests for BE-02: Сезоны, мероприятия, руковод
 from __future__ import annotations
 
 import pytest
+from test_api_contract import error_body
+from api_helpers import post_season
 from database import db
 
 
@@ -113,7 +115,7 @@ def test_seasons_открытие_сезона_переключает_is_current
     s1_id = r1.json()["season_id"]
 
     # Открываем Сезон 1
-    r_open1 = client.post(f"{SEASONS_URL}/{s1_id}/open", json={"expected_revision": 1}, headers=superuser.headers)
+    r_open1 = post_season(client,f"{SEASONS_URL}/{s1_id}/open", json={"expected_revision": 1}, headers=superuser.headers)
     assert r_open1.status_code == 200
     s1_data = r_open1.json()
     assert s1_data["state"] == "open"
@@ -137,7 +139,7 @@ def test_seasons_открытие_сезона_переключает_is_current
     assert s2["previous_season_id"] == s1_id
 
     # Открываем Сезон 2: Сезон 1 теряет is_current, но сохраняет свой state=open!
-    r_open2 = client.post(f"{SEASONS_URL}/{s2['season_id']}/open", json={"expected_revision": 1}, headers=superuser.headers)
+    r_open2 = post_season(client,f"{SEASONS_URL}/{s2['season_id']}/open", json={"expected_revision": 1}, headers=superuser.headers)
     assert r_open2.status_code == 200
     assert r_open2.json()["is_current"] is True
 
@@ -159,33 +161,33 @@ def test_seasons_последовательное_закрытие_препят�
         "title": "Сезон 1", "type": "winter_spring", "starts_at": "2026-01-01T00:00:00Z", "ends_at": "2026-05-31T23:59:59Z"
     }, headers=superuser.headers)
     s1_id = r1.json()["season_id"]
-    client.post(f"{SEASONS_URL}/{s1_id}/open", json={}, headers=superuser.headers)
+    post_season(client,f"{SEASONS_URL}/{s1_id}/open", json={}, headers=superuser.headers)
 
     # Сезон 2
     r2 = client.post(SEASONS_URL, json={
         "title": "Сезон 2", "type": "summer_autumn", "starts_at": "2026-06-01T00:00:00Z", "ends_at": "2026-08-31T23:59:59Z"
     }, headers=superuser.headers)
     s2_id = r2.json()["season_id"]
-    client.post(f"{SEASONS_URL}/{s2_id}/open", json={}, headers=superuser.headers)
+    post_season(client,f"{SEASONS_URL}/{s2_id}/open", json={}, headers=superuser.headers)
 
     # Переводим Сезон 2 в summarizing
-    client.post(f"{SEASONS_URL}/{s2_id}/begin-summary", json={}, headers=superuser.headers)
+    post_season(client,f"{SEASONS_URL}/{s2_id}/begin-summary", json={}, headers=superuser.headers)
 
     # Попытка закрыть Сезон 2 до закрытия Сезона 1 -> 409 с блокером previous_season_not_closed
-    r_close2 = client.post(f"{SEASONS_URL}/{s2_id}/close", json={}, headers=superuser.headers)
+    r_close2 = post_season(client,f"{SEASONS_URL}/{s2_id}/close", json={}, headers=superuser.headers)
     assert r_close2.status_code == 409
     err = r_close2.json()
-    assert err["detail"]["detail"] == "season_not_ready"
+    assert err["detail"]["code"] == "season_not_ready"
     blockers = err["detail"]["fields"]["blockers"]
     assert any(b["kind"] == "previous_season_not_closed" for b in blockers)
 
     # Переводим Сезон 1 в summarizing и закрываем его
-    client.post(f"{SEASONS_URL}/{s1_id}/begin-summary", json={}, headers=superuser.headers)
-    r_close1 = client.post(f"{SEASONS_URL}/{s1_id}/close", json={}, headers=superuser.headers)
+    post_season(client,f"{SEASONS_URL}/{s1_id}/begin-summary", json={}, headers=superuser.headers)
+    r_close1 = post_season(client,f"{SEASONS_URL}/{s1_id}/close", json={}, headers=superuser.headers)
     assert r_close1.status_code == 200
 
     # Теперь Сезон 2 успешно закрывается
-    r_close2_ok = client.post(f"{SEASONS_URL}/{s2_id}/close", json={}, headers=superuser.headers)
+    r_close2_ok = post_season(client,f"{SEASONS_URL}/{s2_id}/close", json={}, headers=superuser.headers)
     assert r_close2_ok.status_code == 200
     assert r_close2_ok.json()["season"]["state"] == "closed"
 
@@ -208,7 +210,7 @@ def test_seasons_patch_валидация_дедлайнов(client, superuser):
     # Попытка сократить сезон до 2026-05-10 (< ends_at мероприятия) -> 422
     r_patch = client.patch(f"{SEASONS_URL}/{s1['season_id']}", json={
         "expected_revision": s1["revision"],
-        "ends_at": "2026-05-10T00:00:00Z",
+        "ends_at": "2026-05-10T00:00:00Z", "reason":"Schedule adjustment",
     }, headers=superuser.headers)
     assert r_patch.status_code == 422
 
@@ -250,7 +252,7 @@ def test_events_создание_и_права_доступа(client, superuser,
     # Серия отчётов автоматически создана
     r_series = client.get(REPORT_SERIES_URL, headers=user.headers)
     assert r_series.status_code == 200
-    assert any(s["series_id"] == ev["report_series_id"] for s in r_series.json())
+    assert r_series.json()["items"] == []  # Unassigned users do not gain report-series access.
 
 
 def test_subevents_изоляция_списков_не_раскрывает_чужие_подмероприятия(client, superuser, user, make_user):
@@ -284,7 +286,7 @@ def test_subevents_изоляция_списков_не_раскрывает_ч�
     # user запрашивает список подмероприятий: видит ТОЛЬКО "Лекции", НЕ видит "Квест"!
     r_subs_user = client.get(f"{EVENTS_URL}/{ev_id}/subevents", headers=user.headers)
     assert r_subs_user.status_code == 200
-    sub_titles = [s["title"] for s in r_subs_user.json()]
+    sub_titles = [s["title"] for s in r_subs_user.json()["items"]]
     assert "Лекции" in sub_titles
     assert "Квест" not in sub_titles
 
@@ -295,7 +297,7 @@ def test_subevents_изоляция_списков_не_раскрывает_ч�
     # user3 (вообще не участвует) видит пустой список и 403 на прямой доступ
     r_subs_user3 = client.get(f"{EVENTS_URL}/{ev_id}/subevents", headers=user3.headers)
     assert r_subs_user3.status_code == 200
-    assert len(r_subs_user3.json()) == 0
+    assert len(r_subs_user3.json()["items"]) == 0
     assert client.get(f"/api/subevents/{sub1_id}", headers=user3.headers).status_code == 403
 
     # Председатель/тачки видят оба подмероприятия
@@ -308,7 +310,7 @@ def test_events_copy_структуры_без_старых_задач_и_люд
     r_s1 = client.post(SEASONS_URL, json={
         "title": "2025", "type": "winter_spring", "starts_at": "2025-01-01T00:00:00Z", "ends_at": "2025-05-31T23:59:59Z"
     }, headers=superuser.headers)
-    client.post(f"{SEASONS_URL}/{r_s1.json()['season_id']}/open", json={}, headers=superuser.headers)
+    post_season(client,f"{SEASONS_URL}/{r_s1.json()['season_id']}/open", json={}, headers=superuser.headers)
 
     r_s2 = client.post(SEASONS_URL, json={
         "title": "2026", "type": "winter_spring", "starts_at": "2026-01-01T00:00:00Z", "ends_at": "2026-05-31T23:59:59Z"
@@ -452,10 +454,11 @@ def test_deputies_валидация_лимита_и_запрет_самоназ
 
 def test_block_leader_назначение_мастера_не_добавляет_в_члены(client, superuser, user):
     # Создаём блок через существующий API
-    client.post("/api/blocks", json={"name": "media", "master": "старый", "hr": "хр", "cnt_of_human": 0, "arr_of_human": []}, headers=superuser.headers)
+    from models import Block
+    db.create_block(Block(name='media',master='старый'))
 
     # Назначаем user мастером блока
-    r_set = client.put("/api/blocks/media/leader", json={"user_id": user.user_id}, headers=superuser.headers)
+    r_set = client.put("/api/blocks/media/leader", json={"user_id": user.user_id,"expected_revision":1}, headers=superuser.headers)
     assert r_set.status_code == 200
     block_data = r_set.json()
     assert block_data["name"] == "media"
@@ -557,7 +560,7 @@ def test_season_corrections_только_тачки_атомарный_пере�
         "title": "Сезон 1", "type": "winter_spring", "starts_at": "2026-01-01T00:00:00Z", "ends_at": "2026-05-31T23:59:59Z"
     }, headers=superuser.headers)
     s1_id = r_s1.json()["season_id"]
-    client.post(f"{SEASONS_URL}/{s1_id}/open", json={}, headers=superuser.headers)
+    post_season(client,f"{SEASONS_URL}/{s1_id}/open", json={}, headers=superuser.headers)
 
     r_s2 = client.post(SEASONS_URL, json={
         "title": "Сезон 2", "type": "summer_autumn", "starts_at": "2026-06-01T00:00:00Z", "ends_at": "2026-08-31T23:59:59Z"

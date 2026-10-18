@@ -1,4 +1,5 @@
 FROM python:3.12-slim
+ENV APP_ENV=production PYTHONDONTWRITEBYTECODE=1
 
 RUN groupadd -r profkom && useradd -r -g profkom -m admin
 WORKDIR /app

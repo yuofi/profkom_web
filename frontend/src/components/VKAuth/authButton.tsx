@@ -9,12 +9,14 @@ export interface VKAuthButtonProps {
 
 export const VKAuthButton = ({ onSuccess, onError }: VKAuthButtonProps) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const applicationId = Number(env.VITE_APP_ID);
+  const configured = Number.isSafeInteger(applicationId) && applicationId > 0;
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (!containerRef.current || !configured) return;
     const ref = containerRef.current;
     VKID.Config.init({
-      app: Number.parseInt(env.VITE_APP_ID),
+      app: applicationId,
       redirectUrl: env.VITE_REDIRECT_URL,
       responseMode: VKID.ConfigResponseMode.Callback,
       source: VKID.ConfigSource.LOWCODE, 
@@ -57,9 +59,9 @@ export const VKAuthButton = ({ onSuccess, onError }: VKAuthButtonProps) => {
         ref.innerHTML = "";
       }
     };
-  }, [onSuccess, onError]);
+  }, [onSuccess, onError, configured, applicationId]);
 
-  return <div ref={containerRef}></div>;
+  return configured ? <div ref={containerRef}></div> : <p role="status">Вход через VK временно недоступен. Используйте почту и пароль.</p>;
 };
 
 export const VKOneTap = ({

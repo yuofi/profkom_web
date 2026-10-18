@@ -1,134 +1,30 @@
-# Тестирование бэкенда Профком ВМК
+# Backend verification
 
-Два независимых инструмента:
+Run from `backend/` with Python 3.12 and dependencies from `requirements.txt`:
 
-| | что делает | когда нужен |
-|---|---|---|
-| **`./run_tests.sh`** | Полный набор pytest-тестов на временной базе, без сети | перед коммитом, в CI, после правок кода |
-| **`python3 check_live.py`** | Проверяет **запущенный** сервер по HTTP | после деплоя, при отладке прода, чтобы убедиться «сайт живой» |
-
-Ни один из них не трогает `data/profcom.db`.
-
----
-
-## 1. Набор тестов (`run_tests.sh`)
-
-```bash
-./run_tests.sh
+```sh
+python -m pytest tests -q
+python -m pytest tests/test_v13_*.py -q
+python -m pytest tests/test_api_contract.py -q
 ```
 
-Скрипт сам создаст `.venv`, если его нет, доставит `pytest` и `httpx` и прогонит всё.
+Always specify `tests`: the root-level `test_api.py` is a developer scratch script. `run_tests.sh tests -q` remains a convenience wrapper for a local environment; CI creates an isolated environment. TestClient imports the real app, but conftest sets DATABASE_PATH before any app import, asserts the synthetic URL, cleans every domain table between cases and deletes its temporary DB afterwards. S3/VK are mocked. Migration subprocesses use separate temporary legacy databases. Never point this suite at shared or production data.
 
-Тесты поднимают приложение **внутри процесса** через `TestClient` — сервер запускать не нужно. Каждый тест стартует с пустой временной базы SQLite (`$TMPDIR/profkom_test_*.db`), которая удаляется после прогона. S3 и VK API замоканы и никогда не вызываются по-настоящему.
+The route inventory in test_api_contract is a literal snapshot. Adding a route requires updating that snapshot and its public/protected classification. The matrix checks every route against anonymous, banned and malformed-token requests, including error envelopes and OpenAPI security. Error helpers validate the actual wire format before comparing diagnostics; they do not replace TestClient responses.
 
-### Частые команды
+Legacy tests have been updated for API 1.3: approved content, explicit roles, owner-only current contacts, versioned legacy guide writes, disabled direct block mutation, private uploads and archive instead of physical profile deletion. Former skip-on-fixed-security probes now assert access refusal. Workflow helpers send current revisions explicitly; dedicated stale/concurrency tests check revision conflicts and rollback.
 
-```bash
-./run_tests.sh -k guides
+The v13 files cover registration limits/history, exact 72-hour substitution, membership/participation boundaries, tracker privacy and dates, immutable summaries and atomic corrections, historical reports/files, workspace/notifications/XLSX, materials/draft-file ACL, directory/avatars, archive/cleanup/retry queues, old-schema migration and competing commands. Migrations are rehearsed on synthetic old tables and applied twice; original guide text, IDs, PGAS and user counts are checked.
+
+Frontend checks from `frontend/`:
+
+```sh
+npm run lint
+npm run build
+npm test -- --run
+PROFKOM_TEST_API_ORIGIN=http://127.0.0.1:18000 npm run test:integration
 ```
 
-```bash
-./run_tests.sh tests/test_auth_tokens.py -v
-```
+The default suite excludes integration tests. The integration configuration only accepts localhost and calls the actual HTTP API through frontend clients. Use a disposable backend with synthetic chair@example.com / Synthetic-Local-2026; never provision these credentials on a shared installation. Integration exercises pending registration, approval of the same user, safe directory DTOs and material save/publication. Browser verification uses VITE_DEMO_MODE=false against the same local API.
 
-```bash
-./run_tests.sh --cov
-```
-
-Последняя команда положит HTML-отчёт о покрытии в `htmlcov/index.html`.
-
-### Как устроено
-
-```
-tests/
-  conftest.py              фикстуры: клиент, пользователи, роли, моки S3 и VK
-  test_auth_register.py    POST /api/auth/register
-  test_auth_login.py       POST /api/auth/login, /api/auth/change-password
-  test_auth_tokens.py      refresh, logout, logout-all, семантика access-токена
-  test_auth_vk.py          POST /api/auth/vk
-  test_profile.py          /api/profile/me и /api/profile/{id} (GET/PATCH/DELETE)
-  test_guides.py           гайды: список, чтение, создание, правка, удаление
-  test_blocks.py           блоки: CRUD + вход/выход
-  test_contacts.py         /api/contacts и /api/contacts/filter
-  test_upload.py           /api/upload/presigned-url
-  test_api_contract.py     карта маршрутов, матрица прав, CORS, OpenAPI
-```
-
-`conftest.py` подменяет `DATABASE_PATH` **до** импорта приложения и падает с понятной ошибкой, если подключение всё-таки ушло не на временную базу. Это защита от того, чтобы прогон тестов не стёр боевые данные.
-
-### Основные фикстуры
-
-```python
-def test_пример(client, make_user, superuser, make_block, make_guide):
-    u = make_user(name="Иван", surname="Петров", admin=True)
-    r = client.get("/api/profile/me", headers=u.headers)
-    assert r.status_code == 200
-```
-
-- `client` — `TestClient` поверх настоящего приложения
-- `make_user(**kw)` — пользователь с любыми флагами (`admin`, `super_user`, `banned`, `password=None` для VK-аккаунта); возвращает `Actor` с готовым `.headers`
-- `user`, `admin`, `superuser`, `banned_user` — готовые роли
-- `make_block`, `make_master`, `make_hr`, `make_guide` — доменные объекты
-- `mock_s3` — включён всегда, пишет вызовы в `mock_s3["presigned"]` и `mock_s3["upload"]`
-- `mock_vk(...)` — настраиваемый ответ VK
-- `expired_access_token`, `refresh_typed_token`, `foreign_signed_token`, `expired_refresh_token` — заведомо негодные токены
-
-### Про `xfail`
-
-Часть тестов помечена так:
-
-```python
-@pytest.mark.xfail(strict=True, reason="БАГ: ...")
-```
-
-Это тесты, которые проверяют **правильное** поведение там, где бэкенд сейчас ведёт себя неправильно. Набор остаётся зелёным, но как только баг починят, тест начнёт «неожиданно проходить» и pytest об этом сообщит (`strict=True`) — маркер надо будет снять. Так известные дефекты не забываются.
-
----
-
-## 2. Проверка живого сервера (`check_live.py`)
-
-Отдельный процесс без зависимостей — только стандартная библиотека Python 3.9+. Ни pytest, ни venv не нужны.
-
-```bash
-python3 check_live.py
-```
-
-По умолчанию идёт на `http://127.0.0.1:8000`.
-
-```bash
-python3 check_live.py --url https://profkom.example.ru --read-only
-```
-
-### Режимы
-
-| ключ | смысл |
-|---|---|
-| `--url` | адрес сервера (или переменная окружения `PROFKOM_API`) |
-| `--read-only` | ничего не создавать и не менять — только чтение |
-| `--email` / `--password` | войти существующей учёткой вместо регистрации временной |
-| `--insecure` | не проверять TLS-сертификат (самоподписанный на стенде) |
-| `--timeout` | таймаут запроса, по умолчанию 15 с |
-
-**Важно.** Без `--read-only` и без `--email` скрипт **регистрирует временного пользователя** `healthcheck_*@example.com`, чтобы проверить защищённые маршруты. На боевом сервере запускайте либо с `--read-only`, либо с учёткой существующего пользователя.
-
-Код возврата `0` — всё прошло, `1` — есть провалы, поэтому скрипт годится для мониторинга и CI:
-
-```bash
-python3 check_live.py --url https://profkom.example.ru --read-only || echo "бэкенд сломан"
-```
-
-### Что проверяет
-
-Публичная часть: схема OpenAPI отдаётся, список блоков и гайдов приходит в правильной форме, аноним **не** видит гайды закрытых блоков, несуществующий путь даёт 404, защищённый маршрут без токена даёт 401, CORS не отражает произвольный `Origin`, справочник контактов не открыт всему миру.
-
-Авторизация: регистрация, повторная регистрация даёт 409, валидация группы и телеграма даёт 422, вход с неверным паролем и с неизвестным email даёт 401.
-
-Защищённая часть: профиль, ротация refresh-токена и отзыв старого, чтение гайдов, правка своего профиля, и главное — что обычному пользователю **отказано** в создании гайдов, создании блоков, фильтре контактов, удалении и правке чужого профиля, загрузке в папку `guides`.
-
----
-
-## Запуск обоих разом
-
-```bash
-./run_tests.sh && ./run_tests.sh --live --read-only
-```
+`check_live.py` targets a running server and may create users unless `--read-only` is supplied. It is separate from isolated tests. Real provider VK verification, private S3 PUT/HEAD/GET/CORS, production migrations, image builds and deployed smoke tests must be reported separately from mocked/local checks.

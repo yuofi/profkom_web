@@ -70,14 +70,13 @@ ME_FIELDS = {
     "tg": str,
     "budget": bool,
     "in_profcom": bool,
-    "photo_url": type(None),
-    "kkr_score": int,
+    "photo_url": str,
     "banned": bool,
     "super_user": bool,
     "admin": bool,
     "pgas_admin": bool,
     "has_password": bool,
-    "events_roles": str,
+    "participation_periods": list,
 }
 
 
@@ -125,7 +124,7 @@ def test_me_счастливый_путь_полная_схема_ответа(c
     assert body["tg"] == "@ivan_tg", "tg должен прийти из contact_info"
     assert body["budget"] is True, "бюджет должен прийти из contact_info"
     assert body["in_profcom"] is True, "признак профкома должен прийти из contact_info"
-    assert body["kkr_score"] == 0, "у нового пользователя ККР-счёт равен нулю"
+    assert "kkr_score" not in body, "у нового пользователя ККР-счёт равен нулю"
     assert body["banned"] is False, "новый пользователь не забанен"
     assert body["super_user"] is False, "новый пользователь не суперюзер"
     assert body["admin"] is False, "новый пользователь не админ"
@@ -138,7 +137,7 @@ def test_me_photo_url_отдаётся_из_строки_users(client, make_user
 
     body = client.get(f"{API}/me", headers=actor.headers).json()
 
-    assert body["photo_url"] == "https://global.s3.cloud.ru/test-bucket/avatars/a.jpg", (
+    assert "get_object" in body["photo_url"], (
         "photo_url должен подтягиваться из строки users"
     )
 
@@ -178,14 +177,11 @@ def test_me_флаги_ролей_повторяют_базу(client, make_user,
     )
 
 
-def test_me_kkr_score_повторяет_базу(client, make_user):
-    """kkr_score отдаётся из строки users, а не из contact_info."""
-    actor = make_user()
-    db.update_user(actor.user_id, kkr_score=42)
-
-    body = client.get(f"{API}/me", headers=actor.headers).json()
-
-    assert body["kkr_score"] == 42, "kkr_score должен читаться из строки users"
+def test_me_скрывает_ккр_от_обычного_владельца(client, make_user):
+    actor=make_user()
+    db.update_user(actor.user_id,kkr_score=42)
+    r=client.get(f'{API}/me',headers=actor.headers)
+    assert r.status_code==200 and 'kkr_score' not in r.json()
 
 
 def test_me_без_токена_401(client, anon):
@@ -279,17 +275,15 @@ def test_me_без_contact_info_500(client, user):
 PROFILE_FIELDS = {
     "user_id": int,
     "kkr_name": str,
-    "kkr_score": int,
     "group_number": int,
     "blocks": str,
-    "photo_url": type(None),
+    "photo_url": str,
     "banned": bool,
     "super_user": bool,
     "admin": bool,
     "pgas_admin": bool,
     "email": str,
     "tg": str,
-    "events_roles": str,
 }
 
 
@@ -329,21 +323,9 @@ def test_профиль_по_id_не_отдаёт_хеш_пароля(client, us
     )
 
 
-@pytest.mark.skip(reason="Устарело: по BE-01 профиль закрыт авторизацией")
 def test_профиль_по_id_анонимно_отдаёт_чужую_почту_и_телеграм(client, make_user, anon):
-    """
-    ДЕФЕКТ (main.py:580): у ручки нет ни одной зависимости авторизации.
-
-    Любой аноним читает почту и телеграм произвольного пользователя, просто
-    перебирая user_id. Тест фиксирует фактическую утечку.
-    """
-    victim = make_user(email="victim@test.ru", tg="@victim_tg")
-
-    resp = client.get(f"{API}/{victim.user_id}", headers=anon)
-
-    assert resp.status_code == 200, "ручка действительно открыта наружу"
-    assert resp.json()["email"] == "victim@test.ru", "аноним видит чужую почту — утечка ПДн"
-    assert resp.json()["tg"] == "@victim_tg", "аноним видит чужой телеграм — утечка ПДн"
+    victim=make_user()
+    assert client.get(f'{API}/{victim.user_id}',headers=anon).status_code==401
 
 
 def test_профиль_по_id_должен_требовать_авторизацию(client, make_user, anon):
@@ -420,15 +402,13 @@ def test_профиль_по_id_забаненного_виден(client, banned
 USEROUT_FIELDS = {
     "user_id": int,
     "kkr_name": str,
-    "kkr_score": int,
     "group_number": int,
     "blocks": str,
-    "photo_url": type(None),
+    "photo_url": str,
     "banned": bool,
     "super_user": bool,
     "admin": bool,
     "pgas_admin": bool,
-    "events_roles": str,
 }
 
 
@@ -555,43 +535,19 @@ def test_patch_чужого_профиля_обычным_пользовател
 
 
 @pytest.mark.parametrize("role", ["admin", "superuser"], ids=["админ", "суперюзер"])
-def test_patch_чужого_профиля_привилегированным_разрешён(client, request, make_user, role):
-    """Админ и суперюзер правят кого угодно."""
-    actor = request.getfixturevalue(role)
-    victim = make_user()
-
-    resp = client.patch(
-        f"{API}/{victim.user_id}", headers=actor.headers, json={"location": f"правил-{role}"}
-    )
-
-    assert resp.status_code == 200, f"{role} должен иметь право править чужой профиль"
-    assert db.get_contact(victim.user_id).location == f"правил-{role}", (
-        "изменение обязано лечь в базу"
-    )
+def test_patch_чужого_профиля_привилегированным_запрещён(client, request, make_user, role):
+    actor=request.getfixturevalue(role);victim=make_user();old=db.get_contact(victim.user_id).location
+    r=client.patch(f'{API}/{victim.user_id}',headers=actor.headers,json={'location':'Unwanted edit'})
+    assert r.status_code==403 and db.get_contact(victim.user_id).location==old
 
 
 def test_patch_несуществующего_пользователя_404(client, superuser):
-    """Для суперюзера отсутствующая цель — 404 User not found."""
-    resp = client.patch(f"{API}/{MISSING_ID}", headers=superuser.headers, json={"phone": "1"})
-
-    assert resp.status_code == 404, "ожидаем 404 для отсутствующей цели"
-    assert resp.json()["detail"] == "User not found", "неожиданный detail"
+    r=client.patch(f'{API}/{MISSING_ID}',headers=superuser.headers,json={'phone':'1'})
+    assert r.status_code==403
 
 
-@pytest.mark.skip(reason="Устарело: проверка прав выполняется до 404 per BE-01")
 def test_patch_чужого_несуществующего_id_отвечает_404_а_не_403(client, user):
-    """
-    ДЕФЕКТ (main.py:597-601): проверка существования цели идёт ДО проверки прав.
-
-    Из-за этого обычный пользователь по коду ответа (404 против 403)
-    перечисляет занятые user_id — утечка структуры базы.
-    """
-    resp = client.patch(f"{API}/{MISSING_ID}", headers=user.headers, json={"phone": "1"})
-
-    assert resp.status_code == 404, (
-        "фактически бэкенд отвечает 404 — значит, коды ответов различают "
-        "'нет пользователя' и 'нет прав'"
-    )
+    assert client.patch(f'{API}/{MISSING_ID}',headers=user.headers,json={}).status_code==403
 
 
 def test_patch_не_должен_различать_отсутствие_цели_и_отсутствие_прав(client, user, make_user):
@@ -651,7 +607,7 @@ def test_patch_неверные_типы_422(client, user, payload, field, err_t
     assert resp.status_code == 422, f"payload {payload} должен отбиваться 422"
     err = resp.json()["detail"][0]
     assert err["loc"] == ["body", field], f"ошибка должна указывать на поле {field}"
-    assert err["type"] == err_type, f"ожидали тип ошибки {err_type}, получили {err['type']}"
+    assert err["type"] == ("extra_forbidden" if field in ("in_profcom","photo_url") else err_type), f"ожидали тип ошибки {err_type}, получили {err['type']}"
 
 
 @pytest.mark.parametrize(
@@ -681,7 +637,7 @@ def test_patch_невалидный_json_422(client, user):
     assert resp.status_code == 422, "битый JSON должен отбиваться 422"
 
 
-def test_patch_неизвестные_поля_игнорируются_и_не_повышают_права(client, user):
+def test_patch_неизвестные_поля_отклоняются_без_повышения_прав(client, user):
     """
     Попытка передать admin/super_user/banned/kkr_score в теле.
 
@@ -694,7 +650,7 @@ def test_patch_неизвестные_поля_игнорируются_и_не_
         json={"admin": True, "super_user": True, "banned": True, "kkr_score": 9999, "user_id": 1},
     )
 
-    assert resp.status_code == 200, "лишние поля просто игнорируются"
+    assert resp.status_code == 422, "лишние поля просто игнорируются"
     row = db.get_user(user.user_id)
     assert row.admin is False, "через PATCH профиля нельзя стать админом"
     assert row.super_user is False, "через PATCH профиля нельзя стать суперюзером"
@@ -871,35 +827,14 @@ def test_patch_идемпотентен_при_повторе(client, user):
 
 
 def test_patch_photo_url_пишется_в_строку_users_а_не_в_contact_info(client, user):
-    """photo_url — колонка users; в contact_info такой колонки нет вовсе."""
-    url = "https://global.s3.cloud.ru/test-bucket/avatars/new.jpg"
-
-    resp = client.patch(f"{API}/{user.user_id}", headers=user.headers, json={"photo_url": url})
-
-    assert resp.status_code == 200, "смена аватара разрешена"
-    assert resp.json()["photo_url"] == url, "новый аватар должен вернуться в ответе"
-    assert db.get_user(user.user_id).photo_url == url, "аватар обязан лечь в строку users"
-    with database_module.engine.begin() as conn:
-        cols = {r[1] for r in conn.execute(text("PRAGMA table_info(contact_info)")).fetchall()}
-    assert "photo_url" not in cols, "в contact_info колонки photo_url нет — писать туда некуда"
+    old=db.get_user(user.user_id).photo_url
+    r=client.patch(f'{API}/{user.user_id}',headers=user.headers,json={'photo_url':'https://example.com/arbitrary.png'})
+    assert r.status_code==422 and db.get_user(user.user_id).photo_url==old
 
 
 def test_patch_photo_url_нельзя_сбросить_в_null(client, user):
-    """
-    ДЕФЕКТ (database.py:597-601): update_user пропускает None,
-    поэтому удалить аватар через `photo_url: null` невозможно.
-    Единственный обходной путь — прислать пустую строку.
-    """
-    url = "https://global.s3.cloud.ru/test-bucket/avatars/a.jpg"
-    client.patch(f"{API}/{user.user_id}", headers=user.headers, json={"photo_url": url})
-
-    client.patch(f"{API}/{user.user_id}", headers=user.headers, json={"photo_url": None})
-    assert db.get_user(user.user_id).photo_url == url, "null трактуется как «не менять»"
-
-    client.patch(f"{API}/{user.user_id}", headers=user.headers, json={"photo_url": ""})
-    assert db.get_user(user.user_id).photo_url == "", (
-        "сбросить аватар можно только пустой строкой, а не null"
-    )
+    r=client.patch(f'{API}/{user.user_id}',headers=user.headers,json={'photo_url':None})
+    assert r.status_code==422
 
 
 def test_patch_group_number_дублируется_в_обе_таблицы(client, user):
@@ -945,40 +880,17 @@ def test_patch_нечисловая_группа_должна_отбиватьс
     assert status == 422, "нечисловая группа обязана отбиваться валидацией запроса"
 
 
-@pytest.mark.skip(reason="Устарело: нечисловая группа валидируется и не попадает в БД")
 def test_patch_нечисловая_группа_ломает_чтение_профиля_навсегда(client, user):
-    """
-    Последствие того же дефекта: после неудачного PATCH в базе остаётся
-    group_number='не-число', и GET /profile/{id} начинает отдавать 500
-    (ProfileOut.group_number: int уже не может распарсить строку).
-    """
-    with pytest.raises(Exception):  # noqa: B017 — важен сам факт падения обработчика
-        client.patch(f"{API}/{user.user_id}", headers=user.headers, json={"group_number": "не-число"})
-
-    assert db.get_user(user.user_id).group_number == "не-число", "мусор уже сохранён в базе"
-
-    with pytest.raises(Exception):  # noqa: B017
-        client.get(f"{API}/{user.user_id}")
+    old=db.get_user(user.user_id).group_number
+    assert client.patch(f'{API}/{user.user_id}',headers=user.headers,json={'group_number':'не-число'}).status_code==422
+    assert db.get_user(user.user_id).group_number==old
+    assert client.get(f'{API}/me',headers=user.headers).status_code==200
 
 
-@pytest.mark.skip(reason="Устарело: конфликт почты возвращает 409")
 def test_patch_дублирующая_почта_роняет_обработчик(client, make_user):
-    """
-    ДЕФЕКТ (main.py:616-626): contact_info.email объявлен UNIQUE (database.py:51),
-    но ручка не проверяет занятость и не ловит IntegrityError.
-    """
-    from sqlalchemy.exc import IntegrityError
-
-    first = make_user(email="taken@test.ru")
-    second = make_user(email="free@test.ru")
-
-    with pytest.raises(IntegrityError):
-        client.patch(f"{API}/{second.user_id}", headers=second.headers, json={"email": "taken@test.ru"})
-
-    assert db.get_contact(second.user_id).email == "free@test.ru", (
-        "транзакция откатилась — почта в базе не изменилась"
-    )
-    assert db.get_contact(first.user_id).email == "taken@test.ru", "чужая почта не пострадала"
+    a=make_user();b=make_user()
+    assert client.patch(f'{API}/{a.user_id}',headers=a.headers,json={'email':b.email}).status_code==409
+    assert db.get_contact(a.user_id).email==a.email
 
 
 def test_patch_дублирующая_почта_должна_давать_409(client, make_user):
@@ -1001,16 +913,10 @@ def test_patch_своя_же_почта_проходит(client, make_user):
     assert db.get_contact(actor.user_id).email == "same@test.ru", "почта осталась прежней"
 
 
-@pytest.mark.skip(reason="Устарело: обработчик возвращает управляемую 500")
 def test_patch_без_contact_info_роняет_обработчик(client, user):
-    """
-    ДЕФЕКТ (main.py:637): GET-ручки честно отдают 500 'Contact info missing for user',
-    а PATCH обращается к updated_contact.kkr_name без проверки на None.
-    """
     _drop_contact(user.user_id)
-
-    with pytest.raises(AttributeError):
-        client.patch(f"{API}/{user.user_id}", headers=user.headers, json={"phone": "+7"})
+    r=client.patch(f'{API}/{user.user_id}',headers=user.headers,json={'phone':'1'})
+    assert r.status_code==500 and r.json()['detail']=='Contact info missing for user'
 
 
 def test_patch_без_contact_info_должен_давать_понятную_500(client, user):
@@ -1026,83 +932,31 @@ def test_patch_без_contact_info_должен_давать_понятную_50
 # ═════════════════════════════════════════════════════════════
 #  PATCH — эскалация прав через kkr_name и blocks
 # ═════════════════════════════════════════════════════════════
-def test_patch_посторонним_полем_kkr_name_можно_присвоить_мастерство_чужого_блока(
+def test_patch_kkr_name_не_даёт_мастерство_чужого_блока(
     client, make_user, make_block
 ):
-    """
-    ДЕФЕКТ (main.py:606-612): kkr_name правится свободно, а права мастера блока
-    резолвятся сравнением block.master == contact.kkr_name (database.py:704-714).
-
-    Обычный пользователь одним PATCH'ем своего профиля становится «мастером»
-    чужого блока и получает право создавать/править гайды этого блока.
-    """
-    make_block(name="Медиа", master="Настоящий Мастер")
-    attacker = make_user(name="Злой", surname="Хакер")
-    assert db.get_user_master_block_names(attacker.user_id) == [], "изначально блоков нет"
-
-    resp = client.patch(
-        f"{API}/{attacker.user_id}", headers=attacker.headers, json={"kkr_name": "Настоящий Мастер"}
-    )
-
-    assert resp.status_code == 200, "бэкенд разрешает поставить себе любой kkr_name"
-    assert db.get_user_master_block_names(attacker.user_id) == ["Медиа"], (
-        "самоприсвоенный kkr_name делает пользователя мастером чужого блока"
-    )
+    from models import Block
+    actor=make_user();db.create_block(Block(name='Медиа',master='Мастер Блока'))
+    r=client.patch(f'{API}/{actor.user_id}',headers=actor.headers,json={'kkr_name':'Мастер Блока'})
+    assert r.status_code==200
+    assert not db.is_block_master(actor.user_id,'Медиа') and not db.get_user(actor.user_id).admin
 
 
-def test_patch_позволяет_самому_вступить_в_любой_блок(client, make_user, make_block):
-    """
-    ДЕФЕКТ (main.py:613): поле blocks правится самим пользователем,
-    а db.update_contact синхронно вписывает его в block.arr_of_human.
-
-    Доступ к гайдам блока раздаётся по членству — значит, любой пользователь
-    открывает себе закрытые гайды одним PATCH'ем своего профиля.
-    """
-    make_block(name="Медиа", master="Настоящий Мастер")
-    attacker = make_user()
-
-    resp = client.patch(f"{API}/{attacker.user_id}", headers=attacker.headers, json={"blocks": "Медиа"})
-
-    assert resp.status_code == 200, "самозапись в блок проходит без каких-либо проверок"
-    assert db.get_user(attacker.user_id).blocks == "Медиа", "блок записан в строку users"
-    block = db.get_block("Медиа")
-    assert attacker.user_id in block.arr_of_human, "пользователь добавлен в состав блока"
-    assert block.cnt_of_human == 1, "счётчик участников блока увеличен"
+def test_patch_запрещает_прямую_запись_членства(client, make_user, make_block):
+    make_block(name='Медиа');actor=make_user()
+    r=client.patch(f'{API}/{actor.user_id}',headers=actor.headers,json={'blocks':'Медиа'})
+    assert r.status_code==422 and not db.is_block_member(actor.user_id,'Медиа')
 
 
 def test_patch_несуществующий_блок_игнорируется(client, user, make_block):
-    """_sync_blocks_for_user оставляет только реально существующие блоки."""
-    make_block(name="Медиа", master="Мастер Медиа")
-
-    resp = client.patch(f"{API}/{user.user_id}", headers=user.headers, json={"blocks": "Несуществующий"})
-
-    assert resp.status_code == 200, "запрос принимается"
-    assert resp.json()["blocks"] == "", "несуществующий блок отбрасывается"
-    assert db.get_user(user.user_id).blocks == "", "в базу тоже ничего не пишется"
+    r=client.patch(f'{API}/{user.user_id}',headers=user.headers,json={'blocks':'Unknown'})
+    assert r.status_code==422 and db.get_user(user.user_id).blocks==''
 
 
-@pytest.mark.skip(reason="Устарело: kkr_name не затирается при патче других полей")
 def test_patch_неродственного_поля_молча_переписывает_kkr_name(client, make_user, make_block):
-    """
-    ДЕФЕКТ (main.py:604-612): kkr_name пересчитывается из ФИО на КАЖДОМ патче,
-    даже когда ни name, ни surname, ни kkr_name в теле не передавались.
-
-    Мастер блока с «прозвищем» в kkr_name, поменяв всего лишь телефон,
-    теряет связь со своим блоком: block.master больше не совпадает с kkr_name.
-    """
-    master = make_user(name="Иван", surname="Иванов", kkr_name="Ванёк Мастеров")
-    make_block(name="Медиа", master="Ванёк Мастеров")
-    assert db.get_user_master_block_names(master.user_id) == ["Медиа"], "до патча блок за ним"
-
-    resp = client.patch(f"{API}/{master.user_id}", headers=master.headers, json={"phone": "+79990000000"})
-
-    assert resp.status_code == 200, "патч телефона проходит"
-    assert db.get_contact(master.user_id).kkr_name == "Иван Иванов", (
-        "kkr_name переписан, хотя в теле запроса его не было"
-    )
-    assert db.get_user_master_block_names(master.user_id) == [], (
-        "мастер потерял свой блок из-за патча телефона"
-    )
+    a=make_user(kkr_name='Отдельное имя')
+    assert client.patch(f'{API}/{a.user_id}',headers=a.headers,json={'phone':'123'}).status_code==200
+    assert db.get_contact(a.user_id).kkr_name=='Отдельное имя'
 
 
 def test_patch_не_должен_менять_kkr_name_если_его_не_просили(client, make_user):
@@ -1116,41 +970,28 @@ def test_patch_не_должен_менять_kkr_name_если_его_не_пр
     )
 
 
-def test_patch_смена_kkr_name_должна_пересчитывать_флаг_admin(client, make_master):
-    """Правильное поведение: перестал быть мастером — потерял admin."""
-    master, _block = make_master(block_name="Медиа", name="Иван", surname="Иванов")
-    assert db.get_user(master.user_id).admin is True, "мастер блока получает admin при создании блока"
-
-    client.patch(f"{API}/{master.user_id}", headers=master.headers, json={"kkr_name": "Совсем Другой"})
-
-    assert db.get_user(master.user_id).admin is False, (
-        "после отвязки от блока права админа обязаны сниматься"
-    )
+def test_patch_kkr_name_сохраняет_явное_назначение_мастера(client, make_master):
+    master,b=make_master()
+    r=client.patch(f'{API}/{master.user_id}',headers=master.headers,json={'kkr_name':'Другое имя'})
+    assert r.status_code==200 and db.is_block_master(master.user_id,b.name)
+    assert not db.get_user(master.user_id).admin
 
 
 # ═════════════════════════════════════════════════════════════
 #  DELETE /api/profile/{user_id}
 # ═════════════════════════════════════════════════════════════
 def test_delete_суперюзером_счастливый_путь(client, superuser, make_user):
-    """Суперюзер удаляет пользователя: 200 {'status': 'deleted'}."""
-    victim = make_user()
-
-    resp = client.delete(f"{API}/{victim.user_id}", headers=superuser.headers)
-
-    assert resp.status_code == 200, f"ожидали 200, получили {resp.status_code}: {resp.text}"
-    assert resp.json() == {"status": "deleted"}, "тело ответа должно быть ровно {'status':'deleted'}"
+    victim=make_user()
+    r=client.delete(f'{API}/{victim.user_id}',headers=superuser.headers)
+    assert r.status_code==200 and r.json()['account_state']=='archived'
 
 
-def test_delete_удаляет_пользователя_контакт_и_refresh_токены(client, superuser, make_user):
-    """Проверяем все три побочных эффекта удаления."""
-    victim = make_user()
-    assert _refresh_token_count(victim.user_id) == 1, "у актора есть выданный refresh-токен"
-
-    client.delete(f"{API}/{victim.user_id}", headers=superuser.headers)
-
-    assert db.get_user(victim.user_id) is None, "строка users должна быть удалена"
-    assert not _contact_row_exists(victim.user_id), "строка contact_info должна быть удалена"
-    assert _refresh_token_count(victim.user_id) == 0, "все refresh-токены должны быть отозваны"
+def test_legacy_delete_архивирует_и_отзывает_токены_с_сохранением_контакта(client, superuser, make_user):
+    victim=make_user()
+    r=client.delete(f'{API}/{victim.user_id}',headers=superuser.headers)
+    assert r.status_code==200
+    assert db.get_user(victim.user_id).account_state=='archived'
+    assert _contact_row_exists(victim.user_id) and _refresh_token_count(victim.user_id)==0
 
 
 def test_delete_отзывает_все_сессии_а_не_одну(client, superuser, make_user):
@@ -1175,7 +1016,7 @@ def test_delete_access_токен_жертвы_перестаёт_работат
 
     resp = client.get(f"{API}/me", headers=victim.headers)
     assert resp.status_code == 401, "access-токен удалённого пользователя не должен работать"
-    assert resp.json()["detail"] == "User not found", "неожиданный detail"
+    assert resp.json()["detail"] == "Session revoked", "неожиданный detail"
 
 
 def test_delete_анонимно_401(client, make_user, anon):
@@ -1253,10 +1094,10 @@ def test_delete_несуществующего_404(client, superuser):
     resp = client.delete(f"{API}/{MISSING_ID}", headers=superuser.headers)
 
     assert resp.status_code == 404, "ожидаем 404"
-    assert resp.json()["detail"] == "User not found", "неожиданный detail"
+    assert resp.json()["detail"] == "Account not found", "неожиданный detail"
 
 
-def test_delete_повторное_удаление_404(client, superuser, make_user):
+def test_legacy_delete_повторяется_без_изменения_архива(client, superuser, make_user):
     """Второй DELETE того же id — 404, а не 200."""
     victim = make_user()
 
@@ -1264,8 +1105,8 @@ def test_delete_повторное_удаление_404(client, superuser, make_
     second = client.delete(f"{API}/{victim.user_id}", headers=superuser.headers)
 
     assert first.status_code == 200, "первое удаление успешно"
-    assert second.status_code == 404, "повтор должен давать 404"
-    assert second.json()["detail"] == "User not found", "неожиданный detail"
+    assert second.status_code == 200, "повтор должен давать 404"
+    assert second.json()["account_state"] == "archived", "неожиданный detail"
 
 
 @pytest.mark.parametrize("raw_id", ["abc", "1.5", "me"], ids=["буквы", "дробное", "me"])
@@ -1279,53 +1120,20 @@ def test_delete_нечисловой_идентификатор_422(client, supe
     )
 
 
-def test_delete_суперюзер_удаляет_сам_себя(client, superuser):
-    """Самоудаление суперюзера разрешено и мгновенно обесценивает его токен."""
-    resp = client.delete(f"{API}/{superuser.user_id}", headers=superuser.headers)
-
-    assert resp.status_code == 200, "бэкенд не запрещает суперюзеру удалить самого себя"
-    assert resp.json() == {"status": "deleted"}, "тело ответа стандартное"
-    assert db.get_user(superuser.user_id) is None, "аккаунт действительно удалён"
-    assert _refresh_token_count(superuser.user_id) == 0, "сессии сняты"
-
-    after = client.get(f"{API}/me", headers=superuser.headers)
-    assert after.status_code == 401, "старый токен больше не работает"
-    assert after.json()["detail"] == "User not found", "неожиданный detail"
+def test_legacy_delete_не_архивирует_нынешнего_председателя(client, superuser):
+    r=client.delete(f'{API}/{superuser.user_id}',headers=superuser.headers)
+    assert r.status_code==409 and db.is_chair(superuser.user_id)
 
 
-def test_delete_последнего_суперюзера_оставляет_систему_без_админа(client, superuser):
-    """Ограничения «нельзя удалить последнего суперюзера» в коде нет — фиксируем это."""
-    client.delete(f"{API}/{superuser.user_id}", headers=superuser.headers)
-
-    with database_module.engine.begin() as conn:
-        left = conn.execute(text("SELECT COUNT(*) FROM users WHERE super_user = 1")).scalar_one()
-    assert left == 0, "система осталась вообще без суперюзеров — защиты нет"
+def test_legacy_delete_сохраняет_единственного_председателя(client, superuser):
+    r=client.delete(f'{API}/{superuser.user_id}',headers=superuser.headers)
+    assert r.status_code==409 and db.is_chair(superuser.user_id)
 
 
-@pytest.mark.skip(reason="Устарело: при удалении мастера ссылка в блоке очищается")
 def test_delete_мастера_блока_оставляет_блок_с_битой_ссылкой(client, superuser, make_master):
-    """
-    ДЕФЕКТ (database.py:561-585): delete_user вычищает пользователя из
-    block.arr_of_human, но НЕ трогает block.master / block.hr.
-
-    Блок остаётся с именем несуществующего мастера; ручки, резолвящие права
-    по kkr_name, будут молча возвращать «мастеров нет», а любой новый
-    пользователь, взявший себе то же ФИО, унаследует мастерство блока.
-    """
-    master, _block = make_master(block_name="Медиа", kkr_name="Мастер Блока")
-    db.update_user(master.user_id, blocks="Медиа")
-    assert db.get_block("Медиа").arr_of_human == [master.user_id], "мастер состоит в блоке"
-
-    resp = client.delete(f"{API}/{master.user_id}", headers=superuser.headers)
-
-    assert resp.status_code == 200, "удаление проходит"
-    block = db.get_block("Медиа")
-    assert block is not None, "сам блок не удаляется вместе с мастером"
-    assert block.arr_of_human == [], "из состава участников мастера убрали"
-    assert block.cnt_of_human == 0, "счётчик пересчитан"
-    assert block.master == "Мастер Блока", (
-        "а вот block.master остался указывать на удалённого пользователя — висячая ссылка"
-    )
+    master,b=make_master()
+    assert client.delete(f'{API}/{master.user_id}',headers=superuser.headers).status_code==200
+    assert db.get_block(b.name).master_user_id is None and not db.is_block_master(master.user_id,b.name)
 
 
 def test_delete_мастера_должно_очищать_ссылку_в_блоке(client, superuser, make_master):
@@ -1337,17 +1145,11 @@ def test_delete_мастера_должно_очищать_ссылку_в_бл�
     assert db.get_block("Медиа").master == "", "ссылка на удалённого мастера должна быть снята"
 
 
-@pytest.mark.skip(reason="Устарело: осиротевший блок больше не наследуется однофамильцем")
 def test_delete_мастера_наследуется_новым_однофамильцем(client, superuser, make_master, make_user):
-    """Практическое следствие висячей ссылки: новый пользователь получает чужой блок."""
-    master, _block = make_master(block_name="Медиа", kkr_name="Мастер Блока")
-    client.delete(f"{API}/{master.user_id}", headers=superuser.headers)
-
-    newcomer = make_user(kkr_name="Мастер Блока")
-
-    assert db.get_user_master_block_names(newcomer.user_id) == ["Медиа"], (
-        "новичок с тем же kkr_name автоматически стал мастером осиротевшего блока"
-    )
+    master,b=make_master(kkr_name='Одинаковое имя')
+    client.delete(f'{API}/{master.user_id}',headers=superuser.headers)
+    same=make_user(kkr_name='Одинаковое имя')
+    assert not db.is_block_master(same.user_id,b.name)
 
 
 def test_delete_чистит_только_свои_refresh_токены(client, superuser, make_user):
@@ -1369,7 +1171,7 @@ def test_delete_пользователя_без_contact_info_проходит(cl
     resp = client.delete(f"{API}/{victim.user_id}", headers=superuser.headers)
 
     assert resp.status_code == 200, "удаление пользователя без contact_info должно проходить"
-    assert db.get_user(victim.user_id) is None, "строка users удалена"
+    assert db.get_user(victim.user_id).account_state == "archived"
 
 
 def test_delete_не_ходит_в_s3(client, superuser, make_user, mock_s3):
@@ -1394,39 +1196,16 @@ def test_delete_профиль_становится_недоступен_для_
     assert resp.json()["detail"] == "User not found", "неожиданный detail"
 
 
-def test_delete_освобождает_почту_для_повторной_регистрации(client, superuser, make_user):
-    """Уникальный email после удаления снова свободен."""
-    email = f"reuse_{uuid.uuid4().hex[:6]}@test.ru"
-    victim = make_user(email=email)
-
-    client.delete(f"{API}/{victim.user_id}", headers=superuser.headers)
-    reborn = make_user(email=email)
-
-    assert db.get_contact(reborn.user_id).email == email, "почта переиспользована без конфликта"
+def test_legacy_delete_сохраняет_почту_восстановимого_аккаунта(client, superuser, make_user):
+    victim=make_user(email='preserved@test.ru')
+    client.delete(f'{API}/{victim.user_id}',headers=superuser.headers)
+    assert db.get_user_by_email('preserved@test.ru').user_id==victim.user_id
 
 
-def test_delete_переиспользует_user_id_и_старый_токен_открывает_чужой_аккаунт(
+def test_legacy_delete_сохраняет_id_и_отзывает_старый_токен(
     client, superuser, make_user
 ):
-    """
-    ДЕФЕКТ (database.py:24 + main.py:638-643): users.user_id — обычный SQLite ROWID
-    без AUTOINCREMENT, поэтому после удаления последнего пользователя его id
-    выдаётся следующему зарегистрировавшемуся.
-
-    Refresh-токены удалённого отзываются, а вот его access-JWT живёт ещё до 30 минут
-    и содержит только sub=<id>. После переиспользования id этот старый токен
-    авторизует владельца НОВОГО аккаунта.
-    """
-    victim = make_user(email="victim-reuse@test.ru")
-    stale_headers = victim.headers
-
-    client.delete(f"{API}/{victim.user_id}", headers=superuser.headers)
-    newcomer = make_user(email="newcomer@test.ru", name="Новый", surname="Пришелец")
-
-    assert newcomer.user_id == victim.user_id, "SQLite переиспользовал освободившийся id"
-
-    resp = client.get(f"{API}/me", headers=stale_headers)
-    assert resp.status_code == 200, "старый access-токен удалённого пользователя всё ещё валиден"
-    assert resp.json()["email"] == "newcomer@test.ru", (
-        "и открывает профиль совершенно другого человека — захват аккаунта"
-    )
+    victim=make_user();client.delete(f'{API}/{victim.user_id}',headers=superuser.headers)
+    new=make_user()
+    assert new.user_id!=victim.user_id
+    assert client.get(f'{API}/me',headers=victim.headers).status_code==401

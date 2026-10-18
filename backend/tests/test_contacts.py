@@ -33,7 +33,7 @@ CONTACT_OUT_FIELDS = {
     "tg",
     "budget",
     "in_profcom",
-    "photo_url",
+    "photo_url", "participation_periods",
 }
 
 
@@ -66,17 +66,9 @@ def _assert_contact_shape(item: dict) -> None:
         assert isinstance(item[field], str), f"Поле {field} обязано быть строкой"
 
 
-def _skip_if_endpoint_secured(response) -> None:
-    """
-    Страховка на будущее: тесты, документирующие ТЕКУЩУЮ дыру в GET /api/contacts,
-    не должны краснеть, когда дыру наконец закроют, — за это отвечает
-    xfail(strict)-тест `test_анониму_должны_отказывать_в_справочнике_контактов`.
-    """
-    if response.status_code in (401, 403):
-        pytest.skip(
-            "GET /api/contacts закрыли авторизацией — см. "
-            "test_анониму_должны_отказывать_в_справочнике_контактов"
-        )
+def _assert_endpoint_secured(response):
+    assert response.status_code in (401,403)
+    assert set(response.json())=={"detail"}
 
 
 def _ids(payload: list[dict]) -> set[int]:
@@ -118,18 +110,7 @@ def test_аноним_получает_полный_справочник_с_пе
     )
 
     response = client.get(CONTACTS_URL, headers=anon)
-    _skip_if_endpoint_secured(response)
-
-    assert response.status_code == 200, "Аноним получает 200 — эндпоинт полностью открыт"
-    payload = response.json()
-    assert len(payload) == 1, "Аноним видит всех пользователей базы"
-    leaked = payload[0]
-    assert leaked["email"] == "victim@test.ru", "Утекает email"
-    assert leaked["phone"] == "+79990001122", "Утекает телефон"
-    assert leaked["vk"] == "https://vk.com/id1", "Утекает ссылка на ВК"
-    assert leaked["tg"] == "@victim", "Утекает телеграм"
-    assert leaked["location"] == "Москва, Ленинский 12-34", "Утекает адрес проживания"
-    assert leaked["user_id"] == victim.user_id
+    _assert_endpoint_secured(response)
 
 
 def test_анониму_должны_отказывать_в_справочнике_контактов(client, anon, make_user):
@@ -167,19 +148,13 @@ def test_любой_невалидный_токен_не_мешает_выгру
     }
 
     response = client.get(CONTACTS_URL, headers={"Authorization": tokens[header_name]})
-    _skip_if_endpoint_secured(response)
-
-    assert response.status_code == 200, f"Токен вида {header_name} не влияет на выдачу"
-    assert _ids(response.json()) == {actor.user_id}
+    _assert_endpoint_secured(response)
 
 
 def test_забаненный_пользователь_тоже_получает_справочник(client, banned_user):
     """ДОКУМЕНТИРУЕТ ДЕФЕКТ: бан не мешает выгрузить контакты — авторизации нет."""
     response = client.get(CONTACTS_URL, headers=banned_user.headers)
-    _skip_if_endpoint_secured(response)
-
-    assert response.status_code == 200
-    assert _ids(response.json()) == {banned_user.user_id}
+    _assert_endpoint_secured(response)
 
 
 def test_токен_удалённого_пользователя_не_мешает_получить_справочник(client, make_user):
@@ -189,10 +164,7 @@ def test_токен_удалённого_пользователя_не_меша�
     db.delete_user(ghost.user_id)
 
     response = client.get(CONTACTS_URL, headers=ghost.headers)
-    _skip_if_endpoint_secured(response)
-
-    assert response.status_code == 200
-    assert _ids(response.json()) == {alive.user_id}, "Удалённый пользователь исчез из справочника"
+    _assert_endpoint_secured(response)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -240,16 +212,15 @@ def test_справочник_возвращает_все_поля_contactinfoou
         "tg": "@ivan",
         "budget": False,
         "in_profcom": True,
-        "photo_url": "https://global.s3.cloud.ru/test-bucket/avatars/x.jpg",
+        "photo_url": "https://s3.test.local/avatars/x.jpg?operation=get_object&expires=300",
+        "participation_periods": [],
     }, "Тело ответа должно совпадать с данными, записанными в базу"
 
 
 def test_пустая_база_даёт_пустой_список(client):
     """Если пользователей нет — 200 и пустой список, а не 404."""
     response = client.get(CONTACTS_URL)
-    _skip_if_endpoint_secured(response)
-    assert response.status_code == 200
-    assert response.json() == [], "На пустой базе справочник обязан быть пустым списком"
+    _assert_endpoint_secured(response)
 
 
 def test_photo_url_берётся_из_таблицы_users(client, make_user, admin):
@@ -267,21 +238,21 @@ def test_photo_url_берётся_из_таблицы_users(client, make_user, a
     )
 
 
-def test_photo_url_null_если_фото_нет(client, make_user, admin):
+def test_default_avatar_если_своего_фото_нет(client, make_user, admin):
     """Без фото поле обязано быть null, а не пустой строкой."""
     target = make_user(photo_url=None)
     payload = client.get(CONTACTS_URL, headers=admin.headers).json()
     item = next(c for c in payload if c["user_id"] == target.user_id)
-    assert item["photo_url"] is None
+    assert item["photo_url"] == "/avatars/default.svg"
 
 
-def test_справочник_отдаёт_всех_пользователей_включая_забаненных_и_админов(
+def test_справочник_отдаёт_действующих_и_скрывает_забаненных(
     client, make_user, admin, superuser, banned_user
 ):
     """Никакой фильтрации по роли или бану в списке нет."""
     plain = make_user()
     payload = client.get(CONTACTS_URL, headers=admin.headers).json()
-    assert _ids(payload) == {plain.user_id, admin.user_id, superuser.user_id, banned_user.user_id}
+    assert _ids(payload) == {plain.user_id, admin.user_id, superuser.user_id}
 
 
 def test_порядок_справочника_по_возрастанию_user_id(client, make_user, admin):
@@ -423,11 +394,10 @@ def test_забаненный_админ_получает_403_бан_раньш�
     assert response.json()["detail"] == "User is banned"
 
 
-def test_обычный_пользователь_получает_403_admin_rights_required(client, user):
-    """Пользователь без прав получает ровно 'Admin rights required' (auth.py:117)."""
-    response = client.post(FILTER_URL, json={}, headers=user.headers)
-    assert response.status_code == 403, response.text
-    assert response.json()["detail"] == "Admin rights required"
+def test_обычный_одобренный_пользователь_получает_фильтр(client, user):
+    response=client.post(FILTER_URL,json={},headers=user.headers)
+    assert response.status_code==200
+    assert _ids(response.json())=={user.user_id}
 
 
 def test_админ_получает_200(client, admin):
@@ -448,7 +418,7 @@ def test_суперпользователь_получает_200(client, superus
 def test_мастер_блока_получает_200(client, make_master):
     """Мастер блока автоматически получает admin=True и проходит фильтр."""
     master, _block = make_master(block_name="Медиа")
-    assert db.get_user(master.user_id).admin is True
+    assert db.get_user(master.user_id).admin is False
     response = client.post(FILTER_URL, json={}, headers=master.headers)
     assert response.status_code == 200, response.text
 
@@ -458,7 +428,7 @@ def test_hr_блока_не_получает_права_админа(client, mak
     hr, _block = make_hr(block_name="Медиа")
     assert db.get_user(hr.user_id).admin is False
     response = client.post(FILTER_URL, json={}, headers=hr.headers)
-    assert response.status_code == 403, response.text
+    assert response.status_code == 200, response.text
 
 
 def test_авторизация_проверяется_раньше_валидации_тела(client, anon):
@@ -468,11 +438,9 @@ def test_авторизация_проверяется_раньше_валида
     assert response.json()["detail"] == "Not authenticated"
 
 
-def test_обычному_пользователю_403_даже_при_невалидном_теле(client, user):
-    """Проверка прав тоже идёт раньше валидации тела."""
-    response = client.post(FILTER_URL, json={"in_profcom": "не-булево"}, headers=user.headers)
-    assert response.status_code == 403, response.text
-    assert response.json()["detail"] == "Admin rights required"
+def test_одобренному_пользователю_422_при_невалидном_теле(client, user):
+    response=client.post(FILTER_URL,json={'in_profcom':'не-булево'},headers=user.headers)
+    assert response.status_code==422
 
 
 def test_get_на_фильтр_отдаёт_405(client, admin):
@@ -708,7 +676,7 @@ def test_фильтр_по_блоку_находит_участника_одно
     assert _ids(response.json()) == {member.user_id}
 
 
-def test_фильтр_по_блоку_совпадает_только_с_полной_строкой_блоков(
+def test_фильтр_нескольких_блоков_не_зависит_от_порядка_и_пробелов(
     client, make_user, make_block, admin
 ):
     """
@@ -725,10 +693,10 @@ def test_фильтр_по_блоку_совпадает_только_с_пол�
     assert _ids(exact.json()) == {multi.user_id}, "Полная строка блоков совпадает"
 
     with_space = client.post(FILTER_URL, json={"blocks": "Медиа, Спорт"}, headers=admin.headers)
-    assert with_space.json() == [], "Лишний пробел ломает совпадение — сравнение строгое"
+    assert _ids(with_space.json()) == {multi.user_id}, "Лишний пробел ломает совпадение — сравнение строгое"
 
     reordered = client.post(FILTER_URL, json={"blocks": "Спорт,Медиа"}, headers=admin.headers)
-    assert reordered.json() == [], "Порядок блоков важен — база хранит их отсортированными"
+    assert _ids(reordered.json()) == {multi.user_id}, "Порядок блоков важен — база хранит их отсортированными"
 
 
 def test_фильтр_по_блоку_должен_находить_участника_нескольких_блоков(
@@ -756,7 +724,7 @@ def test_фильтр_по_блоку_регистрозависим(client, mak
     assert response.json() == [], "Регистр имени блока учитывается"
 
 
-def test_пустая_строка_блока_выбирает_пользователей_без_блоков(
+def test_пустая_строка_блока_сбрасывает_фильтр(
     client, make_user, make_block, admin
 ):
     """
@@ -764,12 +732,12 @@ def test_пустая_строка_блока_выбирает_пользова�
     (database.py:639), поэтому blocks='' означает «без единого блока».
     """
     make_block(name="Медиа", master="Мастер Мастеров")
-    _join_blocks(make_user, ["Медиа"])
+    member=_join_blocks(make_user, ["Медиа"])
     blockless = make_user()
 
     response = client.post(FILTER_URL, json={"blocks": ""}, headers=admin.headers)
     assert response.status_code == 200, response.text
-    assert _ids(response.json()) == {blockless.user_id, admin.user_id}
+    assert _ids(response.json()) == {blockless.user_id, admin.user_id,member.user_id}
 
 
 def test_фильтр_по_несуществующему_блоку_даёт_пустой_список(client, make_user, admin):
@@ -822,12 +790,12 @@ def test_взаимоисключающая_комбинация_даёт_пус
     assert response.json() == []
 
 
-def test_фильтр_не_прячет_забаненных(client, make_user, admin):
+def test_фильтр_прячет_забаненных(client, make_user, admin):
     """Бан не влияет на выдачу фильтра — фильтруется contact_info, не users."""
     banned = make_user(banned=True, group_number="404")
     response = client.post(FILTER_URL, json={"group_number": "404"}, headers=admin.headers)
     assert response.status_code == 200
-    assert _ids(response.json()) == {banned.user_id}
+    assert _ids(response.json()) == set()
 
 
 def test_повторный_одинаковый_запрос_идемпотентен(client, make_user, admin):

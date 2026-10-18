@@ -578,9 +578,24 @@ def generate_summary_xlsx(summary: SeasonSummaryDC, contributions: list[Calculat
             ", ".join(r.previous_decisions),
         ])
 
-    contrib_headers = ["ID", "Сезон", "Участник", "Тип источника", "Источник", "Баллы", "Версия расчёта"]
+    contrib_headers = ["ID", "Сезон", "Участник", "Тип источника", "Источник", "Баллы", "Версия расчёта", "ID участника", "ID источника", "Назначение", "Заслуга", "Бонус", "Часы", "Оценка", "Выдано", "Дедлайн", "Выполнено", "Критерии", "Баллы без округления"]
     contrib_rows = [contrib_headers]
     for c in contributions:
+        with db._session() as session:
+            raw=session.get(ContributionORM,c.contribution_id)
+            assignment=session.get(AssignmentORM,raw.assignment_id) if raw and raw.assignment_id else None
+            task=session.get(TaskORM,assignment.task_id) if assignment else None
+            merit=session.get(MeritORM,c.merit_id) if c.merit_id else None
+            recipient=next((r for r in json.loads(merit.recipients_json or '[]') if raw and r.get('user_id')==raw.user_id),{}) if merit else {}
+            hours=assignment.hours if assignment else recipient.get('hours')
+            evaluation=assignment.evaluation if assignment else recipient.get('evaluation')
+            assigned_at=task.assigned_at if task else merit.assigned_at if merit else ''
+            deadline_at=task.deadline_at if task else merit.deadline_at if merit else ''
+            completed_at=assignment.effective_completed_at if assignment else recipient.get('completed_at')
+            criteria=task.criteria_json if task else merit.criteria_json if merit else ''
+            aid=assignment.assignment_id if assignment else ''
+        from membership import block_id_for
+        stable_source=block_id_for(c.source_id) if c.source_kind in ('block_task','block_volunteer','master_bonus') else c.source_id
         contrib_rows.append([
             c.contribution_id,
             c.season_id,
@@ -589,6 +604,9 @@ def generate_summary_xlsx(summary: SeasonSummaryDC, contributions: list[Calculat
             c.source_title,
             round(c.score, 2) if c.score is not None else "",
             c.calculation_version,
+            c.participant_id,stable_source,aid,c.merit_id or '',c.bonus_id or '',
+            hours if hours is not None else '',evaluation if evaluation is not None else '',
+            assigned_at,deadline_at,completed_at or '',criteria,c.score if c.score is not None else '',
         ])
 
     sheets = {"Сводная": summary_rows, "Начисления": contrib_rows}
@@ -2937,6 +2955,7 @@ class Database:
             for o in old_cur:
                 o.is_current = False
                 o.revision += 1
+            session.flush()
             row.state = "open"
             row.is_current = True
             row.revision += 1
@@ -2959,7 +2978,7 @@ class Database:
             from validation import timestamp
             from participation import dt
             if row.state=="closed":raise ValueError("Conflict: closed season dates are immutable")
-            if not reason or not reason.strip():raise ValueError("Reason is required")
+            if (starts_at is not None or ends_at is not None) and (not reason or not reason.strip()):raise ValueError("Reason is required")
             starts_at=timestamp(starts_at) if starts_at is not None else None
             ends_at=timestamp(ends_at) if ends_at is not None else None
             if dt(starts_at or row.starts_at)>=dt(ends_at or row.ends_at):raise ValueError("Season must have positive duration")
@@ -3564,6 +3583,9 @@ class Database:
                 raise LookupError("Season not found")
             if season.state in ("summarizing", "closed"):
                 raise ValueError(f"Cannot create event in {season.state} season")
+            from event_rules import dates
+            starts_at,ends_at=dates(season,starts_at,ends_at)
+            if not title.strip():raise ValueError("Title is required")
             if report_series_id:
                 rs = session.get(ReportSeriesORM, report_series_id)
                 if not rs or rs.owner_kind != "event":
@@ -3613,21 +3635,30 @@ class Database:
         description: Optional[str] = None,
         starts_at: Optional[str] = None,
         ends_at: Optional[str] = None,
+        clear_starts_at: bool = False,
+        clear_ends_at: bool = False,
     ) -> EventDC:
         with self._session() as session:
             ev = session.get(EventORM, event_id)
             if not ev:
                 raise LookupError("Event not found")
+            season=session.get(SeasonORM,ev.season_id)
+            if season.state=="closed":raise ValueError("Conflict: closed event metadata is immutable")
+            from event_rules import dates
+            normalized_start,normalized_end=dates(season,None if clear_starts_at else starts_at if starts_at is not None else ev.starts_at,None if clear_ends_at else ends_at if ends_at is not None else ev.ends_at)
+            if starts_at is not None:starts_at=normalized_start
+            if ends_at is not None:ends_at=normalized_end
+            if title is not None and not title.strip():raise ValueError("Title is required")
             if ev.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
             if title is not None:
                 ev.title = title
             if description is not None:
                 ev.description = description
-            if starts_at is not None:
-                ev.starts_at = starts_at
-            if ends_at is not None:
-                ev.ends_at = ends_at
+            if clear_starts_at or starts_at is not None:
+                ev.starts_at = normalized_start
+            if clear_ends_at or ends_at is not None:
+                ev.ends_at = normalized_end
             ev.revision += 1
             session.commit()
             return _event_orm_to_dc(session, ev)
@@ -3695,6 +3726,8 @@ class Database:
             sub = session.get(SubeventORM, subevent_id)
             if not sub:
                 raise LookupError("Subevent not found")
+            if session.get(SeasonORM,session.get(EventORM,sub.event_id).season_id).state=="closed":raise ValueError("Conflict: closed subevent metadata is immutable")
+            if title is not None and not title.strip():raise ValueError("Title is required")
             if sub.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
             if title is not None:
@@ -3723,6 +3756,8 @@ class Database:
             if target_season.state not in ("planned", "open"):
                 raise ValueError(f"Cannot copy event to season with state '{target_season.state}'")
 
+            from event_rules import dates
+            starts_at,ends_at=dates(target_season,starts_at,ends_at)
             new_ev = EventORM(
                 event_id=str(uuid.uuid4()),
                 season_id=target_season_id,
@@ -3920,6 +3955,7 @@ class Database:
                     RoleAssignmentORM.principal_assignment_id == old_a.role_assignment_id
                 ).delete(synchronize_session=False)
                 session.delete(old_a)
+                session.flush()
 
             b.master_user_id = user_id
             c = session.get(ContactInfoORM, user_id)
@@ -4047,6 +4083,11 @@ class Database:
             event=session.get(EventORM,owner_id) if owner_kind=="event" else session.get(EventORM,session.get(SubeventORM,owner_id).event_id) if session.get(SubeventORM,owner_id) else None
             if not event:raise LookupError("Meeting owner not found")
             if session.get(SeasonORM,event.season_id).state=="closed":raise ValueError("Conflict: closed meetings are not available")
+            from validation import timestamp
+            from urllib.parse import urlsplit
+            starts_at=timestamp(starts_at)
+            url=urlsplit(join_url)
+            if url.scheme not in ("https","http") or not url.hostname:raise ValueError("Invalid meeting URL")
             row = session.query(MeetingORM).filter(
                 MeetingORM.owner_kind == owner_kind,
                 MeetingORM.owner_id == owner_id,
@@ -4079,6 +4120,9 @@ class Database:
 
     def delete_meeting(self, owner_kind: str, owner_id: str) -> bool:
         with self._session() as session:
+            event=session.get(EventORM,owner_id) if owner_kind=="event" else session.get(EventORM,session.get(SubeventORM,owner_id).event_id) if session.get(SubeventORM,owner_id) else None
+            if not event:raise LookupError("Meeting owner not found")
+            if session.get(SeasonORM,event.season_id).state=="closed":raise ValueError("Conflict: closed meetings are not available")
             deleted = session.query(MeetingORM).filter(
                 MeetingORM.owner_kind == owner_kind,
                 MeetingORM.owner_id == owner_id,
@@ -5900,3 +5944,12 @@ seed_materials()
 
 from directory_seed import migrate_avatars
 migrate_avatars()
+
+from integrity_migration import ensure_integrity
+ensure_integrity()
+
+from migrations_v13 import preserve_closed_summaries
+preserve_closed_summaries()
+
+from observed_participation_seed import seed_observed_participation
+seed_observed_participation()

@@ -1,81 +1,32 @@
-# Verification and known-risk workflow
+# Verification workflow
 
-Read this reference before testing, changing observable behavior, fixing a bug, or reporting completion.
+Run backend commands from backend/ with an isolated Python environment. Read backend/TESTING.md for the current suite and safety boundaries.
 
-## Backend checks
-
-Run from `backend/`.
-
-```bash
-./run_tests.sh tests -q
-./run_tests.sh tests/test_guides.py -q
-./run_tests.sh tests/test_api_contract.py -q
-./run_tests.sh tests -q --cov
+```sh
+python -m pytest tests -q
+python -m pytest tests/test_v13_*.py -q
+python -m pytest tests/test_api_contract.py -q
 ```
 
-- Prefer the explicit `tests` path. Bare `./run_tests.sh` asks pytest to collect every `test_*.py` in `backend/`, including any developer scratch file such as `test_api.py`.
-- Tests set `DATABASE_PATH` before importing application modules, use a fresh temporary SQLite database, clean it for every test, and remove it at session end.
-- S3 and VK calls are mocked by autouse fixtures. If a new call site bypasses those patches, update the fixture before running it.
-- Focused selection also works, for example `./run_tests.sh tests -k guides -q`.
-- `--cov` writes `htmlcov/`; do not commit it.
-- The CI workflow uses Python 3.12 and runs `python -m pytest` from `backend/`.
+Always pass tests explicitly: backend/test_api.py is a scratch script. Conftest sets DATABASE_PATH before imports, asserts the synthetic DB URL, clears every domain table and deletes the temporary DB. Migration subprocesses use independent temporary legacy databases. S3/VK calls are mocked. Never run isolated tests against a real/shared database.
 
-`backend/check_live.py` is not a unit test. It targets a running server. Without `--read-only` or supplied credentials it registers a temporary user, so default to:
+The API inventory is a literal snapshot, paired with anonymous/banned/malformed-token and OpenAPI checks for every route. Keep error-envelope checks on real responses. Workflow helpers may obtain a fresh revision, but dedicated missing/stale/concurrent-command tests must verify refusal and rollback.
 
-```bash
-python3 check_live.py --url https://host.example --read-only
-```
+Legacy tests describe API 1.3 behavior: approved content, explicit roles, owner-only current contacts, archive instead of physical deletion, versioned guide save and contextual private uploads. Do not restore older insecure expectations to make tests pass. Former skip-on-fixed-security probes now assert denial. If any new strict xfail appears, inspect its exact rule and remove/rewrite the marker when fixed rather than weakening the test.
 
-Do not run a live or mutating check unless the user placed that environment in scope.
+Before ORM/synchronization changes, test a fresh import and old-schema migration twice. Preserve IDs, source text/PGAS references, role safety and accounting snapshots. Check the migration observation boundary separately from unknown historical tenure. For bulk changes, verify complete rollback on a bad later element. For files, test actual bytes plus permission loss and unpublished attachments.
 
-## Strict xfails are the bug ledger
+Frontend checks from frontend/:
 
-Many backend tests use `@pytest.mark.xfail(strict=True)` to specify desired behavior for known defects. This means:
-
-- an expected failure keeps the suite green;
-- an unexpected pass fails the suite until the marker is removed;
-- never delete or weaken such a test merely to make the suite green;
-- before touching a domain, inspect its known failures:
-
-```bash
-rg -n -C 3 'xfail|reason=' tests/test_<domain>.py
-```
-
-The current ledger covers security and integrity risks in VK login, password length/change behavior, refresh/logout handling, public profiles and contacts, email uniqueness, block/admin synchronization, guide ownership/link clearing, CORS, and malformed JWT claims. Read the exact nearby test before editing that area; test line references in reason strings may drift.
-
-## Frontend checks
-
-Run from `frontend/`.
-
-```bash
+```sh
 npm run lint
 npm run build
 npm test -- --run
+PROFKOM_TEST_API_ORIGIN=http://127.0.0.1:18000 npm run test:integration
 ```
 
-- `npm run build` runs TypeScript project compilation before Vite. The Rollup visualizer is enabled and may generate ignored `stats.html`; large chunks currently produce a warning rather than failure.
-- The default Vitest suite is isolated: Zod, client refresh, contract transport, privacy/render, dates and Markdown tests. Mock transports must be restored after each test.
-- `src/utils/api/tests/auth.integration.test.ts` is actually a live integration test: it calls `http://127.0.0.1:8000/api`, registers users, and needs a running backend. Do not include it in an isolated unit claim or point it at shared/production data.
-- Default Vitest excludes `*.integration.test.ts`. `npm run test:integration` is a separate explicit run against disposable local data. Shared/prod API is out of scope for isolated frontend checks.
-- CI uses Node 20, `npm ci`, lint, and build. The Docker builder currently uses Node 24.
+Default Vitest excludes live integration. The separate integration configuration permits localhost only and requires a disposable synthetic API. Unit mocks/build alone do not prove integration. Browser verification should use VITE_DEMO_MODE=false, current API DTOs and desktop/mobile layouts when affected. Keep all external services mocked or out of the tested flow.
 
-## Cross-stack verification matrix
+check_live.py targets a running server and can register users; do not run it on shared/prod implicitly. Deployment checks are distinct: actual image build, provider VK, private S3 PUT/HEAD/GET/CORS and production smoke tests. Docker CLI availability without a running daemon is not an image-build pass.
 
-| Change | Minimum focused verification |
-| --- | --- |
-| Pydantic schema or route | affected backend test file + API contract tests |
-| Auth/token/cookie logic | auth login/token tests + API contract tests |
-| ORM, migration, or synchronization | affected domain tests + a fresh import against a temporary database |
-| Frontend DTO/API module | TypeScript build + relevant Vitest file |
-| React page/component | lint + build; verify loading, empty, error, permission, desktop, and mobile states as relevant |
-| Upload behavior | backend upload tests + frontend build; keep S3 mocked |
-| Deployment config | build images/config validation if available; do not deploy implicitly |
-
-## Baseline interpretation
-
-Do not bake a transient pass/fail count into the skill. Before each task:
-
-1. Capture `git status` and the focused baseline before editing.
-2. Distinguish failures caused by local untracked work, required external services, known strict xfails, and actual regressions.
-3. Re-run the same focused check after editing.
-4. Report exact commands and outcomes, including warnings or tests intentionally not run.
+Run focused checks first, then the full proportional regression. Report commands, evidence, warnings and environment limits accurately; do not bake transient pass counts or branch names into these instructions. Update this reference when durable architecture or verification changes.

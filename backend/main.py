@@ -1039,7 +1039,9 @@ def register(payload: RegisterIn, response: Response):
 
     from registration import ensure_application
     with db._session() as session:
-        ensure_application(session, created.user_id)
+        application=ensure_application(session, created.user_id)
+        from notifications import registration_submitted
+        registration_submitted(session,application)
         session.commit()
 
     # Return tokens so the user is logged-in right away
@@ -1111,7 +1113,10 @@ def vk_login(payload: VKLoginIn, response: Response):
     user = login_user(payload.access_token)
     from registration import ensure_application
     with db._session() as session:
-        ensure_application(session, user.user_id)
+        application=ensure_application(session, user.user_id)
+        if application.status=='pending':
+            from notifications import registration_submitted
+            registration_submitted(session,application)
         session.commit()
     tokens = create_token_pair(user.user_id)
     response.set_cookie(key="refresh_token", value=tokens["refresh_token"], httponly=True,
@@ -1138,7 +1143,14 @@ def refresh(response: Response, refresh_token: str = Cookie(None)):
     if not refresh_token:
         raise HTTPException(401, "Refresh token missing in cookies")
 
-    tokens = refresh_tokens(refresh_token)
+    try:
+        tokens = refresh_tokens(refresh_token)
+    except HTTPException as error:
+        # A consumed invalid/expired refresh token must stay consumed even on 401.
+        from fastapi.responses import JSONResponse
+        rejected=JSONResponse({'detail':error.detail},status_code=error.status_code,headers=error.headers)
+        rejected.delete_cookie('refresh_token',samesite='none',secure=True)
+        return rejected
     response.set_cookie(
         key="refresh_token",
         value=tokens["refresh_token"],
@@ -1208,7 +1220,7 @@ def get_profile(user_id: int, cur: User = Depends(get_current_user)):
     contact = db.get_contact(user_id)
     if not contact:
         raise HTTPException(500, "Contact info missing for user")
-    return ProfileOut(**{**user.__dict__, "kkr_score": user.kkr_score if (db.is_tachki(cur.user_id) or db.is_hr_master(cur.user_id)) else None}, kkr_name=contact.kkr_name, email=contact.email, tg=contact.tg)
+    return ProfileOut(**{**user.__dict__, "photo_url": __import__("directory").avatar_url(user_id), "kkr_score": user.kkr_score if (db.is_tachki(cur.user_id) or db.is_hr_master(cur.user_id)) else None}, kkr_name=contact.kkr_name, email=contact.email, tg=contact.tg)
 
 
 @router.patch("/profile/{user_id}", response_model=UserOut, response_model_exclude_none=True)
@@ -1269,7 +1281,7 @@ def update_profile(
     )
     updated = db.get_user(user_id)
     updated_contact = db.get_contact(user_id)
-    return UserOut(**{**updated.__dict__, "kkr_score": updated.kkr_score if (db.is_tachki(cur.user_id) or db.is_hr_master(cur.user_id)) else None}, kkr_name=updated_contact.kkr_name if updated_contact else "")
+    return UserOut(**{**updated.__dict__, "photo_url": __import__("directory").avatar_url(user_id), "kkr_score": updated.kkr_score if (db.is_tachki(cur.user_id) or db.is_hr_master(cur.user_id)) else None}, kkr_name=updated_contact.kkr_name if updated_contact else "")
 
 
 @router.delete("/profile/{user_id}")
@@ -1285,7 +1297,9 @@ def delete_user(user_id: int, cur: User = Depends(require_superuser)):
 @router.get("/guides", response_model=List[GuideOut])
 def list_guides(cur: User = Depends(get_current_user)):
     from materials import guide_dto
-    return [guide_dto(g,cur.user_id) for g in db.list_guides()]
+    with db._session() as session:
+        from materials import legacy_mapping,can_read
+        return [guide_dto(g,cur.user_id) for g in db.list_guides() if can_read(legacy_mapping(session,g.guide_id).material_id,cur.user_id)]
 
 
 @router.get("/guides/{guide_id}", response_model=GuideOut)
@@ -1365,18 +1379,19 @@ def create_pgas(payload: PgasEntryIn, cur: User = Depends(require_pgas_admin)):
         from database import FileRecordORM
         with db._session() as s:
             fr=s.get(FileRecordORM,payload.file_url[5:])
-            if not fr or fr.owner_kind!="pgas" or fr.state!="completed" or fr.uploaded_by_user_id!=cur.user_id:
+            if not fr or fr.owner_kind!="pgas" or fr.state!="completed":
                 raise HTTPException(422,"Invalid PGAS file")
     else:
         _validate_pgas_file(payload.file_url, payload.file_type)
+        raise HTTPException(422,"New PGAS entries require a completed contextual file reference")
 
     entry = PgasEntry(
         entry_id=0,
         title=payload.title,
         year=payload.year,
         file_url=payload.file_url,
-        file_name=payload.file_name,
-        file_type=payload.file_type,
+        file_name=fr.name,
+        file_type=fr.mime_type,
         created_at=datetime.now(timezone.utc).isoformat(),
         uploaded_by=cur.user_id,
     )
@@ -1644,37 +1659,12 @@ def filter_contacts(filt: ContactFilter, cur: User = Depends(get_current_user)):
 #  UPLOAD
 # ═══════════════════════════════════════════════════════════
 
-@router.post("/upload/presigned-url", response_model=UrlsResponse)
+@router.post("/upload/presigned-url", response_model=UrlsResponse, deprecated=True)
 def get_presigned_url(
     payload: PresignedUrlRequest,
     cur: User = Depends(get_current_user)
 ):
-    """
-    Generate a presigned URL for direct S3 upload.
-    If folder is 'guides', only superusers can upload.
-    If folder is 'pgas', only pgas admins and superusers can upload, and only pdf/docx/png/jpg.
-    """
-    if payload.folder == 'guides' and not db.is_chair(cur.user_id) and not db.get_user_master_block_names(cur.user_id):
-        raise HTTPException(403, "Only superusers and block masters can upload to 'guides' folder")
-
-    if payload.folder == 'pgas':
-        if not cur.pgas_admin and not db.is_chair(cur.user_id):
-            raise HTTPException(403, "Only PGAS admins and superusers can upload to 'pgas' folder")
-        ct = payload.content_type.strip().lower()
-        ext = (
-            payload.file_name.split("?")[0].rsplit(".", 1)[-1].strip().lower()
-            if (payload.file_name and "." in payload.file_name)
-            else ""
-        )
-        if ct and ct not in PGAS_ALLOWED_CONTENT_TYPES:
-            raise HTTPException(400, PGAS_BAD_FILE)
-        if ext and ext not in PGAS_ALLOWED_EXTENSIONS:
-            raise HTTPException(400, PGAS_BAD_FILE)
-        if not ct and not ext:
-            raise HTTPException(400, PGAS_BAD_FILE)
-
-    urls = generate_presigned_url(payload.folder, payload.content_type, payload.file_name)
-    return urls
+    raise HTTPException(409,"Use contextual /files/upload-intents with size and complete verification")
 
 
 # ═══════════════════════════════════════════════════════════
@@ -2065,9 +2055,7 @@ def patch_season(season_id: str, payload: SeasonPatchIn, cur: User = Depends(get
         raise HTTPException(404, str(e))
     except ValueError as e:
         msg = str(e)
-        if "shorten season ends_at" in msg:
-            raise HTTPException(422, msg)
-        raise HTTPException(409, msg)
+        raise HTTPException(409 if "Conflict" in msg else 422, msg)
 
 
 @router.post("/seasons/{season_id}/open", response_model=SeasonOut)
@@ -2153,7 +2141,7 @@ def create_event(payload: EventCreateIn, cur: User = Depends(get_current_user)):
     except LookupError as e:
         raise HTTPException(404, str(e))
     except ValueError as e:
-        raise HTTPException(409, str(e))
+        raise HTTPException(409 if "Conflict" in str(e) or "Cannot create event" in str(e) or "Cannot copy" in str(e) else 422, str(e))
 
 
 @router.get("/events/{event_id}", response_model=EventOut)
@@ -2185,10 +2173,12 @@ def patch_event(event_id: str, payload: EventPatchIn, cur: User = Depends(get_cu
             desc,
             payload.starts_at,
             payload.ends_at,
+            clear_starts_at="starts_at" in payload.model_fields_set and payload.starts_at is None,
+            clear_ends_at="ends_at" in payload.model_fields_set and payload.ends_at is None,
         )
         return _to_event_out(updated)
     except ValueError as e:
-        raise HTTPException(409, str(e))
+        raise HTTPException(409 if "Conflict" in str(e) or "Cannot create event" in str(e) or "Cannot copy" in str(e) else 422, str(e))
 
 
 @router.post("/events/{event_id}/copy", response_model=EventCopyOut)
@@ -2210,7 +2200,7 @@ def copy_event(event_id: str, payload: EventCopyIn, cur: User = Depends(get_curr
     except LookupError as e:
         raise HTTPException(404, str(e))
     except ValueError as e:
-        raise HTTPException(409, str(e))
+        raise HTTPException(409 if "Conflict" in str(e) or "Cannot create event" in str(e) or "Cannot copy" in str(e) else 422, str(e))
 
 
 # ── Subevents ──
@@ -2476,7 +2466,10 @@ def delete_event_meeting(event_id: str, cur: User = Depends(get_current_user)):
     )
     if not can_edit:
         raise HTTPException(403, "Forbidden")
-    db.delete_meeting("event", event_id)
+    try:
+        db.delete_meeting("event", event_id)
+    except ValueError as error:
+        raise HTTPException(409,str(error))
     return {"status": "deleted"}
 
 
@@ -2536,7 +2529,10 @@ def delete_subevent_meeting(subevent_id: str, cur: User = Depends(get_current_us
     )
     if not can_edit:
         raise HTTPException(403, "Forbidden")
-    db.delete_meeting("subevent", subevent_id)
+    try:
+        db.delete_meeting("subevent", subevent_id)
+    except ValueError as error:
+        raise HTTPException(409,str(error))
     return {"status": "deleted"}
 
 
@@ -3457,3 +3453,31 @@ from accounts import register_routes as register_account_routes
 register_account_routes(router)
 
 app.include_router(router)
+
+def contract_openapi():
+    if app.openapi_schema:return app.openapi_schema
+    from fastapi.openapi.utils import get_openapi
+    schema=get_openapi(title=app.title,version="1.3.0",routes=app.routes)
+    public={"/api/auth/register","/api/auth/login","/api/auth/vk","/api/auth/refresh"}
+    schema.setdefault('components',{}).setdefault('schemas',{})['DomainError']={
+        'type':'object','required':['detail'],'properties':{'detail':{
+            'type':'object','required':['code','message'],'properties':{
+                'code':{'type':'string'},'message':{'type':'string'},
+                'fields':{'type':'object','additionalProperties':True}
+            }
+        }}
+    }
+
+    for path,methods in schema['paths'].items():
+        for method,operation in methods.items():
+            if path in public and method=='post':operation.pop('security',None)
+            else:operation['security']=[{'OAuth2PasswordBearer':[]}]
+            legacy=path.startswith(('/api/auth/','/api/profile/','/api/guides','/api/pgas','/api/contacts'))
+            if not legacy:
+                for code in ('401','403','404','409','422'):
+                    operation.setdefault('responses',{})[code]={'description':'Domain error','content':{'application/json':{'schema':{'$ref':'#/components/schemas/DomainError'}}}}
+
+    app.openapi_schema=schema
+    return schema
+
+app.openapi=contract_openapi

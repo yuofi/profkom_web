@@ -269,19 +269,13 @@ def test_имя_и_фамилия_необязательны(client):
 # ═══════════════════════════════════════════════════════════
 #  4. Выданные токены реально работают
 # ═══════════════════════════════════════════════════════════
-def test_выданный_access_token_работает_на_profile_me(client):
-    """Access-токен из ответа регистрации пускает в GET /api/profile/me."""
-    tokens = client.post(REGISTER_URL, json=body()).json()
-
-    response = client.get("/api/profile/me", headers={"Authorization": f"Bearer {tokens['access_token']}"})
-
-    assert response.status_code == 200, f"Ожидали 200, получили {response.status_code}: {response.text}"
-    data = response.json()
-    assert data["email"] == "ivan@test.ru", "Профиль должен принадлежать зарегистрированному пользователю"
-    assert data["kkr_name"] == "Иван Иванов", "kkr_name в профиле должен совпадать с выведенным при регистрации"
-    assert data["group_number"] == "305", "group_number в профиле — строка '305'"
-    assert data["has_password"] is True, "has_password должен быть True после регистрации с паролем"
-    assert data["admin"] is False and data["super_user"] is False, "Новый пользователь без прав"
+def test_новый_access_даёт_заявку_без_рабочего_профиля(client):
+    tokens=client.post(REGISTER_URL,json=body()).json();headers={'Authorization':'Bearer '+tokens['access_token']}
+    assert client.get('/api/profile/me',headers=headers).status_code==403
+    session=client.get('/api/session',headers=headers).json()
+    assert session['account_state']=='pending' and session['capabilities']==[]
+    own=client.get('/api/registrations/me',headers=headers)
+    assert own.status_code==200 and own.json()['fields']['email']=='ivan@test.ru'
 
 
 def test_выданный_refresh_token_работает_на_auth_refresh(client):
@@ -551,18 +545,10 @@ def test_пустой_пароль_отклоняется(client):
     assert row_counts()["users"] == 0, "Аккаунт с пустым паролем создаваться не должен"
 
 
-@pytest.mark.skip(reason="Пустой пароль теперь отбивается валидацией 422")
-def test_пустой_пароль_всё_равно_хешируется(client):
-    """
-    Пока пустой пароль принимается (см. xfail выше) — он обязан хотя бы храниться хешем,
-    иначе login начнёт считать аккаунт VK-аккаунтом без пароля.
-    """
-    response = client.post(REGISTER_URL, json=body(password=""))
-    assert response.status_code == 201, "Фиксируем текущее поведение: пустой пароль принимается"
-
-    user = db.get_user_by_email("ivan@test.ru")
-    assert user.hashed_password.startswith("$2"), "Даже пустой пароль должен храниться bcrypt-хешем"
-    assert user.hashed_password != "", "Пустой хеш означал бы 'аккаунт только через VK'"
+def test_пустой_пароль_не_создаёт_аккаунт(client):
+    r=client.post(REGISTER_URL,json=body(password=''))
+    assert r.status_code==422
+    assert db.get_user_by_email('ivan@test.ru') is None
 
 
 def test_очень_длинные_строки_принимаются_и_сохраняются(client):
@@ -627,25 +613,10 @@ def test_юникод_в_фио_сохраняется_без_потерь(clien
     ],
     ids=lambda v: next(iter(v)),
 )
-def test_лишние_поля_в_теле_игнорируются(client, extra):
-    """Клиент не может выставить себе права или счёт через неизвестные поля."""
-    response = client.post(REGISTER_URL, json=body(**extra))
-
-    assert response.status_code == 201, f"Лишнее поле не должно ломать запрос: {response.text}"
-    user = db.get_user_by_email("ivan@test.ru")
-    contact = db.get_contact(user.user_id)
-
-    assert user.admin is False, "admin из тела запроса должен игнорироваться"
-    assert user.super_user is False, "super_user из тела запроса должен игнорироваться"
-    assert user.banned is False, "banned из тела запроса должен игнорироваться"
-    assert user.kkr_score == 0, "kkr_score из тела запроса должен игнорироваться"
-    assert user.blocks == "", "blocks из тела запроса должен игнорироваться"
-    assert user.photo_url is None, "photo_url из тела запроса должен игнорироваться"
-    assert contact.budget is True, "budget всегда True при регистрации"
-    assert contact.in_profcom is False, "in_profcom всегда False при регистрации"
-    assert verify_password(VALID_BODY["password"], user.hashed_password), (
-        "Хеш должен считаться от переданного пароля, а не браться из тела запроса"
-    )
+def test_лишние_поля_в_теле_отклоняются(client, extra):
+    response=client.post(REGISTER_URL,json=body(**extra))
+    assert response.status_code==422,response.text
+    assert db.get_user_by_email('ivan@test.ru') is None
 
 
 # ═══════════════════════════════════════════════════════════

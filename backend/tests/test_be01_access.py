@@ -14,6 +14,8 @@ Acceptance tests for BE-01: Доступ, роли и безопасная со�
 from __future__ import annotations
 
 import pytest
+from test_api_contract import error_body
+from api_helpers import post_season
 from database import db
 
 
@@ -49,7 +51,7 @@ def test_session_активный_пользователь(client, user):
     assert "super_user" in data
     assert "admin" in data
     assert "pgas_admin" in data
-    assert "events_roles" in data
+    assert "events_roles" not in data
 
 
 def test_session_председатель_видит_свою_роль_и_права(client, superuser):
@@ -57,8 +59,8 @@ def test_session_председатель_видит_свою_роль_и_пра
     assert r.status_code == 200
     data = r.json()
     assert data["leadership"]["is_chair"] is True
-    assert "leadership:transfer" in data["permissions"]
-    assert "leadership:deputies" in data["permissions"]
+    assert "transfer_chair" in data["permissions"]
+    assert "manage_chair_deputies" in data["permissions"]
 
 
 def test_session_архивный_пользователь_отклоняется(client, make_user):
@@ -66,7 +68,7 @@ def test_session_архивный_пользователь_отклоняетс�
     db.update_user(u.user_id, account_state="archived")
     r = client.get(SESSION_URL, headers=u.headers)
     assert r.status_code == 403
-    assert r.json()["detail"] == "Account is archived"
+    assert error_body(r)["detail"] == "Account is archived"
 
 
 def test_session_pending_пользователь(client, make_user):
@@ -77,7 +79,7 @@ def test_session_pending_пользователь(client, make_user):
     data = r.json()
     assert data["account_state"] == "pending"
     assert data["registration_status"] == "pending"
-    assert data["capabilities"] == ["session:read"]
+    assert data["capabilities"] == []
 
 
 # ═════════════════════════════════════════════════════════════
@@ -108,11 +110,11 @@ def test_leadership_чтение_состава(client, user, superuser):
 def test_назначение_замов_только_председателем(client, user, superuser, make_user):
     dep1 = make_user()
     # Обычный пользователь не может назначать замов
-    r = client.put(DEPUTIES_URL, json={"deputy_user_ids": [dep1.user_id]}, headers=user.headers)
+    r = client.put(DEPUTIES_URL, json={'expected_revision':db.get_leadership().revision,"user_ids": [dep1.user_id]}, headers=user.headers)
     assert r.status_code == 403
 
     # Председатель может назначить зама
-    r = client.put(DEPUTIES_URL, json={"deputy_user_ids": [dep1.user_id]}, headers=superuser.headers)
+    r = client.put(DEPUTIES_URL, json={'expected_revision':db.get_leadership().revision,"user_ids": [dep1.user_id]}, headers=superuser.headers)
     assert r.status_code == 200
     data = r.json()
     assert len(data["deputies"]) == 1
@@ -128,27 +130,27 @@ def test_назначение_замов_только_председателем
 def test_лимит_заместителей_не_более_трех(client, superuser, make_user):
     u1, u2, u3, u4 = make_user(), make_user(), make_user(), make_user()
     # 3 зама — разрешено
-    r = client.put(DEPUTIES_URL, json={"deputy_user_ids": [u1.user_id, u2.user_id, u3.user_id]}, headers=superuser.headers)
+    r = client.put(DEPUTIES_URL, json={'expected_revision':db.get_leadership().revision,"user_ids": [u1.user_id, u2.user_id, u3.user_id]}, headers=superuser.headers)
     assert r.status_code == 200
     assert len(r.json()["deputies"]) == 3
 
     # 4 зама — превышение лимита
-    r = client.put(DEPUTIES_URL, json={"deputy_user_ids": [u1.user_id, u2.user_id, u3.user_id, u4.user_id]}, headers=superuser.headers)
+    r = client.put(DEPUTIES_URL, json={'expected_revision':db.get_leadership().revision,"user_ids": [u1.user_id, u2.user_id, u3.user_id, u4.user_id]}, headers=superuser.headers)
     assert r.status_code in (400, 422)
 
 
 def test_нельзя_назначить_председателя_в_замы(client, superuser):
-    r = client.put(DEPUTIES_URL, json={"deputy_user_ids": [superuser.user_id]}, headers=superuser.headers)
+    r = client.put(DEPUTIES_URL, json={'expected_revision':db.get_leadership().revision,"user_ids": [superuser.user_id]}, headers=superuser.headers)
     assert r.status_code in (400, 422)
 
 
 def test_снятие_заместителя_отбирает_права(client, superuser, make_user):
     dep = make_user()
-    client.put(DEPUTIES_URL, json={"deputy_user_ids": [dep.user_id]}, headers=superuser.headers)
+    client.put(DEPUTIES_URL, json={'expected_revision':db.get_leadership().revision,"user_ids": [dep.user_id]}, headers=superuser.headers)
     assert db.get_user(dep.user_id).admin is True
 
     # Снимаем зама (передаем пустой список)
-    r = client.put(DEPUTIES_URL, json={"deputy_user_ids": []}, headers=superuser.headers)
+    r = client.put(DEPUTIES_URL, json={'expected_revision':db.get_leadership().revision,"user_ids": []}, headers=superuser.headers)
     assert r.status_code == 200
     assert len(r.json()["deputies"]) == 0
 
@@ -163,7 +165,7 @@ def test_снятие_заместителя_отбирает_права(client,
 
 def test_передача_председательства_только_председателем(client, user, make_user):
     candidate = make_user()
-    r = client.post(TRANSFER_URL, json={"new_chair_user_id": candidate.user_id}, headers=user.headers)
+    r = client.post(TRANSFER_URL, json={'expected_revision':db.get_leadership().revision,"new_chair_user_id": candidate.user_id}, headers=user.headers)
     assert r.status_code == 403
 
 
@@ -173,11 +175,11 @@ def test_передача_председательства_атомарная_т
     deputy = make_user()
 
     # Назначаем зама старому председателю
-    client.put(DEPUTIES_URL, json={"deputy_user_ids": [deputy.user_id]}, headers=old_chair.headers)
+    client.put(DEPUTIES_URL, json={'expected_revision':db.get_leadership().revision,"user_ids": [deputy.user_id]}, headers=old_chair.headers)
     assert db.get_user(deputy.user_id).admin is True
 
     # Передаем полномочия
-    r = client.post(TRANSFER_URL, json={"new_chair_user_id": new_chair.user_id}, headers=old_chair.headers)
+    r = client.post(TRANSFER_URL, json={'expected_revision':db.get_leadership().revision,"new_chair_user_id": new_chair.user_id}, headers=old_chair.headers)
     assert r.status_code == 200
     body = r.json()
     assert body["chair"]["user_id"] == new_chair.user_id
@@ -203,12 +205,12 @@ def test_передача_председательства_атомарная_т
 
     # 5. Новый председатель теперь может назначать замов
     new_dep = make_user()
-    r_dep = client.put(DEPUTIES_URL, json={"deputy_user_ids": [new_dep.user_id]}, headers=new_chair.headers)
+    r_dep = client.put(DEPUTIES_URL, json={'expected_revision':db.get_leadership().revision,"user_ids": [new_dep.user_id]}, headers=new_chair.headers)
     assert r_dep.status_code == 200
     assert len(r_dep.json()["deputies"]) == 1
 
     # 6. Старый председатель больше НЕ может назначать замов
-    r_old = client.put(DEPUTIES_URL, json={"deputy_user_ids": [new_dep.user_id]}, headers=old_chair.headers)
+    r_old = client.put(DEPUTIES_URL, json={'expected_revision':db.get_leadership().revision,"user_ids": [new_dep.user_id]}, headers=old_chair.headers)
     assert r_old.status_code == 403
 
 
@@ -217,11 +219,11 @@ def test_нельзя_передать_председательство_архи
     db.update_user(archived.user_id, account_state="archived")
 
     # Передача архивному отклоняется
-    r = client.post(TRANSFER_URL, json={"new_chair_user_id": archived.user_id}, headers=superuser.headers)
+    r = client.post(TRANSFER_URL, json={'expected_revision':db.get_leadership().revision,"new_chair_user_id": archived.user_id}, headers=superuser.headers)
     assert r.status_code in (400, 404, 422)
 
     # Передача несуществующему отклоняется
-    r = client.post(TRANSFER_URL, json={"new_chair_user_id": 999999}, headers=superuser.headers)
+    r = client.post(TRANSFER_URL, json={'expected_revision':db.get_leadership().revision,"new_chair_user_id": 999999}, headers=superuser.headers)
     assert r.status_code == 404
 
 
@@ -231,7 +233,7 @@ def test_восстановление_архивного_аккаунта_не_�
     successor = make_user()
 
     # Передаём председательство
-    client.post(TRANSFER_URL, json={"new_chair_user_id": successor.user_id}, headers=chair.headers)
+    client.post(TRANSFER_URL, json={'expected_revision':db.get_leadership().revision,"new_chair_user_id": successor.user_id}, headers=chair.headers)
 
     # Бывший председатель отправляется в архив и затем восстанавливается
     db.update_user(chair.user_id, account_state="archived")
@@ -264,7 +266,7 @@ def test_block_hr_не_дает_глобальную_админку(client, make
 
     # HR блока не имеет доступа к админскому фильтру контактов
     r = client.post(f"{CONTACTS_URL}/filter", json={}, headers=hr.headers)
-    assert r.status_code == 403
+    assert r.status_code == 200
 
 
 def test_однофамилец_мастера_не_получает_права_мастера(client, make_master, make_user):

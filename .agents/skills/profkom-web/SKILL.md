@@ -27,8 +27,8 @@ Use this file as the durable project memory. Treat the current working tree and 
 ### Backend
 
 - Run backend commands from `backend/`. Modules use flat imports such as `from database import db`, and `.env` resolution is working-directory-sensitive.
-- All application endpoints are registered on an `APIRouter(prefix="/api")` in `backend/main.py`. The OpenAPI document itself remains at `/openapi.json`.
-- Keep the three representations aligned when adding a persisted field: SQLAlchemy ORM and migration helpers in `database.py`, dataclasses in `models.py`, and Pydantic request/response schemas plus mappings in `main.py`. Then update frontend API types if the field crosses the boundary.
+- All application endpoints use the `APIRouter(prefix="/api")` created in `backend/main.py`; domain modules may register routes on it. The OpenAPI document itself remains at `/openapi.json`.
+- Keep persistence and HTTP contracts aligned: core ORM/migrations in `database.py`, extension ORM in `domain_models.py`, legacy dataclasses in `models.py`, and Pydantic schemas/mappings in `main.py`, `domain_contract.py` or the owning domain module. Then update frontend API types if the field crosses the boundary.
 - SQLite schema upgrades currently run during `database.py` import via `_ensure_sqlite_*` helpers. Preserve existing data and make additions idempotent; there is no Alembic.
 - Never update block membership or derived admin rights with ad-hoc writes. Use and, when necessary, repair the synchronization helpers in `Database`.
 - Backend authorization is authoritative. UI route guards and hidden buttons are convenience only.

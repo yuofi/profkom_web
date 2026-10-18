@@ -528,26 +528,14 @@ class TestLogoutAll:
         assert resp.status_code == 200, "чужая сессия обязана продолжать работать"
 
     def test_идемпотентность(self, client, user):
-        """Второй вызов подряд — тоже 200 и по-прежнему ноль строк."""
-        first = _post(client, LOGOUT_ALL_URL, headers=user.headers)
-        second = _post(client, LOGOUT_ALL_URL, headers=user.headers)
+        first=_post(client,LOGOUT_ALL_URL,headers=user.headers)
+        second=_post(client,LOGOUT_ALL_URL,headers=user.headers)
+        assert first.status_code==200 and second.status_code==401
+        assert _refresh_rows(user.user_id)==0
 
-        assert first.status_code == 200
-        assert second.status_code == 200
-        assert second.json() == {"detail": "Logged out from all devices"}
-        assert _refresh_rows(user.user_id) == 0
-
-    def test_access_токен_продолжает_работать_после_logout_all(self, client, user):
-        """
-        Access-токены не хранятся в базе и не отзываются — после logout-all
-        уже выданный access живёт до истечения ACCESS_TOKEN_EXPIRE_MINUTES.
-        """
-        _post(client, LOGOUT_ALL_URL, headers=user.headers)
-
-        resp = _get(client, ME_URL, headers=user.headers)
-        assert resp.status_code == 200, (
-            "документируем текущее поведение: выданный access-токен переживает logout-all"
-        )
+    def test_access_токен_отзывается_после_logout_all(self, client, user):
+        _post(client,LOGOUT_ALL_URL,headers=user.headers)
+        assert _get(client,ME_URL,headers=user.headers).status_code==401
 
     def test_кука_не_очищается(self, client, user):
         """
@@ -628,9 +616,9 @@ class TestAccessTokenSemantics:
         assert set(body) == {
             "user_id", "email", "surname", "name", "patronymic", "kkr_name",
             "group_number", "location", "blocks", "phone", "vk", "tg",
-            "budget", "in_profcom", "photo_url", "kkr_score",
+            "budget", "in_profcom", "photo_url", "participation_periods",
             "banned", "super_user", "admin", "pgas_admin", "has_password",
-            "events_roles",
+
         }, f"состав полей MeOut изменился: {sorted(body)}"
 
         assert body["user_id"] == actor.user_id and isinstance(body["user_id"], int)
@@ -649,7 +637,7 @@ class TestAccessTokenSemantics:
         assert body["budget"] is True
         assert body["in_profcom"] is True
         assert body["photo_url"] == "https://example.test/a.jpg"
-        assert body["kkr_score"] == 0 and isinstance(body["kkr_score"], int)
+        assert "kkr_score" not in body and "events_roles" not in body
         assert body["banned"] is False
         assert body["super_user"] is False
         assert body["admin"] is False

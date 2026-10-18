@@ -699,10 +699,11 @@ def test_повторная_смена_пароля_работает(client, use
     )
     assert first.status_code == 200, first.text
 
+    fresh=client.post('/api/auth/login',json=dict(email=user.email,password='New-Pass-1111')).json()['access_token']
     second = client.post(
         CHANGE_URL,
         json={"old_password": "New-Pass-1111", "new_password": "New-Pass-2222"},
-        headers=user.headers,
+        headers={"Authorization":"Bearer "+fresh},
     )
     assert second.status_code == 200, f"Вторая смена должна пройти, получено {second.status_code}: {second.text}"
     assert auth_module.verify_password("New-Pass-2222", stored_hash(user.user_id))
@@ -808,7 +809,8 @@ def test_вк_аккаунт_после_установки_пароля_треб
     actor = make_user(password=None)
     client.post(CHANGE_URL, json={"new_password": "Vk-Pass-1234"}, headers=actor.headers)
 
-    r = client.post(CHANGE_URL, json={"new_password": "Vk-Pass-9999"}, headers=actor.headers)
+    fresh={'Authorization':'Bearer '+client.post('/api/auth/login',json=dict(email=actor.email,password='Vk-Pass-1234')).json()['access_token']}
+    r = client.post(CHANGE_URL, json={"new_password": "Vk-Pass-9999"}, headers=fresh)
     assert r.status_code == 400, f"Ожидался 400, получено {r.status_code}: {r.text}"
     assert r.json()["detail"] == OLD_REQUIRED
 
@@ -851,20 +853,10 @@ def test_пустой_новый_пароль_должен_отклонятьс�
     assert r.status_code in (400, 422), f"Ожидался отказ, получено {r.status_code}: {r.text}"
 
 
-@pytest.mark.skip(reason="Пустой пароль теперь отвергается валидатором 422")
 def test_последствия_пустого_нового_пароля_вход_по_пустой_строке(client, user):
-    """Фиксация текущего поведения: после установки пустого пароля вход идёт по пустой строке."""
-    assert client.post(
-        CHANGE_URL,
-        json={"old_password": user.password, "new_password": ""},
-        headers=user.headers,
-    ).status_code == 200
-
-    r = client.post(LOGIN_URL, json={"email": user.email, "password": ""})
-    assert r.status_code == 200, (
-        "Текущее поведение: пустой пароль реально пускает в аккаунт — "
-        f"получено {r.status_code}: {r.text}"
-    )
+    r=client.post(CHANGE_URL,headers=user.headers,json=dict(old_password=user.password,new_password=''))
+    assert r.status_code==422
+    assert client.post('/api/auth/login',json=dict(email=user.email,password=user.password)).status_code==200
 
 
 def test_короткий_новый_пароль_принимается(client, user):
@@ -970,15 +962,7 @@ def test_смена_пароля_должна_отзывать_refresh_токе�
     assert r.status_code == 401, f"Старый refresh-токен должен быть отозван, получено {r.status_code}: {r.text}"
 
 
-def test_смена_пароля_не_отзывает_текущий_access_токен(client, user):
-    """Фиксация поведения stateless-JWT: выданный access-токен живёт до истечения TTL."""
-    client.post(
-        CHANGE_URL,
-        json={"old_password": user.password, "new_password": "New-Pass-1234"},
-        headers=user.headers,
-    )
-    r = client.get(PROFILE_ME_URL, headers=user.headers)
-    assert r.status_code == 200, (
-        "Текущее поведение: access-токен продолжает действовать после смены пароля — "
-        f"получено {r.status_code}: {r.text}"
-    )
+def test_смена_пароля_отзывает_текущий_access_токен(client, user):
+    r=client.post(CHANGE_URL,json=dict(old_password=user.password,new_password='New-Pass-1234'),headers=user.headers)
+    assert r.status_code==200
+    assert client.get(PROFILE_ME_URL,headers=user.headers).status_code==401

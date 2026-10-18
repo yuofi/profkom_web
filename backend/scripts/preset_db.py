@@ -1,110 +1,119 @@
+"""Idempotent content seed and explicit bootstrap for an empty installation."""
+
 import os
 import sys
+from pathlib import Path
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from settings import settings
+from database import db, UserORM, LeadershipORM, RoleAssignmentORM
+from models import ContactInfo, User, Guide
+from auth import hash_password
+import uuid
 
-from settings import settings 
-from main import ContactInfo, User, hash_password
-
-from database import db
-from models import Guide
 
 def preset_guides():
-    """
-    Presets guides in the database by reading markdown files from public/md.
-    Equivalent to the TypeScript presetGuides implementation.
-    """
-    # Equivalent to path.resolve(process.cwd(), "public", "md")
-    md_dir = os.path.join(os.getcwd(), "./", "md")
-    
-    names = ["гайды", "информация", "КМБ"]
-    existing_titles = {guide.title for guide in db.list_guides()}
-    
-    for name in names:
-        if name in existing_titles:
-            print(f"Гайд '{name}' уже существует. Пропуск.")
-            continue
-        file_path = os.path.join(md_dir, f"{name}.md")
-        
-        try:
-            if not os.path.exists(file_path):
-                print(f"Ошибка: файл не найден: {file_path}")
-                continue
-                
-            with open(file_path, "r", encoding="utf-8") as f:
-                text = f.read()
-            
-            guide = Guide(
-                guide_id=0,  # SQLite auto-increment will handle the actual ID
-                title=name,
-                owner_block="none",
-                text=text,
-                original_link=None
+    existing = {g.title for g in db.list_guides()}
+    for name in ("гайды", "информация", "КМБ"):
+        path = Path(__file__).resolve().parents[1] / "md" / f"{name}.md"
+        if name not in existing and path.is_file():
+            db.create_guide(
+                Guide(
+                    guide_id=0,
+                    title=name,
+                    owner_block="none",
+                    text=path.read_text(),
+                    original_link=None,
+                )
             )
-            
-            db.create_guide(guide)
-            print(f"Успешно сохранен гайд: {name}")
-            
-        except Exception as err:
-            print(f"Ошибка при обработке файла {name}.md: {err}")
+    from materials import legacy_mapping
 
-def set_admin(superadmin: bool, custom_payload=None):
-    payload = custom_payload
-    if (custom_payload is None):
-        payload = {
-            "name": settings.ADMIN_NAME,
-            "password": settings.ADMIN_PASSWORD,
-            "surname": "",
-            "patronymic": "",
-            "group_number": 0,
-            "tg": "",
-            "email": f'{settings.ADMIN_NAME}@example.com',
-        }
-    if db.get_user_by_email(str(payload["email"])):
-        print(f"Пользователь с email '{payload['email']}' уже существует. Пропуск.")
-        return
-    contact_model = ContactInfo(
-        user_id=0,
-        surname=payload["surname"],
-        name=payload["name"],
-        patronymic=payload["patronymic"],
-        kkr_name=f"{payload['surname']} {payload['name']}".strip(),
-        group_number=str(payload["group_number"]),
-        location="",
-        blocks="",
-        phone="",
-        vk="",
-        tg=payload["tg"],
-        email=str(payload["email"]),
-        budget=False,
-        in_profcom=True,
-    )
-    user_model = User(
-        user_id=0,
-        hashed_password=hash_password(payload["password"]),   # ← hash!
-        kkr_score=0,
-        group_number=str(payload["group_number"]),
-        blocks="",
-        banned=False,
-        super_user=superadmin,
-        admin=True,
-    )
-    db.create_user_with_contact(contact_model, user_model)
-    rights = "superadmin" if superadmin else "admin"
-    print(f"Админ создан успешно. Логин: {payload["email"]} Права: {rights}")
+    with db.atomic():
+        with db._session() as s:
+            for guide in db.list_guides():
+                legacy_mapping(s, guide.guide_id)
+            s.commit()
+
+
+def set_admin(superadmin=True, custom_payload=None):
+    if not superadmin:
+        raise ValueError("Use explicit-ID migration for domain roles")
+    with db.atomic():
+        with db._session() as s:
+            lead = s.get(LeadershipORM, 1)
+            if lead and lead.chair_user_id:
+                return
+            if s.query(UserORM).count():
+                print(
+                    "Existing accounts preserved. Map the initial chair by user_id using scripts/migrate_v13.py."
+                )
+                return
+            if custom_payload is None:
+                if not settings.ADMIN_NAME or not settings.ADMIN_PASSWORD:
+                    print(
+                        "Bootstrap disabled: configure ADMIN_NAME and ADMIN_PASSWORD for an empty installation."
+                    )
+                    return
+                payload = dict(
+                    name=settings.ADMIN_NAME,
+                    password=settings.ADMIN_PASSWORD,
+                    email=settings.ADMIN_NAME + "@example.com",
+                    surname="",
+                    patronymic="",
+                    group_number="101",
+                    tg="",
+                )
+            else:
+                payload = custom_payload
+            if len(payload["password"]) < 12:
+                raise ValueError(
+                    "Bootstrap password must contain at least 12 characters"
+                )
+            c = ContactInfo(
+                user_id=0,
+                name=payload["name"],
+                surname=payload.get("surname", ""),
+                patronymic=payload.get("patronymic", ""),
+                email=payload["email"],
+                kkr_name=" ".join(
+                    filter(None, [payload.get("surname"), payload["name"]])
+                ),
+                group_number=str(payload.get("group_number", "101")),
+                tg=payload.get("tg", ""),
+                in_profcom=True,
+            )
+            u = db.create_user_with_contact(
+                c,
+                User(
+                    user_id=0,
+                    hashed_password=hash_password(payload["password"]),
+                    group_number=c.group_number,
+                    account_state="active",
+                ),
+            )
+            if not lead:
+                lead = LeadershipORM(id=1, deputies_json="[]", revision=1)
+                s.add(lead)
+            lead.chair_user_id = u.user_id
+            s.add(
+                RoleAssignmentORM(
+                    role_assignment_id=str(uuid.uuid4()),
+                    user_id=u.user_id,
+                    role="chair",
+                    scope_kind="global",
+                    scope_id=None,
+                    revision=1,
+                )
+            )
+            from domain_seed import ensure_application, now
+            from participation import open_interval
+
+            ensure_application(s, u.user_id)
+            open_interval(s, u.user_id, now())
+            s.commit()
+            print("Created the explicitly configured initial chair.")
+
 
 if __name__ == "__main__":
     preset_guides()
-    set_admin(superadmin=True)
-
-    # payload = {
-    #         "name": "Admin",
-    #         "password": "12345678",
-    #         "surname": "Adminovich",
-    #         "patronymic": "",
-    #         "group_number": 0,
-    #         "tg": "",
-    #         "email": f'test_email@vk.com',
-    #     }
-
-    # set_admin(superadmin=False, custom_payload=payload)
+    set_admin()

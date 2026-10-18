@@ -37,117 +37,150 @@ from database import db
 #  не будучи ни разу проверенным на «а спросит ли он токен».
 #
 API_ROUTES: tuple[tuple[str, str], ...] = (
-    ("DELETE", "/api/blocks/{block_name}"),
-    ("DELETE", "/api/events/{event_id}/meeting"),
-    ("DELETE", "/api/guides/{guide_id}"),
-    ("DELETE", "/api/pgas/{entry_id}"),
-    ("DELETE", "/api/profile/{user_id}"),
-    ("DELETE", "/api/subevents/{subevent_id}/meeting"),
-    ("GET", "/api/assessments"),
-    ("GET", "/api/assignments/unresolved"),
-    ("GET", "/api/assignments/{assignment_id}/assessment-inputs"),
-    ("GET", "/api/blocks"),
-    ("GET", "/api/calendar"),
-    ("GET", "/api/contacts"),
-    ("GET", "/api/dashboard"),
-    ("GET", "/api/events"),
-    ("GET", "/api/events/{event_id}"),
-    ("GET", "/api/events/{event_id}/meeting"),
-    ("GET", "/api/events/{event_id}/subevents"),
-    ("GET", "/api/files/{file_id}/download"),
-    ("GET", "/api/guides"),
-    ("GET", "/api/guides/{guide_id}"),
-    ("GET", "/api/leadership"),
-    ("GET", "/api/merits"),
-    ("GET", "/api/merits/{merit_id}"),
-    ("GET", "/api/notifications"),
-    ("GET", "/api/pgas"),
-    ("GET", "/api/profile/me"),
-    ("GET", "/api/profile/{user_id}"),
-    ("GET", "/api/report-history"),
-    ("GET", "/api/report-series"),
-    ("GET", "/api/reports"),
-    ("GET", "/api/reports/{report_id}"),
-    ("GET", "/api/reports/{report_id}/versions"),
-    ("GET", "/api/seasons"),
-    ("GET", "/api/seasons/current"),
-    ("GET", "/api/seasons/{season_id}"),
-    ("GET", "/api/seasons/{season_id}/master-bonuses"),
-    ("GET", "/api/seasons/{season_id}/summary"),
-    ("GET", "/api/seasons/{season_id}/summary.xlsx"),
-    ("GET", "/api/session"),
-    ("GET", "/api/subevents/{subevent_id}"),
-    ("GET", "/api/subevents/{subevent_id}/meeting"),
-    ("GET", "/api/tasks"),
-    ("GET", "/api/tasks/{task_id}"),
-    ("GET", "/api/tasks/{task_id}/assessment-inputs"),
-    ("GET", "/api/tasks/{task_id}/comments"),
-    ("PATCH", "/api/assignments/{assignment_id}/assessment-inputs"),
-    ("PATCH", "/api/blocks/{block_name}"),
-    ("PATCH", "/api/comments/{comment_id}"),
-    ("PATCH", "/api/events/{event_id}"),
-    ("PATCH", "/api/guides/{guide_id}"),
-    ("PATCH", "/api/merits/{merit_id}"),
-    ("PATCH", "/api/profile/{user_id}"),
-    ("PATCH", "/api/reports/{report_id}"),
-    ("PATCH", "/api/seasons/{season_id}"),
-    ("PATCH", "/api/subevents/{subevent_id}"),
-    ("PATCH", "/api/tasks/{task_id}"),
-    ("PATCH", "/api/tasks/{task_id}/assessment-inputs"),
-    ("POST", "/api/assessment-inputs/bulk-hours"),
-    ("POST", "/api/assignments/{assignment_id}/accept"),
-    ("POST", "/api/assignments/{assignment_id}/cancel"),
-    ("POST", "/api/assignments/{assignment_id}/not-complete"),
-    ("POST", "/api/assignments/{assignment_id}/reassign"),
-    ("POST", "/api/assignments/{assignment_id}/request-help"),
-    ("POST", "/api/assignments/{assignment_id}/request-revision"),
-    ("POST", "/api/assignments/{assignment_id}/resume"),
-    ("POST", "/api/assignments/{assignment_id}/start"),
-    ("POST", "/api/assignments/{assignment_id}/submit"),
-    ("POST", "/api/auth/change-password"),
-    ("POST", "/api/auth/login"),
-    ("POST", "/api/auth/logout"),
-    ("POST", "/api/auth/logout-all"),
-    ("POST", "/api/auth/refresh"),
-    ("POST", "/api/auth/register"),
-    ("POST", "/api/auth/vk"),
-    ("POST", "/api/blocks"),
-    ("POST", "/api/blocks/{block_name}/enter"),
-    ("POST", "/api/blocks/{block_name}/exit"),
-    ("POST", "/api/contacts/filter"),
-    ("POST", "/api/events"),
-    ("POST", "/api/events/{event_id}/copy"),
-    ("POST", "/api/events/{event_id}/subevents"),
-    ("POST", "/api/files/upload-intents"),
-    ("POST", "/api/files/{file_id}/complete"),
-    ("POST", "/api/guides"),
-    ("POST", "/api/guides/{guide_id}"),
-    ("POST", "/api/leadership/transfer"),
-    ("POST", "/api/merits"),
-    ("POST", "/api/notifications/read-all"),
-    ("POST", "/api/notifications/{notification_id}/read"),
-    ("POST", "/api/pgas"),
-    ("POST", "/api/reports"),
-    ("POST", "/api/reports/{report_id}/publish"),
-    ("POST", "/api/season-corrections"),
-    ("POST", "/api/seasons"),
-    ("POST", "/api/seasons/{season_id}/begin-summary"),
-    ("POST", "/api/seasons/{season_id}/close"),
-    ("POST", "/api/seasons/{season_id}/open"),
-    ("POST", "/api/seasons/{season_id}/summary/correct"),
-    ("POST", "/api/tasks"),
-    ("POST", "/api/tasks/{task_id}/comments"),
-    ("POST", "/api/upload/presigned-url"),
-    ("PUT", "/api/blocks/{block_id}/leader"),
-    ("PUT", "/api/events/{event_id}/leaders"),
-    ("PUT", "/api/events/{event_id}/meeting"),
-    ("PUT", "/api/guides/{guide_id}"),
-    ("PUT", "/api/leadership/deputies"),
-    ("PUT", "/api/role-assignments/{role_assignment_id}/deputies"),
-    ("PUT", "/api/seasons/{season_id}/summary/decisions/{user_id}"),
-    ("PUT", "/api/subevents/{subevent_id}/leaders"),
-    ("PUT", "/api/subevents/{subevent_id}/meeting"),
-    ("PUT", "/api/subevents/{subevent_id}/organizers"),
+    ('DELETE', '/api/blocks/{block_id}/members/{user_id}'),
+    ('DELETE', '/api/blocks/{block_name}'),
+    ('DELETE', '/api/events/{event_id}/meeting'),
+    ('DELETE', '/api/guides/{guide_id}'),
+    ('DELETE', '/api/materials/{material_id}'),
+    ('DELETE', '/api/pgas/{entry_id}'),
+    ('DELETE', '/api/profile/{user_id}'),
+    ('DELETE', '/api/subevents/{subevent_id}/meeting'),
+    ('GET', '/api/accounts/archive'),
+    ('GET', '/api/assessments'),
+    ('GET', '/api/assignments/unresolved'),
+    ('GET', '/api/assignments/{assignment_id}/assessment-inputs'),
+    ('GET', '/api/avatars'),
+    ('GET', '/api/block-requests'),
+    ('GET', '/api/blocks'),
+    ('GET', '/api/blocks/{block_id}'),
+    ('GET', '/api/calendar'),
+    ('GET', '/api/contacts'),
+    ('GET', '/api/contacts/archive'),
+    ('GET', '/api/contacts/emails'),
+    ('GET', '/api/dashboard'),
+    ('GET', '/api/events'),
+    ('GET', '/api/events/{event_id}'),
+    ('GET', '/api/events/{event_id}/meeting'),
+    ('GET', '/api/events/{event_id}/subevents'),
+    ('GET', '/api/files/{file_id}/download'),
+    ('GET', '/api/guides'),
+    ('GET', '/api/guides/{guide_id}'),
+    ('GET', '/api/guides/{guide_id}/material'),
+    ('GET', '/api/leadership'),
+    ('GET', '/api/materials'),
+    ('GET', '/api/materials/{material_id}'),
+    ('GET', '/api/merits'),
+    ('GET', '/api/merits/{merit_id}'),
+    ('GET', '/api/notifications'),
+    ('GET', '/api/participants/{user_id}/category'),
+    ('GET', '/api/pgas'),
+    ('GET', '/api/profile/me'),
+    ('GET', '/api/profile/{user_id}'),
+    ('GET', '/api/registrations'),
+    ('GET', '/api/registrations/me'),
+    ('GET', '/api/report-history'),
+    ('GET', '/api/report-series'),
+    ('GET', '/api/reports'),
+    ('GET', '/api/reports/{report_id}'),
+    ('GET', '/api/reports/{report_id}/versions'),
+    ('GET', '/api/seasons'),
+    ('GET', '/api/seasons/current'),
+    ('GET', '/api/seasons/{season_id}'),
+    ('GET', '/api/seasons/{season_id}/master-bonuses'),
+    ('GET', '/api/seasons/{season_id}/summary'),
+    ('GET', '/api/seasons/{season_id}/summary.xlsx'),
+    ('GET', '/api/seasons/{season_id}/summary/versions'),
+    ('GET', '/api/seasons/{season_id}/summary/versions/{version}'),
+    ('GET', '/api/session'),
+    ('GET', '/api/subevents/{subevent_id}'),
+    ('GET', '/api/subevents/{subevent_id}/meeting'),
+    ('GET', '/api/tasks'),
+    ('GET', '/api/tasks/{task_id}'),
+    ('GET', '/api/tasks/{task_id}/assessment-inputs'),
+    ('GET', '/api/tasks/{task_id}/comments'),
+    ('PATCH', '/api/assignments/{assignment_id}/assessment-inputs'),
+    ('PATCH', '/api/blocks/{block_name}'),
+    ('PATCH', '/api/comments/{comment_id}'),
+    ('PATCH', '/api/contacts/archive/{contact_id}'),
+    ('PATCH', '/api/events/{event_id}'),
+    ('PATCH', '/api/guides/{guide_id}'),
+    ('PATCH', '/api/materials/{material_id}'),
+    ('PATCH', '/api/merits/{merit_id}'),
+    ('PATCH', '/api/participants/{user_id}/category'),
+    ('PATCH', '/api/profile/{user_id}'),
+    ('PATCH', '/api/registrations/me'),
+    ('PATCH', '/api/reports/{report_id}'),
+    ('PATCH', '/api/seasons/{season_id}'),
+    ('PATCH', '/api/subevents/{subevent_id}'),
+    ('PATCH', '/api/tasks/{task_id}'),
+    ('PATCH', '/api/tasks/{task_id}/assessment-inputs'),
+    ('POST', '/api/accounts/{user_id}/archive'),
+    ('POST', '/api/accounts/{user_id}/restore'),
+    ('POST', '/api/assessment-inputs/bulk-hours'),
+    ('POST', '/api/assignments/{assignment_id}/accept'),
+    ('POST', '/api/assignments/{assignment_id}/cancel'),
+    ('POST', '/api/assignments/{assignment_id}/not-complete'),
+    ('POST', '/api/assignments/{assignment_id}/reassign'),
+    ('POST', '/api/assignments/{assignment_id}/request-help'),
+    ('POST', '/api/assignments/{assignment_id}/request-revision'),
+    ('POST', '/api/assignments/{assignment_id}/resume'),
+    ('POST', '/api/assignments/{assignment_id}/start'),
+    ('POST', '/api/assignments/{assignment_id}/submit'),
+    ('POST', '/api/auth/change-password'),
+    ('POST', '/api/auth/login'),
+    ('POST', '/api/auth/logout'),
+    ('POST', '/api/auth/logout-all'),
+    ('POST', '/api/auth/refresh'),
+    ('POST', '/api/auth/register'),
+    ('POST', '/api/auth/vk'),
+    ('POST', '/api/auth/vk/link'),
+    ('POST', '/api/block-requests'),
+    ('POST', '/api/block-requests/{request_id}/{command}'),
+    ('POST', '/api/blocks'),
+    ('POST', '/api/blocks/{block_id}/leave'),
+    ('POST', '/api/blocks/{block_name}/enter'),
+    ('POST', '/api/blocks/{block_name}/exit'),
+    ('POST', '/api/contacts/archive'),
+    ('POST', '/api/contacts/filter'),
+    ('POST', '/api/events'),
+    ('POST', '/api/events/{event_id}/copy'),
+    ('POST', '/api/events/{event_id}/subevents'),
+    ('POST', '/api/files/upload-intents'),
+    ('POST', '/api/files/{file_id}/complete'),
+    ('POST', '/api/guides'),
+    ('POST', '/api/guides/{guide_id}'),
+    ('POST', '/api/leadership/transfer'),
+    ('POST', '/api/materials'),
+    ('POST', '/api/materials/{material_id}/publish'),
+    ('POST', '/api/merits'),
+    ('POST', '/api/notifications/read-all'),
+    ('POST', '/api/notifications/{notification_id}/read'),
+    ('POST', '/api/pgas'),
+    ('POST', '/api/registrations/me/resubmit'),
+    ('POST', '/api/registrations/{user_id}/{command}'),
+    ('POST', '/api/reports'),
+    ('POST', '/api/reports/{report_id}/publish'),
+    ('POST', '/api/season-corrections'),
+    ('POST', '/api/seasons'),
+    ('POST', '/api/seasons/{season_id}/begin-summary'),
+    ('POST', '/api/seasons/{season_id}/close'),
+    ('POST', '/api/seasons/{season_id}/open'),
+    ('POST', '/api/seasons/{season_id}/summary/correct'),
+    ('POST', '/api/tasks'),
+    ('POST', '/api/tasks/{task_id}/comments'),
+    ('POST', '/api/upload/presigned-url'),
+    ('PUT', '/api/blocks/{block_id}/leader'),
+    ('PUT', '/api/events/{event_id}/leaders'),
+    ('PUT', '/api/events/{event_id}/meeting'),
+    ('PUT', '/api/guides/{guide_id}'),
+    ('PUT', '/api/leadership/deputies'),
+    ('PUT', '/api/materials/{material_id}/editors'),
+    ('PUT', '/api/profile/me/avatar'),
+    ('PUT', '/api/role-assignments/{role_assignment_id}/deputies'),
+    ('PUT', '/api/seasons/{season_id}/summary/decisions/{user_id}'),
+    ('PUT', '/api/subevents/{subevent_id}/leaders'),
+    ('PUT', '/api/subevents/{subevent_id}/meeting'),
+    ('PUT', '/api/subevents/{subevent_id}/organizers'),
 )
 
 # Служебные маршруты, которые FastAPI монтирует сам (единственное законное
@@ -158,15 +191,11 @@ FASTAPI_BUILTIN_PATHS = frozenset(
 
 # ── Матрица доступа ────────────────────────────────────────────────
 # Маршруты, которые обязаны работать БЕЗ заголовка Authorization.
-PUBLIC_ROUTES: tuple[tuple[str, str], ...] = (
-    ("GET", "/api/blocks"),
-    ("GET", "/api/guides"),
-    ("GET", "/api/guides/{guide_id}"),
-    ("POST", "/api/auth/register"),
-    ("POST", "/api/auth/login"),
-    ("POST", "/api/auth/vk"),
-    ("POST", "/api/auth/refresh"),
+PUBLIC_ROUTES: tuple[tuple[str,str], ...] = (
+    ('POST','/api/auth/register'),('POST','/api/auth/login'),
+    ('POST','/api/auth/vk'),('POST','/api/auth/refresh'),
 )
+
 
 # Всё остальное обязано требовать Bearer-токен.
 PROTECTED_ROUTES: tuple[tuple[str, str], ...] = tuple(
@@ -230,6 +259,20 @@ def url_for(
     )
 
 
+def error_body(response):
+    body=response.json()
+    assert set(body)=={'detail'}
+    detail=body['detail']
+    legacy=response.request.url.path.startswith(('/api/auth/','/api/profile/','/api/guides','/api/pgas','/api/contacts'))
+    if legacy:
+        assert isinstance(detail,str)
+        return body
+    assert isinstance(detail,dict) and {'code','message'}<=set(detail)<= {'code','message','fields'}
+    assert isinstance(detail['code'],str) and isinstance(detail['message'],str)
+    if 'fields' in detail:assert isinstance(detail['fields'],dict)
+    return {'detail':detail['message']}
+
+
 def call(client, method: str, path: str, headers: dict | None = None, **kw):
     """Единая точка вызова: телу-методам всегда отдаём пустой JSON."""
     if method in BODY_METHODS and "json" not in kw and "data" not in kw:
@@ -258,7 +301,7 @@ def dependency_calls(dependant) -> list:
 
 def route_requires_current_user(route: APIRoute) -> bool:
     """True, если в дереве зависимостей есть обязательный get_current_user."""
-    return auth_module.get_current_user in dependency_calls(route.dependant)
+    return auth_module.get_current_user in dependency_calls(route.dependant) or (auth_module.guard_working_access in dependency_calls(route.dependant) and any((m,route.path) in PROTECTED_ROUTES for m in route.methods))
 
 
 def route_object(method: str, path: str) -> APIRoute:
@@ -374,7 +417,7 @@ def test_защищённый_маршрут_без_токена_отдаёт_40
         f"{method} {path} без токена вернул {resp.status_code}, а должен 401. "
         f"Тело: {resp.text[:200]}"
     )
-    assert resp.json() == {"detail": "Not authenticated"}, (
+    assert error_body(resp) == {"detail": "Not authenticated"}, (
         f"{method} {path}: неожиданное тело 401 — {resp.text[:200]}"
     )
 
@@ -400,10 +443,10 @@ def test_публичный_маршрут_без_токена_не_отдаёт
 @pytest.mark.parametrize(
     "method,path,expected_status",
     [
-        pytest.param("GET", "/api/blocks", 200, id="GET-/api/blocks"),
-        pytest.param("GET", "/api/guides", 200, id="GET-/api/guides"),
+        pytest.param("GET", "/api/blocks", 401, id="GET-/api/blocks"),
+        pytest.param("GET", "/api/guides", 401, id="GET-/api/guides"),
         # пустая база: гайда нет
-        pytest.param("GET", "/api/guides/{guide_id}", 404, id="GET-/api/guides/{guide_id}"),
+        pytest.param("GET", "/api/guides/{guide_id}", 401, id="GET-/api/guides/{guide_id}"),
         # пустое тело: валидация pydantic
         pytest.param("POST", "/api/auth/register", 422, id="POST-/api/auth/register"),
         pytest.param("POST", "/api/auth/login", 422, id="POST-/api/auth/login"),
@@ -423,7 +466,7 @@ def test_refresh_без_cookie_отдаёт_свой_401(client):
     """/api/auth/refresh не требует Bearer, но без cookie отдаёт собственный 401."""
     resp = client.post("/api/auth/refresh", json={})
     assert resp.status_code == 401, f"Ожидался 401, получен {resp.status_code}"
-    assert resp.json() == {"detail": "Refresh token missing in cookies"}, (
+    assert error_body(resp) == {"detail": "Refresh token missing in cookies"}, (
         f"Неожиданное тело: {resp.text[:200]}"
     )
     assert "www-authenticate" not in {k.lower() for k in resp.headers}, (
@@ -447,7 +490,7 @@ def test_забаненный_пользователь_получает_403_на
         f"{method} {path} с токеном забаненного вернул {resp.status_code}, ждали 403. "
         f"Тело: {resp.text[:200]}"
     )
-    assert resp.json() == {"detail": "User is banned"}, (
+    assert error_body(resp) == {"detail": "User is banned"}, (
         f"{method} {path}: неожиданное тело 403 — {resp.text[:200]}"
     )
 
@@ -468,17 +511,11 @@ def test_забаненный_пользователь_на_публичных_�
 
 
 def test_забаненный_видит_публичные_гайды_как_аноним(client, make_user, make_guide):
-    """
-    Побочный эффект get_current_user_optional: забаненный не блокируется
-    на /api/guides, а просто теряет доступ к гайдам своих блоков.
-    """
     make_guide(title="Общий", owner_block="none")
-    banned = make_user(banned=True, password=None, name="Бан", surname="Гайдов")
-    resp = client.get("/api/guides", headers=banned.headers)
-    assert resp.status_code == 200, f"Ожидался 200, получен {resp.status_code}"
-    assert [g["title"] for g in resp.json()] == ["Общий"], (
-        f"Забаненный должен видеть ровно публичные гайды, получено {resp.json()}"
-    )
+    banned=make_user(banned=True,password=None)
+    resp=client.get('/api/guides',headers=banned.headers)
+    assert resp.status_code==403
+    assert error_body(resp)=={'detail':'User is banned'}
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -527,7 +564,7 @@ def test_защищённый_маршрут_отвергает_невалидн
         f"{method} {path} с токеном '{kind}' вернул {resp.status_code}, ждали 401. "
         f"Тело: {resp.text[:200]}"
     )
-    assert resp.json() == {"detail": detail}, (
+    assert error_body(resp) == {"detail": detail}, (
         f"{method} {path} с токеном '{kind}': тело {resp.text[:200]}"
     )
 
@@ -540,7 +577,7 @@ def test_токен_удалённого_пользователя_переста
     db.delete_user(victim.user_id)
     resp = client.get("/api/profile/me", headers=victim.headers)
     assert resp.status_code == 401, f"Ожидался 401, получен {resp.status_code}"
-    assert resp.json() == {"detail": "User not found"}
+    assert error_body(resp) == {"detail": "User not found"}
     assert db.get_user(victim.user_id) is None, "Пользователь должен быть удалён из базы"
 
 
@@ -557,7 +594,7 @@ def test_заголовок_не_разбираемый_как_bearer_даёт_n
     """Заголовок, который схема OAuth2 не признаёт своим, — это 'Not authenticated'."""
     resp = client.get("/api/profile/me", headers={"Authorization": header_value})
     assert resp.status_code == 401, f"Получен {resp.status_code}: {resp.text[:200]}"
-    assert resp.json() == {"detail": "Not authenticated"}
+    assert error_body(resp) == {"detail": "Not authenticated"}
 
 
 @pytest.mark.parametrize(
@@ -576,7 +613,7 @@ def test_bearer_с_пустым_токеном_даёт_ошибку_разбо�
     """
     resp = client.get("/api/profile/me", headers={"Authorization": header_value})
     assert resp.status_code == 401, f"Получен {resp.status_code}: {resp.text[:200]}"
-    assert resp.json() == {"detail": "Access token invalid or expired"}
+    assert error_body(resp) == {"detail": "Access token invalid or expired"}
 
 
 def test_схема_bearer_регистронезависима(client, make_user):
@@ -613,7 +650,7 @@ def test_неверный_метод_на_существующем_пути_да
     assert resp.status_code == 405, (
         f"{method} {path}: ожидался 405, получен {resp.status_code} ({resp.text[:200]})"
     )
-    assert resp.json() == {"detail": "Method Not Allowed"}
+    assert error_body(resp) == {"detail": "Method Not Allowed"}
     assert resp.headers.get("allow") == allow, (
         f"{method} {path}: Allow = {resp.headers.get('allow')!r}, ожидался {allow!r}"
     )
@@ -664,12 +701,12 @@ def test_неизвестный_путь_даёт_404(client, method, path):
     assert resp.status_code == 404, (
         f"{method} {path}: ожидался 404, получен {resp.status_code} ({resp.text[:200]})"
     )
-    assert resp.json() == {"detail": "Not Found"}
+    assert error_body(resp) == {"detail": "Not Found"}
 
 
 def test_пути_чувствительны_к_регистру(client):
     """/api/Blocks не равен /api/blocks — маршрутизация регистрозависима."""
-    assert client.get("/api/blocks").status_code == 200
+    assert client.get("/api/blocks").status_code == 401
     assert client.get("/api/Blocks").status_code == 404
 
 
@@ -681,8 +718,8 @@ def test_пути_чувствительны_к_регистру(client):
 @pytest.mark.parametrize(
     "path,needs_auth",
     [
-        pytest.param("/api/guides", False, id="/api/guides"),
-        pytest.param("/api/blocks", False, id="/api/blocks"),
+        pytest.param("/api/guides", True, id="/api/guides"),
+        pytest.param("/api/blocks", True, id="/api/blocks"),
         pytest.param("/api/contacts", True, id="/api/contacts"),
     ],
 )
@@ -736,14 +773,10 @@ def test_location_редиректа_абсолютный_и_несёт_схем
 
 
 def test_редирект_со_слэша_доводит_до_реального_ответа(client, make_guide):
-    """После следования за 307 клиент получает нормальный ответ эндпоинта."""
-    make_guide(title="Слэш", owner_block="none")
-    resp = client.get("/api/guides/", follow_redirects=True)
-    assert resp.status_code == 200, f"Получен {resp.status_code}"
-    assert [h.status_code for h in resp.history] == [307], (
-        f"Ожидался ровно один 307 в истории, получено {[h.status_code for h in resp.history]}"
-    )
-    assert [g["title"] for g in resp.json()] == ["Слэш"]
+    make_guide(title="Слэш",owner_block="none")
+    resp=client.get('/api/guides/',follow_redirects=True)
+    assert [h.status_code for h in resp.history]==[307]
+    assert resp.status_code==401
 
 
 def test_post_со_слэшем_тоже_редиректится_307(client):
@@ -761,7 +794,7 @@ def test_редирект_со_слэша_не_обходит_авторизац
     """
     resp = client.get("/api/profile/me/", follow_redirects=True)
     assert resp.status_code == 401, f"Получен {resp.status_code}: {resp.text[:200]}"
-    assert resp.json() == {"detail": "Not authenticated"}
+    assert error_body(resp) == {"detail": "Not authenticated"}
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -836,7 +869,7 @@ def test_чужой_origin_в_preflight_не_отражается(client):
 def test_чужой_origin_в_простом_запросе_не_отражается(client):
     """Простой GET с чужого origin выполняется, но без allow-origin в ответе."""
     resp = client.get("/api/blocks", headers={"Origin": FOREIGN_ORIGIN})
-    assert resp.status_code == 200, f"Получен {resp.status_code}"
+    assert resp.status_code == 401, f"Получен {resp.status_code}"
     assert "access-control-allow-origin" not in {k.lower() for k in resp.headers}, (
         f"Чужой origin отражён: {resp.headers.get('access-control-allow-origin')!r}"
     )
@@ -846,7 +879,7 @@ def test_простой_запрос_со_своего_origin_получает_�
     """Обычный GET с разрешённого origin получает allow-origin и allow-credentials."""
     origin = main_module.origins[0]
     resp = client.get("/api/blocks", headers={"Origin": origin})
-    assert resp.status_code == 200
+    assert resp.status_code == 401
     assert resp.headers.get("access-control-allow-origin") == origin
     assert resp.headers.get("access-control-allow-credentials") == "true"
 
@@ -966,7 +999,6 @@ def test_защищённый_маршрут_помечен_требование
 @pytest.mark.parametrize(
     "method,path",
     [
-        pytest.param("GET", "/api/blocks", id="GET-/api/blocks"),
         pytest.param("POST", "/api/auth/register", id="POST-/api/auth/register"),
         pytest.param("POST", "/api/auth/login", id="POST-/api/auth/login"),
         pytest.param("POST", "/api/auth/vk", id="POST-/api/auth/vk"),
@@ -989,11 +1021,11 @@ def test_полностью_публичный_маршрут_не_помече�
 @pytest.mark.parametrize(
     "method,path,anon_status",
     [
-        pytest.param("GET", "/api/guides", 200, id="GET-/api/guides"),
-        pytest.param("GET", "/api/guides/{guide_id}", 404, id="GET-/api/guides/{guide_id}"),
+        pytest.param("GET", "/api/guides", 401, id="GET-/api/guides"),
+        pytest.param("GET", "/api/guides/{guide_id}", 401, id="GET-/api/guides/{guide_id}"),
     ],
 )
-def test_расхождение_схемы_и_поведения_на_гайдах(client, spec, method, path, anon_status):
+def test_схема_и_поведение_гайдов_требуют_вход(client, spec, method, path, anon_status):
     """
     ЗАФИКСИРОВАННОЕ РАСХОЖДЕНИЕ. Маршруты гайдов используют
     get_current_user_optional (auto_error=False), поэтому реально работают
@@ -1001,8 +1033,7 @@ def test_расхождение_схемы_и_поведения_на_гайда
     сгенерированный из схемы клиент будет считать их закрытыми.
     """
     route = route_object(method, path)
-    assert auth_module.get_current_user_optional in dependency_calls(route.dependant)
-    assert not route_requires_current_user(route)
+    assert route_requires_current_user(route)
 
     operation = spec["paths"][path][method.lower()]
     assert operation.get("security") == [{"OAuth2PasswordBearer": []}], (
@@ -1035,7 +1066,7 @@ def test_каждая_операция_описывает_ответ_422_для_
     "method,path,status,detail,needs_auth",
     [
         pytest.param("GET", "/api/profile/999999", 404, "User not found", True, id="404-профиль"),
-        pytest.param("GET", "/api/guides/999999", 404, "Guide not found", False, id="404-гайд"),
+        pytest.param("GET", "/api/guides/999999", 404, "Guide not found", True, id="404-гайд"),
         pytest.param("GET", "/api/profile/me", 401, "Not authenticated", False, id="401-без-токена"),
         pytest.param("POST", "/api/auth/refresh", 401,
                      "Refresh token missing in cookies", False, id="401-refresh"),
@@ -1043,7 +1074,7 @@ def test_каждая_операция_описывает_ответ_422_для_
         pytest.param("DELETE", "/api/blocks", 405, "Method Not Allowed", False, id="405"),
     ],
 )
-def test_ошибка_http_имеет_форму_detail_строка(client, make_user, method, path, status, detail, needs_auth):
+def test_http_ошибки_сохраняют_legacy_или_новый_конверт(client, make_user, method, path, status, detail, needs_auth):
     """Все HTTPException отдают ровно {"detail": "<строка>"} — и ничего больше."""
     headers = None
     if needs_auth:
@@ -1053,7 +1084,7 @@ def test_ошибка_http_имеет_форму_detail_строка(client, mak
     assert resp.status_code == status, (
         f"{method} {path}: получен {resp.status_code} ({resp.text[:200]})"
     )
-    body = resp.json()
+    body = error_body(resp)
     assert isinstance(body, dict), f"Тело не объект: {body!r}"
     assert list(body) == ["detail"], f"Лишние ключи в теле ошибки: {sorted(body)}"
     assert body["detail"] == detail, f"detail = {body['detail']!r}"
@@ -1121,7 +1152,7 @@ def test_проверка_токена_идёт_раньше_валидации_
     assert valid_body.status_code == invalid_body.status_code == 401, (
         f"Коды разошлись: {valid_body.status_code} и {invalid_body.status_code}"
     )
-    assert valid_body.json() == invalid_body.json() == {"detail": "Not authenticated"}
+    assert valid_body.json() == error_body(invalid_body) == {"detail": "Not authenticated"}
 
 
 def test_запрос_отклонённый_авторизацией_не_меняет_базу(client, make_user):
