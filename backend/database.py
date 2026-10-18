@@ -476,6 +476,8 @@ class AuditLogORM(Base):
     created_at = Column(String, nullable=False)
 
 
+import domain_models  # registers domain tables on the same Base
+
 Base.metadata.create_all(bind=engine)
 
 

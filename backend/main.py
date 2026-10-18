@@ -1015,6 +1015,11 @@ def register(payload: RegisterIn, response: Response):
     )
     created = db.create_user_with_contact(contact_model, user_model)
 
+    from registration import ensure_application
+    with db._session() as session:
+        ensure_application(session, created.user_id)
+        session.commit()
+
     # Return tokens so the user is logged-in right away
     tokens = create_token_pair(created.user_id)
     response.set_cookie(
@@ -1082,6 +1087,10 @@ def change_password(
 def vk_login(payload: VKLoginIn, response: Response):
     from vk_auth import login_user
     user = login_user(payload.access_token)
+    from registration import ensure_application
+    with db._session() as session:
+        ensure_application(session, user.user_id)
+        session.commit()
     tokens = create_token_pair(user.user_id)
     response.set_cookie(key="refresh_token", value=tokens["refresh_token"], httponly=True,
                         max_age=REFRESH_TTL_DAYS*86400, samesite="none", secure=True)
@@ -1504,13 +1513,14 @@ def get_session(cur: User = Depends(get_current_user)):
     if acc_state == "archived":
         raise HTTPException(403, "Account is archived")
 
-    reg_status = "approved" if acc_state == "active" else "pending"
+    from registration import registration_status
+    reg_status = registration_status(cur.user_id)
     if acc_state == "pending":
         return SessionOut(
             user_id=cur.user_id,
             account_state="pending",
-            registration_status="pending",
-            capabilities=["session:read"],
+            registration_status=reg_status,
+            capabilities=["resubmit_registration"] if reg_status=="rejected" else [],
             assignments=[],
         )
 
@@ -3484,5 +3494,8 @@ def mark_all_notifications_read(cur: User = Depends(get_current_user)):
     cnt = db.mark_all_notifications_read(cur.user_id)
     return {"status": "ok", "marked_count": cnt}
 
+
+from registration import register_routes as register_registration_routes
+register_registration_routes(router)
 
 app.include_router(router)
