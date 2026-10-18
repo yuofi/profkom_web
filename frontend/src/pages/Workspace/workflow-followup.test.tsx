@@ -3,6 +3,7 @@ import { act } from "react";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import MockAdapter from "axios-mock-adapter";
+import { focusManager } from "@tanstack/react-query";
 import { api } from "../../utils/api";
 import { createFixtures } from "../../mocks/fixtures";
 import { installMockTransport } from "../../mocks/transport";
@@ -18,6 +19,62 @@ afterEach(async () => {
   await page?.cleanup();
   restore?.();
   vi.useRealTimers();
+  focusManager.setFocused(undefined);
+});
+
+it("recovers a deadline network error manually and refreshes changed capabilities on focus", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-18T12:00:00Z"));
+  const f = createFixtures("chair");
+  const request = {
+    ...f.requests[0],
+    substitute_available_at: new Date(Date.now() + 1000).toISOString(),
+    capabilities: [] as string[],
+  };
+  let failed = false;
+  const adapter = new MockAdapter(api);
+  restore = () => adapter.restore();
+  adapter.onGet("/blocks").reply(200, f.blocks);
+  adapter
+    .onGet("/block-requests")
+    .reply(() =>
+      failed
+        ? [
+            503,
+            {
+              detail: {
+                code: "unavailable",
+                message: "Не удалось загрузить заявки",
+              },
+            },
+          ]
+        : [200, { items: [structuredClone(request)], next_cursor: null }],
+    );
+  page = await mountWorkspace(<BlockRequestsPage />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(10);
+  });
+  failed = true;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1000);
+  });
+  expect(page.container.textContent).toContain("Не удалось загрузить заявки");
+  failed = false;
+  const refresh = Array.from(page.container.querySelectorAll("button")).find(
+    (b) => b.textContent === "Обновить заявки",
+  )!;
+  await act(async () => {
+    refresh.click();
+    await vi.advanceTimersByTimeAsync(10);
+  });
+  expect(page.container.querySelector('[role="alert"]')).toBeNull();
+  request.capabilities = ["block_review_request"];
+  await act(async () => {
+    focusManager.setFocused(false);
+    focusManager.setFocused(true);
+    await vi.advanceTimersByTimeAsync(10);
+  });
+  expect(page.container.textContent).toContain("Одобрить вступление");
 });
 
 it("refreshes at each stage boundary without locally granting review or spinning on an expired deadline", async () => {

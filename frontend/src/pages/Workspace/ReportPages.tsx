@@ -253,7 +253,7 @@ export function ReportPage() {
               </RouteLink>
             </Card>
             {can(report, "edit_report") && (
-              <ReportEditor key={`${id}/${report.revision}`} report={report} />
+              <ReportEditor key={id} report={report} />
             )}
             {can(report, "view_report_versions") && (
               <Card title="Опубликованные версии">

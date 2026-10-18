@@ -3,6 +3,7 @@ import axios, { type AxiosRequestConfig } from "axios";
 import MockAdapter from "axios-mock-adapter";
 import { api } from "../utils/api";
 import { createFixtures, mockNow, type MockRole } from "./fixtures";
+import type { GuideOut } from "../utils/api/types";
 import {
   richText,
   type AssignmentStatus,
@@ -72,6 +73,13 @@ export function installMockTransport(
   const taskInputs = new Map<string, TaskInputs>([
     [state.inputs.task_id, state.inputs],
   ]);
+  let legacyGuides: GuideOut[] = state.materials.map((m, i) => ({
+    guide_id: i + 1,
+    title: m.title,
+    owner_block: m.owner_block_id ? "Инфо" : "none",
+    text: m.published_content?.body ?? "",
+    description: m.description,
+  }));
   const snapshot = (r: Report): ReportVersion => ({
     report_id: r.report_id,
     version: r.published_version!,
@@ -1267,12 +1275,13 @@ export function installMockTransport(
           ? [200, result]
           : denied();
       }
-      if (!material.capabilities.includes("edit_material")) return denied();
-      if (mismatch(data, material)) return conflict();
       if (method === "delete") {
+        if (!material.capabilities.includes("delete_material")) return denied();
         state.materials = state.materials.filter((m) => m !== material);
         return [200, {}];
       }
+      if (!material.capabilities.includes("edit_material")) return denied();
+      if (mismatch(data, material)) return conflict();
       if (parts[2] === "editors")
         return [
           200,
@@ -1731,28 +1740,46 @@ export function installMockTransport(
       state.merits.push(merit);
       return [201, clone(merit)];
     }
-    if (path === "/guides")
-      return [
-        200,
-        state.materials.map((m, i) => ({
-          guide_id: i + 1,
-          title: m.title,
-          owner_block: m.owner_block_id ? "Инфо" : "none",
-          text: m.published_content?.body ?? "",
-          description: m.description,
-        })),
-      ];
-    if (parts[0] === "guides")
-      return [
-        200,
-        {
-          guide_id: Number(parts[1]),
-          title: "КМБ",
-          owner_block: "none",
-          text: "# КМБ\n\nМатериалы для участников",
-          description: "",
-        },
-      ];
+    if (parts[0] === "guides") {
+      if (method === "get") {
+        if (!parts[1]) return [200, clone(legacyGuides)];
+        const guide = legacyGuides.find((g) => g.guide_id === Number(parts[1]));
+        return guide
+          ? [200, clone(guide)]
+          : fail(404, "not_found", "Гайд недоступен");
+      }
+      const guide = legacyGuides.find((g) => g.guide_id === Number(parts[1]));
+      const owner = String(data.owner_block ?? guide?.owner_block ?? "none");
+      if (
+        !(
+          state.chair ||
+          state.blocks.some(
+            (b) =>
+              b.name === owner &&
+              b.master?.user.user_id === state.session.user_id,
+          )
+        )
+      )
+        return denied();
+      if (!parts[1]) {
+        const created: GuideOut = {
+          guide_id: Math.max(0, ...legacyGuides.map((g) => g.guide_id)) + 1,
+          title: String(data.title),
+          owner_block: owner,
+          text: String(data.text ?? ""),
+          description: String(data.description ?? ""),
+        };
+        legacyGuides.push(created);
+        return [201, clone(created)];
+      }
+      if (!guide) return fail(404, "not_found", "Гайд недоступен");
+      if (method === "delete") {
+        legacyGuides = legacyGuides.filter((g) => g !== guide);
+        return [200, {}];
+      }
+      Object.assign(guide, data);
+      return [200, clone(guide)];
+    }
     if (path === "/pgas") return [200, []];
     return fail(
       501,

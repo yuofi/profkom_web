@@ -418,8 +418,13 @@ export function SummaryPage() {
                     onChange={(e) => setFilter(e.target.value)}
                   />
                 </label>
-                <div className={s.tableWrap}>
-                  <table className={s.table}>
+                <div
+                  className={s.tableWrap}
+                  tabIndex={0}
+                  role="region"
+                  aria-label="Сезонная сводная, горизонтальная прокрутка"
+                >
+                  <table className={`${s.table} ${s.summaryTable}`}>
                     <thead>
                       <tr>
                         {[

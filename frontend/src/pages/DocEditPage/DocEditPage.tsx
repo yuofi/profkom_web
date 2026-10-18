@@ -8,6 +8,7 @@ import {
   RouteLink,
 } from "../../components/Workspace/WorkspaceUI";
 import { MarkdownEditor } from "../../components/Workspace/MarkdownEditor";
+import { LegacyGuideNotice } from "../../components/Workspace/LegacyGuideNotice";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { guidesApi } from "../../utils/api/guides.api";
 import { useMe } from "../../utils/me";
@@ -17,9 +18,10 @@ function GuideEditor({ guide }: { guide: GuideOut }) {
   const client = useQueryClient();
   return (
     <Card title="Редактирование документа">
+      <LegacyGuideNotice />
       <ActionForm
         fields={[]}
-        submitLabel="Сохранить документ"
+        submitLabel="Опубликовать изменения гайда"
         onSubmit={async () => {
           await guidesApi.update(guide.guide_id, {
             title: guide.title,

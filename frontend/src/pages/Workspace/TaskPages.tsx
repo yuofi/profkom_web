@@ -316,11 +316,17 @@ function FocusedAssignment({
       {focused && (
         <p role="status">Назначение из препятствий закрытию сезона</p>
       )}
-      <AssignmentCard assignment={assignment} />
+      <AssignmentCard assignment={assignment} openAssessment={focused} />
     </div>
   );
 }
-function AssignmentCard({ assignment: a }: { assignment: Assignment }) {
+function AssignmentCard({
+  assignment: a,
+  openAssessment = false,
+}: {
+  assignment: Assignment;
+  openAssessment?: boolean;
+}) {
   const { perform, refresh } = useWorkspaceActions();
   const [files, setFiles] = useState<FileRef[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -435,7 +441,7 @@ function AssignmentCard({ assignment: a }: { assignment: Assignment }) {
               onBusyChange={setUploading}
             />
             <ActionForm
-              key={a.revision}
+              key={a.assignment_id}
               disabled={uploading}
               fields={[
                 {
@@ -480,7 +486,7 @@ function AssignmentCard({ assignment: a }: { assignment: Assignment }) {
         <details className={s.details}>
           <summary>Решение руководителя</summary>
           <ActionForm
-            key={a.revision}
+            key={a.assignment_id}
             fields={[
               {
                 name: "decision",
@@ -532,7 +538,7 @@ function AssignmentCard({ assignment: a }: { assignment: Assignment }) {
           />
         </details>
       )}
-      <AssessmentPanel assignment={a} />
+      <AssessmentPanel assignment={a} open={openAssessment} />
     </Card>
   );
 }
@@ -650,7 +656,7 @@ export function TaskPage() {
                 <details className={s.details}>
                   <summary>Править описание</summary>
                   <ActionForm
-                    key={task.revision}
+                    key={task.task_id}
                     fields={[
                       {
                         name: "title",
@@ -708,7 +714,7 @@ function ReassignForm({ item }: { item: UnresolvedAssignment }) {
   return (
     <QueryState loading={members.loading} error={members.error}>
       <ActionForm
-        key={a.revision}
+        key={a.assignment_id}
         fields={[
           {
             name: "user",

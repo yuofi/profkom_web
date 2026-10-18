@@ -1,4 +1,5 @@
 import type { BlockOut, GuideOut, MeOut } from "./api/types";
+import type { Block } from "./api/contract";
 
 type Roles = Array<"admin" | "super_user"> | undefined;
 
@@ -39,7 +40,7 @@ export const isSuperUserGuide = (guide: GuideOut | { owner_block?: string | null
 export const canEditGuide = (
     guide: GuideOut | { owner_block?: string | null } | null | undefined,
     user: MeOut | null | undefined,
-    blocks?: BlockOut[] | null
+    blocks?: (BlockOut | Block)[] | null
 ): boolean => {
     if (!guide || !user) return false;
     if (user.super_user) return true;
@@ -53,11 +54,12 @@ export const canEditGuide = (
     if (!guideBlock) return false;
 
     // A block master can only edit guides of their own block
-    if (blocks && blocks.length > 0 && user.kkr_name) {
+    if (blocks && blocks.length > 0) {
         const matchedBlock = blocks.find((b) => b.name.trim().toLowerCase() === guideBlock);
-        if (matchedBlock && matchedBlock.master === user.kkr_name) {
-            return true;
+        if (matchedBlock && "block_id" in matchedBlock) {
+            return matchedBlock.master?.user.user_id === user.user_id || !!matchedBlock.master?.deputy_user_ids.includes(user.user_id);
         }
+        if (matchedBlock && user.kkr_name && matchedBlock.master === user.kkr_name) return true;
     }
 
     return false;

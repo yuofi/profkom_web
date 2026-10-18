@@ -217,9 +217,10 @@ function MaterialEdit({ material: m }: { material: Material }) {
 }
 export function MaterialPage() {
   const { id = "" } = useParams();
+  const navigate = useNavigate();
   const { session } = useSession();
   const people = usePeopleOptions();
-  const { perform } = useWorkspaceActions();
+  const { perform, refresh } = useWorkspaceActions();
   const query = useQuery({
     queryKey: ["materials", id],
     queryFn: () => materialsApi.get(id),
@@ -252,7 +253,24 @@ export function MaterialPage() {
               )}
             </Card>
             {can(m, "edit_material") && (
-              <MaterialEdit material={m} key={m.revision} />
+              <MaterialEdit material={m} key={m.material_id} />
+            )}
+            {can(m, "delete_material") && (
+              <details className={s.details}>
+                <summary>Удалить материал</summary>
+                <p>
+                  Удаляются опубликованный текст и черновик этого материала.
+                </p>
+                <ActionForm
+                  fields={[]}
+                  submitLabel="Удалить материал"
+                  onSubmit={async () => {
+                    await materialsApi.remove(id);
+                    navigate("/materials", { replace: true });
+                    await refresh();
+                  }}
+                />
+              </details>
             )}
             {m.owner_block_id === null &&
               can(session, "manage_material_editors") && (

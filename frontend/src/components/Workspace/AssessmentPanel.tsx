@@ -19,7 +19,13 @@ const criteriaNames: Record<string, string> = {
   in_person: "Очное присутствие",
   fixed_time: "Выполнение в определённое время",
 };
-export function AssessmentPanel({ assignment }: { assignment: Assignment }) {
+export function AssessmentPanel({
+  assignment,
+  open = false,
+}: {
+  assignment: Assignment;
+  open?: boolean;
+}) {
   const { perform, refresh } = useWorkspaceActions();
   const query = useQuery({
     queryKey: ["assessments", assignment.assignment_id],
@@ -29,7 +35,7 @@ export function AssessmentPanel({ assignment }: { assignment: Assignment }) {
   if (!can(assignment, "view_assessment_inputs")) return null;
   const inputs = query.data;
   return (
-    <details className={s.details}>
+    <details className={s.details} open={open || undefined}>
       <summary>Исходные поля оценивания</summary>
       <QueryState loading={query.isLoading} error={query.error}>
         {inputs && (
@@ -44,7 +50,7 @@ export function AssessmentPanel({ assignment }: { assignment: Assignment }) {
             </p>
             {can(inputs, "edit_assessment_inputs") && (
               <ActionForm
-                key={inputs.revision}
+                key={assignment.assignment_id}
                 fields={[
                   {
                     name: "hours",
@@ -181,7 +187,7 @@ export function TaskInputsPanel({ task }: { task: Task }) {
         )}
         {inputs && can(inputs, "edit_assessment_inputs") && (
           <ActionForm
-            key={inputs.revision}
+            key={task.task_id}
             fields={fields}
             onSubmit={async (v) => {
               const assigned = toUtc(text(v, "assigned"));

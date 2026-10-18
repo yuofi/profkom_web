@@ -16,6 +16,7 @@ import { getDocEditRoute, getDocRoute } from "../../../utils/routes";
 import { useMe } from "../../../utils/me";
 import { canEditGuide } from "../../../utils/filterRoles";
 import type { GuideOut } from "../../../utils/api/types";
+import { LegacyGuideNotice } from "../../../components/Workspace/LegacyGuideNotice";
 
 type SortType = "default" | "alphabetical" | "block";
 
@@ -228,6 +229,7 @@ export const GuidesManagement = () => {
 
   return (
     <>
+      <LegacyGuideNotice />
       <section className={styles.filtersSection}>
         <div className={styles.filtersFlex}>
           <div className={styles.filtersLeft}>

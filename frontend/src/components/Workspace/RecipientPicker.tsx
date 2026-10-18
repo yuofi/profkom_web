@@ -56,7 +56,7 @@ export function RecipientPicker({
                 )
               }
             />
-            {p.label}
+            <span>{p.label}</span>
           </label>
         ))}
       </div>
