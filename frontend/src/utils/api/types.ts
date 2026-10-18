@@ -53,6 +53,7 @@ export interface UserOut {
 
 // Данные контакта (используется при регистрации)
 export interface ContactInfoIn {
+  participation_periods?: { from_year: number; to_year: number }[];
   surname: string;
   name: string;
   patronymic: string;
@@ -87,6 +88,7 @@ export interface MeOut extends ContactInfoOut  {
 
 
 export interface ProfileUpdate {
+  participation_periods?: { from_year: number; to_year: number }[];
   surname?: string;
   name?: string;
   patronymic?: string;

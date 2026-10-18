@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 
 import os
 import access
@@ -82,6 +83,7 @@ class ContactInfoIn(BaseModel):
     tg: str = ""
     budget: bool = False
     in_profcom: bool = False
+    participation_periods: list[dict] = []
     photo_url: Optional[str] = None
 
 
@@ -266,6 +268,7 @@ class VKLoginIn(BaseModel):
 
 class ProfileUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    participation_periods: Optional[list[__import__("directory").Period]] = None
     surname: Optional[str] = None
     name: Optional[str] = None
     patronymic: Optional[str] = None
@@ -1186,7 +1189,7 @@ def my_profile(cur: User = Depends(get_current_user)):
     
     # Combine contact info with user-level flags
     return MeOut(
-        **contact.__dict__,
+        **__import__("directory").contact_data(contact),
         kkr_score=cur.kkr_score if (db.is_tachki(cur.user_id) or db.is_hr_master(cur.user_id)) else None,
         banned=cur.banned,
         super_user=db.is_chair(cur.user_id),
@@ -1253,6 +1256,10 @@ def update_profile(
         budget=payload.budget,
 
     )
+    if payload.participation_periods is not None:
+        from directory import metadata
+        with db._session() as session:
+            metadata(session,user_id).participation_periods_json=json.dumps([p.model_dump() for p in payload.participation_periods]);session.commit()
     db.update_user(
         user_id, 
         group_number=payload.group_number, 
@@ -1438,10 +1445,9 @@ def exit_block(block_name: str, cur: User = Depends(get_current_user)):
 # ═══════════════════════════════════════════════════════════
 
 @router.get("/contacts", response_model=List[ContactInfoOut])
-def get_all_contacts(cur: User = Depends(get_current_user)):
-    if getattr(cur, "account_state", "active") != "active":
-        raise HTTPException(403, "Access denied")
-    return [ContactInfoOut(**c.__dict__) for c in db.list_contacts()]
+def get_all_contacts(q:Optional[str]=None,group_number:Optional[str]=None,blocks:Optional[str]=None,in_profcom:Optional[bool]=None,budget:Optional[bool]=None,cur:User=Depends(get_current_user)):
+    from directory import contacts
+    return [ContactInfoOut(**c) for c in contacts(q,group_number,blocks,in_profcom,budget)]
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1631,12 +1637,9 @@ def set_deputies(payload: LeadershipDeputiesIn, cur: User = Depends(get_current_
 
 
 @router.post("/contacts/filter", response_model=List[ContactInfoOut])
-def filter_contacts(filt: ContactFilter, cur: User = Depends(require_admin)):
-    contacts = db.filter_contacts(
-        group_number=filt.group_number, blocks=filt.blocks,
-        in_profcom=filt.in_profcom, budget=filt.budget,
-    )
-    return [ContactInfoOut(**c.__dict__) for c in contacts]
+def filter_contacts(filt: ContactFilter, cur: User = Depends(get_current_user)):
+    from directory import contacts
+    return [ContactInfoOut(**c) for c in contacts(group_number=filt.group_number,blocks=filt.blocks,in_profcom=filt.in_profcom,budget=filt.budget)]
 
 
 # ═══════════════════════════════════════════════════════════
@@ -3448,5 +3451,8 @@ from season_summaries import register_routes as register_summary_routes
 register_summary_routes(router)
 from materials import register_routes as register_material_routes
 register_material_routes(router)
+
+from directory import register_routes as register_directory_routes
+register_directory_routes(router)
 
 app.include_router(router)

@@ -25,7 +25,13 @@ def validate_metadata(kind,purpose,name,mime,size):
 def permitted(session,fr,uid,write=False):
     u=db.get_user(uid)
     if not u or u.banned or u.account_state!='active':return False
-    if fr.owner_kind=='avatar':return str(uid)==fr.owner_id if write else True
+    if fr.owner_kind=='avatar':
+        if str(uid)==fr.owner_id:return True
+        if write:return False
+        from domain_models import ProfileMetadataORM
+        owner=db.get_user(int(fr.owner_id))
+        meta=session.get(ProfileMetadataORM,int(fr.owner_id))
+        return bool(owner and owner.account_state=='active' and not owner.banned and meta and meta.avatar_file_id==fr.file_id)
     if fr.owner_kind in ('assignment','task'):
         if fr.owner_kind=='assignment':
             a=session.get(AssignmentORM,fr.owner_id)

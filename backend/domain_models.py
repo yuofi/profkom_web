@@ -108,3 +108,17 @@ class MaterialORM(Base):
     placeholder=Column(Boolean,nullable=False,default=False)
     deleted=Column(Boolean,nullable=False,default=False)
     created_at=Column(String,nullable=False)
+
+class ProfileMetadataORM(Base):
+    __tablename__='profile_metadata'
+    user_id=Column(Integer,ForeignKey('users.user_id'),primary_key=True)
+    participation_periods_json=Column(Text,nullable=False,default='[]')
+    preset_id=Column(String,nullable=True)
+    avatar_file_id=Column(String,nullable=True)
+
+class FormerContactORM(Base):
+    __tablename__='former_contacts'
+    contact_id=Column(String,primary_key=True)
+    fields_json=Column(Text,nullable=False)
+    created_at=Column(String,nullable=False)
+    updated_at=Column(String,nullable=False)

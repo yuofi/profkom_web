@@ -1099,7 +1099,8 @@ def _user_to_ref_dc(u: Optional[UserORM]) -> Optional[UserRefDC]:
     if not u:
         return None
     display_name = f"User {u.user_id}"
-    photo_url = u.photo_url
+    from directory import avatar_url
+    photo_url = avatar_url(u.user_id)
     if u.contact:
         parts = [u.contact.surname, u.contact.name, u.contact.patronymic]
         display_name = " ".join([p for p in parts if p]).strip() or u.contact.kkr_name or display_name
@@ -5911,3 +5912,6 @@ migrate_core()
 from material_seed import seed_materials
 seed_materials()
 
+
+from directory_seed import migrate_avatars
+migrate_avatars()
