@@ -6193,9 +6193,14 @@ class Database:
         user_id: int,
     ) -> FileRecordDC:
         with self._session() as session:
+            from file_access import validate_metadata, permitted
+            validate_metadata(owner_kind,purpose,name,mime_type,size_bytes)
+            if owner_kind=="avatar":
+                if owner_id is not None and owner_id!=str(user_id):raise ValueError("Forbidden: avatar owner mismatch")
+                owner_id=str(user_id)
             fid = f"file-{uuid.uuid4()}"
             now = datetime.now(timezone.utc)
-            expires = (now + timedelta(hours=24)).isoformat()
+            expires = (now + timedelta(minutes=15)).isoformat()
             fr = FileRecordORM(
                 file_id=fid,
                 owner_kind=owner_kind,
@@ -6209,58 +6214,25 @@ class Database:
                 created_at=now.isoformat(),
                 expires_at=expires,
             )
+            if not permitted(session,fr,user_id,True):raise ValueError("Forbidden: invalid file owner context")
             session.add(fr)
             session.commit()
             return _file_orm_to_dc(fr)
 
     def complete_file_upload(self, file_id: str, user_id: int) -> FileRecordDC:
+        from file_access import complete
+        complete(file_id,user_id)
         with self._session() as session:
-            fr = session.get(FileRecordORM, file_id)
-            if not fr:
-                raise LookupError("File not found")
-            fr.state = "completed"
-            session.commit()
-            return _file_orm_to_dc(fr)
+            return _file_orm_to_dc(session.get(FileRecordORM,file_id))
 
-    def get_file_download(self, file_id: str, user_id: int) -> FileRecordDC:
+    def get_file_download(self,file_id: str,user_id: int):
+        from file_access import download
+        data=download(file_id,user_id)
         with self._session() as session:
-            fr = session.get(FileRecordORM, file_id)
-            if not fr:
-                raise LookupError("File not found")
-
-            # Access check: uploader, chair, deputy chair, and HR master have access
-            if not (fr.uploaded_by_user_id == user_id or self.is_chair(user_id) or self.is_chair_deputy(user_id) or self.is_hr_master(user_id)):
-                scope_checked = False
-                if fr.owner_kind == "task" and fr.owner_id:
-                    t = session.get(TaskORM, fr.owner_id)
-                    if t:
-                        if not self.can_view_scope(user_id, t.scope_kind, t.scope_id):
-                            raise ValueError("Forbidden: cannot access this file")
-                        scope_checked = True
-                elif fr.owner_kind == "assignment" and fr.owner_id:
-                    a = session.get(AssignmentORM, fr.owner_id)
-                    if a:
-                        t = session.get(TaskORM, a.task_id)
-                        if t:
-                            if not self.can_view_scope(user_id, t.scope_kind, t.scope_id):
-                                raise ValueError("Forbidden: cannot access this file")
-                            scope_checked = True
-
-                if not scope_checked:
-                    sub = (
-                        session.query(SubmissionORM)
-                        .filter(SubmissionORM.files_json.contains(file_id))
-                        .first()
-                    )
-                    if sub:
-                        a = session.get(AssignmentORM, sub.assignment_id)
-                        if a:
-                            t = session.get(TaskORM, a.task_id)
-                            if t and not self.can_view_scope(user_id, t.scope_kind, t.scope_id):
-                                raise ValueError("Forbidden: cannot access this file")
-                            scope_checked = True
-
-            return _file_orm_to_dc(fr)
+            result=_file_orm_to_dc(session.get(FileRecordORM,file_id))
+            result.download_url=data["download_url"]
+            result.expires_at=data["expires_at"]
+            return result
 
     def get_audit_logs(self, target_kind: str, target_id: str) -> list[dict]:
         with self._session() as session:

@@ -221,12 +221,12 @@ async def guard_working_access(request: Request, token: Optional[str] = Depends(
     uid=None
     if not exempt:
         if not token:
-            raise HTTPException(401,"Authentication required")
+            raise HTTPException(401,"Not authenticated")
         cur=get_current_user(token)
         if cur.account_state!="active":
             raise HTTPException(403,"Approved active account required")
         uid=cur.user_id
-    elif token:
+    elif token and not path.startswith("/auth/"):
         uid=get_current_user(token).user_id
     marker=actor_id.set(uid)
     try:

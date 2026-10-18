@@ -99,3 +99,18 @@ def test_workspace_aggregate_contract(client,user):
     r=client.get('/api/dashboard',headers=user.headers)
     assert r.status_code == 200
     assert set(r.json())=={'my_tasks','upcoming_meetings','my_blocks','my_events','actionable_requests','unresolved_assignments','unread_notification_count'}
+
+def test_private_file_complete_and_download(client,user,mock_s3):
+    content=b'\x89PNG\r\n\x1a\n'+b'synthetic'
+    r=client.post('/api/files/upload-intents',headers=user.headers,json=dict(owner_kind='avatar',purpose='avatar',name='a.png',mime_type='image/png',size_bytes=len(content)))
+    assert r.status_code == 200
+    intent=r.json();fid=intent['file_id']
+    assert 'put_object' in intent['upload_url']
+    mock_s3['objects']['private/'+fid]=(content,'image/png')
+    result=client.post(f'/api/files/{fid}/complete',headers=user.headers,json={})
+    assert result.status_code==200
+    assert result.json()==dict(file_id=fid,name='a.png',mime_type='image/png',size_bytes=len(content))
+    assert client.post(f'/api/files/{fid}/complete',headers=user.headers,json={}).json()==result.json()
+    r=client.get(f'/api/files/{fid}/download',headers=user.headers)
+    assert r.status_code==200
+    assert 'get_object' in r.json()['download_url']

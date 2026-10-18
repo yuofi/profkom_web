@@ -142,7 +142,7 @@ PYTHONDONTWRITEBYTECODE=1 /private/tmp/profkom-frontend-review-_pd6m5f3/backend-
 - [x] 1. Зафиксировать API 1.3 как исполняемый контракт: безопасные DTO, списки, caps, ошибки, обязательные revisions. Добавить regression-тесты A01–A08 и несовместимых ответов до исправления.
 - [x] 2. Закрыть VK/legacy/profile/anonymous/pending обходы, убрать секреты из логов. Центральная проверка active/approved и объектного доступа; явные роли по ID, отказ от ФИО/legacy-флагов как новых полномочий.
 - [x] 3. Выравнять session/leadership, существующие lists, aggregate DTO, query filters, capability projection. Fresh response после save должен содержать именно сохранённую revision/version.
-- [ ] 4. Довести файлы: private object metadata, реальный presigned PUT, HEAD/проверка фактического бинарника, complete/FileRef, временный GET, текущий ACL; устранить mock-upload и самоссылку download.
+- [x] 4. Довести файлы: private object metadata, реальный presigned PUT, HEAD/проверка фактического бинарника, complete/FileRef, временный GET, текущий ACL; устранить mock-upload и самоссылку download.
 
 **Шлюз:** реальная session открывает допустимые экраны без демо, списки читаются клиентом; негативная матрица доступа проходит; искусственный файл проходит upload→complete→download и становится недоступен после отзыва области. Настоящий S3 отдельно проверяется в тестовом bucket после настройки.
 
@@ -212,3 +212,7 @@ PYTHONDONTWRITEBYTECODE=1 /private/tmp/profkom-frontend-review-_pd6m5f3/backend-
 - Пункт 2: централизован active/approved-доступ, удалены профильные/legacy обходы, скрыты score/events_roles, VK identity/link по subject без фото и совпадений ФИО, отозванные access-токены проверяются по session_version; refresh потребляется атомарно. 21 focused regression passed (9 проверок следующих пунктов исключены явно). Составные HTTP-команды получили единый Unit of Work с BEGIN IMMEDIATE и rollback.
 
 - Пункт 3: новые списки возвращают Page/items/next_cursor, session/leadership и объектные caps согласованы с UI; добавлены безопасные проекции dashboard/calendar/notifications и новые structured errors. 30 focused regressions passed. Наполнение заявок/карточек блока подключается после модели BE-05, исторический ACL — пункт 10.
+
+- Пункт 4: реализованы приватный presigned PUT/GET, проверка owner/context, размера/MIME/сигнатуры и фактического объекта, идемпотентный complete/FileRef; посторонний complete и пустая загрузка запрещены. Бинарный контур проверяется на моке объектного хранилища, реальный bucket/CORS остаётся эксплуатационной проверкой.
+
+- Группа 1: 32 focused regression passed. Полный legacy-набор остановлен после массовых несовместимых ожиданий (публичные маршруты/строки ошибок/старые DTO/самостоятельное членство/VK-ФИО); потребуется содержательное обновление контрактных тестов при окончательной сверке, полная регрессия пока не принята.

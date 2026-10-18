@@ -171,6 +171,22 @@ def mock_s3(monkeypatch) -> dict[str, Any]:
     monkeypatch.setattr(main_module, "generate_presigned_url", fake_presigned)
     monkeypatch.setattr(s3_service, "generate_presigned_url", fake_presigned)
     monkeypatch.setattr(s3_service, "upload_image_from_url", fake_upload)
+    import io
+    from botocore.exceptions import ClientError
+    objects={}
+    calls["objects"]=objects
+    def presign(operation,Params,ExpiresIn):
+        return "https://s3.test.local/"+Params["Key"]+"?operation="+operation+"&expires="+str(ExpiresIn)
+    def head_object(Bucket,Key):
+        if Key not in objects:raise ClientError({"Error":{"Code":"404"}},"HeadObject")
+        data,mime=objects[Key]
+        return {"ContentLength":len(data),"ContentType":mime}
+    def get_object(Bucket,Key,**kwargs):
+        head_object(Bucket,Key)
+        return {"Body":io.BytesIO(objects[Key][0])}
+    monkeypatch.setattr(s3_service.s3_client,"generate_presigned_url",presign)
+    monkeypatch.setattr(s3_service.s3_client,"head_object",head_object)
+    monkeypatch.setattr(s3_service.s3_client,"get_object",get_object)
     return calls
 
 

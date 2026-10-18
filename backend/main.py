@@ -3279,42 +3279,25 @@ def create_upload_intent(payload: UploadIntentIn, cur: User = Depends(get_curren
         )
         return UploadIntentOut(
             file_id=fr.file_id,
-            upload_url=f"/api/files/{fr.file_id}/mock-upload",
+            upload_url=__import__("file_access").presign_upload(fr),
             method="PUT",
             headers={"Content-Type": fr.mime_type},
             expires_at=fr.expires_at,
         )
     except ValueError as e:
-        raise HTTPException(422, str(e))
+        raise HTTPException(403 if "Forbidden" in str(e) else 422, str(e))
 
 
-@router.post("/files/{file_id}/complete")
+@router.post("/files/{file_id}/complete", response_model=FileRefOut)
 def complete_file_upload(file_id: str, cur: User = Depends(get_current_user)):
-    try:
-        fr = db.complete_file_upload(file_id, cur.user_id)
-        return {
-            "file_id": fr.file_id,
-            "state": fr.state,
-            "download_url": fr.download_url,
-        }
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        raise HTTPException(403, str(e))
+    from file_access import complete
+    return complete(file_id,cur.user_id)
 
 
 @router.get("/files/{file_id}/download", response_model=FileDownloadOut)
 def get_file_download(file_id: str, cur: User = Depends(get_current_user)):
-    try:
-        fr = db.get_file_download(file_id, cur.user_id)
-        return FileDownloadOut(
-            download_url=fr.download_url or f"/api/files/{fr.file_id}/download",
-            expires_at=fr.expires_at,
-        )
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        raise HTTPException(403, str(e))
+    from file_access import download
+    return download(file_id,cur.user_id)
 
 
 # ── Reports ──
