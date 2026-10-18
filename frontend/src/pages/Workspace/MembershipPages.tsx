@@ -140,7 +140,7 @@ export function BlockPage() {
                     },
                   ]}
                   onSubmit={async (v, expectedRevision) => {
-                    await perform(() =>
+                    return perform(() =>
                       eventsApi.blockLeader(id, number(v, "user"), {
                         expected_revision: expectedRevision!,
                       }),
@@ -229,7 +229,7 @@ export function BlockPage() {
                     },
                   ]}
                   onSubmit={async (v, expectedRevision) => {
-                    await perform(() =>
+                    return perform(() =>
                       membershipApi.updateBlock(id, {
                         expected_revision: expectedRevision!,
                         description: richText(text(v, "body")),
@@ -562,7 +562,7 @@ export function ParticipantCategoryPanel({ userId }: { userId: number }) {
                 },
               ]}
               onSubmit={async (v, expectedRevision) => {
-                await perform(() =>
+                return perform(() =>
                   membershipApi.updateCategory(userId, {
                     expected_revision: expectedRevision!,
                     category: text(v, "category") as "junior" | "activist",

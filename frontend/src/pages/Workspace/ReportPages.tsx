@@ -433,7 +433,7 @@ export function MeetingPage() {
                   },
                 ]}
                 onSubmit={async (v, expectedRevision) => {
-                  await perform(() =>
+                  return perform(() =>
                     eventsApi.saveMeeting(apiKind, id, {
                       title: text(v, "title"),
                       starts_at: toUtc(text(v, "starts")),

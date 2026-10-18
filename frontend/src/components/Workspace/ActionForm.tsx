@@ -49,7 +49,7 @@ export function ActionForm({
   title?: string;
   fields: Field[];
   submitLabel?: string;
-  onSubmit: (values: Values, expectedRevision?: number) => Promise<void>;
+  onSubmit: (values: Values, expectedRevision?: number) => Promise<void | { revision: number } | { version: number }>;
   onConflict?: () => unknown | Promise<unknown>;
   successMessage?: string;
   children?: ReactNode;
@@ -58,13 +58,7 @@ export function ActionForm({
 }) {
   const formId = useId();
   const [expectedRevision, setExpectedRevision] = useState(revision);
-  const [savedRevision, setSavedRevision] = useState<number>();
   const [refreshing, setRefreshing] = useState(false);
-  // A successful mutation has already re-read the object. Other updates need consent.
-  if (savedRevision !== undefined && revision !== savedRevision) {
-    setExpectedRevision(revision);
-    setSavedRevision(undefined);
-  }
   const changedRevision = revision !== expectedRevision;
   const [message, setMessage] = useState("");
   const [failure, setFailure] = useState<ReturnType<
@@ -133,8 +127,9 @@ export function ActionForm({
       try {
         if (revision !== undefined && (changedRevision || failure?.status === 409))
           throw new ApiError("Сначала обновите данные и подтвердите версию для сохранения.", 409);
-        await onSubmit(values, expectedRevision);
-        setSavedRevision(expectedRevision);
+        const saved = await onSubmit(values, expectedRevision);
+        if (revision !== undefined && saved)
+          setExpectedRevision("revision" in saved ? saved.revision : saved.version);
         setMessage(successMessage);
       } catch (error) {
         const failure = normalizeApiError(error);

@@ -65,6 +65,12 @@ it.each(["event", "block", "registration", "meeting", "season", "decisions"] as 
   const payload = JSON.parse(mutations().at(-1)!.data);
   expect(payload.expected_revision ?? payload.expected_version).toBe(latestRevision);
   expect(form.querySelector('[role="alert"]'), page.container.textContent ?? "").toBeNull();
+  await change(field(form, name), "ПОВТОРНОЕ СОХРАНЕНИЕ");
+  await submit(form);
+  expect(mutations()).toHaveLength(beforeConsent + 2);
+  const repeated = JSON.parse(mutations().at(-1)!.data);
+  expect(repeated.expected_revision ?? repeated.expected_version).toBe(latestRevision + 1);
+  expect(form.querySelector('[role="alert"]')).toBeNull();
 });
 
 it("A05: background revisions do not silently authorize overwriting a draft", async () => {
@@ -83,6 +89,23 @@ it("A05: background revisions do not silently authorize overwriting a draft", as
   expect(save).not.toHaveBeenCalled();
   await acknowledge(form); await submit(form);
   expect(save).toHaveBeenCalledWith({ title: "Мой черновик" }, 2);
+});
+
+it("A05: a successful no-op cannot pre-authorize a later external revision", async () => {
+  const save = vi.fn(async () => ({ revision: 1 }));
+  function Probe() {
+    const [revision, setRevision] = useState(1);
+    return <><button onClick={() => setRevision(2)}>External update</button><ActionForm revision={revision} fields={[{ name: "title", label: "Название", value: "Прежнее" }]} onSubmit={save} /></>;
+  }
+  page = await mountWorkspace(<Probe />);
+  const form = page.container.querySelector("form")!;
+  await submit(form);
+  expect(save).toHaveBeenCalledTimes(1);
+  await change(field(form, "title"), "Новый ввод");
+  await clickButton(page.container, "External update");
+  await submit(form);
+  expect(save).toHaveBeenCalledTimes(1);
+  expect(form.textContent).toContain("Запись изменилась на сервере");
 });
 
 it("A05: a failed refresh retains the same editor; a denied read removes it", async () => {

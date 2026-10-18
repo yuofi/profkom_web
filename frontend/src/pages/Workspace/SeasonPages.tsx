@@ -278,7 +278,7 @@ export function SeasonPage() {
                   onSubmit={async (v, expectedRevision) => {
                     if (text(v, "start") >= text(v, "end"))
                       throw Error("Начало должно быть раньше конца");
-                    await perform(() =>
+                    return perform(() =>
                       seasonsApi.update(id, {
                         expected_revision: expectedRevision!,
                         title: text(v, "title"),
@@ -332,7 +332,7 @@ function DecisionsForm({
           { name: "reason", label: "Основание", required: true },
         ]}
         onSubmit={async (v, expectedRevision) => {
-          await perform(() =>
+          return perform(() =>
             seasonsApi.decisions(summary.season_id, row.user.user_id!, {
               expected_version: expectedRevision!,
               decisions: v.decisions as Decision[],

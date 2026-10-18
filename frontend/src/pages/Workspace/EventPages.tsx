@@ -67,7 +67,7 @@ export function Leaders({ leaders }: { leaders: Leader[] }) {
                     throw Error(
                       "У руководителя может быть не более двух заместителей",
                     );
-                  await perform(() =>
+                  return perform(() =>
                     eventsApi.deputies(leader.role_assignment_id, users, {
                       expected_revision: expectedRevision!,
                     }),
@@ -263,7 +263,7 @@ export function EventPage() {
                         },
                       ]}
                       onSubmit={async (v, expectedRevision) => {
-                        await perform(() =>
+                        return perform(() =>
                           eventsApi.leaders("events", id, ids(v, "users"), {
                             expected_revision: expectedRevision!,
                           }),
@@ -345,7 +345,7 @@ export function EventPage() {
                     },
                   ]}
                   onSubmit={async (v, expectedRevision) => {
-                    await perform(() =>
+                    return perform(() =>
                       eventsApi.update(id, {
                         title: text(v, "title"),
                         description: richText(text(v, "description")),
@@ -468,7 +468,7 @@ export function SubeventPage() {
                         },
                       ]}
                       onSubmit={async (v, expectedRevision) => {
-                        await perform(() =>
+                        return perform(() =>
                           eventsApi.leaders("subevents", id, ids(v, "users"), {
                             expected_revision: expectedRevision!,
                           }),
@@ -504,7 +504,7 @@ export function SubeventPage() {
                         },
                       ]}
                       onSubmit={async (v, expectedRevision) => {
-                        await perform(() =>
+                        return perform(() =>
                           eventsApi.organizers(id, ids(v, "users"), {
                             expected_revision: expectedRevision!,
                           }),
@@ -536,7 +536,7 @@ export function SubeventPage() {
                     },
                   ]}
                   onSubmit={async (v, expectedRevision) => {
-                    await perform(() =>
+                    return perform(() =>
                       eventsApi.updateSubevent(id, {
                         expected_revision: expectedRevision!,
                         title: text(v, "title"),

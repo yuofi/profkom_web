@@ -4,7 +4,7 @@ import { invalidateWorkspace } from '../api/invalidation';
 export function useWorkspaceActions() {
   const client = useQueryClient();
   const refresh = () => invalidateWorkspace(client);
-  const perform = async (action: () => Promise<unknown>) => { await action(); await refresh(); };
+  const perform = async <T,>(action: () => Promise<T>): Promise<T> => { const result = await action(); await refresh(); return result; };
   return { perform, refresh };
 }
 export function usePeopleOptions() {

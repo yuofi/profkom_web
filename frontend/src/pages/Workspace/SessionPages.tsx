@@ -162,10 +162,11 @@ export function LeadershipPage() {
               onSubmit={async (v, expectedRevision) => {
                 const userId = number(v, "user");
                 requireEligible([userId]);
-                await sessionApi.transfer(userId, {
+                const saved = await sessionApi.transfer(userId, {
                   expected_revision: expectedRevision!,
                 });
                 await clearPrivateCache(client);
+                return saved;
               }}
               onConflict={() => leadership.refetch({ throwOnError: true })}
             />
@@ -190,11 +191,12 @@ export function LeadershipPage() {
                 requireEligible(selected);
                 if (selected.length > 3)
                   throw Error("Можно назначить не более трёх заместителей");
-                await sessionApi.deputies(selected, {
+                const saved = await sessionApi.deputies(selected, {
                   expected_revision: expectedRevision!,
                 });
                 await client.invalidateQueries({ queryKey: ["leadership"] });
                 await clearPrivateCache(client);
+                return saved;
               }}
               onConflict={() => leadership.refetch({ throwOnError: true })}
             />

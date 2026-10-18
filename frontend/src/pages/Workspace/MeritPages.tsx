@@ -420,7 +420,7 @@ export function MeritForm({
                 await save(data);
                 return;
               }
-              await perform(() =>
+              return perform(() =>
                 existing
                   ? seasonsApi.updateMerit(existing.merit_id, {
                       ...data,

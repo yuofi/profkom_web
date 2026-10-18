@@ -55,7 +55,7 @@ export function RegistrationForm({
           const form = Object.fromEntries(
             Object.keys(names).map((k) => [k, text(v, k)]),
           );
-          await perform(() =>
+          return perform(() =>
             membershipApi.updateRegistration({
               expected_revision: expectedRevision!,
               fields: {
