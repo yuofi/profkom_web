@@ -4,7 +4,6 @@ import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { useMe } from "../../utils/me";
 import { authApi } from "../../utils/api/auth.api";
 import { contactsApi } from "../../utils/api/contacts.api";
-import { tryCatch } from "../../utils/tryCatch";
 import { FormTextField } from "../../components/Form/FormTextFiled";
 import { useForm } from "../../components/Form/Form";
 import { FormikProvider } from "formik";
@@ -14,10 +13,12 @@ import { Avatar } from "../../components/Avatar/Avatar";
 import { ProfileValidationSchema, ChangePasswordValidationSchema } from "../../utils/zod";
 import styles from "./ProfileEditPage.module.css";
 import type { ProfileUpdate } from "../../utils/api/types";
+import { can, useSession } from "../../utils/session";
 import { Helmet } from "react-helmet-async";
 
 export const ProfileEditPage = () => {
   const user = useMe();
+  const { session } = useSession();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -29,15 +30,12 @@ export const ProfileEditPage = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["currentUser"] });
       queryClient.invalidateQueries({ queryKey: ["contacts"] });
-      alert("Профиль успешно обновлен");
+
     },
-    onError: (error) => {
-      console.error("Ошибка при обновлении профиля:", error);
-      alert("Не удалось обновить профиль");
-    },
+
   });
 
-  const { formik: profileFormik } = useForm({
+  const { formik: profileFormik, globalError: profileError } = useForm({
     initialValues: {
       surname: user?.surname || "",
       name: user?.name || "",
@@ -52,7 +50,7 @@ export const ProfileEditPage = () => {
       photo_url: user?.photo_url || ""
     },
     validationSchema: ProfileValidationSchema,
-    onSubmit: async (values) => {
+    onSubmit: async (values, actions) => {
       if (!user) return;
       const updateData: ProfileUpdate = {
         surname: values.surname,
@@ -66,12 +64,13 @@ export const ProfileEditPage = () => {
         email: values.email,
         budget: values.budget === "Бюджет",
       };
-      updateMutation.mutate(updateData);
+      await updateMutation.mutateAsync(updateData);
+      actions.resetForm({ values });
     }
   });
 
   useEffect(() => {
-    if (user) {
+    if (user && !profileFormik.dirty) {
       profileFormik.setValues({
         surname: user.surname || "",
         name: user.name || "",
@@ -106,16 +105,11 @@ export const ProfileEditPage = () => {
         throw new Error("Заполните старый пароль");
       }
       
-      const { error } = await tryCatch(authApi.changePassword({
+      await authApi.changePassword({
         old_password: hasPassword ? values.oldPassword || "" : "",
         new_password: values.newPassword
-      }));
-      
-      if (error) {
-        throw new Error("Ошибка при смене пароля. Возможно, старый пароль неверен.");
-      } else {
-        setPasswordSuccess(true);
-      }
+      });
+      setPasswordSuccess(true);
     }
   });
 
@@ -144,6 +138,8 @@ export const ProfileEditPage = () => {
       <main className={styles.main}>
         <FormikProvider value={profileFormik}>
           <form className={styles.grid} onSubmit={profileFormik.handleSubmit}>
+            {profileError && <p role="alert">{profileError}</p>}
+            {updateMutation.isSuccess && !profileFormik.dirty && <p role="status">Профиль успешно обновлён</p>}
             {/* Left Column */}
             <div className={styles.column}>
               {/* Card 1: Basic Info */}
@@ -190,11 +186,11 @@ export const ProfileEditPage = () => {
                   Изменить пароль
                 </button>
 
-                {(user.admin || user.super_user) && (
+                {can(session, "review_registrations") && (
                   <button 
                     type="button"
                     className={styles.adminBtn}
-                    onClick={() => navigate("/admin")}
+                    onClick={() => navigate("/admin/guides")}
                   >
                     <Icon name="admin_panel_settings" size={20} />
                     Админская панель

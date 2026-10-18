@@ -20,6 +20,9 @@ import { BlockPage } from "./MembershipPages";
 import { MeritsPage, MeritEntryPage } from "./MeritPages";
 import { SessionContext } from "../../utils/session";
 import { LeadershipPage } from "./SessionPages";
+import { ProfileEditPage } from "../ProfileEditPage/ProfileEditPage";
+import { UserContext } from "../../utils/me";
+import { HelmetProvider } from "react-helmet-async";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let restore: (() => void) | undefined;
@@ -158,4 +161,17 @@ it("A08: leadership excludes pending candidates, preserves valid candidates outs
   await submit(field(page.container, "user").closest("form")!);
   expect(page.container.textContent).toContain("больше не доступен для назначения");
   expect(adapter.history.post).toHaveLength(0);
+});
+
+it("A02: the actual profile form awaits its mutation and shows structured field errors", async () => {
+  const f = createFixtures("organizer");
+  const adapter = new MockAdapter(api); restore = () => adapter.restore();
+  adapter.onPatch(`/profile/${f.profile.user_id}`).reply(422, { detail: { code: "invalid_input", message: "Уточните контакты", fields: { phone: "Неверный телефон" } } });
+  page = await mountWorkspace(<HelmetProvider><UserContext.Provider value={f.profile}><ProfileEditPage /></UserContext.Provider></HelmetProvider>);
+  for (const [name, value] of Object.entries({ patronymic: "Иванович", group_number: "201", tg: "", vk: "", email: "student@example.org", phone: "Мой ввод" })) await change(field(page.container, name), value);
+  await submit(page.container.querySelector("form")!);
+  expect(adapter.history.patch).toHaveLength(1);
+  expect(page.container.textContent).toContain("Уточните контакты");
+  expect(page.container.textContent).toContain("Неверный телефон");
+  expect(field(page.container, "phone").value).toBe("Мой ввод");
 });
