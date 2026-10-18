@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { useFormik, type FormikHelpers } from "formik";
+import { useFormik, type FormikErrors, type FormikHelpers } from "formik";
 import { withZodSchema } from "formik-validator-zod";
 import { z } from "zod";
 import {tryCatch} from "../../utils/tryCatch"
-import { AxiosError } from "axios";
+import { normalizeApiError } from "../../utils/api/request";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const useForm = <UserSchema extends z.ZodType<Record<string, any>>>({
@@ -41,42 +41,23 @@ export const useForm = <UserSchema extends z.ZodType<Record<string, any>>>({
           actions.resetForm();
         }
       };
-      //error handling
       const result = await tryCatch(sendForm());
       if (result.error) {
-         let errorMessage = "Произошла непредвиденная ошибка";
-         
-         if (result.error instanceof Error) {
-            errorMessage = result.error.message;
-         }
-         
-         if (result.error instanceof AxiosError && result.error.response) {
-             const data = result.error.response?.data;
-             if (data && typeof data === 'object') {
-                 errorMessage = data.detail || data.message || errorMessage;
-             }
-             if (result.error.response.status === 401) {
-                 errorMessage = "Неверный логин или пароль";
-             }
-         }
-         setGlobalError(errorMessage);
+        const failure = normalizeApiError(result.error);
+        setGlobalError(failure.message);
+        const errors: Record<string, string> = {};
+        for (const [key, message] of Object.entries(failure.fields)) {
+          if (key in values && typeof message === "string") errors[key] = message;
+        }
+        if (Array.isArray(failure.fields.errors)) {
+          for (const item of failure.fields.errors) {
+            const key = String(item?.loc?.at(-1) ?? "");
+            if (key in values && typeof item?.msg === "string") errors[key] = item.msg;
+          }
+        }
+        actions.setErrors(errors as FormikErrors<z.infer<UserSchema>>);
       }
-       actions.setSubmitting(false);
-      
-      // try {
-      //   if (onSubmit) {
-      //     await onSubmit(values, actions);
-      //   }
-        
-      //   if (successMessage) {
-      //     setIsSuccess(true);
-      //     actions.resetForm();
-      //   }
-      // } catch (error) {
-      //   setGlobalError(error?.message || "Произошла непредвиденная ошибка");
-      // } finally {
-      //   actions.setSubmitting(false);
-      // }
+      actions.setSubmitting(false);
     },
   });
 
