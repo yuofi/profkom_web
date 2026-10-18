@@ -13,7 +13,7 @@ from typing import Optional
 
 from jose import jwt, JWTError
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 
 from database import db
@@ -21,6 +21,8 @@ from models import User
 
 # ── Config (hardcoded defaults; override via env vars) ─────
 SECRET_KEY       = os.getenv("JWT_SECRET_KEY", "CHANGE-ME-IN-PROD-super-secret-key-1234567890")
+if os.getenv("APP_ENV") == "production" and (not os.getenv("JWT_SECRET_KEY") or len(SECRET_KEY) < 32 or SECRET_KEY.startswith("CHANGE-ME")):
+    raise RuntimeError("Production JWT_SECRET_KEY must be explicitly configured (at least 32 characters)")
 ALGORITHM        = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TTL_MIN   = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 REFRESH_TTL_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
@@ -65,6 +67,7 @@ def create_access_token(user_id: int) -> str:
     payload = {
         "sub":  str(user_id),
         "type": "access",
+        "sv": db.get_user(user_id).session_version if db.get_user(user_id) else 0,
         "iat":  now,
         "exp":  now + timedelta(minutes=ACCESS_TTL_MIN),
     }
@@ -131,6 +134,8 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
     user = db.get_user(user_id)
     if not user:
         raise HTTPException(401, "User not found")
+    if payload.get("sv", 0) != user.session_version:
+        raise HTTPException(401, "Session revoked")
     if user.banned:
         raise HTTPException(403, "User is banned")
     if getattr(user, "account_state", "active") == "archived":
@@ -157,19 +162,19 @@ def get_current_user_optional(token: Optional[str] = Depends(oauth2_scheme_optio
 
 
 def require_admin(cur: User = Depends(get_current_user)) -> User:
-    if not cur.admin and not cur.super_user and not db.is_tachki(cur.user_id):
+    if not db.is_tachki(cur.user_id):
         raise HTTPException(403, "Admin rights required")
     return cur
 
 
 def require_superuser(cur: User = Depends(get_current_user)) -> User:
-    if not cur.super_user and not db.is_chair(cur.user_id):
+    if not db.is_chair(cur.user_id):
         raise HTTPException(403, "SuperUser rights required")
     return cur
 
 
 def require_pgas_admin(cur: User = Depends(get_current_user)) -> User:
-    if not cur.pgas_admin and not cur.super_user and not db.is_chair(cur.user_id):
+    if not cur.pgas_admin and not db.is_chair(cur.user_id):
         raise HTTPException(403, "PGAS admin rights required")
     return cur
 
@@ -179,7 +184,7 @@ def require_pgas_admin(cur: User = Depends(get_current_user)) -> User:
 # ═══════════════════════════════════════════════════════════
 def refresh_tokens(refresh_token_value: str) -> dict:
     """Validate refresh token → delete it (rotation) → issue new pair."""
-    rt = db.get_refresh_token(refresh_token_value)
+    rt = db.consume_refresh_token(refresh_token_value)
     if rt is None:
         raise HTTPException(401, "Refresh token not found (revoked or already used)")
 
@@ -199,7 +204,6 @@ def refresh_tokens(refresh_token_value: str) -> dict:
         db.delete_refresh_token(refresh_token_value)
         raise HTTPException(403, "Account is archived")
 
-    db.delete_refresh_token(refresh_token_value)   # rotation
     return create_token_pair(user_id)
 
 
@@ -208,4 +212,20 @@ def revoke_refresh_token(token_value: str):
 
 
 def revoke_all_user_tokens(user_id: int):
-    db.delete_all_refresh_tokens(user_id)
+    db.revoke_sessions(user_id)
+
+def guard_working_access(request: Request, token: Optional[str] = Depends(oauth2_scheme_optional)):
+    """All working routes, including compatibility routes, require an approved account."""
+    path = request.url.path.removeprefix("/api")
+    if path.startswith("/auth/") or path == "/session" or path == "/registrations/me" or path == "/registrations/me/resubmit":
+        return
+    if not token:
+        raise HTTPException(401, "Authentication required")
+    cur = get_current_user(token)
+    if cur.account_state != "active":
+        raise HTTPException(403, "Approved active account required")
+
+
+async def unit_of_work(request: Request):
+    with db.atomic(write=request.method not in {"GET", "HEAD", "OPTIONS"}):
+        yield

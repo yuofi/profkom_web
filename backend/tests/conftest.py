@@ -53,6 +53,7 @@ assert str(_TMP_DB) in database_module.DATABASE_URL, (
 )
 
 TABLES = (
+    "external_identities",
     "audit_logs",
     "file_records",
     "task_comments",
@@ -354,6 +355,15 @@ def make_user() -> Callable[..., Actor]:
         if updates:
             db.update_user(created.user_id, **updates)
 
+        if super_user:
+            # Explicit test bootstrap; legacy super_user alone is not a domain role.
+            with db._session() as session:
+                from database import LeadershipORM, RoleAssignmentORM
+                row=session.get(LeadershipORM,1)
+                if not row:
+                    session.add(LeadershipORM(id=1,chair_user_id=created.user_id,deputies_json="[]",revision=1))
+                    session.add(RoleAssignmentORM(role_assignment_id=str(uuid.uuid4()),user_id=created.user_id,role="chair",scope_kind="global",scope_id=None,revision=1))
+                session.commit()
         tokens = auth_module.create_token_pair(created.user_id)
         return Actor(created.user_id, email, password or "", kkr_name, tokens)
 

@@ -37,6 +37,7 @@ class User:
     pgas_admin: bool = False   # Права на раздел ПГАС
     events_roles: str = "[]"   # JSON string representing List[{event: str, role: str}]
     account_state: str = "active"  # "pending" | "active" | "archived"
+    session_version: int = 0
     category: str = "junior"       # "junior" | "activist"
 
 

@@ -62,3 +62,35 @@ def test_file_limits_and_complete_ownership(client,user,make_user):
     fid=r.json()['file_id']
     assert client.post(f'/api/files/{fid}/complete',headers=other.headers,json={}).status_code == 404
     assert client.post(f'/api/files/{fid}/complete',headers=user.headers,json={}).status_code == 409
+
+def test_vk_namesake_does_not_authenticate_existing_account(client,make_user,mock_vk):
+    existing=make_user(name='Пётр',surname='Сидоров')
+    mock_vk(user_id='987',first_name='Пётр',last_name='Сидоров')
+    r=client.post('/api/auth/vk',json={'access_token':'synthetic'})
+    assert r.status_code == 200
+    session=client.get('/api/session',headers={'Authorization':'Bearer '+r.json()['access_token']}).json()
+    assert session['user_id'] != existing.user_id
+    assert session['account_state'] == 'pending'
+
+
+def test_vk_link_requires_authenticated_owner_and_repeat_is_stable(client,user,mock_vk,mock_s3):
+    mock_vk(user_id='876',avatar='https://synthetic.invalid/avatar.png')
+    assert client.post('/api/auth/vk/link',json={'access_token':'synthetic'}).status_code == 401
+    assert client.post('/api/auth/vk/link',headers=user.headers,json={'access_token':'synthetic'}).status_code == 200
+    for _ in range(2):
+        r=client.post('/api/auth/vk',json={'access_token':'synthetic'})
+        assert r.status_code == 200
+        s=client.get('/api/session',headers={'Authorization':'Bearer '+r.json()['access_token']}).json()
+        assert s['user_id'] == user.user_id
+    assert mock_s3['upload'] == []
+
+
+def test_legacy_superuser_flag_does_not_grant_domain_role(client,user):
+    db.update_user(user.user_id,super_user=True)
+    assert client.post('/api/leadership/deputies',headers=user.headers,json={'user_ids':[],'expected_revision':1}).status_code in (403,405)
+    assert not db.is_chair(user.user_id)
+
+
+def test_revoke_sessions_also_revokes_access_token(client,user):
+    db.revoke_sessions(user.user_id)
+    assert client.get('/api/session',headers=user.headers).status_code == 401

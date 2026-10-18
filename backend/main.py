@@ -6,7 +6,7 @@ from typing import List, Optional, Union
 
 from fastapi import FastAPI, HTTPException, Depends, APIRouter, Response, Cookie, Body, status
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict
 
 from models import Block, ContactInfo, User, Guide, PgasEntry, Season, Event, Subevent, Meeting, Leader, ReportSeries, Report, ReportVersion, Notification
 from database import db, SeasonNotReadyError, generate_summary_xlsx
@@ -29,6 +29,8 @@ from auth import (
     require_superuser,         # replaces old require_superuser
     require_pgas_admin,        # права на раздел ПГАС
     REFRESH_TTL_DAYS,
+    guard_working_access,
+    unit_of_work,
 )
 from utils.s3_service import generate_presigned_url
 
@@ -38,7 +40,7 @@ app = FastAPI(
     )
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", dependencies=[Depends(unit_of_work), Depends(guard_working_access)])
 origins = [
     FRONTEND_URL,
 ]
@@ -80,6 +82,11 @@ class ContactInfoIn(BaseModel):
 
 
 class RegisterIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    phone: str = ""
+    vk: str = ""
+    funding: str = "budget"
+    residence: str = ""
     email: EmailStr
     surname: str = ""
     name: str = ""
@@ -106,7 +113,7 @@ class RegisterIn(BaseModel):
 class UserOut(BaseModel):
     user_id: int
     kkr_name: str
-    kkr_score: int
+    kkr_score: Optional[int] = None
     group_number: int
     blocks: str
     photo_url: Optional[str] = None
@@ -114,7 +121,6 @@ class UserOut(BaseModel):
     super_user: bool
     admin: bool
     pgas_admin: bool = False
-    events_roles: str = "[]"
 
 
 class ProfileOut(UserOut):
@@ -129,13 +135,12 @@ class ContactInfoOut(ContactInfoIn):
 
 class MeOut(ContactInfoOut):
     kkr_name: str
-    kkr_score: int
+    kkr_score: Optional[int] = None
     banned: bool
     super_user: bool
     admin: bool
     pgas_admin: bool = False
     has_password: bool = True
-    events_roles: str = "[]"
 
 
 class GuideIn(BaseModel):
@@ -245,21 +250,18 @@ class VKLoginIn(BaseModel):
 
 
 class ProfileUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     surname: Optional[str] = None
     name: Optional[str] = None
     patronymic: Optional[str] = None
     kkr_name: Optional[str] = None
     group_number: Optional[str] = None
     location: Optional[str] = None
-    blocks: Optional[str] = None
     phone: Optional[str] = None
     vk: Optional[str] = None
     tg: Optional[str] = None
     email: Optional[EmailStr] = None
     budget: Optional[bool] = None
-    in_profcom: Optional[bool] = None
-    photo_url: Optional[str] = None
-    events_roles: Optional[str] = None
 
     @field_validator("group_number")
     @classmethod
@@ -334,7 +336,6 @@ class SessionOut(BaseModel):
     super_user: bool = False
     admin: bool = False
     pgas_admin: bool = False
-    events_roles: str = "[]"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -998,7 +999,7 @@ def register(payload: RegisterIn, response: Response):
     }
     Returns access + refresh tokens immediately.
     """
-    logger.info(f"Arguments: {payload.model_dump_json()}")
+
     # Uniqueness: email
     if db.get_user_by_email(str(payload.email)):
         raise HTTPException(409, "Email already registered")
@@ -1018,17 +1019,18 @@ def register(payload: RegisterIn, response: Response):
         patronymic=payload.patronymic,
         kkr_name=kkr_name,
         group_number=str(payload.group_number),
-        location="",
+        location=payload.residence,
         blocks="",
-        phone="",
-        vk="",
+        phone=payload.phone,
+        vk=payload.vk,
         tg=payload.tg,
         email=str(payload.email),
-        budget=True,
+        budget=payload.funding == "budget",
         in_profcom=False,
     )
     user_model = User(
         user_id=0,
+        account_state="pending",
         hashed_password=hash_password(payload.password),   # ← hash!
         kkr_score=0,
         group_number=str(payload.group_number),
@@ -1104,184 +1106,22 @@ def change_password(
 
 @router.post("/auth/vk", response_model=TokenPair)
 def vk_login(payload: VKLoginIn, response: Response):
-    import urllib.request
-    import urllib.parse
-    import json
-    from jose import jwt
-    from utils.s3_service import upload_image_from_url
-
-    email = None
-    first_name = "VK"
-    last_name = "User"
-    vk_id = None
-    avatar_url = None
-    phone = None
-
-    if payload.id_token:
-        try:
-            claims = jwt.get_unverified_claims(payload.id_token)
-            first_name = claims.get("first_name", first_name)
-            last_name = claims.get("last_name", last_name)
-            phone = claims.get("phone") or claims.get("phone_number")
-        except Exception:
-            pass
-
-    try:
-        url = "https://id.vk.ru/oauth2/user_info"
-        data = urllib.parse.urlencode({
-            "client_id": "54678274",
-            "access_token": payload.access_token,
-        }).encode("utf-8")
-
-        headers = {
-            "Accept-Language": "ru-RU, ru;q=0.9",
-            "Content-Type": "application/x-www-form-urlencoded"
-        }
-
-        req = urllib.request.Request(url, data=data, headers=headers)
-        logging.info("Requesting VK user info from oauth2/user_info")
-        with urllib.request.urlopen(req) as vk_response:
-            vk_data = json.loads(vk_response.read().decode())
-            vk_user = vk_data.get("user")
-            logging.info("VK user info response received")
-            if "error" in vk_data or not vk_user:
-                raise Exception("VK API error")
-
-            raw_id = vk_user.get("user_id") if "user_id" in vk_user else vk_user.get("id")
-            if raw_id is not None and str(raw_id).lower() != "none" and str(raw_id).strip():
-                vk_id = str(raw_id).strip()
-            email = vk_user.get("email")
-            if "first_name" in vk_user:
-                first_name = vk_user["first_name"]
-            if "last_name" in vk_user:
-                last_name = vk_user["last_name"]
-            if "avatar" in vk_user:
-                avatar_url = vk_user["avatar"]
-            if "phone" in vk_user and vk_user["phone"]:
-                phone = str(vk_user["phone"])
-            elif "phone_number" in vk_user and vk_user["phone_number"]:
-                phone = str(vk_user["phone_number"])
-    except Exception:
-        try:
-            escaped_token = urllib.parse.quote(payload.access_token)
-            url2 = f"https://api.vk.com/method/users.get?v=5.131&access_token={escaped_token}&fields=contacts,photo_max,photo_200&lang=ru"
-            req2 = urllib.request.Request(url2)
-            with urllib.request.urlopen(req2) as response2:
-                vk_data2 = json.loads(response2.read().decode())
-                if "error" in vk_data2 or not vk_data2.get("response"):
-                    raise HTTPException(401, "Invalid VK token")
-                vk_user = vk_data2["response"][0]
-                raw_id2 = vk_user.get("id") if "id" in vk_user else vk_user.get("user_id")
-                if raw_id2 is not None and str(raw_id2).lower() != "none" and str(raw_id2).strip():
-                    vk_id = str(raw_id2).strip()
-                if "first_name" in vk_user:
-                    first_name = vk_user["first_name"]
-                if "last_name" in vk_user:
-                    last_name = vk_user["last_name"]
-                if "photo_max" in vk_user:
-                    avatar_url = vk_user["photo_max"]
-                elif "photo_200" in vk_user:
-                    avatar_url = vk_user["photo_200"]
-                if "mobile_phone" in vk_user and vk_user["mobile_phone"]:
-                    phone = phone or str(vk_user["mobile_phone"])
-                elif "home_phone" in vk_user and vk_user["home_phone"]:
-                    phone = phone or str(vk_user["home_phone"])
-                elif "phone" in vk_user and vk_user["phone"]:
-                    phone = phone or str(vk_user["phone"])
-        except Exception as e:
-            if isinstance(e, HTTPException):
-                raise e
-            raise HTTPException(401, "Failed to verify VK token")
-
-    if not vk_id or vk_id.lower() == "none":
-        raise HTTPException(401, "Could not identify VK user")
-
-    if phone:
-        phone = str(phone).strip()
-        if not phone.startswith("+"):
-            phone = "+" + phone
-
-    user = None
-    if email:
-        logging.info(f"Looking up user by email: {email}")
-        user = db.get_user_by_email(email)
-
-    kkr_name_to_check = f"{first_name} {last_name}".strip()
-
-    if not user and kkr_name_to_check:
-        logging.info(f"Looking up user by name: {kkr_name_to_check}")
-        user = db.get_user_by_name(kkr_name_to_check)
-
-    if not user:
-        if not email:
-            email = f"vk_{vk_id}@vk.com"
-
-        kkr_name = kkr_name_to_check
-        contact_model = ContactInfo(
-            user_id=0,
-            surname=last_name,
-            name=first_name,
-            patronymic="",
-            kkr_name=kkr_name,
-            group_number="0",
-            location="",
-            blocks="",
-            phone=phone or "",
-            vk=f"https://vk.com/id{vk_id}",
-            tg="",
-            email=email,
-            budget=True,
-            in_profcom=False,
-        )
-        s3_photo_url = None
-        if avatar_url:
-            pattern = r"cs=[^&]*"
-            avatar_url = re.sub(pattern, "cs=150x150", avatar_url)
-            s3_photo_url = upload_image_from_url(avatar_url, folder="avatars")
-
-        user_model = User(
-            user_id=0,
-            hashed_password="",
-            kkr_score=0,
-            group_number="0",
-            blocks="",
-            photo_url=s3_photo_url,
-            banned=False,
-            super_user=False,
-            admin=False,
-        )
-        user = db.create_user_with_contact(contact_model, user_model)
-        logger.info(f"Created new user from VK login: {user.user_id} ({kkr_name})")
-    else:
-        if user.banned:
-            raise HTTPException(403, "User is banned")
-        if getattr(user, "account_state", "active") == "archived":
-            raise HTTPException(403, "Account is archived")
-
-        # Update existing user photo if missing
-        if avatar_url and not user.photo_url:
-            pattern = r"cs=[^&]*"
-            avatar_url = re.sub(pattern, "cs=150x150", avatar_url)
-            s3_photo_url = upload_image_from_url(avatar_url, folder="avatars")
-            if s3_photo_url:
-                db.update_user(user.user_id, photo_url=s3_photo_url)
-        db.update_contact(user.user_id, vk=f"https://vk.com/id{vk_id}")
-        if phone:
-            db.update_contact(user.user_id, phone=phone)
-
-    if user.banned:
-        raise HTTPException(403, "User is banned")
-
+    from vk_auth import login_user
+    user = login_user(payload.access_token)
     tokens = create_token_pair(user.user_id)
-    response.set_cookie(
-        key="refresh_token",
-        value=tokens["refresh_token"],
-        httponly=True,
-        max_age=REFRESH_TTL_DAYS * 24 * 60 * 60,
-        samesite="none",
-        secure=True
-    )
+    response.set_cookie(key="refresh_token", value=tokens["refresh_token"], httponly=True,
+                        max_age=REFRESH_TTL_DAYS*86400, samesite="none", secure=True)
     return tokens
+
+
+@router.post("/auth/vk/link")
+def link_vk(payload: VKLoginIn, cur: User = Depends(get_current_user)):
+    from vk_auth import verified_identity
+    try:
+        db.link_external_identity(cur.user_id, verified_identity(payload.access_token)["subject"])
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+    return {"linked": True}
 
 
 @router.post("/auth/refresh", response_model=TokenPair)
@@ -1335,7 +1175,7 @@ def logout_all(
 #  PROFILE   (protected by Bearer token now)
 # ═══════════════════════════════════════════════════════════
 
-@router.get("/profile/me", response_model=MeOut)
+@router.get("/profile/me", response_model=MeOut, response_model_exclude_none=True)
 def my_profile(cur: User = Depends(get_current_user)):
     """Return the profile of the currently authenticated user."""
     contact = db.get_contact(cur.user_id)
@@ -1345,9 +1185,9 @@ def my_profile(cur: User = Depends(get_current_user)):
     # Combine contact info with user-level flags
     return MeOut(
         **contact.__dict__,
-        kkr_score=cur.kkr_score,
+        kkr_score=cur.kkr_score if (db.is_tachki(cur.user_id) or db.is_hr_master(cur.user_id)) else None,
         banned=cur.banned,
-        super_user=cur.super_user,
+        super_user=db.is_chair(cur.user_id),
         admin=cur.admin,
         pgas_admin=cur.pgas_admin,
         has_password=bool(cur.hashed_password),
@@ -1355,7 +1195,7 @@ def my_profile(cur: User = Depends(get_current_user)):
     )
 
 
-@router.get("/profile/{user_id}", response_model=ProfileOut)
+@router.get("/profile/{user_id}", response_model=ProfileOut, response_model_exclude_none=True)
 def get_profile(user_id: int, cur: User = Depends(get_current_user)):
     user = db.get_user(user_id)
     if not user:
@@ -1363,16 +1203,16 @@ def get_profile(user_id: int, cur: User = Depends(get_current_user)):
     contact = db.get_contact(user_id)
     if not contact:
         raise HTTPException(500, "Contact info missing for user")
-    return ProfileOut(**user.__dict__, kkr_name=contact.kkr_name, email=contact.email, tg=contact.tg)
+    return ProfileOut(**{**user.__dict__, "kkr_score": user.kkr_score if (db.is_tachki(cur.user_id) or db.is_hr_master(cur.user_id)) else None}, kkr_name=contact.kkr_name, email=contact.email, tg=contact.tg)
 
 
-@router.patch("/profile/{user_id}", response_model=UserOut)
+@router.patch("/profile/{user_id}", response_model=UserOut, response_model_exclude_none=True)
 def update_profile(
     user_id: int,
     payload: ProfileUpdate,
     cur: User = Depends(get_current_user),
 ):
-    if cur.user_id != user_id and not (cur.admin or cur.super_user or db.is_tachki(cur.user_id)):
+    if cur.user_id != user_id:
         raise HTTPException(403, "Forbidden")
     target = db.get_user(user_id)
     if not target:
@@ -1405,22 +1245,22 @@ def update_profile(
         surname=payload.surname, name=payload.name, patronymic=payload.patronymic,
         kkr_name=new_kkr_name,
         group_number=payload.group_number, location=payload.location,
-        blocks=payload.blocks, phone=payload.phone,
+        phone=payload.phone,
         vk=payload.vk, tg=payload.tg,
         email=str(payload.email) if payload.email is not None else None,
         budget=payload.budget,
-        in_profcom=payload.in_profcom,
+
     )
     db.update_user(
         user_id, 
         group_number=payload.group_number, 
-        blocks=payload.blocks, 
-        photo_url=payload.photo_url,
-        events_roles=payload.events_roles
+
+
+
     )
     updated = db.get_user(user_id)
     updated_contact = db.get_contact(user_id)
-    return UserOut(**updated.__dict__, kkr_name=updated_contact.kkr_name if updated_contact else "")
+    return UserOut(**{**updated.__dict__, "kkr_score": updated.kkr_score if (db.is_tachki(cur.user_id) or db.is_hr_master(cur.user_id)) else None}, kkr_name=updated_contact.kkr_name if updated_contact else "")
 
 
 @router.delete("/profile/{user_id}")
@@ -1436,52 +1276,22 @@ def delete_user(user_id: int, cur: User = Depends(require_superuser)):
 # ═══════════════════════════════════════════════════════════
 
 @router.get("/guides", response_model=List[GuideOut])
-def list_guides(cur: Optional[User] = Depends(get_current_user_optional)):
-    all_guides = db.list_guides()
-    if cur and cur.super_user:
-        return [GuideOut(**g.__dict__) for g in all_guides]
-
-    user_blocks = set()
-    if cur:
-        user_blocks = {b.strip().lower() for b in db.get_user_block_names(cur.user_id)}
-
-    result = []
-    for g in all_guides:
-        ob = (g.owner_block or "").strip().lower()
-        if ob in ("", "none", "all"):
-            result.append(GuideOut(**g.__dict__))
-        elif cur and ob in user_blocks:
-            result.append(GuideOut(**g.__dict__))
-    logger.info(f"user blocks: {user_blocks}, guides found: {[(i.title, i.owner_block) for i in result]}")
-    return result
+def list_guides(cur: User = Depends(get_current_user)):
+    return [GuideOut(**g.__dict__) for g in db.list_guides()]
 
 
 @router.get("/guides/{guide_id}", response_model=GuideOut)
-def get_guide(guide_id: int, cur: Optional[User] = Depends(get_current_user_optional)):
+def get_guide(guide_id: int, cur: User = Depends(get_current_user)):
     g = db.get_guide(guide_id)
     if not g:
         raise HTTPException(404, "Guide not found")
 
-    ob = (g.owner_block or "").strip().lower()
-    if ob in ("", "none", "all"):
-        return GuideOut(**g.__dict__)
-
-    if not cur:
-        raise HTTPException(403, "Access forbidden")
-
-    if cur.super_user:
-        return GuideOut(**g.__dict__)
-
-    user_blocks = {b.strip().lower() for b in db.get_user_block_names(cur.user_id)}
-    if ob in user_blocks:
-        return GuideOut(**g.__dict__)
-
-    raise HTTPException(403, "Access forbidden")
+    return GuideOut(**g.__dict__)
 
 
 @router.post("/guides", response_model=GuideOut)
 def create_guide(guide: GuideIn, cur: User = Depends(get_current_user)):
-    if cur.super_user:
+    if db.is_chair(cur.user_id):
         owner_block = (guide.owner_block or "none").strip()
     else:
         master_blocks = db.get_user_master_block_names(cur.user_id)
@@ -1516,7 +1326,7 @@ def edit_guide(
     if not existing:
         raise HTTPException(404, "Guide not found")
 
-    if cur.super_user:
+    if db.is_chair(cur.user_id):
         new_owner_block = guide.owner_block if guide.owner_block is not None else existing.owner_block
     else:
         master_blocks = db.get_user_master_block_names(cur.user_id)
@@ -1563,7 +1373,7 @@ def delete_guide(guide_id: int, cur: User = Depends(get_current_user)):
     if not existing:
         raise HTTPException(404, "Guide not found")
 
-    if not cur.super_user:
+    if not db.is_chair(cur.user_id):
         master_blocks = db.get_user_master_block_names(cur.user_id)
         master_blocks_lower = {mb.lower() for mb in master_blocks}
         existing_ob = (existing.owner_block or "").strip().lower()
@@ -1675,31 +1485,7 @@ def update_block(
     payload: BlockUpdate,
     cur: User = Depends(get_current_user),
 ):
-    block = db.get_block(block_name)
-    if not block:
-        if not cur.super_user and not cur.admin:
-            raise HTTPException(403, "Admin rights required")
-        raise HTTPException(404, "Block not found")
-
-    if not cur.super_user:
-        contact = db.get_contact(cur.user_id)
-        is_master = (block.master_user_id == cur.user_id) or (bool(contact and contact.kkr_name and contact.kkr_name == block.master))
-        is_hr = bool(contact and contact.kkr_name and contact.kkr_name == block.hr)
-        if not (is_master or is_hr):
-            if not cur.admin:
-                raise HTTPException(403, "Admin rights required")
-            raise HTTPException(403, "You can only edit a block if you are its Master or HR")
-
-    updated = db.update_block(
-        block_name,
-        master=payload.master,
-        hr=payload.hr,
-        cnt_of_human=payload.cnt_of_human,
-        arr_of_human=payload.arr_of_human,
-    )
-    if not updated:
-        raise HTTPException(404, "Block not found")
-    return BlockOut(**updated.__dict__)
+    raise HTTPException(409, "Use block settings and role/application operations")
 
 
 @router.delete("/blocks/{block_name}")
@@ -1712,10 +1498,7 @@ def delete_block(block_name: str, cur: User = Depends(require_superuser)):
 
 @router.post("/blocks/{block_name}/enter", response_model=BlockOut)
 def enter_block(block_name: str, cur: User = Depends(get_current_user)):
-    updated = db.enter_user_to_block(cur.user_id, block_name)
-    if not updated:
-        raise HTTPException(404, "User or block not found")
-    return BlockOut(**updated.__dict__)
+    raise HTTPException(409, "Use a block application; direct entry is disabled")
 
 
 @router.post("/blocks/{block_name}/exit", response_model=BlockOut)
@@ -1758,7 +1541,7 @@ def get_session(cur: User = Depends(get_current_user)):
         )
 
     caps = ["session:read", "contacts:read", "guides:read", "profile:read"]
-    if cur.super_user or db.is_chair(cur.user_id):
+    if db.is_chair(cur.user_id):
         caps.extend(["leadership:manage", "leadership:transfer", "leadership:deputies", "admin"])
     elif cur.admin or db.is_deputy_chair(cur.user_id):
         caps.extend(["admin"])
@@ -1778,7 +1561,7 @@ def get_session(cur: User = Depends(get_current_user)):
         for a in assignments_dc
     ]
 
-    is_ch = bool(cur.super_user or db.is_chair(cur.user_id))
+    is_ch = bool(db.is_chair(cur.user_id))
     is_dep = bool(db.is_deputy_chair(cur.user_id))
     caps_sorted = sorted(list(set(caps)))
 
@@ -1790,7 +1573,7 @@ def get_session(cur: User = Depends(get_current_user)):
         permissions=caps_sorted,
         assignments=assignments_out,
         leadership={"is_chair": is_ch, "is_deputy": is_dep},
-        super_user=cur.super_user,
+        super_user=db.is_chair(cur.user_id),
         admin=cur.admin,
         pgas_admin=cur.pgas_admin,
         events_roles=cur.events_roles or "[]",
@@ -1805,7 +1588,7 @@ def get_leadership(cur: User = Depends(get_current_user)):
 
     lead = db.get_leadership()
     caps = ["read"]
-    if cur.super_user or db.is_chair(cur.user_id):
+    if db.is_chair(cur.user_id):
         caps.extend(["leadership:transfer", "leadership:deputies"])
 
     chair_out = (
@@ -1839,7 +1622,7 @@ def transfer_leadership(payload: LeadershipTransferIn, cur: User = Depends(get_c
     acc_state = getattr(cur, "account_state", "active") or "active"
     if acc_state != "active":
         raise HTTPException(403, "Approved active account required")
-    if not (cur.super_user or db.is_chair(cur.user_id)):
+    if not db.is_chair(cur.user_id):
         raise HTTPException(403, "Only the current chair can transfer leadership")
 
     target = db.get_user(payload.new_chair_user_id)
@@ -1885,7 +1668,7 @@ def set_deputies(payload: LeadershipDeputiesIn, cur: User = Depends(get_current_
     acc_state = getattr(cur, "account_state", "active") or "active"
     if acc_state != "active":
         raise HTTPException(403, "Approved active account required")
-    if not (cur.super_user or db.is_chair(cur.user_id)):
+    if not db.is_chair(cur.user_id):
         raise HTTPException(403, "Only the current chair can set deputies")
 
     uids = payload.user_ids if payload.user_ids is not None else payload.deputy_user_ids
@@ -1949,11 +1732,11 @@ def get_presigned_url(
     If folder is 'guides', only superusers can upload.
     If folder is 'pgas', only pgas admins and superusers can upload, and only pdf/docx/png/jpg.
     """
-    if payload.folder == 'guides' and not cur.super_user and not db.get_user_master_block_names(cur.user_id):
+    if payload.folder == 'guides' and not db.is_chair(cur.user_id) and not db.get_user_master_block_names(cur.user_id):
         raise HTTPException(403, "Only superusers and block masters can upload to 'guides' folder")
 
     if payload.folder == 'pgas':
-        if not cur.pgas_admin and not cur.super_user:
+        if not cur.pgas_admin and not db.is_chair(cur.user_id):
             raise HTTPException(403, "Only PGAS admins and superusers can upload to 'pgas' folder")
         ct = payload.content_type.strip().lower()
         ext = (

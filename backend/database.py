@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from contextvars import ContextVar
+from contextlib import contextmanager
 import math
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -54,7 +56,7 @@ from settings import settings
 
 DATABASE_URL = "sqlite:///" + settings.DATABASE_PATH
 
-engine = create_engine(DATABASE_URL, future=True)
+engine = create_engine(DATABASE_URL, future=True, connect_args={"timeout": 30})
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 
 Base = declarative_base()
@@ -76,6 +78,7 @@ class UserORM(Base):
     photo_url = Column(String, nullable=True)
     account_state = Column(String, nullable=False, default="active", server_default="active")
     category = Column(String, nullable=False, default="junior", server_default="junior")
+    session_version = Column(Integer, nullable=False, default=0, server_default="0")
 
     contact = relationship("ContactInfoORM", back_populates="user", uselist=False)
 
@@ -143,6 +146,12 @@ class RefreshTokenORM(Base):
     token = Column(String, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
     expires_at = Column(String, nullable=False)
+
+
+class ExternalIdentityORM(Base):
+    __tablename__ = "external_identities"
+    subject = Column(String, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False, unique=True)
 
 
 class LeadershipORM(Base):
@@ -745,6 +754,15 @@ def _ensure_sqlite_users_account_state_column() -> None:
 _ensure_sqlite_users_account_state_column()
 
 
+def _ensure_sqlite_session_version():
+    with engine.begin() as conn:
+        names = {r[1] for r in conn.execute(text("PRAGMA table_info(users)"))}
+        if "session_version" not in names:
+            conn.execute(text("ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0"))
+
+_ensure_sqlite_session_version()
+
+
 def _ensure_sqlite_users_category_column() -> None:
     """Add category to existing SQLite DBs."""
     with engine.begin() as conn:
@@ -959,6 +977,7 @@ def _user_orm_to_dc(u: UserORM) -> UserDC:
         events_roles=u.events_roles,
         account_state=getattr(u, "account_state", "active") or "active",
         category=getattr(u, "category", "junior") or "junior",
+        session_version=u.session_version,
     )
 
 
@@ -1793,6 +1812,23 @@ def _calculate_season_summary_for_session(session: Session, season_id: str, is_a
     )
 
 
+_active_session = ContextVar("profkom_unit_of_work", default=None)
+
+
+class _SessionLease:
+    """Nested service calls flush; only the outer operation commits/closes."""
+    def __init__(self, session):
+        self.session = session
+    def __enter__(self):
+        return self
+    def __exit__(self, *args):
+        return False
+    def commit(self):
+        self.session.flush()
+    def __getattr__(self, name):
+        return getattr(self.session, name)
+
+
 class Database:
     """SQLAlchemy-backed database layer."""
 
@@ -1800,7 +1836,26 @@ class Database:
         self._SessionLocal = SessionLocal
 
     def _session(self) -> Session:
-        return self._SessionLocal()
+        active = _active_session.get()
+        return _SessionLease(active) if active is not None else self._SessionLocal()
+
+    @contextmanager
+    def atomic(self, write=True):
+        if _active_session.get() is not None:
+            yield
+            return
+        with self._SessionLocal() as session:
+            if write:
+                session.execute(text("BEGIN IMMEDIATE"))
+            token = _active_session.set(session)
+            try:
+                yield
+                session.commit()
+            except BaseException:
+                session.rollback()
+                raise
+            finally:
+                _active_session.reset(token)
 
     # --- Sync Helpers ---
 
@@ -1898,23 +1953,8 @@ class Database:
     # --- Users & ContactInfo ---
 
     def _sync_admin_rights(self, session: Session, kkr_names: set[str]) -> None:
-        session.flush()
-        for kkr_name in kkr_names:
-            if not kkr_name:
-                continue
-            users = (
-                session.query(UserORM)
-                .join(ContactInfoORM, ContactInfoORM.user_id == UserORM.user_id)
-                .filter(ContactInfoORM.kkr_name == kkr_name)
-                .all()
-            )
-            for u in users:
-                is_admin = session.query(BlockORM).filter(
-                    (BlockORM.master_user_id == u.user_id) |
-                    ((BlockORM.master_user_id == None) & (BlockORM.master == kkr_name))
-                ).first() is not None
-                if u.admin != is_admin:
-                    u.admin = is_admin
+        # Retained for legacy membership synchronization. Names never grant roles.
+        return
 
     def create_user_with_contact(
         self,
@@ -2098,12 +2138,6 @@ class Database:
                     setattr(c, k, v)
 
             if new_kkr_name is not None and new_kkr_name != old_kkr_name:
-                blocks_to_unlink = session.query(BlockORM).filter(
-                    BlockORM.master_user_id == user_id,
-                    BlockORM.master == old_kkr_name
-                ).all()
-                for b in blocks_to_unlink:
-                    b.master_user_id = None
                 self._sync_admin_rights(session, {old_kkr_name, new_kkr_name})
 
             session.commit()
@@ -2193,18 +2227,6 @@ class Database:
             )
             for (b_name,) in mb:
                 blocks.add(b_name)
-            # Legacy master or hr fallback
-            if c and c.kkr_name:
-                legacy = (
-                    session.query(BlockORM.name)
-                    .filter(
-                        ((BlockORM.master_user_id == None) & (BlockORM.master == c.kkr_name)) |
-                        (BlockORM.hr == c.kkr_name)
-                    )
-                    .all()
-                )
-                for (b_name,) in legacy:
-                    blocks.add(b_name)
             return list(blocks)
 
     def get_user_master_block_names(self, user_id: int) -> list[str]:
@@ -2217,16 +2239,7 @@ class Database:
             )
             if master_blocks:
                 return [b_name for (b_name,) in master_blocks]
-            # Fallback for unlinked legacy blocks without master_user_id
-            c = session.get(ContactInfoORM, user_id)
-            if not c or not c.kkr_name:
-                return []
-            legacy = (
-                session.query(BlockORM.name)
-                .filter(BlockORM.master == c.kkr_name, BlockORM.master_user_id == None)
-                .all()
-            )
-            return [b_name for (b_name,) in legacy]
+            return []
 
     # --- ПГАС ---
 
@@ -2492,6 +2505,43 @@ class Database:
 
     # --- Refresh tokens ---
 
+    def get_external_user(self, subject: str):
+        with self._session() as session:
+            identity = session.get(ExternalIdentityORM, subject)
+            return self.get_user(identity.user_id) if identity else None
+
+    def link_external_identity(self, user_id: int, subject: str):
+        with self._session() as session:
+            from sqlalchemy.exc import IntegrityError
+            identity = session.get(ExternalIdentityORM, subject)
+            if identity and identity.user_id == user_id:
+                return
+            if identity or session.query(ExternalIdentityORM).filter_by(user_id=user_id).first():
+                raise ValueError("External identity already linked")
+            session.add(ExternalIdentityORM(subject=subject, user_id=user_id))
+            try:
+                session.commit()
+            except IntegrityError:
+                raise ValueError("External identity already linked")
+
+    def consume_refresh_token(self, value: str):
+        with self._session() as session:
+            # DELETE RETURNING is one atomic SQLite statement: one winner on replay.
+            from sqlalchemy import delete
+            row = session.execute(delete(RefreshTokenORM).where(RefreshTokenORM.token == value).returning(RefreshTokenORM.user_id, RefreshTokenORM.expires_at)).first()
+            session.commit()
+            if not row:
+                return None
+            return {"user_id": row[0], "expires_at": datetime.fromisoformat(row[1])}
+
+    def revoke_sessions(self, user_id: int):
+        with self._session() as session:
+            user = session.get(UserORM, user_id)
+            if user:
+                user.session_version += 1
+            session.query(RefreshTokenORM).filter_by(user_id=user_id).delete()
+            session.commit()
+
     def save_refresh_token(self, token: str, user_id: int, expires_at: datetime) -> None:
         with self._session() as session:
             session.add(
@@ -2569,9 +2619,6 @@ class Database:
             row = session.get(LeadershipORM, 1)
             if not row:
                 chair_uid = None
-                su = session.query(UserORM).filter(UserORM.super_user == True).first()
-                if su:
-                    chair_uid = su.user_id
                 row = LeadershipORM(
                     id=1,
                     chair_user_id=chair_uid,
@@ -2607,11 +2654,6 @@ class Database:
                 row = LeadershipORM(id=1, chair_user_id=None, deputies_json="[]", revision=1)
                 session.add(row)
                 session.flush()
-
-            if not row.chair_user_id:
-                first_su = session.query(UserORM).filter(UserORM.super_user == True).first()
-                if first_su:
-                    row.chair_user_id = first_su.user_id
 
             if expected_revision is not None and row.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
@@ -2682,11 +2724,6 @@ class Database:
                 session.add(row)
                 session.flush()
 
-            if not row.chair_user_id:
-                first_su = session.query(UserORM).filter(UserORM.super_user == True).first()
-                if first_su:
-                    row.chair_user_id = first_su.user_id
-
             if expected_revision is not None and row.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
 
@@ -2747,8 +2784,7 @@ class Database:
             row = session.get(LeadershipORM, 1)
             if row and row.chair_user_id is not None:
                 return row.chair_user_id == user_id
-            u = session.get(UserORM, user_id)
-            return bool(u and u.super_user)
+            return False
 
     def is_deputy_chair(self, user_id: int) -> bool:
         with self._session() as session:
@@ -2772,7 +2808,7 @@ class Database:
             count = (
                 session.query(BlockORM)
                 .filter(
-                    (BlockORM.is_hr == True) | (func.lower(BlockORM.name) == "hr"),
+                    BlockORM.is_hr == True,
                     BlockORM.master_user_id == user_id,
                 )
                 .count()
@@ -4570,6 +4606,8 @@ class Database:
                 RoleAssignmentORM.role == "deputy_master",
                 RoleAssignmentORM.user_id == user_id,
             ).count()
+            return count > 0
+
     def is_block_master(self, user_id: int, block_name: str) -> bool:
         with self._session() as session:
             b = session.get(BlockORM, block_name)

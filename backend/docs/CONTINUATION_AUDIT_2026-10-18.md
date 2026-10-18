@@ -140,7 +140,7 @@ PYTHONDONTWRITEBYTECODE=1 /private/tmp/profkom-frontend-review-_pd6m5f3/backend-
 ### Группа 1 — `feature/backend-access-contract`
 
 - [x] 1. Зафиксировать API 1.3 как исполняемый контракт: безопасные DTO, списки, caps, ошибки, обязательные revisions. Добавить regression-тесты A01–A08 и несовместимых ответов до исправления.
-- [ ] 2. Закрыть VK/legacy/profile/anonymous/pending обходы, убрать секреты из логов. Центральная проверка active/approved и объектного доступа; явные роли по ID, отказ от ФИО/legacy-флагов как новых полномочий.
+- [x] 2. Закрыть VK/legacy/profile/anonymous/pending обходы, убрать секреты из логов. Центральная проверка active/approved и объектного доступа; явные роли по ID, отказ от ФИО/legacy-флагов как новых полномочий.
 - [ ] 3. Выравнять session/leadership, существующие lists, aggregate DTO, query filters, capability projection. Fresh response после save должен содержать именно сохранённую revision/version.
 - [ ] 4. Довести файлы: private object metadata, реальный presigned PUT, HEAD/проверка фактического бинарника, complete/FileRef, временный GET, текущий ACL; устранить mock-upload и самоссылку download.
 
@@ -208,3 +208,5 @@ PYTHONDONTWRITEBYTECODE=1 /private/tmp/profkom-frontend-review-_pd6m5f3/backend-
 ## Журнал реализации
 
 - Пункт 1: добавлен `tests/test_v13_access_contract.py`: исполняемые проверки pending/anonymous, контактов и скрытых полей, обхода членства, capabilities, list envelope и файлов. Исходный прогон ожидаемо красный; поведение исправляется пунктами 2–4.
+
+- Пункт 2: централизован active/approved-доступ, удалены профильные/legacy обходы, скрыты score/events_roles, VK identity/link по subject без фото и совпадений ФИО, отозванные access-токены проверяются по session_version; refresh потребляется атомарно. 21 focused regression passed (9 проверок следующих пунктов исключены явно). Составные HTTP-команды получили единый Unit of Work с BEGIN IMMEDIATE и rollback.
