@@ -10,7 +10,7 @@ from typing import List, Optional, Union, Literal
 
 from fastapi import FastAPI, HTTPException, Depends, APIRouter, Response, Cookie, Body, Query, status
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict
+from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict, model_serializer
 
 from models import Block, ContactInfo, User, Guide, PgasEntry, Season, Event, Subevent, Meeting, Leader, ReportSeries, Report, ReportVersion, Notification
 from database import db, SeasonNotReadyError, generate_summary_xlsx
@@ -921,6 +921,14 @@ class ReportOut(BaseModel):
     published_version: Optional[int] = None
     revision: int
     capabilities: list[str] = Field(default_factory=list)
+
+
+    @model_serializer(mode="wrap")
+    def private_draft(self,handler):
+        data=handler(self)
+        for key in ("draft_title","draft_content","draft_files"):
+            if data.get(key) is None:data.pop(key,None)
+        return data
 
 
 class ReportVersionOut(BaseModel):
@@ -3250,7 +3258,7 @@ def create_task_comment(task_id: str, payload: CommentIn, cur: User = Depends(ge
     try:
         c = db.create_comment(
             task_id=task_id,
-            content=payload.content if isinstance(payload.content, dict) else {"format": "markdown", "body": str(payload.content)},
+            content={"format":"markdown","body":_to_rich_text_body(payload.content)},
             author_user_id=cur.user_id,
         )
         return _to_comment_out(c)
@@ -3267,7 +3275,7 @@ def patch_comment(comment_id: str, payload: CommentIn, cur: User = Depends(get_c
     try:
         c = db.patch_comment(
             comment_id=comment_id,
-            content=payload.content if isinstance(payload.content, dict) else {"format": "markdown", "body": str(payload.content)},
+            content={"format":"markdown","body":_to_rich_text_body(payload.content)},
             user_id=cur.user_id,
         )
         return _to_comment_out(c)

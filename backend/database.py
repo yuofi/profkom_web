@@ -3179,56 +3179,8 @@ class Database:
             from participation import promote
             promote(session,row,now_iso)
 
-            # Snapshot historical report editors
-            try:
-                events = session.query(EventORM).filter(EventORM.season_id == season_id).all()
-                for ev in events:
-                    ev_leaders = session.query(RoleAssignmentORM).filter(
-                        RoleAssignmentORM.scope_kind == "event",
-                        RoleAssignmentORM.scope_id == ev.event_id,
-                        RoleAssignmentORM.role.in_(["leader", "deputy"]),
-                    ).all()
-                    for rl in ev_leaders:
-                        session.add(ReportEditorORM(
-                            season_id=season_id,
-                            owner_kind="event",
-                            owner_id=ev.event_id,
-                            report_id=None,
-                            user_id=rl.user_id,
-                            role=rl.role,
-                            created_at=now_iso,
-                        ))
-                    subs = session.query(SubeventORM).filter(SubeventORM.event_id == ev.event_id).all()
-                    for sub in subs:
-                        sub_leaders = session.query(RoleAssignmentORM).filter(
-                            RoleAssignmentORM.scope_kind == "subevent",
-                            RoleAssignmentORM.scope_id == sub.subevent_id,
-                            RoleAssignmentORM.role.in_(["leader", "deputy"]),
-                        ).all()
-                        for rl in sub_leaders:
-                            session.add(ReportEditorORM(
-                                season_id=season_id,
-                                owner_kind="subevent",
-                                owner_id=sub.subevent_id,
-                                report_id=None,
-                                user_id=rl.user_id,
-                                role=rl.role,
-                                created_at=now_iso,
-                            ))
-
-                season_reps = session.query(ReportORM).filter(ReportORM.season_id == season_id).all()
-                for rep in season_reps:
-                    session.add(ReportEditorORM(
-                        season_id=season_id,
-                        owner_kind=rep.owner_kind,
-                        owner_id=rep.owner_id,
-                        report_id=rep.report_id,
-                        user_id=rep.created_by_user_id,
-                        role="author",
-                        created_at=now_iso,
-                    ))
-            except Exception:
-                pass
+            from report_access import freeze_editors
+            freeze_editors(session,season_id)
 
             row.state = "closed"
             if row.is_current:
@@ -3281,57 +3233,12 @@ class Database:
     # ─────────────────────────────────────────────────────────────
 
     def is_report_editor(self, user_id: int, r: ReportORM, session: Session) -> bool:
-        u = session.get(UserORM, user_id)
-        if not u or u.banned or getattr(u, "account_state", "active") != "active":
-            return False
-
-        s = session.get(SeasonORM, r.season_id)
-        if s and s.state == "closed":
-            ed = session.query(ReportEditorORM).filter(
-                ReportEditorORM.season_id == r.season_id,
-                ReportEditorORM.user_id == user_id,
-                (
-                    ((ReportEditorORM.owner_kind == r.owner_kind) & (ReportEditorORM.owner_id == r.owner_id))
-                    | (ReportEditorORM.report_id == r.report_id)
-                )
-            ).first()
-            return ed is not None
-
-        if r.owner_kind == "event":
-            if self.is_event_leader(user_id, r.owner_id) or self.is_event_leader_deputy(user_id, r.owner_id):
-                return True
-        elif r.owner_kind == "subevent":
-            if self.is_subevent_leader(user_id, r.owner_id) or self.is_subevent_leader_deputy(user_id, r.owner_id):
-                return True
-        if r.created_by_user_id == user_id:
-            return True
-        return False
+        from report_access import editor
+        return editor(session,r,user_id)
 
     def can_read_report(self, user_id: int, r: ReportORM, session: Session) -> bool:
-        if self.is_report_editor(user_id, r, session):
-            return True
-        if r.state == "draft":
-            return False
-        if self.is_tachki(user_id):
-            return True
-        if r.owner_kind == "event":
-            if self.is_event_leader(user_id, r.owner_id) or self.is_event_leader_deputy(user_id, r.owner_id):
-                return True
-            subs = session.query(SubeventORM).filter(SubeventORM.event_id == r.owner_id).all()
-            for sub in subs:
-                if self.is_subevent_leader(user_id, sub.subevent_id) or self.is_subevent_leader_deputy(user_id, sub.subevent_id):
-                    return True
-        elif r.owner_kind == "subevent":
-            if (
-                self.is_subevent_leader(user_id, r.owner_id)
-                or self.is_subevent_leader_deputy(user_id, r.owner_id)
-                or self.is_subevent_organizer(user_id, r.owner_id)
-            ):
-                return True
-            sub = session.get(SubeventORM, r.owner_id)
-            if sub and (self.is_event_leader(user_id, sub.event_id) or self.is_event_leader_deputy(user_id, sub.event_id)):
-                return True
-        return False
+        from report_access import reader
+        return reader(session,r,user_id)
 
     def create_report(
         self,
@@ -3343,6 +3250,8 @@ class Database:
         file_ids: list[str],
         user_id: int,
     ) -> ReportDC:
+        if kind not in ("regular","final"):raise ValueError("Invalid report kind")
+        if file_ids:raise ValueError("Create a draft before attaching report files")
         with self._session() as session:
             if owner_kind == "event":
                 ev = session.get(EventORM, owner_id)
@@ -3352,14 +3261,7 @@ class Database:
                 series_id = ev.report_series_id
                 can_create = self.is_event_leader(user_id, owner_id) or self.is_event_leader_deputy(user_id, owner_id)
                 s = session.get(SeasonORM, season_id)
-                if s and s.state == "closed":
-                    ed = session.query(ReportEditorORM).filter(
-                        ReportEditorORM.season_id == season_id,
-                        ReportEditorORM.user_id == user_id,
-                        ReportEditorORM.owner_kind == "event",
-                        ReportEditorORM.owner_id == owner_id,
-                    ).first()
-                    can_create = ed is not None
+                if s and s.state == "closed":raise ValueError("Conflict: cannot create new reports in a closed season")
                 if not can_create:
                     raise ValueError("Forbidden: cannot create report for this event")
             elif owner_kind == "subevent":
@@ -3371,14 +3273,7 @@ class Database:
                 series_id = sub.report_series_id
                 can_create = self.is_subevent_leader(user_id, owner_id) or self.is_subevent_leader_deputy(user_id, owner_id)
                 s = session.get(SeasonORM, season_id)
-                if s and s.state == "closed":
-                    ed = session.query(ReportEditorORM).filter(
-                        ReportEditorORM.season_id == season_id,
-                        ReportEditorORM.user_id == user_id,
-                        ReportEditorORM.owner_kind == "subevent",
-                        ReportEditorORM.owner_id == owner_id,
-                    ).first()
-                    can_create = ed is not None
+                if s and s.state == "closed":raise ValueError("Conflict: cannot create new reports in a closed season")
                 if not can_create:
                     raise ValueError("Forbidden: cannot create report for this subevent")
             else:
@@ -3480,6 +3375,9 @@ class Database:
             if r.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
 
+            if file_ids is not None:
+                from file_access import check_attachments
+                check_attachments(session,file_ids,"report",report_id,user_id)
             if r.state == "published":
                 if title is not None:
                     r.draft_title = title
@@ -3521,6 +3419,9 @@ class Database:
             new_content = r.draft_content_json if r.draft_content_json is not None else r.content_json
             new_files = r.draft_files_json if r.draft_files_json is not None else r.files_json
 
+            from file_access import check_attachments
+            check_attachments(session,json.loads(new_files or "[]"),"report",report_id,user_id)
+            if not new_content.strip() and not json.loads(new_files or "[]"):raise ValueError("Report content or attachment is required")
             # Idempotent: duplicate publish without edits does not create new version
             if (
                 r.state == "published"
@@ -3575,35 +3476,10 @@ class Database:
             if not series:
                 raise LookupError("Report series not found")
 
-            has_access = self.is_tachki(current_user_id)
+            from report_access import historical_reader
+            has_access=historical_reader(session,series_id,current_user_id)
             if not has_access:
-                evs = session.query(EventORM).all()
-                for ev in evs:
-                    if self.is_event_leader(current_user_id, ev.event_id) or self.is_event_leader_deputy(current_user_id, ev.event_id):
-                        if ev.report_series_id == series_id:
-                            has_access = True
-                            break
-                        child_series = session.query(ReportSeriesORM).filter(ReportSeriesORM.parent_series_id == ev.report_series_id).all()
-                        if any(cs.series_id == series_id for cs in child_series):
-                            has_access = True
-                            break
-
-                if not has_access:
-                    subs = session.query(SubeventORM).filter(SubeventORM.report_series_id == series_id).all()
-                    for sub in subs:
-                        if self.is_subevent_leader(current_user_id, sub.subevent_id) or self.is_subevent_leader_deputy(current_user_id, sub.subevent_id):
-                            has_access = True
-                            break
-
-                if not has_access:
-                    ed = session.query(ReportEditorORM).join(
-                        ReportORM, ReportEditorORM.report_id == ReportORM.report_id
-                    ).filter(
-                        ReportEditorORM.user_id == current_user_id,
-                        ReportORM.report_series_id == series_id,
-                    ).first()
-                    if ed:
-                        has_access = True
+                has_access=any(self.is_report_editor(current_user_id,r,session) for r in session.query(ReportORM).filter_by(report_series_id=series_id))
 
             if not has_access:
                 raise ValueError("Forbidden: no access to report series history")
