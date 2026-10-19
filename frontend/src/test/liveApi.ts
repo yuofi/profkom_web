@@ -18,7 +18,7 @@ export async function liveParticipant(label: string) {
   const email = `integration-${label}-${crypto.randomUUID()}@example.com`;
   const response = await authApi.register({ email, password: livePassword,
     surname: "Тестовый", name: label, patronymic: "", group_number: 301, tg: "@profkom_test",
-    phone: "+79990000000", vk: "https://vk.com/id123", funding: "budget", residence: "Тест" } as Parameters<typeof authApi.register>[0]);
+    phone: "+79990000000", vk: "https://vk.com/id123", funding: "budget", residence: "Тест" });
   Cookies.set("access_token", response.data.access_token);
   const pending = await sessionApi.get();
   const application = await membershipApi.registration();
@@ -50,8 +50,14 @@ export async function liveCloseSeasons() {
       }
     }
     let current = (await seasonsApi.list()).items.find(s => s.season_id === season.season_id)!;
-    if (current.state === "planned") current = await seasonsApi.command(current.season_id, "open", { expected_revision: current.revision }) as typeof current;
-    if (current.state === "open") current = await seasonsApi.command(current.season_id, "begin-summary", { expected_revision: current.revision }) as typeof current;
+    if (current.state === "planned") {
+      const response = await seasonsApi.command(current.season_id, "open", { expected_revision: current.revision });
+      current = "season" in response ? response.season : response;
+    }
+    if (current.state === "open") {
+      const response = await seasonsApi.command(current.season_id, "begin-summary", { expected_revision: current.revision });
+      current = "season" in response ? response.season : response;
+    }
     await seasonsApi.command(current.season_id, "close", { expected_revision: current.revision });
   }
 }

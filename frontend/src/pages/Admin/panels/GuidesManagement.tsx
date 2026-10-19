@@ -43,8 +43,8 @@ export const GuidesManagement = () => {
 
   // Find the blocks where current user is a master
   const userMasterBlocks = useMemo(() => {
-    if (!blocks || !me || !me.kkr_name) return [];
-    return blocks.filter(b => b.master === me.kkr_name).map(b => b.name);
+    if (!blocks || !me) return [];
+    return blocks.filter(b => b.master?.user.user_id === me.user_id || b.master?.deputy_user_ids.includes(me.user_id)).map(b => b.name);
   }, [blocks, me]);
 
   const userMasterBlock = userMasterBlocks[0] || null;

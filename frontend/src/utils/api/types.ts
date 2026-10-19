@@ -21,10 +21,10 @@ export interface UserIn {
   password: string;
   group_number: number;
   tg: string;
-  blocks?: string;
-  banned?: boolean; 
-  super_user?: boolean;
-  admin?: boolean;
+  phone?: string;
+  vk?: string;
+  funding?: "budget" | "contract";
+  residence?: string;
   email: string;
 }
 
@@ -36,10 +36,7 @@ export interface LoginIn {
 // То, что приходит с бэкенда при запросе профиля
 export interface UserOut {
   user_id: number;
-  email: string;
-  name: string;
-  surname: string;
-  patronymic: string;
+  kkr_name: string;
   /** Legacy only; never display or use as a contribution source. */
   kkr_score?: number;
   group_number: number;
@@ -47,6 +44,7 @@ export interface UserOut {
   banned: boolean;
   super_user: boolean;
   admin: boolean;
+  pgas_admin: boolean;
   photo_url?: string;
   events_roles?: string;
 }

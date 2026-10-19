@@ -34,7 +34,7 @@ export interface RoleAssignment extends Versioned {
   role: string;
   scope_kind: "global" | "block" | "event" | "subevent" | "material";
   scope_id: string | null;
-  principal_assignment_id?: string;
+  principal_assignment_id?: string | null;
 }
 export interface Session {
   user_id: number;
@@ -212,9 +212,9 @@ export interface Contribution {
   source_title: string;
   score: number | null;
   calculation_version: string;
-  assignment_inputs?: AssessmentInputs;
-  merit_id?: string;
-  bonus_id?: string;
+  assignment_inputs?: AssessmentInputs | null;
+  merit_id?: string | null;
+  bonus_id?: string | null;
   capabilities: string[];
 }
 export interface MeritCreate {
@@ -224,8 +224,8 @@ export interface MeritCreate {
     | "chair_merit"
     | "block_volunteer"
     | "subevent_volunteer";
-  event_id?: string;
-  scope?: ScopeRef;
+  event_id?: string | null;
+  scope?: ScopeRef | null;
   title: string;
   description: RichText;
   assigned_at: string;
@@ -410,7 +410,7 @@ export interface FormerContact {
   contact_id: string;
   surname: string;
   name: string;
-  patronymic?: string;
+  patronymic?: string | null;
   phone: string;
   email: string;
   tg: string;

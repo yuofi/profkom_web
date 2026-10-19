@@ -13,7 +13,7 @@ const synthetic = () => ({
   password: "Synthetic-Integration-2026",
   name: "Участник", surname: "Тестовый", patronymic: "",
   group_number: 301, tg: "@profkom_test", phone: "+79990000000",
-  vk: "https://vk.com/id123", funding: "budget", residence: "Тест",
+  vk: "https://vk.com/id123", funding: "budget" as const, residence: "Тест",
 });
 const chair = axios.create({ baseURL: api.defaults.baseURL, timeout: 10000 });
 async function chairHeaders() {

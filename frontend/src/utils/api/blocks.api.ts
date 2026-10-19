@@ -1,9 +1,10 @@
 import { api } from "./index";
 import type { BlockIn, BlockOut, BlockUpdate } from "./types";
+import type { Block } from "./contract";
 
 export const blocksApi = {
-  getAll: async (): Promise<BlockOut[]> => {
-    const response = await api.get<BlockOut[]>("/blocks");
+  getAll: async (): Promise<Block[]> => {
+    const response = await api.get<Block[]>("/blocks");
     return response.data;
   },
 
