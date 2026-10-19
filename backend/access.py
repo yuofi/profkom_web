@@ -5,6 +5,14 @@ from database import db
 
 actor_id = ContextVar("profkom_actor_id", default=None)
 
+# Opening the queue is distinct from reading its rows: list_unresolved_assignments
+# still applies can_manage_scope/is_hr_master to each task at request time.
+QUEUE_ROLES = {
+    "block": {"master", "deputy_master"},
+    "event": {"event_leader", "deputy_event_leader"},
+    "subevent": {"subevent_leader", "deputy_subevent_leader"},
+}
+
 
 def global_caps(uid):
     if not uid:
@@ -12,13 +20,18 @@ def global_caps(uid):
     u = db.get_user(uid)
     if not u or u.account_state != "active" or u.banned:
         return []
+    assignments = db.get_user_assignments(uid)
     caps = (
         {"create_material"}
         if db.is_tachki(uid)
         or db.get_user_master_block_names(uid)
-        or any(a.role == "deputy_master" for a in db.get_user_assignments(uid))
+        or any(a.role == "deputy_master" for a in assignments)
         else set()
     )
+    if db.is_tachki(uid) or db.is_hr_master(uid) or any(
+        a.role in QUEUE_ROLES.get(a.scope_kind, set()) for a in assignments
+    ):
+        caps.add("view_unresolved_assignments")
     if db.is_tachki(uid):
         caps.update(
             [

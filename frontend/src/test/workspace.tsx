@@ -4,11 +4,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { SessionContext } from "../utils/session";
 import { createFixtures, type MockRole } from "../mocks/fixtures";
+import type { Session } from "../utils/api/contract";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 export async function mountWorkspace(
   element: ReactNode,
-  options: { role?: MockRole; path?: string; client?: QueryClient } = {},
+  options: { role?: MockRole; path?: string; client?: QueryClient; session?: Session } = {},
 ) {
   const client =
     options.client ??
@@ -26,7 +27,7 @@ export async function mountWorkspace(
         <MemoryRouter initialEntries={[options.path ?? "/"]}>
           <SessionContext.Provider
             value={{
-              session: createFixtures(options.role ?? "chair").session,
+              session: options.session ?? createFixtures(options.role ?? "chair").session,
               loading: false,
               error: null,
               refresh: () => {},

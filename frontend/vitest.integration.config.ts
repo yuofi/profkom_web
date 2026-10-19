@@ -5,9 +5,10 @@ if (!["localhost", "127.0.0.1", "[::1]"].includes(new URL(origin).hostname))
   throw Error("Integration tests require a disposable localhost API");
 const config = mergeConfig(base, defineConfig({
   test: {
-    include: ["**/*.integration.test.ts"],
+    include: ["**/*.integration.test.{ts,tsx}"],
     exclude: ["**/node_modules/**", "**/dist/**"],
     env: { VITE_BACKEND_URL: origin, VITE_ENVIRONMENT: "development" },
+    environmentOptions: { jsdom: { url: "http://localhost:15173" } },
   },
 }));
 if (config.test) config.test.exclude = ["**/node_modules/**", "**/dist/**"];

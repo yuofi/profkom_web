@@ -1,0 +1,50 @@
+// @vitest-environment jsdom
+import { afterEach, expect, it } from "vitest";
+import { Route, Routes } from "react-router-dom";
+import { liveLogin, liveParticipant } from "../../test/liveApi";
+import { mountWorkspace, settle } from "../../test/workspace";
+import { eventsApi } from "../../utils/api/events.api";
+import { membershipApi } from "../../utils/api/membership.api";
+import { tasksApi } from "../../utils/api/tasks.api";
+import { seasonsApi } from "../../utils/api/seasons.api";
+import { emptyCriteria, richText } from "../../utils/api/contract";
+import { UnresolvedPage } from "./TaskPages";
+
+let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
+afterEach(async () => { await page?.cleanup(); page = undefined; });
+
+it("INT-01: real session opens only the manager's queue and loses access with the role", async () => {
+  const master = await liveParticipant("master"), member = await liveParticipant("member");
+  await liveLogin();
+  const block = (await membershipApi.blocks()).find(b => b.name === "Integration IT")!;
+  await eventsApi.blockLeader(block.block_id, master.user_id, { expected_revision: block.revision });
+  let seasons = (await seasonsApi.list()).items;
+  if (!seasons.some(s => s.state === "open")) {
+    const planned = seasons.find(s => s.state === "planned") ?? await seasonsApi.create({ title: "Integration acceptance", type: "autumn_winter", starts_at: new Date(Date.now() - 86400000).toISOString(), ends_at: new Date(Date.now() + 20 * 86400000).toISOString() });
+    await seasonsApi.command(planned.season_id, "open", { expected_revision: planned.revision });
+    seasons = (await seasonsApi.list()).items;
+  }
+  await liveLogin(member.email);
+  let application = await membershipApi.join(block.block_id);
+  await liveLogin();
+  application = await membershipApi.requestCommand(application.request_id, "hr-approve", { expected_revision: application.revision });
+  await liveLogin(master.email);
+  await membershipApi.requestCommand(application.request_id, "block-approve", { expected_revision: application.revision });
+  const task = await tasksApi.create({ season_id: seasons.find(s => s.state === "open")!.season_id,
+    scope: { kind: "block", id: block.block_id }, title: "INT-01 оставшаяся работа", description: richText("Real HTTP"),
+    deadline_at: new Date(Date.now() + 86400000).toISOString(), criteria: emptyCriteria(), assignees: [{ user_id: member.user_id, hours: 1 }] });
+  await liveLogin(member.email); await membershipApi.leave(block.block_id);
+  const session = await liveLogin(master.email);
+  expect(session.capabilities).toContain("view_unresolved_assignments");
+  page = await mountWorkspace(<Routes><Route path="/tasks/unresolved" element={<UnresolvedPage />} /></Routes>, { path: "/tasks/unresolved", session });
+  for (let i = 0; i < 30 && !page.container.textContent?.includes(task.title); i++) await settle();
+  expect(page.container.textContent).toContain(task.title);
+  expect(page.container.textContent).not.toContain("Нет доступа к очереди");
+  await page.cleanup(); page = undefined;
+  await liveLogin();
+  const current = await membershipApi.block(block.block_id);
+  await eventsApi.blockLeader(block.block_id, member.user_id, { expected_revision: current.revision });
+  const removed = await liveLogin(master.email);
+  expect(removed.capabilities).not.toContain("view_unresolved_assignments");
+  expect((await tasksApi.unresolved()).items).toEqual([]);
+});
