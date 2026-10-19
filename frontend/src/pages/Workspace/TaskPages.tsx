@@ -10,7 +10,7 @@ import {
   Badge,
   Empty,
 } from "../../components/Workspace/WorkspaceUI";
-import { ActionForm, type Field } from "../../components/Workspace/ActionForm";
+import { ActionForm, type Field, type OwnRevisionChange } from "../../components/Workspace/ActionForm";
 import { text, ids, number } from "../../components/Workspace/formValues";
 import {
   Attachments,
@@ -329,6 +329,7 @@ function AssignmentCard({
   openAssessment?: boolean;
 }) {
   const { perform, refresh } = useWorkspaceActions();
+  const [ownChange, setOwnChange] = useState<OwnRevisionChange>();
   const [files, setFiles] = useState<FileRef[]>([]);
   const [uploading, setUploading] = useState(false);
   const active = !["accepted", "not_completed", "cancelled"].includes(a.status);
@@ -372,12 +373,15 @@ function AssignmentCard({
       <div className={s.row}>
         {active && can(a, "start_assignment") && a.status === "assigned" && (
           <ActionForm
+            revision={a.revision}
+            ownChange={ownChange} onSavedRevision={setOwnChange}
             fields={[]}
             submitLabel="Начать работу"
-            onSubmit={async () => {
-              await perform(() =>
+            onConflict={refresh}
+            onSubmit={async (_v, expectedRevision) => {
+              return perform(() =>
                 tasksApi.command(a.assignment_id, "start", {
-                  expected_revision: a.revision,
+                  expected_revision: expectedRevision!,
                 }),
               );
             }}
@@ -387,12 +391,15 @@ function AssignmentCard({
           can(a, "resume_assignment") &&
           a.status === "help_required" && (
             <ActionForm
+            revision={a.revision}
+            ownChange={ownChange} onSavedRevision={setOwnChange}
               fields={[]}
               submitLabel="Продолжить работу"
-              onSubmit={async () => {
-                await perform(() =>
+              onConflict={refresh}
+              onSubmit={async (_v, expectedRevision) => {
+                return perform(() =>
                   tasksApi.command(a.assignment_id, "resume", {
-                    expected_revision: a.revision,
+                    expected_revision: expectedRevision!,
                   }),
                 );
               }}
@@ -405,6 +412,8 @@ function AssignmentCard({
           <details className={s.details}>
             <summary>Попросить помощь</summary>
             <ActionForm
+            revision={a.revision}
+            ownChange={ownChange} onSavedRevision={setOwnChange}
               fields={[
                 {
                   name: "message",
@@ -412,10 +421,10 @@ function AssignmentCard({
                   type: "textarea",
                 },
               ]}
-              onSubmit={async (v) => {
-                await perform(() =>
+              onSubmit={async (v, expectedRevision) => {
+                return perform(() =>
                   tasksApi.command(a.assignment_id, "request-help", {
-                    expected_revision: a.revision,
+                    expected_revision: expectedRevision!,
                     message: richText(text(v, "message")),
                   }),
                 );
@@ -442,6 +451,8 @@ function AssignmentCard({
               onBusyChange={setUploading}
             />
             <ActionForm
+            revision={a.revision}
+            ownChange={ownChange} onSavedRevision={setOwnChange}
               key={a.assignment_id}
               disabled={uploading}
               fields={[
@@ -457,7 +468,7 @@ function AssignmentCard({
                   type: "textarea",
                 },
               ]}
-              onSubmit={async (v) => {
+              onSubmit={async (v, expectedRevision) => {
                 const links = text(v, "links")
                   .split("\n")
                   .map((x) => x.trim())
@@ -466,20 +477,19 @@ function AssignmentCard({
                   throw Error(
                     "Ссылки должны начинаться с https:// или http://",
                   );
-                await perform(() =>
+                const saved = await perform(() =>
                   tasksApi.command(a.assignment_id, "submit", {
-                    expected_revision: a.revision,
+                    expected_revision: expectedRevision!,
                     text: richText(text(v, "body")),
                     links,
                     file_ids: files.map((f) => f.file_id),
                   }),
                 );
                 setFiles([]);
+                return saved;
               }}
               submitLabel="Отправить на проверку"
-              onConflict={() => {
-                void refresh();
-              }}
+              onConflict={refresh}
             />
           </details>
         )}
@@ -487,6 +497,8 @@ function AssignmentCard({
         <details className={s.details}>
           <summary>Решение руководителя</summary>
           <ActionForm
+            revision={a.revision}
+            ownChange={ownChange} onSavedRevision={setOwnChange}
             key={a.assignment_id}
             fields={[
               {
@@ -514,9 +526,9 @@ function AssignmentCard({
                 required: true,
               },
             ]}
-            onSubmit={async (v) => {
+            onSubmit={async (v, expectedRevision) => {
               const [command, evaluation] = text(v, "decision").split(":");
-              await perform(() =>
+              return perform(() =>
                 tasksApi.command(
                   a.assignment_id,
                   command as
@@ -525,7 +537,7 @@ function AssignmentCard({
                     | "not-complete"
                     | "cancel",
                   {
-                    expected_revision: a.revision,
+                    expected_revision: expectedRevision!,
                     ...(evaluation ? { evaluation: Number(evaluation) } : {}),
                     review_note: text(v, "note"),
                     reason: text(v, "note"),
@@ -533,9 +545,7 @@ function AssignmentCard({
                 ),
               );
             }}
-            onConflict={() => {
-              void refresh();
-            }}
+            onConflict={refresh}
           />
         </details>
       )}
@@ -660,6 +670,7 @@ export function TaskPage() {
                   <summary>Править описание</summary>
                   <ActionForm
                     key={task.task_id}
+                    revision={task.revision}
                     fields={[
                       {
                         name: "title",
@@ -674,18 +685,16 @@ export function TaskPage() {
                         value: task.description.body,
                       },
                     ]}
-                    onSubmit={async (v) => {
-                      await perform(() =>
+                    onSubmit={async (v, expectedRevision) => {
+                      return perform(() =>
                         tasksApi.update(id, {
-                          expected_revision: task.revision,
+                          expected_revision: expectedRevision!,
                           title: text(v, "title"),
                           description: richText(text(v, "body")),
                         }),
                       );
                     }}
-                    onConflict={() => {
-                      void refresh();
-                    }}
+                    onConflict={refresh}
                   />
                 </details>
               )}
@@ -718,6 +727,7 @@ function ReassignForm({ item }: { item: UnresolvedAssignment }) {
     <QueryState loading={members.loading} error={members.error}>
       <ActionForm
         key={a.assignment_id}
+        revision={a.revision}
         fields={[
           {
             name: "user",
@@ -753,11 +763,11 @@ function ReassignForm({ item }: { item: UnresolvedAssignment }) {
             type: "textarea",
           },
         ]}
-        onSubmit={async (v) => {
+        onSubmit={async (v, expectedRevision) => {
           const outcome = text(v, "outcome");
-          await perform(() =>
+          const saved = await perform(() =>
             tasksApi.reassign(a.assignment_id, {
-              expected_revision: a.revision,
+              expected_revision: expectedRevision!,
               new_assignee_user_id: number(v, "user"),
               hours: number(v, "hours"),
               previous_outcome:
@@ -768,10 +778,9 @@ function ReassignForm({ item }: { item: UnresolvedAssignment }) {
               reason: text(v, "reason"),
             }),
           );
+          return {revision: saved.previous_assignment.revision};
         }}
-        onConflict={() => {
-          void refresh();
-        }}
+        onConflict={refresh}
         submitLabel="Закрыть прежнее и назначить заново"
       />
     </QueryState>

@@ -9,7 +9,7 @@ import {
   Badge,
   Empty,
 } from "../../components/Workspace/WorkspaceUI";
-import { ActionForm } from "../../components/Workspace/ActionForm";
+import { ActionForm, type OwnRevisionChange } from "../../components/Workspace/ActionForm";
 import { MarkdownContent } from "../../components/Workspace/MarkdownContent";
 import { MarkdownEditor } from "../../components/Workspace/MarkdownEditor";
 import { text, ids } from "../../components/Workspace/formValues";
@@ -157,6 +157,7 @@ export function MaterialsPage() {
   );
 }
 function MaterialEdit({ material: m }: { material: Material }) {
+  const [ownChange, setOwnChange] = useState<OwnRevisionChange>();
   const [body, setBody] = useState(
     m.draft_content?.body ?? m.published_content?.body ?? "",
   );
@@ -168,6 +169,10 @@ function MaterialEdit({ material: m }: { material: Material }) {
         опубликуйте сохранённый черновик.
       </p>
       <ActionForm
+        revision={m.revision}
+        ownChange={ownChange} onSavedRevision={setOwnChange}
+        savedDetails={<MarkdownContent body={m.draft_content?.body ?? m.published_content?.body ?? ""} />}
+        onReplaceWithSaved={() => setBody(m.draft_content?.body ?? m.published_content?.body ?? "")}
         fields={[
           { name: "title", label: "Название", required: true, value: m.title },
           { name: "description", label: "Описание", value: m.description },
@@ -178,10 +183,10 @@ function MaterialEdit({ material: m }: { material: Material }) {
             value: m.original_link ?? "",
           },
         ]}
-        onSubmit={async (v) => {
-          await perform(() =>
+        onSubmit={async (v, expectedRevision) => {
+          return perform(() =>
             materialsApi.update(m.material_id, {
-              expected_revision: m.revision,
+              expected_revision: expectedRevision!,
               title: text(v, "title"),
               description: text(v, "description"),
               original_link: text(v, "original") || null,
@@ -190,26 +195,25 @@ function MaterialEdit({ material: m }: { material: Material }) {
           );
         }}
         submitLabel="Сохранить черновик"
-        onConflict={() => {
-          void refresh();
-        }}
+        onConflict={refresh}
       >
         <MarkdownEditor value={body} onChange={setBody} />
       </ActionForm>
       {can(m, "publish_material") && m.draft_content && (
         <ActionForm
+          revision={m.revision}
+          ownChange={ownChange} onSavedRevision={setOwnChange}
+          savedDetails={<MarkdownContent body={m.draft_content.body} />}
           fields={[]}
           submitLabel="Опубликовать сохранённый черновик"
-          onSubmit={async () => {
-            await perform(() =>
+          onSubmit={async (_v, expectedRevision) => {
+            return perform(() =>
               materialsApi.publish(m.material_id, {
-                expected_revision: m.revision,
+                expected_revision: expectedRevision!,
               }),
             );
           }}
-          onConflict={() => {
-            void refresh();
-          }}
+          onConflict={refresh}
         />
       )}
     </Card>
@@ -281,22 +285,25 @@ export function MaterialPage() {
                     прежние назначения данного материала.
                   </p>
                   <ActionForm
+                    revision={m.revision}
                     fields={[
                       {
                         name: "users",
                         label: "Редакторы",
                         type: "multi",
+                        value: m.editor_user_ids?.map(String) ?? [],
                         options: people.options,
                       },
                     ]}
-                    onSubmit={async (v) => {
-                      await perform(() =>
+                    onSubmit={async (v, expectedRevision) => {
+                      return perform(() =>
                         materialsApi.editors(id, ids(v, "users"), {
-                          expected_revision: m.revision,
+                          expected_revision: expectedRevision!,
                         }),
                       );
                     }}
                     submitLabel="Установить состав редакторов"
+                    onConflict={refresh}
                   />
                 </Card>
               )}

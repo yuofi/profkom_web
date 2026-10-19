@@ -136,7 +136,9 @@ it("keeps two editor drafts through a conflict and version refresh, publishes ex
   expect(other.container.querySelector('[role="alert"]')).not.toBeNull();
   await click(other.container, "Обновить данные");
   expect(field(other.container, "body").value).toBe("Черновик редактора Б");
+  await click(form(other.container, "Сохранить черновик"), "Сохранить мой ввод с обновлённой версией");
   await submit(form(other.container, "Сохранить черновик"));
+  await click(form(other.container, "Опубликовать сохранённый отчёт"), "Сохранить мой ввод с обновлённой версией");
   await submit(form(other.container, "Опубликовать сохранённый отчёт"));
   expect((await reportsApi.get(report.report_id)).content.body).toBe(
     "Черновик редактора Б",
@@ -178,6 +180,7 @@ it("preserves changed task criteria and deadline when refreshing a conflicting i
   await click(editor, "Обновить данные");
   expect(field(editor, "creative").value).toBe("true");
   expect(field(editor, "deadline").value).toBe("2026-10-26T18:00");
+  await click(editor, "Сохранить мой ввод с обновлённой версией");
   await submit(editor);
   const saved = await tasksApi.inputs(mock.state.tasks[0].task_id);
   expect(saved.criteria.creative).toBe(true);

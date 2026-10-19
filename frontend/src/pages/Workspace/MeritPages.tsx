@@ -11,6 +11,7 @@ import {
   RouteLink,
 } from "../../components/Workspace/WorkspaceUI";
 import { ActionForm, type Field } from "../../components/Workspace/ActionForm";
+import { revisionSnapshot, snapshotRevisions } from "../../components/Workspace/revisionSnapshot";
 import { text, number, ids } from "../../components/Workspace/formValues";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { tasksApi } from "../../utils/api/tasks.api";
@@ -107,10 +108,12 @@ export function MeritForm({
   save,
   initialSource,
   initialScopeId,
+  summaryVersion,
 }: {
   seasonId: string;
   existing?: Merit;
-  save?: (data: MeritCreate) => Promise<void>;
+  save?: (data: MeritCreate, revision: number, summaryVersion: number) => Promise<{revision: number; revisionKey: string}>;
+  summaryVersion?: number;
   initialSource?: MeritCreate["source_kind"];
   initialScopeId?: string;
 }) {
@@ -339,13 +342,14 @@ export function MeritForm({
         {!people.isLoading && (
           <ActionForm
             key={`${source}/${scopeId}/${existing?.merit_id ?? "new"}`}
-            revision={save ? undefined : existing?.revision}
+            revision={existing?.revision}
+            revisionKey={summaryVersion === undefined ? undefined : String(summaryVersion)}
             fields={fields}
-            onConflict={() => {
-              void people.refetch();
-              void refresh();
+            onConflict={async () => {
+              await people.refetch();
+              await refresh();
             }}
-            onSubmit={async (v, expectedRevision) => {
+            onSubmit={async (v, expectedRevision, expectedVersion) => {
               if (
                 (!existing && !allowedKinds.some(([k]) => k === source)) ||
                 (source !== "chair_merit" && (!scopeId || (!existing && !scopeOptions?.some((option) => option.value === scopeId))))
@@ -417,8 +421,7 @@ export function MeritForm({
                 reason: text(v, "reason"),
               };
               if (save) {
-                await save(data);
-                return;
+                return save(data, expectedRevision!, Number(expectedVersion));
               }
               return perform(() =>
                 existing
@@ -546,11 +549,13 @@ function ClosedCorrectionEditor({
   objectId,
   seasonId,
   save,
+  summaryVersion,
 }: {
   kind: CorrectionKind;
   objectId: string;
   seasonId: string;
-  save: (revision: number, values: object, reason: string) => Promise<void>;
+  summaryVersion: number;
+  save: (revision: number, values: object, reason: string, summaryVersion: number) => Promise<{revision: number; revisionKey: string}>;
 }) {
   const { refresh } = useWorkspaceActions();
   const query = useQuery<CorrectionRecord>({
@@ -632,6 +637,7 @@ function ClosedCorrectionEditor({
     ];
   return (
     <QueryState
+      keepDataOnError={!!query.data}
       loading={query.isLoading}
       error={query.error}
       retry={() => void query.refetch()}
@@ -643,9 +649,10 @@ function ClosedCorrectionEditor({
             <MeritForm
               seasonId={seasonId}
               existing={data.record}
-              save={async (value) => {
-                await save(
-                  data.record.revision,
+              summaryVersion={summaryVersion}
+              save={async (value, expectedRevision, expectedVersion) => {
+                return save(
+                  expectedRevision,
                   {
                     title: value.title,
                     description: value.description,
@@ -655,6 +662,7 @@ function ClosedCorrectionEditor({
                     recipients: value.recipients,
                   },
                   value.reason,
+                  expectedVersion,
                 );
               }}
             />
@@ -676,6 +684,8 @@ function ClosedCorrectionEditor({
                 </dl>
               </details>
               <ActionForm
+                revision={data.record.revision}
+                revisionKey={String(summaryVersion)}
                 fields={[
                   ...fields,
                   {
@@ -685,8 +695,8 @@ function ClosedCorrectionEditor({
                     type: "textarea",
                   },
                 ]}
-                onConflict={() => void refresh()}
-                onSubmit={async (v) => {
+                onConflict={refresh}
+                onSubmit={async (v, expectedRevision, expectedVersion) => {
                   let values: object;
                   if (data.kind === "task_inputs") {
                     const assigned_at = toUtc(text(v, "assigned")),
@@ -717,7 +727,7 @@ function ClosedCorrectionEditor({
                         : null,
                     };
                   }
-                  await save(data.record.revision, values, text(v, "reason"));
+                  return save(expectedRevision!, values, text(v, "reason"), Number(expectedVersion));
                 }}
               />
             </>
@@ -835,14 +845,15 @@ export function CorrectionsPage() {
                     kind={kind}
                     objectId={objectId}
                     seasonId={id}
-                    save={async (revision, values, reason) => {
+                    summaryVersion={summary.data!.version}
+                    save={async (revision, values, reason, expectedVersion) => {
                       if (!can(summary.data, "correct_summary"))
                         throw Error(
                           "Право исправления отозвано. Обновите данные.",
                         );
-                      await perform(() =>
+                      const saved = await perform(() =>
                         seasonsApi.correctSummary(id, {
-                          expected_version: summary.data!.version,
+                          expected_version: expectedVersion,
                           reason,
                           changes: [
                             {
@@ -854,6 +865,9 @@ export function CorrectionsPage() {
                           ],
                         }),
                       );
+                      const applied = saved.applied_revisions.find(r => r.id === objectId && r.kind === kind);
+                      if (!applied) throw Error("Сервер не подтвердил версию исправленной записи. Обновите данные.");
+                      return {revision: applied.revision, revisionKey: String(saved.version)};
                     }}
                   />
                 )}
@@ -871,7 +885,7 @@ export function CorrectionsPage() {
 }
 export function SeasonCorrectionForm() {
   const { session } = useSession();
-  const { perform } = useWorkspaceActions();
+  const { perform, refresh } = useWorkspaceActions();
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
   const objects = useQuery({
     queryKey: ["events", "correction-objects"],
@@ -918,8 +932,10 @@ export function SeasonCorrectionForm() {
         начислений. Оба сезона должны быть незакрыты; операция выполняется
         целиком.
       </p>
-      <QueryState loading={objects.isLoading} error={objects.error}>
+      <QueryState keepDataOnError={!!objects.data} loading={objects.isLoading} error={objects.error}>
         <ActionForm
+          revisionKey={revisionSnapshot(objects.data?.map(o => ({id: `${o.kind}/${o.id}`, revision: o.revision})) ?? [])}
+          onConflict={refresh}
           fields={[
             {
               name: "object",
@@ -947,7 +963,7 @@ export function SeasonCorrectionForm() {
               required: true,
             },
           ]}
-          onSubmit={async (v) => {
+          onSubmit={async (v, _expectedRevision, snapshot) => {
             const object = objects.data?.find(
               (o) => `${o.kind}/${o.id}` === text(v, "object"),
             );
@@ -960,15 +976,20 @@ export function SeasonCorrectionForm() {
               throw Error(
                 "Этой записи нужен открытый сезон или подведение итогов",
               );
-            await perform(() =>
+            const revisions = snapshotRevisions(snapshot);
+            const objectKey = `${object.kind}/${object.id}`;
+            if (!revisions.has(objectKey)) throw Error("Обновите список объектов");
+            const saved = await perform(() =>
               seasonsApi.correctSeason({
                 object_kind: object.kind,
                 object_id: object.id,
-                expected_revision: object.revision,
+                expected_revision: revisions.get(objectKey)!,
                 target_season_id: text(v, "target"),
                 reason: text(v, "reason"),
               }),
             );
+            revisions.set(objectKey, saved.revision);
+            return {revisionKey: revisionSnapshot([...revisions].map(([id, revision]) => ({id, revision})))};
           }}
         />
       </QueryState>

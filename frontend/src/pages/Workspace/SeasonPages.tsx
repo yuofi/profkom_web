@@ -124,23 +124,26 @@ function SeasonCommand({
   action: "open" | "begin-summary" | "close";
   label: string;
 }) {
-  const { perform } = useWorkspaceActions();
+  const { perform, refresh } = useWorkspaceActions();
   const [failure, setFailure] = useState<ReturnType<
     typeof normalizeApiError
   > | null>(null);
   return (
     <div>
       <ActionForm
+        revision={season.revision}
+        onConflict={refresh}
         fields={[]}
         submitLabel={label}
-        onSubmit={async () => {
+        onSubmit={async (_v, expectedRevision) => {
           setFailure(null);
           try {
-            await perform(() =>
+            const saved = await perform(() =>
               seasonsApi.command(season.season_id, action, {
-                expected_revision: season.revision,
+                expected_revision: expectedRevision!,
               }),
             );
+            return "season" in saved ? saved.season : saved;
           } catch (e) {
             setFailure(normalizeApiError(e));
             throw e;

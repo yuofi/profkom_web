@@ -121,6 +121,7 @@ def test_correction_is_atomic_and_preserves_older_versions_and_categories(
     )
     assert r.status_code == 200, r.text
     corrected = r.json()
+    assert corrected["applied_revisions"] == [dict(kind="assessment_inputs", id=aid, revision=4)]
     assert corrected["version"] == ver + 1
     assert (
         next(

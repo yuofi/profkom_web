@@ -1,4 +1,5 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import {
   emptyCriteria,
   type Task,
@@ -10,7 +11,8 @@ import { displayDate, moscowInput, toUtc } from "../../utils/dates";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { ActionForm, type Field } from "./ActionForm";
 import { number, text } from "./formValues";
-import { QueryState } from "./WorkspaceUI";
+import { Loading, QueryState } from "./WorkspaceUI";
+import { revisionSnapshot, snapshotRevisions } from "./revisionSnapshot";
 import s from "./Workspace.module.css";
 const criteriaNames: Record<string, string> = {
   unique: "Уникальная задача",
@@ -37,7 +39,7 @@ export function AssessmentPanel({
   return (
     <details className={s.details} open={open || undefined}>
       <summary>Исходные поля оценивания</summary>
-      <QueryState loading={query.isLoading} error={query.error}>
+      <QueryState keepDataOnError={!!query.data} loading={query.isLoading} error={query.error}>
         {inputs && (
           <>
             <p>
@@ -51,6 +53,7 @@ export function AssessmentPanel({
             {can(inputs, "edit_assessment_inputs") && (
               <ActionForm
                 key={assignment.assignment_id}
+                revision={inputs.revision}
                 fields={[
                   {
                     name: "hours",
@@ -88,10 +91,10 @@ export function AssessmentPanel({
                     required: true,
                   },
                 ]}
-                onSubmit={async (v) => {
-                  await perform(() =>
+                onSubmit={async (v, expectedRevision) => {
+                  return perform(() =>
                     tasksApi.updateAssessment(assignment.assignment_id, {
-                      expected_revision: inputs.revision,
+                      expected_revision: expectedRevision!,
                       hours: number(v, "hours"),
                       ...(text(v, "evaluation")
                         ? {
@@ -109,9 +112,7 @@ export function AssessmentPanel({
                     }),
                   );
                 }}
-                onConflict={() => {
-                  void refresh();
-                }}
+                onConflict={refresh}
               />
             )}
           </>
@@ -166,7 +167,7 @@ export function TaskInputsPanel({ task }: { task: Task }) {
   return (
     <details className={s.details}>
       <summary>Даты и признаки задачи</summary>
-      <QueryState loading={query.isLoading} error={query.error}>
+      <QueryState keepDataOnError={!!query.data} loading={query.isLoading} error={query.error}>
         {inputs && !can(inputs, "edit_assessment_inputs") && (
           <>
             <p>
@@ -188,15 +189,16 @@ export function TaskInputsPanel({ task }: { task: Task }) {
         {inputs && can(inputs, "edit_assessment_inputs") && (
           <ActionForm
             key={task.task_id}
+            revision={inputs.revision}
             fields={fields}
-            onSubmit={async (v) => {
+            onSubmit={async (v, expectedRevision) => {
               const assigned = toUtc(text(v, "assigned"));
               const deadline = toUtc(text(v, "deadline"));
               if (assigned > deadline)
                 throw Error("Выдача не может быть позже дедлайна");
-              await perform(() =>
+              return perform(() =>
                 tasksApi.updateInputs(task.task_id, {
-                  expected_revision: inputs.revision,
+                  expected_revision: expectedRevision!,
                   assigned_at: assigned,
                   deadline_at: deadline,
                   criteria: {
@@ -212,9 +214,7 @@ export function TaskInputsPanel({ task }: { task: Task }) {
                 }),
               );
             }}
-            onConflict={() => {
-              void refresh();
-            }}
+            onConflict={refresh}
           />
         )}
       </QueryState>
@@ -223,6 +223,7 @@ export function TaskInputsPanel({ task }: { task: Task }) {
 }
 export function BulkHoursPanel({ task }: { task: Task }) {
   const { perform, refresh } = useWorkspaceActions();
+  const [ready, setReady] = useState(false);
   const queries = useQueries({
     queries: task.assignments
       .filter((a) => can(a, "view_assessment_inputs"))
@@ -234,11 +235,15 @@ export function BulkHoursPanel({ task }: { task: Task }) {
   const inputs = queries.flatMap((q) =>
     q.data && can(q.data, "edit_assessment_inputs") ? [q.data] : [],
   );
+  if (!ready && queries.every(q => !q.isLoading)) setReady(true);
+  if (!ready) return <Loading />;
   if (!inputs.some((a) => can(a, "edit_assessment_inputs"))) return null;
   return (
     <details className={s.details}>
       <summary>Установить часы нескольким исполнителям</summary>
       <ActionForm
+        revisionKey={revisionSnapshot(inputs.map(i => ({id: i.assignment_id, revision: i.revision})))}
+        savedDetails={<ul>{inputs.map(i => <li key={i.assignment_id}>{task.assignments.find(a => a.assignment_id === i.assignment_id)?.assignee.display_name}: {i.hours ?? "не заданы"} ч.</li>)}</ul>}
         fields={[
           {
             name: "assignments",
@@ -263,24 +268,22 @@ export function BulkHoursPanel({ task }: { task: Task }) {
           },
           { name: "reason", label: "Причина", required: true },
         ]}
-        onSubmit={async (v) => {
+        onSubmit={async (v, _expectedRevision, snapshot) => {
           const selected = v.assignments as string[];
-          await perform(() =>
+          const revisions = snapshotRevisions(snapshot);
+          if (selected.some(id => !revisions.has(id) || !inputs.some(i => i.assignment_id === id)))
+            throw Error("Обновите список доступных назначений");
+          const saved = await perform(() =>
             tasksApi.bulkHours(
-              inputs
-                .filter((i) => selected.includes(i.assignment_id))
-                .map((i) => ({
-                  assignment_id: i.assignment_id,
-                  expected_revision: i.revision,
-                })),
+              selected.map(id => ({assignment_id: id, expected_revision: revisions.get(id)!})),
               number(v, "hours"),
               text(v, "reason"),
             ),
           );
+          saved.items.forEach(i => revisions.set(i.assignment_id, i.revision));
+          return { revisionKey: revisionSnapshot([...revisions].map(([id, revision]) => ({id, revision}))) };
         }}
-        onConflict={() => {
-          void refresh();
-        }}
+        onConflict={refresh}
       />
     </details>
   );

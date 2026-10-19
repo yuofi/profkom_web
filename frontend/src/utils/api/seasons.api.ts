@@ -70,7 +70,7 @@ export const seasonsApi = {
       }[];
     },
   ) =>
-    request<SeasonSummary>(
+    request<SeasonSummary & {applied_revisions: {kind: string; id: string; revision: number}[]}>(
       "post",
       `/seasons/${idPath(id)}/summary/correct`,
       data,

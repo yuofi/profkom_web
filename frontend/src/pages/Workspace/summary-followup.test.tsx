@@ -131,11 +131,36 @@ it("preserves a correction draft through 409 and an explicit version refresh bef
   await act(async () => refresh.click());
   await settle();
   expect(field(container, "hours").value).toBe("9");
+  await act(async () => Array.from(container.querySelectorAll("button")).find(b => b.textContent === "Сохранить мой ввод с обновлённой версией")!.click());
   await submit(container.querySelector("form")!);
   expect(
     (await tasksApi.assessment(mock.state.assessments[0].assignment_id)).hours,
   ).toBe(9);
   expect(container.textContent).toContain("Изменения сохранены");
+});
+
+it.each(["assessment_inputs", "task_inputs", "merit"])("holds record and summary versions across a foreign closed correction: %s", async kind => {
+  const { id } = await openCorrections(kind);
+  const container = page!.container;
+  const form = container.querySelector("form")!;
+  const name = kind === "assessment_inputs" ? "hours" : kind === "task_inputs" ? "creative" : "title";
+  const value = kind === "assessment_inputs" ? "8" : kind === "task_inputs" ? "true" : "МОЯ ПРАВКА";
+  await change(field(form, name), value);
+  if (kind === "assessment_inputs") await change(field(form, "evaluation"), "0");
+  await change(field(form, "reason"), "МОЯ ПРИЧИНА");
+  const before = await seasonsApi.summary("season-1");
+  const foreign = await seasonsApi.correctSummary("season-1", {expected_version: before.version, reason: "Чужая правка", changes: [{kind: kind as "task_inputs" | "assessment_inputs" | "merit", id, expected_revision: 1, values: kind === "assessment_inputs" ? {hours: 99} : kind === "task_inputs" ? {criteria: emptyCriteria()} : {title: "Чужое название"}}]});
+  await act(async () => { await page!.client.invalidateQueries(); }); await settle();
+  const posts = () => mock.adapter.history.post.filter(r => r.url?.endsWith("/summary/correct"));
+  const count = posts().length;
+  expect(field(form, name).value).toBe(value);
+  await submit(form);
+  expect(posts()).toHaveLength(count);
+  await act(async () => Array.from(form.querySelectorAll("button")).find(b => b.textContent === "Сохранить мой ввод с обновлённой версией")!.click());
+  await submit(form);
+  expect(posts()).toHaveLength(count + 1);
+  expect(JSON.parse(posts().at(-1)!.data)).toMatchObject({expected_version: foreign.version, changes: [{expected_revision: foreign.applied_revisions[0].revision}]});
+  expect((form.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBe(false);
 });
 
 it("preserves input and never reports success when the server rejects a correction with 422", async () => {

@@ -473,7 +473,7 @@ export function installMockTransport(
           });
           summary.version++;
           rememberSummary(season.season_id, String(data.reason));
-          return [200, clone(summary)];
+          return [200, {...clone(summary), applied_revisions: changes.map(c => ({kind: c.kind, id: c.id, revision: recordFor(c)!.revision}))}];
         }
         if (method === "put") {
           if (season.state === "closed" && !state.chair) return denied();

@@ -331,6 +331,7 @@ export interface ReportVersion {
   published_by: UserRef;
 }
 export interface Material extends Versioned {
+  editor_user_ids?: number[];
   material_id: string;
   kind: string;
   owner_block_id: string | null;

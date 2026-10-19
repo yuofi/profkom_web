@@ -11,7 +11,7 @@ import {
   Badge,
   Empty,
 } from "../../components/Workspace/WorkspaceUI";
-import { ActionForm } from "../../components/Workspace/ActionForm";
+import { ActionForm, type OwnRevisionChange } from "../../components/Workspace/ActionForm";
 import { text } from "../../components/Workspace/formValues";
 import {
   AttachmentPicker,
@@ -125,6 +125,7 @@ export function ReportsPage() {
   );
 }
 function ReportEditor({ report }: { report: Report }) {
+  const [ownChange, setOwnChange] = useState<OwnRevisionChange>();
   const { perform, refresh } = useWorkspaceActions();
   const [files, setFiles] = useState<FileRef[]>(
     report.draft_files ?? report.files,
@@ -148,6 +149,10 @@ function ReportEditor({ report }: { report: Report }) {
       />
       <ActionForm
         disabled={busy}
+        revision={report.revision}
+        ownChange={ownChange} onSavedRevision={setOwnChange}
+        savedDetails={<Attachments files={report.draft_files ?? report.files} />}
+        onReplaceWithSaved={() => setFiles(report.draft_files ?? report.files)}
         fields={[
           {
             name: "title",
@@ -163,10 +168,10 @@ function ReportEditor({ report }: { report: Report }) {
             value: draft.body,
           },
         ]}
-        onSubmit={async (v) => {
-          await perform(() =>
+        onSubmit={async (v, expectedRevision) => {
+          return perform(() =>
             reportsApi.update(report.report_id, {
-              expected_revision: report.revision,
+              expected_revision: expectedRevision!,
               title: text(v, "title"),
               content: richText(text(v, "body")),
               file_ids: files.map((f) => f.file_id),
@@ -186,18 +191,19 @@ function ReportEditor({ report }: { report: Report }) {
       {preview && <Markdown content={draft} />}
       {can(report, "publish_report") && (
         <ActionForm
+          revision={report.revision}
+          ownChange={ownChange} onSavedRevision={setOwnChange}
+          savedDetails={<><Markdown content={draft} /><Attachments files={report.draft_files ?? report.files} /></>}
           fields={[]}
           submitLabel="Опубликовать сохранённый отчёт"
-          onSubmit={async () => {
-            await perform(() =>
+          onSubmit={async (_v, expectedRevision) => {
+            return perform(() =>
               reportsApi.publish(report.report_id, {
-                expected_revision: report.revision,
+                expected_revision: expectedRevision!,
               }),
             );
           }}
-          onConflict={() => {
-            void refresh();
-          }}
+          onConflict={refresh}
         />
       )}
     </Card>

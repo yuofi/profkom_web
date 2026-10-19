@@ -81,16 +81,15 @@ export function RegistrationForm({
             <ActionForm
               fields={[]}
               submitLabel="Повторно отправить заявку"
-              onSubmit={async () => {
-                await perform(() =>
+              revision={application.revision}
+              onSubmit={async (_v, expectedRevision) => {
+                return perform(() =>
                   membershipApi.resubmit({
-                    expected_revision: application.revision,
+                    expected_revision: expectedRevision!,
                   }),
                 );
               }}
-              onConflict={() => {
-                void refresh();
-              }}
+              onConflict={refresh}
             />
           ) : (
             <p className={s.error}>

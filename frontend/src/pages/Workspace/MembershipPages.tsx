@@ -273,26 +273,27 @@ function RequestCard({
       {open && review && (
         <div className={s.stack}>
           <ActionForm
+            revision={r.revision}
+            onConflict={refresh}
             fields={[]}
             submitLabel={
               r.state === "pending_hr"
                 ? "Одобрить этап HR"
                 : "Одобрить вступление"
             }
-            onSubmit={async () => {
-              await perform(() =>
+            onSubmit={async (_v, expectedRevision) => {
+              return perform(() =>
                 membershipApi.requestCommand(
                   r.request_id,
                   r.state === "pending_hr" ? "hr-approve" : "block-approve",
-                  { expected_revision: r.revision },
+                  { expected_revision: expectedRevision! },
                 ),
               );
             }}
-            onConflict={() => {
-              void refresh();
-            }}
           />
           <ActionForm
+            revision={r.revision}
+            onConflict={refresh}
             fields={[
               {
                 name: "reason",
@@ -302,10 +303,10 @@ function RequestCard({
               },
             ]}
             submitLabel="Отклонить"
-            onSubmit={async (v) => {
-              await perform(() =>
+            onSubmit={async (v, expectedRevision) => {
+              return perform(() =>
                 membershipApi.requestCommand(r.request_id, "reject", {
-                  expected_revision: r.revision,
+                  expected_revision: expectedRevision!,
                   reason: text(v, "reason"),
                 }),
               );
@@ -315,12 +316,14 @@ function RequestCard({
       )}
       {open && can(r, "withdraw_request") && (
         <ActionForm
+            revision={r.revision}
+            onConflict={refresh}
           fields={[]}
           submitLabel="Отозвать свою заявку"
-          onSubmit={async () => {
-            await perform(() =>
+          onSubmit={async (_v, expectedRevision) => {
+            return perform(() =>
               membershipApi.requestCommand(r.request_id, "withdraw", {
-                expected_revision: r.revision,
+                expected_revision: expectedRevision!,
               }),
             );
           }}
@@ -452,6 +455,7 @@ export function RegistrationsPage() {
               {r.rejection_reason && <p>{r.rejection_reason}</p>}
               {r.status === "pending" && (
                 <ActionForm
+                    revision={r.revision}
                   fields={[
                     {
                       name: "decision",
@@ -469,15 +473,15 @@ export function RegistrationsPage() {
                       type: "textarea",
                     },
                   ]}
-                  onSubmit={async (v) => {
+                  onSubmit={async (v, expectedRevision) => {
                     if (text(v, "decision") === "reject" && !text(v, "reason"))
                       throw Error("Укажите причину отказа");
-                    await perform(() =>
+                    return perform(() =>
                       membershipApi.registrationCommand(
                         r.user_id,
                         text(v, "decision") as "approve" | "reject",
                         {
-                          expected_revision: r.revision,
+                          expected_revision: expectedRevision!,
                           reason: text(v, "reason"),
                         },
                       ),
@@ -489,6 +493,7 @@ export function RegistrationsPage() {
               {r.status !== "approved" &&
                 can(r, "reset_registration_limit") && (
                   <ActionForm
+                    revision={r.revision}
                     fields={[
                       {
                         name: "reason",
@@ -497,13 +502,14 @@ export function RegistrationsPage() {
                       },
                     ]}
                     submitLabel="Сбросить лимит"
-                    onSubmit={async (v) => {
-                      await perform(() =>
+                    onConflict={refresh}
+                    onSubmit={async (v, expectedRevision) => {
+                      return perform(() =>
                         membershipApi.registrationCommand(
                           r.user_id,
                           "reset-attempts",
                           {
-                            expected_revision: r.revision,
+                            expected_revision: expectedRevision!,
                             reason: text(v, "reason"),
                           },
                         ),

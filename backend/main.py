@@ -845,6 +845,16 @@ class SeasonSummaryOut(BaseModel):
     capabilities: list[str] = []
 
 
+class AppliedRevisionOut(BaseModel):
+    kind: Literal["task_inputs", "assessment_inputs", "merit"]
+    id: str
+    revision: int
+
+
+class SummaryCorrectionOut(SeasonSummaryOut):
+    applied_revisions: list[AppliedRevisionOut] = []
+
+
 class SummaryDecisionsIn(Command):
     expected_version: int
     decisions: list[str]
@@ -3153,7 +3163,7 @@ def update_summary_decisions(
         raise HTTPException(422, msg)
 
 
-@router.post("/seasons/{season_id}/summary/correct", response_model=SeasonSummaryOut)
+@router.post("/seasons/{season_id}/summary/correct", response_model=SummaryCorrectionOut)
 def correct_season_summary(
     season_id: str,
     payload: SummaryCorrectionIn,
@@ -3167,7 +3177,11 @@ def correct_season_summary(
             changes=[c.model_dump() for c in payload.changes],
             user_id=cur.user_id,
         )
-        return _to_season_summary_out(s)
+        # Read acknowledgements in the same request transaction as the command.
+        classes = {"task_inputs": database_module.TaskORM, "assessment_inputs": database_module.AssignmentORM, "merit": database_module.MeritORM}
+        with db._session() as session:
+            revisions = [dict(kind=c.kind, id=c.id, revision=session.get(classes[c.kind], c.id).revision) for c in payload.changes]
+        return {**_to_season_summary_out(s).model_dump(), "applied_revisions": revisions}
     except LookupError as e:
         raise HTTPException(404, str(e))
     except ValueError as e:

@@ -27,6 +27,7 @@ export interface Field {
   whenSelected?: { name: string; value: string };
   onSelectionChange?: (values: string[]) => void;
 }
+export interface OwnRevisionChange { from: number; to: number }
 
 const visible = (field: Field, values: Values) =>
   !field.whenSelected ||
@@ -45,25 +46,47 @@ export function ActionForm({
   children,
   disabled = false,
   revision,
+  revisionKey,
+  savedDetails,
+  onReplaceWithSaved,
+  ownChange,
+  onSavedRevision,
 }: {
   title?: string;
   fields: Field[];
   submitLabel?: string;
-  onSubmit: (values: Values, expectedRevision?: number) => Promise<void | { revision: number } | { version: number }>;
+  onSubmit: (values: Values, expectedRevision?: number, expectedRevisionKey?: string) => Promise<void | { revision: number } | { version: number } | { revisionKey: string }>;
   onConflict?: () => unknown | Promise<unknown>;
   successMessage?: string;
   children?: ReactNode;
   disabled?: boolean;
   revision?: number;
+  revisionKey?: string;
+  savedDetails?: ReactNode;
+  onReplaceWithSaved?: () => void;
+  ownChange?: OwnRevisionChange;
+  onSavedRevision?: (change: OwnRevisionChange) => void;
 }) {
   const formId = useId();
   const [expectedRevision, setExpectedRevision] = useState(revision);
+  const [expectedRevisionKey, setExpectedRevisionKey] = useState(revisionKey);
+  const [appliedChange, setAppliedChange] = useState(ownChange);
   const [refreshing, setRefreshing] = useState(false);
-  const changedRevision = revision !== expectedRevision;
+  const versioned = revision !== undefined || revisionKey !== undefined;
+  const changedRevision = revision !== expectedRevision || revisionKey !== expectedRevisionKey;
   const [message, setMessage] = useState("");
   const [failure, setFailure] = useState<ReturnType<
     typeof normalizeApiError
   > | null>(null);
+  // A sibling command may advance this exact baseline, but cannot acknowledge
+  // an intervening foreign revision. Adjust only our state before committing UI.
+  if (appliedChange !== ownChange) {
+    setAppliedChange(ownChange);
+    if (ownChange && expectedRevision === ownChange.from) {
+      setExpectedRevision(ownChange.to);
+      setFailure(null);
+    }
+  }
   const schema = (values: Values) =>
     z.object(
       Object.fromEntries(
@@ -125,11 +148,19 @@ export function ActionForm({
       setMessage("");
       setFailure(null);
       try {
-        if (revision !== undefined && (changedRevision || failure?.status === 409))
+        if (versioned && (changedRevision || failure?.status === 409))
           throw new ApiError("Сначала обновите данные и подтвердите версию для сохранения.", 409);
-        const saved = await onSubmit(values, expectedRevision);
-        if (revision !== undefined && saved)
-          setExpectedRevision("revision" in saved ? saved.revision : saved.version);
+        const saved = await (revisionKey === undefined
+          ? onSubmit(values, expectedRevision)
+          : onSubmit(values, expectedRevision, expectedRevisionKey));
+        if (saved) {
+          const next = "revision" in saved ? saved.revision : "version" in saved ? saved.version : undefined;
+          if (revision !== undefined && next !== undefined) {
+            setExpectedRevision(next);
+            onSavedRevision?.({from: expectedRevision!, to: next});
+          }
+          if (revisionKey !== undefined && "revisionKey" in saved) setExpectedRevisionKey(saved.revisionKey);
+        }
         setMessage(successMessage);
       } catch (error) {
         const failure = normalizeApiError(error);
@@ -251,7 +282,7 @@ export function ActionForm({
               <p>
                 <button type="button" className={s.button} onClick={async () => {
                   setRefreshing(true);
-                  try { await onConflict(); }
+                  try { await onConflict(); setFailure(null); }
                   catch (error) { setFailure(normalizeApiError(error)); }
                   finally { setRefreshing(false); }
                 }}>
@@ -266,11 +297,13 @@ export function ActionForm({
             <p>Запись изменилась на сервере. Ваш ввод сохранён. Сверьте актуальные значения перед сохранением.</p>
             <details><summary>Актуальные сохранённые значения</summary>
               <dl>{fields.filter((f) => f.value !== undefined).map((f) => <div key={f.name}><dt>{f.label}</dt><dd>{Array.isArray(f.value) ? f.value.map((value) => f.options?.find((o) => o.value === value)?.label ?? value).join(", ") : f.value || "—"}</dd></div>)}</dl>
+              {savedDetails}
             </details>
-            <button type="button" className={s.button} onClick={() => { setExpectedRevision(revision); setFailure(null); setMessage(""); }}>Сохранить мой ввод с обновлённой версией</button>
+            <button type="button" className={s.button} onClick={() => { setExpectedRevision(revision); setExpectedRevisionKey(revisionKey); setFailure(null); setMessage(""); }}>Сохранить мой ввод с обновлённой версией</button>
             <button type="button" className={s.button} onClick={() => {
               form.resetForm({ values: Object.fromEntries(fields.map((f) => [f.name, f.value ?? (f.type === "multi" ? [] : "")])) });
-              setExpectedRevision(revision); setFailure(null); setMessage("");
+              onReplaceWithSaved?.();
+              setExpectedRevision(revision); setExpectedRevisionKey(revisionKey); setFailure(null); setMessage("");
             }}>Заменить мой ввод сохранёнными значениями</button>
           </div>
         )}
@@ -283,7 +316,7 @@ export function ActionForm({
           <button
             className={`${s.button} ${s.primary}`}
             type="submit"
-            disabled={form.isSubmitting || refreshing || disabled || (revision !== undefined && (changedRevision || failure?.status === 409))}
+            disabled={form.isSubmitting || refreshing || disabled || (versioned && (changedRevision || failure?.status === 409))}
           >
             {form.isSubmitting ? "Сохраняем…" : submitLabel}
           </button>
