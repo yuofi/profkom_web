@@ -9,6 +9,8 @@ const config = mergeConfig(base, defineConfig({
     exclude: ["**/node_modules/**", "**/dist/**"],
     env: { VITE_BACKEND_URL: origin, VITE_ENVIRONMENT: "development" },
     environmentOptions: { jsdom: { url: "http://localhost:15173" } },
+    fileParallelism: false,
+    testTimeout: 30000,
   },
 }));
 if (config.test) config.test.exclude = ["**/node_modules/**", "**/dist/**"];

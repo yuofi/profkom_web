@@ -7,6 +7,8 @@ import type {
   MeritCreate,
   Revision,
   Decision,
+  SummaryVersionMetadata,
+  SummaryVersionSnapshot,
 } from "./contract";
 import { api } from "./index";
 import {
@@ -39,6 +41,10 @@ export const seasonsApi = {
     ),
   summary: (id: string) =>
     request<SeasonSummary>("get", `/seasons/${idPath(id)}/summary`),
+  summaryVersions: (id: string) =>
+    page<SummaryVersionMetadata>(`/seasons/${idPath(id)}/summary/versions`),
+  summaryVersion: (id: string, version: number) =>
+    request<SummaryVersionSnapshot>("get", `/seasons/${idPath(id)}/summary/versions/${version}`),
   bonuses: (id: string) =>
     page<MasterBonus>(`/seasons/${idPath(id)}/master-bonuses`),
   decisions: (

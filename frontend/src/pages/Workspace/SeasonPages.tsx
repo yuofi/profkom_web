@@ -25,6 +25,10 @@ import type {
   SummaryRow,
 } from "../../utils/api/contract";
 import { SeasonCorrectionForm } from "./MeritPages";
+import { SummaryTable } from "./SummaryTable";
+import { decisionLabels as decisions } from "../../utils/decisions";
+import { SummaryHistory } from "./SummaryHistory";
+export { DecisionBadges } from "./SummaryTable";
 import s from "../../components/Workspace/Workspace.module.css";
 const states = {
   planned: "Запланирован",
@@ -32,25 +36,6 @@ const states = {
   summarizing: "Подведение итогов",
   closed: "Закрыт",
 };
-const decisions: Record<Decision, string> = {
-  golden_red_bull: "Золотой Red Bull",
-  kick_warning: "Предупреждение о кике",
-  kick: "Кик",
-  nice: "Найс",
-};
-export function DecisionBadges({ values }: { values: Decision[] }) {
-  return values.length ? (
-    <div className={s.row}>
-      {values.map((d) => (
-        <span key={d} className={`${s.decision} ${s[d]}`}>
-          {decisions[d]}
-        </span>
-      ))}
-    </div>
-  ) : (
-    <span>Нет отметок</span>
-  );
-}
 export function SeasonsPage() {
   const { session } = useSession();
   const { perform } = useWorkspaceActions();
@@ -419,84 +404,10 @@ export function SummaryPage() {
                     onChange={(e) => setFilter(e.target.value)}
                   />
                 </label>
-                <div
-                  className={s.tableWrap}
-                  tabIndex={0}
-                  role="region"
-                  aria-label="Сезонная сводная, горизонтальная прокрутка"
-                >
-                  <table className={`${s.table} ${s.summaryTable}`}>
-                    <thead>
-                      <tr>
-                        {[
-                          "Место / прошлое",
-                          "Участник",
-                          "Блоки",
-                          "Источники",
-                          "ККР / задач",
-                          "Отметки",
-                        ].map((x) => (
-                          <th key={x}>{x}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {summary.rows
-                        .filter((row) =>
-                          `${row.user.display_name} ${row.group_number}`
-                            .toLowerCase()
-                            .includes(filter.toLowerCase()),
-                        )
-                        .map((row) => (
-                          <tr key={row.participant_id}>
-                            <td>
-                              {row.rank} / {row.previous_rank ?? "—"}
-                            </td>
-                            <td>
-                              {row.user.display_name}
-                              <p className={s.muted}>
-                                {row.group_number} ·{" "}
-                                {row.category === "junior"
-                                  ? "Джуниор"
-                                  : "Активист"}
-                              </p>
-                              {row.is_archived && <Badge>Уже исключён</Badge>}
-                              {row.is_master && <Badge>Мастер</Badge>}
-                            </td>
-                            <td>
-                              {row.blocks.map((b) => b.name).join(", ") || "—"}
-                            </td>
-                            <td>
-                              {row.source_scores.map((source, i) => (
-                                <p key={i}>
-                                  {source.title}: {source.score.toFixed(2)}
-                                </p>
-                              ))}
-                            </td>
-                            <td>
-                              {row.total_score.toFixed(2)} /{" "}
-                              {row.evaluated_task_count}
-                            </td>
-                            <td>
-                              <div aria-label="Решения текущего сезона">
-                                <DecisionBadges values={row.decisions} />
-                              </div>
-                              <div aria-label="Решения прошлого сезона">
-                                <p className={s.muted}>Ранее:</p>
-                                <DecisionBadges
-                                  values={row.previous_decisions}
-                                />
-                              </div>
-                              {can(summary, "edit_decisions") &&
-                                row.user.user_id && (
-                                  <DecisionsForm row={row} summary={summary} />
-                                )}
-                            </td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                </div>
+                <SummaryTable summary={summary} filter={filter} renderDecisions={(row) =>
+                  can(summary, "edit_decisions") && row.user.user_id
+                    ? <DecisionsForm row={row} summary={summary} /> : null
+                } />
               </Card>
               <RouteLink to={`/seasons/${encodeURIComponent(id)}/sources`}>
                 Подробные начисления и исходные поля
@@ -511,6 +422,7 @@ export function SummaryPage() {
             </>
           )}
         </QueryState>
+        {summary?.state === "approved" && <SummaryHistory key={id} seasonId={id} />}
         <Card title="Основания бонусов мастеров">
           <QueryState loading={bonuses.isLoading} error={bonuses.error}>
             {bonuses.data?.items.map((b) => (

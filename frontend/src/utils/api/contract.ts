@@ -274,6 +274,18 @@ export interface SeasonSummary {
   rows: SummaryRow[];
   capabilities: string[];
 }
+export interface SummaryVersionMetadata {
+  version: number;
+  changed_by: UserRef;
+  changed_at: string;
+  reason: string;
+  previous_summary_version: number | null;
+}
+export interface SummaryVersionSnapshot extends SummaryVersionMetadata {
+  summary: SeasonSummary;
+  contributions: Pick<Contribution, "contribution_id" | "participant_id" | "source_kind" | "source_id" | "source_title" | "score" | "calculation_version">[];
+  master_bonuses: Pick<MasterBonus, "bonus_id" | "recipient_participant_id" | "basis" | "amount" | "calculation_version">[];
+}
 export interface MasterBonus {
   bonus_id: string;
   season_id: string;

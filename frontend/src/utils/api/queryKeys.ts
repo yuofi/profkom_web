@@ -31,6 +31,7 @@ export const workspaceKeys = [
   keys.materials,
   keys.registrations,
   ["summary"],
+  ["summaryVersions"],
   ["assessments"],
   ["merits"],
   ["masterBonuses"],

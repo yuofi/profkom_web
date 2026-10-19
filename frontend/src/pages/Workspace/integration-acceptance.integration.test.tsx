@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it } from "vitest";
 import { Route, Routes } from "react-router-dom";
-import { liveLogin, liveParticipant } from "../../test/liveApi";
-import { mountWorkspace, settle } from "../../test/workspace";
+import { liveLogin, liveParticipant, liveCloseSeasons } from "../../test/liveApi";
+import { mountWorkspace, settle, change } from "../../test/workspace";
 import { eventsApi } from "../../utils/api/events.api";
 import { membershipApi } from "../../utils/api/membership.api";
 import { tasksApi } from "../../utils/api/tasks.api";
@@ -11,6 +11,9 @@ import { emptyCriteria, richText } from "../../utils/api/contract";
 import { UnresolvedPage } from "./TaskPages";
 import { ReportPage } from "./ReportPages";
 import { reportsApi } from "../../utils/api/reports.api";
+import { SummaryPage } from "./SeasonPages";
+import { invalidateWorkspace } from "../../utils/api/invalidation";
+import { act } from "react";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 afterEach(async () => { await page?.cleanup(); page = undefined; });
@@ -55,8 +58,8 @@ it("INT-02: real report readers can open both publications without seeing the sh
   const author = await liveParticipant("report-author");
   await liveLogin();
   const season = (await seasonsApi.list()).items.find(s => s.state === "open")!;
-  let event = await eventsApi.create({ season_id: season.season_id, title: "Report publications", description: richText() });
-  event = await eventsApi.leaders("events", event.event_id, [author.user_id], { expected_revision: event.revision });
+  const event = await eventsApi.create({ season_id: season.season_id, title: "Report publications", description: richText() });
+  await eventsApi.leaders("events", event.event_id, [author.user_id], { expected_revision: event.revision });
   await liveLogin(author.email);
   let report = await reportsApi.create({ owner_kind: "event", owner_id: event.event_id, kind: "regular", title: "Версии отчёта HTTP", content: richText("Первая публикация HTTP"), file_ids: [] });
   report = await reportsApi.publish(report.report_id, { expected_revision: report.revision });
@@ -73,4 +76,30 @@ it("INT-02: real report readers can open both publications without seeing the sh
   expect(page.container.textContent).toContain("Первая публикация HTTP");
   expect(page.container.textContent).toContain("Вторая публикация HTTP");
   expect(page.container.textContent).not.toContain("Скрытый черновик HTTP");
+});
+
+it("INT-03: closed correction keeps old totals immutable and exposes provenance through the actual UI", async () => {
+  await liveCloseSeasons();
+  const session = await liveLogin();
+  const closed = (await seasonsApi.list()).items.find(s => s.state === "closed")!;
+  let summary = await seasonsApi.summary(closed.season_id);
+  const old = await seasonsApi.summaryVersion(closed.season_id, summary.version);
+  const row = summary.rows.find(r => r.user.user_id !== null)!;
+  summary = await seasonsApi.decisions(closed.season_id, row.user.user_id!, { expected_version: summary.version, decisions: ["nice"], reason: "INT-03 новая отметка" });
+  page = await mountWorkspace(<Routes><Route path="/seasons/:id/summary" element={<SummaryPage />} /></Routes>, { path: `/seasons/${closed.season_id}/summary`, session });
+  for (let i = 0; i < 40 && !page.container.querySelector('select'); i++) await settle();
+  await change(page.container.querySelector('select')!, String(old.version));
+  for (let i = 0; i < 40 && !page.container.querySelector('[aria-label="Историческая сводная"]'); i++) await settle();
+  let historical = page.container.querySelector('[aria-label="Историческая сводная"]')!;
+  expect(historical.textContent).toContain(`Историческая версия ${old.version}`);
+  expect(historical.textContent).toContain(old.reason);
+  expect(historical.querySelectorAll('form')).toHaveLength(0);
+  const oldText = historical.textContent;
+  await seasonsApi.decisions(closed.season_id, row.user.user_id!, { expected_version: summary.version, decisions: ["golden_red_bull"], reason: "INT-03 ещё одна коррекция" });
+  await act(async () => invalidateWorkspace(page!.client));
+  await settle();
+  expect((await seasonsApi.summaryVersion(closed.season_id, old.version))).toEqual(old);
+  historical = page.container.querySelector('[aria-label="Историческая сводная"]')!;
+  expect(historical.textContent).toBe(oldText);
+  expect(page.container.querySelector('select')!.querySelectorAll('option').length).toBeGreaterThan(3);
 });

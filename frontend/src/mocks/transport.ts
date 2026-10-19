@@ -19,6 +19,7 @@ import {
   type Merit,
   type Decision,
   type Season,
+  type SummaryVersionSnapshot,
 } from "../utils/api/contract";
 
 type Reply = [number, unknown];
@@ -100,6 +101,20 @@ export function installMockTransport(
       { ...clone(state.summary), season_id: s.season_id },
     ]),
   );
+  const summaryVersions = new Map<string, SummaryVersionSnapshot[]>();
+  const rememberSummary = (seasonId: string, reason: string) => {
+    const summary = summaries.get(seasonId)!;
+    const history = summaryVersions.get(seasonId) ?? [];
+    if (history.some(v => v.version === summary.version)) return;
+    history.unshift({ version: summary.version, changed_by: clone(state.user), changed_at: mockNow,
+      reason, previous_summary_version: null,
+      summary: { ...clone(summary), capabilities: ["view_summary"] },
+      contributions: summary.rows.flatMap(row => row.source_scores.map((c, index) => ({
+        contribution_id: `${row.participant_id}-${index}`, participant_id: row.participant_id,
+        source_kind: c.source_kind, source_id: c.source_id, source_title: c.title, score: c.score, calculation_version: "fixture_v1",
+      }))), master_bonuses: [] });
+    summaryVersions.set(seasonId, history);
+  };
   const categories = new Map(
     state.people.map((p) => [
       p.user_id,
@@ -389,6 +404,15 @@ export function installMockTransport(
       if (parts[2] === "summary") {
         if (!state.global) return denied();
         const summary = summaries.get(season.season_id)!;
+        if (parts[3] === "versions") {
+          const history = summaryVersions.get(season.season_id) ?? [];
+          if (parts[4]) {
+            const version = history.find(v => v.version === Number(parts[4]));
+            return version ? [200, clone(version)] : fail(404, "not_found", "Версия не найдена");
+          }
+          return list(history.map(v => ({ version: v.version, changed_by: v.changed_by, changed_at: v.changed_at,
+            reason: v.reason, previous_summary_version: v.previous_summary_version })));
+        }
         summary.capabilities =
           season.state === "closed"
             ? state.chair
@@ -448,6 +472,7 @@ export function installMockTransport(
             }
           });
           summary.version++;
+          rememberSummary(season.season_id, String(data.reason));
           return [200, clone(summary)];
         }
         if (method === "put") {
@@ -458,6 +483,7 @@ export function installMockTransport(
           );
           if (row) row.decisions = data.decisions as Decision[];
           summary.version++;
+          if (season.state === "closed") rememberSummary(season.season_id, String(data.reason ?? "Изменение отметок"));
         }
         return [200, clone(summary)];
       }
@@ -577,6 +603,7 @@ export function installMockTransport(
         summary.state = "approved";
         summary.approved_at = mockNow;
         summary.version++;
+        rememberSummary(season.season_id, "Утверждение итогов");
         return [200, { season: clone(season), summary: clone(summary) }];
       }
       if (parts[2] === "open") {

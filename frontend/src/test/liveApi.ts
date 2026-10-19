@@ -2,6 +2,11 @@ import Cookies from "js-cookie";
 import { authApi } from "../utils/api/auth.api";
 import { sessionApi } from "../utils/api/session.api";
 import { membershipApi } from "../utils/api/membership.api";
+import { seasonsApi } from "../utils/api/seasons.api";
+import { eventsApi } from "../utils/api/events.api";
+import { tasksApi } from "../utils/api/tasks.api";
+import { reportsApi } from "../utils/api/reports.api";
+import { richText } from "../utils/api/contract";
 
 export const livePassword = "Synthetic-Local-2026";
 export async function liveLogin(email = "chair@example.com") {
@@ -20,4 +25,33 @@ export async function liveParticipant(label: string) {
   await liveLogin();
   await membershipApi.registrationCommand(pending.user_id, "approve", { expected_revision: application.revision });
   return { user_id: pending.user_id, email };
+}
+
+/** Finish only disposable test data through public commands, including close blockers. */
+export async function liveCloseSeasons() {
+  const chair = await liveLogin();
+  for (const season of (await seasonsApi.list()).items.sort((a, b) => a.sequence_number - b.sequence_number)) {
+    if (season.state === "closed") continue;
+    for (const task of (await tasksApi.list({ season_id: season.season_id, mine: false })).items)
+      for (const a of task.assignments)
+        if (!["accepted", "cancelled", "not_completed"].includes(a.status))
+          await tasksApi.command(a.assignment_id, "cancel", { expected_revision: a.revision, reason: "Finish disposable acceptance fixture" });
+    for (const event of (await eventsApi.list({ season_id: season.season_id })).items) {
+      await eventsApi.leaders("events", event.event_id, [chair.user_id], { expected_revision: event.revision });
+      const owners: { owner_kind: "event" | "subevent"; owner_id: string }[] = [{ owner_kind: "event", owner_id: event.event_id }];
+      for (const sub of (await eventsApi.subevents(event.event_id)).items) {
+        await eventsApi.leaders("subevents", sub.subevent_id, [chair.user_id], { expected_revision: sub.revision });
+        owners.push({ owner_kind: "subevent", owner_id: sub.subevent_id });
+      }
+      for (const owner of owners) {
+        let final = (await reportsApi.list(owner)).items.find(r => r.kind === "final");
+        final ??= await reportsApi.create({ ...owner, kind: "final", title: "Итог тестового экземпляра", content: richText("Test completion"), file_ids: [] });
+        if (final.state !== "published") await reportsApi.publish(final.report_id, { expected_revision: final.revision });
+      }
+    }
+    let current = (await seasonsApi.list()).items.find(s => s.season_id === season.season_id)!;
+    if (current.state === "planned") current = await seasonsApi.command(current.season_id, "open", { expected_revision: current.revision }) as typeof current;
+    if (current.state === "open") current = await seasonsApi.command(current.season_id, "begin-summary", { expected_revision: current.revision }) as typeof current;
+    await seasonsApi.command(current.season_id, "close", { expected_revision: current.revision });
+  }
 }
