@@ -9,6 +9,7 @@ Use this file as the durable project memory. Treat the current working tree and 
 
 ## Establish scope first
 
+- Explicit owner rule: ALL project work stays on the user's local machine unless the user explicitly approves the external environment and action. No SSH (including neuroh100/neuro-8h100), remote executors, cloud jobs, external CI/CD, remote Git operations, deployment, real VK/S3 calls or project-data transfer without that approval. An ordinary implementation/check request is not such approval. See root AGENTS.md.
 - Work in the Git repository that contains this skill (`profkom_web/`). The parent directory also contains `profkom_web-service/` and `profkom_web-service.zip`; they are stale/export copies, not the default edit target.
 - Start with `git status --short --branch`. Preserve all pre-existing edits and untracked files; this repository is often used with unfinished local work.
 - Never inspect or print secret values from `.env`. The tracked `.env.example` files document only part of the required configuration.

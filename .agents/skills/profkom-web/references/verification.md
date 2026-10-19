@@ -25,6 +25,8 @@ npm test -- --run
 PROFKOM_TEST_API_ORIGIN=http://127.0.0.1:18000 npm run test:integration
 ```
 
+tests/live_api.py starts only a new temporary localhost database; its test-only live_storage boundary provides signed local PUT/GET and stored bytes for the real file verifier. It is never installed by the production app. Include test_integration_http_transactions.py when changing request transaction handling.
+
 Default Vitest excludes live integration. The separate integration configuration permits localhost only and requires a disposable synthetic API. Unit mocks/build alone do not prove integration. Browser verification should use VITE_DEMO_MODE=false, current API DTOs and desktop/mobile layouts when affected. Keep all external services mocked or out of the tested flow.
 
 check_live.py targets a running server and can register users; do not run it on shared/prod implicitly. Deployment checks are distinct: actual image build, provider VK, private S3 PUT/HEAD/GET/CORS and production smoke tests. Docker CLI availability without a running daemon is not an image-build pass.

@@ -22,7 +22,7 @@ Never infer rights from FIO, kkr_name, legacy admin/super_user flags or events_r
 
 ## Transactions, IDs and history
 
-Every HTTP command uses one unit of work. Nested Database operations flush instead of independently committing. SQLite BEGIN IMMEDIATE serializes writes; revisions and unique indexes cover competing planned/current seasons, roles, contributions, final reports, summaries and memberships. Invalid bulk commands roll back completely. Do not bypass synchronization helpers with ad-hoc roster writes.
+Every HTTP command uses one unit of work. The async HTTP dependency uses Database.async_atomic: writers await a local lock and SQLite BEGIN/commit/rollback run outside the event loop; synchronous services/scripts retain Database.atomic. Keep ContextVar propagation and rollback intact. Nested Database operations flush instead of independently committing. SQLite BEGIN IMMEDIATE serializes writes; revisions and unique indexes cover competing planned/current seasons, roles, contributions, final reports, summaries and memberships. Invalid bulk commands roll back completely. Do not bypass synchronization helpers with ad-hoc roster writes.
 
 Block IDs are stable UUIDs mapped to legacy names in BlockMeta; internal legacy task/role/source storage still uses names in some tables, so use membership boundary conversion helpers. Renaming must preserve IDs and update coupled internal names. Master/deputy service roles are independent from ordinary membership.
 
