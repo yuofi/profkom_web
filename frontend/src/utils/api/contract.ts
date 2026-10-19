@@ -40,6 +40,7 @@ export interface Session {
   user_id: number;
   account_state: "pending" | "active" | "archived";
   registration_status: "pending" | "approved" | "rejected";
+  access_revision?: string;
   capabilities: string[];
   assignments?: RoleAssignment[];
 }

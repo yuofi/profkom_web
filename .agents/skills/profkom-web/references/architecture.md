@@ -18,7 +18,7 @@ All working content requires an active approved account, including blocks, legac
 
 Chair/deputies come from explicit leadership/role assignments. Block master, per-principal deputies, event/subevent leaders and organizers grant scoped rights. The master of the explicitly configured is_hr block has global HR/KKR rights; an HR deputy does not. Material editors are assigned per general material by tachki. PGAS rights remain separate.
 
-Never infer rights from FIO, kkr_name, legacy admin/super_user flags or events_roles. A saved trusted master_user_id or explicit operator-ID mapping is different from matching a display name. VK subject links are explicit; provider email or FIO cannot authenticate an existing local account. Password change, archive and logout-all revoke existing access/refresh sessions. Role changes are checked from current DB state on every request.
+Never infer rights from FIO, kkr_name, legacy admin/super_user flags or events_roles. A saved trusted master_user_id or explicit operator-ID mapping is different from matching a display name. VK subject links are explicit; provider email or FIO cannot authenticate an existing local account. Password change, archive and logout-all revoke existing access/refresh sessions. Role changes are checked from current DB state on every request. Session access_revision also fingerprints ordinary block membership and subevent organizer rosters; the frontend removes private cache and remounts its observers when access changes. Session is checked on focus and every 60 seconds.
 
 ## Transactions, IDs and history
 

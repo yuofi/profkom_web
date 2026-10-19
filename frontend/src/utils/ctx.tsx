@@ -21,7 +21,7 @@ export const UserProvider = ({ children }: { children: React.ReactNode }) => {
       return next;
     },
     retry: false,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: "always",
     refetchInterval: 60_000,
   });
   const active = isActiveSession(sessionQuery.data);
@@ -46,6 +46,7 @@ export const UserProvider = ({ children }: { children: React.ReactNode }) => {
       }}
     >
       <UserContext.Provider
+        key={accessFingerprint(sessionQuery.data)}
         value={active ? (profile.data?.data ?? null) : null}
       >
         {children}

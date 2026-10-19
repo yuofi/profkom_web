@@ -27,6 +27,7 @@ export const accessFingerprint = (session: Session | null | undefined) =>
           session.user_id,
           session.account_state,
           session.registration_status,
+          session.access_revision,
           [...session.capabilities].sort(),
           session.assignments?.map((a) => [
             a.role_assignment_id,

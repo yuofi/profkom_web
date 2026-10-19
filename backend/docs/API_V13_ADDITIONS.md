@@ -23,3 +23,12 @@
 `GET /guides/{guide_id}/material` returns `{guide_id, material_id, revision}`. Legacy guide DTOs carry the same mapping and object capabilities. Old IDs are preserved. Legacy saves require `expected_revision` and refuse to overwrite an existing shared draft. New material publication updates the same old Guide row.
 
 New PGAS entries require `file_url: "file:<file_id>"` for a completed contextual PGAS file. Its saved verified name/MIME are authoritative; arbitrary URL creation cannot bypass complete. Existing raw URLs remain readable through the legacy adapter. The response resolves that reference and existing configured-bucket URLs to temporary GET URLs. External legacy links stay unchanged; no remote content is downloaded by migration. Existing public bucket ACLs require an operator-side private-access rollout; changing a DTO does not revoke an old public URL.
+
+## Ревизия обычного доступа в session
+
+GET /session возвращает access_revision — стабильный непрозрачный отпечаток
+обычных членств блоков и состава организаторов подмероприятий. Эти основания
+доступа хранятся отдельно от RoleAssignment. Изменение отпечатка требует
+удалить закрытый клиентский кэш и пересоздать его открытых наблюдателей.
+Проверка выполняется при возврате к окну и периодически раз в 60 секунд.
+Сам отпечаток не предоставляет права: каждый endpoint проверяет текущий ACL.

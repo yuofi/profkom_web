@@ -357,6 +357,7 @@ class SessionOut(BaseModel):
     user_id: int
     account_state: str
     registration_status: str
+    access_revision: str = ""
     capabilities: list[str] = []
     permissions: list[str] = []
     assignments: list[RoleAssignmentOut] = []
@@ -1524,6 +1525,7 @@ def get_session(cur: User = Depends(get_current_user)):
         user_id=cur.user_id,
         account_state=acc_state,
         registration_status=reg_status,
+        access_revision=access.scope_access_revision(cur.user_id),
         capabilities=caps_sorted,
         permissions=caps_sorted,
         assignments=assignments_out,

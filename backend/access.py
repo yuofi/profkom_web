@@ -1,6 +1,8 @@
 """API 1.3 capability projection. The same domain predicates authorize commands."""
 
 from contextvars import ContextVar
+import hashlib
+import json
 from database import db
 
 actor_id = ContextVar("profkom_actor_id", default=None)
@@ -12,6 +14,22 @@ QUEUE_ROLES = {
     "event": {"event_leader", "deputy_event_leader"},
     "subevent": {"subevent_leader", "deputy_subevent_leader"},
 }
+
+
+def scope_access_revision(uid):
+    """Memberships and organizer rosters are not RoleAssignments in session."""
+    from database import SubeventORM
+
+    user = db.get_user(uid)
+    with db._session() as session:
+        scopes = [
+            sorted({name.strip() for name in user.blocks.split(",") if name.strip()}),
+            sorted(
+                row.subevent_id for row in session.query(SubeventORM)
+                if db.is_subevent_organizer(uid, row.subevent_id)
+            ),
+        ]
+    return hashlib.sha256(json.dumps(scopes, ensure_ascii=True).encode()).hexdigest()
 
 
 def global_caps(uid):
