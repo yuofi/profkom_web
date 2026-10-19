@@ -25,7 +25,7 @@ npm test -- --run
 PROFKOM_TEST_API_ORIGIN=http://127.0.0.1:18000 npm run test:integration
 ```
 
-tests/live_api.py starts only a new temporary localhost database; its test-only live_storage boundary provides signed local PUT/GET and stored bytes for the real file verifier. It is never installed by the production app. Include test_integration_http_transactions.py when changing request transaction handling.
+tests/live_api.py starts only a new temporary localhost database; its test-only live_storage boundary provides signed local PUT/GET and stored bytes for the real file verifier. It is never installed by the production app. The local storage honors signed Content-Disposition for browser downloads; a separately vacant block keeps nullable master-bonus recipients covered. legacy-guide.integration.test.tsx verifies the old URL redirect through real HTTP, private draft, separate publication and reopen. Include test_integration_http_transactions.py when changing request transaction handling.
 
 Default Vitest excludes live integration. The separate integration configuration permits localhost only and requires a disposable synthetic API. Unit mocks/build alone do not prove integration. Browser verification should use VITE_DEMO_MODE=false, current API DTOs and desktop/mobile layouts when affected. Keep all external services mocked or out of the tested flow.
 
