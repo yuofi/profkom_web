@@ -5756,7 +5756,7 @@ class Database:
     ) -> FileRecordDC:
         with self._session() as session:
             from file_access import validate_metadata, permitted
-            validate_metadata(owner_kind,purpose,name,mime_type,size_bytes)
+            mime_type = validate_metadata(owner_kind,purpose,name,mime_type,size_bytes)
             if owner_kind=="avatar":
                 if owner_id is not None and owner_id!=str(user_id):raise ValueError("Forbidden: avatar owner mismatch")
                 owner_id=str(user_id)

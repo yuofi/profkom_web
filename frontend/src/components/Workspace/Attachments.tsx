@@ -2,8 +2,8 @@ import { useRef, useState } from "react";
 import type { FileRef } from "../../utils/api/contract";
 import { filesApi } from "../../utils/api/files.api";
 import { normalizeApiError } from "../../utils/api/request";
+import { fileAccept, fileLimitMiB } from "../../utils/filePolicy";
 import s from "./Workspace.module.css";
-const allowed = /\.(png|jpe?g|webp|gif|pdf|docx?|xlsx?|pptx?|zip|txt)$/i;
 export function Attachments({ files }: { files: FileRef[] }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -65,7 +65,6 @@ export function AttachmentPicker({
   files,
   onChange,
   onBusyChange,
-  maxMiB = 20,
 }: {
   owner_kind: string;
   owner_id?: string;
@@ -73,7 +72,6 @@ export function AttachmentPicker({
   files: FileRef[];
   onChange: (files: FileRef[]) => void;
   onBusyChange?: (busy: boolean) => void;
-  maxMiB?: number;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -82,13 +80,13 @@ export function AttachmentPicker({
   return (
     <div className={s.form}>
       <label className={s.field}>
-        <span>Файлы до {maxMiB} МБ</span>
+        <span>Файлы до {fileLimitMiB(owner_kind)} МиБ</span>
         <input
           ref={input}
           type="file"
           multiple
           disabled={busy}
-          accept=".png,.jpg,.jpeg,.webp,.gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.txt"
+          accept={fileAccept(owner_kind)}
           onChange={async (event) => {
             const chosen = Array.from(event.target.files ?? []);
             if (!chosen.length) return;
@@ -98,10 +96,6 @@ export function AttachmentPicker({
             const uploaded = [...files];
             try {
               for (const file of chosen) {
-                if (file.size > maxMiB * 1024 * 1024)
-                  throw Error(`${file.name}: размер больше ${maxMiB} МБ`);
-                if (!allowed.test(file.name))
-                  throw Error(`${file.name}: неподдерживаемый формат`);
                 setProgress(0);
                 uploaded.push(
                   await filesApi.upload(

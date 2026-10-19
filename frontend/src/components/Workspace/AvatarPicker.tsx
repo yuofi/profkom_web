@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { directoryApi } from "../../utils/api/directory.api";
 import { filesApi } from "../../utils/api/files.api";
 import { normalizeApiError } from "../../utils/api/request";
+import { fileAccept } from "../../utils/filePolicy";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { QueryState } from "./WorkspaceUI";
 import { Image } from "../Image/Image";
@@ -56,20 +57,13 @@ export function AvatarPicker() {
         Своё фото: PNG, JPEG или WebP до 10 МиБ
         <input
           type="file"
-          accept="image/png,image/jpeg,image/webp"
+          accept={fileAccept("avatar")}
           disabled={busy}
           onChange={(e) => {
             const file = e.target.files?.[0];
             e.target.value = "";
             if (!file) return;
             void save(async () => {
-              if (
-                !["image/png", "image/jpeg", "image/webp"].includes(
-                  file.type,
-                ) ||
-                file.size > 10 * 1024 * 1024
-              )
-                throw Error("Выберите PNG, JPEG или WebP до 10 МиБ");
               const uploaded = await filesApi.upload(
                 file,
                 { owner_kind: "avatar", purpose: "avatar" },

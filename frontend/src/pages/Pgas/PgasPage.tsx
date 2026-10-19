@@ -6,6 +6,7 @@ import { FormikProvider } from "formik";
 import clsx from "clsx";
 import { pgasApi } from "../../utils/api/pgas.api";
 import { uploadFile } from "../../utils/s3-utils";
+import { fileAccept, fileMetadata } from "../../utils/filePolicy";
 import { useMe } from "../../utils/me";
 import { Icon } from "../../components/Icon";
 import { Button } from "../../components/Button/Button";
@@ -13,19 +14,6 @@ import { FormTextField } from "../../components/Form/FormTextFiled";
 import { useForm } from "../../components/Form/Form";
 import type { PgasEntryOut } from "../../utils/api/types";
 import styles from "./PgasPage.module.css";
-
-const ALLOWED_FILE_TYPES = [
-  "application/pdf",
-  "image/png",
-  "image/jpeg",
-  "image/jpg",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/zip",
-  "application/x-zip-compressed",
-  "application/msword",
-];
-
-const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 МБ
 
 const CURRENT_YEAR = new Date().getFullYear();
 // Годы для выпадающего списка: следующий год и семь предыдущих
@@ -168,18 +156,11 @@ export const PgasPage = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const fileExt = file.name.includes('.') ? file.name.substring(file.name.lastIndexOf('.')).toLowerCase() : '';
-    const isTypeAllowed = ALLOWED_FILE_TYPES.includes(file.type);
-    const isExtAllowed = [".pdf", ".doc", ".docx", ".png", ".jpg", ".jpeg"].includes(fileExt);
-
-    if (!isTypeAllowed && !isExtAllowed) {
+    try {
+      fileMetadata("pgas", file);
+    } catch (error) {
       setSelectedFile(null);
-      setFileError("Допустимы только файлы формата PDF, DOC, DOCX, PNG или JPG");
-      return;
-    }
-    if (file.size > MAX_FILE_SIZE) {
-      setSelectedFile(null);
-      setFileError("Файл слишком большой, максимальный размер — 20 МБ");
+      setFileError(error instanceof Error ? error.message : "Неподдерживаемый файл");
       return;
     }
 
@@ -384,7 +365,7 @@ export const PgasPage = () => {
                     type="file"
                     ref={fileInputRef}
                     style={{ display: "none" }}
-                    accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg,.pdf,.doc,.docx,.png,.jpg,.jpeg"
+                    accept={fileAccept("pgas")}
                     onChange={handleFileChange}
                   />
                 </div>

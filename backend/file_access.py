@@ -1,7 +1,6 @@
 """Private file contexts, attachment checks and verified object storage I/O."""
 
 import json
-from pathlib import PurePath
 from datetime import datetime, timezone, timedelta
 from fastapi import HTTPException
 from botocore.exceptions import ClientError
@@ -61,17 +60,22 @@ def validate_metadata(kind, purpose, name, mime, size):
         raise ValueError(f"File size must be between 1 byte and {limit} MiB")
     if not name or "/" in name or "\\" in name or any(ord(c) < 32 for c in name):
         raise ValueError("Invalid file name")
-    ext = name.rsplit(".", 1)[-1].lower()
-    if mime not in TYPES or ext not in TYPES[mime]:
+    ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    canonical = next((m for m, extensions in TYPES.items() if ext in extensions), None)
+    mime = (mime or "").strip().lower()
+    if mime in ("", "application/octet-stream"):
+        mime = canonical
+    mime = {
+        "image/jpg": "image/jpeg",
+        "application/x-zip-compressed": "application/zip",
+    }.get(mime, mime)
+    if not canonical or mime != canonical:
         raise ValueError("File type is not allowed")
     if kind == "avatar" and mime not in ("image/png", "image/jpeg", "image/webp"):
         raise ValueError("Avatar must be PNG, JPEG or WebP")
-    if (
-        (kind == "avatar" and purpose != "avatar")
-        or (kind == "report" and purpose != "report")
-        or (kind == "assignment" and purpose != "submission")
-    ):
-        raise ValueError("Invalid file purpose")
+    if kind == "pgas" and ext not in ("pdf", "doc", "docx", "png", "jpg", "jpeg"):
+        raise ValueError("Only pdf, doc, docx, png and jpg files are allowed for PGAS")
+    return mime
 
 
 def permitted(session, fr, uid, write=False):

@@ -1391,6 +1391,11 @@ def create_pgas(payload: PgasEntryIn, cur: User = Depends(require_pgas_admin)):
             fr=s.get(FileRecordORM,payload.file_url[5:])
             if not fr or fr.owner_kind!="pgas" or fr.state!="completed":
                 raise HTTPException(422,"Invalid PGAS file")
+            from file_access import validate_metadata
+            try:
+                validate_metadata("pgas", "pgas", fr.name, fr.mime_type, fr.size_bytes)
+            except ValueError as error:
+                raise HTTPException(422, str(error))
     else:
         _validate_pgas_file(payload.file_url, payload.file_type)
         raise HTTPException(422,"New PGAS entries require a completed contextual file reference")

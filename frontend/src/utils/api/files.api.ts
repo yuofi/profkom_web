@@ -1,9 +1,10 @@
 import axios from "axios";
 import type { FileRef, UploadIntent, UploadIntentCreate } from "./contract";
 import { idPath, request, normalizeApiError } from "./request";
+import { normalizeUpload } from "../filePolicy";
 export const filesApi = {
-  intent: (data: UploadIntentCreate) =>
-    request<UploadIntent>("post", "/files/upload-intents", data),
+  intent: async (data: UploadIntentCreate) =>
+    request<UploadIntent>("post", "/files/upload-intents", normalizeUpload(data)),
   complete: (id: string) =>
     request<FileRef>("post", `/files/${idPath(id)}/complete`, {}),
   download: (id: string) =>
@@ -28,7 +29,8 @@ export const filesApi = {
         url: intent.upload_url,
         method: intent.method,
         headers: intent.headers,
-        data: file,
+        // Some transports derive Content-Type from Blob.type, overriding headers.
+        data: file.slice(0, file.size, intent.headers["Content-Type"]),
         signal,
         onUploadProgress: (event) =>
           onProgress?.(
