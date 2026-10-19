@@ -2,7 +2,7 @@
 import { afterEach, expect, it } from "vitest";
 import { Route, Routes } from "react-router-dom";
 import { liveLogin, liveParticipant, liveCloseSeasons } from "../../test/liveApi";
-import { mountWorkspace, settle, change } from "../../test/workspace";
+import { mountWorkspace, settle, change, field, submit } from "../../test/workspace";
 import { eventsApi } from "../../utils/api/events.api";
 import { membershipApi } from "../../utils/api/membership.api";
 import { tasksApi } from "../../utils/api/tasks.api";
@@ -14,6 +14,10 @@ import { reportsApi } from "../../utils/api/reports.api";
 import { SummaryPage } from "./SeasonPages";
 import { invalidateWorkspace } from "../../utils/api/invalidation";
 import { act } from "react";
+import { ProfileEditPage } from "../ProfileEditPage/ProfileEditPage";
+import { UserContext } from "../../utils/me";
+import { authApi } from "../../utils/api/auth.api";
+import { HelmetProvider } from "react-helmet-async";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 afterEach(async () => { await page?.cleanup(); page = undefined; });
@@ -102,4 +106,17 @@ it("INT-03: closed correction keeps old totals immutable and exposes provenance 
   historical = page.container.querySelector('[aria-label="Историческая сводная"]')!;
   expect(historical.textContent).toBe(oldText);
   expect(page.container.querySelector('select')!.querySelectorAll('option').length).toBeGreaterThan(3);
+});
+
+it("INT-04: a real approved profile with @username and no patronymic can save one field", async () => {
+  const person = await liveParticipant("profile"); const session = await liveLogin(person.email);
+  const profile = (await authApi.getMe()).data;
+  expect(profile.patronymic).toBe(""); expect(profile.tg).toBe("@profkom_test");
+  page = await mountWorkspace(<HelmetProvider><UserContext.Provider value={profile}><ProfileEditPage /></UserContext.Provider></HelmetProvider>, { session });
+  await change(field(page.container, "surname"), "Обновлена без отчества");
+  await submit(page.container.querySelector('form')!);
+  for (let i = 0; i < 30 && !page.container.textContent?.includes("Профиль успешно обновлён"); i++) await settle();
+  expect(page.container.textContent).toContain("Профиль успешно обновлён");
+  const read = (await authApi.getMe()).data;
+  expect(read.surname).toBe("Обновлена без отчества"); expect(read.patronymic).toBe(""); expect(read.tg).toBe(profile.tg);
 });

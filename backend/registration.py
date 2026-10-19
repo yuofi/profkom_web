@@ -11,6 +11,7 @@ from domain_models import RegistrationORM, ParticipationORM
 from models import User
 from api_contract import Page
 from domain_contract import RegistrationApplication as ApplicationOut
+import contact_rules
 
 
 class Fields(BaseModel):
@@ -25,6 +26,11 @@ class Fields(BaseModel):
     vk: str = Field(min_length=1, max_length=300)
     funding: Literal["budget", "contract"]
     residence: str = Field(min_length=1, max_length=500)
+
+    @field_validator("tg", "vk", mode="before")
+    @classmethod
+    def normalize_contact(cls, value, info):
+        return contact_rules.telegram(value) if info.field_name == "tg" else contact_rules.vk(value)
 
     @field_validator(
         "surname",

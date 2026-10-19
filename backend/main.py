@@ -4,6 +4,7 @@ import json
 import os
 import access
 import membership
+import contact_rules
 from api_contract import Page, install_errors
 from validation import Command
 from datetime import datetime, timezone
@@ -103,10 +104,14 @@ class RegisterIn(BaseModel):
     group_number: int = Field(..., ge=100, le=700)
     tg: str = Field(
         ...,
-        min_length=5,
-        max_length=33,  # with optional leading "@"
-        pattern=r"^@?[A-Za-z0-9_]{5,32}$",
+        min_length=1,
+        max_length=200,
     )
+
+    @field_validator("tg", "vk", mode="before")
+    @classmethod
+    def normalize_contact(cls, value, info):
+        return contact_rules.telegram(value) if info.field_name == "tg" else contact_rules.vk(value)
 
     @field_validator("password")
     @classmethod
@@ -280,6 +285,11 @@ class ProfileUpdate(BaseModel):
     tg: Optional[str] = None
     email: Optional[EmailStr] = None
     budget: Optional[bool] = None
+
+    @field_validator("tg", "vk", mode="before")
+    @classmethod
+    def normalize_contact(cls, value, info):
+        return contact_rules.telegram(value) if info.field_name == "tg" else contact_rules.vk(value)
 
     @field_validator("group_number")
     @classmethod

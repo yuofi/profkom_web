@@ -52,20 +52,21 @@ export const ProfileEditPage = () => {
     validationSchema: ProfileValidationSchema,
     onSubmit: async (values, actions) => {
       if (!user) return;
+      const clean = ProfileValidationSchema.parse(values);
       const updateData: ProfileUpdate = {
         surname: values.surname,
         name: values.name,
-        patronymic: values.patronymic,
+        patronymic: clean.patronymic,
         group_number: values.group_number,
         location: values.location,
         phone: values.phone,
-        vk: values.vk,
-        tg: values.tg,
+        vk: clean.vk,
+        tg: clean.tg,
         email: values.email,
         budget: values.budget === "Бюджет",
       };
       await updateMutation.mutateAsync(updateData);
-      actions.resetForm({ values });
+      actions.resetForm({ values: { ...values, patronymic: clean.patronymic, tg: clean.tg ?? "", vk: clean.vk ?? "" } });
     }
   });
 

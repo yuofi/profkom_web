@@ -1,4 +1,5 @@
 import {z} from 'zod'
+import { telegramField, vkField, patronymicField } from './contactFields';
 
 export const isValidGroupNumber = (value: string | number) => {
     const str = String(value).trim();
@@ -16,10 +17,10 @@ export const SignUpValidationSchema = z.object({
     }, {
         message: "Номер группы должен быть числом от 100 до 700",
     }),
-    telegram: z.string().min(1, "Telegram не может быть пустым"),
+    telegram: telegramField.refine(Boolean, "Telegram не может быть пустым"),
     name: z.string().min(1, "Имя не может быть пустым"),
     surname: z.string().min(1, "Фамилия не может быть пустым"),
-    patronymic: z.string().min(1, "Отчество не может быть пустым"),
+    patronymic: patronymicField,
 
 })
 .refine((data) => data.password === data.passwordAgain, {
@@ -35,7 +36,7 @@ export const SignInValidationSchema = z.object({
 export const ProfileValidationSchema = z.object({
   surname: z.string().min(1, "Фамилия не может быть пустым"),
   name: z.string().min(1, "Имя не может быть пустым"),
-  patronymic: z.string().min(1, "Отчество не может быть пустым"),
+  patronymic: patronymicField,
   group_number: z.string().refine((value) => {
       if (!value) return true;
       return isValidGroupNumber(value);
@@ -45,15 +46,9 @@ export const ProfileValidationSchema = z.object({
   budget: z.enum(["Бюджет", "Контракт"], "Выберите Бюджет или Контракт").optional(),
   location: z.string().optional().or(z.literal("")),
   phone: z.string().optional().or(z.literal("")),
-  tg: z.string().regex(
-    /t\.me\/[a-zA-Z0-9_]{5,32}\/?$/,
-    { message: "Ссылка должна вести на Telegram (t.me/имя_пользователя)" }
-  ).optional().or(z.literal("")),
+  tg: telegramField.optional(),
   email: z.string().email("Неправильный формат email").optional().or(z.literal("")),
-  vk: z.string().regex(
-    /^(https?:\/\/)?(www\.)?vk\.com\/[a-zA-Z0-9_]{5,32}\/?$/,
-    { message: "Ссылка должна вести на ВКонтакте (vk.com/имя_пользователя)" }
-  ).optional().or(z.literal("")),
+  vk: vkField.optional(),
   photo_url: z.string().optional().or(z.literal(""))
 });
 

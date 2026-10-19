@@ -1,6 +1,5 @@
 import type {
   RegistrationApplication,
-  RegistrationFields,
 } from "../../utils/api/contract";
 import { membershipApi } from "../../utils/api/membership.api";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
@@ -8,6 +7,8 @@ import { ActionForm, type Field } from "./ActionForm";
 import { text } from "./formValues";
 import { can } from "../../utils/session";
 import s from "./Workspace.module.css";
+import { registrationFieldsSchema } from "../../utils/contactFields";
+import { ApiError } from "../../utils/api/request";
 const names = {
   surname: "Фамилия",
   name: "Имя",
@@ -55,14 +56,14 @@ export function RegistrationForm({
           const form = Object.fromEntries(
             Object.keys(names).map((k) => [k, text(v, k)]),
           );
+          const parsed = registrationFieldsSchema.safeParse({ ...form, funding: text(v, "funding") });
+          if (!parsed.success) throw new ApiError("Проверьте сведения и контакты", 422, "validation_error", {
+            errors: parsed.error.issues.map(issue => ({ loc: issue.path, msg: issue.message })),
+          });
           return perform(() =>
             membershipApi.updateRegistration({
               expected_revision: expectedRevision!,
-              fields: {
-                ...form,
-                patronymic: text(v, "patronymic") || null,
-                funding: text(v, "funding"),
-              } as RegistrationFields,
+              fields: parsed.data,
             }),
           );
         }}
