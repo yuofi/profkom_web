@@ -63,6 +63,12 @@ class PgasEntry:
 
 
 @dataclass
+class BlockMember:
+    user: UserRef
+    block_category: str = "junior"  # "junior" | "member"
+
+
+@dataclass
 class Block:
     name: str
     master: str
@@ -71,6 +77,13 @@ class Block:
     arr_of_human: list[int] = field(default_factory=list)
     is_hr: bool = False
     master_user_id: Optional[int] = None
+    block_id: Optional[str] = None
+    description: Optional[str] = ""
+    guide_material_id: Optional[str] = None
+    community_url: Optional[str] = None
+    revision: int = 1
+    members: list[BlockMember] = field(default_factory=list)
+    capabilities: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -452,6 +465,118 @@ class Notification:
     payload: dict = field(default_factory=dict)
     is_read: bool = False
     created_at: str = ""
+
+
+@dataclass
+class RegistrationFields:
+    surname: str = ""
+    name: str = ""
+    patronymic: Optional[str] = None
+    group_number: str = ""
+    phone: str = ""
+    email: str = ""
+    tg: str = ""
+    vk: str = ""
+    funding: str = "budget"  # "budget" | "contract"
+    residence: str = ""
+
+
+@dataclass
+class RegistrationApplication:
+    user_id: int
+    status: str  # "pending" | "approved" | "rejected"
+    attempts_used: int
+    attempt_limit: int = 5
+    total_submissions: int = 1
+    rejection_reason: Optional[str] = None
+    fields: RegistrationFields = field(default_factory=RegistrationFields)
+    revision: int = 1
+    capabilities: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ParticipantCategory:
+    user_id: int
+    category: str  # "junior" | "activist"
+    revision: int = 1
+    capabilities: list[str] = field(default_factory=list)
+
+
+@dataclass
+class BlockRequest:
+    request_id: str
+    user: UserRef
+    block_id: str
+    state: str  # "pending_hr" | "pending_block" | "approved" | "rejected" | "withdrawn"
+    created_at: str
+    stage_entered_at: str
+    substitute_available_at: Optional[str] = None
+    revision: int = 1
+    capabilities: list[str] = field(default_factory=list)
+
+
+# ═══════════════════════════════════════════════════════════
+#  BE-06: MATERIALS, CONTACTS & ARCHIVE
+# ═══════════════════════════════════════════════════════════
+
+@dataclass
+class Material:
+    material_id: str
+    kind: str  # "general" | "guide" | "kmb"
+    title: str
+    description: str = ""
+    owner_block_id: Optional[str] = None
+    original_link: Optional[str] = None
+    published_content: Optional[RichText] = None
+    draft_content: Optional[RichText] = None
+    editor_user_ids: list[int] = field(default_factory=list)
+    published_at: Optional[str] = None
+    published_by: Optional[UserRef] = None
+    revision: int = 1
+    capabilities: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ParticipationPeriod:
+    from_year: int
+    to_year: int
+
+
+@dataclass
+class AlumniContact:
+    alumni_id: str
+    surname: str
+    name: str
+    patronymic: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    tg: Optional[str] = None
+    vk: Optional[str] = None
+    participation_periods: list[ParticipationPeriod] = field(default_factory=list)
+    notes: Optional[str] = None
+    revision: int = 1
+    capabilities: list[str] = field(default_factory=list)
+
+
+@dataclass
+class AvatarPreset:
+    preset_id: str
+    title: str
+    image_url: str
+
+
+@dataclass
+class ArchivedAccount:
+    user_id: int
+    email: str
+    display_name: str
+    account_state: str
+    archived_at: Optional[str] = None
+    archive_reason: Optional[str] = None
+    roles: list[str] = field(default_factory=list)
+    blocks: list[str] = field(default_factory=list)
+
+
 
 
 

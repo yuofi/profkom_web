@@ -67,8 +67,8 @@ MERITS_URL = "/api/merits"
 def test_season(client, superuser):
     """Создает и открывает сезон для тестов."""
     now = datetime.now(timezone.utc)
-    starts = (now - timedelta(days=10)).isoformat()
-    ends = (now + timedelta(days=20)).isoformat()
+    starts = (now - timedelta(days=20)).isoformat()
+    ends = (now + timedelta(days=10)).isoformat()
     res = client.post(
         SEASONS_URL,
         json={"title": f"Сезон BE-03 {uuid.uuid4().hex[:6]}", "type": "autumn", "starts_at": starts, "ends_at": ends},

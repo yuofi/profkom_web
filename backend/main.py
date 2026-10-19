@@ -8,7 +8,11 @@ from fastapi import FastAPI, HTTPException, Depends, APIRouter, Response, Cookie
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
-from models import Block, ContactInfo, User, Guide, PgasEntry, Season, Event, Subevent, Meeting, Leader, ReportSeries, Report, ReportVersion, Notification
+from models import (
+    Block, ContactInfo, User, Guide, PgasEntry, Season, Event, Subevent, Meeting,
+    Leader, ReportSeries, Report, ReportVersion, Notification,
+    Material, AlumniContact, ArchivedAccount, AvatarPreset, ParticipationPeriod,
+)
 from database import db, SeasonNotReadyError, generate_summary_xlsx
 import database as database_module
 
@@ -980,7 +984,312 @@ class CalendarItemOut(BaseModel):
 
 
 
-# ═══════════════════════════════════════════════════════════
+# ─────────────────────────────────────────────────────────────
+#  BE-05 SCHEMAS
+# ─────────────────────────────────────────────────────────────
+
+class RegistrationFieldsIn(BaseModel):
+    surname: str = ""
+    name: str = ""
+    patronymic: Optional[str] = None
+    group_number: str = ""
+    phone: str = ""
+    email: str = ""
+    tg: str = ""
+    vk: str = ""
+    funding: str = "budget"
+    residence: str = ""
+
+
+class RegistrationPatchIn(BaseModel):
+    expected_revision: int
+    fields: RegistrationFieldsIn
+
+
+class RegistrationResubmitIn(BaseModel):
+    expected_revision: int
+
+
+class RegistrationActionIn(BaseModel):
+    expected_revision: int
+    reason: Optional[str] = None
+
+
+class RegistrationApplicationOut(BaseModel):
+    user_id: int
+    status: str
+    attempts_used: int
+    attempt_limit: int = 5
+    total_submissions: int = 1
+    rejection_reason: Optional[str] = None
+    fields: RegistrationFieldsIn
+    revision: int
+    capabilities: list[str] = []
+
+
+class ParticipantCategoryOut(BaseModel):
+    user_id: int
+    category: str
+    revision: int
+    capabilities: list[str] = []
+
+
+class ParticipantCategoryPatchIn(BaseModel):
+    expected_revision: int
+    category: str
+    reason: str
+
+
+class BlockMemberOut(BaseModel):
+    user: UserRefOut
+    block_category: str = "junior"
+
+
+class BlockDetailOut(BaseModel):
+    name: str
+    master: Optional[str] = None
+    hr: Optional[str] = ""
+    cnt_of_human: int = 0
+    arr_of_human: list[int] = []
+    is_hr: bool = False
+    master_user_id: Optional[int] = None
+    block_id: Optional[str] = None
+    description: Optional[str] = ""
+    guide_material_id: Optional[str] = None
+    community_url: Optional[str] = None
+    revision: int = 1
+    members: list[BlockMemberOut] = []
+    capabilities: list[str] = []
+
+
+class BlockPatchIn(BaseModel):
+    expected_revision: Optional[int] = None
+    description: Optional[str] = None
+    community_url: Optional[str] = None
+    name: Optional[str] = None
+    master: Optional[str] = None
+    hr: Optional[str] = None
+    cnt_of_human: Optional[int] = None
+    arr_of_human: Optional[list[int]] = None
+
+
+class BlockLeaveOut(BaseModel):
+    block_id: str
+    membership_state: str = "left"
+
+
+class BlockRequestCreateIn(BaseModel):
+    block_id: str
+
+
+class BlockRequestActionIn(BaseModel):
+    expected_revision: int
+    reason: Optional[str] = None
+
+
+class BlockRequestOut(BaseModel):
+    request_id: str
+    user: UserRefOut
+    block_id: str
+    state: str
+    created_at: str
+    stage_entered_at: str
+    substitute_available_at: Optional[str] = None
+    revision: int
+    capabilities: list[str] = []
+
+
+# ── BE-06 Schemas ──
+
+class MaterialIn(BaseModel):
+    kind: str
+    title: str
+    content: RichTextSchema
+    description: Optional[str] = ""
+    owner_block_id: Optional[str] = None
+    original_link: Optional[str] = None
+
+
+class MaterialPatchIn(BaseModel):
+    expected_revision: int
+    title: Optional[str] = None
+    description: Optional[str] = None
+    content: Optional[RichTextSchema] = None
+    original_link: Optional[str] = None
+
+
+class MaterialPublishIn(BaseModel):
+    expected_revision: int
+
+
+class MaterialEditorsIn(BaseModel):
+    expected_revision: int
+    user_ids: Optional[list[int]] = None
+    editor_user_ids: Optional[list[int]] = None
+
+
+class MaterialOut(BaseModel):
+    material_id: str
+    kind: str
+    title: str
+    description: str = ""
+    owner_block_id: Optional[str] = None
+    original_link: Optional[str] = None
+    published_content: Optional[RichTextSchema] = None
+    draft_content: Optional[RichTextSchema] = None
+    editor_user_ids: list[int] = []
+    published_at: Optional[str] = None
+    published_by: Optional[UserRefOut] = None
+    revision: int
+    capabilities: list[str] = []
+
+
+class MaterialEditorsOut(BaseModel):
+    material_id: str
+    editor_user_ids: list[int]
+    revision: int
+
+
+class ParticipationPeriodIn(BaseModel):
+    from_year: int
+    to_year: int
+
+
+class AlumniContactCreateIn(BaseModel):
+    surname: str
+    name: str
+    patronymic: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    tg: Optional[str] = None
+    vk: Optional[str] = None
+    participation_periods: Optional[list[ParticipationPeriodIn]] = None
+    notes: Optional[str] = None
+
+
+class AlumniContactPatchIn(BaseModel):
+    expected_revision: int
+    surname: Optional[str] = None
+    name: Optional[str] = None
+    patronymic: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    tg: Optional[str] = None
+    vk: Optional[str] = None
+    participation_periods: Optional[list[ParticipationPeriodIn]] = None
+    notes: Optional[str] = None
+
+
+class AlumniContactOut(BaseModel):
+    alumni_id: str
+    surname: str
+    name: str
+    patronymic: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    tg: Optional[str] = None
+    vk: Optional[str] = None
+    participation_periods: list[ParticipationPeriodIn] = []
+    notes: Optional[str] = None
+    revision: int
+    capabilities: list[str] = []
+
+
+class EmailsOut(BaseModel):
+    emails: list[str]
+
+
+class AvatarPresetOut(BaseModel):
+    preset_id: str
+    title: str
+    image_url: str
+
+
+class AvatarPresetsResponse(BaseModel):
+    items: list[AvatarPresetOut] = []
+    presets: list[AvatarPresetOut] = []
+
+
+class AvatarSetIn(BaseModel):
+    preset_id: Optional[str] = None
+    file_id: Optional[str] = None
+
+
+class AccountArchiveIn(BaseModel):
+    reason: str
+
+
+class MasterConflictItem(BaseModel):
+    block_id: str
+    keep_user_id: int
+
+
+class AccountRestoreIn(BaseModel):
+    master_conflicts: Optional[list[MasterConflictItem]] = None
+
+
+class ArchivedAccountOut(BaseModel):
+    user_id: int
+    email: str
+    display_name: str
+    account_state: str
+    archived_at: Optional[str] = None
+    archive_reason: Optional[str] = None
+    roles: list[str] = []
+    blocks: list[str] = []
+
+
+def _to_material_out(m: Material) -> MaterialOut:
+    pub_content = RichTextSchema(format=m.published_content.format, body=m.published_content.body) if m.published_content else None
+    draft_content = RichTextSchema(format=m.draft_content.format, body=m.draft_content.body) if m.draft_content else None
+    pub_by = UserRefOut(user_id=m.published_by.user_id, display_name=m.published_by.display_name, avatar_url=m.published_by.avatar_url) if m.published_by else None
+    return MaterialOut(
+        material_id=m.material_id,
+        kind=m.kind,
+        title=m.title,
+        description=m.description or "",
+        owner_block_id=m.owner_block_id,
+        original_link=m.original_link,
+        published_content=pub_content,
+        draft_content=draft_content,
+        editor_user_ids=m.editor_user_ids,
+        published_at=m.published_at,
+        published_by=pub_by,
+        revision=m.revision,
+        capabilities=m.capabilities,
+    )
+
+
+def _to_alumni_out(a: AlumniContact) -> AlumniContactOut:
+    periods = [ParticipationPeriodIn(from_year=p.from_year, to_year=p.to_year) for p in a.participation_periods]
+    return AlumniContactOut(
+        alumni_id=a.alumni_id,
+        surname=a.surname,
+        name=a.name,
+        patronymic=a.patronymic,
+        phone=a.phone,
+        email=a.email,
+        tg=a.tg,
+        vk=a.vk,
+        participation_periods=periods,
+        notes=a.notes,
+        revision=a.revision,
+        capabilities=a.capabilities,
+    )
+
+
+def _to_archived_account_out(a: ArchivedAccount) -> ArchivedAccountOut:
+    return ArchivedAccountOut(
+        user_id=a.user_id,
+        email=a.email,
+        display_name=a.display_name,
+        account_state=a.account_state,
+        archived_at=a.archived_at,
+        archive_reason=a.archive_reason,
+        roles=a.roles,
+        blocks=a.blocks,
+    )
+
 #  AUTH ENDPOINTS  (NEW)
 # ═══════════════════════════════════════════════════════════
 
@@ -1355,6 +1664,36 @@ def my_profile(cur: User = Depends(get_current_user)):
     )
 
 
+@router.put("/profile/me/avatar", response_model=MeOut)
+def set_my_avatar(payload: AvatarSetIn, cur: User = Depends(get_current_user)):
+    if (payload.preset_id is None and payload.file_id is None) or (payload.preset_id is not None and payload.file_id is not None):
+        raise HTTPException(422, "Exactly one of preset_id or file_id must be provided")
+    try:
+        db.set_user_avatar(cur.user_id, preset_id=payload.preset_id, file_id=payload.file_id)
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+    updated_user = db.get_user(cur.user_id)
+    contact = db.get_contact(cur.user_id)
+    if not contact or not updated_user:
+        raise HTTPException(500, "Contact info missing for user")
+    return MeOut(
+        **contact.__dict__,
+        kkr_score=updated_user.kkr_score,
+        banned=updated_user.banned,
+        super_user=updated_user.super_user,
+        admin=updated_user.admin,
+        pgas_admin=updated_user.pgas_admin,
+        has_password=bool(updated_user.hashed_password),
+        events_roles=updated_user.events_roles,
+    )
+
+
+
 @router.get("/profile/{user_id}", response_model=ProfileOut)
 def get_profile(user_id: int, cur: User = Depends(get_current_user)):
     user = db.get_user(user_id)
@@ -1669,12 +2008,88 @@ def create_block(payload: BlockIn, cur: User = Depends(require_superuser)):
     return BlockOut(**created.__dict__)
 
 
-@router.patch("/blocks/{block_name}", response_model=BlockOut)
+@router.get("/blocks/{block_id}", response_model=BlockDetailOut)
+def get_block(block_id: str, cur: User = Depends(get_current_user)):
+    if getattr(cur, "account_state", "active") != "active":
+        raise HTTPException(403, "Account not active")
+    try:
+        b = db.get_block_detail(block_id, current_user_id=cur.user_id)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    return BlockDetailOut(
+        name=b.name,
+        master=b.master,
+        hr=b.hr,
+        cnt_of_human=b.cnt_of_human,
+        arr_of_human=b.arr_of_human,
+        is_hr=b.is_hr,
+        master_user_id=b.master_user_id,
+        block_id=b.block_id,
+        description=b.description,
+        guide_material_id=b.guide_material_id,
+        community_url=b.community_url,
+        revision=b.revision,
+        members=[
+            BlockMemberOut(
+                user=UserRefOut(user_id=m.user.user_id, display_name=m.user.display_name, avatar_url=m.user.avatar_url),
+                block_category=m.block_category,
+            )
+            for m in b.members
+        ],
+        capabilities=b.capabilities,
+    )
+
+
+@router.patch("/blocks/{block_name}")
 def update_block(
     block_name: str,
-    payload: BlockUpdate,
+    payload: BlockPatchIn,
     cur: User = Depends(get_current_user),
 ):
+    if payload.expected_revision is not None:
+        if payload.master is not None or payload.arr_of_human is not None:
+            raise HTTPException(400, "master/members cannot be changed via PATCH /blocks/{id}")
+        try:
+            b = db.patch_block(
+                block_name=block_name,
+                actor_user_id=cur.user_id,
+                expected_revision=payload.expected_revision,
+                description=payload.description,
+                community_url=payload.community_url,
+                name=payload.name,
+            )
+        except PermissionError as e:
+            raise HTTPException(403, str(e))
+        except LookupError as e:
+            raise HTTPException(404, str(e))
+        except ValueError as e:
+            if "Conflict" in str(e):
+                raise HTTPException(409, str(e))
+            raise HTTPException(400, str(e))
+        return BlockDetailOut(
+            name=b.name,
+            master=b.master,
+            hr=b.hr,
+            cnt_of_human=b.cnt_of_human,
+            arr_of_human=b.arr_of_human,
+            is_hr=b.is_hr,
+            master_user_id=b.master_user_id,
+            block_id=b.block_id,
+            description=b.description,
+            guide_material_id=b.guide_material_id,
+            community_url=b.community_url,
+            revision=b.revision,
+            members=[
+                BlockMemberOut(
+                    user=UserRefOut(user_id=m.user.user_id, display_name=m.user.display_name, avatar_url=m.user.avatar_url),
+                    block_category=m.block_category,
+                )
+                for m in b.members
+            ],
+            capabilities=b.capabilities,
+        )
+
+    # Legacy update_block
     block = db.get_block(block_name)
     if not block:
         if not cur.super_user and not cur.admin:
@@ -1708,6 +2123,26 @@ def delete_block(block_name: str, cur: User = Depends(require_superuser)):
         raise HTTPException(404, "Block not found")
     db.delete_block(block_name)
     return {"status": "deleted"}
+
+
+@router.delete("/blocks/{block_id}/members/{user_id}")
+def delete_block_member(block_id: str, user_id: int, cur: User = Depends(get_current_user)):
+    try:
+        db.delete_block_member(block_id, user_id, cur.user_id)
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    return {"status": "deleted"}
+
+
+@router.post("/blocks/{block_id}/leave", response_model=BlockLeaveOut)
+def leave_block(block_id: str, cur: User = Depends(get_current_user)):
+    try:
+        res = db.leave_block(block_id, cur.user_id)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    return BlockLeaveOut(**res)
 
 
 @router.post("/blocks/{block_name}/enter", response_model=BlockOut)
@@ -3751,6 +4186,671 @@ def mark_notification_read(notification_id: str, cur: User = Depends(get_current
 def mark_all_notifications_read(cur: User = Depends(get_current_user)):
     cnt = db.mark_all_notifications_read(cur.user_id)
     return {"status": "ok", "marked_count": cnt}
+
+
+# ═══════════════════════════════════════════════════════════
+#  BE-05: REGISTRATIONS, PARTICIPANTS, BLOCK REQUESTS
+# ═══════════════════════════════════════════════════════════
+
+# ── Registrations ──
+
+@router.get("/registrations/me", response_model=RegistrationApplicationOut)
+def get_my_registration(cur: User = Depends(get_current_user)):
+    reg = db.get_registration(cur.user_id, current_user_id=cur.user_id)
+    if not reg:
+        raise HTTPException(404, "Registration not found")
+    return RegistrationApplicationOut(
+        user_id=reg.user_id,
+        status=reg.status,
+        attempts_used=reg.attempts_used,
+        attempt_limit=reg.attempt_limit,
+        total_submissions=reg.total_submissions,
+        rejection_reason=reg.rejection_reason,
+        fields=RegistrationFieldsIn(**reg.fields.__dict__),
+        revision=reg.revision,
+        capabilities=reg.capabilities,
+    )
+
+
+@router.patch("/registrations/me", response_model=RegistrationApplicationOut)
+def update_my_registration(payload: RegistrationPatchIn, cur: User = Depends(get_current_user)):
+    try:
+        reg = db.update_registration_fields(cur.user_id, payload.fields.model_dump(), payload.expected_revision)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        if "Conflict" in str(e):
+            raise HTTPException(409, str(e))
+        raise HTTPException(400, str(e))
+    return RegistrationApplicationOut(
+        user_id=reg.user_id,
+        status=reg.status,
+        attempts_used=reg.attempts_used,
+        attempt_limit=reg.attempt_limit,
+        total_submissions=reg.total_submissions,
+        rejection_reason=reg.rejection_reason,
+        fields=RegistrationFieldsIn(**reg.fields.__dict__),
+        revision=reg.revision,
+        capabilities=reg.capabilities,
+    )
+
+
+@router.post("/registrations/me/resubmit", response_model=RegistrationApplicationOut)
+def resubmit_my_registration(payload: RegistrationResubmitIn, cur: User = Depends(get_current_user)):
+    try:
+        reg = db.resubmit_registration(cur.user_id, payload.expected_revision)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        if "registration_attempt_limit" in msg:
+            raise HTTPException(409, "registration_attempt_limit")
+        if "Conflict" in msg:
+            raise HTTPException(409, msg)
+        raise HTTPException(400, msg)
+    return RegistrationApplicationOut(
+        user_id=reg.user_id,
+        status=reg.status,
+        attempts_used=reg.attempts_used,
+        attempt_limit=reg.attempt_limit,
+        total_submissions=reg.total_submissions,
+        rejection_reason=reg.rejection_reason,
+        fields=RegistrationFieldsIn(**reg.fields.__dict__),
+        revision=reg.revision,
+        capabilities=reg.capabilities,
+    )
+
+
+@router.get("/registrations", response_model=List[RegistrationApplicationOut])
+def list_registrations(status: Optional[str] = None, cur: User = Depends(get_current_user)):
+    if not db.is_tachki(cur.user_id):
+        raise HTTPException(403, "Only tachki can view registrations")
+    regs = db.list_registrations(status=status, current_user_id=cur.user_id)
+    return [
+        RegistrationApplicationOut(
+            user_id=r.user_id,
+            status=r.status,
+            attempts_used=r.attempts_used,
+            attempt_limit=r.attempt_limit,
+            total_submissions=r.total_submissions,
+            rejection_reason=r.rejection_reason,
+            fields=RegistrationFieldsIn(**r.fields.__dict__),
+            revision=r.revision,
+            capabilities=r.capabilities,
+        )
+        for r in regs
+    ]
+
+
+@router.post("/registrations/{user_id}/approve", response_model=RegistrationApplicationOut)
+def approve_registration(user_id: int, payload: RegistrationActionIn, cur: User = Depends(get_current_user)):
+    if not db.is_tachki(cur.user_id):
+        raise HTTPException(403, "Only tachki can approve registration")
+    try:
+        reg = db.approve_registration(user_id, cur.user_id, payload.expected_revision)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        if "Unprocessable" in msg or "missing required fields" in msg:
+            raise HTTPException(422, msg)
+        if "Conflict" in msg:
+            raise HTTPException(409, msg)
+        raise HTTPException(400, msg)
+    return RegistrationApplicationOut(
+        user_id=reg.user_id,
+        status=reg.status,
+        attempts_used=reg.attempts_used,
+        attempt_limit=reg.attempt_limit,
+        total_submissions=reg.total_submissions,
+        rejection_reason=reg.rejection_reason,
+        fields=RegistrationFieldsIn(**reg.fields.__dict__),
+        revision=reg.revision,
+        capabilities=reg.capabilities,
+    )
+
+
+@router.post("/registrations/{user_id}/reject", response_model=RegistrationApplicationOut)
+def reject_registration(user_id: int, payload: RegistrationActionIn, cur: User = Depends(get_current_user)):
+    if not db.is_tachki(cur.user_id):
+        raise HTTPException(403, "Only tachki can reject registration")
+    if not payload.reason or not payload.reason.strip():
+        raise HTTPException(422, "Rejection reason is required")
+    try:
+        reg = db.reject_registration(user_id, cur.user_id, payload.reason, payload.expected_revision)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        if "Conflict" in str(e):
+            raise HTTPException(409, str(e))
+        raise HTTPException(400, str(e))
+    return RegistrationApplicationOut(
+        user_id=reg.user_id,
+        status=reg.status,
+        attempts_used=reg.attempts_used,
+        attempt_limit=reg.attempt_limit,
+        total_submissions=reg.total_submissions,
+        rejection_reason=reg.rejection_reason,
+        fields=RegistrationFieldsIn(**reg.fields.__dict__),
+        revision=reg.revision,
+        capabilities=reg.capabilities,
+    )
+
+
+@router.post("/registrations/{user_id}/reset-attempts", response_model=RegistrationApplicationOut)
+def reset_registration_attempts(user_id: int, payload: RegistrationActionIn, cur: User = Depends(get_current_user)):
+    if not db.is_tachki(cur.user_id):
+        raise HTTPException(403, "Only tachki can reset registration attempts")
+    if not payload.reason or not payload.reason.strip():
+        raise HTTPException(422, "Reset reason is required")
+    try:
+        reg = db.reset_registration_attempts(user_id, cur.user_id, payload.reason, payload.expected_revision)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        if "Conflict" in str(e):
+            raise HTTPException(409, str(e))
+        raise HTTPException(400, str(e))
+    return RegistrationApplicationOut(
+        user_id=reg.user_id,
+        status=reg.status,
+        attempts_used=reg.attempts_used,
+        attempt_limit=reg.attempt_limit,
+        total_submissions=reg.total_submissions,
+        rejection_reason=reg.rejection_reason,
+        fields=RegistrationFieldsIn(**reg.fields.__dict__),
+        revision=reg.revision,
+        capabilities=reg.capabilities,
+    )
+
+
+# ── Participant Category ──
+
+@router.get("/participants/{user_id}/category", response_model=ParticipantCategoryOut)
+def get_participant_category(user_id: int, cur: User = Depends(get_current_user)):
+    if getattr(cur, "account_state", "active") != "active":
+        raise HTTPException(403, "Account not active")
+    try:
+        cat = db.get_participant_category(user_id, current_user_id=cur.user_id)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    return ParticipantCategoryOut(
+        user_id=cat.user_id,
+        category=cat.category,
+        revision=cat.revision,
+        capabilities=cat.capabilities,
+    )
+
+
+@router.patch("/participants/{user_id}/category", response_model=ParticipantCategoryOut)
+def patch_participant_category(user_id: int, payload: ParticipantCategoryPatchIn, cur: User = Depends(get_current_user)):
+    if getattr(cur, "account_state", "active") != "active":
+        raise HTTPException(403, "Account not active")
+    try:
+        cat = db.patch_participant_category(
+            user_id=user_id,
+            actor_user_id=cur.user_id,
+            category=payload.category,
+            reason=payload.reason,
+            expected_revision=payload.expected_revision,
+        )
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        if "Conflict" in str(e):
+            raise HTTPException(409, str(e))
+        raise HTTPException(400, str(e))
+    return ParticipantCategoryOut(
+        user_id=cat.user_id,
+        category=cat.category,
+        revision=cat.revision,
+        capabilities=cat.capabilities,
+    )
+
+
+# ── Block Requests ──
+
+@router.post("/block-requests", response_model=BlockRequestOut)
+def create_block_request(payload: BlockRequestCreateIn, cur: User = Depends(get_current_user)):
+    if getattr(cur, "account_state", "active") != "active":
+        raise HTTPException(403, "Account not active")
+    try:
+        req = db.create_block_request(cur.user_id, payload.block_id)
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    return BlockRequestOut(
+        request_id=req.request_id,
+        user=UserRefOut(user_id=req.user.user_id, display_name=req.user.display_name, avatar_url=req.user.avatar_url),
+        block_id=req.block_id,
+        state=req.state,
+        created_at=req.created_at,
+        stage_entered_at=req.stage_entered_at,
+        substitute_available_at=req.substitute_available_at,
+        revision=req.revision,
+        capabilities=req.capabilities,
+    )
+
+
+@router.get("/block-requests", response_model=List[BlockRequestOut])
+def list_block_requests(
+    block_id: Optional[str] = None,
+    state: Optional[str] = None,
+    user_id: Optional[int] = None,
+    mine: bool = False,
+    cur: User = Depends(get_current_user),
+):
+    if getattr(cur, "account_state", "active") != "active":
+        raise HTTPException(403, "Account not active")
+    reqs = db.list_block_requests(
+        current_user_id=cur.user_id,
+        block_id=block_id,
+        state=state,
+        user_id=user_id,
+        mine=mine,
+    )
+    return [
+        BlockRequestOut(
+            request_id=r.request_id,
+            user=UserRefOut(user_id=r.user.user_id, display_name=r.user.display_name, avatar_url=r.user.avatar_url),
+            block_id=r.block_id,
+            state=r.state,
+            created_at=r.created_at,
+            stage_entered_at=r.stage_entered_at,
+            substitute_available_at=r.substitute_available_at,
+            revision=r.revision,
+            capabilities=r.capabilities,
+        )
+        for r in reqs
+    ]
+
+
+@router.get("/block-requests/{request_id}", response_model=BlockRequestOut)
+def get_block_request(request_id: str, cur: User = Depends(get_current_user)):
+    if getattr(cur, "account_state", "active") != "active":
+        raise HTTPException(403, "Account not active")
+    req = db.get_block_request(request_id, current_user_id=cur.user_id)
+    if not req:
+        raise HTTPException(404, "Block request not found")
+    is_privileged = (
+        db.is_tachki(cur.user_id)
+        or db.is_hr_master(cur.user_id)
+        or db.is_block_master(cur.user_id, req.block_id)
+        or db.is_block_master_deputy(cur.user_id, req.block_id)
+    )
+    if not is_privileged and req.user.user_id != cur.user_id:
+        raise HTTPException(403, "Not authorized to view this request")
+    return BlockRequestOut(
+        request_id=req.request_id,
+        user=UserRefOut(user_id=req.user.user_id, display_name=req.user.display_name, avatar_url=req.user.avatar_url),
+        block_id=req.block_id,
+        state=req.state,
+        created_at=req.created_at,
+        stage_entered_at=req.stage_entered_at,
+        substitute_available_at=req.substitute_available_at,
+        revision=req.revision,
+        capabilities=req.capabilities,
+    )
+
+
+@router.post("/block-requests/{request_id}/hr-approve", response_model=BlockRequestOut)
+def hr_approve_block_request(request_id: str, payload: BlockRequestActionIn, cur: User = Depends(get_current_user)):
+    try:
+        req = db.approve_hr_block_request(request_id, cur.user_id, payload.expected_revision)
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        if "Conflict" in str(e):
+            raise HTTPException(409, str(e))
+        raise HTTPException(400, str(e))
+    return BlockRequestOut(
+        request_id=req.request_id,
+        user=UserRefOut(user_id=req.user.user_id, display_name=req.user.display_name, avatar_url=req.user.avatar_url),
+        block_id=req.block_id,
+        state=req.state,
+        created_at=req.created_at,
+        stage_entered_at=req.stage_entered_at,
+        substitute_available_at=req.substitute_available_at,
+        revision=req.revision,
+        capabilities=req.capabilities,
+    )
+
+
+@router.post("/block-requests/{request_id}/block-approve", response_model=BlockRequestOut)
+def block_approve_block_request(request_id: str, payload: BlockRequestActionIn, cur: User = Depends(get_current_user)):
+    try:
+        req = db.approve_block_request(request_id, cur.user_id, payload.expected_revision)
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        if "block_approve_not_allowed_for_hr" in str(e) or "Conflict" in str(e):
+            raise HTTPException(409, str(e))
+        raise HTTPException(400, str(e))
+    return BlockRequestOut(
+        request_id=req.request_id,
+        user=UserRefOut(user_id=req.user.user_id, display_name=req.user.display_name, avatar_url=req.user.avatar_url),
+        block_id=req.block_id,
+        state=req.state,
+        created_at=req.created_at,
+        stage_entered_at=req.stage_entered_at,
+        substitute_available_at=req.substitute_available_at,
+        revision=req.revision,
+        capabilities=req.capabilities,
+    )
+
+
+@router.post("/block-requests/{request_id}/reject", response_model=BlockRequestOut)
+def reject_block_request(request_id: str, payload: BlockRequestActionIn, cur: User = Depends(get_current_user)):
+    if not payload.reason or not payload.reason.strip():
+        raise HTTPException(422, "Rejection reason is required")
+    try:
+        req = db.reject_block_request(request_id, cur.user_id, payload.reason, payload.expected_revision)
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        if "Conflict" in str(e):
+            raise HTTPException(409, str(e))
+        raise HTTPException(400, str(e))
+    return BlockRequestOut(
+        request_id=req.request_id,
+        user=UserRefOut(user_id=req.user.user_id, display_name=req.user.display_name, avatar_url=req.user.avatar_url),
+        block_id=req.block_id,
+        state=req.state,
+        created_at=req.created_at,
+        stage_entered_at=req.stage_entered_at,
+        substitute_available_at=req.substitute_available_at,
+        revision=req.revision,
+        capabilities=req.capabilities,
+    )
+
+
+@router.post("/block-requests/{request_id}/withdraw", response_model=BlockRequestOut)
+def withdraw_block_request(request_id: str, payload: BlockRequestActionIn, cur: User = Depends(get_current_user)):
+    try:
+        req = db.withdraw_block_request(request_id, cur.user_id, payload.expected_revision)
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        if "Conflict" in str(e):
+            raise HTTPException(409, str(e))
+        raise HTTPException(400, str(e))
+    return BlockRequestOut(
+        request_id=req.request_id,
+        user=UserRefOut(user_id=req.user.user_id, display_name=req.user.display_name, avatar_url=req.user.avatar_url),
+        block_id=req.block_id,
+        state=req.state,
+        created_at=req.created_at,
+        stage_entered_at=req.stage_entered_at,
+        substitute_available_at=req.substitute_available_at,
+        revision=req.revision,
+        capabilities=req.capabilities,
+    )
+
+
+# ═══════════════════════════════════════════════════════════
+#  BE-06: AVATARS, MATERIALS, CONTACTS ARCHIVE, ACCOUNTS ARCHIVE
+# ═══════════════════════════════════════════════════════════
+
+# ── Avatars ──
+
+@router.get("/avatars", response_model=AvatarPresetsResponse)
+def get_avatar_presets():
+    presets = [AvatarPresetOut(preset_id=p.preset_id, title=p.title, image_url=p.image_url) for p in db.get_avatar_presets()]
+    return AvatarPresetsResponse(items=presets, presets=presets)
+
+
+# ── Materials ──
+
+@router.get("/materials", response_model=List[MaterialOut])
+def list_materials(
+    kind: Optional[str] = None,
+    owner_block_id: Optional[str] = None,
+    cur: User = Depends(get_current_user),
+):
+    mats = db.list_materials(current_user_id=cur.user_id, kind=kind, owner_block_id=owner_block_id)
+    return [_to_material_out(m) for m in mats]
+
+
+@router.post("/materials", response_model=MaterialOut, status_code=201)
+def create_material(payload: MaterialIn, cur: User = Depends(get_current_user)):
+    try:
+        content_dict = {"format": payload.content.format, "body": payload.content.body}
+        mat = db.create_material(
+            actor_user_id=cur.user_id,
+            kind=payload.kind,
+            title=payload.title,
+            content=content_dict,
+            description=payload.description or "",
+            owner_block_id=payload.owner_block_id,
+            original_link=payload.original_link,
+        )
+        return _to_material_out(mat)
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+
+@router.get("/materials/{material_id}", response_model=MaterialOut)
+def get_material(material_id: str, cur: User = Depends(get_current_user)):
+    mat = db.get_material(material_id, current_user_id=cur.user_id)
+    if not mat:
+        raise HTTPException(404, "Material not found")
+    return _to_material_out(mat)
+
+
+@router.patch("/materials/{material_id}", response_model=MaterialOut)
+def patch_material(material_id: str, payload: MaterialPatchIn, cur: User = Depends(get_current_user)):
+    content_dict = {"format": payload.content.format, "body": payload.content.body} if payload.content else None
+    try:
+        mat = db.patch_material(
+            material_id=material_id,
+            actor_user_id=cur.user_id,
+            expected_revision=payload.expected_revision,
+            title=payload.title,
+            description=payload.description,
+            content=content_dict,
+            original_link=payload.original_link,
+        )
+        return _to_material_out(mat)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+
+@router.post("/materials/{material_id}/publish", response_model=MaterialOut)
+def publish_material(material_id: str, payload: MaterialPublishIn, cur: User = Depends(get_current_user)):
+    try:
+        mat = db.publish_material(material_id, cur.user_id, payload.expected_revision)
+        return _to_material_out(mat)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+
+@router.delete("/materials/{material_id}")
+def delete_material(material_id: str, cur: User = Depends(get_current_user)):
+    try:
+        db.delete_material(material_id, cur.user_id)
+        return {"status": "deleted"}
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+
+
+@router.put("/materials/{material_id}/editors", response_model=MaterialEditorsOut)
+def set_material_editors(material_id: str, payload: MaterialEditorsIn, cur: User = Depends(get_current_user)):
+    user_ids = payload.editor_user_ids if payload.editor_user_ids is not None else (payload.user_ids or [])
+    try:
+        res = db.set_material_editors(material_id, cur.user_id, user_ids, payload.expected_revision)
+        return MaterialEditorsOut(**res)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+
+# ── Contacts Archive & Emails ──
+
+@router.get("/contacts/archive", response_model=List[AlumniContactOut])
+def list_contacts_archive(query: Optional[str] = None, cur: User = Depends(get_current_user)):
+    if cur.banned or getattr(cur, "account_state", "active") != "active":
+        raise HTTPException(403, "Only approved participants can view contacts archive")
+    rows = db.list_alumni_contacts(current_user_id=cur.user_id, query=query)
+    return [_to_alumni_out(r) for r in rows]
+
+
+@router.post("/contacts/archive", response_model=AlumniContactOut, status_code=201)
+def create_contact_archive(payload: AlumniContactCreateIn, cur: User = Depends(get_current_user)):
+    periods = [p.model_dump() for p in (payload.participation_periods or [])]
+    try:
+        rec = db.create_alumni_contact(
+            actor_user_id=cur.user_id,
+            surname=payload.surname,
+            name=payload.name,
+            patronymic=payload.patronymic,
+            phone=payload.phone,
+            email=payload.email,
+            tg=payload.tg,
+            vk=payload.vk,
+            participation_periods=periods,
+            notes=payload.notes,
+        )
+        return _to_alumni_out(rec)
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+
+
+@router.patch("/contacts/archive/{alumni_id}", response_model=AlumniContactOut)
+def patch_contact_archive(alumni_id: str, payload: AlumniContactPatchIn, cur: User = Depends(get_current_user)):
+    periods = [p.model_dump() for p in payload.participation_periods] if payload.participation_periods is not None else None
+    try:
+        rec = db.patch_alumni_contact(
+            alumni_id=alumni_id,
+            actor_user_id=cur.user_id,
+            expected_revision=payload.expected_revision,
+            surname=payload.surname,
+            name=payload.name,
+            patronymic=payload.patronymic,
+            phone=payload.phone,
+            email=payload.email,
+            tg=payload.tg,
+            vk=payload.vk,
+            participation_periods=periods,
+            notes=payload.notes,
+        )
+        return _to_alumni_out(rec)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+
+@router.delete("/contacts/archive/{alumni_id}")
+def delete_contact_archive(alumni_id: str, cur: User = Depends(get_current_user)):
+    try:
+        db.delete_alumni_contact(alumni_id, cur.user_id)
+        return {"status": "deleted"}
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+
+
+@router.get("/contacts/emails", response_model=EmailsOut)
+def get_active_emails(cur: User = Depends(get_current_user)):
+    if cur.banned or getattr(cur, "account_state", "active") != "active":
+        raise HTTPException(403, "Only approved participants can export emails")
+    emails = db.list_active_emails(cur.user_id)
+    return EmailsOut(emails=emails)
+
+
+# ── Accounts Archive & Restore ──
+
+@router.get("/accounts/archive", response_model=List[ArchivedAccountOut])
+def list_accounts_archive(cur: User = Depends(get_current_user)):
+    try:
+        accounts = db.list_archived_accounts(cur.user_id)
+        return [_to_archived_account_out(a) for a in accounts]
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+
+
+@router.post("/accounts/{user_id}/archive", response_model=ArchivedAccountOut)
+def archive_account(user_id: int, payload: AccountArchiveIn, cur: User = Depends(get_current_user)):
+    try:
+        db.archive_account(user_id, cur.user_id, payload.reason)
+        archived_list = db.list_archived_accounts(cur.user_id)
+        target = next((a for a in archived_list if a.user_id == user_id), None)
+        if target:
+            return _to_archived_account_out(target)
+        u = db.get_user(user_id)
+        c = db.get_contact(user_id)
+        disp = f"{c.name} {c.surname}".strip() if c else f"User {user_id}"
+        return ArchivedAccountOut(
+            user_id=user_id,
+            email=c.email if c else "",
+            display_name=disp,
+            account_state="archived",
+            archive_reason=payload.reason,
+            roles=[],
+            blocks=[],
+        )
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        if "chair_transfer_required_before_archive" in str(e):
+            raise HTTPException(409, str(e))
+        raise HTTPException(400, str(e))
+
+
+@router.post("/accounts/{user_id}/restore", response_model=UserOut)
+def restore_account(user_id: int, payload: AccountRestoreIn = Body(default=AccountRestoreIn()), cur: User = Depends(get_current_user)):
+    conflicts_in = [c.model_dump() for c in payload.master_conflicts] if payload.master_conflicts else None
+    try:
+        u = db.restore_account(user_id, cur.user_id, master_conflicts=conflicts_in)
+        contact = db.get_contact(user_id)
+        return UserOut(**u.__dict__, kkr_name=contact.kkr_name if contact else "")
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        if hasattr(e, "conflicts"):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "detail": "master_conflict_unresolved",
+                    "conflicts": e.conflicts,
+                },
+            )
+        raise HTTPException(400, str(e))
 
 
 app.include_router(router)

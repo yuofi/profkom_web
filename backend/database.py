@@ -13,6 +13,8 @@ from models import (
     AssignmentPublic as AssignmentPublicDC,
     AssessmentInputs as AssessmentInputsDC,
     Block as BlockDC,
+    BlockMember as BlockMemberDC,
+    BlockRequest as BlockRequestDC,
     CalculatedContribution as CalculatedContributionDC,
     Comment as CommentDC,
     ContactInfo as ContactInfoDC,
@@ -20,15 +22,23 @@ from models import (
     Event as EventDC,
     FileRecord as FileRecordDC,
     FileRef as FileRefDC,
+    AlumniContact as AlumniContactDC,
+    ArchivedAccount as ArchivedAccountDC,
+    AvatarPreset as AvatarPresetDC,
     Guide as GuideDC,
     Leader as LeaderDC,
     Leadership as LeadershipDC,
     MasterBonus as MasterBonusDC,
     MasterBonusBasisItem as MasterBonusBasisItemDC,
+    Material as MaterialDC,
     Meeting as MeetingDC,
     Merit as MeritDC,
     Notification as NotificationDC,
+    ParticipantCategory as ParticipantCategoryDC,
+    ParticipationPeriod as ParticipationPeriodDC,
     PgasEntry as PgasEntryDC,
+    RegistrationApplication as RegistrationApplicationDC,
+    RegistrationFields as RegistrationFieldsDC,
     Report as ReportDC,
     ReportSeries as ReportSeriesDC,
     ReportVersion as ReportVersionDC,
@@ -122,6 +132,57 @@ class BlockORM(Base):
     arr_of_human = Column(Text, nullable=False, default="[]")
     is_hr = Column(Boolean, default=False, nullable=False, server_default="0")
     master_user_id = Column(Integer, nullable=True)
+    description = Column(Text, nullable=True, default="")
+    community_url = Column(String, nullable=True)
+    guide_material_id = Column(String, nullable=True)
+    revision = Column(Integer, nullable=False, default=1, server_default="1")
+
+
+class BlockMembershipORM(Base):
+    __tablename__ = "block_memberships"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    block_id = Column(String, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False, index=True)
+    block_category = Column(String, nullable=False, default="junior", server_default="junior")
+    joined_at = Column(String, nullable=False)
+    left_at = Column(String, nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True, server_default="1")
+
+
+class BlockRequestORM(Base):
+    __tablename__ = "block_requests"
+
+    request_id = Column(String, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False, index=True)
+    block_id = Column(String, nullable=False, index=True)
+    state = Column(String, nullable=False, default="pending_hr")  # pending_hr, pending_block, approved, rejected, withdrawn
+    created_at = Column(String, nullable=False)
+    stage_entered_at = Column(String, nullable=False)
+    substitute_available_at = Column(String, nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+    revision = Column(Integer, nullable=False, default=1, server_default="1")
+    hr_reviewed_by_user_id = Column(Integer, nullable=True)
+    hr_reviewed_at = Column(String, nullable=True)
+    block_reviewed_by_user_id = Column(Integer, nullable=True)
+    block_reviewed_at = Column(String, nullable=True)
+
+
+class RegistrationApplicationORM(Base):
+    __tablename__ = "registration_applications"
+
+    user_id = Column(Integer, ForeignKey("users.user_id"), primary_key=True)
+    status = Column(String, nullable=False, default="pending")  # pending, approved, rejected
+    attempts_used = Column(Integer, nullable=False, default=1, server_default="1")
+    attempt_limit = Column(Integer, nullable=False, default=5, server_default="5")
+    total_submissions = Column(Integer, nullable=False, default=1, server_default="1")
+    rejection_reason = Column(Text, nullable=True)
+    fields_json = Column(Text, nullable=False, default="{}", server_default="{}")
+    approved_at = Column(String, nullable=True)
+    rejected_at = Column(String, nullable=True)
+    revision = Column(Integer, nullable=False, default=1, server_default="1")
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
 
 
 class PgasEntryORM(Base):
@@ -467,6 +528,54 @@ class AuditLogORM(Base):
     created_at = Column(String, nullable=False)
 
 
+# ═══════════════════════════════════════════════════════════
+#  BE-06: MATERIALS, CONTACTS & ARCHIVE ORM
+# ═══════════════════════════════════════════════════════════
+
+class MaterialORM(Base):
+    __tablename__ = "materials"
+
+    material_id = Column(String, primary_key=True)
+    kind = Column(String, nullable=False, default="general")  # "general" | "guide" | "kmb"
+    owner_block_id = Column(String, nullable=True, index=True)
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=False, default="")
+    original_link = Column(String, nullable=True)
+    published_content_json = Column(Text, nullable=True)
+    draft_content_json = Column(Text, nullable=True)
+    published_at = Column(String, nullable=True)
+    published_by_user_id = Column(Integer, nullable=True)
+    revision = Column(Integer, nullable=False, default=1, server_default="1")
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+
+
+class MaterialEditorORM(Base):
+    __tablename__ = "material_editors"
+
+    material_id = Column(String, ForeignKey("materials.material_id"), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.user_id"), primary_key=True)
+    created_at = Column(String, nullable=False)
+
+
+class AlumniContactORM(Base):
+    __tablename__ = "alumni_contacts"
+
+    alumni_id = Column(String, primary_key=True)
+    surname = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    patronymic = Column(String, nullable=True)
+    phone = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    tg = Column(String, nullable=True)
+    vk = Column(String, nullable=True)
+    participation_periods_json = Column(Text, nullable=False, default="[]")
+    notes = Column(Text, nullable=True)
+    revision = Column(Integer, nullable=False, default=1, server_default="1")
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+
+
 Base.metadata.create_all(bind=engine)
 
 
@@ -794,6 +903,26 @@ def _ensure_sqlite_block_master_user_id_column() -> None:
 _ensure_sqlite_block_master_user_id_column()
 
 
+def _ensure_sqlite_block_extra_columns() -> None:
+    """Add description, community_url, guide_material_id, revision to block table if missing."""
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(block)")).fetchall()
+        if not rows:
+            return
+        col_names = {r[1] for r in rows}
+        if "description" not in col_names:
+            conn.execute(text("ALTER TABLE block ADD COLUMN description TEXT DEFAULT ''"))
+        if "community_url" not in col_names:
+            conn.execute(text("ALTER TABLE block ADD COLUMN community_url VARCHAR"))
+        if "guide_material_id" not in col_names:
+            conn.execute(text("ALTER TABLE block ADD COLUMN guide_material_id VARCHAR"))
+        if "revision" not in col_names:
+            conn.execute(text("ALTER TABLE block ADD COLUMN revision INTEGER DEFAULT 1"))
+
+
+_ensure_sqlite_block_extra_columns()
+
+
 def _ensure_sqlite_reports_columns() -> None:
     """Add draft fields to reports table if missing."""
     with engine.begin() as conn:
@@ -1019,6 +1148,11 @@ def _block_orm_to_dc(b: BlockORM) -> BlockDC:
         arr_of_human=arr,
         is_hr=bool(getattr(b, "is_hr", False)),
         master_user_id=getattr(b, "master_user_id", None),
+        block_id=b.name,
+        description=getattr(b, "description", "") or "",
+        guide_material_id=getattr(b, "guide_material_id", None),
+        community_url=getattr(b, "community_url", None),
+        revision=getattr(b, "revision", 1) or 1,
     )
 
 
@@ -1793,6 +1927,17 @@ def _calculate_season_summary_for_session(session: Session, season_id: str, is_a
     )
 
 
+DEFAULT_AVATAR_PRESETS = [
+    {"preset_id": "preset_classic", "title": "Классический", "image_url": "/static/avatars/preset_classic.png"},
+    {"preset_id": "preset_cat", "title": "Кот", "image_url": "/static/avatars/preset_cat.png"},
+    {"preset_id": "preset_fox", "title": "Лис", "image_url": "/static/avatars/preset_fox.png"},
+    {"preset_id": "preset_owl", "title": "Сова", "image_url": "/static/avatars/preset_owl.png"},
+    {"preset_id": "preset_bear", "title": "Медведь", "image_url": "/static/avatars/preset_bear.png"},
+    {"preset_id": "preset_rocket", "title": "Ракета", "image_url": "/static/avatars/preset_rocket.png"},
+    {"preset_id": "preset_star", "title": "Звезда", "image_url": "/static/avatars/preset_star.png"},
+]
+
+
 class Database:
     """SQLAlchemy-backed database layer."""
 
@@ -1959,12 +2104,53 @@ class Database:
             
             # Synchronize blocks
             initial_blocks = user.blocks or contact.blocks
+            now_iso = datetime.now(timezone.utc).isoformat()
             if initial_blocks:
                 self._sync_blocks_for_user(session, u.user_id, initial_blocks)
+                for b_name in _parse_blocks(initial_blocks):
+                    session.add(BlockMembershipORM(
+                        block_id=b_name,
+                        user_id=u.user_id,
+                        block_category="member" if getattr(u, "category", "junior") == "activist" else "junior",
+                        joined_at=now_iso,
+                        is_active=True,
+                    ))
 
             # Registration or direct creation does not elevate admin privileges via string namesake
             if user.admin:
                 u.admin = True
+
+            # Create corresponding RegistrationApplicationORM
+            fields_dict = {
+                "surname": contact.surname,
+                "name": contact.name,
+                "patronymic": contact.patronymic or "",
+                "group_number": str(contact.group_number),
+                "phone": contact.phone or "",
+                "email": str(contact.email),
+                "tg": contact.tg or "",
+                "vk": contact.vk or "",
+                "funding": "budget" if contact.budget else "contract",
+                "residence": contact.location or "",
+            }
+            reg_status = "approved" if u.account_state == "active" else "pending"
+            past_iso = "2020-01-01T00:00:00+00:00"
+            approved_at_val = past_iso if reg_status == "approved" else None
+            reg_orm = RegistrationApplicationORM(
+                user_id=u.user_id,
+                status=reg_status,
+                attempts_used=1,
+                attempt_limit=5,
+                total_submissions=1,
+                rejection_reason=None,
+                fields_json=json.dumps(fields_dict),
+                approved_at=approved_at_val,
+                rejected_at=None,
+                revision=1,
+                created_at=now_iso,
+                updated_at=now_iso,
+            )
+            session.add(reg_orm)
 
             session.commit()
             session.refresh(u)
@@ -2068,6 +2254,18 @@ class Database:
             if "blocks" in fields and fields["blocks"] is not None:
                 new_blocks = self._sync_blocks_for_user(session, user_id, fields["blocks"])
                 fields["blocks"] = new_blocks
+
+            if "account_state" in fields and fields["account_state"] is not None:
+                new_state = fields["account_state"]
+                reg = session.get(RegistrationApplicationORM, user_id)
+                if reg:
+                    if new_state == "pending":
+                        reg.status = "pending"
+                        reg.approved_at = None
+                    elif new_state == "active":
+                        reg.status = "approved"
+                        if not reg.approved_at:
+                            reg.approved_at = datetime.now(timezone.utc).isoformat()
 
             for k, v in fields.items():
                 if v is None:
@@ -2769,15 +2967,28 @@ class Database:
 
     def is_hr_master(self, user_id: int) -> bool:
         with self._session() as session:
-            count = (
+            blocks = (
                 session.query(BlockORM)
                 .filter(
-                    (BlockORM.is_hr == True) | (func.lower(BlockORM.name) == "hr"),
-                    BlockORM.master_user_id == user_id,
+                    (BlockORM.is_hr == True) | (func.lower(BlockORM.name) == "hr")
                 )
-                .count()
+                .all()
             )
-            return count > 0
+            c = session.get(ContactInfoORM, user_id)
+            for b in blocks:
+                if b.master_user_id == user_id:
+                    return True
+                if b.master and c and c.kkr_name and c.kkr_name == b.master:
+                    return True
+                count = session.query(RoleAssignmentORM).filter(
+                    RoleAssignmentORM.scope_kind == "block",
+                    RoleAssignmentORM.scope_id == b.name,
+                    RoleAssignmentORM.role == "master",
+                    RoleAssignmentORM.user_id == user_id,
+                ).count()
+                if count > 0:
+                    return True
+            return False
 
     def get_user_assignments(self, user_id: int) -> list[RoleAssignmentDC]:
         with self._session() as session:
@@ -2830,7 +3041,15 @@ class Database:
     #  BE-02: SEASONS
     # ─────────────────────────────────────────────────────────────
 
-    def create_season(self, title: str, type: str, starts_at: str, ends_at: str) -> SeasonDC:
+    def create_season(
+        self,
+        title: str,
+        type: Optional[str] = None,
+        starts_at: str = "",
+        ends_at: str = "",
+        season_type: Optional[str] = None,
+    ) -> SeasonDC:
+        season_type_val = season_type or type or "autumn_winter"
         with self._session() as session:
             planned = session.query(SeasonORM).filter(SeasonORM.state == "planned").first()
             if planned:
@@ -2847,7 +3066,7 @@ class Database:
                 title=title,
                 sequence_number=seq,
                 previous_season_id=prev_id,
-                type=type,
+                type=season_type_val,
                 starts_at=starts_at,
                 ends_at=ends_at,
                 state="planned",
@@ -2936,7 +3155,14 @@ class Database:
             session.commit()
             return _season_orm_to_dc(row)
 
-    def close_season(self, season_id: str, expected_revision: Optional[int] = None) -> tuple[SeasonDC, SeasonSummaryDC]:
+    begin_season_summary = begin_summary_season
+
+    def close_season(
+        self,
+        season_id: str,
+        expected_revision: Optional[int] = None,
+        closed_by_user_id: Optional[int] = None,
+    ) -> tuple[SeasonDC, SeasonSummaryDC]:
         with self._session() as session:
             row = session.get(SeasonORM, season_id)
             if not row:
@@ -3127,6 +3353,8 @@ class Database:
 
                 s_start = _parse_iso_dt(row.starts_at)
                 s_end = _parse_iso_dt(row.ends_at)
+                closed_dt = datetime.now(timezone.utc)
+                effective_end = min(s_end, closed_dt)
                 duration = max(0.0, (s_end - s_start).total_seconds())
                 threshold = duration / 2.0
 
@@ -3136,23 +3364,44 @@ class Database:
                 ).all()
 
                 for j in juniors:
-                    j.category = "activist"
-                    session.add(
-                        AuditLogORM(
-                            target_kind="user",
-                            target_id=str(j.user_id),
-                            changed_by_user_id=0,
-                            reason=f"Automatic promotion to activist upon season close {season_id}",
-                            old_values_json=json.dumps({"category": "junior"}),
-                            new_values_json=json.dumps({
-                                "category": "activist",
-                                "season_id": season_id,
-                                "participation": duration,
-                                "threshold": threshold,
-                            }),
-                            created_at=now_iso,
+                    reg = session.get(RegistrationApplicationORM, j.user_id)
+                    user_start = s_start
+                    if reg and reg.approved_at:
+                        reg_app_dt = _parse_iso_dt(reg.approved_at)
+                        user_start = max(s_start, reg_app_dt)
+
+                    part_sec = max(0.0, (effective_end - user_start).total_seconds()) if effective_end > user_start else 0.0
+                    if part_sec >= threshold:
+                        j.category = "activist"
+                        session.add(
+                            AuditLogORM(
+                                target_kind="user",
+                                target_id=str(j.user_id),
+                                changed_by_user_id=0,
+                                reason=f"Automatic promotion to activist upon season close {season_id}",
+                                old_values_json=json.dumps({"category": "junior"}),
+                                new_values_json=json.dumps({
+                                    "category": "activist",
+                                    "season_id": season_id,
+                                    "participation": part_sec,
+                                    "threshold": threshold,
+                                }),
+                                created_at=now_iso,
+                            )
                         )
-                    )
+
+                block_mems = session.query(BlockMembershipORM).filter(
+                    BlockMembershipORM.block_category == "junior",
+                    BlockMembershipORM.is_active == True,
+                ).all()
+                for bm in block_mems:
+                    bm_start = s_start
+                    if bm.joined_at:
+                        j_dt = _parse_iso_dt(bm.joined_at)
+                        bm_start = max(s_start, j_dt)
+                    bm_part = max(0.0, (effective_end - bm_start).total_seconds()) if effective_end > bm_start else 0.0
+                    if bm_part >= threshold:
+                        bm.block_category = "member"
             except Exception:
                 pass
 
@@ -4224,6 +4473,27 @@ class Database:
             session.commit()
             return self.get_block(block_name)
 
+    def assign_role(
+        self,
+        user_id: int,
+        role: str,
+        scope_kind: str,
+        scope_id: str,
+        assigned_by: Optional[int] = None,
+    ) -> RoleAssignmentDC:
+        with self._session() as session:
+            ra = RoleAssignmentORM(
+                role_assignment_id=str(uuid.uuid4()),
+                user_id=user_id,
+                role=role,
+                scope_kind=scope_kind,
+                scope_id=scope_id,
+                revision=1,
+            )
+            session.add(ra)
+            session.commit()
+            return _role_assignment_orm_to_dc(ra)
+
     def set_deputies(self, role_assignment_id: str, deputy_user_ids: list[int], expected_revision: int) -> LeaderDC:
         with self._session() as session:
             assignment = session.get(RoleAssignmentORM, role_assignment_id)
@@ -4567,14 +4837,21 @@ class Database:
             count = session.query(RoleAssignmentORM).filter(
                 RoleAssignmentORM.scope_kind == "block",
                 RoleAssignmentORM.scope_id == block_name,
-                RoleAssignmentORM.role == "deputy_master",
+                RoleAssignmentORM.role.in_(["deputy_master", "deputy"]),
                 RoleAssignmentORM.user_id == user_id,
             ).count()
+            return count > 0
+
     def is_block_master(self, user_id: int, block_name: str) -> bool:
         with self._session() as session:
             b = session.get(BlockORM, block_name)
-            if b and b.master_user_id == user_id:
-                return True
+            if b:
+                if b.master_user_id == user_id:
+                    return True
+                if b.master:
+                    c = session.get(ContactInfoORM, user_id)
+                    if c and c.kkr_name and c.kkr_name == b.master:
+                        return True
             count = session.query(RoleAssignmentORM).filter(
                 RoleAssignmentORM.scope_kind == "block",
                 RoleAssignmentORM.scope_id == block_name,
@@ -6240,6 +6517,1258 @@ class Database:
                 for r in rows
             ]
 
+    # ─────────────────────────────────────────────────────────────
+    #  BE-05: REGISTRATION APPLICATIONS
+    # ─────────────────────────────────────────────────────────────
+
+    def get_registration(self, user_id: int, current_user_id: Optional[int] = None) -> Optional[RegistrationApplicationDC]:
+        with self._session() as session:
+            reg = session.get(RegistrationApplicationORM, user_id)
+            if not reg:
+                u = session.get(UserORM, user_id)
+                if not u:
+                    return None
+                c = session.get(ContactInfoORM, user_id)
+                now_iso = datetime.now(timezone.utc).isoformat()
+                fields_dict = {
+                    "surname": c.surname if c else "",
+                    "name": c.name if c else "",
+                    "patronymic": c.patronymic if c else "",
+                    "group_number": str(c.group_number) if c else "",
+                    "phone": c.phone if c else "",
+                    "email": c.email if c else "",
+                    "tg": c.tg if c else "",
+                    "vk": c.vk if c else "",
+                    "funding": "budget" if (c and c.budget) else "contract",
+                    "residence": c.location if c else "",
+                }
+                status = "approved" if getattr(u, "account_state", "active") == "active" else "pending"
+                reg = RegistrationApplicationORM(
+                    user_id=user_id,
+                    status=status,
+                    attempts_used=1,
+                    attempt_limit=5,
+                    total_submissions=1,
+                    fields_json=json.dumps(fields_dict),
+                    approved_at=now_iso if status == "approved" else None,
+                    revision=1,
+                    created_at=now_iso,
+                    updated_at=now_iso,
+                )
+                session.add(reg)
+                session.commit()
+            return _registration_orm_to_dc(self, session, reg, current_user_id)
+
+    def list_registrations(self, status: Optional[str] = None, current_user_id: Optional[int] = None) -> list[RegistrationApplicationDC]:
+        with self._session() as session:
+            q = session.query(RegistrationApplicationORM)
+            if status:
+                q = q.filter(RegistrationApplicationORM.status == status)
+            q = q.order_by(RegistrationApplicationORM.created_at.desc())
+            return [_registration_orm_to_dc(self, session, r, current_user_id) for r in q.all()]
+
+    def update_registration_fields(self, user_id: int, fields: dict, expected_revision: int) -> RegistrationApplicationDC:
+        with self._session() as session:
+            reg = session.get(RegistrationApplicationORM, user_id)
+            if not reg:
+                raise LookupError("Registration not found")
+            if reg.revision != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+            if reg.status == "approved":
+                raise ValueError("Cannot edit approved registration via this endpoint")
+
+            current_fields = json.loads(reg.fields_json or "{}")
+            for k in ("surname", "name", "patronymic", "group_number", "phone", "email", "tg", "vk", "funding", "residence"):
+                if k in fields:
+                    current_fields[k] = fields[k]
+            reg.fields_json = json.dumps(current_fields)
+            reg.revision += 1
+            reg.updated_at = datetime.now(timezone.utc).isoformat()
+
+            c = session.get(ContactInfoORM, user_id)
+            if c:
+                if "surname" in fields and fields["surname"] is not None: c.surname = fields["surname"]
+                if "name" in fields and fields["name"] is not None: c.name = fields["name"]
+                if "patronymic" in fields: c.patronymic = fields["patronymic"] or ""
+                if "group_number" in fields and fields["group_number"] is not None: c.group_number = str(fields["group_number"])
+                if "phone" in fields and fields["phone"] is not None: c.phone = fields["phone"]
+                if "email" in fields and fields["email"] is not None: c.email = fields["email"]
+                if "tg" in fields and fields["tg"] is not None: c.tg = fields["tg"]
+                if "vk" in fields and fields["vk"] is not None: c.vk = fields["vk"]
+                if "funding" in fields and fields["funding"] is not None: c.budget = (fields["funding"] == "budget")
+                if "residence" in fields and fields["residence"] is not None: c.location = fields["residence"]
+
+            session.commit()
+            return _registration_orm_to_dc(self, session, reg, user_id)
+
+    def resubmit_registration(self, user_id: int, expected_revision: int) -> RegistrationApplicationDC:
+        with self._session() as session:
+            reg = session.get(RegistrationApplicationORM, user_id)
+            if not reg:
+                raise LookupError("Registration not found")
+            if reg.status != "rejected":
+                raise ValueError(f"Can only resubmit rejected registration, current status is '{reg.status}'")
+            if reg.revision != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+            if reg.attempts_used >= reg.attempt_limit:
+                raise ValueError("registration_attempt_limit")
+
+            f_dict = json.loads(reg.fields_json or "{}")
+            mandatory = ["surname", "name", "group_number", "phone", "email", "tg", "vk", "funding", "residence"]
+            for m in mandatory:
+                val = f_dict.get(m)
+                if not val or not str(val).strip():
+                    raise ValueError(f"Required field '{m}' is empty")
+
+            reg.attempts_used += 1
+            reg.total_submissions += 1
+            reg.status = "pending"
+            reg.rejection_reason = None
+            reg.revision += 1
+            now_iso = datetime.now(timezone.utc).isoformat()
+            reg.updated_at = now_iso
+
+            u = session.get(UserORM, user_id)
+            if u:
+                u.account_state = "pending"
+
+            leads = session.query(RoleAssignmentORM).filter(
+                RoleAssignmentORM.scope_kind == "global",
+                RoleAssignmentORM.role.in_(["chair", "deputy_chair"]),
+            ).all()
+            for ld in leads:
+                session.add(NotificationORM(
+                    notification_id=str(uuid.uuid4()),
+                    user_id=ld.user_id,
+                    kind="registration_resubmitted",
+                    payload_json=json.dumps({"user_id": user_id}),
+                    is_read=False,
+                    created_at=now_iso,
+                ))
+
+            session.commit()
+            return _registration_orm_to_dc(self, session, reg, user_id)
+
+    def approve_registration(self, user_id: int, actor_user_id: int, expected_revision: int) -> RegistrationApplicationDC:
+        with self._session() as session:
+            reg = session.get(RegistrationApplicationORM, user_id)
+            if not reg:
+                raise LookupError("Registration not found")
+            if reg.revision != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+
+            f_dict = json.loads(reg.fields_json or "{}")
+            mandatory = ["surname", "name", "group_number", "phone", "email", "tg", "vk", "funding", "residence"]
+            missing = []
+            for m in mandatory:
+                val = f_dict.get(m)
+                if not val or not str(val).strip():
+                    missing.append(m)
+            if missing:
+                raise ValueError(f"Unprocessable: missing required fields {missing}")
+
+            now_iso = datetime.now(timezone.utc).isoformat()
+            reg.status = "approved"
+            reg.approved_at = now_iso
+            reg.revision += 1
+            reg.updated_at = now_iso
+
+            u = session.get(UserORM, user_id)
+            if u:
+                u.account_state = "active"
+            c = session.get(ContactInfoORM, user_id)
+            if c:
+                c.in_profcom = True
+
+            session.add(AuditLogORM(
+                target_kind="registration",
+                target_id=str(user_id),
+                changed_by_user_id=actor_user_id,
+                reason="Registration approved by tachki",
+                old_values_json=json.dumps({"status": "pending"}),
+                new_values_json=json.dumps({"status": "approved"}),
+                created_at=now_iso,
+            ))
+            session.commit()
+            return _registration_orm_to_dc(self, session, reg, actor_user_id)
+
+    def reject_registration(self, user_id: int, actor_user_id: int, reason: str, expected_revision: int) -> RegistrationApplicationDC:
+        with self._session() as session:
+            reg = session.get(RegistrationApplicationORM, user_id)
+            if not reg:
+                raise LookupError("Registration not found")
+            if reg.revision != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+
+            now_iso = datetime.now(timezone.utc).isoformat()
+            old_status = reg.status
+            reg.status = "rejected"
+            reg.rejection_reason = reason
+            reg.rejected_at = now_iso
+            reg.revision += 1
+            reg.updated_at = now_iso
+
+            u = session.get(UserORM, user_id)
+            if u:
+                u.account_state = "pending"
+
+            session.add(AuditLogORM(
+                target_kind="registration",
+                target_id=str(user_id),
+                changed_by_user_id=actor_user_id,
+                reason=reason,
+                old_values_json=json.dumps({"status": old_status}),
+                new_values_json=json.dumps({"status": "rejected", "rejection_reason": reason}),
+                created_at=now_iso,
+            ))
+            session.commit()
+            return _registration_orm_to_dc(self, session, reg, actor_user_id)
+
+    def reset_registration_attempts(self, user_id: int, actor_user_id: int, reason: str, expected_revision: int) -> RegistrationApplicationDC:
+        with self._session() as session:
+            reg = session.get(RegistrationApplicationORM, user_id)
+            if not reg:
+                raise LookupError("Registration not found")
+            if reg.revision != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+            if reg.status == "approved":
+                raise ValueError("Reset attempts not applicable for approved registration")
+
+            now_iso = datetime.now(timezone.utc).isoformat()
+            old_attempts = reg.attempts_used
+            reg.attempts_used = 0
+            reg.revision += 1
+            reg.updated_at = now_iso
+
+            session.add(AuditLogORM(
+                target_kind="registration",
+                target_id=str(user_id),
+                changed_by_user_id=actor_user_id,
+                reason=reason,
+                old_values_json=json.dumps({"attempts_used": old_attempts}),
+                new_values_json=json.dumps({"attempts_used": 0}),
+                created_at=now_iso,
+            ))
+            session.commit()
+            return _registration_orm_to_dc(self, session, reg, actor_user_id)
+
+    # ─────────────────────────────────────────────────────────────
+    #  BE-05: PARTICIPANT CATEGORY
+    # ─────────────────────────────────────────────────────────────
+
+    def get_participant_category(self, user_id: int, current_user_id: Optional[int] = None) -> ParticipantCategoryDC:
+        with self._session() as session:
+            u = session.get(UserORM, user_id)
+            if not u or u.banned or getattr(u, "account_state", "active") != "active":
+                raise LookupError("Participant not found or not active")
+            caps = []
+            if current_user_id and (self.is_tachki(current_user_id) or self.is_hr_master(current_user_id)):
+                caps.append("edit_participant_category")
+            return ParticipantCategoryDC(
+                user_id=user_id,
+                category=getattr(u, "category", "junior") or "junior",
+                revision=1,
+                capabilities=caps,
+            )
+
+    def patch_participant_category(self, user_id: int, actor_user_id: int, category: str, reason: str, expected_revision: int) -> ParticipantCategoryDC:
+        if not (self.is_tachki(actor_user_id) or self.is_hr_master(actor_user_id)):
+            raise PermissionError("Only tachki or HR master can change participant category")
+        if category not in ("junior", "activist"):
+            raise ValueError("Category must be 'junior' or 'activist'")
+        if not reason or not reason.strip():
+            raise ValueError("Reason is required")
+
+        with self._session() as session:
+            u = session.get(UserORM, user_id)
+            if not u or u.banned or getattr(u, "account_state", "active") != "active":
+                raise LookupError("Target user is not active and approved")
+
+            old_category = getattr(u, "category", "junior") or "junior"
+            if old_category == category:
+                caps = ["edit_participant_category"]
+                return ParticipantCategoryDC(user_id=user_id, category=category, revision=expected_revision, capabilities=caps)
+
+            u.category = category
+            now_iso = datetime.now(timezone.utc).isoformat()
+            session.add(AuditLogORM(
+                target_kind="user",
+                target_id=str(user_id),
+                changed_by_user_id=actor_user_id,
+                reason=reason,
+                old_values_json=json.dumps({"category": old_category}),
+                new_values_json=json.dumps({"category": category}),
+                created_at=now_iso,
+            ))
+            session.commit()
+            caps = ["edit_participant_category"]
+            return ParticipantCategoryDC(user_id=user_id, category=category, revision=expected_revision + 1, capabilities=caps)
+
+    # ─────────────────────────────────────────────────────────────
+    #  BE-05: BLOCK REQUESTS & MEMBERSHIP
+    # ─────────────────────────────────────────────────────────────
+
+    def create_block_request(self, user_id: int, block_id: str) -> BlockRequestDC:
+        with self._session() as session:
+            u = session.get(UserORM, user_id)
+            if not u or u.banned or getattr(u, "account_state", "active") != "active":
+                raise PermissionError("User must be active and approved")
+            b = session.get(BlockORM, block_id)
+            if not b:
+                raise LookupError(f"Block '{block_id}' not found")
+
+            try:
+                humans = json.loads(b.arr_of_human or "[]")
+                if user_id in humans:
+                    raise ValueError("Already a member of this block")
+            except Exception:
+                pass
+
+            open_req = session.query(BlockRequestORM).filter(
+                BlockRequestORM.user_id == user_id,
+                BlockRequestORM.block_id == block_id,
+                BlockRequestORM.state.in_(["pending_hr", "pending_block"]),
+            ).first()
+            if open_req:
+                raise ValueError("Active block request already exists")
+
+            now = datetime.now(timezone.utc)
+            now_iso = now.isoformat()
+            sub_avail = (now + timedelta(hours=72)).isoformat()
+            req_id = f"req-{uuid.uuid4()}"
+
+            req = BlockRequestORM(
+                request_id=req_id,
+                user_id=user_id,
+                block_id=block_id,
+                state="pending_hr",
+                created_at=now_iso,
+                stage_entered_at=now_iso,
+                substitute_available_at=sub_avail,
+                revision=1,
+            )
+            session.add(req)
+            session.commit()
+            return _block_request_orm_to_dc(self, session, req, user_id)
+
+    def get_block_request(self, request_id: str, current_user_id: Optional[int] = None) -> Optional[BlockRequestDC]:
+        with self._session() as session:
+            req = session.get(BlockRequestORM, request_id)
+            if not req:
+                return None
+            return _block_request_orm_to_dc(self, session, req, current_user_id)
+
+    def list_block_requests(
+        self,
+        current_user_id: int,
+        block_id: Optional[str] = None,
+        state: Optional[str] = None,
+        user_id: Optional[int] = None,
+        mine: bool = False,
+    ) -> list[BlockRequestDC]:
+        with self._session() as session:
+            q = session.query(BlockRequestORM)
+            if mine:
+                q = q.filter(BlockRequestORM.user_id == current_user_id)
+            elif user_id is not None:
+                q = q.filter(BlockRequestORM.user_id == user_id)
+
+            if block_id:
+                q = q.filter(BlockRequestORM.block_id == block_id)
+            if state:
+                q = q.filter(BlockRequestORM.state == state)
+
+            all_reqs = q.order_by(BlockRequestORM.created_at.desc()).all()
+            is_global = self.is_tachki(current_user_id) or self.is_hr_master(current_user_id)
+            results = []
+            for r in all_reqs:
+                if is_global or r.user_id == current_user_id:
+                    results.append(_block_request_orm_to_dc(self, session, r, current_user_id))
+                elif self.is_block_master(current_user_id, r.block_id) or self.is_block_master_deputy(current_user_id, r.block_id):
+                    results.append(_block_request_orm_to_dc(self, session, r, current_user_id))
+            return results
+
+    def approve_hr_block_request(self, request_id: str, actor_user_id: int, expected_revision: int) -> BlockRequestDC:
+        with self._session() as session:
+            req = session.get(BlockRequestORM, request_id)
+            if not req:
+                raise LookupError("Block request not found")
+            if req.state != "pending_hr":
+                raise ValueError(f"Request is in state '{req.state}', not 'pending_hr'")
+            if req.revision != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+
+            now = datetime.now(timezone.utc)
+            now_iso = now.isoformat()
+
+            is_hr = self.is_hr_master(actor_user_id)
+            is_tachki_substitute = False
+            if not is_hr:
+                if self.is_tachki(actor_user_id):
+                    stage_dt = datetime.fromisoformat(req.stage_entered_at.replace("Z", "+00:00"))
+                    if (now - stage_dt) >= timedelta(hours=72):
+                        is_tachki_substitute = True
+                    else:
+                        raise PermissionError("72 hours waiting period has not elapsed for tachki substitute")
+                else:
+                    raise PermissionError("Only HR master or tachki after 72h can approve HR stage")
+
+            b = session.get(BlockORM, req.block_id)
+            if not b:
+                raise LookupError("Target block not found")
+
+            req.hr_reviewed_by_user_id = actor_user_id
+            req.hr_reviewed_at = now_iso
+            req.revision += 1
+
+            if b.is_hr or b.name.lower() == "hr":
+                req.state = "approved"
+                req.substitute_available_at = None
+                self._add_user_to_block_internal(session, req.block_id, req.user_id)
+            else:
+                req.state = "pending_block"
+                req.stage_entered_at = now_iso
+                req.substitute_available_at = (now + timedelta(hours=72)).isoformat()
+
+            if is_tachki_substitute:
+                session.add(AuditLogORM(
+                    target_kind="block_request",
+                    target_id=req.request_id,
+                    changed_by_user_id=actor_user_id,
+                    reason="Substitute HR approval by tachki after 72h",
+                    old_values_json=json.dumps({"state": "pending_hr"}),
+                    new_values_json=json.dumps({"state": req.state, "is_substitute": True}),
+                    created_at=now_iso,
+                ))
+
+            session.commit()
+            return _block_request_orm_to_dc(self, session, req, actor_user_id)
+
+    def approve_block_request(self, request_id: str, actor_user_id: int, expected_revision: int) -> BlockRequestDC:
+        with self._session() as session:
+            req = session.get(BlockRequestORM, request_id)
+            if not req:
+                raise LookupError("Block request not found")
+            b = session.get(BlockORM, req.block_id)
+            if not b:
+                raise LookupError("Target block not found")
+
+            if b.is_hr or b.name.lower() == "hr":
+                raise ValueError("block_approve_not_allowed_for_hr")
+
+            if req.state != "pending_block":
+                raise ValueError(f"Request is in state '{req.state}', not 'pending_block'")
+            if req.revision != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+
+            now = datetime.now(timezone.utc)
+            now_iso = now.isoformat()
+
+            is_lead = self.is_block_master(actor_user_id, req.block_id) or self.is_block_master_deputy(actor_user_id, req.block_id)
+            is_tachki_substitute = False
+            if not is_lead:
+                if self.is_tachki(actor_user_id):
+                    stage_dt = datetime.fromisoformat(req.stage_entered_at.replace("Z", "+00:00"))
+                    if (now - stage_dt) >= timedelta(hours=72):
+                        is_tachki_substitute = True
+                    else:
+                        raise PermissionError("72 hours waiting period has not elapsed for tachki substitute")
+                else:
+                    raise PermissionError("Only block master, deputy, or tachki after 72h can approve block stage")
+
+            req.state = "approved"
+            req.substitute_available_at = None
+            req.block_reviewed_by_user_id = actor_user_id
+            req.block_reviewed_at = now_iso
+            req.revision += 1
+
+            self._add_user_to_block_internal(session, req.block_id, req.user_id)
+
+            if is_tachki_substitute:
+                session.add(AuditLogORM(
+                    target_kind="block_request",
+                    target_id=req.request_id,
+                    changed_by_user_id=actor_user_id,
+                    reason="Substitute block approval by tachki after 72h",
+                    old_values_json=json.dumps({"state": "pending_block"}),
+                    new_values_json=json.dumps({"state": "approved", "is_substitute": True}),
+                    created_at=now_iso,
+                ))
+
+            session.commit()
+            return _block_request_orm_to_dc(self, session, req, actor_user_id)
+
+    def reject_block_request(self, request_id: str, actor_user_id: int, reason: str, expected_revision: int) -> BlockRequestDC:
+        with self._session() as session:
+            req = session.get(BlockRequestORM, request_id)
+            if not req:
+                raise LookupError("Block request not found")
+            if req.state not in ("pending_hr", "pending_block"):
+                raise ValueError(f"Cannot reject request in state '{req.state}'")
+            if req.revision != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+
+            now = datetime.now(timezone.utc)
+            now_iso = now.isoformat()
+
+            is_substitute = False
+            if req.state == "pending_hr":
+                if not self.is_hr_master(actor_user_id):
+                    if self.is_tachki(actor_user_id):
+                        stage_dt = datetime.fromisoformat(req.stage_entered_at.replace("Z", "+00:00"))
+                        if (now - stage_dt) >= timedelta(hours=72):
+                            is_substitute = True
+                        else:
+                            raise PermissionError("72 hours waiting period has not elapsed")
+                    else:
+                        raise PermissionError("Not authorized to reject HR stage")
+            elif req.state == "pending_block":
+                is_lead = self.is_block_master(actor_user_id, req.block_id) or self.is_block_master_deputy(actor_user_id, req.block_id)
+                if not is_lead:
+                    if self.is_tachki(actor_user_id):
+                        stage_dt = datetime.fromisoformat(req.stage_entered_at.replace("Z", "+00:00"))
+                        if (now - stage_dt) >= timedelta(hours=72):
+                            is_substitute = True
+                        else:
+                            raise PermissionError("72 hours waiting period has not elapsed")
+                    else:
+                        raise PermissionError("Not authorized to reject block stage")
+
+            old_state = req.state
+            req.state = "rejected"
+            req.rejection_reason = reason
+            req.substitute_available_at = None
+            req.revision += 1
+
+            session.add(AuditLogORM(
+                target_kind="block_request",
+                target_id=req.request_id,
+                changed_by_user_id=actor_user_id,
+                reason=reason,
+                old_values_json=json.dumps({"state": old_state}),
+                new_values_json=json.dumps({"state": "rejected", "is_substitute": is_substitute}),
+                created_at=now_iso,
+            ))
+            session.commit()
+            return _block_request_orm_to_dc(self, session, req, actor_user_id)
+
+    def withdraw_block_request(self, request_id: str, user_id: int, expected_revision: int) -> BlockRequestDC:
+        with self._session() as session:
+            req = session.get(BlockRequestORM, request_id)
+            if not req:
+                raise LookupError("Block request not found")
+            if req.user_id != user_id:
+                raise PermissionError("Only author can withdraw request")
+            if req.state not in ("pending_hr", "pending_block"):
+                raise ValueError(f"Cannot withdraw request in state '{req.state}'")
+            if req.revision != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+
+            req.state = "withdrawn"
+            req.substitute_available_at = None
+            req.revision += 1
+            session.commit()
+            return _block_request_orm_to_dc(self, session, req, user_id)
+
+    def _add_user_to_block_internal(self, session: Session, block_name: str, user_id: int):
+        b = session.get(BlockORM, block_name)
+        if not b:
+            return
+        try:
+            humans = json.loads(b.arr_of_human or "[]")
+        except Exception:
+            humans = []
+        if user_id not in humans:
+            humans.append(user_id)
+            self._sync_users_for_block(session, block_name, humans)
+
+        mem = session.query(BlockMembershipORM).filter(
+            BlockMembershipORM.block_id == block_name,
+            BlockMembershipORM.user_id == user_id,
+        ).first()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        if mem:
+            mem.is_active = True
+            mem.joined_at = now_iso
+            mem.left_at = None
+        else:
+            session.add(BlockMembershipORM(
+                block_id=block_name,
+                user_id=user_id,
+                block_category="junior",
+                joined_at=now_iso,
+                is_active=True,
+            ))
+
+    def delete_block_member(self, block_name: str, user_id: int, actor_user_id: int) -> None:
+        is_lead = self.is_block_master(actor_user_id, block_name) or self.is_block_master_deputy(actor_user_id, block_name)
+        is_hr = self.is_hr_master(actor_user_id)
+        is_tach = self.is_tachki(actor_user_id)
+        if not (is_lead or is_hr or is_tach):
+            raise PermissionError("Not authorized to remove block member")
+
+        with self._session() as session:
+            b = session.get(BlockORM, block_name)
+            if not b:
+                raise LookupError("Block not found")
+            try:
+                humans = json.loads(b.arr_of_human or "[]")
+            except Exception:
+                humans = []
+            if user_id in humans:
+                humans.remove(user_id)
+                self._sync_users_for_block(session, block_name, humans)
+
+            mem = session.query(BlockMembershipORM).filter(
+                BlockMembershipORM.block_id == block_name,
+                BlockMembershipORM.user_id == user_id,
+                BlockMembershipORM.is_active == True,
+            ).first()
+            if mem:
+                mem.is_active = False
+                mem.left_at = datetime.now(timezone.utc).isoformat()
+
+            session.commit()
+
+    def leave_block(self, block_name: str, user_id: int) -> dict:
+        with self._session() as session:
+            b = session.get(BlockORM, block_name)
+            if not b:
+                raise LookupError("Block not found")
+            try:
+                humans = json.loads(b.arr_of_human or "[]")
+            except Exception:
+                humans = []
+            if user_id not in humans:
+                return {"block_id": block_name, "membership_state": "left"}
+
+            humans.remove(user_id)
+            self._sync_users_for_block(session, block_name, humans)
+
+            now_iso = datetime.now(timezone.utc).isoformat()
+            mem = session.query(BlockMembershipORM).filter(
+                BlockMembershipORM.block_id == block_name,
+                BlockMembershipORM.user_id == user_id,
+                BlockMembershipORM.is_active == True,
+            ).first()
+            if mem:
+                mem.is_active = False
+                mem.left_at = now_iso
+
+            master_uid = b.master_user_id
+            if not master_uid and b.master:
+                mu = session.query(UserORM).join(ContactInfoORM, ContactInfoORM.user_id == UserORM.user_id).filter(ContactInfoORM.kkr_name == b.master).first()
+                if mu:
+                    master_uid = mu.user_id
+
+            if master_uid and master_uid != user_id:
+                session.add(NotificationORM(
+                    notification_id=str(uuid.uuid4()),
+                    user_id=master_uid,
+                    kind="block_leave",
+                    payload_json=json.dumps({"block_id": block_name, "user_id": user_id}),
+                    is_read=False,
+                    created_at=now_iso,
+                ))
+
+            session.commit()
+            return {"block_id": block_name, "membership_state": "left"}
+
+    def patch_block(
+        self,
+        block_name: str,
+        actor_user_id: int,
+        expected_revision: int,
+        description: Optional[str] = None,
+        community_url: Optional[str] = None,
+        name: Optional[str] = None,
+    ) -> BlockDC:
+        with self._session() as session:
+            b = session.get(BlockORM, block_name)
+            if not b:
+                raise LookupError("Block not found")
+            if (b.revision or 1) != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+
+            is_lead = self.is_block_master(actor_user_id, block_name) or self.is_block_master_deputy(actor_user_id, block_name)
+            is_tach = self.is_tachki(actor_user_id)
+            if not (is_lead or is_tach):
+                raise PermissionError("Not authorized to edit block")
+
+            if name is not None and name != block_name:
+                if not is_tach:
+                    raise PermissionError("Only tachki can change block name")
+                b.name = name
+
+            if description is not None:
+                b.description = description
+            if community_url is not None:
+                b.community_url = community_url
+
+            b.revision = (b.revision or 1) + 1
+            session.commit()
+            return self.get_block_detail(b.name, actor_user_id)
+
+    def get_block_detail(self, block_name: str, current_user_id: Optional[int] = None) -> BlockDC:
+        with self._session() as session:
+            b = session.get(BlockORM, block_name)
+            if not b:
+                raise LookupError(f"Block '{block_name}' not found")
+            return _block_orm_to_detail_dc(self, session, b, current_user_id)
+
+    # ─────────────────────────────────────────────────────────────
+    #  BE-06: MATERIALS
+    # ─────────────────────────────────────────────────────────────
+
+    def can_manage_material(self, user_id: int, material: MaterialORM) -> bool:
+        if self.is_tachki(user_id):
+            return True
+        if material.owner_block_id:
+            if self.is_block_master(user_id, material.owner_block_id) or self.is_block_master_deputy(user_id, material.owner_block_id):
+                return True
+        else:
+            with self._session() as session:
+                is_ed = session.query(MaterialEditorORM).filter(
+                    MaterialEditorORM.material_id == material.material_id,
+                    MaterialEditorORM.user_id == user_id,
+                ).count() > 0
+                if is_ed:
+                    return True
+        return False
+
+    def create_material(
+        self,
+        actor_user_id: int,
+        kind: str,
+        title: str,
+        content: dict,
+        description: str = "",
+        owner_block_id: Optional[str] = None,
+        original_link: Optional[str] = None,
+    ) -> MaterialDC:
+        if owner_block_id:
+            is_lead = self.is_block_master(actor_user_id, owner_block_id) or self.is_block_master_deputy(actor_user_id, owner_block_id)
+            if not (is_lead or self.is_tachki(actor_user_id)):
+                raise PermissionError("Only block master/deputy or tachki can create block guide material")
+        else:
+            if not self.is_tachki(actor_user_id):
+                raise PermissionError("Only tachki can create general materials")
+
+        with self._session() as session:
+            mat_id = f"mat-{uuid.uuid4()}"
+            now_iso = datetime.now(timezone.utc).isoformat()
+            mat = MaterialORM(
+                material_id=mat_id,
+                kind=kind,
+                owner_block_id=owner_block_id,
+                title=title,
+                description=description or "",
+                original_link=original_link,
+                published_content_json=None,
+                draft_content_json=json.dumps(content),
+                revision=1,
+                created_at=now_iso,
+                updated_at=now_iso,
+            )
+            session.add(mat)
+            session.commit()
+            return _material_orm_to_dc(self, session, mat, actor_user_id)
+
+    def get_material(self, material_id: str, current_user_id: Optional[int] = None) -> Optional[MaterialDC]:
+        with self._session() as session:
+            mat = session.get(MaterialORM, material_id)
+            if not mat:
+                return None
+            can_manage = current_user_id and self.can_manage_material(current_user_id, mat)
+            if not can_manage and not mat.published_content_json:
+                return None
+            return _material_orm_to_dc(self, session, mat, current_user_id)
+
+    def list_materials(
+        self,
+        current_user_id: Optional[int] = None,
+        kind: Optional[str] = None,
+        owner_block_id: Optional[str] = None,
+    ) -> list[MaterialDC]:
+        with self._session() as session:
+            q = session.query(MaterialORM)
+            if kind:
+                q = q.filter(MaterialORM.kind == kind)
+            if owner_block_id:
+                q = q.filter(MaterialORM.owner_block_id == owner_block_id)
+            rows = q.order_by(MaterialORM.created_at.desc()).all()
+            res = []
+            for r in rows:
+                can_manage = current_user_id and self.can_manage_material(current_user_id, r)
+                if can_manage or r.published_content_json:
+                    res.append(_material_orm_to_dc(self, session, r, current_user_id))
+            return res
+
+    def patch_material(
+        self,
+        material_id: str,
+        actor_user_id: int,
+        expected_revision: int,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        content: Optional[dict] = None,
+        original_link: Optional[str] = None,
+    ) -> MaterialDC:
+        with self._session() as session:
+            mat = session.get(MaterialORM, material_id)
+            if not mat:
+                raise LookupError(f"Material '{material_id}' not found")
+            if not self.can_manage_material(actor_user_id, mat):
+                raise PermissionError("Not authorized to edit this material")
+            if (mat.revision or 1) != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+
+            if title is not None:
+                mat.title = title
+            if description is not None:
+                mat.description = description
+            if original_link is not None:
+                mat.original_link = original_link
+            if content is not None:
+                mat.draft_content_json = json.dumps(content)
+
+            mat.revision = (mat.revision or 1) + 1
+            mat.updated_at = datetime.now(timezone.utc).isoformat()
+            session.commit()
+            return _material_orm_to_dc(self, session, mat, actor_user_id)
+
+    def publish_material(self, material_id: str, actor_user_id: int, expected_revision: int) -> MaterialDC:
+        with self._session() as session:
+            mat = session.get(MaterialORM, material_id)
+            if not mat:
+                raise LookupError(f"Material '{material_id}' not found")
+            if not self.can_manage_material(actor_user_id, mat):
+                raise PermissionError("Not authorized to publish this material")
+            if (mat.revision or 1) != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+
+            now_iso = datetime.now(timezone.utc).isoformat()
+            mat.published_content_json = mat.draft_content_json
+            mat.published_at = now_iso
+            mat.published_by_user_id = actor_user_id
+            mat.revision = (mat.revision or 1) + 1
+            mat.updated_at = now_iso
+            session.commit()
+            return _material_orm_to_dc(self, session, mat, actor_user_id)
+
+    def delete_material(self, material_id: str, actor_user_id: int) -> None:
+        with self._session() as session:
+            mat = session.get(MaterialORM, material_id)
+            if not mat:
+                raise LookupError(f"Material '{material_id}' not found")
+            if not self.can_manage_material(actor_user_id, mat):
+                raise PermissionError("Not authorized to delete this material")
+
+            session.query(MaterialEditorORM).filter(MaterialEditorORM.material_id == material_id).delete()
+            session.delete(mat)
+            session.commit()
+
+    def set_material_editors(self, material_id: str, actor_user_id: int, editor_user_ids: list[int], expected_revision: int) -> dict:
+        if not self.is_tachki(actor_user_id):
+            raise PermissionError("Only tachki can assign material editors")
+        with self._session() as session:
+            mat = session.get(MaterialORM, material_id)
+            if not mat:
+                raise LookupError(f"Material '{material_id}' not found")
+            if (mat.revision or 1) != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+
+            session.query(MaterialEditorORM).filter(MaterialEditorORM.material_id == material_id).delete()
+            now_iso = datetime.now(timezone.utc).isoformat()
+            for uid in set(editor_user_ids):
+                session.add(MaterialEditorORM(
+                    material_id=material_id,
+                    user_id=uid,
+                    created_at=now_iso,
+                ))
+            mat.revision = (mat.revision or 1) + 1
+            mat.updated_at = now_iso
+            session.commit()
+            return {
+                "material_id": material_id,
+                "editor_user_ids": list(set(editor_user_ids)),
+                "revision": mat.revision,
+            }
+
+    # ─────────────────────────────────────────────────────────────
+    #  BE-06: CONTACTS & ALUMNI
+    # ─────────────────────────────────────────────────────────────
+
+    def create_alumni_contact(
+        self,
+        actor_user_id: int,
+        surname: str,
+        name: str,
+        patronymic: Optional[str] = None,
+        phone: Optional[str] = None,
+        email: Optional[str] = None,
+        tg: Optional[str] = None,
+        vk: Optional[str] = None,
+        participation_periods: Optional[list[dict]] = None,
+        notes: Optional[str] = None,
+    ) -> AlumniContactDC:
+        if not (self.is_tachki(actor_user_id) or self.is_hr_master(actor_user_id)):
+            raise PermissionError("Only tachki or HR master can create alumni contacts")
+
+        with self._session() as session:
+            alumni_id = f"alumni-{uuid.uuid4()}"
+            now_iso = datetime.now(timezone.utc).isoformat()
+            rec = AlumniContactORM(
+                alumni_id=alumni_id,
+                surname=surname,
+                name=name,
+                patronymic=patronymic,
+                phone=phone,
+                email=email,
+                tg=tg,
+                vk=vk,
+                participation_periods_json=json.dumps(participation_periods or []),
+                notes=notes,
+                revision=1,
+                created_at=now_iso,
+                updated_at=now_iso,
+            )
+            session.add(rec)
+            session.commit()
+            return _alumni_orm_to_dc(self, session, rec, actor_user_id)
+
+    def get_alumni_contact(self, alumni_id: str, current_user_id: Optional[int] = None) -> Optional[AlumniContactDC]:
+        with self._session() as session:
+            rec = session.get(AlumniContactORM, alumni_id)
+            if not rec:
+                return None
+            return _alumni_orm_to_dc(self, session, rec, current_user_id)
+
+    def list_alumni_contacts(self, current_user_id: Optional[int] = None, query: Optional[str] = None) -> list[AlumniContactDC]:
+        with self._session() as session:
+            rows = session.query(AlumniContactORM).order_by(AlumniContactORM.surname.asc(), AlumniContactORM.name.asc()).all()
+            if query and query.strip():
+                term = query.strip().lower()
+                def _matches(rec: AlumniContactORM) -> bool:
+                    fields = [rec.surname, rec.name, rec.patronymic, rec.email, rec.tg, rec.vk, rec.notes]
+                    return any(term in (f or "").lower() for f in fields)
+                rows = [r for r in rows if _matches(r)]
+            return [_alumni_orm_to_dc(self, session, r, current_user_id) for r in rows]
+
+    def patch_alumni_contact(
+        self,
+        alumni_id: str,
+        actor_user_id: int,
+        expected_revision: int,
+        surname: Optional[str] = None,
+        name: Optional[str] = None,
+        patronymic: Optional[str] = None,
+        phone: Optional[str] = None,
+        email: Optional[str] = None,
+        tg: Optional[str] = None,
+        vk: Optional[str] = None,
+        participation_periods: Optional[list[dict]] = None,
+        notes: Optional[str] = None,
+    ) -> AlumniContactDC:
+        if not (self.is_tachki(actor_user_id) or self.is_hr_master(actor_user_id)):
+            raise PermissionError("Only tachki or HR master can edit alumni contacts")
+
+        with self._session() as session:
+            rec = session.get(AlumniContactORM, alumni_id)
+            if not rec:
+                raise LookupError(f"Alumni contact '{alumni_id}' not found")
+            if (rec.revision or 1) != expected_revision:
+                raise ValueError("Conflict: revision mismatch")
+
+            if surname is not None: rec.surname = surname
+            if name is not None: rec.name = name
+            if patronymic is not None: rec.patronymic = patronymic
+            if phone is not None: rec.phone = phone
+            if email is not None: rec.email = email
+            if tg is not None: rec.tg = tg
+            if vk is not None: rec.vk = vk
+            if participation_periods is not None:
+                rec.participation_periods_json = json.dumps(participation_periods)
+            if notes is not None: rec.notes = notes
+
+            rec.revision = (rec.revision or 1) + 1
+            rec.updated_at = datetime.now(timezone.utc).isoformat()
+            session.commit()
+            return _alumni_orm_to_dc(self, session, rec, actor_user_id)
+
+    def delete_alumni_contact(self, alumni_id: str, actor_user_id: int) -> None:
+        if not (self.is_tachki(actor_user_id) or self.is_hr_master(actor_user_id)):
+            raise PermissionError("Only tachki or HR master can delete alumni contacts")
+        with self._session() as session:
+            rec = session.get(AlumniContactORM, alumni_id)
+            if not rec:
+                raise LookupError(f"Alumni contact '{alumni_id}' not found")
+            session.delete(rec)
+            session.commit()
+
+    def list_active_emails(self, current_user_id: int) -> list[str]:
+        with self._session() as session:
+            contacts = (
+                session.query(ContactInfoORM)
+                .join(UserORM, UserORM.user_id == ContactInfoORM.user_id)
+                .filter(
+                    UserORM.banned == False,
+                    UserORM.account_state == "active",
+                )
+                .all()
+            )
+            emails = set()
+            for c in contacts:
+                if c.email and c.email.strip():
+                    emails.add(c.email.strip().lower())
+            return sorted(list(emails))
+
+    # ─────────────────────────────────────────────────────────────
+    #  BE-06: AVATARS & PROFILE
+    # ─────────────────────────────────────────────────────────────
+
+    def get_avatar_presets(self) -> list[AvatarPresetDC]:
+        return [AvatarPresetDC(**p) for p in DEFAULT_AVATAR_PRESETS]
+
+    def set_user_avatar(self, user_id: int, preset_id: Optional[str] = None, file_id: Optional[str] = None) -> str:
+        if (preset_id is None and file_id is None) or (preset_id is not None and file_id is not None):
+            raise ValueError("Exactly one of preset_id or file_id must be provided")
+
+        with self._session() as session:
+            u = session.get(UserORM, user_id)
+            if not u:
+                raise LookupError("User not found")
+            c = session.get(ContactInfoORM, user_id)
+
+            if preset_id is not None:
+                preset = next((p for p in DEFAULT_AVATAR_PRESETS if p["preset_id"] == preset_id), None)
+                if not preset:
+                    raise LookupError(f"Avatar preset '{preset_id}' not found")
+                avatar_url = preset["image_url"]
+            else:
+                f = session.get(FileRecordORM, file_id)
+                if not f:
+                    raise LookupError("Avatar file not found")
+                if f.owner_kind != "user" or f.owner_id != str(user_id):
+                    raise PermissionError("User does not own this file")
+                if not (f.mime_type or "").startswith("image/"):
+                    raise ValueError("Avatar file must be an image")
+                avatar_url = f"/api/files/{f.file_id}/download"
+
+            u.photo_url = avatar_url
+            if c:
+                c.photo_url = avatar_url
+            session.commit()
+            return avatar_url
+
+    # ─────────────────────────────────────────────────────────────
+    #  BE-06: ACCOUNTS ARCHIVE & RESTORE
+    # ─────────────────────────────────────────────────────────────
+
+    def list_archived_accounts(self, actor_user_id: int) -> list[ArchivedAccountDC]:
+        if not self.is_chair(actor_user_id):
+            raise PermissionError("Only chair can view archived accounts")
+        with self._session() as session:
+            archived = session.query(UserORM).filter(UserORM.account_state == "archived").all()
+            res = []
+            for u in archived:
+                c = session.get(ContactInfoORM, u.user_id)
+                disp = f"{c.name} {c.surname}".strip() if c else f"User {u.user_id}"
+                email = c.email if c else ""
+
+                last_audit = (
+                    session.query(AuditLogORM)
+                    .filter(
+                        AuditLogORM.target_kind == "account",
+                        AuditLogORM.target_id == str(u.user_id),
+                    )
+                    .order_by(AuditLogORM.created_at.desc())
+                    .first()
+                )
+                reason = last_audit.reason if last_audit else None
+                archived_at = last_audit.created_at if last_audit else None
+
+                b_mems = session.query(BlockMembershipORM).filter(BlockMembershipORM.user_id == u.user_id).all()
+                blocks = [bm.block_id for bm in b_mems]
+
+                res.append(ArchivedAccountDC(
+                    user_id=u.user_id,
+                    email=email,
+                    display_name=disp,
+                    account_state=u.account_state,
+                    archived_at=archived_at,
+                    archive_reason=reason,
+                    roles=[],
+                    blocks=blocks,
+                ))
+            return res
+
+    def archive_account(self, user_id: int, actor_user_id: int, reason: str) -> UserDC:
+        if not self.is_chair(actor_user_id):
+            raise PermissionError("Only chair can archive accounts")
+        if self.is_chair(user_id):
+            raise ValueError("chair_transfer_required_before_archive")
+
+        with self._session() as session:
+            u = session.get(UserORM, user_id)
+            if not u:
+                raise LookupError("User not found")
+            if u.account_state == "archived":
+                return _user_orm_to_dc(u)
+
+            u.account_state = "archived"
+            session.query(RefreshTokenORM).filter(RefreshTokenORM.user_id == user_id).delete()
+
+            now_iso = datetime.now(timezone.utc).isoformat()
+            mems = session.query(BlockMembershipORM).filter(
+                BlockMembershipORM.user_id == user_id,
+                BlockMembershipORM.is_active == True,
+            ).all()
+            for m in mems:
+                m.is_active = False
+                m.left_at = now_iso
+
+            blocks = session.query(BlockORM).filter(BlockORM.master_user_id == user_id).all()
+            for b in blocks:
+                b.master_user_id = None
+                b.master = ""
+
+            session.add(AuditLogORM(
+                target_kind="account",
+                target_id=str(user_id),
+                changed_by_user_id=actor_user_id,
+                reason=reason,
+                old_values_json=json.dumps({"account_state": "active"}),
+                new_values_json=json.dumps({"account_state": "archived"}),
+                created_at=now_iso,
+            ))
+            session.commit()
+            session.refresh(u)
+            return _user_orm_to_dc(u)
+
+    def restore_account(
+        self,
+        user_id: int,
+        actor_user_id: int,
+        master_conflicts: Optional[list[dict]] = None,
+    ) -> UserDC:
+        if not self.is_chair(actor_user_id):
+            raise PermissionError("Only chair can restore accounts")
+
+        with self._session() as session:
+            u = session.get(UserORM, user_id)
+            if not u:
+                raise LookupError("User not found")
+            if u.account_state != "archived":
+                return _user_orm_to_dc(u)
+
+            prev_master_roles = (
+                session.query(RoleAssignmentORM)
+                .filter(
+                    RoleAssignmentORM.user_id == user_id,
+                    RoleAssignmentORM.scope_kind == "block",
+                    RoleAssignmentORM.role == "master",
+                )
+                .all()
+            )
+
+            conflicts = []
+            conflict_resolutions = {c["block_id"]: c["keep_user_id"] for c in (master_conflicts or [])}
+
+            for r in prev_master_roles:
+                b = session.get(BlockORM, r.scope_id)
+                if b and b.master_user_id and b.master_user_id != user_id:
+                    if b.name not in conflict_resolutions:
+                        conflicts.append({
+                            "block_id": b.name,
+                            "current_master_user_id": b.master_user_id,
+                            "restoring_user_id": user_id,
+                        })
+
+            if conflicts:
+                err = ValueError("master_conflict_unresolved")
+                err.conflicts = conflicts
+                raise err
+
+            for r in prev_master_roles:
+                b = session.get(BlockORM, r.scope_id)
+                if b:
+                    keep_uid = conflict_resolutions.get(b.name, user_id)
+                    if keep_uid == user_id:
+                        b.master_user_id = user_id
+                        c = session.get(ContactInfoORM, user_id)
+                        b.master = c.kkr_name if c else f"User #{user_id}"
+
+            u.account_state = "active"
+            now_iso = datetime.now(timezone.utc).isoformat()
+
+            mems = session.query(BlockMembershipORM).filter(
+                BlockMembershipORM.user_id == user_id,
+            ).all()
+            for m in mems:
+                m.is_active = True
+                m.left_at = None
+                self._add_user_to_block_internal(session, m.block_id, user_id)
+
+            session.add(AuditLogORM(
+                target_kind="account",
+                target_id=str(user_id),
+                changed_by_user_id=actor_user_id,
+                reason="Restored by chair",
+                old_values_json=json.dumps({"account_state": "archived"}),
+                new_values_json=json.dumps({"account_state": "active"}),
+                created_at=now_iso,
+            ))
+            session.commit()
+            session.refresh(u)
+            return _user_orm_to_dc(u)
+
+    def cleanup_archived_accounts(self, retention_days: int = 3 * 365) -> int:
+        with self._session() as session:
+            now = datetime.now(timezone.utc)
+            cutoff = now - timedelta(days=retention_days)
+
+            archived = session.query(UserORM).filter(UserORM.account_state == "archived").all()
+            cleaned_count = 0
+
+            for u in archived:
+                last_audit = (
+                    session.query(AuditLogORM)
+                    .filter(
+                        AuditLogORM.target_kind == "account",
+                        AuditLogORM.target_id == str(u.user_id),
+                    )
+                    .order_by(AuditLogORM.created_at.desc())
+                    .first()
+                )
+
+                archive_dt = None
+                if last_audit and last_audit.created_at:
+                    try:
+                        archive_dt = datetime.fromisoformat(last_audit.created_at.replace("Z", "+00:00"))
+                    except Exception:
+                        pass
+
+                if archive_dt and archive_dt <= cutoff:
+                    c = session.get(ContactInfoORM, u.user_id)
+                    if c and c.surname == "Бывший" and c.email == f"archived_{u.user_id}@profkom.archive":
+                        continue
+                    if c:
+                        c.surname = "Бывший"
+                        c.name = f"Участник #{u.user_id}"
+                        c.patronymic = ""
+                        c.phone = ""
+                        c.email = f"archived_{u.user_id}@profkom.archive"
+                        c.tg = ""
+                        c.vk = ""
+                        c.location = ""
+                    u.photo_url = None
+                    u.hashed_password = ""
+                    cleaned_count += 1
+
+            session.commit()
+            return cleaned_count
+
 
 def _season_orm_to_dc(orm: SeasonORM) -> SeasonDC:
     caps = []
@@ -6357,5 +7886,205 @@ def _subevent_orm_to_dc(session: Session, orm: SubeventORM) -> SubeventDC:
 
 
 
+def _registration_orm_to_dc(db_instance, session: Session, reg: RegistrationApplicationORM, current_user_id: Optional[int] = None) -> RegistrationApplicationDC:
+    fields_dict = json.loads(reg.fields_json or "{}")
+    fields_dc = RegistrationFieldsDC(
+        surname=fields_dict.get("surname", ""),
+        name=fields_dict.get("name", ""),
+        patronymic=fields_dict.get("patronymic", None),
+        group_number=str(fields_dict.get("group_number", "")),
+        phone=fields_dict.get("phone", ""),
+        email=fields_dict.get("email", ""),
+        tg=fields_dict.get("tg", ""),
+        vk=fields_dict.get("vk", ""),
+        funding=fields_dict.get("funding", "budget"),
+        residence=fields_dict.get("residence", ""),
+    )
+    caps = []
+    if current_user_id:
+        if current_user_id == reg.user_id:
+            if reg.status != "approved":
+                caps.append("patch_registration_fields")
+            if reg.status == "rejected" and reg.attempts_used < reg.attempt_limit:
+                caps.append("resubmit_registration")
+        if db_instance.is_tachki(current_user_id):
+            if reg.status == "pending":
+                caps.extend(["approve_registration", "reject_registration"])
+            if reg.status == "rejected":
+                caps.append("reset_registration_limit")
+
+    return RegistrationApplicationDC(
+        user_id=reg.user_id,
+        status=reg.status,
+        attempts_used=reg.attempts_used,
+        attempt_limit=reg.attempt_limit,
+        total_submissions=reg.total_submissions,
+        rejection_reason=reg.rejection_reason,
+        fields=fields_dc,
+        revision=reg.revision or 1,
+        capabilities=caps,
+    )
+
+
+def _block_request_orm_to_dc(db_instance, session: Session, req: BlockRequestORM, current_user_id: Optional[int] = None) -> BlockRequestDC:
+    u = session.get(UserORM, req.user_id)
+    u_ref = _user_to_ref_dc(u) or UserRefDC(user_id=req.user_id, display_name=f"User {req.user_id}", avatar_url=None)
+    caps = []
+    if current_user_id:
+        if current_user_id == req.user_id and req.state in ("pending_hr", "pending_block"):
+            caps.append("withdraw_request")
+        now = datetime.now(timezone.utc)
+        if req.state == "pending_hr":
+            if db_instance.is_hr_master(current_user_id):
+                caps.append("hr_review_request")
+            elif db_instance.is_tachki(current_user_id) and req.substitute_available_at:
+                sub_dt = datetime.fromisoformat(req.substitute_available_at.replace("Z", "+00:00"))
+                if now >= sub_dt:
+                    caps.append("hr_review_request")
+        elif req.state == "pending_block":
+            is_lead = db_instance.is_block_master(current_user_id, req.block_id) or db_instance.is_block_master_deputy(current_user_id, req.block_id)
+            if is_lead:
+                caps.append("block_review_request")
+            elif db_instance.is_tachki(current_user_id) and req.substitute_available_at:
+                sub_dt = datetime.fromisoformat(req.substitute_available_at.replace("Z", "+00:00"))
+                if now >= sub_dt:
+                    caps.append("block_review_request")
+
+    return BlockRequestDC(
+        request_id=req.request_id,
+        user=u_ref,
+        block_id=req.block_id,
+        state=req.state,
+        created_at=req.created_at,
+        stage_entered_at=req.stage_entered_at,
+        substitute_available_at=req.substitute_available_at,
+        revision=req.revision or 1,
+        capabilities=caps,
+    )
+
+
+def _block_orm_to_detail_dc(db_instance, session: Session, b: BlockORM, current_user_id: Optional[int] = None) -> BlockDC:
+    try:
+        arr = json.loads(b.arr_of_human) if b.arr_of_human else []
+    except Exception:
+        arr = []
+
+    members = []
+    for uid in arr:
+        mem_orm = session.query(BlockMembershipORM).filter(
+            BlockMembershipORM.block_id == b.name,
+            BlockMembershipORM.user_id == uid,
+            BlockMembershipORM.is_active == True,
+        ).first()
+        b_cat = mem_orm.block_category if mem_orm else "junior"
+        u = session.get(UserORM, uid)
+        u_ref = _user_to_ref_dc(u) or UserRefDC(user_id=uid, display_name=f"User {uid}", avatar_url=None)
+        members.append(BlockMemberDC(user=u_ref, block_category=b_cat))
+
+    caps = []
+    if current_user_id:
+        if current_user_id in arr:
+            caps.append("leave_block")
+        if db_instance.is_block_master(current_user_id, b.name) or db_instance.is_block_master_deputy(current_user_id, b.name) or db_instance.is_tachki(current_user_id):
+            caps.append("edit_block")
+
+    return BlockDC(
+        name=b.name,
+        master=b.master,
+        hr=b.hr,
+        cnt_of_human=len(arr),
+        arr_of_human=arr,
+        is_hr=bool(getattr(b, "is_hr", False)),
+        master_user_id=getattr(b, "master_user_id", None),
+        block_id=b.name,
+        description=getattr(b, "description", "") or "",
+        guide_material_id=getattr(b, "guide_material_id", None),
+        community_url=getattr(b, "community_url", None),
+        revision=getattr(b, "revision", 1) or 1,
+        members=members,
+        capabilities=caps,
+    )
+
+
+def _material_orm_to_dc(db_instance, session: Session, mat: MaterialORM, current_user_id: Optional[int] = None) -> MaterialDC:
+    editor_rows = session.query(MaterialEditorORM.user_id).filter(MaterialEditorORM.material_id == mat.material_id).all()
+    editor_user_ids = [r[0] for r in editor_rows]
+
+    pub_by_ref = None
+    if mat.published_by_user_id:
+        u = session.get(UserORM, mat.published_by_user_id)
+        pub_by_ref = _user_to_ref_dc(u)
+
+    can_manage = bool(current_user_id and db_instance.can_manage_material(current_user_id, mat))
+    caps = []
+    if current_user_id:
+        if can_manage:
+            caps.extend(["edit_material", "publish_material", "delete_material"])
+        if db_instance.is_tachki(current_user_id) and not mat.owner_block_id:
+            caps.append("manage_editors")
+
+    def _decode_rt(s: Optional[str]) -> Optional[RichTextDC]:
+        if not s:
+            return None
+        try:
+            d = json.loads(s)
+            if isinstance(d, dict):
+                return RichTextDC(format=d.get("format", "markdown"), body=d.get("body", ""))
+            return RichTextDC(format="markdown", body=str(d))
+        except Exception:
+            return RichTextDC(format="markdown", body=str(s))
+
+    published_content = _decode_rt(mat.published_content_json)
+    draft_content = _decode_rt(mat.draft_content_json) if can_manage else None
+
+    return MaterialDC(
+        material_id=mat.material_id,
+        kind=mat.kind,
+        title=mat.title,
+        description=mat.description or "",
+        owner_block_id=mat.owner_block_id,
+        original_link=mat.original_link,
+        published_content=published_content,
+        draft_content=draft_content,
+        editor_user_ids=editor_user_ids,
+        published_at=mat.published_at,
+        published_by=pub_by_ref,
+        revision=mat.revision or 1,
+        capabilities=caps,
+    )
+
+
+def _alumni_orm_to_dc(db_instance, session: Session, rec: AlumniContactORM, current_user_id: Optional[int] = None) -> AlumniContactDC:
+    periods = []
+    if rec.participation_periods_json:
+        try:
+            raw_periods = json.loads(rec.participation_periods_json)
+            for p in raw_periods:
+                if isinstance(p, dict):
+                    periods.append(ParticipationPeriodDC(from_year=p.get("from_year", 0), to_year=p.get("to_year", 0)))
+        except Exception:
+            pass
+
+    caps = []
+    if current_user_id and (db_instance.is_tachki(current_user_id) or db_instance.is_hr_master(current_user_id)):
+        caps.extend(["edit_alumni", "delete_alumni"])
+
+    return AlumniContactDC(
+        alumni_id=rec.alumni_id,
+        surname=rec.surname,
+        name=rec.name,
+        patronymic=rec.patronymic,
+        phone=rec.phone,
+        email=rec.email,
+        tg=rec.tg,
+        vk=rec.vk,
+        participation_periods=periods,
+        notes=rec.notes,
+        revision=rec.revision or 1,
+        capabilities=caps,
+    )
+
+
 db = Database()
+
 
