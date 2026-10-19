@@ -9,6 +9,8 @@ import { tasksApi } from "../../utils/api/tasks.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { emptyCriteria, richText } from "../../utils/api/contract";
 import { UnresolvedPage } from "./TaskPages";
+import { ReportPage } from "./ReportPages";
+import { reportsApi } from "../../utils/api/reports.api";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 afterEach(async () => { await page?.cleanup(); page = undefined; });
@@ -47,4 +49,28 @@ it("INT-01: real session opens only the manager's queue and loses access with th
   const removed = await liveLogin(master.email);
   expect(removed.capabilities).not.toContain("view_unresolved_assignments");
   expect((await tasksApi.unresolved()).items).toEqual([]);
+});
+
+it("INT-02: real report readers can open both publications without seeing the shared draft", async () => {
+  const author = await liveParticipant("report-author");
+  await liveLogin();
+  const season = (await seasonsApi.list()).items.find(s => s.state === "open")!;
+  let event = await eventsApi.create({ season_id: season.season_id, title: "Report publications", description: richText() });
+  event = await eventsApi.leaders("events", event.event_id, [author.user_id], { expected_revision: event.revision });
+  await liveLogin(author.email);
+  let report = await reportsApi.create({ owner_kind: "event", owner_id: event.event_id, kind: "regular", title: "Версии отчёта HTTP", content: richText("Первая публикация HTTP"), file_ids: [] });
+  report = await reportsApi.publish(report.report_id, { expected_revision: report.revision });
+  report = await reportsApi.update(report.report_id, { expected_revision: report.revision, content: richText("Вторая публикация HTTP") });
+  report = await reportsApi.publish(report.report_id, { expected_revision: report.revision });
+  await reportsApi.update(report.report_id, { expected_revision: report.revision, content: richText("Скрытый черновик HTTP") });
+  const reader = await liveLogin();
+  const read = await reportsApi.get(report.report_id);
+  expect(read.capabilities).toContain("view_report_versions");
+  expect(read.capabilities).not.toContain("edit_report");
+  page = await mountWorkspace(<Routes><Route path="/reports/:id" element={<ReportPage />} /></Routes>, { path: `/reports/${report.report_id}`, session: reader });
+  for (let i = 0; i < 30 && !page.container.textContent?.includes("Первая публикация HTTP"); i++) await settle();
+  expect(page.container.textContent).toContain("Опубликованные версии");
+  expect(page.container.textContent).toContain("Первая публикация HTTP");
+  expect(page.container.textContent).toContain("Вторая публикация HTTP");
+  expect(page.container.textContent).not.toContain("Скрытый черновик HTTP");
 });

@@ -1352,10 +1352,12 @@ def _report_orm_to_dc(session: Session, r: ReportORM, current_user_id: Optional[
     draft_title = None
     draft_content = None
     draft_files = None
-    caps = []
+    caps = (["view_report_versions"] if current_user_id and (
+        is_editor or db.can_read_report(current_user_id, r, session)
+    ) else [])
 
     if is_editor:
-        caps = ["edit_report", "publish_report"]
+        caps += ["edit_report", "publish_report"]
         draft_title = r.draft_title if r.draft_title is not None else r.title
         d_body = r.draft_content_json if r.draft_content_json is not None else (r.content_json or "")
         draft_content = RichTextDC(format="markdown", body=d_body)
