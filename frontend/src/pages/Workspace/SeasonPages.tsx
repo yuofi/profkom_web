@@ -428,7 +428,7 @@ export function SummaryPage() {
             {bonuses.data?.items.map((b) => (
               <details className={s.details} key={b.bonus_id}>
                 <summary>
-                  {b.recipient.display_name} · {b.amount.toFixed(2)} ·
+                  {b.recipient?.display_name ?? "Мастер не назначен"} · {b.amount.toFixed(2)} ·
                   учитываемых организаторов {b.eligible_organizer_count}
                 </summary>
                 <p>Версия расчёта: {b.calculation_version}</p>

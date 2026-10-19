@@ -290,8 +290,8 @@ export interface MasterBonus {
   bonus_id: string;
   season_id: string;
   block_id: string;
-  recipient_participant_id: string;
-  recipient: UserRef;
+  recipient_participant_id: string | null;
+  recipient: UserRef | null;
   eligible_organizer_count: number;
   amount: number;
   basis: {

@@ -179,14 +179,14 @@ it.each([
   const intent = vi.spyOn(filesApi, "intent");
   page = await mountWorkspace(<AvatarPicker />, { role: "organizer" }); await settle();
   const input = page.container.querySelector<HTMLInputElement>('input[type="file"]')!;
-  Object.defineProperty(input, "files", { value: [new File([new Uint8Array(size)], "size-probe", { type: mime })] });
+  Object.defineProperty(input, "files", { value: [new File([new Uint8Array(size)], `size-probe.${mime === "image/jpeg" ? "jpg" : mime === "image/webp" ? "webp" : "png"}`, { type: mime })] });
   await act(async () => input.dispatchEvent(new Event("change", { bubbles: true }))); await settle(); await settle();
   if (allowed) {
     expect(intent).toHaveBeenCalledWith(expect.objectContaining({ size_bytes: size, mime_type: mime, owner_kind: "avatar" }));
     expect(page.container.textContent).toContain("Аватар сохранён");
   } else {
     expect(intent).not.toHaveBeenCalled();
-    expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("до 10 МиБ");
+    expect(page.container.querySelector('[role="alert"]')?.textContent).toContain(size > 10 * 1024 * 1024 ? "до 10 МиБ" : "тип файла не соответствует расширению");
   }
 });
 

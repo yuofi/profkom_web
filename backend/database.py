@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import asyncio
+from weakref import WeakKeyDictionary
+from anyio import to_thread
 from contextvars import ContextVar
-from contextlib import contextmanager
+from contextlib import contextmanager, asynccontextmanager
 import math
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -1909,10 +1912,43 @@ class Database:
 
     def __init__(self) -> None:
         self._SessionLocal = SessionLocal
+        self._http_write_locks = WeakKeyDictionary()
 
     def _session(self) -> Session:
         active = _active_session.get()
         return _SessionLease(active) if active is not None else self._SessionLocal()
+
+    @asynccontextmanager
+    async def async_atomic(self, write=True):
+        """Keep the request context, without blocking the loop on SQLite locks.
+
+        Waiting HTTP writers yield so the current request can commit. The
+        synchronous atomic() remains available for scripts and domain services.
+        """
+        if _active_session.get() is not None:
+            yield
+            return
+        lock = None
+        if write:
+            loop = asyncio.get_running_loop()
+            lock = self._http_write_locks.setdefault(loop, asyncio.Lock())
+            await lock.acquire()
+        try:
+            with self._SessionLocal() as session:
+                if write:
+                    await to_thread.run_sync(lambda: session.execute(text("BEGIN IMMEDIATE")))
+                token = _active_session.set(session)
+                try:
+                    yield
+                    await to_thread.run_sync(session.commit)
+                except BaseException:
+                    await to_thread.run_sync(session.rollback)
+                    raise
+                finally:
+                    _active_session.reset(token)
+        finally:
+            if lock is not None:
+                lock.release()
 
     @contextmanager
     def atomic(self, write=True):

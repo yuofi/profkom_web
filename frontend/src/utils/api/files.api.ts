@@ -18,12 +18,12 @@ export const filesApi = {
     onProgress?: (percent: number) => void,
     signal?: AbortSignal,
   ): Promise<FileRef> => {
-    const intent = await filesApi.intent({
+    const intent = await filesApi.intent(normalizeUpload({
       ...owner,
       name: file.name,
       mime_type: file.type,
       size_bytes: file.size,
-    });
+    }));
     try {
       await axios.request({
         url: intent.upload_url,

@@ -13,7 +13,7 @@ let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let adapter: MockAdapter;
 afterEach(async () => { await page?.cleanup(); page = undefined; adapter?.restore(); });
 const first = (): SummaryVersionSnapshot => ({ version: 4, changed_by: createFixtures().user, changed_at: "2026-10-19T06:00:00Z", reason: "Первое утверждение", previous_summary_version: null,
-  summary: { ...createFixtures("chair").summary, version: 4, state: "approved", capabilities: ["edit_decisions"] }, contributions: [], master_bonuses: [] });
+  summary: { ...createFixtures("chair").summary, version: 4, state: "approved", capabilities: ["edit_decisions"] }, contributions: [], master_bonuses: [{ bonus_id: "unassigned", recipient_participant_id: null, amount: 0, basis: [], calculation_version: "master_bonus_v1" }] });
 
 it("INT-03: historical rows remain read-only and are hidden when snapshot access is revoked", async () => {
   adapter = new MockAdapter(api);
@@ -23,6 +23,7 @@ it("INT-03: historical rows remain read-only and are hidden when snapshot access
   page = await mountWorkspace(<SummaryHistory seasonId="season-1" />, { role: "hr" });
   await settle(); await change(page.container.querySelector('select')!, '4'); await settle();
   expect(page.container.textContent).toContain('Первое утверждение');
+  expect(page.container.textContent).toContain('Мастер не назначен');
   expect(page.container.querySelector('[aria-label="Историческая сводная"] form')).toBeNull();
   adapter.onGet('/seasons/season-1/summary/versions/4').reply(403, { detail: 'Access revoked' });
   await act(async () => invalidateWorkspace(page!.client)); await settle();

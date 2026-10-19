@@ -239,5 +239,5 @@ async def guard_working_access(request: Request):
 
 
 async def unit_of_work(request: Request):
-    with db.atomic(write=request.method not in {"GET", "HEAD", "OPTIONS"}):
+    async with db.async_atomic(write=request.method not in {"GET", "HEAD", "OPTIONS"}):
         yield

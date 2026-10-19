@@ -55,7 +55,7 @@ export function SummaryHistory({ seasonId }: { seasonId: string }) {
           <details className={s.details}>
             <summary>Бонусы мастеров сохранённой версии</summary>
             {historical.master_bonuses.map(b => <div key={b.bonus_id}>
-              <p>{participant(b.recipient_participant_id)}: {b.amount.toFixed(2)} · {b.calculation_version}</p>
+              <p>{b.recipient_participant_id ? participant(b.recipient_participant_id) : "Мастер не назначен"}: {b.amount.toFixed(2)} · {b.calculation_version}</p>
               <ul>{b.basis.map(m => <li key={m.participant_id}>
                 {m.user.display_name}: {m.member_task_score} — {m.included ? "включён" : m.exclusion === "master" ? "исключён как мастер" : "исключён: неположительный вклад"}
               </li>)}</ul>
