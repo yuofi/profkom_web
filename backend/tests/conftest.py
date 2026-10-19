@@ -193,11 +193,17 @@ def mock_s3(monkeypatch) -> dict[str, Any]:
         data,mime=objects[Key]
         return {"ContentLength":len(data),"ContentType":mime}
     def get_object(Bucket,Key,**kwargs):
-        head_object(Bucket,Key)
-        return {"Body":io.BytesIO(objects[Key][0])}
+        metadata=head_object(Bucket,Key)
+        return {**metadata,"Body":io.BytesIO(objects[Key][0])}
+    def put_object(Bucket,Key,Body,ContentType,IfNoneMatch=None,Metadata=None):
+        if IfNoneMatch == "*" and Key in objects:
+            raise ClientError({"Error":{"Code":"PreconditionFailed"}},"PutObject")
+        objects[Key]=(bytes(Body),ContentType)
+        return {}
     monkeypatch.setattr(s3_service.s3_client,"generate_presigned_url",presign)
     monkeypatch.setattr(s3_service.s3_client,"head_object",head_object)
     monkeypatch.setattr(s3_service.s3_client,"get_object",get_object)
+    monkeypatch.setattr(s3_service.s3_client,"put_object",put_object)
     return calls
 
 

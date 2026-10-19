@@ -95,13 +95,13 @@ def avatar_url(uid):
         if m and m.avatar_file_id:
             fr = s.get(FileRecordORM, m.avatar_file_id)
             if fr and fr.state == "completed":
-                from file_access import key
+                from file_access import ensure_sealed
                 from settings import settings
                 from utils.s3_service import s3_client
 
                 return s3_client.generate_presigned_url(
                     "get_object",
-                    Params={"Bucket": settings.S3_BUCKET_NAME, "Key": key(fr.file_id)},
+                    Params={"Bucket": settings.S3_BUCKET_NAME, "Key": ensure_sealed(fr)},
                     ExpiresIn=300,
                 )
         if m and m.preset_id:

@@ -46,12 +46,19 @@ def install(app, port):
         return {"ContentLength": len(data), "ContentType": mime}
 
     def get_object(Bucket, Key, Range=None):
-        data, _ = get(Key)
-        return {"Body": BytesIO(data[:512] if Range else data)}
+        data, mime = get(Key)
+        return {"Body": BytesIO(data[:512] if Range else data), "ContentLength": len(data), "ContentType": mime}
+
+    def put_object(Bucket, Key, Body, ContentType, IfNoneMatch=None, Metadata=None):
+        if IfNoneMatch == "*" and Key in objects:
+            raise ClientError({"Error": {"Code": "PreconditionFailed"}}, "PutObject")
+        objects[Key] = (bytes(Body), ContentType)
+        return {}
 
     s3_client.generate_presigned_url = presign
     s3_client.head_object = head_object
     s3_client.get_object = get_object
+    s3_client.put_object = put_object
     s3_client.delete_object = lambda Bucket, Key: objects.pop(Key, None)
 
     @app.api_route(

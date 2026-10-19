@@ -10,7 +10,7 @@ React/Vite -> nginx -> same-origin `/api` -> FastAPI -> SQLite and contextual S3
 - models.py contains internal dataclasses; main.py and domain_contract.py define HTTP schemas. New domain services may return validated dictionaries rather than legacy dataclasses.
 - access.py projects capabilities from current domain permissions. registration, membership, participation, season_summaries, season_corrections, report_access, materials, directory, accounts and workspace own their corresponding workflows.
 - auth.py owns passwords, JWT/session versions, refresh rotation and the central approval guard. vk_auth.py verifies provider data and explicit external identities; it never downloads a VK photo.
-- file_access.py owns contextual uploads, actual-object verification and current ACL. legacy_files.py resolves saved configured-bucket references at read time without downloading remote content.
+- file_access.py owns contextual uploads, actual-object verification and current ACL. Uploads target private/file_id staging; complete verifies a bounded GET snapshot and conditionally creates sealed/file_id with IfNoneMatch=*. Completed downloads/avatars use only sealed keys. Existing completed IDs seal on first read without a DB schema change; retention queues both keys. Provider support for conditional server-side PutObject is a deployment check. legacy_files.py resolves saved configured-bucket references at read time.
 
 ## Authorization and identity
 

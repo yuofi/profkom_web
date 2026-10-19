@@ -1,9 +1,10 @@
 """Private file contexts, attachment checks and verified object storage I/O."""
 
 import json
+import hashlib
 from datetime import datetime, timezone, timedelta
 from fastapi import HTTPException
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 from database import (
     db,
     FileRecordORM,
@@ -40,7 +41,28 @@ def now():
 
 
 def key(fid):
+    """Upload staging key. Never use it to serve a completed file."""
     return "private/" + fid
+
+
+def sealed_key(fid):
+    return "sealed/" + fid
+
+
+def storage_error(error):
+    if isinstance(error, ClientError) and error.response.get("Error", {}).get("Code") in (
+        "404", "NoSuchKey", "NotFound",
+    ):
+        raise HTTPException(409, "Uploaded object not found") from error
+    raise HTTPException(503, "Object storage unavailable") from error
+
+
+def check_metadata(fr, metadata):
+    if (
+        metadata.get("ContentLength") != fr.size_bytes
+        or metadata.get("ContentType", "").split(";")[0] != fr.mime_type
+    ):
+        raise HTTPException(422, "Uploaded object metadata mismatch")
 
 
 def validate_metadata(kind, purpose, name, mime, size):
@@ -152,22 +174,28 @@ def presign_upload(fr):
 
 
 def verify_object(fr):
+    """Return the bounded GET snapshot that was actually verified, not a copy source."""
     try:
         metadata = s3_client.head_object(
             Bucket=settings.S3_BUCKET_NAME, Key=key(fr.file_id)
         )
-        sample = s3_client.get_object(
-            Bucket=settings.S3_BUCKET_NAME, Key=key(fr.file_id), Range="bytes=0-511"
-        )["Body"].read()
-    except ClientError as e:
-        if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
-            raise HTTPException(409, "Uploaded object not found")
-        raise HTTPException(503, "Object storage unavailable")
-    if (
-        metadata["ContentLength"] != fr.size_bytes
-        or metadata.get("ContentType", "").split(";")[0] != fr.mime_type
-    ):
+        check_metadata(fr, metadata)
+        if not 0 < fr.size_bytes <= (10 if fr.owner_kind == "avatar" else 20) * 1024 * 1024:
+            raise HTTPException(422, "Uploaded object exceeds context limit")
+        response = s3_client.get_object(
+            Bucket=settings.S3_BUCKET_NAME, Key=key(fr.file_id)
+        )
+        body = response["Body"]
+        try:
+            check_metadata(fr, response)
+            data = body.read(fr.size_bytes + 1)
+        finally:
+            body.close()
+    except (ClientError, BotoCoreError) as error:
+        storage_error(error)
+    if len(data) != fr.size_bytes:
         raise HTTPException(422, "Uploaded object metadata mismatch")
+    sample = data[:512]
     checks = {
         "image/png": sample.startswith(b"\x89PNG\r\n\x1a\n"),
         "image/jpeg": sample.startswith(b"\xff\xd8\xff"),
@@ -185,6 +213,44 @@ def verify_object(fr):
         valid = sample.startswith(bytes.fromhex("d0cf11e0a1b11ae1"))
     if valid is False:
         raise HTTPException(422, "Uploaded file content does not match type")
+    return data
+
+
+def ensure_sealed(fr):
+    """Create once, including old completed IDs; GETs never use the staging key.
+
+    The conditional put resolves competing completes/legacy reads without a DB
+    write from GET. A late staging PUT cannot alter the verified in-memory bytes.
+    """
+    destination = sealed_key(fr.file_id)
+    try:
+        metadata = s3_client.head_object(Bucket=settings.S3_BUCKET_NAME, Key=destination)
+    except ClientError as error:
+        if error.response.get("Error", {}).get("Code") not in ("404", "NoSuchKey", "NotFound"):
+            storage_error(error)
+    except BotoCoreError as error:
+        storage_error(error)
+    else:
+        check_metadata(fr, metadata)
+        return destination
+    data = verify_object(fr)
+    try:
+        s3_client.put_object(
+            Bucket=settings.S3_BUCKET_NAME, Key=destination, Body=data,
+            ContentType=fr.mime_type, IfNoneMatch="*",
+            Metadata={"sha256": hashlib.sha256(data).hexdigest()},
+        )
+    except ClientError as error:
+        if error.response.get("Error", {}).get("Code") not in ("412", "PreconditionFailed"):
+            storage_error(error)
+        # A concurrent operation already sealed its verified snapshot. Never replace it.
+        try:
+            check_metadata(fr, s3_client.head_object(Bucket=settings.S3_BUCKET_NAME, Key=destination))
+        except (ClientError, BotoCoreError) as error:
+            storage_error(error)
+    except BotoCoreError as error:
+        storage_error(error)
+    return destination
 
 
 def complete(fid, uid):
@@ -195,9 +261,11 @@ def complete(fid, uid):
         if fr.state != "completed":
             if datetime.fromisoformat(fr.expires_at) < now():
                 raise HTTPException(409, "Upload intent expired")
-            verify_object(fr)
+            ensure_sealed(fr)
             fr.state = "completed"
             s.commit()
+        else:
+            ensure_sealed(fr)
         return dict(
             file_id=fr.file_id,
             name=fr.name,
@@ -215,7 +283,7 @@ def download(fid, uid):
             "get_object",
             Params={
                 "Bucket": settings.S3_BUCKET_NAME,
-                "Key": key(fid),
+                "Key": ensure_sealed(fr),
                 "ResponseContentDisposition": "attachment",
             },
             ExpiresIn=300,

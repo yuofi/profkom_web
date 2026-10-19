@@ -19,11 +19,12 @@ from database import db
 
 
 @pytest.fixture(autouse=True)
-def verified_pgas_file(pgas_admin):
+def verified_pgas_file(pgas_admin, mock_s3):
     from database import FileRecordORM
     from datetime import datetime, timezone, timedelta
 
     now = datetime.now(timezone.utc)
+    mock_s3["objects"]["private/test-pgas-file"] = (b"%PDF-1.4\nX", "application/pdf")
     with db._session() as session:
         session.add(
             FileRecordORM(
@@ -235,7 +236,7 @@ def test_pgas_admin_создаёт_запись(client, pgas_admin):
     assert body["year"] == 2025, "год должен сохраниться как есть"
     assert (
         body["file_url"]
-        == "https://s3.test.local/private/test-pgas-file?operation=get_object&expires=300"
+        == "https://s3.test.local/sealed/test-pgas-file?operation=get_object&expires=300"
     ), "ссылка на файл должна сохраниться как есть"
     assert body["file_name"] == "заявление.pdf", "имя файла должно сохраниться как есть"
     assert (

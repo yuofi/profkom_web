@@ -221,14 +221,15 @@ def purge(as_of=None, dry_run=True):
                 s.query(NotificationORM).filter_by(user_id=uid).delete(
                     synchronize_session=False
                 )
-                from file_access import key
+                from file_access import key, sealed_key
                 from legacy_files import storage_key
 
                 object_keys = [
-                    key(fr.file_id)
+                    object_key
                     for fr in s.query(FileRecordORM).filter_by(
                         owner_kind="avatar", owner_id=str(uid)
                     )
+                    for object_key in (key(fr.file_id), sealed_key(fr.file_id))
                 ]
                 if u.photo_url and storage_key(u.photo_url):
                     object_keys.append(storage_key(u.photo_url))
