@@ -1,0 +1,53 @@
+import os
+assert "profkom_test_" in os.environ.get("DATABASE_PATH", ""), "Run only through backend/tests conftest with its synthetic database"
+"""Temporary negative acceptance reproductions. Local synthetic DB/storage only."""
+from test_v13_reports import reports
+import live_storage
+from test_v13_tracker import work
+
+
+def test_published_report_bytes_mutable_via_original_upload_url(client, app, reports):
+    live_storage.install(app, 18000)
+    r = reports
+    rid = r["rid"]
+    headers = r["author"].headers
+    content_a = b"%PDF-1.4\nPublished original A"
+    content_b = b"%PDF-1.4\nOverwritten later B!"
+    assert len(content_a) == len(content_b)
+    response = client.post("/api/files/upload-intents", headers=headers, json=dict(
+        owner_kind="report", owner_id=rid, purpose="report", name="history.pdf",
+        mime_type="application/pdf", size_bytes=len(content_a)))
+    assert response.status_code == 200, response.text
+    intent = response.json()
+    assert intent["upload_url"].startswith("http://localhost:18000/_test/")
+    fid = intent["file_id"]
+    assert client.put(intent["upload_url"], content=content_a, headers=intent["headers"]).status_code == 200
+    assert client.post(f"/api/files/{fid}/complete", headers=headers, json={}).status_code == 200
+    assert client.patch(f"/api/reports/{rid}", headers=headers, json=dict(expected_revision=2, file_ids=[fid])).status_code == 200
+    assert client.post(f"/api/reports/{rid}/publish", headers=headers, json=dict(expected_revision=3)).status_code == 200
+    versions_before = client.get(f"/api/reports/{rid}/versions", headers=headers).json()
+    report_before = client.get(f"/api/reports/{rid}", headers=headers).json()
+    download_before = client.get(f"/api/files/{fid}/download", headers=headers).json()["download_url"]
+    assert client.get(download_before).content == content_a
+    # Same valid signed PUT remains usable after completion and publication.
+    assert client.put(intent["upload_url"], content=content_b, headers=intent["headers"]).status_code == 200
+    download_after = client.get(f"/api/files/{fid}/download", headers=headers).json()["download_url"]
+    assert client.get(download_after).content == content_b
+    assert client.get(f"/api/reports/{rid}/versions", headers=headers).json() == versions_before
+    assert client.get(f"/api/reports/{rid}", headers=headers).json()["revision"] == report_before["revision"]
+    print("REPRO: bytes changed A -> B; report/version metadata unchanged; only local ASGI storage used")
+
+
+def test_membership_revocation_does_not_change_session_fingerprint(client, work):
+    w = work
+    uid = w["member"].user_id
+    bid = w["block"]["block_id"]
+    tid = w["task"]["task_id"]
+    before = client.get("/api/session", headers=w["member"].headers).json()
+    assert client.get(f"/api/tasks/{tid}", headers=w["member"].headers).status_code == 200
+    assert client.delete(f"/api/blocks/{bid}/members/{uid}", headers=w["master"].headers).status_code == 200
+    after = client.get("/api/session", headers=w["member"].headers).json()
+    assert client.get(f"/api/tasks/{tid}", headers=w["member"].headers).status_code == 403
+    for key in ("user_id", "account_state", "registration_status", "capabilities", "assignments"):
+        assert before[key] == after[key]
+    print("REPRO: block task access revoked 200 -> 403, but every accessFingerprint session field unchanged")

@@ -1,0 +1,75 @@
+// @vitest-environment jsdom
+import { act } from "react";
+import { Route, Routes } from "react-router-dom";
+import { afterEach, expect, it, vi } from "vitest";
+import { installMockTransport } from "../../mocks/transport";
+import { mountWorkspace, settle, change, field, submit } from "../../test/workspace";
+import { MaterialPage } from "./MaterialPages";
+import { ReportPage } from "./ReportPages";
+import { materialsApi } from "../../utils/api/materials.api";
+import { reportsApi } from "../../utils/api/reports.api";
+import { UserProvider } from "../../utils/ctx";
+import { TaskPage } from "./TaskPages";
+
+let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
+let mock: ReturnType<typeof installMockTransport> | undefined;
+afterEach(async () => { await page?.cleanup(); mock?.restore(); vi.restoreAllMocks(); });
+
+it("audit reproduction: material editor submits old input with a newly fetched revision", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const id = mock.state.materials[0].material_id;
+  page = await mountWorkspace(<Routes><Route path="/materials/:id" element={<MaterialPage />} /></Routes>, {path: `/materials/${id}`});
+  await settle(); await settle();
+  const form = field(page.container, "title").closest("form")!;
+  const oldDescription = field(form, "description").value;
+  await change(field(form, "title"), "My new title");
+  await materialsApi.update(id, {expected_revision: 1, description: "Coworker new description", content: {format: "markdown", body: "Coworker new body"}});
+  await act(async () => { await page!.client.invalidateQueries({queryKey: ["materials", id]}); });
+  await settle();
+  expect(page.client.getQueryData<{revision: number}>(["materials", id])?.revision).toBe(2);
+  expect(field(form, "description").value).toBe(oldDescription);
+  const update = vi.spyOn(materialsApi, "update");
+  await submit(form);
+  expect(update).toHaveBeenCalledWith(id, expect.objectContaining({expected_revision: 2, description: oldDescription}));
+  const saved = await materialsApi.get(id);
+  expect(saved.description).toBe(oldDescription);
+  expect(saved.draft_content?.body).not.toBe("Coworker new body");
+  expect(page.container.textContent).not.toContain("Запись изменилась на сервере");
+  console.log("REPRO: material coworker description and body overwritten without explicit conflict acceptance");
+});
+
+it("audit reproduction: report editor submits old input with a newly fetched revision", async () => {
+  mock = installMockTransport("chair", {delay: 0});
+  const id = mock.state.reports[0].report_id;
+  const original = await reportsApi.get(id);
+  page = await mountWorkspace(<Routes><Route path="/reports/:id" element={<ReportPage />} /></Routes>, {path: `/reports/${id}`});
+  await settle(); await settle();
+  const form = field(page.container, "body").closest("form")!;
+  const oldBody = field(form, "body").value;
+  await change(field(form, "title"), "My new title");
+  await reportsApi.update(id, {expected_revision: original.revision, title: "Coworker title", content: {format: "markdown", body: "Coworker new body"}, file_ids: []});
+  await act(async () => { await page!.client.invalidateQueries({queryKey: ["reports", id]}); });
+  await settle();
+  expect(field(form, "body").value).toBe(oldBody);
+  const update = vi.spyOn(reportsApi, "update");
+  await submit(form);
+  expect(update).toHaveBeenCalledWith(id, expect.objectContaining({expected_revision: original.revision + 1, content: expect.objectContaining({body: oldBody})}));
+  expect((await reportsApi.get(id)).draft_content?.body).toBe(oldBody);
+  console.log("REPRO: report coworker body overwritten without explicit conflict acceptance");
+});
+
+it("audit reproduction: successful session refresh retains revoked scope data when fingerprint is unchanged", async () => {
+  mock = installMockTransport("organizer", {delay: 0});
+  const task = mock.state.tasks[0];
+  page = await mountWorkspace(<UserProvider><Routes><Route path="/tasks/:id" element={<TaskPage />} /></Routes></UserProvider>, {role: "organizer", path: `/tasks/${task.task_id}`});
+  await settle(); await settle();
+  expect(page.container.textContent).toContain(task.title);
+  const before = mock.adapter.history.get.filter(r => r.url === `/tasks/${task.task_id}`).length;
+  mock.adapter.onGet(`/tasks/${task.task_id}`).reply(403, {detail: {code: "forbidden", message: "Scope access revoked"}});
+  await act(async () => { await page!.client.refetchQueries({queryKey: ["session"]}); });
+  await settle();
+  expect(mock.adapter.history.get.filter(r => r.url === `/tasks/${task.task_id}`).length).toBe(before);
+  expect(page.container.textContent).toContain(task.title);
+  expect(page.container.textContent).not.toContain("Scope access revoked");
+  console.log("REPRO: refreshed session leaves old task content/actions visible after scope access revocation");
+});
