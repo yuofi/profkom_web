@@ -122,6 +122,23 @@ it("publishing an acknowledged foreign draft does not authorize an older dirty e
   expect(field(editor, "body").value).toBe("МОЙ СТАРЫЙ ВВОД");
 });
 
+it("a first foreign material draft cannot initialize publication with an implicitly accepted revision", async () => {
+  mock = installMockTransport("chair", {delay: 0});
+  const m = mock.state.materials[0]; delete m.draft_content;
+  page = await mountWorkspace(<Routes><Route path="/materials/:id" element={<MaterialPage />} /></Routes>, {path: `/materials/${m.material_id}`});
+  await settle(); await settle();
+  const publication = namedForm("Опубликовать сохранённый черновик");
+  expect((publication.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBe(true);
+  m.revision++; m.draft_content = richText("FIRST FOREIGN DRAFT");
+  await refetch("materials");
+  const publish = vi.spyOn(materialsApi, "publish");
+  await submit(publication);
+  expect(publish).not.toHaveBeenCalled();
+  await accept(publication); await submit(publication);
+  expect(publish).toHaveBeenCalled();
+  expect((await materialsApi.get(m.material_id)).published_content?.body).toBe("FIRST FOREIGN DRAFT");
+});
+
 it.each(["material", "report", "task-inputs", "assessment"] as const)("retains its draft during a temporary refetch failure: %s", async kind => {
   mock = installMockTransport("chair", {delay: 0});
   const prefix = kind === "material" ? "materials" : kind === "report" ? "reports" : "tasks";

@@ -54,6 +54,10 @@ async function click(container: ParentNode, label: string) {
 async function refetch(key: string) {
   await act(async () => { await page!.client.invalidateQueries({queryKey: [key]}); }); await settle();
 }
+async function save(editor: HTMLFormElement) {
+  await submit(editor);
+  await until(() => !!editor.textContent?.includes("Изменения сохранены") && !(editor.querySelector('button[type="submit"]') as HTMLButtonElement).disabled);
+}
 
 it.each(["keep", "replace"])("LOC-02: two real material editors refetch, compare and %s the draft", async choice => {
   const a = await liveParticipant("material-A"), b = await liveParticipant("material-B");
@@ -74,13 +78,13 @@ it.each(["keep", "replace"])("LOC-02: two real material editors refetch, compare
   expect(editor.querySelector("textarea")!.value).toBe("ORIGINAL BODY");
   expect(field(editor, "title").value).toBe("MY LOCAL TITLE");
   await click(editor, choice === "keep" ? "Сохранить мой ввод с обновлённой версией" : "Заменить мой ввод сохранёнными значениями");
-  await submit(editor);
+  await save(editor);
   const saved = (await other.get(`/materials/${m.material_id}`)).data;
   expect(saved.revision).toBe(foreign.revision + 1);
   expect(saved.draft_content.body).toBe(choice === "keep" ? "ORIGINAL BODY" : "FOREIGN BODY");
   expect(saved.title).toBe(choice === "keep" ? "MY LOCAL TITLE" : "FOREIGN TITLE");
   expect(saved.published_content.body).toBe("ORIGINAL BODY");
-  await submit(editor);
+  await save(editor);
   expect((await other.get(`/materials/${m.material_id}`)).data.revision).toBe(saved.revision + 1);
 });
 
@@ -107,11 +111,11 @@ it("LOC-01/02: report coauthors replace text/files explicitly; old signed PUT ca
   expect((await other.get(`/reports/${r.report_id}`)).data.revision).toBe(foreign.revision);
   expect(field(editor, "body").value).toBe("MY LOCAL DRAFT");
   await click(editor, "Заменить мой ввод сохранёнными значениями");
-  await submit(editor);
+  await save(editor);
   expect((await reportsApi.get(r.report_id)).draft_files?.map(f => f.file_id)).toEqual([intent.file_id]);
   const publication = form("Опубликовать сохранённый отчёт");
   await click(publication, "Сохранить мой ввод с обновлённой версией");
-  await submit(publication);
+  await save(publication);
   const published = await reportsApi.get(r.report_id);
   expect(published.content.body).toBe("FOREIGN SHARED DRAFT");
   const versions = await reportsApi.versions(r.report_id);

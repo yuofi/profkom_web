@@ -199,11 +199,12 @@ function MaterialEdit({ material: m }: { material: Material }) {
       >
         <MarkdownEditor value={body} onChange={setBody} />
       </ActionForm>
-      {can(m, "publish_material") && m.draft_content && (
+      {can(m, "publish_material") && (
         <ActionForm
           revision={m.revision}
           ownChange={ownChange} onSavedRevision={setOwnChange}
-          savedDetails={<MarkdownContent body={m.draft_content.body} />}
+          disabled={!m.draft_content}
+          savedDetails={<MarkdownContent body={m.draft_content?.body ?? m.published_content?.body ?? ""} />}
           fields={[]}
           submitLabel="Опубликовать сохранённый черновик"
           onSubmit={async (_v, expectedRevision) => {

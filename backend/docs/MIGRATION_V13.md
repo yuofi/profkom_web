@@ -31,3 +31,23 @@ A fresh, empty installation may create one initial chair from explicitly configu
 Migration preserves old guide IDs/texts/PGAS references. New materials use canonical Markdown and explicit guide_id-to-material_id mapping. Existing owned photos stay; VK URLs become a local preset without fetching images. Closed summaries retain frozen categories/rosters/bonus recipients; later corrections create immutable versions.
 
 After copy rehearsal: run backend regression, local HTTP/frontend integration, confirm `/session` capabilities and object access, test private S3 PUT/HEAD/GET and bucket CORS in the deployment environment, and verify VK provider credentials. Those external checks and deployment itself are separate operator actions. Retention scheduling is described in ACCOUNT_RETENTION.md.
+
+## Completed files cutover
+
+Uploads now use `private/file_id` only as staging; served bytes are create-only
+`sealed/file_id` objects. Before opening an upgraded installation, stop the old
+API and seal all completed records with `scripts/seal_completed_files.py`.
+This avoids leaving old publications mutable until their first new read.
+
+`python scripts/seal_completed_files.py --database /explicit/copy.db` is a
+read-only count/quick_check: no application import, schema writes or storage
+calls. Rehearse apply against synthetic data/storage first. With separately
+approved target environment and backups, `--apply` seals completed objects;
+failures abort visibly, rerunning preserves already sealed objects. Verify
+conditional PutObject support before cutover. File IDs and SQLite schema stay
+unchanged. Lazy sealing on read remains a compatibility fallback; it cannot
+recover a historical overwrite before the first seal. Previously issued URLs
+retain their provider TTL; they are never reused by the upgraded file API.
+
+Running against real storage/data is a separate approved operator action. This
+project's local checks exercise only the synthetic database and storage doubles.
