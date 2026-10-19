@@ -20,18 +20,20 @@ def install(app, port):
     secret = secrets.token_bytes(32)
     objects = {}
 
-    def signature(method, key, expires):
+    def signature(method, key, expires, disposition):
         return hmac.new(
-            secret, f"{method}:{key}:{expires}".encode(), hashlib.sha256
+            secret, f"{method}:{key}:{expires}:{disposition}".encode(), hashlib.sha256
         ).hexdigest()
 
     def presign(operation, Params, ExpiresIn):
         method = {"put_object": "PUT", "get_object": "GET"}[operation]
         expires = int(time.time()) + ExpiresIn
         key = Params["Key"]
+        disposition = Params.get("ResponseContentDisposition", "")
         return (
             f"http://localhost:{port}/_test/objects/{quote(key, safe='/')}"
-            f"?expires={expires}&signature={signature(method, key, expires)}"
+            f"?expires={expires}&disposition={quote(disposition, safe='')}"
+            f"&signature={signature(method, key, expires, disposition)}"
         )
 
     def get(key):
@@ -55,9 +57,13 @@ def install(app, port):
     @app.api_route(
         "/_test/objects/{key:path}", methods=["PUT", "GET"], include_in_schema=False
     )
-    async def object_route(key: str, request: Request, expires: int, signature: str):
+    async def object_route(
+        key: str, request: Request, expires: int, signature: str, disposition: str = ""
+    ):
         expected = hmac.new(
-            secret, f"{request.method}:{key}:{expires}".encode(), hashlib.sha256
+            secret,
+            f"{request.method}:{key}:{expires}:{disposition}".encode(),
+            hashlib.sha256,
         ).hexdigest()
         if expires < time.time() or not hmac.compare_digest(signature, expected):
             raise HTTPException(403, "Invalid or expired test object signature")
@@ -70,4 +76,5 @@ def install(app, port):
         if key not in objects:
             raise HTTPException(404, "Test object not found")
         data, mime = objects[key]
-        return Response(data, media_type=mime)
+        headers = {"Content-Disposition": disposition} if disposition else {}
+        return Response(data, media_type=mime, headers=headers)

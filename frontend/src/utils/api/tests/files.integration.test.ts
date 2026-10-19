@@ -33,6 +33,7 @@ async function currentSeason() {
 async function downloadEquals(id: string, expected: Uint8Array) {
   const signed = await filesApi.download(id);
   const response = await axios.get(signed.download_url, { responseType: "arraybuffer" });
+  expect(response.headers["content-disposition"]).toBe("attachment");
   expect(Buffer.from(response.data)).toEqual(Buffer.from(expected));
 }
 

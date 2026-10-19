@@ -61,6 +61,9 @@ def serve():
         "Integration HR", db.get_user_by_email("chair@example.com").user_id
     )
     db.create_block(Block(name="Integration IT", master=""))
+    # Keep one block vacant even when acceptance assigns the IT leader. This
+    # exercises nullable bonus recipients in real summary responses and UI.
+    db.create_block(Block(name="Integration vacant", master=""))
     print(f"Disposable integration DB: {database}", flush=True)
     import main
     from live_storage import install
