@@ -101,3 +101,39 @@ capability выдаётся ровно тогда, когда сервер вы�
 Очистка аккаунтов (FIX_PLAN 0.4, защитная часть): `scripts/cleanup_accounts.py
 --apply` в выпуске 1 завершается с кодом 2 и ничего не меняет. Отчёт без `--apply`
 работает. Подробности — в `ACCOUNT_RETENTION.md`.
+
+## Назначения, заслуги и созвоны (выпуск 1)
+
+Решения руководителя по назначениям (FIX_PLAN 1.1):
+
+- `POST /assignments/{id}/not-complete` и `…/cancel` принимаются только для
+  нерешённых назначений: `assigned`, `in_progress`, `help_required`, `submitted`,
+  `needs_revision`. Для `accepted`, `not_completed` и `cancelled` — 409, назначение
+  и вклад не меняются. Принятую работу можно вернуть на доработку
+  (`request-revision`) и уже затем отменить или отклонить.
+- Отмена снимает оценку: у `cancelled` назначения `evaluation` всегда `null`.
+  `PATCH /assignments/{id}/assessment-inputs` с `evaluation` для отменённого
+  назначения отвечает 409. Часы и дата выполнения отменённого назначения правятся.
+- `not-complete`, `cancel` и правка исходных данных оценивания пишут в журнал
+  аудита прежние и новые `status` и `evaluation` вместе с причиной.
+- Тело каждой команды содержит только её поля: `accept` — `evaluation` и
+  необязательный `review_note`, `request-revision` — `review_note`,
+  `not-complete` — `evaluation` и `reason`, `cancel` — `reason`. Лишнее поле — 422.
+
+Заслуги (FIX_PLAN 1.2): `PATCH /merits/{id}` принимает только `expected_revision`,
+`reason`, `title`, `description`, `assigned_at`, `deadline_at`, `criteria` и
+`recipients`. Вид, сезон и область (`source_kind`, `season_id`, `scope`,
+`event_id`) задаются при создании, их передача в PATCH — 422. Форма исправления
+отправляет только эти поля и показывает название области, а не её ID.
+
+Созвоны (FIX_PLAN 1.3):
+
+- `GET /events/{id}/meeting` и `GET /subevents/{id}/meeting` без актуального
+  объявления отвечают 200 с телом `null`, в том числе после `DELETE`. 404 значит,
+  что нет самого мероприятия или подмероприятия; без права чтения — 403.
+- Право на правку и снятие созвона — одно правило `event.meeting.edit` или
+  `subevent.meeting.edit` в `POLICY`. Главный созвон правят тачки, главорги и их
+  замы. Созвон подмероприятия — тачки, ответственные и их замы, а также главорги
+  мероприятия и их замы (решение владельца по A-EVT-11). `edit_meeting` и
+  `delete_meeting` в созвоне, в карточке владельца и в `/dashboard` выдаются ровно
+  тем, кому PUT и DELETE ответят 200.

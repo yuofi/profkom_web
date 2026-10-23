@@ -10,6 +10,17 @@ import type {
   UnresolvedAssignment,
 } from "./contract";
 import { idPath, allPages as page, request } from "./request";
+/** Body of each assignment command, exactly as the server accepts it: extra keys are 422. */
+export interface AssignmentCommands {
+  start: Revision;
+  resume: Revision;
+  "request-help": Revision & { message?: RichText };
+  submit: Revision & { text: RichText; links?: string[]; file_ids?: string[] };
+  accept: Revision & { evaluation: 1 | 1.5; review_note?: string };
+  "request-revision": Revision & { review_note: string };
+  "not-complete": Revision & { evaluation: 0 | -1; reason: string };
+  cancel: Revision & { reason: string };
+}
 export const tasksApi = {
   list: (params?: object) => page<Task>("/tasks", params),
   get: (id: string) => request<Task>("get", `/tasks/${idPath(id)}`),
@@ -18,26 +29,10 @@ export const tasksApi = {
     id: string,
     data: Revision & { title?: string; description?: RichText },
   ) => request<Task>("patch", `/tasks/${idPath(id)}`, data),
-  command: (
+  command: <C extends keyof AssignmentCommands>(
     id: string,
-    command:
-      | "start"
-      | "request-help"
-      | "resume"
-      | "submit"
-      | "accept"
-      | "request-revision"
-      | "not-complete"
-      | "cancel",
-    data: Revision & {
-      message?: RichText;
-      text?: RichText;
-      links?: string[];
-      file_ids?: string[];
-      evaluation?: number;
-      review_note?: string;
-      reason?: string;
-    },
+    command: C,
+    data: AssignmentCommands[C],
   ) =>
     request<Assignment>("post", `/assignments/${idPath(id)}/${command}`, data),
   unresolved: (params?: object) =>

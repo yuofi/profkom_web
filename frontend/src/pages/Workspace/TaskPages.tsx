@@ -523,26 +523,30 @@ function AssignmentCard({
                 name: "note",
                 label: "Пояснение / причина",
                 type: "textarea",
-                required: true,
+                // Only acceptance may go without a comment.
+                required: (values) => !String(values.decision ?? "").startsWith("accept"),
               },
             ]}
             onSubmit={async (v, expectedRevision) => {
               const [command, evaluation] = text(v, "decision").split(":");
+              const note = text(v, "note");
+              const expected_revision = expectedRevision!;
               return perform(() =>
-                tasksApi.command(
-                  a.assignment_id,
-                  command as
-                    | "accept"
-                    | "request-revision"
-                    | "not-complete"
-                    | "cancel",
-                  {
-                    expected_revision: expectedRevision!,
-                    ...(evaluation ? { evaluation: Number(evaluation) } : {}),
-                    review_note: text(v, "note"),
-                    reason: text(v, "note"),
-                  },
-                ),
+                command === "accept"
+                  ? tasksApi.command(a.assignment_id, "accept", {
+                      expected_revision,
+                      evaluation: Number(evaluation) as 1 | 1.5,
+                      ...(note ? { review_note: note } : {}),
+                    })
+                  : command === "request-revision"
+                    ? tasksApi.command(a.assignment_id, "request-revision", { expected_revision, review_note: note })
+                    : command === "not-complete"
+                      ? tasksApi.command(a.assignment_id, "not-complete", {
+                          expected_revision,
+                          evaluation: Number(evaluation) as 0 | -1,
+                          reason: note,
+                        })
+                      : tasksApi.command(a.assignment_id, "cancel", { expected_revision, reason: note }),
               );
             }}
             onConflict={refresh}

@@ -249,3 +249,113 @@ def test_event_merit_cannot_change_its_season(client, work, superuser):
         client.post("/api/merits", headers=w["master"].headers, json=merit).status_code
         == 422
     )
+
+
+# FIX_PLAN 1.1 (A-TSK-2): a final outcome changes only through assessment inputs.
+def assignment_in(client, w, status):
+    """A fresh assignment of the member, brought to `status` through the API."""
+    task = client.post("/api/tasks", headers=w["master"].headers, json=w["payload"]).json()
+    aid = task["assignments"][0]["assignment_id"]
+    post = lambda command, who, **body: client.post(f"/api/assignments/{aid}/{command}", headers=w[who].headers, json=dict(expected_revision=client.get(f"/api/assignments/{aid}/assessment-inputs", headers=w["master"].headers).json()["revision"], **body))  # noqa: E731
+    if status in ("submitted", "accepted", "not_completed"):
+        assert post("submit", "member", text=dict(format="markdown", body="Готово")).status_code == 200
+    if status == "accepted":
+        assert post("accept", "master", evaluation=1).status_code == 200
+    if status == "not_completed":
+        assert post("not-complete", "master", evaluation=0, reason="Не сделано").status_code == 200
+    if status == "cancelled":
+        assert post("cancel", "master", reason="Отменено").status_code == 200
+    return aid
+
+
+def audit_rows(aid):
+    import json
+    from database import AuditLogORM
+
+    with db._session() as s:
+        return [
+            (json.loads(r.old_values_json), json.loads(r.new_values_json), r.reason)
+            for r in s.query(AuditLogORM).filter_by(target_kind="assignment", target_id=aid).order_by(AuditLogORM.id)
+        ]
+
+
+@pytest.mark.parametrize("status", ["accepted", "not_completed", "cancelled"])
+@pytest.mark.parametrize("command,body", [("not-complete", dict(evaluation=-1, reason="Переоценка")), ("cancel", dict(reason="Отмена"))])
+def test_final_outcome_is_not_overwritten_by_a_decision(client, work, superuser, status, command, body):
+    aid = assignment_in(client, work, status)
+    inputs = client.get(f"/api/assignments/{aid}/assessment-inputs", headers=work["master"].headers).json()
+    totals = client.get("/api/assessments", headers=superuser.headers).json()
+    r = client.post(f"/api/assignments/{aid}/{command}", headers=work["master"].headers, json=dict(expected_revision=inputs["revision"], **body))
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"]["code"] == "conflict"
+    assert client.get(f"/api/assignments/{aid}/assessment-inputs", headers=work["master"].headers).json() == inputs
+    task = client.get(f"/api/tasks/{work['task']['task_id']}", headers=work["master"].headers)
+    assert task.status_code == 200
+    with db._session() as s:
+        assert s.get(AssignmentORM, aid).status == status
+    assert client.get("/api/assessments", headers=superuser.headers).json() == totals
+
+
+def test_not_complete_and_cancel_are_audited_with_the_evaluation(client, work):
+    aid = assignment_in(client, work, "submitted")
+    rev = client.get(f"/api/assignments/{aid}/assessment-inputs", headers=work["master"].headers).json()["revision"]
+    r = client.post(f"/api/assignments/{aid}/not-complete", headers=work["master"].headers, json=dict(expected_revision=rev, evaluation=-1, reason="Сорван срок"))
+    assert r.status_code == 200, r.text
+    assert audit_rows(aid)[-1] == ({"status": "submitted", "evaluation": None}, {"status": "not_completed", "evaluation": -1.0}, "Сорван срок")
+    # A revision request after acceptance keeps the evaluation; cancelling clears it.
+    aid = assignment_in(client, work, "accepted")
+    rev = client.get(f"/api/assignments/{aid}/assessment-inputs", headers=work["master"].headers).json()["revision"]
+    assert client.post(f"/api/assignments/{aid}/request-revision", headers=work["master"].headers, json=dict(expected_revision=rev, review_note="Доделать")).status_code == 200
+    rev += 1
+    r = client.post(f"/api/assignments/{aid}/cancel", headers=work["master"].headers, json=dict(expected_revision=rev, reason="Не нужна"))
+    assert r.status_code == 200, r.text
+    assert audit_rows(aid)[-1] == ({"status": "needs_revision", "evaluation": 1.0}, {"status": "cancelled", "evaluation": None}, "Не нужна")
+    assert client.get(f"/api/assignments/{aid}/assessment-inputs", headers=work["master"].headers).json()["evaluation"] is None
+
+
+def test_assessment_inputs_cannot_score_a_cancelled_assignment(client, work, superuser):
+    aid = assignment_in(client, work, "cancelled")
+    inputs = client.get(f"/api/assignments/{aid}/assessment-inputs", headers=work["master"].headers).json()
+    totals = client.get("/api/assessments", headers=superuser.headers).json()
+    for evaluation in (1, 0):
+        r = client.patch(f"/api/assignments/{aid}/assessment-inputs", headers=work["master"].headers, json=dict(expected_revision=inputs["revision"], evaluation=evaluation, reason="Переоценка"))
+        assert r.status_code == 409, r.text
+        assert r.json()["detail"]["code"] == "conflict"
+    assert client.get(f"/api/assignments/{aid}/assessment-inputs", headers=work["master"].headers).json() == inputs
+    assert client.get("/api/assessments", headers=superuser.headers).json() == totals
+    # Hours alone may still be corrected; the assignment stays cancelled.
+    r = client.patch(f"/api/assignments/{aid}/assessment-inputs", headers=work["master"].headers, json=dict(expected_revision=inputs["revision"], hours=3, reason="Часы"))
+    assert r.status_code == 200, r.text
+    with db._session() as s:
+        assert s.get(AssignmentORM, aid).status == "cancelled"
+
+
+@pytest.mark.parametrize("status,evaluation,after", [("accepted", 0, "not_completed"), ("not_completed", 1.5, "accepted")])
+def test_assessment_inputs_change_of_outcome_is_audited(client, work, status, evaluation, after):
+    aid = assignment_in(client, work, status)
+    inputs = client.get(f"/api/assignments/{aid}/assessment-inputs", headers=work["master"].headers).json()
+    r = client.patch(f"/api/assignments/{aid}/assessment-inputs", headers=work["master"].headers, json=dict(expected_revision=inputs["revision"], evaluation=evaluation, reason="Исправление"))
+    assert r.status_code == 200, r.text
+    old, new, reason = audit_rows(aid)[-1]
+    assert (old["status"], new["status"], new["evaluation"], reason) == (status, after, float(evaluation), "Исправление")
+
+
+# FIX_PLAN 1.2 (A-KKR-1): kind, season and scope of a merit are fixed at creation.
+@pytest.mark.parametrize("field,value", [("season_id", None), ("source_kind", "block_volunteer"), ("scope", None), ("event_id", None)])
+def test_merit_patch_refuses_fields_fixed_at_creation(client, work, field, value):
+    w = work
+    merit = dict(
+        season_id=w["season"]["season_id"], source_kind="block_volunteer", scope=dict(kind="block", id=w["block"]["block_id"]),
+        title="Афиша", description="", assigned_at="2026-10-01T00:00:00Z", deadline_at="2026-10-02T00:00:00Z", criteria={},
+        recipients=[dict(user_id=w["outside"].user_id, hours=2, evaluation=1, completed_at="2026-10-02T00:00:00Z")], reason="Постфактум",
+    )
+    r = client.post("/api/merits", headers=w["master"].headers, json=merit)
+    assert r.status_code == 200, r.text
+    created = r.json()
+    patch = dict(expected_revision=created["revision"], reason="Исправление", recipients=[dict(merit["recipients"][0], hours=3)])
+    r = client.patch(f"/api/merits/{created['merit_id']}", headers=w["master"].headers, json={**patch, field: merit.get(field, value)})
+    assert r.status_code == 422, r.text
+    assert client.get(f"/api/merits/{created['merit_id']}", headers=w["master"].headers).json()["revision"] == created["revision"]
+    r = client.patch(f"/api/merits/{created['merit_id']}", headers=w["master"].headers, json=patch)
+    assert r.status_code == 200, r.text
+    assert (r.json()["revision"], r.json()["recipients"][0]["hours"]) == (created["revision"] + 1, 3)

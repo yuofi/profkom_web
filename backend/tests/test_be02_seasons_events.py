@@ -547,12 +547,45 @@ def test_meeting_созвон_подмероприятия_доступен_ор
     # Удаление созвона
     r_del = client.delete(f"/api/subevents/{sub_id}/meeting", headers=user.headers)
     assert r_del.status_code == 200
-    assert client.get(f"/api/subevents/{sub_id}/meeting", headers=user2.headers).status_code == 404
+    r_gone = client.get(f"/api/subevents/{sub_id}/meeting", headers=user2.headers)
+    assert (r_gone.status_code, r_gone.json()) == (200, None)
 
 
 # ═════════════════════════════════════════════════════════════
 #  5. ИСПРАВЛЕНИЕ ОШИБОЧНОГО СЕЗОНА (POST /season-corrections)
 # ═════════════════════════════════════════════════════════════
+
+def test_meeting_без_объявления_200_null(client, superuser, user, make_user):
+    """FIX_PLAN 1.3 (A-EVT-1): a missing announcement is 200 null; 404 is only a missing owner."""
+    outsider = make_user(email="user3@test.local")
+    r_s = client.post(SEASONS_URL, json={
+        "title": "Сезон 1", "type": "winter_spring", "starts_at": "2026-01-01T00:00:00Z", "ends_at": "2026-05-31T23:59:59Z"
+    }, headers=superuser.headers)
+    ev_id = client.post(EVENTS_URL, json={"season_id": r_s.json()["season_id"], "title": "Посвят"}, headers=superuser.headers).json()["event_id"]
+    sub_id = client.post(f"{EVENTS_URL}/{ev_id}/subevents", json={"title": "Квест"}, headers=superuser.headers).json()["subevent_id"]
+    assert client.put(f"/api/subevents/{sub_id}/leaders", json={"user_ids": [user.user_id], "expected_revision": 1}, headers=superuser.headers).status_code == 200
+    event_meeting, sub_meeting = f"{EVENTS_URL}/{ev_id}/meeting", f"/api/subevents/{sub_id}/meeting"
+    for path, reader in ((event_meeting, superuser), (sub_meeting, superuser), (sub_meeting, user)):
+        r = client.get(path, headers=reader.headers)
+        assert (r.status_code, r.json()) == (200, None), path
+
+    meeting = {"title": "Синхрон", "starts_at": "2026-03-02T19:00:00Z", "join_url": "https://telemost.yandex.ru/1"}
+    assert client.put(sub_meeting, json=meeting, headers=user.headers).status_code == 200
+    assert client.get(sub_meeting, headers=user.headers).json()["title"] == "Синхрон"
+    assert client.delete(sub_meeting, headers=user.headers).status_code == 200
+    r = client.get(sub_meeting, headers=user.headers)
+    assert (r.status_code, r.json()) == (200, None)
+    # The form announces it again after removal.
+    assert client.put(sub_meeting, json=meeting, headers=user.headers).status_code == 200
+
+    for path in (f"{EVENTS_URL}/missing/meeting", "/api/subevents/missing/meeting"):
+        r = client.get(path, headers=superuser.headers)
+        assert (r.status_code, r.json()["detail"]["code"]) == (404, "not_found"), path
+    for path in (event_meeting, sub_meeting):
+        r = client.get(path, headers=outsider.headers)
+        assert r.status_code == 403, path
+        assert "join_url" not in r.text
+
 
 def test_season_corrections_только_тачки_атомарный_перенос(client, superuser, user):
     # Создаём два сезона

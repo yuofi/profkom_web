@@ -5,6 +5,7 @@ import type {
   Contribution,
   Merit,
   MeritCreate,
+  MeritPatch,
   Revision,
   Decision,
   SummaryVersionMetadata,
@@ -94,7 +95,7 @@ export const seasonsApi = {
   createMerit: (data: MeritCreate) => request<Merit>("post", "/merits", data),
   updateMerit: (
     id: string,
-    data: Revision & Partial<MeritCreate> & { reason: string },
+    data: Revision & Partial<MeritPatch> & { reason: string },
   ) => request<Merit>("patch", `/merits/${idPath(id)}`, data),
   export: async (id: string): Promise<Blob> => {
     try {

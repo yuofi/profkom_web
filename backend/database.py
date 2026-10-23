@@ -283,6 +283,10 @@ class TaskORM(Base):
     revision = Column(Integer, default=1, nullable=False)
 
 
+# Assignments without a final outcome; accepted, not_completed and cancelled are final.
+UNRESOLVED_STATUSES = ("assigned", "in_progress", "help_required", "submitted", "needs_revision")
+
+
 class AssignmentORM(Base):
     __tablename__ = "assignments"
 
@@ -4815,6 +4819,9 @@ class Database:
 
             if a.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
+            # A final outcome changes only through assessment inputs (A-TSK-2).
+            if a.status not in UNRESOLVED_STATUSES:
+                raise ValueError("Conflict: only unresolved assignments can be marked not completed")
 
             if evaluation not in (0.0, -1.0):
                 raise ValueError("Evaluation for not completed assignment must be 0 or -1")
@@ -4822,11 +4829,23 @@ class Database:
             if not reason or not reason.strip():
                 raise ValueError("Reason is required")
 
+            old = {"status": a.status, "evaluation": a.evaluation}
             a.status = "not_completed"
             a.evaluation = evaluation
             a.review_note = reason
             a.revision += 1
             a.updated_at = datetime.now(timezone.utc).isoformat()
+            session.add(
+                AuditLogORM(
+                    target_kind="assignment",
+                    target_id=a.assignment_id,
+                    changed_by_user_id=reviewer_user_id,
+                    reason=reason,
+                    old_values_json=json.dumps(old),
+                    new_values_json=json.dumps({"status": "not_completed", "evaluation": evaluation}),
+                    created_at=a.updated_at,
+                )
+            )
 
             _recalculate_assignment_contribution(session, a, t)
             from season_summaries import refresh
@@ -4856,12 +4875,16 @@ class Database:
 
             if a.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
+            if a.status not in UNRESOLVED_STATUSES:
+                raise ValueError("Conflict: only unresolved assignments can be cancelled")
 
             if not reason or not reason.strip():
                 raise ValueError("Reason is required")
 
-            old_status = a.status
+            old_status, old_evaluation = a.status, a.evaluation
             a.status = "cancelled"
+            # Cancelled is "without an evaluation": a revision request may have left one.
+            a.evaluation = None
             a.review_note = reason
             a.revision += 1
             a.updated_at = datetime.now(timezone.utc).isoformat()
@@ -4872,8 +4895,8 @@ class Database:
                     target_id=a.assignment_id,
                     changed_by_user_id=reviewer_user_id,
                     reason=reason,
-                    old_values_json=json.dumps({"status": old_status}),
-                    new_values_json=json.dumps({"status": "cancelled"}),
+                    old_values_json=json.dumps({"status": old_status, "evaluation": old_evaluation}),
+                    new_values_json=json.dumps({"status": "cancelled", "evaluation": None}),
                     created_at=a.updated_at,
                 )
             )
@@ -4893,7 +4916,7 @@ class Database:
         current_user_id: Optional[int] = None,
     ) -> list[UnresolvedAssignmentDC]:
         with self._session() as session:
-            active_statuses = ("assigned", "in_progress", "help_required", "submitted", "needs_revision")
+            active_statuses = UNRESOLVED_STATUSES
             query = (
                 session.query(AssignmentORM, TaskORM)
                 .join(TaskORM, AssignmentORM.task_id == TaskORM.task_id)
@@ -4966,7 +4989,7 @@ class Database:
             if a.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
 
-            if a.status not in ("assigned","in_progress","help_required","submitted","needs_revision"):raise ValueError("Conflict: only unresolved assignments can be reassigned")
+            if a.status not in UNRESOLVED_STATUSES:raise ValueError("Conflict: only unresolved assignments can be reassigned")
             from validation import hours as check_hours
             check_hours(hours)
             if previous_outcome not in ("cancelled", "not_completed"):
@@ -5191,6 +5214,8 @@ class Database:
                 raise ValueError("Conflict: revision mismatch")
             if not reason or not reason.strip():
                 raise ValueError("Reason is required")
+            if evaluation is not None and a.status == "cancelled":
+                raise ValueError("Conflict: a cancelled assignment has no evaluation")
 
             from validation import assessment, hours as check_hours, timestamp
             if hours is not None:check_hours(hours)
@@ -5199,6 +5224,7 @@ class Database:
             old_hours = a.hours
             old_eval = a.evaluation
             old_completed = a.effective_completed_at
+            old_status = a.status
 
             if hours is not None:
                 if hours < 0:
@@ -5225,8 +5251,8 @@ class Database:
                     target_id=a.assignment_id,
                     changed_by_user_id=user_id,
                     reason=reason,
-                    old_values_json=json.dumps({"hours": old_hours, "evaluation": old_eval, "effective_completed_at": old_completed}),
-                    new_values_json=json.dumps({"hours": a.hours, "evaluation": a.evaluation, "effective_completed_at": a.effective_completed_at}),
+                    old_values_json=json.dumps({"hours": old_hours, "evaluation": old_eval, "effective_completed_at": old_completed, "status": old_status}),
+                    new_values_json=json.dumps({"hours": a.hours, "evaluation": a.evaluation, "effective_completed_at": a.effective_completed_at, "status": a.status}),
                     created_at=a.updated_at,
                 )
             )

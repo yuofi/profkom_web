@@ -36,6 +36,15 @@ const dataOf = (config: AxiosRequestConfig): Body =>
     ? (JSON.parse(config.data) as Body)
     : ((config.data ?? {}) as Body);
 const clone = <T>(value: T): T => structuredClone(value);
+/** As on the server: a command accepts exactly its own fields besides expected_revision. */
+const extraInputs = (data: Body, accepted: string[]): Reply | undefined => {
+  const extra = Object.keys(data).filter((key) => key !== "expected_revision" && !accepted.includes(key));
+  return extra.length
+    ? fail(422, "invalid_input", "Проверьте поля формы", {
+        errors: extra.map((key) => ({ loc: ["body", key], msg: "Extra inputs are not permitted" })),
+      })
+    : undefined;
+};
 const publicSubmission = (text: unknown) =>
   typeof text === "object" && text
     ? (text as ReturnType<typeof richText>)
@@ -1058,13 +1067,26 @@ export function installMockTransport(
       };
       if (!statuses[parts[2]])
         return fail(404, "not_found", "Команда не найдена");
+      // As on the server: every command accepts exactly its own fields.
+      const accepted: Record<string, string[]> = {
+        start: [],
+        resume: [],
+        "request-help": ["message"],
+        submit: ["text", "links", "file_ids"],
+        accept: ["evaluation", "review_note"],
+        "request-revision": ["review_note"],
+        "not-complete": ["evaluation", "reason"],
+        cancel: ["reason"],
+      };
+      const extra = extraInputs(data, accepted[parts[2]]);
+      if (extra) return extra;
       const allowed: Record<string, AssignmentStatus[]> = {
         start: ["assigned"],
         resume: ["help_required"],
         "request-help": ["assigned", "in_progress", "needs_revision"],
         submit: ["assigned", "in_progress", "help_required", "needs_revision"],
         accept: ["submitted"],
-        "request-revision": ["submitted"],
+        "request-revision": ["submitted", "accepted"],
         "not-complete": [
           "assigned",
           "in_progress",
@@ -1770,6 +1792,8 @@ export function installMockTransport(
       }
       if (method === "patch") {
         const merit = state.merits.find((m) => m.merit_id === parts[1]);
+        const extra = extraInputs(data, ["reason", "title", "description", "assigned_at", "deadline_at", "criteria", "recipients"]);
+        if (extra) return extra;
         if (!merit || mismatch(data, merit)) return conflict();
         Object.assign(merit, data);
         return changed(merit);

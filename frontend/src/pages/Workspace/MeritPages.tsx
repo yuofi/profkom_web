@@ -24,6 +24,7 @@ import {
   type Session,
   type Season,
   type MeritCreate,
+  type MeritPatch,
   type TaskInputs,
   type AssessmentInputs,
 } from "../../utils/api/contract";
@@ -48,6 +49,10 @@ const criteriaLabels = {
   in_person: "Очное присутствие",
   fixed_time: "В определённое время",
 };
+/** PATCH /merits/{id} takes only these fields; kind, season and scope stay as created (A-KKR-1). */
+function meritPatch({ title, description, assigned_at, deadline_at, criteria, recipients }: MeritCreate): MeritPatch {
+  return { title, description, assigned_at, deadline_at, criteria, recipients };
+}
 function useMeritContexts(enabled: boolean) {
   return useQuery({
     queryKey: ["merits", "contexts"],
@@ -109,9 +114,11 @@ export function MeritForm({
   initialSource,
   initialScopeId,
   summaryVersion,
+  onCreated,
 }: {
   seasonId: string;
   existing?: Merit;
+  onCreated?: (merit: Merit) => void;
   save?: (data: MeritCreate, revision: number, summaryVersion: number) => Promise<{revision: number; revisionKey: string}>;
   summaryVersion?: number;
   initialSource?: MeritCreate["source_kind"];
@@ -120,7 +127,8 @@ export function MeritForm({
   const { session } = useSession();
   const { perform, refresh } = useWorkspaceActions();
   const people = usePeopleOptions();
-  const contexts = useMeritContexts(!existing);
+  // An existing record needs the lists only for its scope name, so they never block its form.
+  const contexts = useMeritContexts(true);
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list, enabled: !existing });
   const season = seasons.data?.items.find((x) => x.season_id === seasonId);
   const allowedKinds = allowedMeritKinds(session, contexts.data, season);
@@ -163,6 +171,10 @@ export function MeritForm({
         : contexts.data?.events
             .filter((x) => x.season_id === seasonId && can(x, "create_head_merit"))
             .map((x) => ({ value: x.event_id, label: x.title }));
+  const savedScope = !existing ? undefined
+    : existing.source_kind === "block_volunteer" ? contexts.data?.blocks.find((x) => x.block_id === scopeId)?.name
+    : existing.source_kind === "subevent_volunteer" ? contexts.data?.subs.find((x) => x.subevent_id === scopeId)?.title
+    : contexts.data?.events.find((x) => x.event_id === scopeId)?.title;
   const fields: Field[] = [
     {
       name: "title",
@@ -324,7 +336,7 @@ export function MeritForm({
             >
               <option value="">Выберите…</option>
               {(existing
-                ? [{ value: scopeId, label: scopeId }]
+                ? [{ value: scopeId, label: savedScope ?? (contexts.isLoading ? "Загрузка названия…" : "Сохранённая область") }]
                 : scopeOptions
               )?.map((p) => (
                 <option key={p.value} value={p.value}>
@@ -365,7 +377,7 @@ export function MeritForm({
               const fixedSeason = contexts.data?.events.find(
                 (x) => x.event_id === eventId,
               )?.season_id;
-              if (fixedSeason && fixedSeason !== seasonId)
+              if (!existing && fixedSeason && fixedSeason !== seasonId)
                 throw Error("Откройте форму из сезона выбранного мероприятия");
               const assigned = toUtc(text(v, "assigned")),
                 deadline = toUtc(text(v, "deadline"));
@@ -423,14 +435,17 @@ export function MeritForm({
               if (save) {
                 return save(data, expectedRevision!, Number(expectedVersion));
               }
-              return perform(() =>
-                existing
-                  ? seasonsApi.updateMerit(existing.merit_id, {
-                      ...data,
-                      expected_revision: expectedRevision!,
-                    })
-                  : seasonsApi.createMerit(data),
-              );
+              if (existing)
+                return perform(() =>
+                  seasonsApi.updateMerit(existing.merit_id, {
+                    ...meritPatch(data),
+                    reason: data.reason,
+                    expected_revision: expectedRevision!,
+                  }),
+                );
+              // A new empty form replaces this one, so a second click cannot repeat the record (A-KKR-24).
+              const merit = await perform(() => seasonsApi.createMerit(data));
+              onCreated?.(merit);
             }}
             submitLabel={
               existing ? "Сохранить исправление" : "Записать выполненную работу"
@@ -447,6 +462,7 @@ export function MeritsPage() {
   const [params] = useSearchParams();
   const contexts = useMeritContexts(true);
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
+  const [created, setCreated] = useState<{ count: number; title?: string }>({ count: 0 });
   const season = seasons.data?.items.find((x) => x.season_id === id);
   const allowedKinds = allowedMeritKinds(session, contexts.data, season);
   const readable = allowedKinds.length > 0 || can(session, "view_summary");
@@ -485,7 +501,9 @@ export function MeritsPage() {
         </QueryState>
         {allowedKinds.length > 0 && (
           <Card title="Учесть выполненную работу">
-            <MeritForm key={`${id}/${params.get("source_kind")}/${params.get("scope_id")}`} seasonId={id}
+            {created.title && <p role="status" className={s.success}>Работа записана: {created.title}</p>}
+            <MeritForm key={`${id}/${params.get("source_kind")}/${params.get("scope_id")}/${created.count}`} seasonId={id}
+              onCreated={(merit) => setCreated((c) => ({ count: c.count + 1, title: merit.title }))}
               initialSource={allowedKinds.find(([kind]) => kind === params.get("source_kind"))?.[0] as MeritCreate["source_kind"] | undefined}
               initialScopeId={params.get("scope_id") ?? undefined} />
           </Card>
@@ -651,19 +669,7 @@ function ClosedCorrectionEditor({
               existing={data.record}
               summaryVersion={summaryVersion}
               save={async (value, expectedRevision, expectedVersion) => {
-                return save(
-                  expectedRevision,
-                  {
-                    title: value.title,
-                    description: value.description,
-                    assigned_at: value.assigned_at,
-                    deadline_at: value.deadline_at,
-                    criteria: value.criteria,
-                    recipients: value.recipients,
-                  },
-                  value.reason,
-                  expectedVersion,
-                );
+                return save(expectedRevision, meritPatch(value), value.reason, expectedVersion);
               }}
             />
           ) : (

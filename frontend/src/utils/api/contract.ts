@@ -240,6 +240,8 @@ export interface MeritCreate {
   }[];
   reason: string;
 }
+/** The fields PATCH /merits/{id} accepts: kind, season and scope are fixed at creation. */
+export type MeritPatch = Pick<MeritCreate, "title" | "description" | "assigned_at" | "deadline_at" | "criteria" | "recipients">;
 export interface Merit extends MeritCreate, Versioned {
   merit_id: string;
   created_by: UserRef;

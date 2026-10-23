@@ -392,6 +392,30 @@ describe("API commands through mock transport", () => {
       }),
     ).rejects.toMatchObject({ status: 409 });
   });
+  it("refuses an assignment command with a field of another command, as the server does (A-TSK-1)", async () => {
+    const fixture = useMock("leader");
+    const a = fixture.state.tasks[0].assignments[0];
+    a.status = "submitted";
+    const body = { expected_revision: a.revision, evaluation: 1, reason: "Лишнее поле" } as never;
+    await expect(tasksApi.command(a.assignment_id, "accept", body)).rejects.toMatchObject({ status: 422 });
+    expect(a.status).toBe("submitted");
+    // Revision may be requested again after acceptance (database.request_revision_assignment).
+    const accepted = await tasksApi.command(a.assignment_id, "accept", { expected_revision: a.revision, evaluation: 1 });
+    const back = await tasksApi.command(a.assignment_id, "request-revision", { expected_revision: accepted.revision, review_note: "Вернуть" });
+    expect(back.status).toBe("needs_revision");
+  });
+  it("refuses a merit correction with fields fixed at creation, as the server does (A-KKR-1)", async () => {
+    useMock("chair");
+    const recipients = [{ user_id: 1, hours: 2, evaluation: 1 as const, completed_at: "2026-10-01T10:00:00Z" }];
+    const created = await seasonsApi.createMerit({ season_id: "season-current", source_kind: "chair_merit", title: "Заслуга",
+      description: richText("Сделано"), assigned_at: "2026-10-01T09:00:00Z", deadline_at: "2026-10-01T09:00:00Z",
+      criteria: emptyCriteria(), recipients, reason: "Постфактум" });
+    const body = { expected_revision: created.revision, reason: "Исправление", season_id: "season-current" } as never;
+    await expect(seasonsApi.updateMerit(created.merit_id, body)).rejects.toMatchObject({ status: 422 });
+    const fixed = await seasonsApi.updateMerit(created.merit_id, { expected_revision: created.revision, reason: "Исправление",
+      recipients: [{ ...recipients[0], hours: 3 }] });
+    expect(fixed).toMatchObject({ revision: 2, recipients: [{ hours: 3 }] });
+  });
   it("copies annual structure with empty assignments and no historical work", async () => {
     useMock("chair");
     const copied = await eventsApi.copy("event-1", {

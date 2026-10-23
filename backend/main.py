@@ -2380,7 +2380,7 @@ def set_deputies(role_assignment_id: str, payload: UserIdsIn, cur: User = Depend
 
 # ── Meetings (Созвоны) ──
 
-@router.get("/events/{event_id}/meeting", response_model=MeetingOut)
+@router.get("/events/{event_id}/meeting", response_model=Optional[MeetingOut])
 def get_event_meeting(event_id: str, cur: User = Depends(get_current_user)):
     ev = db.get_event(event_id)
     if not ev:
@@ -2388,9 +2388,8 @@ def get_event_meeting(event_id: str, cur: User = Depends(get_current_user)):
     if not access.allowed(cur.user_id, "event.meeting.view", "event", event_id):
         raise HTTPException(403, "Forbidden")
     m = db.get_meeting("event", event_id)
-    if not m:
-        raise HTTPException(404, "No meeting scheduled")
-    return _to_meeting_out(m)
+    # No current announcement is an empty answer; 404 means the event itself (FIX_PLAN 1.3, A-EVT-1).
+    return _to_meeting_out(m) if m else None
 
 
 @router.put("/events/{event_id}/meeting", response_model=MeetingOut)
@@ -2421,7 +2420,7 @@ def delete_event_meeting(event_id: str, cur: User = Depends(get_current_user)):
     return {"status": "deleted"}
 
 
-@router.get("/subevents/{subevent_id}/meeting", response_model=MeetingOut)
+@router.get("/subevents/{subevent_id}/meeting", response_model=Optional[MeetingOut])
 def get_subevent_meeting(subevent_id: str, cur: User = Depends(get_current_user)):
     sub = db.get_subevent(subevent_id)
     if not sub:
@@ -2429,9 +2428,8 @@ def get_subevent_meeting(subevent_id: str, cur: User = Depends(get_current_user)
     if not access.allowed(cur.user_id, "subevent.meeting.view", "subevent", subevent_id):
         raise HTTPException(403, "Forbidden")
     m = db.get_meeting("subevent", subevent_id)
-    if not m:
-        raise HTTPException(404, "No meeting scheduled")
-    return _to_meeting_out(m)
+    # No current announcement is an empty answer; 404 means the subevent itself (FIX_PLAN 1.3, A-EVT-1).
+    return _to_meeting_out(m) if m else None
 
 
 @router.put("/subevents/{subevent_id}/meeting", response_model=MeetingOut)

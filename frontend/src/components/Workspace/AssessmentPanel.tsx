@@ -36,6 +36,7 @@ export function AssessmentPanel({
   });
   if (!can(assignment, "view_assessment_inputs")) return null;
   const inputs = query.data;
+  const savedEvaluation = inputs?.evaluation == null ? "" : String(inputs.evaluation);
   return (
     <details className={s.details} open={open || undefined}>
       <summary>Исходные поля оценивания</summary>
@@ -63,19 +64,21 @@ export function AssessmentPanel({
                     required: true,
                     min: 0,
                   },
-                  {
-                    name: "evaluation",
-                    label: "Оценка",
-                    type: "select",
-                    value:
-                      inputs.evaluation === null
-                        ? ""
-                        : String(inputs.evaluation),
-                    options: [-1, 0, 1, 1.5].map((v) => ({
-                      value: String(v),
-                      label: String(v),
-                    })),
-                  },
+                  // A cancelled assignment stays without an evaluation (A-TSK-2).
+                  ...(assignment.status === "cancelled"
+                    ? []
+                    : [
+                        {
+                          name: "evaluation",
+                          label: "Оценка",
+                          type: "select" as const,
+                          value: savedEvaluation,
+                          options: [-1, 0, 1, 1.5].map((v) => ({
+                            value: String(v),
+                            label: String(v),
+                          })),
+                        },
+                      ]),
                   {
                     name: "completed",
                     label: "Расчётная дата выполнения, МСК",
@@ -96,7 +99,11 @@ export function AssessmentPanel({
                     tasksApi.updateAssessment(assignment.assignment_id, {
                       expected_revision: expectedRevision!,
                       hours: number(v, "hours"),
-                      ...(text(v, "evaluation")
+                      // Only a changed evaluation is sent: it also changes the status.
+                      // The form may still hold one from before a cancellation.
+                      ...(assignment.status !== "cancelled" &&
+                      text(v, "evaluation") &&
+                      text(v, "evaluation") !== savedEvaluation
                         ? {
                             evaluation: number(v, "evaluation") as
                               | -1

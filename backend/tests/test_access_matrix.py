@@ -252,8 +252,8 @@ class Op:
 
 def _ensure_meeting(kind, key):
     def prepare(org, role):
-        status, _ = org.raw("GET", f"/{kind}/{org.ids[key]}/meeting")
-        if status == 404:
+        status, body = org.raw("GET", f"/{kind}/{org.ids[key]}/meeting")
+        if (status, body) == (200, None):
             org.req("PUT", f"/{kind}/{org.ids[key]}/meeting", dict(title="Созвон", starts_at=stamp(2), join_url="https://example.com/m"))
     return prepare
 

@@ -354,6 +354,8 @@ export function MeetingPage() {
   const valid = kind === "event" || kind === "subevent";
   const apiKind = kind === "event" ? "events" : "subevents";
   const { perform, refresh } = useWorkspaceActions();
+  // A removed announcement starts a new one from revision 0 with empty fields.
+  const [removed, setRemoved] = useState(0);
   const owner = useQuery({
     queryKey: ["events", "meeting-owner", kind, id],
     queryFn: async () =>
@@ -414,7 +416,7 @@ export function MeetingPage() {
             (!meeting && can(owner.data, "edit_meeting"))) && (
             <Card title="Объявление созвона">
               <ActionForm
-                key={`${apiKind}/${id}`}
+                key={`${apiKind}/${id}/${removed}`}
                 revision={meeting?.revision ?? 0}
                 fields={[
                   {
@@ -458,6 +460,7 @@ export function MeetingPage() {
                   submitLabel="Снять объявление"
                   onSubmit={async () => {
                     await perform(() => eventsApi.deleteMeeting(apiKind, id));
+                    setRemoved((n) => n + 1);
                   }}
                 />
               )}

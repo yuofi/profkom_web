@@ -17,7 +17,8 @@ export interface Field {
     | "datetime-local"
     | "email"
     | "url";
-  required?: boolean;
+  /** A function makes the field required depending on the other values. */
+  required?: boolean | ((values: Values) => boolean);
   value?: string | string[];
   options?: { value: string; label: string }[];
   hint?: string;
@@ -28,6 +29,9 @@ export interface Field {
   onSelectionChange?: (values: string[]) => void;
 }
 export interface OwnRevisionChange { from: number; to: number }
+
+const isRequired = (field: Field, values: Values) =>
+  typeof field.required === "function" ? field.required(values) : !!field.required;
 
 const visible = (field: Field, values: Values) =>
   !field.whenSelected ||
@@ -95,7 +99,7 @@ export function ActionForm({
           .map((f) => [
             f.name,
             f.type === "multi"
-              ? f.required
+              ? isRequired(f, values)
                 ? z
                     .array(z.string())
                     .min(1, "Выберите хотя бы одного участника")
@@ -103,7 +107,7 @@ export function ActionForm({
               : z
                   .string()
                   .refine(
-                    (v) => !f.required || v.trim().length > 0,
+                    (v) => !isRequired(f, values) || v.trim().length > 0,
                     "Обязательное поле",
                   )
                   .refine(
@@ -197,7 +201,7 @@ export function ActionForm({
               onBlur: form.handleBlur,
               "aria-invalid": !!error,
               "aria-describedby": error ? `${id}-error` : undefined,
-              required: field.required,
+              required: isRequired(field, form.values),
               disabled: form.isSubmitting,
             };
             return (
@@ -207,7 +211,7 @@ export function ActionForm({
                   htmlFor={field.searchable ? `${id}-search` : id}
                 >
                   {field.label}
-                  {field.required ? " *" : ""}
+                  {isRequired(field, form.values) ? " *" : ""}
                 </label>
                 {field.type === "multi" && field.searchable ? (
                   <RecipientPicker
