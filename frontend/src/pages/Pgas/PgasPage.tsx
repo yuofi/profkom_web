@@ -5,6 +5,7 @@ import { z } from "zod";
 import { FormikProvider } from "formik";
 import clsx from "clsx";
 import { pgasApi } from "../../utils/api/pgas.api";
+import { apiUrl } from "../../utils/api";
 import { uploadFile } from "../../utils/s3-utils";
 import { fileAccept, fileMetadata } from "../../utils/filePolicy";
 import { can, useSession } from "../../utils/session";
@@ -277,7 +278,7 @@ export const PgasPage = () => {
                     <td>
                       <a
                         className={styles.fileLink}
-                        href={entry.file_url}
+                        href={apiUrl(entry.file_url)}
                         target="_blank"
                         rel="noopener noreferrer"
                         download

@@ -267,4 +267,6 @@ def test_private_file_complete_and_download(client, user, mock_s3):
     )
     r = client.get(f"/api/files/{fid}/download", headers=user.headers)
     assert r.status_code == 200
-    assert "get_object" in r.json()["download_url"]
+    # No signed storage link: the API address is checked on every request (decision 23).
+    assert r.json() == dict(download_url=f"/api/files/{fid}/content", expires_at=None)
+    assert client.get(r.json()["download_url"], headers=user.headers).content == content

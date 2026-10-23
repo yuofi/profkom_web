@@ -1,6 +1,6 @@
 """Material drafts, publication, per-object editors and legacy-guide adapters."""
 
-import json, uuid
+import json, re, uuid
 from typing import Literal
 from pydantic import Field
 from fastapi import Depends, HTTPException
@@ -93,7 +93,7 @@ def dto(s, m, uid):
         ),
         original_link=m.draft_original_link if draft else m.original_link,
         published_content=(
-            dict(format="markdown", body=read_text(m.published_body, uid))
+            dict(format="markdown", body=read_text(m.published_body))
             if m.published_body is not None
             else None
         ),
@@ -270,6 +270,17 @@ def legacy_mapping(s, guide_id):
     return m
 
 
+def guide_text(g, m):
+    """What the old guide screens show: the material's Markdown, never the raw old
+    source, which may be HTML (A-MAT-14)."""
+    from legacy_files import read_text
+    from legacy_markup import to_markdown
+
+    if m.published_body is not None:
+        return read_text(m.published_body)
+    return read_text(to_markdown(g.text or ""))
+
+
 def guide_dto(g, uid):
     with db._session() as s:
         m = legacy_mapping(s, g.guide_id)
@@ -280,7 +291,7 @@ def guide_dto(g, uid):
             guide_id=g.guide_id,
             title=g.title,
             owner_block=g.owner_block,
-            text=__import__("legacy_files").read_text(g.text, uid),
+            text=guide_text(g, m),
             description=g.description,
             original_link=g.original_link,
             material_id=m.material_id,
@@ -568,6 +579,9 @@ def legacy_create(payload, uid):
         ):
             fail(422, "Invalid original link")
         stored(s, payload.text, None, None)
+        if re.search(r"file:file-[\w-]+", payload.text or ""):
+            # A new guide owns no files yet; they are attached in the material editor (A-MAT-8).
+            fail(422, "A new guide cannot reference files; attach them in the material editor")
         g = GuideORM(
             title=payload.title,
             owner_block=owner,
@@ -627,9 +641,10 @@ def legacy_update(guide_id, payload, uid):
             ("http://", "https://")
         ):
             fail(422, "Invalid original link")
+        # The text as it was shown comes back unchanged: it is not converted again (A-MAT-4).
         m.draft_body = (
             to_markdown(payload.text)
-            if payload.text is not None
+            if payload.text is not None and payload.text not in (g.text, guide_text(g, m))
             else m.published_body or ""
         )
         m.has_draft = True

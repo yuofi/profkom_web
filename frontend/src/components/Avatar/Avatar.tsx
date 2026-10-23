@@ -5,6 +5,8 @@ import styles from "./Avatar.module.css";
 import clsx from "clsx";
 import { Image } from "../Image/Image";
 
+const DEFAULT_AVATAR = "/avatars/default.svg";
+
 interface AvatarProps {
   src?: string;
   size?: number;
@@ -49,7 +51,7 @@ export const Avatar: React.FC<AvatarProps> = ({
       return <div className={styles.loader} />;
     }
 
-    const imageSrc = src?.trim() || '/avatars/default.svg';
+    const imageSrc = src?.trim() || DEFAULT_AVATAR;
 
     if (imageSrc) {
       return (
@@ -58,6 +60,10 @@ export const Avatar: React.FC<AvatarProps> = ({
           alt="Avatar"
           className={styles.image}
           disableModal={mode === "edit" || mode === "disable"}
+          // A file the reader may no longer open, or a session that just ended.
+          onError={(e) => {
+            if (!e.currentTarget.src.endsWith(DEFAULT_AVATAR)) e.currentTarget.src = DEFAULT_AVATAR;
+          }}
         />
       );
     }

@@ -30,11 +30,17 @@ async function currentSeason() {
   const seasons = (await seasonsApi.list()).items;
   return seasons.find(s => s.state === "open") ?? seasons.find(s => s.state === "planned") ?? seasonsApi.create({ title: "File acceptance", type: "autumn_winter", starts_at: new Date(Date.now() - 86400000).toISOString(), ends_at: new Date(Date.now() + 20 * 86400000).toISOString() });
 }
-async function downloadEquals(id: string, expected: Uint8Array) {
-  const signed = await filesApi.download(id);
-  const response = await axios.get(signed.download_url, { responseType: "arraybuffer" });
-  expect(response.headers["content-disposition"]).toBe("attachment");
-  expect(Buffer.from(response.data)).toEqual(Buffer.from(expected));
+// A file comes by its API address, checked on every request (decision 23).
+const fetchFile = (url: string) => {
+  expect(url).toMatch(/^\/api\/files\/file-[\w-]+\/content$/);
+  return api.get<ArrayBuffer>(url.slice("/api".length), { responseType: "arraybuffer" });
+};
+async function downloadEquals(id: string, ext: string) {
+  const { download_url } = await filesApi.download(id);
+  const response = await fetchFile(download_url);
+  const shown = ["png", "jpg", "jpeg", "webp"].includes(ext) ? "inline" : "attachment";
+  expect(response.headers["content-disposition"]).toBe(`${shown}; filename="synthetic.${ext}"; filename*=UTF-8''synthetic.${ext}`);
+  expect(Buffer.from(response.data)).toEqual(bytes(ext));
 }
 
 it("INT-05: every advertised attachment format completes PUT and remains in report history", async () => {
@@ -50,7 +56,7 @@ it("INT-05: every advertised attachment format completes PUT and remains in repo
   for (const ext of fileExtensions("report")) {
     const type = ext === "jpg" ? "image/jpg" : ext === "zip" ? "application/x-zip-compressed" : "";
     const ref = await filesApi.upload(file(ext, type), { owner_kind: "report", owner_id: report.report_id, purpose: "report" });
-    await downloadEquals(ref.file_id, bytes(ext));
+    await downloadEquals(ref.file_id, ext);
     uploaded.push(ref);
   }
   report = await reportsApi.update(report.report_id, { expected_revision: report.revision, file_ids: uploaded.map(f => f.file_id) });
@@ -62,7 +68,7 @@ it("INT-05: every advertised attachment format completes PUT and remains in repo
   await reportsApi.publish(report.report_id, { expected_revision: report.revision });
   await liveLogin();
   expect((await reportsApi.versions(report.report_id)).items.some(v => v.files.length === uploaded.length)).toBe(true);
-  await downloadEquals(uploaded[0].file_id, bytes("png"));
+  await downloadEquals(uploaded[0].file_id, "png");
   const changed = await eventsApi.get(event.event_id);
   const chair = await liveLogin();
   await eventsApi.leaders("events", event.event_id, [chair.user_id], { expected_revision: changed.revision });
@@ -76,20 +82,20 @@ it("INT-05: PGAS, avatar, material and assignment use completed contextual files
     const marker = await uploadFile("pgas", file(ext, ext === "jpg" ? "image/jpg" : ""));
     const entry = await pgasApi.create({ title: `HTTP PGAS ${ext}`, year: 2026, file_url: marker, file_name: `synthetic.${ext}`, file_type: "" });
     expect(entry.file_type).not.toBe("");
-    const response = await axios.get(entry.file_url, { responseType: "arraybuffer" });
+    const response = await fetchFile(entry.file_url);
     expect(Buffer.from(response.data)).toEqual(bytes(ext));
   }
   for (const ext of fileExtensions("avatar")) {
     const avatar = await filesApi.upload(file(ext), { owner_kind: "avatar", purpose: "avatar" });
     const contact = await directoryApi.avatar({ file_id: avatar.file_id });
-    expect(JSON.stringify(contact)).toContain("/_test/objects/");
-    await downloadEquals(avatar.file_id, bytes(ext));
+    expect(JSON.stringify(contact)).toContain(`"/api/files/${avatar.file_id}/content"`);
+    await downloadEquals(avatar.file_id, ext);
   }
   let material = await materialsApi.create({ kind: "general", title: "File material", description: "Local upload", content: richText() });
   const attachment = await filesApi.upload(file("pdf"), { owner_kind: "material", owner_id: material.material_id, purpose: "material" });
   material = await materialsApi.update(material.material_id, { expected_revision: material.revision, content: richText(`[Документ](file:${attachment.file_id})`) });
   await materialsApi.publish(material.material_id, { expected_revision: material.revision });
-  await downloadEquals(attachment.file_id, bytes("pdf"));
+  await downloadEquals(attachment.file_id, "pdf");
   const block = (await membershipApi.blocks()).find(b => b.is_hr)!;
   let season = await currentSeason();
   if (season.state === "planned") {
@@ -101,7 +107,7 @@ it("INT-05: PGAS, avatar, material and assignment use completed contextual files
   const submission = await filesApi.upload(file("txt"), { owner_kind: "assignment", owner_id: assignment.assignment_id, purpose: "submission" });
   const saved = await tasksApi.command(assignment.assignment_id, "submit", { expected_revision: assignment.revision, text: richText("Uploaded"), file_ids: [submission.file_id] });
   expect(saved.submissions.at(-1)?.files[0].file_id).toBe(submission.file_id);
-  await downloadEquals(submission.file_id, bytes("txt"));
+  await downloadEquals(submission.file_id, "txt");
 });
 
 it("INT-05: metadata, binary and size failures never expose incomplete objects", async () => {

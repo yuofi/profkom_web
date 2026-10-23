@@ -8,7 +8,8 @@ export const filesApi = {
   complete: (id: string) =>
     request<FileRef>("post", `/files/${idPath(id)}/complete`, {}),
   download: (id: string) =>
-    request<{ download_url: string; expires_at: string }>(
+    // The address does not expire: the server checks its every request (decision 23).
+    request<{ download_url: string; expires_at: string | null }>(
       "get",
       `/files/${idPath(id)}/download`,
     ),

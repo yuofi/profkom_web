@@ -235,9 +235,8 @@ def test_pgas_admin_создаёт_запись(client, pgas_admin):
     ), "название мероприятия должно сохраниться как есть"
     assert body["year"] == 2025, "год должен сохраниться как есть"
     assert (
-        body["file_url"]
-        == "https://s3.test.local/sealed/test-pgas-file?operation=get_object&expires=300"
-    ), "ссылка на файл должна сохраниться как есть"
+        body["file_url"] == "/api/files/test-pgas-file/content"
+    ), "файл отдаётся через API с проверкой на каждый запрос (решение 23), без подписанной ссылки"
     assert body["file_name"] == "заявление.pdf", "имя файла должно сохраниться как есть"
     assert (
         body["file_type"] == "application/pdf"
@@ -599,7 +598,7 @@ def test_разрешённые_типы_файлов_принимаются(
     )
     assert made.status_code == 200, made.text
     assert made.json()["file_type"] == canonical and made.json()["file_name"] == name
-    assert "get_object" in made.json()["file_url"]
+    assert made.json()["file_url"] == f"/api/files/{fid}/content"
 
 
 @pytest.mark.parametrize(
@@ -656,7 +655,8 @@ def test_query_строка_в_ссылке_не_мешает_проверке_�
         )
     )
     read = client.get(PGAS_URL, headers=pgas_admin.headers)
-    assert read.status_code == 200 and "get_object" in read.json()[0]["file_url"]
+    # An old upload not adopted yet keeps its public address, unsigned (decision 23, АВ-10).
+    assert read.status_code == 200 and read.json()[0]["file_url"] == f"{S3_BASE}/f.pdf"
     assert db.get_pgas_entry(old.entry_id).file_url == source
 
 

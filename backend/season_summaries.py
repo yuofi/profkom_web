@@ -399,6 +399,8 @@ def register_routes(router):
 
     @router.get("/seasons/{season_id}/summary/versions/{version}")
     def version(season_id: str, version: int, cur: User = Depends(get_current_user)):
+        from directory import current_avatars
+
         require_reader(cur.user_id)
         with db._session() as s:
             r = (
@@ -410,7 +412,8 @@ def register_routes(router):
                 raise HTTPException(404, "Summary version not found")
             return dict(
                 **metadata(r),
-                summary=json.loads(r.summary_json),
-                contributions=json.loads(r.contributions_json),
-                master_bonuses=json.loads(r.bonuses_json)
+                # Saved as they were, but with today's avatars (A-MAT-16).
+                summary=current_avatars(json.loads(r.summary_json)),
+                contributions=current_avatars(json.loads(r.contributions_json)),
+                master_bonuses=current_avatars(json.loads(r.bonuses_json))
             )

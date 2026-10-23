@@ -11,7 +11,7 @@ from validation import Command
 from datetime import datetime, timezone
 from typing import List, Optional, Union, Literal
 
-from fastapi import FastAPI, HTTPException, Depends, APIRouter, Response, Cookie, Body, Query, status
+from fastapi import FastAPI, HTTPException, Depends, APIRouter, Request, Response, Cookie, Body, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict, model_serializer
 
@@ -37,6 +37,7 @@ from auth import (
     require_pgas_admin,        # права на раздел ПГАС
     REFRESH_TTL_DAYS,
     guard_working_access,
+    get_file_reader,
     unit_of_work,
 )
 from utils.s3_service import generate_presigned_url
@@ -915,7 +916,8 @@ class UploadIntentOut(BaseModel):
 
 class FileDownloadOut(BaseModel):
     download_url: str
-    expires_at: str
+    # The address does not expire: its every request is checked (decision 23).
+    expires_at: Optional[str] = None
 
 
 class ReportCreateIn(Command):
@@ -1408,7 +1410,7 @@ def _validate_pgas_file(file_url: str, file_type: str) -> None:
 def list_pgas(cur: User = Depends(get_current_user)):
     """Таблицу ПГАС видит любой авторизованный пользователь."""
     from legacy_files import read_url
-    return [PgasEntryOut(**{**e.__dict__, "file_url": read_url(e.file_url,cur.user_id)}) for e in db.list_pgas_entries()]
+    return [PgasEntryOut(**{**e.__dict__, "file_url": read_url(e.file_url)}) for e in db.list_pgas_entries()]
 
 
 @router.post("/pgas", response_model=PgasEntryOut)
@@ -1441,7 +1443,7 @@ def create_pgas(payload: PgasEntryIn, cur: User = Depends(require_pgas_admin)):
     )
     created = db.create_pgas_entry(entry)
     from legacy_files import read_url
-    return PgasEntryOut(**{**created.__dict__, "file_url": read_url(created.file_url,cur.user_id)})
+    return PgasEntryOut(**{**created.__dict__, "file_url": read_url(created.file_url)})
 
 
 @router.delete("/pgas/{entry_id}")
@@ -3204,6 +3206,13 @@ def complete_file_upload(file_id: str, cur: User = Depends(get_current_user)):
 def get_file_download(file_id: str, cur: User = Depends(get_current_user)):
     from file_access import download
     return download(file_id,cur.user_id)
+
+
+@router.get("/files/{file_id}/content", response_class=Response)
+def get_file_content(file_id: str, request: Request, cur: User = Depends(get_file_reader)):
+    """The bytes, after the access check of this very request (decision 23, АВ-9)."""
+    from file_access import DELIVERY_HEADER, deliver
+    return deliver(file_id, cur.user_id, request.headers.get(DELIVERY_HEADER) == "accel")
 
 
 # ── Reports ──

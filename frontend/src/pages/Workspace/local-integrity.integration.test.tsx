@@ -118,7 +118,8 @@ it("LOC-01/02: report coauthors replace text/files explicitly; old signed PUT ca
   const versions = await reportsApi.versions(r.report_id);
   const getBytes = async () => {
     const {download_url} = await filesApi.download(intent.file_id);
-    const response = await axios.get(download_url, {responseType: "arraybuffer"});
+    // The API address, checked on every request (decision 23).
+    const response = await api.get(download_url.replace(/^\/api/, ""), {responseType: "arraybuffer"});
     return String.fromCharCode(...new Uint8Array(response.data));
   };
   expect(await getBytes()).toBe(original);

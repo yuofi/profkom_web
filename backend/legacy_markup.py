@@ -141,13 +141,39 @@ class Converter(HTMLParser):
         self.out.append(text if self.pre else esc(text.replace("\xa0", " ")))
 
 
+TAGS = re.compile(
+    r"</?(?:p|div|strong|em|b|i|h[1-6]|ul|ol|li|a|img|br|table|pre|blockquote|script)\b", re.I
+)
+CODE = re.compile(r"```.*?(?:```|\Z)|`[^`\n]*`", re.S)
+# Markdown outside the tags: emphasis, links and code inline, headings, lists and quotes
+# at the start of a source line.
+MARKDOWN_INLINE = re.compile(r"\*\*|__|\]\(|(?<![\w*\\])\*[^\s*][^*\n]*\*")
+MARKDOWN_LINE = re.compile(r"^ {0,3}(?:#{1,6} |[-+*] |\d+\. |> )", re.M)
+
+
+def outside_code(source, change):
+    """Apply change to the text between code spans and fences only."""
+    out, last = [], 0
+    for m in CODE.finditer(source):
+        out += [change(source[last : m.start()]), m[0]]
+        last = m.end()
+    return "".join(out + [change(source[last:])])
+
+
 def to_markdown(source):
-    if not re.search(
-        r"</?(?:p|div|strong|em|b|i|h[1-6]|ul|ol|li|a|img|br|table|pre|blockquote|script)\b",
-        source,
-        re.I,
-    ):
+    """Convert a document that is HTML; leave Markdown as written (A-MAT-4).
+
+    Tags inside code do not count. A Markdown text with a few tags in it gets only its
+    line breaks converted: escaping its * and _ would turn the formatting into text."""
+    plain = CODE.sub("", source)
+    if not TAGS.search(plain):
         return source
+    if (
+        plain != source  # Markdown code
+        or MARKDOWN_LINE.search(plain)
+        or MARKDOWN_INLINE.search(re.sub(r"<[^>]*>", "", plain))
+    ):
+        return outside_code(source, lambda text: re.sub(r"<br\s*/?>", "  \n", text, flags=re.I))
     parser = Converter()
     parser.feed(source)
     parser.close()

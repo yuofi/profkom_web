@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useMemo, type ReactNode, isValidElement } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform, type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import {useMe} from "../../utils/me";
 import { generateSlug, extractToc } from "../../utils/idGen";
 import { guidesApi } from "../../utils/api/guides.api";
+import { apiUrl } from "../../utils/api";
 import { blocksApi } from "../../utils/api/blocks.api";
 import { getDocEditRoute } from "../../utils/routes";
 import { Icon } from "../../components/Icon";
@@ -196,6 +197,7 @@ export const DocViewerPage = () => {
         <div className={styles.markdownWrapper}>
           <ReactMarkdown
             remarkPlugins={[remarkGfm, remarkBreaks]}
+            urlTransform={(url) => defaultUrlTransform(apiUrl(url))}
             components={markdownComponents}
           >
             {guide.text}

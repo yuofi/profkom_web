@@ -368,6 +368,10 @@ class FileRecordORM(Base):
     state = Column(String, nullable=False, default="pending")  # "pending" | "completed"
     created_at = Column(String, nullable=False)
     expires_at = Column(String, nullable=False)
+    # When the verified copy sealed/<id> was written: reads then skip the storage check (A-MAT-9).
+    sealed_at = Column(String, nullable=True)
+    # An old public upload adopted in place (АВ-10): its bytes stay under this key.
+    storage_key = Column(String, nullable=True)
 
 
 class MeritORM(Base):
@@ -780,6 +784,18 @@ def _ensure_sqlite_users_must_change_password_column() -> None:
 
 
 _ensure_sqlite_users_must_change_password_column()
+
+
+def _ensure_sqlite_file_records_columns() -> None:
+    """Add sealed_at and storage_key to SQLite DBs created before files were served by the API."""
+    with engine.begin() as conn:
+        names = {r[1] for r in conn.execute(text("PRAGMA table_info(file_records)")).fetchall()}
+        for name in ("sealed_at", "storage_key"):
+            if name not in names:
+                conn.execute(text(f"ALTER TABLE file_records ADD COLUMN {name} VARCHAR"))
+
+
+_ensure_sqlite_file_records_columns()
 
 
 def _ensure_sqlite_users_events_roles_column() -> None:
@@ -1395,6 +1411,12 @@ def _merit_orm_to_dc(session: Session, m: MeritORM, current_user_id: Optional[in
         revision=m.revision,
         capabilities=caps,
     )
+
+
+def _snapshot_avatar(user_id):
+    """A snapshot shows today's avatar, not the stored link (A-MAT-16)."""
+    from directory import current_avatars
+    return current_avatars({"user_id": user_id, "avatar_url": None})["avatar_url"]
 
 
 def _file_orm_to_dc(f: FileRecordORM) -> FileRecordDC:
@@ -5677,7 +5699,7 @@ class Database:
                         try:
                             for item in json.loads(b.basis_json or "[]"):
                                 u_data = item.get("user", {})
-                                u_ref = UserRefDC(user_id=u_data.get("user_id"), display_name=u_data.get("display_name", ""), avatar_url=u_data.get("avatar_url"))
+                                u_ref = UserRefDC(user_id=u_data.get("user_id"), display_name=u_data.get("display_name", ""), avatar_url=_snapshot_avatar(u_data.get("user_id")))
                                 basis_items.append(
                                     MasterBonusBasisItemDC(
                                         participant_id=item.get("participant_id"),
@@ -5727,7 +5749,7 @@ class Database:
                     rows = []
                     for r in rows_raw:
                         u_data = r.get("user", {})
-                        u_ref = UserRefDC(user_id=u_data.get("user_id"), display_name=u_data.get("display_name", ""), avatar_url=u_data.get("avatar_url"))
+                        u_ref = UserRefDC(user_id=u_data.get("user_id"), display_name=u_data.get("display_name", ""), avatar_url=_snapshot_avatar(u_data.get("user_id")))
                         blocks_dc = [SummaryRowBlockDC(block_id=b["block_id"], name=b["name"]) for b in r.get("blocks", [])]
                         source_scores = [SummaryRowSourceScoreDC(source_kind=s["source_kind"], source_id=s["source_id"], title=s["title"], score=s["score"]) for s in r.get("source_scores", [])]
                         rows.append(

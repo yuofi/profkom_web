@@ -229,12 +229,23 @@ def purge(as_of=None, dry_run=True):
                     for fr in s.query(FileRecordORM).filter_by(
                         owner_kind="avatar", owner_id=str(uid)
                     )
-                    for object_key in (key(fr.file_id), sealed_key(fr.file_id))
+                    for object_key in (
+                        (fr.storage_key,)  # an old upload adopted in place (АВ-10)
+                        if fr.storage_key
+                        else (key(fr.file_id), sealed_key(fr.file_id))
+                    )
                 ]
                 # Only an old public avatar; contextual files are deleted by FileRecord above.
                 if u.photo_url and legacy_key(u.photo_url):
                     object_keys.append(legacy_key(u.photo_url))
-                for object_key in object_keys:
+                # An adopted old upload may also be linked from a material or PGAS.
+                shared = {
+                    k for (k,) in s.query(FileRecordORM.storage_key).filter(
+                        FileRecordORM.storage_key.in_(object_keys),
+                        ~((FileRecordORM.owner_kind == "avatar") & (FileRecordORM.owner_id == str(uid))),
+                    )
+                }
+                for object_key in dict.fromkeys(k for k in object_keys if k not in shared):
                     if not s.get(ObjectDeletionORM, object_key):
                         s.add(
                             ObjectDeletionORM(

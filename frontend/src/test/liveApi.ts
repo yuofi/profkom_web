@@ -28,6 +28,10 @@ export async function liveParticipant(label: string) {
 }
 
 /** Finish only disposable test data through public commands, including close blockers. */
+// liveCloseSeasons publishes a final report for every event and subevent the earlier files
+// left open, one after another. That grows with the suite and with the file order Vitest
+// picks from its last results, so the tests calling it get more than the default 30 s.
+export const CLOSES_SEASONS_TIMEOUT = 120_000;
 export async function liveCloseSeasons() {
   const chair = await liveLogin();
   for (const season of (await seasonsApi.list()).items.sort((a, b) => a.sequence_number - b.sequence_number)) {

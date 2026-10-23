@@ -207,7 +207,7 @@ def test_pgas_private_upload_and_legacy_storage_adaptation(
     )
     saved = client.post("/api/pgas", headers=superuser.headers, json=payload)
     assert saved.status_code == 200, saved.text
-    assert "get_object" in saved.json()["file_url"]
+    assert saved.json()["file_url"] == f"/api/files/{fid}/content"
     assert (
         client.get("/api/files/" + fid + "/download", headers=user.headers).status_code
         == 200
@@ -226,7 +226,8 @@ def test_pgas_private_upload_and_legacy_storage_adaptation(
         )
     )
     result = client.get("/api/pgas", headers=user.headers).json()
-    assert all("get_object" in e["file_url"] for e in result)
+    # Nothing is signed: the new file by the API, the old upload unsigned until adopted.
+    assert [e["file_url"] for e in result] == [legacy, f"/api/files/{fid}/content"]
     assert db.get_pgas_entry(old.entry_id).file_url == legacy
 
 
@@ -295,8 +296,9 @@ def test_material_draft_file_is_private_until_publish(client, superuser, user, m
     read = client.get("/api/materials/" + mid, headers=user.headers)
     assert (
         read.status_code == 200
-        and "get_object" in read.json()["published_content"]["body"]
+        and read.json()["published_content"]["body"] == f"[Файл](/api/files/{fid}/content)"
     )
+    assert client.get(f"/api/files/{fid}/content", headers=user.headers).content == data
 
 
 def test_deleted_material_is_listed_and_restored_by_the_chair_and_deputies(client, superuser, make_user):

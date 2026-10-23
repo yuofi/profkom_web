@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -143,6 +144,29 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
     return user
 
 
+# <img> and a plain link send no Authorization header: a file's bytes also accept the
+# session cookie the frontend keeps the access token in (decision 23).
+FILE_CONTENT = re.compile(r"/api/files/[^/]+/content")
+
+
+def request_token(request: Request) -> Optional[str]:
+    from fastapi.security.utils import get_authorization_scheme_param
+
+    scheme, raw_token = get_authorization_scheme_param(request.headers.get("Authorization"))
+    if scheme.lower() == "bearer":
+        return raw_token
+    if request.method in ("GET", "HEAD") and FILE_CONTENT.fullmatch(request.url.path):
+        return request.cookies.get("access_token")
+    return None
+
+
+def get_file_reader(request: Request) -> User:
+    token = request_token(request)
+    if not token:
+        raise HTTPException(401, "Not authenticated", headers={"WWW-Authenticate": "Bearer"})
+    return get_current_user(token)
+
+
 def get_current_user_optional(token: Optional[str] = Depends(oauth2_scheme_optional)) -> Optional[User]:
     """
     FastAPI dependency: reads optional Bearer token, returns User or None.
@@ -224,9 +248,7 @@ PASSWORD_CHANGE_REQUIRED = "Password change required"
 
 
 async def guard_working_access(request: Request):
-    from fastapi.security.utils import get_authorization_scheme_param
-    scheme,raw_token=get_authorization_scheme_param(request.headers.get("Authorization"))
-    token=raw_token if scheme.lower()=="bearer" else None
+    token=request_token(request)
     from access import actor_id
     path=request.url.path.removeprefix("/api")
     exempt=path.startswith("/auth/") or path=="/session" or path in {"/registrations/me","/registrations/me/resubmit"}

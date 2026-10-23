@@ -2,12 +2,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import styles from './Image.module.css';
 import clsx from 'clsx';
+import { apiUrl } from '../../utils/api';
 
 interface ImageProps extends React.ImgHTMLAttributes<HTMLImageElement> {
   disableModal?: boolean;
 }
 
-export const Image: React.FC<ImageProps> = ({ className, disableModal, onClick, ...props }) => {
+export const Image: React.FC<ImageProps> = ({ className, disableModal, onClick, src, ...rest }) => {
+  const props = { ...rest, src: apiUrl(src) };
   const [isOpen, setIsOpen] = useState(false);
   const close = useRef<HTMLButtonElement>(null);
   

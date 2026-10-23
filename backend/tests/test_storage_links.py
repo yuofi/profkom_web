@@ -1,9 +1,10 @@
 """FIX_PLAN 0.2: bucket links in material and guide texts (A-SEC-2, A-MAT-1).
 
-Only old public uploads (pgas/, guides/, avatars/, `<folder>/<uuid>.<ext>`) are
-signed when a text is read. Contextual files are reachable only through
-/files/{id}/download. Editors edit the stored text (`source_content`), and a
-write may not add a new link into the bucket.
+Nothing is signed when a text is read (decision 23): `file:<id>` becomes the API
+address /api/files/<id>/content, checked on every request, and a bucket link stays
+as written. Old public uploads become `file:<id>` by scripts/adopt_legacy_files.py
+(АВ-10). Editors edit the stored text (`source_content`), and a write may not add a
+new link into the bucket.
 """
 
 import hashlib
@@ -79,7 +80,7 @@ def foreign_file(client, actor, mock_s3):
     return upload(client, actor, mock_s3, "material", other["material_id"])
 
 
-def test_reading_signs_only_old_public_uploads(client, superuser, user, mock_s3):
+def test_reading_signs_nothing(client, superuser, user, mock_s3):
     fid = foreign_file(client, superuser, mock_s3)
     assert client.get(f"/api/files/{fid}/download", headers=user.headers).status_code == 404
     m = material(client, superuser)
@@ -91,10 +92,8 @@ def test_reading_signs_only_old_public_uploads(client, superuser, user, mock_s3)
         client.get("/api/materials/" + m["material_id"], headers=user.headers).json()["published_content"]["body"],
         client.get(f"/api/guides/{guide_id}", headers=user.headers).json()["text"],
     ):
-        assert read.count("operation=get_object") == 2  # guides/ and avatars/
-        for url in [*closed_links(fid), unknown]:
-            assert f"({url})" in read  # as written, unsigned (owner decision 6)
-        assert "s3.test.local/sealed/" not in read and "s3.test.local/private/" not in read
+        # Every link as written and unsigned (decision 23, owner decision 6).
+        assert read == body and "operation=get_object" not in read
 
 
 @pytest.mark.parametrize("host", HOSTS)
@@ -141,7 +140,7 @@ def test_editor_round_trips_the_stored_source(client, superuser, user, make_guid
     m = client.post(f"/api/materials/{mid}/publish", headers=superuser.headers, json=dict(expected_revision=m["revision"])).json()
     got = client.get("/api/materials/" + mid, headers=superuser.headers).json()
     assert got["source_content"]["body"] == source
-    assert "operation=get_object" in got["published_content"]["body"]
+    assert got["published_content"]["body"] == source.replace(f"file:{fid}", f"/api/files/{fid}/content")
     assert "source_content" not in client.get("/api/materials/" + mid, headers=user.headers).json()
     # Saving the source without changes and publishing keeps it byte for byte.
     m = client.patch("/api/materials/" + mid, headers=superuser.headers, json=dict(expected_revision=got["revision"], content=got["source_content"])).json()
@@ -153,15 +152,7 @@ def test_editor_round_trips_the_stored_source(client, superuser, user, make_guid
     assert client.get(f"/api/files/{fid}/download", headers=user.headers).status_code == 200
 
 
-def test_signed_links_sent_back_are_stored_unsigned(client, superuser, make_guide, mock_s3, monkeypatch):
-    from utils.s3_service import s3_client
-
-    # Path-style signed URLs, as boto3 builds them for the configured endpoint.
-    monkeypatch.setattr(
-        s3_client,
-        "generate_presigned_url",
-        lambda operation, Params, ExpiresIn: f"{HOSTS[1]}/{BUCKET}/{Params['Key']}?X-Amz-Expires={ExpiresIn}&X-Amz-Signature=fake",
-    )
+def test_links_sent_back_are_stored_as_references(client, superuser, make_guide, mock_s3):
     g = make_guide(text=f"Старый [файл]({OLD})")
     mid = client.get(f"/api/guides/{g.guide_id}/material", headers=superuser.headers).json()["material_id"]
     fid = upload(client, superuser, mock_s3, "material", mid)
@@ -169,16 +160,23 @@ def test_signed_links_sent_back_are_stored_unsigned(client, superuser, make_guid
     m = client.get("/api/materials/" + mid, headers=superuser.headers).json()
     m = client.patch("/api/materials/" + mid, headers=superuser.headers, json=dict(expected_revision=m["revision"], content=dict(format="markdown", body=source))).json()
     client.post(f"/api/materials/{mid}/publish", headers=superuser.headers, json=dict(expected_revision=m["revision"])).raise_for_status()
-    # An old client saves the text it was shown, with every link signed.
+    # An old client saves the text it was shown: the attachment by its API address.
     shown = client.get(f"/api/guides/{g.guide_id}", headers=superuser.headers).json()
-    assert shown["text"].count("X-Amz-Signature") == 2
-    saved = client.put(f"/api/guides/{g.guide_id}", headers=superuser.headers, json=dict(expected_revision=shown["revision"], text=shown["text"]))
+    assert shown["text"] == source.replace(f"file:{fid}", f"/api/files/{fid}/content")
+    edited = shown["text"] + "\n\nДополнение"
+    saved = client.put(f"/api/guides/{g.guide_id}", headers=superuser.headers, json=dict(expected_revision=shown["revision"], text=edited))
+    assert saved.status_code == 200, saved.text
+    assert db.get_guide(g.guide_id).text == source + "\n\nДополнение"
+    # A text saved from a screen of the earlier version, with its signed links (A-MAT-1).
+    sign = "?X-Amz-Expires=300&X-Amz-Signature=fake"
+    signed_text = f"Старый [файл]({OLD}{sign})\n\n[Вложение]({HOSTS[1]}/{BUCKET}/sealed/{fid}{sign})"
+    saved = client.put(f"/api/guides/{g.guide_id}", headers=superuser.headers, json=dict(expected_revision=saved.json()["revision"], text=signed_text))
     assert saved.status_code == 200, saved.text
     assert db.get_guide(g.guide_id).text == source
     m = client.get("/api/materials/" + mid, headers=superuser.headers).json()
-    signed = client.patch("/api/materials/" + mid, headers=superuser.headers, json=dict(expected_revision=m["revision"], content=m["published_content"]))
-    assert signed.status_code == 200, signed.text
-    assert signed.json()["draft_content"]["body"] == source
+    shown = client.patch("/api/materials/" + mid, headers=superuser.headers, json=dict(expected_revision=m["revision"], content=m["published_content"]))
+    assert shown.status_code == 200, shown.text
+    assert shown.json()["draft_content"]["body"] == source
 
 
 def test_guide_rename_without_text_keeps_the_source(client, superuser, make_guide, mock_s3):
@@ -250,7 +248,7 @@ def test_repair_restores_damaged_texts_and_prints_only_numbers(client, superuser
     client.post(f"/api/materials/{mid}/publish", headers=superuser.headers, json=dict(expected_revision=m["revision"])).raise_for_status()
     assert client.get(f"/api/files/{own}/download", headers=user.headers).status_code == 200
     read = client.get("/api/materials/" + mid, headers=user.headers).json()["published_content"]["body"]
-    assert f"sealed/{fid}{sign}" in read and read.count("operation=get_object") == 2
+    assert read == repaired.replace(f"file:{own}", f"/api/files/{own}/content")
 
 
 def test_repair_counts_on_a_database_before_v13(tmp_path):

@@ -13,12 +13,16 @@ import sys
 
 def seal_completed():
     from database import db, FileRecordORM
-    from file_access import ensure_sealed
+    from file_access import ensure_sealed, now
 
     count = 0
     with db._session() as session:
-        for row in session.query(FileRecordORM).filter_by(state="completed"):
+        # Adopted old uploads keep their own key (АВ-10); they are not copied.
+        for row in session.query(FileRecordORM).filter_by(state="completed", storage_key=None):
             ensure_sealed(row)
+            # Marked records are served without a storage check on each read (A-MAT-9).
+            row.sealed_at = row.sealed_at or now().isoformat()
+            session.commit()
             count += 1
     return count
 

@@ -62,6 +62,7 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ('GET', '/api/events/{event_id}'),
     ('GET', '/api/events/{event_id}/meeting'),
     ('GET', '/api/events/{event_id}/subevents'),
+    ('GET', '/api/files/{file_id}/content'),
     ('GET', '/api/files/{file_id}/download'),
     ('GET', '/api/guides'),
     ('GET', '/api/guides/{guide_id}'),

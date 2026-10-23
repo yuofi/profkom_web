@@ -1,9 +1,18 @@
-"""Private file contexts, attachment checks and verified object storage I/O."""
+"""Private file contexts, attachment checks and verified object storage I/O.
+
+Bytes are served only by GET /api/files/{id}/content, with the access check on every
+request (decision 23, АВ-9). No signed storage link reaches a client: behind nginx the
+response is an X-Accel-Redirect to an internal location that fetches the object with a
+short signature; without nginx (local runs, tests) the backend streams the object.
+"""
 
 import json
 import hashlib
-from datetime import datetime, timezone, timedelta
+import re
+from datetime import datetime, timezone
+from urllib.parse import quote
 from fastapi import HTTPException
+from fastapi.responses import Response, StreamingResponse
 from botocore.exceptions import BotoCoreError, ClientError
 from database import (
     db,
@@ -15,25 +24,7 @@ from database import (
 )
 from utils.s3_service import s3_client
 from settings import settings
-
-TYPES = {
-    "image/png": ("png",),
-    "image/jpeg": ("jpg", "jpeg"),
-    "image/webp": ("webp",),
-    "application/pdf": ("pdf",),
-    "application/zip": ("zip",),
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": (
-        "docx",
-    ),
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ("xlsx",),
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation": (
-        "pptx",
-    ),
-    "application/msword": ("doc",),
-    "application/vnd.ms-excel": ("xls",),
-    "application/vnd.ms-powerpoint": ("ppt",),
-    "text/plain": ("txt",),
-}
+from file_types import TYPES
 
 
 def now():
@@ -47,6 +38,20 @@ def key(fid):
 
 def sealed_key(fid):
     return "sealed/" + fid
+
+
+def content_url(fid):
+    """The one address of a file's bytes that clients get."""
+    return f"/api/files/{quote(fid, safe='')}/content"
+
+
+# nginx sets this header on proxied API requests: answer with X-Accel-Redirect then.
+DELIVERY_HEADER = "X-File-Delivery"
+ACCEL_LOCATION = "/_storage"
+# The internal location starts the fetch at once; the signature is never shown to a client.
+ACCEL_TTL = 60
+# Shown in place (avatars and pictures in materials); everything else is downloaded.
+INLINE = ("image/png", "image/jpeg", "image/webp")
 
 
 def storage_error(error):
@@ -265,9 +270,13 @@ def complete(fid, uid):
                 raise HTTPException(409, "Upload intent expired")
             ensure_sealed(fr)
             fr.state = "completed"
+            fr.sealed_at = now().isoformat()
             s.commit()
-        else:
+        elif not fr.storage_key:
             ensure_sealed(fr)
+            if not fr.sealed_at:
+                fr.sealed_at = now().isoformat()
+                s.commit()
         return dict(
             file_id=fr.file_id,
             name=fr.name,
@@ -276,23 +285,82 @@ def complete(fid, uid):
         )
 
 
+def readable(s, fid, uid):
+    fr = s.get(FileRecordORM, fid)
+    if not fr or fr.state != "completed" or not permitted(s, fr, uid):
+        raise HTTPException(404, "File not found")
+    return fr
+
+
 def download(fid, uid):
+    """Checks access now and gives the address; the bytes are checked again (decision 23)."""
     with db._session() as s:
-        fr = s.get(FileRecordORM, fid)
-        if not fr or fr.state != "completed" or not permitted(s, fr, uid):
-            raise HTTPException(404, "File not found")
+        readable(s, fid, uid)
+        return dict(download_url=content_url(fid), expires_at=None)
+
+
+def stored_key(fr):
+    """Key of the verified bytes. Only a record sealed before this marker existed costs
+    a storage check here; seal_completed_files marks those at cutover (A-MAT-9)."""
+    if fr.storage_key:
+        return fr.storage_key
+    return sealed_key(fr.file_id) if fr.sealed_at else ensure_sealed(fr)
+
+
+def disposition(fr):
+    """RFC 6266 with the original name (A-MAT-15): an ASCII fallback and the UTF-8 form."""
+    name = re.sub(r'[\x00-\x1f\x7f"\\]', "", fr.name).strip() or "file"
+    fallback = re.sub(r"[^\x20-\x7e]", "_", name)
+    kind = "inline" if fr.mime_type in INLINE else "attachment"
+    return f"{kind}; filename=\"{fallback}\"; filename*=UTF-8''{quote(name, safe='')}"
+
+
+def delivery_headers(fr):
+    return {
+        "Content-Type": fr.mime_type,
+        "Content-Disposition": disposition(fr),
+        # Every use asks again, so a revoked reader stops at once (decision 23).
+        "Cache-Control": "private, no-cache",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "sandbox",
+    }
+
+
+def deliver(fid, uid, accel):
+    with db._session() as s:
+        fr = readable(s, fid, uid)
+        object_key = stored_key(fr)
+        headers = delivery_headers(fr)
+    if accel:
         url = s3_client.generate_presigned_url(
             "get_object",
-            Params={
-                "Bucket": settings.S3_BUCKET_NAME,
-                "Key": ensure_sealed(fr),
-                "ResponseContentDisposition": "attachment",
-            },
-            ExpiresIn=300,
+            Params={"Bucket": settings.S3_BUCKET_NAME, "Key": object_key},
+            ExpiresIn=ACCEL_TTL,
         )
-        return dict(
-            download_url=url, expires_at=(now() + timedelta(seconds=300)).isoformat()
+        return Response(
+            status_code=200,
+            headers={**headers, "X-Accel-Redirect": ACCEL_LOCATION, "X-Storage-Url": url},
         )
+    try:
+        stored = s3_client.get_object(Bucket=settings.S3_BUCKET_NAME, Key=object_key)
+    except ClientError as error:
+        if error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+            raise HTTPException(404, "File not found") from error
+        raise HTTPException(503, "Object storage unavailable") from error
+    except BotoCoreError as error:
+        raise HTTPException(503, "Object storage unavailable") from error
+    body = stored["Body"]
+
+    def chunks():
+        try:
+            while chunk := body.read(64 * 1024):
+                yield chunk
+        finally:
+            body.close()
+
+    if stored.get("ContentLength") is not None:
+        headers["Content-Length"] = str(stored["ContentLength"])
+    return StreamingResponse(chunks(), headers=headers)
 
 
 def check_attachments(session, file_ids, kind, owner_id, uid):

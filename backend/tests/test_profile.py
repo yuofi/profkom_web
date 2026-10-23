@@ -137,7 +137,8 @@ def test_me_photo_url_отдаётся_из_строки_users(client, make_user
 
     body = client.get(f"{API}/me", headers=actor.headers).json()
 
-    assert "get_object" in body["photo_url"], (
+    # Unsigned: an old upload keeps its public address until it is adopted (decision 23, АВ-10).
+    assert body["photo_url"] == "https://global.s3.cloud.ru/test-bucket/avatars/a.jpg", (
         "photo_url должен подтягиваться из строки users"
     )
 

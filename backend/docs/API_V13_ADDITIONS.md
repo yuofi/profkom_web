@@ -22,7 +22,7 @@
 
 `GET /guides/{guide_id}/material` returns `{guide_id, material_id, revision}`. Legacy guide DTOs carry the same mapping and object capabilities. Old IDs are preserved. Legacy saves require `expected_revision` and refuse to overwrite an existing shared draft. New material publication updates the same old Guide row.
 
-New PGAS entries require `file_url: "file:<file_id>"` for a completed contextual PGAS file. Its saved verified name/MIME are authoritative; arbitrary URL creation cannot bypass complete. Existing raw URLs remain readable through the legacy adapter. The response resolves that reference and old public upload URLs of the configured bucket (`pgas/`, `guides/`, `avatars/`, `<folder>/<uuid>.<ext>`) to temporary GET URLs; other bucket keys, including `private/` and `sealed/`, stay as written and unsigned. External legacy links stay unchanged; no remote content is downloaded by migration. Existing public bucket ACLs require an operator-side private-access rollout; changing a DTO does not revoke an old public URL.
+New PGAS entries require `file_url: "file:<file_id>"` for a completed contextual PGAS file. Its saved verified name/MIME are authoritative; arbitrary URL creation cannot bypass complete. Existing raw URLs remain readable through the legacy adapter. The response gives that reference as `/api/files/<file_id>/content` (release 1, step 8: nothing is signed for a client); old public upload URLs and other bucket keys, including `private/` and `sealed/`, stay as written and unsigned. External legacy links stay unchanged; no remote content is downloaded by migration. Existing public bucket ACLs require an operator-side private-access rollout; changing a DTO does not revoke an old public URL.
 
 ## Ревизия обычного доступа в session
 
@@ -70,14 +70,14 @@ capability выдаётся ровно тогда, когда сервер вы�
 
 Ссылки на бакет в текстах материалов и гайдов (FIX_PLAN 0.2):
 
-- При чтении подписываются только старые публичные загрузки: `pgas/`, `guides/`,
-  `avatars/` и `<папка>/<uuid>.<расширение>`. Ссылки на `private/`, `sealed/` и
-  прочие ключи остаются как записаны, без подписи (решение владельца 6). Закрытый
-  файл открывается только через `GET /files/{id}/download` с проверкой прав.
+- При чтении ничего не подписывается (шаг 8, раздел «Файлы» ниже): `file:<id>`
+  становится адресом `/api/files/<id>/content`, ссылки на бакет — `private/`,
+  `sealed/`, старые загрузки и прочие ключи — остаются как записаны, без подписи
+  (решение владельца 6).
 - Редактор получает поле `source_content` — сохранённый текст: черновик, а если
   его нет, опубликованный текст. В нём `file:<id>` и ссылки без подписи. Поле
   выдаётся только тем, у кого есть `edit_material`. `published_content` — только
-  для показа, в нём ссылки подписаны на 5 минут.
+  для показа, в нём `file:<id>` заменены адресами API.
 - `POST /materials`, `PATCH /materials/{id}`, публикация, `POST /guides` и
   сохранение старого гайда отвечают 422, если в тексте появилась новая ссылка на
   бакет, которой нет в опубликованном тексте. Новые файлы прикрепляются как
@@ -305,3 +305,65 @@ capability выдаётся ровно тогда, когда сервер вы�
   завершает все сессии.
 - Аккаунт только с VK (`MeOut.has_password: false`) видит баннер «Задайте
   пароль».
+
+## Файлы (выпуск 1)
+
+Выдача с проверкой на каждый запрос (решение 23, АВ-9):
+
+- `GET /files/{id}/content` отдаёт байты файла. Права проверяются на каждый
+  запрос, поэтому отзыв доступа (архив, снятая ссылка из материала, смена
+  аватара) действует сразу. Нет доступа или файла — 404, хранилище недоступно —
+  503.
+- Маршрут принимает и `Authorization: Bearer`, и cookie `access_token`: `<img>`
+  и обычная ссылка заголовок не отправляют. Только этот маршрут и только GET.
+- Ответ: `Content-Type` из записи файла, `Content-Disposition` с исходным именем
+  (A-MAT-15): `attachment; filename="<ASCII-замена>"; filename*=UTF-8''<имя>`,
+  без CR, LF, кавычек и обратной косой черты. Картинки PNG, JPEG и WebP — `inline`.
+  Кроме того: `Cache-Control: private, no-cache`, `X-Content-Type-Options: nosniff`,
+  `Content-Security-Policy: sandbox`.
+- Подписанная ссылка на хранилище клиенту не отдаётся. За nginx
+  (`frontend/nginx.conf`, заголовок `X-File-Delivery: accel`) backend отвечает
+  пустым телом с `X-Accel-Redirect: /_storage` и `X-Storage-Url` — подписью на
+  60 с. Внутренний location берёт объект по ней. Cookie и `Authorization` в
+  хранилище не уходят, заголовки хранилища скрыты, его отказ даёт 502. Без nginx
+  (локальный запуск, тесты) backend передаёт байты сам.
+- `GET /files/{id}/download` проверяет доступ и отвечает
+  `{download_url: "/api/files/<id>/content", expires_at: null}`.
+- Аватары (`photo_url`, `avatar_url`), `PgasEntry.file_url` и `file:<id>` в
+  текстах приходят как `/api/files/<id>/content`. Списки людей, ПГАС, материалы и
+  гайды хранилище не вызывают, поэтому его сбой их не ломает (A-MAT-9). Старая
+  публичная загрузка без переноса отдаётся по своему адресу без подписи.
+- `file_records.sealed_at` — время, когда записана проверенная копия
+  `sealed/<id>`. Его ставят `complete` и `scripts/seal_completed_files.py`.
+  Записи с отметкой читаются без HEAD. `file_records.storage_key` — ключ старой
+  загрузки, перенесённой без копирования. Обе колонки добавляются при старте.
+- Снимки сводной и бонусов показывают аватары на момент чтения, а не
+  сохранённые ссылки. У обезличенного участника `null` (A-MAT-16). Сохранённые
+  данные не меняются.
+
+Старые гайды (FIX_PLAN 2.14):
+
+- `GET /guides` и `GET /guides/{id}` отдают в `text` Markdown материала, а не
+  исходный HTML (A-MAT-14).
+- `to_markdown` конвертирует только документы, которые действительно HTML.
+  Если в тексте есть разметка Markdown или код, меняется только `<br>`, ничего не
+  экранируется. Теги внутри кода не учитываются. Текст, пришедший в
+  `POST /guides/{id}` таким, каким он был показан, повторно не конвертируется
+  (A-MAT-4).
+- `POST /guides` с `file:<id>` в тексте — 422: новый гайд ещё не владеет
+  файлами (A-MAT-8). Файл, недоступный читателю, ломает только свою ссылку, а
+  не весь список.
+- Сохранение принимает показанный адрес `/api/files/<id>/content` вложения
+  этого материала и хранит его как `file:<id>`.
+
+Перенос старых загрузок (АВ-10): `scripts/adopt_legacy_files.py --database
+<путь> [--apply]`. Запускается после миграции v13 и `repair_storage_links.py`.
+Каждой старой публичной загрузке — `users.photo_url`, `pgas_entries.file_url`,
+ссылкам в текстах материалов и их гайдов — достаётся завершённая запись файла
+со своим ключом (`storage_key`, без копирования). Ссылка становится
+`file:<id>`, аватар — `profile_metadata.avatar_file_id`. Ссылки на `sealed/`,
+`private/` и неизвестные ключи не переносятся, только считаются: перенос
+открыл бы их (A-SEC-2). Хранилище скрипт не вызывает: размер такой записи 0,
+тип определяется по расширению. Без `--apply` база открывается только на
+чтение. Скрипт печатает только числа, повторный `--apply` меняет 0 строк.
+После переноса и выкладки бакет можно сделать приватным.

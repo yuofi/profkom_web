@@ -58,7 +58,8 @@ def test_completed_context_never_serves_later_staging_put(client, upload, mock_s
     assert complete(client, u).json() == first.json()
     response = client.get(f"/api/files/{u['fid']}/download", headers=u["actor"].headers)
     assert response.status_code == 200, response.text
-    assert "/sealed/" in response.json()["download_url"]
+    served = client.get(response.json()["download_url"], headers=u["actor"].headers)
+    assert served.status_code == 200 and served.content == u["original"]
     assert mock_s3["objects"][sealed_key(u["fid"])][0] == u["original"]
 
 
@@ -116,10 +117,14 @@ def test_legacy_completed_id_is_sealed_on_first_read_without_schema_change(clien
     with db._session() as session:
         session.get(FileRecordORM, upload["fid"]).state = "completed"
         session.commit()
-    assert client.get(f"/api/files/{upload['fid']}/download", headers=upload["actor"].headers).status_code == 200
+    content = f"/api/files/{upload['fid']}/content"
+    assert client.get(content, headers=upload["actor"].headers).content == PDF_A
     mock_s3["objects"][key(upload["fid"])] = (PDF_B, upload["mime"])
-    assert client.get(f"/api/files/{upload['fid']}/download", headers=upload["actor"].headers).status_code == 200
+    assert client.get(content, headers=upload["actor"].headers).content == PDF_A
     assert mock_s3["objects"][sealed_key(upload["fid"])][0] == PDF_A
+    # A read writes nothing: seal_completed_files marks such records at cutover.
+    with db._session() as session:
+        assert session.get(FileRecordORM, upload["fid"]).sealed_at is None
 
 
 def test_concurrent_create_only_seal_preserves_the_first_snapshot(client, upload, mock_s3, monkeypatch):

@@ -14,8 +14,9 @@ import { UserContext } from "../../utils/me";
 import { GuidesManagement } from "../Admin/panels/GuidesManagement";
 import { MaterialPage } from "./MaterialPages";
 
-// FIX_PLAN 0.2 (A-MAT-1): editors work on the stored text. Readers get links signed
-// for 5 minutes; saving those back used to replace file:<id> and old public links.
+// FIX_PLAN 0.2 (A-MAT-1): editors work on the stored text. Readers used to get links
+// signed for 5 minutes, now API addresses (decision 23); saving the shown text back
+// used to replace file:<id> and old public links.
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 afterEach(async () => { await page?.cleanup(); page = undefined; });
 // Seeded by live_api --integration-suite: links to an old public upload in the bucket.
@@ -36,7 +37,8 @@ it("0.2: saving and publishing without changes keeps file:<id> and the old link,
   let m = await materialsApi.get(id);
   m = await materialsApi.update(id, { expected_revision: m.revision, content: richText(source) });
   m = await materialsApi.publish(id, { expected_revision: m.revision });
-  expect(m.published_content?.body).toContain("signature=");
+  const shown = `/api/files/${attached.file_id}/content`;
+  expect(m.published_content?.body).toBe(source.replace(`file:${attached.file_id}`, shown));
   page = await mountWorkspace(<Routes><Route path="/materials/:id" element={<MaterialPage />} /></Routes>, { path: `/materials/${id}`, session });
   await waitForPage(page, () => !!page!.container.querySelector("textarea"));
   expect(page.container.querySelector("textarea")!.value).toBe(source);
@@ -50,7 +52,7 @@ it("0.2: saving and publishing without changes keeps file:<id> and the old link,
   expect(saved.source_content?.body).toBe(source);
   // The attachment stays readable for any participant once the material is published.
   await liveParticipant("storage-reader");
-  expect((await filesApi.download(attached.file_id)).download_url).toContain("signature=");
+  expect((await filesApi.download(attached.file_id)).download_url).toBe(shown);
 });
 
 it("0.2: renaming a guide in Admin → Гайды sends no text and keeps the source byte for byte", async () => {

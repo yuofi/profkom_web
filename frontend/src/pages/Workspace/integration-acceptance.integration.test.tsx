@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it } from "vitest";
 import { Route, Routes } from "react-router-dom";
-import { liveLogin, liveParticipant, liveCloseSeasons } from "../../test/liveApi";
+import { liveLogin, liveParticipant, liveCloseSeasons, CLOSES_SEASONS_TIMEOUT } from "../../test/liveApi";
 import { mountWorkspace, waitForPage, change, field, submit } from "../../test/workspace";
 import { eventsApi } from "../../utils/api/events.api";
 import { membershipApi } from "../../utils/api/membership.api";
@@ -106,7 +106,7 @@ it("INT-03: closed correction keeps old totals immutable and exposes provenance 
   historical = page.container.querySelector('[aria-label="Историческая сводная"]')!;
   expect(historical.textContent).toBe(oldText);
   expect(page.container.querySelector('select')!.querySelectorAll('option').length).toBeGreaterThan(3);
-});
+}, CLOSES_SEASONS_TIMEOUT);
 
 it("INT-04: a real approved profile with @username and no patronymic can save one field", async () => {
   const person = await liveParticipant("profile"); const session = await liveLogin(person.email);

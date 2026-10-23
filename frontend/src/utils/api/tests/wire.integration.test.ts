@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { wireIssues } from "../../../test/wireContract";
-import { liveLogin, liveParticipant, liveCloseSeasons } from "../../../test/liveApi";
+import { liveLogin, liveParticipant, liveCloseSeasons, CLOSES_SEASONS_TIMEOUT } from "../../../test/liveApi";
 import { authApi } from "../auth.api";
 import { sessionApi } from "../session.api";
 import { membershipApi } from "../membership.api";
@@ -72,4 +72,4 @@ it("INT-06: actual response shapes, null relations and populated IDs match the p
   chair = await liveLogin();
   expect(chair.user_id).toBeGreaterThan(0); expect(sub.subevent_id).toBeTruthy(); expect(report.published_version).toBe(1); expect(material.published_content).not.toBeNull();
   expect(errors).toEqual([]);
-});
+}, CLOSES_SEASONS_TIMEOUT);

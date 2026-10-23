@@ -134,22 +134,25 @@ def test_avatars_presets_and_owned_completed_file(client, user, make_user, mock_
         == 422
     )
     assert (
-        "get_object"
-        in client.put(
+        client.put(
             "/api/profile/me/avatar", headers=user.headers, json=dict(file_id=fid)
         ).json()["photo_url"]
+        == f"/api/files/{fid}/content"
     )
     assert (
         client.get("/api/files/" + fid + "/download", headers=other.headers).status_code
         == 200
     )
+    assert client.get(f"/api/files/{fid}/content", headers=other.headers).content == content
     client.put(
         "/api/profile/me/avatar", headers=user.headers, json=dict(preset_id="default")
     )
-    assert (
-        client.get("/api/files/" + fid + "/download", headers=other.headers).status_code
-        == 404
-    )
+    # The same address stops at once for a replaced avatar (decision 23).
+    for path in ("download", "content"):
+        assert (
+            client.get(f"/api/files/{fid}/{path}", headers=other.headers).status_code
+            == 404
+        )
 
 
 def test_avatar_migration_never_downloads_vk_and_preserves_own(make_user, mock_s3):

@@ -212,7 +212,7 @@ def test_справочник_возвращает_все_поля_contactinfoou
         "tg": "@ivan",
         "budget": False,
         "in_profcom": True,
-        "photo_url": "https://s3.test.local/avatars/x.jpg?operation=get_object&expires=300",
+        "photo_url": "https://global.s3.cloud.ru/test-bucket/avatars/x.jpg",
         "participation_periods": [],
     }, "Тело ответа должно совпадать с данными, записанными в базу"
 

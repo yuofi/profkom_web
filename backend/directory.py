@@ -88,6 +88,7 @@ def is_vk_photo(url):
 
 
 def avatar_url(uid):
+    """No storage call: a list of people costs no request to the bucket (A-MAT-9)."""
     with db._session() as s:
         u = s.get(UserORM, uid)
         if not u:
@@ -96,22 +97,33 @@ def avatar_url(uid):
         if m and m.avatar_file_id:
             fr = s.get(FileRecordORM, m.avatar_file_id)
             if fr and fr.state == "completed":
-                from file_access import ensure_sealed
-                from settings import settings
-                from utils.s3_service import s3_client
+                from file_access import content_url
 
-                return s3_client.generate_presigned_url(
-                    "get_object",
-                    Params={"Bucket": settings.S3_BUCKET_NAME, "Key": ensure_sealed(fr)},
-                    ExpiresIn=300,
-                )
+                return content_url(fr.file_id)
         if m and m.preset_id:
             return "/avatars/" + m.preset_id + ".svg"
         if u.photo_url and not is_vk_photo(u.photo_url):
             from legacy_files import read_url
 
-            return read_url(u.photo_url, uid)
+            return read_url(u.photo_url)
         return "/avatars/default.svg"
+
+
+def current_avatars(data):
+    """A saved snapshot shows today's avatars: the stored one may be gone or, from
+    before decision 23, a signed link that has expired (A-MAT-16)."""
+    if isinstance(data, list):
+        return [current_avatars(x) for x in data]
+    if not isinstance(data, dict):
+        return data
+    data = {k: current_avatars(v) for k, v in data.items()}
+    if "avatar_url" in data and "user_id" in data:
+        with db._session() as s:
+            u = s.get(UserORM, data["user_id"]) if data["user_id"] else None
+            data["avatar_url"] = (
+                avatar_url(u.user_id) if u and u.account_state != "purged" else None
+            )
+    return data
 
 
 def contact_data(c):

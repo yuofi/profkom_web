@@ -38,6 +38,12 @@ api.interceptors.request.use(
     }
 );
 
+/** An address the API gave (/api/files/<id>/content) on the API's own origin: the
+ * browser loads it with the session cookie, and the server checks it every time. */
+export function apiUrl<T extends string | undefined>(url: T): T {
+    return (url?.startsWith("/api/") ? `${api.defaults.baseURL}${url.slice("/api".length)}` : url) as T;
+}
+
 let refreshPromise: Promise<void> | null = null;
 /** Prevent a prior account's in-flight refresh/response from reviving its session. */
 export function beginAuthTransition() {

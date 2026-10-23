@@ -1,14 +1,17 @@
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import { Gallery } from "../Gallery/Gallery";
 import { ContactChip } from "../ContactChip/ContactChip";
+import { apiUrl } from "../../utils/api";
 import s from "./Workspace.module.css";
 export function MarkdownContent({ body }: { body: string }) {
   return (
     <div className={s.markdown}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkBreaks]}
+        // Files of a material are API addresses, checked on every request (decision 23).
+        urlTransform={(url) => defaultUrlTransform(apiUrl(url))}
         components={{
           pre: ({ children, node }) => {
             const extension = node?.children.some(

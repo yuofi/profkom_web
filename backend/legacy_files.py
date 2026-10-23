@@ -1,12 +1,21 @@
-"""Read-time adaptation of existing storage URLs. Never fetch remote content."""
+"""Read-time adaptation of existing storage URLs. Never fetch remote content.
+
+No link that a client gets is signed (decision 23): `file:<id>` becomes the API address
+of its bytes, where access is checked on every request; an old public upload keeps its
+canonical URL until scripts/adopt_legacy_files.py turns it into `file:<id>` (АВ-10).
+"""
 
 import re
 from urllib.parse import quote, unquote, urlsplit
 
 from settings import settings
-from utils.s3_service import s3_client
 
-LINK = re.compile(r'https?://[^\s<>"\)]+')
+# A URL in Markdown or HTML: «|» (the gallery caption) and the closing punctuation of
+# a sentence are not part of it (A-MAT-3).
+LINK = re.compile(r"https?://[^\s<>\"'()|\[\]]*[^\s<>\"'()|\[\].,;:!?]")
+FILE_REF = re.compile(r"file:(file-[\w-]+)")
+# The read form of a file reference, as a client may send it back.
+CONTENT_LINK = re.compile(r"(?:https?://[^\s/<>\"'()|]+)?/api/files/(file-[\w-]+)/content")
 # Old uploads went straight to the bucket: pgas/ and guides/ kept the file name,
 # avatars/ and every other folder (gallery images) got `<uuid>.<ext>`.
 NAMED_FOLDERS = ("pgas", "guides", "avatars")
@@ -54,34 +63,29 @@ def canonical_url(key):
     return f"https://global.s3.cloud.ru/{settings.S3_BUCKET_NAME}/{quote(key, safe='/')}"
 
 
-def read_url(url, uid):
+def read_url(url):
     if not url:
         return url
-    if url.startswith("file:"):
-        from file_access import download
+    from file_access import content_url
 
-        return download(url[5:], uid)["download_url"]
+    if url.startswith("file:"):
+        return content_url(url[5:])
     key = legacy_key(url)
     if key:
-        return s3_client.generate_presigned_url(
-            "get_object",
-            Params={
-                "Bucket": settings.S3_BUCKET_NAME,
-                "Key": key,
-            },
-            ExpiresIn=300,
-        )
+        # Unsigned: it works while the bucket is public and only until the adoption.
+        return canonical_url(key)
     # Any other bucket key stays as written and unsigned (owner decision 6).
     return url
 
 
-def read_text(body, uid):
-    # Source remains immutable. Resolve only links in serialized published/draft text.
-    return re.sub(
-        r'https?://[^\s<>"\)]+|file:file-[\w-]+',
-        lambda m: read_url(m[0], uid),
-        body or "",
-    )
+def read_text(body):
+    """The stored text with its file references as API addresses; nothing else changes,
+    so captions and punctuation around a link stay as written (A-MAT-3). Nothing here
+    checks access or calls the storage: one unreadable file costs only its own link
+    (A-MAT-8)."""
+    from file_access import content_url
+
+    return FILE_REF.sub(lambda m: content_url(m[1]), body or "")
 
 
 def bucket_keys(body):
@@ -111,11 +115,15 @@ def own_attachments(s, material_id):
 def stored_text(body, attachment, known=None, counts=None):
     """Bring the bucket links of a material text to their stored form (A-MAT-1).
 
-    A link to the material's own attachment (`attachment(key)` gives its id) becomes
-    `file:<id>`, a signed link to an old public upload loses its signature, other
-    links stay byte for byte. With `known` (the keys already in the published
+    A link to the material's own attachment (`attachment(key)` gives its id), also in
+    the read form /api/files/<id>/content, becomes `file:<id>`, a signed link to an
+    old public upload loses its signature, other links stay byte for byte. With `known` (the keys already in the published
     source) a link to any other bucket key raises ValueError: new files are
     attached, not linked (A-SEC-2)."""
+
+    def own(m):
+        fid = attachment("sealed/" + m[1])
+        return "file:" + fid if fid else m[0]
 
     def fix(m):
         url = m[0]
@@ -137,4 +145,4 @@ def stored_text(body, attachment, known=None, counts=None):
             counts[kind + ("_fixed" if new != url else "_kept")] += 1
         return new
 
-    return LINK.sub(fix, body or "")
+    return LINK.sub(fix, CONTENT_LINK.sub(own, body or ""))
