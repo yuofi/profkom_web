@@ -12,6 +12,7 @@ from database import (
     ReportORM,
 )
 from registration import now
+import access
 
 
 def active(s, uid):
@@ -37,19 +38,13 @@ def editor(s, r, uid):
             .first()
             is not None
         )
-    if r.owner_kind == "event":
-        return db.is_event_leader(uid, r.owner_id) or db.is_event_leader_deputy(
-            uid, r.owner_id
-        )
-    return db.is_subevent_leader(uid, r.owner_id) or db.is_subevent_leader_deputy(
-        uid, r.owner_id
-    )
+    return access.allowed(uid, f"{r.owner_kind}.report.create", r.owner_kind, r.owner_id)
 
 
 def historical_reader(s, series_id, uid):
     if not active(s, uid):
         return False
-    if db.is_tachki(uid):
+    if access.allowed(uid, "report.read_all"):
         return True
     series = s.get(ReportSeriesORM, series_id)
     if not series:
@@ -85,25 +80,9 @@ def reader(s, r, uid):
         return True
     if r.state != "published":
         return False
-    if db.is_tachki(uid):
-        return True
     if s.get(SeasonORM, r.season_id).state == "closed":
         return historical_reader(s, r.report_series_id, uid)
-    if r.owner_kind == "event":
-        return db.is_event_leader(uid, r.owner_id) or db.is_event_leader_deputy(
-            uid, r.owner_id
-        )
-    sub = s.get(SubeventORM, r.owner_id)
-    return bool(
-        sub
-        and (
-            db.is_subevent_leader(uid, sub.subevent_id)
-            or db.is_subevent_leader_deputy(uid, sub.subevent_id)
-            or db.is_subevent_organizer(uid, sub.subevent_id)
-            or db.is_event_leader(uid, sub.event_id)
-            or db.is_event_leader_deputy(uid, sub.event_id)
-        )
-    )
+    return access.allowed(uid, f"{r.owner_kind}.report.read", r.owner_kind, r.owner_id)
 
 
 def freeze_editors(s, season_id):

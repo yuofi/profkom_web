@@ -297,3 +297,34 @@ def test_material_draft_file_is_private_until_publish(client, superuser, user, m
         read.status_code == 200
         and "get_object" in read.json()["published_content"]["body"]
     )
+
+
+def test_deleted_material_is_listed_and_restored_by_the_chair_and_deputies(client, superuser, make_user):
+    """Decision 18: an editor's delete is reversible; only the chair and deputies list and restore."""
+    editor, reader, deputy = make_user(), make_user(), make_user()
+    lead = client.get("/api/leadership", headers=superuser.headers).json()
+    assert client.put("/api/leadership/deputies", headers=superuser.headers,
+                      json=dict(user_ids=[deputy.user_id], expected_revision=lead["revision"])).status_code == 200
+    m = client.post("/api/materials", headers=superuser.headers, json=dict(
+        kind="general", title="Памятка", description="", content=dict(format="markdown", body="Текст"))).json()
+    mid = m["material_id"]
+    m = client.post(f"/api/materials/{mid}/publish", headers=superuser.headers, json=dict(expected_revision=m["revision"])).json()
+    client.put(f"/api/materials/{mid}/editors", headers=superuser.headers,
+               json=dict(user_ids=[editor.user_id], expected_revision=m["revision"]))
+    assert client.delete(f"/api/materials/{mid}", headers=editor.headers).status_code == 200
+    assert client.get(f"/api/materials/{mid}", headers=reader.headers).status_code == 404
+    restore = f"/api/materials/{mid}/restore"
+    for who in (editor, reader):
+        assert client.get("/api/materials/deleted", headers=who.headers).status_code == 403
+        assert client.post(restore, headers=who.headers, json=dict(expected_revision=1)).status_code == 403
+        assert "restore_material" not in client.get("/api/session", headers=who.headers).json()["capabilities"]
+    assert "restore_material" in client.get("/api/session", headers=deputy.headers).json()["capabilities"]
+    item = next(x for x in client.get("/api/materials/deleted", headers=deputy.headers).json()["items"] if x["material_id"] == mid)
+    assert item["capabilities"] == ["restore_material"] and item["published_content"] is None
+    assert client.post(restore, headers=deputy.headers, json=dict(expected_revision=item["revision"] - 1)).status_code == 409
+    restored = client.post(restore, headers=deputy.headers, json=dict(expected_revision=item["revision"]))
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["revision"] == item["revision"] + 1
+    assert client.get(f"/api/materials/{mid}", headers=reader.headers).json()["published_content"]["body"] == "Текст"
+    assert client.post(restore, headers=deputy.headers, json=dict(expected_revision=restored.json()["revision"])).status_code == 409
+    assert all(x["material_id"] != mid for x in client.get("/api/materials/deleted", headers=superuser.headers).json()["items"])

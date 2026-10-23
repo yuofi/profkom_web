@@ -20,7 +20,9 @@ from season_summaries import refresh
 
 
 def correct(kind, id, revision, target_id, reason, uid):
-    if not db.is_tachki(uid):
+    import access
+
+    if not access.allowed(uid, "season.correct"):
         raise ValueError("Forbidden: only tachki can correct season")
     if not reason or not reason.strip():
         raise ValueError("Reason is required")

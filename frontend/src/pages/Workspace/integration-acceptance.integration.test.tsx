@@ -55,7 +55,7 @@ it("INT-01: real session opens only the manager's queue and loses access with th
   await eventsApi.blockLeader(block.block_id, member.user_id, { expected_revision: current.revision });
   const removed = await liveLogin(master.email);
   expect(removed.capabilities).not.toContain("view_unresolved_assignments");
-  expect((await tasksApi.unresolved()).items).toEqual([]);
+  await expect(tasksApi.unresolved()).rejects.toMatchObject({ status: 403 });
 });
 
 it("INT-02: real report readers can open both publications without seeing the shared draft", async () => {

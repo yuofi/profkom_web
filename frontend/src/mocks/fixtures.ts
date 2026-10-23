@@ -119,7 +119,9 @@ export function createFixtures(role: MockRole = "organizer") {
         ...(chair || role === "chair-deputy"
           ? [
               "create_event",
+              "create_shared_material",
               "manage_material_editors",
+              "restore_material",
               "correct_season",
               "review_registrations",
             ]
@@ -253,8 +255,11 @@ export function createFixtures(role: MockRole = "organizer") {
             "create_subevent",
             "copy_event",
             "create_head_merit",
+            "view_meeting",
           ]
-        : [],
+        : role === "hr"
+          ? ["view_meeting"]
+          : [],
     },
   ];
   const subevents: Subevent[] = [
@@ -273,7 +278,10 @@ export function createFixtures(role: MockRole = "organizer") {
       organizer_user_ids: [101, 105],
       report_series_id: "series-sub-1",
       revision: 1,
-      capabilities: eventManager ? [...allManagement, "edit_subevent"] : [],
+      capabilities: [
+        ...(eventManager ? [...allManagement, "edit_subevent"] : []),
+        ...(active ? ["view_meeting"] : []),  // the mock's other roles are its organizers
+      ],
     },
   ];
   const blocks: Block[] = [
@@ -633,6 +641,7 @@ export function createFixtures(role: MockRole = "organizer") {
     assessments,
     reports,
     materials,
+    deletedMaterials: [] as Material[],
     meetings,
     notifications,
     registration,

@@ -21,6 +21,7 @@ from domain_models import (
     CategoryRevisionORM,
 )
 from auth import get_current_user
+import access
 from models import User
 from registration import Revision, Decision, audit, now, version, fail
 from api_contract import Page
@@ -81,8 +82,6 @@ def scope_out(scope):
 
 
 def card(s, b, uid):
-    import access
-
     m = meta_for(s, b.name)
     seed_members(s, b, m)
     leaders = _load_leaders(s, "block", b.name, "master")
@@ -99,30 +98,9 @@ def card(s, b, uid):
                     block_category=mem.category,
                 )
             )
-    caps = []
+    caps = access.block_caps(uid, b.name, any(x.state == "open" for x in db.get_seasons()))
     if any(u["user"]["user_id"] == uid for u in members):
         caps.append("leave_block")
-    manage = (
-        db.is_block_master(uid, b.name)
-        or db.is_block_master_deputy(uid, b.name)
-        or db.is_tachki(uid)
-    )
-    if manage:
-        caps += [
-            "edit_block",
-            "view_unresolved_assignments",
-            "create_volunteer_merit",
-            "view_assessment_inputs",
-            "edit_assessment_inputs",
-        ]
-    if manage and any(x.state == "open" for x in db.get_seasons()):
-        caps.append("create_task")
-    if db.can_view_scope(uid, "block", b.name):
-        caps.append("view_tasks")
-    if db.is_block_master(uid, b.name) or db.is_hr_master(uid) or db.is_tachki(uid):
-        caps.append("remove_member")
-    if db.is_tachki(uid):
-        caps.append("manage_leaders")
     guide_id = None
     try:
         from materials import block_material_id
@@ -161,16 +139,8 @@ def get_card(id, uid):
 def can_review(r, uid):
     if r.state not in ("pending_hr", "pending_block"):
         return False
-    name = legacy_name(r.block_id)
-    if r.state == "pending_hr" and db.is_hr_master(uid):
-        return True
-    if r.state == "pending_block" and (
-        db.is_block_master(uid, name) or db.is_block_master_deputy(uid, name)
-    ):
-        return True
-    return db.is_tachki(uid) and now_dt() >= datetime.fromisoformat(
-        r.stage_entered_at
-    ) + timedelta(hours=72)
+    ready = now_dt() >= datetime.fromisoformat(r.stage_entered_at) + timedelta(hours=72)
+    return access.can_review_request(uid, r.state, legacy_name(r.block_id), ready)
 
 
 def request_dto(s, r, uid):
@@ -211,10 +181,8 @@ def requests_for(uid):
                 BlockApplicationORM.created_at
             )
             if r.user_id == uid
-            or db.is_hr_master(uid)
-            or db.is_tachki(uid)
-            or db.is_block_master(uid, legacy_name(r.block_id))
-            or db.is_block_master_deputy(uid, legacy_name(r.block_id))
+            or access.allowed(uid, "block_request.view_all")
+            or access.allowed(uid, "block.review_block_stage", "block", legacy_name(r.block_id))
         ]
 
 
@@ -303,16 +271,12 @@ def patch_block(id, payload, uid):
         name = legacy_name(id)
         b = s.get(BlockORM, name)
         m = meta_for(s, name)
-        version(m, payload.expected_revision)
-        if not (
-            db.is_tachki(uid)
-            or db.is_block_master(uid, name)
-            or db.is_block_master_deputy(uid, name)
-        ):
+        if not access.allowed(uid, "block.edit", "block", name):
             fail(403, "Block editor required")
+        if payload.name is not None and payload.name != name and not access.allowed(uid, "block.rename"):
+            fail(403, "Only tachki can rename a block")
+        version(m, payload.expected_revision)
         if payload.name is not None and payload.name != name:
-            if not db.is_tachki(uid):
-                fail(403, "Only tachki can rename a block")
             new = payload.name.strip()
             if not new or "/" in new:
                 fail(422, "Invalid name")
@@ -480,14 +444,7 @@ def register_routes(router):
             else:
                 if not can_review(r, cur.user_id):
                     fail(403, "Not permitted at this review stage")
-                substitute = not (
-                    db.is_hr_master(cur.user_id)
-                    if old == "pending_hr"
-                    else (
-                        db.is_block_master(cur.user_id, name)
-                        or db.is_block_master_deputy(cur.user_id, name)
-                    )
-                )
+                substitute = not access.can_review_request(cur.user_id, old, name, False)
                 if command == "reject":
                     if not (payload.reason or "").strip():
                         fail(422, "Reason is required")
@@ -565,12 +522,7 @@ def register_routes(router):
 
     @router.delete("/blocks/{block_id}/members/{user_id}")
     def remove(block_id: str, user_id: int, cur: User = Depends(get_current_user)):
-        name = legacy_name(block_id)
-        if not (
-            db.is_tachki(cur.user_id)
-            or db.is_hr_master(cur.user_id)
-            or db.is_block_master(cur.user_id, name)
-        ):
+        if not access.allowed(cur.user_id, "block.remove_member", "block", legacy_name(block_id)):
             fail(403, "Cannot remove member")
         return leave(block_id, user_id, cur.user_id)
 
@@ -587,7 +539,7 @@ def register_routes(router):
                 revision=r.revision if r else 1,
                 capabilities=(
                     ["edit_participant_category"]
-                    if db.is_tachki(cur.user_id) or db.is_hr_master(cur.user_id)
+                    if access.allowed(cur.user_id, "participant.category")
                     else []
                 ),
             )
@@ -596,7 +548,7 @@ def register_routes(router):
     def set_category(
         user_id: int, payload: CategoryPatch, cur: User = Depends(get_current_user)
     ):
-        if not (db.is_tachki(cur.user_id) or db.is_hr_master(cur.user_id)):
+        if not access.allowed(cur.user_id, "participant.category"):
             fail(403, "Category editor required")
         if not payload.reason.strip():
             fail(422, "Reason is required")

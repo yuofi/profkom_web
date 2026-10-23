@@ -86,7 +86,9 @@ def comment_added(session, comment, task, actor):
 
 
 def registration_submitted(session, application):
-    recipients = [u.user_id for u in session.query(UserORM) if db.is_tachki(u.user_id)]
+    import access
+
+    recipients = [u.user_id for u in session.query(UserORM) if access.allowed(u.user_id, "registration.review")]
     emit(
         session,
         recipients,

@@ -23,6 +23,9 @@ export const materialsApi = {
   publish: (id: string, data: Revision) =>
     request<Material>("post", `/materials/${idPath(id)}/publish`, data),
   remove: (id: string) => request<void>("delete", `/materials/${idPath(id)}`),
+  deleted: () => page<Material>("/materials/deleted"),
+  restore: (id: string, data: Revision) =>
+    request<Material>("post", `/materials/${idPath(id)}/restore`, data),
   editors: (id: string, user_ids: number[], data: Revision) =>
     request<{
       material_id: string;

@@ -174,7 +174,9 @@ def require_superuser(cur: User = Depends(get_current_user)) -> User:
 
 
 def require_pgas_admin(cur: User = Depends(get_current_user)) -> User:
-    if not cur.pgas_admin and not db.is_chair(cur.user_id):
+    import access
+
+    if not access.allowed(cur.user_id, "pgas.manage"):
         raise HTTPException(403, "PGAS admin rights required")
     return cur
 

@@ -12,6 +12,7 @@ from models import User
 from api_contract import Page
 from domain_contract import RegistrationApplication as ApplicationOut
 import contact_rules
+import access
 
 
 class Fields(BaseModel):
@@ -86,7 +87,7 @@ def dto(r, uid):
     caps = []
     if r.user_id == uid and r.status == "rejected" and r.attempts_used < 5:
         caps.append("resubmit_registration")
-    if db.is_tachki(uid):
+    if access.allowed(uid, "registration.review"):
         if r.status == "pending":
             caps += ["approve_registration", "reject_registration"]
         if r.status != "approved":
@@ -203,7 +204,7 @@ def register_routes(router):
 
     @router.get("/registrations", response_model=Page[ApplicationOut])
     def queue(cur: User = Depends(get_current_user)):
-        if not db.is_tachki(cur.user_id):
+        if not access.allowed(cur.user_id, "registration.review"):
             fail(403, "Registration review required")
         with db._session() as s:
             return Page(
@@ -220,7 +221,7 @@ def register_routes(router):
         payload: Decision,
         cur: User = Depends(get_current_user),
     ):
-        if not db.is_tachki(cur.user_id):
+        if not access.allowed(cur.user_id, "registration.review"):
             fail(403, "Registration review required")
         with db._session() as s:
             r = ensure_application(s, user_id)

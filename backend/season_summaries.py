@@ -21,6 +21,7 @@ from database import (
     _calculate_season_summary_for_session,
 )
 from domain_models import SummaryVersionORM
+import access
 from registration import now, audit
 from api_contract import Page
 
@@ -161,7 +162,7 @@ def refresh(session, season_id, uid, reason):
         return
     if not row:
         raise ValueError("Closed summary snapshot missing")
-    if not db.is_chair(uid):
+    if not access.allowed(uid, "summary.correct"):
         raise ValueError("Forbidden: only chair can correct closed scoring")
     store_snapshot(session, season_id, uid, "Initial preserved snapshot")
     rows = json.loads(row.rows_json)
@@ -214,7 +215,7 @@ def refresh(session, season_id, uid, reason):
 
 
 def correct(season_id, expected_version, reason, changes, uid):
-    if not db.is_chair(uid):
+    if not access.allowed(uid, "summary.correct"):
         raise ValueError("Forbidden: only chair can correct summary")
     if not reason or not reason.strip():
         raise ValueError("Reason is required")
@@ -314,13 +315,11 @@ def decisions(season_id, target, values, expected_version, reason, uid):
         season = s.get(SeasonORM, season_id)
         if not season:
             raise LookupError("Season not found")
-        if season.state == "closed":
-            if not db.is_chair(uid):
-                raise ValueError("Forbidden: only chair can edit closed decisions")
-            if not reason or not reason.strip():
-                raise ValueError("Reason is required")
-        elif not (db.is_tachki(uid) or db.is_hr_master(uid)):
-            raise ValueError("Forbidden: decision editor required")
+        if not access.allowed(uid, "summary.decide", state=season.state):
+            raise ValueError("Forbidden: only chair can edit closed decisions" if season.state == "closed"
+                             else "Forbidden: decision editor required")
+        if season.state == "closed" and (not reason or not reason.strip()):
+            raise ValueError("Reason is required")
         row = current(s, season_id)
         if (row.version if row else 1) != expected_version:
             raise ValueError("Conflict: summary version mismatch")
@@ -362,7 +361,7 @@ def decisions(season_id, target, values, expected_version, reason, uid):
 
 def register_routes(router):
     def require_reader(uid):
-        if not (db.is_tachki(uid) or db.is_hr_master(uid)):
+        if not access.allowed(uid, "summary.view"):
             raise HTTPException(403, "Summary reader required")
 
     def metadata(row):

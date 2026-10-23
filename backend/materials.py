@@ -9,6 +9,7 @@ from domain_models import MaterialORM, BlockMetaORM
 from models import User
 from auth import get_current_user
 from registration import Revision, audit, now, version, fail
+import access
 from validation import Command
 from api_contract import Page
 from domain_contract import Material as MaterialOut, EditorAssignment
@@ -47,30 +48,11 @@ def row(s, id):
 
 
 def can_edit(id, uid):
-    u = db.get_user(uid)
-    if not u or u.account_state != "active" or u.banned:
-        return False
     with db._session() as s:
         m = s.get(MaterialORM, id)
         if not m or m.deleted:
             return False
-        if db.is_tachki(uid):
-            return True
-        if m.owner_block_id:
-            meta = s.get(BlockMetaORM, m.owner_block_id)
-            if meta and (
-                db.is_block_master(uid, meta.legacy_name)
-                or db.is_block_master_deputy(uid, meta.legacy_name)
-            ):
-                return True
-        return (
-            s.query(RoleAssignmentORM)
-            .filter_by(
-                user_id=uid, scope_kind="material", scope_id=id, role="material_editor"
-            )
-            .first()
-            is not None
-        )
+    return access.allowed(uid, "material.edit", "material", id)
 
 
 def can_read(id, uid):
@@ -112,7 +94,7 @@ def dto(s, m, uid):
         data["capabilities"] += ["edit_material", "publish_material", "delete_material"]
         if draft:
             data["draft_content"] = dict(format="markdown", body=m.draft_body or "")
-    if db.is_tachki(uid):
+    if access.allowed(uid, "material.manage_editors"):
         data["capabilities"].append("manage_material_editors")
         data["editor_user_ids"] = [
             r.user_id
@@ -121,6 +103,20 @@ def dto(s, m, uid):
             )
         ]
     return data
+
+
+def deleted_dto(m):
+    return dict(
+        material_id=m.material_id,
+        kind=m.kind,
+        owner_block_id=m.owner_block_id,
+        title=m.title,
+        description=m.description,
+        original_link=m.original_link,
+        published_content=None,
+        revision=m.revision,
+        capabilities=["restore_material"],
+    )
 
 
 def block_material_id(s, bid):
@@ -299,6 +295,36 @@ def register_routes(router):
                 next_cursor=None,
             )
 
+    @router.get("/materials/deleted", response_model=Page[MaterialOut])
+    def deleted(cur: User = Depends(get_current_user)):
+        """Deleted materials, newest first, for the chair and deputies to restore (decision 18)."""
+        if not access.allowed(cur.user_id, "material.restore"):
+            fail(403, "Only tachki restore materials")
+        with db._session() as s:
+            rows = s.query(MaterialORM).filter_by(deleted=True).order_by(MaterialORM.created_at.desc())
+            return Page(items=[deleted_dto(m) for m in rows], next_cursor=None)
+
+    @router.post(
+        "/materials/{material_id}/restore",
+        response_model=MaterialOut,
+        response_model_exclude_unset=True,
+    )
+    def restore(material_id: str, payload: Revision, cur: User = Depends(get_current_user)):
+        if not access.allowed(cur.user_id, "material.restore"):
+            fail(403, "Only tachki restore materials")
+        with db._session() as s:
+            m = s.get(MaterialORM, material_id)
+            if not m:
+                fail(404, "Material not found")
+            version(m, payload.expected_revision)
+            if not m.deleted:
+                fail(409, "Material is not deleted")
+            m.deleted = False
+            m.revision += 1
+            audit(s, "material", material_id, cur.user_id, "Material restored", dict(deleted=True), dict(deleted=False))
+            s.commit()
+            return dto(s, m, cur.user_id)
+
     @router.get(
         "/materials/{material_id}",
         response_model=MaterialOut,
@@ -326,13 +352,9 @@ def register_routes(router):
                 meta = s.get(BlockMetaORM, payload.owner_block_id)
                 if not meta:
                     fail(404, "Block not found")
-                allowed = (
-                    db.is_tachki(cur.user_id)
-                    or db.is_block_master(cur.user_id, meta.legacy_name)
-                    or db.is_block_master_deputy(cur.user_id, meta.legacy_name)
-                )
+                allowed = access.allowed(cur.user_id, "material.create_guide", "block", meta.legacy_name)
             else:
-                allowed = db.is_tachki(cur.user_id)
+                allowed = access.allowed(cur.user_id, "material.create_general")
             if not allowed:
                 fail(403, "Material creator required")
             if payload.original_link and not payload.original_link.startswith(
@@ -452,7 +474,7 @@ def register_routes(router):
     def editors(
         material_id: str, payload: Editors, cur: User = Depends(get_current_user)
     ):
-        if not db.is_tachki(cur.user_id):
+        if not access.allowed(cur.user_id, "material.manage_editors"):
             fail(403, "Only tachki manage material editors")
         if len(set(payload.user_ids)) != len(payload.user_ids):
             fail(422, "Duplicate editors")
@@ -517,14 +539,10 @@ def legacy_create(payload, uid):
         owner = (payload.owner_block or "none").strip()
         if owner.lower() not in ("none", "all", ""):
             name = legacy_name(owner)
-            if not (
-                db.is_tachki(uid)
-                or db.is_block_master(uid, name)
-                or db.is_block_master_deputy(uid, name)
-            ):
+            if not access.allowed(uid, "material.create_guide", "block", name):
                 fail(403, "Owning block editor required")
             owner = name
-        elif not db.is_tachki(uid):
+        elif not access.allowed(uid, "material.create_general"):
             fail(403, "Global material creator required")
         if payload.original_link and not payload.original_link.startswith(
             ("http://", "https://")

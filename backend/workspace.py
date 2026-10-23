@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timezone
 from dataclasses import asdict
 from participation import dt
+import access
 from database import (
     db,
     TaskORM,
@@ -21,44 +22,20 @@ def live(season_id):
     return bool(s and s.state != "closed")
 
 
-def meeting_read(uid, m):
-    if db.is_tachki(uid):
-        return True
-    if m.owner_kind == "subevent":
-        sub = db.get_subevent(m.owner_id)
-        return bool(
-            sub
-            and (
-                db.is_subevent_leader(uid, m.owner_id)
-                or db.is_subevent_leader_deputy(uid, m.owner_id)
-                or db.is_subevent_organizer(uid, m.owner_id)
-                or db.is_event_leader(uid, sub.event_id)
-                or db.is_event_leader_deputy(uid, sub.event_id)
-            )
-        )
-    if db.is_event_leader(uid, m.owner_id) or db.is_event_leader_deputy(
-        uid, m.owner_id
-    ):
-        return True
-    return any(
-        db.is_subevent_leader(uid, s.subevent_id)
-        or db.is_subevent_leader_deputy(uid, s.subevent_id)
-        for s in db.list_subevents(m.owner_id)
+def own_event(uid, event_id):
+    """The user leads the event or works in one of its subevents."""
+    rel = access.scope_relations(uid, "event", event_id)
+    return bool(rel & (access.EVENT_LEADS | {access.EVENT_SUB_LEAD})) or any(
+        access.ORGANIZER in access.scope_relations(uid, "subevent", sub.subevent_id)
+        for sub in db.list_subevents(event_id)
     )
+
+
+def meeting_read(uid, m):
+    return access.meeting_read(uid, m.owner_kind, m.owner_id)
 
 
 def meeting_dict(uid, m):
-    own = (
-        (
-            db.is_event_leader(uid, m.owner_id)
-            or db.is_event_leader_deputy(uid, m.owner_id)
-        )
-        if m.owner_kind == "event"
-        else (
-            db.is_subevent_leader(uid, m.owner_id)
-            or db.is_subevent_leader_deputy(uid, m.owner_id)
-        )
-    )
     return dict(
         meeting_id=m.meeting_id,
         owner_kind=m.owner_kind,
@@ -67,9 +44,7 @@ def meeting_dict(uid, m):
         starts_at=m.starts_at,
         join_url=m.join_url,
         revision=m.revision,
-        capabilities=(
-            ["edit_meeting", "delete_meeting"] if own or db.is_tachki(uid) else []
-        ),
+        capabilities=access.meeting_caps(m.owner_kind, m.owner_id, uid),
     )
 
 
@@ -177,18 +152,7 @@ def dashboard(uid):
                 meetings.append(meeting_dict(uid, m))
         events = []
         for e in db.list_events():
-            if live(e.season_id) and (
-                db.is_event_leader(uid, e.event_id)
-                or db.is_event_leader_deputy(uid, e.event_id)
-                or any(
-                    (
-                        db.is_subevent_leader(uid, sub.subevent_id)
-                        or db.is_subevent_leader_deputy(uid, sub.subevent_id)
-                        or db.is_subevent_organizer(uid, sub.subevent_id)
-                    )
-                    for sub in db.list_subevents(e.event_id)
-                )
-            ):
+            if live(e.season_id) and own_event(uid, e.event_id):
                 events.append(main._to_event_out(e))
         from membership import blocks_for, requests_for
 
@@ -280,19 +244,7 @@ def calendar(uid, start, end):
                 live(e.season_id)
                 and e.starts_at
                 and dt(start) <= dt(e.starts_at) <= dt(end)
-                and (
-                    db.is_tachki(uid)
-                    or db.is_event_leader(uid, e.event_id)
-                    or db.is_event_leader_deputy(uid, e.event_id)
-                    or any(
-                        (
-                            db.is_subevent_leader(uid, sub.subevent_id)
-                            or db.is_subevent_leader_deputy(uid, sub.subevent_id)
-                            or db.is_subevent_organizer(uid, sub.subevent_id)
-                        )
-                        for sub in db.list_subevents(e.event_id)
-                    )
-                )
+                and (access.allowed(uid, "dashboard.all") or own_event(uid, e.event_id))
             ):
                 result.append(
                     dict(

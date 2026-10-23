@@ -24,7 +24,7 @@ def test_unresolved_queue_reachable_scoped_and_revoked(client, work, superuser):
 
     for actor in (w["member"], w["outside"]):
         assert "view_unresolved_assignments" not in session_caps(client, actor)
-        assert client.get("/api/assignments/unresolved", headers=actor.headers).json()["items"] == []
+        assert client.get("/api/assignments/unresolved", headers=actor.headers).status_code == 403
 
     assignment = w["task"]["assignments"][0]
     command = {"expected_revision": assignment["revision"], "new_assignee_user_id": w["master"].user_id,
@@ -43,7 +43,7 @@ def test_unresolved_queue_reachable_scoped_and_revoked(client, work, superuser):
                          json={"expected_revision": current["revision"], "user_id": w["outside"].user_id})
     assert changed.status_code == 200, changed.text
     assert "view_unresolved_assignments" not in session_caps(client, w["master"])
-    assert client.get("/api/assignments/unresolved", headers=w["master"].headers).json()["items"] == []
+    assert client.get("/api/assignments/unresolved", headers=w["master"].headers).status_code == 403
 
 
 @pytest.mark.parametrize("scope", ["block", "event", "subevent"])

@@ -227,6 +227,18 @@ it("creates, edits, publishes and deletes a material through available routes", 
     ),
   ).toBe(false);
   expect(page.container.querySelector("h1")?.textContent).toBe("Материалы");
+  // Deletion is reversible: the chair restores it from the deleted list (decision 18).
+  await settle();
+  const deleted = Array.from(page.container.querySelectorAll("details")).find(
+    (d) => d.querySelector("summary")?.textContent === "Удалённые материалы",
+  )!;
+  expect(deleted.textContent).toContain("Материал приёмки");
+  await submit(form(deleted, "Восстановить"));
+  await settle();
+  expect(
+    (await materialsApi.get(material.material_id)).published_content?.body,
+  ).toBe("**Текст материала**");
+  expect(page.container.textContent).toContain("Удалённых материалов нет.");
 });
 
 it("explains immediate legacy publication and preserves guide text including Markdown extensions", async () => {

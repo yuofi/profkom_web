@@ -44,8 +44,10 @@ class Restore(Command):
     master_conflicts: list[Conflict] = []
 
 
-def require_chair(uid):
-    if not db.is_chair(uid):
+def require_chair(uid, action="account.archive"):
+    import access
+
+    if not access.allowed(uid, action):
         fail(403, "Only the chair manages archived accounts")
 
 
@@ -220,7 +222,7 @@ def restore(uid, payload, actor):
 
 
 def _restore(uid, payload, actor):
-    require_chair(actor)
+    require_chair(actor, "account.restore")
     with db._session() as s:
         u = s.get(UserORM, uid)
         a = s.get(AccountArchiveORM, uid)
@@ -353,7 +355,7 @@ def _restore(uid, payload, actor):
 def register_routes(router):
     @router.get("/accounts/archive", response_model=Page[ArchivedAccount])
     def listing(cur: User = Depends(get_current_user)):
-        require_chair(cur.user_id)
+        require_chair(cur.user_id, "account.view_archive")
         with db._session() as s:
             return Page(
                 items=[

@@ -157,7 +157,9 @@ def permitted(session, fr, uid, write=False):
         material = session.get(MaterialORM, fr.owner_id)
         return "file:" + fr.file_id in (material.published_body or "")
     if fr.owner_kind == "pgas":
-        return bool(db.is_chair(uid) or u.pgas_admin) if write else True
+        import access
+
+        return access.allowed(uid, "pgas.manage") if write else True
     return False
 
 

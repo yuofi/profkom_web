@@ -36,6 +36,9 @@ export function MaterialsPage() {
     queryKey: ["workspaceBlocks"],
     queryFn: membershipApi.blocks,
   });
+  // КМБ and shared documents belong to the chair and deputies; a guide to its block's leads.
+  const shared = can(session, "create_shared_material");
+  const guideBlocks = (blocks.data ?? []).filter((b) => can(b, "edit_block"));
   const visibleItems = (query.data?.items ?? []).filter((m) =>
     (!kind || m.kind === kind) && `${m.title} ${m.description}`.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru")),
   );
@@ -118,19 +121,21 @@ export function MaterialsPage() {
                   type: "select",
                   required: true,
                   options: [
-                    { value: "kmb", label: "КМБ" },
-                    { value: "guide", label: "Гайд" },
-                    { value: "general", label: "Общий документ" },
+                    ...(shared ? [{ value: "kmb", label: "КМБ" }] : []),
+                    ...(guideBlocks.length ? [{ value: "guide", label: "Гайд" }] : []),
+                    ...(shared ? [{ value: "general", label: "Общий документ" }] : []),
                   ],
                 },
-                {
-                  name: "block",
-                  label: "Блок — для гайда",
-                  type: "select",
-                  options: blocks.data
-                    ?.filter((b) => can(b, "edit_block"))
-                    .map((b) => ({ value: b.block_id, label: b.name })),
-                },
+                ...(guideBlocks.length
+                  ? [
+                      {
+                        name: "block",
+                        label: "Блок — для гайда",
+                        type: "select" as const,
+                        options: guideBlocks.map((b) => ({ value: b.block_id, label: b.name })),
+                      },
+                    ]
+                  : []),
               ]}
               onSubmit={async (v) => {
                 if (text(v, "kind") === "guide" && !text(v, "block"))
@@ -152,8 +157,38 @@ export function MaterialsPage() {
             />
           </Card>
         )}
+        {can(session, "restore_material") && <DeletedMaterials />}
       </div>
     </Page>
+  );
+}
+function DeletedMaterials() {
+  const { perform, refresh } = useWorkspaceActions();
+  const query = useQuery({
+    queryKey: ["materials", "deleted"],
+    queryFn: materialsApi.deleted,
+  });
+  return (
+    <details className={s.details}>
+      <summary>Удалённые материалы</summary>
+      <QueryState keepDataOnError={!!query.data}
+        loading={query.isLoading} error={query.error}>
+        {query.data?.items.length === 0 && <Empty>Удалённых материалов нет.</Empty>}
+        {query.data?.items.map((m) => (
+          <Card key={m.material_id} title={m.title}>
+            <ActionForm
+              revision={m.revision}
+              fields={[]}
+              submitLabel="Восстановить"
+              onSubmit={async (_v, expectedRevision) =>
+                perform(() => materialsApi.restore(m.material_id, { expected_revision: expectedRevision! }))
+              }
+              onConflict={refresh}
+            />
+          </Card>
+        ))}
+      </QueryState>
+    </details>
   );
 }
 function MaterialEdit({ material: m }: { material: Material }) {
@@ -265,7 +300,8 @@ export function MaterialPage() {
               <details className={s.details}>
                 <summary>Удалить материал</summary>
                 <p>
-                  Удаляются опубликованный текст и черновик этого материала.
+                  Материал вместе с черновиком скроется у всех читателей.
+                  Председатель и замы могут его восстановить.
                 </p>
                 <ActionForm
                   fields={[]}

@@ -1190,9 +1190,12 @@ def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: O
         if a.status in ("in_progress","needs_revision"): caps += ["request_help"]
         if a.status=="help_required": caps += ["resume_assignment"]
     if task and current_user_id:
-        import access
-        if access.scope_inputs(current_user_id,task.scope_kind,task.scope_id,task.season_id):caps += ["view_assessment_inputs"]
-        if access.scope_inputs(current_user_id,task.scope_kind,task.scope_id,task.season_id,True):caps += ["review_assignment","reassign_assignment","edit_assessment_inputs"]
+        caps += _task_caps(task, current_user_id, {
+            "view_assessment_inputs": "task.inputs.view",
+            "review_assignment": "task.review",
+            "reassign_assignment": "task.review",
+            "edit_assessment_inputs": "task.inputs.edit",
+        })
 
     return AssignmentPublicDC(
         assignment_id=a.assignment_id,
@@ -1206,14 +1209,25 @@ def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: O
     )
 
 
+def _task_caps(t: TaskORM, uid: int, table: dict) -> list[str]:
+    """Capabilities of a task or assignment, by the policy actions in `table`."""
+    import access
+    rel = access.relations(uid, t.scope_kind, t.scope_id)
+    state = access.season_state(t.season_id)
+    return [cap for cap, action in table.items() if access.allowed(uid, action, state=state, rel=rel)]
+
+
 def _task_orm_to_dc(session: Session, t: TaskORM, current_user_id: Optional[int] = None) -> TaskPublicDC:
     a_orms = session.query(AssignmentORM).filter(AssignmentORM.task_id == t.task_id).all()
     assignments = [_assignment_orm_to_dc(session, a, current_user_id) for a in a_orms]
     caps = ["comment_task"]
     if current_user_id:
-        import access
-        if access.scope_inputs(current_user_id,t.scope_kind,t.scope_id,t.season_id):caps += ["view_assessment_inputs"]
-        if access.scope_inputs(current_user_id,t.scope_kind,t.scope_id,t.season_id,True):caps += ["edit_task","edit_assessment_inputs","view_unresolved_assignments"]
+        caps += _task_caps(t, current_user_id, {
+            "view_assessment_inputs": "task.inputs.view",
+            "edit_task": "task.edit",
+            "edit_assessment_inputs": "task.inputs.edit",
+            "view_unresolved_assignments": "task.review",
+        })
     desc_body = ""
     try:
         dj = json.loads(t.description_json or "{}")
@@ -4274,29 +4288,19 @@ class Database:
                 return False
 
     def can_manage_scope(self, user_id: int, scope_kind: str, scope_id: str) -> bool:
-        if self.is_tachki(user_id):
-            return True
-        if scope_kind == "block":
-            return self.is_block_master(user_id, scope_id) or self.is_block_master_deputy(user_id, scope_id)
-        elif scope_kind == "subevent":
-            if self.is_subevent_leader(user_id, scope_id) or self.is_subevent_leader_deputy(user_id, scope_id):
-                return True
-            with self._session() as session:
-                sub = session.get(SubeventORM, scope_id)
-                if sub and (self.is_event_leader(user_id, sub.event_id) or self.is_event_leader_deputy(user_id, sub.event_id)):
-                    return True
-        return False
+        """Leads a task area: creates tasks there (access.POLICY["task.create"])."""
+        import access
+        return access.allowed(user_id, "task.create", scope_kind, scope_id)
 
     def can_view_scope(self, user_id: int, scope_kind: str, scope_id: str) -> bool:
-        if self.is_tachki(user_id) or self.is_hr_master(user_id):
-            return True
-        if self.can_manage_scope(user_id, scope_kind, scope_id):
-            return True
-        if scope_kind == "block":
-            return self.is_block_member(user_id, scope_id)
-        elif scope_kind == "subevent":
-            return self.is_subevent_organizer(user_id, scope_id)
-        return False
+        import access
+        return access.allowed(user_id, "task.view", scope_kind, scope_id)
+
+    def require_task_right(self, user_id: int, action: str, t, state, denied: str, closed_denied: str) -> None:
+        """Raises the 403 for `action` on task `t`; a closed season has its own message."""
+        import access
+        if not access.allowed(user_id, action, t.scope_kind, t.scope_id, state=state):
+            raise ValueError(closed_denied if state == "closed" else denied)
 
     def is_member_or_leader_in_scope(self, user_id: int, scope_kind: str, scope_id: str) -> bool:
         if scope_kind == "block":
@@ -4446,7 +4450,7 @@ class Database:
             if not t:
                 return None
             if current_user_id is not None:
-                if not (self.can_view_scope(current_user_id, t.scope_kind, t.scope_id) or self.is_chair(current_user_id) or self.is_chair_deputy(current_user_id) or self.is_hr_master(current_user_id)):
+                if not (self.can_view_scope(current_user_id, t.scope_kind, t.scope_id)):
                     raise ValueError("Forbidden: cannot view this task")
             return _task_orm_to_dc(session, t, current_user_id)
 
@@ -4462,7 +4466,7 @@ class Database:
     ) -> list[TaskPublicDC]:
         with self._session() as session:
             if current_user_id is not None and scope_kind and scope_id:
-                if not (self.can_view_scope(current_user_id, scope_kind, scope_id) or self.is_chair(current_user_id) or self.is_chair_deputy(current_user_id) or self.is_hr_master(current_user_id)):
+                if not (self.can_view_scope(current_user_id, scope_kind, scope_id)):
                     raise ValueError("Forbidden: cannot view tasks for this scope")
 
             query = session.query(TaskORM)
@@ -4498,7 +4502,7 @@ class Database:
             if current_user_id is not None:
                 filtered_rows = []
                 for r in rows:
-                    if self.can_view_scope(current_user_id, r.scope_kind, r.scope_id) or self.is_chair(current_user_id) or self.is_chair_deputy(current_user_id) or self.is_hr_master(current_user_id):
+                    if self.can_view_scope(current_user_id, r.scope_kind, r.scope_id):
                         filtered_rows.append(r)
                 rows = filtered_rows
             return [_task_orm_to_dc(session, r, current_user_id) for r in rows]
@@ -4513,14 +4517,14 @@ class Database:
     ) -> TaskPublicDC:
         with self._session() as session:
             t = session.get(TaskORM, task_id)
-            if not t:
-                raise LookupError("Task not found")
+            if not t or not self.can_view_scope(user_id, t.scope_kind, t.scope_id):
+                raise LookupError("Task not found")  # FIX_PLAN 0.1: no hint that the task exists
+            season = session.get(SeasonORM, t.season_id)
+            self.require_task_right(user_id, "task.edit", t, season and season.state,
+                                    "Forbidden: cannot edit this task",
+                                    "Forbidden: only the chair and deputies can edit tasks in a closed season")
             if t.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
-
-            season = session.get(SeasonORM, t.season_id)
-            if season and season.state == "closed" and not self.is_chair(user_id):
-                raise ValueError("Only chair can edit tasks in closed season")
 
             if title is not None:
                 t.title = title
@@ -4695,11 +4699,9 @@ class Database:
                 raise LookupError("Task not found")
 
             season = session.get(SeasonORM, t.season_id)
-            if season and season.state == "closed" and not self.is_chair(reviewer_user_id):
-                raise ValueError("Only chair can accept/evaluate in a closed season")
-
-            if not (self.can_manage_scope(reviewer_user_id, t.scope_kind, t.scope_id) or self.is_hr_master(reviewer_user_id)):
-                raise ValueError("Forbidden: cannot accept assignment for this scope")
+            self.require_task_right(reviewer_user_id, "task.review", t, season and season.state,
+                                    "Forbidden: cannot accept assignment for this scope",
+                                    "Forbidden: only the chair and deputies can accept/evaluate in a closed season")
 
             if a.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
@@ -4752,11 +4754,9 @@ class Database:
                 raise LookupError("Task not found")
 
             season = session.get(SeasonORM, t.season_id)
-            if season and season.state == "closed" and not self.is_chair(reviewer_user_id):
-                raise ValueError("Only chair can request revision in a closed season")
-
-            if not (self.can_manage_scope(reviewer_user_id, t.scope_kind, t.scope_id) or self.is_hr_master(reviewer_user_id)):
-                raise ValueError("Forbidden: cannot review assignment for this scope")
+            self.require_task_right(reviewer_user_id, "task.review", t, season and season.state,
+                                    "Forbidden: cannot review assignment for this scope",
+                                    "Forbidden: only the chair and deputies can request revision in a closed season")
 
             if a.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
@@ -4809,11 +4809,9 @@ class Database:
                 raise LookupError("Task not found")
 
             season = session.get(SeasonORM, t.season_id)
-            if season and season.state == "closed" and not self.is_chair(reviewer_user_id):
-                raise ValueError("Only chair can mark not completed in a closed season")
-
-            if not (self.can_manage_scope(reviewer_user_id, t.scope_kind, t.scope_id) or self.is_hr_master(reviewer_user_id)):
-                raise ValueError("Forbidden: cannot manage assignment for this scope")
+            self.require_task_right(reviewer_user_id, "task.review", t, season and season.state,
+                                    "Forbidden: cannot manage assignment for this scope",
+                                    "Forbidden: only the chair and deputies can mark not completed in a closed season")
 
             if a.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
@@ -4852,11 +4850,9 @@ class Database:
                 raise LookupError("Task not found")
 
             season = session.get(SeasonORM, t.season_id)
-            if season and season.state == "closed" and not self.is_chair(reviewer_user_id):
-                raise ValueError("Only chair can cancel assignment in a closed season")
-
-            if not (self.can_manage_scope(reviewer_user_id, t.scope_kind, t.scope_id) or self.is_hr_master(reviewer_user_id)):
-                raise ValueError("Forbidden: cannot cancel assignment for this scope")
+            self.require_task_right(reviewer_user_id, "task.review", t, season and season.state,
+                                    "Forbidden: cannot cancel assignment for this scope",
+                                    "Forbidden: only the chair and deputies can cancel assignment in a closed season")
 
             if a.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
@@ -4914,7 +4910,9 @@ class Database:
             results = []
             for a, t in pairs:
                 if current_user_id is not None:
-                    if not (self.can_manage_scope(current_user_id, t.scope_kind, t.scope_id) or self.is_hr_master(current_user_id)):
+                    import access
+                    if not access.allowed(current_user_id, "task.review", t.scope_kind, t.scope_id,
+                                          state=access.season_state(t.season_id)):
                         continue
 
                 u = session.get(UserORM, a.assignee_user_id)
@@ -4961,11 +4959,9 @@ class Database:
                 raise LookupError("Task not found")
 
             season = session.get(SeasonORM, t.season_id)
-            if season and season.state == "closed" and not self.is_chair(manager_user_id):
-                raise ValueError("Only chair can reassign in a closed season")
-
-            if not (self.can_manage_scope(manager_user_id, t.scope_kind, t.scope_id) or self.is_hr_master(manager_user_id)):
-                raise ValueError("Forbidden: cannot manage assignments for this scope")
+            self.require_task_right(manager_user_id, "task.review", t, season and season.state,
+                                    "Forbidden: cannot manage assignments for this scope",
+                                    "Forbidden: only the chair and deputies can reassign in a closed season")
 
             if a.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
@@ -5064,7 +5060,8 @@ class Database:
             t = session.get(TaskORM, task_id)
             if not t:
                 raise LookupError("Task not found")
-            if not (self.can_manage_scope(current_user_id, t.scope_kind, t.scope_id) or self.is_hr_master(current_user_id) or self.is_chair(current_user_id) or self.is_chair_deputy(current_user_id)):
+            import access
+            if not access.scope_inputs(current_user_id, t.scope_kind, t.scope_id, t.season_id):
                 raise ValueError("Forbidden: cannot view task assessment inputs")
             crit_dict = {}
             try:
@@ -5102,10 +5099,9 @@ class Database:
             if not t:
                 raise LookupError("Task not found")
             season = session.get(SeasonORM, t.season_id)
-            if season and season.state == "closed" and not self.is_chair(user_id):
-                raise ValueError("Only chair can edit assessment inputs in a closed season")
-            if not (self.can_manage_scope(user_id, t.scope_kind, t.scope_id) or self.is_hr_master(user_id) or self.is_chair(user_id) or self.is_chair_deputy(user_id)):
-                raise ValueError("Forbidden: cannot edit task assessment inputs")
+            self.require_task_right(user_id, "task.inputs.edit", t, season and season.state,
+                                    "Forbidden: cannot edit task assessment inputs",
+                                    "Forbidden: only the chair and deputies can edit assessment inputs in a closed season")
             if t.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
             if not reason or not reason.strip():
@@ -5158,7 +5154,8 @@ class Database:
             t = session.get(TaskORM, a.task_id)
             if not t:
                 raise LookupError("Task not found")
-            if not (self.can_manage_scope(current_user_id, t.scope_kind, t.scope_id) or self.is_hr_master(current_user_id) or self.is_chair(current_user_id) or self.is_chair_deputy(current_user_id)):
+            import access
+            if not access.scope_inputs(current_user_id, t.scope_kind, t.scope_id, t.season_id):
                 raise ValueError("Forbidden: cannot view assignment assessment inputs")
             return AssessmentInputsDC(
                 assignment_id=a.assignment_id,
@@ -5187,10 +5184,9 @@ class Database:
             if not t:
                 raise LookupError("Task not found")
             season = session.get(SeasonORM, t.season_id)
-            if season and season.state == "closed" and not self.is_chair(user_id):
-                raise ValueError("Only chair can edit assessment inputs in a closed season")
-            if not (self.can_manage_scope(user_id, t.scope_kind, t.scope_id) or self.is_hr_master(user_id) or self.is_chair(user_id) or self.is_chair_deputy(user_id)):
-                raise ValueError("Forbidden: cannot edit assignment assessment inputs")
+            self.require_task_right(user_id, "task.inputs.edit", t, season and season.state,
+                                    "Forbidden: cannot edit assignment assessment inputs",
+                                    "Forbidden: only the chair and deputies can edit assessment inputs in a closed season")
             if a.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
             if not reason or not reason.strip():
@@ -5264,10 +5260,9 @@ class Database:
                 if not t:
                     raise LookupError(f"Task for assignment {aid} not found")
                 season = session.get(SeasonORM, t.season_id)
-                if season and season.state == "closed" and not self.is_chair(user_id):
-                    raise ValueError("Only chair can edit assessment inputs in a closed season")
-                if not (self.can_manage_scope(user_id, t.scope_kind, t.scope_id) or self.is_hr_master(user_id) or self.is_chair(user_id) or self.is_chair_deputy(user_id)):
-                    raise ValueError(f"Forbidden: cannot edit assessment inputs for assignment {aid}")
+                self.require_task_right(user_id, "task.inputs.edit", t, season and season.state,
+                                        f"Forbidden: cannot edit assessment inputs for assignment {aid}",
+                                        "Forbidden: only the chair and deputies can edit assessment inputs in a closed season")
                 if a.revision != exp_rev:
                     raise ValueError(f"Conflict: revision mismatch for assignment {aid}")
                 loaded_items.append((a, t))
@@ -5318,7 +5313,8 @@ class Database:
         participant_id: Optional[str] = None,
         user_id: Optional[int] = None,
     ) -> list[CalculatedContributionDC]:
-        if not (self.is_chair(current_user_id) or self.is_chair_deputy(current_user_id) or self.is_hr_master(current_user_id)):
+        import access
+        if not access.allowed(current_user_id, "kkr.view"):
             raise ValueError("Forbidden: only HR master and ta4ki can view assessments")
 
         with self._session() as session:
@@ -5382,8 +5378,9 @@ class Database:
             season = session.get(SeasonORM, season_id)
             if not season:
                 raise LookupError("Season not found")
-            if season.state == "closed" and not self.is_chair(created_by_user_id):
-                raise ValueError("Only chair can create merits in a closed season")
+            import access
+            if season.state == "closed" and not access.allowed(created_by_user_id, "summary.correct"):
+                raise ValueError("Forbidden: only the chair and deputies can create merits in a closed season")
             if season.state == "planned" and source_kind not in ("head_merit", "subevent_volunteer"):
                 raise ValueError("Only head_merit and subevent_volunteer are allowed in a planned season")
 
@@ -5392,29 +5389,27 @@ class Database:
             scope_kind = scope.get("kind")
             scope_id = scope.get("id")
 
+            from merit_rules import can_create
             if source_kind == "chair_merit":
-                if not (self.is_chair(created_by_user_id) or self.is_chair_deputy(created_by_user_id)):
-                    raise ValueError("Forbidden: only chair and deputies can create chair_merit")
+                denied = "Forbidden: only chair and deputies can create chair_merit"
             elif source_kind == "head_merit":
                 if not event_id:
                     raise ValueError("event_id is required for head_merit")
-                if not (self.is_event_leader(created_by_user_id, event_id) or self.is_event_leader_deputy(created_by_user_id, event_id) or self.is_chair(created_by_user_id) or self.is_chair_deputy(created_by_user_id)):
-                    raise ValueError("Forbidden: cannot create head_merit for this event")
+                denied = "Forbidden: cannot create head_merit for this event"
             elif source_kind == "block_volunteer":
                 if not scope_id:
                     raise ValueError("scope.id is required for block_volunteer")
                 scope_kind = "block"
-                if not (self.is_block_master(created_by_user_id, scope_id) or self.is_block_master_deputy(created_by_user_id, scope_id) or self.is_chair(created_by_user_id) or self.is_chair_deputy(created_by_user_id) or self.is_hr_master(created_by_user_id)):
-                    raise ValueError("Forbidden: cannot create volunteer merit for this block")
-            elif source_kind == "subevent_volunteer":
+                denied = "Forbidden: cannot create volunteer merit for this block"
+            else:
                 if not scope_id:
                     raise ValueError("scope.id is required for subevent_volunteer")
                 scope_kind = "subevent"
-                sub = session.get(SubeventORM, scope_id)
-                if not sub:
+                if not session.get(SubeventORM, scope_id):
                     raise LookupError("Subevent not found")
-                if not (self.is_subevent_leader(created_by_user_id, scope_id) or self.is_subevent_leader_deputy(created_by_user_id, scope_id) or self.is_event_leader(created_by_user_id, sub.event_id) or self.is_event_leader_deputy(created_by_user_id, sub.event_id) or self.is_chair(created_by_user_id) or self.is_chair_deputy(created_by_user_id)):
-                    raise ValueError("Forbidden: cannot create volunteer merit for this subevent")
+                denied = "Forbidden: cannot create volunteer merit for this subevent"
+            if not can_create(created_by_user_id, source_kind, event_id, scope_id):
+                raise ValueError(denied)
 
             from merit_rules import validate
             validate(session,merit_data)
@@ -5495,38 +5490,17 @@ class Database:
                 q = q.filter(MeritORM.event_id == event_id)
 
             rows = q.order_by(MeritORM.created_at.desc()).all()
-            res = []
-            is_global = self.is_chair(current_user_id) or self.is_chair_deputy(current_user_id) or self.is_hr_master(current_user_id)
-            for m in rows:
-                if not is_global:
-                    can_view = False
-                    if m.source_kind == "head_merit" and m.event_id and (self.is_event_leader(current_user_id, m.event_id) or self.is_event_leader_deputy(current_user_id, m.event_id)):
-                        can_view = True
-                    elif m.source_kind == "block_volunteer" and m.scope_id and (self.is_block_master(current_user_id, m.scope_id) or self.is_block_master_deputy(current_user_id, m.scope_id)):
-                        can_view = True
-                    elif m.source_kind == "subevent_volunteer" and m.scope_id and (self.is_subevent_leader(current_user_id, m.scope_id) or self.is_subevent_leader_deputy(current_user_id, m.scope_id)):
-                        can_view = True
-                    if not can_view:
-                        continue
-                res.append(_merit_orm_to_dc(session, m, current_user_id))
-            return res
+            from merit_rules import can_manage
+            return [_merit_orm_to_dc(session, m, current_user_id) for m in rows if can_manage(m, current_user_id)]
 
     def get_merit(self, merit_id: str, current_user_id: int) -> MeritDC:
         with self._session() as session:
             m = session.get(MeritORM, merit_id)
             if not m:
                 raise LookupError("Merit not found")
-            is_global = self.is_chair(current_user_id) or self.is_chair_deputy(current_user_id) or self.is_hr_master(current_user_id)
-            if not is_global:
-                can_view = False
-                if m.source_kind == "head_merit" and m.event_id and (self.is_event_leader(current_user_id, m.event_id) or self.is_event_leader_deputy(current_user_id, m.event_id)):
-                    can_view = True
-                elif m.source_kind == "block_volunteer" and m.scope_id and (self.is_block_master(current_user_id, m.scope_id) or self.is_block_master_deputy(current_user_id, m.scope_id)):
-                    can_view = True
-                elif m.source_kind == "subevent_volunteer" and m.scope_id and (self.is_subevent_leader(current_user_id, m.scope_id) or self.is_subevent_leader_deputy(current_user_id, m.scope_id)):
-                    can_view = True
-                if not can_view:
-                    raise ValueError("Forbidden: cannot view this merit")
+            from merit_rules import can_manage
+            if not can_manage(m, current_user_id):
+                raise ValueError("Forbidden: cannot view this merit")
             return _merit_orm_to_dc(session, m, current_user_id)
 
     def patch_merit(self, merit_id: str, expected_revision: int, values: dict, reason: str, user_id: int) -> MeritDC:
@@ -5535,20 +5509,10 @@ class Database:
             if not m:
                 raise LookupError("Merit not found")
             season = session.get(SeasonORM, m.season_id)
-            if season and season.state == "closed" and not self.is_chair(user_id):
-                raise ValueError("Only chair can edit merits in a closed season")
-
-            is_global = self.is_chair(user_id) or self.is_chair_deputy(user_id) or self.is_hr_master(user_id)
-            if not is_global:
-                can_edit = False
-                if m.source_kind == "head_merit" and m.event_id and (self.is_event_leader(user_id, m.event_id) or self.is_event_leader_deputy(user_id, m.event_id)):
-                    can_edit = True
-                elif m.source_kind == "block_volunteer" and m.scope_id and (self.is_block_master(user_id, m.scope_id) or self.is_block_master_deputy(user_id, m.scope_id)):
-                    can_edit = True
-                elif m.source_kind == "subevent_volunteer" and m.scope_id and (self.is_subevent_leader(user_id, m.scope_id) or self.is_subevent_leader_deputy(user_id, m.scope_id)):
-                    can_edit = True
-                if not can_edit:
-                    raise ValueError("Forbidden: cannot edit this merit")
+            from merit_rules import can_manage
+            if not can_manage(m, user_id, write=True):
+                raise ValueError("Forbidden: only the chair and deputies can edit merits in a closed season"
+                                 if season and season.state == "closed" else "Forbidden: cannot edit this merit")
 
             if m.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
@@ -5590,7 +5554,8 @@ class Database:
             return _merit_orm_to_dc(session, m, user_id)
 
     def list_master_bonuses(self, season_id: str, current_user_id: int, block_id: Optional[str] = None) -> list[MasterBonusDC]:
-        if not (self.is_chair(current_user_id) or self.is_chair_deputy(current_user_id) or self.is_hr_master(current_user_id)):
+        import access
+        if not access.allowed(current_user_id, "kkr.view"):
             raise ValueError("Forbidden: only HR master and ta4ki can view master bonuses")
         with self._session() as session:
             season = session.get(SeasonORM, season_id)
@@ -5641,7 +5606,8 @@ class Database:
             return bonuses
 
     def get_season_summary(self, season_id: str, current_user_id: int) -> SeasonSummaryDC:
-        if not (self.is_chair(current_user_id) or self.is_chair_deputy(current_user_id) or self.is_hr_master(current_user_id)):
+        import access
+        if not access.allowed(current_user_id, "summary.view"):
             raise ValueError("Forbidden: only HR master and ta4ki can view season summary")
         with self._session() as session:
             season = session.get(SeasonORM, season_id)
@@ -5676,7 +5642,7 @@ class Database:
                             )
                         )
                     caps = ["view_summary", "export_xlsx"]
-                    if self.is_chair(current_user_id):
+                    if access.allowed(current_user_id, "summary.correct"):
                         caps.append("correct_summary")
                     return SeasonSummaryDC(
                         season_id=season_id,
@@ -5716,7 +5682,7 @@ class Database:
             t = session.get(TaskORM, task_id)
             if not t:
                 raise LookupError("Task not found")
-            if not (self.can_view_scope(current_user_id, t.scope_kind, t.scope_id) or self.is_chair(current_user_id) or self.is_chair_deputy(current_user_id) or self.is_hr_master(current_user_id)):
+            if not (self.can_view_scope(current_user_id, t.scope_kind, t.scope_id)):
                 raise ValueError("Forbidden: cannot view comments for this task")
             rows = session.query(CommentORM).filter(CommentORM.task_id == task_id).order_by(CommentORM.created_at.asc()).all()
             return [_comment_orm_to_dc(session, c, current_user_id) for c in rows]
@@ -5726,7 +5692,7 @@ class Database:
             t = session.get(TaskORM, task_id)
             if not t:
                 raise LookupError("Task not found")
-            if not (self.can_view_scope(author_user_id, t.scope_kind, t.scope_id) or self.is_chair(author_user_id) or self.is_chair_deputy(author_user_id) or self.is_hr_master(author_user_id)):
+            if not (self.can_view_scope(author_user_id, t.scope_kind, t.scope_id)):
                 raise ValueError("Forbidden: cannot comment on this task")
 
             body = content.get("body", "") if isinstance(content, dict) else str(content)

@@ -83,10 +83,10 @@ describe("API commands through mock transport", () => {
     });
     expect((await tasksApi.assessment(own.assignment_id)).hours).toBe(4);
   });
-  it("does not treat global HR summary access as event tracker membership", async () => {
+  it("lets the HR master read every task as well as the KKR (АВ-3)", async () => {
     useMock("hr");
-    expect((await tasksApi.list({ mine: false })).items).toEqual([]);
-    await expect(tasksApi.get("task-1")).rejects.toMatchObject({ status: 403 });
+    expect((await tasksApi.list({ mine: false })).items.map((x) => x.task_id)).toContain("task-1");
+    expect((await tasksApi.get("task-1")).task_id).toBe("task-1");
     expect(
       (await seasonsApi.assessments({ season_id: "season-1" })).items.length,
     ).toBeGreaterThan(0);

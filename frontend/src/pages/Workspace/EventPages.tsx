@@ -94,7 +94,7 @@ export function EventsListPage() {
   return (
     <Page
       title="Мероприятия"
-      description="Команды и работа, в которой вы участвуете."
+      description="Все мероприятия профкома по сезонам. Задачи и созвоны — у команды подмероприятия."
     >
       <div className={s.stack}>
         <QueryState
@@ -120,7 +120,7 @@ export function EventsListPage() {
             ))}
           </div>
           {events.data?.items.length === 0 && (
-            <Empty>Вы пока не назначены в мероприятия.</Empty>
+            <Empty>Мероприятий пока нет.</Empty>
           )}
         </QueryState>
         {can(session, "create_event") && (
@@ -237,9 +237,11 @@ export function EventPage() {
                 >
                   Отчёты
                 </RouteLink>
-                <RouteLink to={`/meetings/event/${encodeURIComponent(id)}`}>
-                  Созвон руководителей
-                </RouteLink>
+                {can(event, "view_meeting") && (
+                  <RouteLink to={`/meetings/event/${encodeURIComponent(id)}`}>
+                    Созвон руководителей
+                  </RouteLink>
+                )}
               </div>
             </Card>
             <div className={s.grid}>
@@ -444,9 +446,11 @@ export function SubeventPage() {
                 >
                   Отчёты
                 </RouteLink>
-                <RouteLink to={`/meetings/subevent/${encodeURIComponent(id)}`}>
-                  Созвон
-                </RouteLink>
+                {can(sub, "view_meeting") && (
+                  <RouteLink to={`/meetings/subevent/${encodeURIComponent(id)}`}>
+                    Созвон
+                  </RouteLink>
+                )}
               </div>
             </Card>
             <div className={s.grid}>

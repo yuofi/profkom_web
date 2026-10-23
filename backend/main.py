@@ -1223,7 +1223,7 @@ def my_profile(cur: User = Depends(get_current_user)):
     # Combine contact info with user-level flags
     return MeOut(
         **__import__("directory").contact_data(contact),
-        kkr_score=cur.kkr_score if (db.is_tachki(cur.user_id) or db.is_hr_master(cur.user_id)) else None,
+        kkr_score=cur.kkr_score if access.allowed(cur.user_id, "kkr.view") else None,
         banned=cur.banned,
         super_user=db.is_chair(cur.user_id),
         admin=cur.admin,
@@ -1241,7 +1241,7 @@ def get_profile(user_id: int, cur: User = Depends(get_current_user)):
     contact = db.get_contact(user_id)
     if not contact:
         raise HTTPException(500, "Contact info missing for user")
-    return ProfileOut(**{**user.__dict__, "photo_url": __import__("directory").avatar_url(user_id), "kkr_score": user.kkr_score if (db.is_tachki(cur.user_id) or db.is_hr_master(cur.user_id)) else None}, kkr_name=contact.kkr_name, email=contact.email, tg=contact.tg)
+    return ProfileOut(**{**user.__dict__, "photo_url": __import__("directory").avatar_url(user_id), "kkr_score": user.kkr_score if access.allowed(cur.user_id, "kkr.view") else None}, kkr_name=contact.kkr_name, email=contact.email, tg=contact.tg)
 
 
 @router.patch("/profile/{user_id}", response_model=UserOut, response_model_exclude_none=True)
@@ -1302,12 +1302,14 @@ def update_profile(
     )
     updated = db.get_user(user_id)
     updated_contact = db.get_contact(user_id)
-    return UserOut(**{**updated.__dict__, "photo_url": __import__("directory").avatar_url(user_id), "kkr_score": updated.kkr_score if (db.is_tachki(cur.user_id) or db.is_hr_master(cur.user_id)) else None}, kkr_name=updated_contact.kkr_name if updated_contact else "")
+    return UserOut(**{**updated.__dict__, "photo_url": __import__("directory").avatar_url(user_id), "kkr_score": updated.kkr_score if access.allowed(cur.user_id, "kkr.view") else None}, kkr_name=updated_contact.kkr_name if updated_contact else "")
 
 
 @router.delete("/profile/{user_id}")
-def delete_user(user_id: int, cur: User = Depends(require_superuser)):
+def delete_user(user_id: int, cur: User = Depends(get_current_user)):
     from accounts import archive
+    if not access.allowed(cur.user_id, "account.archive"):
+        raise HTTPException(403, "SuperUser rights required")
     return archive(user_id,'Archived through legacy account removal',cur.user_id)
 
 
@@ -1522,7 +1524,7 @@ def get_session(cur: User = Depends(get_current_user)):
             scope_id=membership.block_id_for(a.scope_id) if a.scope_kind=="block" else a.scope_id,
             principal_assignment_id=a.principal_assignment_id,
             revision=a.revision,
-            capabilities=access.global_caps(cur.user_id) if a.scope_kind == "global" else (["create_head_merit"] if a.scope_kind == "event" else ["create_volunteer_merit"] if a.scope_kind in {"block","subevent"} else []),
+            capabilities=access.assignment_caps(cur.user_id, a.scope_kind, a.scope_id),
         )
         for a in assignments_dc
     ]
@@ -1554,9 +1556,6 @@ def get_leadership(cur: User = Depends(get_current_user)):
         raise HTTPException(403, "Approved active account required")
 
     lead = db.get_leadership()
-    caps = ["read"]
-    if db.is_chair(cur.user_id):
-        caps.extend(["transfer_chair", "manage_chair_deputies"])
 
     chair_out = (
         UserRefOut(
@@ -1580,7 +1579,7 @@ def get_leadership(cur: User = Depends(get_current_user)):
         chair=chair_out,
         deputies=deputies_out,
         revision=lead.revision,
-        capabilities=sorted(list(set(caps))),
+        capabilities=["read", *access.leadership_caps(cur.user_id)],
     )
 
 
@@ -1589,7 +1588,7 @@ def transfer_leadership(payload: LeadershipTransferIn, cur: User = Depends(get_c
     acc_state = getattr(cur, "account_state", "active") or "active"
     if acc_state != "active":
         raise HTTPException(403, "Approved active account required")
-    if not db.is_chair(cur.user_id):
+    if not access.allowed(cur.user_id, "leadership.transfer"):
         raise HTTPException(403, "Only the current chair can transfer leadership")
 
     target = db.get_user(payload.new_chair_user_id)
@@ -1626,7 +1625,7 @@ def transfer_leadership(payload: LeadershipTransferIn, cur: User = Depends(get_c
         chair=chair_out,
         deputies=deputies_out,
         revision=lead.revision,
-        capabilities=["read"],
+        capabilities=["read", *access.leadership_caps(cur.user_id)],
     )
 
 
@@ -1635,7 +1634,7 @@ def set_deputies(payload: LeadershipDeputiesIn, cur: User = Depends(get_current_
     acc_state = getattr(cur, "account_state", "active") or "active"
     if acc_state != "active":
         raise HTTPException(403, "Approved active account required")
-    if not db.is_chair(cur.user_id):
+    if not access.allowed(cur.user_id, "leadership.deputies"):
         raise HTTPException(403, "Only the current chair can set deputies")
 
     uids = payload.user_ids if payload.user_ids is not None else payload.deputy_user_ids
@@ -1672,7 +1671,7 @@ def set_deputies(payload: LeadershipDeputiesIn, cur: User = Depends(get_current_
         chair=chair_out,
         deputies=deputies_out,
         revision=lead.revision,
-        capabilities=["transfer_chair", "manage_chair_deputies"],
+        capabilities=["read", *access.leadership_caps(cur.user_id)],
     )
 
 
@@ -1780,7 +1779,7 @@ def _to_meeting_out(m: Meeting) -> MeetingOut:
         starts_at=m.starts_at,
         join_url=m.join_url,
         revision=m.revision,
-        capabilities=m.capabilities,
+        capabilities=access.meeting_caps(m.owner_kind, m.owner_id),
     )
 
 
@@ -2062,7 +2061,7 @@ def get_season(season_id: str, cur: User = Depends(get_current_user)):
 
 @router.post("/seasons", response_model=SeasonOut)
 def create_season(payload: SeasonIn, cur: User = Depends(get_current_user)):
-    if not db.is_chair(cur.user_id):
+    if not access.allowed(cur.user_id, "season.create"):
         raise HTTPException(403, "Only the chair can create seasons")
     try:
         s = db.create_season(payload.title, payload.type, payload.starts_at, payload.ends_at)
@@ -2073,7 +2072,7 @@ def create_season(payload: SeasonIn, cur: User = Depends(get_current_user)):
 
 @router.patch("/seasons/{season_id}", response_model=SeasonOut)
 def patch_season(season_id: str, payload: SeasonPatchIn, cur: User = Depends(get_current_user)):
-    if not db.is_chair(cur.user_id):
+    if not access.allowed(cur.user_id, "season.edit"):
         raise HTTPException(403, "Only the chair can modify seasons")
     try:
         s = db.patch_season(season_id, payload.expected_revision, payload.title, payload.starts_at, payload.ends_at, payload.reason)
@@ -2087,7 +2086,7 @@ def patch_season(season_id: str, payload: SeasonPatchIn, cur: User = Depends(get
 
 @router.post("/seasons/{season_id}/open", response_model=SeasonOut)
 def open_season(season_id: str, payload: SeasonRevisionIn, cur: User = Depends(get_current_user)):
-    if not db.is_chair(cur.user_id):
+    if not access.allowed(cur.user_id, "season.open"):
         raise HTTPException(403, "Only the chair can open a season")
     try:
         s = db.open_season(season_id, payload.expected_revision)
@@ -2100,7 +2099,7 @@ def open_season(season_id: str, payload: SeasonRevisionIn, cur: User = Depends(g
 
 @router.post("/seasons/{season_id}/begin-summary", response_model=SeasonOut)
 def begin_summary(season_id: str, payload: SeasonRevisionIn, cur: User = Depends(get_current_user)):
-    if not db.is_chair(cur.user_id):
+    if not access.allowed(cur.user_id, "season.begin_summary"):
         raise HTTPException(403, "Only the chair can begin summary on a season")
     try:
         s = db.begin_summary_season(season_id, payload.expected_revision)
@@ -2113,7 +2112,7 @@ def begin_summary(season_id: str, payload: SeasonRevisionIn, cur: User = Depends
 
 @router.post("/seasons/{season_id}/close")
 def close_season(season_id: str, payload: SeasonRevisionIn, cur: User = Depends(get_current_user)):
-    if not db.is_chair(cur.user_id):
+    if not access.allowed(cur.user_id, "season.close"):
         raise HTTPException(403, "Only the chair can close a season")
     try:
         s, summary = db.close_season(season_id, payload.expected_revision)
@@ -2153,7 +2152,7 @@ def list_events(season_id: Optional[str] = None, cur: User = Depends(get_current
 
 @router.post("/events", response_model=EventOut)
 def create_event(payload: EventCreateIn, cur: User = Depends(get_current_user)):
-    if not db.is_tachki(cur.user_id):
+    if not access.allowed(cur.user_id, "event.create"):
         raise HTTPException(403, "Only tachki can create events")
     try:
         ev = db.create_event(
@@ -2184,12 +2183,7 @@ def patch_event(event_id: str, payload: EventPatchIn, cur: User = Depends(get_cu
     ev = db.get_event(event_id)
     if not ev:
         raise HTTPException(404, "Event not found")
-    can_edit = (
-        db.is_tachki(cur.user_id)
-        or db.is_event_leader(cur.user_id, event_id)
-        or db.is_event_leader_deputy(cur.user_id, event_id)
-    )
-    if not can_edit:
+    if not access.allowed(cur.user_id, "event.edit", "event", event_id):
         raise HTTPException(403, "Forbidden")
     try:
         desc = _to_rich_text_body(payload.description) if payload.description is not None else None
@@ -2210,7 +2204,7 @@ def patch_event(event_id: str, payload: EventPatchIn, cur: User = Depends(get_cu
 
 @router.post("/events/{event_id}/copy", response_model=EventCopyOut)
 def copy_event(event_id: str, payload: EventCopyIn, cur: User = Depends(get_current_user)):
-    if not db.is_tachki(cur.user_id):
+    if not access.allowed(cur.user_id, "event.create"):
         raise HTTPException(403, "Only tachki can copy events")
     try:
         new_ev, new_subs = db.copy_event_structure(
@@ -2234,12 +2228,7 @@ def copy_event(event_id: str, payload: EventCopyIn, cur: User = Depends(get_curr
 
 @router.post("/events/{event_id}/subevents", response_model=SubeventOut)
 def create_subevent(event_id: str, payload: SubeventCreateIn, cur: User = Depends(get_current_user)):
-    can_create = (
-        db.is_tachki(cur.user_id)
-        or db.is_event_leader(cur.user_id, event_id)
-        or db.is_event_leader_deputy(cur.user_id, event_id)
-    )
-    if not can_create:
+    if not access.allowed(cur.user_id, "event.create_subevent", "event", event_id):
         raise HTTPException(403, "Only tachki or event leaders/deputies can create subevents")
     try:
         sub = db.create_subevent(
@@ -2261,22 +2250,11 @@ def list_subevents(event_id: str, cur: User = Depends(get_current_user)):
     if not ev:
         raise HTTPException(404, "Event not found")
     all_subs = db.list_subevents(event_id)
-    if (
-        db.is_tachki(cur.user_id)
-        or db.is_event_leader(cur.user_id, event_id)
-        or db.is_event_leader_deputy(cur.user_id, event_id)
-    ):
+    if access.allowed(cur.user_id, "subevent.list_all", "event", event_id):
         return Page(items=[_to_subevent_out(s) for s in all_subs])
-    # Filter to only subevents user participates in
-    filtered = []
-    for s in all_subs:
-        if (
-            db.is_subevent_leader(cur.user_id, s.subevent_id)
-            or db.is_subevent_leader_deputy(cur.user_id, s.subevent_id)
-            or db.is_subevent_organizer(cur.user_id, s.subevent_id)
-        ):
-            filtered.append(_to_subevent_out(s))
-    return Page(items=filtered)
+    # Others see only the subevents whose working data they may read
+    return Page(items=[_to_subevent_out(s) for s in all_subs
+                       if access.allowed(cur.user_id, "subevent.view", "subevent", s.subevent_id)])
 
 
 @router.get("/subevents/{subevent_id}", response_model=SubeventOut)
@@ -2284,15 +2262,7 @@ def get_subevent(subevent_id: str, cur: User = Depends(get_current_user)):
     sub = db.get_subevent(subevent_id)
     if not sub:
         raise HTTPException(404, "Subevent not found")
-    can_view = (
-        db.is_tachki(cur.user_id)
-        or db.is_event_leader(cur.user_id, sub.event_id)
-        or db.is_event_leader_deputy(cur.user_id, sub.event_id)
-        or db.is_subevent_leader(cur.user_id, subevent_id)
-        or db.is_subevent_leader_deputy(cur.user_id, subevent_id)
-        or db.is_subevent_organizer(cur.user_id, subevent_id)
-    )
-    if not can_view:
+    if not access.allowed(cur.user_id, "subevent.view", "subevent", subevent_id):
         raise HTTPException(403, "Access to subevent forbidden")
     return _to_subevent_out(sub)
 
@@ -2302,14 +2272,7 @@ def patch_subevent(subevent_id: str, payload: SubeventPatchIn, cur: User = Depen
     sub = db.get_subevent(subevent_id)
     if not sub:
         raise HTTPException(404, "Subevent not found")
-    can_edit = (
-        db.is_tachki(cur.user_id)
-        or db.is_event_leader(cur.user_id, sub.event_id)
-        or db.is_event_leader_deputy(cur.user_id, sub.event_id)
-        or db.is_subevent_leader(cur.user_id, subevent_id)
-        or db.is_subevent_leader_deputy(cur.user_id, subevent_id)
-    )
-    if not can_edit:
+    if not access.allowed(cur.user_id, "subevent.edit", "subevent", subevent_id):
         raise HTTPException(403, "Forbidden")
     try:
         desc = _to_rich_text_body(payload.description) if payload.description is not None else None
@@ -2323,7 +2286,7 @@ def patch_subevent(subevent_id: str, payload: SubeventPatchIn, cur: User = Depen
 
 @router.put("/events/{event_id}/leaders", response_model=EventOut)
 def set_event_leaders(event_id: str, payload: UserIdsIn, cur: User = Depends(get_current_user)):
-    if not db.is_tachki(cur.user_id):
+    if not access.allowed(cur.user_id, "event.manage_leaders"):
         raise HTTPException(403, "Only tachki can assign event leaders")
     try:
         ev = db.set_event_leaders(event_id, payload.user_ids, payload.expected_revision)
@@ -2339,12 +2302,7 @@ def set_subevent_leaders(subevent_id: str, payload: UserIdsIn, cur: User = Depen
     sub = db.get_subevent(subevent_id)
     if not sub:
         raise HTTPException(404, "Subevent not found")
-    can_assign = (
-        db.is_tachki(cur.user_id)
-        or db.is_event_leader(cur.user_id, sub.event_id)
-        or db.is_event_leader_deputy(cur.user_id, sub.event_id)
-    )
-    if not can_assign:
+    if not access.allowed(cur.user_id, "subevent.manage_leaders", "subevent", subevent_id):
         raise HTTPException(403, "Only tachki or event leaders/deputies can assign subevent leaders")
     try:
         updated = db.set_subevent_leaders(subevent_id, payload.user_ids, payload.expected_revision)
@@ -2358,12 +2316,7 @@ def set_subevent_organizers(subevent_id: str, payload: UserIdsIn, cur: User = De
     sub = db.get_subevent(subevent_id)
     if not sub:
         raise HTTPException(404, "Subevent not found")
-    can_assign = (
-        db.is_tachki(cur.user_id)
-        or db.is_event_leader(cur.user_id, sub.event_id)
-        or db.is_event_leader_deputy(cur.user_id, sub.event_id)
-    )
-    if not can_assign:
+    if not access.allowed(cur.user_id, "subevent.manage_organizers", "subevent", subevent_id):
         raise HTTPException(403, "Only tachki or event leaders/deputies can assign subevent organizers")
     try:
         updated = db.set_subevent_organizers(subevent_id, payload.user_ids, payload.expected_revision)
@@ -2374,7 +2327,7 @@ def set_subevent_organizers(subevent_id: str, payload: UserIdsIn, cur: User = De
 
 @router.put("/blocks/{block_id}/leader", response_model=BlockOut)
 def set_block_leader(block_id: str, payload: BlockLeaderIn, cur: User = Depends(get_current_user)):
-    if not db.is_tachki(cur.user_id):
+    if not access.allowed(cur.user_id, "block.manage_leader"):
         raise HTTPException(403, "Only tachki can assign block master")
     try:
         from membership import legacy_name,meta_for,version,get_card
@@ -2398,27 +2351,15 @@ def set_deputies(role_assignment_id: str, payload: UserIdsIn, cur: User = Depend
         assignment = session.get(database_module.RoleAssignmentORM, role_assignment_id)
         if not assignment:
             raise HTTPException(404, "Role assignment not found")
-        if assignment.scope_kind == "block":
-            is_master = (assignment.user_id == cur.user_id)
-            if not (db.is_tachki(cur.user_id) or is_master):
-                raise HTTPException(403, "Only tachki or block master can assign block deputies")
-        elif assignment.scope_kind == "event":
-            if not db.is_tachki(cur.user_id):
-                raise HTTPException(403, "Only tachki can assign event leader deputies")
-        elif assignment.scope_kind == "subevent":
-            sub = session.get(database_module.SubeventORM, assignment.scope_id)
-            if not sub:
-                raise HTTPException(404, "Subevent not found")
-            can_assign = (
-                db.is_tachki(cur.user_id)
-                or db.is_event_leader(cur.user_id, sub.event_id)
-                or db.is_event_leader_deputy(cur.user_id, sub.event_id)
-            )
-            if not can_assign:
-                raise HTTPException(403, "Only tachki or parent event leaders/deputies can assign subevent leader deputies")
-        else:
-            if not db.is_tachki(cur.user_id):
-                raise HTTPException(403, "Forbidden")
+        kind, scope_id, holder = assignment.scope_kind, assignment.scope_id, assignment.user_id
+        if kind == "subevent" and not session.get(database_module.SubeventORM, scope_id):
+            raise HTTPException(404, "Subevent not found")
+        if not access.can_set_deputies(cur.user_id, kind, scope_id, holder):
+            raise HTTPException(403, {
+                "block": "Only tachki or block master can assign block deputies",
+                "event": "Only tachki can assign event leader deputies",
+                "subevent": "Only tachki or parent event leaders/deputies can assign subevent leader deputies",
+            }.get(kind, "Forbidden"))
     try:
         leader = db.set_deputies(role_assignment_id, payload.user_ids, payload.expected_revision)
         return LeaderOut(
@@ -2430,7 +2371,7 @@ def set_deputies(role_assignment_id: str, payload: UserIdsIn, cur: User = Depend
             ),
             deputy_user_ids=leader.deputy_user_ids,
             revision=leader.revision,
-            capabilities=leader.capabilities,
+            capabilities=access.leader_caps(leader, cur.user_id),
         )
     except ValueError as e:
         raise HTTPException(409, str(e))
@@ -2443,18 +2384,7 @@ def get_event_meeting(event_id: str, cur: User = Depends(get_current_user)):
     ev = db.get_event(event_id)
     if not ev:
         raise HTTPException(404, "Event not found")
-    can_view = (
-        db.is_tachki(cur.user_id)
-        or db.is_event_leader(cur.user_id, event_id)
-        or db.is_event_leader_deputy(cur.user_id, event_id)
-    )
-    if not can_view:
-        subs = db.list_subevents(event_id)
-        for s in subs:
-            if db.is_subevent_leader(cur.user_id, s.subevent_id) or db.is_subevent_leader_deputy(cur.user_id, s.subevent_id):
-                can_view = True
-                break
-    if not can_view:
+    if not access.allowed(cur.user_id, "event.meeting.view", "event", event_id):
         raise HTTPException(403, "Forbidden")
     m = db.get_meeting("event", event_id)
     if not m:
@@ -2467,12 +2397,7 @@ def set_event_meeting(event_id: str, payload: MeetingIn, cur: User = Depends(get
     ev = db.get_event(event_id)
     if not ev:
         raise HTTPException(404, "Event not found")
-    can_edit = (
-        db.is_tachki(cur.user_id)
-        or db.is_event_leader(cur.user_id, event_id)
-        or db.is_event_leader_deputy(cur.user_id, event_id)
-    )
-    if not can_edit:
+    if not access.allowed(cur.user_id, "event.meeting.edit", "event", event_id):
         raise HTTPException(403, "Forbidden")
     try:
         m = db.set_meeting("event", event_id, payload.title, payload.starts_at, payload.join_url, payload.expected_revision)
@@ -2486,12 +2411,7 @@ def delete_event_meeting(event_id: str, cur: User = Depends(get_current_user)):
     ev = db.get_event(event_id)
     if not ev:
         raise HTTPException(404, "Event not found")
-    can_edit = (
-        db.is_tachki(cur.user_id)
-        or db.is_event_leader(cur.user_id, event_id)
-        or db.is_event_leader_deputy(cur.user_id, event_id)
-    )
-    if not can_edit:
+    if not access.allowed(cur.user_id, "event.meeting.edit", "event", event_id):
         raise HTTPException(403, "Forbidden")
     try:
         db.delete_meeting("event", event_id)
@@ -2505,15 +2425,7 @@ def get_subevent_meeting(subevent_id: str, cur: User = Depends(get_current_user)
     sub = db.get_subevent(subevent_id)
     if not sub:
         raise HTTPException(404, "Subevent not found")
-    can_view = (
-        db.is_tachki(cur.user_id)
-        or db.is_event_leader(cur.user_id, sub.event_id)
-        or db.is_event_leader_deputy(cur.user_id, sub.event_id)
-        or db.is_subevent_leader(cur.user_id, subevent_id)
-        or db.is_subevent_leader_deputy(cur.user_id, subevent_id)
-        or db.is_subevent_organizer(cur.user_id, subevent_id)
-    )
-    if not can_view:
+    if not access.allowed(cur.user_id, "subevent.meeting.view", "subevent", subevent_id):
         raise HTTPException(403, "Forbidden")
     m = db.get_meeting("subevent", subevent_id)
     if not m:
@@ -2526,14 +2438,7 @@ def set_subevent_meeting(subevent_id: str, payload: MeetingIn, cur: User = Depen
     sub = db.get_subevent(subevent_id)
     if not sub:
         raise HTTPException(404, "Subevent not found")
-    can_edit = (
-        db.is_tachki(cur.user_id)
-        or db.is_event_leader(cur.user_id, sub.event_id)
-        or db.is_event_leader_deputy(cur.user_id, sub.event_id)
-        or db.is_subevent_leader(cur.user_id, subevent_id)
-        or db.is_subevent_leader_deputy(cur.user_id, subevent_id)
-    )
-    if not can_edit:
+    if not access.allowed(cur.user_id, "subevent.meeting.edit", "subevent", subevent_id):
         raise HTTPException(403, "Forbidden")
     try:
         m = db.set_meeting("subevent", subevent_id, payload.title, payload.starts_at, payload.join_url, payload.expected_revision)
@@ -2547,14 +2452,7 @@ def delete_subevent_meeting(subevent_id: str, cur: User = Depends(get_current_us
     sub = db.get_subevent(subevent_id)
     if not sub:
         raise HTTPException(404, "Subevent not found")
-    can_edit = (
-        db.is_tachki(cur.user_id)
-        or db.is_event_leader(cur.user_id, sub.event_id)
-        or db.is_event_leader_deputy(cur.user_id, sub.event_id)
-        or db.is_subevent_leader(cur.user_id, subevent_id)
-        or db.is_subevent_leader_deputy(cur.user_id, subevent_id)
-    )
-    if not can_edit:
+    if not access.allowed(cur.user_id, "subevent.meeting.edit", "subevent", subevent_id):
         raise HTTPException(403, "Forbidden")
     try:
         db.delete_meeting("subevent", subevent_id)
@@ -2567,7 +2465,7 @@ def delete_subevent_meeting(subevent_id: str, cur: User = Depends(get_current_us
 
 @router.post("/season-corrections", response_model=SeasonCorrectionOut)
 def correct_season(payload: SeasonCorrectionIn, cur: User = Depends(get_current_user)):
-    if not db.is_tachki(cur.user_id):
+    if not access.allowed(cur.user_id, "season.correct"):
         raise HTTPException(403, "Only tachki can perform season corrections")
     try:
         res = db.correct_season(
@@ -2837,6 +2735,8 @@ def list_unresolved_assignments(
     orphaned_only: bool = False,
     cur: User = Depends(get_current_user),
 ):
+    if not access.allowed(cur.user_id, "queue.view"):
+        raise HTTPException(403, "Forbidden: unresolved assignments are for area leaders")
     items = db.list_unresolved_assignments(
         season_id=season_id,
         scope_kind=scope_kind,

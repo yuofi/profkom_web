@@ -313,6 +313,11 @@ def make_user() -> Callable[..., Actor]:
     поставить любые флаги (admin, super_user, banned) и не зависит
     от валидации регистрации.
     """
+    return user_factory()
+
+
+def user_factory() -> Callable[..., Actor]:
+    """Фабрика make_user вне фикстуры — для данных, общих на весь модуль."""
     counter = {"n": 0}
 
     def _make(
@@ -443,6 +448,10 @@ def anon() -> dict:
 # ─────────────────────────────────────────────────────────────
 @pytest.fixture
 def make_block() -> Callable[..., Block]:
+    return block_factory()
+
+
+def block_factory() -> Callable[..., Block]:
     def _make(
         name: str = "Медиа",
         master: str = "",

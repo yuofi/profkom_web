@@ -2,21 +2,36 @@ import json
 from database import db, SeasonORM, EventORM, SubeventORM, BlockORM, UserORM
 from validation import period, hours, assessment, timestamp
 from participation import in_scope_at
+import access
+
+
+CREATE_ACTIONS = {
+    "chair_merit": "merit.create.chair",
+    "head_merit": "merit.create.head",
+    "block_volunteer": "merit.create.block_volunteer",
+    "subevent_volunteer": "merit.create.subevent_volunteer",
+}
+
+
+def merit_scope(source_kind, event_id, scope_id):
+    """The object a merit's rights are checked against: its event, block or subevent."""
+    return {
+        "head_merit": ("event", event_id),
+        "block_volunteer": ("block", scope_id),
+        "subevent_volunteer": ("subevent", scope_id),
+    }.get(source_kind, (None, None))
+
+
+def can_create(uid, source_kind, event_id, scope_id):
+    kind, sid = merit_scope(source_kind, event_id, scope_id)
+    return access.allowed(uid, CREATE_ACTIONS[source_kind], kind, sid)
 
 
 def can_manage(m, uid, write=False):
-    season = db.get_season(m.season_id)
-    if write and season.state == "closed":
-        return db.is_chair(uid)
-    if db.is_tachki(uid) or db.is_hr_master(uid):
-        return True
-    if m.source_kind == "head_merit":
-        return db.is_event_leader(uid, m.event_id) or db.is_event_leader_deputy(
-            uid, m.event_id
-        )
-    if m.source_kind in ("block_volunteer", "subevent_volunteer"):
-        return db.can_manage_scope(uid, m.scope_kind, m.scope_id)
-    return False
+    """Viewing a merit; with `write`, editing it (a closed season narrows the rule)."""
+    kind, sid = merit_scope(m.source_kind, m.event_id, m.scope_id)
+    state = db.get_season(m.season_id).state if write else None
+    return access.allowed(uid, f"merit.manage.{m.source_kind}", kind, sid, state=state)
 
 
 def validate(s, data):

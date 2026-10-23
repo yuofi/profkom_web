@@ -13,6 +13,7 @@ from api_contract import Page
 from domain_contract import FormerContact as FormerOut
 from validation import Command
 from registration import audit, now, fail
+import access
 
 PRESETS = {
     "default": "По умолчанию",
@@ -200,7 +201,7 @@ def register_routes(router):
             )
 
     def save(payload, uid, cid=None):
-        if not (db.is_tachki(uid) or db.is_hr_master(uid)):
+        if not access.allowed(uid, "former_contact.edit"):
             fail(403, "Former-contact editor required")
         with db._session() as s:
             c = s.get(FormerContactORM, cid) if cid else None

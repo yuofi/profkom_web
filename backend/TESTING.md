@@ -14,6 +14,8 @@ The route inventory in test_api_contract is a literal snapshot. Adding a route r
 
 Legacy tests have been updated for API 1.3: approved content, explicit roles, owner-only current contacts, versioned legacy guide writes, disabled direct block mutation, private uploads and archive instead of physical profile deletion. Former skip-on-fixed-security probes now assert access refusal. Workflow helpers send current revisions explicitly; dedicated stale/concurrency tests check revision conflicts and rollback.
 
+`tests/test_access_matrix.py` builds one synthetic organisation through the API and calls every operation as each of 16 roles. Expectations are the release 1 access table; a capability must be present exactly when the server accepts the command. Writes on shared fixtures send a wrong revision, so 409 means the permission check passed. `ACCESS_MATRIX_DUMP=<file>` writes the observed matrix as JSON for comparison with another commit.
+
 The v13 files cover registration limits/history, exact 72-hour substitution, membership/participation boundaries, tracker privacy and dates, immutable summaries and atomic corrections, historical reports/files, workspace/notifications/XLSX, materials/draft-file ACL, directory/avatars, archive/cleanup/retry queues, old-schema migration and competing commands. Migrations are rehearsed on synthetic old tables and applied twice; original guide text, IDs, PGAS and user counts are checked.
 
 Frontend checks from `frontend/`:

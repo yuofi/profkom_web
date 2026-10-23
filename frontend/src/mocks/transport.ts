@@ -162,6 +162,7 @@ export function installMockTransport(
   };
   const readsSubevent = (id: string) =>
     state.eventManager ||
+    state.global ||  // the HR master reads every subevent too (УВ-4)
     state.subevents.some(
       (s) =>
         s.subevent_id === id &&
@@ -675,7 +676,7 @@ export function installMockTransport(
           options.scenario === "empty"
             ? []
             : clone(
-                filter(state.events, url).filter((e) => readsEvent(e.event_id)),
+                filter(state.events, url),  // event cards are visible to everyone (УВ-3)
               ),
         );
       if (!state.session.capabilities.includes("create_event")) return denied();
@@ -698,16 +699,16 @@ export function installMockTransport(
         ? state.events.find((e) => e.event_id === parts[1])
         : state.subevents.find((s) => s.subevent_id === parts[1]);
       if (!item) return fail(404, "not_found", "Мероприятие недоступно");
-      if (!(isEvent ? readsEvent(parts[1]) : readsSubevent(parts[1])))
-        return denied();
+      if (!isEvent && !readsSubevent(parts[1])) return denied();
       if (parts[2] === "meeting") {
         const kind = isEvent ? "event" : "subevent";
-        if (isEvent && !state.eventManager) return denied();
+        // Same rule as the server: the owner's capabilities decide reading and writing.
+        if (!item.capabilities.includes("view_meeting")) return denied();
         const meeting = state.meetings.find(
           (m) => m.owner_kind === kind && m.owner_id === parts[1],
         );
         if (method === "get") return [200, clone(meeting ?? null)];
-        if (!state.manager) return denied();
+        if (!item.capabilities.includes("edit_meeting")) return denied();
         if (meeting && mismatch(data, meeting)) return conflict();
         if (method === "delete") {
           state.meetings = state.meetings.filter((m) => m !== meeting);
@@ -719,7 +720,7 @@ export function installMockTransport(
           owner_kind: kind,
           owner_id: parts[1],
           revision: (meeting?.revision ?? 0) + 1,
-          capabilities: ["edit_meeting", "delete_meeting"],
+          capabilities: item.capabilities.filter((c) => c === "edit_meeting" || c === "delete_meeting"),
         };
         state.meetings = [
           ...state.meetings.filter((m) => m !== meeting),
@@ -730,7 +731,7 @@ export function installMockTransport(
       if (isEvent && parts[2] === "subevents") {
         if (method === "get")
           return list(
-            clone(state.subevents.filter((s) => s.event_id === parts[1])),
+            clone(state.subevents.filter((s) => s.event_id === parts[1] && readsSubevent(s.subevent_id))),
           );
         if (!state.manager) return denied();
         const sub: Subevent = {
@@ -1277,6 +1278,8 @@ export function installMockTransport(
         );
       if (!state.session.capabilities.includes("create_material"))
         return denied();
+      if (data.kind !== "guide" && !state.session.capabilities.includes("create_shared_material"))
+        return denied();
       const material: Material = {
         ...(data as unknown as Material),
         material_id: id("material"),
@@ -1289,6 +1292,19 @@ export function installMockTransport(
       };
       state.materials.push(material);
       return [201, clone(material)];
+    }
+    if (path === "/materials/deleted") {
+      if (!state.session.capabilities.includes("restore_material")) return denied();
+      return list(state.deletedMaterials.map((m) => ({ ...clone(m), published_content: null, capabilities: ["restore_material"] })));
+    }
+    if (parts[0] === "materials" && parts[2] === "restore") {
+      if (!state.session.capabilities.includes("restore_material")) return denied();
+      const deleted = state.deletedMaterials.find((m) => m.material_id === parts[1]);
+      if (!deleted) return fail(409, "conflict", "Материал не удалён");
+      if (mismatch(data, deleted)) return conflict();
+      state.deletedMaterials = state.deletedMaterials.filter((m) => m !== deleted);
+      state.materials.push(deleted);
+      return changed(deleted);
     }
     if (parts[0] === "materials") {
       const material = state.materials.find((m) => m.material_id === parts[1]);
@@ -1305,6 +1321,8 @@ export function installMockTransport(
       if (method === "delete") {
         if (!material.capabilities.includes("delete_material")) return denied();
         state.materials = state.materials.filter((m) => m !== material);
+        material.revision += 1;
+        state.deletedMaterials.push(material);  // reversible, as on the server
         return [200, {}];
       }
       if (!material.capabilities.includes("edit_material")) return denied();
