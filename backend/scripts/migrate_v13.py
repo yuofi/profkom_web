@@ -1,4 +1,9 @@
-"""Explicit-ID operator migration. Default mode is genuinely read-only."""
+"""Explicit-ID operator migration. Default mode is genuinely read-only.
+
+Both modes report `unresolved`: what the operator still has to map or accept before the
+site opens (MIGRATION_V13.md). After --apply it is the current state of the database;
+`initial_report` keeps the state the first apply found, before any mapping.
+"""
 
 import argparse
 import hashlib
@@ -6,7 +11,13 @@ import json
 import os
 import sqlite3
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import migration_report  # noqa: E402
+
+CATEGORIES = ("junior", "activist")
 
 
 def inspect_database(path):
@@ -24,6 +35,48 @@ def inspect_database(path):
         )
 
 
+def review(path):
+    """The operator's sections, read without changing the database."""
+    with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as c:
+        return dict(
+            unresolved=migration_report.unresolved(c),
+            guides=migration_report.guides(c),
+            categories=migration_report.categories(c),
+        )
+
+
+def schema_gaps(path):
+    """Columns and indexes of the current code that the migrated database lacks."""
+    import database
+    from integrity_migration import INDEXES
+
+    with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as c:
+        missing_columns = {}
+        for table in database.Base.metadata.sorted_tables:
+            have = migration_report.columns(c, table.name)
+            lack = sorted(col.name for col in table.columns if col.name not in have)
+            if lack:
+                missing_columns[table.name] = lack
+        present = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+    wanted = {
+        index.name
+        for table in database.Base.metadata.sorted_tables
+        for index in table.indexes
+        if index.name
+    } | set(INDEXES) | {"uq_notification_event", "ux_contact_info_email", "v13_contact_email_lower"}
+    return dict(missing_columns=missing_columns, missing_indexes=sorted(wanted - present))
+
+
+def echo(mapping):
+    """The applied mapping by IDs only: a category reason stays in the audit log."""
+    out = {k: v for k, v in mapping.items() if k != "categories"}
+    if "categories" in mapping:
+        out["categories"] = [
+            dict(user_id=v["user_id"], category=v["category"]) for v in mapping["categories"]
+        ]
+    return out
+
+
 def apply_mapping(mapping):
     from database import (
         db,
@@ -33,7 +86,9 @@ def apply_mapping(mapping):
         ExternalIdentityORM,
         BlockORM,
     )
-    from domain_models import BlockMetaORM
+    from domain_models import BlockMetaORM, CategoryRevisionORM, ProfileMetadataORM
+    from database import FileRecordORM
+    from legacy_files import legacy_key
     from registration import audit, now
     from participation import dt
     import uuid
@@ -45,6 +100,8 @@ def apply_mapping(mapping):
         "block_masters",
         "vk_identities",
         "participation_intervals",
+        "categories",
+        "reset_avatars",
     }
     if set(mapping) - allowed:
         raise ValueError(
@@ -57,6 +114,14 @@ def apply_mapping(mapping):
                 u = s.get(UserORM, uid)
                 if not u or u.account_state != "active" or u.banned:
                     raise ValueError(f"User {uid} must be approved and active")
+                return u
+
+            def current(uid):
+                # A VK login opens a pending application too: the old VK login created
+                # accounts before their approval.
+                u = s.get(UserORM, uid)
+                if not u or u.banned or u.account_state in ("archived", "purged"):
+                    raise ValueError(f"User {uid} must be a current account")
                 return u
 
             if mapping.get("chair_user_id") is not None:
@@ -117,7 +182,7 @@ def apply_mapping(mapping):
                     or int(value["vk_user_id"]) <= 0
                 ):
                     raise ValueError("Invalid verified VK mapping")
-                active(value["user_id"])
+                current(value["user_id"])
                 subject = "vk:" + str(value["vk_user_id"])
                 existing = s.get(ExternalIdentityORM, subject)
                 other = (
@@ -192,6 +257,52 @@ def apply_mapping(mapping):
                     )
                 )
                 s.flush()
+            for value in mapping.get("categories", []):
+                if (
+                    set(value) != {"user_id", "category", "reason"}
+                    or value["category"] not in CATEGORIES
+                    or not str(value["reason"]).strip()
+                ):
+                    raise ValueError("Invalid category mapping")
+                u = active(value["user_id"])
+                if u.category == value["category"]:
+                    continue
+                rev = s.get(CategoryRevisionORM, u.user_id)
+                if rev:
+                    rev.revision += 1
+                else:
+                    s.add(CategoryRevisionORM(user_id=u.user_id, revision=2))
+                audit(
+                    s,
+                    "participant_category",
+                    u.user_id,
+                    0,
+                    str(value["reason"]).strip(),
+                    dict(category=u.category),
+                    dict(category=value["category"]),
+                )
+                u.category = value["category"]
+                s.flush()
+            # Decision 34: the operator resets by ID a photo the old VK login may have copied.
+            # A photo chosen since then stays; the old object is not deleted.
+            for uid in mapping.get("reset_avatars", []):
+                u = s.get(UserORM, uid) if isinstance(uid, int) else None
+                if not u:
+                    raise ValueError("Invalid avatar reset")
+                if not u.photo_url:
+                    continue
+                meta = s.get(ProfileMetadataORM, uid)
+                if not meta:
+                    meta = ProfileMetadataORM(user_id=uid, participation_periods_json="[]")
+                    s.add(meta)
+                adopted = s.get(FileRecordORM, meta.avatar_file_id) if meta.avatar_file_id else None
+                if adopted and adopted.storage_key and adopted.storage_key == legacy_key(u.photo_url):
+                    meta.avatar_file_id = None
+                if not meta.avatar_file_id:
+                    meta.preset_id = "default"
+                audit(s, "avatar", uid, 0, "Possible copy of a VK photo", dict(legacy_photo=True), dict(preset="default"))
+                u.photo_url = None
+                s.flush()
             # Mapping is idempotent; audit contains IDs, never passwords or OAuth tokens.
             audit(
                 s,
@@ -224,22 +335,42 @@ def main():
         os.environ["DATABASE_PATH"] = str(args.database)
         sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
         import database
-
-        apply_mapping(mapping)
         from domain_models import MigrationORM, BlockMetaORM
 
+        # The state the startup migration leaves before the first mapping (A-DIR-17).
+        with database.db.atomic(), database.db._session() as s:
+            if not s.get(MigrationORM, "v13-initial-report"):
+                s.add(
+                    MigrationORM(
+                        version="v13-initial-report",
+                        completed_at=datetime.now(timezone.utc).isoformat(),
+                        report_json=json.dumps(review(args.database)["unresolved"], ensure_ascii=False),
+                    )
+                )
+                s.commit()
+        apply_mapping(mapping)
         with database.db._session() as s:
+            # What each step recorded when it ran; the current state is `unresolved`.
             report["migrations"] = [
-                dict(version=m.version, report=json.loads(m.report_json))
+                dict(version=m.version, completed_at=m.completed_at, report=json.loads(m.report_json))
                 for m in s.query(MigrationORM)
+                if m.version != "v13-initial-report"
             ]
+            first = s.get(MigrationORM, "v13-initial-report")
+            report["initial_report"] = dict(
+                completed_at=first.completed_at, unresolved=json.loads(first.report_json)
+            )
             report["blocks"] = [
                 dict(block_id=m.block_id, legacy_name=m.legacy_name)
                 for m in s.query(BlockMetaORM)
             ]
+        report["applied_mapping"] = echo(mapping)
+        report.update(review(args.database))
+        report["schema"] = schema_gaps(args.database)
         report["after"] = inspect_database(args.database)
     else:
         report["mapping_fields"] = sorted(mapping)
+        report.update(review(args.database))
     args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     print(
         json.dumps(

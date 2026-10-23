@@ -930,13 +930,19 @@ _ensure_sqlite_session_version()
 
 
 def _ensure_sqlite_users_category_column() -> None:
-    """Add category to existing SQLite DBs."""
+    """Add category to existing SQLite DBs. The accounts that get the default are recorded:
+    the migration gives them a category by the owner's rule (A-DIR-14, decision 36)."""
     with engine.begin() as conn:
         rows = conn.execute(text("PRAGMA table_info(users)")).fetchall()
         col_names = {r[1] for r in rows}
         if "category" not in col_names:
             conn.execute(
                 text("ALTER TABLE users ADD COLUMN category VARCHAR NOT NULL DEFAULT 'junior'")
+            )
+            ids = [r[0] for r in conn.execute(text("SELECT user_id FROM users ORDER BY user_id"))]
+            conn.execute(
+                text("INSERT OR IGNORE INTO domain_migrations (version, completed_at, report_json) VALUES ('v13-category-column', :at, :report)"),
+                dict(at=datetime.now(timezone.utc).isoformat(), report=json.dumps(dict(defaulted_user_ids=ids))),
             )
 
 
@@ -1003,6 +1009,25 @@ def _ensure_sqlite_assignment_columns() -> None:
 
 
 _ensure_sqlite_assignment_columns()
+
+
+def _ensure_sqlite_memberships_observed_since() -> None:
+    """Add observed_since to memberships of databases migrated before it (A-DIR-18). The
+    start recorded by the migration report becomes the row's own value."""
+    with engine.begin() as conn:
+        names = {r[1] for r in conn.execute(text("PRAGMA table_info(memberships)")).fetchall()}
+        if not names or "observed_since" in names:
+            return
+        conn.execute(text("ALTER TABLE memberships ADD COLUMN observed_since VARCHAR"))
+        row = conn.execute(text("SELECT report_json FROM domain_migrations WHERE version='v13-observed-participation'")).first()
+        for membership_id, at in (json.loads(row[0]).get("memberships_observed_since", {}) if row else {}).items():
+            conn.execute(
+                text("UPDATE memberships SET observed_since=:at WHERE membership_id=:id AND joined_at IS NULL"),
+                dict(at=at, id=membership_id),
+            )
+
+
+_ensure_sqlite_memberships_observed_since()
 
 
 def _split_fio(raw: str) -> tuple[str, str, str]:
@@ -1135,6 +1160,20 @@ def _ensure_sqlite_unique_contact_email() -> None:
 
 
 _ensure_sqlite_unique_contact_email()
+
+
+def _ensure_contact_email_lower_index() -> None:
+    """One account per address regardless of case (A-ROL-16). A database that still holds
+    such pairs keeps working: the migration report lists them (unresolved.email_case_groups),
+    and the index appears on the first start after they are resolved (decision 39)."""
+    with engine.begin() as conn:
+        if conn.execute(text("SELECT 1 FROM contact_info GROUP BY lower(email) HAVING COUNT(*) > 1 LIMIT 1")).first():
+            logging.getLogger(__name__).warning("Accounts share an email in different case; see the migration report")
+            return
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS v13_contact_email_lower ON contact_info (lower(email))"))
+
+
+_ensure_contact_email_lower_index()
 
 
 def _user_orm_to_dc(u: UserORM) -> UserDC:

@@ -1252,11 +1252,10 @@ def my_profile(cur: User = Depends(get_current_user)):
 @router.get("/profile/{user_id}", response_model=ProfileOut, response_model_exclude_none=True)
 def get_profile(user_id: int, cur: User = Depends(get_current_user)):
     user = db.get_user(user_id)
-    if not user or user.account_state!="active":
-        raise HTTPException(404, "User not found")
     contact = db.get_contact(user_id)
-    if not contact:
-        raise HTTPException(500, "Contact info missing for user")
+    # A row without contacts is no participant: the same answer as a missing one (A-DIR-16).
+    if not user or user.account_state!="active" or not contact:
+        raise HTTPException(404, "User not found")
     return ProfileOut(**{**user.__dict__, "photo_url": __import__("directory").avatar_url(user_id), "kkr_score": user.kkr_score if access.allowed(cur.user_id, "kkr.view") else None}, kkr_name=contact.kkr_name, email=contact.email, tg=contact.tg)
 
 

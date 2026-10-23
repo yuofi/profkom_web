@@ -771,3 +771,46 @@ def test_imena_iz_vk_sohranyayutsya_kak_est(client, mock_vk, first_name, last_na
     assert contact.name == first_name.strip(), "имя изменено при сохранении"
     assert contact.surname == last_name.strip(), "фамилия изменена при сохранении"
     assert contact.kkr_name == f"{first_name.strip()} {last_name.strip()}", "kkr_name собран неверно"
+
+
+# ─────────────────────────────────────────────────────────────
+#  12. Аккаунты старого сайта без привязки VK (FIX_PLAN 2.18, MIGRATION-08)
+# ─────────────────────────────────────────────────────────────
+def _accounts() -> int:
+    from database import UserORM
+
+    with db._session() as s:
+        return s.query(UserORM).count()
+
+
+@pytest.mark.parametrize("link", ["https://vk.com/id4242001", "http://m.vk.com/id4242001/", "https://VK.ru/id4242001"])
+def test_vk_of_an_unlinked_old_account_is_refused_and_creates_nothing(client, make_user, mock_vk, link):
+    """The old VK login saved this link but no identity: 409, no second account; after
+    the operator's link the same VK signs in to that account."""
+    owner = make_user(password=None, vk=link, in_profcom=True)
+    mock_vk(user_id="4242001")
+    before = _accounts()
+
+    refused = _post(client, access_token="tok")
+
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["detail"] == "This VK is named by an existing account; it must be linked first"
+    assert _accounts() == before
+    db.link_external_identity(owner.user_id, "vk:4242001")
+    signed_in = _post(client, access_token="tok")
+    assert signed_in.status_code == 200 and _sub(signed_in.json()["access_token"]) == owner.user_id
+
+
+def test_a_similar_link_or_an_archived_account_does_not_hold_a_vk(client, make_user, mock_vk):
+    make_user(vk="https://vk.com/id42420010")  # another VK ID that starts the same
+    archived = make_user(vk="https://vk.com/id4242002")
+    with db._session() as s:
+        from database import UserORM
+
+        s.get(UserORM, archived.user_id).account_state = "archived"
+        s.commit()
+    for vk_id in ("4242001", "4242002"):
+        mock_vk(user_id=vk_id)
+        r = _post(client, access_token="tok")
+        assert r.status_code == 200, r.text
+        assert _sub(r.json()["access_token"]) != archived.user_id

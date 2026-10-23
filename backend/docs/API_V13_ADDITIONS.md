@@ -416,6 +416,10 @@ capability выдаётся ровно тогда, когда сервер вы�
 - Препятствие закрытию сезона, кроме `kind`, `owner_kind`, `owner_id` и
   технического `title`, содержит `subject` (название задачи, мероприятия или
   сезона) и `assignee` (имя исполнителя назначения).
+- `POST /auth/vk` (маршрут старого сайта, `detail` строкой) — 409
+  `vk_link_required`, если VK ID назван в сохранённой ссылке действующего аккаунта,
+  а привязки VK у него нет: так выглядят аккаунты старого входа через VK до карты
+  миграции. Второй аккаунт не создаётся (FIX_PLAN 2.18, MIGRATION_V13.md).
 
 Коды: `unauthenticated`, `forbidden`, `not_found`, `conflict`, `revision_conflict`,
 `season_closed`, `season_not_ready`, `planned_exists`, `final_report_exists`,
@@ -423,6 +427,6 @@ capability выдаётся ровно тогда, когда сервер вы�
 `master_conflicts`, `chair_transfer_required`, `restore_deputy_limit`,
 `already_chair`, `already_member`, `email_taken`, `name_taken`, `inactive_user`,
 `unknown_user`, `deputy_limit`, `duplicate_users`, `self_deputy`,
-`identity_linked`, `duplicate_files`, `upload_missing`, `upload_expired`,
-`unavailable`. Статус без своего кода приходит с `http_<статус>`. Тест
+`identity_linked`, `vk_link_required`, `duplicate_files`, `upload_missing`,
+`upload_expired`, `unavailable`. Статус без своего кода приходит с `http_<статус>`. Тест
 `test_every_code_has_a_russian_text` сверяет коды backend с таблицей текстов.

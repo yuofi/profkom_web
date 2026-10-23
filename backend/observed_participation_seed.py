@@ -39,7 +39,8 @@ def seed_observed_participation(at=None):
                     user_id=user.user_id, left_at=None
                 ):
                     if member.joined_at is None:
-                        memberships[member.membership_id] = stamp
+                        member.observed_since = member.observed_since or stamp
+                        memberships[member.membership_id] = member.observed_since
             s.add(
                 MigrationORM(
                     version=VERSION,

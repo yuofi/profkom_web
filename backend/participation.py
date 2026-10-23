@@ -56,7 +56,9 @@ def participation_seconds(
         for m in session.query(MembershipORM).filter_by(
             participant_id=participant_id, block_id=block_id
         ):
-            known_start = m.joined_at or observations.get(m.membership_id)
+            known_start = (
+                m.joined_at or m.observed_since or observations.get(m.membership_id)
+            )
             if known_start:
                 members.append(
                     (max(a, dt(known_start)), min(b, dt(m.left_at) if m.left_at else b))

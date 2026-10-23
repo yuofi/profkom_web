@@ -2,12 +2,22 @@
 
 import json
 import os
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
 from fastapi import HTTPException
-from database import db
+from database import db, ContactInfoORM, ExternalIdentityORM, UserORM
+from errors import Conflict
 from models import User, ContactInfo
+
+# How the old site saved the link of an account it created on a VK login (6eb9dea main.py:493).
+VK_LINK = re.compile(r"https?://(?:www\.|m\.)?vk\.(?:com|ru)/id(\d+)/?", re.IGNORECASE)
+
+
+def vk_id_of_link(link):
+    match = VK_LINK.fullmatch((link or "").strip())
+    return match.group(1) if match else None
 
 # The VK ID application of the site; must equal the frontend's VITE_APP_ID.
 if os.getenv("APP_ENV") == "production" and not os.getenv("VK_CLIENT_ID", "").strip():
@@ -47,6 +57,22 @@ def verified_identity(token: str) -> dict:
     return {**user, "subject": "vk:" + subject, "vk_id": subject}
 
 
+def unlinked_account(vk_id):
+    """A current account that names this VK in its profile but has no VK identity yet."""
+    with db._session() as s:
+        rows = (
+            s.query(ContactInfoORM.user_id, ContactInfoORM.vk)
+            .join(UserORM, UserORM.user_id == ContactInfoORM.user_id)
+            .outerjoin(ExternalIdentityORM, ExternalIdentityORM.user_id == UserORM.user_id)
+            .filter(
+                ExternalIdentityORM.subject.is_(None),
+                UserORM.account_state.notin_(("archived", "purged")),
+                ContactInfoORM.vk.like(f"%id{vk_id}%"),
+            )
+        )
+        return any(vk_id_of_link(link) == vk_id for _, link in rows)
+
+
 def login_user(identity: dict):
     """The account of a verified VK identity; a new pending one for an unknown identity."""
     user = db.get_external_user(identity["subject"])
@@ -54,6 +80,11 @@ def login_user(identity: dict):
         if user.banned or user.account_state == "archived":
             raise HTTPException(403, "Account unavailable")
         return user
+    # An account of the old site keeps the VK link its VK login saved, but no identity: the
+    # operator links it by ID (MIGRATION_V13.md). A second account is not created, and a
+    # profile link alone does not sign in (MIGRATION-08).
+    if unlinked_account(identity["vk_id"]):
+        raise Conflict("This VK is named by an existing account; it must be linked first", "vk_link_required")
     # A VK email/name is not proof of ownership of an existing local account.
     email = identity.get("email") or f"vk_{identity['vk_id']}@vk.com"
     if db.get_user_by_email(email):

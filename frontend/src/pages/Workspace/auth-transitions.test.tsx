@@ -85,6 +85,18 @@ it("A03: VK SDK and API failures are visible", async () => {
   expect(page.container.querySelector('[role="alert"]')?.textContent).not.toContain("VK ID is");
 });
 
+it("2.18 MIGRATION-08: the VK of an old account that is not linked yet is named, not a changed record", async () => {
+  adapter = new MockAdapter(api);
+  // As backend/vk_auth.py answers for an account of the old site without a VK identity.
+  adapter.onPost("/auth/vk").reply(409, { detail: "This VK is named by an existing account; it must be linked first" });
+  page = await mountWorkspace(<HelmetProvider><GreetingPage /></HelmetProvider>);
+  await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "VK test")!.click());
+  await settle();
+  const alert = page.container.querySelector('[role="alert"]')?.textContent;
+  expect(alert).toBe("Ваш VK ещё не привязан к аккаунту на сайте. Обратитесь к председателю или заму.");
+  expect(adapter.history.post.map((r) => r.url)).toEqual(["/auth/vk"]);
+});
+
 it("A03: pending logout revokes the server session and clears private caches before navigation", async () => {
   const f = createFixtures("pending");
   adapter = new MockAdapter(api);

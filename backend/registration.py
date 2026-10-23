@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from fastapi import Depends, HTTPException
 from auth import get_current_user
 from database import db, UserORM, ContactInfoORM, AuditLogORM, NotificationORM
-from domain_models import RegistrationORM, ParticipationORM
+from domain_models import RegistrationORM, ParticipationORM, MembershipORM
 from models import User
 from api_contract import Page
 from domain_contract import RegistrationApplication as ApplicationOut
@@ -302,6 +302,11 @@ def register_routes(router):
                                 started_at=now(),
                             )
                         )
+                    # A roster row of the old site is observed from the approval (A-DIR-18).
+                    for member in s.query(MembershipORM).filter_by(
+                        user_id=user_id, left_at=None, joined_at=None, observed_since=None
+                    ):
+                        member.observed_since = now()
                     r.status = "approved"
                     r.rejection_reason = None
                 else:

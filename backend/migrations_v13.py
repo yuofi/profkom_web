@@ -18,10 +18,15 @@ def migrate_core():
                 "blocks": 0,
                 "unmapped_block_ids": [],
                 "unknown_participation_dates": [],
+                "incomplete_user_ids": [],
             }
             for u in s.query(UserORM):
                 c = s.get(ContactInfoORM, u.user_id)
                 if not c:
+                    # A row without contacts is not a participant (A-DIR-16, decision 35).
+                    if u.account_state != "archived":
+                        u.account_state = "pending"
+                    report["incomplete_user_ids"].append(u.user_id)
                     continue
                 if u.account_state != "archived":
                     u.account_state = (
@@ -31,9 +36,10 @@ def migrate_core():
                 report["users"] += 1
                 if u.account_state == "active":
                     report["unknown_participation_dates"].append(u.user_id)
+            categorize(s)
             for b in s.query(BlockORM):
                 m = meta_for(s, b.name)
-                seed_members(s, b, m)
+                seed_members(s, b, m, migrated=True)
                 report["blocks"] += 1
                 if b.master and not b.master_user_id:
                     report["unmapped_block_ids"].append(m.block_id)
@@ -61,6 +67,49 @@ def migrate_core():
                 )
             )
             s.commit()
+
+
+def categorize(s):
+    """Approved accounts of the old site, which called them all activists, keep that
+    category: they are not demoted for lack of old dates (CODEX_BACKEND.md:2141,
+    decision 36). Only the accounts that got the default of the new column change."""
+    from database import AuditLogORM
+    from domain_models import CategoryRevisionORM
+
+    column = s.get(MigrationORM, "v13-category-column")
+    if not column or s.get(MigrationORM, "v13-categories"):
+        return
+    decided = {"activist": [], "junior": []}
+    for uid in json.loads(column.report_json)["defaulted_user_ids"]:
+        u = s.get(UserORM, uid)
+        if not u or u.account_state != "active" or u.banned or u.category != "junior":
+            decided["junior"].append(uid)
+            continue
+        u.category = "activist"
+        rev = s.get(CategoryRevisionORM, uid)
+        if rev:
+            rev.revision += 1
+        else:
+            s.add(CategoryRevisionORM(user_id=uid, revision=2))
+        # registration.audit, which this startup step cannot import yet.
+        s.add(
+            AuditLogORM(
+                target_kind="participant_category",
+                target_id=str(uid),
+                changed_by_user_id=0,
+                reason="Approved participant of the old site",
+                old_values_json=json.dumps(dict(category="junior")),
+                new_values_json=json.dumps(dict(category="activist")),
+                created_at=now(),
+            )
+        )
+        decided["activist"].append(uid)
+    s.add(
+        MigrationORM(
+            version="v13-categories", completed_at=now(), report_json=json.dumps(decided)
+        )
+    )
+    s.flush()
 
 
 def preserve_closed_summaries():

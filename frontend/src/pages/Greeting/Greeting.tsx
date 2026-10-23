@@ -11,7 +11,7 @@ import { authApi } from "../../utils/api/auth.api";
 import { VKAuthButton } from "../../components/VKAuth/authButton";
 import { type TokenResult } from "@vkid/sdk";
 import { completeAuthentication } from "../../utils/authSession";
-import { userMessage } from "../../utils/api/messages";
+import { ERROR_TEXTS, userMessage } from "../../utils/api/messages";
 import { useNavigate } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
 import { useQueryClient } from "@tanstack/react-query";
@@ -24,6 +24,8 @@ const LOGIN_TEXTS = {
 const VK_TEXTS = {
   401: "Не удалось войти через VK. Повторите попытку.",
   403: LOGIN_TEXTS[403],
+  // A VK of an existing account that is not linked yet (MIGRATION_V13.md): no second account.
+  409: ERROR_TEXTS.vk_link_required,
   503: "VK временно недоступен. Повторите позже.",
 };
 

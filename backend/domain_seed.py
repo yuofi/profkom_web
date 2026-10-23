@@ -4,7 +4,7 @@ import json, uuid
 from datetime import datetime, timezone
 from fastapi import HTTPException
 from database import db, UserORM, ContactInfoORM, BlockORM
-from domain_models import RegistrationORM, BlockMetaORM, MembershipORM
+from domain_models import RegistrationORM, BlockMetaORM, MembershipORM, MigrationORM
 
 
 def now():
@@ -72,23 +72,29 @@ def meta_for(s, name):
     return m
 
 
-def seed_members(s, b, m):
-    # Existing membership is preserved, with an explicitly unknown start date.
+def seed_members(s, b, m, migrated=False):
+    """Rows for the legacy roster of a block, with an explicitly unknown start date. The
+    migration gives a confirmed roster the category «участник» (decision 36); a row added
+    after it is observed from now on if the account is approved (A-DIR-18)."""
+    observed = s.get(MigrationORM, "v13-observed-participation") is not None
     for uid in json.loads(b.arr_of_human or "[]"):
+        u = s.get(UserORM, uid)
         if (
-            s.get(UserORM, uid)
+            u
             and not s.query(MembershipORM)
             .filter_by(user_id=uid, block_id=m.block_id, left_at=None)
             .first()
         ):
+            approved = u.account_state == "active" and not u.banned
             s.add(
                 MembershipORM(
                     membership_id=str(uuid.uuid4()),
                     user_id=uid,
                     participant_id=f"participant-{uid}",
                     block_id=m.block_id,
-                    category="junior",
+                    category="member" if migrated and approved else "junior",
                     joined_at=None,
+                    observed_since=now() if observed and approved else None,
                 )
             )
     s.flush()

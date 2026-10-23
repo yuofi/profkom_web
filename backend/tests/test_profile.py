@@ -379,14 +379,14 @@ def test_профиль_me_не_перехватывается_маршруто�
     )
 
 
-def test_профиль_по_id_без_contact_info_500(client, user):
-    """Пользователь есть, строки contact_info нет — 500 Contact info missing for user."""
+def test_профиль_по_id_без_contact_info_404(client, user):
+    """Пользователь есть, строки contact_info нет — 404, как у несуществующего (A-DIR-16)."""
     _drop_contact(user.user_id)
 
     resp = client.get(f"{API}/{user.user_id}", headers=user.headers)
 
-    assert resp.status_code == 500, "рассинхрон базы обязан давать явную 500"
-    assert resp.json()["detail"] == "Contact info missing for user", "неожиданный detail"
+    assert resp.status_code == 404, "строка без контактов — не участник"
+    assert resp.json()["detail"] == "User not found", "неожиданный detail"
 
 
 def test_профиль_по_id_забаненного_виден(client, banned_user, user):

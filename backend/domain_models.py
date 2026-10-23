@@ -54,6 +54,9 @@ class MembershipORM(Base):
     joined_at = Column(
         String, nullable=True
     )  # Unknown migration dates are never invented.
+    # Since when the membership of an approved account is known when joined_at is not:
+    # the migration, the approval of the account or a roster row added later (A-DIR-18).
+    observed_since = Column(String, nullable=True)
     left_at = Column(String, nullable=True)
     __table_args__ = (
         Index(
