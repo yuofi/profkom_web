@@ -323,6 +323,7 @@ GLOBAL_CAPS = {
     "restore_account": "account.restore",
     "open_season": "season.open",
     "close_season": "season.close",
+    "view_all_areas": "dashboard.all",  # the home page lists every block and event
 }
 
 

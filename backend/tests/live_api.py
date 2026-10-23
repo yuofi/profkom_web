@@ -113,6 +113,10 @@ def serve():
     if args.request_log:
         install_request_log(main.app, args.request_log.resolve())
     if args.integration_suite:
+        # Small pages make the suite walk every cursor list page by page (A-EVT-10).
+        import api_contract
+
+        api_contract.PAGE_SIZE = 3
         nonce = os.environ.get("PROFKOM_TEST_API_NONCE") or secrets.token_hex(16)
         install_integration_nonce(main.app, nonce)
         print(

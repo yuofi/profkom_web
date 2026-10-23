@@ -21,6 +21,7 @@ import {
 import { displayDate } from "../../utils/dates";
 import { monthDays, moscowDay } from "../../utils/calendar";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
+import { can, useSession } from "../../utils/session";
 import type { CalendarItem } from "../../utils/api/contract";
 import s from "../../components/Workspace/Workspace.module.css";
 import c from "./calendar.module.css";
@@ -28,6 +29,7 @@ function useSeasons() {
   return useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
 }
 export function DashboardPage() {
+  const { session } = useSession();
   const query = useQuery({
     queryKey: ["dashboard"],
     queryFn: workspaceApi.dashboard,
@@ -168,7 +170,7 @@ export function DashboardPage() {
               )}
               <RouteLink to="/calendar">Календарь</RouteLink>
             </Card>
-            <Card title="Мои команды">
+            <Card title={can(session, "view_all_areas") ? "Все блоки и мероприятия" : "Мои команды"}>
               <ul className={s.list}>
                 {data.my_blocks.map((b) => (
                   <li key={b.block_id}>

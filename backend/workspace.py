@@ -150,16 +150,19 @@ def dashboard(uid):
                 and meeting_read(uid, m)
             ):
                 meetings.append(meeting_dict(uid, m))
+        # The chair, deputies and HR master see every block and event (АВ-26, АВ-35).
+        everything = access.allowed(uid, "dashboard.all")
         events = []
         for e in db.list_events():
-            if live(e.season_id) and own_event(uid, e.event_id):
+            if live(e.season_id) and (everything or own_event(uid, e.event_id)):
                 events.append(main._to_event_out(e))
         from membership import blocks_for, requests_for
 
         blocks = [
             b
             for b in blocks_for(uid)
-            if any(m["user"]["user_id"] == uid for m in b["members"])
+            if everything
+            or any(m["user"]["user_id"] == uid for m in b["members"])
             or (
                 b["master"]
                 and (

@@ -79,6 +79,7 @@ const allManagement = [
   "create_volunteer_merit",
 ];
 const globalCaps = [
+  "view_all_areas",
   "view_kkr",
   "view_summary",
   "edit_decisions",

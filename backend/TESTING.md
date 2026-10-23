@@ -34,6 +34,8 @@ The integration suite destroys data (it closes seasons), so it has no default ta
 python tests/live_api.py --integration-suite --port 18080
 ```
 
+With `--integration-suite` cursor lists answer in pages of 3 (`api_contract.PAGE_SIZE`), so the suite walks them page by page.
+
 Then run from `frontend/` with both values; without them, or if the API does not return the same nonce, the suite stops before the first test:
 
 ```sh

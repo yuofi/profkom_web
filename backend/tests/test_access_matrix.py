@@ -525,9 +525,10 @@ EXPECTED = {
     "R1": SUB_LEAD, "R2": EVENT_LEAD,  # АВ-27
     "R3": TACHKI | HRM | EVENT_LEAD | SUB_TEAM, "R4": SUB_LEAD, "R5": SUB_LEAD,
     "R6": TACHKI | HRM | EVENT_LEAD, "R7": EVENT_LEAD,
-    # Closed season: the authors of that season keep access; the snapshot rules are step 5 (ACC-08).
-    "R8": TACHKI | HRM | {"head1"}, "R9": TACHKI | HRM | {"resp1"},
-    "R10": TACHKI | HRM | {"head1"}, "R11": TACHKI | HRM | {"resp1"},
+    # Closed season: the snapshot keeps its leads; the head organizer only reads the
+    # subevent's reports and history (decision 19, ACC-08).
+    "R8": TACHKI | HRM | {"head1"}, "R9": TACHKI | HRM | {"resp1", "head1"},
+    "R10": TACHKI | HRM | {"head1"}, "R11": TACHKI | HRM | {"resp1", "head1"},
     "R12": {"head1"}, "R13": {"resp1"},
     "M1": TACHKI | HRM | EVENT_LEAD | SUB_LEAD, "M2": TACHKI | EVENT_LEAD,
     "M3": TACHKI | HRM | EVENT_LEAD | SUB_TEAM, "M4": TACHKI | EVENT_LEAD | SUB_LEAD,
@@ -633,3 +634,31 @@ def test_dump_current_matrix(org):
         out[role] = {"status": results, "caps": {k: sorted(v) for k, v in caps.items()}}
     with open(os.environ["ACCESS_MATRIX_DUMP"], "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=1)
+
+
+@pytest.mark.parametrize("role", ROLES)
+def test_report_series_lists_exactly_the_histories_a_role_opens(org, role):
+    """FIX_PLAN 2.2 (A-EVT-6): /report-series and /report-history follow one rule."""
+    every = [s["series_id"] for s in org.req("GET", "/report-series")["items"]]
+    status, body = org.raw("GET", "/report-series", who=role)
+    listed = {s["series_id"] for s in body["items"]} if status == 200 else set()
+    opened = {s for s in every if org.raw("GET", f"/report-history?series_id={s}", who=role)[0] == 200}
+    assert listed == opened, role
+
+
+@pytest.mark.parametrize("role", ROLES)
+def test_home_page_lists_every_area_for_the_chair_deputies_and_hr_master(org, role):
+    """АВ-26, АВ-35: the chair, deputies and HR master see every block and every event of
+    an unclosed season on the home page; others see their own. `view_all_areas` in
+    /session says which of the two the page shows."""
+    everything = role in TACHKI | HRM
+    live = {s["season_id"] for s in org.req("GET", "/seasons")["items"] if s["state"] != "closed"}
+    all_events = {e["event_id"] for e in org.req("GET", "/events")["items"] if e["season_id"] in live}
+    all_blocks = {b["block_id"] for b in org.req("GET", "/blocks")}
+    dash = org.req("GET", "/dashboard", who=role)
+    events, blocks = {e["event_id"] for e in dash["my_events"]}, {b["block_id"] for b in dash["my_blocks"]}
+    assert ("view_all_areas" in org.req("GET", "/session", who=role)["capabilities"]) == everything
+    if everything:
+        assert (events, blocks) == (all_events, all_blocks)
+    else:
+        assert events < all_events and blocks <= all_blocks

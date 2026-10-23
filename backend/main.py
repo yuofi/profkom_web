@@ -6,7 +6,7 @@ import access
 import membership
 import vk_auth  # noqa: F401  (fails at startup without VK_CLIENT_ID in production)
 import contact_rules
-from api_contract import Page, install_errors
+from api_contract import Page, cursor_page, install_errors
 from validation import Command
 from datetime import datetime, timezone
 from typing import List, Optional, Union, Literal
@@ -2138,9 +2138,9 @@ def close_season(season_id: str, payload: SeasonRevisionIn, cur: User = Depends(
 
 @router.get("/report-series", response_model=Page[ReportSeriesOut])
 def list_report_series(cur: User = Depends(get_current_user)):
-    from report_access import historical_reader
+    from report_access import series_reader
     with db._session() as session:
-        items=[r for r in db.list_report_series() if historical_reader(session,r.series_id,cur.user_id) or any(db.can_read_report(cur.user_id,report,session) for report in session.query(database_module.ReportORM).filter_by(report_series_id=r.series_id))]
+        items=[r for r in db.list_report_series() if series_reader(session,r.series_id,cur.user_id)]
         return Page(items=[ReportSeriesOut(series_id=r.series_id,owner_kind=r.owner_kind,title=r.title,parent_series_id=r.parent_series_id) for r in items])
 
 
@@ -2732,6 +2732,7 @@ def list_unresolved_assignments(
     scope_kind: Optional[str] = None,
     scope_id: Optional[str] = None,
     orphaned_only: bool = False,
+    cursor: Optional[str] = None,
     cur: User = Depends(get_current_user),
 ):
     if not access.allowed(cur.user_id, "queue.view"):
@@ -2743,8 +2744,9 @@ def list_unresolved_assignments(
         orphaned_only=orphaned_only,
         current_user_id=cur.user_id,
     )
+    page = cursor_page(items, lambda u: (u.deadline_at or "", u.assignment.assignment_id), cursor)
     return {
-        "next_cursor": None,
+        "next_cursor": page.next_cursor,
         "items": [
             UnresolvedAssignmentOut(
                 assignment=_to_assignment_public_out(u.assignment),
@@ -2754,7 +2756,7 @@ def list_unresolved_assignments(
                 scope=membership.scope_out(u.scope),
                 deadline_at=u.deadline_at,
             )
-            for u in items
+            for u in page.items
         ]
     }
 
@@ -2894,6 +2896,7 @@ def list_assessments(
     source_id: Optional[str] = None,
     participant_id: Optional[str] = None,
     user_id: Optional[int] = None,
+    cursor: Optional[str] = None,
     cur: User = Depends(get_current_user),
 ):
     try:
@@ -2905,7 +2908,8 @@ def list_assessments(
             participant_id=participant_id,
             user_id=user_id,
         )
-        return {"items": [_to_calculated_contribution_out(c) for c in items], "next_cursor": None}
+        page = cursor_page(items, lambda c: (c.created_at, c.contribution_id), cursor, descending=True)
+        return {"items": [_to_calculated_contribution_out(c) for c in page.items], "next_cursor": page.next_cursor}
     except ValueError as e:
         if "Forbidden" in str(e):
             raise HTTPException(403, str(e))
@@ -2990,10 +2994,11 @@ def patch_merit(merit_id: str, payload: MeritPatchIn, cur: User = Depends(get_cu
 # ── Master Bonuses ──
 
 @router.get("/seasons/{season_id}/master-bonuses")
-def list_master_bonuses(season_id: str, block_id: Optional[str] = None, cur: User = Depends(get_current_user)):
+def list_master_bonuses(season_id: str, block_id: Optional[str] = None, cursor: Optional[str] = None, cur: User = Depends(get_current_user)):
     try:
         items = db.list_master_bonuses(season_id=season_id, current_user_id=cur.user_id, block_id=block_id)
-        return {"items": [_to_master_bonus_out(b) for b in items], "next_cursor": None}
+        page = cursor_page(items, lambda b: (b.block_id, b.bonus_id), cursor)
+        return {"items": [_to_master_bonus_out(b) for b in page.items], "next_cursor": page.next_cursor}
     except ValueError as e:
         if "Forbidden" in str(e):
             raise HTTPException(403, str(e))
@@ -3286,10 +3291,11 @@ def publish_report(report_id: str, payload: ReportPublishIn, cur: User = Depends
 
 
 @router.get("/reports/{report_id}/versions", response_model=Page[ReportVersionOut])
-def list_report_versions(report_id: str, cur: User = Depends(get_current_user)):
+def list_report_versions(report_id: str, cursor: Optional[str] = None, cur: User = Depends(get_current_user)):
     try:
         versions = db.list_report_versions(report_id, cur.user_id)
-        return Page(items=[_to_report_version_out(rv) for rv in versions])
+        page = cursor_page(versions, lambda rv: (rv.version,), cursor)
+        return Page(items=[_to_report_version_out(rv) for rv in page.items], next_cursor=page.next_cursor)
     except LookupError as e:
         raise HTTPException(404, str(e))
     except ValueError as e:
@@ -3303,11 +3309,13 @@ def list_report_versions(report_id: str, cur: User = Depends(get_current_user)):
 def list_report_history(
     series_id: str,
     year: Optional[int] = None,
+    cursor: Optional[str] = None,
     cur: User = Depends(get_current_user),
 ):
     try:
         items = db.list_report_history(series_id, year, cur.user_id)
-        return Page(items=[_to_report_out(r) for r in items])
+        page = cursor_page(items, lambda r: (r.published_at or "", r.report_id), cursor, descending=True)
+        return Page(items=[_to_report_out(r) for r in page.items], next_cursor=page.next_cursor)
     except LookupError as e:
         raise HTTPException(404, str(e))
     except ValueError as e:

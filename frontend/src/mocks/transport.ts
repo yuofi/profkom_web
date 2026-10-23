@@ -689,10 +689,13 @@ export function installMockTransport(
               ),
         );
       if (!state.session.capabilities.includes("create_event")) return denied();
+      // As on the server: an existing series must be an event series.
+      if (data.report_series_id && !state.events.some((e) => e.report_series_id === data.report_series_id))
+        return fail(422, "invalid_input", "Invalid report_series_id for event");
       const event: Event = {
         ...(data as unknown as Event),
         event_id: id("event"),
-        report_series_id: id("series"),
+        report_series_id: (data.report_series_id as string | undefined) ?? id("series"),
         leaders: [],
         starts_at: null,
         ends_at: null,
@@ -743,13 +746,18 @@ export function installMockTransport(
             clone(state.subevents.filter((s) => s.event_id === parts[1] && readsSubevent(s.subevent_id))),
           );
         if (!state.manager) return denied();
+        // As on the server: an existing series must be a child series of the parent's.
+        const parentSeries = state.events.find((e) => e.event_id === parts[1])?.report_series_id;
+        if (data.report_series_id && !state.subevents.some((x) => x.report_series_id === data.report_series_id
+          && state.events.find((e) => e.event_id === x.event_id)?.report_series_id === parentSeries))
+          return fail(409, "conflict", "Invalid report_series_id for subevent: must be child series of parent event");
         const sub: Subevent = {
           ...(data as unknown as Subevent),
           subevent_id: id("subevent"),
           event_id: parts[1],
           leaders: [],
           organizer_user_ids: [],
-          report_series_id: id("series"),
+          report_series_id: (data.report_series_id as string | undefined) ?? id("series"),
           revision: 1,
           capabilities: state.subevents[0]?.capabilities ?? [],
         };
@@ -1674,6 +1682,7 @@ export function installMockTransport(
           my_blocks: clone(
             state.blocks.filter(
               (b) =>
+                state.session.capabilities.includes("view_all_areas") ||
                 b.members.some(
                   (m) => m.user.user_id === state.session.user_id,
                 ) ||

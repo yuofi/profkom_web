@@ -641,3 +641,42 @@ def test_season_corrections_только_тачки_атомарный_пере�
     r_check = client.get(f"{EVENTS_URL}/{ev_id}", headers=superuser.headers)
     assert r_check.status_code == 200
     assert r_check.json()["season_id"] == s2_id
+
+
+def test_series_choice_on_creation_continues_history(client, superuser, user, make_user):
+    """FIX_PLAN 2.21 (A-EVT-12): a new instance may continue an existing series; a
+    subevent only a child series of its own event's series."""
+    other = make_user(email="user2@test.local")
+    past = client.post(SEASONS_URL, json={"title": "Сезон 1", "type": "winter_spring", "starts_at": "2026-01-01T00:00:00Z",
+                                          "ends_at": "2026-05-31T23:59:59Z"}, headers=superuser.headers).json()
+    assert client.post(f"{SEASONS_URL}/{past['season_id']}/open", json={"expected_revision": 1}, headers=superuser.headers).status_code == 200
+    old = client.post(EVENTS_URL, json={"season_id": past["season_id"], "title": "Посвят"}, headers=superuser.headers).json()
+    assert client.put(f"{EVENTS_URL}/{old['event_id']}/leaders", json={"user_ids": [other.user_id], "expected_revision": 1}, headers=superuser.headers).status_code == 200
+    old_sub = client.post(f"{EVENTS_URL}/{old['event_id']}/subevents", json={"title": "Лекции"}, headers=superuser.headers).json()
+    foreign = client.post(EVENTS_URL, json={"season_id": past["season_id"], "title": "Другое"}, headers=superuser.headers).json()
+    foreign_sub = client.post(f"{EVENTS_URL}/{foreign['event_id']}/subevents", json={"title": "Чужое"}, headers=superuser.headers).json()
+    report = client.post("/api/reports", json={"owner_kind": "event", "owner_id": old["event_id"], "kind": "final", "title": "Итог",
+                                               "content": "Прошлый год", "file_ids": []}, headers=other.headers).json()
+    assert client.post(f"/api/reports/{report['report_id']}/publish", json={"expected_revision": 1}, headers=other.headers).status_code == 200
+    nxt = client.post(SEASONS_URL, json={"title": "Следующий", "type": "winter_spring", "starts_at": "2027-01-01T00:00:00Z",
+                                         "ends_at": "2027-05-31T23:59:59Z"}, headers=superuser.headers).json()
+
+    r = client.post(EVENTS_URL, json={"season_id": nxt["season_id"], "title": "Посвят 2027", "report_series_id": old["report_series_id"]}, headers=other.headers)
+    assert r.status_code == 403
+    r = client.post(EVENTS_URL, json={"season_id": nxt["season_id"], "title": "Посвят 2027", "report_series_id": old["report_series_id"]}, headers=superuser.headers)
+    assert r.status_code == 200, r.text
+    new = r.json()
+    assert new["report_series_id"] == old["report_series_id"]
+    assert client.put(f"{EVENTS_URL}/{new['event_id']}/leaders", json={"user_ids": [user.user_id], "expected_revision": 1}, headers=superuser.headers).status_code == 200
+    history = client.get("/api/report-history", params={"series_id": new["report_series_id"]}, headers=user.headers)
+    assert [x["report_id"] for x in history.json()["items"]] == [report["report_id"]], history.text
+
+    count = len(client.get(f"{EVENTS_URL}/{new['event_id']}/subevents", headers=superuser.headers).json()["items"])
+    r = client.post(f"{EVENTS_URL}/{new['event_id']}/subevents", json={"title": "Чужая серия", "report_series_id": foreign_sub["report_series_id"]}, headers=user.headers)
+    assert r.status_code == 409, r.text
+    assert len(client.get(f"{EVENTS_URL}/{new['event_id']}/subevents", headers=superuser.headers).json()["items"]) == count
+    r = client.post(f"{EVENTS_URL}/{new['event_id']}/subevents", json={"title": "Лекции 2027", "report_series_id": old_sub["report_series_id"]}, headers=user.headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["report_series_id"] == old_sub["report_series_id"]
+    fresh = client.post(f"{EVENTS_URL}/{new['event_id']}/subevents", json={"title": "Новое"}, headers=user.headers).json()
+    assert fresh["report_series_id"] not in (old_sub["report_series_id"], foreign_sub["report_series_id"])

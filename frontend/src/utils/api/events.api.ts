@@ -36,7 +36,7 @@ export const eventsApi = {
     request<Subevent>("get", `/subevents/${idPath(id)}`),
   createSubevent: (
     id: string,
-    data: { title: string; description: RichText },
+    data: { title: string; description: RichText; report_series_id?: string },
   ) => request<Subevent>("post", `/events/${idPath(id)}/subevents`, data),
   updateSubevent: (
     id: string,

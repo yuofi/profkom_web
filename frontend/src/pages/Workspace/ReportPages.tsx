@@ -19,6 +19,7 @@ import {
 } from "../../components/Workspace/Attachments";
 import { reportsApi } from "../../utils/api/reports.api";
 import { eventsApi } from "../../utils/api/events.api";
+import { seasonsApi } from "../../utils/api/seasons.api";
 import { richText, type FileRef, type Report } from "../../utils/api/contract";
 import { can } from "../../utils/session";
 import { displayDate, moscowInput, toUtc } from "../../utils/dates";
@@ -27,16 +28,18 @@ import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import s from "../../components/Workspace/Workspace.module.css";
 const template =
   "## Что сделали\n\n\n## Проблемы\n\n\n## Дальнейшие планы\n\n\n## Необходимая помощь\n\n";
-function ReportLinks({ reports }: { reports: Report[] }) {
+/** `seasons` labels each report with its instance's season, as the history needs (A-EVT-5). */
+function ReportLinks({ reports, seasons }: { reports: Report[]; seasons?: Map<string, string> }) {
   return (
     <ul className={s.list}>
       {reports.map((r) => (
         <li key={r.report_id}>
           <RouteLink to={getReportRoute(r.report_id)}>{r.title}</RouteLink>{" "}
           <Badge>{r.kind === "final" ? "Финальный" : "Регулярный"}</Badge>{" "}
+          {seasons && <Badge>Сезон: {seasons.get(r.season_id) ?? "недоступен"}</Badge>}{" "}
           <span className={s.muted}>
             {r.state === "published"
-              ? `Публикация ${displayDate(r.published_at)}`
+              ? `${seasons ? "Последняя версия" : "Публикация"} ${displayDate(r.published_at)}`
               : "Черновик"}
           </span>
         </li>
@@ -221,6 +224,9 @@ export function ReportPage() {
     queryFn: () => reportsApi.versions(id),
     enabled: can(report, "view_report_versions"),
   });
+  // The history link is offered only for a series whose history the server opens (A-EVT-6).
+  const series = useQuery({ queryKey: ["reports", "series"], queryFn: eventsApi.series, enabled: !!report });
+  const historyReadable = !!report && !!series.data?.items.some((x) => x.series_id === report.report_series_id);
   return (
     <Page
       title={report?.title ?? "Отчёт"}
@@ -253,11 +259,13 @@ export function ReportPage() {
                   <Attachments files={report.files} />
                 </>
               )}
-              <RouteLink
-                to={`/reports/history?series_id=${encodeURIComponent(report.report_series_id)}`}
-              >
-                Все годы этой серии
-              </RouteLink>
+              {historyReadable && (
+                <RouteLink
+                  to={`/reports/history?series_id=${encodeURIComponent(report.report_series_id)}`}
+                >
+                  Все годы этой серии
+                </RouteLink>
+              )}
             </Card>
             {can(report, "edit_report") && (
               <ReportEditor key={id} report={report} />
@@ -302,6 +310,8 @@ export function ReportHistoryPage() {
       reportsApi.history(seriesId, year ? Number(year) : undefined),
     enabled: !!seriesId,
   });
+  const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
+  const seasonTitles = new Map(seasons.data?.items.map((x) => [x.season_id, x.title]));
   return (
     <Page
       title="История отчётов"
@@ -340,7 +350,7 @@ export function ReportHistoryPage() {
           submitLabel="Показать отчёты"
         />
         <QueryState loading={query.isFetching} error={query.error}>
-          {seriesId && <ReportLinks reports={query.data?.items ?? []} />}
+          {seriesId && <ReportLinks reports={query.data?.items ?? []} seasons={seasonTitles} />}
           {seriesId && query.data?.items.length === 0 && (
             <Empty>Нет доступных отчётов за этот период.</Empty>
           )}

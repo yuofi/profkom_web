@@ -298,6 +298,7 @@ class CalculatedContribution:
     merit_id: Optional[str] = None
     bonus_id: Optional[str] = None
     capabilities: list[str] = field(default_factory=list)
+    created_at: str = ""  # page order of /assessments; not part of the API
 
 
 @dataclass

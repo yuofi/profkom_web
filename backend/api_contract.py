@@ -1,5 +1,7 @@
 """Shared wire format for cursor lists and domain errors."""
 
+import base64
+import json
 from typing import Generic, TypeVar
 from pydantic import BaseModel
 from fastapi import HTTPException, Request
@@ -14,6 +16,33 @@ T = TypeVar("T")
 class Page(BaseModel, Generic[T]):
     items: list[T]
     next_cursor: str | None = None
+
+
+# Server page size of cursor lists; tests/live_api.py lowers it for the integration suite.
+PAGE_SIZE = 100
+
+
+def cursor_page(items, key, cursor=None, *, descending=False):
+    """One keyset page of `items`, which already holds only what the reader may see.
+
+    The opaque cursor is the sort key of the last item on the previous page, so a page
+    neither repeats nor skips items when others change in between (FIX_PLAN 2.2, A-EVT-10).
+    `key` returns a tuple of strings and numbers without None."""
+    ordered = sorted(items, key=key, reverse=descending)
+    if cursor is not None:
+        try:
+            last = json.loads(base64.urlsafe_b64decode(cursor.encode("ascii")))
+            if not isinstance(last, list) or not all(
+                isinstance(v, (str, int, float)) and not isinstance(v, bool) for v in last
+            ):
+                raise ValueError(cursor)
+            last = tuple(last)
+            ordered = [item for item in ordered if (key(item) < last if descending else key(item) > last)]
+        except (ValueError, TypeError, UnicodeError):
+            raise HTTPException(422, "Invalid cursor")
+    page, rest = ordered[:PAGE_SIZE], ordered[PAGE_SIZE:]
+    following = base64.urlsafe_b64encode(json.dumps(list(key(page[-1]))).encode()).decode() if rest else None
+    return Page(items=page, next_cursor=following)
 
 
 def install_errors(app):

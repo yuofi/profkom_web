@@ -469,7 +469,7 @@ class ReportEditorORM(Base):
     owner_id = Column(String, nullable=False, index=True)
     report_id = Column(String, nullable=True, index=True)
     user_id = Column(Integer, nullable=False, index=True)
-    role = Column(String, nullable=False)  # "leader" | "deputy" | "author"
+    role = Column(String, nullable=False)  # the lead assignment role, "author" or "reader" (read only)
     created_at = Column(String, nullable=False)
 
 
@@ -495,6 +495,15 @@ class SeasonNotReadyError(ValueError):
     def __init__(self, blockers: list[dict]):
         super().__init__("season_not_ready")
         self.blockers = blockers
+
+
+def moscow_year(timestamp: str) -> int:
+    """Calendar year of an ISO timestamp in Moscow time (UTC+3 without DST since 2014,
+    so no tz database is needed); a naive timestamp is UTC."""
+    moment = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(timezone(timedelta(hours=3))).year
 
 
 def calculate_kkr_score(
@@ -3560,12 +3569,8 @@ class Database:
             if not series:
                 raise LookupError("Report series not found")
 
-            from report_access import historical_reader
-            has_access=historical_reader(session,series_id,current_user_id)
-            if not has_access:
-                has_access=any(self.is_report_editor(current_user_id,r,session) for r in session.query(ReportORM).filter_by(report_series_id=series_id))
-
-            if not has_access:
+            from report_access import series_reader
+            if not series_reader(session, series_id, current_user_id):
                 raise ValueError("Forbidden: no access to report series history")
 
             q = session.query(ReportORM).filter(
@@ -3575,9 +3580,10 @@ class Database:
             reports = q.order_by(ReportORM.published_at.desc()).all()
             res = []
             for r in reports:
-                if year is not None:
-                    if not r.published_at or not r.published_at.startswith(str(year)):
-                        continue
+                # The year of an instance is the Moscow year its season starts in, not the
+                # date of its latest publication (A-EVT-5).
+                if year is not None and moscow_year(session.get(SeasonORM, r.season_id).starts_at) != year:
+                    continue
                 if self.can_read_report(current_user_id, r, session) or self.is_report_editor(current_user_id, r, session):
                     is_ed = self.is_report_editor(current_user_id, r, session)
                     res.append(_report_orm_to_dc(session, r, current_user_id, is_editor=is_ed))
@@ -5388,6 +5394,7 @@ class Database:
                         merit_id=c.merit_id,
                         bonus_id=getattr(c, "bonus_id", None),
                         capabilities=[],
+                        created_at=c.created_at or "",
                     )
                 )
             return results
