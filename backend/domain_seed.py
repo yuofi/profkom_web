@@ -15,7 +15,12 @@ def fail(code, message):
     raise HTTPException(code, message)
 
 
-def ensure_application(s, uid):
+DERIVED = object()
+
+
+def ensure_application(s, uid, funding=DERIVED):
+    """The account's application; a missing one is created from the contact. `funding`
+    overrides the study basis of a new one: None for a VK account, which chooses it."""
     r = s.get(RegistrationORM, uid)
     if r:
         return r
@@ -32,7 +37,7 @@ def ensure_application(s, uid):
         email=c.email,
         tg=c.tg,
         vk=c.vk,
-        funding="budget" if c.budget else "contract",
+        funding=("budget" if c.budget else "contract") if funding is DERIVED else funding,
         residence=c.location,
     )
     r = RegistrationORM(

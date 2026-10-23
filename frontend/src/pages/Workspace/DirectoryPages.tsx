@@ -189,8 +189,8 @@ export function DirectoryPage() {
             </label>
           )}
         </details>
-        {can(session, "archive_account") && (
-          <RouteLink to="/accounts/archive">Архив аккаунтов</RouteLink>
+        {can(session, "restore_account") && (
+          <RouteLink to="/admin/accounts">Архив аккаунтов</RouteLink>
         )}
         <QueryState
           loading={query.isLoading}

@@ -125,6 +125,10 @@ export function createFixtures(role: MockRole = "organizer") {
               "restore_material",
               "correct_season",
               "review_registrations",
+              "view_leadership",
+              "manage_pgas",
+              "grant_pgas_admin",
+              "reset_password",
             ]
           : []),
         ...(chair

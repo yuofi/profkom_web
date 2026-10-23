@@ -1,9 +1,10 @@
 """Chair-only reversible account archive. History is never physically deleted."""
 
 import json
+import secrets
 import uuid
 from dataclasses import asdict
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 from fastapi import Depends, HTTPException
 from database import (
     db,
@@ -26,7 +27,7 @@ from auth import get_current_user
 from validation import Command
 from registration import audit, now, fail
 from api_contract import Page
-from domain_contract import ArchivedAccount, AccountState
+from domain_contract import ArchivedAccount, AccountState, UserReference
 from participation import close_intervals, open_interval, record_roster
 from membership import set_membership
 
@@ -42,6 +43,29 @@ class Conflict(Command):
 
 class Restore(Command):
     master_conflicts: list[Conflict] = []
+
+
+class PgasAdmin(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    pgas_admin: bool
+
+
+class PgasAdminOut(BaseModel):
+    user_id: int
+    pgas_admin: bool
+
+
+class TemporaryPasswordOut(BaseModel):
+    user_id: int
+    email: str
+    temporary_password: str
+
+
+def require(uid, action, message):
+    import access
+
+    if not access.allowed(uid, action):
+        fail(403, message)
 
 
 def require_chair(uid, action="account.archive"):
@@ -390,3 +414,50 @@ def register_routes(router):
         user_id: int, payload: Restore, cur: User = Depends(get_current_user)
     ):
         return restore(user_id, payload, cur.user_id)
+
+    @router.get("/pgas-admins", response_model=Page[UserReference])
+    def pgas_admins(cur: User = Depends(get_current_user)):
+        require(cur.user_id, "pgas.grant", "Only the chair and deputies manage PGAS admins")
+        with db._session() as s:
+            rows = s.query(UserORM).filter_by(pgas_admin=True).order_by(UserORM.user_id)
+            return Page(items=[asdict(db._get_user_ref(s, u.user_id)) for u in rows])
+
+    @router.put("/users/{user_id}/pgas-admin", response_model=PgasAdminOut)
+    def set_pgas_admin(user_id: int, payload: PgasAdmin, cur: User = Depends(get_current_user)):
+        """Any active account may edit PGAS; the chair and deputies decide who (decision 14)."""
+        require(cur.user_id, "pgas.grant", "Only the chair and deputies manage PGAS admins")
+        with db._session() as s:
+            u = s.get(UserORM, user_id)
+            if not u or (payload.pgas_admin and u.account_state != "active"):
+                fail(404, "Active user not found")
+            if u.pgas_admin != payload.pgas_admin:
+                audit(s, "user", user_id, cur.user_id, "pgas_admin",
+                      {"pgas_admin": u.pgas_admin}, {"pgas_admin": payload.pgas_admin})
+                u.pgas_admin = payload.pgas_admin
+            s.commit()
+            return PgasAdminOut(user_id=user_id, pgas_admin=u.pgas_admin)
+
+    @router.post("/accounts/{user_id}/temporary-password", response_model=TemporaryPasswordOut)
+    def temporary_password(user_id: int, cur: User = Depends(get_current_user)):
+        """There is no mail: the chair or a deputy hands the password over in person. It is
+        shown once, never logged, and must be changed after the login (АВ-52 (а))."""
+        from auth import hash_password
+
+        require(cur.user_id, "account.reset_password", "Only the chair and deputies reset passwords")
+        if db.is_chair(user_id) or db.is_deputy_chair(user_id):
+            # A deputy must not take over the chair or another deputy.
+            fail(403, "The chair and deputies change their own passwords")
+        password = secrets.token_urlsafe(12)
+        hashed = hash_password(password)
+        with db._session() as s:
+            u, c = s.get(UserORM, user_id), s.get(ContactInfoORM, user_id)
+            if not u or u.account_state == "archived" or not c:
+                fail(404, "Account not found")
+            audit(s, "user", user_id, cur.user_id, "temporary_password",
+                  {"has_password": bool(u.hashed_password)}, {"must_change_password": True})
+            u.hashed_password, u.must_change_password = hashed, True
+            s.commit()
+            email = c.email
+        # Sessions signed in before the reset end with it.
+        db.revoke_sessions(user_id)
+        return TemporaryPasswordOut(user_id=user_id, email=email, temporary_password=password)

@@ -184,11 +184,15 @@ def require_pgas_admin(cur: User = Depends(get_current_user)) -> User:
 # ═══════════════════════════════════════════════════════════
 # Refresh & revoke
 # ═══════════════════════════════════════════════════════════
+# Another tab may have rotated this token a moment ago and set the new one (A-ROL-14).
+REFRESH_USED = "Refresh token not found (revoked or already used)"
+
+
 def refresh_tokens(refresh_token_value: str) -> dict:
     """Validate refresh token → delete it (rotation) → issue new pair."""
     rt = db.consume_refresh_token(refresh_token_value)
     if rt is None:
-        raise HTTPException(401, "Refresh token not found (revoked or already used)")
+        raise HTTPException(401, REFRESH_USED)
 
     if rt["expires_at"] < datetime.now(timezone.utc):
         db.delete_refresh_token(refresh_token_value)
@@ -216,6 +220,9 @@ def revoke_refresh_token(token_value: str):
 def revoke_all_user_tokens(user_id: int):
     db.revoke_sessions(user_id)
 
+PASSWORD_CHANGE_REQUIRED = "Password change required"
+
+
 async def guard_working_access(request: Request):
     from fastapi.security.utils import get_authorization_scheme_param
     scheme,raw_token=get_authorization_scheme_param(request.headers.get("Authorization"))
@@ -230,6 +237,9 @@ async def guard_working_access(request: Request):
         cur=get_current_user(token)
         if cur.account_state!="active":
             raise HTTPException(403,"Approved active account required")
+        if cur.must_change_password:
+            # Only the session, logout and the password change itself until then (АВ-52)
+            raise HTTPException(403,PASSWORD_CHANGE_REQUIRED)
         uid=cur.user_id
     elif token and not path.startswith("/auth/"):
         uid=get_current_user(token).user_id
@@ -240,6 +250,14 @@ async def guard_working_access(request: Request):
         actor_id.reset(marker)
 
 
+# These wait on VK or on a password hash before they write. Holding the shared write lock
+# meanwhile stopped every other writer (A-ROL-15): they open a short transaction after it.
+OWN_TRANSACTION = {"/api/auth/login", "/api/auth/vk", "/api/auth/vk/link"}
+
+
 async def unit_of_work(request: Request):
+    if request.url.path in OWN_TRANSACTION:
+        yield
+        return
     async with db.async_atomic(write=request.method not in {"GET", "HEAD", "OPTIONS"}):
         yield

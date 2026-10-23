@@ -847,19 +847,14 @@ def test_patch_group_number_дублируется_в_обе_таблицы(clie
     assert db.get_user(user.user_id).group_number == "317", "группа обязана лечь в users"
 
 
-def test_patch_group_number_вне_диапазона_регистрации_принимается(client, user):
-    """
-    ДЕФЕКТ: рассогласование схем.
+@pytest.mark.parametrize("group", ["99999", "99", "0", "701"])
+def test_patch_group_number_вне_диапазона_регистрации_даёт_422(client, user, group):
+    """Профиль проверяет группу тем же правилом 100–700, что регистрация и заявка (A-ROL-17)."""
+    before = db.get_contact(user.user_id).group_number
+    resp = client.patch(f"{API}/{user.user_id}", headers=user.headers, json={"group_number": group})
 
-    RegisterIn.group_number — int с Field(ge=100, le=700) (main.py:82),
-    ProfileUpdate.group_number — Optional[str] вообще без ограничений (main.py:198).
-    Значит, то, что нельзя ввести при регистрации, спокойно ставится патчем.
-    """
-    resp = client.patch(f"{API}/{user.user_id}", headers=user.headers, json={"group_number": "99999"})
-
-    assert resp.status_code == 200, "PATCH не проверяет диапазон группы, в отличие от регистрации"
-    assert resp.json()["group_number"] == 99999, "значение вне [100, 700] спокойно проходит"
-    assert db.get_contact(user.user_id).group_number == "99999", "и остаётся в базе"
+    assert resp.status_code == 422, resp.text
+    assert db.get_contact(user.user_id).group_number == before, "база не должна меняться"
 
 
 def test_patch_нечисловая_группа_должна_отбиваться_422(client, user):

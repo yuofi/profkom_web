@@ -12,8 +12,7 @@ import { useForm } from "../../components/Form/Form";
 import { installMockTransport } from "../../mocks/transport";
 import { mountWorkspace, settle, change, field, pick, submit } from "../../test/workspace";
 import { AdminPanel } from "../Admin/AdminPage";
-import { ExtendedRoute } from "../Wrappers/wrappers";
-import { BlocksPage, RegistrationsPage } from "./MembershipPages";
+import { BlocksPage } from "./MembershipPages";
 import { EventsListPage } from "./EventPages";
 import { EventPage } from "./EventPages";
 import { BlockPage } from "./MembershipPages";
@@ -34,8 +33,7 @@ it.each([
   const mock = installMockTransport("chair", { delay: 0 }); restore = mock.restore;
   page = await mountWorkspace(
     <Routes>
-      <Route element={<ExtendedRoute />}><Route path="/admin/:tab" element={<AdminPanel />} /></Route>
-      <Route path="/registrations" element={<RegistrationsPage />} />
+      <Route path="/admin/:tab" element={<AdminPanel />} />
       <Route path="/blocks" element={<BlocksPage />} />
       <Route path="/events" element={<EventsListPage />} />
     </Routes>,

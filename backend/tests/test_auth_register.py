@@ -28,6 +28,10 @@ VALID_BODY: dict[str, Any] = {
     "password": "Passw0rd!",
     "group_number": 305,
     "tg": "@ivan_durov",
+    "phone": "+7 900 000-00-00",
+    "vk": "https://vk.com/ivan_test",
+    "residence": "Москва",
+    "funding": "budget",
 }
 
 
@@ -152,27 +156,27 @@ def test_контакт_сохраняет_переданные_поля(client)
     assert contact.name == "Иван", "Имя должно сохраняться"
     assert contact.patronymic == "Иванович", "Отчество должно сохраняться"
     assert contact.tg == "@ivan_durov", "Телеграм должен сохраняться как есть, вместе с @"
+    assert contact.phone == "+7 900 000-00-00", "Телефон должен сохраняться"
+    assert contact.vk == "https://vk.com/ivan_test", "Ссылка VK должна сохраняться"
+    assert contact.location == "Москва", "Место жительства должно сохраняться"
 
 
 def test_серверные_поля_контакта_по_умолчанию_пустые(client):
-    """location/blocks/phone/vk/photo_url на регистрации не заполняются."""
+    """blocks/photo_url на регистрации не заполняются."""
     client.post(REGISTER_URL, json=body())
     contact = db.get_contact(db.get_user_by_email("ivan@test.ru").user_id)
 
-    assert contact.location == "", "location при регистрации должен быть пустым"
     assert contact.blocks == "", "blocks при регистрации должен быть пустым"
-    assert contact.phone == "", "phone при регистрации должен быть пустым"
-    assert contact.vk == "", "vk при регистрации должен быть пустым"
     assert contact.photo_url is None, "photo_url при регистрации должен быть None"
 
 
 def test_флаги_пользователя_по_умолчанию(client):
-    """budget=True, in_profcom=False, kkr_score=0, banned/super_user/admin=False."""
+    """budget по выбору заявителя, in_profcom=False, kkr_score=0, banned/super_user/admin=False."""
     client.post(REGISTER_URL, json=body())
     user = db.get_user_by_email("ivan@test.ru")
     contact = db.get_contact(user.user_id)
 
-    assert contact.budget is True, "budget по умолчанию должен быть True"
+    assert contact.budget is True, "budget должен соответствовать выбору funding=budget"
     assert contact.in_profcom is False, "in_profcom по умолчанию должен быть False"
     assert user.kkr_score == 0, "kkr_score нового пользователя должен быть 0"
     assert user.banned is False, "Новый пользователь не должен быть забанен"
@@ -227,11 +231,9 @@ def test_refresh_token_сохранён_в_базе_и_привязан_к_по�
     ("name", "surname", "expected"),
     [
         ("Иван", "Иванов", "Иван Иванов"),
-        ("Иван", "", "Иван"),
-        ("", "Иванов", "Иванов"),
         ("  Иван  ", "  Иванов  ", "Иван Иванов"),
     ],
-    ids=["имя_и_фамилия", "только_имя", "только_фамилия", "с_лишними_пробелами"],
+    ids=["имя_и_фамилия", "с_лишними_пробелами"],
 )
 def test_kkr_name_собирается_как_имя_фамилия(client, name, surname, expected):
     """kkr_name = 'имя фамилия', непустые части обрезаются по краям."""
@@ -245,25 +247,21 @@ def test_kkr_name_собирается_как_имя_фамилия(client, name
     [("", ""), ("   ", ""), ("", "\t"), ("  ", "   ")],
     ids=["оба_пустые", "имя_пробелы", "фамилия_таб", "оба_пробелы"],
 )
-def test_kkr_name_падает_на_email_если_имя_и_фамилия_пустые(client, name, surname):
-    """Когда имя и фамилия пусты (или из пробелов), kkr_name = email."""
-    client.post(REGISTER_URL, json=body(name=name, surname=surname))
-    contact = db.get_contact(db.get_user_by_email("ivan@test.ru").user_id)
-    assert contact.kkr_name == "ivan@test.ru", (
-        f"Ожидали подстановку email в kkr_name, получили {contact.kkr_name!r}"
-    )
+def test_пустые_имя_или_фамилия_дают_422(client, name, surname):
+    """Имя и фамилия обязательны уже при регистрации (решение 29, AUTH-16); пробелы не считаются."""
+    response = client.post(REGISTER_URL, json=body(name=name, surname=surname))
+    assert response.status_code == 422, f"Ожидали 422, получили {response.status_code}: {response.text}"
+    assert row_counts()["users"] == 0, "Неполная регистрация не должна создавать пользователя"
 
 
-def test_имя_и_фамилия_необязательны(client):
-    """Без name/surname/patronymic регистрация проходит, поля пустые."""
-    payload = {k: v for k, v in VALID_BODY.items() if k not in ("name", "surname", "patronymic")}
+def test_отчество_необязательно(client):
+    """Без отчества регистрация проходит, отчество пустое."""
+    payload = {k: v for k, v in VALID_BODY.items() if k != "patronymic"}
     response = client.post(REGISTER_URL, json=payload)
 
     assert response.status_code == 201, f"Ожидали 201, получили {response.status_code}: {response.text}"
     contact = db.get_contact(db.get_user_by_email("ivan@test.ru").user_id)
-    assert (contact.name, contact.surname, contact.patronymic) == ("", "", ""), (
-        "Непереданные ФИО должны сохраняться пустыми строками"
-    )
+    assert contact.patronymic == "", "Непереданное отчество должно сохраняться пустой строкой"
 
 
 # ═══════════════════════════════════════════════════════════
@@ -375,7 +373,7 @@ def test_регистр_локальной_части_email_не_позволя�
 # ═══════════════════════════════════════════════════════════
 #  6. Валидация (422)
 # ═══════════════════════════════════════════════════════════
-@pytest.mark.parametrize("field", ["email", "password", "group_number", "tg"])
+@pytest.mark.parametrize("field", ["email", "password", "group_number", "tg", "surname", "name", "phone", "vk", "residence", "funding"])
 def test_отсутствие_обязательного_поля_даёт_422(client, field):
     """Каждое обязательное поле при отсутствии даёт 422 missing."""
     payload = {k: v for k, v in VALID_BODY.items() if k != field}
@@ -390,12 +388,12 @@ def test_отсутствие_обязательного_поля_даёт_422(c
 
 
 def test_пустое_тело_перечисляет_все_обязательные_поля(client):
-    """Пустой JSON → 422 со всеми четырьмя обязательными полями."""
+    """Пустой JSON → 422 со всеми обязательными полями: все, кроме отчества (решение 29)."""
     response = client.post(REGISTER_URL, json={})
 
     assert response.status_code == 422, f"Ожидали 422, получили {response.status_code}"
     missing = {loc[1] for loc in error_locations(response)}
-    assert missing == {"email", "password", "group_number", "tg"}, (
+    assert missing == set(["email", "password", "group_number", "tg", "surname", "name", "phone", "vk", "residence", "funding"]), (
         f"Ожидали ошибки по всем обязательным полям, получили {missing}"
     )
 
@@ -551,15 +549,16 @@ def test_пустой_пароль_не_создаёт_аккаунт(client):
     assert db.get_user_by_email('ivan@test.ru') is None
 
 
-def test_очень_длинные_строки_принимаются_и_сохраняются(client):
-    """Ограничения длины на ФИО нет — проверяем, что данные не режутся и не падают."""
-    long_name = "Ю" * 5000
-    response = client.post(REGISTER_URL, json=body(name=long_name, surname=""))
-
+def test_длина_имени_ограничена_как_в_заявке(client):
+    """Имя до 100 символов сохраняется целиком; длиннее — 422, как в полях заявки."""
+    longest = "Ю" * 100
+    response = client.post(REGISTER_URL, json=body(name=longest))
     assert response.status_code == 201, f"Ожидали 201, получили {response.status_code}: {response.text}"
     contact = db.get_contact(db.get_user_by_email("ivan@test.ru").user_id)
-    assert len(contact.name) == 5000, f"Имя не должно обрезаться, длина: {len(contact.name)}"
-    assert contact.kkr_name == long_name, "kkr_name должен собираться из полного имени"
+    assert contact.name == longest, f"Имя не должно обрезаться, длина: {len(contact.name)}"
+
+    response = client.post(REGISTER_URL, json=body(email="other@test.ru", name="Ю" * 101))
+    assert response.status_code == 422, f"Ожидали 422, получили {response.status_code}"
 
 
 def test_очень_длинный_пароль_обрабатывается(client):

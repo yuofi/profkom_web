@@ -39,6 +39,7 @@ class User:
     account_state: str = "active"  # "pending" | "active" | "archived"
     session_version: int = 0
     category: str = "junior"       # "junior" | "activist"
+    must_change_password: bool = False  # a temporary password is in use (АВ-52)
 
 
 @dataclass

@@ -8,7 +8,8 @@ export async function invalidateWorkspace(client: QueryClient): Promise<void> {
     workspaceKeys.map((queryKey) => client.invalidateQueries({ queryKey })),
   );
 }
-/** An access change must remove already-cached private data, not only mark it stale. */
+/** The own chair transfer and deputies change access: cached private data is removed, not
+ *  only marked stale. Other access changes: ctx.tsx; an ended session: handleRevokedSession. */
 export async function clearPrivateCache(client: QueryClient): Promise<void> {
   await client.cancelQueries();
   client.removeQueries({

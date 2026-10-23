@@ -7,7 +7,7 @@ import clsx from "clsx";
 import { pgasApi } from "../../utils/api/pgas.api";
 import { uploadFile } from "../../utils/s3-utils";
 import { fileAccept, fileMetadata } from "../../utils/filePolicy";
-import { useMe } from "../../utils/me";
+import { can, useSession } from "../../utils/session";
 import { Icon } from "../../components/Icon";
 import { Button } from "../../components/Button/Button";
 import { FormTextField } from "../../components/Form/FormTextFiled";
@@ -43,7 +43,6 @@ const getFileIcon = (fileType = "") => {
 };
 
 export const PgasPage = () => {
-  const me = useMe();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const filterRef = useRef<HTMLDivElement>(null);
@@ -54,7 +53,9 @@ export const PgasPage = () => {
   const [sortType, setSortType] = useState<SortType>("default");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
 
-  const canManage = Boolean(me?.pgas_admin || me?.super_user);
+  const { session } = useSession();
+  // The chair, deputies and pgas_admin edit (decision 14); the server decides it.
+  const canManage = can(session, "manage_pgas");
 
   const { data: entries, isLoading, isError } = useQuery({
     queryKey: ["pgas"],

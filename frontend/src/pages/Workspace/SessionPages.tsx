@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { canRetainData } from "../../utils/api/request";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
@@ -12,12 +13,15 @@ import {
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { number, ids } from "../../components/Workspace/formValues";
 import { useSession, can } from "../../utils/session";
+import { authApi } from "../../utils/api/auth.api";
+import { text } from "../../components/Workspace/formValues";
 import { membershipApi } from "../../utils/api/membership.api";
 import { sessionApi } from "../../utils/api/session.api";
 import { directoryApi } from "../../utils/api/directory.api";
 import { clearPrivateCache } from "../../utils/api/invalidation";
 import s from "../../components/Workspace/Workspace.module.css";
 import { RegistrationForm } from "../../components/Workspace/RegistrationForm";
+import { missingFields } from "../../utils/contactFields";
 import { DemoRolePicker } from "../../components/Workspace/DemoRolePicker";
 export function AccountStatePage() {
   const { session } = useSession();
@@ -28,6 +32,8 @@ export function AccountStatePage() {
     enabled: session?.account_state === "pending",
     retry: false,
   });
+  const missing = application.data ? missingFields(application.data.fields) : [];
+  const reason = application.data?.rejection_reason;
   return (
     <Page
       title={
@@ -43,10 +49,15 @@ export function AccountStatePage() {
         <DemoRolePicker />
         <QueryState loading={application.isLoading} error={application.error} keepDataOnError={!!application.data}>
           <>
-            <p>
-              {application.data?.rejection_reason ??
-                "Дождитесь решения руководства Профкома."}
-            </p>
+            {reason && <p>{reason}</p>}
+            {missing.length > 0 ? (
+              <p role="status">
+                Заполните обязательные поля: {missing.join(", ")}.
+                {application.data?.status === "pending" && " Заявка уйдёт на рассмотрение, когда все сведения будут сохранены."}
+              </p>
+            ) : (
+              !reason && <p>Дождитесь решения руководства Профкома.</p>
+            )}
             {application.data && (
               <p>
                 Использовано отправок: {application.data.attempts_used} из{" "}
@@ -58,6 +69,45 @@ export function AccountStatePage() {
             )}
           </>
         </QueryState>
+        <button className={s.button} disabled={busy} onClick={() => void logout()}>
+          {busy ? "Выходим…" : "Ко входу"}
+        </button>
+        {error && <p role="alert" className={s.error}>{error}</p>}
+      </Card>
+    </Page>
+  );
+}
+/** A temporary password from the chair or a deputy: the server opens nothing else until
+ *  it is changed (АВ-52). The change ends every session, this one too. */
+export function PasswordChangePage() {
+  const { logout, busy, error } = useLogout();
+  const [changed, setChanged] = useState(false);
+  return (
+    <Page
+      title="Смените временный пароль"
+      description="Пароль выдали председатель или зам. Пока он не сменён, рабочие разделы закрыты."
+    >
+      <Card>
+        {changed ? (
+          <p role="status">Пароль изменён. Войдите с новым паролем.</p>
+        ) : (
+          <ActionForm
+            fields={[
+              { name: "old", label: "Временный пароль", type: "password", required: true },
+              { name: "password", label: "Новый пароль", type: "password", required: true },
+              { name: "again", label: "Новый пароль ещё раз", type: "password", required: true },
+            ]}
+            submitLabel="Сменить пароль"
+            onSubmit={async (v) => {
+              const password = text(v, "password");
+              if (password.length < 8) throw Error("Длина пароля должна быть хотя бы 8 символов");
+              if (password !== text(v, "again")) throw Error("Пароли не совпадают");
+              if (password === text(v, "old")) throw Error("Новый пароль должен отличаться от временного");
+              await authApi.changePassword({ old_password: text(v, "old"), new_password: password });
+              setChanged(true);
+            }}
+          />
+        )}
         <button className={s.button} disabled={busy} onClick={() => void logout()}>
           {busy ? "Выходим…" : "Ко входу"}
         </button>

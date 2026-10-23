@@ -7,6 +7,8 @@ import { DemoRolePicker } from "./DemoRolePicker";
 import { useQuery } from "@tanstack/react-query";
 import { workspaceApi } from "../../utils/api/workspace.api";
 import s from "./WorkspaceLayout.module.css";
+import ws from "./Workspace.module.css";
+import { visibleAdminTabs } from "../../pages/Admin/adminTabs";
 const navigation = [
   ["/", "Рабочий экран"],
   ["/events", "Мероприятия"],
@@ -49,11 +51,8 @@ export function WorkspaceLayout() {
       {(["create_volunteer_merit", "create_head_merit", "create_chair_merit"].some((cap) => can(session, cap) || session?.assignments?.some((a) => can(a, cap)))) && (
         <NavLink to="/merits">Учёт выполненной работы</NavLink>
       )}
-      {can(session, "review_registrations") && (
-        <NavLink to="/registrations">Регистрации</NavLink>
-      )}
-      {can(session, "transfer_chair") && (
-        <NavLink to="/leadership">Руководство</NavLink>
+      {visibleAdminTabs(session).length > 0 && (
+        <NavLink to="/admin">Администрирование</NavLink>
       )}
       <NavLink to="/profile">Мой профиль</NavLink>
     </nav>
@@ -77,6 +76,13 @@ export function WorkspaceLayout() {
         <DemoRolePicker />
       </aside>
       <main className={s.content}>
+        {user?.has_password === false && (
+          // VK is the only way in for this account; a password is the way when VK fails (АВ-52).
+          <p role="note" className={ws.warning}>
+            Задайте пароль, чтобы входить по почте, если вход через VK недоступен.{" "}
+            <Link to="/profile/edit">Задать пароль</Link>
+          </p>
+        )}
         <Suspense fallback={<Loading />}>
           <Outlet />
         </Suspense>

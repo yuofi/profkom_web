@@ -37,7 +37,8 @@ export const membershipApi = {
     request<void>("delete", `/blocks/${idPath(id)}/members/${user}`),
   registration: () =>
     request<RegistrationApplication>("get", "/registrations/me"),
-  registrations: () => page<RegistrationApplication>("/registrations"),
+  registrations: (status?: RegistrationApplication["status"]) =>
+    page<RegistrationApplication>("/registrations", status ? { status } : undefined),
   updateRegistration: (data: Revision & { fields: RegistrationFields }) =>
     request<RegistrationApplication>("patch", "/registrations/me", data),
   resubmit: (data: Revision) =>

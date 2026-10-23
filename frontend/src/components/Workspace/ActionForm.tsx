@@ -17,7 +17,8 @@ export interface Field {
     | "number"
     | "datetime-local"
     | "email"
-    | "url";
+    | "url"
+    | "password";
   /** A function makes the field required depending on the other values. */
   required?: boolean | ((values: Values) => boolean);
   value?: string | string[];
@@ -79,6 +80,7 @@ export function ActionForm({
   onReplaceWithSaved,
   adoptWhenUntouched = false,
   resetOnSuccess = false,
+  changeRequired,
 }: {
   title?: string;
   fields: Field[];
@@ -93,6 +95,8 @@ export function ActionForm({
   adoptWhenUntouched?: boolean;
   /** A form that creates something starts empty again after a success (A-TSK-6). */
   resetOnSuccess?: boolean;
+  /** Saving is offered only once one of these fields differs from its saved value (A-ROL-12). */
+  changeRequired?: string[];
 } & Versioning) {
   const formId = useId();
   const [expectedRevision, setExpectedRevision] = useState(revision);
@@ -231,6 +235,7 @@ export function ActionForm({
     setExpectedRevision(revision);
     setExpectedRevisionKey(revisionKey);
   }
+  const unchanged = !!changeRequired?.every((name) => JSON.stringify(form.values[name] ?? initialValues[name]) === JSON.stringify(savedValues(fields)[name]));
   const replaceWithSaved = () => {
     form.resetForm({ values: savedValues(fields) });
     onReplaceWithSaved?.();
@@ -374,7 +379,7 @@ export function ActionForm({
           <button
             className={`${s.button} ${s.primary}`}
             type="submit"
-            disabled={form.isSubmitting || refreshing || disabled || (versioned && (changedRevision || failure?.status === 409))}
+            disabled={form.isSubmitting || refreshing || disabled || unchanged || (versioned && (changedRevision || failure?.status === 409))}
           >
             {form.isSubmitting ? "Сохраняем…" : submitLabel}
           </button>

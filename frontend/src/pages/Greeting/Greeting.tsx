@@ -2,16 +2,12 @@ import { CurvedRectangle } from "../../components/CurvedRectangle/CurvedRectangl
 import { useForm } from "../../components/Form/Form";
 import ProfkomLogo from "../../components/profkomLogo";
 import styles from "./Greeting.module.css";
-import {
-  SignInValidationSchema,
-  SignUpValidationSchema,
-} from "../../utils/zod";
+import { SignInValidationSchema } from "../../utils/zod";
 import { FormikProvider } from "formik";
 import { FormTextField } from "../../components/Form/FormTextFiled";
 import { Button } from "../../components/Button/Button";
 import { useState } from "react";
 import { authApi } from "../../utils/api/auth.api";
-import type z from "zod";
 import { VKAuthButton } from "../../components/VKAuth/authButton";
 import { type TokenResult } from "@vkid/sdk";
 import { completeAuthentication } from "../../utils/authSession";
@@ -28,30 +24,12 @@ export const GreetingPage = () => {
   const gradientClipPath =
     "M0.5 344.087V0.5H294.828C345.087 35.9281 365.664 60.4296 398.609 106.688L400.5 438.5H158.273C119.065 370.449 83.4742 347.686 0.5 344.087Z";
 
+  // A new account signs up with VK and fills its application after; the form only logs in.
   const { formik, isSuccess, globalError, setGlobalError } = useForm({
-    initialValues: (signUp
-      ? {
-          email: "",
-          password: "",
-          passwordAgain: "",
-          groupNumber: "",
-          telegram: "",
-          name: "",
-          surname: "",
-          patronymic: "",
-        }
-      : { email: "", password: "" }) as z.infer<typeof SignUpValidationSchema> &
-      z.infer<typeof SignInValidationSchema>,
-    validationSchema: signUp ? SignUpValidationSchema : SignInValidationSchema,
+    initialValues: { email: "", password: "" },
+    validationSchema: SignInValidationSchema,
     onSubmit: async (data) => {
-      const registration = data as z.infer<typeof SignUpValidationSchema>;
-      const response = signUp
-        ? await authApi.register({
-            email: data.email, password: data.password, name: registration.name,
-            surname: registration.surname, patronymic: registration.patronymic,
-            group_number: Number(registration.groupNumber), tg: registration.telegram,
-          })
-        : await authApi.login({ email: data.email, password: data.password });
+      const response = await authApi.login({ email: data.email, password: data.password });
       await completeAuthentication(queryClient, response.data.access_token);
       navigate("/", { replace: true });
     },
@@ -135,11 +113,7 @@ export const GreetingPage = () => {
                   type="submit"
                   disabled={formik.isSubmitting}
                 >
-                  {formik.isSubmitting
-                    ? "Отправка..."
-                    : signUp
-                      ? "Создать аккаунт"
-                      : "Войти"}
+                  {formik.isSubmitting ? "Отправка..." : "Войти"}
                 </Button>
               </>
             )}

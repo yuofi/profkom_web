@@ -141,3 +141,65 @@ def test_block_settings_revision_and_leader_without_membership(client, team, sup
     r = client.get("/api/blocks/" + bid, headers=t["master"].headers).json()
     assert r["master"]["user"]["user_id"] == t["master"].user_id and r["members"] == []
     assert "view_tasks" in r["capabilities"]
+
+
+def visible_request(client, actor, request_id):
+    items = client.get("/api/block-requests", headers=actor.headers).json()["items"]
+    return next((r for r in items if r["request_id"] == request_id), None)
+
+
+def test_rejection_reason_reaches_everyone_who_sees_the_request(client, team, make_user, superuser):
+    """Decision 16: the applicant, the chair, the whole HR team and the block's leads read
+    when and why a request was rejected; nobody else sees the request."""
+    t = team
+    hr_member, stranger = make_user(), make_user()
+    joined = command(client, join(client, hr_member, t["ids"]["HR"]), "hr-approve", t["hr"])
+    assert joined.json()["state"] == "approved"
+    r = join(client, t["user"], t["ids"]["IT"])
+    opened = visible_request(client, t["user"], r["request_id"])
+    assert opened["decided_at"] is None and opened["decision_reason"] is None
+    rejected = client.post(
+        f"/api/block-requests/{r['request_id']}/reject",
+        headers=t["hr"].headers,
+        json={"expected_revision": r["revision"], "reason": "Набор в блок закрыт"},
+    )
+    assert rejected.status_code == 200, rejected.text
+    for reader in (t["user"], superuser, t["hr"], hr_member, t["master"]):
+        seen = visible_request(client, reader, r["request_id"])
+        assert seen is not None, reader.user_id
+        assert seen["decision_reason"] == "Набор в блок закрыт"
+        assert seen["decided_at"] is not None
+    assert visible_request(client, stranger, r["request_id"]) is None
+
+
+def test_approval_has_a_date_but_no_reason(client, team):
+    t = team
+    r = command(client, join(client, t["user"], t["ids"]["HR"]), "hr-approve", t["hr"]).json()
+    seen = visible_request(client, t["user"], r["request_id"])
+    assert seen["state"] == "approved" and seen["decided_at"] and seen["decision_reason"] is None
+
+
+def test_unchanged_category_is_not_a_new_revision(client, superuser, make_user):
+    """A-ROL-12: saving the same category neither moves the revision nor writes the audit."""
+    from database import AuditLogORM
+
+    u = make_user()
+    current = client.get(f"/api/participants/{u.user_id}/category", headers=superuser.headers).json()
+    with db._session() as s:
+        before = s.query(AuditLogORM).count()
+    same = client.patch(
+        f"/api/participants/{u.user_id}/category",
+        headers=superuser.headers,
+        json={"category": current["category"], "reason": "Проверка", "expected_revision": current["revision"]},
+    )
+    assert same.status_code == 200, same.text
+    assert same.json()["revision"] == current["revision"]
+    with db._session() as s:
+        assert s.query(AuditLogORM).count() == before
+    other = "activist" if current["category"] == "junior" else "junior"
+    changed = client.patch(
+        f"/api/participants/{u.user_id}/category",
+        headers=superuser.headers,
+        json={"category": other, "reason": "Проверка", "expected_revision": current["revision"]},
+    )
+    assert changed.status_code == 200 and changed.json()["revision"] == current["revision"] + 1

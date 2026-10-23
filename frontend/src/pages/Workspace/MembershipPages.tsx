@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import {
@@ -10,12 +11,13 @@ import {
   Empty,
 } from "../../components/Workspace/WorkspaceUI";
 import { ActionForm } from "../../components/Workspace/ActionForm";
+import { fundingLabels, registrationLabels } from "../../utils/contactFields";
 import { text, number } from "../../components/Workspace/formValues";
 import { membershipApi } from "../../utils/api/membership.api";
 import { eventsApi } from "../../utils/api/events.api";
 import { richText, type BlockRequest } from "../../utils/api/contract";
 import { can, useSession } from "../../utils/session";
-import { displayDate } from "../../utils/dates";
+import { displayDate, waited } from "../../utils/dates";
 import { useDeadlineRefresh } from "../../utils/hooks/useDeadlineRefresh";
 import {
   usePeopleOptions,
@@ -30,6 +32,7 @@ const requestStates = {
   rejected: "Отклонена",
   withdrawn: "Отозвана",
 };
+const isOpen = (r: BlockRequest) => ["pending_hr", "pending_block"].includes(r.state);
 export function BlocksPage() {
   const query = useQuery({
     queryKey: ["workspaceBlocks"],
@@ -265,7 +268,17 @@ function RequestCard({
   return (
     <Card title={`${r.user.display_name} → ${blockName}`}>
       <Badge>{requestStates[r.state]}</Badge>
-      <p>Текущий этап с {displayDate(r.stage_entered_at)}</p>
+      {open ? (
+        <p>
+          Текущий этап с {displayDate(r.stage_entered_at)} · ждёт{" "}
+          {waited(r.stage_entered_at)}
+        </p>
+      ) : (
+        r.decided_at && <p>Решение: {displayDate(r.decided_at)}</p>
+      )}
+      {r.state === "rejected" && r.decision_reason && (
+        <p>Причина отказа: {r.decision_reason}</p>
+      )}
       {r.substitute_available_at && (
         <p className={s.muted}>
           Срок для подмены руководства: {displayDate(r.substitute_available_at)}{" "}
@@ -361,6 +374,27 @@ export function BlockRequestsPage() {
     queryKey: ["workspaceBlocks"],
     queryFn: membershipApi.blocks,
   });
+  const { session } = useSession();
+  // Each request in one section: my decisions first, then my own, the rest, history (A-ROL-3).
+  const sections: [string, BlockRequest[]][] = [
+    ["Этап HR — моё решение", []],
+    ["Этап мастера — моё решение", []],
+    ["Мои заявки", []],
+    ["Прочие открытые", []],
+    ["История", []],
+  ];
+  for (const r of query.data?.items ?? []) {
+    const index = can(r, "hr_review_request") ? 0 : can(r, "block_review_request") ? 1
+      : r.user.user_id === session?.user_id ? 2 : isOpen(r) ? 3 : 4;
+    sections[index][1].push(r);
+  }
+  const card = (r: BlockRequest) => (
+    <RequestCard
+      request={r}
+      key={r.request_id}
+      blockName={blocks.data?.find((b) => b.block_id === r.block_id)?.name ?? "Блок"}
+    />
+  );
   return (
     <Page
       title="Заявки в блоки"
@@ -378,28 +412,39 @@ export function BlockRequestsPage() {
       <QueryState keepDataOnError={!!query.data}
         loading={query.isLoading} error={query.error}>
         <div className={s.stack}>
-          {query.data?.items.map((r) => (
-            <RequestCard
-              request={r}
-              key={r.request_id}
-              blockName={
-                blocks.data?.find((b) => b.block_id === r.block_id)?.name ??
-                "Блок"
-              }
-            />
-          ))}
+          {sections.map(([title, items]) =>
+            items.length === 0 ? null : title === "История" ? (
+              <details key={title} className={s.details}>
+                <summary>История · {items.length}</summary>
+                <div className={s.stack}>{items.map(card)}</div>
+              </details>
+            ) : (
+              <section key={title} aria-label={title} className={s.stack}>
+                <h2>{title}</h2>
+                {items.map(card)}
+              </section>
+            ),
+          )}
           {query.data?.items.length === 0 && <Empty>Заявок пока нет.</Empty>}
         </div>
       </QueryState>
     </Page>
   );
 }
+const registrationStatuses = {
+  pending: "Ожидают решения",
+  rejected: "Отклонённые",
+  approved: "Одобренные",
+} as const;
+type RegistrationStatus = keyof typeof registrationStatuses;
 export function RegistrationsPage() {
   const { session } = useSession();
   const { perform, refresh } = useWorkspaceActions();
+  // The waiting ones open first (A-ROL-21); "" lists every status, waiting first.
+  const [status, setStatus] = useState<RegistrationStatus | "">("pending");
   const query = useQuery({
-    queryKey: ["registrations", "queue"],
-    queryFn: membershipApi.registrations,
+    queryKey: ["registrations", "queue", status],
+    queryFn: () => membershipApi.registrations(status || undefined),
     enabled: can(session, "review_registrations"),
   });
   if (!can(session, "review_registrations"))
@@ -410,12 +455,21 @@ export function RegistrationsPage() {
     );
   return (
     <Page title="Регистрации">
+      <label>
+        Показать{" "}
+        <select name="status" value={status} onChange={(e) => setStatus(e.target.value as RegistrationStatus | "")}>
+          {Object.entries(registrationStatuses).map(([value, label]) => (
+            <option key={value} value={value}>{label}</option>
+          ))}
+          <option value="">Все</option>
+        </select>
+      </label>
       <QueryState keepDataOnError={!!query.data}
         loading={query.isLoading} error={query.error}>
-        {!can(session, "review_registrations") && (
-          <Empty>Нет доступа к заявкам.</Empty>
-        )}
         <div className={s.stack}>
+          {query.data?.items.length === 0 && (
+            <Empty>{status ? `${registrationStatuses[status]}: заявок нет.` : "Заявок нет."}</Empty>
+          )}
           {query.data?.items.map((r) => (
             <Card
               key={r.user_id}
@@ -429,32 +483,19 @@ export function RegistrationsPage() {
                     : "Одобрена"}
               </Badge>
               <dl>
-                {Object.entries(r.fields).map(([key, value]) => (
+                {Object.entries(registrationLabels).map(([key, label]) => (
                   <div key={key}>
-                    <dt>
-                      {
-                        (
-                          {
-                            surname: "Фамилия",
-                            name: "Имя",
-                            patronymic: "Отчество",
-                            group_number: "Группа",
-                            phone: "Телефон",
-                            email: "Почта",
-                            tg: "Telegram",
-                            vk: "VK",
-                            funding: "Основа обучения",
-                            residence: "Место проживания",
-                          } as Record<string, string>
-                        )[key]
-                      }
-                    </dt>
-                    <dd>{value || "—"}</dd>
+                    <dt>{label}</dt>
+                    <dd>{r.fields[key as keyof typeof registrationLabels] || "—"}</dd>
                   </div>
                 ))}
+                <div>
+                  <dt>Основа обучения</dt>
+                  <dd>{r.fields.funding ? fundingLabels[r.fields.funding] : "Не выбрано"}</dd>
+                </div>
               </dl>
               <p>
-                Отправок: {r.attempts_used}/5 · за всё время:{" "}
+                Отправок: {r.attempts_used}/{r.attempt_limit} · за всё время:{" "}
                 {r.total_submissions}
               </p>
               {r.rejection_reason && <p>{r.rejection_reason}</p>}
@@ -555,6 +596,7 @@ export function ParticipantCategoryPanel({ userId }: { userId: number }) {
             <ActionForm
               key={category.user_id}
               revision={category.revision}
+              changeRequired={["category"]}
               fields={[
                 {
                   name: "category",

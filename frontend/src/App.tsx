@@ -4,7 +4,6 @@ import { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "./App.css";
 import { WorkspaceLayout } from "./components/Workspace/WorkspaceLayout";
-import { LeadershipPage } from "./pages/Workspace/SessionPages";
 import { Loading } from "./components/Workspace/WorkspaceUI";
 const EventsListPage = lazy(() =>
   import("./pages/Workspace/EventPages").then((m) => ({
@@ -44,11 +43,6 @@ const FormerContactsPage = lazy(() =>
     default: m.FormerContactsPage,
   })),
 );
-const AccountArchivePage = lazy(() =>
-  import("./pages/Workspace/DirectoryPages").then((m) => ({
-    default: m.AccountArchivePage,
-  })),
-);
 const MaterialsPage = lazy(() =>
   import("./pages/Workspace/MaterialPages").then((m) => ({
     default: m.MaterialsPage,
@@ -72,11 +66,6 @@ const BlockPage = lazy(() =>
 const BlockRequestsPage = lazy(() =>
   import("./pages/Workspace/MembershipPages").then((m) => ({
     default: m.BlockRequestsPage,
-  })),
-);
-const RegistrationsPage = lazy(() =>
-  import("./pages/Workspace/MembershipPages").then((m) => ({
-    default: m.RegistrationsPage,
   })),
 );
 const DashboardPage = lazy(() =>
@@ -149,11 +138,7 @@ import { DocViewerPage } from "./pages/DocViewPage/DocViewerPage";
 import { GreetingPage } from "./pages/Greeting/Greeting";
 import { UserProvider } from "./utils/ctx";
 import { retryTransient, workspaceQueryCache } from "./utils/api/invalidation";
-import {
-  ProtectedRoute,
-  GuideEditRoute,
-  ExtendedRoute,
-} from "./pages/Wrappers/wrappers";
+import { ProtectedRoute, GuideEditRoute } from "./pages/Wrappers/wrappers";
 import { ProfilePage } from "./pages/ProfilePage/ProfilePage";
 import { ProfileEditPage } from "./pages/ProfileEditPage/ProfileEditPage";
 import { GuidesPage } from "./pages/Guides/GuidesPage";
@@ -186,7 +171,7 @@ function App() {
                     />
                     <Route
                       path="accounts/archive"
-                      element={<AccountArchivePage />}
+                      element={<Navigate to="/admin/accounts" replace />}
                     />
                     <Route
                       path="info"
@@ -203,7 +188,7 @@ function App() {
                     <Route path="events" element={<EventsListPage />} />
                     <Route path="events/:id" element={<EventPage />} />
                     <Route path="subevents/:id" element={<SubeventPage />} />
-                    <Route path="leadership" element={<LeadershipPage />} />
+                    <Route path="leadership" element={<Navigate to="/admin/leadership" replace />} />
                     <Route path="tasks" element={<TasksListPage />} />
                     <Route
                       path="tasks/unresolved"
@@ -249,11 +234,11 @@ function App() {
                     <Route path="blocks/:id" element={<BlockPage />} />
                     <Route
                       path="registrations"
-                      element={<RegistrationsPage />}
+                      element={<Navigate to="/admin/registrations" replace />}
                     />
-                    <Route element={<ExtendedRoute />}>
-                      <Route path="admin/:tab" element={<AdminPanel />} />
-                    </Route>
+                    {/* Each tab checks its own right (АВ-34). */}
+                    <Route path="admin" element={<AdminPanel />} />
+                    <Route path="admin/:tab" element={<AdminPanel />} />
                   </Route>
                 </Route>
                 <Route path="*" element={<NotFoundPage />} />

@@ -1,12 +1,7 @@
 import {z} from 'zod'
-import { telegramField, vkField, patronymicField } from './contactFields';
+import { telegramField, vkField, patronymicField, isValidGroupNumber } from './contactFields';
 
-export const isValidGroupNumber = (value: string | number) => {
-    const str = String(value).trim();
-    if (!/^\d+$/.test(str)) return false;
-    const num = parseInt(str, 10);
-    return num >= 100 && num <= 700;
-};
+export { isValidGroupNumber };
 
 export const SignUpValidationSchema = z.object({
     email: z.email('Неправильный формат email'),

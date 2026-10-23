@@ -26,6 +26,36 @@ describe('Access token refresh', () => {
     await expect(api.get('/private')).rejects.toThrow(); expect(Cookies.get('access_token')).toBeUndefined();
     expect(client.history.get).toHaveLength(1);
   });
+  it('A-ROL-14: a refresh lost to another tab retries with the pair that tab set', async () => {
+    Cookies.set('access_token', 'expired');
+    refresh.onPost(/\/auth\/refresh$/).reply(() => {
+      Cookies.set('access_token', 'from-other-tab');
+      return [401, { detail: 'Refresh token not found (revoked or already used)' }];
+    });
+    client.onGet('/private').reply(config => config.headers?.Authorization === 'Bearer from-other-tab' ? [200, { ok: true }] : [401, {}]);
+    expect((await api.get('/private')).status).toBe(200);
+    expect(Cookies.get('access_token')).toBe('from-other-tab');
+  });
+  it('A-ROL-14: tabs refresh one at a time; a tab that waited uses the new pair as is', async () => {
+    Cookies.set('access_token', 'expired');
+    const names: string[] = [];
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: {
+      request: async (name: string, task: () => Promise<void>) => {
+        names.push(name);
+        Cookies.set('access_token', 'from-other-tab'); // the other tab held the lock and refreshed
+        return task();
+      },
+    } });
+    try {
+      refresh.onPost(/\/auth\/refresh$/).reply(200, { access_token: 'twice' });
+      client.onGet('/private').reply(config => config.headers?.Authorization === 'Bearer from-other-tab' ? [200, { ok: true }] : [401, {}]);
+      expect((await api.get('/private')).status).toBe(200);
+      expect(names).toEqual(['profkom-auth-refresh']);
+      expect(refresh.history.post).toHaveLength(0);
+    } finally {
+      Reflect.deleteProperty(navigator, 'locks');
+    }
+  });
   it('does not refresh a rejected login', async () => {
     client.onPost('/auth/login').reply(401);
     await expect(api.post('/auth/login')).rejects.toThrow(); expect(refresh.history.post).toHaveLength(0);

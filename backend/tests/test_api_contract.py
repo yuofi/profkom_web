@@ -75,6 +75,7 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ('GET', '/api/notifications'),
     ('GET', '/api/participants/{user_id}/category'),
     ('GET', '/api/pgas'),
+    ('GET', '/api/pgas-admins'),
     ('GET', '/api/profile/me'),
     ('GET', '/api/profile/{user_id}'),
     ('GET', '/api/registrations'),
@@ -116,6 +117,7 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ('PATCH', '/api/tasks/{task_id}'),
     ('PATCH', '/api/tasks/{task_id}/assessment-inputs'),
     ('POST', '/api/accounts/{user_id}/archive'),
+    ('POST', '/api/accounts/{user_id}/temporary-password'),
     ('POST', '/api/accounts/{user_id}/restore'),
     ('POST', '/api/assessment-inputs/bulk-hours'),
     ('POST', '/api/assignments/{assignment_id}/accept'),
@@ -181,6 +183,7 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ('PUT', '/api/role-assignments/{role_assignment_id}/deputies'),
     ('PUT', '/api/seasons/{season_id}/summary/decisions/{user_id}'),
     ('PUT', '/api/subevents/{subevent_id}/leaders'),
+    ('PUT', '/api/users/{user_id}/pgas-admin'),
     ('PUT', '/api/subevents/{subevent_id}/meeting'),
     ('PUT', '/api/subevents/{subevent_id}/organizers'),
 )

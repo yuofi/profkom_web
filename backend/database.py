@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import asyncio
 from weakref import WeakKeyDictionary
 from anyio import to_thread
@@ -89,6 +90,8 @@ class UserORM(Base):
     account_state = Column(String, nullable=False, default="active", server_default="active")
     category = Column(String, nullable=False, default="junior", server_default="junior")
     session_version = Column(Integer, nullable=False, default=0, server_default="0")
+    # A temporary password from the chair or a deputy must be changed before any work (АВ-52)
+    must_change_password = Column(Boolean, default=False, nullable=False, server_default="0")
 
     contact = relationship("ContactInfoORM", back_populates="user", uselist=False)
 
@@ -768,6 +771,17 @@ def _ensure_sqlite_users_pgas_admin_column() -> None:
 _ensure_sqlite_users_pgas_admin_column()
 
 
+def _ensure_sqlite_users_must_change_password_column() -> None:
+    """Add must_change_password to SQLite DBs created before temporary passwords."""
+    with engine.begin() as conn:
+        names = {r[1] for r in conn.execute(text("PRAGMA table_info(users)")).fetchall()}
+        if "must_change_password" not in names:
+            conn.execute(text("ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT 0"))
+
+
+_ensure_sqlite_users_must_change_password_column()
+
+
 def _ensure_sqlite_users_events_roles_column() -> None:
     """Add events_roles to existing SQLite DBs."""
     with engine.begin() as conn:
@@ -1079,6 +1093,7 @@ def _user_orm_to_dc(u: UserORM) -> UserDC:
         account_state=getattr(u, "account_state", "active") or "active",
         category=getattr(u, "category", "junior") or "junior",
         session_version=u.session_version,
+        must_change_password=bool(u.must_change_password),
     )
 
 
@@ -2219,18 +2234,34 @@ class Database:
             return _user_orm_to_dc(u)
 
     def get_user_by_email(self, email: str) -> Optional[UserDC]:
+        """The account of an address, compared without case. Of several accounts whose
+        addresses differ only in case, the exact one; without it, none (A-ROL-16)."""
         if not email or not email.strip():
             return None
+        email = email.strip()
         with self._session() as session:
-            u = (
-                session.query(UserORM)
+            rows = (
+                session.query(UserORM, ContactInfoORM.email)
                 .join(ContactInfoORM, ContactInfoORM.user_id == UserORM.user_id)
-                .filter(func.lower(ContactInfoORM.email) == email.lower().strip())
-                .first()
+                .filter(func.lower(ContactInfoORM.email) == email.lower())
+                .all()
             )
-            if not u:
-                return None
-            return _user_orm_to_dc(u)
+            if len(rows) > 1:
+                rows = [row for row in rows if row[1].strip() == email]
+                if len(rows) != 1:
+                    logging.getLogger(__name__).warning("Several accounts share an e-mail address up to case; none chosen")
+                    return None
+            return _user_orm_to_dc(rows[0][0]) if rows else None
+
+    def email_taken(self, email: str, except_user_id: Optional[int] = None) -> bool:
+        """Whether another account uses the address, compared without case (A-ROL-16)."""
+        if not email or not email.strip():
+            return False
+        with self._session() as session:
+            q = session.query(ContactInfoORM.user_id).filter(func.lower(ContactInfoORM.email) == email.strip().lower())
+            if except_user_id is not None:
+                q = q.filter(ContactInfoORM.user_id != except_user_id)
+            return q.first() is not None
 
     def get_contact(self, user_id: int) -> Optional[ContactInfoDC]:
         with self._session() as session:

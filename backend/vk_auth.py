@@ -47,8 +47,8 @@ def verified_identity(token: str) -> dict:
     return {**user, "subject": "vk:" + subject, "vk_id": subject}
 
 
-def login_user(token: str):
-    identity = verified_identity(token)
+def login_user(identity: dict):
+    """The account of a verified VK identity; a new pending one for an unknown identity."""
     user = db.get_external_user(identity["subject"])
     if user:
         if user.banned or user.account_state == "archived":
@@ -77,11 +77,11 @@ def login_user(token: str):
             name=name,
             surname=surname,
             kkr_name=f"{name} {surname}",
-            group_number="0",
+            group_number="",  # the applicant fills it in before approval (A-ROL-20)
             phone=phone,
             vk=f"https://vk.com/id{identity['vk_id']}",
         ),
-        User(user_id=0, hashed_password="", group_number="0", account_state="pending"),
+        User(user_id=0, hashed_password="", group_number="", account_state="pending"),
     )
     db.link_external_identity(user.user_id, identity["subject"])
     return user

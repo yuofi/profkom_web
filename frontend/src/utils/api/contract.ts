@@ -43,6 +43,14 @@ export interface Session {
   access_revision?: string;
   capabilities: string[];
   assignments?: RoleAssignment[];
+  /** A temporary password is in use: it must be changed before any work (АВ-52). */
+  password_change_required?: boolean;
+}
+/** Shown once to the chair or deputy who handed it out; never stored by the client. */
+export interface TemporaryPassword {
+  user_id: number;
+  email: string;
+  temporary_password: string;
 }
 export interface Leadership extends Versioned {
   chair: UserRef;
@@ -67,7 +75,8 @@ export interface RegistrationFields {
   email: string;
   tg: string;
   vk: string;
-  funding: "budget" | "contract";
+  /** null: not chosen yet (a VK application, decision 28); approval needs a choice. */
+  funding: "budget" | "contract" | null;
   residence: string;
 }
 export interface RegistrationApplication extends Versioned {
@@ -87,6 +96,9 @@ export interface BlockRequest extends Versioned {
   created_at: string;
   stage_entered_at: string;
   substitute_available_at: string | null;
+  /** A closed request: when it was decided and, for a rejection, why (decision 16). */
+  decided_at?: string | null;
+  decision_reason?: string | null;
 }
 export interface Block extends Versioned {
   block_id: string;
@@ -391,6 +403,8 @@ export interface Dashboard {
   actionable_requests: BlockRequest[];
   unresolved_assignments: UnresolvedAssignment[];
   unread_notification_count: number;
+  /** Waiting registrations; 0 without review_registrations (A-ROL-21). */
+  pending_registration_count: number;
 }
 export interface UploadIntent {
   file_id: string;

@@ -5,6 +5,8 @@ import { UserContext } from "./me";
 import { SessionContext, isActiveSession, accessFingerprint, sessionIdentity } from "./session";
 import type { Session } from "./api/contract";
 import { forgetOwnChanges } from "../components/Workspace/ownRevisions";
+import { handleRevokedSession } from "./authSession";
+import { normalizeApiError } from "./api/request";
 
 const notSession = (q: { queryKey: readonly unknown[] }) => q.queryKey[0] !== "session";
 
@@ -14,7 +16,17 @@ export const UserProvider = ({ children }: { children: React.ReactNode }) => {
     queryKey: ["session"],
     queryFn: async () => {
       const previous = client.getQueryData<Session>(["session"]);
-      const next = await sessionApi.get();
+      let next: Session;
+      try {
+        next = await sessionApi.get();
+      } catch (error) {
+        // 401 after the refresh was tried: the session is over, and its data with it.
+        if (normalizeApiError(error).status === 401) {
+          forgetOwnChanges(client);
+          await handleRevokedSession(client);
+        }
+        throw error;
+      }
       if (previous && sessionIdentity(previous) !== sessionIdentity(next)) {
         // Another account or account state: nothing of the previous one stays.
         forgetOwnChanges(client);
@@ -33,7 +45,8 @@ export const UserProvider = ({ children }: { children: React.ReactNode }) => {
     refetchOnWindowFocus: "always",
     refetchInterval: 60_000,
   });
-  const active = isActiveSession(sessionQuery.data);
+  // A temporary password opens nothing but its change (АВ-52).
+  const active = isActiveSession(sessionQuery.data) && !sessionQuery.data?.password_change_required;
   const profile = useQuery({
     queryKey: ["currentUser", sessionQuery.data?.user_id],
     queryFn: authApi.getMe,

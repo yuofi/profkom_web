@@ -124,6 +124,7 @@ export function installMockTransport(
       }))), master_bonuses: [] });
     summaryVersions.set(seasonId, history);
   };
+  const pgasAdmins = new Set<number>([102]);
   const categories = new Map(
     state.people.map((p) => [
       p.user_id,
@@ -337,6 +338,21 @@ export function installMockTransport(
         { emails: state.people.map((p) => `member${p.user_id}@example.com`) },
       ];
     if (path === "/leadership") return [200, clone(leadership)];
+    if (path === "/pgas-admins")
+      return state.session.capabilities.includes("grant_pgas_admin") ? list(clone(state.people.filter((p) => pgasAdmins.has(p.user_id!)))) : denied();
+    if (parts[0] === "users" && parts[2] === "pgas-admin") {
+      if (!state.session.capabilities.includes("grant_pgas_admin")) return denied();
+      if (data.pgas_admin) pgasAdmins.add(Number(parts[1]));
+      else pgasAdmins.delete(Number(parts[1]));
+      return [200, { user_id: Number(parts[1]), pgas_admin: !!data.pgas_admin }];
+    }
+    if (parts[0] === "accounts" && parts[2] === "temporary-password") {
+      if (!state.session.capabilities.includes("reset_password")) return denied();
+      const userId = Number(parts[1]);
+      if (userId === leadership.chair.user_id || leadership.deputies.some((d) => d.user_id === userId))
+        return fail(403, "forbidden", "Председатель и замы меняют пароль сами");
+      return [200, { user_id: userId, email: `member${userId}@example.com`, temporary_password: "synthetic-temporary" }];
+    }
     if (path === "/leadership/transfer") {
       if (!state.chair) return denied();
       if (mismatch(data, leadership)) return conflict();
@@ -1518,7 +1534,10 @@ export function installMockTransport(
     if (parts[0] === "registrations") {
       if (!state.session.capabilities.includes("review_registrations"))
         return denied();
-      if (method === "get") return list([clone(queueApplication)]);
+      if (method === "get") {
+        const status = url.searchParams.get("status");
+        return list(!status || status === queueApplication.status ? [clone(queueApplication)] : []);
+      }
       if (mismatch(data, queueApplication)) return conflict();
       if (parts[2] === "reset-attempts") queueApplication.attempts_used = 0;
       else {
@@ -1711,6 +1730,8 @@ export function installMockTransport(
           unread_notification_count: state.notifications.filter(
             (n) => !n.read_at,
           ).length,
+          pending_registration_count:
+            state.session.capabilities.includes("review_registrations") && queueApplication.status === "pending" ? 1 : 0,
         },
       ];
     if (path === "/calendar")

@@ -24,7 +24,7 @@ class RegistrationFields(BaseModel):
     email: str
     tg: str
     vk: str
-    funding: Literal["budget", "contract"]
+    funding: Literal["budget", "contract"] | None  # a VK application starts unchosen (decision 28)
     residence: str
 
 
@@ -48,6 +48,9 @@ class BlockRequest(BaseModel):
     created_at: str
     stage_entered_at: str
     substitute_available_at: str | None
+    # A closed request: when it was decided and, for a rejection, why (decision 16)
+    decided_at: str | None = None
+    decision_reason: str | None = None
     revision: int
     capabilities: list[str]
 

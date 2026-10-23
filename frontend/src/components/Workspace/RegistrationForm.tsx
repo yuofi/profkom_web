@@ -7,19 +7,8 @@ import { ActionForm, type Field } from "./ActionForm";
 import { text } from "./formValues";
 import { can } from "../../utils/session";
 import s from "./Workspace.module.css";
-import { registrationFieldsSchema } from "../../utils/contactFields";
+import { fundingLabels, registrationFieldsSchema, registrationLabels } from "../../utils/contactFields";
 import { ApiError } from "../../utils/api/request";
-const names = {
-  surname: "Фамилия",
-  name: "Имя",
-  patronymic: "Отчество",
-  group_number: "Группа",
-  phone: "Телефон",
-  email: "Почта",
-  tg: "Telegram",
-  vk: "VK",
-  residence: "Место проживания",
-};
 export function RegistrationForm({
   application,
 }: {
@@ -27,10 +16,10 @@ export function RegistrationForm({
 }) {
   const { perform, refresh } = useWorkspaceActions();
   const fields: Field[] = [
-    ...Object.entries(names).map(([name, label]) => ({
+    ...Object.entries(registrationLabels).map(([name, label]) => ({
       name,
       label,
-      value: application.fields[name as keyof typeof names] ?? "",
+      value: application.fields[name as keyof typeof registrationLabels] ?? "",
       required: name !== "patronymic",
       type: name === "email" ? ("email" as const) : ("text" as const),
     })),
@@ -39,11 +28,9 @@ export function RegistrationForm({
       label: "Основа обучения",
       type: "select",
       required: true,
-      value: application.fields.funding,
-      options: [
-        { value: "budget", label: "Бюджет" },
-        { value: "contract", label: "Контракт" },
-      ],
+      // A VK application starts unchosen: no basis is preselected (decision 28).
+      value: application.fields.funding ?? "",
+      options: Object.entries(fundingLabels).map(([value, label]) => ({ value, label })),
     },
   ];
   return (
@@ -56,7 +43,7 @@ export function RegistrationForm({
         fields={fields}
         onSubmit={async (v, expectedRevision) => {
           const form = Object.fromEntries(
-            Object.keys(names).map((k) => [k, text(v, k)]),
+            Object.keys(registrationLabels).map((k) => [k, text(v, k)]),
           );
           const parsed = registrationFieldsSchema.safeParse({ ...form, funding: text(v, "funding") });
           if (!parsed.success) throw new ApiError("Проверьте сведения и контакты", 422, "validation_error", {
@@ -78,8 +65,7 @@ export function RegistrationForm({
             Сначала сохраните исправления, затем отправьте заявку повторно.
             Аккаунт останется тем же.
           </p>
-          {application.attempts_used < application.attempt_limit &&
-          can(application, "resubmit_registration") ? (
+          {can(application, "resubmit_registration") ? (
             <ActionForm
               fields={[]}
               submitLabel="Повторно отправить заявку"

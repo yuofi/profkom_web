@@ -43,4 +43,5 @@ export const workspaceKeys = [
   ["participantCategory"],
   ["blocks"],
   ["currentUser"],
+  ["pgasAdmins"],
 ] as const;

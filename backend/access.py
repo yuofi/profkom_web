@@ -115,6 +115,8 @@ POLICY = {
     "block.review_hr_stage": {HR_MASTER},  # the chair and deputies substitute after 72 hours
     "block.review_block_stage": BLOCK_LEADS,
     "block_request.view_all": TACHKI | {HR_MASTER},
+    # Checked on the HR block: its whole team reads every request and why it was rejected (decision 16)
+    "block_request.view_as_hr": BLOCK_LEADS | {BLOCK_MEMBER},
     "participant.category": SUMMARY,
     "former_contact.edit": SUMMARY,
     # Registrations, accounts, leadership
@@ -132,6 +134,9 @@ POLICY = {
     "material.manage_editors": TACHKI,
     "material.restore": TACHKI,  # deletion is reversible (decision 18)
     "pgas.manage": TACHKI | {PGAS_ADMIN},  # decision 14
+    "pgas.grant": TACHKI,  # pgas_admin is given and taken back by the chair and deputies (decision 14)
+    "account.reset_password": TACHKI,  # a temporary password, no mail (АВ-52 (а))
+    "leadership.view": TACHKI,  # the administration tab; only the chair changes it (АВ-2, АВ-34)
 }
 
 QUEUE_ROLES = {
@@ -328,6 +333,10 @@ GLOBAL_CAPS = {
     "open_season": "season.open",
     "close_season": "season.close",
     "view_all_areas": "dashboard.all",  # the home page lists every block and event
+    "manage_pgas": "pgas.manage",
+    "grant_pgas_admin": "pgas.grant",
+    "reset_password": "account.reset_password",
+    "view_leadership": "leadership.view",
 }
 
 

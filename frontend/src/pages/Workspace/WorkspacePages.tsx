@@ -199,6 +199,12 @@ export function DashboardPage() {
                 {data.actionable_requests.length}
               </p>
               <RouteLink to="/blocks/requests">Рассмотреть заявки</RouteLink>
+              {can(session, "review_registrations") && (
+                <>
+                  <p>Регистрации, ожидающие решения: {data.pending_registration_count}</p>
+                  <RouteLink to="/admin/registrations">Рассмотреть регистрации</RouteLink>
+                </>
+              )}
               {unresolved.length > 0 && (
                 <>
                   <p>
@@ -211,7 +217,7 @@ export function DashboardPage() {
                   </RouteLink>
                 </>
               )}
-              {!data.actionable_requests.length && !unresolved.length && (
+              {!data.actionable_requests.length && !unresolved.length && !data.pending_registration_count && (
                 <Empty>В очереди нет решений.</Empty>
               )}
             </Card>

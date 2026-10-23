@@ -13,7 +13,8 @@ import { Avatar } from "../../components/Avatar/Avatar";
 import { ProfileValidationSchema, ChangePasswordValidationSchema } from "../../utils/zod";
 import styles from "./ProfileEditPage.module.css";
 import type { ProfileUpdate } from "../../utils/api/types";
-import { can, useSession } from "../../utils/session";
+import { useSession } from "../../utils/session";
+import { visibleAdminTabs } from "../Admin/adminTabs";
 import { Helmet } from "react-helmet-async";
 
 export const ProfileEditPage = () => {
@@ -57,7 +58,8 @@ export const ProfileEditPage = () => {
         surname: values.surname,
         name: values.name,
         patronymic: clean.patronymic,
-        group_number: values.group_number,
+        // Empty keeps the stored group: a legacy non-numeric one is shown as empty.
+        group_number: values.group_number || undefined,
         location: values.location,
         phone: values.phone,
         vk: clean.vk,
@@ -187,14 +189,14 @@ export const ProfileEditPage = () => {
                   Изменить пароль
                 </button>
 
-                {can(session, "review_registrations") && (
+                {visibleAdminTabs(session).length > 0 && (
                   <button 
                     type="button"
                     className={styles.adminBtn}
-                    onClick={() => navigate("/admin/guides")}
+                    onClick={() => navigate("/admin")}
                   >
                     <Icon name="admin_panel_settings" size={20} />
-                    Админская панель
+                    Администрирование
                   </button>
                 )}
               </section>

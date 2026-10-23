@@ -4,6 +4,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { Route, Routes } from "react-router-dom";
 import { HelmetProvider } from "react-helmet-async";
 import MockAdapter from "axios-mock-adapter";
+import axios from "axios";
 import Cookies from "js-cookie";
 import { afterEach, expect, it, vi } from "vitest";
 import { api } from "../../utils/api";
@@ -117,4 +118,30 @@ it("A03: logout network error stays actionable; pending refresh never reads a pr
   await settle();
   expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("Не удалось завершить сессию");
   expect(page.container.textContent).toContain("Ко входу");
+});
+
+it("A-FE-4: a session the server ended leaves nothing private in the cache", async () => {
+  adapter = new MockAdapter(api);
+  const refresh = new MockAdapter(axios);
+  try {
+    Cookies.set("access_token", "revoked");
+    adapter.onGet("/session").reply(401, { detail: "Session revoked" });
+    refresh.onPost(/\/auth\/refresh$/).reply(401, { detail: "Refresh token not found (revoked or already used)" });
+    const client = new QueryClient({ defaultOptions: { queries: { staleTime: 0, retry: false } } });
+    client.setQueryData(["session"], createFixtures("organizer").session);
+    client.setQueryData(["tasks", "task-1"], { title: "Закрытая задача" });
+    client.setQueryData(["contacts"], [{ user_id: 101 }]);
+    page = await mountWorkspace(<UserProvider><Routes>
+      <Route path="/auth" element={<p>LOGIN</p>} />
+      <Route element={<ProtectedRoute />}><Route path="/" element={<p>ACTIVE_WORKSPACE</p>} /></Route>
+    </Routes></UserProvider>, { client });
+    await settle(); await settle();
+    expect(page.container.textContent).toContain("LOGIN");
+    // Nothing holds data: the session is emptied, the profile read waits for one (key null).
+    expect(client.getQueryCache().getAll().filter((q) => q.state.data != null).map((q) => q.queryKey)).toEqual([]);
+    expect(client.getQueryData(["session"])).toBeNull();
+    expect(Cookies.get("access_token")).toBeUndefined();
+  } finally {
+    refresh.restore();
+  }
 });

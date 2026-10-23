@@ -143,6 +143,14 @@ def can_review(r, uid):
     return access.can_review_request(uid, r.state, legacy_name(r.block_id), ready)
 
 
+def decision(r):
+    """When a closed request was decided and, if rejected, the reason given."""
+    if r.state in ("pending_hr", "pending_block"):
+        return None, None
+    last = next((h for h in reversed(json.loads(r.history_json or "[]")) if h.get("state") == r.state), {})
+    return last.get("at"), last.get("reason") if r.state == "rejected" else None
+
+
 def request_dto(s, r, uid):
     caps = []
     if r.state in ("pending_hr", "pending_block"):
@@ -154,6 +162,7 @@ def request_dto(s, r, uid):
                 if r.state == "pending_hr"
                 else "block_review_request"
             )
+    decided_at, reason = decision(r)
     return dict(
         request_id=r.request_id,
         user=asdict(db._get_user_ref(s, r.user_id)),
@@ -168,20 +177,29 @@ def request_dto(s, r, uid):
             if r.state in ("pending_hr", "pending_block")
             else None
         ),
+        decided_at=decided_at,
+        # Everyone who sees the request is in the circle of decision 16
+        decision_reason=reason,
         revision=r.revision,
         capabilities=caps,
     )
 
 
 def requests_for(uid):
+    """The applicant, the chair, deputies and the whole HR block see a request; the block's
+    master and deputy see those to their block (decision 16)."""
     with db._session() as s:
+        everything = access.allowed(uid, "block_request.view_all") or any(
+            access.allowed(uid, "block_request.view_as_hr", "block", b.name)
+            for b in s.query(BlockORM).filter(BlockORM.is_hr == True)  # noqa: E712
+        )
         return [
             request_dto(s, r, uid)
             for r in s.query(BlockApplicationORM).order_by(
                 BlockApplicationORM.created_at
             )
-            if r.user_id == uid
-            or access.allowed(uid, "block_request.view_all")
+            if everything
+            or r.user_id == uid
             or access.allowed(uid, "block.review_block_stage", "block", legacy_name(r.block_id))
         ]
 
@@ -561,6 +579,16 @@ def register_routes(router):
                 r = CategoryRevisionORM(user_id=user_id, revision=1)
                 s.add(r)
             version(r, payload.expected_revision)
+            def result():
+                return dict(
+                    user_id=user_id,
+                    category=u.category,
+                    revision=r.revision,
+                    capabilities=["edit_participant_category"],
+                )
+
+            if payload.category == u.category:
+                return result()  # nothing changes: no new revision, no audit record (A-ROL-12)
             old = u.category
             u.category = payload.category
             r.revision += 1
@@ -574,12 +602,7 @@ def register_routes(router):
                 dict(category=u.category),
             )
             s.commit()
-            return dict(
-                user_id=user_id,
-                category=u.category,
-                revision=r.revision,
-                capabilities=["edit_participant_category"],
-            )
+            return result()
 
 
 from domain_seed import meta_for, seed_members

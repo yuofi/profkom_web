@@ -234,6 +234,7 @@ def test_workspace_aggregate_contract(client, user):
         "actionable_requests",
         "unresolved_assignments",
         "unread_notification_count",
+        "pending_registration_count",
     }
 
 

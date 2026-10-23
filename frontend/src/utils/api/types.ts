@@ -21,10 +21,10 @@ export interface UserIn {
   password: string;
   group_number: number;
   tg: string;
-  phone?: string;
-  vk?: string;
-  funding?: "budget" | "contract";
-  residence?: string;
+  phone: string;
+  vk: string;
+  funding: "budget" | "contract";
+  residence: string;
   email: string;
 }
 
@@ -39,7 +39,8 @@ export interface UserOut {
   kkr_name: string;
   /** Legacy only; never display or use as a contribution source. */
   kkr_score?: number;
-  group_number: number;
+  /** null when the stored group is not a number yet (an unfinished VK application). */
+  group_number: number | null;
   blocks: string;
   banned: boolean;
   super_user: boolean;

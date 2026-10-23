@@ -92,14 +92,15 @@ class ContactInfoIn(BaseModel):
 
 
 class RegisterIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    phone: str = ""
-    vk: str = ""
-    funding: str = "budget"
-    residence: str = ""
+    """Every field but the patronymic is required already here (decision 29, AUTH-16)."""
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    phone: str = Field(..., min_length=1, max_length=40)
+    vk: str = Field(..., min_length=1, max_length=300)
+    funding: contact_rules.Funding
+    residence: str = Field(..., min_length=1, max_length=500)
     email: EmailStr
-    surname: str = ""
-    name: str = ""
+    surname: str = Field(..., min_length=1, max_length=100)
+    name: str = Field(..., min_length=1, max_length=100)
     patronymic: str = ""
     password: str = Field(..., min_length=1, max_length=4096)
     group_number: int = Field(..., ge=100, le=700)
@@ -128,8 +129,14 @@ class UserOut(BaseModel):
     user_id: int
     kkr_name: str
     kkr_score: Optional[int] = None
-    group_number: int
+    group_number: Optional[int]
     blocks: str
+
+    @field_validator("group_number", mode="before")
+    @classmethod
+    def stored_group(cls, value):
+        """An old stored group that is not a number is shown as none, not a 500 (A-ROL-17)."""
+        return int(value) if str(value).strip().isdigit() else None
     photo_url: Optional[str] = None
     banned: bool
     super_user: bool
@@ -295,10 +302,7 @@ class ProfileUpdate(BaseModel):
     @field_validator("group_number")
     @classmethod
     def validate_group_number(cls, v: Optional[str]) -> Optional[str]:
-        if v is not None:
-            if not v.strip().isdigit():
-                raise ValueError("Group number must be numeric")
-        return v
+        return contact_rules.group_number(v)
 
 
 class ContactFilter(BaseModel):
@@ -366,6 +370,8 @@ class SessionOut(BaseModel):
     super_user: bool = False
     admin: bool = False
     pgas_admin: bool = False
+    # A temporary password is in use: nothing works until it is changed (АВ-52)
+    password_change_required: bool = False
 
 
 # ─────────────────────────────────────────────────────────────
@@ -987,6 +993,7 @@ class DashboardOut(BaseModel):
     actionable_requests: list[dict]
     unresolved_assignments: list[UnresolvedAssignmentOut]
     unread_notification_count: int
+    pending_registration_count: int = 0
 
 
 class CalendarItemOut(BaseModel):
@@ -1018,8 +1025,8 @@ def register(payload: RegisterIn, response: Response):
     Returns access + refresh tokens immediately.
     """
 
-    # Uniqueness: email
-    if db.get_user_by_email(str(payload.email)):
+    # Uniqueness: email, compared without case
+    if db.email_taken(str(payload.email)):
         raise HTTPException(409, "Email already registered")
 
     kkr_name = " ".join(
@@ -1091,6 +1098,7 @@ def login(body: LoginIn, response: Response):
     if not user.hashed_password:
         raise HTTPException(401, "No password set for this account. Please login via VK.")
 
+    # The hash is checked outside any transaction; only issuing the tokens writes.
     if not verify_password(body.password, user.hashed_password):
         raise HTTPException(401, "Invalid credentials")
 
@@ -1100,7 +1108,8 @@ def login(body: LoginIn, response: Response):
     if getattr(user, "account_state", "active") == "archived":
         raise HTTPException(403, "Account is archived")
 
-    tokens = create_token_pair(user.user_id)
+    with db.atomic():
+        tokens = create_token_pair(user.user_id)
     response.set_cookie(
         key="refresh_token",
         value=tokens["refresh_token"],
@@ -1124,23 +1133,25 @@ def change_password(
             raise HTTPException(400, "Invalid old password")
 
     new_hashed = hash_password(payload.new_password)
-    db.update_user(cur.user_id, hashed_password=new_hashed)
+    db.update_user(cur.user_id, hashed_password=new_hashed, must_change_password=False)
     revoke_all_user_tokens(cur.user_id)
     return {"detail": "Password updated successfully"}
 
 
 @router.post("/auth/vk", response_model=TokenPair)
 def vk_login(payload: VKLoginIn, response: Response):
-    from vk_auth import login_user
-    user = login_user(payload.access_token)
-    from registration import ensure_application
-    with db._session() as session:
-        application=ensure_application(session, user.user_id)
-        if application.status=='pending':
+    from vk_auth import login_user, verified_identity
+    # VK answers first, outside any transaction (A-ROL-15); then one short transaction.
+    identity = verified_identity(payload.access_token)
+    from registration import complete, ensure_application
+    with db.atomic(), db._session() as session:
+        user = login_user(identity)
+        # A new VK account chooses its study basis itself (decision 28)
+        application=ensure_application(session, user.user_id, funding=None)
+        if application.status=='pending' and complete(application):
             from notifications import registration_submitted
             registration_submitted(session,application)
-        session.commit()
-    tokens = create_token_pair(user.user_id)
+        tokens = create_token_pair(user.user_id)
     response.set_cookie(key="refresh_token", value=tokens["refresh_token"], httponly=True,
                         max_age=REFRESH_TTL_DAYS*86400, samesite="none", secure=True)
     return tokens
@@ -1149,8 +1160,10 @@ def vk_login(payload: VKLoginIn, response: Response):
 @router.post("/auth/vk/link")
 def link_vk(payload: VKLoginIn, cur: User = Depends(get_current_user)):
     from vk_auth import verified_identity
+    subject = verified_identity(payload.access_token)["subject"]  # outside any transaction
     try:
-        db.link_external_identity(cur.user_id, verified_identity(payload.access_token)["subject"])
+        with db.atomic():
+            db.link_external_identity(cur.user_id, subject)
     except ValueError as exc:
         raise HTTPException(409, str(exc))
     return {"linked": True}
@@ -1168,10 +1181,13 @@ def refresh(response: Response, refresh_token: str = Cookie(None)):
     try:
         tokens = refresh_tokens(refresh_token)
     except HTTPException as error:
-        # A consumed invalid/expired refresh token must stay consumed even on 401.
+        # A consumed invalid/expired refresh token must stay consumed even on 401. A used one
+        # keeps the cookie: the tab that rotated it first may already have set the new one.
         from fastapi.responses import JSONResponse
+        from auth import REFRESH_USED
         rejected=JSONResponse({'detail':error.detail},status_code=error.status_code,headers=error.headers)
-        rejected.delete_cookie('refresh_token',samesite='none',secure=True)
+        if error.detail != REFRESH_USED:
+            rejected.delete_cookie('refresh_token',samesite='none',secure=True)
         return rejected
     response.set_cookie(
         key="refresh_token",
@@ -1261,8 +1277,7 @@ def update_profile(
         raise HTTPException(500, "Contact info missing for user")
 
     if payload.email is not None and payload.email != contact.email:
-        existing = db.get_user_by_email(str(payload.email))
-        if existing and existing.user_id != user_id:
+        if db.email_taken(str(payload.email), user_id):
             raise HTTPException(409, "Email already registered")
 
     fields_set = payload.model_fields_set if hasattr(payload, "model_fields_set") else payload.__fields_set__
@@ -1502,16 +1517,23 @@ def get_session(cur: User = Depends(get_current_user)):
     if acc_state == "archived":
         raise HTTPException(403, "Account is archived")
 
-    from registration import registration_status
-    reg_status = registration_status(cur.user_id)
+    from registration import can_resubmit, ensure_application
+    with db._session() as session:
+        application = ensure_application(session, cur.user_id)
+        reg_status, resubmit = application.status, can_resubmit(application)
+        session.commit()
     if acc_state == "pending":
         return SessionOut(
             user_id=cur.user_id,
             account_state="pending",
             registration_status=reg_status,
-            capabilities=["resubmit_registration"] if reg_status=="rejected" else [],
+            capabilities=["resubmit_registration"] if resubmit else [],
             assignments=[],
+            password_change_required=cur.must_change_password,
         )
+    if cur.must_change_password:
+        return SessionOut(user_id=cur.user_id, account_state=acc_state,
+                          registration_status=reg_status, password_change_required=True)
 
     caps = access.global_caps(cur.user_id)
 

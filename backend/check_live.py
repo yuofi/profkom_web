@@ -298,6 +298,11 @@ def run_auth(api: Api, rep: Report, args) -> Optional[str]:
         "patronymic": "",
         "group_number": 101,
         "tg": f"hc_{ident}",
+        # Every field but the patronymic is required at the sign-up (decision 29).
+        "phone": "+79990000000",
+        "vk": "https://vk.com/id1",
+        "funding": "budget",
+        "residence": "Проверка",
     }
 
     def register():

@@ -45,16 +45,34 @@ export function beginAuthTransition() {
     refreshPromise = null;
 }
 
+/** Tabs of one browser share the cookies, so they refresh one at a time (A-ROL-14). */
 async function fetchRefresh(): Promise<void> {
     const generation = authGeneration;
-    const response: AxiosResponse<RefreshResponse> = await axios.post(
-        `${prefix}/auth/refresh`,
-        {}, // No body needed, refresh token is in httpOnly cookie
-        { withCredentials: true }
-    );
-
-    if (generation !== authGeneration) throw new axios.CanceledError("Сессия изменилась");
-    Cookies.set("access_token", response.data.access_token, {expires: 1/8});
+    const before = Cookies.get("access_token");
+    // Another tab refreshed meanwhile and set its pair: this tab uses it as is.
+    const refreshedElsewhere = () => {
+        if (generation !== authGeneration) throw new axios.CanceledError("Сессия изменилась");
+        const token = Cookies.get("access_token");
+        return !!token && token !== before;
+    };
+    const refresh = async () => {
+        if (refreshedElsewhere()) return;
+        try {
+            const response: AxiosResponse<RefreshResponse> = await axios.post(
+                `${prefix}/auth/refresh`,
+                {}, // No body needed, refresh token is in httpOnly cookie
+                { withCredentials: true }
+            );
+            if (generation !== authGeneration) throw new axios.CanceledError("Сессия изменилась");
+            Cookies.set("access_token", response.data.access_token, {expires: 1/8});
+        } catch (error) {
+            // A browser without locks: the other tab rotated the token a moment earlier.
+            if (!axios.isCancel(error) && refreshedElsewhere()) return;
+            throw error;
+        }
+    };
+    const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
+    return locks ? locks.request("profkom-auth-refresh", refresh) : refresh();
 }
 
 api.interceptors.response.use(

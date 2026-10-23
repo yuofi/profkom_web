@@ -191,6 +191,12 @@ def dashboard(uid):
             for u in db.list_unresolved_assignments(current_user_id=uid)
             if live(u.season_id)
         ]
+        # Registrations are not block requests: a separate count for their reviewers (A-ROL-21).
+        waiting = 0
+        if access.allowed(uid, "registration.review"):
+            from domain_models import RegistrationORM
+
+            waiting = s.query(RegistrationORM).filter_by(status="pending").count()
         return dict(
             my_tasks=[main._to_task_public_out(t) for t in tasks],
             upcoming_meetings=sorted(meetings, key=lambda m: m["starts_at"]),
@@ -201,6 +207,7 @@ def dashboard(uid):
             unread_notification_count=sum(
                 n["read_at"] is None for n in notifications(uid)
             ),
+            pending_registration_count=waiting,
         )
 
 

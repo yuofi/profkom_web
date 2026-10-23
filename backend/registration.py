@@ -25,7 +25,7 @@ class Fields(BaseModel):
     email: EmailStr
     tg: str = Field(min_length=1, max_length=200)
     vk: str = Field(min_length=1, max_length=300)
-    funding: Literal["budget", "contract"]
+    funding: contact_rules.Funding
     residence: str = Field(min_length=1, max_length=500)
 
     @field_validator("tg", "vk", mode="before")
@@ -33,10 +33,14 @@ class Fields(BaseModel):
     def normalize_contact(cls, value, info):
         return contact_rules.telegram(value) if info.field_name == "tg" else contact_rules.vk(value)
 
+    @field_validator("group_number", mode="before")
+    @classmethod
+    def check_group(cls, value):
+        return contact_rules.group_number(value)
+
     @field_validator(
         "surname",
         "name",
-        "group_number",
         "phone",
         "tg",
         "vk",
@@ -83,9 +87,26 @@ def audit(s, kind, id, uid, reason, old, new):
     )
 
 
+ATTEMPT_LIMIT = 5
+
+
+def can_resubmit(r):
+    """A rejected application may be sent again until the limit (A-ROL-18)."""
+    return r.status == "rejected" and r.attempts_used < ATTEMPT_LIMIT
+
+
+def complete(r):
+    """Whether the application holds every field an approval needs."""
+    try:
+        Fields.model_validate(json.loads(r.fields_json))
+        return True
+    except ValueError:
+        return False
+
+
 def dto(r, uid):
     caps = []
-    if r.user_id == uid and r.status == "rejected" and r.attempts_used < 5:
+    if r.user_id == uid and can_resubmit(r):
         caps.append("resubmit_registration")
     if access.allowed(uid, "registration.review"):
         if r.status == "pending":
@@ -96,7 +117,7 @@ def dto(r, uid):
         user_id=r.user_id,
         status=r.status,
         attempts_used=r.attempts_used,
-        attempt_limit=5,
+        attempt_limit=ATTEMPT_LIMIT,
         total_submissions=r.total_submissions,
         rejection_reason=r.rejection_reason,
         fields=json.loads(r.fields_json),
@@ -139,18 +160,16 @@ def register_routes(router):
                 fail(409, "Use your contact profile")
             fields = payload.fields.model_dump(mode="json")
             old = json.loads(r.fields_json)
-            other = (
-                s.query(ContactInfoORM)
-                .filter(
-                    ContactInfoORM.email == fields["email"],
-                    ContactInfoORM.user_id != cur.user_id,
-                )
-                .first()
-            )
-            if other:
+            if db.email_taken(fields["email"], cur.user_id):
                 fail(409, "Email already registered")
+            was_complete = complete(r)
             r.fields_json = json.dumps(fields, ensure_ascii=False)
             append_history(r, "edit_fields", cur.user_id)
+            if r.status == "pending" and not was_complete:
+                # A VK application reaches the reviewers once it can be decided (A-ROL-20)
+                from notifications import registration_submitted
+
+                registration_submitted(s, r)
             audit(
                 s,
                 "registration",
@@ -170,7 +189,7 @@ def register_routes(router):
             version(r, payload.expected_revision)
             if r.status != "rejected":
                 fail(409, "Only rejected registrations can be resubmitted")
-            if r.attempts_used >= 5:
+            if r.attempts_used >= ATTEMPT_LIMIT:
                 fail(
                     409,
                     dict(
@@ -178,9 +197,7 @@ def register_routes(router):
                         message="Submission limit reached",
                     ),
                 )
-            try:
-                Fields.model_validate(json.loads(r.fields_json))
-            except ValueError:
+            if not complete(r):
                 fail(422, "Complete all required registration fields")
             r.attempts_used += 1
             r.total_submissions += 1
@@ -203,14 +220,22 @@ def register_routes(router):
             return dto(r, cur.user_id)
 
     @router.get("/registrations", response_model=Page[ApplicationOut])
-    def queue(cur: User = Depends(get_current_user)):
+    def queue(
+        status: Literal["pending", "rejected", "approved"] | None = None,
+        cur: User = Depends(get_current_user),
+    ):
+        """Waiting applications first, then rejected, then approved (A-ROL-21)."""
         if not access.allowed(cur.user_id, "registration.review"):
             fail(403, "Registration review required")
+        order = {"pending": 0, "rejected": 1, "approved": 2}
         with db._session() as s:
+            rows = s.query(RegistrationORM)
+            if status:
+                rows = rows.filter(RegistrationORM.status == status)
             return Page(
                 items=[
                     dto(r, cur.user_id)
-                    for r in s.query(RegistrationORM).order_by(RegistrationORM.user_id)
+                    for r in sorted(rows, key=lambda r: (order.get(r.status, 3), r.user_id))
                 ]
             )
 
@@ -244,15 +269,7 @@ def register_routes(router):
                         fail(422, "Complete all required registration fields")
                     u = s.get(UserORM, user_id)
                     c = s.get(ContactInfoORM, user_id)
-                    other = (
-                        s.query(ContactInfoORM)
-                        .filter(
-                            ContactInfoORM.email == str(fields.email),
-                            ContactInfoORM.user_id != user_id,
-                        )
-                        .first()
-                    )
-                    if other:
+                    if db.email_taken(str(fields.email), user_id):
                         fail(409, "Email already registered")
                     for k in (
                         "surname",
