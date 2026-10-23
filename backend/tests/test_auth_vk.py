@@ -390,41 +390,106 @@ def test_novyy_vk_polzovatel_nikogda_ne_zabanen(client, mock_vk):
 # ─────────────────────────────────────────────────────────────
 #  6. Отказы VK API
 # ─────────────────────────────────────────────────────────────
-def test_padenie_osnovnogo_endpointa_perehodit_na_api_vk_com(client, mock_vk):
-    """id.vk.ru недоступен → успешный fallback на api.vk.com/method/users.get."""
-    state = mock_vk(user_id="777", first_name="Пётр", last_name="Сидоров", fail_primary=True)
-
-    r = _post(client, access_token="vk-access-token")
-
-    assert r.status_code == 200, f"fallback не отработал: {r.text}"
-    assert len(state["requests"]) == 2, f"ожидали два обращения к VK: {state['requests']}"
-    assert "id.vk.ru/oauth2/user_info" in state["requests"][0], "первым должен идти id.vk.ru"
-    assert "api.vk.com/method/users.get" in state["requests"][1], "вторым должен идти api.vk.com"
-    uid = _sub(r.json()["access_token"])
-    contact = db.get_contact(uid)
-    assert contact.kkr_name == "Пётр Сидоров", "ФИО из fallback-ответа не применены"
-    assert contact.email == "vk_777@vk.com", "api.vk.com не отдаёт email → нужен синтетический"
-    assert contact.vk == "https://vk.com/id777", "vk-ссылка собрана неверно во fallback"
-
-
-def test_fallback_ne_skachivaet_photo_i_prefill_phone(client, mock_vk, mock_s3):
-    mock_vk(user_id='777',fail_primary=True,avatar='https://sun1.vk.com/max.jpg',phone='79995554433')
-    r=_post(client,access_token='tok');uid=_sub(r.json()['access_token'])
-    assert mock_s3['upload']==[] and db.get_user(uid).photo_url is None
-    assert db.get_contact(uid).phone=='+79995554433'
-
-
-def test_oba_endpointa_nedostupny_401(client, mock_vk):
-    """Оба обращения к VK упали → 401 'Failed to verify VK token', ничего не создано."""
-    state = mock_vk(fail_all=True)
+def test_token_chuzhogo_prilozheniya_401_bez_users_get(client, mock_vk):
+    """A-SEC-3: VK ID отказал по client_id → 401; запасной проверки через users.get нет."""
+    state = mock_vk(user_id="777", token_app="another-vk-app")
 
     r = _post(client, access_token="vk-access-token")
 
     assert r.status_code == 401, f"ожидали 401, получили {r.status_code}: {r.text}"
     assert r.json() == {"detail": "Failed to verify VK token"}, "неверное тело ошибки"
-    assert len(state["requests"]) == 2, "должны быть попытаны оба эндпоинта VK"
-    assert db.list_contacts() == [], "при провале верификации создан пользователь"
-    assert _refresh_rows() == 0, "при провале верификации выдан refresh-токен"
+    assert r.headers.get_list("set-cookie") == [], "при отказе выставлена кука"
+    assert len(state["requests"]) == 1 and "id.vk.ru/oauth2/user_info" in state["requests"][0]
+    assert state["bodies"][0]["client_id"] == ["test-vk-app"], "VK ID не получил client_id сайта"
+    assert db.list_contacts() == [], "по чужому токену создан пользователь"
+    assert db.get_external_user("vk:777") is None, "по чужому токену создана связь vk:<id>"
+    assert _refresh_rows() == 0, "по чужому токену выдан refresh-токен"
+
+
+@pytest.mark.parametrize("mode", ["fail_primary", "fail_all"])
+def test_vk_id_nedostupen_503_bez_vhoda(client, mock_vk, mode):
+    """VK ID недоступен → 503 и никакого входа; входят по почте (решение владельца 7)."""
+    state = mock_vk(**{mode: True})
+
+    r = _post(client, access_token="vk-access-token")
+
+    assert r.status_code == 503, f"ожидали 503, получили {r.status_code}: {r.text}"
+    assert r.headers.get_list("set-cookie") == [], "при недоступности VK ID выставлена кука"
+    assert len(state["requests"]) == 1, f"ожидали одно обращение к VK ID: {state['requests']}"
+    assert db.list_contacts() == [], "при недоступности VK ID создан пользователь"
+    assert _refresh_rows() == 0, "при недоступности VK ID выдан refresh-токен"
+
+
+@pytest.mark.parametrize(
+    "error,status",
+    [
+        (TimeoutError("timed out"), 503),
+        ("http-502", 503),
+        ("http-401", 401),
+        (ValueError("not json"), 401),
+    ],
+)
+def test_oshibki_vk_id_ne_dayut_vhoda(client, monkeypatch, error, status):
+    import urllib.error
+    import urllib.request
+
+    def fail(*args, **kwargs):
+        if isinstance(error, str):
+            raise urllib.error.HTTPError("https://id.vk.ru/oauth2/user_info", int(error[5:]), "VK", {}, None)
+        raise error
+
+    monkeypatch.setattr(urllib.request, "urlopen", fail)
+    r = _post(client, access_token="vk-access-token")
+    assert r.status_code == status, r.text
+    assert r.headers.get_list("set-cookie") == []
+    assert db.list_contacts() == [] and _refresh_rows() == 0
+
+
+def test_bez_vk_client_id_vhod_cherez_vk_otklyuchen(client, mock_vk, monkeypatch):
+    """Вне production без VK_CLIENT_ID приложение стартует, но VK ID не вызывается."""
+    state = mock_vk(user_id="777")
+    monkeypatch.setenv("VK_CLIENT_ID", "")
+
+    r = _post(client, access_token="vk-access-token")
+
+    assert r.status_code == 503, r.text
+    assert state["requests"] == [], "без client_id сайт обратился к VK"
+
+
+def test_privyazka_vk_s_tokenom_chuzhogo_prilozheniya_401(client, mock_vk, user):
+    """POST /auth/vk/link проверяет токен той же функцией: чужое приложение → 401."""
+    mock_vk(user_id="778", token_app="another-vk-app")
+
+    r = client.post("/api/auth/vk/link", headers=user.headers, json={"access_token": "foreign"})
+
+    assert r.status_code == 401, r.text
+    assert db.get_external_user("vk:778") is None, "связь vk:<id> создана по чужому токену"
+    mock_vk(user_id="778")
+    assert client.post("/api/auth/vk/link", headers=user.headers, json={"access_token": "own"}).status_code == 200
+    assert db.get_external_user("vk:778").user_id == user.user_id
+
+
+@pytest.mark.parametrize("client_id,starts", [("", False), ("   ", False), ("54678274", True)])
+def test_production_bez_vk_client_id_ne_startuet(tmp_path, client_id, starts):
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    env = {
+        **os.environ,
+        "APP_ENV": "production",
+        "JWT_SECRET_KEY": "production-like-secret-key-with-at-least-32-chars",
+        "VK_CLIENT_ID": client_id,
+        "DATABASE_PATH": str(tmp_path / "production.db"),
+    }
+    result = subprocess.run(
+        [sys.executable, "-c", "import main"],
+        cwd=Path(__file__).resolve().parents[1], env=env, capture_output=True, text=True,
+    )
+    assert (result.returncode == 0) == starts, result.stderr[-500:]
+    if not starts:
+        assert "VK_CLIENT_ID" in result.stderr
 
 
 def test_pustoy_user_id_401(client, mock_vk):
@@ -598,18 +663,15 @@ def test_telefon_iz_id_token_ne_ispolzuetsya_bez_proverki(client, mock_vk):
 # ─────────────────────────────────────────────────────────────
 #  9. Утечка и инъекция access_token
 # ─────────────────────────────────────────────────────────────
-def test_access_token_ekraniruetsya_v_url_fallbacka(client, mock_vk):
-    """Токен обязан быть закодирован, иначе в запрос к VK можно вписать свои параметры."""
-    from urllib.parse import parse_qs, urlparse
+def test_access_token_ekraniruetsya_v_zaprose_k_vk_id(client, mock_vk):
+    """Токен закодирован в теле запроса к VK ID: подменить client_id через него нельзя."""
+    state = mock_vk(user_id="777")
 
-    state = mock_vk(user_id="777", fail_primary=True)
+    _post(client, access_token="tok&client_id=another-vk-app")
 
-    _post(client, access_token="tok&user_ids=1&v=5.199")
-
-    fallback_url = state["requests"][1]
-    query = parse_qs(urlparse(fallback_url).query)
-    assert query.get("access_token") == ["tok&user_ids=1&v=5.199"], "токен не экранирован"
-    assert "user_ids" not in query, "через access_token в запрос внедрён чужой параметр"
+    body = state["bodies"][0]
+    assert body["access_token"] == ["tok&client_id=another-vk-app"], "токен не экранирован"
+    assert body["client_id"] == ["test-vk-app"], "через access_token подменён client_id"
 
 
 def test_access_token_ne_popadaet_v_logi(client, mock_vk, caplog):

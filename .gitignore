@@ -35,3 +35,9 @@ graphify-out
 # Playwright
 test-results
 playwright-report
+
+# Data files never go into the repository (FIX_PLAN 0.5); see backend/scripts/repo_hygiene.py
+*.csv
+*.sqlite
+*.sqlite3
+*.session.sql

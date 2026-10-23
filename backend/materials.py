@@ -66,8 +66,18 @@ def can_read(id, uid):
         )
 
 
+def stored(s, body, material_id, published):
+    """Text to store: no new links into the bucket, own attachments as file:<id> (0.2)."""
+    from legacy_files import bucket_keys, own_attachments, stored_text
+
+    try:
+        return stored_text(body, own_attachments(s, material_id), bucket_keys(published))
+    except ValueError as error:
+        fail(422, str(error))
+
+
 def dto(s, m, uid):
-    from legacy_files import read_text, read_url
+    from legacy_files import read_text
 
     edit = can_edit(m.material_id, uid)
     draft = edit and m.has_draft
@@ -94,6 +104,11 @@ def dto(s, m, uid):
         data["capabilities"] += ["edit_material", "publish_material", "delete_material"]
         if draft:
             data["draft_content"] = dict(format="markdown", body=m.draft_body or "")
+        # The editor always starts from the stored text, never from signed links (A-MAT-1).
+        data["source_content"] = dict(
+            format="markdown",
+            body=(m.draft_body or "") if m.has_draft else (m.published_body or ""),
+        )
     if access.allowed(uid, "material.manage_editors"):
         data["capabilities"].append("manage_material_editors")
         data["editor_user_ids"] = [
@@ -154,6 +169,7 @@ def publish(s, m, uid):
         import re
         from file_access import check_attachments
 
+        m.draft_body = stored(s, m.draft_body, m.material_id, m.published_body)
         ids = re.findall(r"file:(file-[\w-]+)", m.draft_body or "")
         try:
             check_attachments(
@@ -361,6 +377,7 @@ def register_routes(router):
                 ("https://", "http://")
             ):
                 fail(422, "Invalid original link")
+            body = stored(s, payload.content.body, None, None)
             m = MaterialORM(
                 material_id=str(uuid.uuid4()),
                 kind=payload.kind,
@@ -370,7 +387,7 @@ def register_routes(router):
                 draft_title=payload.title,
                 draft_description=payload.description,
                 draft_original_link=payload.original_link,
-                draft_body=payload.content.body,
+                draft_body=body,
                 has_draft=True,
                 revision=1,
                 placeholder=False,
@@ -421,7 +438,9 @@ def register_routes(router):
                     fail(422, "Invalid original link")
                 m.draft_original_link = payload.original_link
             if payload.content is not None:
-                m.draft_body = payload.content.body
+                m.draft_body = stored(
+                    s, payload.content.body, material_id, m.published_body
+                )
             m.revision += 1
             audit(
                 s,
@@ -548,6 +567,7 @@ def legacy_create(payload, uid):
             ("http://", "https://")
         ):
             fail(422, "Invalid original link")
+        stored(s, payload.text, None, None)
         g = GuideORM(
             title=payload.title,
             owner_block=owner,

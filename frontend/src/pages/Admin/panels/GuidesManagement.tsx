@@ -125,7 +125,7 @@ export const GuidesManagement = () => {
             title: values.title,
             description: values.description || "",
             owner_block: selectedOwnerBlock,
-            text: editingGuide.text,
+            // No text: the loaded one carries signed links and would overwrite the source (A-MAT-1).
             original_link: editingGuide.original_link,
           },
         });

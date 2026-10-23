@@ -340,6 +340,8 @@ export interface Material extends Versioned {
   original_link: string | null;
   published_content: RichText | null;
   draft_content?: RichText;
+  /** Editors only: the stored text with file:<id> links, never signed URLs. */
+  source_content?: RichText;
 }
 export interface Comment {
   comment_id: string;

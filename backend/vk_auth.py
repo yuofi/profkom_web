@@ -2,43 +2,45 @@
 
 import json
 import os
+import urllib.error
 import urllib.parse
 import urllib.request
 from fastapi import HTTPException
 from database import db
 from models import User, ContactInfo
 
+# The VK ID application of the site; must equal the frontend's VITE_APP_ID.
+if os.getenv("APP_ENV") == "production" and not os.getenv("VK_CLIENT_ID", "").strip():
+    raise RuntimeError("Production VK_CLIENT_ID must be explicitly configured")
+
 
 def verified_identity(token: str) -> dict:
+    """The VK user of a token issued to this site's VK ID application.
+
+    VK ID checks that the token belongs to client_id. There is no second check: a
+    token of another application must not log in (A-SEC-3, owner decision 7)."""
+    client_id = os.getenv("VK_CLIENT_ID", "").strip()
+    if not client_id:
+        raise HTTPException(503, "VK login is not configured")
     try:
         data = urllib.parse.urlencode(
-            {"client_id": os.getenv("VK_CLIENT_ID", "54678274"), "access_token": token}
+            {"client_id": client_id, "access_token": token}
         ).encode()
         request = urllib.request.Request("https://id.vk.ru/oauth2/user_info", data=data)
         with urllib.request.urlopen(request, timeout=10) as response:
             payload = json.loads(response.read())
-        user = payload.get("user") if not payload.get("error") else None
-        if not user:
-            raise ValueError("Invalid response")
-    except Exception:
-        try:
-            url = "https://api.vk.com/method/users.get?" + urllib.parse.urlencode(
-                {
-                    "v": "5.131",
-                    "access_token": token,
-                    "fields": "contacts",
-                    "lang": "ru",
-                }
-            )
-            with urllib.request.urlopen(
-                urllib.request.Request(url), timeout=10
-            ) as response:
-                payload = json.loads(response.read())
-            if payload.get("error") or not payload.get("response"):
-                raise ValueError("Invalid VK token")
-            user = payload["response"][0]
-        except Exception:
-            raise HTTPException(401, "Failed to verify VK token")
+    except urllib.error.HTTPError as error:
+        raise HTTPException(
+            503 if error.code >= 500 else 401,
+            "VK ID is unavailable" if error.code >= 500 else "Failed to verify VK token",
+        ) from None
+    except (OSError, TimeoutError):
+        raise HTTPException(503, "VK ID is unavailable") from None
+    except ValueError:
+        raise HTTPException(401, "Failed to verify VK token") from None
+    user = payload.get("user") if isinstance(payload, dict) and not payload.get("error") else None
+    if not isinstance(user, dict):
+        raise HTTPException(401, "Failed to verify VK token")
     subject = str(user.get("user_id") or user.get("id") or "").strip()
     if not subject.isdigit() or int(subject) <= 0:
         raise HTTPException(401, "Could not identify VK user")

@@ -193,9 +193,9 @@ function DeletedMaterials() {
 }
 function MaterialEdit({ material: m }: { material: Material }) {
   const [ownChange, setOwnChange] = useState<OwnRevisionChange>();
-  const [body, setBody] = useState(
-    m.draft_content?.body ?? m.published_content?.body ?? "",
-  );
+  // Never edit published_content: its links are signed for 5 minutes (A-MAT-1).
+  const source = m.source_content?.body ?? "";
+  const [body, setBody] = useState(source);
   const { perform, refresh } = useWorkspaceActions();
   return (
     <Card title="Редактирование материала">
@@ -206,8 +206,8 @@ function MaterialEdit({ material: m }: { material: Material }) {
       <ActionForm
         revision={m.revision}
         ownChange={ownChange} onSavedRevision={setOwnChange}
-        savedDetails={<MarkdownContent body={m.draft_content?.body ?? m.published_content?.body ?? ""} />}
-        onReplaceWithSaved={() => setBody(m.draft_content?.body ?? m.published_content?.body ?? "")}
+        savedDetails={<MarkdownContent body={source} />}
+        onReplaceWithSaved={() => setBody(source)}
         fields={[
           { name: "title", label: "Название", required: true, value: m.title },
           { name: "description", label: "Описание", value: m.description },
@@ -239,7 +239,7 @@ function MaterialEdit({ material: m }: { material: Material }) {
           revision={m.revision}
           ownChange={ownChange} onSavedRevision={setOwnChange}
           disabled={!m.draft_content}
-          savedDetails={<MarkdownContent body={m.draft_content?.body ?? m.published_content?.body ?? ""} />}
+          savedDetails={<MarkdownContent body={source} />}
           fields={[]}
           submitLabel="Опубликовать сохранённый черновик"
           onSubmit={async (_v, expectedRevision) => {

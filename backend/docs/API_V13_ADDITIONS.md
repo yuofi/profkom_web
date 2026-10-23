@@ -22,7 +22,7 @@
 
 `GET /guides/{guide_id}/material` returns `{guide_id, material_id, revision}`. Legacy guide DTOs carry the same mapping and object capabilities. Old IDs are preserved. Legacy saves require `expected_revision` and refuse to overwrite an existing shared draft. New material publication updates the same old Guide row.
 
-New PGAS entries require `file_url: "file:<file_id>"` for a completed contextual PGAS file. Its saved verified name/MIME are authoritative; arbitrary URL creation cannot bypass complete. Existing raw URLs remain readable through the legacy adapter. The response resolves that reference and existing configured-bucket URLs to temporary GET URLs. External legacy links stay unchanged; no remote content is downloaded by migration. Existing public bucket ACLs require an operator-side private-access rollout; changing a DTO does not revoke an old public URL.
+New PGAS entries require `file_url: "file:<file_id>"` for a completed contextual PGAS file. Its saved verified name/MIME are authoritative; arbitrary URL creation cannot bypass complete. Existing raw URLs remain readable through the legacy adapter. The response resolves that reference and old public upload URLs of the configured bucket (`pgas/`, `guides/`, `avatars/`, `<folder>/<uuid>.<ext>`) to temporary GET URLs; other bucket keys, including `private/` and `sealed/`, stay as written and unsigned. External legacy links stay unchanged; no remote content is downloaded by migration. Existing public bucket ACLs require an operator-side private-access rollout; changing a DTO does not revoke an old public URL.
 
 ## Ревизия обычного доступа в session
 
@@ -65,3 +65,39 @@ capability выдаётся ровно тогда, когда сервер вы�
   правят председатель и замы. Отказ — 403 с префиксом `Forbidden` (раньше 422).
 - `manage_deputies` у руководителя мероприятия или подмероприятия закрытого
   сезона не выдаётся: состав закрытого сезона не меняется.
+
+## Хранилище, вход через VK и очистка (выпуск 1)
+
+Ссылки на бакет в текстах материалов и гайдов (FIX_PLAN 0.2):
+
+- При чтении подписываются только старые публичные загрузки: `pgas/`, `guides/`,
+  `avatars/` и `<папка>/<uuid>.<расширение>`. Ссылки на `private/`, `sealed/` и
+  прочие ключи остаются как записаны, без подписи (решение владельца 6). Закрытый
+  файл открывается только через `GET /files/{id}/download` с проверкой прав.
+- Редактор получает поле `source_content` — сохранённый текст: черновик, а если
+  его нет, опубликованный текст. В нём `file:<id>` и ссылки без подписи. Поле
+  выдаётся только тем, у кого есть `edit_material`. `published_content` — только
+  для показа, в нём ссылки подписаны на 5 минут.
+- `POST /materials`, `PATCH /materials/{id}`, публикация, `POST /guides` и
+  сохранение старого гайда отвечают 422, если в тексте появилась новая ссылка на
+  бакет, которой нет в опубликованном тексте. Новые файлы прикрепляются как
+  `file:<id>`. Подписанная ссылка на вложение этого же материала сохраняется как
+  `file:<id>`, подписанная ссылка на старую загрузку — без подписи.
+- `POST /guides/{id}` без `text` не меняет текст гайда; «Админка → Гайды» при
+  переименовании текст не отправляет.
+- `scripts/repair_storage_links.py --database <путь> [--apply]` чинит тексты,
+  в которые раньше попали подписанные ссылки. Без `--apply` база открывается только
+  на чтение. Скрипт печатает только числа, повторный `--apply` меняет 0 строк.
+
+Вход через VK (FIX_PLAN 0.3):
+
+- Токен проверяет только VK ID (`id.vk.ru/oauth2/user_info` с `client_id` сайта).
+  Запасной проверки через `users.get` нет (решение владельца 7). Отказ VK ID — 401,
+  недоступность VK ID — 503; в обоих случаях вход не выполняется.
+- `VK_CLIENT_ID` обязателен и должен совпадать с `VITE_APP_ID` сборки frontend.
+  При `APP_ENV=production` без него backend не стартует, в других окружениях вход
+  через VK отвечает 503. Значения по умолчанию в коде нет.
+
+Очистка аккаунтов (FIX_PLAN 0.4, защитная часть): `scripts/cleanup_accounts.py
+--apply` в выпуске 1 завершается с кодом 2 и ничего не меняет. Отчёт без `--apply`
+работает. Подробности — в `ACCOUNT_RETENTION.md`.

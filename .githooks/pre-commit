@@ -1,0 +1,5 @@
+#!/bin/sh
+# Refuses commits that add data files (FIX_PLAN 0.5). Enable once per clone:
+#   git config core.hooksPath .githooks
+command -v python3 >/dev/null 2>&1 || { echo "pre-commit: python3 not found, repo hygiene not checked" >&2; exit 0; }
+exec python3 "$(git rev-parse --show-toplevel)/backend/scripts/repo_hygiene.py" --staged

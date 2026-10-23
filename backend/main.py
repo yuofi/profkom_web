@@ -4,6 +4,7 @@ import json
 import os
 import access
 import membership
+import vk_auth  # noqa: F401  (fails at startup without VK_CLIENT_ID in production)
 import contact_rules
 from api_contract import Page, install_errors
 from validation import Command

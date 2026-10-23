@@ -321,3 +321,38 @@ def test_cleanup_object_queue_retries_without_repeating_database_purge(
     monkeypatch.setattr(s3_client, "delete_object", lambda **kw: keys.append(kw["Key"]))
     assert delete_pending_objects() == 1 and keys == ["avatars/own.png"]
     assert delete_pending_objects() == 0
+
+
+def test_cleanup_cli_refuses_apply_until_fix_plan_04_is_complete(superuser, make_user):
+    """Release 1 guard: purge still corrupts other people's data (A-DIR-1…5, A-KKR-17)."""
+    import hashlib
+    import subprocess
+    import sys
+    from pathlib import Path
+    from accounts import archive
+    from settings import settings
+
+    member = make_user()
+    archive(member.user_id, "Leave", superuser.user_id)
+    with db._session() as s:
+        s.get(AccountArchiveORM, member.user_id).archived_at = "2020-01-01T00:00:00+00:00"
+        s.commit()
+    root = Path(__file__).resolve().parents[1]
+    path = Path(settings.DATABASE_PATH).resolve()
+    before = hashlib.sha256(path.read_bytes()).hexdigest()
+
+    def run(*flags):
+        return subprocess.run(
+            [sys.executable, str(root / "scripts/cleanup_accounts.py"), "--database", str(path), *flags],
+            cwd=root, capture_output=True, text=True,
+        )
+
+    dry = run()
+    assert dry.returncode == 0 and json.loads(dry.stdout)["eligible_user_ids"] == [member.user_id]
+    refused = run("--apply")
+    assert refused.returncode == 2
+    assert json.loads(refused.stderr) == dict(
+        applied=False, reason="Account cleanup is disabled until FIX_PLAN 0.4 is complete"
+    )
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == before
+    assert db.get_user(member.user_id).account_state == "archived"

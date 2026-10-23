@@ -91,6 +91,20 @@ def serve():
     # Keep one block vacant even when acceptance assigns the IT leader. This
     # exercises nullable bonus recipients in real summary responses and UI.
     db.create_block(Block(name="Integration vacant", master=""))
+    from models import Guide
+
+    # A guide from the old site linking to an old public upload: since FIX_PLAN 0.2
+    # such links can no longer be added through the API.
+    db.create_guide(
+        Guide(
+            guide_id=0,
+            title="Integration legacy guide",
+            owner_block="none",
+            text="Старый [файл](https://global.s3.cloud.ru/synthetic/guides/%D0%A1%D1%82%D0%B0%D1%80%D1%8B%D0%B9.pdf)",
+            description="",
+            original_link=None,
+        )
+    )
     print(f"Disposable integration DB: {database}", flush=True)
     import main
     from live_storage import install

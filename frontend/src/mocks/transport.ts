@@ -1261,6 +1261,14 @@ export function installMockTransport(
         ]);
       return changed(report);
     }
+    // As on the server: editors get the stored text, readers no draft.
+    const materialView = (m: Material) => {
+      const result = clone(m);
+      if (m.capabilities.includes("edit_material"))
+        result.source_content = clone(m.draft_content ?? m.published_content ?? richText(""));
+      else delete result.draft_content;
+      return result;
+    };
     if (path === "/materials") {
       if (method === "get")
         return list(
@@ -1269,12 +1277,7 @@ export function installMockTransport(
               (m) =>
                 m.published_content || m.capabilities.includes("edit_material"),
             )
-            .map((m) => {
-              const result = clone(m);
-              if (!m.capabilities.includes("edit_material"))
-                delete result.draft_content;
-              return result;
-            }),
+            .map(materialView),
         );
       if (!state.session.capabilities.includes("create_material"))
         return denied();
@@ -1291,7 +1294,7 @@ export function installMockTransport(
         capabilities: ["edit_material", "publish_material", "delete_material"],
       };
       state.materials.push(material);
-      return [201, clone(material)];
+      return [201, materialView(material)];
     }
     if (path === "/materials/deleted") {
       if (!state.session.capabilities.includes("restore_material")) return denied();
@@ -1309,15 +1312,11 @@ export function installMockTransport(
     if (parts[0] === "materials") {
       const material = state.materials.find((m) => m.material_id === parts[1]);
       if (!material) return fail(404, "not_found", "Материал недоступен");
-      if (method === "get") {
-        const result = clone(material);
-        if (!material.capabilities.includes("edit_material"))
-          delete result.draft_content;
+      if (method === "get")
         return material.published_content ||
           material.capabilities.includes("edit_material")
-          ? [200, result]
+          ? [200, materialView(material)]
           : denied();
-      }
       if (method === "delete") {
         if (!material.capabilities.includes("delete_material")) return denied();
         state.materials = state.materials.filter((m) => m !== material);
@@ -1349,7 +1348,8 @@ export function installMockTransport(
         if (data.original_link !== undefined)
           material.original_link = data.original_link as string | null;
       }
-      return changed(material);
+      material.revision += 1;
+      return [200, materialView(material)];
     }
     if (path === "/blocks") return [200, clone(state.blocks)];
     if (parts[0] === "blocks") {

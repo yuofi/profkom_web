@@ -61,6 +61,8 @@ class Material(BaseModel):
     original_link: str | None
     published_content: RichText | None
     draft_content: RichText | None = None
+    # Only for editors: the stored text to edit, with file:<id> and unsigned links.
+    source_content: RichText | None = None
     editor_user_ids: list[int] | None = None
     revision: int
     capabilities: list[str]

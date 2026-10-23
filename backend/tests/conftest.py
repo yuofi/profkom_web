@@ -36,6 +36,8 @@ os.environ.setdefault("S3_SECRET_KEY", "test-secret")
 os.environ.setdefault("S3_BUCKET_NAME", "test-bucket")
 os.environ.setdefault("S3_TENANT_ID", "test-tenant")
 os.environ.setdefault("S3_REGION_NAME", "ru-central-1")
+# VK ID application of the test site; urlopen is always mocked (mock_vk)
+os.environ.setdefault("VK_CLIENT_ID", "test-vk-app")
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -219,7 +221,7 @@ def mock_vk(monkeypatch) -> Callable[..., dict]:
     import json as _json
     import urllib.request
 
-    state: dict[str, Any] = {"requests": []}
+    state: dict[str, Any] = {"requests": [], "bodies": []}
 
     class _FakeResponse:
         def __init__(self, payload: dict):
@@ -245,17 +247,27 @@ def mock_vk(monkeypatch) -> Callable[..., dict]:
         avatar: Optional[str] = None,
         fail_primary: bool = False,
         fail_all: bool = False,
+        token_app: str = "test-vk-app",
     ) -> dict:
-        """Настраивает ответ VK. Возвращает словарь состояния для проверок."""
+        """Настраивает ответ VK. Возвращает словарь состояния для проверок.
+
+        token_app — приложение VK ID, которому выдан токен: user_info отказывает,
+        если client_id запроса другой (так VK ID проверяет привязку токена)."""
 
         def fake_urlopen(req, *args, **kwargs):
+            from urllib.parse import parse_qs
+
             url = req.full_url if hasattr(req, "full_url") else str(req)
             state["requests"].append(url)
+            body = parse_qs((getattr(req, "data", None) or b"").decode())
+            state["bodies"].append(body)
             if fail_all:
                 raise OSError("VK unreachable")
             if "id.vk.ru/oauth2/user_info" in url:
                 if fail_primary:
                     raise OSError("primary endpoint down")
+                if body.get("client_id") != [token_app]:
+                    return _FakeResponse({"error": "invalid_token", "error_description": "token of another app"})
                 user: dict[str, Any] = {"user_id": user_id, "first_name": first_name, "last_name": last_name}
                 if email:
                     user["email"] = email

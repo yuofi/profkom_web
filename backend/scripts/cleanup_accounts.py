@@ -20,6 +20,20 @@ parser.add_argument(
 args = parser.parse_args()
 if not args.database.is_absolute() or not args.database.is_file():
     parser.error("Select an existing absolute database path")
+if args.apply:
+    # FIX_PLAN 0.4 is open: purge still rewrites other people's participant IDs and
+    # names and fails on report texts (A-DIR-1…5, A-KKR-17). Release 2 removes this
+    # guard together with the full fix; until then no cleanup and no cron.
+    print(
+        json.dumps(
+            dict(
+                applied=False,
+                reason="Account cleanup is disabled until FIX_PLAN 0.4 is complete",
+            )
+        ),
+        file=sys.stderr,
+    )
+    sys.exit(2)
 if not args.apply:
     # Do not import the application: startup migrations must not write during dry-run.
     stamp = (

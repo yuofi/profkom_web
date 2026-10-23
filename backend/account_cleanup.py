@@ -222,7 +222,7 @@ def purge(as_of=None, dry_run=True):
                     synchronize_session=False
                 )
                 from file_access import key, sealed_key
-                from legacy_files import storage_key
+                from legacy_files import legacy_key
 
                 object_keys = [
                     object_key
@@ -231,8 +231,9 @@ def purge(as_of=None, dry_run=True):
                     )
                     for object_key in (key(fr.file_id), sealed_key(fr.file_id))
                 ]
-                if u.photo_url and storage_key(u.photo_url):
-                    object_keys.append(storage_key(u.photo_url))
+                # Only an old public avatar; contextual files are deleted by FileRecord above.
+                if u.photo_url and legacy_key(u.photo_url):
+                    object_keys.append(legacy_key(u.photo_url))
                 for object_key in object_keys:
                     if not s.get(ObjectDeletionORM, object_key):
                         s.add(
