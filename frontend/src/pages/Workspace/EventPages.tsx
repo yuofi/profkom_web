@@ -63,10 +63,7 @@ export function Leaders({ leaders }: { leaders: Leader[] }) {
                 ]}
                 onSubmit={async (v, expectedRevision) => {
                   const users = ids(v, "users");
-                  if (users.length > 2)
-                    throw Error(
-                      "У руководителя может быть не более двух заместителей",
-                    );
+                  // The server checks the limit and names it: 422 deputy_limit (2.13).
                   return perform(() =>
                     eventsApi.deputies(leader.role_assignment_id, users, {
                       expected_revision: expectedRevision!,

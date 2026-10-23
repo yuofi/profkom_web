@@ -146,9 +146,10 @@ def test_report_regular_and_final_draft_publish_and_versions(client, test_event_
     assert "edit_report" in reg["capabilities"]
     reg_id = reg["report_id"]
 
-    # Посторонний не видит черновик -> 403
+    # Посторонний не видит черновик -> 404, как несуществующий отчёт (A-SEC-6)
     res_chk = client.get(f"{REPORTS_URL}/{reg_id}", headers=outsider.headers)
-    assert res_chk.status_code == 403
+    assert res_chk.status_code == 404
+    assert res_chk.json() == client.get(f"{REPORTS_URL}/report-missing", headers=outsider.headers).json()
 
     # 2. Главорг создает черновик финального отчета
     res_fin = client.post(
@@ -284,9 +285,9 @@ def test_report_acl_subevent_and_isolation(client, test_event_hierarchy):
     # Обычный читатель не видит прав на редактирование
     assert "edit_report" not in res_rd.json()["capabilities"]
 
-    # Посторонний получает 403
+    # Посторонний получает 404
     res_out = client.get(f"{REPORTS_URL}/{sub_rep_id}", headers=outsider.headers)
-    assert res_out.status_code == 403
+    assert res_out.status_code == 404
 
 
 # ═════════════════════════════════════════════════════════════
@@ -329,9 +330,10 @@ def test_report_history_and_series(client, test_event_hierarchy, superuser):
     res_h3 = client.get(f"{REPORT_HISTORY_URL}?series_id={ev['subevent_series_id']}", headers=sub_lead.headers)
     assert res_h3.status_code == 200
 
-    # 4. Посторонний получает 403 при попытке чтения чужой серии
+    # 4. Посторонний получает 404 при попытке чтения чужой серии
     res_fail = client.get(f"{REPORT_HISTORY_URL}?series_id={ev['event_series_id']}", headers=outsider.headers)
-    assert res_fail.status_code == 403
+    assert res_fail.status_code == 404
+    assert res_fail.json() == client.get(f"{REPORT_HISTORY_URL}?series_id=series-missing", headers=outsider.headers).json()
 
 
 # ═════════════════════════════════════════════════════════════
@@ -433,9 +435,9 @@ def test_meeting_and_calendar_isolation(client, test_event_hierarchy, make_user)
     res_m1 = client.get(f"/api/events/{ev['event_id']}/meeting", headers=sub_lead.headers)
     assert res_m1.status_code == 200
 
-    # Рядовой орг подмероприятия НЕ видит главный созвон -> 403
+    # Рядовой орг подмероприятия НЕ видит главный созвон -> 404
     res_m_fail = client.get(f"/api/events/{ev['event_id']}/meeting", headers=sub_org.headers)
-    assert res_m_fail.status_code == 403
+    assert res_m_fail.status_code == 404
 
     # Рядовой орг подмероприятия видит созвон своего подмероприятия -> 200
     res_m_sub = client.get(f"/api/subevents/{ev['subevent_id']}/meeting", headers=sub_org.headers)
@@ -510,9 +512,9 @@ def test_dashboard_and_notifications(client, test_event_hierarchy):
     nid = target_notif["id"]
     assert target_notif["read_at"] is None
 
-    # Посторонний не может пометить чужое уведомление прочитанным -> 403
+    # Посторонний не может пометить чужое уведомление прочитанным -> 404, как несуществующее
     res_fail = client.post(f"{NOTIFICATIONS_URL}/{nid}/read", headers=outsider.headers)
-    assert res_fail.status_code == 403
+    assert res_fail.status_code == 404
 
     # Орг помечает уведомление прочитанным -> 200
     res_read = client.post(f"{NOTIFICATIONS_URL}/{nid}/read", headers=sub_org.headers)

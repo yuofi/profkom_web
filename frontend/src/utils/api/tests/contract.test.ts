@@ -144,7 +144,7 @@ describe("API commands through mock transport", () => {
       code: "chair_transfer_required",
     });
     await expect(directoryApi.restore(110, [])).rejects.toMatchObject({
-      code: "master_conflict",
+      code: "master_conflicts",
     });
     await directoryApi.restore(110, [
       { block_id: "block-info", keep_user_id: 102 },
@@ -563,7 +563,8 @@ describe("API commands through mock transport", () => {
   it("keeps main meetings hidden from an organizer while showing the team meeting", async () => {
     useMock();
     await expect(eventsApi.meeting("events", "event-1")).rejects.toMatchObject({
-      status: 403,
+      status: 404,
+      code: "not_found",
     });
     expect(
       (await eventsApi.meeting("subevents", "subevent-1"))?.meeting_id,

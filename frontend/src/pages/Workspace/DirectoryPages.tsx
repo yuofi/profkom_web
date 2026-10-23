@@ -406,7 +406,7 @@ function RestoreForm({ account }: { account: ArchivedAccount }) {
         } catch (e) {
           const error = normalizeApiError(e);
           if (
-            error.code === "master_conflict" &&
+            error.code === "master_conflicts" &&
             Array.isArray(error.fields.master_conflicts)
           )
             setConflicts(error.fields.master_conflicts);

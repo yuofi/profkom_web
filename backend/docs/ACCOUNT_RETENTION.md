@@ -2,7 +2,7 @@
 
 The chair and the deputy chairs archive and restore accounts (release 1 policy, `account.archive`/`account.restore` in `access.py`). The legacy DELETE profile command delegates to archive. Transfer the chair first. Archive retains a private assignment snapshot, closes participation/membership intervals and revokes access and refresh tokens. Restore opens new intervals; it does not backdate service. A conflicting master position requires `{block_id, keep_user_id}`. A deputy chair from a previous chair term never returns automatically. Archived accounts cannot authenticate or read the working site.
 
-Former-contact cards are separate records without an account FK; editing requires tachki or the HR master. Create/update the agreed card explicitly before retention cleanup. Cleanup does not infer consent or copy a private account into the public directory.
+Former-contact cards are separate records without an account FK; editing requires the chair, a deputy or the HR master. Create/update the agreed card explicitly before retention cleanup. Cleanup does not infer consent or copy a private account into the public directory.
 
 **Release 1: cleanup is disabled.** `--apply` exits with code 2 and changes nothing. The purge still rewrites other people's participant IDs and names and fails on report texts (FIX_PLAN 0.4: A-DIR-1…5, A-KKR-17). Do not install a cron job. Release 2 removes the guard together with the full fix.
 

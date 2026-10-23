@@ -385,7 +385,7 @@ export function installMockTransport(
       if (!state.chair) return denied();
       if (mismatch(data, leadership)) return conflict();
       if ((data.user_ids as number[]).length > 3)
-        return fail(422, "deputy_limit", "Не более трёх заместителей");
+        return fail(422, "deputy_limit", "At most 3 deputies allowed", { limit: 3 });
       leadership.deputies = state.people.filter((p) =>
         (data.user_ids as number[]).includes(p.user_id!),
       );
@@ -729,11 +729,13 @@ export function installMockTransport(
         ? state.events.find((e) => e.event_id === parts[1])
         : state.subevents.find((s) => s.subevent_id === parts[1]);
       if (!item) return fail(404, "not_found", "Мероприятие недоступно");
-      if (!isEvent && !readsSubevent(parts[1])) return denied();
+      // Unreadable reads answer as missing ones (A-SEC-6); commands are refused.
+      const hidden = () => (method === "get" ? fail(404, "not_found", "Объект недоступен") : denied());
+      if (!isEvent && !readsSubevent(parts[1])) return hidden();
       if (parts[2] === "meeting") {
         const kind = isEvent ? "event" : "subevent";
         // Same rule as the server: the owner's capabilities decide reading and writing.
-        if (!item.capabilities.includes("view_meeting")) return denied();
+        if (!item.capabilities.includes("view_meeting")) return hidden();
         const meeting = state.meetings.find(
           (m) => m.owner_kind === kind && m.owner_id === parts[1],
         );
@@ -768,7 +770,7 @@ export function installMockTransport(
         const parentSeries = state.events.find((e) => e.event_id === parts[1])?.report_series_id;
         if (data.report_series_id && !state.subevents.some((x) => x.report_series_id === data.report_series_id
           && state.events.find((e) => e.event_id === x.event_id)?.report_series_id === parentSeries))
-          return fail(409, "conflict", "Invalid report_series_id for subevent: must be child series of parent event");
+          return fail(422, "invalid_input", "Invalid report_series_id for subevent: must be child series of parent event");
         const sub: Subevent = {
           ...(data as unknown as Subevent),
           subevent_id: id("subevent"),
@@ -834,7 +836,7 @@ export function installMockTransport(
       if (!leader || !state.manager) return denied();
       if (mismatch(data, leader)) return conflict();
       if ((data.user_ids as number[]).length > 2)
-        return fail(422, "deputy_limit", "Не более двух заместителей");
+        return fail(422, "deputy_limit", "At most 2 deputies allowed per leader", { limit: 2 });
       leader.deputy_user_ids = data.user_ids as number[];
       return changed(leader);
     }
@@ -929,7 +931,8 @@ export function installMockTransport(
     if (parts[0] === "tasks") {
       const task = state.tasks.find((t) => t.task_id === parts[1]);
       if (!task) return fail(404, "not_found", "Задача недоступна");
-      if (!readsTask(task)) return denied();
+      if (!readsTask(task))
+        return method === "get" ? fail(404, "not_found", "Задача недоступна") : denied();
       if (parts[2] === "comments") {
         if (method === "get")
           return list(
@@ -1288,12 +1291,12 @@ export function installMockTransport(
       if (parts[2] === "versions")
         return report.capabilities.includes("view_report_versions")
           ? list(clone(versions.get(report.report_id) ?? []))
-          : denied();
+          : fail(404, "not_found", "Отчёт недоступен");
       if (method === "get")
         return report.state === "published" ||
           report.capabilities.includes("edit_report")
           ? [200, visibleReport(report)]
-          : denied();
+          : fail(404, "not_found", "Отчёт недоступен");
       if (!report.capabilities.includes("edit_report")) return denied();
       if (mismatch(data, report)) return conflict();
       if (parts[2] === "publish") {
@@ -1634,8 +1637,8 @@ export function installMockTransport(
       )
         return fail(
           409,
-          "master_conflict",
-          "Выберите мастера для восстановления",
+          "master_conflicts",
+          "Resolve master conflicts",
           { master_conflicts: account.master_conflicts },
         );
       if (parts[2] === "restore")
@@ -1821,7 +1824,8 @@ export function installMockTransport(
           )
         : denied();
     if (path === "/merits" || parts[0] === "merits") {
-      if (!state.manager) return denied();
+      if (!state.manager)
+        return method === "get" && parts[1] ? fail(404, "not_found", "Запись недоступна") : denied();
       if (method === "get") {
         if (parts[1]) {
           const merit = state.merits.find((m) => m.merit_id === parts[1]);

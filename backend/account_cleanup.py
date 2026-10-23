@@ -273,7 +273,7 @@ def purge(as_of=None, dry_run=True):
                 u.account_state = "purged"
                 u.session_version += 1
                 a.snapshot_json = "{}"
-                a.reason = "Account retention period expired"
+                a.reason = "Истёк срок хранения аккаунта"
                 a.purged_at = as_of.isoformat()
                 a.anonymous_participant_id = new_pid
                 audit(

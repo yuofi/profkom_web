@@ -6,6 +6,7 @@ response is an X-Accel-Redirect to an internal location that fetches the object 
 short signature; without nginx (local runs, tests) the backend streams the object.
 """
 
+from errors import Forbidden, InvalidInput
 import json
 import hashlib
 import re
@@ -58,7 +59,7 @@ def storage_error(error):
     if isinstance(error, ClientError) and error.response.get("Error", {}).get("Code") in (
         "404", "NoSuchKey", "NotFound",
     ):
-        raise HTTPException(409, "Uploaded object not found") from error
+        raise HTTPException(409, {"code": "upload_missing", "message": "Uploaded object not found"}) from error
     raise HTTPException(503, "Object storage unavailable") from error
 
 
@@ -72,7 +73,7 @@ def check_metadata(fr, metadata):
 
 def validate_metadata(kind, purpose, name, mime, size):
     if kind not in ("avatar", "assignment", "report", "material", "pgas"):
-        raise ValueError("Unsupported file context")
+        raise InvalidInput("Unsupported file context")
     expected = {
         "avatar": "avatar",
         "assignment": "submission",
@@ -81,12 +82,12 @@ def validate_metadata(kind, purpose, name, mime, size):
         "pgas": "pgas",
     }
     if purpose != expected[kind]:
-        raise ValueError("Invalid file purpose")
+        raise InvalidInput("Invalid file purpose")
     limit = 10 if kind == "avatar" else 20
     if not 0 < size <= limit * 1024 * 1024:
-        raise ValueError(f"File size must be between 1 byte and {limit} MiB")
+        raise InvalidInput(f"File size must be between 1 byte and {limit} MiB")
     if not name or "/" in name or "\\" in name or any(ord(c) < 32 for c in name):
-        raise ValueError("Invalid file name")
+        raise InvalidInput("Invalid file name")
     ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
     canonical = next((m for m, extensions in TYPES.items() if ext in extensions), None)
     mime = (mime or "").strip().lower()
@@ -97,11 +98,11 @@ def validate_metadata(kind, purpose, name, mime, size):
         "application/x-zip-compressed": "application/zip",
     }.get(mime, mime)
     if not canonical or mime != canonical:
-        raise ValueError("File type is not allowed")
+        raise InvalidInput("File type is not allowed")
     if kind == "avatar" and mime not in ("image/png", "image/jpeg", "image/webp"):
-        raise ValueError("Avatar must be PNG, JPEG or WebP")
+        raise InvalidInput("Avatar must be PNG, JPEG or WebP")
     if kind == "pgas" and ext not in ("pdf", "doc", "docx", "png", "jpg", "jpeg"):
-        raise ValueError("Only pdf, doc, docx, png and jpg files are allowed for PGAS")
+        raise InvalidInput("Only pdf, doc, docx, png and jpg files are allowed for PGAS")
     return mime
 
 
@@ -166,6 +167,14 @@ def permitted(session, fr, uid, write=False):
 
         return access.allowed(uid, "pgas.manage") if write else True
     return False
+
+
+def owner_exists(session, kind, owner_id):
+    """An upload into a missing assignment, report or material is a 404 (A-SEC-7)."""
+    from domain_models import MaterialORM
+
+    model = {"assignment": AssignmentORM, "report": ReportORM, "material": MaterialORM}.get(kind)
+    return model is None or session.get(model, owner_id) is not None
 
 
 def presign_upload(fr):
@@ -267,7 +276,7 @@ def complete(fid, uid):
             raise HTTPException(404, "File not found")
         if fr.state != "completed":
             if datetime.fromisoformat(fr.expires_at) < now():
-                raise HTTPException(409, "Upload intent expired")
+                raise HTTPException(409, {"code": "upload_expired", "message": "Upload intent expired"})
             ensure_sealed(fr)
             fr.state = "completed"
             fr.sealed_at = now().isoformat()
@@ -365,7 +374,7 @@ def deliver(fid, uid, accel):
 
 def check_attachments(session, file_ids, kind, owner_id, uid):
     if len(file_ids) != len(set(file_ids)):
-        raise ValueError("Duplicate files")
+        raise InvalidInput("Duplicate files", "duplicate_files")
     for fid in file_ids:
         fr = session.get(FileRecordORM, fid)
         if (
@@ -375,4 +384,4 @@ def check_attachments(session, file_ids, kind, owner_id, uid):
             or fr.owner_id != owner_id
             or not permitted(session, fr, uid, True)
         ):
-            raise ValueError("Forbidden: invalid attachment or context")
+            raise Forbidden("Forbidden: invalid attachment or context")

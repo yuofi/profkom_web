@@ -30,6 +30,7 @@ import { decisionLabels as decisions } from "../../utils/decisions";
 import { SummaryHistory } from "./SummaryHistory";
 export { DecisionBadges } from "./SummaryTable";
 import s from "../../components/Workspace/Workspace.module.css";
+import { userMessage } from "../../utils/api/messages";
 const states = {
   planned: "Запланирован",
   open: "Открыт",
@@ -393,7 +394,7 @@ export function SummaryPage() {
                         a.click();
                         setTimeout(() => URL.revokeObjectURL(url), 1000);
                       } catch (e) {
-                        setExportError(normalizeApiError(e).message);
+                        setExportError(userMessage(e));
                       }
                     }}
                   >

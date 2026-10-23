@@ -8,7 +8,7 @@
 
 ## Устройство Профкома
 
-###  Председатель и его заместители aka Тачки 
+###  Председатель и его заместители 
 >** Георгий Беппиев**
 >ВК: [https://vk.com/pmcvmk](https://vk.com/pmcvmk)  
 >ТГ: [https://t.me/whatatimetobe_alive](https://t.me/whatatimetobe_alive)  

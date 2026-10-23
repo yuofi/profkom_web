@@ -1,5 +1,6 @@
 """Contact syntax shared by registration, application edits and profiles."""
 
+from errors import InvalidInput
 import re
 from typing import Literal
 
@@ -24,7 +25,7 @@ def telegram(value):
     if match:
         return "@" + match[1]
     if value and not TELEGRAM.fullmatch(value):
-        raise ValueError(
+        raise InvalidInput(
             "Укажите Telegram: @username, username или ссылку t.me/username"
         )
     return value
@@ -38,7 +39,7 @@ def vk(value):
     if match:
         return "https://vk.com/" + match[1]
     if value and not VK_NAME.fullmatch(value):
-        raise ValueError("Укажите имя профиля VK или ссылку vk.com/имя")
+        raise InvalidInput("Укажите имя профиля VK или ссылку vk.com/имя")
     return value
 
 
@@ -48,5 +49,5 @@ def group_number(value):
         return value
     value = value.strip()
     if not value.isdigit() or not 100 <= int(value) <= 700:
-        raise ValueError("Номер группы должен быть числом от 100 до 700")
+        raise InvalidInput("Номер группы должен быть числом от 100 до 700")
     return value

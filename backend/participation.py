@@ -1,5 +1,6 @@
 """Participation is measured from persisted active/approved intervals, not scores."""
 
+from errors import InvalidInput
 from datetime import datetime, timezone
 import uuid
 from database import db, UserORM
@@ -14,7 +15,7 @@ def dt(value):
         else value
     )
     if d.tzinfo is None:
-        raise ValueError("Timezone is required")
+        raise InvalidInput("Timezone is required")
     return d.astimezone(timezone.utc)
 
 
@@ -67,7 +68,7 @@ def participation_seconds(
 def promote(session, season, closed_at):
     duration = (dt(season.ends_at) - dt(season.starts_at)).total_seconds()
     if duration <= 0:
-        raise ValueError("Invalid season interval")
+        raise InvalidInput("Invalid season interval")
     threshold = duration / 2
     for u in session.query(UserORM).filter_by(category="junior"):
         amount = participation_seconds(

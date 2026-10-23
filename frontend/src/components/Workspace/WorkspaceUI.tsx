@@ -3,7 +3,8 @@ import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
-import { normalizeApiError, canRetainData } from "../../utils/api/request";
+import { canRetainData, normalizeApiError } from "../../utils/api/request";
+import { errorDetail, userMessage } from "../../utils/api/messages";
 import type { RichText } from "../../utils/api/contract";
 import s from "./Workspace.module.css";
 export function Page({
@@ -57,6 +58,18 @@ export const Loading = () => (
     Загружаем данные…
   </p>
 );
+/** The server's technical detail, collapsed and outside the alert (FIX_PLAN 2.13). */
+export const ErrorDetail = ({ error }: { error: unknown }) => {
+  const detail = errorDetail(error);
+  return detail ? (
+    <details className={s.muted}>
+      <summary>Подробнее</summary>
+      <code>{detail}</code>
+    </details>
+  ) : null;
+};
+/** Rereading does not help when the object is gone or the access is (2.13). */
+const FINAL = new Set([401, 403, 404]);
 export const ErrorState = ({
   error,
   retry,
@@ -64,14 +77,17 @@ export const ErrorState = ({
   error: unknown;
   retry?: () => void;
 }) => (
-  <div role="alert" className={s.error}>
-    <p>{normalizeApiError(error).message}</p>
-    {retry && (
-      <button className={s.button} onClick={retry}>
-        Обновить данные
-      </button>
-    )}
-  </div>
+  <>
+    <div role="alert" className={s.error}>
+      <p>{userMessage(error)}</p>
+      {retry && !FINAL.has(normalizeApiError(error).status) && (
+        <button className={s.button} onClick={retry}>
+          Обновить данные
+        </button>
+      )}
+    </div>
+    <ErrorDetail error={error} />
+  </>
 );
 export const RouteLink = ({
   to,

@@ -2,6 +2,8 @@ import { useId, useRef, useState, type ReactNode } from "react";
 import { useFormik } from "formik";
 import { z } from "zod";
 import { ApiError, normalizeApiError } from "../../utils/api/request";
+import { fieldMessage, isStale, userMessage } from "../../utils/api/messages";
+import { ErrorDetail } from "./WorkspaceUI";
 import s from "./Workspace.module.css";
 import type { Values } from "./formValues";
 import { RecipientPicker } from "./RecipientPicker";
@@ -109,6 +111,10 @@ export function ActionForm({
   const [failure, setFailure] = useState<ReturnType<
     typeof normalizeApiError
   > | null>(null);
+  // Labels of the fields the server refused, for the text of the failure.
+  const [refused, setRefused] = useState<string[]>([]);
+  // Someone else changed the data (or our version is behind): reread before saving again.
+  const stale = !!failure && (isStale(failure) || (failure.status === 409 && failure.code === "client_error"));
   const client = useOwnRevisions();
   // Own saves elsewhere may advance this exact baseline, never past a foreign revision.
   // Adjust only our state before committing UI.
@@ -182,6 +188,7 @@ export function ActionForm({
       const values = { ...initialValues, ...draft };
       setMessage("");
       setFailure(null);
+      setRefused([]);
       // Removing people from a role is confirmed against the saved list (A-ROL-13).
       const removed = removals(fields, values);
       if (removed.length && JSON.stringify(removed) !== confirmedRemoval.current) {
@@ -190,7 +197,7 @@ export function ActionForm({
       }
       setPendingRemoval([]);
       try {
-        if (versioned && (changedRevision || failure?.status === 409))
+        if (versioned && (changedRevision || stale))
           throw new ApiError("Сначала обновите данные и подтвердите версию для сохранения.", 409);
         const saved = await (revisionKey === undefined
           ? onSubmit(values, expectedRevision)
@@ -212,13 +219,13 @@ export function ActionForm({
         const errors: Record<string, string> = {};
         for (const [key, message] of Object.entries(failure.fields))
           if (typeof message === "string" && fields.some((f) => f.name === key))
-            errors[key] = message;
+            errors[key] = fieldMessage(message);
         if (Array.isArray(failure.fields.errors))
           for (const item of failure.fields.errors) {
             const key = String(item.loc?.at(-1) ?? "");
-            if (fields.some((f) => f.name === key))
-              errors[key] = String(item.msg ?? "Проверьте значение");
+            if (fields.some((f) => f.name === key)) errors[key] = fieldMessage(item);
           }
+        setRefused(fields.filter((f) => f.name in errors).map((f) => f.label));
         form.setErrors(errors);
       }
     },
@@ -344,12 +351,12 @@ export function ActionForm({
         )}
         {failure && (
           <div className={s.error} role="alert">
-            {failure.message}
-            {failure.status === 409 && onConflict && (
+            {refused.length ? `Проверьте поля: ${refused.join(", ")}.` : userMessage(failure)}
+            {stale && onConflict && (
               <p>
                 <button type="button" className={s.button} onClick={async () => {
                   setRefreshing(true);
-                  try { await onConflict(); setFailure(null); }
+                  try { await onConflict(); setFailure(null); setRefused([]); }
                   catch (error) { setFailure(normalizeApiError(error)); }
                   finally { setRefreshing(false); }
                 }}>
@@ -359,6 +366,7 @@ export function ActionForm({
             )}
           </div>
         )}
+        {failure && <ErrorDetail error={failure} />}
         {changedRevision && (
           <div role="status" className={s.details}>
             <p>Запись изменилась на сервере. Ваш ввод сохранён. Сверьте актуальные значения перед сохранением.</p>
@@ -379,7 +387,7 @@ export function ActionForm({
           <button
             className={`${s.button} ${s.primary}`}
             type="submit"
-            disabled={form.isSubmitting || refreshing || disabled || unchanged || (versioned && (changedRevision || failure?.status === 409))}
+            disabled={form.isSubmitting || refreshing || disabled || unchanged || (versioned && (changedRevision || stale))}
           >
             {form.isSubmitting ? "Сохраняем…" : submitLabel}
           </button>

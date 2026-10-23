@@ -1,5 +1,6 @@
 """Immutable approved summaries and atomic scoring corrections."""
 
+from errors import Conflict, Forbidden, InvalidInput, NotFound, revision_conflict
 import json, copy, uuid
 from collections import defaultdict
 from contextvars import ContextVar
@@ -161,9 +162,9 @@ def refresh(session, season_id, uid, reason):
         session.flush()
         return
     if not row:
-        raise ValueError("Closed summary snapshot missing")
+        raise Conflict("Closed summary snapshot missing")
     if not access.allowed(uid, "summary.correct"):
-        raise ValueError("Forbidden: only chair can correct closed scoring")
+        raise Forbidden("Forbidden: only chair can correct closed scoring")
     store_snapshot(session, season_id, uid, "Initial preserved snapshot")
     rows = json.loads(row.rows_json)
     old_version = row.version
@@ -172,7 +173,7 @@ def refresh(session, season_id, uid, reason):
         c.participant_id not in allowed
         for c in session.query(ContributionORM).filter_by(season_id=season_id)
     ):
-        raise ValueError("Recipient is outside the closed participant snapshot")
+        raise InvalidInput("Recipient is outside the closed participant snapshot")
     _recalculate_closed_master_bonuses_for_session(session, season_id)
     session.flush()
     decisions = {
@@ -216,21 +217,23 @@ def refresh(session, season_id, uid, reason):
 
 def correct(season_id, expected_version, reason, changes, uid):
     if not access.allowed(uid, "summary.correct"):
-        raise ValueError("Forbidden: only chair can correct summary")
+        raise Forbidden("Forbidden: only chair can correct summary")
     if not reason or not reason.strip():
-        raise ValueError("Reason is required")
+        raise InvalidInput("Reason is required")
     with db.atomic():
         with db._session() as s:
             season = s.get(SeasonORM, season_id)
             row = current(s, season_id)
-            if not season or season.state != "closed":
-                raise ValueError("Only closed summaries can be corrected")
+            if not season:
+                raise NotFound("Season not found")
+            if season.state != "closed":
+                raise Conflict("Only closed summaries can be corrected")
             if not row or row.version != expected_version:
-                raise ValueError("Conflict: version mismatch")
+                raise revision_conflict("Conflict: version mismatch")
             if not changes or len({(x["kind"], x["id"]) for x in changes}) != len(
                 changes
             ):
-                raise ValueError("Changes must be nonempty and unique")
+                raise InvalidInput("Changes must be nonempty and unique")
             # Validate the whole command, including object/season ownership, before mutation.
             from main import TaskInputsPatchIn, AssignmentInputsPatchIn, MeritPatchIn
 
@@ -242,7 +245,7 @@ def correct(season_id, expected_version, reason, changes, uid):
             prepared = []
             for c in changes:
                 if c["kind"] not in schemas:
-                    raise ValueError("Invalid correction kind")
+                    raise InvalidInput("Invalid correction kind")
                 cls = {
                     "task_inputs": TaskORM,
                     "assessment_inputs": AssignmentORM,
@@ -250,19 +253,19 @@ def correct(season_id, expected_version, reason, changes, uid):
                 }[c["kind"]]
                 obj = s.get(cls, c["id"])
                 if not obj:
-                    raise LookupError("Correction object not found")
+                    raise NotFound("Correction object not found")
                 sid = (
                     s.get(TaskORM, obj.task_id).season_id
                     if cls is AssignmentORM
                     else obj.season_id
                 )
                 if sid != season_id:
-                    raise ValueError("Correction object belongs to another season")
+                    raise InvalidInput("Correction object belongs to another season")
                 # Assessment inputs carry their own revision (owner decision 32).
                 if (obj.inputs_revision if cls is AssignmentORM else obj.revision) != c["expected_revision"]:
-                    raise ValueError("Conflict: object revision mismatch")
+                    raise revision_conflict("Conflict: object revision mismatch")
                 if {"expected_revision", "reason"} & set(c["values"]):
-                    raise ValueError("Invalid correction values")
+                    raise InvalidInput("Invalid correction values")
                 value = (
                     schemas[c["kind"]]
                     .model_validate(
@@ -311,22 +314,22 @@ def correct(season_id, expected_version, reason, changes, uid):
 
 def decisions(season_id, target, values, expected_version, reason, uid):
     if len(set(values)) != len(values) or not set(values) <= DECISIONS:
-        raise ValueError("Invalid decisions")
+        raise InvalidInput("Invalid decisions")
     with db._session() as s:
         season = s.get(SeasonORM, season_id)
         if not season:
-            raise LookupError("Season not found")
+            raise NotFound("Season not found")
         if not access.allowed(uid, "summary.decide", state=season.state):
-            raise ValueError("Forbidden: only chair can edit closed decisions" if season.state == "closed"
+            raise Forbidden("Forbidden: only chair can edit closed decisions" if season.state == "closed"
                              else "Forbidden: decision editor required")
         if season.state == "closed" and (not reason or not reason.strip()):
-            raise ValueError("Reason is required")
+            raise InvalidInput("Reason is required")
         row = current(s, season_id)
         if (row.version if row else 1) != expected_version:
-            raise ValueError("Conflict: summary version mismatch")
+            raise revision_conflict("Conflict: summary version mismatch")
         summary = db.get_season_summary(season_id, uid)
         if not any(r.user.user_id == target for r in summary.rows):
-            raise ValueError("Participant is outside this summary")
+            raise InvalidInput("Participant is outside this summary")
         d = (
             s.query(SeasonDecisionORM)
             .filter_by(season_id=season_id, user_id=target)

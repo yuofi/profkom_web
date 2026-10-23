@@ -1,10 +1,10 @@
 import { useRef, useState } from "react";
 import type { FileRef } from "../../utils/api/contract";
 import { filesApi } from "../../utils/api/files.api";
-import { normalizeApiError } from "../../utils/api/request";
 import { apiUrl } from "../../utils/api";
 import { fileAccept, fileLimitMiB } from "../../utils/filePolicy";
 import s from "./Workspace.module.css";
+import { userMessage } from "../../utils/api/messages";
 export function Attachments({ files }: { files: FileRef[] }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -36,7 +36,7 @@ export function Attachments({ files }: { files: FileRef[] }) {
                   link.rel = "noopener noreferrer";
                   link.click();
                 } catch (e) {
-                  setError(normalizeApiError(e).message);
+                  setError(userMessage(e));
                 } finally {
                   setBusy(null);
                 }
@@ -107,7 +107,7 @@ export function AttachmentPicker({
                 onChange([...uploaded]);
               }
             } catch (e) {
-              setError(normalizeApiError(e).message);
+              setError(userMessage(e));
             } finally {
               setBusy(false);
               onBusyChange?.(false);

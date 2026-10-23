@@ -2,6 +2,11 @@ import axios from "axios";
 import { api } from "./index";
 import type { Page, SeasonBlocker } from "./contract";
 
+/**
+ * An API failure with the server's stable `code`. Shown through userMessage() (messages.ts);
+ * `message` is the server's technical detail, or the client's own Russian text when the
+ * code is "client_error".
+ */
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -9,7 +14,7 @@ export class ApiError extends Error {
   constructor(
     message: string,
     status = 0,
-    code = "network_error",
+    code = "client_error",
     fields: Record<string, unknown> = {},
   ) {
     super(message);
@@ -26,7 +31,13 @@ export class ApiError extends Error {
 }
 export function normalizeApiError(error: unknown): ApiError {
   if (error instanceof ApiError) return error;
+  // Cancelled by the client itself, e.g. «Сессия изменилась».
+  if (axios.isCancel(error))
+    return new ApiError(
+      /[А-Яа-яЁё]/.test(error.message ?? "") ? error.message! : "Запрос отменён",
+    );
   if (axios.isAxiosError(error)) {
+    if (!error.response) return new ApiError("Нет связи с сервером", 0, "network_error");
     const status = error.response?.status ?? 0;
     const detail: unknown = error.response?.data?.detail;
     if (detail && typeof detail === "object" && !Array.isArray(detail)) {
@@ -50,18 +61,16 @@ export function normalizeApiError(error: unknown): ApiError {
         { errors: detail },
       );
     return new ApiError(
-      typeof detail === "string"
-        ? detail
-        : status
-          ? "Не удалось выполнить запрос"
-          : "Нет связи с сервером",
+      typeof detail === "string" ? detail : "Не удалось выполнить запрос",
       status,
       `http_${status}`,
     );
   }
-  return new ApiError(
-    error instanceof Error ? error.message : "Неизвестная ошибка",
-  );
+  // A Russian message was written for the screen; anything else is a defect to hide.
+  const message = error instanceof Error ? error.message : "";
+  return /[А-Яа-яЁё]/.test(message)
+    ? new ApiError(message)
+    : new ApiError(message || "Unknown error", 0, "unexpected");
 }
 /** Retain an editor on transient failures, never after denied or removed access. */
 export function canRetainData(error: unknown) {

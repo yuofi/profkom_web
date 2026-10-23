@@ -6,7 +6,7 @@ import access
 import membership
 import vk_auth  # noqa: F401  (fails at startup without VK_CLIENT_ID in production)
 import contact_rules
-from api_contract import Page, cursor_page, install_errors
+from api_contract import Page, cursor_page, install_errors, legacy
 from validation import Command
 from datetime import datetime, timezone
 from typing import List, Optional, Union, Literal
@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict, model_serializer
 
 from models import Block, ContactInfo, User, Guide, PgasEntry, Season, Event, Subevent, Meeting, Leader, ReportSeries, Report, ReportVersion, Notification
-from database import db, SeasonNotReadyError, generate_summary_xlsx
+from database import db, generate_summary_xlsx
 import database as database_module
 
 
@@ -394,7 +394,7 @@ class RichTextSchema(BaseModel):
 
 class SeasonIn(Command):
     title: str
-    type: Literal["winter_spring","summer_autumn","autumn_winter"] = "winter_spring"
+    type: Literal["winter_spring","summer_autumn","autumn_winter"]
     starts_at: str
     ends_at: str
 
@@ -527,7 +527,7 @@ class MeetingOut(BaseModel):
 
 
 class SeasonCorrectionIn(Command):
-    object_kind: str
+    object_kind: Literal["event", "block_task", "merit"]
     object_id: str
     expected_revision: int
     target_season_id: str
@@ -1163,11 +1163,8 @@ def vk_login(payload: VKLoginIn, response: Response):
 def link_vk(payload: VKLoginIn, cur: User = Depends(get_current_user)):
     from vk_auth import verified_identity
     subject = verified_identity(payload.access_token)["subject"]  # outside any transaction
-    try:
-        with db.atomic():
-            db.link_external_identity(cur.user_id, subject)
-    except ValueError as exc:
-        raise HTTPException(409, str(exc))
+    with db.atomic():
+        db.link_external_identity(cur.user_id, subject)
     return {"linked": True}
 
 
@@ -1423,10 +1420,7 @@ def create_pgas(payload: PgasEntryIn, cur: User = Depends(require_pgas_admin)):
             if not fr or fr.owner_kind!="pgas" or fr.state!="completed":
                 raise HTTPException(422,"Invalid PGAS file")
             from file_access import validate_metadata
-            try:
-                validate_metadata("pgas", "pgas", fr.name, fr.mime_type, fr.size_bytes)
-            except ValueError as error:
-                raise HTTPException(422, str(error))
+            validate_metadata("pgas", "pgas", fr.name, fr.mime_type, fr.size_bytes)
     else:
         _validate_pgas_file(payload.file_url, payload.file_type)
         raise HTTPException(422,"New PGAS entries require a completed contextual file reference")
@@ -1616,17 +1610,7 @@ def transfer_leadership(payload: LeadershipTransferIn, cur: User = Depends(get_c
     if not access.allowed(cur.user_id, "leadership.transfer"):
         raise HTTPException(403, "Only the current chair can transfer leadership")
 
-    target = db.get_user(payload.new_chair_user_id)
-    if not target:
-        raise HTTPException(404, "Target user not found")
-
-    try:
-        lead = db.transfer_chair(payload.new_chair_user_id, payload.expected_revision)
-    except ValueError as e:
-        msg = str(e)
-        if "revision mismatch" in msg or "Conflict" in msg:
-            raise HTTPException(409, detail=msg)
-        raise HTTPException(400, detail=msg)
+    lead = db.transfer_chair(payload.new_chair_user_id, payload.expected_revision)
 
     chair_out = (
         UserRefOut(
@@ -1666,13 +1650,7 @@ def set_deputies(payload: LeadershipDeputiesIn, cur: User = Depends(get_current_
     if uids is None:
         uids = []
 
-    try:
-        lead = db.set_chair_deputies(uids, payload.expected_revision)
-    except ValueError as e:
-        msg = str(e)
-        if "revision mismatch" in msg or "Conflict" in msg:
-            raise HTTPException(409, detail=msg)
-        raise HTTPException(400, detail=msg)
+    lead = db.set_chair_deputies(uids, payload.expected_revision)
 
     chair_out = (
         UserRefOut(
@@ -2088,74 +2066,40 @@ def get_season(season_id: str, cur: User = Depends(get_current_user)):
 def create_season(payload: SeasonIn, cur: User = Depends(get_current_user)):
     if not access.allowed(cur.user_id, "season.create"):
         raise HTTPException(403, "Only the chair can create seasons")
-    try:
-        s = db.create_season(payload.title, payload.type, payload.starts_at, payload.ends_at)
-        return _to_season_out(s)
-    except ValueError as e:
-        raise HTTPException(409 if "Conflict" in str(e) else 422, str(e))
+    s = db.create_season(payload.title, payload.type, payload.starts_at, payload.ends_at)
+    return _to_season_out(s)
 
 
 @router.patch("/seasons/{season_id}", response_model=SeasonOut)
 def patch_season(season_id: str, payload: SeasonPatchIn, cur: User = Depends(get_current_user)):
     if not access.allowed(cur.user_id, "season.edit"):
         raise HTTPException(403, "Only the chair can modify seasons")
-    try:
-        s = db.patch_season(season_id, payload.expected_revision, payload.title, payload.starts_at, payload.ends_at, payload.reason)
-        return _to_season_out(s)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        raise HTTPException(409 if "Conflict" in msg else 422, msg)
+    s = db.patch_season(season_id, payload.expected_revision, payload.title, payload.starts_at, payload.ends_at, payload.reason)
+    return _to_season_out(s)
 
 
 @router.post("/seasons/{season_id}/open", response_model=SeasonOut)
 def open_season(season_id: str, payload: SeasonRevisionIn, cur: User = Depends(get_current_user)):
     if not access.allowed(cur.user_id, "season.open"):
         raise HTTPException(403, "Only the chair can open a season")
-    try:
-        s = db.open_season(season_id, payload.expected_revision)
-        return _to_season_out(s)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        raise HTTPException(409, str(e))
+    s = db.open_season(season_id, payload.expected_revision)
+    return _to_season_out(s)
 
 
 @router.post("/seasons/{season_id}/begin-summary", response_model=SeasonOut)
 def begin_summary(season_id: str, payload: SeasonRevisionIn, cur: User = Depends(get_current_user)):
     if not access.allowed(cur.user_id, "season.begin_summary"):
         raise HTTPException(403, "Only the chair can begin summary on a season")
-    try:
-        s = db.begin_summary_season(season_id, payload.expected_revision)
-        return _to_season_out(s)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        raise HTTPException(409, str(e))
+    s = db.begin_summary_season(season_id, payload.expected_revision)
+    return _to_season_out(s)
 
 
 @router.post("/seasons/{season_id}/close")
 def close_season(season_id: str, payload: SeasonRevisionIn, cur: User = Depends(get_current_user)):
     if not access.allowed(cur.user_id, "season.close"):
         raise HTTPException(403, "Only the chair can close a season")
-    try:
-        s, summary = db.close_season(season_id, payload.expected_revision)
-        return {"season": _to_season_out(s), "summary": _to_season_summary_out(summary)}
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except SeasonNotReadyError as e:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "detail": "season_not_ready",
-                "fields": {
-                    "blockers": e.blockers,
-                },
-            },
-        )
-    except ValueError as e:
-        raise HTTPException(409, str(e))
+    s, summary = db.close_season(season_id, payload.expected_revision)
+    return {"season": _to_season_out(s), "summary": _to_season_summary_out(summary)}
 
 
 # ── Report Series ──
@@ -2178,21 +2122,16 @@ def list_events(season_id: Optional[str] = None, cur: User = Depends(get_current
 @router.post("/events", response_model=EventOut)
 def create_event(payload: EventCreateIn, cur: User = Depends(get_current_user)):
     if not access.allowed(cur.user_id, "event.create"):
-        raise HTTPException(403, "Only tachki can create events")
-    try:
-        ev = db.create_event(
-            payload.season_id,
-            payload.title,
-            _to_rich_text_body(payload.description),
-            payload.starts_at,
-            payload.ends_at,
-            payload.report_series_id,
-        )
-        return _to_event_out(ev)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        raise HTTPException(409 if "Conflict" in str(e) or "Cannot create event" in str(e) or "Cannot copy" in str(e) else 422, str(e))
+        raise HTTPException(403, "Only the chair and deputies can create events")
+    ev = db.create_event(
+        payload.season_id,
+        payload.title,
+        _to_rich_text_body(payload.description),
+        payload.starts_at,
+        payload.ends_at,
+        payload.report_series_id,
+    )
+    return _to_event_out(ev)
 
 
 @router.get("/events/{event_id}", response_model=EventOut)
@@ -2210,43 +2149,35 @@ def patch_event(event_id: str, payload: EventPatchIn, cur: User = Depends(get_cu
         raise HTTPException(404, "Event not found")
     if not access.allowed(cur.user_id, "event.edit", "event", event_id):
         raise HTTPException(403, "Forbidden")
-    try:
-        desc = _to_rich_text_body(payload.description) if payload.description is not None else None
-        updated = db.patch_event(
-            event_id,
-            payload.expected_revision,
-            payload.title,
-            desc,
-            payload.starts_at,
-            payload.ends_at,
-            clear_starts_at="starts_at" in payload.model_fields_set and payload.starts_at is None,
-            clear_ends_at="ends_at" in payload.model_fields_set and payload.ends_at is None,
-        )
-        return _to_event_out(updated)
-    except ValueError as e:
-        raise HTTPException(409 if "Conflict" in str(e) or "Cannot create event" in str(e) or "Cannot copy" in str(e) else 422, str(e))
+    desc = _to_rich_text_body(payload.description) if payload.description is not None else None
+    updated = db.patch_event(
+        event_id,
+        payload.expected_revision,
+        payload.title,
+        desc,
+        payload.starts_at,
+        payload.ends_at,
+        clear_starts_at="starts_at" in payload.model_fields_set and payload.starts_at is None,
+        clear_ends_at="ends_at" in payload.model_fields_set and payload.ends_at is None,
+    )
+    return _to_event_out(updated)
 
 
 @router.post("/events/{event_id}/copy", response_model=EventCopyOut)
 def copy_event(event_id: str, payload: EventCopyIn, cur: User = Depends(get_current_user)):
     if not access.allowed(cur.user_id, "event.create"):
-        raise HTTPException(403, "Only tachki can copy events")
-    try:
-        new_ev, new_subs = db.copy_event_structure(
-            event_id,
-            payload.season_id,
-            payload.title,
-            payload.starts_at,
-            payload.ends_at,
-        )
-        return EventCopyOut(
-            event=_to_event_out(new_ev),
-            subevents=[_to_subevent_out(s) for s in new_subs],
-        )
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        raise HTTPException(409 if "Conflict" in str(e) or "Cannot create event" in str(e) or "Cannot copy" in str(e) else 422, str(e))
+        raise HTTPException(403, "Only the chair and deputies can copy events")
+    new_ev, new_subs = db.copy_event_structure(
+        event_id,
+        payload.season_id,
+        payload.title,
+        payload.starts_at,
+        payload.ends_at,
+    )
+    return EventCopyOut(
+        event=_to_event_out(new_ev),
+        subevents=[_to_subevent_out(s) for s in new_subs],
+    )
 
 
 # ── Subevents ──
@@ -2254,19 +2185,14 @@ def copy_event(event_id: str, payload: EventCopyIn, cur: User = Depends(get_curr
 @router.post("/events/{event_id}/subevents", response_model=SubeventOut)
 def create_subevent(event_id: str, payload: SubeventCreateIn, cur: User = Depends(get_current_user)):
     if not access.allowed(cur.user_id, "event.create_subevent", "event", event_id):
-        raise HTTPException(403, "Only tachki or event leaders/deputies can create subevents")
-    try:
-        sub = db.create_subevent(
-            event_id,
-            payload.title,
-            _to_rich_text_body(payload.description),
-            payload.report_series_id,
-        )
-        return _to_subevent_out(sub)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        raise HTTPException(409, str(e))
+        raise HTTPException(403, "Only the chair and deputies or event leaders/deputies can create subevents")
+    sub = db.create_subevent(
+        event_id,
+        payload.title,
+        _to_rich_text_body(payload.description),
+        payload.report_series_id,
+    )
+    return _to_subevent_out(sub)
 
 
 @router.get("/events/{event_id}/subevents", response_model=Page[SubeventOut])
@@ -2288,7 +2214,7 @@ def get_subevent(subevent_id: str, cur: User = Depends(get_current_user)):
     if not sub:
         raise HTTPException(404, "Subevent not found")
     if not access.allowed(cur.user_id, "subevent.view", "subevent", subevent_id):
-        raise HTTPException(403, "Access to subevent forbidden")
+        raise HTTPException(404, "Subevent not found")  # as for a missing one (A-SEC-6)
     return _to_subevent_out(sub)
 
 
@@ -2299,12 +2225,9 @@ def patch_subevent(subevent_id: str, payload: SubeventPatchIn, cur: User = Depen
         raise HTTPException(404, "Subevent not found")
     if not access.allowed(cur.user_id, "subevent.edit", "subevent", subevent_id):
         raise HTTPException(403, "Forbidden")
-    try:
-        desc = _to_rich_text_body(payload.description) if payload.description is not None else None
-        updated = db.patch_subevent(subevent_id, payload.expected_revision, payload.title, desc)
-        return _to_subevent_out(updated)
-    except ValueError as e:
-        raise HTTPException(409, str(e))
+    desc = _to_rich_text_body(payload.description) if payload.description is not None else None
+    updated = db.patch_subevent(subevent_id, payload.expected_revision, payload.title, desc)
+    return _to_subevent_out(updated)
 
 
 # ── Leaders, Deputies, Organizers ──
@@ -2312,14 +2235,9 @@ def patch_subevent(subevent_id: str, payload: SubeventPatchIn, cur: User = Depen
 @router.put("/events/{event_id}/leaders", response_model=EventOut)
 def set_event_leaders(event_id: str, payload: UserIdsIn, cur: User = Depends(get_current_user)):
     if not access.allowed(cur.user_id, "event.manage_leaders"):
-        raise HTTPException(403, "Only tachki can assign event leaders")
-    try:
-        ev = db.set_event_leaders(event_id, payload.user_ids, payload.expected_revision)
-        return _to_event_out(ev)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        raise HTTPException(409, str(e))
+        raise HTTPException(403, "Only the chair and deputies can assign event leaders")
+    ev = db.set_event_leaders(event_id, payload.user_ids, payload.expected_revision)
+    return _to_event_out(ev)
 
 
 @router.put("/subevents/{subevent_id}/leaders", response_model=SubeventOut)
@@ -2328,12 +2246,9 @@ def set_subevent_leaders(subevent_id: str, payload: UserIdsIn, cur: User = Depen
     if not sub:
         raise HTTPException(404, "Subevent not found")
     if not access.allowed(cur.user_id, "subevent.manage_leaders", "subevent", subevent_id):
-        raise HTTPException(403, "Only tachki or event leaders/deputies can assign subevent leaders")
-    try:
-        updated = db.set_subevent_leaders(subevent_id, payload.user_ids, payload.expected_revision)
-        return _to_subevent_out(updated)
-    except ValueError as e:
-        raise HTTPException(409, str(e))
+        raise HTTPException(403, "Only the chair and deputies or event leaders/deputies can assign subevent leaders")
+    updated = db.set_subevent_leaders(subevent_id, payload.user_ids, payload.expected_revision)
+    return _to_subevent_out(updated)
 
 
 @router.put("/subevents/{subevent_id}/organizers", response_model=SubeventOut)
@@ -2342,32 +2257,24 @@ def set_subevent_organizers(subevent_id: str, payload: UserIdsIn, cur: User = De
     if not sub:
         raise HTTPException(404, "Subevent not found")
     if not access.allowed(cur.user_id, "subevent.manage_organizers", "subevent", subevent_id):
-        raise HTTPException(403, "Only tachki or event leaders/deputies can assign subevent organizers")
-    try:
-        updated = db.set_subevent_organizers(subevent_id, payload.user_ids, payload.expected_revision)
-        return _to_subevent_out(updated)
-    except ValueError as e:
-        raise HTTPException(409, str(e))
+        raise HTTPException(403, "Only the chair and deputies or event leaders/deputies can assign subevent organizers")
+    updated = db.set_subevent_organizers(subevent_id, payload.user_ids, payload.expected_revision)
+    return _to_subevent_out(updated)
 
 
 @router.put("/blocks/{block_id}/leader", response_model=BlockOut)
 def set_block_leader(block_id: str, payload: BlockLeaderIn, cur: User = Depends(get_current_user)):
     if not access.allowed(cur.user_id, "block.manage_leader"):
-        raise HTTPException(403, "Only tachki can assign block master")
-    try:
-        from membership import legacy_name,meta_for,version,get_card
-        name=legacy_name(block_id)
-        with db._session() as session:
-            meta=meta_for(session,name)
-            version(meta,payload.expected_revision)
-            db.set_block_leader(name,payload.user_id)
-            meta.revision+=1
-            session.commit()
-        return get_card(block_id,cur.user_id)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        raise HTTPException(409, str(e))
+        raise HTTPException(403, "Only the chair and deputies can assign block master")
+    from membership import legacy_name,meta_for,version,get_card
+    name=legacy_name(block_id)
+    with db._session() as session:
+        meta=meta_for(session,name)
+        version(meta,payload.expected_revision)
+        db.set_block_leader(name,payload.user_id)
+        meta.revision+=1
+        session.commit()
+    return get_card(block_id,cur.user_id)
 
 
 @router.put("/role-assignments/{role_assignment_id}/deputies", response_model=LeaderOut)
@@ -2381,25 +2288,22 @@ def set_deputies(role_assignment_id: str, payload: UserIdsIn, cur: User = Depend
             raise HTTPException(404, "Subevent not found")
         if not access.can_set_deputies(cur.user_id, kind, scope_id, holder):
             raise HTTPException(403, {
-                "block": "Only tachki or block master can assign block deputies",
-                "event": "Only tachki can assign event leader deputies",
-                "subevent": "Only tachki or parent event leaders/deputies can assign subevent leader deputies",
+                "block": "Only the chair and deputies or block master can assign block deputies",
+                "event": "Only the chair and deputies can assign event leader deputies",
+                "subevent": "Only the chair and deputies or parent event leaders/deputies can assign subevent leader deputies",
             }.get(kind, "Forbidden"))
-    try:
-        leader = db.set_deputies(role_assignment_id, payload.user_ids, payload.expected_revision)
-        return LeaderOut(
-            role_assignment_id=leader.role_assignment_id,
-            user=UserRefOut(
-                user_id=leader.user.user_id,
-                display_name=leader.user.display_name,
-                avatar_url=leader.user.avatar_url,
-            ),
-            deputy_user_ids=leader.deputy_user_ids,
-            revision=leader.revision,
-            capabilities=access.leader_caps(leader, cur.user_id),
-        )
-    except ValueError as e:
-        raise HTTPException(409, str(e))
+    leader = db.set_deputies(role_assignment_id, payload.user_ids, payload.expected_revision)
+    return LeaderOut(
+        role_assignment_id=leader.role_assignment_id,
+        user=UserRefOut(
+            user_id=leader.user.user_id,
+            display_name=leader.user.display_name,
+            avatar_url=leader.user.avatar_url,
+        ),
+        deputy_user_ids=leader.deputy_user_ids,
+        revision=leader.revision,
+        capabilities=access.leader_caps(leader, cur.user_id),
+    )
 
 
 # ── Meetings (Созвоны) ──
@@ -2410,7 +2314,7 @@ def get_event_meeting(event_id: str, cur: User = Depends(get_current_user)):
     if not ev:
         raise HTTPException(404, "Event not found")
     if not access.allowed(cur.user_id, "event.meeting.view", "event", event_id):
-        raise HTTPException(403, "Forbidden")
+        raise HTTPException(404, "Meeting not found")  # outside its audience (A-SEC-6)
     m = db.get_meeting("event", event_id)
     # No current announcement is an empty answer; 404 means the event itself (FIX_PLAN 1.3, A-EVT-1).
     return _to_meeting_out(m) if m else None
@@ -2423,11 +2327,8 @@ def set_event_meeting(event_id: str, payload: MeetingIn, cur: User = Depends(get
         raise HTTPException(404, "Event not found")
     if not access.allowed(cur.user_id, "event.meeting.edit", "event", event_id):
         raise HTTPException(403, "Forbidden")
-    try:
-        m = db.set_meeting("event", event_id, payload.title, payload.starts_at, payload.join_url, payload.expected_revision)
-        return _to_meeting_out(m)
-    except ValueError as e:
-        raise HTTPException(409, str(e))
+    m = db.set_meeting("event", event_id, payload.title, payload.starts_at, payload.join_url, payload.expected_revision)
+    return _to_meeting_out(m)
 
 
 @router.delete("/events/{event_id}/meeting")
@@ -2437,10 +2338,7 @@ def delete_event_meeting(event_id: str, cur: User = Depends(get_current_user)):
         raise HTTPException(404, "Event not found")
     if not access.allowed(cur.user_id, "event.meeting.edit", "event", event_id):
         raise HTTPException(403, "Forbidden")
-    try:
-        db.delete_meeting("event", event_id)
-    except ValueError as error:
-        raise HTTPException(409,str(error))
+    db.delete_meeting("event", event_id)
     return {"status": "deleted"}
 
 
@@ -2449,8 +2347,10 @@ def get_subevent_meeting(subevent_id: str, cur: User = Depends(get_current_user)
     sub = db.get_subevent(subevent_id)
     if not sub:
         raise HTTPException(404, "Subevent not found")
+    if not access.allowed(cur.user_id, "subevent.view", "subevent", subevent_id):
+        raise HTTPException(404, "Subevent not found")
     if not access.allowed(cur.user_id, "subevent.meeting.view", "subevent", subevent_id):
-        raise HTTPException(403, "Forbidden")
+        raise HTTPException(404, "Meeting not found")  # outside its audience (A-SEC-6)
     m = db.get_meeting("subevent", subevent_id)
     # No current announcement is an empty answer; 404 means the subevent itself (FIX_PLAN 1.3, A-EVT-1).
     return _to_meeting_out(m) if m else None
@@ -2463,11 +2363,8 @@ def set_subevent_meeting(subevent_id: str, payload: MeetingIn, cur: User = Depen
         raise HTTPException(404, "Subevent not found")
     if not access.allowed(cur.user_id, "subevent.meeting.edit", "subevent", subevent_id):
         raise HTTPException(403, "Forbidden")
-    try:
-        m = db.set_meeting("subevent", subevent_id, payload.title, payload.starts_at, payload.join_url, payload.expected_revision)
-        return _to_meeting_out(m)
-    except ValueError as e:
-        raise HTTPException(409, str(e))
+    m = db.set_meeting("subevent", subevent_id, payload.title, payload.starts_at, payload.join_url, payload.expected_revision)
+    return _to_meeting_out(m)
 
 
 @router.delete("/subevents/{subevent_id}/meeting")
@@ -2477,10 +2374,7 @@ def delete_subevent_meeting(subevent_id: str, cur: User = Depends(get_current_us
         raise HTTPException(404, "Subevent not found")
     if not access.allowed(cur.user_id, "subevent.meeting.edit", "subevent", subevent_id):
         raise HTTPException(403, "Forbidden")
-    try:
-        db.delete_meeting("subevent", subevent_id)
-    except ValueError as error:
-        raise HTTPException(409,str(error))
+    db.delete_meeting("subevent", subevent_id)
     return {"status": "deleted"}
 
 
@@ -2489,30 +2383,22 @@ def delete_subevent_meeting(subevent_id: str, cur: User = Depends(get_current_us
 @router.post("/season-corrections", response_model=SeasonCorrectionOut)
 def correct_season(payload: SeasonCorrectionIn, cur: User = Depends(get_current_user)):
     if not access.allowed(cur.user_id, "season.correct"):
-        raise HTTPException(403, "Only tachki can perform season corrections")
-    try:
-        res = db.correct_season(
-            payload.object_kind,
-            payload.object_id,
-            payload.expected_revision,
-            payload.target_season_id,
-            payload.reason,
-            cur.user_id,
-        )
-        return SeasonCorrectionOut(
-            object_kind=res.object_kind,
-            object_id=res.object_id,
-            source_season_id=res.source_season_id,
-            target_season_id=res.target_season_id,
-            revision=res.revision,
-        )
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        if "differ" in msg or "deadline exceeds" in msg:
-            raise HTTPException(422, msg)
-        raise HTTPException(409, msg)
+        raise HTTPException(403, "Only the chair and deputies can perform season corrections")
+    res = db.correct_season(
+        payload.object_kind,
+        payload.object_id,
+        payload.expected_revision,
+        payload.target_season_id,
+        payload.reason,
+        cur.user_id,
+    )
+    return SeasonCorrectionOut(
+        object_kind=res.object_kind,
+        object_id=res.object_id,
+        source_season_id=res.source_season_id,
+        target_season_id=res.target_season_id,
+        revision=res.revision,
+    )
 
 
 # ═══════════════════════════════════════════════════════════
@@ -2521,42 +2407,32 @@ def correct_season(payload: SeasonCorrectionIn, cur: User = Depends(get_current_
 
 @router.post("/tasks", response_model=TaskPublicOut)
 def create_task(payload: TaskCreateIn, cur: User = Depends(get_current_user)):
-    try:
-        desc_body = _to_rich_text_body(payload.description)
-        scope_kind = payload.scope.get("kind", "")
-        scope_id = payload.scope.get("id", "")
-        if scope_kind=="block":
-            from membership import legacy_name
-            scope_id=legacy_name(scope_id)
-        crit_dict = {
-            "unique": payload.criteria.unique,
-            "creative": payload.criteria.creative,
-            "external_communication": payload.criteria.external_communication,
-            "in_person": payload.criteria.in_person,
-            "fixed_time": payload.criteria.fixed_time,
-        }
-        assignees = [a.model_dump() for a in payload.assignees]
-        t = db.create_task(
-            season_id=payload.season_id,
-            scope_kind=scope_kind,
-            scope_id=scope_id,
-            title=payload.title,
-            description=desc_body,
-            deadline_at=payload.deadline_at,
-            criteria_dict=crit_dict,
-            assignees=assignees,
-            created_by_user_id=cur.user_id,
-        )
-        return _to_task_public_out(t)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        if "409" in msg or "already" in msg:
-            raise HTTPException(409, msg)
-        if "Forbidden" in msg:
-            raise HTTPException(403, msg)
-        raise HTTPException(422, msg)
+    desc_body = _to_rich_text_body(payload.description)
+    scope_kind = payload.scope.get("kind", "")
+    scope_id = payload.scope.get("id", "")
+    if scope_kind=="block":
+        from membership import legacy_name
+        scope_id=legacy_name(scope_id)
+    crit_dict = {
+        "unique": payload.criteria.unique,
+        "creative": payload.criteria.creative,
+        "external_communication": payload.criteria.external_communication,
+        "in_person": payload.criteria.in_person,
+        "fixed_time": payload.criteria.fixed_time,
+    }
+    assignees = [a.model_dump() for a in payload.assignees]
+    t = db.create_task(
+        season_id=payload.season_id,
+        scope_kind=scope_kind,
+        scope_id=scope_id,
+        title=payload.title,
+        description=desc_body,
+        deadline_at=payload.deadline_at,
+        criteria_dict=crit_dict,
+        assignees=assignees,
+        created_by_user_id=cur.user_id,
+    )
+    return _to_task_public_out(t)
 
 
 @router.get("/tasks")
@@ -2568,186 +2444,86 @@ def list_tasks(
     status: Optional[str] = None,
     cur: User = Depends(get_current_user),
 ):
-    try:
-        tasks = db.list_tasks(
-            current_user_id=cur.user_id,
-            season_id=season_id,
-            scope_kind=scope_kind,
-            scope_id=membership.legacy_name(scope_id) if scope_kind=="block" and scope_id else scope_id,
-            mine_user_id=cur.user_id if mine else None,
-            status=status,
-        )
-        return {"items": [_to_task_public_out(t) for t in tasks], "next_cursor": None}
-    except ValueError as e:
-        if "Forbidden" in str(e):
-            raise HTTPException(403, str(e))
-        raise HTTPException(422, str(e))
+    tasks = db.list_tasks(
+        current_user_id=cur.user_id,
+        season_id=season_id,
+        scope_kind=scope_kind,
+        scope_id=membership.legacy_name(scope_id) if scope_kind=="block" and scope_id else scope_id,
+        mine_user_id=cur.user_id if mine else None,
+        status=status,
+    )
+    return {"items": [_to_task_public_out(t) for t in tasks], "next_cursor": None}
 
 
 @router.get("/tasks/{task_id}", response_model=TaskPublicOut)
 def get_task(task_id: str, cur: User = Depends(get_current_user)):
-    try:
-        t = db.get_task(task_id, cur.user_id)
-        if not t:
-            raise HTTPException(404, "Task not found")
-        return _to_task_public_out(t)
-    except ValueError as e:
-        if "Forbidden" in str(e):
-            raise HTTPException(403, str(e))
-        raise HTTPException(422, str(e))
+    t = db.get_task(task_id, cur.user_id)
+    if not t:
+        raise HTTPException(404, "Task not found")
+    return _to_task_public_out(t)
 
 
 @router.patch("/tasks/{task_id}", response_model=TaskPublicOut)
 def patch_task(task_id: str, payload: TaskPatchIn, cur: User = Depends(get_current_user)):
-    try:
-        desc_body = _to_rich_text_body(payload.description) if payload.description is not None else None
-        t = db.patch_task(
-            task_id=task_id,
-            expected_revision=payload.expected_revision,
-            title=payload.title,
-            description=desc_body,
-            user_id=cur.user_id,
-        )
-        return _to_task_public_out(t)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        if "Conflict" in msg:
-            raise HTTPException(409, msg)
-        if "Forbidden" in msg:
-            raise HTTPException(403, msg)
-        raise HTTPException(422, msg)
+    desc_body = _to_rich_text_body(payload.description) if payload.description is not None else None
+    t = db.patch_task(
+        task_id=task_id,
+        expected_revision=payload.expected_revision,
+        title=payload.title,
+        description=desc_body,
+        user_id=cur.user_id,
+    )
+    return _to_task_public_out(t)
 
 
 @router.post("/assignments/{assignment_id}/start", response_model=AssignmentPublicOut)
 def start_assignment(assignment_id: str, payload: StartAssignmentIn, cur: User = Depends(get_current_user)):
-    try:
-        a = db.start_assignment(assignment_id, payload.expected_revision, cur.user_id)
-        return _to_assignment_public_out(a)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        if "Conflict" in msg:
-            raise HTTPException(409, msg)
-        if "Forbidden" in msg:
-            raise HTTPException(403, msg)
-        raise HTTPException(422, msg)
+    a = db.start_assignment(assignment_id, payload.expected_revision, cur.user_id)
+    return _to_assignment_public_out(a)
 
 
 @router.post("/assignments/{assignment_id}/request-help", response_model=AssignmentPublicOut)
 def request_help_assignment(assignment_id: str, payload: RequestHelpIn, cur: User = Depends(get_current_user)):
-    try:
-        msg = _to_rich_text_body(payload.message) if payload.message else None
-        a = db.request_help_assignment(assignment_id, payload.expected_revision, cur.user_id, msg)
-        return _to_assignment_public_out(a)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        if "Conflict" in msg:
-            raise HTTPException(409, msg)
-        if "Forbidden" in msg:
-            raise HTTPException(403, msg)
-        raise HTTPException(422, msg)
+    msg = _to_rich_text_body(payload.message) if payload.message else None
+    a = db.request_help_assignment(assignment_id, payload.expected_revision, cur.user_id, msg)
+    return _to_assignment_public_out(a)
 
 
 @router.post("/assignments/{assignment_id}/resume", response_model=AssignmentPublicOut)
 def resume_assignment(assignment_id: str, payload: ResumeAssignmentIn, cur: User = Depends(get_current_user)):
-    try:
-        a = db.resume_assignment(assignment_id, payload.expected_revision, cur.user_id)
-        return _to_assignment_public_out(a)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        if "Conflict" in msg:
-            raise HTTPException(409, msg)
-        if "Forbidden" in msg:
-            raise HTTPException(403, msg)
-        raise HTTPException(422, msg)
+    a = db.resume_assignment(assignment_id, payload.expected_revision, cur.user_id)
+    return _to_assignment_public_out(a)
 
 
 @router.post("/assignments/{assignment_id}/submit", response_model=AssignmentPublicOut)
 def submit_assignment(assignment_id: str, payload: SubmitAssignmentIn, cur: User = Depends(get_current_user)):
-    try:
-        text_body = _to_rich_text_body(payload.text)
-        a = db.submit_assignment(assignment_id, payload.expected_revision, cur.user_id, text_body, payload.links, payload.file_ids)
-        return _to_assignment_public_out(a)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        if "Conflict" in msg:
-            raise HTTPException(409, msg)
-        if "Forbidden" in msg:
-            raise HTTPException(403, msg)
-        raise HTTPException(422, msg)
+    text_body = _to_rich_text_body(payload.text)
+    a = db.submit_assignment(assignment_id, payload.expected_revision, cur.user_id, text_body, payload.links, payload.file_ids)
+    return _to_assignment_public_out(a)
 
 
 @router.post("/assignments/{assignment_id}/accept", response_model=AssignmentPublicOut)
 def accept_assignment(assignment_id: str, payload: AcceptAssignmentIn, cur: User = Depends(get_current_user)):
-    try:
-        a = db.accept_assignment(assignment_id, payload.expected_revision, payload.evaluation, payload.review_note, cur.user_id)
-        return _to_assignment_public_out(a)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        if "Conflict" in msg:
-            raise HTTPException(409, msg)
-        if "Forbidden" in msg:
-            raise HTTPException(403, msg)
-        raise HTTPException(422, msg)
+    a = db.accept_assignment(assignment_id, payload.expected_revision, payload.evaluation, payload.review_note, cur.user_id)
+    return _to_assignment_public_out(a)
 
 
 @router.post("/assignments/{assignment_id}/request-revision", response_model=AssignmentPublicOut)
 def request_revision_assignment(assignment_id: str, payload: RequestRevisionIn, cur: User = Depends(get_current_user)):
-    try:
-        a = db.request_revision_assignment(assignment_id, payload.expected_revision, payload.review_note, cur.user_id)
-        return _to_assignment_public_out(a)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        if "Conflict" in msg:
-            raise HTTPException(409, msg)
-        if "Forbidden" in msg:
-            raise HTTPException(403, msg)
-        raise HTTPException(422, msg)
+    a = db.request_revision_assignment(assignment_id, payload.expected_revision, payload.review_note, cur.user_id)
+    return _to_assignment_public_out(a)
 
 
 @router.post("/assignments/{assignment_id}/not-complete", response_model=AssignmentPublicOut)
 def not_complete_assignment(assignment_id: str, payload: NotCompleteAssignmentIn, cur: User = Depends(get_current_user)):
-    try:
-        a = db.not_complete_assignment(assignment_id, payload.expected_revision, payload.evaluation, payload.reason, cur.user_id)
-        return _to_assignment_public_out(a)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        if "Conflict" in msg:
-            raise HTTPException(409, msg)
-        if "Forbidden" in msg:
-            raise HTTPException(403, msg)
-        raise HTTPException(422, msg)
+    a = db.not_complete_assignment(assignment_id, payload.expected_revision, payload.evaluation, payload.reason, cur.user_id)
+    return _to_assignment_public_out(a)
 
 
 @router.post("/assignments/{assignment_id}/cancel", response_model=AssignmentPublicOut)
 def cancel_assignment(assignment_id: str, payload: CancelAssignmentIn, cur: User = Depends(get_current_user)):
-    try:
-        a = db.cancel_assignment(assignment_id, payload.expected_revision, payload.reason, cur.user_id)
-        return _to_assignment_public_out(a)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        if "Conflict" in msg:
-            raise HTTPException(409, msg)
-        if "Forbidden" in msg:
-            raise HTTPException(403, msg)
-        raise HTTPException(422, msg)
+    a = db.cancel_assignment(assignment_id, payload.expected_revision, payload.reason, cur.user_id)
+    return _to_assignment_public_out(a)
 
 
 @router.get("/assignments/unresolved")
@@ -2787,128 +2563,74 @@ def list_unresolved_assignments(
 
 @router.post("/assignments/{assignment_id}/reassign", response_model=ReassignAssignmentOut)
 def reassign_assignment(assignment_id: str, payload: ReassignAssignmentIn, cur: User = Depends(get_current_user)):
-    try:
-        old_dc, new_dc = db.reassign_assignment(
-            assignment_id=assignment_id,
-            expected_revision=payload.expected_revision,
-            new_assignee_user_id=payload.new_assignee_user_id,
-            hours=payload.hours,
-            previous_outcome=payload.previous_outcome,
-            evaluation=payload.evaluation,
-            reason=payload.reason,
-            manager_user_id=cur.user_id,
-        )
-        return ReassignAssignmentOut(
-            previous_assignment=_to_assignment_public_out(old_dc),
-            assignment=_to_assignment_public_out(new_dc),
-        )
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        if "Conflict" in msg or "409" in msg:
-            raise HTTPException(409, msg)
-        if "Forbidden" in msg:
-            raise HTTPException(403, msg)
-        raise HTTPException(422, msg)
+    old_dc, new_dc = db.reassign_assignment(
+        assignment_id=assignment_id,
+        expected_revision=payload.expected_revision,
+        new_assignee_user_id=payload.new_assignee_user_id,
+        hours=payload.hours,
+        previous_outcome=payload.previous_outcome,
+        evaluation=payload.evaluation,
+        reason=payload.reason,
+        manager_user_id=cur.user_id,
+    )
+    return ReassignAssignmentOut(
+        previous_assignment=_to_assignment_public_out(old_dc),
+        assignment=_to_assignment_public_out(new_dc),
+    )
 
 
 # ── Assessment Inputs ──
 
 @router.get("/tasks/{task_id}/assessment-inputs", response_model=TaskInputsOut)
 def get_task_assessment_inputs(task_id: str, cur: User = Depends(get_current_user)):
-    try:
-        t = db.get_task_assessment_inputs(task_id, cur.user_id)
-        return _to_task_inputs_out(t)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        if "Forbidden" in str(e):
-            raise HTTPException(403, str(e))
-        raise HTTPException(422, str(e))
+    t = db.get_task_assessment_inputs(task_id, cur.user_id)
+    return _to_task_inputs_out(t)
 
 
 @router.patch("/tasks/{task_id}/assessment-inputs", response_model=TaskInputsOut)
 def patch_task_assessment_inputs(task_id: str, payload: TaskInputsPatchIn, cur: User = Depends(get_current_user)):
-    try:
-        crit = payload.criteria.model_dump() if payload.criteria else None
-        t = db.patch_task_assessment_inputs(
-            task_id=task_id,
-            expected_revision=payload.expected_revision,
-            reason=payload.reason,
-            assigned_at=payload.assigned_at,
-            deadline_at=payload.deadline_at,
-            criteria=crit,
-            user_id=cur.user_id,
-        )
-        return _to_task_inputs_out(t)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        if "Conflict" in msg:
-            raise HTTPException(409, msg)
-        if "Forbidden" in msg or "Only chair" in msg:
-            raise HTTPException(403, msg)
-        raise HTTPException(422, msg)
+    crit = payload.criteria.model_dump() if payload.criteria else None
+    t = db.patch_task_assessment_inputs(
+        task_id=task_id,
+        expected_revision=payload.expected_revision,
+        reason=payload.reason,
+        assigned_at=payload.assigned_at,
+        deadline_at=payload.deadline_at,
+        criteria=crit,
+        user_id=cur.user_id,
+    )
+    return _to_task_inputs_out(t)
 
 
 @router.get("/assignments/{assignment_id}/assessment-inputs", response_model=AssessmentInputsOut)
 def get_assignment_assessment_inputs(assignment_id: str, cur: User = Depends(get_current_user)):
-    try:
-        a = db.get_assignment_assessment_inputs(assignment_id, cur.user_id)
-        return _to_assessment_inputs_out(a)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        if "Forbidden" in str(e):
-            raise HTTPException(403, str(e))
-        raise HTTPException(422, str(e))
+    a = db.get_assignment_assessment_inputs(assignment_id, cur.user_id)
+    return _to_assessment_inputs_out(a)
 
 
 @router.patch("/assignments/{assignment_id}/assessment-inputs", response_model=AssessmentInputsOut)
 def patch_assignment_assessment_inputs(assignment_id: str, payload: AssignmentInputsPatchIn, cur: User = Depends(get_current_user)):
-    try:
-        a = db.patch_assignment_assessment_inputs(
-            assignment_id=assignment_id,
-            expected_revision=payload.expected_revision,
-            reason=payload.reason,
-            hours=payload.hours,
-            evaluation=payload.evaluation,
-            effective_completed_at=payload.effective_completed_at,
-            user_id=cur.user_id,
-        )
-        return _to_assessment_inputs_out(a)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        if "Conflict" in msg:
-            raise HTTPException(409, msg)
-        if "Forbidden" in msg or "Only chair" in msg:
-            raise HTTPException(403, msg)
-        raise HTTPException(422, msg)
+    a = db.patch_assignment_assessment_inputs(
+        assignment_id=assignment_id,
+        expected_revision=payload.expected_revision,
+        reason=payload.reason,
+        hours=payload.hours,
+        evaluation=payload.evaluation,
+        effective_completed_at=payload.effective_completed_at,
+        user_id=cur.user_id,
+    )
+    return _to_assessment_inputs_out(a)
 
 
 @router.post("/assessment-inputs/bulk-hours", response_model=BulkHoursOut)
 def bulk_hours(payload: BulkHoursIn, cur: User = Depends(get_current_user)):
-    try:
-        items = db.bulk_hours(
-            items=[i.model_dump() for i in payload.items],
-            hours=payload.hours,
-            reason=payload.reason,
-            user_id=cur.user_id,
-        )
-        return BulkHoursOut(items=[_to_assessment_inputs_out(i) for i in items])
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        if "Conflict" in msg:
-            raise HTTPException(409, msg)
-        if "Forbidden" in msg or "Only chair" in msg:
-            raise HTTPException(403, msg)
-        raise HTTPException(422, msg)
+    items = db.bulk_hours(
+        items=[i.model_dump() for i in payload.items],
+        hours=payload.hours,
+        reason=payload.reason,
+        user_id=cur.user_id,
+    )
+    return BulkHoursOut(items=[_to_assessment_inputs_out(i) for i in items])
 
 
 # ── Assessments ──
@@ -2923,21 +2645,16 @@ def list_assessments(
     cursor: Optional[str] = None,
     cur: User = Depends(get_current_user),
 ):
-    try:
-        items = db.list_assessments(
-            current_user_id=cur.user_id,
-            season_id=season_id,
-            source_kind=source_kind,
-            source_id=membership.source_storage_id(source_id),
-            participant_id=participant_id,
-            user_id=user_id,
-        )
-        page = cursor_page(items, lambda c: (c.created_at, c.contribution_id), cursor, descending=True)
-        return {"items": [_to_calculated_contribution_out(c) for c in page.items], "next_cursor": page.next_cursor}
-    except ValueError as e:
-        if "Forbidden" in str(e):
-            raise HTTPException(403, str(e))
-        raise HTTPException(422, str(e))
+    items = db.list_assessments(
+        current_user_id=cur.user_id,
+        season_id=season_id,
+        source_kind=source_kind,
+        source_id=membership.source_storage_id(source_id),
+        participant_id=participant_id,
+        user_id=user_id,
+    )
+    page = cursor_page(items, lambda c: (c.created_at, c.contribution_id), cursor, descending=True)
+    return {"items": [_to_calculated_contribution_out(c) for c in page.items], "next_cursor": page.next_cursor}
 
 
 # ── Merits & Volunteers ──
@@ -2960,107 +2677,61 @@ def list_merits(
 
 @router.post("/merits", response_model=MeritOut)
 def create_merit(payload: MeritCreateIn, cur: User = Depends(get_current_user)):
-    try:
-        data=payload.model_dump()
-        if (data.get("scope") or {}).get("kind")=="block":
-            data["scope"]["id"]=membership.legacy_name(data["scope"]["id"])
-        m = db.create_merit(data, cur.user_id)
-        return _to_merit_out(m)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        if "Conflict" in msg:
-            raise HTTPException(409, msg)
-        if "Forbidden" in msg:
-            raise HTTPException(403, msg)
-        raise HTTPException(422, msg)
+    data=payload.model_dump()
+    if (data.get("scope") or {}).get("kind")=="block":
+        data["scope"]["id"]=membership.legacy_name(data["scope"]["id"])
+    m = db.create_merit(data, cur.user_id)
+    return _to_merit_out(m)
 
 
 @router.get("/merits/{merit_id}", response_model=MeritOut)
 def get_merit(merit_id: str, cur: User = Depends(get_current_user)):
-    try:
-        m = db.get_merit(merit_id, cur.user_id)
-        return _to_merit_out(m)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        if "Forbidden" in str(e):
-            raise HTTPException(403, str(e))
-        raise HTTPException(422, str(e))
+    m = db.get_merit(merit_id, cur.user_id)
+    return _to_merit_out(m)
 
 
 @router.patch("/merits/{merit_id}", response_model=MeritOut)
 def patch_merit(merit_id: str, payload: MeritPatchIn, cur: User = Depends(get_current_user)):
-    try:
-        vals = payload.model_dump(exclude_unset=True)
-        vals.pop("expected_revision", None)
-        vals.pop("reason", None)
-        m = db.patch_merit(
-            merit_id=merit_id,
-            expected_revision=payload.expected_revision,
-            values=vals,
-            reason=payload.reason,
-            user_id=cur.user_id,
-        )
-        return _to_merit_out(m)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        if "Conflict" in msg:
-            raise HTTPException(409, msg)
-        if "Forbidden" in msg or "Only chair" in msg:
-            raise HTTPException(403, msg)
-        raise HTTPException(422, msg)
+    vals = payload.model_dump(exclude_unset=True)
+    vals.pop("expected_revision", None)
+    vals.pop("reason", None)
+    m = db.patch_merit(
+        merit_id=merit_id,
+        expected_revision=payload.expected_revision,
+        values=vals,
+        reason=payload.reason,
+        user_id=cur.user_id,
+    )
+    return _to_merit_out(m)
 
 
 # ── Master Bonuses ──
 
 @router.get("/seasons/{season_id}/master-bonuses")
 def list_master_bonuses(season_id: str, block_id: Optional[str] = None, cursor: Optional[str] = None, cur: User = Depends(get_current_user)):
-    try:
-        items = db.list_master_bonuses(season_id=season_id, current_user_id=cur.user_id, block_id=block_id)
-        page = cursor_page(items, lambda b: (b.block_id, b.bonus_id), cursor)
-        return {"items": [_to_master_bonus_out(b) for b in page.items], "next_cursor": page.next_cursor}
-    except ValueError as e:
-        if "Forbidden" in str(e):
-            raise HTTPException(403, str(e))
-        raise HTTPException(422, str(e))
+    items = db.list_master_bonuses(season_id=season_id, current_user_id=cur.user_id, block_id=block_id)
+    page = cursor_page(items, lambda b: (b.block_id, b.bonus_id), cursor)
+    return {"items": [_to_master_bonus_out(b) for b in page.items], "next_cursor": page.next_cursor}
 
 
 # ── Season Summary ──
 
 @router.get("/seasons/{season_id}/summary", response_model=SeasonSummaryOut)
 def get_season_summary(season_id: str, cur: User = Depends(get_current_user)):
-    try:
-        s = db.get_season_summary(season_id, cur.user_id)
-        return _to_season_summary_out(s)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        if "Forbidden" in str(e):
-            raise HTTPException(403, str(e))
-        raise HTTPException(422, str(e))
+    s = db.get_season_summary(season_id, cur.user_id)
+    return _to_season_summary_out(s)
 
 
 @router.get("/seasons/{season_id}/summary.xlsx")
 def get_season_summary_xlsx(season_id: str, cur: User = Depends(get_current_user)):
-    try:
-        summary = db.get_season_summary(season_id, cur.user_id)
-        contribs = db.list_assessments(cur.user_id, season_id=season_id)
-        xlsx_bytes = generate_summary_xlsx(summary, contribs)
-        return Response(
-            content=xlsx_bytes,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f'attachment; filename="summary_{season_id}.xlsx"'},
-        )
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        if "Forbidden" in str(e):
-            raise HTTPException(403, str(e))
-        raise HTTPException(422, str(e))
+    summary = db.get_season_summary(season_id, cur.user_id)
+    contribs = db.list_assessments(cur.user_id, season_id=season_id)
+    xlsx_bytes = generate_summary_xlsx(summary, contribs)
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="summary_{season_id}.xlsx"'},
+    )
 
 
 @router.put("/seasons/{season_id}/summary/decisions/{user_id}", response_model=SeasonSummaryOut)
@@ -3070,25 +2741,15 @@ def update_summary_decisions(
     payload: SummaryDecisionsIn,
     cur: User = Depends(get_current_user),
 ):
-    try:
-        s = db.update_summary_decisions(
-            season_id=season_id,
-            target_user_id=user_id,
-            decisions=payload.decisions,
-            expected_version=payload.expected_version,
-            reason=payload.reason,
-            user_id=cur.user_id,
-        )
-        return _to_season_summary_out(s)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        if "Conflict" in msg:
-            raise HTTPException(409, msg)
-        if "Forbidden" in msg:
-            raise HTTPException(403, msg)
-        raise HTTPException(422, msg)
+    s = db.update_summary_decisions(
+        season_id=season_id,
+        target_user_id=user_id,
+        decisions=payload.decisions,
+        expected_version=payload.expected_version,
+        reason=payload.reason,
+        user_id=cur.user_id,
+    )
+    return _to_season_summary_out(s)
 
 
 @router.post("/seasons/{season_id}/summary/correct", response_model=SummaryCorrectionOut)
@@ -3097,103 +2758,69 @@ def correct_season_summary(
     payload: SummaryCorrectionIn,
     cur: User = Depends(get_current_user),
 ):
-    try:
-        s = db.correct_season_summary(
-            season_id=season_id,
-            expected_version=payload.expected_version,
-            reason=payload.reason,
-            changes=[c.model_dump() for c in payload.changes],
-            user_id=cur.user_id,
-        )
-        # Read acknowledgements in the same request transaction as the command.
-        classes = {"task_inputs": database_module.TaskORM, "assessment_inputs": database_module.AssignmentORM, "merit": database_module.MeritORM}
-        with db._session() as session:
-            objects = [(c, session.get(classes[c.kind], c.id)) for c in payload.changes]
-            revisions = [dict(kind=c.kind, id=c.id, revision=o.inputs_revision if c.kind == "assessment_inputs" else o.revision) for c, o in objects]
-        return {**_to_season_summary_out(s).model_dump(), "applied_revisions": revisions}
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        if "Conflict" in msg:
-            raise HTTPException(409, msg)
-        if "Forbidden" in msg:
-            raise HTTPException(403, msg)
-        raise HTTPException(422, msg)
+    s = db.correct_season_summary(
+        season_id=season_id,
+        expected_version=payload.expected_version,
+        reason=payload.reason,
+        changes=[c.model_dump() for c in payload.changes],
+        user_id=cur.user_id,
+    )
+    # Read acknowledgements in the same request transaction as the command.
+    classes = {"task_inputs": database_module.TaskORM, "assessment_inputs": database_module.AssignmentORM, "merit": database_module.MeritORM}
+    with db._session() as session:
+        objects = [(c, session.get(classes[c.kind], c.id)) for c in payload.changes]
+        revisions = [dict(kind=c.kind, id=c.id, revision=o.inputs_revision if c.kind == "assessment_inputs" else o.revision) for c, o in objects]
+    return {**_to_season_summary_out(s).model_dump(), "applied_revisions": revisions}
 
 
 # ── Comments ──
 
 @router.get("/tasks/{task_id}/comments", response_model=Page[CommentOut])
 def list_task_comments(task_id: str, cur: User = Depends(get_current_user)):
-    try:
-        items = db.list_comments(task_id, cur.user_id)
-        return Page(items=[_to_comment_out(c) for c in items])
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        if "Forbidden" in str(e):
-            raise HTTPException(403, str(e))
-        raise HTTPException(422, str(e))
+    items = db.list_comments(task_id, cur.user_id)
+    return Page(items=[_to_comment_out(c) for c in items])
 
 
 @router.post("/tasks/{task_id}/comments", response_model=CommentOut)
 def create_task_comment(task_id: str, payload: CommentIn, cur: User = Depends(get_current_user)):
-    try:
-        c = db.create_comment(
-            task_id=task_id,
-            content={"format":"markdown","body":_to_rich_text_body(payload.content)},
-            author_user_id=cur.user_id,
-        )
-        return _to_comment_out(c)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        if "Forbidden" in str(e):
-            raise HTTPException(403, str(e))
-        raise HTTPException(422, str(e))
+    c = db.create_comment(
+        task_id=task_id,
+        content={"format":"markdown","body":_to_rich_text_body(payload.content)},
+        author_user_id=cur.user_id,
+    )
+    return _to_comment_out(c)
 
 
 @router.patch("/comments/{comment_id}", response_model=CommentOut)
 def patch_comment(comment_id: str, payload: CommentIn, cur: User = Depends(get_current_user)):
-    try:
-        c = db.patch_comment(
-            comment_id=comment_id,
-            content={"format":"markdown","body":_to_rich_text_body(payload.content)},
-            user_id=cur.user_id,
-        )
-        return _to_comment_out(c)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        if "Forbidden" in str(e):
-            raise HTTPException(403, str(e))
-        raise HTTPException(422, str(e))
+    c = db.patch_comment(
+        comment_id=comment_id,
+        content={"format":"markdown","body":_to_rich_text_body(payload.content)},
+        user_id=cur.user_id,
+    )
+    return _to_comment_out(c)
 
 
 # ── Files ──
 
 @router.post("/files/upload-intents", response_model=UploadIntentOut)
 def create_upload_intent(payload: UploadIntentIn, cur: User = Depends(get_current_user)):
-    try:
-        fr = db.create_upload_intent(
-            owner_kind=payload.owner_kind,
-            owner_id=payload.owner_id,
-            purpose=payload.purpose,
-            name=payload.name,
-            mime_type=payload.mime_type,
-            size_bytes=payload.size_bytes,
-            user_id=cur.user_id,
-        )
-        return UploadIntentOut(
-            file_id=fr.file_id,
-            upload_url=__import__("file_access").presign_upload(fr),
-            method="PUT",
-            headers={"Content-Type": fr.mime_type},
-            expires_at=fr.expires_at,
-        )
-    except ValueError as e:
-        raise HTTPException(403 if "Forbidden" in str(e) else 422, str(e))
+    fr = db.create_upload_intent(
+        owner_kind=payload.owner_kind,
+        owner_id=payload.owner_id,
+        purpose=payload.purpose,
+        name=payload.name,
+        mime_type=payload.mime_type,
+        size_bytes=payload.size_bytes,
+        user_id=cur.user_id,
+    )
+    return UploadIntentOut(
+        file_id=fr.file_id,
+        upload_url=__import__("file_access").presign_upload(fr),
+        method="PUT",
+        headers={"Content-Type": fr.mime_type},
+        expires_at=fr.expires_at,
+    )
 
 
 @router.post("/files/{file_id}/complete", response_model=FileRefOut)
@@ -3219,27 +2846,17 @@ def get_file_content(file_id: str, request: Request, cur: User = Depends(get_fil
 
 @router.post("/reports", response_model=ReportOut)
 def create_report(payload: ReportCreateIn, cur: User = Depends(get_current_user)):
-    try:
-        content_str = _to_rich_text_body(payload.content)
-        r = db.create_report(
-            owner_kind=payload.owner_kind,
-            owner_id=payload.owner_id,
-            kind=payload.kind,
-            title=payload.title,
-            content=content_str,
-            file_ids=payload.file_ids,
-            user_id=cur.user_id,
-        )
-        return _to_report_out(r)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        if "Conflict" in msg:
-            raise HTTPException(409, msg)
-        if "Forbidden" in msg:
-            raise HTTPException(403, msg)
-        raise HTTPException(422, msg)
+    content_str = _to_rich_text_body(payload.content)
+    r = db.create_report(
+        owner_kind=payload.owner_kind,
+        owner_id=payload.owner_id,
+        kind=payload.kind,
+        title=payload.title,
+        content=content_str,
+        file_ids=payload.file_ids,
+        user_id=cur.user_id,
+    )
+    return _to_report_out(r)
 
 
 @router.get("/reports", response_model=Page[ReportOut])
@@ -3266,75 +2883,41 @@ def list_reports(
 
 @router.get("/reports/{report_id}", response_model=ReportOut)
 def get_report(report_id: str, cur: User = Depends(get_current_user)):
-    try:
-        r = db.get_report(report_id, cur.user_id)
-        if not r:
-            raise HTTPException(404, "Report not found")
-        return _to_report_out(r)
-    except ValueError as e:
-        msg = str(e)
-        if "Forbidden" in msg:
-            raise HTTPException(403, msg)
-        raise HTTPException(422, msg)
+    r = db.get_report(report_id, cur.user_id)
+    if not r:
+        raise HTTPException(404, "Report not found")
+    return _to_report_out(r)
 
 
 @router.patch("/reports/{report_id}", response_model=ReportOut)
 def patch_report(report_id: str, payload: ReportPatchIn, cur: User = Depends(get_current_user)):
-    try:
-        content_str = _to_rich_text_body(payload.content) if payload.content is not None else None
-        r = db.patch_report(
-            report_id=report_id,
-            expected_revision=payload.expected_revision,
-            title=payload.title,
-            content=content_str,
-            file_ids=payload.file_ids,
-            user_id=cur.user_id,
-        )
-        return _to_report_out(r)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        if "Conflict" in msg:
-            raise HTTPException(409, msg)
-        if "Forbidden" in msg:
-            raise HTTPException(403, msg)
-        raise HTTPException(422, msg)
+    content_str = _to_rich_text_body(payload.content) if payload.content is not None else None
+    r = db.patch_report(
+        report_id=report_id,
+        expected_revision=payload.expected_revision,
+        title=payload.title,
+        content=content_str,
+        file_ids=payload.file_ids,
+        user_id=cur.user_id,
+    )
+    return _to_report_out(r)
 
 
 @router.post("/reports/{report_id}/publish", response_model=ReportOut)
 def publish_report(report_id: str, payload: ReportPublishIn, cur: User = Depends(get_current_user)):
-    try:
-        r = db.publish_report(
-            report_id=report_id,
-            expected_revision=payload.expected_revision,
-            user_id=cur.user_id,
-        )
-        return _to_report_out(r)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        if "Conflict" in msg:
-            raise HTTPException(409, msg)
-        if "Forbidden" in msg:
-            raise HTTPException(403, msg)
-        raise HTTPException(422, msg)
+    r = db.publish_report(
+        report_id=report_id,
+        expected_revision=payload.expected_revision,
+        user_id=cur.user_id,
+    )
+    return _to_report_out(r)
 
 
 @router.get("/reports/{report_id}/versions", response_model=Page[ReportVersionOut])
 def list_report_versions(report_id: str, cursor: Optional[str] = None, cur: User = Depends(get_current_user)):
-    try:
-        versions = db.list_report_versions(report_id, cur.user_id)
-        page = cursor_page(versions, lambda rv: (rv.version,), cursor)
-        return Page(items=[_to_report_version_out(rv) for rv in page.items], next_cursor=page.next_cursor)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        if "Forbidden" in msg:
-            raise HTTPException(403, msg)
-        raise HTTPException(422, msg)
+    versions = db.list_report_versions(report_id, cur.user_id)
+    page = cursor_page(versions, lambda rv: (rv.version,), cursor)
+    return Page(items=[_to_report_version_out(rv) for rv in page.items], next_cursor=page.next_cursor)
 
 
 @router.get("/report-history", response_model=Page[ReportOut])
@@ -3344,17 +2927,9 @@ def list_report_history(
     cursor: Optional[str] = None,
     cur: User = Depends(get_current_user),
 ):
-    try:
-        items = db.list_report_history(series_id, year, cur.user_id)
-        page = cursor_page(items, lambda r: (r.published_at or "", r.report_id), cursor, descending=True)
-        return Page(items=[_to_report_out(r) for r in page.items], next_cursor=page.next_cursor)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        msg = str(e)
-        if "Forbidden" in msg:
-            raise HTTPException(403, msg)
-        raise HTTPException(422, msg)
+    items = db.list_report_history(series_id, year, cur.user_id)
+    page = cursor_page(items, lambda r: (r.published_at or "", r.report_id), cursor, descending=True)
+    return Page(items=[_to_report_out(r) for r in page.items], next_cursor=page.next_cursor)
 
 
 # ── Dashboard & Calendar ──
@@ -3376,8 +2951,7 @@ def get_calendar(
     to_d = to_date or "2099-12-31"
     from workspace import calendar
     from workspace import date_range
-    try:from_d,to_d=date_range(from_d,to_d,timezone)
-    except ValueError as exc:raise HTTPException(422,str(exc))
+    from_d,to_d=date_range(from_d,to_d,timezone)
     items = calendar(cur.user_id, from_d, to_d)
     return Page(items=[CalendarItemOut(**item) for item in items])
 
@@ -3392,13 +2966,8 @@ def list_notifications(cur: User = Depends(get_current_user)):
 
 @router.post("/notifications/{notification_id}/read")
 def mark_notification_read(notification_id: str, cur: User = Depends(get_current_user)):
-    try:
-        db.mark_notification_read(notification_id, cur.user_id)
-        return {"status": "ok"}
-    except LookupError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        raise HTTPException(403, str(e))
+    db.mark_notification_read(notification_id, cur.user_id)
+    return {"status": "ok"}
 
 
 @router.post("/notifications/read-all")
@@ -3442,8 +3011,7 @@ def contract_openapi():
         for method,operation in methods.items():
             if path in public and method=='post':operation.pop('security',None)
             else:operation['security']=[{'OAuth2PasswordBearer':[]}]
-            legacy=path.startswith(('/api/auth/','/api/profile/','/api/guides','/api/pgas','/api/contacts'))
-            if not legacy:
+            if not legacy(path):
                 for code in ('401','403','404','409','422'):
                     operation.setdefault('responses',{})[code]={'description':'Domain error','content':{'application/json':{'schema':{'$ref':'#/components/schemas/DomainError'}}}}
 

@@ -18,6 +18,7 @@ from fastapi.routing import APIRoute
 from starlette.routing import Route
 
 import auth as auth_module
+from api_contract import legacy
 import main as main_module
 from database import db
 
@@ -269,8 +270,7 @@ def error_body(response):
     body=response.json()
     assert set(body)=={'detail'}
     detail=body['detail']
-    legacy=response.request.url.path.startswith(('/api/auth/','/api/profile/','/api/guides','/api/pgas','/api/contacts'))
-    if legacy:
+    if legacy(response.request.url.path):
         assert isinstance(detail,str)
         return body
     assert isinstance(detail,dict) and {'code','message'}<=set(detail)<= {'code','message','fields'}

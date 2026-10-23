@@ -292,14 +292,14 @@ def patch_block(id, payload, uid):
         if not access.allowed(uid, "block.edit", "block", name):
             fail(403, "Block editor required")
         if payload.name is not None and payload.name != name and not access.allowed(uid, "block.rename"):
-            fail(403, "Only tachki can rename a block")
+            fail(403, "Only the chair and deputies can rename a block")
         version(m, payload.expected_revision)
         if payload.name is not None and payload.name != name:
             new = payload.name.strip()
             if not new or "/" in new:
                 fail(422, "Invalid name")
             if s.get(BlockORM, new):
-                fail(409, "Block name already exists")
+                fail(409, "Block name already exists", "name_taken")
             from database import (
                 TaskORM,
                 MeritORM,
@@ -384,7 +384,7 @@ def register_routes(router):
                 .filter_by(user_id=cur.user_id, block_id=bid, left_at=None)
                 .first()
             ):
-                fail(409, "Already a member")
+                fail(409, "Already a member", "already_member")
             r = (
                 s.query(BlockApplicationORM)
                 .filter(
@@ -495,7 +495,7 @@ def register_routes(router):
             if r.state == "approved":
                 u = s.get(UserORM, r.user_id)
                 if not u or u.account_state != "active" or u.banned:
-                    fail(409, "Applicant no longer active")
+                    fail(409, "Applicant no longer active", "inactive_user")
                 set_membership(
                     s, r.user_id, r.block_id, True, cur.user_id, "Application approved"
                 )

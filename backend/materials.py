@@ -70,10 +70,7 @@ def stored(s, body, material_id, published):
     """Text to store: no new links into the bucket, own attachments as file:<id> (0.2)."""
     from legacy_files import bucket_keys, own_attachments, stored_text
 
-    try:
-        return stored_text(body, own_attachments(s, material_id), bucket_keys(published))
-    except ValueError as error:
-        fail(422, str(error))
+    return stored_text(body, own_attachments(s, material_id), bucket_keys(published))
 
 
 def dto(s, m, uid):
@@ -171,12 +168,7 @@ def publish(s, m, uid):
 
         m.draft_body = stored(s, m.draft_body, m.material_id, m.published_body)
         ids = re.findall(r"file:(file-[\w-]+)", m.draft_body or "")
-        try:
-            check_attachments(
-                s, list(dict.fromkeys(ids)), "material", m.material_id, uid
-            )
-        except ValueError as error:
-            fail(422, str(error))
+        check_attachments(s, list(dict.fromkeys(ids)), "material", m.material_id, uid)
         if not (m.draft_body or "").strip() and not m.draft_original_link:
             fail(422, "Material content or original link is required")
         m.title = m.draft_title or m.title
@@ -326,7 +318,7 @@ def register_routes(router):
     def deleted(cur: User = Depends(get_current_user)):
         """Deleted materials, newest first, for the chair and deputies to restore (decision 18)."""
         if not access.allowed(cur.user_id, "material.restore"):
-            fail(403, "Only tachki restore materials")
+            fail(403, "Only the chair and deputies restore materials")
         with db._session() as s:
             rows = s.query(MaterialORM).filter_by(deleted=True).order_by(MaterialORM.created_at.desc())
             return Page(items=[deleted_dto(m) for m in rows], next_cursor=None)
@@ -338,7 +330,7 @@ def register_routes(router):
     )
     def restore(material_id: str, payload: Revision, cur: User = Depends(get_current_user)):
         if not access.allowed(cur.user_id, "material.restore"):
-            fail(403, "Only tachki restore materials")
+            fail(403, "Only the chair and deputies restore materials")
         with db._session() as s:
             m = s.get(MaterialORM, material_id)
             if not m:
@@ -505,9 +497,9 @@ def register_routes(router):
         material_id: str, payload: Editors, cur: User = Depends(get_current_user)
     ):
         if not access.allowed(cur.user_id, "material.manage_editors"):
-            fail(403, "Only tachki manage material editors")
+            fail(403, "Only the chair and deputies manage material editors")
         if len(set(payload.user_ids)) != len(payload.user_ids):
-            fail(422, "Duplicate editors")
+            fail(422, "Duplicate editors", "duplicate_users")
         with db._session() as s:
             m = row(s, material_id)
             version(m, payload.expected_revision)
@@ -516,7 +508,7 @@ def register_routes(router):
             for uid in payload.user_ids:
                 u = s.get(UserORM, uid)
                 if not u or u.account_state != "active" or u.banned:
-                    fail(422, "Editor must be active and approved")
+                    fail(422, "Editor must be active and approved", "inactive_user")
             s.query(RoleAssignmentORM).filter_by(
                 scope_kind="material", scope_id=material_id, role="material_editor"
             ).delete(synchronize_session=False)

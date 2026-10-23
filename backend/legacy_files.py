@@ -5,6 +5,7 @@ of its bytes, where access is checked on every request; an old public upload kee
 canonical URL until scripts/adopt_legacy_files.py turns it into `file:<id>` (АВ-10).
 """
 
+from errors import InvalidInput
 import re
 from urllib.parse import quote, unquote, urlsplit
 
@@ -134,7 +135,7 @@ def stored_text(body, attachment, known=None, counts=None):
         if fid:
             kind, new = "attachment", "file:" + fid
         elif known is not None and key not in known:
-            raise ValueError(
+            raise InvalidInput(
                 "New links into the file storage are not allowed; attach the file instead"
             )
         elif legacy_key(url):

@@ -199,9 +199,10 @@ def test_изоляция_просмотра_задач(client, test_season, tes
     res_mem = client.get(f"{TASKS_URL}/{task_id}", headers=member.headers)
     assert res_mem.status_code == 200
 
-    # Посторонний получает 403 при попытке просмотреть задачу
+    # Посторонний получает 404, как для несуществующей задачи (A-SEC-6)
     res_out = client.get(f"{TASKS_URL}/{task_id}", headers=outsider.headers)
-    assert res_out.status_code == 403
+    assert res_out.status_code == 404
+    assert res_out.json() == client.get(f"{TASKS_URL}/task-missing", headers=outsider.headers).json()
 
     # Посторонний получает 403 при фильтрации по чужому блоку
     res_list = client.get(f"{TASKS_URL}?scope_kind=block&scope_id={test_block['name']}", headers=outsider.headers)

@@ -132,8 +132,8 @@ capability выдаётся ровно тогда, когда сервер вы�
   объявления отвечают 200 с телом `null`, в том числе после `DELETE`. 404 значит,
   что нет самого мероприятия или подмероприятия; без права чтения — 403.
 - Право на правку и снятие созвона — одно правило `event.meeting.edit` или
-  `subevent.meeting.edit` в `POLICY`. Главный созвон правят тачки, главорги и их
-  замы. Созвон подмероприятия — тачки, ответственные и их замы, а также главорги
+  `subevent.meeting.edit` в `POLICY`. Главный созвон правят председатель и замы, главорги и их
+  замы. Созвон подмероприятия — председатель и замы, ответственные и их замы, а также главорги
   мероприятия и их замы (решение владельца по A-EVT-11). `edit_meeting` и
   `delete_meeting` в созвоне, в карточке владельца и в `/dashboard` выдаются ровно
   тем, кому PUT и DELETE ответят 200.
@@ -367,3 +367,62 @@ capability выдаётся ровно тогда, когда сервер вы�
 тип определяется по расширению. Без `--apply` база открывается только на
 чтение. Скрипт печатает только числа, повторный `--apply` меняет 0 строк.
 После переноса и выкладки бакет можно сделать приватным.
+
+## Ошибки (выпуск 1)
+
+Контракт ошибок (FIX_PLAN 2.13, решение 42):
+
+- Тело ошибки — `{detail: {code, message, fields}}`. `code` устойчив, клиент
+  выбирает по нему русский текст (`frontend/src/utils/api/messages.ts`).
+  `message` — техническая деталь на английском, на экран не выводится.
+  `fields` — данные к коду: `limit` у `deputy_limit`, `user_id` у
+  `unknown_user` и `inactive_user`, `blockers` у `season_not_ready`, `errors` у
+  `validation_error`.
+- Старую форму со строкой или списком в `detail` сохраняют только маршруты
+  старого сайта: `/auth/*`, `/profile/me`, `/profile/{id}`, `/guides`,
+  `/guides/{id}`, `/pgas`, `/pgas/{id}`, `/contacts`, `/contacts/filter`.
+  Новые маршруты с теми же началами (`/profile/me/avatar`, `/contacts/archive`,
+  `/contacts/emails`, `/guides/{id}/material`, `/pgas-admins`) отвечают в новой
+  форме. Неизвестный путь — 404 `not_found`.
+- Статус задаёт класс ошибки (`backend/errors.py`), а не текст сообщения:
+  `NotFound` 404, `Forbidden` 403, `Conflict` 409, `InvalidInput` 422. Маршруты
+  не переводят `ValueError` в статус по подстроке (A-SEC-7). Простой
+  `ValueError` из разбора значения — 422 `invalid_input`, простой `LookupError` —
+  404. Тест `test_error_contract.py` запрещает доменному коду бросать простые
+  `ValueError` и `LookupError`.
+- 404 — нет объекта или он недоступен для чтения. Ответ совпадает с ответом на
+  несуществующий ID (A-SEC-6): подмероприятие, его созвон и созвон мероприятия
+  (`Meeting not found`), задача, её комментарии и исходные поля оценивания,
+  отчёт и его версии, история серии, заслуга, отметка уведомления. 403 —
+  команда над объектом, который читается. Список задач с чужим фильтром области
+  остаётся 403.
+- Кандидат в составы, заместители и председатели (решение 42): несуществующий —
+  422 `unknown_user`, с неодобренной заявкой, в архиве или заблокированный —
+  409 `inactive_user`. Предел заместителей — 422 `deputy_limit`, повтор — 422
+  `duplicate_users`, руководитель своим замом — 422 `self_deputy`, передача поста
+  самому себе — 409 `already_chair`. Получатели заслуг, исполнители задач и
+  редакторы материалов при неактивном участнике отвечают, как прежде, 422 с
+  `inactive_user`. Повтор в `leaders` и `organizers` пока сохраняется, это
+  A-ROL-10 (3.1).
+- Переходы и состояния — 409: недопустимый переход исполнителя `conflict`,
+  устаревшая версия `revision_conflict`, закрытый сезон `season_closed`,
+  неготовый к закрытию сезон `season_not_ready`, второй запланированный сезон
+  `planned_exists`, второй итоговый отчёт `final_report_exists`. Команда закрытого
+  сезона от того, кому она не положена, — 403 `forbidden`.
+- `POST /seasons` требует `type`. `object_kind` в `POST /season-corrections` — только
+  `event`, `block_task` или `merit`. Иначе 422 `validation_error`.
+- Upload-intent к несуществующему владельцу — 404. Серия отчётов не дочерняя
+  для мероприятия — 422 `invalid_input` (раньше 409).
+- Препятствие закрытию сезона, кроме `kind`, `owner_kind`, `owner_id` и
+  технического `title`, содержит `subject` (название задачи, мероприятия или
+  сезона) и `assignee` (имя исполнителя назначения).
+
+Коды: `unauthenticated`, `forbidden`, `not_found`, `conflict`, `revision_conflict`,
+`season_closed`, `season_not_ready`, `planned_exists`, `final_report_exists`,
+`invalid_input`, `validation_error`, `registration_attempt_limit`,
+`master_conflicts`, `chair_transfer_required`, `restore_deputy_limit`,
+`already_chair`, `already_member`, `email_taken`, `name_taken`, `inactive_user`,
+`unknown_user`, `deputy_limit`, `duplicate_users`, `self_deputy`,
+`identity_linked`, `duplicate_files`, `upload_missing`, `upload_expired`,
+`unavailable`. Статус без своего кода приходит с `http_<статус>`. Тест
+`test_every_code_has_a_russian_text` сверяет коды backend с таблицей текстов.

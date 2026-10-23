@@ -24,7 +24,7 @@ export const fileAccept = (kind: string) => fileExtensions(kind).map(ext => `.${
 
 /** A missing browser MIME is inferred only from the whitelist; complete verifies actual bytes. */
 export function fileMetadata(kind: string, file: { name: string; type: string; size: number }) {
-  const fail = (message: string): never => { throw new ApiError(`${file.name}: ${message}`, 422, "invalid_input"); };
+  const fail = (message: string): never => { throw new ApiError(`${file.name}: ${message}`, 422, "client_error"); };
   if (!file.name || /[/\\]/.test(file.name) || [...file.name].some(c => c.charCodeAt(0) < 32)) fail("недопустимое имя файла");
   const ext = file.name.includes(".") ? file.name.split(".").at(-1)!.toLowerCase() : "";
   const canonical = formats[ext];

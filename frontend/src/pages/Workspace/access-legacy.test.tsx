@@ -52,7 +52,7 @@ it.each([403, 409, 422])("A02: retained form renders structured %i and preserves
       initialValues: { title: "" }, validationSchema: z.object({ title: z.string() }),
       onSubmit: async () => { throw new AxiosError("request failed", undefined, undefined, undefined, {
         status, statusText: "Error", headers: {}, config: { headers: {} } as never,
-        data: { detail: { code: "invalid_input", message: "Проверьте сведения", fields: { title: "Уточните название" } } },
+        data: { detail: { code: "invalid_input", message: "Invalid title", fields: { title: "Уточните название" } } },
       }); },
     });
     return <form onSubmit={formik.handleSubmit}><input {...formik.getFieldProps("title")} />
@@ -61,7 +61,9 @@ it.each([403, 409, 422])("A02: retained form renders structured %i and preserves
   page = await mountWorkspace(<Probe />);
   await change(field(page.container, "title"), "Мой черновик");
   await submit(page.container.querySelector("form")!);
-  expect(page.container.textContent).toContain("Проверьте сведения");
+  // The text comes from the code; the server's English message stays out (2.13).
+  expect(page.container.textContent).toContain("Проверьте введённые данные.");
+  expect(page.container.textContent).not.toContain("Invalid title");
   expect(page.container.textContent).toContain("Уточните название");
   expect(field(page.container, "title").value).toBe("Мой черновик");
 });
@@ -75,7 +77,7 @@ it("A02: adapter errors and FastAPI field errors use the same normalizer", async
   }
   page = await mountWorkspace(<Probe />);
   await submit(page.container.querySelector("form")!);
-  expect(page.container.textContent).toContain("Проверьте заполнение полей");
+  expect(page.container.textContent).toContain("Проверьте введённые данные.");
   expect(page.container.textContent).toContain("Нужно название");
   expect(page.container.textContent).not.toContain("Request failed");
 });
@@ -141,7 +143,7 @@ it("A04: readers cannot create merits or select a block in a planned season", as
 it("A08: leadership excludes pending candidates, preserves valid candidates outside any block and handles 422", async () => {
   const f = createFixtures("chair");
   const adapter = new MockAdapter(api); restore = () => adapter.restore();
-  adapter.onPut("/leadership/deputies").reply(422, { detail: { code: "invalid_input", message: "Нельзя назначить этого участника" } });
+  adapter.onPut("/leadership/deputies").reply(422, { detail: { code: "unknown_user", message: "Unknown user 998", fields: { user_id: 998 } } });
   const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
   client.setQueryData(["leadership"], { chair: f.user, deputies: [], revision: 1, capabilities: ["transfer_chair", "manage_chair_deputies"] });
   client.setQueryData(["contacts"], [{ ...f.profile, user_id: 998, blocks: "", in_profcom: true }, { ...f.profile, user_id: 999, in_profcom: false }]);
@@ -150,7 +152,8 @@ it("A08: leadership excludes pending candidates, preserves valid candidates outs
   expect(page.container.querySelector('input[type="checkbox"][value="998"]')).not.toBeNull();
   await pick(page.container, "users", "998");
   await submit(field(page.container, "users").closest("form")!);
-  expect(page.container.textContent).toContain("Нельзя назначить этого участника");
+  expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("Участник не найден.");
+  expect(page.container.querySelector('[role="alert"]')?.textContent).not.toContain("Unknown user");
   expect(JSON.parse(adapter.history.put[0].data).user_ids).toEqual([998]);
   expect((field(page.container, "users") as HTMLInputElement).checked).toBe(true);
   await change(field(page.container, "user"), "998");
@@ -164,12 +167,13 @@ it("A08: leadership excludes pending candidates, preserves valid candidates outs
 it("A02: the actual profile form awaits its mutation and shows structured field errors", async () => {
   const f = createFixtures("organizer");
   const adapter = new MockAdapter(api); restore = () => adapter.restore();
-  adapter.onPatch(`/profile/${f.profile.user_id}`).reply(422, { detail: { code: "invalid_input", message: "Уточните контакты", fields: { phone: "Неверный телефон" } } });
+  adapter.onPatch(`/profile/${f.profile.user_id}`).reply(422, { detail: { code: "invalid_input", message: "Invalid phone", fields: { phone: "Неверный телефон" } } });
   page = await mountWorkspace(<HelmetProvider><UserContext.Provider value={f.profile}><ProfileEditPage /></UserContext.Provider></HelmetProvider>);
   for (const [name, value] of Object.entries({ patronymic: "Иванович", group_number: "201", tg: "", vk: "", email: "student@example.org", phone: "Мой ввод" })) await change(field(page.container, name), value);
   await submit(page.container.querySelector("form")!);
   expect(adapter.history.patch).toHaveLength(1);
-  expect(page.container.textContent).toContain("Уточните контакты");
+  expect(page.container.textContent).toContain("Проверьте введённые данные.");
+  expect(page.container.textContent).not.toContain("Invalid phone");
   expect(page.container.textContent).toContain("Неверный телефон");
   expect(field(page.container, "phone").value).toBe("Мой ввод");
 });

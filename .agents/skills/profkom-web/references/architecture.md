@@ -30,7 +30,7 @@ Registration applications have a bounded resubmission history. Block requests ha
 
 Closed summary versions freeze participants, categories, master recipients, bonus bases and the previous-summary version. Corrections are atomic and versioned. Report publication/version history is independent of KKR. Closed report editors are saved actual leaders/deputies; removed authors get no fallback right. Current corresponding-series leadership grants published historical read, not draft/edit or past tracker access.
 
-Materials separate shared draft and published content. Legacy guide IDs/texts and PGAS references survive explicit adapters. Current contact writes are owner-only; former cards are independent records edited by tachki/HR. Avatars use local presets or a completed owned file. Draft attachments remain private until publication.
+Materials separate shared draft and published content. Legacy guide IDs/texts and PGAS references survive explicit adapters. Current contact writes are owner-only; former cards are independent records edited by the chair, the deputies and the HR master. Avatars use local presets or a completed owned file. Draft attachments remain private until publication.
 
 Archive preserves inactive assignments, closes intervals and revokes sessions. Restore resolves occupied master positions and never resurrects global roles from a previous chair term. After three calendar years, retention replaces account identity with an anonymous accounting participant, preserving agreed former cards and numeric history. Avatar deletion uses a retry queue after the DB transaction. Internal disabled tombstones preserve historical non-null FKs; do not physically delete an account through HTTP.
 

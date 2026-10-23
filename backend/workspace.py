@@ -1,5 +1,6 @@
 """Permission-filtered API 1.3 workspace projections."""
 
+from errors import InvalidInput
 import json
 from datetime import datetime, timezone
 from dataclasses import asdict
@@ -277,7 +278,7 @@ def date_range(start, end, timezone_name="Europe/Moscow"):
     try:
         zone = ZoneInfo(timezone_name)
     except ZoneInfoNotFoundError:
-        raise ValueError("Unknown timezone")
+        raise InvalidInput("Unknown timezone")
 
     def bound(value, last):
         if len(value) == 10:
@@ -294,5 +295,5 @@ def date_range(start, end, timezone_name="Europe/Moscow"):
 
     a, b = bound(start, False), bound(end, True)
     if dt(a) > dt(b):
-        raise ValueError("Calendar range is reversed")
+        raise InvalidInput("Calendar range is reversed")
     return a, b

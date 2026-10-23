@@ -1,5 +1,6 @@
 """Domain input invariants shared by HTTP commands and summary corrections."""
 
+from errors import InvalidInput
 import math
 from pydantic import BaseModel, ConfigDict, field_validator, ValidationInfo
 from participation import dt
@@ -12,21 +13,21 @@ def timestamp(value):
 def period(assigned, deadline, season_end):
     a, d, e = map(dt, (assigned, deadline, season_end))
     if not a <= d <= e:
-        raise ValueError(
+        raise InvalidInput(
             "Dates must satisfy assigned_at <= deadline_at <= season ends_at"
         )
 
 
 def hours(value):
     if not isinstance(value, (float, int)) or not math.isfinite(value) or value < 0:
-        raise ValueError("Hours must be finite and nonnegative")
+        raise InvalidInput("Hours must be finite and nonnegative")
 
 
 def assessment(value, completed):
     if value is not None and value not in (-1, 0, 1, 1.5):
-        raise ValueError("Evaluation must be -1, 0, 1, or 1.5")
+        raise InvalidInput("Evaluation must be -1, 0, 1, or 1.5")
     if value in (1, 1.5) and not completed:
-        raise ValueError("Positive evaluation requires a completion date")
+        raise InvalidInput("Positive evaluation requires a completion date")
     if completed:
         timestamp(completed)
 

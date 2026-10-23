@@ -238,7 +238,8 @@ def org(client):
 
 # ───────────────────────────── operations ─────────────────────────────
 class Op:
-    """`readers` names the read operation of the same object: a role that cannot read it gets 404."""
+    """`readers` names the read operation of the same object: a role that cannot read it gets 404.
+    A refused read itself answers 404 (`deny=(404,)`), the same as for a missing object (A-SEC-6)."""
 
     def __init__(self, op, method, path, body=None, ok=(200,), deny=(403,), prepare=None, cap=None, readers=None):
         self.op, self.method, self.path, self.body = op, method, path, body
@@ -306,7 +307,7 @@ def ops():
         Op("E2", "GET", lambda o: f"/events/{o.ids['event']}"),
         Op("E3", "PATCH", lambda o: f"/events/{o.ids['event']}", same_title("events", "event"), cap=("E2", "edit_event")),
         Op("E4", "POST", lambda o: "/events", lambda o, r: dict(season_id=cur(o), title=f"probe-event-{r}", description=rich("p"))),
-        Op("E5", "GET", lambda o: f"/subevents/{o.ids['sa']}"),
+        Op("E5", "GET", lambda o: f"/subevents/{o.ids['sa']}", deny=(404,)),
         Op("E6", "PATCH", lambda o: f"/subevents/{o.ids['sa']}", same_title("subevents", "sa"), cap=("E5", "edit_subevent")),
         Op("E7", "POST", lambda o: f"/events/{o.ids['event']}/subevents", lambda o, r: dict(title=f"probe-sub-{r}", description=rich("p")),
            cap=("E2", "create_subevent")),
@@ -328,8 +329,8 @@ def ops():
         Op("T2", "POST", lambda o: "/tasks", lambda o, r: dict(season_id=cur(o), scope={"kind": "block", "id": o.ids["it"]},
            title=f"probe-btask-{r}", description=rich("p"), deadline_at=stamp(6), criteria={}, assignees=[{"user_id": o.uid("itmem"), "hours": 1}]),
            cap=("B1", "create_task")),
-        Op("T3", "GET", lambda o: f"/tasks/{o.ids['task_sub']}"),
-        Op("T4", "GET", lambda o: f"/tasks/{o.ids['task_blk']}"),
+        Op("T3", "GET", lambda o: f"/tasks/{o.ids['task_sub']}", deny=(404,)),
+        Op("T4", "GET", lambda o: f"/tasks/{o.ids['task_blk']}", deny=(404,)),
         Op("T5", "PATCH", lambda o: f"/tasks/{o.ids['task_sub']}", same_title("tasks", "task_sub"), cap=("T3", "edit_task"),
            readers="T3"),
         Op("T6", "PATCH", lambda o: f"/tasks/{o.ids['task_blk']}", same_title("tasks", "task_blk"), cap=("T4", "edit_task"),
@@ -339,8 +340,8 @@ def ops():
         Op("T8", "POST", lambda o: f"/assignments/{o.ids['asg_blk_org1']}/cancel", lambda o, r: {"expected_revision": BAD, "reason": "probe"}, ok=(409,)),
         Op("T9", "PATCH", lambda o: f"/assignments/{o.ids['asg_sub_org1']}/assessment-inputs",
            lambda o, r: {"expected_revision": BAD, "reason": "probe", "hours": 2}, ok=(409,), cap=("T3", "edit_assessment_inputs")),
-        Op("T10", "GET", lambda o: f"/tasks/{o.ids['task_sub']}/assessment-inputs", cap=("T3", "view_assessment_inputs")),
-        Op("T11", "GET", lambda o: f"/tasks/{o.ids['task_blk']}/assessment-inputs", cap=("T4", "view_assessment_inputs")),
+        Op("T10", "GET", lambda o: f"/tasks/{o.ids['task_sub']}/assessment-inputs", cap=("T3", "view_assessment_inputs"), readers="T3"),
+        Op("T11", "GET", lambda o: f"/tasks/{o.ids['task_blk']}/assessment-inputs", cap=("T4", "view_assessment_inputs"), readers="T4"),
         Op("T12", "POST", lambda o: f"/assignments/{o.ids['asg_sub_org2']}/reassign",
            lambda o, r: {"expected_revision": BAD, "new_assignee_user_id": o.uid("org1"), "hours": 1, "previous_outcome": "cancelled", "reason": "probe"},
            ok=(409,)),
@@ -351,7 +352,7 @@ def ops():
         Op("T15", "PATCH", lambda o: f"/tasks/{o.ids['task_sub']}/assessment-inputs",
            lambda o, r: {"expected_revision": BAD, "reason": "probe", "deadline_at": stamp(4.25)}, ok=(409,),
            cap=("T10", "edit_assessment_dates")),
-        Op("T16", "GET", lambda o: f"/assignments/{o.ids['asg_sub_org1']}/assessment-inputs", cap=("T3", "view_assessment_inputs")),
+        Op("T16", "GET", lambda o: f"/assignments/{o.ids['asg_sub_org1']}/assessment-inputs", cap=("T3", "view_assessment_inputs"), readers="T3"),
         Op("T17", "PATCH", lambda o: f"/assignments/{o.ids['asg_sub_org1']}/assessment-inputs",
            lambda o, r: {"expected_revision": BAD, "reason": "probe", "effective_completed_at": stamp(-1.25)}, ok=(409,),
            cap=("T16", "edit_assessment_dates")),
@@ -370,7 +371,7 @@ def ops():
            title=f"probe-sv-{r}", recipients=one(o, "outsider")), cap=("E5", "create_volunteer_merit")),
         Op("K9", "POST", lambda o: "/merits", lambda o, r: dict(base(o), source_kind="chair_merit", title=f"probe-cm-{r}",
            recipients=one(o, "org1")), cap=("S1", "create_chair_merit")),
-        Op("K10", "GET", lambda o: f"/merits/{o.ids['merit_sub']}"),
+        Op("K10", "GET", lambda o: f"/merits/{o.ids['merit_sub']}", deny=(404,)),
         Op("K11", "PATCH", lambda o: f"/merits/{o.ids['merit_sub']}", lambda o, r: {"expected_revision": BAD, "reason": "probe"}, ok=(409,),
            cap=("K10", "edit_assessment_inputs")),
         Op("K12", "PATCH", lambda o: f"/merits/{o.ids['merit_head']}", lambda o, r: {"expected_revision": BAD, "reason": "probe"}, ok=(409,)),
@@ -389,28 +390,28 @@ def ops():
            title=f"probe-rep-{r}", content=rich("x"), file_ids=[]), cap=("E5", "create_report")),
         Op("R2", "POST", lambda o: "/reports", lambda o, r: dict(owner_kind="event", owner_id=o.ids["event"], kind="regular",
            title=f"probe-erep-{r}", content=rich("x"), file_ids=[]), cap=("E2", "create_report")),
-        Op("R3", "GET", lambda o: f"/reports/{o.ids['report_sub']}"),
+        Op("R3", "GET", lambda o: f"/reports/{o.ids['report_sub']}", deny=(404,)),
         Op("R4", "PATCH", lambda o: f"/reports/{o.ids['report_sub']}", lambda o, r: {"expected_revision": BAD, "title": "x"}, ok=(409,),
            cap=("R3", "edit_report")),
         Op("R5", "POST", lambda o: f"/reports/{o.ids['report_sub']}/publish", lambda o, r: {"expected_revision": BAD}, ok=(409,),
            cap=("R3", "publish_report")),
-        Op("R6", "GET", lambda o: f"/reports/{o.ids['report_event']}"),
+        Op("R6", "GET", lambda o: f"/reports/{o.ids['report_event']}", deny=(404,)),
         Op("R7", "PATCH", lambda o: f"/reports/{o.ids['report_event']}", lambda o, r: {"expected_revision": BAD, "title": "x"}, ok=(409,),
            cap=("R6", "edit_report")),
-        Op("R8", "GET", lambda o: f"/report-history?series_id={o.ids['past_event_series']}"),
-        Op("R9", "GET", lambda o: f"/report-history?series_id={o.ids['past_sub_series']}"),
-        Op("R10", "GET", lambda o: f"/reports/{o.ids['past_event_report']}"),
-        Op("R11", "GET", lambda o: f"/reports/{o.ids['past_sub_report']}"),
+        Op("R8", "GET", lambda o: f"/report-history?series_id={o.ids['past_event_series']}", deny=(404,)),
+        Op("R9", "GET", lambda o: f"/report-history?series_id={o.ids['past_sub_series']}", deny=(404,)),
+        Op("R10", "GET", lambda o: f"/reports/{o.ids['past_event_report']}", deny=(404,)),
+        Op("R11", "GET", lambda o: f"/reports/{o.ids['past_sub_report']}", deny=(404,)),
         Op("R12", "PATCH", lambda o: f"/reports/{o.ids['past_event_report']}", lambda o, r: {"expected_revision": BAD, "title": "x"}, ok=(409,)),
         Op("R13", "PATCH", lambda o: f"/reports/{o.ids['past_sub_report']}", lambda o, r: {"expected_revision": BAD, "title": "x"}, ok=(409,)),
         # Meetings
         Op("M1", "GET", lambda o: f"/events/{o.ids['event']}/meeting", prepare=_ensure_meeting("events", "event"),
-           cap=("E2", "view_meeting")),  # A-EVT-4
+           cap=("E2", "view_meeting"), deny=(404,)),  # A-EVT-4
         Op("M2", "PUT", lambda o: f"/events/{o.ids['event']}/meeting",
            lambda o, r: dict(expected_revision=BAD, title="x", starts_at=stamp(3), join_url="https://example.com/m"), ok=(409,),
            prepare=_ensure_meeting("events", "event"), cap=("E2", "edit_meeting")),
         Op("M3", "GET", lambda o: f"/subevents/{o.ids['sa']}/meeting", prepare=_ensure_meeting("subevents", "sa"),
-           cap=("E5", "view_meeting")),
+           cap=("E5", "view_meeting"), deny=(404,)),
         Op("M4", "PUT", lambda o: f"/subevents/{o.ids['sa']}/meeting",
            lambda o, r: dict(expected_revision=BAD, title="x", starts_at=stamp(3), join_url="https://example.com/m"), ok=(409,),
            prepare=_ensure_meeting("subevents", "sa"), cap=("E5", "edit_meeting")),

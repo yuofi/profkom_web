@@ -72,7 +72,7 @@ def require_chair(uid, action="account.archive"):
     import access
 
     if not access.allowed(uid, action):
-        fail(403, "Only the chair manages archived accounts")
+        fail(403, "Only the chair and deputies manage archived accounts")
 
 
 def chair_term(s):
@@ -129,7 +129,7 @@ def _archive(uid, reason, actor):
     if not reason.strip():
         fail(422, "Archive reason required")
     if db.is_chair(uid):
-        fail(409, "Transfer the chair before archiving this account")
+        fail(409, "Transfer the chair before archiving this account", "chair_transfer_required")
     with db._session() as s:
         u = s.get(UserORM, uid)
         if not u:
@@ -284,7 +284,7 @@ def _restore(uid, payload, actor):
             r["role"] == "deputy_chair" and r["user_id"] == uid for r in snap["roles"]
         )
         if restore_global and len(json.loads(lead.deputies_json or "[]")) >= 3:
-            fail(409, "Deputy chair limit; free a position before restore")
+            fail(409, "Deputy chair limit; free a position before restore", "restore_deputy_limit")
         u.account_state = "active"
         u.banned = snap["banned"]
         s.get(ContactInfoORM, uid).in_profcom = snap["in_profcom"]
@@ -332,7 +332,7 @@ def _restore(uid, payload, actor):
                     .count()
                     >= 2
                 ):
-                    fail(409, "Deputy limit; resolve assignments before restore")
+                    fail(409, "Deputy limit; resolve assignments before restore", "restore_deputy_limit")
             if r["scope_kind"] == "subevent" and not s.get(SubeventORM, r["scope_id"]):
                 continue
             if r["scope_kind"] == "event":

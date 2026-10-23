@@ -460,7 +460,10 @@ export interface SeasonBlocker {
     | "previous_season_not_closed";
   owner_kind: string;
   owner_id: string;
+  /** Technical English; the screen builds its line from kind, subject and assignee. */
   title: string;
+  subject?: string | null;
+  assignee?: string | null;
 }
 export const richText = (body = ""): RichText => ({ format: "markdown", body });
 export const emptyCriteria = (): Criteria => ({

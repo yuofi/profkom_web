@@ -4,6 +4,7 @@ import { withZodSchema } from "formik-validator-zod";
 import { z } from "zod";
 import {tryCatch} from "../../utils/tryCatch"
 import { normalizeApiError } from "../../utils/api/request";
+import { fieldMessage, userMessage } from "../../utils/api/messages";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const useForm = <UserSchema extends z.ZodType<Record<string, any>>>({
@@ -11,10 +12,13 @@ export const useForm = <UserSchema extends z.ZodType<Record<string, any>>>({
   successMessage = false,
   validationSchema,
   onSubmit,
+  errorTexts,
 }: {
   initialValues: z.infer<UserSchema>;
   validationSchema: UserSchema;
   successMessage?: boolean;
+  /** This screen's own texts for a code or a status (messages.ts userMessage). */
+  errorTexts?: Partial<Record<string | number, string>>;
   onSubmit?: (
     values: z.infer<UserSchema>,
     actions: FormikHelpers<z.infer<UserSchema>>,
@@ -44,15 +48,15 @@ export const useForm = <UserSchema extends z.ZodType<Record<string, any>>>({
       const result = await tryCatch(sendForm());
       if (result.error) {
         const failure = normalizeApiError(result.error);
-        setGlobalError(failure.message);
+        setGlobalError(userMessage(failure, errorTexts));
         const errors: Record<string, string> = {};
         for (const [key, message] of Object.entries(failure.fields)) {
-          if (key in values && typeof message === "string") errors[key] = message;
+          if (key in values && typeof message === "string") errors[key] = fieldMessage(message);
         }
         if (Array.isArray(failure.fields.errors)) {
           for (const item of failure.fields.errors) {
             const key = String(item?.loc?.at(-1) ?? "");
-            if (key in values && typeof item?.msg === "string") errors[key] = item.msg;
+            if (key in values) errors[key] = fieldMessage(item);
           }
         }
         actions.setErrors(errors as FormikErrors<z.infer<UserSchema>>);

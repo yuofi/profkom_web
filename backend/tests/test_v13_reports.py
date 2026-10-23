@@ -210,7 +210,7 @@ def test_current_series_leader_reads_history_but_not_draft_or_edit(
     )
     assert (
         client.get(f"/api/reports/{rid}", headers=r["stranger"].headers).status_code
-        == 403
+        == 404
     )
 
 
@@ -358,7 +358,7 @@ def test_new_leads_read_the_past_instance_before_it_closes(client, superuser, se
         _call(client, "PATCH", who, f"/reports/{rid}", 403, expected_revision=read["revision"], title="Нельзя")
     # The organizer of the copy leads nothing: no series and no history.
     assert x["sub_series"] not in [s["series_id"] for s in _call(client, "GET", x["neworg"], "/report-series")["items"]]
-    _history(client, x["neworg"], x["sub_series"], 403)
+    _history(client, x["neworg"], x["sub_series"], 404)
 
 
 def test_every_listed_series_opens_its_history(client, superuser, series):
@@ -369,7 +369,7 @@ def test_every_listed_series_opens_its_history(client, superuser, series):
         for item in _call(client, "GET", who, "/report-series")["items"]:
             _history(client, who, item["series_id"])
     assert x["sub_series"] not in [s["series_id"] for s in _call(client, "GET", x["org"], "/report-series")["items"]]
-    _history(client, x["org"], x["sub_series"], 403)
+    _history(client, x["org"], x["sub_series"], 404)
     _call(client, "GET", x["org"], f"/reports/{x['sub_report']}")
 
 
@@ -394,8 +394,8 @@ def test_head_organizer_keeps_reading_subevent_reports_after_close(client, super
     _call(client, "PATCH", x["head"], f"/reports/{x['sub_report']}", 403, expected_revision=sub_report["revision"], title="Нельзя")
     _call(client, "PATCH", x["head"], f"/reports/{x['ev_report']}", 409, expected_revision=999, title="Своё можно")
     _call(client, "PATCH", x["resp"], f"/reports/{x['sub_report']}", 409, expected_revision=999, title="Своё можно")
-    _call(client, "GET", x["org"], f"/reports/{x['sub_report']}", 403)
-    _history(client, x["org"], x["sub_series"], 403)
+    _call(client, "GET", x["org"], f"/reports/{x['sub_report']}", 404)
+    _history(client, x["org"], x["sub_series"], 404)
     banned(x["head"], True)
     assert client.get(f"/api/reports/{x['sub_report']}", headers=x["head"].headers).status_code != 200
 

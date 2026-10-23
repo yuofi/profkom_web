@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from errors import Conflict, Forbidden, InvalidInput, NotFound, revision_conflict, season_closed
 import json
 import logging
 import asyncio
@@ -521,10 +522,20 @@ import domain_models  # registers domain tables on the same Base
 Base.metadata.create_all(bind=engine)
 
 
-class SeasonNotReadyError(ValueError):
+class SeasonNotReadyError(Conflict):
     def __init__(self, blockers: list[dict]):
-        super().__init__("season_not_ready")
+        super().__init__("Season is not ready to close", "season_not_ready", blockers=blockers)
         self.blockers = blockers
+
+
+def _roster_candidate(session, uid):
+    """A candidate for a roster or the leadership: unknown → 422, not active → 409 (decision 42)."""
+    u = session.get(UserORM, uid)
+    if not u:
+        raise InvalidInput(f"Unknown user {uid}", "unknown_user", user_id=uid)
+    if u.banned or getattr(u, "account_state", "active") != "active":
+        raise Conflict(f"User {uid} must be active and approved", "inactive_user", user_id=uid)
+    return u
 
 
 def moscow_year(timestamp: str) -> int:
@@ -1199,7 +1210,7 @@ def _user_to_ref_dc(u: Optional[UserORM]) -> Optional[UserRefDC]:
     if not u:
         return None
     if u.account_state=='purged':return UserRefDC(user_id=None,display_name='Обезличенный участник',avatar_url=None)
-    display_name = f"User {u.user_id}"
+    display_name = f"Участник {u.user_id}"
     from directory import avatar_url
     photo_url = avatar_url(u.user_id)
     if u.contact:
@@ -1210,7 +1221,7 @@ def _user_to_ref_dc(u: Optional[UserORM]) -> Optional[UserRefDC]:
 
 def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: Optional[int] = None) -> AssignmentPublicDC:
     u = session.get(UserORM, a.assignee_user_id)
-    assignee_ref = _user_to_ref_dc(u) or UserRefDC(user_id=a.assignee_user_id, display_name=f"User {a.assignee_user_id}", avatar_url=None)
+    assignee_ref = _user_to_ref_dc(u) or UserRefDC(user_id=a.assignee_user_id, display_name=f"Участник {a.assignee_user_id}", avatar_url=None)
 
     sub_orms = session.query(SubmissionORM).filter(SubmissionORM.assignment_id == a.assignment_id).order_by(SubmissionORM.submitted_at.asc()).all()
     submissions = []
@@ -1331,7 +1342,7 @@ def _task_orm_to_dc(session: Session, t: TaskORM, current_user_id: Optional[int]
 
 def _comment_orm_to_dc(session: Session, c: CommentORM, current_user_id: Optional[int] = None) -> CommentDC:
     u = session.get(UserORM, c.author_user_id)
-    author_ref = _user_to_ref_dc(u) or UserRefDC(user_id=c.author_user_id, display_name=f"User {c.author_user_id}", avatar_url=None)
+    author_ref = _user_to_ref_dc(u) or UserRefDC(user_id=c.author_user_id, display_name=f"Участник {c.author_user_id}", avatar_url=None)
     caps = ["edit_comment"] if (current_user_id == c.author_user_id) else []
     hist = []
     try:
@@ -1362,7 +1373,7 @@ def _comment_orm_to_dc(session: Session, c: CommentORM, current_user_id: Optiona
 
 def _merit_orm_to_dc(session: Session, m: MeritORM, current_user_id: Optional[int] = None) -> MeritDC:
     u = session.get(UserORM, m.created_by_user_id)
-    creator_ref = _user_to_ref_dc(u) or UserRefDC(user_id=m.created_by_user_id, display_name=f"User {m.created_by_user_id}", avatar_url=None)
+    creator_ref = _user_to_ref_dc(u) or UserRefDC(user_id=m.created_by_user_id, display_name=f"Участник {m.created_by_user_id}", avatar_url=None)
     crit_dict = {}
     try:
         crit_dict = json.loads(m.criteria_json or "{}")
@@ -1438,7 +1449,7 @@ def _file_orm_to_dc(f: FileRecordORM) -> FileRecordDC:
 
 def _report_orm_to_dc(session: Session, r: ReportORM, current_user_id: Optional[int] = None, is_editor: bool = False) -> ReportDC:
     u = session.get(UserORM, r.created_by_user_id)
-    author_ref = _user_to_ref_dc(u) or UserRefDC(user_id=r.created_by_user_id, display_name=f"User {r.created_by_user_id}", avatar_url=None)
+    author_ref = _user_to_ref_dc(u) or UserRefDC(user_id=r.created_by_user_id, display_name=f"Участник {r.created_by_user_id}", avatar_url=None)
     fids = []
     try:
         fids = json.loads(r.files_json or "[]")
@@ -1497,7 +1508,7 @@ def _report_orm_to_dc(session: Session, r: ReportORM, current_user_id: Optional[
 
 def _report_version_orm_to_dc(session: Session, rv: ReportVersionORM) -> ReportVersionDC:
     u = session.get(UserORM, rv.published_by_user_id)
-    pub_ref = _user_to_ref_dc(u) or UserRefDC(user_id=rv.published_by_user_id, display_name=f"User {rv.published_by_user_id}", avatar_url=None)
+    pub_ref = _user_to_ref_dc(u) or UserRefDC(user_id=rv.published_by_user_id, display_name=f"Участник {rv.published_by_user_id}", avatar_url=None)
     fids = []
     try:
         fids = json.loads(rv.files_json or "[]")
@@ -1725,7 +1736,7 @@ def _calculate_master_bonuses_for_session(session: Session, season_id: str) -> l
         basis_items = []
         for uid in sorted(candidate_uids):
             u = session.get(UserORM, uid)
-            u_ref = _user_to_ref_dc(u) or UserRefDC(user_id=uid, display_name=f"User {uid}", avatar_url=None)
+            u_ref = _user_to_ref_dc(u) or UserRefDC(user_id=uid, display_name=f"Участник {uid}", avatar_url=None)
             score = member_task_scores.get(uid, 0.0)
             included = False
             exclusion = None
@@ -1918,7 +1929,7 @@ def _calculate_season_summary_for_session(session: Session, season_id: str, is_a
 
     rows: list[SummaryRowDC] = []
     for u in included_users:
-        u_ref = _user_to_ref_dc(u) or UserRefDC(user_id=u.user_id, display_name=f"User {u.user_id}", avatar_url=None)
+        u_ref = _user_to_ref_dc(u) or UserRefDC(user_id=u.user_id, display_name=f"Участник {u.user_id}", avatar_url=None)
         group_num = u.contact.group_number if u.contact else None
         category = getattr(u, "category", "activist") or "activist"
         user_blocks = _parse_blocks(u.blocks) if u.blocks else []
@@ -2724,12 +2735,12 @@ class Database:
             if identity and identity.user_id == user_id:
                 return
             if identity or session.query(ExternalIdentityORM).filter_by(user_id=user_id).first():
-                raise ValueError("External identity already linked")
+                raise Conflict("External identity already linked", "identity_linked")
             session.add(ExternalIdentityORM(subject=subject, user_id=user_id))
             try:
                 session.commit()
             except IntegrityError:
-                raise ValueError("External identity already linked")
+                raise Conflict("External identity already linked", "identity_linked")
 
     def consume_refresh_token(self, value: str):
         with self._session() as session:
@@ -2846,14 +2857,12 @@ class Database:
                 session.flush()
 
             if expected_revision is not None and row.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
 
-            new_chair = session.get(UserORM, new_chair_user_id)
-            if not new_chair or new_chair.banned or getattr(new_chair, "account_state", "active") != "active":
-                raise ValueError("Invalid new chair: user must be active and not banned")
+            new_chair = _roster_candidate(session, new_chair_user_id)
 
             if row.chair_user_id == new_chair_user_id:
-                raise ValueError("User is already the chair")
+                raise Conflict("User is already the chair", "already_chair")
 
             former_chair_id = row.chair_user_id
             try:
@@ -2917,19 +2926,17 @@ class Database:
                 session.flush()
 
             if expected_revision is not None and row.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
 
             if len(deputy_user_ids) > 3:
-                raise ValueError("At most 3 deputies allowed")
+                raise InvalidInput("At most 3 deputies allowed", "deputy_limit", limit=3)
             if len(set(deputy_user_ids)) != len(deputy_user_ids):
-                raise ValueError("Deputy user IDs must be unique")
+                raise InvalidInput("Deputy user IDs must be unique", "duplicate_users")
             if row.chair_user_id and row.chair_user_id in deputy_user_ids:
-                raise ValueError("Chair cannot be appointed as deputy")
+                raise InvalidInput("Chair cannot be appointed as deputy", "self_deputy")
 
             for uid in deputy_user_ids:
-                u = session.get(UserORM, uid)
-                if not u or u.banned or getattr(u, "account_state", "active") != "active":
-                    raise ValueError(f"Invalid deputy user {uid}: must be active and not banned")
+                u = _roster_candidate(session, uid)
 
             try:
                 old_deputy_ids = set(json.loads(row.deputies_json or "[]"))
@@ -3064,11 +3071,11 @@ class Database:
         from validation import timestamp
         from participation import dt
         starts_at,ends_at=timestamp(starts_at),timestamp(ends_at)
-        if dt(starts_at)>=dt(ends_at):raise ValueError("Season must have positive duration")
+        if dt(starts_at)>=dt(ends_at):raise InvalidInput("Season must have positive duration")
         with self._session() as session:
             planned = session.query(SeasonORM).filter(SeasonORM.state == "planned").first()
             if planned:
-                raise ValueError("Conflict: a planned season already exists")
+                raise Conflict("Conflict: a planned season already exists", "planned_exists")
             max_seq = session.query(func.max(SeasonORM.sequence_number)).scalar() or 0
             seq = max_seq + 1
             prev_id = None
@@ -3111,11 +3118,11 @@ class Database:
         with self._session() as session:
             row = session.get(SeasonORM, season_id)
             if not row:
-                raise LookupError("Season not found")
+                raise NotFound("Season not found")
             if row.state != "planned":
-                raise ValueError(f"Cannot open season with state '{row.state}'")
+                raise Conflict(f"Cannot open season with state '{row.state}'")
             if expected_revision is not None and row.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
             # Atomically remove is_current from previous current season
             old_cur = session.query(SeasonORM).filter(SeasonORM.is_current == True).all()
             for o in old_cur:
@@ -3140,20 +3147,20 @@ class Database:
         with self._session() as session:
             row = session.get(SeasonORM, season_id)
             if not row:
-                raise LookupError("Season not found")
+                raise NotFound("Season not found")
             from validation import timestamp
             from participation import dt
-            if row.state=="closed":raise ValueError("Conflict: closed season dates are immutable")
-            if (starts_at is not None or ends_at is not None) and (not reason or not reason.strip()):raise ValueError("Reason is required")
+            if row.state=="closed":raise season_closed("Conflict: closed season dates are immutable")
+            if (starts_at is not None or ends_at is not None) and (not reason or not reason.strip()):raise InvalidInput("Reason is required")
             starts_at=timestamp(starts_at) if starts_at is not None else None
             ends_at=timestamp(ends_at) if ends_at is not None else None
-            if dt(starts_at or row.starts_at)>=dt(ends_at or row.ends_at):raise ValueError("Season must have positive duration")
+            if dt(starts_at or row.starts_at)>=dt(ends_at or row.ends_at):raise InvalidInput("Season must have positive duration")
             for task in session.query(TaskORM).filter_by(season_id=season_id):
-                if dt(task.deadline_at)>dt(ends_at or row.ends_at):raise ValueError("Cannot shorten season before task deadline")
+                if dt(task.deadline_at)>dt(ends_at or row.ends_at):raise InvalidInput("Cannot shorten season before task deadline")
             for merit in session.query(MeritORM).filter_by(season_id=season_id):
-                if dt(merit.deadline_at)>dt(ends_at or row.ends_at):raise ValueError("Cannot shorten season before merit deadline")
+                if dt(merit.deadline_at)>dt(ends_at or row.ends_at):raise InvalidInput("Cannot shorten season before merit deadline")
             if row.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
             if title is not None:
                 row.title = title
             if starts_at is not None:
@@ -3162,7 +3169,7 @@ class Database:
                 evs = session.query(EventORM).filter(EventORM.season_id == season_id).all()
                 for ev in evs:
                     if ev.ends_at and ev.ends_at > ends_at:
-                        raise ValueError(f"Cannot shorten season ends_at before event '{ev.title}' deadline ({ev.ends_at})")
+                        raise InvalidInput(f"Cannot shorten season ends_at before event '{ev.title}' deadline ({ev.ends_at})")
                 row.ends_at = ends_at
             row.revision += 1
             session.commit()
@@ -3172,11 +3179,11 @@ class Database:
         with self._session() as session:
             row = session.get(SeasonORM, season_id)
             if not row:
-                raise LookupError("Season not found")
+                raise NotFound("Season not found")
             if row.state != "open":
-                raise ValueError(f"Cannot begin summary on season in state '{row.state}'")
+                raise Conflict(f"Cannot begin summary on season in state '{row.state}'")
             if expected_revision is not None and row.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
             row.state = "summarizing"
             row.revision += 1
             session.commit()
@@ -3186,11 +3193,11 @@ class Database:
         with self._session() as session:
             row = session.get(SeasonORM, season_id)
             if not row:
-                raise LookupError("Season not found")
+                raise NotFound("Season not found")
             if row.state != "summarizing":
-                raise ValueError(f"Cannot close season in state '{row.state}'")
+                raise Conflict(f"Cannot close season in state '{row.state}'")
             if expected_revision is not None and row.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
 
             blockers = []
             if row.previous_season_id:
@@ -3201,21 +3208,29 @@ class Database:
                         "owner_kind": "season",
                         "owner_id": row.previous_season_id,
                         "title": "Previous season not closed",
+                        "subject": prev.title,
                     })
 
             # Check unfinished assignments & missing assessments
             season_tasks = session.query(TaskORM).filter(TaskORM.season_id == season_id).all()
             task_map = {t.task_id: t for t in season_tasks}
+            # subject and assignee let the client say in Russian what blocks and whose it is (2.13).
+            def assignee(a):
+                ref = _user_to_ref_dc(session.get(UserORM, a.assignee_user_id))
+                return ref.display_name if ref else None
+
             if season_tasks:
                 assignments = session.query(AssignmentORM).filter(AssignmentORM.task_id.in_(list(task_map.keys()))).all()
                 for a in assignments:
+                    t = task_map.get(a.task_id)
                     if a.status not in ("accepted", "not_completed", "cancelled"):
-                        t = task_map.get(a.task_id)
                         blockers.append({
                             "kind": "unfinished_assignment",
                             "owner_kind": "assignment",
                             "owner_id": a.assignment_id,
                             "title": f"Unfinished assignment on task '{t.title if t else a.task_id}'",
+                            "subject": t.title if t else None,
+                            "assignee": assignee(a),
                         })
                     elif a.status in ("accepted", "not_completed"):
                         if a.evaluation is None or (a.status == "accepted" and a.hours is None):
@@ -3223,7 +3238,9 @@ class Database:
                                 "kind": "missing_assessment",
                                 "owner_kind": "assignment",
                                 "owner_id": a.assignment_id,
-                                "title": f"Missing assessment for assignment '{a.assignment_id}'",
+                                "title": f"Missing assessment on task '{t.title if t else a.task_id}'",
+                                "subject": t.title if t else None,
+                                "assignee": assignee(a),
                             })
 
             # Check missing final reports for events and subevents
@@ -3241,6 +3258,7 @@ class Database:
                         "owner_kind": "event",
                         "owner_id": ev.event_id,
                         "title": f"Missing final report for event '{ev.title}'",
+                        "subject": ev.title,
                     })
                 subevents = session.query(SubeventORM).filter(SubeventORM.event_id == ev.event_id).all()
                 for sub in subevents:
@@ -3256,6 +3274,7 @@ class Database:
                             "owner_kind": "subevent",
                             "owner_id": sub.subevent_id,
                             "title": f"Missing final report for subevent '{sub.title}'",
+                            "subject": sub.title,
                         })
 
             if blockers:
@@ -3442,34 +3461,34 @@ class Database:
         file_ids: list[str],
         user_id: int,
     ) -> ReportDC:
-        if kind not in ("regular","final"):raise ValueError("Invalid report kind")
-        if file_ids:raise ValueError("Create a draft before attaching report files")
+        if kind not in ("regular","final"):raise InvalidInput("Invalid report kind")
+        if file_ids:raise InvalidInput("Create a draft before attaching report files")
         with self._session() as session:
             if owner_kind == "event":
                 ev = session.get(EventORM, owner_id)
                 if not ev:
-                    raise LookupError("Event not found")
+                    raise NotFound("Event not found")
                 season_id = ev.season_id
                 series_id = ev.report_series_id
                 can_create = self.is_event_leader(user_id, owner_id) or self.is_event_leader_deputy(user_id, owner_id)
                 s = session.get(SeasonORM, season_id)
-                if s and s.state == "closed":raise ValueError("Conflict: cannot create new reports in a closed season")
+                if s and s.state == "closed":raise season_closed("Conflict: cannot create new reports in a closed season")
                 if not can_create:
-                    raise ValueError("Forbidden: cannot create report for this event")
+                    raise Forbidden("Forbidden: cannot create report for this event")
             elif owner_kind == "subevent":
                 sub = session.get(SubeventORM, owner_id)
                 if not sub:
-                    raise LookupError("Subevent not found")
+                    raise NotFound("Subevent not found")
                 ev = session.get(EventORM, sub.event_id)
                 season_id = ev.season_id if ev else None
                 series_id = sub.report_series_id
                 can_create = self.is_subevent_leader(user_id, owner_id) or self.is_subevent_leader_deputy(user_id, owner_id)
                 s = session.get(SeasonORM, season_id)
-                if s and s.state == "closed":raise ValueError("Conflict: cannot create new reports in a closed season")
+                if s and s.state == "closed":raise season_closed("Conflict: cannot create new reports in a closed season")
                 if not can_create:
-                    raise ValueError("Forbidden: cannot create report for this subevent")
+                    raise Forbidden("Forbidden: cannot create report for this subevent")
             else:
-                raise ValueError(f"Invalid owner_kind '{owner_kind}'")
+                raise InvalidInput(f"Invalid owner_kind '{owner_kind}'")
 
             if kind == "final":
                 existing_final = session.query(ReportORM).filter(
@@ -3478,7 +3497,7 @@ class Database:
                     ReportORM.kind == "final",
                 ).first()
                 if existing_final:
-                    raise ValueError("Conflict: a final report already exists for this instance")
+                    raise Conflict("Conflict: a final report already exists for this instance", "final_report_exists")
 
             now_str = datetime.now(timezone.utc).isoformat()
             r = ReportORM(
@@ -3512,7 +3531,7 @@ class Database:
                 return None
             is_editor = self.is_report_editor(current_user_id, r, session)
             if not is_editor and not self.can_read_report(current_user_id, r, session):
-                raise ValueError("Forbidden: cannot view this report")
+                raise NotFound("Report not found")
             return _report_orm_to_dc(session, r, current_user_id, is_editor=is_editor)
 
     def list_reports(
@@ -3561,11 +3580,11 @@ class Database:
         with self._session() as session:
             r = session.get(ReportORM, report_id)
             if not r:
-                raise LookupError("Report not found")
+                raise NotFound("Report not found")
             if not self.is_report_editor(user_id, r, session):
-                raise ValueError("Forbidden: cannot edit this report")
+                raise Forbidden("Forbidden: cannot edit this report")
             if r.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
 
             if file_ids is not None:
                 from file_access import check_attachments
@@ -3601,11 +3620,11 @@ class Database:
         with self._session() as session:
             r = session.get(ReportORM, report_id)
             if not r:
-                raise LookupError("Report not found")
+                raise NotFound("Report not found")
             if not self.is_report_editor(user_id, r, session):
-                raise ValueError("Forbidden: cannot publish this report")
+                raise Forbidden("Forbidden: cannot publish this report")
             if r.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
 
             new_title = r.draft_title if r.draft_title is not None else r.title
             new_content = r.draft_content_json if r.draft_content_json is not None else r.content_json
@@ -3613,7 +3632,7 @@ class Database:
 
             from file_access import check_attachments
             check_attachments(session,json.loads(new_files or "[]"),"report",report_id,user_id)
-            if not new_content.strip() and not json.loads(new_files or "[]"):raise ValueError("Report content or attachment is required")
+            if not new_content.strip() and not json.loads(new_files or "[]"):raise InvalidInput("Report content or attachment is required")
             # Idempotent: duplicate publish without edits does not create new version
             if (
                 r.state == "published"
@@ -3656,9 +3675,9 @@ class Database:
         with self._session() as session:
             r = session.get(ReportORM, report_id)
             if not r:
-                raise LookupError("Report not found")
+                raise NotFound("Report not found")
             if not (self.can_read_report(current_user_id, r, session) or self.is_report_editor(current_user_id, r, session)):
-                raise ValueError("Forbidden: cannot view report versions")
+                raise NotFound("Report not found")
             versions = session.query(ReportVersionORM).filter(
                 ReportVersionORM.report_id == report_id
             ).order_by(ReportVersionORM.version.asc()).all()
@@ -3668,11 +3687,11 @@ class Database:
         with self._session() as session:
             series = session.get(ReportSeriesORM, series_id)
             if not series:
-                raise LookupError("Report series not found")
+                raise NotFound("Report series not found")
 
             from report_access import series_reader
             if not series_reader(session, series_id, current_user_id):
-                raise ValueError("Forbidden: no access to report series history")
+                raise NotFound("Report series not found")
 
             q = session.query(ReportORM).filter(
                 ReportORM.report_series_id == series_id,
@@ -3706,9 +3725,9 @@ class Database:
         with self._session() as session:
             n = session.get(NotificationORM, notification_id)
             if not n:
-                raise LookupError("Notification not found")
+                raise NotFound("Notification not found")
             if n.user_id != current_user_id:
-                raise ValueError("Forbidden: cannot mark others' notifications")
+                raise NotFound("Notification not found")
             if not n.is_read:n.read_at=datetime.now(timezone.utc).isoformat()
             n.is_read = True
             session.commit()
@@ -3743,16 +3762,16 @@ class Database:
         with self._session() as session:
             season = session.get(SeasonORM, season_id)
             if not season:
-                raise LookupError("Season not found")
+                raise NotFound("Season not found")
             if season.state in ("summarizing", "closed"):
-                raise ValueError(f"Cannot create event in {season.state} season")
+                raise Conflict(f"Cannot create event in {season.state} season")
             from event_rules import dates
             starts_at,ends_at=dates(season,starts_at,ends_at)
-            if not title.strip():raise ValueError("Title is required")
+            if not title.strip():raise InvalidInput("Title is required")
             if report_series_id:
                 rs = session.get(ReportSeriesORM, report_series_id)
                 if not rs or rs.owner_kind != "event":
-                    raise ValueError("Invalid report_series_id for event")
+                    raise InvalidInput("Invalid report_series_id for event")
             else:
                 rs = ReportSeriesORM(
                     series_id=str(uuid.uuid4()),
@@ -3804,16 +3823,16 @@ class Database:
         with self._session() as session:
             ev = session.get(EventORM, event_id)
             if not ev:
-                raise LookupError("Event not found")
+                raise NotFound("Event not found")
             season=session.get(SeasonORM,ev.season_id)
-            if season.state=="closed":raise ValueError("Conflict: closed event metadata is immutable")
+            if season.state=="closed":raise season_closed("Conflict: closed event metadata is immutable")
             from event_rules import dates
             normalized_start,normalized_end=dates(season,None if clear_starts_at else starts_at if starts_at is not None else ev.starts_at,None if clear_ends_at else ends_at if ends_at is not None else ev.ends_at)
             if starts_at is not None:starts_at=normalized_start
             if ends_at is not None:ends_at=normalized_end
-            if title is not None and not title.strip():raise ValueError("Title is required")
+            if title is not None and not title.strip():raise InvalidInput("Title is required")
             if ev.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
             if title is not None:
                 ev.title = title
             if description is not None:
@@ -3836,14 +3855,14 @@ class Database:
         with self._session() as session:
             ev = session.get(EventORM, event_id)
             if not ev:
-                raise LookupError("Event not found")
+                raise NotFound("Event not found")
             season = session.get(SeasonORM, ev.season_id)
             if season and season.state in ("summarizing", "closed"):
-                raise ValueError(f"Cannot create subevent in {season.state} season")
+                raise Conflict(f"Cannot create subevent in {season.state} season")
             if report_series_id:
                 rs = session.get(ReportSeriesORM, report_series_id)
                 if not rs or rs.owner_kind != "subevent" or rs.parent_series_id != ev.report_series_id:
-                    raise ValueError("Invalid report_series_id for subevent: must be child series of parent event")
+                    raise InvalidInput("Invalid report_series_id for subevent: must be child series of parent event")
             else:
                 rs = ReportSeriesORM(
                     series_id=str(uuid.uuid4()),
@@ -3888,11 +3907,11 @@ class Database:
         with self._session() as session:
             sub = session.get(SubeventORM, subevent_id)
             if not sub:
-                raise LookupError("Subevent not found")
-            if session.get(SeasonORM,session.get(EventORM,sub.event_id).season_id).state=="closed":raise ValueError("Conflict: closed subevent metadata is immutable")
-            if title is not None and not title.strip():raise ValueError("Title is required")
+                raise NotFound("Subevent not found")
+            if session.get(SeasonORM,session.get(EventORM,sub.event_id).season_id).state=="closed":raise season_closed("Conflict: closed subevent metadata is immutable")
+            if title is not None and not title.strip():raise InvalidInput("Title is required")
             if sub.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
             if title is not None:
                 sub.title = title
             if description is not None:
@@ -3912,12 +3931,12 @@ class Database:
         with self._session() as session:
             ev = session.get(EventORM, source_event_id)
             if not ev:
-                raise LookupError("Event not found")
+                raise NotFound("Event not found")
             target_season = session.get(SeasonORM, target_season_id)
             if not target_season:
-                raise LookupError("Target season not found")
+                raise NotFound("Target season not found")
             if target_season.state not in ("planned", "open"):
-                raise ValueError(f"Cannot copy event to season with state '{target_season.state}'")
+                raise Conflict(f"Cannot copy event to season with state '{target_season.state}'")
 
             from event_rules import dates
             starts_at,ends_at=dates(target_season,starts_at,ends_at)
@@ -3961,14 +3980,12 @@ class Database:
         with self._session() as session:
             ev = session.get(EventORM, event_id)
             if not ev:
-                raise LookupError("Event not found")
-            if session.get(SeasonORM,ev.season_id).state=="closed":raise ValueError("Conflict: closed roster is immutable")
+                raise NotFound("Event not found")
+            if session.get(SeasonORM,ev.season_id).state=="closed":raise season_closed("Conflict: closed roster is immutable")
             if ev.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
             for uid in user_ids:
-                u = session.get(UserORM, uid)
-                if not u or u.banned or getattr(u, "account_state", "active") != "active":
-                    raise ValueError(f"Invalid user {uid}: must be active and approved")
+                _roster_candidate(session, uid)
 
             existing = session.query(RoleAssignmentORM).filter(
                 RoleAssignmentORM.scope_kind == "event",
@@ -4015,14 +4032,12 @@ class Database:
         with self._session() as session:
             sub = session.get(SubeventORM, subevent_id)
             if not sub:
-                raise LookupError("Subevent not found")
-            if session.get(SeasonORM,session.get(EventORM,sub.event_id).season_id).state=="closed":raise ValueError("Conflict: closed roster is immutable")
+                raise NotFound("Subevent not found")
+            if session.get(SeasonORM,session.get(EventORM,sub.event_id).season_id).state=="closed":raise season_closed("Conflict: closed roster is immutable")
             if sub.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
             for uid in user_ids:
-                u = session.get(UserORM, uid)
-                if not u or u.banned or getattr(u, "account_state", "active") != "active":
-                    raise ValueError(f"Invalid user {uid}: must be active and approved")
+                _roster_candidate(session, uid)
 
             existing = session.query(RoleAssignmentORM).filter(
                 RoleAssignmentORM.scope_kind == "subevent",
@@ -4067,14 +4082,12 @@ class Database:
         with self._session() as session:
             sub = session.get(SubeventORM, subevent_id)
             if not sub:
-                raise LookupError("Subevent not found")
-            if session.get(SeasonORM,session.get(EventORM,sub.event_id).season_id).state=="closed":raise ValueError("Conflict: closed roster is immutable")
+                raise NotFound("Subevent not found")
+            if session.get(SeasonORM,session.get(EventORM,sub.event_id).season_id).state=="closed":raise season_closed("Conflict: closed roster is immutable")
             if sub.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
             for uid in user_ids:
-                u = session.get(UserORM, uid)
-                if not u or u.banned or getattr(u, "account_state", "active") != "active":
-                    raise ValueError(f"Invalid user {uid}: must be active and approved")
+                _roster_candidate(session, uid)
 
             old_ids = set()
             try:
@@ -4103,10 +4116,8 @@ class Database:
         with self._session() as session:
             b = session.get(BlockORM, block_name)
             if not b:
-                raise LookupError(f"Block '{block_name}' not found")
-            u = session.get(UserORM, user_id)
-            if not u or u.banned or getattr(u, "account_state", "active") != "active":
-                raise ValueError(f"Invalid user {user_id}: must be active and approved")
+                raise NotFound(f"Block '{block_name}' not found")
+            _roster_candidate(session, user_id)
 
             old_a = session.query(RoleAssignmentORM).filter(
                 RoleAssignmentORM.scope_kind == "block",
@@ -4146,23 +4157,21 @@ class Database:
         with self._session() as session:
             assignment = session.get(RoleAssignmentORM, role_assignment_id)
             if not assignment:
-                raise LookupError("Role assignment not found")
-            if assignment.role not in ("master","event_leader","subevent_leader"):raise ValueError("Only principal leaders can have deputies")
+                raise NotFound("Role assignment not found")
+            if assignment.role not in ("master","event_leader","subevent_leader"):raise InvalidInput("Only principal leaders can have deputies")
             if assignment.scope_kind in ("event","subevent"):
                 ev=session.get(EventORM,assignment.scope_id) if assignment.scope_kind=="event" else session.get(EventORM,session.get(SubeventORM,assignment.scope_id).event_id)
-                if session.get(SeasonORM,ev.season_id).state=="closed":raise ValueError("Conflict: closed roster is immutable")
+                if session.get(SeasonORM,ev.season_id).state=="closed":raise season_closed("Conflict: closed roster is immutable")
             if assignment.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
             if len(deputy_user_ids) > 2:
-                raise ValueError("At most 2 deputies allowed per leader")
+                raise InvalidInput("At most 2 deputies allowed per leader", "deputy_limit", limit=2)
             if len(set(deputy_user_ids)) != len(deputy_user_ids):
-                raise ValueError("Deputy user IDs must be unique")
+                raise InvalidInput("Deputy user IDs must be unique", "duplicate_users")
             if assignment.user_id in deputy_user_ids:
-                raise ValueError("Leader cannot be appointed as own deputy")
+                raise InvalidInput("Leader cannot be appointed as own deputy", "self_deputy")
             for uid in deputy_user_ids:
-                u = session.get(UserORM, uid)
-                if not u or u.banned or getattr(u, "account_state", "active") != "active":
-                    raise ValueError(f"Invalid user {uid}: must be active and approved")
+                u = _roster_candidate(session, uid)
 
             existing = session.query(RoleAssignmentORM).filter(
                 RoleAssignmentORM.principal_assignment_id == role_assignment_id
@@ -4200,7 +4209,7 @@ class Database:
             session.commit()
 
             u = session.get(UserORM, assignment.user_id)
-            display_name = f"User {assignment.user_id}"
+            display_name = f"Участник {assignment.user_id}"
             photo_url = None
             if u and u.contact:
                 parts = [u.contact.surname, u.contact.name, u.contact.patronymic]
@@ -4225,7 +4234,7 @@ class Database:
     def get_meeting(self, owner_kind: str, owner_id: str) -> Optional[MeetingDC]:
         with self._session() as session:
             event=session.get(EventORM,owner_id) if owner_kind=="event" else session.get(EventORM,session.get(SubeventORM,owner_id).event_id) if session.get(SubeventORM,owner_id) else None
-            if not event:raise LookupError("Meeting owner not found")
+            if not event:raise NotFound("Meeting owner not found")
             if session.get(SeasonORM,event.season_id).state=="closed":return None
             row = session.query(MeetingORM).filter(
                 MeetingORM.owner_kind == owner_kind,
@@ -4244,27 +4253,27 @@ class Database:
     ) -> MeetingDC:
         with self._session() as session:
             event=session.get(EventORM,owner_id) if owner_kind=="event" else session.get(EventORM,session.get(SubeventORM,owner_id).event_id) if session.get(SubeventORM,owner_id) else None
-            if not event:raise LookupError("Meeting owner not found")
-            if session.get(SeasonORM,event.season_id).state=="closed":raise ValueError("Conflict: closed meetings are not available")
+            if not event:raise NotFound("Meeting owner not found")
+            if session.get(SeasonORM,event.season_id).state=="closed":raise season_closed("Conflict: closed meetings are not available")
             from validation import timestamp
             from urllib.parse import urlsplit
             starts_at=timestamp(starts_at)
             url=urlsplit(join_url)
-            if url.scheme not in ("https","http") or not url.hostname:raise ValueError("Invalid meeting URL")
+            if url.scheme not in ("https","http") or not url.hostname:raise InvalidInput("Invalid meeting URL")
             row = session.query(MeetingORM).filter(
                 MeetingORM.owner_kind == owner_kind,
                 MeetingORM.owner_id == owner_id,
             ).first()
             if row:
                 if expected_revision is None or row.revision != expected_revision:
-                    raise ValueError("Conflict: revision mismatch")
+                    raise revision_conflict()
                 if (row.title,row.starts_at,row.join_url)==(title,starts_at,join_url):return _meeting_orm_to_dc(row)
                 row.title = title
                 row.starts_at = starts_at
                 row.join_url = join_url
                 row.revision += 1
             else:
-                if expected_revision is not None:raise ValueError("Conflict: meeting was deleted")
+                if expected_revision is not None:raise Conflict("Conflict: meeting was deleted")
                 row = MeetingORM(
                     meeting_id=str(uuid.uuid4()),
                     owner_kind=owner_kind,
@@ -4284,8 +4293,8 @@ class Database:
     def delete_meeting(self, owner_kind: str, owner_id: str) -> bool:
         with self._session() as session:
             event=session.get(EventORM,owner_id) if owner_kind=="event" else session.get(EventORM,session.get(SubeventORM,owner_id).event_id) if session.get(SubeventORM,owner_id) else None
-            if not event:raise LookupError("Meeting owner not found")
-            if session.get(SeasonORM,event.season_id).state=="closed":raise ValueError("Conflict: closed meetings are not available")
+            if not event:raise NotFound("Meeting owner not found")
+            if session.get(SeasonORM,event.season_id).state=="closed":raise season_closed("Conflict: closed meetings are not available")
             deleted = session.query(MeetingORM).filter(
                 MeetingORM.owner_kind == owner_kind,
                 MeetingORM.owner_id == owner_id,
@@ -4411,7 +4420,7 @@ class Database:
         """Raises the 403 for `action` on task `t`; a closed season has its own message."""
         import access
         if not access.allowed(user_id, action, t.scope_kind, t.scope_id, state=state):
-            raise ValueError(closed_denied if state == "closed" else denied)
+            raise Forbidden(closed_denied if state == "closed" else denied)
 
     def is_member_or_leader_in_scope(self, user_id: int, scope_kind: str, scope_id: str) -> bool:
         if scope_kind == "block":
@@ -4465,44 +4474,44 @@ class Database:
         with self._session() as session:
             season = session.get(SeasonORM, season_id)
             if not season:
-                raise LookupError("Season not found")
+                raise NotFound("Season not found")
             if scope_kind == "block":
                 block = session.get(BlockORM, scope_id)
                 if not block:
-                    raise LookupError("Block not found")
+                    raise NotFound("Block not found")
                 if season.state != "open":
-                    raise ValueError("Block tasks can only be created in an open season")
+                    raise Conflict("Block tasks can only be created in an open season")
             elif scope_kind == "subevent":
                 sub = session.get(SubeventORM, scope_id)
                 if not sub:
-                    raise LookupError("Subevent not found")
+                    raise NotFound("Subevent not found")
                 ev = session.get(EventORM, sub.event_id)
                 if not ev or ev.season_id != season_id:
-                    raise ValueError("Subevent season mismatch")
+                    raise InvalidInput("Subevent season mismatch")
                 if season.state not in ("planned", "open"):
-                    raise ValueError("Tasks cannot be created in summarizing or closed season")
+                    raise Conflict("Tasks cannot be created in summarizing or closed season")
             else:
-                raise ValueError(f"Unsupported scope_kind '{scope_kind}'")
+                raise InvalidInput(f"Unsupported scope_kind '{scope_kind}'")
 
             if not self.can_manage_scope(created_by_user_id, scope_kind, scope_id):
-                raise ValueError("Forbidden: cannot create task in this scope")
+                raise Forbidden("Forbidden: cannot create task in this scope")
 
             from validation import period, timestamp, hours as check_hours
             deadline_at=timestamp(deadline_at)
             period(datetime.now(timezone.utc).isoformat(),deadline_at,season.ends_at)
-            if len({a.get("user_id") for a in assignees})!=len(assignees):raise ValueError("Duplicate assignees")
+            if len({a.get("user_id") for a in assignees})!=len(assignees):raise InvalidInput("Duplicate assignees", "duplicate_users")
             for item in assignees:check_hours(item.get("hours",0))
 
             if not assignees:
-                raise ValueError("At least one assignee is required")
+                raise InvalidInput("At least one assignee is required")
 
             for a in assignees:
                 uid = a.get("user_id")
                 u = session.get(UserORM, uid)
                 if not u or u.banned or getattr(u, "account_state", "active") != "active":
-                    raise ValueError(f"Invalid assignee user {uid}: user must be active and approved")
+                    raise InvalidInput(f"Invalid assignee user {uid}: user must be active and approved", "inactive_user")
                 if not self.is_member_or_leader_in_scope(uid, scope_kind, scope_id):
-                    raise ValueError(f"User {uid} is not a member or leader of this scope")
+                    raise InvalidInput(f"User {uid} is not a member or leader of this scope")
 
             now_str = datetime.now(timezone.utc).isoformat()
             task_id = f"task-{uuid.uuid4()}"
@@ -4562,7 +4571,7 @@ class Database:
                 return None
             if current_user_id is not None:
                 if not (self.can_view_scope(current_user_id, t.scope_kind, t.scope_id)):
-                    raise ValueError("Forbidden: cannot view this task")
+                    raise NotFound("Task not found")
             return _task_orm_to_dc(session, t, current_user_id)
 
     def list_tasks(
@@ -4578,7 +4587,7 @@ class Database:
         with self._session() as session:
             if current_user_id is not None and scope_kind and scope_id:
                 if not (self.can_view_scope(current_user_id, scope_kind, scope_id)):
-                    raise ValueError("Forbidden: cannot view tasks for this scope")
+                    raise Forbidden("Forbidden: cannot view tasks for this scope")
 
             query = session.query(TaskORM)
             if season_id:
@@ -4629,13 +4638,13 @@ class Database:
         with self._session() as session:
             t = session.get(TaskORM, task_id)
             if not t or not self.can_view_scope(user_id, t.scope_kind, t.scope_id):
-                raise LookupError("Task not found")  # FIX_PLAN 0.1: no hint that the task exists
+                raise NotFound("Task not found")  # FIX_PLAN 0.1: no hint that the task exists
             season = session.get(SeasonORM, t.season_id)
             self.require_task_right(user_id, "task.edit", t, season and season.state,
                                     "Forbidden: cannot edit this task",
                                     "Forbidden: only the chair and deputies can edit tasks in a closed season")
             if t.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
 
             if title is not None:
                 t.title = title
@@ -4653,16 +4662,16 @@ class Database:
         with self._session() as session:
             a = session.get(AssignmentORM, assignment_id)
             if not a:
-                raise LookupError("Assignment not found")
+                raise NotFound("Assignment not found")
             task=session.get(TaskORM,a.task_id)
-            if not task or not self.can_view_scope(user_id,task.scope_kind,task.scope_id):raise ValueError("Forbidden: scope access ended")
-            if session.get(SeasonORM,task.season_id).state=="closed":raise ValueError("Conflict: season is closed")
+            if not task or not self.can_view_scope(user_id,task.scope_kind,task.scope_id):raise Forbidden("Forbidden: scope access ended")
+            if session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
             if a.assignee_user_id != user_id:
-                raise ValueError("Forbidden: only assignee can start assignment")
+                raise Forbidden("Forbidden: only assignee can start assignment")
             if a.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
             if a.status != "assigned":
-                raise ValueError(f"Cannot start assignment with status '{a.status}'")
+                raise Conflict(f"Cannot start assignment with status '{a.status}'")
 
             a.status = "in_progress"
             a.revision += 1
@@ -4676,16 +4685,16 @@ class Database:
         with self._session() as session:
             a = session.get(AssignmentORM, assignment_id)
             if not a:
-                raise LookupError("Assignment not found")
+                raise NotFound("Assignment not found")
             task=session.get(TaskORM,a.task_id)
-            if not task or not self.can_view_scope(user_id,task.scope_kind,task.scope_id):raise ValueError("Forbidden: scope access ended")
-            if session.get(SeasonORM,task.season_id).state=="closed":raise ValueError("Conflict: season is closed")
+            if not task or not self.can_view_scope(user_id,task.scope_kind,task.scope_id):raise Forbidden("Forbidden: scope access ended")
+            if session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
             if a.assignee_user_id != user_id:
-                raise ValueError("Forbidden: only assignee can request help")
+                raise Forbidden("Forbidden: only assignee can request help")
             if a.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
             if a.status not in ("assigned", "in_progress", "needs_revision"):
-                raise ValueError(f"Cannot request help in status '{a.status}'")
+                raise Conflict(f"Cannot request help in status '{a.status}'")
 
             now_str = datetime.now(timezone.utc).isoformat()
             a.status = "help_required"
@@ -4731,16 +4740,16 @@ class Database:
         with self._session() as session:
             a = session.get(AssignmentORM, assignment_id)
             if not a:
-                raise LookupError("Assignment not found")
+                raise NotFound("Assignment not found")
             task=session.get(TaskORM,a.task_id)
-            if not task or not self.can_view_scope(user_id,task.scope_kind,task.scope_id):raise ValueError("Forbidden: scope access ended")
-            if session.get(SeasonORM,task.season_id).state=="closed":raise ValueError("Conflict: season is closed")
+            if not task or not self.can_view_scope(user_id,task.scope_kind,task.scope_id):raise Forbidden("Forbidden: scope access ended")
+            if session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
             if a.assignee_user_id != user_id:
-                raise ValueError("Forbidden: only assignee can resume assignment")
+                raise Forbidden("Forbidden: only assignee can resume assignment")
             if a.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
             if a.status != "help_required":
-                raise ValueError(f"Cannot resume assignment in status '{a.status}'")
+                raise Conflict(f"Cannot resume assignment in status '{a.status}'")
 
             a.status = "in_progress"
             a.revision += 1
@@ -4760,20 +4769,20 @@ class Database:
         with self._session() as session:
             a = session.get(AssignmentORM, assignment_id)
             if not a:
-                raise LookupError("Assignment not found")
+                raise NotFound("Assignment not found")
             task=session.get(TaskORM,a.task_id)
-            if not task or not self.can_view_scope(user_id,task.scope_kind,task.scope_id):raise ValueError("Forbidden: scope access ended")
-            if session.get(SeasonORM,task.season_id).state=="closed":raise ValueError("Conflict: season is closed")
+            if not task or not self.can_view_scope(user_id,task.scope_kind,task.scope_id):raise Forbidden("Forbidden: scope access ended")
+            if session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
             if a.assignee_user_id != user_id:
-                raise ValueError("Forbidden: only assignee can submit assignment")
+                raise Forbidden("Forbidden: only assignee can submit assignment")
             if a.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
             if a.status not in ("assigned", "in_progress", "help_required", "needs_revision"):
-                raise ValueError(f"Cannot submit in status '{a.status}'")
+                raise Conflict(f"Cannot submit in status '{a.status}'")
 
             from file_access import check_attachments
             check_attachments(session,file_ids,"assignment",assignment_id,user_id)
-            if any(not link.startswith(("https://","http://")) for link in links):raise ValueError("Invalid result link")
+            if any(not link.startswith(("https://","http://")) for link in links):raise InvalidInput("Invalid result link")
             now_str = datetime.now(timezone.utc).isoformat()
             sub = SubmissionORM(
                 submission_id=f"submission-{uuid.uuid4()}",
@@ -4804,10 +4813,10 @@ class Database:
         with self._session() as session:
             a = session.get(AssignmentORM, assignment_id)
             if not a:
-                raise LookupError("Assignment not found")
+                raise NotFound("Assignment not found")
             t = session.get(TaskORM, a.task_id)
             if not t:
-                raise LookupError("Task not found")
+                raise NotFound("Task not found")
 
             season = session.get(SeasonORM, t.season_id)
             self.require_task_right(reviewer_user_id, "task.review", t, season and season.state,
@@ -4815,14 +4824,14 @@ class Database:
                                     "Forbidden: only the chair and deputies can accept/evaluate in a closed season")
 
             if a.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
 
-            if a.status != "submitted":raise ValueError("Conflict: only submitted assignments can be accepted")
+            if a.status != "submitted":raise Conflict("Conflict: only submitted assignments can be accepted")
             if evaluation not in (1.0, 1.5):
-                raise ValueError("Evaluation for accepted assignment must be 1.0 or 1.5")
+                raise InvalidInput("Evaluation for accepted assignment must be 1.0 or 1.5")
 
             if a.hours is None:
-                raise ValueError("Hours must be set before accepting assignment")
+                raise InvalidInput("Hours must be set before accepting assignment")
 
             if not a.effective_completed_at:
                 last_sub = (
@@ -4831,7 +4840,7 @@ class Database:
                     .order_by(SubmissionORM.submitted_at.desc())
                     .first()
                 )
-                if not last_sub:raise ValueError("Submission required")
+                if not last_sub:raise InvalidInput("Submission required")
                 a.effective_completed_at = last_sub.submitted_at
 
             a.status = "accepted"
@@ -4859,10 +4868,10 @@ class Database:
         with self._session() as session:
             a = session.get(AssignmentORM, assignment_id)
             if not a:
-                raise LookupError("Assignment not found")
+                raise NotFound("Assignment not found")
             t = session.get(TaskORM, a.task_id)
             if not t:
-                raise LookupError("Task not found")
+                raise NotFound("Task not found")
 
             season = session.get(SeasonORM, t.season_id)
             self.require_task_right(reviewer_user_id, "task.review", t, season and season.state,
@@ -4870,11 +4879,11 @@ class Database:
                                     "Forbidden: only the chair and deputies can request revision in a closed season")
 
             if a.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
 
-            if a.status not in ("submitted","accepted"):raise ValueError("Conflict: assignment has no reviewable result")
+            if a.status not in ("submitted","accepted"):raise Conflict("Conflict: assignment has no reviewable result")
             if not review_note or not review_note.strip():
-                raise ValueError("Review note is required")
+                raise InvalidInput("Review note is required")
 
             a.status = "needs_revision"
             a.review_note = review_note
@@ -4914,10 +4923,10 @@ class Database:
         with self._session() as session:
             a = session.get(AssignmentORM, assignment_id)
             if not a:
-                raise LookupError("Assignment not found")
+                raise NotFound("Assignment not found")
             t = session.get(TaskORM, a.task_id)
             if not t:
-                raise LookupError("Task not found")
+                raise NotFound("Task not found")
 
             season = session.get(SeasonORM, t.season_id)
             self.require_task_right(reviewer_user_id, "task.review", t, season and season.state,
@@ -4925,16 +4934,16 @@ class Database:
                                     "Forbidden: only the chair and deputies can mark not completed in a closed season")
 
             if a.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
             # A final outcome changes only through assessment inputs (A-TSK-2).
             if a.status not in UNRESOLVED_STATUSES:
-                raise ValueError("Conflict: only unresolved assignments can be marked not completed")
+                raise Conflict("Conflict: only unresolved assignments can be marked not completed")
 
             if evaluation not in (0.0, -1.0):
-                raise ValueError("Evaluation for not completed assignment must be 0 or -1")
+                raise InvalidInput("Evaluation for not completed assignment must be 0 or -1")
 
             if not reason or not reason.strip():
-                raise ValueError("Reason is required")
+                raise InvalidInput("Reason is required")
 
             old = {"status": a.status, "evaluation": a.evaluation}
             a.status = "not_completed"
@@ -4970,10 +4979,10 @@ class Database:
         with self._session() as session:
             a = session.get(AssignmentORM, assignment_id)
             if not a:
-                raise LookupError("Assignment not found")
+                raise NotFound("Assignment not found")
             t = session.get(TaskORM, a.task_id)
             if not t:
-                raise LookupError("Task not found")
+                raise NotFound("Task not found")
 
             season = session.get(SeasonORM, t.season_id)
             self.require_task_right(reviewer_user_id, "task.review", t, season and season.state,
@@ -4981,12 +4990,12 @@ class Database:
                                     "Forbidden: only the chair and deputies can cancel assignment in a closed season")
 
             if a.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
             if a.status not in UNRESOLVED_STATUSES:
-                raise ValueError("Conflict: only unresolved assignments can be cancelled")
+                raise Conflict("Conflict: only unresolved assignments can be cancelled")
 
             if not reason or not reason.strip():
-                raise ValueError("Reason is required")
+                raise InvalidInput("Reason is required")
 
             old_status, old_evaluation = a.status, a.evaluation
             a.status = "cancelled"
@@ -5083,10 +5092,10 @@ class Database:
         with self._session() as session:
             a = session.get(AssignmentORM, assignment_id)
             if not a:
-                raise LookupError("Assignment not found")
+                raise NotFound("Assignment not found")
             t = session.get(TaskORM, a.task_id)
             if not t:
-                raise LookupError("Task not found")
+                raise NotFound("Task not found")
 
             season = session.get(SeasonORM, t.season_id)
             self.require_task_right(manager_user_id, "task.review", t, season and season.state,
@@ -5094,30 +5103,30 @@ class Database:
                                     "Forbidden: only the chair and deputies can reassign in a closed season")
 
             if a.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
 
-            if a.status not in UNRESOLVED_STATUSES:raise ValueError("Conflict: only unresolved assignments can be reassigned")
+            if a.status not in UNRESOLVED_STATUSES:raise Conflict("Conflict: only unresolved assignments can be reassigned")
             from validation import hours as check_hours
             check_hours(hours)
             if previous_outcome not in ("cancelled", "not_completed"):
-                raise ValueError("previous_outcome must be 'cancelled' or 'not_completed'")
+                raise InvalidInput("previous_outcome must be 'cancelled' or 'not_completed'")
 
             if previous_outcome == "not_completed":
                 if evaluation not in (0.0, -1.0):
-                    raise ValueError("evaluation of 0 or -1 is required when outcome is not_completed")
+                    raise InvalidInput("evaluation of 0 or -1 is required when outcome is not_completed")
             elif previous_outcome == "cancelled":
                 if evaluation is not None:
-                    raise ValueError("evaluation must not be provided when outcome is cancelled")
+                    raise InvalidInput("evaluation must not be provided when outcome is cancelled")
 
             if not reason or not reason.strip():
-                raise ValueError("Reason is required")
+                raise InvalidInput("Reason is required")
 
             # Check new assignee
             new_u = session.get(UserORM, new_assignee_user_id)
             if not new_u or new_u.banned or getattr(new_u, "account_state", "active") != "active":
-                raise ValueError(f"Invalid new assignee {new_assignee_user_id}: user must be active and approved")
+                raise InvalidInput(f"Invalid new assignee {new_assignee_user_id}: user must be active and approved", "inactive_user")
             if not self.is_member_or_leader_in_scope(new_assignee_user_id, t.scope_kind, t.scope_id):
-                raise ValueError(f"New assignee {new_assignee_user_id} is not in scope")
+                raise InvalidInput(f"New assignee {new_assignee_user_id} is not in scope")
 
             # Check new assignee does not already have an active unresolved assignment on this task
             existing_active = (
@@ -5130,7 +5139,7 @@ class Database:
                 .count()
             )
             if existing_active > 0:
-                raise ValueError("409: New assignee already has an active assignment on this task")
+                raise Conflict("New assignee already has an active assignment on this task")
 
             now_str = datetime.now(timezone.utc).isoformat()
             old_status = a.status
@@ -5189,10 +5198,13 @@ class Database:
         with self._session() as session:
             t = session.get(TaskORM, task_id)
             if not t:
-                raise LookupError("Task not found")
+                raise NotFound("Task not found")
+            # Not readable at all: the same answer as a missing task (A-SEC-6).
+            if not self.can_view_scope(current_user_id, t.scope_kind, t.scope_id):
+                raise NotFound("Task not found")
             import access
             if not access.scope_inputs(current_user_id, t.scope_kind, t.scope_id, t.season_id):
-                raise ValueError("Forbidden: cannot view task assessment inputs")
+                raise Forbidden("Forbidden: cannot view task assessment inputs")
             crit_dict = {}
             try:
                 crit_dict = json.loads(t.criteria_json or "{}")
@@ -5236,7 +5248,7 @@ class Database:
         with self._session() as session:
             t = session.get(TaskORM, task_id)
             if not t:
-                raise LookupError("Task not found")
+                raise NotFound("Task not found")
             season = session.get(SeasonORM, t.season_id)
             self.require_task_right(user_id, "task.inputs.edit", t, season and season.state,
                                     "Forbidden: cannot edit task assessment inputs",
@@ -5247,9 +5259,9 @@ class Database:
             if deadline_at is not None:deadline_at=timestamp(deadline_at)
             self.require_dates_right(user_id, t, season and season.state, ((assigned_at, t.assigned_at), (deadline_at, t.deadline_at)))
             if t.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
             if not reason or not reason.strip():
-                raise ValueError("Reason is required")
+                raise InvalidInput("Reason is required")
 
             period(assigned_at or t.assigned_at,deadline_at or t.deadline_at,season.ends_at)
             old_assigned = t.assigned_at
@@ -5292,13 +5304,15 @@ class Database:
         with self._session() as session:
             a = session.get(AssignmentORM, assignment_id)
             if not a:
-                raise LookupError("Assignment not found")
+                raise NotFound("Assignment not found")
             t = session.get(TaskORM, a.task_id)
             if not t:
-                raise LookupError("Task not found")
+                raise NotFound("Task not found")
+            if not self.can_view_scope(current_user_id, t.scope_kind, t.scope_id):
+                raise NotFound("Assignment not found")
             import access
             if not access.scope_inputs(current_user_id, t.scope_kind, t.scope_id, t.season_id):
-                raise ValueError("Forbidden: cannot view assignment assessment inputs")
+                raise Forbidden("Forbidden: cannot view assignment assessment inputs")
             return _assessment_inputs_dc(a, t, current_user_id)
 
     def patch_assignment_assessment_inputs(
@@ -5314,10 +5328,10 @@ class Database:
         with self._session() as session:
             a = session.get(AssignmentORM, assignment_id)
             if not a:
-                raise LookupError("Assignment not found")
+                raise NotFound("Assignment not found")
             t = session.get(TaskORM, a.task_id)
             if not t:
-                raise LookupError("Task not found")
+                raise NotFound("Task not found")
             season = session.get(SeasonORM, t.season_id)
             self.require_task_right(user_id, "task.inputs.edit", t, season and season.state,
                                     "Forbidden: cannot edit assignment assessment inputs",
@@ -5327,11 +5341,11 @@ class Database:
             if effective_completed_at is not None:effective_completed_at=timestamp(effective_completed_at)
             self.require_dates_right(user_id, t, season and season.state, ((effective_completed_at, a.effective_completed_at),))
             if a.inputs_revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
             if not reason or not reason.strip():
-                raise ValueError("Reason is required")
+                raise InvalidInput("Reason is required")
             if evaluation is not None and a.status == "cancelled":
-                raise ValueError("Conflict: a cancelled assignment has no evaluation")
+                raise Conflict("Conflict: a cancelled assignment has no evaluation")
 
             if hours is not None:check_hours(hours)
             if effective_completed_at is not None and a.effective_completed_at and dt(effective_completed_at) == dt(a.effective_completed_at):
@@ -5344,11 +5358,11 @@ class Database:
 
             if hours is not None:
                 if hours < 0:
-                    raise ValueError("Hours cannot be negative")
+                    raise InvalidInput("Hours cannot be negative")
                 a.hours = hours
             if evaluation is not None:
                 if evaluation not in (-1.0, 0.0, 1.0, 1.5):
-                    raise ValueError("Evaluation must be -1, 0, 1, or 1.5")
+                    raise InvalidInput("Evaluation must be -1, 0, 1, or 1.5")
                 a.evaluation = evaluation
                 if evaluation in (1.0, 1.5):
                     a.status = "accepted"
@@ -5382,9 +5396,9 @@ class Database:
 
     def bulk_hours(self, items: list[dict], hours: float, reason: str, user_id: int) -> list[AssessmentInputsDC]:
         if hours < 0:
-            raise ValueError("Hours cannot be negative")
+            raise InvalidInput("Hours cannot be negative")
         if not reason or not reason.strip():
-            raise ValueError("Reason is required")
+            raise InvalidInput("Reason is required")
         with self._session() as session:
             loaded_items = []
             for item in items:
@@ -5392,16 +5406,16 @@ class Database:
                 exp_rev = item.get("expected_revision")
                 a = session.get(AssignmentORM, aid)
                 if not a:
-                    raise LookupError(f"Assignment {aid} not found")
+                    raise NotFound(f"Assignment {aid} not found")
                 t = session.get(TaskORM, a.task_id)
                 if not t:
-                    raise LookupError(f"Task for assignment {aid} not found")
+                    raise NotFound(f"Task for assignment {aid} not found")
                 season = session.get(SeasonORM, t.season_id)
                 self.require_task_right(user_id, "task.inputs.edit", t, season and season.state,
                                         f"Forbidden: cannot edit assessment inputs for assignment {aid}",
                                         "Forbidden: only the chair and deputies can edit assessment inputs in a closed season")
                 if a.inputs_revision != exp_rev:
-                    raise ValueError(f"Conflict: revision mismatch for assignment {aid}")
+                    raise revision_conflict(f"Conflict: revision mismatch for assignment {aid}")
                 loaded_items.append((a, t))
 
             res = []
@@ -5443,7 +5457,7 @@ class Database:
     ) -> list[CalculatedContributionDC]:
         import access
         if not access.allowed(current_user_id, "kkr.view"):
-            raise ValueError("Forbidden: only HR master and ta4ki can view assessments")
+            raise Forbidden("Forbidden: only HR master, the chair and deputies can view assessments")
 
         with self._session() as session:
             q = session.query(ContributionORM)
@@ -5462,7 +5476,7 @@ class Database:
             results = []
             for c in contribs:
                 u = session.get(UserORM, c.user_id)
-                u_ref = _user_to_ref_dc(u) or UserRefDC(user_id=c.user_id, display_name=f"User {c.user_id}", avatar_url=None)
+                u_ref = _user_to_ref_dc(u) or UserRefDC(user_id=c.user_id, display_name=f"Участник {c.user_id}", avatar_url=None)
                 asgn_inputs = None
                 if c.assignment_id:
                     a = session.get(AssignmentORM, c.assignment_id)
@@ -5499,19 +5513,19 @@ class Database:
         season_id = merit_data.get("season_id")
         source_kind = merit_data.get("source_kind")
         if not season_id or not source_kind:
-            raise ValueError("season_id and source_kind are required")
+            raise InvalidInput("season_id and source_kind are required")
         if source_kind not in ("head_merit", "chair_merit", "block_volunteer", "subevent_volunteer"):
-            raise ValueError(f"Invalid source_kind: {source_kind}")
+            raise InvalidInput(f"Invalid source_kind: {source_kind}")
 
         with self._session() as session:
             season = session.get(SeasonORM, season_id)
             if not season:
-                raise LookupError("Season not found")
+                raise NotFound("Season not found")
             import access
             if season.state == "closed" and not access.allowed(created_by_user_id, "summary.correct"):
-                raise ValueError("Forbidden: only the chair and deputies can create merits in a closed season")
+                raise Forbidden("Forbidden: only the chair and deputies can create merits in a closed season")
             if season.state == "planned" and source_kind not in ("head_merit", "subevent_volunteer"):
-                raise ValueError("Only head_merit and subevent_volunteer are allowed in a planned season")
+                raise InvalidInput("Only head_merit and subevent_volunteer are allowed in a planned season")
 
             event_id = merit_data.get("event_id")
             scope = merit_data.get("scope") or {}
@@ -5523,53 +5537,53 @@ class Database:
                 denied = "Forbidden: only chair and deputies can create chair_merit"
             elif source_kind == "head_merit":
                 if not event_id:
-                    raise ValueError("event_id is required for head_merit")
+                    raise InvalidInput("event_id is required for head_merit")
                 denied = "Forbidden: cannot create head_merit for this event"
             elif source_kind == "block_volunteer":
                 if not scope_id:
-                    raise ValueError("scope.id is required for block_volunteer")
+                    raise InvalidInput("scope.id is required for block_volunteer")
                 scope_kind = "block"
                 denied = "Forbidden: cannot create volunteer merit for this block"
             else:
                 if not scope_id:
-                    raise ValueError("scope.id is required for subevent_volunteer")
+                    raise InvalidInput("scope.id is required for subevent_volunteer")
                 scope_kind = "subevent"
                 if not session.get(SubeventORM, scope_id):
-                    raise LookupError("Subevent not found")
+                    raise NotFound("Subevent not found")
                 denied = "Forbidden: cannot create volunteer merit for this subevent"
             if not can_create(created_by_user_id, source_kind, event_id, scope_id):
-                raise ValueError(denied)
+                raise Forbidden(denied)
 
             from merit_rules import validate
             validate(session,merit_data)
             reason = merit_data.get("reason")
             if not reason or not str(reason).strip():
-                raise ValueError("Reason is required")
+                raise InvalidInput("Reason is required")
 
             recipients = merit_data.get("recipients", [])
             if not recipients:
-                raise ValueError("Recipients list cannot be empty")
+                raise InvalidInput("Recipients list cannot be empty")
             for r in recipients:
                 uid = r.get("user_id")
                 u = session.get(UserORM, uid)
                 if not u or u.banned or getattr(u, "account_state", "active") != "active":
-                    raise ValueError(f"Recipient {uid} must be active and approved")
+                    raise InvalidInput(f"Recipient {uid} must be active and approved", "inactive_user")
                 hrs = r.get("hours", 0.0)
                 if hrs < 0:
-                    raise ValueError("Hours cannot be negative")
+                    raise InvalidInput("Hours cannot be negative")
                 ev = r.get("evaluation")
                 if ev not in (-1.0, 0.0, 1.0, 1.5):
-                    raise ValueError("Evaluation must be -1, 0, 1, or 1.5")
+                    raise InvalidInput("Evaluation must be -1, 0, 1, or 1.5")
 
 
             assigned_at = merit_data.get("assigned_at")
             deadline_at = merit_data.get("deadline_at")
             if not assigned_at or not deadline_at:
-                raise ValueError("assigned_at and deadline_at are required")
+                raise InvalidInput("assigned_at and deadline_at are required")
 
             title = merit_data.get("title")
             if not title or not title.strip():
-                raise ValueError("Title is required")
+                raise InvalidInput("Title is required")
 
             desc = merit_data.get("description", {})
             desc_json = json.dumps(desc if isinstance(desc, dict) else {"format": "markdown", "body": str(desc)})
@@ -5626,27 +5640,27 @@ class Database:
         with self._session() as session:
             m = session.get(MeritORM, merit_id)
             if not m:
-                raise LookupError("Merit not found")
+                raise NotFound("Merit not found")
             from merit_rules import can_manage
             if not can_manage(m, current_user_id):
-                raise ValueError("Forbidden: cannot view this merit")
+                raise NotFound("Merit not found")
             return _merit_orm_to_dc(session, m, current_user_id)
 
     def patch_merit(self, merit_id: str, expected_revision: int, values: dict, reason: str, user_id: int) -> MeritDC:
         with self._session() as session:
             m = session.get(MeritORM, merit_id)
             if not m:
-                raise LookupError("Merit not found")
+                raise NotFound("Merit not found")
             season = session.get(SeasonORM, m.season_id)
             from merit_rules import can_manage
             if not can_manage(m, user_id, write=True):
-                raise ValueError("Forbidden: only the chair and deputies can edit merits in a closed season"
+                raise Forbidden("Forbidden: only the chair and deputies can edit merits in a closed season"
                                  if season and season.state == "closed" else "Forbidden: cannot edit this merit")
 
             if m.revision != expected_revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
             if not reason or not reason.strip():
-                raise ValueError("Reason is required")
+                raise InvalidInput("Reason is required")
 
             from merit_rules import validate
             candidate=dict(season_id=m.season_id,source_kind=m.source_kind,event_id=m.event_id,scope={"kind":m.scope_kind,"id":m.scope_id} if m.scope_kind else None,assigned_at=m.assigned_at,deadline_at=m.deadline_at,recipients=json.loads(m.recipients_json))
@@ -5668,10 +5682,10 @@ class Database:
                 for r in recips:
                     hrs = r.get("hours", 0.0)
                     if hrs < 0:
-                        raise ValueError("Hours cannot be negative")
+                        raise InvalidInput("Hours cannot be negative")
                     ev = r.get("evaluation")
                     if ev not in (-1.0, 0.0, 1.0, 1.5):
-                        raise ValueError("Evaluation must be -1, 0, 1, or 1.5")
+                        raise InvalidInput("Evaluation must be -1, 0, 1, or 1.5")
                 m.recipients_json = json.dumps(recips)
 
             m.reason = reason
@@ -5685,7 +5699,7 @@ class Database:
     def list_master_bonuses(self, season_id: str, current_user_id: int, block_id: Optional[str] = None) -> list[MasterBonusDC]:
         import access
         if not access.allowed(current_user_id, "kkr.view"):
-            raise ValueError("Forbidden: only HR master and ta4ki can view master bonuses")
+            raise Forbidden("Forbidden: only HR master, the chair and deputies can view master bonuses")
         with self._session() as session:
             season = session.get(SeasonORM, season_id)
             if season and season.state == "closed":
@@ -5737,11 +5751,11 @@ class Database:
     def get_season_summary(self, season_id: str, current_user_id: int) -> SeasonSummaryDC:
         import access
         if not access.allowed(current_user_id, "summary.view"):
-            raise ValueError("Forbidden: only HR master and ta4ki can view season summary")
+            raise Forbidden("Forbidden: only HR master, the chair and deputies can view season summary")
         with self._session() as session:
             season = session.get(SeasonORM, season_id)
             if not season:
-                raise LookupError("Season not found")
+                raise NotFound("Season not found")
             if season.state == "closed":
                 sum_orm = session.query(SeasonSummaryORM).filter(SeasonSummaryORM.season_id == season_id).first()
                 if sum_orm and sum_orm.rows_json:
@@ -5810,9 +5824,9 @@ class Database:
         with self._session() as session:
             t = session.get(TaskORM, task_id)
             if not t:
-                raise LookupError("Task not found")
+                raise NotFound("Task not found")
             if not (self.can_view_scope(current_user_id, t.scope_kind, t.scope_id)):
-                raise ValueError("Forbidden: cannot view comments for this task")
+                raise NotFound("Task not found")
             rows = session.query(CommentORM).filter(CommentORM.task_id == task_id).order_by(CommentORM.created_at.asc()).all()
             return [_comment_orm_to_dc(session, c, current_user_id) for c in rows]
 
@@ -5820,13 +5834,13 @@ class Database:
         with self._session() as session:
             t = session.get(TaskORM, task_id)
             if not t:
-                raise LookupError("Task not found")
+                raise NotFound("Task not found")
             if not (self.can_view_scope(author_user_id, t.scope_kind, t.scope_id)):
-                raise ValueError("Forbidden: cannot comment on this task")
+                raise Forbidden("Forbidden: cannot comment on this task")
 
             body = content.get("body", "") if isinstance(content, dict) else str(content)
             if not body or not body.strip():
-                raise ValueError("Comment body cannot be empty")
+                raise InvalidInput("Comment body cannot be empty")
 
             c = CommentORM(
                 comment_id=f"comment-{uuid.uuid4()}",
@@ -5846,15 +5860,15 @@ class Database:
         with self._session() as session:
             c = session.get(CommentORM, comment_id)
             if not c:
-                raise LookupError("Comment not found")
+                raise NotFound("Comment not found")
             task=session.get(TaskORM,c.task_id)
-            if not task or not self.can_view_scope(user_id,task.scope_kind,task.scope_id):raise ValueError("Forbidden: scope access ended")
+            if not task or not self.can_view_scope(user_id,task.scope_kind,task.scope_id):raise Forbidden("Forbidden: scope access ended")
             if c.author_user_id != user_id:
-                raise ValueError("Forbidden: cannot edit someone else's comment")
+                raise Forbidden("Forbidden: cannot edit someone else's comment")
 
             body = content.get("body", "") if isinstance(content, dict) else str(content)
             if not body or not body.strip():
-                raise ValueError("Comment body cannot be empty")
+                raise InvalidInput("Comment body cannot be empty")
 
             now_str = datetime.now(timezone.utc).isoformat()
             hist = []
@@ -5886,10 +5900,12 @@ class Database:
         user_id: int,
     ) -> FileRecordDC:
         with self._session() as session:
-            from file_access import validate_metadata, permitted
+            from file_access import validate_metadata, permitted, owner_exists
             mime_type = validate_metadata(owner_kind,purpose,name,mime_type,size_bytes)
+            if not owner_exists(session, owner_kind, owner_id):
+                raise NotFound(f"{owner_kind.capitalize()} not found")
             if owner_kind=="avatar":
-                if owner_id is not None and owner_id!=str(user_id):raise ValueError("Forbidden: avatar owner mismatch")
+                if owner_id is not None and owner_id!=str(user_id):raise Forbidden("Forbidden: avatar owner mismatch")
                 owner_id=str(user_id)
             fid = f"file-{uuid.uuid4()}"
             now = datetime.now(timezone.utc)
@@ -5907,7 +5923,7 @@ class Database:
                 created_at=now.isoformat(),
                 expires_at=expires,
             )
-            if not permitted(session,fr,user_id,True):raise ValueError("Forbidden: invalid file owner context")
+            if not permitted(session,fr,user_id,True):raise Forbidden("Forbidden: invalid file owner context")
             session.add(fr)
             session.commit()
             return _file_orm_to_dc(fr)
@@ -6008,7 +6024,7 @@ def _load_leaders(session: Session, scope_kind: str, scope_id: str, role: str) -
         ).all()
         dep_uids = [d.user_id for d in dep_rows]
         u = session.get(UserORM, r.user_id)
-        display_name = f"User {r.user_id}"
+        display_name = f"Участник {r.user_id}"
         photo_url = None
         if u and u.contact:
             parts = [u.contact.surname, u.contact.name, u.contact.patronymic]

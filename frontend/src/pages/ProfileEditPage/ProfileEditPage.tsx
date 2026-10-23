@@ -37,6 +37,7 @@ export const ProfileEditPage = () => {
   });
 
   const { formik: profileFormik, globalError: profileError } = useForm({
+    errorTexts: { 409: "Эта почта уже зарегистрирована." },
     initialValues: {
       surname: user?.surname || "",
       name: user?.name || "",
@@ -97,6 +98,7 @@ export const ProfileEditPage = () => {
     isSuccess: passwordSuccess,
     setIsSuccess: setPasswordSuccess
   } = useForm({
+    errorTexts: { 400: "Неверный текущий пароль." },
     initialValues: {
       oldPassword: "",
       newPassword: "",

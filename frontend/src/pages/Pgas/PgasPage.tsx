@@ -200,7 +200,7 @@ export const PgasPage = () => {
         <div className={styles.pageHeaderText}>
           <h1 className={styles.pageTitle}>ПГАС</h1>
           <p className={styles.pageSubtitle}>
-            Документы на повышенную государственную академическую стипендию
+            Документы для ПГАС
           </p>
         </div>
 

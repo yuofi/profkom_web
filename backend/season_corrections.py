@@ -1,5 +1,6 @@
 """An administrative season correction moves the complete hierarchy atomically."""
 
+from errors import Conflict, Forbidden, InvalidInput, NotFound, revision_conflict, season_closed
 import uuid
 from database import (
     db,
@@ -23,23 +24,23 @@ def correct(kind, id, revision, target_id, reason, uid):
     import access
 
     if not access.allowed(uid, "season.correct"):
-        raise ValueError("Forbidden: only tachki can correct season")
+        raise Forbidden("Forbidden: only the chair and deputies can correct season")
     if not reason or not reason.strip():
-        raise ValueError("Reason is required")
+        raise InvalidInput("Reason is required")
     with db.atomic():
         with db._session() as s:
             target = s.get(SeasonORM, target_id)
             if not target:
-                raise LookupError("Target season not found")
+                raise NotFound("Target season not found")
             if target.state == "closed":
-                raise ValueError("Conflict: target season is closed")
+                raise season_closed("Conflict: target season is closed")
             tasks = []
             merits = []
             reports = []
             if kind == "event":
                 obj = s.get(EventORM, id)
                 if not obj:
-                    raise LookupError("Event not found")
+                    raise NotFound("Event not found")
                 subs = [
                     r.subevent_id for r in s.query(SubeventORM).filter_by(event_id=id)
                 ]
@@ -73,38 +74,38 @@ def correct(kind, id, revision, target_id, reason, uid):
                     .all()
                 )
                 if obj.ends_at and dt(obj.ends_at) > dt(target.ends_at):
-                    raise ValueError("Event deadline exceeds target season")
+                    raise InvalidInput("Event deadline exceeds target season")
             elif kind == "block_task":
                 obj = s.get(TaskORM, id)
                 if not obj or obj.scope_kind != "block":
-                    raise LookupError("Block task not found")
+                    raise NotFound("Block task not found")
                 tasks = [obj]
             elif kind == "merit":
                 obj = s.get(MeritORM, id)
                 if not obj:
-                    raise LookupError("Merit not found")
+                    raise NotFound("Merit not found")
                 if obj.source_kind not in ("chair_merit", "block_volunteer"):
-                    raise ValueError("Only independent merits can move separately")
+                    raise InvalidInput("Only independent merits can move separately")
                 merits = [obj]
             else:
-                raise ValueError("Invalid correction object kind")
+                raise InvalidInput("Invalid correction object kind")
             if obj.revision != revision:
-                raise ValueError("Conflict: revision mismatch")
+                raise revision_conflict()
             source_id = obj.season_id
             source = s.get(SeasonORM, source_id)
             if source_id == target_id:
-                raise ValueError("Source and target must differ")
+                raise InvalidInput("Source and target must differ")
             if not source or source.state == "closed":
-                raise ValueError("Conflict: source season is closed")
+                raise season_closed("Conflict: source season is closed")
             if kind != "event" and target.state == "planned":
-                raise ValueError("Only event hierarchy can move to a planned season")
+                raise InvalidInput("Only event hierarchy can move to a planned season")
             for item in [*tasks, *merits]:
                 if item.season_id != source_id:
-                    raise ValueError("Conflict: inconsistent hierarchy season")
+                    raise Conflict("Conflict: inconsistent hierarchy season")
                 if dt(item.deadline_at) > dt(target.ends_at):
-                    raise ValueError("Child deadline exceeds target season")
+                    raise InvalidInput("Child deadline exceeds target season")
             if any(r.season_id != source_id for r in reports):
-                raise ValueError("Conflict: inconsistent report season")
+                raise Conflict("Conflict: inconsistent report season")
             if kind == "event":
                 obj.season_id = target_id
                 obj.revision += 1

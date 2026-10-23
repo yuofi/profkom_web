@@ -69,8 +69,9 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def fail(code, message):
-    raise HTTPException(code, message)
+def fail(status, message, code=None):
+    """An HTTP error; `code` names a case the client words on its own (FIX_PLAN 2.13)."""
+    raise HTTPException(status, {"code": code, "message": message} if code else message)
 
 
 def audit(s, kind, id, uid, reason, old, new):
@@ -133,7 +134,7 @@ def registration_status(uid):
 
 def version(r, expected):
     if r.revision != expected:
-        fail(409, "Revision conflict")
+        fail(409, "Revision conflict", "revision_conflict")
 
 
 def append_history(r, action, uid, reason=None, **extra):
@@ -161,7 +162,7 @@ def register_routes(router):
             fields = payload.fields.model_dump(mode="json")
             old = json.loads(r.fields_json)
             if db.email_taken(fields["email"], cur.user_id):
-                fail(409, "Email already registered")
+                fail(409, "Email already registered", "email_taken")
             was_complete = complete(r)
             r.fields_json = json.dumps(fields, ensure_ascii=False)
             append_history(r, "edit_fields", cur.user_id)
@@ -270,7 +271,7 @@ def register_routes(router):
                     u = s.get(UserORM, user_id)
                     c = s.get(ContactInfoORM, user_id)
                     if db.email_taken(str(fields.email), user_id):
-                        fail(409, "Email already registered")
+                        fail(409, "Email already registered", "email_taken")
                     for k in (
                         "surname",
                         "name",

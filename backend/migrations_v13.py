@@ -153,7 +153,7 @@ def preserve_closed_summaries():
                         bonuses_json=json.dumps(bonuses, ensure_ascii=False),
                         previous_summary_version=previous.version if previous else None,
                         changed_by_user_id=None,
-                        reason="Preserved legacy approved summary",
+                        reason="Утверждённая сводная перенесена со старого сайта",
                         created_at=now(),
                     )
                 )

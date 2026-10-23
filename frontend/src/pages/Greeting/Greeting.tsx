@@ -11,10 +11,21 @@ import { authApi } from "../../utils/api/auth.api";
 import { VKAuthButton } from "../../components/VKAuth/authButton";
 import { type TokenResult } from "@vkid/sdk";
 import { completeAuthentication } from "../../utils/authSession";
-import { normalizeApiError } from "../../utils/api/request";
+import { userMessage } from "../../utils/api/messages";
 import { useNavigate } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
 import { useQueryClient } from "@tanstack/react-query";
+
+// The login routes answer with plain strings (old site): the texts go by status.
+const LOGIN_TEXTS = {
+  401: "Неверная почта или пароль. Если вы входили только через VK, войдите через VK.",
+  403: "Вход недоступен: аккаунт заблокирован или в архиве.",
+};
+const VK_TEXTS = {
+  401: "Не удалось войти через VK. Повторите попытку.",
+  403: LOGIN_TEXTS[403],
+  503: "VK временно недоступен. Повторите позже.",
+};
 
 export const GreetingPage = () => {
   const [signUp, setSignUp] = useState(true);
@@ -28,6 +39,7 @@ export const GreetingPage = () => {
   const { formik, isSuccess, globalError, setGlobalError } = useForm({
     initialValues: { email: "", password: "" },
     validationSchema: SignInValidationSchema,
+    errorTexts: LOGIN_TEXTS,
     onSubmit: async (data) => {
       const response = await authApi.login({ email: data.email, password: data.password });
       await completeAuthentication(queryClient, response.data.access_token);
@@ -44,7 +56,7 @@ export const GreetingPage = () => {
       await completeAuthentication(queryClient, response.data.access_token);
       navigate("/", { replace: true });
     } catch (error) {
-      setGlobalError(normalizeApiError(error).message);
+      setGlobalError(userMessage(error, VK_TEXTS));
     }
   };
   const handleLoginError = () => {
@@ -99,7 +111,7 @@ export const GreetingPage = () => {
               />
             ) : (
               <>
-                <FormTextField name="email" label="email" type="email" />
+                <FormTextField name="email" label="почта" type="email" />
 
                 <FormTextField
                   name="password"

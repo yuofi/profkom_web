@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { endSession } from "../authSession";
-import { normalizeApiError } from "../api/request";
+import { userMessage } from "../api/messages";
 
 export function useLogout() {
   const client = useQueryClient();
@@ -16,7 +16,7 @@ export function useLogout() {
       await endSession(client);
       navigate("/auth", { replace: true });
     } catch (failure) {
-      setError(`Не удалось завершить сессию: ${normalizeApiError(failure).message}`);
+      setError(`Не удалось завершить сессию. ${userMessage(failure)}`);
     } finally { setBusy(false); }
   };
   return { logout, busy, error };

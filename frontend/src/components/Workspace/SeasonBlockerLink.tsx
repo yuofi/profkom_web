@@ -3,6 +3,7 @@ import { tasksApi } from "../../utils/api/tasks.api";
 import type { SeasonBlocker } from "../../utils/api/contract";
 import { getSeasonRoute, getTaskRoute, targetRoute } from "../../utils/routes";
 import { RouteLink } from "./WorkspaceUI";
+import { blockerText } from "../../utils/api/messages";
 
 export function SeasonBlockerLink({
   blocker,
@@ -31,10 +32,10 @@ export function SeasonBlockerLink({
       : null
     : targetRoute({ kind: blocker.owner_kind, id: blocker.owner_id });
   return link ? (
-    <RouteLink to={link}>{blocker.title}</RouteLink>
+    <RouteLink to={link}>{blockerText(blocker)}</RouteLink>
   ) : (
     <>
-      <span>{blocker.title}</span>{" "}
+      <span>{blockerText(blocker)}</span>{" "}
       <span>
         {tasks.isLoading
           ? "Ищем назначение…"

@@ -2,12 +2,12 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { directoryApi } from "../../utils/api/directory.api";
 import { filesApi } from "../../utils/api/files.api";
-import { normalizeApiError } from "../../utils/api/request";
 import { fileAccept } from "../../utils/filePolicy";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { QueryState } from "./WorkspaceUI";
 import { Image } from "../Image/Image";
 import s from "./Workspace.module.css";
+import { userMessage } from "../../utils/api/messages";
 export function AvatarPicker() {
   const query = useQuery({
     queryKey: ["avatars"],
@@ -26,7 +26,7 @@ export function AvatarPicker() {
       await perform(action);
       setSuccess(true);
     } catch (e) {
-      setError(normalizeApiError(e).message);
+      setError(userMessage(e));
     } finally {
       setBusy(false);
     }

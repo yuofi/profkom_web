@@ -239,8 +239,7 @@ export function LeadershipPage() {
               onSubmit={async (v, expectedRevision) => {
                 const selected = ids(v, "users");
                 requireEligible(selected);
-                if (selected.length > 3)
-                  throw Error("Можно назначить не более трёх заместителей");
+                // The server checks the limit and names it: 422 deputy_limit (2.13).
                 const saved = await sessionApi.deputies(selected, {
                   expected_revision: expectedRevision!,
                 });

@@ -20,8 +20,8 @@ def test_removal_changes_access_revision_and_blocks_task_comments_files(client, 
     assert before["access_revision"] != after["access_revision"]
     assert before["assignments"] == after["assignments"]
     assert before["capabilities"] == after["capabilities"]
-    assert client.get(f"/api/tasks/{tid}", headers=headers).status_code == 403
-    assert client.get(f"/api/tasks/{tid}/comments", headers=headers).status_code == 403
+    assert client.get(f"/api/tasks/{tid}", headers=headers).status_code == 404
+    assert client.get(f"/api/tasks/{tid}/comments", headers=headers).status_code == 404
     assert client.get(f"/api/files/{intent['file_id']}/download", headers=headers).status_code == 404
     assert client.get("/api/session", headers=headers).json()["access_revision"] == after["access_revision"]
 

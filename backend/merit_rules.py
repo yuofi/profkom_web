@@ -1,3 +1,4 @@
+from errors import InvalidInput, NotFound
 import json
 from database import db, SeasonORM, EventORM, SubeventORM, BlockORM, UserORM
 from validation import period, hours, assessment, timestamp
@@ -40,43 +41,43 @@ def validate(s, data):
     scope = data.get("scope") or {}
     event_id = data.get("event_id")
     if not season:
-        raise LookupError("Season not found")
+        raise NotFound("Season not found")
     if source == "head_merit":
         if scope or not event_id:
-            raise ValueError("head_merit requires only event_id")
+            raise InvalidInput("head_merit requires only event_id")
         event = s.get(EventORM, event_id)
         if not event:
-            raise LookupError("Event not found")
+            raise NotFound("Event not found")
         if event.season_id != season.season_id:
-            raise ValueError("Merit season must match event season")
+            raise InvalidInput("Merit season must match event season")
     elif source == "subevent_volunteer":
         if event_id or scope.get("kind") != "subevent":
-            raise ValueError("subevent_volunteer requires only subevent scope")
+            raise InvalidInput("subevent_volunteer requires only subevent scope")
         sub = s.get(SubeventORM, scope.get("id"))
         if not sub:
-            raise LookupError("Subevent not found")
+            raise NotFound("Subevent not found")
         if s.get(EventORM, sub.event_id).season_id != season.season_id:
-            raise ValueError("Merit season must match subevent season")
+            raise InvalidInput("Merit season must match subevent season")
     elif source == "block_volunteer":
         if (
             event_id
             or scope.get("kind") != "block"
             or not s.get(BlockORM, scope.get("id"))
         ):
-            raise ValueError("block_volunteer requires only block scope")
+            raise InvalidInput("block_volunteer requires only block scope")
     elif source == "chair_merit":
         if event_id or scope:
-            raise ValueError("chair_merit has no scope or event")
+            raise InvalidInput("chair_merit has no scope or event")
     else:
-        raise ValueError("Unknown merit source")
+        raise InvalidInput("Unknown merit source")
     period(data["assigned_at"], data["deadline_at"], season.ends_at)
     recipients = data["recipients"]
     if not recipients or len({r["user_id"] for r in recipients}) != len(recipients):
-        raise ValueError("Recipients must be nonempty and unique")
+        raise InvalidInput("Recipients must be nonempty and unique", "duplicate_users")
     for r in recipients:
         u = s.get(UserORM, r["user_id"])
         if not u or u.account_state != "active" or u.banned:
-            raise ValueError("Recipient must be active and approved")
+            raise InvalidInput("Recipient must be active and approved", "inactive_user")
         hours(r["hours"])
         assessment(r["evaluation"], r.get("completed_at"))
         if source.endswith("_volunteer") and in_scope_at(
@@ -86,4 +87,4 @@ def validate(s, data):
             scope["id"],
             r.get("completed_at") or data["deadline_at"],
         ):
-            raise ValueError("Recipient belonged to this scope when work was performed")
+            raise InvalidInput("Recipient belonged to this scope when work was performed")

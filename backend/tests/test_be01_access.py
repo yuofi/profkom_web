@@ -136,12 +136,13 @@ def test_лимит_заместителей_не_более_трех(client, su
 
     # 4 зама — превышение лимита
     r = client.put(DEPUTIES_URL, json={'expected_revision':db.get_leadership().revision,"user_ids": [u1.user_id, u2.user_id, u3.user_id, u4.user_id]}, headers=superuser.headers)
-    assert r.status_code in (400, 422)
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "deputy_limit"
+    assert r.json()["detail"]["fields"] == {"limit": 3}
 
 
 def test_нельзя_назначить_председателя_в_замы(client, superuser):
     r = client.put(DEPUTIES_URL, json={'expected_revision':db.get_leadership().revision,"user_ids": [superuser.user_id]}, headers=superuser.headers)
-    assert r.status_code in (400, 422)
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "self_deputy"
 
 
 def test_снятие_заместителя_отбирает_права(client, superuser, make_user):
@@ -218,13 +219,13 @@ def test_нельзя_передать_председательство_архи
     archived = make_user()
     db.update_user(archived.user_id, account_state="archived")
 
-    # Передача архивному отклоняется
+    # Передача архивному — конфликт состояния участника (решение 42)
     r = client.post(TRANSFER_URL, json={'expected_revision':db.get_leadership().revision,"new_chair_user_id": archived.user_id}, headers=superuser.headers)
-    assert r.status_code in (400, 404, 422)
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "inactive_user"
 
-    # Передача несуществующему отклоняется
+    # Передача несуществующему — ошибка ввода
     r = client.post(TRANSFER_URL, json={'expected_revision':db.get_leadership().revision,"new_chair_user_id": 999999}, headers=superuser.headers)
-    assert r.status_code == 404
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "unknown_user"
 
 
 def test_восстановление_архивного_аккаунта_не_возвращает_руководство(client, superuser, make_user):

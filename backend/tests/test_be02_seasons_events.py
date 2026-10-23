@@ -290,15 +290,16 @@ def test_subevents_изоляция_списков_не_раскрывает_ч�
     assert "Лекции" in sub_titles
     assert "Квест" not in sub_titles
 
-    # user пытается напрямую открыть чужое подмероприятие "Квест" -> 403 Forbidden!
+    # user пытается напрямую открыть чужое подмероприятие "Квест" -> 404, как несуществующее (A-SEC-6)
     r_direct = client.get(f"/api/subevents/{sub2_id}", headers=user.headers)
-    assert r_direct.status_code == 403
+    assert r_direct.status_code == 404
+    assert r_direct.json() == client.get("/api/subevents/subevent-missing", headers=user.headers).json()
 
-    # user3 (вообще не участвует) видит пустой список и 403 на прямой доступ
+    # user3 (вообще не участвует) видит пустой список и 404 на прямой доступ
     r_subs_user3 = client.get(f"{EVENTS_URL}/{ev_id}/subevents", headers=user3.headers)
     assert r_subs_user3.status_code == 200
     assert len(r_subs_user3.json()["items"]) == 0
-    assert client.get(f"/api/subevents/{sub1_id}", headers=user3.headers).status_code == 403
+    assert client.get(f"/api/subevents/{sub1_id}", headers=user3.headers).status_code == 404
 
     # Председатель/тачки видят оба подмероприятия
     r_subs_su = client.get(f"{EVENTS_URL}/{ev_id}/subevents", headers=superuser.headers)
@@ -443,13 +444,14 @@ def test_deputies_валидация_лимита_и_запрет_самоназ
     lead = r_ev.json()["leaders"][0]
     lead_aid = lead["role_assignment_id"]
 
-    # Самоназначение руководителя своим замом -> 409
+    # Самоназначение руководителя своим замом -> 422
     r_self = client.put(f"/api/role-assignments/{lead_aid}/deputies", json={"user_ids": [user.user_id], "expected_revision": 1}, headers=superuser.headers)
-    assert r_self.status_code == 409
+    assert r_self.status_code == 422 and r_self.json()["detail"]["code"] == "self_deputy"
 
-    # Лимит замов: максимум 2. Попытка назначить 3 -> 409
+    # Лимит замов: максимум 2. Попытка назначить 3 -> 422
     r_overflow = client.put(f"/api/role-assignments/{lead_aid}/deputies", json={"user_ids": [user2.user_id, user3.user_id, 9999], "expected_revision": 1}, headers=superuser.headers)
-    assert r_overflow.status_code == 409
+    assert r_overflow.status_code == 422 and r_overflow.json()["detail"]["code"] == "deputy_limit"
+    assert r_overflow.json()["detail"]["fields"] == {"limit": 2}
 
 
 def test_block_leader_назначение_мастера_не_добавляет_в_члены(client, superuser, user):
@@ -503,8 +505,8 @@ def test_meeting_главный_созвон_скрыт_от_организат�
     # 2. Ответственный user2 видит главный созвон
     assert client.get(f"{EVENTS_URL}/{ev_id}/meeting", headers=user2.headers).status_code == 200
 
-    # 3. Организатор user3 НЕ видит главный созвон -> 403 Forbidden!
-    assert client.get(f"{EVENTS_URL}/{ev_id}/meeting", headers=user3.headers).status_code == 403
+    # 3. Организатор user3 НЕ видит главный созвон -> 404, как без доступа к объекту (A-SEC-6)
+    assert client.get(f"{EVENTS_URL}/{ev_id}/meeting", headers=user3.headers).status_code == 404
 
 
 def test_meeting_созвон_подмероприятия_доступен_организатору(client, superuser, user, make_user):
@@ -541,8 +543,8 @@ def test_meeting_созвон_подмероприятия_доступен_ор
         "title": "Хак", "starts_at": "2026-03-02T19:00:00Z", "join_url": "https://hack.me"
     }, headers=user2.headers).status_code == 403
 
-    # Посторонний user3 не видит созвон -> 403
-    assert client.get(f"/api/subevents/{sub_id}/meeting", headers=user3.headers).status_code == 403
+    # Посторонний user3 не видит созвон -> 404
+    assert client.get(f"/api/subevents/{sub_id}/meeting", headers=user3.headers).status_code == 404
 
     # Удаление созвона
     r_del = client.delete(f"/api/subevents/{sub_id}/meeting", headers=user.headers)
@@ -583,7 +585,7 @@ def test_meeting_без_объявления_200_null(client, superuser, user, m
         assert (r.status_code, r.json()["detail"]["code"]) == (404, "not_found"), path
     for path in (event_meeting, sub_meeting):
         r = client.get(path, headers=outsider.headers)
-        assert r.status_code == 403, path
+        assert r.status_code == 404, path
         assert "join_url" not in r.text
 
 
@@ -673,7 +675,7 @@ def test_series_choice_on_creation_continues_history(client, superuser, user, ma
 
     count = len(client.get(f"{EVENTS_URL}/{new['event_id']}/subevents", headers=superuser.headers).json()["items"])
     r = client.post(f"{EVENTS_URL}/{new['event_id']}/subevents", json={"title": "Чужая серия", "report_series_id": foreign_sub["report_series_id"]}, headers=user.headers)
-    assert r.status_code == 409, r.text
+    assert r.status_code == 422, r.text
     assert len(client.get(f"{EVENTS_URL}/{new['event_id']}/subevents", headers=superuser.headers).json()["items"]) == count
     r = client.post(f"{EVENTS_URL}/{new['event_id']}/subevents", json={"title": "Лекции 2027", "report_series_id": old_sub["report_series_id"]}, headers=user.headers)
     assert r.status_code == 200, r.text

@@ -267,7 +267,7 @@ export function CalendarPage() {
   return (
     <Page
       title="Календарь"
-      description="Дедлайны, мероприятия и доступные созвоны. Время московское (МСК)."
+      description="Дедлайны, мероприятия и доступные созвоны. Время указано по МСК."
     >
       <div className={s.filters}>
         <label className={s.field}>

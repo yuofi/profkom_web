@@ -74,13 +74,15 @@ it.each(["pending", "rejected", "active"] as const)("A03: password and VK login 
 
 it("A03: VK SDK and API failures are visible", async () => {
   adapter = new MockAdapter(api);
-  adapter.onPost("/auth/vk").reply(403, { detail: { code: "denied", message: "VK временно недоступен" } });
+  // As backend/vk_auth.py answers when VK ID does not respond: a legacy string detail.
+  adapter.onPost("/auth/vk").reply(503, { detail: "VK ID is unavailable" });
   page = await mountWorkspace(<HelmetProvider><GreetingPage /></HelmetProvider>);
   await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "VK error")!.click());
   expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("Не удалось войти через VK");
   await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "VK test")!.click());
   await settle();
   expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("VK временно недоступен");
+  expect(page.container.querySelector('[role="alert"]')?.textContent).not.toContain("VK ID is");
 });
 
 it("A03: pending logout revokes the server session and clears private caches before navigation", async () => {
