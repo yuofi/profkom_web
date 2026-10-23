@@ -3,7 +3,7 @@ import { afterEach, expect, it } from "vitest";
 import { Route, Routes, useLocation } from "react-router-dom";
 import axios from "axios";
 import { liveLogin, liveParticipant, livePassword } from "../../test/liveApi";
-import { mountWorkspace, settle, change, submit } from "../../test/workspace";
+import { mountWorkspace, waitForPage, change, submit } from "../../test/workspace";
 import { guidesApi } from "../../utils/api/guides.api";
 import { materialsApi } from "../../utils/api/materials.api";
 import { api } from "../../utils/api";
@@ -15,10 +15,8 @@ afterEach(async () => { await page?.cleanup(); page = undefined; });
 function Location() {
   return <output aria-label="Текущий путь">{useLocation().pathname}</output>;
 }
-async function until(predicate: () => boolean) {
-  for (let i = 0; i < 100 && !predicate(); i++) await settle();
-  expect(predicate()).toBe(true);
-}
+const until = (predicate: () => boolean) => waitForPage(page!, predicate);
+const publishButton = () => Array.from(page!.container.querySelectorAll("button")).find(b => b.textContent === "Опубликовать сохранённый черновик");
 function form(label: string) {
   const button = Array.from(page!.container.querySelectorAll("button")).find(b => b.textContent === label);
   expect(button).toBeDefined();
@@ -47,7 +45,8 @@ it("L2: a real legacy URL opens its material, saves a private draft, then publis
   expect(page.container.textContent).not.toContain("изменения сразу видны читателям");
   await change(page.container.querySelector("textarea")!, newBody);
   await submit(form("Сохранить черновик"));
-  await until(() => page!.container.textContent!.includes("Опубликовать сохранённый черновик"));
+  // The publish button is always rendered; it becomes enabled once the saved draft exists.
+  await until(() => page!.container.textContent!.includes("Изменения сохранены") && publishButton()?.disabled === false);
   const draft = await materialsApi.get(materialId);
   expect(draft.draft_content?.body).toBe(newBody);
   expect(draft.published_content?.body).toBe(oldBody);
@@ -57,7 +56,8 @@ it("L2: a real legacy URL opens its material, saves a private draft, then publis
   expect((await readonly.get(`/guides/${guide.guide_id}`)).data.text).toBe(oldBody);
   expect(page.container.textContent).toContain("Старая публикация L2");
   await submit(form("Опубликовать сохранённый черновик"));
-  await until(() => !page!.container.textContent!.includes("Опубликовать сохранённый черновик"));
+  // The publish button stays on the page; the published card switching to the new text is the signal.
+  await until(() => !page!.container.textContent!.includes("Старая публикация L2"));
   expect((await materialsApi.get(materialId)).published_content?.body).toBe(newBody);
   expect((await readonly.get(`/guides/${guide.guide_id}`)).data.text).toBe(newBody);
   expect((await readonly.get(`/materials/${materialId}`)).data.published_content.body).toBe(newBody);

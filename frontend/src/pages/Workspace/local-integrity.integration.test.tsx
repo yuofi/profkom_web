@@ -6,7 +6,7 @@ import { focusManager } from "@tanstack/react-query";
 import axios from "axios";
 import { api } from "../../utils/api";
 import { liveLogin, liveParticipant, livePassword } from "../../test/liveApi";
-import { mountWorkspace, settle, change, field, submit } from "../../test/workspace";
+import { mountWorkspace, waitForPage, change, field, submit } from "../../test/workspace";
 import { materialsApi } from "../../utils/api/materials.api";
 import { reportsApi } from "../../utils/api/reports.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
@@ -22,10 +22,7 @@ import { TaskPage } from "./TaskPages";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 afterEach(async () => { await page?.cleanup(); page = undefined; focusManager.setFocused(undefined); });
-async function until(predicate: () => boolean) {
-  for (let n = 0; n < 150 && !predicate(); n++) await settle();
-  expect(predicate(), page?.container.textContent ?? "No page").toBe(true);
-}
+const until = (predicate: () => boolean) => waitForPage(page!, predicate);
 async function actorClient(email: string) {
   const baseURL = api.defaults.baseURL!;
   expect(["127.0.0.1", "localhost"]).toContain(new URL(baseURL).hostname);
@@ -49,10 +46,10 @@ function form(label: string) {
 }
 async function click(container: ParentNode, label: string) {
   const b = Array.from(container.querySelectorAll("button")).find(b => b.textContent === label);
-  expect(b).toBeDefined(); await act(async () => b!.click()); await settle();
+  expect(b).toBeDefined(); await act(async () => b!.click()); await waitForPage(page!);
 }
 async function refetch(key: string) {
-  await act(async () => { await page!.client.invalidateQueries({queryKey: [key]}); }); await settle();
+  await act(async () => { await page!.client.invalidateQueries({queryKey: [key]}); }); await waitForPage(page!);
 }
 async function save(editor: HTMLFormElement) {
   await submit(editor);

@@ -31,3 +31,7 @@ certs/*
 profcom.session.sql
 graphify-out
 .gemini
+
+# Playwright
+test-results
+playwright-report

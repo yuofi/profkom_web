@@ -1,22 +1,49 @@
 """Disposable localhost API for frontend HTTP/browser acceptance, never production.
 
-Run from backend/: python tests/live_api.py --database /tmp/new-test-dir/site.db
-The target must be a new file under the system temporary directory.
+Run from backend/: python tests/live_api.py --port 18080 [--database /tmp/new-test-dir/site.db]
+The target must be a new file under the system temporary directory. The port is always
+explicit: 18000 belongs to the developer stand. --integration-suite serves a one-time nonce
+that the destructive frontend integration suite must present before its first test
+(PROFKOM_TEST_API_NONCE overrides the generated value).
 """
 
 import argparse
 import os
 from pathlib import Path
+import secrets
 import sys
 import tempfile
+
+
+def install_integration_nonce(app, nonce):
+    if os.environ.get("APP_ENV") != "integration-test":
+        raise RuntimeError("The integration nonce is served only by the disposable integration API")
+
+    @app.get("/_test/integration-nonce", include_in_schema=False)
+    def integration_nonce():
+        return {"nonce": nonce}
+
+
+def install_request_log(app, path):
+    """Append 'METHOD /path' for every request, to verify what a client really sent."""
+
+    @app.middleware("http")
+    async def log_request(request, call_next):
+        with path.open("a", encoding="utf-8") as log:
+            log.write(f"{request.method} {request.url.path}\n")
+        return await call_next(request)
 
 
 def serve():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", type=Path)
-    parser.add_argument("--port", type=int, default=18000)
+    parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--frontend-origin", default="http://localhost:15173")
+    parser.add_argument("--integration-suite", action="store_true")
+    parser.add_argument("--request-log", type=Path)
     args = parser.parse_args()
+    if args.port == 18000:
+        parser.error("Port 18000 belongs to the developer stand; pick another free port")
     database = (
         args.database or Path(tempfile.mkdtemp(prefix="profkom-live-")) / "site.db"
     ).resolve()
@@ -69,6 +96,15 @@ def serve():
     from live_storage import install
 
     install(main.app, args.port)
+    if args.request_log:
+        install_request_log(main.app, args.request_log.resolve())
+    if args.integration_suite:
+        nonce = os.environ.get("PROFKOM_TEST_API_NONCE") or secrets.token_hex(16)
+        install_integration_nonce(main.app, nonce)
+        print(
+            f"PROFKOM_TEST_API_ORIGIN=http://127.0.0.1:{args.port} PROFKOM_TEST_API_NONCE={nonce}",
+            flush=True,
+        )
     import uvicorn
 
     uvicorn.run(main.app, host="127.0.0.1", port=args.port)

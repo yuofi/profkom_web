@@ -8,7 +8,7 @@ python -m pytest tests/test_v13_*.py -q
 python -m pytest tests/test_api_contract.py -q
 ```
 
-Always specify `tests`: the root-level `test_api.py` is a developer scratch script. `run_tests.sh tests -q` remains a convenience wrapper for a local environment; CI creates an isolated environment. TestClient imports the real app, but conftest sets DATABASE_PATH before any app import, asserts the synthetic URL, cleans every domain table between cases and deletes its temporary DB afterwards. S3/VK are mocked. Migration subprocesses use separate temporary legacy databases. Never point this suite at shared or production data.
+`pytest.ini` limits collection to `tests/`, so `python -m pytest` and `./run_tests.sh` without a path run the whole suite. The old scratch script lives in `scripts/manual_db_probe.py` and is never collected. `run_tests.sh` remains a convenience wrapper for a local environment; CI creates an isolated environment. TestClient imports the real app, but conftest sets DATABASE_PATH before any app import, asserts the synthetic URL, cleans every domain table between cases and deletes its temporary DB afterwards. S3/VK are mocked. Migration subprocesses use separate temporary legacy databases. Never point this suite at shared or production data.
 
 The route inventory in test_api_contract is a literal snapshot. Adding a route requires updating that snapshot and its public/protected classification. The matrix checks every route against anonymous, banned and malformed-token requests, including error envelopes and OpenAPI security. Error helpers validate the actual wire format before comparing diagnostics; they do not replace TestClient responses.
 
@@ -22,9 +22,28 @@ Frontend checks from `frontend/`:
 npm run lint
 npm run build
 npm test -- --run
-PROFKOM_TEST_API_ORIGIN=http://127.0.0.1:18000 npm run test:integration
 ```
+
+The integration suite destroys data (it closes seasons), so it has no default target. Start a disposable API on a free port from `backend/`; it creates a new temporary database and prints a nonce:
+
+```sh
+python tests/live_api.py --integration-suite --port 18080
+```
+
+Then run from `frontend/` with both values; without them, or if the API does not return the same nonce, the suite stops before the first test:
+
+```sh
+PROFKOM_TEST_API_ORIGIN=http://127.0.0.1:18080 PROFKOM_TEST_API_NONCE=<printed nonce> npm run test:integration
+```
+
+Browser checks (Playwright, `e2e/`) open the production build through `vite preview`. Build it with `VITE_BACKEND_URL` of a disposable `tests/live_api.py`, `VITE_DEMO_MODE=false`, then run from `frontend/` with an installed Chromium-based browser (no browser is downloaded):
+
+```sh
+PROFKOM_BROWSER=<path to the browser executable> PROFKOM_E2E_PORT=49180 npm run test:e2e
+```
+
+Every page may reach only localhost: other requests are aborted and listed by `e2e/fixtures.ts`, and a check fails on an unknown external origin. Projects cover desktop 1280×900 and mobile 390×844.
 
 The default suite excludes integration tests. The integration configuration only accepts localhost and calls the actual HTTP API through frontend clients. Use a disposable backend with synthetic chair@example.com / Synthetic-Local-2026; never provision these credentials on a shared installation. Integration exercises pending registration, approval of the same user, safe directory DTOs and material save/publication. Browser verification uses VITE_DEMO_MODE=false against the same local API.
 
-`check_live.py` targets a running server and may create users unless `--read-only` is supplied. It is separate from isolated tests. Real provider VK verification, private S3 PUT/HEAD/GET/CORS, production migrations, image builds and deployed smoke tests must be reported separately from mocked/local checks.
+`check_live.py` targets a running server and follows the API 1.3 contract. Without `--read-only` it registers a pending user (or, with `--email`, also sends denied writes and edits then restores the account's own `location`). `--read-only` sends only GET and CORS preflight, plus `POST /api/auth/login`, `/refresh` and `/logout` with `--email`. `tests/test_check_live.py` runs every mode against a disposable `tests/live_api.py` and checks the request log. It is separate from isolated tests. Real provider VK verification, private S3 PUT/HEAD/GET/CORS, production migrations, image builds and deployed smoke tests must be reported separately from mocked/local checks.

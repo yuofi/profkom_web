@@ -2,7 +2,7 @@
 import { afterEach, expect, it } from "vitest";
 import { Route, Routes } from "react-router-dom";
 import { liveLogin, liveParticipant, liveCloseSeasons } from "../../test/liveApi";
-import { mountWorkspace, settle, change, field, submit } from "../../test/workspace";
+import { mountWorkspace, waitForPage, change, field, submit } from "../../test/workspace";
 import { eventsApi } from "../../utils/api/events.api";
 import { membershipApi } from "../../utils/api/membership.api";
 import { tasksApi } from "../../utils/api/tasks.api";
@@ -46,7 +46,7 @@ it("INT-01: real session opens only the manager's queue and loses access with th
   const session = await liveLogin(master.email);
   expect(session.capabilities).toContain("view_unresolved_assignments");
   page = await mountWorkspace(<Routes><Route path="/tasks/unresolved" element={<UnresolvedPage />} /></Routes>, { path: "/tasks/unresolved", session });
-  for (let i = 0; i < 30 && !page.container.textContent?.includes(task.title); i++) await settle();
+  await waitForPage(page, () => !!page!.container.textContent?.includes(task.title));
   expect(page.container.textContent).toContain(task.title);
   expect(page.container.textContent).not.toContain("Нет доступа к очереди");
   await page.cleanup(); page = undefined;
@@ -75,7 +75,7 @@ it("INT-02: real report readers can open both publications without seeing the sh
   expect(read.capabilities).toContain("view_report_versions");
   expect(read.capabilities).not.toContain("edit_report");
   page = await mountWorkspace(<Routes><Route path="/reports/:id" element={<ReportPage />} /></Routes>, { path: `/reports/${report.report_id}`, session: reader });
-  for (let i = 0; i < 30 && !page.container.textContent?.includes("Первая публикация HTTP"); i++) await settle();
+  await waitForPage(page, () => !!page!.container.textContent?.includes("Первая публикация HTTP"));
   expect(page.container.textContent).toContain("Опубликованные версии");
   expect(page.container.textContent).toContain("Первая публикация HTTP");
   expect(page.container.textContent).toContain("Вторая публикация HTTP");
@@ -91,9 +91,9 @@ it("INT-03: closed correction keeps old totals immutable and exposes provenance 
   const row = summary.rows.find(r => r.user.user_id !== null)!;
   summary = await seasonsApi.decisions(closed.season_id, row.user.user_id!, { expected_version: summary.version, decisions: ["nice"], reason: "INT-03 новая отметка" });
   page = await mountWorkspace(<Routes><Route path="/seasons/:id/summary" element={<SummaryPage />} /></Routes>, { path: `/seasons/${closed.season_id}/summary`, session });
-  for (let i = 0; i < 40 && !page.container.querySelector('select'); i++) await settle();
+  await waitForPage(page, () => !!page!.container.querySelector('select'));
   await change(page.container.querySelector('select')!, String(old.version));
-  for (let i = 0; i < 40 && !page.container.querySelector('[aria-label="Историческая сводная"]'); i++) await settle();
+  await waitForPage(page, () => !!page!.container.querySelector('[aria-label="Историческая сводная"]'));
   let historical = page.container.querySelector('[aria-label="Историческая сводная"]')!;
   expect(historical.textContent).toContain(`Историческая версия ${old.version}`);
   expect(historical.textContent).toContain(old.reason);
@@ -101,7 +101,7 @@ it("INT-03: closed correction keeps old totals immutable and exposes provenance 
   const oldText = historical.textContent;
   await seasonsApi.decisions(closed.season_id, row.user.user_id!, { expected_version: summary.version, decisions: ["golden_red_bull"], reason: "INT-03 ещё одна коррекция" });
   await act(async () => invalidateWorkspace(page!.client));
-  await settle();
+  await waitForPage(page);
   expect((await seasonsApi.summaryVersion(closed.season_id, old.version))).toEqual(old);
   historical = page.container.querySelector('[aria-label="Историческая сводная"]')!;
   expect(historical.textContent).toBe(oldText);
@@ -115,7 +115,7 @@ it("INT-04: a real approved profile with @username and no patronymic can save on
   page = await mountWorkspace(<HelmetProvider><UserContext.Provider value={profile}><ProfileEditPage /></UserContext.Provider></HelmetProvider>, { session });
   await change(field(page.container, "surname"), "Обновлена без отчества");
   await submit(page.container.querySelector('form')!);
-  for (let i = 0; i < 30 && !page.container.textContent?.includes("Профиль успешно обновлён"); i++) await settle();
+  await waitForPage(page, () => !!page!.container.textContent?.includes("Профиль успешно обновлён"));
   expect(page.container.textContent).toContain("Профиль успешно обновлён");
   const read = (await authApi.getMe()).data;
   expect(read.surname).toBe("Обновлена без отчества"); expect(read.patronymic).toBe(""); expect(read.tg).toBe(profile.tg);

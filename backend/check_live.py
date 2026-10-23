@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Проверка ЖИВОГО бэкенда Профком ВМК.
+Проверка ЖИВОГО бэкенда Профком ВМК (контракт API 1.3).
 
 Отдельный процесс, не требующий pytest, venv и вообще каких-либо
 зависимостей — только стандартная библиотека Python 3.9+.
@@ -12,9 +12,15 @@
     python3 check_live.py --read-only              # ничего не создаёт
     python3 check_live.py --email a@b.ru --password ... --read-only
 
-По умолчанию скрипт РЕГИСТРИРУЕТ временного пользователя, чтобы
-проверить защищённые маршруты. На боевом сервере запускайте с
---read-only либо с учёткой существующего пользователя.
+По умолчанию скрипт РЕГИСТРИРУЕТ временного пользователя. Он остаётся
+неодобренным, поэтому проверяется доступ заявки, а не участника.
+Проверки одобренного участника требуют --email/--password.
+
+--read-only отправляет только GET (и CORS preflight OPTIONS), а с
+--email ещё вход, обновление токена и выход: POST /api/auth/login,
+/api/auth/refresh, /api/auth/logout. Проверки запретов, которым нужен
+POST/PATCH/DELETE, и правка своего профиля в этом режиме пропускаются.
+Без --read-only правка своего профиля возвращает прежнее значение.
 
 Код возврата: 0 — все проверки прошли, 1 — есть провалы.
 """
@@ -188,6 +194,9 @@ def expect_fields(obj: Any, fields: list[str], where: str) -> None:
 
 
 # ─────────────────────────── сценарии ───────────────────────────
+READ_ONLY_SKIP = "режим --read-only: проверка отправляет изменяющий запрос"
+
+
 def run_public(api: Api, rep: Report) -> None:
     print(BOLD("\n▸ Публичные маршруты (без авторизации)"))
 
@@ -201,45 +210,24 @@ def run_public(api: Api, rep: Report) -> None:
 
     check(rep, "GET /openapi.json — схема отдаётся", openapi)
 
-    def blocks():
-        st, body, _ = api.request("GET", "/api/blocks")
-        expect_status(st, 200, "/api/blocks", body)
-        assert isinstance(body, list), "ожидался список блоков"
-        if body:
-            expect_fields(body[0], ["name", "master", "hr", "cnt_of_human", "arr_of_human"], "block")
-            assert isinstance(body[0]["arr_of_human"], list), "arr_of_human должен быть списком, а не строкой"
-        return f"блоков: {len(body)}"
+    def closed(path: str):
+        def probe():
+            st, body, _ = api.request("GET", path)
+            if st == 200 and isinstance(body, list) and body:
+                assert False, f"{path} доступен БЕЗ авторизации: {len(body)} записей — утечка содержимого"
+            expect_status(st, 401, f"{path} без токена", body)
+            return ""
+        return probe
 
-    check(rep, "GET /api/blocks — список блоков", blocks)
-
-    def guides_anon():
-        st, body, _ = api.request("GET", "/api/guides")
-        expect_status(st, 200, "/api/guides", body)
-        assert isinstance(body, list), "ожидался список гайдов"
-        for g in body:
-            ob = (g.get("owner_block") or "").strip().lower()
-            assert ob in ("", "none", "all"), (
-                f"анониму виден гайд '{g.get('title')}' блока '{g.get('owner_block')}' — "
-                "утечка приватного контента"
-            )
-        return f"публичных гайдов: {len(body)}"
-
-    check(rep, "GET /api/guides — аноним видит только публичные", guides_anon)
-
-    def contacts_exposure():
-        st, body, _ = api.request("GET", "/api/contacts")
-        if st == 200 and isinstance(body, list) and body:
-            sample = body[0]
-            leaked = [f for f in ("email", "phone", "vk", "tg") if sample.get(f)]
-            assert False, (
-                f"справочник контактов доступен БЕЗ авторизации: {len(body)} записей, "
-                f"в них персональные данные {leaked}. Маршрут обязан требовать авторизацию."
-            )
-        if st == 200:
-            return "справочник пуст, утечки нет"
-        return f"маршрут закрыт (HTTP {st}) — так и должно быть"
-
-    check(rep, "GET /api/contacts — справочник НЕ должен быть публичным", contacts_exposure)
+    # API 1.3: содержимое видно только одобренным участникам (AUTH-01).
+    for path, what in [
+        ("/api/blocks", "блоки"),
+        ("/api/guides", "гайды"),
+        ("/api/contacts", "справочник контактов"),
+        ("/api/session", "сессия"),
+        ("/api/profile/me", "профиль"),
+    ]:
+        check(rep, f"GET {path} без токена → 401 ({what})", closed(path))
 
     def unknown_path():
         st, _, _ = api.request("GET", "/api/definitely-not-a-route")
@@ -247,13 +235,6 @@ def run_public(api: Api, rep: Report) -> None:
         return ""
 
     check(rep, "GET несуществующего пути → 404", unknown_path)
-
-    def protected_without_token():
-        st, body, _ = api.request("GET", "/api/profile/me")
-        expect_status(st, 401, "/api/profile/me без токена", body)
-        return ""
-
-    check(rep, "GET /api/profile/me без токена → 401", protected_without_token)
 
     def bad_token():
         # заголовок кодируется в latin-1, поэтому мусор должен быть ASCII
@@ -282,7 +263,8 @@ def run_public(api: Api, rep: Report) -> None:
     check(rep, "CORS не отражает произвольный Origin", cors)
 
 
-def run_auth(api: Api, rep: Report, args) -> Optional[dict]:
+def run_auth(api: Api, rep: Report, args) -> Optional[str]:
+    """Входит или регистрирует временную учётку; возвращает режим или None."""
     print(BOLD("\n▸ Авторизация"))
 
     if args.email and args.password:
@@ -296,7 +278,7 @@ def run_auth(api: Api, rep: Report, args) -> Optional[dict]:
             return f"вошли как {args.email}"
 
         r = check(rep, "POST /api/auth/login — вход существующей учёткой", login_existing)
-        return {"mode": "existing"} if r.ok else None
+        return "existing" if r.ok else None
 
     if args.read_only:
         rep.add(Result(
@@ -367,31 +349,219 @@ def run_auth(api: Api, rep: Report, args) -> Optional[dict]:
         return ""
 
     check(rep, "POST /api/auth/login с неизвестным email → 401", login_unknown)
+    return "temp"
 
-    return {"mode": "temp", "creds": creds}
+
+def run_session(api: Api, rep: Report) -> Optional[dict]:
+    """GET /api/session доступен и заявке, и участнику; по нему выбираются проверки."""
+    print(BOLD("\n▸ Сессия"))
+    state: dict[str, Any] = {}
+
+    def session():
+        st, body, _ = api.request("GET", "/api/session", auth=True)
+        expect_status(st, 200, "/api/session", body)
+        expect_fields(
+            body,
+            ["user_id", "account_state", "registration_status", "access_revision", "capabilities"],
+            "SessionOut",
+        )
+        assert isinstance(body["capabilities"], list), "capabilities должен быть списком"
+        state["session"] = body
+        return (f"user_id={body['user_id']}, account_state={body['account_state']}, "
+                f"registration_status={body['registration_status']}")
+
+    if not check(rep, "GET /api/session — состояние учётки", session).ok:
+        return None
+
+    def registration():
+        st, body, _ = api.request("GET", "/api/registrations/me", auth=True)
+        expect_status(st, 200, "/api/registrations/me", body)
+        expect_fields(body, ["user_id", "status", "revision"], "RegistrationOut")
+        assert body["status"] == state["session"]["registration_status"], (
+            f"статус заявки {body['status']!r} не совпадает с сессией "
+            f"{state['session']['registration_status']!r}"
+        )
+        return f"заявка: {body['status']}"
+
+    check(rep, "GET /api/registrations/me — своя заявка", registration)
+    return state["session"]
 
 
-def run_authenticated(api: Api, rep: Report) -> None:
-    if not api.token:
-        return
-    print(BOLD("\n▸ Защищённые маршруты"))
+def run_pending(api: Api, rep: Report, session: dict) -> None:
+    print(BOLD("\n▸ Неодобренная учётка"))
+
+    def no_capabilities():
+        assert session["capabilities"] == [], f"у неодобренной учётки права {session['capabilities']}"
+        return ""
+
+    check(rep, "GET /api/session — у заявки нет прав", no_capabilities)
+
+    def forbidden(path: str):
+        def probe():
+            st, body, _ = api.request("GET", path, auth=True)
+            expect_status(st, 403, f"{path} неодобренной учёткой", body)
+            return ""
+        return probe
+
+    for path in ("/api/profile/me", "/api/blocks", "/api/guides", "/api/contacts"):
+        check(rep, f"GET {path} до одобрения → 403", forbidden(path))
+
+
+def run_approved(api: Api, rep: Report, session: dict, read_only: bool) -> None:
+    print(BOLD("\n▸ Одобренный участник"))
 
     state: dict[str, Any] = {}
+    caps = set(session.get("capabilities") or [])
+    is_chair = bool(session.get("super_user") or (session.get("leadership") or {}).get("is_chair"))
 
     def me():
         st, body, _ = api.request("GET", "/api/profile/me", auth=True)
         expect_status(st, 200, "/api/profile/me", body)
+        # kkr_score отдаётся только председателю, замам и мастеру HR (API 1.3).
         expect_fields(
             body,
-            ["user_id", "email", "kkr_name", "kkr_score", "group_number", "blocks",
+            ["user_id", "email", "kkr_name", "group_number", "blocks",
              "banned", "super_user", "admin", "has_password"],
             "MeOut",
         )
+        if "kkr_score" in body:
+            assert isinstance(body["kkr_score"], (int, float)), f"kkr_score={body['kkr_score']!r}"
+        assert body["user_id"] == session["user_id"], "профиль не совпадает с сессией"
         state["me"] = body
-        return f"user_id={body['user_id']}, admin={body['admin']}, super_user={body['super_user']}"
+        return f"user_id={body['user_id']}, ККР {'виден' if 'kkr_score' in body else 'скрыт'}"
 
     if not check(rep, "GET /api/profile/me — профиль текущего пользователя", me).ok:
         return
+
+    def blocks():
+        st, body, _ = api.request("GET", "/api/blocks", auth=True)
+        expect_status(st, 200, "/api/blocks", body)
+        assert isinstance(body, list), "ожидался список блоков"
+        if body:
+            expect_fields(body[0], ["block_id", "name", "is_hr", "members", "revision", "capabilities"], "BlockOut")
+            assert isinstance(body[0]["members"], list), "members должен быть списком"
+        return f"блоков: {len(body)}"
+
+    check(rep, "GET /api/blocks — список блоков", blocks)
+
+    def contacts():
+        st, body, _ = api.request("GET", "/api/contacts", auth=True)
+        expect_status(st, 200, "/api/contacts", body)
+        assert isinstance(body, list), "ожидался список контактов"
+        return f"контактов: {len(body)}"
+
+    check(rep, "GET /api/contacts — справочник участника", contacts)
+
+    def guides():
+        st, body, _ = api.request("GET", "/api/guides", auth=True)
+        expect_status(st, 200, "/api/guides", body)
+        assert isinstance(body, list), "ожидался список"
+        if body:
+            expect_fields(body[0], ["guide_id", "title", "owner_block", "text", "description"], "GuideOut")
+            state["guide_id"] = body[0]["guide_id"]
+        return f"доступно гайдов: {len(body)}"
+
+    check(rep, "GET /api/guides — список гайдов", guides)
+
+    def guide_one():
+        gid = state.get("guide_id")
+        if gid is None:
+            raise SkipCheck("на сервере нет ни одного доступного гайда")
+        st, body, _ = api.request("GET", f"/api/guides/{gid}", auth=True)
+        expect_status(st, 200, f"/api/guides/{gid}", body)
+        expect_fields(body, ["guide_id", "title", "owner_block", "text"], "GuideOut")
+        return f"гайд #{gid}: {body['title']!r}"
+
+    check(rep, "GET /api/guides/{id} — один гайд", guide_one)
+
+    def guide_404():
+        st, body, _ = api.request("GET", "/api/guides/99999999", auth=True)
+        expect_status(st, 404, "несуществующий гайд", body)
+        assert body.get("detail") == "Guide not found", f"detail={body.get('detail')!r}"
+        return ""
+
+    check(rep, "GET /api/guides/{id} несуществующего → 404", guide_404)
+
+    def writing(fn):
+        """Изменяющие проверки не выполняются в режиме --read-only."""
+        def wrapped():
+            if read_only:
+                raise SkipCheck(READ_ONLY_SKIP)
+            return fn()
+        return wrapped
+
+    def guides_create_forbidden():
+        if "create_material" in caps:
+            raise SkipCheck("учётка может создавать материалы — проверка запрета неприменима")
+        st, body, _ = api.request("POST", "/api/guides", {"title": "проверка прав"}, auth=True)
+        expect_status(st, 403, "создание гайда без права create_material", body)
+        return "участник без права не может создавать гайды"
+
+    check(rep, "POST /api/guides без права → 403", writing(guides_create_forbidden))
+
+    def blocks_create_forbidden():
+        if is_chair:
+            raise SkipCheck("учётка председателя — проверка запрета неприменима")
+        st, body, _ = api.request("POST", "/api/blocks", {"name": f"tmp{uuid.uuid4().hex[:6]}", "master": "x"}, auth=True)
+        expect_status(st, 403, "создание блока не председателем", body)
+        return ""
+
+    check(rep, "POST /api/blocks не председателем → 403", writing(blocks_create_forbidden))
+
+    def delete_other_forbidden():
+        if is_chair:
+            # председателю этот маршрут архивирует учётку — не вызывать
+            raise SkipCheck("учётка председателя — проверка запрета неприменима")
+        st, body, _ = api.request("DELETE", "/api/profile/1", auth=True)
+        assert st in (403, 404), f"удаление чужого профиля вернуло {st}, ожидалось 403 или 404"
+        return f"HTTP {st}"
+
+    check(rep, "DELETE /api/profile/{id} не председателем → 403", writing(delete_other_forbidden))
+
+    def legacy_upload_refused():
+        st, body, _ = api.request(
+            "POST", "/api/upload/presigned-url",
+            {"folder": "guides", "content_type": "image/png"}, auth=True,
+        )
+        assert st in (403, 409), (
+            f"устаревший presigned-url вернул {st}, ожидался отказ 409 (или 403)"
+            f"\nтело ответа: {json.dumps(body, ensure_ascii=False)[:300]}"
+        )
+        return f"HTTP {st}: загрузка идёт через /api/files/upload-intents"
+
+    check(rep, "POST /api/upload/presigned-url — устаревший маршрут отказывает", writing(legacy_upload_refused))
+
+    def patch_self():
+        uid = state["me"]["user_id"]
+        before = state["me"].get("location") or ""
+        marker = f"проверка {uuid.uuid4().hex[:6]}"
+        st, body, _ = api.request("PATCH", f"/api/profile/{uid}", {"location": marker}, auth=True)
+        try:
+            expect_status(st, 200, f"PATCH /api/profile/{uid}", body)
+            _, me2, _ = api.request("GET", "/api/profile/me", auth=True)
+            assert me2.get("location") == marker, f"изменение не сохранилось: location={me2.get('location')!r}"
+        finally:
+            restored, _, _ = api.request("PATCH", f"/api/profile/{uid}", {"location": before}, auth=True)
+        expect_status(restored, 200, "возврат прежнего location")
+        _, me3, _ = api.request("GET", "/api/profile/me", auth=True)
+        assert (me3.get("location") or "") == before, f"прежнее значение не вернулось: {me3.get('location')!r}"
+        return "изменение сохраняется, прежнее значение возвращено"
+
+    check(rep, "PATCH /api/profile/{id} — правка своего профиля", writing(patch_self))
+
+    def patch_foreign():
+        uid = state["me"]["user_id"]
+        target = 1 if uid != 1 else 2
+        st, body, _ = api.request("PATCH", f"/api/profile/{target}", {"location": "взлом"}, auth=True)
+        assert st in (403, 404), f"правка чужого профиля вернула {st}, ожидалось 403 или 404"
+        return f"HTTP {st}"
+
+    check(rep, "PATCH /api/profile/{id} чужого профиля → 403", writing(patch_foreign))
+
+
+def run_token_lifecycle(api: Api, rep: Report) -> None:
+    print(BOLD("\n▸ Токены"))
+    state: dict[str, Any] = {}
 
     def refresh():
         assert "refresh_token" in api.cookies, "нет cookie refresh_token — нечего обновлять"
@@ -413,113 +583,12 @@ def run_authenticated(api: Api, rep: Report) -> None:
         saved = api.cookies.get("refresh_token")
         api.cookies["refresh_token"] = old
         st, _, _ = api.request("POST", "/api/auth/refresh")
-        api.cookies["refresh_token"] = saved
+        if saved:
+            api.cookies["refresh_token"] = saved
         expect_status(st, 401, "повторное использование старого refresh-токена")
         return "старый токен отозван, как и должно быть"
 
     check(rep, "POST /api/auth/refresh старым токеном → 401", reuse_rotated)
-
-    def guides_auth():
-        st, body, _ = api.request("GET", "/api/guides", auth=True)
-        expect_status(st, 200, "/api/guides", body)
-        assert isinstance(body, list), "ожидался список"
-        if body:
-            expect_fields(body[0], ["guide_id", "title", "owner_block", "text", "description"], "GuideOut")
-            state["guide_id"] = body[0]["guide_id"]
-        return f"доступно гайдов: {len(body)}"
-
-    check(rep, "GET /api/guides — список с авторизацией", guides_auth)
-
-    def guide_one():
-        gid = state.get("guide_id")
-        if gid is None:
-            raise SkipCheck("на сервере нет ни одного доступного гайда")
-        st, body, _ = api.request("GET", f"/api/guides/{gid}", auth=True)
-        expect_status(st, 200, f"/api/guides/{gid}", body)
-        expect_fields(body, ["guide_id", "title", "owner_block", "text"], "GuideOut")
-        return f"гайд #{gid}: {body['title']!r}"
-
-    check(rep, "GET /api/guides/{id} — один гайд", guide_one)
-
-    def guide_404():
-        st, body, _ = api.request("GET", "/api/guides/99999999", auth=True)
-        expect_status(st, 404, "несуществующий гайд", body)
-        assert body.get("detail") == "Guide not found", f"detail={body.get('detail')!r}"
-        return ""
-
-    check(rep, "GET /api/guides/{id} несуществующего → 404", guide_404)
-
-    is_privileged = bool(state.get("me", {}).get("super_user") or state.get("me", {}).get("admin"))
-
-    def guides_create_forbidden():
-        if is_privileged:
-            raise SkipCheck("учётка привилегированная — проверка запрета неприменима")
-        st, body, _ = api.request("POST", "/api/guides", {"title": "проверка прав"}, auth=True)
-        expect_status(st, 403, "создание гайда обычным пользователем", body)
-        return "обычный пользователь не может создавать гайды"
-
-    check(rep, "POST /api/guides обычным пользователем → 403", guides_create_forbidden)
-
-    def blocks_create_forbidden():
-        if state.get("me", {}).get("super_user"):
-            raise SkipCheck("учётка суперпользователя — проверка запрета неприменима")
-        st, body, _ = api.request("POST", "/api/blocks", {"name": f"tmp{uuid.uuid4().hex[:6]}", "master": "x"}, auth=True)
-        expect_status(st, 403, "создание блока без прав суперпользователя", body)
-        return ""
-
-    check(rep, "POST /api/blocks без прав → 403", blocks_create_forbidden)
-
-    def contacts_filter_forbidden():
-        if is_privileged:
-            raise SkipCheck("учётка привилегированная — проверка запрета неприменима")
-        st, body, _ = api.request("POST", "/api/contacts/filter", {}, auth=True)
-        expect_status(st, 403, "фильтр контактов без прав администратора", body)
-        assert body.get("detail") == "Admin rights required", f"detail={body.get('detail')!r}"
-        return ""
-
-    check(rep, "POST /api/contacts/filter без прав → 403", contacts_filter_forbidden)
-
-    def delete_other_forbidden():
-        if state.get("me", {}).get("super_user"):
-            raise SkipCheck("учётка суперпользователя — проверка запрета неприменима")
-        st, body, _ = api.request("DELETE", "/api/profile/1", auth=True)
-        assert st in (403, 404), f"удаление чужого профиля вернуло {st}, ожидалось 403 или 404"
-        return f"HTTP {st}"
-
-    check(rep, "DELETE /api/profile/{id} без прав → 403", delete_other_forbidden)
-
-    def upload_guides_forbidden():
-        if is_privileged:
-            raise SkipCheck("учётка привилегированная — проверка запрета неприменима")
-        st, body, _ = api.request(
-            "POST", "/api/upload/presigned-url",
-            {"folder": "guides", "content_type": "image/png"}, auth=True,
-        )
-        expect_status(st, 403, "presigned-url в папку guides без прав", body)
-        return ""
-
-    check(rep, "POST /api/upload/presigned-url в 'guides' без прав → 403", upload_guides_forbidden)
-
-    def patch_self():
-        uid = state.get("me", {}).get("user_id")
-        st, body, _ = api.request("PATCH", f"/api/profile/{uid}", {"location": "проверка"}, auth=True)
-        expect_status(st, 200, f"PATCH /api/profile/{uid}", body)
-        st2, me2, _ = api.request("GET", "/api/profile/me", auth=True)
-        assert me2.get("location") == "проверка", f"изменение не сохранилось: location={me2.get('location')!r}"
-        return "изменение профиля сохраняется"
-
-    check(rep, "PATCH /api/profile/{id} — правка своего профиля", patch_self)
-
-    def patch_foreign():
-        uid = state.get("me", {}).get("user_id")
-        target = 1 if uid != 1 else 2
-        if is_privileged:
-            raise SkipCheck("учётка привилегированная — проверка запрета неприменима")
-        st, body, _ = api.request("PATCH", f"/api/profile/{target}", {"location": "взлом"}, auth=True)
-        assert st in (403, 404), f"правка чужого профиля вернула {st}, ожидалось 403 или 404"
-        return f"HTTP {st}"
-
-    check(rep, "PATCH /api/profile/{id} чужого профиля → 403", patch_foreign)
 
     def logout():
         st, body, _ = api.request("POST", "/api/auth/logout", auth=True)
@@ -527,6 +596,24 @@ def run_authenticated(api: Api, rep: Report) -> None:
         return ""
 
     check(rep, "POST /api/auth/logout — выход", logout)
+
+
+def run_authenticated(api: Api, rep: Report, mode: str, read_only: bool) -> None:
+    session = run_session(api, rep)
+    if session is not None:
+        approved = session["account_state"] == "active" and session["registration_status"] == "approved"
+        if approved:
+            run_approved(api, rep, session, read_only)
+        else:
+            run_pending(api, rep, session)
+            if mode == "temp":
+                rep.add(Result(
+                    "Проверки одобренного участника",
+                    True,
+                    "временная учётка ждёт одобрения: для этих проверок передайте --email/--password",
+                    skipped=True,
+                ))
+    run_token_lifecycle(api, rep)
 
 
 def main() -> int:
@@ -540,7 +627,8 @@ def main() -> int:
     parser.add_argument("--email", help="email существующей учётки вместо регистрации временной")
     parser.add_argument("--password", help="пароль к --email")
     parser.add_argument("--read-only", action="store_true",
-                        help="не создавать и не изменять данные на сервере")
+                        help="не создавать и не изменять данные на сервере: только GET, "
+                             "а с --email ещё вход, обновление токена и выход")
     parser.add_argument("--timeout", type=float, default=15.0, help="таймаут запроса, секунд")
     parser.add_argument("--insecure", action="store_true", help="не проверять TLS-сертификат")
     args = parser.parse_args()
@@ -558,9 +646,9 @@ def main() -> int:
 
     try:
         run_public(api, rep)
-        run_auth(api, rep, args)
-        if not args.read_only or args.email:
-            run_authenticated(api, rep)
+        mode = run_auth(api, rep, args)
+        if mode:
+            run_authenticated(api, rep, mode, args.read_only)
     except ConnectionError as e:
         print(RED(f"\n  Сервер недоступен: {e}"))
         return 1

@@ -54,6 +54,32 @@ export const settle = async () => {
     await new Promise((resolve) => setTimeout(resolve, 15));
   });
 };
+/**
+ * Waits inside act until the predicate holds and React Query has no request or mutation in
+ * flight for two checks in a row, so late HTTP responses cannot update the page outside act.
+ * Bounded by time, not by a number of iterations: a slow real API must not flip the result.
+ */
+export async function waitForPage(
+  page: { client: QueryClient; container?: HTMLElement },
+  predicate: () => boolean = () => true,
+  timeout = 15000,
+) {
+  const started = Date.now();
+  let quiet = 0;
+  while (quiet < 2) {
+    await settle();
+    const idle = page.client.isFetching() === 0 && page.client.isMutating() === 0;
+    quiet = predicate() && idle ? quiet + 1 : 0;
+    if (quiet < 2 && Date.now() - started > timeout) {
+      const busy = page.client.getQueryCache().findAll({ fetchStatus: "fetching" }).map((q) => JSON.stringify(q.queryKey));
+      throw Error(
+        `The page did not reach the expected state within ${timeout} ms ` +
+          `(predicate ${predicate()}, fetching [${busy.join(", ")}], mutating ${page.client.isMutating()}): ` +
+          (page.container?.textContent?.slice(0, 2000) ?? ""),
+      );
+    }
+  }
+}
 export async function change(
   element: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement,
   value: string,
