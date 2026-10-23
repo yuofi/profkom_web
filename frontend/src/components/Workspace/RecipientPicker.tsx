@@ -1,8 +1,10 @@
 import { useState } from "react";
 import s from "./Workspace.module.css";
 
+/** Every multiple choice of people: search, checkboxes and chips of the chosen (A-ROL-13). */
 export function RecipientPicker({
   id,
+  name,
   options,
   value,
   onChange,
@@ -10,6 +12,7 @@ export function RecipientPicker({
   describedBy,
 }: {
   id: string;
+  name?: string;
   options: { value: string; label: string }[];
   value: string[];
   onChange: (value: string[]) => void;
@@ -24,6 +27,7 @@ export function RecipientPicker({
         .includes(search.trim().toLocaleLowerCase("ru")) ||
       value.includes(p.value),
   );
+  const label = (v: string) => options.find((p) => p.value === v)?.label ?? v;
   return (
     <div
       id={id}
@@ -33,7 +37,7 @@ export function RecipientPicker({
       aria-describedby={describedBy}
     >
       <label className={s.field} htmlFor={`${id}-search`}>
-        Поиск получателей
+        Поиск
       </label>
       <input
         id={`${id}-search`}
@@ -42,11 +46,28 @@ export function RecipientPicker({
         onChange={(e) => setSearch(e.target.value)}
       />
       <p>Выбрано: {value.length}</p>
+      {value.length > 0 && (
+        <ul className={s.chips} aria-label="Выбранные">
+          {value.map((v) => (
+            <li key={v}>
+              <button
+                type="button"
+                className={s.chip}
+                aria-label={`Убрать: ${label(v)}`}
+                onClick={() => onChange(value.filter((x) => x !== v))}
+              >
+                {label(v)} ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       <div className={s.recipientOptions}>
         {filtered.map((p) => (
           <label className={s.row} key={p.value}>
             <input
               type="checkbox"
+              name={name}
               value={p.value}
               checked={value.includes(p.value)}
               onChange={(e) =>

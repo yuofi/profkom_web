@@ -13,6 +13,7 @@ import { ActionForm, type Field } from "./ActionForm";
 import { number, text } from "./formValues";
 import { Loading, QueryState } from "./WorkspaceUI";
 import { revisionSnapshot, snapshotRevisions } from "./revisionSnapshot";
+import { advanceOwn, recordOwnChange, useOwnRevisions } from "./ownRevisions";
 import s from "./Workspace.module.css";
 const criteriaNames: Record<string, string> = {
   unique: "Уникальная задача",
@@ -37,6 +38,9 @@ export function AssessmentPanel({
   if (!can(assignment, "view_assessment_inputs")) return null;
   const inputs = query.data;
   const savedEvaluation = inputs?.evaluation == null ? "" : String(inputs.evaluation);
+  const savedCompleted = inputs?.effective_completed_at ? moscowInput(inputs.effective_completed_at) : "";
+  // The completion date is moved by the chair, deputies and HR master only (УВ-5).
+  const datesEditable = can(inputs, "edit_assessment_dates");
   return (
     <details className={s.details} open={open || undefined}>
       <summary>Исходные поля оценивания</summary>
@@ -55,6 +59,8 @@ export function AssessmentPanel({
               <ActionForm
                 key={assignment.assignment_id}
                 revision={inputs.revision}
+                record={`assignment-inputs:${assignment.assignment_id}`}
+                adoptWhenUntouched
                 fields={[
                   {
                     name: "hours",
@@ -79,14 +85,16 @@ export function AssessmentPanel({
                           })),
                         },
                       ]),
-                  {
-                    name: "completed",
-                    label: "Расчётная дата выполнения, МСК",
-                    type: "datetime-local",
-                    value: inputs.effective_completed_at
-                      ? moscowInput(inputs.effective_completed_at)
-                      : "",
-                  },
+                  ...(datesEditable
+                    ? [
+                        {
+                          name: "completed",
+                          label: "Расчётная дата выполнения, МСК",
+                          type: "datetime-local" as const,
+                          value: savedCompleted,
+                        },
+                      ]
+                    : []),
                   {
                     name: "reason",
                     label: "Причина исправления",
@@ -112,9 +120,10 @@ export function AssessmentPanel({
                               | 1.5,
                           }
                         : {}),
-                      effective_completed_at: text(v, "completed")
-                        ? toUtc(text(v, "completed"))
-                        : null,
+                      // Only a moved date is sent: minutes in the field are not the stored instant.
+                      ...(datesEditable && text(v, "completed") && text(v, "completed") !== savedCompleted
+                        ? { effective_completed_at: toUtc(text(v, "completed")) }
+                        : {}),
                       reason: text(v, "reason"),
                     }),
                   );
@@ -137,22 +146,29 @@ export function TaskInputsPanel({ task }: { task: Task }) {
   });
   if (!can(task, "view_assessment_inputs")) return null;
   const inputs = query.data;
-  const fields: Field[] = inputs
+  // Issue date and deadline are moved by the chair, deputies and HR master only (УВ-5).
+  const datesEditable = can(inputs, "edit_assessment_dates");
+  const saved = inputs && { assigned: moscowInput(inputs.assigned_at), deadline: moscowInput(inputs.deadline_at) };
+  const fields: Field[] = inputs && saved
     ? [
-        {
-          name: "assigned",
-          label: "Дата выдачи, МСК",
-          type: "datetime-local",
-          required: true,
-          value: moscowInput(inputs.assigned_at),
-        },
-        {
-          name: "deadline",
-          label: "Дедлайн, МСК",
-          type: "datetime-local",
-          required: true,
-          value: moscowInput(inputs.deadline_at),
-        },
+        ...(datesEditable
+          ? [
+              {
+                name: "assigned",
+                label: "Дата выдачи, МСК",
+                type: "datetime-local" as const,
+                required: true,
+                value: saved.assigned,
+              },
+              {
+                name: "deadline",
+                label: "Дедлайн, МСК",
+                type: "datetime-local" as const,
+                required: true,
+                value: saved.deadline,
+              },
+            ]
+          : []),
         ...Object.entries(criteriaNames).map(([name, label]) => ({
           name,
           label,
@@ -175,12 +191,14 @@ export function TaskInputsPanel({ task }: { task: Task }) {
     <details className={s.details}>
       <summary>Даты и признаки задачи</summary>
       <QueryState keepDataOnError={!!query.data} loading={query.isLoading} error={query.error}>
+        {inputs && !datesEditable && (
+          <p>
+            Выдана: {displayDate(inputs.assigned_at)} · Дедлайн:{" "}
+            {displayDate(inputs.deadline_at)}
+          </p>
+        )}
         {inputs && !can(inputs, "edit_assessment_inputs") && (
           <>
-            <p>
-              Выдана: {displayDate(inputs.assigned_at)} · Дедлайн:{" "}
-              {displayDate(inputs.deadline_at)}
-            </p>
             <ul>
               {Object.entries(criteriaNames).map(([key, label]) => (
                 <li key={key}>
@@ -197,17 +215,21 @@ export function TaskInputsPanel({ task }: { task: Task }) {
           <ActionForm
             key={task.task_id}
             revision={inputs.revision}
+            record={`task:${task.task_id}`}
+            adoptWhenUntouched
             fields={fields}
             onSubmit={async (v, expectedRevision) => {
-              const assigned = toUtc(text(v, "assigned"));
-              const deadline = toUtc(text(v, "deadline"));
-              if (assigned > deadline)
+              // Only moved dates are sent: minutes in the field are not the stored instant.
+              const moved = (name: "assigned" | "deadline") =>
+                datesEditable && text(v, name) !== saved![name] ? toUtc(text(v, name)) : undefined;
+              const assigned = moved("assigned"), deadline = moved("deadline");
+              if (Date.parse(assigned ?? inputs.assigned_at) > Date.parse(deadline ?? inputs.deadline_at))
                 throw Error("Выдача не может быть позже дедлайна");
               return perform(() =>
                 tasksApi.updateInputs(task.task_id, {
                   expected_revision: expectedRevision!,
-                  assigned_at: assigned,
-                  deadline_at: deadline,
+                  ...(assigned ? { assigned_at: assigned } : {}),
+                  ...(deadline ? { deadline_at: deadline } : {}),
                   criteria: {
                     ...emptyCriteria(),
                     ...Object.fromEntries(
@@ -230,6 +252,7 @@ export function TaskInputsPanel({ task }: { task: Task }) {
 }
 export function BulkHoursPanel({ task }: { task: Task }) {
   const { perform, refresh } = useWorkspaceActions();
+  const client = useOwnRevisions();
   const [ready, setReady] = useState(false);
   const queries = useQueries({
     queries: task.assignments
@@ -250,6 +273,9 @@ export function BulkHoursPanel({ task }: { task: Task }) {
       <summary>Установить часы нескольким исполнителям</summary>
       <ActionForm
         revisionKey={revisionSnapshot(inputs.map(i => ({id: i.assignment_id, revision: i.revision})))}
+        // Own corrections of single assignments move this combined baseline too (A-FE-2).
+        rebaseKey={(key) => revisionSnapshot([...snapshotRevisions(key)].map(([id, revision]) => ({id, revision: advanceOwn(client, `assignment-inputs:${id}`, revision)})))}
+        adoptWhenUntouched
         savedDetails={<ul>{inputs.map(i => <li key={i.assignment_id}>{task.assignments.find(a => a.assignment_id === i.assignment_id)?.assignee.display_name}: {i.hours ?? "не заданы"} ч.</li>)}</ul>}
         fields={[
           {
@@ -287,7 +313,10 @@ export function BulkHoursPanel({ task }: { task: Task }) {
               text(v, "reason"),
             ),
           );
-          saved.items.forEach(i => revisions.set(i.assignment_id, i.revision));
+          saved.items.forEach(i => {
+            recordOwnChange(client, `assignment-inputs:${i.assignment_id}`, revisions.get(i.assignment_id)!, i.revision);
+            revisions.set(i.assignment_id, i.revision);
+          });
           return { revisionKey: revisionSnapshot([...revisions].map(([id, revision]) => ({id, revision}))) };
         }}
         onConflict={refresh}

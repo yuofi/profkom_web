@@ -77,7 +77,7 @@ it("A05: background revisions do not silently authorize overwriting a draft", as
   const save = vi.fn(async () => {});
   function Probe() {
     const [revision, setRevision] = useState(1);
-    return <><button onClick={() => setRevision(2)}>External update</button><ActionForm revision={revision} fields={[{ name: "title", label: "Название", value: revision === 1 ? "Старое" : "Серверное" }]} onSubmit={save} /></>;
+    return <><button onClick={() => setRevision(2)}>External update</button><ActionForm revision={revision} fields={[{ name: "title", label: "Название", value: revision === 1 ? "Старое" : "Серверное" }]} onSubmit={save} onConflict={() => {}} /></>;
   }
   page = await mountWorkspace(<Probe />);
   await change(field(page.container, "title"), "Мой черновик");
@@ -95,7 +95,7 @@ it("A05: a successful no-op cannot pre-authorize a later external revision", asy
   const save = vi.fn(async () => ({ revision: 1 }));
   function Probe() {
     const [revision, setRevision] = useState(1);
-    return <><button onClick={() => setRevision(2)}>External update</button><ActionForm revision={revision} fields={[{ name: "title", label: "Название", value: "Прежнее" }]} onSubmit={save} /></>;
+    return <><button onClick={() => setRevision(2)}>External update</button><ActionForm revision={revision} fields={[{ name: "title", label: "Название", value: "Прежнее" }]} onSubmit={save} onConflict={() => {}} /></>;
   }
   page = await mountWorkspace(<Probe />);
   const form = page.container.querySelector("form")!;

@@ -132,6 +132,7 @@ function SeasonCommand({
     <div>
       <ActionForm
         revision={season.revision}
+        record={`season:${season.season_id}`}
         onConflict={refresh}
         fields={[]}
         submitLabel={label}
@@ -240,6 +241,7 @@ export function SeasonPage() {
                 <ActionForm
                   key={season.season_id}
                   revision={season.revision}
+                  record={`season:${season.season_id}`}
                   fields={[
                     {
                       name: "title",
@@ -306,11 +308,14 @@ function DecisionsForm({
       <ActionForm
         key={`${summary.season_id}/${row.user.user_id}`}
         revision={summary.version}
+        // One version for the whole summary: own saves of other rows move it (A-FE-2).
+        record={`summary:${summary.season_id}`}
         fields={[
           {
             name: "decisions",
             label: "Текущие отметки",
             type: "multi",
+            confirmRemoval: false,
             value: row.decisions,
             options: Object.entries(decisions).map(([value, label]) => ({
               value,

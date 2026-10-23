@@ -297,6 +297,7 @@ export function EventPage() {
                     <ActionForm
                       key={event.event_id}
                       revision={event.revision}
+                      record={`event:${event.event_id}`}
                       fields={[
                         {
                           name: "users",
@@ -354,6 +355,7 @@ export function EventPage() {
                           }),
                         );
                       }}
+                      resetOnSuccess
                     />
                   </details>
                 )}
@@ -364,6 +366,7 @@ export function EventPage() {
                 <ActionForm
                   key={event.event_id}
                   revision={event.revision}
+                  record={`event:${event.event_id}`}
                   fields={[
                     {
                       name: "title",
@@ -508,6 +511,7 @@ export function SubeventPage() {
                     <ActionForm
                       key={sub.subevent_id}
                       revision={sub.revision}
+                      record={`subevent:${sub.subevent_id}`}
                       fields={[
                         {
                           name: "users",
@@ -544,6 +548,7 @@ export function SubeventPage() {
                     <ActionForm
                       key={sub.subevent_id}
                       revision={sub.revision}
+                      record={`subevent:${sub.subevent_id}`}
                       fields={[
                         {
                           name: "users",
@@ -571,6 +576,7 @@ export function SubeventPage() {
                 <ActionForm
                   key={sub.subevent_id}
                   revision={sub.revision}
+                  record={`subevent:${sub.subevent_id}`}
                   fields={[
                     {
                       name: "title",

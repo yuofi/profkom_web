@@ -11,7 +11,7 @@ import {
   Badge,
   Empty,
 } from "../../components/Workspace/WorkspaceUI";
-import { ActionForm, type OwnRevisionChange } from "../../components/Workspace/ActionForm";
+import { ActionForm } from "../../components/Workspace/ActionForm";
 import { text } from "../../components/Workspace/formValues";
 import {
   AttachmentPicker,
@@ -128,7 +128,6 @@ export function ReportsPage() {
   );
 }
 function ReportEditor({ report }: { report: Report }) {
-  const [ownChange, setOwnChange] = useState<OwnRevisionChange>();
   const { perform, refresh } = useWorkspaceActions();
   const [files, setFiles] = useState<FileRef[]>(
     report.draft_files ?? report.files,
@@ -153,7 +152,7 @@ function ReportEditor({ report }: { report: Report }) {
       <ActionForm
         disabled={busy}
         revision={report.revision}
-        ownChange={ownChange} onSavedRevision={setOwnChange}
+        record={`report:${report.report_id}`}
         savedDetails={<Attachments files={report.draft_files ?? report.files} />}
         onReplaceWithSaved={() => setFiles(report.draft_files ?? report.files)}
         fields={[
@@ -195,7 +194,7 @@ function ReportEditor({ report }: { report: Report }) {
       {can(report, "publish_report") && (
         <ActionForm
           revision={report.revision}
-          ownChange={ownChange} onSavedRevision={setOwnChange}
+          record={`report:${report.report_id}`}
           savedDetails={<><Markdown content={draft} /><Attachments files={report.draft_files ?? report.files} /></>}
           fields={[]}
           submitLabel="Опубликовать сохранённый отчёт"

@@ -9,7 +9,7 @@ import {
   Badge,
   Empty,
 } from "../../components/Workspace/WorkspaceUI";
-import { ActionForm, type OwnRevisionChange } from "../../components/Workspace/ActionForm";
+import { ActionForm } from "../../components/Workspace/ActionForm";
 import { MarkdownContent } from "../../components/Workspace/MarkdownContent";
 import { MarkdownEditor } from "../../components/Workspace/MarkdownEditor";
 import { text, ids } from "../../components/Workspace/formValues";
@@ -192,7 +192,6 @@ function DeletedMaterials() {
   );
 }
 function MaterialEdit({ material: m }: { material: Material }) {
-  const [ownChange, setOwnChange] = useState<OwnRevisionChange>();
   // Never edit published_content: its links are signed for 5 minutes (A-MAT-1).
   const source = m.source_content?.body ?? "";
   const [body, setBody] = useState(source);
@@ -205,7 +204,7 @@ function MaterialEdit({ material: m }: { material: Material }) {
       </p>
       <ActionForm
         revision={m.revision}
-        ownChange={ownChange} onSavedRevision={setOwnChange}
+        record={`material:${m.material_id}`}
         savedDetails={<MarkdownContent body={source} />}
         onReplaceWithSaved={() => setBody(source)}
         fields={[
@@ -237,7 +236,7 @@ function MaterialEdit({ material: m }: { material: Material }) {
       {can(m, "publish_material") && (
         <ActionForm
           revision={m.revision}
-          ownChange={ownChange} onSavedRevision={setOwnChange}
+          record={`material:${m.material_id}`}
           disabled={!m.draft_content}
           savedDetails={<MarkdownContent body={source} />}
           fields={[]}
@@ -323,6 +322,7 @@ export function MaterialPage() {
                   </p>
                   <ActionForm
                     revision={m.revision}
+                    record={`material:${m.material_id}`}
                     fields={[
                       {
                         name: "users",

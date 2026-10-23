@@ -51,6 +51,8 @@ export function RegistrationForm({
       <ActionForm
         key={application.user_id}
         revision={application.revision}
+        // Saving the details and resubmitting share one revision (A-FE-2).
+        record={`registration:${application.user_id}`}
         fields={fields}
         onSubmit={async (v, expectedRevision) => {
           const form = Object.fromEntries(
@@ -82,6 +84,7 @@ export function RegistrationForm({
               fields={[]}
               submitLabel="Повторно отправить заявку"
               revision={application.revision}
+              record={`registration:${application.user_id}`}
               onSubmit={async (_v, expectedRevision) => {
                 return perform(() =>
                   membershipApi.resubmit({

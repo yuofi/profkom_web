@@ -319,6 +319,24 @@
 .recipientOptions span {
   min-width: 0;
 }
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  list-style: none;
+}
+.chip {
+  min-height: 36px;
+  padding: 4px 12px;
+  border: 1px solid var(--outline-variant);
+  border-radius: 18px;
+  background: var(--surface-container);
+  color: var(--on-surface);
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
 .decision.golden_red_bull {
   background: #f2d477;
   color: #302300;

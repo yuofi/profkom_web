@@ -347,6 +347,14 @@ def ops():
         Op("T13", "GET", lambda o: "/assignments/unresolved", cap=("S1", "view_unresolved_assignments")),
         Op("T14", "PATCH", lambda o: f"/assignments/{o.ids['asg_blk_org1']}/assessment-inputs",
            lambda o, r: {"expected_revision": BAD, "reason": "probe", "hours": 2}, ok=(409,), cap=("T4", "edit_assessment_inputs")),
+        # Dates of a task, once set, are moved by the chair, deputies and HR master (УВ-5).
+        Op("T15", "PATCH", lambda o: f"/tasks/{o.ids['task_sub']}/assessment-inputs",
+           lambda o, r: {"expected_revision": BAD, "reason": "probe", "deadline_at": stamp(4.25)}, ok=(409,),
+           cap=("T10", "edit_assessment_dates")),
+        Op("T16", "GET", lambda o: f"/assignments/{o.ids['asg_sub_org1']}/assessment-inputs", cap=("T3", "view_assessment_inputs")),
+        Op("T17", "PATCH", lambda o: f"/assignments/{o.ids['asg_sub_org1']}/assessment-inputs",
+           lambda o, r: {"expected_revision": BAD, "reason": "probe", "effective_completed_at": stamp(-1.25)}, ok=(409,),
+           cap=("T16", "edit_assessment_dates")),
         # KKR, merits, summary, seasons
         Op("K1", "GET", lambda o: f"/assessments?season_id={cur(o)}", cap=("S1", "view_kkr")),
         Op("K2", "GET", lambda o: f"/seasons/{cur(o)}/summary", cap=("S1", "view_summary")),
@@ -511,6 +519,7 @@ EXPECTED = {
     "T9": TACHKI | HRM | EVENT_LEAD | SUB_LEAD, "T10": TACHKI | HRM | EVENT_LEAD | SUB_LEAD,
     "T11": TACHKI | HRM | IT_LEAD, "T12": TACHKI | HRM | EVENT_LEAD | SUB_LEAD,
     "T13": QUEUE, "T14": TACHKI | HRM | IT_LEAD,
+    "T15": TACHKI | HRM, "T16": TACHKI | HRM | EVENT_LEAD | SUB_LEAD, "T17": TACHKI | HRM,  # УВ-5
     "K1": TACHKI | HRM, "K2": TACHKI | HRM, "K3": TACHKI | HRM, "K4": TACHKI | HRM, "K5": TACHKI | HRM,
     "K6": TACHKI | EVENT_LEAD,  # decision 12: unchanged
     "K7": TACHKI | HRM | IT_LEAD,

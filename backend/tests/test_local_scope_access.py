@@ -55,3 +55,15 @@ def test_organizer_roster_changes_also_change_access_revision(client, work, supe
     after = client.get("/api/session", headers=w["member"].headers).json()
     assert before["access_revision"] != after["access_revision"]
     assert not db.can_view_scope(w["member"].user_id, "subevent", sid)
+
+
+def test_block_rename_keeps_members_access_revision(client, work, superuser):
+    w = work
+    bid = w["block"]["block_id"]
+    before = {u: client.get("/api/session", headers=w[u].headers).json()["access_revision"] for u in ("member", "master")}
+    block = client.get(f"/api/blocks/{bid}", headers=superuser.headers).json()
+    r = client.patch(f"/api/blocks/{bid}", headers=superuser.headers, json=dict(expected_revision=block["revision"], name="IT-отдел"))
+    assert r.status_code == 200, r.text
+    assert r.json()["name"] == "IT-отдел"
+    assert {u: client.get("/api/session", headers=w[u].headers).json()["access_revision"] for u in ("member", "master")} == before
+    assert client.get(f"/api/tasks/{w['task']['task_id']}", headers=w["member"].headers).status_code == 200

@@ -162,12 +162,13 @@ it("keeps two editor drafts through a conflict and version refresh, publishes ex
 });
 
 it("preserves changed task criteria and deadline when refreshing a conflicting input revision", async () => {
-  mock = installMockTransport("leader", { delay: 0 });
+  // The chair moves dates; an area lead does not (УВ-5).
+  mock = installMockTransport("chair", { delay: 0 });
   page = await mountWorkspace(
     <Routes>
       <Route path="/tasks/:id" element={<TaskPage />} />
     </Routes>,
-    { role: "leader", path: `/tasks/${mock.state.tasks[0].task_id}` },
+    { role: "chair", path: `/tasks/${mock.state.tasks[0].task_id}` },
   );
   await settle();
   const editor = field(page.container, "assigned").closest("form")!;

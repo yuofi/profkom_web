@@ -3084,7 +3084,8 @@ def correct_season_summary(
         # Read acknowledgements in the same request transaction as the command.
         classes = {"task_inputs": database_module.TaskORM, "assessment_inputs": database_module.AssignmentORM, "merit": database_module.MeritORM}
         with db._session() as session:
-            revisions = [dict(kind=c.kind, id=c.id, revision=session.get(classes[c.kind], c.id).revision) for c in payload.changes]
+            objects = [(c, session.get(classes[c.kind], c.id)) for c in payload.changes]
+            revisions = [dict(kind=c.kind, id=c.id, revision=o.inputs_revision if c.kind == "assessment_inputs" else o.revision) for c, o in objects]
         return {**_to_season_summary_out(s).model_dump(), "applied_revisions": revisions}
     except LookupError as e:
         raise HTTPException(404, str(e))

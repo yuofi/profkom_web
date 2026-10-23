@@ -149,12 +149,13 @@ def test_lost_scope_cannot_submit_or_read_private_file(client, work):
     assert all(n["target"] is None for n in notices)
 
 
-def test_dates_negative_hours_and_attachments_are_validated(client, work):
+def test_dates_negative_hours_and_attachments_are_validated(client, work, superuser):
     w = work
     tid = w["task"]["task_id"]
+    # Dates are moved by the chair, deputies and HR master (УВ-5); the period still binds them.
     r = client.patch(
         f"/api/tasks/{tid}/assessment-inputs",
-        headers=w["master"].headers,
+        headers=superuser.headers,
         json={
             "expected_revision": 1,
             "deadline_at": "2099-01-01T00:00:00Z",
@@ -256,7 +257,7 @@ def assignment_in(client, w, status):
     """A fresh assignment of the member, brought to `status` through the API."""
     task = client.post("/api/tasks", headers=w["master"].headers, json=w["payload"]).json()
     aid = task["assignments"][0]["assignment_id"]
-    post = lambda command, who, **body: client.post(f"/api/assignments/{aid}/{command}", headers=w[who].headers, json=dict(expected_revision=client.get(f"/api/assignments/{aid}/assessment-inputs", headers=w["master"].headers).json()["revision"], **body))  # noqa: E731
+    post = lambda command, who, **body: client.post(f"/api/assignments/{aid}/{command}", headers=w[who].headers, json=dict(expected_revision=public_revision(client, w, aid), **body))  # noqa: E731
     if status in ("submitted", "accepted", "not_completed"):
         assert post("submit", "member", text=dict(format="markdown", body="Готово")).status_code == 200
     if status == "accepted":
@@ -266,6 +267,14 @@ def assignment_in(client, w, status):
     if status == "cancelled":
         assert post("cancel", "master", reason="Отменено").status_code == 200
     return aid
+
+
+def public_revision(client, w, aid):
+    """The assignment revision commands expect; hidden inputs have their own (decision 32)."""
+    with db._session() as s:
+        tid = s.get(AssignmentORM, aid).task_id
+    task = client.get(f"/api/tasks/{tid}", headers=w["master"].headers).json()
+    return next(a["revision"] for a in task["assignments"] if a["assignment_id"] == aid)
 
 
 def audit_rows(aid):
@@ -285,7 +294,7 @@ def test_final_outcome_is_not_overwritten_by_a_decision(client, work, superuser,
     aid = assignment_in(client, work, status)
     inputs = client.get(f"/api/assignments/{aid}/assessment-inputs", headers=work["master"].headers).json()
     totals = client.get("/api/assessments", headers=superuser.headers).json()
-    r = client.post(f"/api/assignments/{aid}/{command}", headers=work["master"].headers, json=dict(expected_revision=inputs["revision"], **body))
+    r = client.post(f"/api/assignments/{aid}/{command}", headers=work["master"].headers, json=dict(expected_revision=public_revision(client, work, aid), **body))
     assert r.status_code == 409, r.text
     assert r.json()["detail"]["code"] == "conflict"
     assert client.get(f"/api/assignments/{aid}/assessment-inputs", headers=work["master"].headers).json() == inputs
@@ -298,13 +307,13 @@ def test_final_outcome_is_not_overwritten_by_a_decision(client, work, superuser,
 
 def test_not_complete_and_cancel_are_audited_with_the_evaluation(client, work):
     aid = assignment_in(client, work, "submitted")
-    rev = client.get(f"/api/assignments/{aid}/assessment-inputs", headers=work["master"].headers).json()["revision"]
+    rev = public_revision(client, work, aid)
     r = client.post(f"/api/assignments/{aid}/not-complete", headers=work["master"].headers, json=dict(expected_revision=rev, evaluation=-1, reason="Сорван срок"))
     assert r.status_code == 200, r.text
     assert audit_rows(aid)[-1] == ({"status": "submitted", "evaluation": None}, {"status": "not_completed", "evaluation": -1.0}, "Сорван срок")
     # A revision request after acceptance keeps the evaluation; cancelling clears it.
     aid = assignment_in(client, work, "accepted")
-    rev = client.get(f"/api/assignments/{aid}/assessment-inputs", headers=work["master"].headers).json()["revision"]
+    rev = public_revision(client, work, aid)
     assert client.post(f"/api/assignments/{aid}/request-revision", headers=work["master"].headers, json=dict(expected_revision=rev, review_note="Доделать")).status_code == 200
     rev += 1
     r = client.post(f"/api/assignments/{aid}/cancel", headers=work["master"].headers, json=dict(expected_revision=rev, reason="Не нужна"))
@@ -359,3 +368,95 @@ def test_merit_patch_refuses_fields_fixed_at_creation(client, work, field, value
     r = client.patch(f"/api/merits/{created['merit_id']}", headers=w["master"].headers, json=patch)
     assert r.status_code == 200, r.text
     assert (r.json()["revision"], r.json()["recipients"][0]["hours"]) == (created["revision"] + 1, 3)
+
+
+def task_audit(tid):
+    import json
+    from database import AuditLogORM
+
+    with db._session() as s:
+        return [(json.loads(r.old_values_json), json.loads(r.new_values_json)) for r in s.query(AuditLogORM).filter_by(target_kind="task", target_id=tid).order_by(AuditLogORM.id)]
+
+
+# УВ-5: area leads fill hours, evaluation and criteria; only the chair, deputies and HR master move dates.
+def test_area_lead_fills_inputs_but_moves_no_dates(client, work, superuser):
+    from participation import dt
+
+    w = work
+    tid = w["task"]["task_id"]
+    aid = w["task"]["assignments"][0]["assignment_id"]
+    url = f"/api/tasks/{tid}/assessment-inputs"
+    lead = client.get(url, headers=w["master"].headers).json()
+    assert "edit_assessment_inputs" in lead["capabilities"] and "edit_assessment_dates" not in lead["capabilities"]
+    assert {"edit_assessment_inputs", "edit_assessment_dates"} <= set(client.get(url, headers=superuser.headers).json()["capabilities"])
+    r = client.patch(url, headers=w["master"].headers, json=dict(expected_revision=lead["revision"], criteria={"creative": True}, reason="Критерии"))
+    assert r.status_code == 200, r.text
+    rev, deadline = r.json()["revision"], r.json()["deadline_at"]
+    moved = (dt(deadline) - timedelta(days=1)).isoformat()
+    r = client.patch(url, headers=w["master"].headers, json=dict(expected_revision=rev, deadline_at=moved, reason="Перенос"))
+    assert r.status_code == 403, r.text
+    # The same instant in another notation is no move.
+    same = dt(deadline).astimezone(timezone(timedelta(hours=3))).isoformat()
+    r = client.patch(url, headers=w["master"].headers, json=dict(expected_revision=rev, deadline_at=same, criteria={"creative": True, "unique": True}, reason="Критерии"))
+    assert r.status_code == 200, r.text
+    assert r.json()["deadline_at"] == deadline
+    rev = r.json()["revision"]
+    r = client.patch(url, headers=superuser.headers, json=dict(expected_revision=rev, deadline_at=moved, reason="Перенос"))
+    assert r.status_code == 200, r.text
+    assert dt(r.json()["deadline_at"]) == dt(moved)
+    old, new = task_audit(tid)[-1]
+    assert (dt(old["deadline_at"]), dt(new["deadline_at"])) == (dt(deadline), dt(moved))
+
+    # The completion date of an assignment follows the same rule; hours stay with the lead.
+    inputs_url = f"/api/assignments/{aid}/assessment-inputs"
+    inputs = client.get(inputs_url, headers=w["master"].headers).json()
+    assert "edit_assessment_dates" not in inputs["capabilities"]
+    r = client.patch(inputs_url, headers=w["master"].headers, json=dict(expected_revision=inputs["revision"], hours=4, reason="Часы"))
+    assert r.status_code == 200, r.text
+    inputs = r.json()
+    completed = (dt(moved) - timedelta(days=2)).isoformat()
+    r = client.patch(inputs_url, headers=w["master"].headers, json=dict(expected_revision=inputs["revision"], effective_completed_at=completed, reason="Дата"))
+    assert r.status_code == 403, r.text
+    assert "edit_assessment_dates" in client.get(inputs_url, headers=superuser.headers).json()["capabilities"]
+    r = client.patch(inputs_url, headers=superuser.headers, json=dict(expected_revision=inputs["revision"], effective_completed_at=completed, reason="Дата"))
+    assert r.status_code == 200, r.text
+    assert audit_rows(aid)[-1][0]["effective_completed_at"] is None
+    assert dt(audit_rows(aid)[-1][1]["effective_completed_at"]) == dt(completed)
+    # Once set, the same instant in another notation passes the lead's form.
+    other = dt(completed).astimezone(timezone(timedelta(hours=3))).isoformat()
+    r = client.patch(inputs_url, headers=w["master"].headers, json=dict(expected_revision=r.json()["revision"], hours=5, effective_completed_at=other, reason="Часы"))
+    assert r.status_code == 200, r.text
+    assert (r.json()["hours"], dt(r.json()["effective_completed_at"])) == (5, dt(completed))
+
+
+# Decision 32 (EDITORS-05 a): hidden inputs have their own revision; the assignee's does not move.
+def test_hidden_inputs_keep_the_assignees_revision(client, work):
+    w = work
+    aid = w["task"]["assignments"][0]["assignment_id"]
+    url = f"/api/assignments/{aid}/assessment-inputs"
+    seen = public_revision(client, w, aid)
+    inputs = client.get(url, headers=w["master"].headers).json()
+    r = client.patch(url, headers=w["master"].headers, json=dict(expected_revision=inputs["revision"], hours=3, reason="Часы"))
+    assert r.status_code == 200, r.text
+    assert r.json()["revision"] == inputs["revision"] + 1
+    r = client.post("/api/assessment-inputs/bulk-hours", headers=w["master"].headers, json=dict(items=[dict(assignment_id=aid, expected_revision=r.json()["revision"])], hours=6, reason="Часы"))
+    assert r.status_code == 200, r.text
+    assert r.json()["items"][0]["revision"] == inputs["revision"] + 2
+    assert public_revision(client, w, aid) == seen
+    # The assignee submits with the revision read before the hidden edits.
+    r = client.post(f"/api/assignments/{aid}/submit", headers=w["member"].headers, json=dict(expected_revision=seen, text=dict(format="markdown", body="Готово"), file_ids=[], links=[]))
+    assert r.status_code == 200, r.text
+    assert r.json()["revision"] == seen + 1
+    # The submission sets the completion date: an edit read before it is a conflict.
+    r = client.patch(url, headers=w["master"].headers, json=dict(expected_revision=inputs["revision"] + 2, hours=7, reason="Часы"))
+    assert r.status_code == 409, r.text
+    inputs = client.get(url, headers=w["master"].headers).json()
+    assert (inputs["revision"], inputs["hours"]) == (4, 6)
+    # An evaluation that changes the status is visible to the assignee and moves both.
+    r = client.patch(url, headers=w["master"].headers, json=dict(expected_revision=inputs["revision"], evaluation=1, reason="Оценка"))
+    assert r.status_code == 200, r.text
+    assert r.json()["revision"] == 5
+    assert public_revision(client, w, aid) == seen + 2
+    r = client.patch(url, headers=w["master"].headers, json=dict(expected_revision=5, evaluation=1.5, reason="Оценка"))
+    assert r.status_code == 200, r.text
+    assert public_revision(client, w, aid) == seen + 2

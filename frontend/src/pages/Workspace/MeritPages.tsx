@@ -222,7 +222,6 @@ export function MeritForm({
       required: true,
       value: existing?.recipients.map((r) => String(r.user_id)),
       options: recipientOptions,
-      searchable: true,
       onSelectionChange: (values) => setSelectedPeople(values.map((value) =>
         people.options.find((p) => p.value === value) ?? selectedPeople.find((p) => p.value === value) ?? { value, label: `Участник #${value}` },
       )),

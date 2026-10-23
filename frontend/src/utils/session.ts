@@ -20,18 +20,24 @@ export const can = (
 export const isActiveSession = (session: Session | null | undefined) =>
   session?.account_state === "active" &&
   session.registration_status === "approved";
+/** Who is signed in: only a change of this starts the workspace over (A-FE-1). */
+export const sessionIdentity = (session: Session | null | undefined) =>
+  JSON.stringify(
+    session
+      ? [session.user_id, session.account_state, session.registration_status]
+      : null,
+  );
+/** What the account may reach. A change rereads the open data; a revision of an
+ *  assignment (new deputies, for example) is not a change of access. */
 export const accessFingerprint = (session: Session | null | undefined) =>
   JSON.stringify(
     session
       ? [
-          session.user_id,
-          session.account_state,
-          session.registration_status,
+          sessionIdentity(session),
           session.access_revision,
           [...session.capabilities].sort(),
           session.assignments?.map((a) => [
             a.role_assignment_id,
-            a.revision,
             a.capabilities,
           ]),
         ]

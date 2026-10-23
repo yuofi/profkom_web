@@ -148,6 +148,7 @@ const MeetingPage = lazy(() =>
 import { DocViewerPage } from "./pages/DocViewPage/DocViewerPage";
 import { GreetingPage } from "./pages/Greeting/Greeting";
 import { UserProvider } from "./utils/ctx";
+import { retryTransient, workspaceQueryCache } from "./utils/api/invalidation";
 import {
   ProtectedRoute,
   GuideEditRoute,
@@ -161,7 +162,8 @@ const AdminPanel = lazy(() => import("./pages/Admin/AdminPage"));
 const DocEditPage = lazy(() => import("./pages/DocEditPage/DocEditPage"));
 const NotFoundPage = lazy(() => import("./pages/fallback/NotFoundPage"));
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1 } },
+  queryCache: workspaceQueryCache(),
+  defaultOptions: { queries: { refetchOnWindowFocus: false, retry: retryTransient } },
 });
 function App() {
   return (

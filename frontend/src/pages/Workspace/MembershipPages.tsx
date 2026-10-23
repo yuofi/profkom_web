@@ -127,6 +127,7 @@ export function BlockPage() {
                 <ActionForm
                   key={b.block_id}
                   revision={b.revision}
+                  record={`block:${b.block_id}`}
                   fields={[
                     {
                       name: "user",
@@ -214,6 +215,7 @@ export function BlockPage() {
                 <ActionForm
                   key={b.block_id}
                   revision={b.revision}
+                  record={`block:${b.block_id}`}
                   fields={[
                     {
                       name: "body",
@@ -274,6 +276,7 @@ function RequestCard({
         <div className={s.stack}>
           <ActionForm
             revision={r.revision}
+            record={`block-request:${r.request_id}`}
             onConflict={refresh}
             fields={[]}
             submitLabel={
@@ -293,6 +296,7 @@ function RequestCard({
           />
           <ActionForm
             revision={r.revision}
+            record={`block-request:${r.request_id}`}
             onConflict={refresh}
             fields={[
               {
@@ -317,6 +321,7 @@ function RequestCard({
       {open && can(r, "withdraw_request") && (
         <ActionForm
             revision={r.revision}
+            record={`block-request:${r.request_id}`}
             onConflict={refresh}
           fields={[]}
           submitLabel="Отозвать свою заявку"
@@ -456,6 +461,7 @@ export function RegistrationsPage() {
               {r.status === "pending" && (
                 <ActionForm
                     revision={r.revision}
+                    record={`registration:${r.user_id}`}
                   fields={[
                     {
                       name: "decision",
@@ -494,6 +500,7 @@ export function RegistrationsPage() {
                 can(r, "reset_registration_limit") && (
                   <ActionForm
                     revision={r.revision}
+                    record={`registration:${r.user_id}`}
                     fields={[
                       {
                         name: "reason",

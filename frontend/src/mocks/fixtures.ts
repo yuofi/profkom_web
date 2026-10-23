@@ -404,15 +404,15 @@ export function createFixtures(role: MockRole = "organizer") {
         : []),
     ],
   });
+  // Dates of a task are moved by the chair, deputies and HR master only (УВ-5).
+  const inputsCaps = ["view_assessment_inputs", "edit_assessment_inputs", ...(global ? ["edit_assessment_dates"] : [])];
   const inputs: TaskInputs = {
     task_id: "task-1",
     assigned_at: "2026-10-18T09:00:00Z",
     deadline_at: tasks[0].deadline_at,
     criteria: emptyCriteria(),
     revision: 1,
-    capabilities: eventManager
-      ? ["view_assessment_inputs", "edit_assessment_inputs"]
-      : [],
+    capabilities: eventManager ? inputsCaps : [],
   };
   const assessments: AssessmentInputs[] = tasks[0].assignments.map((a) => ({
     assignment_id: a.assignment_id,
@@ -420,9 +420,7 @@ export function createFixtures(role: MockRole = "organizer") {
     evaluation: null,
     effective_completed_at: null,
     revision: 1,
-    capabilities: eventManager
-      ? ["view_assessment_inputs", "edit_assessment_inputs"]
-      : [],
+    capabilities: eventManager ? inputsCaps : [],
   }));
   const reports: Report[] = [
     {

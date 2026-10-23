@@ -11,7 +11,8 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
-from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, String, Text, create_engine, func, text
+from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, String, Text, create_engine, event, func, text
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session, declarative_base, relationship, sessionmaker, joinedload
 
 from models import (
@@ -60,7 +61,12 @@ from identity import participant_id as accounting_participant_id
 
 DATABASE_URL = "sqlite:///" + settings.DATABASE_PATH
 
-engine = create_engine(DATABASE_URL, future=True, connect_args={"timeout": 30})
+POOL_SIZE, POOL_OVERFLOW = 5, 10
+engine = create_engine(DATABASE_URL, future=True, connect_args={"timeout": 30}, pool_size=POOL_SIZE, max_overflow=POOL_OVERFLOW)
+# Each HTTP request holds one connection for its unit of work. Requests beyond this many
+# wait for a slot on the loop instead of for a connection, which would block the loop the
+# holders need to commit and give theirs back. Two connections stay for work outside them.
+HTTP_UNITS = POOL_SIZE + POOL_OVERFLOW - 2
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 
 Base = declarative_base()
@@ -300,8 +306,25 @@ class AssignmentORM(Base):
     review_note = Column(Text, nullable=True)
     assignee_unavailable_reason = Column(String, nullable=True)  # "left_scope" | "archived"
     revision = Column(Integer, default=1, nullable=False)
+    # Assessment inputs (hours, evaluation, completion date) have their own revision, so a
+    # hidden correction does not move the revision the assignee sees (owner decision 32).
+    inputs_revision = Column(Integer, default=1, nullable=False, server_default="1")
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=True)
+
+
+ASSESSMENT_INPUTS = ("hours", "evaluation", "effective_completed_at")
+
+
+@event.listens_for(Session, "before_flush")
+def _advance_inputs_revision(session, _context, _instances):
+    """Every change of an assignment's assessment inputs moves `inputs_revision`, whichever
+    command made it: a correction, a decision or the assignee's own submission."""
+    for obj in session.dirty:
+        if isinstance(obj, AssignmentORM) and any(
+            sa_inspect(obj).attrs[name].history.has_changes() for name in ASSESSMENT_INPUTS
+        ):
+            obj.inputs_revision = (obj.inputs_revision or 1) + 1
 
 
 class SubmissionORM(Base):
@@ -897,6 +920,17 @@ def _ensure_sqlite_reports_columns() -> None:
 _ensure_sqlite_reports_columns()
 
 
+def _ensure_sqlite_assignment_columns() -> None:
+    """Add the separate revision of assessment inputs to assignments if missing."""
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(assignments)")).fetchall()
+        if rows and "inputs_revision" not in {r[1] for r in rows}:
+            conn.execute(text("ALTER TABLE assignments ADD COLUMN inputs_revision INTEGER NOT NULL DEFAULT 1"))
+
+
+_ensure_sqlite_assignment_columns()
+
+
 def _split_fio(raw: str) -> tuple[str, str, str]:
     parts = [p for p in (raw or "").strip().split() if p]
     if len(parts) >= 3:
@@ -1464,6 +1498,18 @@ def _notification_orm_to_dc(n: NotificationORM) -> NotificationDC:
     )
 
 
+def _assessment_inputs_dc(a: AssignmentORM, t: TaskORM, uid: int) -> AssessmentInputsDC:
+    import access
+    return AssessmentInputsDC(
+        assignment_id=a.assignment_id,
+        hours=a.hours,
+        evaluation=a.evaluation,
+        effective_completed_at=a.effective_completed_at,
+        revision=a.inputs_revision,
+        capabilities=access.inputs_caps(uid, t.scope_kind, t.scope_id, t.season_id),
+    )
+
+
 def _recalculate_assignment_contribution(session: Session, a: AssignmentORM, t: TaskORM):
     if a.status in ("accepted", "not_completed") and a.evaluation is not None:
         crit_dict = {}
@@ -1940,6 +1986,7 @@ class Database:
     def __init__(self) -> None:
         self._SessionLocal = SessionLocal
         self._http_write_locks = WeakKeyDictionary()
+        self._http_units = WeakKeyDictionary()
 
     def _session(self) -> Session:
         active = _active_session.get()
@@ -1956,23 +2003,24 @@ class Database:
             yield
             return
         lock = None
+        loop = asyncio.get_running_loop()
         if write:
-            loop = asyncio.get_running_loop()
             lock = self._http_write_locks.setdefault(loop, asyncio.Lock())
             await lock.acquire()
         try:
-            with self._SessionLocal() as session:
-                if write:
-                    await to_thread.run_sync(lambda: session.execute(text("BEGIN IMMEDIATE")))
-                token = _active_session.set(session)
-                try:
-                    yield
-                    await to_thread.run_sync(session.commit)
-                except BaseException:
-                    await to_thread.run_sync(session.rollback)
-                    raise
-                finally:
-                    _active_session.reset(token)
+            async with self._http_units.setdefault(loop, asyncio.Semaphore(HTTP_UNITS)):
+                with self._SessionLocal() as session:
+                    if write:
+                        await to_thread.run_sync(lambda: session.execute(text("BEGIN IMMEDIATE")))
+                    token = _active_session.set(session)
+                    try:
+                        yield
+                        await to_thread.run_sync(session.commit)
+                    except BaseException:
+                        await to_thread.run_sync(session.rollback)
+                        raise
+                    finally:
+                        _active_session.reset(token)
         finally:
             if lock is not None:
                 lock.release()
@@ -5110,8 +5158,17 @@ class Database:
                 deadline_at=t.deadline_at,
                 criteria=crit,
                 revision=t.revision,
-                capabilities=["edit_assessment_inputs"],
+                capabilities=access.inputs_caps(current_user_id, t.scope_kind, t.scope_id, t.season_id),
             )
+
+    def require_dates_right(self, user_id: int, t, state, changes) -> None:
+        """Only the chair, deputies and HR master move a task's dates once set (УВ-5).
+        `changes` holds (new, old) pairs; a new value naming the same instant is no move."""
+        from participation import dt
+        if any(new is not None and (old is None or dt(new) != dt(old)) for new, old in changes):
+            self.require_task_right(user_id, "task.dates.edit", t, state,
+                                    "Forbidden: only the chair, deputies and HR master change task dates",
+                                    "Forbidden: only the chair and deputies change task dates in a closed season")
 
     def patch_task_assessment_inputs(
         self,
@@ -5131,22 +5188,25 @@ class Database:
             self.require_task_right(user_id, "task.inputs.edit", t, season and season.state,
                                     "Forbidden: cannot edit task assessment inputs",
                                     "Forbidden: only the chair and deputies can edit assessment inputs in a closed season")
+            from participation import dt
+            from validation import period, timestamp
+            if assigned_at is not None:assigned_at=timestamp(assigned_at)
+            if deadline_at is not None:deadline_at=timestamp(deadline_at)
+            self.require_dates_right(user_id, t, season and season.state, ((assigned_at, t.assigned_at), (deadline_at, t.deadline_at)))
             if t.revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
             if not reason or not reason.strip():
                 raise ValueError("Reason is required")
 
-            from validation import period, timestamp
-            if assigned_at is not None:assigned_at=timestamp(assigned_at)
-            if deadline_at is not None:deadline_at=timestamp(deadline_at)
             period(assigned_at or t.assigned_at,deadline_at or t.deadline_at,season.ends_at)
             old_assigned = t.assigned_at
             old_deadline = t.deadline_at
             old_criteria = json.loads(t.criteria_json or "{}")
 
-            if assigned_at is not None:
+            # The same instant in another notation is kept as stored.
+            if assigned_at is not None and dt(assigned_at) != dt(t.assigned_at):
                 t.assigned_at = assigned_at
-            if deadline_at is not None:
+            if deadline_at is not None and dt(deadline_at) != dt(t.deadline_at):
                 t.deadline_at = deadline_at
             if criteria is not None:
                 t.criteria_json = json.dumps(criteria)
@@ -5186,14 +5246,7 @@ class Database:
             import access
             if not access.scope_inputs(current_user_id, t.scope_kind, t.scope_id, t.season_id):
                 raise ValueError("Forbidden: cannot view assignment assessment inputs")
-            return AssessmentInputsDC(
-                assignment_id=a.assignment_id,
-                hours=a.hours,
-                evaluation=a.evaluation,
-                effective_completed_at=a.effective_completed_at,
-                revision=a.revision,
-                capabilities=["edit_assessment_inputs"],
-            )
+            return _assessment_inputs_dc(a, t, current_user_id)
 
     def patch_assignment_assessment_inputs(
         self,
@@ -5216,16 +5269,20 @@ class Database:
             self.require_task_right(user_id, "task.inputs.edit", t, season and season.state,
                                     "Forbidden: cannot edit assignment assessment inputs",
                                     "Forbidden: only the chair and deputies can edit assessment inputs in a closed season")
-            if a.revision != expected_revision:
+            from participation import dt
+            from validation import assessment, hours as check_hours, timestamp
+            if effective_completed_at is not None:effective_completed_at=timestamp(effective_completed_at)
+            self.require_dates_right(user_id, t, season and season.state, ((effective_completed_at, a.effective_completed_at),))
+            if a.inputs_revision != expected_revision:
                 raise ValueError("Conflict: revision mismatch")
             if not reason or not reason.strip():
                 raise ValueError("Reason is required")
             if evaluation is not None and a.status == "cancelled":
                 raise ValueError("Conflict: a cancelled assignment has no evaluation")
 
-            from validation import assessment, hours as check_hours, timestamp
             if hours is not None:check_hours(hours)
-            if effective_completed_at is not None:effective_completed_at=timestamp(effective_completed_at)
+            if effective_completed_at is not None and a.effective_completed_at and dt(effective_completed_at) == dt(a.effective_completed_at):
+                effective_completed_at = None  # the same instant in another notation
             assessment(evaluation if evaluation is not None else a.evaluation,effective_completed_at or a.effective_completed_at)
             old_hours = a.hours
             old_eval = a.evaluation
@@ -5247,7 +5304,9 @@ class Database:
             if effective_completed_at is not None:
                 a.effective_completed_at = effective_completed_at
 
-            a.revision += 1
+            # The assignee sees only the status: the assignment revision moves with it alone.
+            if a.status != old_status:
+                a.revision += 1
             a.updated_at = datetime.now(timezone.utc).isoformat()
             _recalculate_assignment_contribution(session, a, t)
 
@@ -5266,14 +5325,7 @@ class Database:
             from season_summaries import refresh
             refresh(session,t.season_id,user_id,reason)
             session.commit()
-            return AssessmentInputsDC(
-                assignment_id=a.assignment_id,
-                hours=a.hours,
-                evaluation=a.evaluation,
-                effective_completed_at=a.effective_completed_at,
-                revision=a.revision,
-                capabilities=["edit_assessment_inputs"],
-            )
+            return _assessment_inputs_dc(a, t, user_id)
 
     def bulk_hours(self, items: list[dict], hours: float, reason: str, user_id: int) -> list[AssessmentInputsDC]:
         if hours < 0:
@@ -5295,7 +5347,7 @@ class Database:
                 self.require_task_right(user_id, "task.inputs.edit", t, season and season.state,
                                         f"Forbidden: cannot edit assessment inputs for assignment {aid}",
                                         "Forbidden: only the chair and deputies can edit assessment inputs in a closed season")
-                if a.revision != exp_rev:
+                if a.inputs_revision != exp_rev:
                     raise ValueError(f"Conflict: revision mismatch for assignment {aid}")
                 loaded_items.append((a, t))
 
@@ -5304,7 +5356,6 @@ class Database:
             for a, t in loaded_items:
                 old_h = a.hours
                 a.hours = hours
-                a.revision += 1
                 a.updated_at = now_str
                 _recalculate_assignment_contribution(session, a, t)
                 session.add(
@@ -5318,22 +5369,14 @@ class Database:
                         created_at=now_str,
                     )
                 )
-                res.append(
-                    AssessmentInputsDC(
-                        assignment_id=a.assignment_id,
-                        hours=a.hours,
-                        evaluation=a.evaluation,
-                        effective_completed_at=a.effective_completed_at,
-                        revision=a.revision,
-                        capabilities=["edit_assessment_inputs"],
-                    )
-                )
             from season_summaries import refresh
             session.flush()
             ids=[item["assignment_id"] for item in items]
             season_ids={row[0] for row in session.query(TaskORM.season_id).join(AssignmentORM).filter(AssignmentORM.assignment_id.in_(ids))}
             for sid in season_ids:refresh(session,sid,user_id,reason)
             session.commit()
+            # After the flush: it is what moves each inputs revision.
+            res.extend(_assessment_inputs_dc(a, t, user_id) for a, t in loaded_items)
             return res
 
     def list_assessments(
@@ -5376,7 +5419,7 @@ class Database:
                             hours=a.hours,
                             evaluation=a.evaluation,
                             effective_completed_at=a.effective_completed_at,
-                            revision=a.revision,
+                            revision=a.inputs_revision,
                             capabilities=[],
                         )
                 results.append(

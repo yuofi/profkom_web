@@ -3,7 +3,7 @@ import { act } from "react";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
-import { mountWorkspace, settle, change, field, submit } from "../../test/workspace";
+import { mountWorkspace, settle, change, field, pick, submit } from "../../test/workspace";
 import { MaterialPage } from "./MaterialPages";
 import { ReportPage } from "./ReportPages";
 import { TaskPage } from "./TaskPages";
@@ -43,7 +43,7 @@ it.each(["material", "report", "task", "task-inputs", "assessment", "bulk"] as c
   const value = name === "hours" ? "7" : name === "deadline" ? "2026-10-26T18:00" : "МОЙ ВВОД";
   await change(field(form, name), value);
   if (form.querySelector('[name="reason"]')) await change(field(form, "reason"), "Причина исправления");
-  if (kind === "bulk") await change(field(form, "assignments"), mock.state.assessments[0].assignment_id);
+  if (kind === "bulk") await pick(form, "assignments", mock.state.assessments[0].assignment_id);
   const foreign = () => {
     if (kind === "material") { material.revision++; material.description = "ЧУЖОЕ ОПИСАНИЕ"; material.draft_content = richText("ЧУЖОЙ ТЕКСТ"); }
     else if (kind === "report") { report.revision++; report.draft_content = richText("ЧУЖОЙ ТЕКСТ"); }

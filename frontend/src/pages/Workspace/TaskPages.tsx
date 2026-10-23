@@ -10,7 +10,7 @@ import {
   Badge,
   Empty,
 } from "../../components/Workspace/WorkspaceUI";
-import { ActionForm, type Field, type OwnRevisionChange } from "../../components/Workspace/ActionForm";
+import { ActionForm, type Field } from "../../components/Workspace/ActionForm";
 import { text, ids, number } from "../../components/Workspace/formValues";
 import {
   Attachments,
@@ -321,6 +321,22 @@ function FocusedAssignment({
     </div>
   );
 }
+const visibleState = (a: Assignment) =>
+  JSON.stringify([a.status, a.review_note ?? null, a.submissions.map((x) => x.submission_id)]);
+/** The assignment as its assignee sees it now, for a form stopped by a newer revision. */
+function VisibleState({ assignment: a, seen }: { assignment: Assignment; seen: string }) {
+  const last = a.submissions.at(-1);
+  return (
+    <dl>
+      <div><dt>Статус</dt><dd>{statusNames[a.status]}</dd></div>
+      {last && <div><dt>Последняя сдача</dt><dd>{displayDate(last.submitted_at)}</dd></div>}
+      {a.review_note && <div><dt>Комментарий к решению</dt><dd>{a.review_note}</dd></div>}
+      {visibleState(a) === seen && (
+        <p>Версия назначения обновилась, видимых вам изменений нет.</p>
+      )}
+    </dl>
+  );
+}
 function AssignmentCard({
   assignment: a,
   openAssessment = false,
@@ -329,9 +345,10 @@ function AssignmentCard({
   openAssessment?: boolean;
 }) {
   const { perform, refresh } = useWorkspaceActions();
-  const [ownChange, setOwnChange] = useState<OwnRevisionChange>();
   const [files, setFiles] = useState<FileRef[]>([]);
   const [uploading, setUploading] = useState(false);
+  // What the assignee saw on opening the card, to tell a visible change from none.
+  const [seen] = useState(() => visibleState(a));
   const active = !["accepted", "not_completed", "cancelled"].includes(a.status);
   return (
     <Card title={a.assignee.display_name}>
@@ -374,7 +391,7 @@ function AssignmentCard({
         {active && can(a, "start_assignment") && a.status === "assigned" && (
           <ActionForm
             revision={a.revision}
-            ownChange={ownChange} onSavedRevision={setOwnChange}
+            record={`assignment:${a.assignment_id}`}
             fields={[]}
             submitLabel="Начать работу"
             onConflict={refresh}
@@ -392,7 +409,7 @@ function AssignmentCard({
           a.status === "help_required" && (
             <ActionForm
             revision={a.revision}
-            ownChange={ownChange} onSavedRevision={setOwnChange}
+            record={`assignment:${a.assignment_id}`}
               fields={[]}
               submitLabel="Продолжить работу"
               onConflict={refresh}
@@ -413,7 +430,7 @@ function AssignmentCard({
             <summary>Попросить помощь</summary>
             <ActionForm
             revision={a.revision}
-            ownChange={ownChange} onSavedRevision={setOwnChange}
+            record={`assignment:${a.assignment_id}`}
               fields={[
                 {
                   name: "message",
@@ -421,6 +438,7 @@ function AssignmentCard({
                   type: "textarea",
                 },
               ]}
+              savedDetails={<VisibleState assignment={a} seen={seen} />}
               onSubmit={async (v, expectedRevision) => {
                 return perform(() =>
                   tasksApi.command(a.assignment_id, "request-help", {
@@ -429,6 +447,7 @@ function AssignmentCard({
                   }),
                 );
               }}
+              onConflict={refresh}
             />
           </details>
         )}
@@ -452,9 +471,13 @@ function AssignmentCard({
             />
             <ActionForm
             revision={a.revision}
-            ownChange={ownChange} onSavedRevision={setOwnChange}
+            record={`assignment:${a.assignment_id}`}
               key={a.assignment_id}
               disabled={uploading}
+              // A submission adds to the history: its saved values are an empty text and
+              // no files, next to what the assignee can see changed (A-TSK-12).
+              savedDetails={<VisibleState assignment={a} seen={seen} />}
+              onReplaceWithSaved={() => setFiles([])}
               fields={[
                 {
                   name: "body",
@@ -498,7 +521,7 @@ function AssignmentCard({
           <summary>Решение руководителя</summary>
           <ActionForm
             revision={a.revision}
-            ownChange={ownChange} onSavedRevision={setOwnChange}
+            record={`assignment:${a.assignment_id}`}
             key={a.assignment_id}
             fields={[
               {
@@ -617,6 +640,7 @@ function TaskComments({ task }: { task: Task }) {
             );
           }}
           submitLabel="Добавить комментарий"
+          resetOnSuccess
         />
       )}
     </Card>
@@ -675,6 +699,7 @@ export function TaskPage() {
                   <ActionForm
                     key={task.task_id}
                     revision={task.revision}
+                    record={`task:${task.task_id}`}
                     fields={[
                       {
                         name: "title",
@@ -732,6 +757,7 @@ function ReassignForm({ item }: { item: UnresolvedAssignment }) {
       <ActionForm
         key={a.assignment_id}
         revision={a.revision}
+        record={`assignment:${a.assignment_id}`}
         fields={[
           {
             name: "user",

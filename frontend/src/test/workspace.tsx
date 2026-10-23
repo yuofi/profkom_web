@@ -5,6 +5,8 @@ import { MemoryRouter } from "react-router-dom";
 import { SessionContext } from "../utils/session";
 import { createFixtures, type MockRole } from "../mocks/fixtures";
 import type { Session } from "../utils/api/contract";
+import { forgetOwnChanges } from "../components/Workspace/ownRevisions";
+import { workspaceQueryCache } from "../utils/api/invalidation";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 export async function mountWorkspace(
@@ -14,6 +16,7 @@ export async function mountWorkspace(
   const client =
     options.client ??
     new QueryClient({
+      queryCache: workspaceQueryCache(),
       defaultOptions: {
         queries: { retry: false, gcTime: Infinity, staleTime: Infinity },
       },
@@ -46,6 +49,7 @@ export async function mountWorkspace(
       await act(async () => root.unmount());
       client.clear();
       container.remove();
+      forgetOwnChanges(client);
     },
   };
 }
@@ -109,6 +113,12 @@ export async function submit(form: HTMLFormElement) {
     );
   });
   await settle();
+}
+/** Ticks or unticks one person of a multiple choice (RecipientPicker). */
+export async function pick(container: ParentNode, name: string, value: string, checked = true) {
+  const box = container.querySelector<HTMLInputElement>(`input[type="checkbox"][name="${name}"][value="${value}"]`);
+  if (!box) throw Error(`Missing choice ${value} of ${name}`);
+  if (box.checked !== checked) await act(async () => box.click());
 }
 export function field(container: ParentNode, name: string) {
   const element = container.querySelector<

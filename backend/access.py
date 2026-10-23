@@ -89,6 +89,8 @@ POLICY = {
     "task.review": ByState({"*": TACHKI | {HR_MASTER} | AREA_LEADS, "closed": TACHKI}),
     "task.inputs.view": TACHKI | {HR_MASTER} | AREA_LEADS,
     "task.inputs.edit": ByState({"*": TACHKI | {HR_MASTER} | AREA_LEADS, "closed": TACHKI}),
+    # Issue date, deadline and completion date, once set; area leads do not move them (УВ-5)
+    "task.dates.edit": ByState({"*": SUMMARY, "closed": TACHKI}),
     "queue.view": TACHKI | {HR_MASTER, QUEUE_HOLDER},
     "dashboard.all": TACHKI | {HR_MASTER},  # every block and event on the home page (АВ-26, АВ-35)
     # KKR, summary, merits
@@ -283,13 +285,15 @@ def season_state(season_id):
 
 
 def scope_access_revision(uid):
-    """Memberships and organizer rosters are not RoleAssignments in session."""
+    """Memberships and organizer rosters are not RoleAssignments in session. Blocks count
+    by ID, so renaming a block does not change its members' revision (A-FE-1)."""
     from database import SubeventORM
+    from membership import block_id_for
 
     user = db.get_user(uid)
     with db._session() as session:
         scopes = [
-            sorted({name.strip() for name in user.blocks.split(",") if name.strip()}),
+            sorted({block_id_for(name.strip()) for name in user.blocks.split(",") if name.strip()}),
             sorted(
                 row.subevent_id for row in session.query(SubeventORM)
                 if db.is_subevent_organizer(uid, row.subevent_id)
@@ -497,3 +501,11 @@ def scope_inputs(uid, kind, scope_id, season_id, write=False):
     """Assessment inputs (hours, evaluation, criteria) of a block or subevent area."""
     action = "task.inputs.edit" if write else "task.inputs.view"
     return allowed(uid, action, kind, scope_id, state=season_state(season_id))
+
+
+INPUTS_CAPS = {"edit_assessment_inputs": "task.inputs.edit", "edit_assessment_dates": "task.dates.edit"}
+
+
+def inputs_caps(uid, kind, scope_id, season_id):
+    """Capabilities of the assessment inputs of a task or an assignment."""
+    return _caps(INPUTS_CAPS, uid, kind, scope_id, season_state(season_id))

@@ -258,7 +258,8 @@ def correct(season_id, expected_version, reason, changes, uid):
                 )
                 if sid != season_id:
                     raise ValueError("Correction object belongs to another season")
-                if obj.revision != c["expected_revision"]:
+                # Assessment inputs carry their own revision (owner decision 32).
+                if (obj.inputs_revision if cls is AssignmentORM else obj.revision) != c["expected_revision"]:
                     raise ValueError("Conflict: object revision mismatch")
                 if {"expected_revision", "reason"} & set(c["values"]):
                     raise ValueError("Invalid correction values")

@@ -223,6 +223,8 @@ export function installMockTransport(
       "Данные изменились. Обновите страницу и повторите действие.",
     );
   const denied = () => fail(403, "forbidden", "Действие недоступно");
+  // Dates of a task are moved by the chair, deputies and HR master only (УВ-5).
+  const inputsCaps = () => ["edit_assessment_inputs", ...(state.global ? ["edit_assessment_dates"] : [])];
   const filter = <T extends { season_id?: string }>(items: T[], url: URL) =>
     url.searchParams.get("season_id")
       ? items.filter((x) => x.season_id === url.searchParams.get("season_id"))
@@ -893,7 +895,7 @@ export function installMockTransport(
         deadline_at: task.deadline_at,
         criteria: clone(data.criteria) as TaskInputs["criteria"],
         revision: 1,
-        capabilities: ["edit_assessment_inputs"],
+        capabilities: inputsCaps(),
       });
       task.assignments.forEach((a, i) =>
         state.assessments.push({
@@ -902,7 +904,7 @@ export function installMockTransport(
           evaluation: null,
           effective_completed_at: null,
           revision: 1,
-          capabilities: ["edit_assessment_inputs"],
+          capabilities: inputsCaps(),
         }),
       );
       state.tasks.push(task);
@@ -940,6 +942,8 @@ export function installMockTransport(
         };
         taskInputs.set(task.task_id, inputs);
         if (method === "patch") {
+          if ((data.assigned_at || data.deadline_at) && !inputs.capabilities.includes("edit_assessment_dates"))
+            return denied();
           if (mismatch(data, inputs)) return conflict();
           Object.assign(inputs, data);
           inputs.revision++;
@@ -998,14 +1002,21 @@ export function installMockTransport(
             evaluation: null,
             effective_completed_at: null,
             revision: assignment.revision,
-            capabilities: ["edit_assessment_inputs"],
+            capabilities: inputsCaps(),
           };
           state.assessments.push(assessment);
         }
         if (method === "patch") {
+          if (data.effective_completed_at && !assessment.capabilities.includes("edit_assessment_dates"))
+            return denied();
           if (mismatch(data, assessment)) return conflict();
           Object.assign(assessment, data);
           assessment.revision++;
+          // Inputs have their own revision; the assignee's moves only with the status.
+          if (typeof data.evaluation === "number") {
+            const status = data.evaluation >= 1 ? "accepted" : "not_completed";
+            if (assignment.status !== status) { assignment.status = status; assignment.revision++; }
+          }
         }
         return [200, clone(assessment)];
       }
@@ -1055,7 +1066,7 @@ export function installMockTransport(
           evaluation: null,
           effective_completed_at: null,
           revision: 1,
-          capabilities: ["edit_assessment_inputs"],
+          capabilities: inputsCaps(),
         });
         task.assignments.push(next);
         return [
