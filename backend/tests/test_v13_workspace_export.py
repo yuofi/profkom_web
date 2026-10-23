@@ -116,6 +116,38 @@ def test_xlsx_has_two_sheets_and_matches_frozen_totals(client, work, superuser):
 
 
 
+def _sheet(z, n):
+    ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    rows = ET.fromstring(z.read(f"xl/worksheets/sheet{n}.xml")).findall("m:sheetData/m:row", ns)
+    return [["".join(c.itertext()) for c in row] for row in rows]
+
+
+def test_xlsx_values_are_russian(client, work, superuser):
+    """2.13: the export names categories, decisions, sources and criteria as the screens do."""
+    with db._session() as s:
+        s.get(TaskORM, work["task"]["task_id"]).criteria_json = '{"unique": true, "in_person": true, "creative": false}'
+        s.commit()
+    accept(client, work)
+    summary = close(client, work, superuser)
+    sid = work["season"]["season_id"]
+    member = work["member"]
+    r = client.put(f"/api/seasons/{sid}/summary/decisions/{member.user_id}", headers=superuser.headers,
+                   json=dict(decisions=["nice", "kick_warning"], expected_version=summary["version"], reason="Проверка выгрузки"))
+    assert r.status_code == 200, r.text
+    r = client.get(f"/api/seasons/{sid}/summary.xlsx", headers=superuser.headers)
+    with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+        summary_rows, ledger = _sheet(z, 1), _sheet(z, 2)
+    head = summary_rows[0]
+    rows = [dict(zip(head, row)) for row in summary_rows[1:]]
+    assert rows and {x["Категория"] for x in rows} <= {"Джуниор", "Активист"}
+    assert any(x["Решения"] == "Найс, Предупреждение о кике" for x in rows), rows
+    head = ledger[0]
+    entries = [dict(zip(head, row)) for row in ledger[1:]]
+    assert entries and {x["Сезон"] for x in entries} == {work["season"]["title"]}
+    assert {x["Тип источника"] for x in entries} <= {"Задача блока", "Задача подмероприятия", "Бонус мастеру"}
+    assert {x["Критерии"] for x in entries if x["Назначение"]} == {"Уникальная, Очное присутствие"}
+
+
 def test_help_notification_repeat_does_not_duplicate(client, work):
     w = work
     aid = w["task"]["assignments"][0]["assignment_id"]

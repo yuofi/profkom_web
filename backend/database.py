@@ -603,6 +603,35 @@ def calculate_kkr_score(
     return score
 
 
+# Values of the export in Russian, as the screens name them (2.13); an unknown value stays as is.
+XLSX_CATEGORIES = {"junior": "Джуниор", "activist": "Активист"}
+XLSX_DECISIONS = {"golden_red_bull": "Золотой Red Bull", "kick_warning": "Предупреждение о кике", "kick": "Кик", "nice": "Найс"}
+XLSX_SOURCES = {
+    "block_task": "Задача блока",
+    "subevent_task": "Задача подмероприятия",
+    "head_merit": "Особая заслуга на мероприятии",
+    "chair_merit": "Заслуга председателя",
+    "block_volunteer": "Волонтёрская работа блока",
+    "subevent_volunteer": "Волонтёрская работа подмероприятия",
+    "master_bonus": "Бонус мастеру",
+}
+XLSX_CRITERIA = {
+    "unique": "Уникальная",
+    "creative": "Творческая",
+    "external_communication": "Общение вне вуза",
+    "in_person": "Очное присутствие",
+    "fixed_time": "В определённое время",
+}
+
+
+def _xlsx_criteria(raw: str) -> str:
+    try:
+        chosen = json.loads(raw or "{}")
+    except ValueError:
+        return raw
+    return ", ".join(XLSX_CRITERIA.get(k, k) for k, v in chosen.items() if v) if isinstance(chosen, dict) else raw
+
+
 def generate_summary_xlsx(summary: SeasonSummaryDC, contributions: list[CalculatedContributionDC]) -> bytes:
     import zipfile, io, xml.sax.saxutils
 
@@ -619,12 +648,12 @@ def generate_summary_xlsx(summary: SeasonSummaryDC, contributions: list[Calculat
         blocks_str = ", ".join(b.name for b in r.blocks)
         status_str = "Уже исключён" if r.is_archived else "Действующий"
         master_str = "Да" if r.is_master else "Нет"
-        dec_str = ", ".join(r.decisions)
+        dec_str = ", ".join(XLSX_DECISIONS.get(d, d) for d in r.decisions)
         summary_rows.append([
             r.rank,
             r.user.display_name,
             r.group_number,
-            r.category,
+            XLSX_CATEGORIES.get(r.category, r.category),
             blocks_str,
             master_str,
             status_str,
@@ -632,13 +661,17 @@ def generate_summary_xlsx(summary: SeasonSummaryDC, contributions: list[Calculat
             round(r.total_score, 2),
             r.previous_rank if r.previous_rank is not None else "",
             dec_str,
-            ", ".join(r.previous_decisions),
+            ", ".join(XLSX_DECISIONS.get(d, d) for d in r.previous_decisions),
         ])
 
     contrib_headers = ["ID", "Сезон", "Участник", "Тип источника", "Источник", "Баллы", "Версия расчёта", "ID участника", "ID источника", "Назначение", "Заслуга", "Бонус", "Часы", "Оценка", "Выдано", "Дедлайн", "Выполнено", "Критерии", "Баллы без округления"]
     contrib_rows = [contrib_headers]
+    seasons = {}
     for c in contributions:
         with db._session() as session:
+            if c.season_id not in seasons:
+                season = session.get(SeasonORM, c.season_id)
+                seasons[c.season_id] = season.title if season else c.season_id
             raw=session.get(ContributionORM,c.contribution_id)
             assignment=session.get(AssignmentORM,raw.assignment_id) if raw and raw.assignment_id else None
             task=session.get(TaskORM,assignment.task_id) if assignment else None
@@ -655,15 +688,15 @@ def generate_summary_xlsx(summary: SeasonSummaryDC, contributions: list[Calculat
         stable_source=block_id_for(c.source_id) if c.source_kind in ('block_task','block_volunteer','master_bonus') else c.source_id
         contrib_rows.append([
             c.contribution_id,
-            c.season_id,
+            seasons[c.season_id],
             c.user.display_name,
-            c.source_kind,
+            XLSX_SOURCES.get(c.source_kind, c.source_kind),
             c.source_title,
             round(c.score, 2) if c.score is not None else "",
             c.calculation_version,
             c.participant_id,stable_source,aid,c.merit_id or '',c.bonus_id or '',
             hours if hours is not None else '',evaluation if evaluation is not None else '',
-            assigned_at,deadline_at,completed_at or '',criteria,c.score if c.score is not None else '',
+            assigned_at,deadline_at,completed_at or '',_xlsx_criteria(criteria),c.score if c.score is not None else '',
         ])
 
     sheets = {"Сводная": summary_rows, "Начисления": contrib_rows}
