@@ -41,3 +41,6 @@ playwright-report
 *.sqlite
 *.sqlite3
 *.session.sql
+
+# Server-local nginx blocks (routes of other services, may hold private paths)
+/nginx-extra/

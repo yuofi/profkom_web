@@ -100,7 +100,7 @@ class Storage:
                 f"?expires={expires}&signature={self.sign(key, expires)}")
 
 
-def nginx_conf(backend_port, port, html, ca):
+def nginx_conf(backend_port, port, html, ca, extra):
     server = CONF.read_text()
     for old, new in (
         ("listen  443 ssl;", f"listen 127.0.0.1:{port};"),
@@ -109,6 +109,7 @@ def nginx_conf(backend_port, port, html, ca):
         ("http://backend:8000/api/", f"http://127.0.0.1:{backend_port}/api/"),
         ("/usr/share/nginx/html", str(html)),
         ("/etc/ssl/certs/ca-certificates.crt", ca),
+        ("/etc/nginx/extra/*.conf", f"{extra}/*.conf"),
     ):
         assert old in server, old
         server = server.replace(old, new)
@@ -133,7 +134,11 @@ def site(mock_s3, monkeypatch, tmp_path):
     (tmp_path / "temp").mkdir()
     (tmp_path / "html").mkdir()
     (tmp_path / "html/index.html").write_text("<p>SPA</p>")
-    (tmp_path / "nginx.conf").write_text(nginx_conf(backend_port, port, tmp_path / "html", certifi.where()))
+    # A server-local block, like the routes of another service on the production host.
+    (tmp_path / "extra").mkdir()
+    (tmp_path / "extra/other-service.conf").write_text("location = /other-service { return 204; }\n")
+    (tmp_path / "nginx.conf").write_text(
+        nginx_conf(backend_port, port, tmp_path / "html", certifi.where(), tmp_path / "extra"))
     nginx = subprocess.Popen([NGINX, "-p", str(tmp_path), "-c", "nginx.conf", "-g", "daemon off;"],
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     try:
@@ -211,3 +216,24 @@ def test_nginx_gives_nothing_without_access(client, site, pgas_admin, mock_s3):
     site["storage"].refuse = True
     failed = httpx.get(url, headers=pgas_admin.headers)
     assert failed.status_code == 502 and b"AccessDenied" not in failed.content and fid.encode() not in failed.content
+
+
+def test_nginx_serves_server_local_blocks_next_to_the_site(site):
+    """Routes of other services on the host (a VPN on the production server) are kept in
+    ./nginx-extra outside git and survive a deployment of a new nginx.conf."""
+    assert httpx.get(f"{site['url']}/other-service").status_code == 204
+    spa = httpx.get(f"{site['url']}/some/page")
+    assert spa.status_code == 200 and spa.text == "<p>SPA</p>"
+
+
+@pytest.mark.parametrize("folder", ["empty", "missing"])
+def test_nginx_starts_without_server_local_blocks(tmp_path, folder):
+    import certifi
+
+    (tmp_path / "temp").mkdir()
+    if folder == "empty":
+        (tmp_path / "extra").mkdir()
+    (tmp_path / "nginx.conf").write_text(
+        nginx_conf(free_port(), free_port(), tmp_path / "html", certifi.where(), tmp_path / "extra"))
+    out = subprocess.run([NGINX, "-t", "-p", str(tmp_path), "-c", "nginx.conf"], capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr

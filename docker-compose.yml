@@ -17,8 +17,10 @@ services:
     ports:
       - "${FRONTEND_PORT}:443"
     volumes:
-      # - /home/yulov/certs:/etc/nginx/ssl
-      - ./certs:/etc/nginx/ssl
+      # Certificates: CERTS_DIR in .env next to this file (./certs by default).
+      - ${CERTS_DIR:-./certs}:/etc/nginx/ssl
+      # Server-local nginx blocks outside git (see frontend/nginx.conf).
+      - ./nginx-extra:/etc/nginx/extra:ro
     depends_on:
       - backend
       
