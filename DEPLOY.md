@@ -2,7 +2,7 @@
 
 Переход рабочего сайта с 6eb9dea на ветку `release-1`. Каждое действие на сервере выполняется только с явного разрешения владельца на этот шаг (AGENTS.md). Секреты, значения `.env`, токены и персональные данные не выводятся. Из отчётов миграции показываются только ID и счётчики.
 
-## 0. Что известно о сервере (проверено 2026-10-24)
+## 0. Что известно о сервере (проверено 2026-10-24 и 2026-10-25)
 
 - **Проект compose:** `/home/yulov/profkom_web`, контейнеры `profkom_web-backend-1` и `profkom_web-frontend-1`, docker compose 5.3.1. Рабочая копия стоит на `6eb9dea`, ветка `main`. Сеть `profkom_web_default`: 172.19.0.0/16, шлюз 172.19.0.1.
 - **Локальные правки рабочей копии, которых нет в git:**
@@ -17,9 +17,17 @@
 - **Образы для отката:**
   - backend работает на `a104a0c10f21` (это `profkom_web-backend:latest`);
   - образ, из которого создан frontend, удалён. Блоки Marzban внесены прямо в контейнер. Образ `78e8aa854a3e` (`profkom_web-frontend:latest`) совпадает с ним по конфигурации nginx и всем 32 файлам сайта, nginx новее на патч-версию.
-- **Порт backend 8000 сейчас открыт наружу:** Docker обходит ufw. Новая версия слушает его только на 127.0.0.1.
-- **База:** `<db>` в `/home/yulov/profkom_web/data` (`/app/data` в контейнере). Имя файла задаёт `DATABASE_PATH` в `backend/.env`.
-- **Тестовый домен:** `test.profcom-cmc.online` ведёт на этот же сервер, порт 80 свободен и открыт в ufw.
+- **Порт backend 8000 сейчас открыт наружу:** Docker обходит ufw. За 72 часа напрямую пришло около 1500 запросов из 131 источника — только сканеры (`CONNECT`, `/metrics`, `/v1/models`), все получили 404. Сайт ходит к backend через nginx. Новая версия слушает этот порт только на 127.0.0.1.
+- **База:** `<db>` = `profcom.db` в `/home/yulov/profkom_web/data`, около 250 КБ, без WAL. `DATABASE_PATH=./data/profcom.db` в `backend/.env` считается от `/app`.
+  - Папка `data` — 777. База принадлежит 999:999: под этим uid работает пользователь `admin` контейнера, и в новом образе тоже.
+  - Копия базы для проверок получает тех же владельца и права, иначе контейнер не сможет в неё писать.
+- **Настройки backend:**
+  - старый образ содержит `backend/.env` внутри (`COPY . .`, `.env` не исключён);
+  - новый образ `.env` не содержит и получает его через `env_file` из compose;
+  - в файле нет `VK_CLIENT_ID`;
+  - `JWT_SECRET_KEY` короче 32 символов: с ним новый backend не стартует, ключ меняется при выкладке. Все войдут заново один раз.
+- **Тестовый домен:** `test.profcom-cmc.online` ведёт на этот же сервер, порт 80 был свободен и открыт в ufw. С 2026-10-25 там тестовый сайт (раздел 6).
+- **Монтирование одного файла:** контейнер видит файл, который был на месте при его запуске. Правка через `sed -i` создаёт новый файл, поэтому после неё нужен перезапуск контейнера, а не `nginx -s reload`. В папке `nginx-extra` новые файлы видны сразу, там хватает `nginx -s reload`.
 
 ## 1. Подготовка
 
@@ -49,6 +57,7 @@ git clone --branch release-1 $BUNDLE $H          # или из origin
 mkdir -p $H/data $H/nginx-extra
 # Копия через backup API SQLite из соединения только для чтения: сайт продолжает работать.
 python3 -c "import sqlite3, sys; s = sqlite3.connect('file:' + sys.argv[1] + '?mode=ro', uri=True); s.backup(sqlite3.connect(sys.argv[2]))" $D/data/<db> $H/data/site.db
+chmod --reference=$D/data $H/data; chown --reference=$D/data/<db> $H/data/site.db   # контейнер пишет под uid 999
 sha256sum $H/data/site.db
 ```
 
@@ -90,6 +99,17 @@ docker stop profkom-rehearsal-api
 
 Время шагов записать: из него складывается окно простоя. Если репетиция не прошла, выкладка переносится (УВ-7). После неё удалить `$H` вместе с копией базы и образы `profkom-rehearsal-*`.
 
+Репетиция 2026-10-24 на копии рабочей базы пройдена.
+- **Время:** сборка образа backend — 34 с, образа frontend — 4 с. Вся миграция — около 30 с: apply 4,4 с, остальные скрипты по 1–2 с, seal 6 с.
+- **Миграция:**
+  - председатель, блок HR и 75 привязок VK;
+  - все 85 человек — `activist`;
+  - приняты 82 аватара и 42 файла ПГАС, 22 ссылки в текстах переведены на `file:`;
+  - повторный прогон ничего не меняет, `schema` пустой.
+- **Нерешённое:** осталось только принятое (раздел 4).
+- **nginx:** все 6 location рабочего сайта на месте.
+- **`check_live`:** 9 из 9 проверок, 5xx нет.
+
 ## 3. Окно выкладки
 
 Шаги 1–4 идут, пока старая версия работает. Сайт стоит только на шагах 5–7.
@@ -101,7 +121,7 @@ G="git -c safe.directory=*"
 # 1. Образы для отката и копии локальных правок.
 docker tag a104a0c10f21 profkom_web-backend:6eb9dea
 docker tag 78e8aa854a3e profkom_web-frontend:6eb9dea
-mkdir -p $B/6eb9dea-local && cp frontend/nginx.conf docker-compose.yml .env $B/6eb9dea-local/
+mkdir -p $B/6eb9dea-local && cp frontend/nginx.conf docker-compose.yml .env $B/6eb9dea-local/ && cp backend/.env $B/6eb9dea-local/backend.env
 # 2. Блоки Marzban — в nginx-extra: строки, добавленные в nginx.conf после 6eb9dea, без закрывающей скобки сервера.
 mkdir -p nginx-extra
 python3 - <<'PY'
@@ -117,7 +137,9 @@ echo "CERTS_DIR=/home/yulov/certs" >> .env
 $G checkout HEAD -- frontend/nginx.conf docker-compose.yml  # правка nginx.conf добавлена в индекс; копии — в $B/6eb9dea-local
 # 3. Код.
 $G fetch $BUNDLE release-1 && $G checkout -b release-1 FETCH_HEAD   # или git fetch origin release-1
-# backend/.env: добавить VK_CLIENT_ID (раздел 1)
+# backend/.env: VK_CLIENT_ID из VITE_APP_ID и новый JWT_SECRET_KEY (старый короче 32 символов). Значения не печатать.
+grep -q '^VK_CLIENT_ID=' backend/.env || echo "VK_CLIENT_ID=$(grep -h '^VITE_APP_ID=' frontend/.env | cut -d= -f2)" >> backend/.env
+sed -i "s/^JWT_SECRET_KEY=.*/JWT_SECRET_KEY=$(head -c 48 /dev/urandom | base64 | tr -d '\n/+=')/" backend/.env
 # 4. Образы.
 tar xzf $DIST -C frontend
 docker compose build backend
@@ -178,9 +200,20 @@ git -c safe.directory='*' checkout main                       # main = 6eb9dea
 cp $B/6eb9dea-local/nginx.conf frontend/nginx.conf
 cp $B/6eb9dea-local/docker-compose.yml docker-compose.yml
 cp $B/6eb9dea-local/.env .env
+cp $B/6eb9dea-local/backend.env backend/.env
 docker tag profkom_web-backend:6eb9dea profkom_web-backend
 docker tag profkom_web-frontend:6eb9dea profkom_web-frontend
 docker compose up -d --no-build
 ```
 
 Если бакет уже стал приватным, сначала вернуть прежнюю политику доступа: старый код отдаёт файлы по публичным ссылкам. `VK_CLIENT_ID` в `backend/.env` старому коду не мешает.
+
+## 6. Тестовый сайт
+
+С 2026-10-25 на `http://test.profcom-cmc.online` работает новая версия на мигрированной копии рабочей базы. Это отдельный проект compose `profkom-test` в `/root/profkom-test`, рабочий сайт он не затрагивает.
+- Страницы закрыты Basic Auth. API — без него: клиент кладёт свой токен в тот же заголовок `Authorization`, данные доступны только после входа.
+- Вход только по паролю: у приложения VK этот адрес не прописан.
+- Соединение без TLS: пароли идут открытым текстом.
+- Сессия живёт 3 часа (`ACCESS_TOKEN_EXPIRE_MINUTES=180`): по HTTP браузер не хранит Secure-cookie обновления.
+- Ключи рабочего бакета выданы по решению владельца от 2026-10-24. Удалять объекты код не умеет, но загрузки с теста добавляют объекты в рабочий бакет.
+- Удалить: `docker compose -p profkom-test down`, затем удалить `/root/profkom-test` и образы `profkom-test-*`.
