@@ -80,6 +80,10 @@ class Storage:
                 self.send_header("Cache-Control", "public, max-age=31536000")
                 self.send_header("Set-Cookie", "storage=1")
                 self.send_header("x-amz-request-id", "synthetic")
+                # What the production storage (s3.cloud.ru) adds to every object, seen on the
+                # test site on 2026-10-25.
+                self.send_header("x-amz-storage-class", "STANDARD")
+                self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
                 self.send_header("Content-Length", str(end - start + 1))
                 if ranged:
                     self.send_header("Content-Range", f"bytes {start}-{end}/{len(data)}")
@@ -173,7 +177,8 @@ def test_nginx_serves_the_checked_bytes_with_the_backend_headers(client, site, p
     assert r.headers.get_list("cache-control") == ["private, no-cache"]
     assert r.headers["x-content-type-options"] == "nosniff"
     assert r.headers["content-security-policy"] == "sandbox"
-    for leaked in ("x-storage-url", "x-accel-redirect", "x-amz-request-id", "set-cookie"):
+    for leaked in ("x-storage-url", "x-accel-redirect", "x-amz-request-id", "x-amz-storage-class",
+                   "strict-transport-security", "set-cookie"):
         assert leaked not in r.headers, leaked
     # The storage got the signed GET only: nothing of the visitor.
     [seen] = site["storage"].requests
