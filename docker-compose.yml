@@ -4,7 +4,9 @@ services:
     env_file:
       - ./backend/.env
     ports:
-      - "${BACKEND_PORT}:8000"
+      # Loopback only: the site reaches the backend through nginx of the frontend; a direct
+      # request with X-File-Delivery would show a 60-second storage signature (step 8).
+      - "127.0.0.1:${BACKEND_PORT}:8000"
     volumes:
       - ./data:/app/data
     restart: unless-stopped

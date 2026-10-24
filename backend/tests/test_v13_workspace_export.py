@@ -200,3 +200,28 @@ def test_comment_body_and_notification_are_safe(client, work):
         "items"
     ]
     assert any(m["target"] == dict(kind="task", id=tid) for m in messages)
+
+
+def test_calendar_zone_does_not_need_the_system_zone_files():
+    """python:3.12-slim may lack /usr/share/zoneinfo: the Moscow zone of the calendar then
+    comes from the tzdata package in requirements.txt (otherwise 422 «Unknown timezone»)."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    backend = Path(__file__).resolve().parents[1]
+    assert "tzdata" in {
+        line.split("==")[0].strip() for line in (backend / "requirements.txt").read_text().splitlines()
+    }
+    code = (
+        "import os, zoneinfo; assert not any(os.path.isdir(p) for p in zoneinfo.TZPATH);"
+        "from workspace import date_range;"
+        "print(date_range('2026-10-01', '2026-10-31')[0])"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code], cwd=backend, capture_output=True, text=True,
+        env={**os.environ, "PYTHONTZPATH": str(backend / "no-zoneinfo")},
+    )
+    assert out.returncode == 0, out.stderr[-500:]
+    assert out.stdout.strip() == "2026-09-30T21:00:00+00:00"
