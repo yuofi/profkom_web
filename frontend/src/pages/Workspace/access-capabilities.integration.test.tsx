@@ -30,7 +30,8 @@ async function openSeason() {
 async function linksOn(email: string, path: string) {
   const session = await liveLogin(email);
   page = await mountWorkspace(<Routes><Route path="/events/:id" element={<EventPage />} /><Route path="/subevents/:id" element={<SubeventPage />} /></Routes>, {path, session});
-  await waitForPage(page, () => !!page!.container.textContent?.includes("Отчёты"));
+  // The page is read once its people are shown; the reports link shows only to its readers.
+  await waitForPage(page, () => /Главорги|Ответственные/.test(page!.container.textContent ?? ""));
   const links = Array.from(page.container.querySelectorAll("a"), a => a.textContent?.trim());
   await page.cleanup(); page = undefined;
   return links;
