@@ -1,4 +1,4 @@
-import { createContext, type CSSProperties } from "react";
+import { createContext, type CSSProperties, type ReactNode } from "react";
 import type { IconName } from "../icons";
 
 /** The accents next to the yellow of the brand (vars.css). */
@@ -46,3 +46,5 @@ export function sectionOf(pathname: string): Section {
 
 /** The section of the page shown, for its header. */
 export const SectionContext = createContext<Section | undefined>(undefined);
+/** What a page shows under its header, before its content: the tabs of a cabinet. */
+export const PageNavContext = createContext<ReactNode>(null);

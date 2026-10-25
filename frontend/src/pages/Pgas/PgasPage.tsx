@@ -1,19 +1,17 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet-async";
 import { z } from "zod";
 import { FormikProvider } from "formik";
-import clsx from "clsx";
 import { pgasApi } from "../../utils/api/pgas.api";
 import { apiUrl } from "../../utils/api";
 import { uploadFile } from "../../utils/s3-utils";
 import { fileAccept, fileMetadata } from "../../utils/filePolicy";
 import { can, useSession } from "../../utils/session";
-import { Icon } from "../../components/Icon";
-import { Button } from "../../components/Button/Button";
-import { FormTextField } from "../../components/Form/FormTextFiled";
 import { useForm } from "../../components/Form/Form";
+import { Badge, Empty, Glyph, Loading, Page } from "../../components/Workspace/WorkspaceUI";
 import type { PgasEntryOut } from "../../utils/api/types";
+import s from "../../components/Workspace/Workspace.module.css";
 import styles from "./PgasPage.module.css";
 import type { IconName } from "../../components/icons";
 
@@ -47,13 +45,11 @@ const getFileIcon = (fileType = ""): IconName => {
 export const PgasPage = () => {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const filterRef = useRef<HTMLDivElement>(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [sortType, setSortType] = useState<SortType>("default");
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
 
   const { session } = useSession();
   // The chair, deputies and pgas_admin edit (decision 14); the server decides it.
@@ -63,25 +59,6 @@ export const PgasPage = () => {
     queryKey: ["pgas"],
     queryFn: pgasApi.getAll,
   });
-
-  // Закрываем выпадающий список фильтрации по клику вне него
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
-      if (filterRef.current && !filterRef.current.contains(event.target as Node)) {
-        setIsFilterOpen(false);
-      }
-    };
-
-    if (isFilterOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-      document.addEventListener("touchstart", handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("touchstart", handleClickOutside);
-    };
-  }, [isFilterOpen]);
 
   const sortedEntries = useMemo(() => {
     if (!entries) return [];
@@ -177,166 +154,129 @@ export const PgasPage = () => {
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className={styles.pgasPage}>
-        <Helmet>
-          <title>ПГАС | Профком ВМК</title>
-        </Helmet>
-        <div className={styles.emptyState}>
-          <Icon name="sync" size={32} />
-          <span>Загрузка списка...</span>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className={styles.pgasPage}>
+    <Page
+      title="ПГАС"
+      description="Документы для ПГАС"
+      actions={
+        canManage && (
+          <button className={s.button} onClick={openModal}>
+            <Glyph name="upload" />
+            Загрузить файл
+          </button>
+        )
+      }
+    >
       <Helmet>
         <title>ПГАС | Профком ВМК</title>
       </Helmet>
-
-      <div className={styles.pageHeader}>
-        <div className={styles.pageHeaderText}>
-          <h1 className={styles.pageTitle}>ПГАС</h1>
-          <p className={styles.pageSubtitle}>
-            Документы для ПГАС
-          </p>
-        </div>
-
-        <div className={styles.headerActions}>
-          <div className={styles.filterWrapper} ref={filterRef}>
-            <button
-              className={clsx(styles.filterBtn, isFilterOpen && styles.filterBtnActive)}
-              onClick={() => setIsFilterOpen(!isFilterOpen)}
-            >
-              <Icon name="filter_list" size={20} />
-              Фильтрация
-              <Icon name={isFilterOpen ? "expand_less" : "expand_more"} size={20} />
-            </button>
-
-            {isFilterOpen && (
-              <div className={styles.filterDropdown}>
-                {SORT_OPTIONS.map((option) => (
-                  <button
-                    key={option.value}
-                    className={clsx(
-                      styles.filterOption,
-                      sortType === option.value && styles.filterOptionActive,
-                    )}
-                    onClick={() => {
-                      setSortType(option.value);
-                      setIsFilterOpen(false);
-                    }}
-                  >
-                    {option.label}
-                    {sortType === option.value && <Icon name="check" size={18} />}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {canManage && (
-            <button className={styles.uploadBtn} onClick={openModal}>
-              <Icon name="upload" size={20} />
-              Загрузить файл
-            </button>
-          )}
-        </div>
+      <div className={s.filters}>
+        <label className={s.field}>
+          Порядок
+          <select value={sortType} onChange={(e) => setSortType(e.target.value as SortType)}>
+            {SORT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
-      {isError ? (
-        <div className={styles.emptyState}>
-          <Icon name="error" size={48} />
-          <span>Не удалось загрузить список</span>
+      {isLoading ? (
+        <Loading />
+      ) : isError ? (
+        <div role="alert" className={s.error}>
+          <p>Не удалось загрузить список</p>
         </div>
       ) : sortedEntries.length === 0 ? (
-        <div className={styles.emptyState}>
-          <Icon name="folder_open" size={48} />
-          <span>Записи пока не добавлены</span>
-        </div>
+        <Empty>Записи пока не добавлены</Empty>
       ) : (
-        <section className={styles.tableContainer}>
-          <div className={styles.tableWrapper}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>Название мероприятия</th>
-                  <th>Год</th>
-                  <th>Файл</th>
-                  {canManage && <th></th>}
-                </tr>
-              </thead>
-              <tbody>
-                {sortedEntries.map((entry) => (
-                  <tr key={entry.entry_id}>
-                    <td className={styles.tdPrimary}>{entry.title}</td>
+        <div className={s.tableWrap}>
+          <table className={s.table}>
+            <thead>
+              <tr>
+                <th>Название мероприятия</th>
+                <th>Год</th>
+                <th>Файл</th>
+                {canManage && <th aria-label="Действия"></th>}
+              </tr>
+            </thead>
+            <tbody>
+              {sortedEntries.map((entry) => (
+                <tr key={entry.entry_id}>
+                  <td>{entry.title}</td>
+                  <td>
+                    <Badge tone="yellow">{entry.year}</Badge>
+                  </td>
+                  <td>
+                    <a
+                      className={styles.fileLink}
+                      href={apiUrl(entry.file_url)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      download
+                    >
+                      <Glyph name={getFileIcon(entry.file_type)} />
+                      <span className={styles.fileName}>
+                        {entry.file_name || "Скачать"}
+                      </span>
+                    </a>
+                  </td>
+                  {canManage && (
                     <td>
-                      <span className={styles.chip}>{entry.year}</span>
-                    </td>
-                    <td>
-                      <a
-                        className={styles.fileLink}
-                        href={apiUrl(entry.file_url)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        download
+                      <button
+                        className={`${s.button} ${s.danger} ${styles.deleteButton}`}
+                        onClick={() => handleDelete(entry)}
+                        title="Удалить"
+                        aria-label={`Удалить запись «${entry.title}»`}
                       >
-                        <Icon name={getFileIcon(entry.file_type)} size={20} />
-                        <span className={styles.fileName}>
-                          {entry.file_name || "Скачать"}
-                        </span>
-                      </a>
+                        <Glyph name="delete" />
+                      </button>
                     </td>
-                    {canManage && (
-                      <td>
-                        <div className={styles.actionsContainer}>
-                          <button
-                            className={styles.actionBtn}
-                            onClick={() => handleDelete(entry)}
-                            title="Удалить"
-                          >
-                            <Icon name="delete" size={20} />
-                          </button>
-                        </div>
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {isModalOpen && (
         <div className={styles.modalOverlay} onClick={closeModal}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+          <div
+            className={styles.modal}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pgas-upload-title"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className={styles.modalHeader}>
-              <h3>Загрузить файл</h3>
-              <Icon
-                name="close"
-                size={24}
-                style={{ cursor: "pointer" }}
-                onClick={closeModal}
-              />
+              <h3 id="pgas-upload-title">Загрузить файл</h3>
+              <button type="button" className={s.button} onClick={closeModal} aria-label="Закрыть">
+                <Glyph name="close" />
+              </button>
             </div>
 
             <FormikProvider value={formik}>
-              <form className={styles.modalForm} onSubmit={formik.handleSubmit}>
-                <FormTextField
-                  name="title"
-                  label="Название мероприятия"
-                  color="secondary"
-                />
+              <form className={s.form} onSubmit={formik.handleSubmit}>
+                <label className={s.field}>
+                  Название мероприятия
+                  <input
+                    name="title"
+                    value={formik.values.title}
+                    onChange={formik.handleChange}
+                    onBlur={formik.handleBlur}
+                  />
+                  {formik.touched.title && formik.errors.title && (
+                    <span className={s.fieldError}>{String(formik.errors.title)}</span>
+                  )}
+                </label>
 
-                <div className={styles.selectField}>
-                  <span className={styles.fieldLabel}>Год</span>
+                <label className={s.field}>
+                  Год
                   <select
                     name="year"
-                    className={styles.select}
                     value={formik.values.year}
                     onChange={(e) => formik.setFieldValue("year", Number(e.target.value))}
                     onBlur={formik.handleBlur}
@@ -347,18 +287,18 @@ export const PgasPage = () => {
                       </option>
                     ))}
                   </select>
-                </div>
-                {formik.touched.year && formik.errors.year && (
-                  <div className={styles.errorText}>{String(formik.errors.year)}</div>
-                )}
+                  {formik.touched.year && formik.errors.year && (
+                    <span className={s.fieldError}>{String(formik.errors.year)}</span>
+                  )}
+                </label>
 
                 <div className={styles.fileField}>
                   <button
                     type="button"
-                    className={styles.chooseFileBtn}
+                    className={s.button}
                     onClick={() => fileInputRef.current?.click()}
                   >
-                    <Icon name="attach_file" size={20} />
+                    <Glyph name="attach_file" />
                     Выбрать файл
                   </button>
                   <span className={styles.chosenFileName}>
@@ -373,27 +313,27 @@ export const PgasPage = () => {
                   />
                 </div>
 
-                {fileError && <div className={styles.errorText}>{fileError}</div>}
+                {fileError && <p role="alert" className={s.fieldError}>{fileError}</p>}
 
-                {globalError && <div className={styles.errorText}>{globalError}</div>}
+                {globalError && <p role="alert" className={s.fieldError}>{globalError}</p>}
 
                 <div className={styles.modalActions}>
-                  <Button variant="tertiary" type="reset" onClick={closeModal}>
+                  <button className={s.button} type="reset" onClick={closeModal}>
                     Отмена
-                  </Button>
-                  <Button
-                    variant="tertiary"
+                  </button>
+                  <button
+                    className={`${s.button} ${s.primary}`}
                     type="submit"
                     disabled={formik.isSubmitting}
                   >
                     {formik.isSubmitting ? "Загрузка..." : "Загрузить"}
-                  </Button>
+                  </button>
                 </div>
               </form>
             </FormikProvider>
           </div>
         </div>
       )}
-    </div>
+    </Page>
   );
 };

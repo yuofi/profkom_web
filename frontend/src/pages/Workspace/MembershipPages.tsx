@@ -58,7 +58,7 @@ export function BlocksPage() {
         <div className={s.grid}>
           {query.data?.map((b) => (
             <Card key={b.block_id} title={b.name}>
-              <Markdown content={b.description} />
+              <Markdown content={b.description} preview />
               <p>Мастер: {b.master?.user.display_name ?? "не назначен"}</p>
               <RouteLink to={`/blocks/${encodeURIComponent(b.block_id)}`}>
                 О блоке
@@ -96,21 +96,19 @@ export function BlockPage() {
       title={b?.name ?? "Блок"}
       actions={<RouteLink to="/blocks">Все блоки</RouteLink>}
     >
-      <div className={s.tabs}>
-        <RouteLink to={`/blocks/${encodeURIComponent(id)}`}>О блоке</RouteLink>
-        {canViewTracker && <RouteLink
-          to={`/tasks?scope_kind=block&scope_id=${encodeURIComponent(id)}`}
-        >
-          Задачи
-        </RouteLink>}
-      </div>
       <QueryState keepDataOnError={!!query.data}
         loading={query.isLoading} error={query.error}>
         {b && (
           <div className={s.stack}>
             <Card>
-              <Markdown content={b.description} />
               <div className={s.row}>
+                {canViewTracker && (
+                  <RouteLink
+                    to={`/tasks?scope_kind=block&scope_id=${encodeURIComponent(id)}`}
+                  >
+                    Задачи блока
+                  </RouteLink>
+                )}
                 {can(b, "create_volunteer_merit") && <RouteLink to={`/merits?source_kind=block_volunteer&scope_id=${encodeURIComponent(id)}`}>Учесть волонтёрскую работу</RouteLink>}
                 {b.guide_material_id ? (
                   <RouteLink
@@ -123,6 +121,7 @@ export function BlockPage() {
                 )}
                 {b.community_url && (
                   <a
+                    className={s.linkButton}
                     href={b.community_url}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -131,6 +130,7 @@ export function BlockPage() {
                   </a>
                 )}
               </div>
+              <Markdown content={b.description} />
             </Card>
             <Card title="Руководство">
               <Leaders leaders={b.master ? [b.master] : []} />
@@ -180,6 +180,7 @@ export function BlockPage() {
                           <ActionForm
                             fields={[]}
                             submitLabel="Убрать из состава"
+                            variant="danger"
                             onSubmit={async () => {
                               await perform(() =>
                                 membershipApi.remove(id, m.user.user_id!),
@@ -200,6 +201,7 @@ export function BlockPage() {
                 <ActionForm
                   fields={[]}
                   submitLabel="Выйти из блока"
+                  variant="danger"
                   onSubmit={async () => {
                     await perform(() => membershipApi.leave(id));
                   }}
@@ -278,8 +280,8 @@ function RequestCard({
       <Badge tone={requestTones[r.state]}>{requestStates[r.state]}</Badge>
       {open ? (
         <p>
-          Текущий этап с {displayDate(r.stage_entered_at)} · ждёт{" "}
-          {waited(r.stage_entered_at)}
+          Текущий этап с {displayDate(r.stage_entered_at)} ·{" "}
+          <span className={s.nowrap}>ждёт {waited(r.stage_entered_at)}</span>
         </p>
       ) : (
         r.decided_at && <p>Решение: {displayDate(r.decided_at)}</p>
@@ -315,28 +317,32 @@ function RequestCard({
               );
             }}
           />
-          <ActionForm
-            revision={r.revision}
-            record={`block-request:${r.request_id}`}
-            onConflict={refresh}
-            fields={[
-              {
-                name: "reason",
-                label: "Причина отказа",
-                type: "textarea",
-                required: true,
-              },
-            ]}
-            submitLabel="Отклонить"
-            onSubmit={async (v, expectedRevision) => {
-              return perform(() =>
-                membershipApi.requestCommand(r.request_id, "reject", {
-                  expected_revision: expectedRevision!,
-                  reason: text(v, "reason"),
-                }),
-              );
-            }}
-          />
+          <details className={s.details}>
+            <summary>Отклонить с причиной</summary>
+            <ActionForm
+              revision={r.revision}
+              record={`block-request:${r.request_id}`}
+              onConflict={refresh}
+              fields={[
+                {
+                  name: "reason",
+                  label: "Причина отказа",
+                  type: "textarea",
+                  required: true,
+                },
+              ]}
+              submitLabel="Отклонить"
+              variant="danger"
+              onSubmit={async (v, expectedRevision) => {
+                return perform(() =>
+                  membershipApi.requestCommand(r.request_id, "reject", {
+                    expected_revision: expectedRevision!,
+                    reason: text(v, "reason"),
+                  }),
+                );
+              }}
+            />
+          </details>
         </div>
       )}
       {open && can(r, "withdraw_request") && (
@@ -346,6 +352,7 @@ function RequestCard({
             onConflict={refresh}
           fields={[]}
           submitLabel="Отозвать свою заявку"
+          variant="danger"
           onSubmit={async (_v, expectedRevision) => {
             return perform(() =>
               membershipApi.requestCommand(r.request_id, "withdraw", {
@@ -547,31 +554,35 @@ export function RegistrationsPage() {
               )}
               {r.status !== "approved" &&
                 can(r, "reset_registration_limit") && (
-                  <ActionForm
-                    revision={r.revision}
-                    record={`registration:${r.user_id}`}
-                    fields={[
-                      {
-                        name: "reason",
-                        label: "Основание сброса счётчика",
-                        required: true,
-                      },
-                    ]}
-                    submitLabel="Сбросить лимит"
-                    onConflict={refresh}
-                    onSubmit={async (v, expectedRevision) => {
-                      return perform(() =>
-                        membershipApi.registrationCommand(
-                          r.user_id,
-                          "reset-attempts",
-                          {
-                            expected_revision: expectedRevision!,
-                            reason: text(v, "reason"),
-                          },
-                        ),
-                      );
-                    }}
-                  />
+                  <details className={s.details}>
+                    <summary>Сбросить лимит отправок</summary>
+                    <ActionForm
+                      revision={r.revision}
+                      record={`registration:${r.user_id}`}
+                      fields={[
+                        {
+                          name: "reason",
+                          label: "Основание сброса счётчика",
+                          required: true,
+                        },
+                      ]}
+                      submitLabel="Сбросить лимит"
+                      variant="quiet"
+                      onConflict={refresh}
+                      onSubmit={async (v, expectedRevision) => {
+                        return perform(() =>
+                          membershipApi.registrationCommand(
+                            r.user_id,
+                            "reset-attempts",
+                            {
+                              expected_revision: expectedRevision!,
+                              reason: text(v, "reason"),
+                            },
+                          ),
+                        );
+                      }}
+                    />
+                  </details>
                 )}
             </Card>
           ))}

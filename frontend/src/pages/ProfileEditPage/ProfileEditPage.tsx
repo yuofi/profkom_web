@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { useMe } from "../../utils/me";
 import { authApi } from "../../utils/api/auth.api";
@@ -8,6 +7,8 @@ import { FormTextField } from "../../components/Form/FormTextFiled";
 import { useForm } from "../../components/Form/Form";
 import { FormikProvider } from "formik";
 import { Button } from "../../components/Button/Button";
+import { Page, Card, RouteLink } from "../../components/Workspace/WorkspaceUI";
+import s from "../../components/Workspace/Workspace.module.css";
 import { Icon } from "../../components/Icon";
 import { Avatar } from "../../components/Avatar/Avatar";
 import { ProfileValidationSchema, ChangePasswordValidationSchema } from "../../utils/zod";
@@ -20,7 +21,6 @@ import { Helmet } from "react-helmet-async";
 export const ProfileEditPage = () => {
   const user = useMe();
   const { session } = useSession();
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
@@ -127,130 +127,75 @@ export const ProfileEditPage = () => {
   if (!user) return null;
 
   return (
-    <div className={styles.container}>
+    <Page
+      title="Редактирование профиля"
+      description="Ваши данные видят участники Профкома в контактах."
+      actions={<RouteLink to="/profile">К профилю</RouteLink>}
+    >
       <Helmet>
         <title>Редактирование профиля | Профком ВМК</title>
       </Helmet>
-      <header className={styles.header}>
-        <div className={styles.headerContent}>
-          <button type="button" className={styles.iconButton} onClick={() => navigate(-1)}>
-            <Icon name="arrow_back" size={24} />
-          </button>
-          <h1>Редактирование профиля</h1>
-        </div>
-      </header>
-
-      <main className={styles.main}>
-        <FormikProvider value={profileFormik}>
-          <form className={styles.grid} onSubmit={profileFormik.handleSubmit}>
-            {profileError && <p role="alert" className={styles.notice}>{profileError}</p>}
-            {updateMutation.isSuccess && !profileFormik.dirty && <p role="status" className={styles.notice}>Профиль успешно обновлён</p>}
-            {/* Left Column */}
-            <div className={styles.column}>
-              {/* Card 1: Basic Info */}
-              <section className={styles.card}>
-                <div className={styles.basicInfoHeader}>
-                  <div className={styles.avatarContainer}>
-                    <Avatar 
-                      src={user.photo_url} 
-                      size={96} 
-                      mode="view" 
-                    />
-                  </div>
-                  <div className={styles.basicInfoText}>
-                    <h2>{user.name} {user.surname}</h2>
-                    <p>Основная информация</p>
-                  </div>
+      <FormikProvider value={profileFormik}>
+        <form className={styles.form} onSubmit={profileFormik.handleSubmit}>
+          <div className={s.columns}>
+            <div className={s.stack}>
+              <Card title="Основная информация">
+                <div className={styles.person}>
+                  <Avatar src={user.photo_url} size={64} mode="view" />
+                  <p>{user.name} {user.surname}</p>
                 </div>
-
-                <div className={styles.form}>
+                <div className={styles.fields}>
                   <FormTextField name="surname" label="Фамилия" color="on-surface" />
                   <FormTextField name="name" label="Имя" color="on-surface" />
                   <FormTextField name="patronymic" label="Отчество" color="on-surface" />
-                  
-
                 </div>
-              </section>
-
-              {/* Card 2: Security */}
-              <section className={styles.card}>
-                <div className={styles.securityHeader}>
-                  <div className={styles.securityIcon}>
-                    <Icon name="security" size={24} />
-                  </div>
-                  <div className={styles.securityText}>
-                    <h2>Безопасность</h2>
-                    <p>Управление доступом</p>
-                  </div>
-                </div>
-                <button 
-                  type="button"
-                  className={styles.changePasswordBtn}
-                  onClick={() => setIsPasswordModalOpen(true)}
-                >
-                  Изменить пароль
-                </button>
-
-                {visibleAdminTabs(session).length > 0 && (
-                  <button 
-                    type="button"
-                    className={styles.adminBtn}
-                    onClick={() => navigate("/admin")}
-                  >
-                    <Icon name="admin_panel_settings" size={20} />
-                    Администрирование
+              </Card>
+              <Card title="Безопасность">
+                <div className={s.row}>
+                  <button type="button" className={s.button} onClick={() => setIsPasswordModalOpen(true)}>
+                    {hasPassword ? "Изменить пароль" : "Задать пароль"}
                   </button>
-                )}
-              </section>
+                  {visibleAdminTabs(session).length > 0 && (
+                    <RouteLink to="/admin">Администрирование</RouteLink>
+                  )}
+                </div>
+              </Card>
             </div>
-
-            {/* Right Column */}
-            <div className={styles.column}>
-              {/* Card 3: Education Data */}
-              <section className={styles.card}>
-                <h2 className={styles.cardTitle}>Данные об обучении</h2>
-                <div className={styles.form}>
+            <div className={s.stack}>
+              <Card title="Данные об обучении">
+                <div className={styles.fields}>
                   <div className={styles.formGrid}>
                     <FormTextField name="group_number" label="Номер группы" color="on-surface" />
                     <FormTextField name="budget" label="Форма обучения" color="on-surface" />
                   </div>
                   <FormTextField name="location" label="Место жительства" color="on-surface" />
-                  
-
                 </div>
-              </section>
-
-              {/* Card 4: Contact Data */}
-              <section className={styles.card}>
-                <h2 className={styles.cardTitle}>Контактные данные</h2>
-                <div className={styles.form}>
+              </Card>
+              <Card title="Контактные данные">
+                <div className={styles.fields}>
                   <FormTextField name="phone" label="Телефон" type="tel" color="on-surface" />
                   <FormTextField name="tg" label="Телеграмм" color="on-surface" />
                   <FormTextField name="email" label="Почта" type="email" color="on-surface" />
                   <FormTextField name="vk" label="ВК (ссылка)" color="on-surface" />
-                  
-
                 </div>
-              </section>
+              </Card>
             </div>
-
-            {/* Save FAB */}
-            <Button 
-              variant="primary"
-              type="submit"
-              className={styles.saveFab} 
-              disabled={profileFormik.isSubmitting}
-              title="Сохранить"
-            >
-              {profileFormik.isSubmitting ? (
-                <div className={styles.loader} />
-              ) : (
-                <Icon name="save" size={24} />
-              )}
-            </Button>
-          </form>
-        </FormikProvider>
-      </main>
+          </div>
+          {/* The way to save stays in sight under the fields, and tells what happened. */}
+          <div className={styles.saveBar}>
+            {profileError ? (
+              <p role="alert" className={styles.saveError}>{profileError}</p>
+            ) : updateMutation.isSuccess && !profileFormik.dirty ? (
+              <p role="status" className={s.success}>Профиль успешно обновлён</p>
+            ) : (
+              <p className={s.muted}>{profileFormik.dirty ? "Есть несохранённые изменения" : "Изменений нет"}</p>
+            )}
+            <button type="submit" className={`${s.button} ${s.primary}`} disabled={profileFormik.isSubmitting}>
+              {profileFormik.isSubmitting ? "Сохраняем…" : "Сохранить"}
+            </button>
+          </div>
+        </form>
+      </FormikProvider>
 
       {/* Password Modal */}
       {isPasswordModalOpen && (
@@ -306,6 +251,6 @@ export const ProfileEditPage = () => {
           </div>
         </div>
       )}
-    </div>
+    </Page>
   );
 };

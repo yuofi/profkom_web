@@ -8,7 +8,9 @@ import { QueryState } from "./WorkspaceUI";
 import { Image } from "../Image/Image";
 import s from "./Workspace.module.css";
 import { userMessage } from "../../utils/api/messages";
+import { useMe } from "../../utils/me";
 export function AvatarPicker() {
+  const me = useMe();
   const query = useQuery({
     queryKey: ["avatars"],
     queryFn: directoryApi.avatars,
@@ -34,12 +36,13 @@ export function AvatarPicker() {
   return (
     <div className={s.form}>
       <QueryState loading={query.isLoading} error={query.error}>
-        <div className={s.row}>
+        <div className={s.avatars}>
           {query.data?.items.map((p) => (
             <button
-              className={s.button}
+              className={s.avatarTile}
               key={p.preset_id}
               type="button"
+              aria-pressed={me?.photo_url === p.image_url}
               disabled={busy}
               onClick={() => {
                 void save(() =>
@@ -47,15 +50,18 @@ export function AvatarPicker() {
                 );
               }}
             >
-              <img src={p.image_url} alt="" width={64} height={64} />
+              <img src={p.image_url} alt="" width={56} height={56} />
               <span>{p.title}</span>
             </button>
           ))}
         </div>
       </QueryState>
-      <label className={s.field}>
-        Своё фото: PNG, JPEG или WebP до 10 МиБ
+      {/* The system's file field is hidden: the label is the site's button that opens it. */}
+      <label className={s.upload}>
+        <span className={s.linkButton}>Загрузить своё фото</span>
+        <small>PNG, JPEG или WebP до 10 МиБ</small>
         <input
+          className={s.visuallyHidden}
           type="file"
           accept={fileAccept("avatar")}
           disabled={busy}
@@ -85,7 +91,7 @@ export function AvatarPicker() {
           {error}
         </p>
       )}
-      <details>
+      <details className={s.details}>
         <summary>Аватар по умолчанию</summary>
         <Image
           src="/avatars/default.svg"

@@ -1,6 +1,6 @@
 import { Suspense, type CSSProperties } from "react";
 import { Loading } from "./WorkspaceUI";
-import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, Outlet, useLocation } from "react-router-dom";
 import { useMe } from "../../utils/me";
 import { can, useSession } from "../../utils/session";
 import { DemoRolePicker } from "./DemoRolePicker";
@@ -32,7 +32,8 @@ export function WorkspaceLayout() {
   });
   const unread =
     notifications.data?.items.filter((n) => !n.read_at).length ?? 0;
-  const section = sectionOf(useLocation().pathname);
+  const { pathname } = useLocation();
+  const section = sectionOf(pathname);
   const links = (
     <nav
       className={s.nav}
@@ -42,14 +43,16 @@ export function WorkspaceLayout() {
           event.currentTarget.closest("details")?.removeAttribute("open");
       }}
     >
+      {/* The item of the page's section is marked on its inner pages too (a subevent is under Мероприятия). */}
       {SECTIONS.filter(({ to }) => shown[to]?.(session) ?? true).map(({ to, label, icon, tone }) => (
-        <NavLink end={to === "/"} key={to} to={to} style={toneStyle(tone)}>
+        <Link key={to} to={to} style={toneStyle(tone)}
+          aria-current={pathname === to ? "page" : section.to === to ? "true" : undefined}>
           <Glyph name={icon} className={s.icon} />
           {label}
           {to === "/notifications" && unread > 0 && (
             <span className={s.count}><span className={s.hiddenText}> · </span>{unread}</span>
           )}
-        </NavLink>
+        </Link>
       ))}
     </nav>
   );
@@ -67,7 +70,8 @@ export function WorkspaceLayout() {
         </details>
         <div className={s.profile}>
           <Link to="/profile">
-            {user?.name} {user?.surname}
+            <Glyph name="account_circle" className={s.icon} />
+            <span>{user?.name} {user?.surname}</span>
           </Link>
         </div>
         <DemoRolePicker />

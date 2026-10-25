@@ -3,10 +3,22 @@ const moscow = new Intl.DateTimeFormat("ru-RU", {
   dateStyle: "medium",
   timeStyle: "short",
 });
+/** "5 окт. 2026 г., 15:55": a line may break after the comma only, not inside the date or the time. */
 export const displayDate = (value: string | null | undefined) =>
   value && !Number.isNaN(Date.parse(value))
-    ? moscow.format(new Date(value))
+    ? moscow
+        .format(new Date(value))
+        .split(", ")
+        .map((part) => part.replace(/ /g, "\u00a0"))
+        .join(", ")
     : "—";
+const moscowTime = new Intl.DateTimeFormat("ru-RU", {
+  timeZone: "Europe/Moscow",
+  timeStyle: "short",
+});
+/** "15:55" by Moscow: where the day is already said. */
+export const displayTime = (value: string) =>
+  Number.isNaN(Date.parse(value)) ? "—" : moscowTime.format(new Date(value));
 export const moscowInput = (value: string) =>
   new Date(Date.parse(value) + 3 * 3600_000).toISOString().slice(0, 16);
 export const toUtc = (value: string) =>

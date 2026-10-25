@@ -3,6 +3,7 @@ import { Navigate, NavLink, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { GuidesManagement } from "./panels/GuidesManagement";
 import { Card, Empty, Page, QueryState, RouteLink } from "../../components/Workspace/WorkspaceUI";
+import { PageNavContext } from "../../components/Workspace/sections";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { number } from "../../components/Workspace/formValues";
 import { RegistrationsPage } from "../Workspace/MembershipPages";
@@ -16,7 +17,6 @@ import type { TemporaryPassword } from "../../utils/api/contract";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { can, useSession } from "../../utils/session";
 import s from "../../components/Workspace/Workspace.module.css";
-import styles from "./Admin.module.css";
 import { visibleAdminTabs, type AdminTab } from "./adminTabs";
 
 /** One cabinet; every tab shows only to those the server gives its right (АВ-34). */
@@ -47,30 +47,33 @@ export const AdminPanel = () => {
       </Page>
     );
   }
+  // The tabs stand under the page's header, as the section's own way between its pages.
+  const tabs = (
+    <nav className={s.tabs} aria-label="Администрирование">
+      {visible.map((t) => (
+        <NavLink key={t.tab} to={`/admin/${t.tab}`}>
+          {t.label}
+        </NavLink>
+      ))}
+      {can(session, "view_leadership") && (
+        <>
+          <NavLink to="/blocks">Блоки</NavLink>
+          <NavLink to="/seasons">Сезоны и ККР</NavLink>
+        </>
+      )}
+    </nav>
+  );
   return (
-    <>
-      <nav className={s.tabs} aria-label="Администрирование">
-        {visible.map((t) => (
-          <NavLink key={t.tab} to={`/admin/${t.tab}`}>
-            {t.label}
-          </NavLink>
-        ))}
-        {can(session, "view_leadership") && (
-          <>
-            <NavLink to="/blocks">Блоки</NavLink>
-            <NavLink to="/seasons">Сезоны и ККР</NavLink>
-          </>
-        )}
-      </nav>
+    <PageNavContext.Provider value={tabs}>
       {elements[current.tab]()}
-    </>
+    </PageNavContext.Provider>
   );
 };
 
 function Guides() {
   return (
     <Page title="Управление гайдами" actions={<RouteLink to="/materials">Материалы</RouteLink>}>
-      <div className={styles.mainContentInner}><GuidesManagement /></div>
+      <GuidesManagement />
     </Page>
   );
 }

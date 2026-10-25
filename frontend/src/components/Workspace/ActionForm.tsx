@@ -83,6 +83,7 @@ export function ActionForm({
   adoptWhenUntouched = false,
   resetOnSuccess = false,
   changeRequired,
+  variant = "primary",
 }: {
   title?: string;
   fields: Field[];
@@ -99,6 +100,8 @@ export function ActionForm({
   resetOnSuccess?: boolean;
   /** Saving is offered only once one of these fields differs from its saved value (A-ROL-12). */
   changeRequired?: string[];
+  /** The look of the submit: the main action, a minor one, or one that takes something away. */
+  variant?: "primary" | "quiet" | "danger";
 } & Versioning) {
   const formId = useId();
   const [expectedRevision, setExpectedRevision] = useState(revision);
@@ -385,7 +388,7 @@ export function ActionForm({
         )}
         <div>
           <button
-            className={`${s.button} ${s.primary}`}
+            className={`${s.button} ${variant === "primary" ? s.primary : variant === "danger" ? s.danger : ""}`}
             type="submit"
             disabled={form.isSubmitting || refreshing || disabled || unchanged || (versioned && (changedRevision || stale))}
           >

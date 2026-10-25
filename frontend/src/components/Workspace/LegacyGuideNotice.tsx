@@ -3,7 +3,7 @@ import s from "./Workspace.module.css";
 
 export function LegacyGuideNotice() {
   return (
-    <div className={s.warning} role="note">
+    <div className={s.note} role="note">
       <p>
         В старых гайдах изменения сразу видны читателям. Отдельный черновик и
         отложенная публикация здесь пока недоступны.

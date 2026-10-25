@@ -8,6 +8,7 @@ import {
   RouteLink,
   Badge,
   Empty,
+  Glyph,
 } from "../../components/Workspace/WorkspaceUI";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { MarkdownContent } from "../../components/Workspace/MarkdownContent";
@@ -79,14 +80,16 @@ export function MaterialsPage() {
           <div className={s.grid}>
             {visibleItems.map((m) => (
                 <Card key={m.material_id} title={m.title}>
-                  <Badge tone={m.kind === "kmb" ? "yellow" : m.kind === "guide" ? "lilac" : "sky"}>
-                    {m.kind === "kmb"
-                      ? "КМБ"
-                      : m.kind === "guide"
-                        ? "Гайд"
-                        : "Документ"}
-                  </Badge>
-                  {m.audience === "block" && <Badge tone="peach">Для участников блока</Badge>}
+                  <div className={s.badges}>
+                    <Badge tone={m.kind === "kmb" ? "yellow" : m.kind === "guide" ? "lilac" : "sky"}>
+                      {m.kind === "kmb"
+                        ? "КМБ"
+                        : m.kind === "guide"
+                          ? "Гайд"
+                          : "Документ"}
+                    </Badge>
+                    {m.audience === "block" && <Badge tone="peach">Для участников блока</Badge>}
+                  </div>
                   <p>{m.description}</p>
                   <RouteLink
                     to={`/materials/${encodeURIComponent(m.material_id)}`}
@@ -290,6 +293,7 @@ export function MaterialPage() {
               )}
               {m.original_link && (
                 <a
+                  className={s.linkButton}
                   href={m.original_link}
                   target="_blank"
                   rel="noopener noreferrer"
@@ -297,10 +301,13 @@ export function MaterialPage() {
                   Открыть оригинал
                 </a>
               )}
+              {m.audience && !can(m, "edit_audience") && (
+                <p className={s.muted}>
+                  <Glyph name="visibility" className={s.inlineGlyph} />
+                  {AUDIENCE[m.audience]}
+                </p>
+              )}
             </Card>
-            {m.audience && !can(m, "edit_audience") && (
-              <p className={s.muted}>{AUDIENCE[m.audience]}</p>
-            )}
             {m.audience && can(m, "edit_audience") && (
               <Card title="Кто видит гайд">
                 <ActionForm
@@ -331,22 +338,25 @@ export function MaterialPage() {
               <MaterialEdit material={m} key={m.material_id} />
             )}
             {can(m, "delete_material") && (
-              <details className={s.details}>
-                <summary>Удалить материал</summary>
-                <p>
-                  Материал вместе с черновиком скроется у всех читателей.
-                  Председатель и замы могут его восстановить.
-                </p>
-                <ActionForm
-                  fields={[]}
-                  submitLabel="Удалить материал"
-                  onSubmit={async () => {
-                    await materialsApi.remove(id);
-                    navigate("/materials", { replace: true });
-                    await refresh();
-                  }}
-                />
-              </details>
+              <Card>
+                <details className={s.details}>
+                  <summary>Удалить материал</summary>
+                  <p>
+                    Материал вместе с черновиком скроется у всех читателей.
+                    Председатель и замы могут его восстановить.
+                  </p>
+                  <ActionForm
+                    fields={[]}
+                    submitLabel="Удалить материал"
+                    variant="danger"
+                    onSubmit={async () => {
+                      await materialsApi.remove(id);
+                      navigate("/materials", { replace: true });
+                      await refresh();
+                    }}
+                  />
+                </details>
+              </Card>
             )}
             {m.owner_block_id === null &&
               can(session, "manage_material_editors") && (

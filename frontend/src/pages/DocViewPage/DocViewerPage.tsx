@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, type ReactNode, isValidElement } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import ReactMarkdown, { defaultUrlTransform, type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -10,8 +10,9 @@ import { guidesApi } from "../../utils/api/guides.api";
 import { apiUrl } from "../../utils/api";
 import { blocksApi } from "../../utils/api/blocks.api";
 import { getDocEditRoute } from "../../utils/routes";
-import { Icon } from "../../components/Icon";
 import { Gallery } from "../../components/Gallery/Gallery";
+import { Empty, Loading, Page, RouteLink } from "../../components/Workspace/WorkspaceUI";
+import s from "../../components/Workspace/Workspace.module.css";
 
 import styles from "./DocViewerPage.module.css";
 import { ContactChip } from "../../components/ContactChip/ContactChip";
@@ -159,21 +160,50 @@ export const DocViewerPage = () => {
     };
   }, []);
 
+  const back = <RouteLink to="/guides">Все гайды</RouteLink>;
   if (isLoading)
-    return <div className={styles.container}>Загрузка документа...</div>;
+    return (
+      <Page title="Документ" actions={back}>
+        <Loading />
+      </Page>
+    );
   if (isError) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const status = (error as any)?.response?.status;
-    if (status === 403) {
-      return <div className={styles.container}>Доступ к данному документу ограничен.</div>;
-    }
-    return <div className={styles.container}>Ошибка при загрузке данных.</div>;
+    return (
+      <Page title="Документ" actions={back}>
+        {status === 403 ? (
+          <Empty>Доступ к данному документу ограничен.</Empty>
+        ) : status === 404 || status === 422 ? (
+          <Empty>Документ не найден.</Empty>
+        ) : (
+          <div role="alert" className={s.error}>
+            <p>Ошибка при загрузке данных.</p>
+          </div>
+        )}
+      </Page>
+    );
   }
   if (!guide)
-    return <div className={styles.container}>Документ не найден.</div>;
+    return (
+      <Page title="Документ" actions={back}>
+        <Empty>Документ не найден.</Empty>
+      </Page>
+    );
 
 
   return (
+    <Page
+      title={guide.title}
+      actions={
+        <div className={s.row}>
+          {canEditGuide(guide, user, blocks) && (
+            <RouteLink to={getDocEditRoute(guide.guide_id)}>Редактировать</RouteLink>
+          )}
+          {back}
+        </div>
+      }
+    >
     <div className={styles.container}>
       <Helmet>
         <title>{guide ? `${guide.title} | Профком ВМК` : "База знаний | Профком ВМК"}</title>
@@ -204,17 +234,7 @@ export const DocViewerPage = () => {
           </ReactMarkdown>
         </div>
       </article>
-      
-      {canEditGuide(guide, user, blocks) && (
-      <Link 
-        to={getDocEditRoute(guide.guide_id)} 
-        className={styles.editFab}
-        title="Редактировать"
-      >
-        <Icon name="edit" size={24} />
-      </Link>
-    )}
     </div>
-    
+    </Page>
   );
 };

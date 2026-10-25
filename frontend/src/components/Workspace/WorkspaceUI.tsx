@@ -8,7 +8,7 @@ import { canRetainData, normalizeApiError } from "../../utils/api/request";
 import { errorDetail, userMessage } from "../../utils/api/messages";
 import type { RichText } from "../../utils/api/contract";
 import type { IconName } from "../icons";
-import { SectionContext, toneStyle, type Tone } from "./sections";
+import { PageNavContext, SectionContext, toneStyle, type Tone } from "./sections";
 import s from "./Workspace.module.css";
 /** An icon beside a text: it comes from CSS, so it is not part of the text. */
 export const Glyph = ({ name, className }: { name: IconName; className?: string }) => (
@@ -26,6 +26,7 @@ export function Page({
   actions?: ReactNode;
 }) {
   const section = useContext(SectionContext);
+  const nav = useContext(PageNavContext);
   return (
     <section className={s.page}>
       <header className={s.header}>
@@ -37,6 +38,7 @@ export function Page({
         </div>
         {actions}
       </header>
+      {nav}
       {children}
     </section>
   );
@@ -46,14 +48,17 @@ export const Card = ({
   children,
   icon,
   tone,
+  wide = false,
 }: {
   title?: string;
   children: ReactNode;
   /** The card's icon beside the title, in the card's tone. */
   icon?: IconName;
   tone?: Tone;
+  /** In a grid of cards: the whole row. */
+  wide?: boolean;
 }) => (
-  <section className={clsx(s.card, tone && s.toned)} style={toneStyle(tone)}>
+  <section className={clsx(s.card, tone && s.toned, wide && s.wide)} style={toneStyle(tone)}>
     {title && <h2>{icon && <Glyph name={icon} className={s.cardIcon} />}{title}</h2>}
     {children}
   </section>
@@ -114,10 +119,13 @@ export const RouteLink = ({
 );
 export const Markdown = ({
   content,
+  preview = false,
 }: {
   content: RichText | string | null | undefined;
+  /** Only the beginning, for a card in a list. */
+  preview?: boolean;
 }) => (
-  <div className={s.markdown}>
+  <div className={clsx(s.markdown, preview && s.preview)}>
     <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
       {typeof content === "string" ? content : (content?.body ?? "")}
     </ReactMarkdown>

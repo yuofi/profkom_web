@@ -56,7 +56,7 @@ export function SeasonsPage() {
           <div className={s.grid}>
             {query.data?.items.map((season) => (
               <Card key={season.season_id} title={season.title}>
-                <div className={s.row}>
+                <div className={s.badges}>
                   <Badge tone={stateTones[season.state]}>{states[season.state]}</Badge>
                   {season.is_current && <Badge tone="yellow">Текущий по умолчанию</Badge>}
                 </div>
@@ -187,8 +187,10 @@ export function SeasonPage() {
         {season ? (
           <div className={s.stack}>
             <Card>
-              <Badge tone={stateTones[season.state]}>{states[season.state]}</Badge>
-              {season.is_current && <Badge tone="yellow">Текущий по умолчанию</Badge>}
+              <div className={s.badges}>
+                <Badge tone={stateTones[season.state]}>{states[season.state]}</Badge>
+                {season.is_current && <Badge tone="yellow">Текущий по умолчанию</Badge>}
+              </div>
               <p>
                 {displayDate(season.starts_at)} — {displayDate(season.ends_at)}
               </p>

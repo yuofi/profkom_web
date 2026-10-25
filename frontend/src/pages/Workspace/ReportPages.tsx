@@ -10,6 +10,7 @@ import {
   RouteLink,
   Badge,
   Empty,
+  Glyph,
 } from "../../components/Workspace/WorkspaceUI";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { text } from "../../components/Workspace/formValues";
@@ -407,11 +408,12 @@ export function MeetingPage() {
                 <h2>{meeting.title}</h2>
                 <p>{displayDate(meeting.starts_at)}</p>
                 <a
-                  className={s.linkButton}
+                  className={`${s.linkButton} ${s.primary}`}
                   href={meeting.join_url}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
+                  <Glyph name="videocam" />
                   Подключиться
                 </a>
               </>
@@ -467,6 +469,7 @@ export function MeetingPage() {
                 <ActionForm
                   fields={[]}
                   submitLabel="Снять объявление"
+                  variant="danger"
                   onSubmit={async () => {
                     await perform(() => eventsApi.deleteMeeting(apiKind, id));
                     setRemoved((n) => n + 1);

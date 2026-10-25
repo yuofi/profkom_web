@@ -1,29 +1,17 @@
 @import "../../styles/vars.css";
 
+/* Under the workspace page header: the contents at the left, the text in a card. */
 .container {
   display: flex;
   flex-direction: row;
-  justify-content: center;
   align-items: flex-start;
-  gap: 48px;
-  
-  max-width: 1600px;
+  gap: 24px;
   width: 100%;
   box-sizing: border-box;
-  margin: 0 auto;
-  padding: 48px 32px;
-  min-height: calc(100vh - 100px);
   position: relative;
 }
 
-@media (max-width: 1400px) {
-  .container {
-    gap: 24px;
-    padding: 32px 16px;
-  }
-}
-
-@media (max-width: 1200px) {
+@media (max-width: 1000px) {
     .container {
         flex-direction: column; 
         align-items: stretch;
@@ -32,12 +20,12 @@
 }
 
 .sidebar {
-  flex: 0 0 200px;
+  flex: 0 0 220px;
   position: sticky;
-  top: 100px; 
+  top: 24px;
 }
 
-@media (max-width: 1200px) {
+@media (max-width: 1000px) {
   .sidebar {
     position: static;
     flex: none;
@@ -57,38 +45,50 @@
   margin: 0;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: 12px;
+  align-items: stretch;
+  gap: 4px;
 }
 
 .navLink {
+  display: block;
   text-decoration: none;
-  color: var(--on-surface);
+  color: color-mix(in srgb, var(--on-surface) 80%, transparent);
   font-family: var(--font-family-base);
   font-size: 14px;
-  padding: 6px 16px;
-  border-radius: var(--radius-large);
-  transition: all 0.2s ease;
-  white-space: nowrap;
+  line-height: 1.35;
+  padding: 7px 12px;
+  border-left: 2px solid var(--surface-variant);
+  border-radius: 0 10px 10px 0;
+  transition: background-color 0.15s;
 }
 
 .navLink:hover {
-  background-color: color-mix(in srgb, var(--secondary-container), transparent 50%);
+  background-color: var(--surface-container);
 }
 
 
 .navLink.active {
-  background-color: var(--secondary-container);
-  color: var(--on-secondary-container);
-  transition: cubic-bezier(0.895, 0.03, 0.685, 0.22);
+  border-left-color: var(--section, var(--primary));
+  background-color: color-mix(in srgb, var(--section, var(--primary)) 12%, transparent);
+  color: var(--on-surface);
 }
 
 
 .mainContent {
   flex: 1;
-  max-width: 720px;
   width: 100%;
   min-width: 0;
+  box-sizing: border-box;
+  padding: 28px 32px;
+  background: var(--surface-container-low);
+  border: 1px solid color-mix(in srgb, var(--surface-variant) 70%, transparent);
+  border-radius: var(--radius-large);
+}
+
+@media (max-width: 768px) {
+  .mainContent {
+    padding: 20px 18px;
+  }
 }
 
 .mainTitle {
@@ -117,6 +117,36 @@
     font-style: normal;
   }
   
+}
+
+.markdownWrapper > :first-child {
+  margin-top: 0;
+}
+
+/* A table scrolls in its own box and keeps its words whole. */
+.markdownWrapper table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0 0 16px;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+
+.markdownWrapper th,
+.markdownWrapper td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--surface-variant);
+  text-align: left;
+  vertical-align: top;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
+.markdownWrapper th {
+  color: var(--section, var(--primary));
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .markdownWrapper pre {
@@ -194,8 +224,7 @@
 @media (max-width: 1024px) {
   .container {
     flex-direction: column;
-    gap: 32px;
-    padding: 24px;
+    gap: 20px;
   }
 
   .sidebar {
@@ -211,48 +240,7 @@
   }
 }
 
-.editFab {
-  position: fixed;
-  bottom: 40px;
-  right: 40px;
-  width: 56px;
-  height: 56px;
-  background-color: var(--primary);
-  color: var(--on-primary);
-  border-radius: var(--radius-large);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  z-index: 100;
-  text-decoration: none;
-}
-
-.editFab:hover {
-  transform: scale(1.1) translateY(-4px);
-  background-color: color-mix(in srgb, var(--primary), white 10%);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-}
-
-.editFab:active {
-  transform: scale(0.95);
-}
-
 @media (max-width: 768px) {
-  .editFab {
-    bottom: 24px;
-    right: 24px;
-    width: 48px;
-    height: 48px;
-    border-radius: 12px;
-  }
-}
-
-@media (max-width: 768px) {
-  .container {
-    padding: 24px 16px;
-  }
 
   .mainContent {
     max-width: 100%; 

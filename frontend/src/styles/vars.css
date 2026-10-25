@@ -1,6 +1,8 @@
 @import './fonts.css';
 
 :root {
+  /* The site is dark: the browser draws its own parts (date pickers, scrollbars) dark too. */
+  color-scheme: dark;
   /* Material Design Colors (from dark-hc) */
   --primary: #f2f69e;
   --surface-tint: rgb(200 204 120);

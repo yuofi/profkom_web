@@ -3,12 +3,9 @@ import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { FormikProvider } from "formik";
-import clsx from "clsx";
 import { guidesApi } from "../../../utils/api/guides.api";
 import { blocksApi } from "../../../utils/api/blocks.api";
 import styles from "./BlocksManagement.module.css";
-import { Button } from "../../../components/Button/Button";
-import { Icon } from "../../../components/Icon";
 import { FormTextField } from "../../../components/Form/FormTextFiled";
 import { FormAutocompleteField } from "../../../components/Form/FormAutocompleteField";
 import { useForm } from "../../../components/Form/Form";
@@ -17,6 +14,8 @@ import { useMe } from "../../../utils/me";
 import { canEditGuide } from "../../../utils/filterRoles";
 import type { GuideOut } from "../../../utils/api/types";
 import { LegacyGuideNotice } from "../../../components/Workspace/LegacyGuideNotice";
+import { Badge, Glyph, Loading } from "../../../components/Workspace/WorkspaceUI";
+import s from "../../../components/Workspace/Workspace.module.css";
 
 type SortType = "default" | "alphabetical" | "block";
 
@@ -226,165 +225,164 @@ export const GuidesManagement = () => {
     return Array.from(set).sort();
   }, [guides]);
 
-  if (isGuidesLoading) return <div>Загрузка гайдов...</div>;
+  if (isGuidesLoading) return <Loading />;
 
   return (
     <>
       <LegacyGuideNotice />
-      <section className={styles.filtersSection}>
-        <div className={styles.filtersFlex}>
-          <div className={styles.filtersLeft}>
-            <div className={styles.filtersHeader}>
-              <h2 className={styles.filtersTitle}>Фильтры</h2>
-              <button
-                className={styles.clearFilters}
-                onClick={() => {
-                  setSortType("default");
-                  setBlockFilter(null);
-                  setSearchQuery("");
-                }}
-              >
-                очистить
-              </button>
-            </div>
-
-            <div className={styles.filtersChipsContainer}>
-              <input
-                type="text"
-                className={styles.searchInput}
-                placeholder="Поиск по названию..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-
-              <select
-                className={styles.filterSelect}
-                value={sortType}
-                onChange={(e) => setSortType(e.target.value as SortType)}
-              >
-                <option value="default">Сортировка: по умолчанию</option>
-                <option value="alphabetical">Сортировка: по алфавиту</option>
-                <option value="block">Сортировка: по блоку</option>
-              </select>
-
-              <select
-                className={styles.filterSelect}
-                value={blockFilter || ""}
-                onChange={(e) => setBlockFilter(e.target.value || null)}
-              >
-                <option value="">Все блоки</option>
-                <option value="none">Глобальные (для всех)</option>
-                {uniqueBlocksInGuides.map(b => (
-                  <option key={b} value={b}>{b}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className={styles.filtersRight}>
-            {canCreateGuide && (
-              <button className={styles.createBlockBtn} onClick={openCreateModal}>
-                <Icon name="add" size={20} />
-                Создать гайд
-              </button>
-            )}
-          </div>
+      <div className={s.filters}>
+        <label className={`${s.field} ${s.search}`}>
+          Поиск
+          <input
+            type="search"
+            placeholder="Название гайда"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </label>
+        <label className={s.field}>
+          Порядок
+          <select
+            value={sortType}
+            onChange={(e) => setSortType(e.target.value as SortType)}
+          >
+            <option value="default">По умолчанию</option>
+            <option value="alphabetical">По алфавиту</option>
+            <option value="block">По блоку</option>
+          </select>
+        </label>
+        <label className={s.field}>
+          Блок
+          <select
+            value={blockFilter || ""}
+            onChange={(e) => setBlockFilter(e.target.value || null)}
+          >
+            <option value="">Все блоки</option>
+            <option value="none">Глобальные (для всех)</option>
+            {uniqueBlocksInGuides.map(b => (
+              <option key={b} value={b}>{b}</option>
+            ))}
+          </select>
+        </label>
+        <div className={s.row}>
+          <button
+            className={s.button}
+            onClick={() => {
+              setSortType("default");
+              setBlockFilter(null);
+              setSearchQuery("");
+            }}
+          >
+            Сбросить
+          </button>
+          {canCreateGuide && (
+            <button className={`${s.button} ${s.primary}`} onClick={openCreateModal}>
+              <Glyph name="add" />
+              Создать гайд
+            </button>
+          )}
         </div>
-      </section>
+      </div>
 
-      <section className={styles.tableContainer}>
-        <div className={styles.tableWrapper}>
-          <table className={styles.table}>
-            <thead>
+      <div className={s.tableWrap}>
+        <table className={s.table}>
+          <thead>
+            <tr>
+              <th>Название гайда</th>
+              <th>Видимость</th>
+              <th>Текст статьи</th>
+              <th aria-label="Действия"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {processedGuides.length === 0 && (
               <tr>
-                <th>Название гайда</th>
-                <th>Видимость</th>
-                <th>Текст статьи</th>
-                <th></th>
+                <td colSpan={4} className={s.muted}>
+                  Гайды не найдены
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {processedGuides.length === 0 && (
-                <tr>
-                  <td colSpan={4} className={styles.tdCenter}>
-                    Гайды не найдены
-                  </td>
-                </tr>
-              )}
-              {processedGuides.map((guide) => {
-                const isSuper = !guide.owner_block || guide.owner_block.toLowerCase() === "none" || guide.owner_block.toLowerCase() === "all";
-                const hasManageRights = canManageGuide(guide);
+            )}
+            {processedGuides.map((guide) => {
+              const isSuper = !guide.owner_block || guide.owner_block.toLowerCase() === "none" || guide.owner_block.toLowerCase() === "all";
+              const hasManageRights = canManageGuide(guide);
 
-                return (
-                  <tr key={guide.guide_id}>
-                    <td className={styles.tdPrimary}>{guide.title}</td>
-                    <td>
-                      <span className={styles.chip}>
-                        {isSuper ? "Глобальный (для всех)" : guide.owner_block}
-                      </span>
-                    </td>
-                    <td>
-                      {hasManageRights ? (
+              return (
+                <tr key={guide.guide_id}>
+                  <td>{guide.title}</td>
+                  <td>
+                    <Badge tone={isSuper ? "sky" : "peach"}>
+                      {isSuper ? "Глобальный (для всех)" : guide.owner_block}
+                    </Badge>
+                  </td>
+                  <td>
+                    {hasManageRights ? (
+                      <button
+                        className={`${s.button} ${styles.compact}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(getDocEditRoute(guide.guide_id));
+                        }}
+                        title="Перейти к редактированию статьи"
+                      >
+                        <Glyph name="edit_document" />
+                        Редактировать статью
+                      </button>
+                    ) : (
+                      <button
+                        className={`${s.button} ${styles.compact}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(getDocRoute(guide.guide_id));
+                        }}
+                        title="Просмотр статьи"
+                      >
+                        <Glyph name="visibility" />
+                        Просмотр статьи
+                      </button>
+                    )}
+                  </td>
+                  <td>
+                    <div className={styles.iconActions}>
+                      {hasManageRights && (
                         <button
-                          className={styles.docEditBtn}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            navigate(getDocEditRoute(guide.guide_id));
-                          }}
-                          title="Перейти к редактированию статьи"
+                          className={`${s.button} ${styles.compact}`}
+                          onClick={(e) => openEditModal(e, guide)}
+                          title="Изменить настройки гайда"
+                          aria-label={`Изменить настройки гайда «${guide.title}»`}
                         >
-                          <Icon name="edit_document" size={16} />
-                          Редактировать статью
-                        </button>
-                      ) : (
-                        <button
-                          className={styles.docEditBtn}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            navigate(getDocRoute(guide.guide_id));
-                          }}
-                          title="Просмотр статьи"
-                        >
-                          <Icon name="visibility" size={16} />
-                          Просмотр статьи
+                          <Glyph name="edit" />
                         </button>
                       )}
-                    </td>
-                    <td>
-                      <div className={styles.actionsContainer}>
-                        {hasManageRights && (
-                          <button
-                            className={clsx(styles.actionBtn, styles.actionBtnEdit)}
-                            onClick={(e) => openEditModal(e, guide)}
-                            title="Изменить настройки гайда"
-                          >
-                            <Icon name="edit" size={20} />
-                          </button>
-                        )}
-                        {hasManageRights && (
-                          <button
-                            className={clsx(styles.actionBtn, styles.actionBtnDelete)}
-                            onClick={(e) => handleDelete(e, guide)}
-                            title="Удалить гайд"
-                          >
-                            <Icon name="delete" size={20} />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </section>
+                      {hasManageRights && (
+                        <button
+                          className={`${s.button} ${s.danger} ${styles.compact}`}
+                          onClick={(e) => handleDelete(e, guide)}
+                          title="Удалить гайд"
+                          aria-label={`Удалить гайд «${guide.title}»`}
+                        >
+                          <Glyph name="delete" />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
 
       {isModalOpen && (
         <div className={styles.modalOverlay} onClick={closeModal}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+          <div
+            className={styles.modal}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="guide-settings-title"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className={styles.modalHeader}>
-              <h3>{editingGuide ? "Редактировать гайд" : "Создать новый гайд"}</h3>
+              <h3 id="guide-settings-title">{editingGuide ? "Редактировать гайд" : "Создать новый гайд"}</h3>
             </div>
 
             <FormikProvider value={formik}>
@@ -408,24 +406,24 @@ export const GuidesManagement = () => {
                 />
 
                 {globalError && (
-                  <div className={styles.errorText}>
+                  <p role="alert" className={s.fieldError}>
                     {globalError}
-                  </div>
+                  </p>
                 )}
 
-                {isSuccess && <div className={styles.successText}>Успешно сохранено!</div>}
+                {isSuccess && <p role="status" className={s.success}>Успешно сохранено!</p>}
 
                 <div className={styles.modalActions}>
-                  <Button variant="tertiary" onClick={closeModal}>
+                  <button type="button" className={s.button} onClick={closeModal}>
                     Отмена
-                  </Button>
-                  <Button
-                    variant="tertiary"
+                  </button>
+                  <button
+                    className={`${s.button} ${s.primary}`}
                     type="submit"
                     disabled={formik.isSubmitting}
                   >
                     {editingGuide ? "Сохранить" : "Создать"}
-                  </Button>
+                  </button>
                 </div>
               </form>
             </FormikProvider>

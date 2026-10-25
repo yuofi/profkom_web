@@ -33,7 +33,7 @@ export function Leaders({ leaders }: { leaders: Leader[] }) {
         <p className={s.muted}>Руководители пока не назначены</p>
       )}
       {leaders.map((leader) => (
-        <div key={leader.role_assignment_id}>
+        <div key={leader.role_assignment_id} className={s.leader}>
           <h3>{leader.user.display_name}</h3>
           <p className={s.muted}>
             Заместители:{" "}
@@ -161,7 +161,7 @@ export function EventsListPage() {
                     (season) => season.season_id === event.season_id,
                   )?.title ?? "Сезон"}
                 </Badge>
-                <Markdown content={event.description} />
+                <Markdown content={event.description} preview />
                 <RouteLink to={getEventRoute(event.event_id)}>
                   Открыть мероприятие
                 </RouteLink>
@@ -277,12 +277,12 @@ export function EventPage() {
                   (x) => x.season_id === event.season_id,
                 )?.title ?? "Сезон"}
               </Badge>
-              <Markdown content={event.description} />
               {(event.starts_at || event.ends_at) && (
                 <p>
                   {displayDate(event.starts_at)} — {displayDate(event.ends_at)}
                 </p>
               )}
+              {/* The ways further come before a long description, not after it. */}
               <div className={s.row}>
                 {can(event, "create_head_merit") && <RouteLink to={`/seasons/${encodeURIComponent(event.season_id)}/merits?source_kind=head_merit&scope_id=${encodeURIComponent(id)}`}>Учесть особую заслугу</RouteLink>}
                 {reportsLink && (
@@ -298,6 +298,7 @@ export function EventPage() {
                   </RouteLink>
                 )}
               </div>
+              <Markdown content={event.description} />
             </Card>
             <div className={s.grid}>
               <Card title="Главорги">
@@ -479,7 +480,10 @@ export function SubeventPage() {
   const sub = query.data;
   const reportsLink = useReportsLink("subevent", sub ? id : "", can(sub, "create_report"));
   return (
-    <Page title={sub?.title ?? "Подмероприятие"}>
+    <Page
+      title={sub?.title ?? "Подмероприятие"}
+      actions={sub && <RouteLink to={getEventRoute(sub.event_id)}>Главное мероприятие</RouteLink>}
+    >
       <QueryState
         keepDataOnError={!!query.data}
         loading={query.isLoading}
@@ -491,11 +495,7 @@ export function SubeventPage() {
         {sub && (
           <div className={s.stack}>
             <Card>
-              <Markdown content={sub.description} />
               <div className={s.row}>
-                <RouteLink to={getEventRoute(sub.event_id)}>
-                  Главное мероприятие
-                </RouteLink>
                 {can(sub, "create_volunteer_merit") && <RouteLink to={`/merits?source_kind=subevent_volunteer&scope_id=${encodeURIComponent(id)}`}>Учесть волонтёрскую работу</RouteLink>}
                 <RouteLink
                   to={`/tasks?scope_kind=subevent&scope_id=${encodeURIComponent(id)}`}
@@ -515,6 +515,7 @@ export function SubeventPage() {
                   </RouteLink>
                 )}
               </div>
+              <Markdown content={sub.description} />
             </Card>
             <div className={s.grid}>
               <Card title="Ответственные">
