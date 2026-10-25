@@ -59,21 +59,19 @@
   outline-offset: 2px;
 }
 .nav a[aria-current="page"] {
-  background: radial-gradient(circle at 0% 0%, #ebe2e5 0%, #f0ebe5 40%, var(--primary) 100%);
+  background: radial-gradient(circle at 0% 0%, #ebe2e5 0%, #f0ebe5 40%, var(--tone, var(--primary)) 100%);
   color: var(--on-primary);
   font-weight: 500;
 }
+/* Each section's icon has the section's colour: it is the page header's colour too. */
 span.icon {
   flex: none;
   font-size: 20px;
-  opacity: 0.8;
+  color: var(--tone, currentColor);
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
 }
-.icon::before {
-  content: attr(data-icon);
-}
 .nav a[aria-current="page"] .icon {
-  opacity: 1;
+  color: inherit;
   font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 20;
 }
 .count {
@@ -81,11 +79,15 @@ span.icon {
   min-width: 22px;
   padding: 1px 7px;
   border-radius: 999px;
-  background: var(--primary);
+  background: var(--tone, var(--primary));
   color: var(--on-primary);
   font-size: 12px;
   font-weight: 600;
   text-align: center;
+}
+.nav a[aria-current="page"] .count {
+  background: var(--background);
+  color: var(--tone, var(--primary));
 }
 /* The dot separates the number for screen readers and in plain text only. */
 .hiddenText {
@@ -168,7 +170,7 @@ span.icon {
     padding: 0 16px 0 12px;
     border: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent);
     border-radius: 12px;
-    color: var(--primary);
+    color: var(--section, var(--primary));
     font-weight: 500;
     list-style: none;
   }
@@ -201,4 +203,77 @@ span.icon {
 .demo label {
   display: block;
   margin-top: 6px;
+}
+
+/* A list of choice opens as the site's panel, not the system's one (where the browser can;
+   elsewhere the system list opens). The arrow takes the colour of the section. */
+@supports (appearance: base-select) {
+  .shell select:not([multiple]),
+  .shell select:not([multiple])::picker(select) {
+    appearance: base-select;
+  }
+  .shell select:not([multiple]) {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .shell select:not([multiple])::picker-icon {
+    content: "";
+    flex: none;
+    width: 12px;
+    height: 8px;
+    margin-inline-start: auto;
+    background: var(--tone, var(--primary));
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 12px 8px no-repeat;
+    transition: rotate 0.15s;
+  }
+  .shell select:not([multiple]):open::picker-icon {
+    rotate: 180deg;
+  }
+  .shell select:not([multiple]):open {
+    border-color: var(--tone, var(--primary));
+  }
+  .shell select:not([multiple])::picker(select) {
+    box-sizing: border-box;
+    margin-block: 6px;
+    padding: 6px;
+    max-height: min(24rem, 60vh);
+    overflow-y: auto;
+    border: 1px solid color-mix(in srgb, var(--outline-variant) 35%, transparent);
+    border-radius: 14px;
+    background: var(--surface-container-low);
+    color: var(--on-surface);
+    box-shadow: 0 14px 36px rgb(0 0 0 / 50%);
+    scrollbar-width: thin;
+  }
+  .shell select:not([multiple]) option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 22px;
+    padding: 9px 12px;
+    border-radius: 10px;
+    font-size: 15px;
+    line-height: 1.35;
+    white-space: normal;
+    cursor: pointer;
+  }
+  .shell select:not([multiple]) option:hover,
+  .shell select:not([multiple]) option:focus-visible {
+    background: var(--surface-container-high);
+    outline: none;
+  }
+  .shell select:not([multiple]) option:checked {
+    background: color-mix(in srgb, var(--tone, var(--primary)) 16%, transparent);
+    color: var(--tone, var(--primary));
+    font-weight: 500;
+  }
+  .shell select:not([multiple]) option::checkmark {
+    order: 1;
+    margin-inline-start: auto;
+  }
+  .shell select:not([multiple]) option:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
 }

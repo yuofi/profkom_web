@@ -19,17 +19,17 @@ const LABELS = {
   important: {
     cardVariant: "primary",
     cardText: "важное",
-    iconName: "Notifications",
+    iconName: "notifications",
   },
   event: {
     cardVariant: "secondary",
     cardText: "событие",
-    iconName: "Event",
+    iconName: "event",
   },
   news: {
     cardVariant: "tertiary",
     cardText: "новости",
-    iconName: "News",
+    iconName: "newspaper",
   },
 } as const;
 

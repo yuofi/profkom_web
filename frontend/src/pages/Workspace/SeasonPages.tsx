@@ -9,6 +9,7 @@ import {
   Badge,
   Empty,
 } from "../../components/Workspace/WorkspaceUI";
+import type { Tone } from "../../components/Workspace/sections";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { text } from "../../components/Workspace/formValues";
 import { seasonsApi } from "../../utils/api/seasons.api";
@@ -37,6 +38,12 @@ const states = {
   summarizing: "Подведение итогов",
   closed: "Закрыт",
 };
+const stateTones: Record<keyof typeof states, Tone | undefined> = {
+  planned: "lilac",
+  open: "mint",
+  summarizing: "peach",
+  closed: undefined,
+};
 export function SeasonsPage() {
   const { session } = useSession();
   const { perform } = useWorkspaceActions();
@@ -50,8 +57,8 @@ export function SeasonsPage() {
             {query.data?.items.map((season) => (
               <Card key={season.season_id} title={season.title}>
                 <div className={s.row}>
-                  <Badge>{states[season.state]}</Badge>
-                  {season.is_current && <Badge>Текущий по умолчанию</Badge>}
+                  <Badge tone={stateTones[season.state]}>{states[season.state]}</Badge>
+                  {season.is_current && <Badge tone="yellow">Текущий по умолчанию</Badge>}
                 </div>
                 <p>
                   {displayDate(season.starts_at)} —{" "}
@@ -180,8 +187,8 @@ export function SeasonPage() {
         {season ? (
           <div className={s.stack}>
             <Card>
-              <Badge>{states[season.state]}</Badge>
-              {season.is_current && <Badge>Текущий по умолчанию</Badge>}
+              <Badge tone={stateTones[season.state]}>{states[season.state]}</Badge>
+              {season.is_current && <Badge tone="yellow">Текущий по умолчанию</Badge>}
               <p>
                 {displayDate(season.starts_at)} — {displayDate(season.ends_at)}
               </p>

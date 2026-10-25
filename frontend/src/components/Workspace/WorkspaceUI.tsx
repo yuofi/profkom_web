@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useContext, type ReactNode } from "react";
+import clsx from "clsx";
 import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -6,7 +7,13 @@ import remarkBreaks from "remark-breaks";
 import { canRetainData, normalizeApiError } from "../../utils/api/request";
 import { errorDetail, userMessage } from "../../utils/api/messages";
 import type { RichText } from "../../utils/api/contract";
+import type { IconName } from "../icons";
+import { SectionContext, toneStyle, type Tone } from "./sections";
 import s from "./Workspace.module.css";
+/** An icon beside a text: it comes from CSS, so it is not part of the text. */
+export const Glyph = ({ name, className }: { name: IconName; className?: string }) => (
+  <span className={clsx("material-symbols-rounded", s.glyph, className)} data-icon={name} aria-hidden="true" />
+);
 export function Page({
   title,
   description,
@@ -18,11 +25,13 @@ export function Page({
   children: ReactNode;
   actions?: ReactNode;
 }) {
+  const section = useContext(SectionContext);
   return (
     <section className={s.page}>
       <header className={s.header}>
         <div>
-          <p className={s.eyebrow}>Профком ВМК</p>
+          {/* Where the page is; the section's own page says the section in its title. */}
+          <p className={s.eyebrow}>{section && section.label !== title ? section.label : "Профком ВМК"}</p>
           <h1 className={s.title}>{title}</h1>
           {description && <p className={s.description}>{description}</p>}
         </div>
@@ -35,12 +44,17 @@ export function Page({
 export const Card = ({
   title,
   children,
+  icon,
+  tone,
 }: {
   title?: string;
   children: ReactNode;
+  /** The card's icon beside the title, in the card's tone. */
+  icon?: IconName;
+  tone?: Tone;
 }) => (
-  <section className={s.card}>
-    {title && <h2>{title}</h2>}
+  <section className={clsx(s.card, tone && s.toned)} style={toneStyle(tone)}>
+    {title && <h2>{icon && <Glyph name={icon} className={s.cardIcon} />}{title}</h2>}
     {children}
   </section>
 );
@@ -109,8 +123,9 @@ export const Markdown = ({
     </ReactMarkdown>
   </div>
 );
-export const Badge = ({ children }: { children: ReactNode }) => (
-  <span className={s.badge}>{children}</span>
+/** A label; the tone tells its meaning at a glance, the text tells it fully. */
+export const Badge = ({ children, tone }: { children: ReactNode; tone?: Tone }) => (
+  <span className={clsx(s.badge, tone && s.toned)} style={toneStyle(tone)}>{children}</span>
 );
 export function QueryState({
   loading,

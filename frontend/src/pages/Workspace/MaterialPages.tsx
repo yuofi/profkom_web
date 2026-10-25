@@ -79,14 +79,14 @@ export function MaterialsPage() {
           <div className={s.grid}>
             {visibleItems.map((m) => (
                 <Card key={m.material_id} title={m.title}>
-                  <Badge>
+                  <Badge tone={m.kind === "kmb" ? "yellow" : m.kind === "guide" ? "lilac" : "sky"}>
                     {m.kind === "kmb"
                       ? "КМБ"
                       : m.kind === "guide"
                         ? "Гайд"
                         : "Документ"}
                   </Badge>
-                  {m.audience === "block" && <Badge>Для участников блока</Badge>}
+                  {m.audience === "block" && <Badge tone="peach">Для участников блока</Badge>}
                   <p>{m.description}</p>
                   <RouteLink
                     to={`/materials/${encodeURIComponent(m.material_id)}`}

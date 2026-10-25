@@ -115,7 +115,7 @@ export function DashboardPage() {
       >
         {data && (
           <div className={s.grid}>
-            <Card title="Мои задачи">
+            <Card title="Мои задачи" icon="task_alt" tone="lilac">
               <ul className={s.list}>
                 {tasks.map((t) => (
                   <li key={t.task_id}>
@@ -136,7 +136,7 @@ export function DashboardPage() {
               )}
               <RouteLink to="/tasks">Открыть трекер</RouteLink>
             </Card>
-            <Card title="Ближайшие созвоны">
+            <Card title="Ближайшие созвоны" icon="videocam" tone="sky">
               <ul className={s.list}>
                 {filteredMeetings.map(({ meeting: m, season }) => (
                   <li key={m.meeting_id}>
@@ -178,7 +178,7 @@ export function DashboardPage() {
               )}
               <RouteLink to="/calendar">Календарь</RouteLink>
             </Card>
-            <Card title={can(session, "view_all_areas") ? "Все блоки и мероприятия" : "Мои команды"}>
+            <Card title={can(session, "view_all_areas") ? "Все блоки и мероприятия" : "Мои команды"} icon="groups" tone="mint">
               <ul className={s.list}>
                 {data.my_blocks.map((b) => (
                   <li key={b.block_id}>
@@ -201,7 +201,7 @@ export function DashboardPage() {
                 <Empty>В выбранных сезонах мероприятий нет.</Empty>
               )}
             </Card>
-            {showDecisions && <Card title="Требуют решения">
+            {showDecisions && <Card title="Требуют решения" icon="pending_actions" tone="peach">
               {showRequests && <>
                 <p>
                   Заявки в блоки (не зависят от сезона):{" "}
@@ -386,7 +386,7 @@ export function NotificationsPage() {
               <Card key={n.id}>
                 <div className={s.between}>
                   <p>{n.text}</p>
-                  {!n.read_at && <Badge>Новое</Badge>}
+                  {!n.read_at && <Badge tone="yellow">Новое</Badge>}
                 </div>
                 <p className={s.muted}>{displayDate(n.created_at)}</p>
                 {route ? (

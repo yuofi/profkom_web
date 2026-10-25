@@ -2,11 +2,12 @@ import { type ReactNode } from "react";
 import clsx from "clsx";
 import styles from "./ProfileChip.module.css";
 import { Icon } from "../Icon";
+import type { IconName } from "../icons";
 
 interface ProfileChipProps {
   variant?: "minimal" | "primary" | "iconBg" | "highlighted";
   children?: ReactNode;
-  iconName?: string;        // Для стандартных иконок Google
+  iconName?: IconName;
   customIcon?: ReactNode; 
   label?: ReactNode;
 }
@@ -14,7 +15,7 @@ interface ProfileChipProps {
 export const ProfileChip = ({ 
   variant = "minimal", 
   children, 
-  iconName = "chart-line",
+  iconName = "insights",
   customIcon,
   label
 }: ProfileChipProps) => {

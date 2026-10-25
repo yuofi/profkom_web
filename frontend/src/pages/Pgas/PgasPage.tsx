@@ -15,6 +15,7 @@ import { FormTextField } from "../../components/Form/FormTextFiled";
 import { useForm } from "../../components/Form/Form";
 import type { PgasEntryOut } from "../../utils/api/types";
 import styles from "./PgasPage.module.css";
+import type { IconName } from "../../components/icons";
 
 const CURRENT_YEAR = new Date().getFullYear();
 // Годы для выпадающего списка: следующий год и семь предыдущих
@@ -37,7 +38,7 @@ const PgasValidationSchema = z.object({
     .max(2200, "Некорректный год"),
 });
 
-const getFileIcon = (fileType = "") => {
+const getFileIcon = (fileType = ""): IconName => {
   if (fileType.includes("pdf")) return "picture_as_pdf";
   if (fileType.startsWith("image/")) return "image";
   return "description";

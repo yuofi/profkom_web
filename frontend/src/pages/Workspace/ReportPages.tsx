@@ -35,7 +35,7 @@ function ReportLinks({ reports, seasons }: { reports: Report[]; seasons?: Map<st
       {reports.map((r) => (
         <li key={r.report_id}>
           <RouteLink to={getReportRoute(r.report_id)}>{r.title}</RouteLink>{" "}
-          <Badge>{r.kind === "final" ? "Финальный" : "Регулярный"}</Badge>{" "}
+          <Badge tone={r.kind === "final" ? "mint" : undefined}>{r.kind === "final" ? "Финальный" : "Регулярный"}</Badge>{" "}
           {seasons && <Badge>Сезон: {seasons.get(r.season_id) ?? "недоступен"}</Badge>}{" "}
           <span className={s.muted}>
             {r.state === "published"
@@ -242,7 +242,7 @@ export function ReportPage() {
         {report && (
           <div className={s.stack}>
             <Card>
-              <Badge>
+              <Badge tone={report.kind === "final" ? "mint" : undefined}>
                 {report.kind === "final"
                   ? "Финальный отчёт"
                   : "Регулярный отчёт"}

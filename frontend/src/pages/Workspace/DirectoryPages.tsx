@@ -26,7 +26,7 @@ function Category({ userId }: { userId: number }) {
     queryFn: () => membershipApi.category(userId),
   });
   return query.data ? (
-    <Badge>{query.data.category === "junior" ? "Джуниор" : "Активист"}</Badge>
+    <Badge tone={query.data.category === "junior" ? "mint" : undefined}>{query.data.category === "junior" ? "Джуниор" : "Активист"}</Badge>
   ) : (
     <span>
       {query.isError ? "Категория недоступна" : "Категория загружается…"}

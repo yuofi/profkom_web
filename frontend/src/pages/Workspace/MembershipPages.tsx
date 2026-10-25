@@ -10,6 +10,7 @@ import {
   Badge,
   Empty,
 } from "../../components/Workspace/WorkspaceUI";
+import type { Tone } from "../../components/Workspace/sections";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { fundingLabels, registrationLabels } from "../../utils/contactFields";
 import { text, number } from "../../components/Workspace/formValues";
@@ -31,6 +32,13 @@ const requestStates = {
   approved: "Одобрена",
   rejected: "Отклонена",
   withdrawn: "Отозвана",
+};
+const requestTones: Record<BlockRequest["state"], Tone | undefined> = {
+  pending_hr: "peach",
+  pending_block: "peach",
+  approved: "mint",
+  rejected: "rose",
+  withdrawn: undefined,
 };
 const isOpen = (r: BlockRequest) => ["pending_hr", "pending_block"].includes(r.state);
 export function BlocksPage() {
@@ -161,7 +169,7 @@ export function BlockPage() {
                     <div className={s.between}>
                       <span>
                         {m.user.display_name}{" "}
-                        <Badge>
+                        <Badge tone={m.block_category === "junior" ? "mint" : undefined}>
                           {m.block_category === "junior"
                             ? "Новичок блока"
                             : "Участник"}
@@ -267,7 +275,7 @@ function RequestCard({
   );
   return (
     <Card title={`${r.user.display_name} → ${blockName}`}>
-      <Badge>{requestStates[r.state]}</Badge>
+      <Badge tone={requestTones[r.state]}>{requestStates[r.state]}</Badge>
       {open ? (
         <p>
           Текущий этап с {displayDate(r.stage_entered_at)} · ждёт{" "}
@@ -475,7 +483,7 @@ export function RegistrationsPage() {
               key={r.user_id}
               title={`${r.fields.surname} ${r.fields.name}`}
             >
-              <Badge>
+              <Badge tone={r.status === "pending" ? "peach" : r.status === "rejected" ? "rose" : "mint"}>
                 {r.status === "pending"
                   ? "Ожидает решения"
                   : r.status === "rejected"

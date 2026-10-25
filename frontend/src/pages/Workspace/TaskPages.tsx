@@ -10,6 +10,7 @@ import {
   Badge,
   Empty,
 } from "../../components/Workspace/WorkspaceUI";
+import type { Tone } from "../../components/Workspace/sections";
 import { ActionForm, type Field } from "../../components/Workspace/ActionForm";
 import { text, ids, number } from "../../components/Workspace/formValues";
 import {
@@ -49,6 +50,16 @@ const statusNames: Record<Assignment["status"], string> = {
   needs_revision: "На доработке",
   not_completed: "Не выполнена",
   cancelled: "Отменена",
+};
+const statusTones: Record<Assignment["status"], Tone | undefined> = {
+  assigned: "lilac",
+  in_progress: "sky",
+  help_required: "peach",
+  submitted: "peach",
+  accepted: "mint",
+  needs_revision: "rose",
+  not_completed: "rose",
+  cancelled: undefined,
 };
 const criteriaLabels = {
   unique: "Уникальная",
@@ -352,7 +363,7 @@ function AssignmentCard({
   const active = !["accepted", "not_completed", "cancelled"].includes(a.status);
   return (
     <Card title={a.assignee.display_name}>
-      <Badge>{statusNames[a.status]}</Badge>
+      <Badge tone={statusTones[a.status]}>{statusNames[a.status]}</Badge>
       {a.assignee_unavailable_reason && (
         <p className={s.warning}>
           Исполнитель недоступен:{" "}

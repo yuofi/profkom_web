@@ -52,6 +52,14 @@
   --surface-container-high: rgb(60 60 51);
   --surface-container-highest: rgb(72 71 62);
 
+  /* Accents beside the yellow: light enough for black text, as the yellow is. */
+  --accent-yellow: var(--primary);
+  --accent-mint: #9fe3c6;
+  --accent-lilac: #cdb8f5;
+  --accent-peach: #ffc28f;
+  --accent-rose: #f7b6cb;
+  --accent-sky: #a6d3f7;
+
   /* Typography */
   --font-family-base: 'GoogleSans', system-ui, -apple-system, sans-serif;
   --font-family-heading: 'GoogleSans', system-ui, -apple-system, sans-serif;
