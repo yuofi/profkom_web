@@ -49,7 +49,6 @@ export const ProfileBadge = ({
     user ? stringifyContent(mapUserToInfo(user)) : "",
   );
   const navigate = useNavigate();
-  const [photoUrl, setPhotoUrl] = useState(user?.photo_url);
   const queryClient = useQueryClient();
 
   const { logout: handleLogout, busy: loggingOut, error: logoutError } = useLogout();
@@ -79,10 +78,12 @@ export const ProfileBadge = ({
     try {
       await contactsApi.update(user.user_id, { photo_url: url });
       // Invalidate both current user and contacts list
-      queryClient.invalidateQueries({ queryKey: ["currentUser"] });
-      queryClient.invalidateQueries({ queryKey: ["contacts"] });
+      // The avatar shown is the profile's: the reread brings the new one.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["currentUser"] }),
+        queryClient.invalidateQueries({ queryKey: ["contacts"] }),
+      ]);
       logger.log("Profile photo updated successfully");
-      setPhotoUrl(url);
     } catch (error) {
       console.error("Failed to update profile photo:", error);
     }
@@ -124,7 +125,7 @@ export const ProfileBadge = ({
 
       {/* Аватар */}
       <Avatar
-        src={photoUrl}
+        src={user.photo_url}
         size={compact ? 96 : 140}
         mode={isEditing ? "edit" : "view"}
         onUpload={handlePhotoUpload}
