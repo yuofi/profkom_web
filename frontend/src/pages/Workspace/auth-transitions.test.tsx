@@ -85,6 +85,15 @@ it("A03: VK SDK and API failures are visible", async () => {
   expect(page.container.querySelector('[role="alert"]')?.textContent).not.toContain("VK ID is");
 });
 
+it("A03: a VK error does not stay over the password form", async () => {
+  page = await mountWorkspace(<HelmetProvider><GreetingPage /></HelmetProvider>);
+  await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "VK error")!.click());
+  expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("Не удалось войти через VK");
+  await act(async () => page!.container.querySelector("h5")!.click());
+  expect(field(page.container, "password")).toBeTruthy();
+  expect(page.container.querySelector('[role="alert"]')).toBeNull();
+});
+
 it("2.18 MIGRATION-08: the VK of an old account that is not linked yet is named, not a changed record", async () => {
   adapter = new MockAdapter(api);
   // As backend/vk_auth.py answers for an account of the old site without a VK identity.

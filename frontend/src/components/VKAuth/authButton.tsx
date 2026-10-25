@@ -9,12 +9,20 @@ export interface VKAuthButtonProps {
 
 export const VKAuthButton = ({ onSuccess, onError }: VKAuthButtonProps) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  // The page passes new handlers on every render; the widget is not rebuilt for that.
+  const handlers = useRef({ onSuccess, onError });
+  useEffect(() => {
+    handlers.current = { onSuccess, onError };
+  });
   const applicationId = Number(env.VITE_APP_ID);
   const configured = Number.isSafeInteger(applicationId) && applicationId > 0;
 
   useEffect(() => {
     if (!containerRef.current || !configured) return;
     const ref = containerRef.current;
+    // A widget that failed to load reports it later, also after the password form replaced
+    // the button: its events must not overwrite the answer to the password login.
+    let active = true;
     VKID.Config.init({
       app: applicationId,
       redirectUrl: env.VITE_REDIRECT_URL,
@@ -39,7 +47,7 @@ export const VKAuthButton = ({ onSuccess, onError }: VKAuthButtonProps) => {
         },
       })
       .on(VKID.WidgetEvents.ERROR, (error: VKID.AuthError) => {
-        if (onError) onError(error);
+        if (active) handlers.current.onError?.(error);
       })
       .on(VKID.OneTapInternalEvents.LOGIN_SUCCESS, (payload: VKID.AuthResponse) => {
         const code = payload.code;
@@ -47,19 +55,19 @@ export const VKAuthButton = ({ onSuccess, onError }: VKAuthButtonProps) => {
 
         VKID.Auth.exchangeCode(code, deviceId)
           .then((data) => {
-            if (onSuccess) onSuccess(data as VKID.TokenResult);
+            if (active) handlers.current.onSuccess?.(data as VKID.TokenResult);
           })
           .catch((error: VKID.AuthError) => {
-            if (onError) onError(error);
+            if (active) handlers.current.onError?.(error);
           });
       });
 
     return () => {
-      if (ref) {
-        ref.innerHTML = "";
-      }
+      active = false;
+      oneTap.close();
+      ref.innerHTML = "";
     };
-  }, [onSuccess, onError, configured, applicationId]);
+  }, [configured, applicationId]);
 
   return configured ? <div ref={containerRef}></div> : <p role="status">Вход через VK временно недоступен. Используйте почту и пароль.</p>;
 };

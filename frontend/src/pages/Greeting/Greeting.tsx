@@ -136,6 +136,8 @@ export const GreetingPage = () => {
               onClick={() => {
                 setSignUp(!signUp);
                 formik.resetForm();
+                // An error of one way to log in says nothing about the other.
+                setGlobalError(null);
               }}
             >
               {signUp ? "или войти c паролем" : "войти с вк"}

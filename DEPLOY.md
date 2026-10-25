@@ -44,7 +44,8 @@
 
    ```sh
    cd frontend && npm ci && npm run build
-   tar czf dist.tgz dist && scp -P 2006 dist.tgz <пользователь>@profcom-cmc.ru:
+   # COPYFILE_DISABLE: tar на macOS иначе добавляет файлы ._* с метаданными, они попадут в образ
+   COPYFILE_DISABLE=1 tar czf dist.tgz dist && scp -P 2006 dist.tgz <пользователь>@profcom-cmc.ru:
    ```
 
 5. **Записи DNS ведут на сервер.** Иначе проверка после запуска по `https://profcom-cmc.ru` пойдёт на чужой адрес. На сервере обе команды должны напечатать `match`:
