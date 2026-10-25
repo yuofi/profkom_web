@@ -545,6 +545,9 @@
     right: -110px;
     top: -170px;
   }
+  .header > * + * {
+    margin-top: 16px;
+  }
   .filters {
     display: grid;
     grid-template-columns: 1fr;
