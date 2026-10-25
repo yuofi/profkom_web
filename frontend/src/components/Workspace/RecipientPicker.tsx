@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Glyph } from "./WorkspaceUI";
 import s from "./Workspace.module.css";
 
 /** Every multiple choice of people: search, checkboxes and chips of the chosen (A-ROL-13). */
@@ -56,7 +57,8 @@ export function RecipientPicker({
                 aria-label={`Убрать: ${label(v)}`}
                 onClick={() => onChange(value.filter((x) => x !== v))}
               >
-                {label(v)} ×
+                {label(v)}
+                <Glyph name="close" className={s.chipClose} />
               </button>
             </li>
           ))}

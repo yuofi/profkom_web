@@ -1,89 +1,10 @@
-.container {
-  min-height: 100vh;
-  color: var(--on-surface);
-  font-family: var(--font-family-base);
-  width: 100%;
-}
-
-.header {
-  position: sticky;
-  top: 0;
-  z-index: 40;
-  background: var(--surface);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--surface-container-high, rgba(255,255,255,0.1));
-}
-
-.headerContent {
-  max-width: 1024px;
-  margin: 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 16px;
-}
-
-.headerContent h1 {
-  font-size: 20px;
-  font-weight: 500;
-  margin: 0;
-}
-
-.main {
-  max-width: 1024px;
-  margin: 0 auto;
-  padding: 32px 16px;
-  box-sizing: border-box;
-}
-
-.grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 24px;
-}
-
-@media (min-width: 1024px) {
-  .grid {
-    grid-template-columns: 1fr 1fr;
-    align-items: flex-start;
-  }
-}
-
-/* A message over the form takes its own row: in a cell it moved both columns. */
-.notice {
-  grid-column: 1 / -1;
-  margin: 0;
-}
-
-.column {
+.form {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 16px;
 }
 
-.card {
-  background: var(--surface-container-low, var(--surface));
-  border-radius: 28px;
-  padding: 24px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-  box-sizing: border-box;
-}
-
-@media (min-width: 768px) {
-  .card {
-    padding: 32px;
-  }
-}
-
-.cardTitle {
-  font-size: 20px;
-  font-weight: 400;
-  color: var(--on-surface);
-  margin-bottom: 24px;
-  margin-top: 0;
-}
-
-.form {
+.fields {
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -97,161 +18,48 @@
 
 @media (min-width: 640px) {
   .formGrid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-/* Save FAB */
-.saveFab {
-  width: 56px;
-  height: 56px;
-  background-color: var(--tertiary);
-  color: var(--on-tertiary);
-  border-radius: var(--radius-large);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  z-index: 100;
-  border: none;
-  cursor: pointer;
-  text-decoration: none;
-  position: fixed;
-  bottom: 40px;
-  right: 40px;
-}
-
-.saveFab:hover {
-  transform: scale(1.05) translateY(-1px);
-  background-color: color-mix(in srgb, var(--tertiary), white 10%);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-}
-
-.saveFab:active {
-  transform: scale(0.95);
-}
-
-.saveFab:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-  transform: none;
-}
-
-@media (max-width: 768px) {
-  .saveFab {
-    bottom: 24px;
-    right: 24px;
-    width: 48px;
-    height: 48px;
-    border-radius: 12px;
-  }
-}
-
-.loader {
-  width: 24px;
-  height: 24px;
-  border: 3px solid rgba(255, 255, 255, 0.3);
-  border-radius: 50%;
-  border-top-color: var(--on-surface);
-  animation: spin 1s ease-in-out infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* Basic Info Card */
-.basicInfoHeader {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 24px;
-  margin-bottom: 32px;
-}
-
-@media (min-width: 640px) {
-  .basicInfoHeader {
-    flex-direction: row;
-    align-items: center;
-  }
-}
-
-.basicInfoText {
-  text-align: center;
-}
-@media (min-width: 640px) {
-  .basicInfoText {
-    text-align: left;
-  }
-}
-
-.basicInfoText h2 {
-  font-size: 24px;
-  font-weight: 400;
-  margin: 0 0 4px 0;
-}
-
-.basicInfoText p {
-  font-size: 14px;
-  color: var(--on-surface);
-  opacity: 0.7;
-  margin: 0;
-}
-
-/* Security Card */
-.securityHeader {
+.person {
   display: flex;
   align-items: center;
   gap: 16px;
-  margin-bottom: 24px;
+  min-width: 0;
+  margin-bottom: 8px;
 }
 
-.securityIcon {
-  padding: 12px;
-  background: var(--surface-variant, #474747);
-  border-radius: 50%;
-  color: var(--on-surface);
+.person p {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+/* Under the fields and in sight while they scroll by. */
+.saveBar {
+  position: sticky;
+  bottom: 12px;
+  z-index: 5;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  padding: 12px 12px 12px 20px;
+  background: var(--surface-container-low);
+  border: 1px solid color-mix(in srgb, var(--surface-variant) 70%, transparent);
+  border-radius: var(--radius-large);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 40%);
 }
 
-.securityText h2 {
-  font-size: 20px;
-  font-weight: 400;
-  margin: 0 0 4px 0;
-}
-
-.securityText p {
-  font-size: 14px;
-  color: var(--on-surface);
-  opacity: 0.7;
+.saveBar p {
   margin: 0;
 }
 
-.changePasswordBtn, .adminBtn {
-  width: 100%;
-  border-radius: 9999px;
-  border: 1px solid var(--md3-surface-variant, #CAC4D0);
-  background: transparent;
-  padding: 12px;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--on-surface);
-  cursor: pointer;
-  transition: background 0.2s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.changePasswordBtn:hover, .adminBtn:hover {
-  background: rgba(255, 255, 255, 0.1);
+.saveError {
+  color: var(--error);
 }
 
 /* Modal */
@@ -277,8 +85,9 @@
   z-index: 10;
   width: 100%;
   max-width: 400px;
-  background: var(--md3-surface-container);
-  border-radius: 28px;
+  background: var(--surface-container-low);
+  border: 1px solid color-mix(in srgb, var(--surface-variant) 70%, transparent);
+  border-radius: var(--radius-large);
   padding: 24px;
   box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
   box-sizing: border-box;
@@ -336,25 +145,3 @@
   background: rgba(255, 255, 255, 0.1);
 }
 
-.iconButton {
-  background: transparent;
-  border: none;
-  color: var(--on-surface);
-  cursor: pointer;
-  padding: 8px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.iconButton:hover {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.avatarContainer {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}

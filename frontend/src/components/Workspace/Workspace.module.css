@@ -1,54 +1,222 @@
 .page {
+  /* The page's section colours what is the section's own: the header, the tabs, the empty boxes. */
+  --tone: var(--section, var(--primary));
   color: var(--on-surface);
   min-width: 0;
 }
+/* The page header repeats the login page: the grainy light gradient with a dark curve. */
 .header {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   display: flex;
   gap: 18px;
   justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 28px;
+  align-items: flex-end;
+  margin-bottom: 20px;
+  padding: 26px 28px 24px;
+  border-radius: var(--radius-large);
+  /* The curve takes this corner, as on the login page. */
+  border-top-right-radius: 0;
+  background: radial-gradient(circle at 0% 0%, #ebe2e5 0%, #f0ebe5 40%, var(--section, var(--primary)) 100%);
+  color: var(--background);
+}
+.header::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.5;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 600 600' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+.header::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  right: -70px;
+  top: -150px;
+  width: 300px;
+  height: 210px;
+  border-radius: 0 0 0 100%;
+  background: var(--background);
+  pointer-events: none;
 }
 .eyebrow {
-  color: var(--primary);
-  text-transform: uppercase;
+  display: inline-block;
+  margin: 0 0 12px;
+  padding: 3px 9px;
+  border: 1.5px dashed currentColor;
+  font-size: 11px;
   letter-spacing: 0.12em;
-  font-size: 12px;
-  margin: 0 0 10px;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+.header .title {
+  color: var(--background);
+}
+.header .description {
+  color: var(--background);
+  opacity: 0.72;
+}
+.header .linkButton,
+.header .button {
+  position: relative;
+  background: var(--background);
+  border-color: var(--background);
+  color: var(--primary);
+  white-space: nowrap;
+}
+/* The actions keep their one line; when the title needs the room, they go under it. */
+.header {
+  flex-wrap: wrap;
+}
+.header > :first-child {
+  flex: 1 1 22rem;
+  min-width: 0;
+}
+.header > :not(:first-child) {
+  flex-shrink: 0;
+}
+.header .linkButton:hover,
+.header .button:hover {
+  background: var(--surface-container-low);
 }
 .title {
   margin: 0;
-  font-size: clamp(28px, 4vw, 40px);
-  line-height: 1.14;
+  font-size: clamp(26px, 3.4vw, 34px);
+  line-height: 1.18;
+  letter-spacing: -0.01em;
   overflow-wrap: anywhere;
 }
 .description {
   color: var(--on-surface-variant);
-  opacity: 0.78;
-  line-height: 1.6;
+  opacity: 0.7;
+  line-height: 1.55;
   max-width: 70ch;
+  margin: 8px 0 0;
 }
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
-  gap: 18px;
+  gap: 16px;
+  /* Each card keeps its own height: a long one leaves no empty boxes beside it. */
   align-items: start;
 }
 .stack {
   display: grid;
-  gap: 18px;
+  gap: 16px;
+}
+.stack > .linkButton {
+  justify-self: start;
+}
+/* Two columns where there is room for them; the second holds the smaller cards. */
+.columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.avatars {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 8px;
+}
+.avatarTile {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 10px 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: var(--surface-container);
+  color: var(--on-surface);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+.avatarTile:hover {
+  background: var(--surface-container-high);
+}
+.avatarTile:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.avatarTile[aria-pressed="true"] {
+  border-color: var(--tone, var(--primary));
+  background: color-mix(in srgb, var(--tone, var(--primary)) 12%, var(--surface-container));
+}
+.avatarTile:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+.avatarTile img {
+  border-radius: 50%;
+}
+.upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  font-size: 14px;
+}
+.upload small {
+  opacity: 0.7;
+}
+.upload:has(input:focus-visible) .linkButton {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.upload:has(input:disabled) .linkButton {
+  opacity: 0.5;
+  cursor: progress;
+}
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
   background: var(--surface-container-low);
-  border: 1px solid var(--surface-variant);
+  border: 1px solid color-mix(in srgb, var(--surface-variant) 70%, transparent);
   border-radius: var(--radius-large);
-  padding: 24px;
+  padding: 22px;
   min-width: 0;
   overflow-wrap: anywhere;
 }
+.card > * {
+  margin-block: 0;
+}
+.card > .linkButton,
+.card > .button,
+.card > .badge {
+  align-self: flex-start;
+}
+/* The card's way further stays at its bottom, also in a row of taller cards. */
+.grid > .card > .linkButton:last-child {
+  margin-top: auto;
+}
 .card h2,
 .card h3 {
-  margin: 0 0 14px;
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.3;
+}
+.card h3 {
+  font-size: 17px;
 }
 .card p {
   line-height: 1.6;
@@ -68,28 +236,59 @@
 }
 .button,
 .linkButton {
+  box-sizing: border-box;
   display: inline-flex;
   justify-content: center;
   align-items: center;
-  min-height: 44px;
-  padding: 10px 18px;
+  min-height: 40px;
+  padding: 8px 16px;
   border-radius: 12px;
-  border: 1px solid var(--outline-variant);
+  border: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent);
   background: transparent;
-  color: var(--on-surface);
+  /* A button reads as the links beside it: the site's yellow on its outline. */
+  color: var(--primary);
   font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.3;
   text-decoration: none;
   cursor: pointer;
   gap: 8px;
+  transition: background-color 0.15s, border-color 0.15s;
 }
 .button:hover,
 .linkButton:hover {
-  background: var(--surface-container-high);
+  background: color-mix(in srgb, var(--primary) var(--hover-opacity), transparent);
+  border-color: var(--outline-variant);
+}
+.button:focus-visible,
+.linkButton:focus-visible,
+.page a:focus-visible,
+.tabs a:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 .primary {
   background: var(--primary);
   border-color: var(--primary);
   color: var(--on-primary);
+}
+.primary:hover {
+  background: color-mix(in srgb, var(--primary) 88%, white);
+}
+.danger {
+  color: var(--error-container);
+  border-color: color-mix(in srgb, var(--error-container) 40%, transparent);
+}
+.danger:hover {
+  background: color-mix(in srgb, var(--error-container) 12%, transparent);
+  border-color: var(--error-container);
+}
+/* A main action that is not available yet reads as not available, not as a dim yellow. */
+.primary:disabled {
+  background: var(--surface-container-high);
+  border-color: transparent;
+  color: color-mix(in srgb, var(--on-surface) 70%, transparent);
 }
 .button:disabled {
   opacity: 0.5;
@@ -97,11 +296,44 @@
 }
 .badge {
   display: inline-flex;
-  border-radius: 9px;
-  background: var(--surface-container-highest);
-  padding: 5px 9px;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--surface-container-high);
+  color: color-mix(in srgb, var(--on-surface) 82%, transparent);
+  padding: 3px 10px;
   font-size: 12px;
-  line-height: 1.4;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.badge.toned {
+  background: color-mix(in srgb, var(--tone) 16%, var(--surface-container));
+  color: var(--tone);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 28%, transparent);
+}
+.glyph::before {
+  content: attr(data-icon);
+}
+/* The icon of a card's title: a tinted square, as on the login page's buttons. */
+span.cardIcon {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--tone) 16%, transparent);
+  color: var(--tone);
+  font-size: 20px;
+  font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+}
+.card h2:has(.cardIcon) {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+/* The rows of a coloured card carry its colour on the left edge. */
+.toned .list > li {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--tone) 70%, transparent);
 }
 .muted {
   opacity: 0.68;
@@ -141,16 +373,50 @@
 .field input,
 .field select,
 .field textarea,
-.filter {
+.filter,
+.page select {
   box-sizing: border-box;
   width: 100%;
-  min-height: 46px;
-  border-radius: 10px;
-  border: 1px solid var(--outline-variant);
+  min-height: 44px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--outline-variant) 45%, transparent);
   color: var(--on-surface);
-  background: var(--surface-container);
-  padding: 11px 12px;
+  background: var(--surface-container-low);
+  padding: 10px 14px;
   font: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.field input:hover,
+.field select:hover,
+.field textarea:hover,
+.page select:hover {
+  border-color: var(--outline-variant);
+}
+.field input:focus,
+.field select:focus,
+.field textarea:focus,
+.page select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+.page select:not([multiple]) {
+  appearance: none;
+  padding-right: 42px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23f2f69e' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 16px center;
+  cursor: pointer;
+}
+/* A filter over the page content: compact, with room before what it filters. */
+.page > label,
+.page > .field {
+  display: grid;
+  gap: 7px;
+  max-width: 360px;
+  margin-bottom: 22px;
+  font-size: 14px;
+  color: color-mix(in srgb, var(--on-surface) 75%, transparent);
 }
 .field textarea {
   min-height: 100px;
@@ -167,10 +433,16 @@
 .fieldError {
   color: var(--error);
 }
+/* A shadow at the edge shows that the table goes on to the side. */
 .tableWrap {
   max-width: 100%;
   overflow-x: auto;
   border-radius: 12px;
+  background:
+    linear-gradient(to right, var(--surface-container-low) 30%, transparent) left / 40px 100% no-repeat local,
+    linear-gradient(to left, var(--surface-container-low) 30%, transparent) right / 40px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgb(0 0 0 / 55%), transparent) left / 14px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgb(0 0 0 / 55%), transparent) right / 14px 100% no-repeat scroll;
 }
 .table {
   width: 100%;
@@ -196,20 +468,35 @@
 .summaryTable th:nth-child(6) {
   min-width: 220px;
 }
+/* Every tab stays in sight: they wrap to a second line rather than scroll away. */
 .tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 4px;
   margin-bottom: 22px;
+  padding: 4px;
+  width: fit-content;
+  max-width: 100%;
+  box-sizing: border-box;
+  background: var(--surface-container-low);
+  border: 1px solid color-mix(in srgb, var(--surface-variant) 70%, transparent);
+  border-radius: 14px;
 }
 .tabs a {
+  flex: none;
   color: inherit;
-  padding: 10px 16px;
+  padding: 8px 14px;
   border-radius: 10px;
+  font-size: 14px;
   text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 0.15s;
+}
+.tabs a:hover {
+  background: var(--surface-container-high);
 }
 .tabs a[aria-current="page"] {
-  background: var(--primary);
+  background: var(--tone, var(--section, var(--primary)));
   color: var(--on-primary);
 }
 .markdown {
@@ -222,25 +509,206 @@
 .markdown img {
   max-width: 100%;
 }
+.markdown > :first-child {
+  margin-top: 0;
+}
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  margin: 1.1em 0 0.45em;
+  line-height: 1.3;
+}
+/* Code and tables keep their lines and scroll inside the card instead of widening the page. */
+.markdown pre,
+.markdown table {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-wrap: normal;
+  scrollbar-width: thin;
+}
+.markdown pre {
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface-container-lowest);
+  border: 1px solid color-mix(in srgb, var(--surface-variant) 70%, transparent);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.markdown code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+.markdown :not(pre) > code {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--surface-container-high);
+}
+.markdown table {
+  display: block;
+  border-collapse: collapse;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.markdown th,
+.markdown td {
+  min-width: 6em;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--surface-variant);
+  text-align: left;
+  vertical-align: top;
+}
+.markdown th {
+  color: var(--tone, var(--primary));
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.markdown blockquote {
+  margin: 0;
+  padding: 2px 0 2px 16px;
+  border-left: 3px solid var(--tone, var(--primary));
+  color: color-mix(in srgb, var(--on-surface) 85%, transparent);
+}
+.markdown hr {
+  border: 0;
+  border-top: 1px solid var(--surface-variant);
+}
+/* The beginning of a long description in a list card; the page shows it in full. */
+.preview {
+  max-height: 8.75em;
+  overflow: hidden;
+  mask-image: linear-gradient(#000 55%, transparent);
+}
+.preview :is(h1, h2, h3, h4) {
+  margin: 0 0 0.3em;
+  font-size: inherit;
+}
 .list {
   display: grid;
-  gap: 12px;
+  gap: 6px;
   list-style: none;
   padding: 0;
   margin: 0;
 }
+/* A row: the title on its own line, the dates and labels under it. */
+.list > li {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 10px 36px 10px 14px;
+  border-radius: 12px;
+  background: var(--surface-container);
+  transition: background-color 0.15s;
+}
+.list > li:hover {
+  background: var(--surface-container-high);
+}
+.list > li > p {
+  margin: 0;
+}
+.list > li > a,
+.list > li > p:has(a) {
+  flex: 1 1 100%;
+}
+.list > li > p:not(:has(a)) {
+  order: 1;
+  font-size: 13px;
+  opacity: 0.68;
+}
+.list > li > .muted {
+  order: 1;
+  font-size: 13px;
+}
+.list > li > .badge {
+  order: 2;
+}
 .list a {
   color: var(--on-surface);
+}
+.list > li .linkButton {
+  display: inline;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font-weight: 500;
+  color: var(--on-surface);
+}
+/* The whole row opens its title; the buttons of the row stay over it. */
+.list > li:has(.linkButton) {
+  cursor: pointer;
+}
+.list > li .linkButton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+.list > li:has(.linkButton)::before {
+  content: "";
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-50%) rotate(-45deg);
+  opacity: 0.45;
+}
+.list > li button {
+  position: relative;
+  z-index: 1;
+}
+/* A row without its own way further needs no room for the arrow. */
+.list > li:not(:has(.linkButton)) {
+  padding-right: 14px;
+}
+/* A row of a name and its button: the button keeps to the right. */
+.list > li > .between {
+  flex: 1 1 100%;
+  gap: 8px 16px;
+}
+.list > li .button {
+  min-height: 34px;
+  padding: 5px 12px;
+  font-size: 14px;
 }
 .filters {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+  /* Labels of one line or of two: the fields still stand on one line. */
+  align-items: flex-end;
   margin-bottom: 22px;
+}
+.filters > .search {
+  flex: 2 1 220px;
+}
+/* A lone filter is not stretched over the whole page. */
+.filters > * {
+  max-width: 480px;
+}
+/* The buttons of a row of filters keep their width. */
+.filters > .row {
+  flex: none;
+  min-width: 0;
+}
+.field input[type="search"]::-webkit-search-cancel-button {
+  filter: invert(1);
 }
 .filters > * {
   flex: 1;
-  min-width: 150px;
+  /* Room for "Все категории" and the arrow on one line. */
+  min-width: 160px;
 }
 .details {
   border-top: 1px solid var(--surface-variant);
@@ -248,9 +716,62 @@
   margin-top: 18px;
 }
 .details summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
   min-height: 36px;
   cursor: pointer;
   color: var(--primary);
+  list-style: none;
+  font-weight: 500;
+}
+.details summary::-webkit-details-marker {
+  display: none;
+}
+.details summary::before {
+  content: "";
+  flex: none;
+  align-self: flex-start;
+  width: 6px;
+  height: 6px;
+  margin: 0.55em 3px 0;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s;
+}
+.details[open] > summary::before {
+  transform: rotate(45deg);
+}
+.card dl {
+  display: grid;
+  margin: 0;
+}
+.card dl > div {
+  display: grid;
+  grid-template-columns: minmax(120px, 32%) 1fr;
+  gap: 16px;
+  padding: 9px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--surface-variant) 60%, transparent);
+}
+.card dl > div:last-child {
+  border-bottom: 0;
+}
+.card dt {
+  opacity: 0.62;
+  font-size: 14px;
+}
+.card dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+/* The dashed box of the login page. */
+.empty {
+  padding: 16px 18px;
+  border: 1.5px dashed color-mix(in srgb, var(--tone, var(--primary)) 60%, transparent);
+  color: var(--tone, var(--primary));
+  text-align: center;
+  font-size: 14px;
 }
 .details dd {
   margin-inline-start: 0;
@@ -272,6 +793,14 @@
   }
   .header {
     display: block;
+    padding: 20px;
+  }
+  .header::after {
+    right: -110px;
+    top: -170px;
+  }
+  .header > * + * {
+    margin-top: 16px;
   }
   .filters {
     display: grid;
@@ -282,6 +811,18 @@
   }
   .row .button {
     flex-grow: 1;
+  }
+  .button,
+  .linkButton {
+    min-height: 44px;
+  }
+  .page > label,
+  .page > .field {
+    max-width: none;
+  }
+  .card dl > div {
+    grid-template-columns: 1fr;
+    gap: 2px;
   }
 }
 .page a {
@@ -328,8 +869,11 @@
   list-style: none;
 }
 .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   min-height: 36px;
-  padding: 4px 12px;
+  padding: 4px 8px 4px 12px;
   border: 1px solid var(--outline-variant);
   border-radius: 18px;
   background: var(--surface-container);
@@ -352,4 +896,274 @@
 .decision.nice {
   background: var(--tertiary-container);
   color: var(--on-tertiary-container);
+}
+/* The site's list draws its own arrow (WorkspaceLayout.module.css). */
+@supports (appearance: base-select) {
+  .page select:not([multiple]) {
+    padding-right: 16px;
+    background-image: none;
+  }
+}
+/* A disclosure without its own style still shows the site's marker colour. */
+.page details:not([class]) > summary {
+  cursor: pointer;
+}
+.page details > summary::marker {
+  color: var(--primary);
+}
+/* Badges that follow one another share a line. */
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+/* A person's line in a card: the avatar and the name, a label kept at the right. */
+.person {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.person > :first-child {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+.person > :first-child > :last-child {
+  min-width: 0;
+}
+.person > :not(:first-child) {
+  flex: none;
+}
+/* Links of a contact as chips: easy to hit with a finger. */
+.contactLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.contactLinks a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--surface-container);
+  color: var(--on-surface);
+  font-size: 14px;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.contactLinks .glyph {
+  font-size: 17px;
+  color: var(--primary);
+}
+.contactLinks a:hover {
+  background: var(--surface-container-high);
+}
+@media (max-width: 768px) {
+  .row .linkButton {
+    flex-grow: 1;
+  }
+}
+.wide {
+  grid-column: 1 / -1;
+}
+/* What waits for a decision, side by side: a line and its way to it. */
+.decisions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 14px 24px;
+}
+.decisions > div {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  justify-items: start;
+}
+.decisions p {
+  margin: 0;
+}
+/* A notification: its text and time, the mark of the new one at the right. */
+.person > .notice {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.notice p {
+  margin: 0;
+  line-height: 1.5;
+}
+.unread {
+  font-weight: 500;
+}
+/* A row or a stack with nothing in it takes no room in its card. */
+.row:empty,
+.stack:empty {
+  display: none;
+}
+/* Who does a task and how it stands: a name and its pill on one line. */
+.assignees {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.assignees li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 10px;
+  font-size: 14px;
+}
+.assignees li > span {
+  min-width: 0;
+}
+/* A checkbox and its words on one line. */
+.check,
+.page > .check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  margin-bottom: 20px;
+  cursor: pointer;
+}
+/* A leader with the deputies and their form: one block, apart from the next leader. */
+.leader {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface-container);
+}
+.leader h3,
+.leader p {
+  margin: 0;
+}
+.leader .details {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 0;
+}
+.leader .details summary {
+  font-size: 14px;
+  min-height: 30px;
+}
+.nowrap {
+  white-space: nowrap;
+}
+/* A heading of a group of cards, outside of a card. */
+.stack > h2 {
+  margin: 10px 0 0;
+  font-size: 20px;
+  line-height: 1.3;
+}
+/* A disclosure that is the whole card has no line above it. */
+.card > .details:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+/* A button of a form's own (not its submit) keeps its size. */
+.form > .button {
+  justify-self: start;
+}
+/* The editor's formatting buttons: a quiet strip above the text. */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--surface-container);
+}
+.toolbar .button {
+  min-height: 34px;
+  padding: 4px 12px;
+  font-size: 14px;
+  border-color: transparent;
+}
+.previewBox {
+  padding: 16px 18px;
+  border: 1px dashed var(--outline-variant);
+  border-radius: 12px;
+}
+.inlineGlyph {
+  margin-right: 6px;
+  font-size: 18px;
+  vertical-align: -4px;
+}
+.toolbar .button {
+  color: var(--on-surface);
+}
+/* A table cell breaks between words, never inside a word or a number. */
+.table th,
+.table td {
+  overflow-wrap: normal;
+}
+.table th {
+  hyphens: auto;
+}
+/* A remark beside the content: noticed, not alarming. */
+.note {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  margin-bottom: 20px;
+  padding: 14px 18px;
+  border-left: 3px solid var(--accent-peach);
+  border-radius: 4px 12px 12px 4px;
+  background: color-mix(in srgb, var(--accent-peach) 9%, var(--surface-container-low));
+}
+.note p {
+  margin: 0;
+  line-height: 1.5;
+}
+/* The cross of a chosen chip: big enough to see and to aim at. */
+.chipClose {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--surface-container-high);
+  font-size: 16px;
+}
+.chip:hover .chipClose {
+  background: color-mix(in srgb, var(--error-container) 30%, var(--surface-container-high));
+}
+/* An icon in a button is of the button's text size. */
+.button .glyph,
+.linkButton .glyph {
+  font-size: 20px;
+}
+/* On a phone the filters go two in a row; the search, and a filter left alone, take the line. */
+@media (max-width: 768px) {
+  .filters {
+    display: flex;
+  }
+  .filters > * {
+    flex: 1 1 140px;
+    max-width: none;
+  }
+  .filters > .search {
+    flex-basis: 100%;
+  }
+}
+/* A field gives way to its box: a long chosen value or a date is cut, not let out. */
+.field input,
+.field select,
+.page select {
+  min-width: 0;
+  max-width: 100%;
+}
+.field {
+  grid-template-columns: minmax(0, 1fr);
+}
+.formFields > .field {
+  min-width: 0;
 }

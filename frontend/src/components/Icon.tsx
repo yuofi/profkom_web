@@ -1,8 +1,9 @@
 import clsx from "clsx";
 import React from "react";
+import type { IconName } from "./icons";
 
 interface IconProps extends React.HTMLAttributes<HTMLSpanElement> {
-  name: string;
+  name: IconName;
   filled?: boolean;
   size?: number;
   className?: string;

@@ -10,6 +10,7 @@ import {
   Badge,
   Empty,
 } from "../../components/Workspace/WorkspaceUI";
+import type { Tone } from "../../components/Workspace/sections";
 import { ActionForm, type Field } from "../../components/Workspace/ActionForm";
 import { text, ids, number } from "../../components/Workspace/formValues";
 import {
@@ -49,6 +50,16 @@ const statusNames: Record<Assignment["status"], string> = {
   needs_revision: "На доработке",
   not_completed: "Не выполнена",
   cancelled: "Отменена",
+};
+const statusTones: Record<Assignment["status"], Tone | undefined> = {
+  assigned: "lilac",
+  in_progress: "sky",
+  help_required: "peach",
+  submitted: "peach",
+  accepted: "mint",
+  needs_revision: "rose",
+  not_completed: "rose",
+  cancelled: undefined,
 };
 const criteriaLabels = {
   unique: "Уникальная",
@@ -270,11 +281,16 @@ export function TasksListPage() {
                   )?.title ?? "Сезон"}
                 </Badge>
                 <p>Дедлайн: {displayDate(task.deadline_at)}</p>
-                {task.assignments.map((a) => (
-                  <p key={a.assignment_id}>
-                    {a.assignee.display_name}: {statusNames[a.status]}
-                  </p>
-                ))}
+                {task.assignments.length > 0 && (
+                  <ul className={s.assignees}>
+                    {task.assignments.map((a) => (
+                      <li key={a.assignment_id}>
+                        <span>{a.assignee.display_name}</span>
+                        <Badge tone={statusTones[a.status]}>{statusNames[a.status]}</Badge>
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 <RouteLink to={getTaskRoute(task.task_id)}>Открыть</RouteLink>
               </Card>
             ))}
@@ -352,7 +368,7 @@ function AssignmentCard({
   const active = !["accepted", "not_completed", "cancelled"].includes(a.status);
   return (
     <Card title={a.assignee.display_name}>
-      <Badge>{statusNames[a.status]}</Badge>
+      <Badge tone={statusTones[a.status]}>{statusNames[a.status]}</Badge>
       {a.assignee_unavailable_reason && (
         <p className={s.warning}>
           Исполнитель недоступен:{" "}
@@ -845,12 +861,12 @@ export function UnresolvedPage() {
         seasonId && <RouteLink to="/tasks/unresolved">Все сезоны</RouteLink>
       }
     >
-      <label className={s.row}>
+      <label className={s.check}>
         <input
           type="checkbox"
           checked={onlyUnavailable}
           onChange={(e) => setOnlyUnavailable(e.target.checked)}
-        />{" "}
+        />
         Только без доступного исполнителя
       </label>
       <QueryState keepDataOnError={!!query.data}
@@ -858,16 +874,21 @@ export function UnresolvedPage() {
         <div className={s.stack}>
           {items?.map((item) => (
             <Card title={item.task_title} key={item.assignment.assignment_id}>
-              <p>
-                {item.assignment.assignee.display_name} ·{" "}
-                {statusNames[item.assignment.status]} ·{" "}
-                {displayDate(item.deadline_at)}
-              </p>
+              <div className={s.badges}>
+                <Badge tone={statusTones[item.assignment.status]}>
+                  {statusNames[item.assignment.status]}
+                </Badge>
+                <Badge>Дедлайн: {displayDate(item.deadline_at)}</Badge>
+              </div>
+              <p>{item.assignment.assignee.display_name}</p>
               <RouteLink to={getTaskRoute(item.task_id)}>
                 Задача и история
               </RouteLink>
               {can(item.assignment, "reassign_assignment") && (
-                <ReassignForm item={item} />
+                <details className={s.details}>
+                  <summary>Переназначить</summary>
+                  <ReassignForm item={item} />
+                </details>
               )}
             </Card>
           ))}

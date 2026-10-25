@@ -1,6 +1,6 @@
-import { Suspense } from "react";
+import { Suspense, type CSSProperties } from "react";
 import { Loading } from "./WorkspaceUI";
-import { Link, NavLink, Outlet } from "react-router-dom";
+import { Link, Outlet, useLocation } from "react-router-dom";
 import { useMe } from "../../utils/me";
 import { can, useSession } from "../../utils/session";
 import { DemoRolePicker } from "./DemoRolePicker";
@@ -8,18 +8,20 @@ import { useQuery } from "@tanstack/react-query";
 import { workspaceApi } from "../../utils/api/workspace.api";
 import s from "./WorkspaceLayout.module.css";
 import ws from "./Workspace.module.css";
+import ProfkomLogo from "../profkomLogo";
 import { visibleAdminTabs } from "../../pages/Admin/adminTabs";
-const navigation = [
-  ["/", "Рабочий экран"],
-  ["/events", "Мероприятия"],
-  ["/tasks", "Мои задачи"],
-  ["/blocks", "Блоки"],
-  ["/calendar", "Календарь"],
-  ["/materials", "Материалы"],
-  ["/pgas", "ПГАС"],
-  ["/contacts", "Контакты"],
-  ["/notifications", "Уведомления"],
-];
+import { Glyph } from "./WorkspaceUI";
+import { SECTIONS, SectionContext, sectionOf, toneStyle } from "./sections";
+import type { Session } from "../../utils/api/contract";
+
+const MERIT_CAPS = ["create_volunteer_merit", "create_head_merit", "create_chair_merit"];
+/** Menu items that need a role; the others are for everyone. */
+const shown: Record<string, (session: Session | null) => boolean> = {
+  "/seasons": (session) => can(session, "view_summary"),
+  "/merits": (session) =>
+    MERIT_CAPS.some((cap) => can(session, cap) || !!session?.assignments?.some((a) => can(a, cap))),
+  "/admin": (session) => visibleAdminTabs(session).length > 0,
+};
 
 export function WorkspaceLayout() {
   const user = useMe();
@@ -30,6 +32,8 @@ export function WorkspaceLayout() {
   });
   const unread =
     notifications.data?.items.filter((n) => !n.read_at).length ?? 0;
+  const { pathname } = useLocation();
+  const section = sectionOf(pathname);
   const links = (
     <nav
       className={s.nav}
@@ -39,38 +43,35 @@ export function WorkspaceLayout() {
           event.currentTarget.closest("details")?.removeAttribute("open");
       }}
     >
-      {navigation.map(([to, label]) => (
-        <NavLink end={to === "/"} key={to} to={to}>
+      {/* The item of the page's section is marked on its inner pages too (a subevent is under Мероприятия). */}
+      {SECTIONS.filter(({ to }) => shown[to]?.(session) ?? true).map(({ to, label, icon, tone }) => (
+        <Link key={to} to={to} style={toneStyle(tone)}
+          aria-current={pathname === to ? "page" : section.to === to ? "true" : undefined}>
+          <Glyph name={icon} className={s.icon} />
           {label}
-          {to === "/notifications" && unread > 0 ? ` · ${unread}` : ""}
-        </NavLink>
+          {to === "/notifications" && unread > 0 && (
+            <span className={s.count}><span className={s.hiddenText}> · </span>{unread}</span>
+          )}
+        </Link>
       ))}
-      {can(session, "view_summary") && (
-        <NavLink to="/seasons">Сезоны и ККР</NavLink>
-      )}
-      {(["create_volunteer_merit", "create_head_merit", "create_chair_merit"].some((cap) => can(session, cap) || session?.assignments?.some((a) => can(a, cap)))) && (
-        <NavLink to="/merits">Учёт выполненной работы</NavLink>
-      )}
-      {visibleAdminTabs(session).length > 0 && (
-        <NavLink to="/admin">Администрирование</NavLink>
-      )}
-      <NavLink to="/profile">Мой профиль</NavLink>
     </nav>
   );
   return (
-    <div className={s.shell}>
+    <div className={s.shell} style={{ "--section": `var(--accent-${section.tone})` } as CSSProperties}>
       <aside className={s.sidebar}>
         <Link className={s.brand} to="/">
-          Профком<small>ВМК МГУ</small>
+          <ProfkomLogo variant="desktop" width={42} strokeWidth={16} aria-hidden="true" />
+          <span>Профком<small>ВМК МГУ</small></span>
         </Link>
         {links}
         <details className={s.mobile}>
-          <summary>Меню</summary>
+          <summary><Glyph name="menu" className={s.icon} />Меню</summary>
           {links}
         </details>
         <div className={s.profile}>
           <Link to="/profile">
-            {user?.name} {user?.surname}
+            <Glyph name="account_circle" className={s.icon} />
+            <span>{user?.name} {user?.surname}</span>
           </Link>
         </div>
         <DemoRolePicker />
@@ -83,9 +84,11 @@ export function WorkspaceLayout() {
             <Link to="/profile/edit">Задать пароль</Link>
           </p>
         )}
-        <Suspense fallback={<Loading />}>
-          <Outlet />
-        </Suspense>
+        <SectionContext.Provider value={section}>
+          <Suspense fallback={<Loading />}>
+            <Outlet />
+          </Suspense>
+        </SectionContext.Provider>
       </main>
     </div>
   );

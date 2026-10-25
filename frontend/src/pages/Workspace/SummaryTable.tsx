@@ -64,8 +64,8 @@ export function SummaryTable({ summary, filter = "", renderDecisions }: {
                       ? "Джуниор"
                       : "Активист"}
                   </p>
-                  {row.is_archived && <Badge>Уже исключён</Badge>}
-                  {row.is_master && <Badge>Мастер</Badge>}
+                  {row.is_archived && <Badge tone="rose">Уже исключён</Badge>}
+                  {row.is_master && <Badge tone="yellow">Мастер</Badge>}
                 </td>
                 <td>
                   {row.blocks.map((b) => b.name).join(", ") || "—"}

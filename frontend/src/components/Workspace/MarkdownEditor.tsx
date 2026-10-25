@@ -27,7 +27,7 @@ export function MarkdownEditor({
   return (
     <div className={s.form}>
       <div
-        className={s.row}
+        className={s.toolbar}
         role="toolbar"
         aria-label="Форматирование Markdown"
       >
@@ -93,7 +93,11 @@ export function MarkdownEditor({
       >
         Предпросмотр текущего текста
       </button>
-      {preview && <MarkdownContent body={value} />}
+      {preview && (
+        <div className={s.previewBox}>
+          <MarkdownContent body={value} />
+        </div>
+      )}
     </div>
   );
 }

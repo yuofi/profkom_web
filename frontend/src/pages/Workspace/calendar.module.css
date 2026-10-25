@@ -26,20 +26,44 @@
   font-size: 13px;
   opacity: 0.7;
 }
+/* An entry is a small block of its own: the time, the name, the season. */
 .entry {
   display: grid;
-  gap: 8px;
-  margin: 10px 0;
-  overflow-wrap: anywhere;
+  gap: 4px;
+  justify-items: start;
+  margin: 8px 0 0;
+  padding: 6px 8px;
+  border-left: 3px solid var(--tone, var(--primary));
+  border-radius: 4px 8px 8px 4px;
+  background: color-mix(in srgb, var(--tone, var(--primary)) 9%, var(--surface-container-low));
+  font-size: 13px;
+  line-height: 1.35;
+  /* Words break at their syllables, not at any letter. */
+  overflow-wrap: break-word;
+  hyphens: auto;
+  min-width: 0;
 }
-.entry a {
+.entry a,
+.entry > span {
   color: var(--on-surface);
   text-decoration: none;
-  font-size: 14px;
+  font-weight: 500;
+  max-width: 100%;
+}
+.entry a:hover {
+  text-decoration: underline;
 }
 .entry small {
   font-size: 11px;
-  opacity: 0.7;
+  opacity: 0.75;
+}
+/* The season's pill keeps inside a narrow day and cuts a long name. */
+.entry > :last-child {
+  display: block;
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .mobileList {
   display: none;
@@ -50,7 +74,13 @@
   }
   .mobileList {
     display: grid;
-    gap: 12px;
+    gap: 10px;
     margin-top: 20px;
+  }
+  .mobileList .entry {
+    margin: 0;
+    padding: 12px 14px;
+    font-size: 15px;
+    gap: 6px;
   }
 }

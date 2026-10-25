@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import {
   Page,
   Card,
@@ -18,12 +19,13 @@ import {
   getEventRoute,
   getBlockRoute,
 } from "../../utils/routes";
-import { displayDate } from "../../utils/dates";
+import { displayDate, displayTime } from "../../utils/dates";
 import { monthDays, moscowDay } from "../../utils/calendar";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { can, useSession } from "../../utils/session";
 import type { CalendarItem } from "../../utils/api/contract";
 import s from "../../components/Workspace/Workspace.module.css";
+import { toneStyle, type Tone } from "../../components/Workspace/sections";
 import c from "./calendar.module.css";
 function useSeasons() {
   return useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
@@ -115,7 +117,41 @@ export function DashboardPage() {
       >
         {data && (
           <div className={s.grid}>
-            <Card title="Мои задачи">
+            {showDecisions && <Card title="Требуют решения" icon="pending_actions" tone="peach" wide>
+              <div className={s.decisions}>
+                {showRequests && (
+                  <div>
+                    <p>
+                      Заявки в блоки (не зависят от сезона):{" "}
+                      {data.actionable_requests.length}
+                    </p>
+                    <RouteLink to="/blocks/requests">Рассмотреть заявки</RouteLink>
+                  </div>
+                )}
+                {can(session, "review_registrations") && (
+                  <div>
+                    <p>Регистрации, ожидающие решения: {data.pending_registration_count}</p>
+                    <RouteLink to="/admin/registrations">Рассмотреть регистрации</RouteLink>
+                  </div>
+                )}
+                {unresolved.length > 0 && (
+                  <div>
+                    <p>
+                      Оставшаяся работа в выбранных сезонах: {unresolved.length}
+                    </p>
+                    <RouteLink
+                      to={`/tasks/unresolved${seasonId ? `?season_id=${encodeURIComponent(seasonId)}` : ""}`}
+                    >
+                      Разобрать назначения
+                    </RouteLink>
+                  </div>
+                )}
+              </div>
+              {!data.actionable_requests.length && !unresolved.length && !data.pending_registration_count && (
+                <Empty>В очереди нет решений.</Empty>
+              )}
+            </Card>}
+            <Card title="Мои задачи" icon="task_alt" tone="lilac">
               <ul className={s.list}>
                 {tasks.map((t) => (
                   <li key={t.task_id}>
@@ -136,7 +172,7 @@ export function DashboardPage() {
               )}
               <RouteLink to="/tasks">Открыть трекер</RouteLink>
             </Card>
-            <Card title="Ближайшие созвоны">
+            <Card title="Ближайшие созвоны" icon="videocam" tone="sky">
               <ul className={s.list}>
                 {filteredMeetings.map(({ meeting: m, season }) => (
                   <li key={m.meeting_id}>
@@ -178,7 +214,7 @@ export function DashboardPage() {
               )}
               <RouteLink to="/calendar">Календарь</RouteLink>
             </Card>
-            <Card title={can(session, "view_all_areas") ? "Все блоки и мероприятия" : "Мои команды"}>
+            <Card title={can(session, "view_all_areas") ? "Все блоки и мероприятия" : "Мои команды"} icon="groups" tone="mint">
               <ul className={s.list}>
                 {data.my_blocks.map((b) => (
                   <li key={b.block_id}>
@@ -201,49 +237,27 @@ export function DashboardPage() {
                 <Empty>В выбранных сезонах мероприятий нет.</Empty>
               )}
             </Card>
-            {showDecisions && <Card title="Требуют решения">
-              {showRequests && <>
-                <p>
-                  Заявки в блоки (не зависят от сезона):{" "}
-                  {data.actionable_requests.length}
-                </p>
-                <RouteLink to="/blocks/requests">Рассмотреть заявки</RouteLink>
-              </>}
-              {can(session, "review_registrations") && (
-                <>
-                  <p>Регистрации, ожидающие решения: {data.pending_registration_count}</p>
-                  <RouteLink to="/admin/registrations">Рассмотреть регистрации</RouteLink>
-                </>
-              )}
-              {unresolved.length > 0 && (
-                <>
-                  <p>
-                    Оставшаяся работа в выбранных сезонах: {unresolved.length}
-                  </p>
-                  <RouteLink
-                    to={`/tasks/unresolved${seasonId ? `?season_id=${encodeURIComponent(seasonId)}` : ""}`}
-                  >
-                    Разобрать назначения
-                  </RouteLink>
-                </>
-              )}
-              {!data.actionable_requests.length && !unresolved.length && !data.pending_registration_count && (
-                <Empty>В очереди нет решений.</Empty>
-              )}
-            </Card>}
           </div>
         )}
       </QueryState>
     </Page>
   );
 }
-function CalendarEntry({ item, title }: { item: CalendarItem; title: string }) {
+/** What an entry is, by the colour of its section. */
+const KINDS: Record<CalendarItem["kind"], { label: string; tone: Tone }> = {
+  task_deadline: { label: "Дедлайн", tone: "lilac" },
+  event: { label: "Мероприятие", tone: "mint" },
+  meeting: { label: "Созвон", tone: "yellow" },
+};
+function CalendarEntry({ item, title, inDay = false }: { item: CalendarItem; title: string; inDay?: boolean }) {
   const route = targetRoute(item.target);
+  const kind = KINDS[item.kind];
   return (
-    <div className={c.entry}>
-      <small>{displayDate(item.starts_at)}</small>
+    <div className={c.entry} style={toneStyle(kind?.tone)}>
+      {/* In a day of the month the day is already said: the time is enough. */}
+      <small>{inDay ? displayTime(item.starts_at) : displayDate(item.starts_at)} · {kind?.label}</small>
       {route ? (
-        <RouteLink to={route}>{item.title}</RouteLink>
+        <Link to={route}>{item.title}</Link>
       ) : (
         <span>{item.title}</span>
       )}
@@ -337,6 +351,7 @@ export function CalendarPage() {
                       key={i.id}
                       item={i}
                       title={label(i.season_id)}
+                      inDay
                     />
                   ))}
               </div>
@@ -345,9 +360,7 @@ export function CalendarPage() {
         </div>
         <div className={c.mobileList}>
           {items.map((i) => (
-            <Card key={i.id}>
-              <CalendarEntry item={i} title={label(i.season_id)} />
-            </Card>
+            <CalendarEntry key={i.id} item={i} title={label(i.season_id)} />
           ))}
         </div>
         {!items.length && <Empty>На этот месяц нет доступных событий.</Empty>}
@@ -362,17 +375,19 @@ export function NotificationsPage() {
     queryFn: workspaceApi.notifications,
   });
   return (
-    <Page title="Уведомления">
+    <Page
+      title="Уведомления"
+      actions={query.data?.items.some((n) => !n.read_at) && (
+        <ActionForm
+          fields={[]}
+          submitLabel="Прочитать все"
+          onSubmit={async () => {
+            await perform(workspaceApi.readAll);
+          }}
+        />
+      )}
+    >
       <div className={s.stack}>
-        {query.data?.items.some((n) => !n.read_at) && (
-          <ActionForm
-            fields={[]}
-            submitLabel="Прочитать все"
-            onSubmit={async () => {
-              await perform(workspaceApi.readAll);
-            }}
-          />
-        )}
         <QueryState
           loading={query.isLoading}
           error={query.error}
@@ -384,25 +399,30 @@ export function NotificationsPage() {
             const route = targetRoute(n.target);
             return (
               <Card key={n.id}>
-                <div className={s.between}>
-                  <p>{n.text}</p>
-                  {!n.read_at && <Badge>Новое</Badge>}
+                <div className={s.person}>
+                  <div className={s.notice}>
+                    <p className={n.read_at ? undefined : s.unread}>{n.text}</p>
+                    <small className={s.muted}>{displayDate(n.created_at)}</small>
+                  </div>
+                  {!n.read_at && <Badge tone="yellow">Новое</Badge>}
                 </div>
-                <p className={s.muted}>{displayDate(n.created_at)}</p>
-                {route ? (
-                  <RouteLink to={route}>Перейти к источнику</RouteLink>
-                ) : (
-                  <span className={s.muted}>Источник больше недоступен</span>
-                )}
-                {!n.read_at && (
-                  <ActionForm
-                    fields={[]}
-                    submitLabel="Отметить прочитанным"
-                    onSubmit={async () => {
-                      await perform(() => workspaceApi.read(n.id));
-                    }}
-                  />
-                )}
+                <div className={s.row}>
+                  {route ? (
+                    <RouteLink to={route}>Перейти к источнику</RouteLink>
+                  ) : (
+                    <span className={s.muted}>Источник больше недоступен</span>
+                  )}
+                  {!n.read_at && (
+                    <ActionForm
+                      fields={[]}
+                      submitLabel="Отметить прочитанным"
+                      variant="quiet"
+                      onSubmit={async () => {
+                        await perform(() => workspaceApi.read(n.id));
+                      }}
+                    />
+                  )}
+                </div>
               </Card>
             );
           })}

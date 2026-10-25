@@ -7,6 +7,7 @@ import {
   RouteLink,
   Empty,
   Badge,
+  Glyph,
 } from "../../components/Workspace/WorkspaceUI";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { text, number } from "../../components/Workspace/formValues";
@@ -26,7 +27,7 @@ function Category({ userId }: { userId: number }) {
     queryFn: () => membershipApi.category(userId),
   });
   return query.data ? (
-    <Badge>{query.data.category === "junior" ? "Джуниор" : "Активист"}</Badge>
+    <Badge tone={query.data.category === "junior" ? "mint" : undefined}>{query.data.category === "junior" ? "Джуниор" : "Активист"}</Badge>
   ) : (
     <span>
       {query.isError ? "Категория недоступна" : "Категория загружается…"}
@@ -47,15 +48,16 @@ function ContactLinks({
   const safe = (link: string, prefix: string) =>
     /^https?:\/\//i.test(link) ? link : `${prefix}${link.replace(/^@/, "")}`;
   return (
-    <div className={s.row}>
-      {email && <a href={`mailto:${email}`}>{email}</a>}
-      {phone && <a href={`tel:${phone.replace(/[^+\d]/g, "")}`}>{phone}</a>}
+    <div className={s.contactLinks}>
+      {email && <a href={`mailto:${email}`}><Glyph name="mail" />{email}</a>}
+      {phone && <a href={`tel:${phone.replace(/[^+\d]/g, "")}`}><Glyph name="call" />{phone}</a>}
       {tg && (
         <a
           href={safe(tg, "https://t.me/")}
           target="_blank"
           rel="noopener noreferrer"
         >
+          <Glyph name="send" />
           Telegram
         </a>
       )}
@@ -129,13 +131,25 @@ export function DirectoryPage() {
   return (
     <Page
       title="Контакты"
-      actions={<RouteLink to="/contacts/former">Бывшие участники</RouteLink>}
+      actions={
+        <div className={s.row}>
+          {can(session, "restore_account") && (
+            <RouteLink to="/admin/accounts">Архив аккаунтов</RouteLink>
+          )}
+          <RouteLink to="/contacts/former">Бывшие участники</RouteLink>
+        </div>
+      }
     >
       <div className={s.stack}>
         <div className={s.filters}>
-          <label className={s.field}>
-            Поиск по имени, группе, почте
-            <input value={search} onChange={(e) => setSearch(e.target.value)} />
+          <label className={`${s.field} ${s.search}`}>
+            Поиск
+            <input
+              type="search"
+              placeholder="Имя, группа или почта"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
           </label>
           <label className={s.field}>
             Блок
@@ -160,7 +174,7 @@ export function DirectoryPage() {
           <label className={s.field}>
             Форма обучения
             <select value={funding} onChange={(e) => setFunding(e.target.value)}>
-              <option value="">Бюджет и контракт</option>
+              <option value="">Все формы</option>
               <option value="budget">Бюджет</option>
               <option value="contract">Контракт</option>
             </select>
@@ -214,9 +228,6 @@ export function DirectoryPage() {
             </label>
           )}
         </details>
-        {can(session, "restore_account") && (
-          <RouteLink to="/admin/accounts">Архив аккаунтов</RouteLink>
-        )}
         <QueryState
           loading={query.isLoading}
           error={query.error}
@@ -227,15 +238,15 @@ export function DirectoryPage() {
           <div className={s.stack}>
             {filtered?.map((p) => (
               <Card key={p.user_id}>
-                <div className={s.between}>
-                  <div className={s.row}>
+                <div className={s.person}>
+                  <div>
                     <Avatar src={p.photo_url} size={56} />
                     <div>
                       <h2>
                         {p.surname} {p.name} {p.patronymic}
                       </h2>
                       <span className={s.muted}>
-                        {p.group_number} · {p.blocks}
+                        {[p.group_number, p.blocks].filter(Boolean).join(" · ")}
                       </span>
                     </div>
                   </div>
@@ -264,6 +275,7 @@ export function DirectoryPage() {
                         },
                       ]}
                       submitLabel="Архивировать аккаунт"
+                      variant="danger"
                       onSubmit={async (v) => {
                         await perform(() =>
                           directoryApi.archive(p.user_id, text(v, "reason")),
@@ -357,10 +369,17 @@ export function FormerContactsPage() {
       actions={<RouteLink to="/contacts">Действующие контакты</RouteLink>}
     >
       <div className={s.stack}>
-        <label className={s.field}>
-          Поиск
-          <input value={search} onChange={(e) => setSearch(e.target.value)} />
-        </label>
+        <div className={s.filters}>
+          <label className={`${s.field} ${s.search}`}>
+            Поиск
+            <input
+              type="search"
+              placeholder="Фамилия или имя"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </label>
+        </div>
         <QueryState loading={query.isLoading} error={query.error}>
           {query.data?.items
             .filter((p) =>

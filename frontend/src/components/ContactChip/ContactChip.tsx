@@ -8,6 +8,7 @@ import { useMediaQuery } from '../../utils/hooks/useMediaQuery';
 import { CardLabel } from '../CardLabel/CardLabel';
 import { TextField } from '../TextField/TextField';
 import { Button } from '../Button/Button';
+import type { IconName } from '../icons';
 
 export interface ContactInfo {
   surname: string;
@@ -84,7 +85,7 @@ interface ContactChipProps {
     }
   };
 
-  const renderField = (label: string, value: string, key: keyof ContactInfo, iconName?: string) => {
+  const renderField = (label: string, value: string, key: keyof ContactInfo, iconName?: IconName) => {
     const isDisabled = disabledFields.includes(key);
 
     if (mode === 'edit') {

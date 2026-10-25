@@ -10,6 +10,7 @@ import {
   RouteLink,
   Badge,
   Empty,
+  Glyph,
 } from "../../components/Workspace/WorkspaceUI";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { text } from "../../components/Workspace/formValues";
@@ -35,7 +36,7 @@ function ReportLinks({ reports, seasons }: { reports: Report[]; seasons?: Map<st
       {reports.map((r) => (
         <li key={r.report_id}>
           <RouteLink to={getReportRoute(r.report_id)}>{r.title}</RouteLink>{" "}
-          <Badge>{r.kind === "final" ? "Финальный" : "Регулярный"}</Badge>{" "}
+          <Badge tone={r.kind === "final" ? "mint" : undefined}>{r.kind === "final" ? "Финальный" : "Регулярный"}</Badge>{" "}
           {seasons && <Badge>Сезон: {seasons.get(r.season_id) ?? "недоступен"}</Badge>}{" "}
           <span className={s.muted}>
             {r.state === "published"
@@ -242,7 +243,7 @@ export function ReportPage() {
         {report && (
           <div className={s.stack}>
             <Card>
-              <Badge>
+              <Badge tone={report.kind === "final" ? "mint" : undefined}>
                 {report.kind === "final"
                   ? "Финальный отчёт"
                   : "Регулярный отчёт"}
@@ -407,11 +408,12 @@ export function MeetingPage() {
                 <h2>{meeting.title}</h2>
                 <p>{displayDate(meeting.starts_at)}</p>
                 <a
-                  className={s.linkButton}
+                  className={`${s.linkButton} ${s.primary}`}
                   href={meeting.join_url}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
+                  <Glyph name="videocam" />
                   Подключиться
                 </a>
               </>
@@ -467,6 +469,7 @@ export function MeetingPage() {
                 <ActionForm
                   fields={[]}
                   submitLabel="Снять объявление"
+                  variant="danger"
                   onSubmit={async () => {
                     await perform(() => eventsApi.deleteMeeting(apiKind, id));
                     setRemoved((n) => n + 1);

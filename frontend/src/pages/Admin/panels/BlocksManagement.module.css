@@ -290,7 +290,7 @@
 
 .modalActions {
   display: flex;
-  justify-content: center;
+  justify-content: flex-end;
   gap: 12px;
   margin-top: 8px;
 }
@@ -418,4 +418,17 @@
 .actionBtnDoc:hover {
   color: var(--on-tertiary);
   background-color: var(--tertiary-container);
+}
+/* The table's small buttons: an icon and a word, or an icon alone. */
+.compact {
+  min-height: 34px;
+  padding: 4px 10px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.iconActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
 }
