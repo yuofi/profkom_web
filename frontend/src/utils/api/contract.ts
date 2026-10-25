@@ -356,6 +356,8 @@ export interface Material extends Versioned {
   draft_content?: RichText;
   /** Editors only: the stored text with file:<id> links, never signed URLs. */
   source_content?: RichText;
+  /** Block guides only: "block" reads to the block and the chair's team, "everyone" to all. */
+  audience?: "block" | "everyone";
 }
 export interface Comment {
   comment_id: string;

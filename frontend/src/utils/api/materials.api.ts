@@ -26,6 +26,8 @@ export const materialsApi = {
   deleted: () => page<Material>("/materials/deleted"),
   restore: (id: string, data: Revision) =>
     request<Material>("post", `/materials/${idPath(id)}/restore`, data),
+  audience: (id: string, audience: "block" | "everyone", data: Revision) =>
+    request<Material>("put", `/materials/${idPath(id)}/audience`, { audience, ...data }),
   editors: (id: string, user_ids: number[], data: Revision) =>
     request<{
       material_id: string;

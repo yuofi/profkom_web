@@ -130,7 +130,9 @@ POLICY = {
     "material.create": TACHKI | {BLOCK_LEAD_ANYWHERE},  # general materials or a block guide
     "material.create_general": TACHKI,
     "material.create_guide": TACHKI | BLOCK_LEADS,  # checked against the owning block
-    "material.edit": TACHKI | {MATERIAL_EDITOR},  # also publish and reversible delete (decision 18)
+    "material.edit": TACHKI | {MATERIAL_EDITOR},
+    # Checked on the owning block of a guide for its block only (owner, 2026-10-25)
+    "material.read_block_guide": TACHKI | BLOCK_LEADS | {BLOCK_MEMBER},  # also publish and reversible delete (decision 18)
     "material.manage_editors": TACHKI,
     "material.restore": TACHKI,  # deletion is reversible (decision 18)
     "pgas.manage": TACHKI | {PGAS_ADMIN},  # decision 14

@@ -469,8 +469,9 @@ export function createFixtures(role: MockRole = "organizer") {
       published_content: richText(
         "## О работе\n**Проверяйте факты**, сохраняйте *ссылки*.\n\n- Подготовьте текст\n- Попросите обратную связь",
       ),
+      audience: "block",
       revision: 1,
-      capabilities: manager ? materialCaps : [],
+      capabilities: manager ? [...materialCaps, "edit_audience"] : [],
       ...(manager
         ? { draft_content: richText("## О работе\nЧерновик следующей версии") }
         : {}),

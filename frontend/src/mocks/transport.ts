@@ -1395,6 +1395,12 @@ export function installMockTransport(
             revision: ++material.revision,
           },
         ];
+      if (parts[2] === "audience") {
+        if (!material.audience) return fail(422, "invalid_input", "Только у гайда блока есть читатели");
+        material.audience = data.audience as "block" | "everyone";
+        material.revision += 1;
+        return [200, materialView(material)];
+      }
       if (parts[2] === "publish")
         material.published_content = clone(
           material.draft_content ?? material.published_content,

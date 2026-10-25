@@ -40,6 +40,10 @@ class Editors(Revision):
     user_ids: list[int]
 
 
+class Audience(Revision):
+    audience: Literal["block", "everyone"]
+
+
 def row(s, id):
     m = s.get(MaterialORM, id)
     if not m or m.deleted:
@@ -55,15 +59,27 @@ def can_edit(id, uid):
     return access.allowed(uid, "material.edit", "material", id)
 
 
+def block_only(m):
+    return m.kind == "guide" and bool(m.owner_block_id) and m.audience != "everyone"
+
+
 def can_read(id, uid):
     u = db.get_user(uid)
     if not u or u.account_state != "active" or u.banned:
         return False
     with db._session() as s:
         m = s.get(MaterialORM, id)
-        return bool(
-            m and not m.deleted and (m.published_body is not None or can_edit(id, uid))
-        )
+        if not m or m.deleted:
+            return False
+        if can_edit(id, uid):
+            return True
+        if m.published_body is None:
+            return False
+        if not block_only(m):
+            return True
+        # A guide of its block: the block's members and leads, the chair's team (2026-10-25).
+        meta = s.get(BlockMetaORM, m.owner_block_id)
+        return bool(meta) and access.allowed(uid, "material.read_block_guide", "block", meta.legacy_name)
 
 
 def stored(s, body, material_id, published):
@@ -97,8 +113,12 @@ def dto(s, m, uid):
         revision=m.revision,
         capabilities=[],
     )
+    if m.kind == "guide" and m.owner_block_id:
+        data["audience"] = "everyone" if m.audience == "everyone" else "block"
     if edit:
         data["capabilities"] += ["edit_material", "publish_material", "delete_material"]
+        if m.kind == "guide" and m.owner_block_id:
+            data["capabilities"].append("edit_audience")
         if draft:
             data["draft_content"] = dict(format="markdown", body=m.draft_body or "")
         # The editor always starts from the stored text, never from signed links (A-MAT-1).
@@ -539,6 +559,29 @@ def register_routes(router):
                 editor_user_ids=payload.user_ids,
                 revision=m.revision,
             )
+
+    @router.put(
+        "/materials/{material_id}/audience",
+        response_model=MaterialOut,
+        response_model_exclude_unset=True,
+    )
+    def set_audience(material_id: str, payload: Audience, cur: User = Depends(get_current_user)):
+        """Who reads a block guide; decided by its writers: the block leads and the chair's team."""
+        with db._session() as s:
+            m = row(s, material_id)
+            if not can_edit(material_id, cur.user_id):
+                fail(403, "Material editor required")
+            if m.kind != "guide" or not m.owner_block_id:
+                fail(422, "Only a block guide has an audience")
+            version(m, payload.expected_revision)
+            before = "everyone" if m.audience == "everyone" else "block"
+            if before != payload.audience:
+                m.audience = payload.audience
+                m.revision += 1
+                audit(s, "material", material_id, cur.user_id, "Material audience changed",
+                      dict(audience=before), dict(audience=payload.audience))
+                s.commit()
+            return dto(s, m, cur.user_id)
 
     @router.get("/guides/{guide_id}/material")
     def mapping(guide_id: int, cur: User = Depends(get_current_user)):
