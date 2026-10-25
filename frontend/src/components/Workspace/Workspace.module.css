@@ -2,16 +2,72 @@
   color: var(--on-surface);
   min-width: 0;
 }
+/* The page header repeats the login page: the grainy light gradient with a dark curve. */
 .header {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   display: flex;
   gap: 18px;
   justify-content: space-between;
   align-items: flex-end;
-  margin-bottom: 24px;
+  margin-bottom: 20px;
+  padding: 26px 28px 24px;
+  border-radius: var(--radius-large);
+  /* The curve takes this corner, as on the login page. */
+  border-top-right-radius: 0;
+  background: radial-gradient(circle at 0% 0%, #ebe2e5 0%, #f0ebe5 40%, var(--primary) 100%);
+  color: var(--background);
 }
-/* The sidebar already names the site: the page starts with its own title. */
+.header::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.5;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 600 600' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+.header::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  right: -70px;
+  top: -150px;
+  width: 300px;
+  height: 210px;
+  border-radius: 0 0 0 100%;
+  background: var(--background);
+  pointer-events: none;
+}
 .eyebrow {
-  display: none;
+  display: inline-block;
+  margin: 0 0 12px;
+  padding: 3px 9px;
+  border: 1.5px dashed currentColor;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+.header .title {
+  color: var(--background);
+}
+.header .description {
+  color: var(--background);
+  opacity: 0.72;
+}
+.header .linkButton,
+.header .button {
+  position: relative;
+  background: var(--background);
+  border-color: var(--background);
+  color: var(--primary);
+}
+.header .linkButton:hover,
+.header .button:hover {
+  background: var(--surface-container-low);
 }
 .title {
   margin: 0;
@@ -455,13 +511,13 @@
   margin: 0;
   overflow-wrap: anywhere;
 }
+/* The dashed box of the login page. */
 .empty {
-  padding: 18px;
-  border: 1px dashed color-mix(in srgb, var(--outline-variant) 40%, transparent);
-  border-radius: 12px;
+  padding: 16px 18px;
+  border: 1.5px dashed color-mix(in srgb, var(--primary) 60%, transparent);
+  color: var(--primary);
   text-align: center;
   font-size: 14px;
-  opacity: 0.7;
 }
 .details dd {
   margin-inline-start: 0;
@@ -483,6 +539,11 @@
   }
   .header {
     display: block;
+    padding: 20px;
+  }
+  .header::after {
+    right: -110px;
+    top: -170px;
   }
   .filters {
     display: grid;

@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { workspaceApi } from "../../utils/api/workspace.api";
 import s from "./WorkspaceLayout.module.css";
 import ws from "./Workspace.module.css";
+import ProfkomLogo from "../profkomLogo";
 import { visibleAdminTabs } from "../../pages/Admin/adminTabs";
 const navigation = [
   ["/", "Рабочий экран", "space_dashboard"],
@@ -68,7 +69,8 @@ export function WorkspaceLayout() {
     <div className={s.shell}>
       <aside className={s.sidebar}>
         <Link className={s.brand} to="/">
-          Профком<small>ВМК МГУ</small>
+          <ProfkomLogo variant="desktop" width={42} strokeWidth={16} aria-hidden="true" />
+          <span>Профком<small>ВМК МГУ</small></span>
         </Link>
         {links}
         <details className={s.mobile}>
