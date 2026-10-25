@@ -68,6 +68,14 @@ export function DashboardPage() {
     .map((meeting, index) => ({ meeting, season: meetingSeasons[index] }))
     .filter(({ season }) => (season.data ? inSeason(season.data) : !seasonId));
   const unknownMeetings = meetingSeasons.filter((q) => !q.data).length;
+  // Block requests are decided by block leads, HR and the chair's team; an activist
+  // without such a role has no queue to see (owner, 2026-10-25).
+  const reviewsRequests =
+    can(session, "review_registrations") ||
+    !!session?.assignments?.some((a) => a.scope_kind === "block");
+  const showRequests = reviewsRequests || !!data?.actionable_requests.length;
+  const showDecisions =
+    showRequests || !!unresolved.length || !!data?.pending_registration_count;
   const seasonTitle = (id: string) =>
     seasons.data?.items.find((s) => s.season_id === id)?.title ?? "Сезон";
   return (
@@ -193,12 +201,14 @@ export function DashboardPage() {
                 <Empty>В выбранных сезонах мероприятий нет.</Empty>
               )}
             </Card>
-            <Card title="Требуют решения">
-              <p>
-                Заявки в блоки (не зависят от сезона):{" "}
-                {data.actionable_requests.length}
-              </p>
-              <RouteLink to="/blocks/requests">Рассмотреть заявки</RouteLink>
+            {showDecisions && <Card title="Требуют решения">
+              {showRequests && <>
+                <p>
+                  Заявки в блоки (не зависят от сезона):{" "}
+                  {data.actionable_requests.length}
+                </p>
+                <RouteLink to="/blocks/requests">Рассмотреть заявки</RouteLink>
+              </>}
               {can(session, "review_registrations") && (
                 <>
                   <p>Регистрации, ожидающие решения: {data.pending_registration_count}</p>
@@ -220,7 +230,7 @@ export function DashboardPage() {
               {!data.actionable_requests.length && !unresolved.length && !data.pending_registration_count && (
                 <Empty>В очереди нет решений.</Empty>
               )}
-            </Card>
+            </Card>}
           </div>
         )}
       </QueryState>
