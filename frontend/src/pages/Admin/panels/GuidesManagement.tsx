@@ -284,7 +284,7 @@ export const GuidesManagement = () => {
         </div>
       </div>
 
-      <div className={s.tableWrap}>
+      <div className={`${s.tableWrap} ${s.guidesTable}`}>
         <table className={s.table}>
           <thead>
             <tr>
@@ -370,6 +370,53 @@ export const GuidesManagement = () => {
             })}
           </tbody>
         </table>
+      </div>
+
+      <div className={s.guideCards}>
+        {processedGuides.length === 0 && <p className={s.muted}>Гайды не найдены</p>}
+        {processedGuides.map((guide) => {
+          const isSuper = !guide.owner_block || guide.owner_block.toLowerCase() === "none" || guide.owner_block.toLowerCase() === "all";
+          const hasManageRights = canManageGuide(guide);
+          return (
+            <article className={`${s.card} ${s.guideCard}`} key={guide.guide_id}>
+              <div className={s.between}>
+                <h2>{guide.title}</h2>
+                <Badge tone={isSuper ? "sky" : "peach"}>
+                  {isSuper ? "Глобальный (для всех)" : guide.owner_block}
+                </Badge>
+              </div>
+              <div className={s.guideCardActions}>
+                <button
+                  className={s.button}
+                  onClick={() => navigate(hasManageRights ? getDocEditRoute(guide.guide_id) : getDocRoute(guide.guide_id))}
+                >
+                  <Glyph name={hasManageRights ? "edit_document" : "visibility"} />
+                  {hasManageRights ? "Редактировать статью" : "Просмотр статьи"}
+                </button>
+                {hasManageRights && (
+                  <button
+                    className={`${s.button} ${s.guideIconAction}`}
+                    onClick={(e) => openEditModal(e, guide)}
+                    title="Изменить настройки гайда"
+                    aria-label={`Изменить настройки гайда «${guide.title}»`}
+                  >
+                    <Glyph name="edit" />
+                  </button>
+                )}
+                {hasManageRights && (
+                  <button
+                    className={`${s.button} ${s.danger} ${s.guideIconAction}`}
+                    onClick={(e) => handleDelete(e, guide)}
+                    title="Удалить гайд"
+                    aria-label={`Удалить гайд «${guide.title}»`}
+                  >
+                    <Glyph name="delete" />
+                  </button>
+                )}
+              </div>
+            </article>
+          );
+        })}
       </div>
 
       {isModalOpen && (

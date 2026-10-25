@@ -39,3 +39,24 @@ it("contacts filter by funding and by the course of the group", async () => {
   await change(select(page.container, "Форма обучения"), "");
   expect(shown()).toEqual(["Контрактов", "Третьекурсников"]);
 });
+
+it("contacts use compact cards and separate account management", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  vi.spyOn(directoryApi, "contacts").mockResolvedValue([
+    person(201, "Первокурсникова", "101", true),
+    person(202, "Контрактов", "301", false),
+  ]);
+  page = await mountWorkspace(<DirectoryPage />, { role: "chair" });
+  await settle(); await settle();
+
+  expect(page.container.querySelector('details[class*="filterDetails"]')).not.toBeNull();
+  expect(page.container.textContent).toContain("Показано контактов: 2 из 2");
+  const cards = page.container.querySelectorAll('[class*="contactGrid"] > section');
+  expect(cards).toHaveLength(2);
+  const disclosures = cards[0].querySelectorAll("details");
+  expect(disclosures[0].querySelector("summary")?.textContent).toBe("Подробнее");
+  expect(disclosures[0].querySelector('[class*="contactLinks"]')).not.toBeNull();
+  expect(disclosures[0].textContent).not.toContain("Причина архивирования");
+  expect(disclosures[1].querySelector("summary")?.textContent).toBe("Управление аккаунтом");
+  expect(disclosures[1].textContent).toContain("Причина архивирования");
+});

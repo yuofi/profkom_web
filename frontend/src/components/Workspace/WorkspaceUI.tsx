@@ -49,6 +49,7 @@ export const Card = ({
   icon,
   tone,
   wide = false,
+  className,
 }: {
   title?: string;
   children: ReactNode;
@@ -57,8 +58,9 @@ export const Card = ({
   tone?: Tone;
   /** In a grid of cards: the whole row. */
   wide?: boolean;
+  className?: string;
 }) => (
-  <section className={clsx(s.card, tone && s.toned, wide && s.wide)} style={toneStyle(tone)}>
+  <section className={clsx(s.card, className, tone && s.toned, wide && s.wide)} style={toneStyle(tone)}>
     {title && <h2>{icon && <Glyph name={icon} className={s.cardIcon} />}{title}</h2>}
     {children}
   </section>

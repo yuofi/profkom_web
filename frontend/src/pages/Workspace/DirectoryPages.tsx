@@ -86,6 +86,9 @@ export function DirectoryPage() {
   const [funding, setFunding] = useState("");
   const [course, setCourse] = useState("");
   const [emails, setEmails] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(() =>
+    typeof window.matchMedia !== "function" || window.matchMedia("(min-width: 769px)").matches,
+  );
   const active = query.data?.filter((p) => p.in_profcom) ?? [];
   const categories = useQueries({
     queries: active.map((p) => ({
@@ -151,44 +154,55 @@ export function DirectoryPage() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </label>
-          <label className={s.field}>
-            Блок
-            <select value={block} onChange={(e) => setBlock(e.target.value)}>
-              <option value="">Все блоки</option>
-              {blocks.map((b) => (
-                <option key={b}>{b}</option>
-              ))}
-            </select>
-          </label>
-          <label className={s.field}>
-            Категория
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-            >
-              <option value="">Все категории</option>
-              <option value="junior">Джуниоры</option>
-              <option value="activist">Активисты</option>
-            </select>
-          </label>
-          <label className={s.field}>
-            Форма обучения
-            <select value={funding} onChange={(e) => setFunding(e.target.value)}>
-              <option value="">Все формы</option>
-              <option value="budget">Бюджет</option>
-              <option value="contract">Контракт</option>
-            </select>
-          </label>
-          <label className={s.field}>
-            Курс
-            <select value={course} onChange={(e) => setCourse(e.target.value)}>
-              <option value="">Все курсы</option>
-              {courses.map((c) => (
-                <option key={c} value={c}>{c} курс</option>
-              ))}
-            </select>
-          </label>
         </div>
+        <details
+          className={`${s.details} ${s.filterDetails}`}
+          open={filtersOpen}
+          onToggle={(e) => setFiltersOpen(e.currentTarget.open)}
+        >
+          <summary>
+            Фильтры{[block, category, funding, course].filter(Boolean).length > 0 && ` · ${[block, category, funding, course].filter(Boolean).length}`}
+          </summary>
+          <div className={s.filters}>
+            <label className={s.field}>
+              Блок
+              <select value={block} onChange={(e) => setBlock(e.target.value)}>
+                <option value="">Все блоки</option>
+                {blocks.map((b) => (
+                  <option key={b}>{b}</option>
+                ))}
+              </select>
+            </label>
+            <label className={s.field}>
+              Категория
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+              >
+                <option value="">Все категории</option>
+                <option value="junior">Джуниоры</option>
+                <option value="activist">Активисты</option>
+              </select>
+            </label>
+            <label className={s.field}>
+              Форма обучения
+              <select value={funding} onChange={(e) => setFunding(e.target.value)}>
+                <option value="">Все формы</option>
+                <option value="budget">Бюджет</option>
+                <option value="contract">Контракт</option>
+              </select>
+            </label>
+            <label className={s.field}>
+              Курс
+              <select value={course} onChange={(e) => setCourse(e.target.value)}>
+                <option value="">Все курсы</option>
+                {courses.map((c) => (
+                  <option key={c} value={c}>{c} курс</option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </details>
         {category && categoriesPending && (
           <p role="status">Загружаем категории участников…</p>
         )}
@@ -235,12 +249,17 @@ export function DirectoryPage() {
             void query.refetch();
           }}
         >
-          <div className={s.stack}>
+          {filtered && filtered.length > 0 && (
+            <p className={s.results} role="status">
+              Показано контактов: {filtered.length} из {active.length}
+            </p>
+          )}
+          <div className={s.contactGrid}>
             {filtered?.map((p) => (
-              <Card key={p.user_id}>
+              <Card key={p.user_id} className={s.contactCard}>
                 <div className={s.person}>
                   <div>
-                    <Avatar src={p.photo_url} size={56} />
+                    <Avatar src={p.photo_url} size={48} />
                     <div>
                       <h2>
                         {p.surname} {p.name} {p.patronymic}
@@ -252,38 +271,43 @@ export function DirectoryPage() {
                   </div>
                   <Category userId={p.user_id} />
                 </div>
-                <ContactLinks {...p} />
                 <details className={s.details}>
                   <summary>Подробнее</summary>
                   <p>
-                    {p.location} · {p.budget ? "Бюджет" : "Контракт"}
+                    {[p.location, p.budget ? "Бюджет" : "Контракт"].filter(Boolean).join(" · ")}
                   </p>
+                  <ContactLinks {...p} />
                   {p.user_id === session?.user_id && (
                     <RouteLink to="/profile/edit">
                       Изменить свои контакты
                     </RouteLink>
                   )}
-                  <ParticipantCategoryPanel userId={p.user_id} />
-                  {can(session, "archive_account") && (
-                    <ActionForm
-                      fields={[
-                        {
-                          name: "reason",
-                          label: "Причина архивирования аккаунта",
-                          required: true,
-                          type: "textarea",
-                        },
-                      ]}
-                      submitLabel="Архивировать аккаунт"
-                      variant="danger"
-                      onSubmit={async (v) => {
-                        await perform(() =>
-                          directoryApi.archive(p.user_id, text(v, "reason")),
-                        );
-                      }}
-                    />
-                  )}
                 </details>
+                {(can(session, "edit_participant_category") || can(session, "archive_account")) && (
+                  <details className={s.details}>
+                    <summary>Управление аккаунтом</summary>
+                    <ParticipantCategoryPanel userId={p.user_id} />
+                    {can(session, "archive_account") && (
+                      <ActionForm
+                        fields={[
+                          {
+                            name: "reason",
+                            label: "Причина архивирования аккаунта",
+                            required: true,
+                            type: "textarea",
+                          },
+                        ]}
+                        submitLabel="Архивировать аккаунт"
+                        variant="danger"
+                        onSubmit={async (v) => {
+                          await perform(() =>
+                            directoryApi.archive(p.user_id, text(v, "reason")),
+                          );
+                        }}
+                      />
+                    )}
+                  </details>
+                )}
               </Card>
             ))}
           </div>
