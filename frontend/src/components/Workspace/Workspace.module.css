@@ -6,49 +6,70 @@
   display: flex;
   gap: 18px;
   justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 28px;
+  align-items: flex-end;
+  margin-bottom: 24px;
 }
+/* The sidebar already names the site: the page starts with its own title. */
 .eyebrow {
-  color: var(--primary);
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  font-size: 12px;
-  margin: 0 0 10px;
+  display: none;
 }
 .title {
   margin: 0;
-  font-size: clamp(28px, 4vw, 40px);
-  line-height: 1.14;
+  font-size: clamp(26px, 3.4vw, 34px);
+  line-height: 1.18;
+  letter-spacing: -0.01em;
   overflow-wrap: anywhere;
 }
 .description {
   color: var(--on-surface-variant);
-  opacity: 0.78;
-  line-height: 1.6;
+  opacity: 0.7;
+  line-height: 1.55;
   max-width: 70ch;
+  margin: 8px 0 0;
 }
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
-  gap: 18px;
-  align-items: start;
+  gap: 16px;
 }
 .stack {
   display: grid;
-  gap: 18px;
+  gap: 16px;
+}
+.stack > .linkButton {
+  justify-self: start;
 }
 .card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
   background: var(--surface-container-low);
-  border: 1px solid var(--surface-variant);
+  border: 1px solid color-mix(in srgb, var(--surface-variant) 70%, transparent);
   border-radius: var(--radius-large);
-  padding: 24px;
+  padding: 22px;
   min-width: 0;
   overflow-wrap: anywhere;
 }
+.card > * {
+  margin-block: 0;
+}
+.card > .linkButton,
+.card > .button,
+.card > .badge {
+  align-self: flex-start;
+}
+/* The card's way further stays at its bottom, also in a row of taller cards. */
+.grid > .card > .linkButton:last-child {
+  margin-top: auto;
+}
 .card h2,
 .card h3 {
-  margin: 0 0 14px;
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.3;
+}
+.card h3 {
+  font-size: 17px;
 }
 .card p {
   line-height: 1.6;
@@ -68,28 +89,44 @@
 }
 .button,
 .linkButton {
+  box-sizing: border-box;
   display: inline-flex;
   justify-content: center;
   align-items: center;
-  min-height: 44px;
-  padding: 10px 18px;
+  min-height: 40px;
+  padding: 8px 16px;
   border-radius: 12px;
-  border: 1px solid var(--outline-variant);
+  border: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent);
   background: transparent;
   color: var(--on-surface);
   font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.3;
   text-decoration: none;
   cursor: pointer;
   gap: 8px;
+  transition: background-color 0.15s, border-color 0.15s;
 }
 .button:hover,
 .linkButton:hover {
-  background: var(--surface-container-high);
+  background: color-mix(in srgb, var(--primary) var(--hover-opacity), transparent);
+  border-color: var(--outline-variant);
+}
+.button:focus-visible,
+.linkButton:focus-visible,
+.page a:focus-visible,
+.tabs a:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 .primary {
   background: var(--primary);
   border-color: var(--primary);
   color: var(--on-primary);
+}
+.primary:hover {
+  background: color-mix(in srgb, var(--primary) 88%, white);
 }
 .button:disabled {
   opacity: 0.5;
@@ -97,11 +134,14 @@
 }
 .badge {
   display: inline-flex;
-  border-radius: 9px;
-  background: var(--surface-container-highest);
-  padding: 5px 9px;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--surface-container-high);
+  color: color-mix(in srgb, var(--on-surface) 82%, transparent);
+  padding: 3px 10px;
   font-size: 12px;
-  line-height: 1.4;
+  line-height: 1.5;
+  white-space: nowrap;
 }
 .muted {
   opacity: 0.68;
@@ -141,16 +181,50 @@
 .field input,
 .field select,
 .field textarea,
-.filter {
+.filter,
+.page select {
   box-sizing: border-box;
   width: 100%;
-  min-height: 46px;
-  border-radius: 10px;
-  border: 1px solid var(--outline-variant);
+  min-height: 44px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--outline-variant) 45%, transparent);
   color: var(--on-surface);
-  background: var(--surface-container);
-  padding: 11px 12px;
+  background: var(--surface-container-low);
+  padding: 10px 14px;
   font: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.field input:hover,
+.field select:hover,
+.field textarea:hover,
+.page select:hover {
+  border-color: var(--outline-variant);
+}
+.field input:focus,
+.field select:focus,
+.field textarea:focus,
+.page select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+.page select:not([multiple]) {
+  appearance: none;
+  padding-right: 42px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23f2f69e' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 16px center;
+  cursor: pointer;
+}
+/* A filter over the page content: compact, with room before what it filters. */
+.page > label,
+.page > .field {
+  display: grid;
+  gap: 7px;
+  max-width: 360px;
+  margin-bottom: 22px;
+  font-size: 14px;
+  color: color-mix(in srgb, var(--on-surface) 75%, transparent);
 }
 .field textarea {
   min-height: 100px;
@@ -198,15 +272,30 @@
 }
 .tabs {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 22px;
+  gap: 4px;
+  margin-bottom: 26px;
+  padding: 4px;
+  width: max-content;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: var(--surface-container-low);
+  border: 1px solid color-mix(in srgb, var(--surface-variant) 70%, transparent);
+  border-radius: 14px;
 }
 .tabs a {
+  flex: none;
   color: inherit;
-  padding: 10px 16px;
+  padding: 8px 14px;
   border-radius: 10px;
+  font-size: 14px;
   text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 0.15s;
+}
+.tabs a:hover {
+  background: var(--surface-container-high);
 }
 .tabs a[aria-current="page"] {
   background: var(--primary);
@@ -224,13 +313,83 @@
 }
 .list {
   display: grid;
-  gap: 12px;
+  gap: 6px;
   list-style: none;
   padding: 0;
   margin: 0;
 }
+/* A row: the title on its own line, the dates and labels under it. */
+.list > li {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 10px 36px 10px 14px;
+  border-radius: 12px;
+  background: var(--surface-container);
+  transition: background-color 0.15s;
+}
+.list > li:hover {
+  background: var(--surface-container-high);
+}
+.list > li > p {
+  margin: 0;
+}
+.list > li > a,
+.list > li > p:has(a) {
+  flex: 1 1 100%;
+}
+.list > li > p:not(:has(a)) {
+  order: 1;
+  font-size: 13px;
+  opacity: 0.68;
+}
+.list > li > .muted {
+  order: 1;
+  font-size: 13px;
+}
+.list > li > .badge {
+  order: 2;
+}
 .list a {
   color: var(--on-surface);
+}
+.list > li .linkButton {
+  display: inline;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font-weight: 500;
+  color: var(--on-surface);
+}
+/* The whole row opens its title; the buttons of the row stay over it. */
+.list > li:has(.linkButton) {
+  cursor: pointer;
+}
+.list > li .linkButton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+.list > li:has(.linkButton)::before {
+  content: "";
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-50%) rotate(-45deg);
+  opacity: 0.45;
+}
+.list > li button {
+  position: relative;
+  z-index: 1;
 }
 .filters {
   display: flex;
@@ -248,9 +407,61 @@
   margin-top: 18px;
 }
 .details summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   min-height: 36px;
   cursor: pointer;
   color: var(--primary);
+  list-style: none;
+  font-weight: 500;
+}
+.details summary::-webkit-details-marker {
+  display: none;
+}
+.details summary::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin: 0 3px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s;
+}
+.details[open] > summary::before {
+  transform: rotate(45deg);
+}
+.card dl {
+  display: grid;
+  margin: 0;
+}
+.card dl > div {
+  display: grid;
+  grid-template-columns: minmax(120px, 32%) 1fr;
+  gap: 16px;
+  padding: 9px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--surface-variant) 60%, transparent);
+}
+.card dl > div:last-child {
+  border-bottom: 0;
+}
+.card dt {
+  opacity: 0.62;
+  font-size: 14px;
+}
+.card dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.empty {
+  padding: 18px;
+  border: 1px dashed color-mix(in srgb, var(--outline-variant) 40%, transparent);
+  border-radius: 12px;
+  text-align: center;
+  font-size: 14px;
+  opacity: 0.7;
 }
 .details dd {
   margin-inline-start: 0;
@@ -282,6 +493,18 @@
   }
   .row .button {
     flex-grow: 1;
+  }
+  .button,
+  .linkButton {
+    min-height: 44px;
+  }
+  .page > label,
+  .page > .field {
+    max-width: none;
+  }
+  .card dl > div {
+    grid-template-columns: 1fr;
+    gap: 2px;
   }
 }
 .page a {

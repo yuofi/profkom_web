@@ -10,16 +10,20 @@ import s from "./WorkspaceLayout.module.css";
 import ws from "./Workspace.module.css";
 import { visibleAdminTabs } from "../../pages/Admin/adminTabs";
 const navigation = [
-  ["/", "Рабочий экран"],
-  ["/events", "Мероприятия"],
-  ["/tasks", "Мои задачи"],
-  ["/blocks", "Блоки"],
-  ["/calendar", "Календарь"],
-  ["/materials", "Материалы"],
-  ["/pgas", "ПГАС"],
-  ["/contacts", "Контакты"],
-  ["/notifications", "Уведомления"],
+  ["/", "Рабочий экран", "space_dashboard"],
+  ["/events", "Мероприятия", "celebration"],
+  ["/tasks", "Мои задачи", "task_alt"],
+  ["/blocks", "Блоки", "groups"],
+  ["/calendar", "Календарь", "calendar_month"],
+  ["/materials", "Материалы", "menu_book"],
+  ["/pgas", "ПГАС", "workspace_premium"],
+  ["/contacts", "Контакты", "contacts"],
+  ["/notifications", "Уведомления", "notifications"],
 ];
+// The icon name comes from CSS: it is not part of the link text.
+const NavIcon = ({ name }: { name: string }) => (
+  <span className={`material-symbols-rounded ${s.icon}`} data-icon={name} aria-hidden="true" />
+);
 
 export function WorkspaceLayout() {
   const user = useMe();
@@ -39,22 +43,25 @@ export function WorkspaceLayout() {
           event.currentTarget.closest("details")?.removeAttribute("open");
       }}
     >
-      {navigation.map(([to, label]) => (
+      {navigation.map(([to, label, icon]) => (
         <NavLink end={to === "/"} key={to} to={to}>
+          <NavIcon name={icon} />
           {label}
-          {to === "/notifications" && unread > 0 ? ` · ${unread}` : ""}
+          {to === "/notifications" && unread > 0 && (
+            <span className={s.count}><span className={s.hiddenText}> · </span>{unread}</span>
+          )}
         </NavLink>
       ))}
       {can(session, "view_summary") && (
-        <NavLink to="/seasons">Сезоны и ККР</NavLink>
+        <NavLink to="/seasons"><NavIcon name="insights" />Сезоны и ККР</NavLink>
       )}
       {(["create_volunteer_merit", "create_head_merit", "create_chair_merit"].some((cap) => can(session, cap) || session?.assignments?.some((a) => can(a, cap)))) && (
-        <NavLink to="/merits">Учёт выполненной работы</NavLink>
+        <NavLink to="/merits"><NavIcon name="fact_check" />Учёт выполненной работы</NavLink>
       )}
       {visibleAdminTabs(session).length > 0 && (
-        <NavLink to="/admin">Администрирование</NavLink>
+        <NavLink to="/admin"><NavIcon name="admin_panel_settings" />Администрирование</NavLink>
       )}
-      <NavLink to="/profile">Мой профиль</NavLink>
+      <NavLink to="/profile"><NavIcon name="account_circle" />Мой профиль</NavLink>
     </nav>
   );
   return (
@@ -65,7 +72,7 @@ export function WorkspaceLayout() {
         </Link>
         {links}
         <details className={s.mobile}>
-          <summary>Меню</summary>
+          <summary><NavIcon name="menu" />Меню</summary>
           {links}
         </details>
         <div className={s.profile}>

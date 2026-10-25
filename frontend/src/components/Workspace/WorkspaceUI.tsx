@@ -49,9 +49,7 @@ export const Empty = ({
 }: {
   children?: ReactNode;
 }) => (
-  <div className={s.card}>
-    <p className={s.muted}>{children}</p>
-  </div>
+  <p className={s.empty}>{children}</p>
 );
 export const Loading = () => (
   <p role="status" className={s.muted}>
