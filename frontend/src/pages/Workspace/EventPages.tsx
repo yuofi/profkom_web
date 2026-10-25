@@ -13,6 +13,7 @@ import { ActionForm } from "../../components/Workspace/ActionForm";
 import { text, ids } from "../../components/Workspace/formValues";
 import { eventsApi } from "../../utils/api/events.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
+import { reportsApi } from "../../utils/api/reports.api";
 import { richText, type Event, type Leader } from "../../utils/api/contract";
 import { can, useSession } from "../../utils/session";
 import { getEventRoute, getSubeventRoute } from "../../utils/routes";
@@ -78,6 +79,16 @@ export function Leaders({ leaders }: { leaders: Leader[] }) {
       ))}
     </div>
   );
+}
+/** The reports link shows to who may write a report or read one: the server lists only
+ *  readable reports, so an activist outside the team sees no link to nothing. */
+function useReportsLink(owner_kind: "event" | "subevent", owner_id: string, canCreate: boolean) {
+  const readable = useQuery({
+    queryKey: ["reports", "owner", owner_kind, owner_id],
+    queryFn: () => reportsApi.list({ owner_kind, owner_id }),
+    enabled: !!owner_id && !canCreate,
+  });
+  return canCreate || !!readable.data?.items.length;
 }
 const NEW_SERIES = "new";
 /**
@@ -243,6 +254,7 @@ export function EventPage() {
   });
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
   const event = query.data;
+  const reportsLink = useReportsLink("event", event ? id : "", can(event, "create_report"));
   const seriesField = useSeriesField(can(event, "create_subevent"), event, subs.data?.items.map((x) => x.report_series_id));
   return (
     <Page
@@ -273,11 +285,13 @@ export function EventPage() {
               )}
               <div className={s.row}>
                 {can(event, "create_head_merit") && <RouteLink to={`/seasons/${encodeURIComponent(event.season_id)}/merits?source_kind=head_merit&scope_id=${encodeURIComponent(id)}`}>Учесть особую заслугу</RouteLink>}
-                <RouteLink
-                  to={`/reports?owner_kind=event&owner_id=${encodeURIComponent(id)}`}
-                >
-                  Отчёты
-                </RouteLink>
+                {reportsLink && (
+                  <RouteLink
+                    to={`/reports?owner_kind=event&owner_id=${encodeURIComponent(id)}`}
+                  >
+                    Отчёты
+                  </RouteLink>
+                )}
                 {can(event, "view_meeting") && (
                   <RouteLink to={`/meetings/event/${encodeURIComponent(id)}`}>
                     Созвон руководителей
@@ -463,6 +477,7 @@ export function SubeventPage() {
     queryFn: () => eventsApi.subevent(id),
   });
   const sub = query.data;
+  const reportsLink = useReportsLink("subevent", sub ? id : "", can(sub, "create_report"));
   return (
     <Page title={sub?.title ?? "Подмероприятие"}>
       <QueryState
@@ -487,11 +502,13 @@ export function SubeventPage() {
                 >
                   Задачи команды
                 </RouteLink>
-                <RouteLink
-                  to={`/reports?owner_kind=subevent&owner_id=${encodeURIComponent(id)}`}
-                >
-                  Отчёты
-                </RouteLink>
+                {reportsLink && (
+                  <RouteLink
+                    to={`/reports?owner_kind=subevent&owner_id=${encodeURIComponent(id)}`}
+                  >
+                    Отчёты
+                  </RouteLink>
+                )}
                 {can(sub, "view_meeting") && (
                   <RouteLink to={`/meetings/subevent/${encodeURIComponent(id)}`}>
                     Созвон

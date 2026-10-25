@@ -1011,6 +1011,18 @@ def _ensure_sqlite_assignment_columns() -> None:
 _ensure_sqlite_assignment_columns()
 
 
+def _ensure_sqlite_materials_audience() -> None:
+    """Add the audience of block guides: the existing ones become readable to their block
+    only, as the owner decided on 2026-10-25; their writers may open them to everyone."""
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(materials)")).fetchall()
+        if rows and "audience" not in {r[1] for r in rows}:
+            conn.execute(text("ALTER TABLE materials ADD COLUMN audience VARCHAR NOT NULL DEFAULT 'block'"))
+
+
+_ensure_sqlite_materials_audience()
+
+
 def _ensure_sqlite_memberships_observed_since() -> None:
     """Add observed_since to memberships of databases migrated before it (A-DIR-18). The
     start recorded by the migration report becomes the row's own value."""

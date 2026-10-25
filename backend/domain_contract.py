@@ -67,6 +67,8 @@ class Material(BaseModel):
     # Only for editors: the stored text to edit, with file:<id> and unsigned links.
     source_content: RichText | None = None
     editor_user_ids: list[int] | None = None
+    # Block guides only: "block" reads to the block, "everyone" to every participant.
+    audience: Literal["block", "everyone"] | None = None
     revision: int
     capabilities: list[str]
 

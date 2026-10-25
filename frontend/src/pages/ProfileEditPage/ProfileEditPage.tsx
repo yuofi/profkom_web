@@ -143,8 +143,8 @@ export const ProfileEditPage = () => {
       <main className={styles.main}>
         <FormikProvider value={profileFormik}>
           <form className={styles.grid} onSubmit={profileFormik.handleSubmit}>
-            {profileError && <p role="alert">{profileError}</p>}
-            {updateMutation.isSuccess && !profileFormik.dirty && <p role="status">Профиль успешно обновлён</p>}
+            {profileError && <p role="alert" className={styles.notice}>{profileError}</p>}
+            {updateMutation.isSuccess && !profileFormik.dirty && <p role="status" className={styles.notice}>Профиль успешно обновлён</p>}
             {/* Left Column */}
             <div className={styles.column}>
               {/* Card 1: Basic Info */}

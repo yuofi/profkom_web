@@ -81,6 +81,8 @@ export function DirectoryPage() {
   const [search, setSearch] = useState("");
   const [block, setBlock] = useState("");
   const [category, setCategory] = useState("");
+  const [funding, setFunding] = useState("");
+  const [course, setCourse] = useState("");
   const [emails, setEmails] = useState("");
   const active = query.data?.filter((p) => p.in_profcom) ?? [];
   const categories = useQueries({
@@ -104,9 +106,15 @@ export function DirectoryPage() {
       ) ?? [],
     ),
   );
+  // The course is the first digit of the group (owner, 2026-10-25): 301 is the third.
+  const courseOf = (p: { group_number?: string | number | null }) =>
+    /^\d/.test(String(p.group_number ?? "").trim()) ? String(p.group_number).trim()[0] : "";
+  const courses = Array.from(new Set(active.map(courseOf).filter(Boolean))).sort();
   const filtered = query.data?.filter(
     (p) =>
       p.in_profcom &&
+      (!funding || (funding === "budget") === !!p.budget) &&
+      (!course || courseOf(p) === course) &&
       (!category ||
         categoryByUser.get(p.user_id)?.data?.category === category) &&
       (!block ||
@@ -147,6 +155,23 @@ export function DirectoryPage() {
               <option value="">Все категории</option>
               <option value="junior">Джуниоры</option>
               <option value="activist">Активисты</option>
+            </select>
+          </label>
+          <label className={s.field}>
+            Форма обучения
+            <select value={funding} onChange={(e) => setFunding(e.target.value)}>
+              <option value="">Бюджет и контракт</option>
+              <option value="budget">Бюджет</option>
+              <option value="contract">Контракт</option>
+            </select>
+          </label>
+          <label className={s.field}>
+            Курс
+            <select value={course} onChange={(e) => setCourse(e.target.value)}>
+              <option value="">Все курсы</option>
+              {courses.map((c) => (
+                <option key={c} value={c}>{c} курс</option>
+              ))}
             </select>
           </label>
         </div>

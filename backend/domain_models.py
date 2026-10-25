@@ -153,6 +153,9 @@ class MaterialORM(Base):
     placeholder = Column(Boolean, nullable=False, default=False)
     deleted = Column(Boolean, nullable=False, default=False)
     created_at = Column(String, nullable=False)
+    # Who reads a block guide: "block" — its members, leads and the chair's team; "everyone" —
+    # every active participant (owner, 2026-10-25). Other materials read to everyone.
+    audience = Column(String, nullable=False, default="block", server_default="block")
 
 
 class ProfileMetadataORM(Base):

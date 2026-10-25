@@ -11,23 +11,29 @@ PUBLIC_OWNERS=('', 'none','all',' NoNe ',' ALL ')
 
 
 @pytest.mark.parametrize('owner',PUBLIC_OWNERS+('Медиа',' медиа '))
-def test_approved_read_preserves_id_and_source(client,user,make_block,make_guide,owner):
-    make_block();source='# Гайд\n\n**Жирный** *Курсив*\n- Пункт\n[Ссылка](https://example.com)'
+def test_approved_read_preserves_id_and_source(client,user,make_user,make_block,make_guide,owner):
+    # A guide of a block reads to its block only (owner, 2026-10-25); a shared one to everyone.
+    member=make_user();make_block(arr_of_human=[member.user_id])
+    source='# Гайд\n\n**Жирный** *Курсив*\n- Пункт\n[Ссылка](https://example.com)'
     g=make_guide(title='Исходный',owner_block=owner,text=source)
     assert client.get('/api/guides').status_code==401
     assert client.get(f'/api/guides/{g.guide_id}').status_code==401
-    viewed=client.get(f'/api/guides/{g.guide_id}',headers=user.headers)
+    block=owner.strip().casefold()=='медиа'
+    outside=client.get(f'/api/guides/{g.guide_id}',headers=user.headers)
+    assert outside.status_code==(404 if block else 200),outside.text
+    assert (g.guide_id in [x['guide_id'] for x in client.get('/api/guides',headers=user.headers).json()])!=block
+    viewed=client.get(f'/api/guides/{g.guide_id}',headers=member.headers)
     assert viewed.status_code==200,viewed.text
     assert viewed.json()['text']==source and viewed.json()['guide_id']==g.guide_id
     assert isinstance(viewed.json()['material_id'],str)
     assert set(viewed.json())=={'guide_id','title','owner_block','text','description','original_link','material_id','revision','capabilities'}
-    assert g.guide_id in [x['guide_id'] for x in client.get('/api/guides',headers=user.headers).json()]
+    assert g.guide_id in [x['guide_id'] for x in client.get('/api/guides',headers=member.headers).json()]
 
 
 @pytest.mark.parametrize('method',EDIT_METHODS)
 @pytest.mark.parametrize('owner',('none','Медиа'))
 def test_versioned_save_publishes_same_legacy_id(client,superuser,user,make_guide,make_block,method,owner):
-    make_block();g=make_guide(owner_block=owner,text='Old')
+    make_block(arr_of_human=[user.user_id]);g=make_guide(owner_block=owner,text='Old')
     current=client.get(f'/api/guides/{g.guide_id}',headers=superuser.headers).json()
     payload=dict(expected_revision=current['revision'],title='Новый',description='Описание',text='**Новое**',original_link='https://example.com/document')
     r=client.request(method,f'/api/guides/{g.guide_id}',headers=superuser.headers,json=payload)

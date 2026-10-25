@@ -180,6 +180,7 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ('PUT', '/api/events/{event_id}/meeting'),
     ('PUT', '/api/guides/{guide_id}'),
     ('PUT', '/api/leadership/deputies'),
+    ('PUT', '/api/materials/{material_id}/audience'),
     ('PUT', '/api/materials/{material_id}/editors'),
     ('PUT', '/api/profile/me/avatar'),
     ('PUT', '/api/role-assignments/{role_assignment_id}/deputies'),

@@ -49,6 +49,12 @@
   }
 }
 
+/* A message over the form takes its own row: in a cell it moved both columns. */
+.notice {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
 .column {
   display: flex;
   flex-direction: column;

@@ -86,6 +86,7 @@ export function MaterialsPage() {
                         ? "Гайд"
                         : "Документ"}
                   </Badge>
+                  {m.audience === "block" && <Badge>Для участников блока</Badge>}
                   <p>{m.description}</p>
                   <RouteLink
                     to={`/materials/${encodeURIComponent(m.material_id)}`}
@@ -254,6 +255,11 @@ function MaterialEdit({ material: m }: { material: Material }) {
     </Card>
   );
 }
+/** Who reads a block guide (owner, 2026-10-25). */
+const AUDIENCE = {
+  block: "Только участники блока, его мастер и замы, председатель и замы",
+  everyone: "Все участники Профкома",
+} as const;
 export function MaterialPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
@@ -292,6 +298,35 @@ export function MaterialPage() {
                 </a>
               )}
             </Card>
+            {m.audience && !can(m, "edit_audience") && (
+              <p className={s.muted}>{AUDIENCE[m.audience]}</p>
+            )}
+            {m.audience && can(m, "edit_audience") && (
+              <Card title="Кто видит гайд">
+                <ActionForm
+                  revision={m.revision}
+                  record={`material-audience:${m.material_id}`}
+                  fields={[
+                    {
+                      name: "audience",
+                      label: "Читатели",
+                      type: "select",
+                      value: m.audience,
+                      options: Object.entries(AUDIENCE).map(([value, label]) => ({ value, label })),
+                    },
+                  ]}
+                  submitLabel="Сохранить"
+                  onSubmit={async (v, expectedRevision) =>
+                    perform(() =>
+                      materialsApi.audience(id, text(v, "audience") as "block" | "everyone", {
+                        expected_revision: expectedRevision!,
+                      }),
+                    )
+                  }
+                  onConflict={refresh}
+                />
+              </Card>
+            )}
             {can(m, "edit_material") && (
               <MaterialEdit material={m} key={m.material_id} />
             )}
