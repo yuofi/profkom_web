@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ComponentProps } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useSearchParams } from "react-router-dom";
 import {
@@ -11,6 +11,8 @@ import {
   RouteLink,
 } from "../../components/Workspace/WorkspaceUI";
 import { ActionForm, type Field } from "../../components/Workspace/ActionForm";
+import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
+import { useGuardedAction } from "../../components/Workspace/unsavedChangesHooks";
 import { revisionSnapshot, snapshotRevisions } from "../../components/Workspace/revisionSnapshot";
 import { text, number, ids } from "../../components/Workspace/formValues";
 import { seasonsApi } from "../../utils/api/seasons.api";
@@ -107,7 +109,7 @@ export function MeritEntryPage() {
   </Page>;
 }
 
-export function MeritForm({
+function MeritEditor({
   seasonId,
   existing,
   save,
@@ -125,6 +127,7 @@ export function MeritForm({
   initialScopeId?: string;
 }) {
   const { session } = useSession();
+  const requestContextChange = useGuardedAction();
   const { perform, refresh } = useWorkspaceActions();
   const people = usePeopleOptions();
   // An existing record needs the lists only for its scope name, so they never block its form.
@@ -217,7 +220,7 @@ export function MeritForm({
     })),
     {
       name: "users",
-      label: "Получатели",
+      label: source.endsWith("_volunteer") ? "Волонтёры вне состава области" : "Получатели",
       type: "multi",
       required: true,
       value: existing?.recipients.map((r) => String(r.user_id)),
@@ -309,9 +312,12 @@ export function MeritForm({
             disabled={!!existing}
             value={source}
             onChange={(e) => {
-              setSource(e.target.value as typeof source);
-              setScopeId("");
-              setSelectedPeople([]);
+              const next = e.target.value as typeof source;
+              requestContextChange(() => {
+                setSource(next);
+                setScopeId("");
+                setSelectedPeople([]);
+              });
             }}
           >
             <option value="">Выберите…</option>
@@ -331,7 +337,10 @@ export function MeritForm({
             <select
               disabled={!!existing}
               value={scopeId}
-              onChange={(e) => { setScopeId(e.target.value); setSelectedPeople([]); }}
+              onChange={(e) => {
+                const next = e.target.value;
+                requestContextChange(() => { setScopeId(next); setSelectedPeople([]); });
+              }}
             >
               <option value="">Выберите…</option>
               {(existing
@@ -346,9 +355,16 @@ export function MeritForm({
           </label>
         )}
         <p className={s.muted}>
-          Укажите часы и оценку только выбранным получателям. Волонтёрская
-          запись не создаёт членство или доступ к задачам. Исторический состав
-          на дату работы проверяет сервер.
+          {source.endsWith("_volunteer") ? (
+            <>
+              Волонтёрская работа — помощь активиста, который не входил в состав
+              выбранного {source === "block_volunteer" ? "блока" : "подмероприятия"} на дату выполнения.
+              Запись относится только к этой области и не даёт участнику доступ к её задачам.
+              Укажите часы и оценку выбранным волонтёрам. Состав на дату работы проверяется при сохранении.
+            </>
+          ) : (
+            <>Укажите часы и оценку только выбранным получателям этой заслуги.</>
+          )}
         </p>
         {!people.isLoading && (
           <ActionForm
@@ -455,6 +471,10 @@ export function MeritForm({
     </QueryState>
   );
 }
+export function MeritForm(props: ComponentProps<typeof MeritEditor>) {
+  return <UnsavedChangesScope><MeritEditor {...props} /></UnsavedChangesScope>;
+}
+
 export function MeritsPage() {
   const { id = "" } = useParams();
   const { session } = useSession();

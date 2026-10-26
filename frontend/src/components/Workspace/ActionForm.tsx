@@ -8,6 +8,7 @@ import s from "./Workspace.module.css";
 import type { Values } from "./formValues";
 import { RecipientPicker } from "./RecipientPicker";
 import { advanceOwn, recordOwnChange, useOwnRevisions } from "./ownRevisions";
+import { useUnsavedChanges } from "./unsavedChangesHooks";
 export interface Field {
   name: string;
   label: string;
@@ -84,6 +85,10 @@ export function ActionForm({
   resetOnSuccess = false,
   changeRequired,
   variant = "primary",
+  externalState,
+  savedExternalState,
+  externalBusy = false,
+  allowExitSave = true,
 }: {
   title?: string;
   fields: Field[];
@@ -102,8 +107,21 @@ export function ActionForm({
   changeRequired?: string[];
   /** The look of the submit: the main action, a minor one, or one that takes something away. */
   variant?: "primary" | "quiet" | "danger";
+  /** Source text or attachments edited outside Formik. */
+  externalState?: unknown;
+  savedExternalState?: unknown;
+  externalBusy?: boolean;
+  /** Publishing/destructive actions must remain explicit in their own form. */
+  allowExitSave?: boolean;
 } & Versioning) {
   const formId = useId();
+  const submitted = useRef(false);
+  // A successful save clears the leave warning, but its editor still holds the
+  // values/revision it accepted. A foreign refetch must not silently adopt a
+  // different draft just because the saved input is now clean in Formik.
+  const [holdSavedInput, setHoldSavedInput] = useState(false);
+  const externalValue = JSON.stringify(externalState);
+  const [externalBaseline, setExternalBaseline] = useState(externalValue);
   const [expectedRevision, setExpectedRevision] = useState(revision);
   const [expectedRevisionKey, setExpectedRevisionKey] = useState(revisionKey);
   const [refreshing, setRefreshing] = useState(false);
@@ -188,6 +206,7 @@ export function ActionForm({
           );
     },
     onSubmit: async (draft) => {
+      submitted.current = false;
       const values = { ...initialValues, ...draft };
       setMessage("");
       setFailure(null);
@@ -214,7 +233,10 @@ export function ActionForm({
           if (revisionKey !== undefined && "revisionKey" in saved) setExpectedRevisionKey(saved.revisionKey);
         }
         confirmedRemoval.current = null;
-        if (resetOnSuccess) form.resetForm({ values: savedValues(fields) });
+        form.resetForm({ values: resetOnSuccess ? savedValues(fields) : values });
+        setExternalBaseline(resetOnSuccess ? JSON.stringify(savedExternalState ?? externalState) : externalValue);
+        submitted.current = true;
+        setHoldSavedInput(!resetOnSuccess);
         setMessage(successMessage);
       } catch (error) {
         const failure = normalizeApiError(error);
@@ -239,23 +261,48 @@ export function ActionForm({
   const reread =
     (!record || revision === undefined || advanceOwn(client, record, revision) === revision) &&
     (!rebaseKey || revisionKey === undefined || rebaseKey(revisionKey) === revisionKey);
-  const adopt = adoptWhenUntouched && reread && changedRevision && !form.dirty && !failure && !form.isSubmitting && !refreshing;
+  const adopt = adoptWhenUntouched && !holdSavedInput && externalValue === externalBaseline && reread && changedRevision && !form.dirty && !failure && !form.isSubmitting && !refreshing;
   if (adopt) {
     form.resetForm({ values: savedValues(fields) });
     setExpectedRevision(revision);
     setExpectedRevisionKey(revisionKey);
   }
+  const saveForNavigation = async () => {
+    if (disabled || externalBusy || form.isSubmitting || refreshing) return false;
+    submitted.current = false;
+    await form.submitForm();
+    return submitted.current;
+  };
+  useUnsavedChanges({
+    dirty: form.dirty || externalValue !== externalBaseline,
+    busy: form.isSubmitting || externalBusy,
+    label: title ?? submitLabel,
+    save: variant === "danger" || !allowExitSave ? undefined : saveForNavigation,
+    discard: () => {
+      form.resetForm();
+      setHoldSavedInput(false);
+      onReplaceWithSaved?.();
+      setExternalBaseline(JSON.stringify(savedExternalState ?? externalState));
+    },
+  });
   const unchanged = !!changeRequired?.every((name) => JSON.stringify(form.values[name] ?? initialValues[name]) === JSON.stringify(savedValues(fields)[name]));
   const replaceWithSaved = () => {
     form.resetForm({ values: savedValues(fields) });
+    setHoldSavedInput(false);
     onReplaceWithSaved?.();
+    setExternalBaseline(JSON.stringify(savedExternalState ?? externalState));
     setExpectedRevision(revision); setExpectedRevisionKey(revisionKey); setFailure(null); setMessage("");
   };
   return (
-    <form className={s.form} onSubmit={form.handleSubmit} noValidate>
+    <form className={s.form} onSubmit={form.handleSubmit} noValidate onKeyDown={(event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s" && !event.altKey) {
+        event.preventDefault();
+        if (allowExitSave && variant !== "danger" && (fields.length > 0 || externalState !== undefined) && !disabled && !externalBusy && !form.isSubmitting) void form.submitForm();
+      }
+    }}>
       <fieldset
         className={s.formFields}
-        disabled={form.isSubmitting || refreshing || disabled}
+        disabled={form.isSubmitting || refreshing || disabled || externalBusy}
       >
         {title && <h3>{title}</h3>}
         {fields

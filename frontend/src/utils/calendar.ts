@@ -1,6 +1,14 @@
 import { toUtc } from "./dates";
 export const moscowDay = (date: string) =>
   new Date(Date.parse(date) + 3 * 3600_000).toISOString().slice(0, 10);
+export function shiftMonth(month: string, offset: number) {
+  const date = new Date(`${month}-15T12:00:00Z`);
+  date.setUTCMonth(date.getUTCMonth() + offset);
+  return date.toISOString().slice(0, 7);
+}
+export const monthTitle = (month: string) => new Intl.DateTimeFormat("ru-RU", {
+  month: "long", year: "numeric", timeZone: "UTC",
+}).format(new Date(`${month}-15T12:00:00Z`)).replace(/\s*г\.$/, "").trim();
 export function monthDays(month: string) {
   const [year, number] = month.split("-").map(Number);
   const start = new Date(Date.UTC(year, number - 1, 1));

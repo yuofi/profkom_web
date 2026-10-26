@@ -1,6 +1,6 @@
 import { canRetainData } from "../../utils/api/request";
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   Page,
@@ -24,7 +24,7 @@ import { seasonsApi } from "../../utils/api/seasons.api";
 import { richText, type FileRef, type Report } from "../../utils/api/contract";
 import { can } from "../../utils/session";
 import { displayDate, moscowInput, toUtc } from "../../utils/dates";
-import { getReportRoute } from "../../utils/routes";
+import { getMeetingRoute, getReportRoute } from "../../utils/routes";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import s from "../../components/Workspace/Workspace.module.css";
 const template =
@@ -152,6 +152,9 @@ function ReportEditor({ report }: { report: Report }) {
       />
       <ActionForm
         disabled={busy}
+        externalState={files}
+        savedExternalState={report.draft_files ?? report.files}
+        externalBusy={busy}
         revision={report.revision}
         record={`report:${report.report_id}`}
         savedDetails={<Attachments files={report.draft_files ?? report.files} />}
@@ -362,6 +365,7 @@ export function ReportHistoryPage() {
 export function MeetingPage() {
   const { kind = "", id = "" } = useParams();
   const valid = kind === "event" || kind === "subevent";
+  const client = useQueryClient();
   const apiKind = kind === "event" ? "events" : "subevents";
   const { perform, refresh } = useWorkspaceActions();
   // A removed announcement starts a new one from revision 0 with empty fields.
@@ -372,12 +376,32 @@ export function MeetingPage() {
       kind === "event" ? await eventsApi.get(id) : await eventsApi.subevent(id),
     enabled: valid,
   });
+  const ownerReadable = !!owner.data && (!owner.error || canRetainData(owner.error));
+  const mayViewMeeting = ownerReadable && can(owner.data, "view_meeting");
   const query = useQuery({
     queryKey: ["events", "meeting", kind, id],
     queryFn: () => eventsApi.meeting(apiKind, id),
-    enabled: valid,
+    enabled: valid && mayViewMeeting,
   });
-  const meeting = query.data;
+  const teams = useQuery({
+    queryKey: ["events", "meeting-teams", id],
+    enabled: kind === "event" && ownerReadable,
+    queryFn: async () => {
+      const subevents = await eventsApi.subevents(id);
+      const announcements = await Promise.all(subevents.items
+        .filter((sub) => can(sub, "view_meeting"))
+        .map(async (sub) => ({ subevent: sub, meeting: await eventsApi.meeting("subevents", sub.subevent_id) })));
+      return announcements.filter((item) => item.meeting !== null)
+        .sort((a, b) => a.meeting!.starts_at.localeCompare(b.meeting!.starts_at));
+    },
+  });
+  useEffect(() => {
+    if (!owner.isFetched) return;
+    if (!mayViewMeeting) client.removeQueries({ queryKey: ["events", "meeting", kind, id], exact: true });
+    if (!ownerReadable) client.removeQueries({ queryKey: ["events", "meeting-teams", id], exact: true });
+  }, [client, owner.isFetched, ownerReadable, mayViewMeeting, kind, id]);
+  // Cached announcements never override the current owner's permissions.
+  const meeting = mayViewMeeting && (!query.error || canRetainData(query.error)) ? query.data : undefined;
   if (!valid)
     return (
       <Page title="Созвон">
@@ -386,24 +410,28 @@ export function MeetingPage() {
     );
   return (
     <Page
-      title={kind === "event" ? "Созвон руководителей" : "Созвон команды"}
+      title={kind === "event" ? "Созвоны мероприятия" : "Созвон команды"}
       description={
         kind === "event"
-          ? "Объявление для главоргов, ответственных и их заместителей."
+          ? "Главный созвон и доступные вам созвоны команд подмероприятий."
           : "Объявление для участников подмероприятия."
       }
     >
       <div className={s.stack}>
         <QueryState
           keepDataOnError={!!query.data}
-          loading={query.isLoading}
-          error={query.error}
+          loading={owner.isLoading || query.isLoading}
+          error={owner.error || query.error}
           retry={() => {
-            void query.refetch();
+            void owner.refetch().then((result) => {
+              if (!result.error && can(result.data, "view_meeting")) void query.refetch();
+            });
           }}
         >
-          <Card>
-            {meeting ? (
+          <Card title={kind === "event" ? "Главный созвон" : undefined}>
+            {kind === "event" && ownerReadable && !mayViewMeeting ? (
+              <p className={s.muted}>Главный созвон доступен только его участникам. Доступные вам созвоны команд показаны ниже.</p>
+            ) : meeting ? (
               <>
                 <h2>{meeting.title}</h2>
                 <p>{displayDate(meeting.starts_at)}</p>
@@ -422,7 +450,23 @@ export function MeetingPage() {
             )}
           </Card>
         </QueryState>
-        {(!query.error || (query.data && canRetainData(query.error))) &&
+        {kind === "event" && ownerReadable && (
+          <Card title="Созвоны команд">
+            <QueryState loading={teams.isLoading} error={teams.error} retry={() => { void teams.refetch(); }}>
+              <div className={s.stack}>
+                {teams.data?.map(({ subevent, meeting: announcement }) => (
+                  <section key={subevent.subevent_id}>
+                    <h3>{announcement!.title}</h3>
+                    <p className={s.muted}>{subevent.title} · {displayDate(announcement!.starts_at)}</p>
+                    <RouteLink to={getMeetingRoute("subevent", subevent.subevent_id)}>Открыть созвон команды</RouteLink>
+                  </section>
+                ))}
+                {teams.data?.length === 0 && <Empty>Назначенных созвонов доступных вам команд пока нет.</Empty>}
+              </div>
+            </QueryState>
+          </Card>
+        )}
+        {mayViewMeeting && query.isFetched && (!query.error || (meeting && canRetainData(query.error))) &&
           (can(meeting, "edit_meeting") ||
             (!meeting && can(owner.data, "edit_meeting"))) && (
             <Card title="Объявление созвона">

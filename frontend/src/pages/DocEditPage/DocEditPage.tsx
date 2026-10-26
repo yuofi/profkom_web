@@ -21,6 +21,9 @@ function GuideEditor({ guide }: { guide: GuideOut }) {
       <LegacyGuideNotice />
       <ActionForm
         fields={[]}
+        allowExitSave={false}
+        externalState={body}
+        savedExternalState={guide.text}
         submitLabel="Опубликовать изменения гайда"
         onSubmit={async () => {
           await guidesApi.update(guide.guide_id, {
@@ -35,7 +38,7 @@ function GuideEditor({ guide }: { guide: GuideOut }) {
           ]);
         }}
       >
-        <MarkdownEditor value={body} onChange={setBody} />
+        <MarkdownEditor value={body} onChange={setBody} draft={false} />
       </ActionForm>
     </Card>
   );

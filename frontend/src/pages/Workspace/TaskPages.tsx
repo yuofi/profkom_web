@@ -490,6 +490,10 @@ function AssignmentCard({
             record={`assignment:${a.assignment_id}`}
               key={a.assignment_id}
               disabled={uploading}
+              externalState={files}
+              savedExternalState={[]}
+              externalBusy={uploading}
+              resetOnSuccess
               // A submission adds to the history: its saved values are an empty text and
               // no files, next to what the assignee can see changed (A-TSK-12).
               savedDetails={<VisibleState assignment={a} seen={seen} />}
@@ -499,7 +503,7 @@ function AssignmentCard({
                   name: "body",
                   label: "Результат работы",
                   type: "textarea",
-                  required: true,
+                  required: (v) => !text(v, "links").trim() && files.length === 0,
                 },
                 {
                   name: "links",

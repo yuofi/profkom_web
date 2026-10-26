@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useId, useRef } from "react";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { useMe } from "../../utils/me";
 import { authApi } from "../../utils/api/auth.api";
@@ -17,11 +17,16 @@ import type { ProfileUpdate } from "../../utils/api/types";
 import { useSession } from "../../utils/session";
 import { visibleAdminTabs } from "../Admin/adminTabs";
 import { Helmet } from "react-helmet-async";
+import { useGuardedAction, useUnsavedChanges } from "../../components/Workspace/unsavedChangesHooks";
 
 export const ProfileEditPage = () => {
   const user = useMe();
   const { session } = useSession();
   const queryClient = useQueryClient();
+  const profileSaved = useRef(false);
+  const passwordSaved = useRef(false);
+  const passwordScope = useId();
+  const requestLeave = useGuardedAction(passwordScope);
 
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const hasPassword = user?.has_password ?? true;
@@ -53,6 +58,7 @@ export const ProfileEditPage = () => {
     },
     validationSchema: ProfileValidationSchema,
     onSubmit: async (values, actions) => {
+      profileSaved.current = false;
       if (!user) return;
       const clean = ProfileValidationSchema.parse(values);
       const updateData: ProfileUpdate = {
@@ -70,12 +76,13 @@ export const ProfileEditPage = () => {
       };
       await updateMutation.mutateAsync(updateData);
       actions.resetForm({ values: { ...values, patronymic: clean.patronymic, tg: clean.tg ?? "", vk: clean.vk ?? "" } });
+      profileSaved.current = true;
     }
   });
 
   useEffect(() => {
     if (user && !profileFormik.dirty) {
-      profileFormik.setValues({
+      profileFormik.resetForm({ values: {
         surname: user.surname || "",
         name: user.name || "",
         patronymic: user.patronymic || "",
@@ -87,7 +94,7 @@ export const ProfileEditPage = () => {
         email: user.email || "",
         vk: user.vk || "",
         photo_url: user.photo_url || ""
-      });
+      } });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
@@ -105,7 +112,8 @@ export const ProfileEditPage = () => {
       newPasswordAgain: "",
     },
     validationSchema: ChangePasswordValidationSchema,
-    onSubmit: async (values) => {
+    onSubmit: async (values, actions) => {
+      passwordSaved.current = false;
       if (hasPassword && !values.oldPassword) {
         throw new Error("Заполните старый пароль");
       }
@@ -115,14 +123,39 @@ export const ProfileEditPage = () => {
         new_password: values.newPassword
       });
       setPasswordSuccess(true);
+      actions.resetForm();
+      passwordSaved.current = true;
     }
   });
 
   // Handle closing modal and resetting password form
-  const handleClosePasswordModal = () => {
+  const handleClosePasswordModal = () => requestLeave(() => {
     setIsPasswordModalOpen(false);
     passwordFormik.resetForm();
-  };
+  });
+  useUnsavedChanges({
+    dirty: profileFormik.dirty,
+    busy: profileFormik.isSubmitting,
+    label: "Данные профиля",
+    save: async () => {
+      profileSaved.current = false;
+      await profileFormik.submitForm();
+      return profileSaved.current;
+    },
+    discard: () => profileFormik.resetForm(),
+  });
+  useUnsavedChanges({
+    dirty: isPasswordModalOpen && passwordFormik.dirty,
+    busy: passwordFormik.isSubmitting,
+    label: "Изменение пароля",
+    scope: passwordScope,
+    save: async () => {
+      passwordSaved.current = false;
+      await passwordFormik.submitForm();
+      return passwordSaved.current;
+    },
+    discard: () => passwordFormik.resetForm(),
+  });
 
   if (!user) return null;
 
@@ -204,7 +237,7 @@ export const ProfileEditPage = () => {
           <div className={styles.modalContent}>
             <div className={styles.modalHeader}>
               <h3>Изменение пароля</h3>
-              <button type="button" className={styles.closeBtn} onClick={handleClosePasswordModal}>
+              <button type="button" className={styles.closeBtn} onClick={handleClosePasswordModal} aria-label="Закрыть окно пароля">
                 <Icon name="close" size={24} />
               </button>
             </div>

@@ -84,3 +84,14 @@
     gap: 6px;
   }
 }
+.monthNav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.monthTitle {
+  min-width: 12ch;
+  text-align: center;
+  text-transform: capitalize;
+}

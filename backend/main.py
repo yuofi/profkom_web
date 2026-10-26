@@ -1008,6 +1008,24 @@ class CalendarItemOut(BaseModel):
     target: dict
 
 
+class ParticipationBlockOut(BaseModel):
+    block_id: str
+    name: str
+    roles: list[str]
+
+
+class ParticipationEventOut(BaseModel):
+    event_id: str
+    title: str
+    season_id: str
+    roles: list[str]
+
+
+class ParticipationOut(BaseModel):
+    blocks: list[ParticipationBlockOut]
+    events: list[ParticipationEventOut]
+
+
 # ═══════════════════════════════════════════════════════════
 #  AUTH ENDPOINTS  (NEW)
 # ═══════════════════════════════════════════════════════════
@@ -2932,6 +2950,12 @@ def list_report_history(
 
 
 # ── Dashboard & Calendar ──
+
+@router.get("/participation", response_model=ParticipationOut)
+def get_participation(cur: User = Depends(get_current_user)):
+    from workspace import participation
+    return ParticipationOut(**participation(cur.user_id))
+
 
 @router.get("/dashboard", response_model=DashboardOut)
 def get_dashboard(cur: User = Depends(get_current_user)):

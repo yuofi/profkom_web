@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useFormik, type FormikErrors, type FormikHelpers } from "formik";
 import { withZodSchema } from "formik-validator-zod";
 import { z } from "zod";
+import { useUnsavedChanges } from "../Workspace/unsavedChangesHooks";
 import {tryCatch} from "../../utils/tryCatch"
 import { normalizeApiError } from "../../utils/api/request";
 import { fieldMessage, userMessage } from "../../utils/api/messages";
@@ -13,8 +14,11 @@ export const useForm = <UserSchema extends z.ZodType<Record<string, any>>>({
   validationSchema,
   onSubmit,
   errorTexts,
+  protectChanges,
 }: {
   initialValues: z.infer<UserSchema>;
+  /** Opt-in: authentication forms do not contain an editable saved draft. */
+  protectChanges?: { enabled: boolean; scope: string; label: string; externalDirty?: boolean; externalBusy?: boolean; discard?: () => void };
   validationSchema: UserSchema;
   successMessage?: boolean;
   /** This screen's own texts for a code or a status (messages.ts userMessage). */
@@ -25,6 +29,7 @@ export const useForm = <UserSchema extends z.ZodType<Record<string, any>>>({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ) => Promise<any>;
 }) => {
+  const submitted = useRef(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [globalError, setGlobalError] = useState<string | null>(null);
 
@@ -32,6 +37,7 @@ export const useForm = <UserSchema extends z.ZodType<Record<string, any>>>({
     initialValues,
     validate: withZodSchema(validationSchema),
     onSubmit: async (values, actions) => {
+      submitted.current = false;
       setIsSuccess(false);
       setGlobalError(null);
 
@@ -40,6 +46,7 @@ export const useForm = <UserSchema extends z.ZodType<Record<string, any>>>({
           await onSubmit(values, actions);
         }
         
+        submitted.current = true;
         if (successMessage) {
           setIsSuccess(true);
           actions.resetForm();
@@ -65,6 +72,19 @@ export const useForm = <UserSchema extends z.ZodType<Record<string, any>>>({
     },
   });
 
+  useUnsavedChanges({
+    dirty: !!protectChanges?.enabled && (formik.dirty || !!protectChanges.externalDirty),
+    busy: !!protectChanges?.enabled && (formik.isSubmitting || !!protectChanges.externalBusy),
+    scope: protectChanges?.scope,
+    label: protectChanges?.label,
+    save: async () => {
+      if (formik.isSubmitting || protectChanges?.externalBusy) return false;
+      submitted.current = false;
+      await formik.submitForm();
+      return submitted.current;
+    },
+    discard: () => { formik.resetForm(); protectChanges?.discard?.(); },
+  });
   return {
     formik,
     isSuccess,

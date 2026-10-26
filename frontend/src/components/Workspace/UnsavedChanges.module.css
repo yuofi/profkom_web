@@ -1,0 +1,18 @@
+.dialog {
+  max-width: min(34rem, calc(100vw - 32px));
+  color: var(--on-surface);
+  background: var(--surface-container-high);
+  border: 1px solid var(--outline-variant);
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 20px 80px #0008;
+}
+.dialog::backdrop { background: #0009; }
+.dialog h2 { margin-top: 0; }
+.dialog p { line-height: 1.5; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+.actions button { padding: 10px 14px; border: 1px solid var(--outline); border-radius: 12px; color: var(--on-surface); background: var(--surface-container); cursor: pointer; }
+.actions button:first-child { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+.actions button:disabled { opacity: .55; cursor: default; }
+.actions button:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+@media (max-width: 480px) { .actions { flex-direction: column; } .actions button { width: 100%; } }

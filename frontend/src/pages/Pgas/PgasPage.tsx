@@ -1,8 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet-async";
 import { z } from "zod";
 import { FormikProvider } from "formik";
+import { useGuardedAction } from "../../components/Workspace/unsavedChangesHooks";
 import { pgasApi } from "../../utils/api/pgas.api";
 import { apiUrl } from "../../utils/api";
 import { uploadFile } from "../../utils/s3-utils";
@@ -44,6 +45,8 @@ const getFileIcon = (fileType = ""): IconName => {
 
 export const PgasPage = () => {
   const queryClient = useQueryClient();
+  const scope = useId();
+  const requestClose = useGuardedAction(scope);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -108,6 +111,7 @@ export const PgasPage = () => {
       year: CURRENT_YEAR,
     },
     validationSchema: PgasValidationSchema,
+    protectChanges: { enabled: isModalOpen, scope, label: "Документ ПГАС", externalDirty: !!selectedFile, externalBusy: createMutation.isPending, discard: () => resetFile() },
     onSubmit: async (values) => {
       await createMutation.mutateAsync(values);
     },
@@ -243,7 +247,7 @@ export const PgasPage = () => {
       )}
 
       {isModalOpen && (
-        <div className={styles.modalOverlay} onClick={closeModal}>
+        <div className={styles.modalOverlay} onClick={() => requestClose(closeModal)}>
           <div
             className={styles.modal}
             role="dialog"
@@ -253,7 +257,7 @@ export const PgasPage = () => {
           >
             <div className={styles.modalHeader}>
               <h3 id="pgas-upload-title">Загрузить файл</h3>
-              <button type="button" className={s.button} onClick={closeModal} aria-label="Закрыть">
+              <button type="button" className={s.button} onClick={() => requestClose(closeModal)} aria-label="Закрыть">
                 <Glyph name="close" />
               </button>
             </div>
@@ -318,7 +322,7 @@ export const PgasPage = () => {
                 {globalError && <p role="alert" className={s.fieldError}>{globalError}</p>}
 
                 <div className={styles.modalActions}>
-                  <button className={s.button} type="reset" onClick={closeModal}>
+                  <button className={s.button} type="button" onClick={() => requestClose(closeModal)}>
                     Отмена
                   </button>
                   <button

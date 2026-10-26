@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
+import { act } from "react";
 import { installMockTransport } from "../../mocks/transport";
 import { mountWorkspace, settle, change } from "../../test/workspace";
 import { directoryApi } from "../../utils/api/directory.api";
@@ -53,10 +54,17 @@ it("contacts use compact cards and separate account management", async () => {
   expect(page.container.textContent).toContain("Показано контактов: 2 из 2");
   const cards = page.container.querySelectorAll('[class*="contactGrid"] > section');
   expect(cards).toHaveLength(2);
-  const disclosures = cards[0].querySelectorAll("details");
-  expect(disclosures[0].querySelector("summary")?.textContent).toBe("Подробнее");
-  expect(disclosures[0].querySelector('[class*="contactLinks"]')).not.toBeNull();
-  expect(disclosures[0].textContent).not.toContain("Причина архивирования");
-  expect(disclosures[1].querySelector("summary")?.textContent).toBe("Управление аккаунтом");
-  expect(disclosures[1].textContent).toContain("Причина архивирования");
+  expect(cards[0].querySelector("details")).toBeNull();
+  const details = Array.from(cards[0].querySelectorAll("button")).find((b) => b.textContent === "Подробнее")!;
+  await act(async () => details.click());
+  const dialog = page.container.querySelector("dialog")!;
+  expect(dialog.open).toBe(true);
+  expect(dialog.querySelector('[class*="contactLinks"]')).not.toBeNull();
+  expect(dialog.textContent).not.toContain("Причина архивирования");
+  await act(async () => dialog.querySelector<HTMLButtonElement>('[aria-label="Закрыть сведения об участнике"]')!.click());
+  expect(page.container.querySelector("dialog")).toBeNull();
+  const manage = Array.from(cards[0].querySelectorAll("button")).find((b) => b.textContent === "Управление аккаунтом")!;
+  await act(async () => manage.click());
+  expect(page.container.querySelector("dialog")?.textContent).toContain("Причина архивирования");
+  expect(page.container.querySelectorAll('[class*="contactGrid"] > section')).toHaveLength(2);
 });

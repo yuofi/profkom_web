@@ -408,6 +408,11 @@ export interface Dashboard {
   /** Waiting registrations; 0 without review_registrations (A-ROL-21). */
   pending_registration_count: number;
 }
+export type ParticipationRole = "member" | "master" | "deputy_master" | "event_leader" | "event_deputy" | "subevent_leader" | "subevent_deputy" | "organizer";
+export interface Participation {
+  blocks: { block_id: string; name: string; roles: ParticipationRole[] }[];
+  events: { event_id: string; title: string; season_id: string; roles: ParticipationRole[] }[];
+}
 export interface UploadIntent {
   file_id: string;
   upload_url: string;

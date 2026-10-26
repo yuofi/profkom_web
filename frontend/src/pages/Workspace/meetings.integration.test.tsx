@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it } from "vitest";
+import { notifyManager } from "@tanstack/react-query";
 import { Route, Routes } from "react-router-dom";
 import { liveLogin, liveParticipant } from "../../test/liveApi";
 import { change, field, mountWorkspace, submit, waitForPage } from "../../test/workspace";
@@ -7,6 +8,7 @@ import { eventsApi } from "../../utils/api/events.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { richText, type Subevent } from "../../utils/api/contract";
 import { moscowInput } from "../../utils/dates";
+import { can } from "../../utils/session";
 import { MeetingPage } from "./ReportPages";
 
 // FIX_PLAN 1.3: without an announcement the meeting page offers the form to those who may
@@ -40,7 +42,22 @@ async function team() {
 async function openMeeting(email: string, kind: "event" | "subevent", id: string) {
   const session = await liveLogin(email);
   page = await mountWorkspace(<Routes><Route path="/meetings/:kind/:id" element={<MeetingPage />} /></Routes>, {path: `/meetings/${kind}/${id}`, session});
-  await waitForPage(page);
+  // Loading the owner enables the announcement request. An idle poll between those
+  // two requests is not a ready page: wait for every dependent query and its DOM.
+  await waitForPage(page, () => {
+    const ownerKey = ["events", "meeting-owner", kind, id];
+    const owner = page!.client.getQueryState(ownerKey);
+    const data = page!.client.getQueryData<{ capabilities: string[] }>(ownerKey);
+    const settled = (key: string[]) => {
+      const state = page!.client.getQueryState(key);
+      return state?.status === "success" || state?.status === "error";
+    };
+    if (owner?.status === "error") return !text().includes("Загружаем данные…");
+    if (!data || owner?.status !== "success") return false;
+    if (can(data, "view_meeting") && !settled(["events", "meeting", kind, id])) return false;
+    if (kind === "event" && !settled(["events", "meeting-teams", id])) return false;
+    return !text().includes("Загружаем данные…");
+  });
 }
 const text = () => page!.container.textContent ?? "";
 const announceForm = () => Array.from(page!.container.querySelectorAll("section"))
@@ -97,5 +114,45 @@ it("1.3: the announcement form and its removal follow the meeting rights", async
       expect(!!removeButton(), who).toBe(editor && announced);
       await page!.cleanup(); page = undefined;
     }
+  }
+});
+
+it("an event lists the organizer's team meeting without exposing its main or other team meetings", async () => {
+  const t = await team();
+  await liveLogin();
+  const hiddenTeam = await eventsApi.createSubevent(t.event.event_id, { title: "Закрытая команда", description: richText() });
+  const start = new Date(Date.now() + 86400000).toISOString();
+  await eventsApi.saveMeeting("events", t.event.event_id, { title: "Закрытый главный созвон", starts_at: start, join_url: "https://example.invalid/main" });
+  await eventsApi.saveMeeting("subevents", t.sub.subevent_id, { title: "Открытый созвон моей команды", starts_at: start, join_url: "https://example.invalid/team" });
+  await eventsApi.saveMeeting("subevents", hiddenTeam.subevent_id, { title: "Чужой скрытый созвон", starts_at: start, join_url: "https://example.invalid/hidden" });
+  await openMeeting(t.org.email, "event", t.event.event_id);
+  expect(text()).toContain("Созвоны мероприятия");
+  expect(text()).toContain("Открытый созвон моей команды");
+  expect(text()).toContain("Главный созвон доступен только его участникам");
+  expect(text()).not.toContain("Закрытый главный созвон");
+  expect(text()).not.toContain("Чужой скрытый созвон");
+  expect(page!.container.querySelector(`a[href="/meetings/subevent/${t.sub.subevent_id}"]`)).not.toBeNull();
+  expect(alert()).toBeUndefined();
+  await expect(eventsApi.meeting("events", t.event.event_id)).rejects.toMatchObject({ status: 404 });
+  await expect(eventsApi.meeting("subevents", hiddenTeam.subevent_id)).rejects.toMatchObject({ status: 404 });
+});
+
+
+it("meeting rights remain visible after delayed dependent-query observer commits", async () => {
+  const t = await team();
+  await liveLogin();
+  const announcement = { title: "Созвон с отложенным открытием", starts_at: new Date(Date.now() + 86400000).toISOString(), join_url: "https://example.invalid/delayed-meeting" };
+  await eventsApi.saveMeeting("subevents", t.sub.subevent_id, announcement);
+  // Cache requests may already be idle while React Query has not notified the owner
+  // observer yet. Force that gap instead of relying on machine/load timing.
+  notifyManager.setScheduler((callback) => setTimeout(callback, 80));
+  try {
+    await openMeeting(t.head.email, "subevent", t.sub.subevent_id);
+    expect(announceForm()).toBeDefined();
+    expect(removeButton()).toBeDefined();
+    expect(field(announceForm()!, "title").value).toBe(announcement.title);
+    expect(field(announceForm()!, "url").value).toBe(announcement.join_url);
+  } finally {
+    notifyManager.setScheduler((callback) => setTimeout(callback, 0));
   }
 });

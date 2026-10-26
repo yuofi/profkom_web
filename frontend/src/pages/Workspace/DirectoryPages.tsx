@@ -9,6 +9,9 @@ import {
   Badge,
   Glyph,
 } from "../../components/Workspace/WorkspaceUI";
+import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
+import { ContactDialog } from "../../components/Workspace/ContactDialog";
+import d from "./DirectoryCards.module.css";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { text, number } from "../../components/Workspace/formValues";
 import { Avatar } from "../../components/Avatar/Avatar";
@@ -86,6 +89,7 @@ export function DirectoryPage() {
   const [funding, setFunding] = useState("");
   const [course, setCourse] = useState("");
   const [emails, setEmails] = useState("");
+  const [selected, setSelected] = useState<{ id: number; mode: "details" | "manage" } | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(() =>
     typeof window.matchMedia !== "function" || window.matchMedia("(min-width: 769px)").matches,
   );
@@ -131,9 +135,11 @@ export function DirectoryPage() {
         .toLowerCase()
         .includes(search.toLowerCase()),
   );
+  const selectedPerson = query.data?.find((p) => p.user_id === selected?.id);
+  const mayManage = can(session, "edit_participant_category") || can(session, "archive_account");
   return (
     <Page
-      title="Контакты"
+      title="Контактная информация"
       actions={
         <div className={s.row}>
           {can(session, "restore_account") && (
@@ -254,63 +260,45 @@ export function DirectoryPage() {
               Показано контактов: {filtered.length} из {active.length}
             </p>
           )}
-          <div className={s.contactGrid}>
+          <div className={`${s.contactGrid} ${d.grid}`}>
             {filtered?.map((p) => (
-              <Card key={p.user_id} className={s.contactCard}>
-                <div className={s.person}>
-                  <div>
-                    <Avatar src={p.photo_url} size={48} />
-                    <div>
-                      <h2>
-                        {p.surname} {p.name} {p.patronymic}
-                      </h2>
-                      <span className={s.muted}>
-                        {[p.group_number, p.blocks].filter(Boolean).join(" · ")}
-                      </span>
-                    </div>
+              <Card key={p.user_id} className={d.card}>
+                <div className={d.header}>
+                  <Avatar src={p.photo_url} size={48} />
+                  <div className={d.identity}>
+                    <h2>{p.surname} {p.name} {p.patronymic}</h2>
+                    <p className={d.summary}>{[p.group_number, p.blocks].filter(Boolean).join(" · ") || "Группа и блоки не указаны"}</p>
                   </div>
-                  <Category userId={p.user_id} />
+                  <div className={d.category}><Category userId={p.user_id} /></div>
                 </div>
-                <details className={s.details}>
-                  <summary>Подробнее</summary>
-                  <p>
-                    {[p.location, p.budget ? "Бюджет" : "Контракт"].filter(Boolean).join(" · ")}
-                  </p>
-                  <ContactLinks {...p} />
-                  {p.user_id === session?.user_id && (
-                    <RouteLink to="/profile/edit">
-                      Изменить свои контакты
-                    </RouteLink>
-                  )}
-                </details>
-                {(can(session, "edit_participant_category") || can(session, "archive_account")) && (
-                  <details className={s.details}>
-                    <summary>Управление аккаунтом</summary>
-                    <ParticipantCategoryPanel userId={p.user_id} />
-                    {can(session, "archive_account") && (
-                      <ActionForm
-                        fields={[
-                          {
-                            name: "reason",
-                            label: "Причина архивирования аккаунта",
-                            required: true,
-                            type: "textarea",
-                          },
-                        ]}
-                        submitLabel="Архивировать аккаунт"
-                        variant="danger"
-                        onSubmit={async (v) => {
-                          await perform(() =>
-                            directoryApi.archive(p.user_id, text(v, "reason")),
-                          );
-                        }}
-                      />
-                    )}
-                  </details>
-                )}
+                <div className={d.actions}>
+                  <button className={s.button} type="button" onClick={() => setSelected({ id: p.user_id, mode: "details" })}>Подробнее</button>
+                  {mayManage && <button className={s.button} type="button" onClick={() => setSelected({ id: p.user_id, mode: "manage" })}>Управление аккаунтом</button>}
+                </div>
               </Card>
             ))}
           </div>
+          {selectedPerson && selected && (
+            <UnsavedChangesScope><ContactDialog key={`${selected.id}-${selected.mode}`} title={selected.mode === "manage" ? "Управление аккаунтом" : `${selectedPerson.surname} ${selectedPerson.name} ${selectedPerson.patronymic}`.trim()} onClose={() => setSelected(null)}>
+              {selected.mode === "details" ? <>
+                <p>{[selectedPerson.group_number, selectedPerson.blocks].filter(Boolean).join(" · ")}</p>
+                <p>{[selectedPerson.location, selectedPerson.budget ? "Бюджет" : "Контракт"].filter(Boolean).join(" · ")}</p>
+                <ContactLinks {...selectedPerson} />
+                {selectedPerson.user_id === session?.user_id && <RouteLink to="/profile/edit">Изменить свои контакты</RouteLink>}
+              </> : mayManage ? <>
+                <p>{selectedPerson.surname} {selectedPerson.name} {selectedPerson.patronymic}</p>
+                <ParticipantCategoryPanel userId={selectedPerson.user_id} />
+                {can(session, "archive_account") && <ActionForm
+                  fields={[{ name: "reason", label: "Причина архивирования аккаунта", required: true, type: "textarea" }]}
+                  submitLabel="Архивировать аккаунт" variant="danger"
+                  onSubmit={async (v) => {
+                    await perform(() => directoryApi.archive(selectedPerson.user_id, text(v, "reason")));
+                    setSelected(null);
+                  }}
+                />}
+              </> : <p>Управление аккаунтом недоступно.</p>}
+            </ContactDialog></UnsavedChangesScope>
+          )}
           {filtered?.length === 0 &&
             !(category && (categoriesPending || categoryFailed)) && (
               <Empty>Подходящих контактов нет.</Empty>

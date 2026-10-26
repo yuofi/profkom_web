@@ -1,8 +1,9 @@
-import { BrowserRouter, Navigate, Routes, Route } from "react-router-dom";
+import { createBrowserRouter, createRoutesFromElements, Navigate, Outlet, RouterProvider, Route } from "react-router-dom";
 import { HelmetProvider } from "react-helmet-async";
 import { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "./App.css";
+import { UnsavedChangesProvider } from "./components/Workspace/UnsavedChanges";
 import { WorkspaceLayout } from "./components/Workspace/WorkspaceLayout";
 import { Loading } from "./components/Workspace/WorkspaceUI";
 const EventsListPage = lazy(() =>
@@ -150,14 +151,19 @@ const queryClient = new QueryClient({
   queryCache: workspaceQueryCache(),
   defaultOptions: { queries: { refetchOnWindowFocus: false, retry: retryTransient } },
 });
-function App() {
+function AppShell() {
   return (
-    <HelmetProvider>
-      <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          <Suspense fallback={<Loading />}>
-            <UserProvider>
-              <Routes>
+    <UserProvider>
+      <UnsavedChangesProvider>
+        <Suspense fallback={<Loading />}>
+          <Outlet />
+        </Suspense>
+      </UnsavedChangesProvider>
+    </UserProvider>
+  );
+}
+const router = createBrowserRouter(createRoutesFromElements(
+  <Route element={<AppShell />}>
                 <Route path="/auth" element={<GreetingPage />} />
                 <Route element={<ProtectedRoute />}>
                   <Route path="/" element={<WorkspaceLayout />}>
@@ -242,10 +248,13 @@ function App() {
                   </Route>
                 </Route>
                 <Route path="*" element={<NotFoundPage />} />
-              </Routes>
-            </UserProvider>
-          </Suspense>
-        </BrowserRouter>
+  </Route>,
+));
+function App() {
+  return (
+    <HelmetProvider>
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
       </QueryClientProvider>
     </HelmetProvider>
   );

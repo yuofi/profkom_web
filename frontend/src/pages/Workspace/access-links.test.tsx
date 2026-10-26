@@ -13,7 +13,7 @@ afterEach(async () => { await page?.cleanup(); page = undefined; mock?.restore()
 
 const links = (root: ParentNode) => Array.from(root.querySelectorAll("a")).map((a) => a.textContent);
 
-it("the decisions card shows to who decides, not to an activist without roles", async () => {
+it("the personal home keeps role-gated queue links without the old decisions card", async () => {
   mock = installMockTransport("organizer", { delay: 0 });
   const plain = { ...createFixtures("organizer").session, capabilities: [], assignments: [] };
   mock.state.requests = [];
@@ -30,9 +30,9 @@ it("the decisions card shows to who decides, not to an activist without roles", 
   const master = { ...plain, assignments: [{ role_assignment_id: "master-it", role: "master", scope_kind: "block" as const, scope_id: "block-it", revision: 1, capabilities: [] }] };
   page = await mountWorkspace(<DashboardPage />, { role: "organizer", session: master });
   await settle(); await settle();
-  expect(page.container.textContent).toContain("Требуют решения");
-  expect(page.container.textContent).toContain("Заявки в блоки (не зависят от сезона): 0");
-  expect(links(page.container)).toContain("Рассмотреть заявки");
+  expect(page.container.textContent).not.toContain("Требуют решения");
+  expect(page.container.textContent).toContain("Мои блоки и мероприятия");
+  expect(links(page.container)).toContain("Мои заявки и решения");
 });
 
 it("an event page links its reports only for who may read or write one", async () => {

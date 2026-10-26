@@ -20,6 +20,8 @@ export const getPgasRoute = () => "/pgas";
 
 export const getEventRoute = (id: string) =>
   `/events/${encodeURIComponent(id)}`;
+export const getMeetingRoute = (kind: "event" | "subevent", id: string) =>
+  `/meetings/${kind}/${encodeURIComponent(id)}`;
 export const getSubeventRoute = (id: string) =>
   `/subevents/${encodeURIComponent(id)}`;
 export const getTaskRoute = (id: string) => `/tasks/${encodeURIComponent(id)}`;

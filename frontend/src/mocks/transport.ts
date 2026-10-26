@@ -20,6 +20,7 @@ import {
   type Decision,
   type Season,
   type SummaryVersionSnapshot,
+  type ParticipationRole,
 } from "../utils/api/contract";
 
 type Reply = [number, unknown];
@@ -1699,6 +1700,30 @@ export function installMockTransport(
           expires_at: "2026-10-18T13:00:00Z",
         },
       ];
+    }
+    if (path === "/participation") {
+      const uid = state.session.user_id;
+      return [200, {
+        blocks: state.blocks.flatMap((block) => {
+          const roles: ParticipationRole[] = [];
+          if (block.master?.user.user_id === uid) roles.push("master");
+          if (!block.is_hr && block.master?.deputy_user_ids.includes(uid)) roles.push("deputy_master");
+          if (block.members.some((member) => member.user.user_id === uid)) roles.push("member");
+          return roles.length ? [{ block_id: block.block_id, name: block.name, roles }] : [];
+        }),
+        events: state.events.flatMap((event) => {
+          if (state.seasons.find((season) => season.season_id === event.season_id)?.state === "closed") return [];
+          const roles: ParticipationRole[] = [];
+          if (event.leaders.some((leader) => leader.user.user_id === uid)) roles.push("event_leader");
+          if (event.leaders.some((leader) => leader.deputy_user_ids.includes(uid))) roles.push("event_deputy");
+          for (const subevent of state.subevents.filter((subevent) => subevent.event_id === event.event_id)) {
+            if (subevent.leaders.some((leader) => leader.user.user_id === uid)) roles.push("subevent_leader");
+            if (subevent.leaders.some((leader) => leader.deputy_user_ids.includes(uid))) roles.push("subevent_deputy");
+            if (subevent.organizer_user_ids.includes(uid)) roles.push("organizer");
+          }
+          return roles.length ? [{ event_id: event.event_id, title: event.title, season_id: event.season_id, roles: [...new Set(roles)] }] : [];
+        }),
+      }];
     }
     if (path === "/dashboard")
       return [

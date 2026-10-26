@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act } from "react";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { Route, Routes } from "react-router-dom";
 import { HelmetProvider } from "react-helmet-async";
 import { liveLogin, liveParticipant } from "../../test/liveApi";
@@ -24,7 +24,7 @@ import { TaskPage } from "./TaskPages";
 // Russian, chosen by the code; no alert is English or names internal identifiers (A-FE-3).
 // A task the user no longer reads looks like a missing one (A-SEC-6).
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
-afterEach(async () => { await page?.cleanup(); page = undefined; });
+afterEach(async () => { await page?.cleanup(); page = undefined; vi.restoreAllMocks(); });
 const alerts = () => Array.from(page!.container.querySelectorAll('[role="alert"]')).map(a => a.textContent ?? "");
 const buttons = (root: ParentNode) => Array.from(root.querySelectorAll("button")).map(b => b.textContent);
 
@@ -117,16 +117,24 @@ it("2.13 A-SEC-6: an organiser removed from the team sees an old task link as a 
   expect(buttons(page!.container)).not.toContain("Обновить данные");
 });
 
-it("2.13: a hidden main meeting opened by its address says it is unavailable", async () => {
+it("2.13: the event meeting overview explains restricted main access without requesting its announcement", async () => {
   const { org, event } = await team();
   await liveLogin();
-  await eventsApi.saveMeeting("events", event.event_id, { title: "Созвон главоргов", starts_at: new Date(Date.now() + 86400000).toISOString(), join_url: "https://telemost.yandex.ru/j/1" });
+  const hidden = { title: "Созвон главоргов", starts_at: new Date(Date.now() + 86400000).toISOString(), join_url: "https://telemost.yandex.ru/j/1" };
+  await eventsApi.saveMeeting("events", event.event_id, hidden);
   const session = await liveLogin(org.email);
+  const requested = vi.spyOn(eventsApi, "meeting");
   page = await mountWorkspace(<Routes><Route path="/meetings/:kind/:id" element={<MeetingPage />} /></Routes>, { path: `/meetings/event/${event.event_id}`, session });
-  await waitForPage(page, () => alerts().length > 0);
-  expect(alerts()[0]).toContain("Объект не найден или недоступен.");
-  readable(alerts()[0]);
-  expect(page.container.textContent).not.toContain("telemost");
+  await waitForPage(page);
+  const notice = "Главный созвон доступен только его участникам. Доступные вам созвоны команд показаны ниже.";
+  expect(page.container.textContent).toContain(notice);
+  readable(notice);
+  expect(page.container.textContent).toContain("Назначенных созвонов доступных вам команд пока нет.");
+  expect(alerts()).toEqual([]);
+  expect(page.container.textContent).not.toContain(hidden.title);
+  expect(page.container.querySelector(`a[href="${hidden.join_url}"]`)).toBeNull();
+  expect(page.container.querySelector('input[name="url"]')).toBeNull();
+  expect(requested.mock.calls.some(([kind, id]) => kind === "events" && id === event.event_id)).toBe(false);
 });
 
 it("2.13 A-FE-8: a taken email in the profile is named as such", async () => {

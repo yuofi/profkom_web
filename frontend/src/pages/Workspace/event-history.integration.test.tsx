@@ -13,7 +13,7 @@ import { EventPage, EventsListPage } from "./EventPages";
 import { DashboardPage } from "./WorkspacePages";
 
 // Step 5 of release 1: report history (FIX_PLAN 2.2), a series chosen on creation (2.21)
-// and the home page of the chair (АВ-26, АВ-35). The suite's API pages lists by 3.
+// and the personal participation home. The suite's API pages lists by 3.
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 afterEach(async () => { await page?.cleanup(); page = undefined; });
 
@@ -109,7 +109,7 @@ it("2.21: a new event and its subevent continue chosen series and show their his
   const oldReport = await publish("subevent", old.sub.subevent_id, "Отчёт старых лекций");
   const next = await plannedSeason();
 
-  await mount("chair@example.com", <Routes><Route path="/events" element={<EventsListPage />} /></Routes>, "/events");
+  await mount("chair@example.com", <Routes><Route path="/events" element={<EventsListPage />} /><Route path="/events/:id" element={<p>Мероприятие создано</p>} /></Routes>, "/events");
   const form = field(page!.container, "series").closest("form")!;
   await waitForPage(page!, () => options(field(form, "series") as HTMLSelectElement).some(([value]) => value === old.event.report_series_id));
   const label = options(field(form, "series") as HTMLSelectElement).find(([value]) => value === old.event.report_series_id)![1];
@@ -148,17 +148,17 @@ it("2.21: a new event and its subevent continue chosen series and show their his
   expect(oldReport.report_series_id).toBe(old.sub.report_series_id);
 });
 
-it("АВ-26, АВ-35: the chair's home page lists every area, a participant's only their own", async () => {
+it("the home page lists actual participation for every role, including the chair", async () => {
   const head = await liveParticipant("home-head"), resp = await liveParticipant("home-resp"), org = await liveParticipant("home-org");
   const {event} = await instance(head.user_id, resp.user_id, org.user_id, "Мероприятие для главной");
   const outsider = await liveParticipant("home-outsider");
-  for (const [email, title, listed] of [["chair@example.com", "Все блоки и мероприятия", true], [outsider.email, "Мои команды", false],
-    [org.email, "Мои команды", true]] as const) {
+  for (const [email, listed] of [["chair@example.com", false], [outsider.email, false], [org.email, true]] as const) {
     await mount(email, <Routes><Route path="/" element={<DashboardPage />} /></Routes>, "/");
-    await waitForPage(page!, () => text().includes(title));
-    const card = Array.from(page!.container.querySelectorAll("section")).find(s => s.querySelector(":scope > h2")?.textContent === title)!;
+    await waitForPage(page!, () => text().includes("Мои блоки и мероприятия"));
+    const card = Array.from(page!.container.querySelectorAll("section")).find(s => s.querySelector(":scope > h2")?.textContent?.startsWith("Мои мероприятия ·"))!;
     expect(!!card.textContent?.includes(event.title), email).toBe(listed);
-    if (email === "chair@example.com") expect(card.textContent).toContain("Integration vacant");
+    if (email === "chair@example.com") expect(text()).not.toContain("Integration vacant");
+    if (email === org.email) expect(card.textContent).toContain("Организатор");
     await page!.cleanup(); page = undefined;
   }
 });

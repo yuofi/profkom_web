@@ -35,6 +35,7 @@ export const ERROR_TEXTS: Record<string, string> = {
   identity_linked: "Этот аккаунт VK уже привязан к другому участнику.",
   vk_link_required: "Ваш VK ещё не привязан к аккаунту на сайте. Обратитесь к председателю или заму.",
   duplicate_files: "Один файл приложен дважды.",
+  upload_transfer_failed: "Не удалось передать файл. Проверьте подключение и повторите загрузку.",
   upload_missing: "Файл не загрузился. Загрузите его снова.",
   upload_expired: "Время загрузки истекло. Загрузите файл снова.",
   unavailable: "Сервис временно недоступен. Повторите позже.",
@@ -64,6 +65,10 @@ export const isStale = (error: unknown) => {
 };
 
 function withFields(e: ApiError) {
+  if (e.code === "upload_transfer_failed" && [401, 403].includes(e.status))
+    return "Сервис загрузки отклонил файл. Повторите загрузку; если ошибка сохраняется, сообщите руководству.";
+  if (e.code === "upload_transfer_failed" && e.status >= 500)
+    return "Сервис загрузки временно недоступен. Повторите загрузку позже.";
   if (e.code === "deputy_limit" && typeof e.fields.limit === "number")
     return `Можно назначить не больше ${e.fields.limit} заместителей.`;
   return undefined;
@@ -80,7 +85,7 @@ export function userMessage(
   const e = normalizeApiError(error);
   // Our own Russian text: a check in the client, a cancelled request, a broken list.
   if (e.code === "client_error") return e.message;
-  return (
+  const message = (
     overrides[e.code] ??
     overrides[e.status] ??
     withFields(e) ??
@@ -90,6 +95,10 @@ export function userMessage(
       ? "Ошибка на сервере. Повторите позже."
       : "Не удалось выполнить действие. Повторите позже.")
   );
+  const stage = e.fields.upload_stage;
+  if (stage === "intent") return `Не удалось начать загрузку файла. ${message}`;
+  if (stage === "complete") return `Файл передан, но сохранение не завершено. ${message}`;
+  return message;
 }
 
 /** The server's detail, for the collapsed «Подробнее»: only when it says something more. */

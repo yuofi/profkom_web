@@ -23,6 +23,7 @@ import {
   useWorkspaceActions,
 } from "../../utils/hooks/useWorkspace";
 import s from "../../components/Workspace/Workspace.module.css";
+import cards from "./MaterialCards.module.css";
 export function MaterialsPage() {
   const { session } = useSession();
   const navigate = useNavigate();
@@ -50,10 +51,6 @@ export function MaterialsPage() {
       description="КМБ, гайды и полезные документы для работы."
     >
       <div className={s.stack}>
-        <div className={s.row}>
-          <RouteLink to="/guides">Ранее сохранённые гайды</RouteLink>
-          <RouteLink to="/pgas">ПГАС</RouteLink>
-        </div>
         <div className={s.filters}>
           <label className={s.field}>
             Поиск
@@ -77,9 +74,9 @@ export function MaterialsPage() {
             void query.refetch();
           }}
         >
-          <div className={s.grid}>
+          <div className={cards.grid}>
             {visibleItems.map((m) => (
-                <Card key={m.material_id} title={m.title}>
+                <Card key={m.material_id} title={m.title} className={cards.card}>
                   <div className={s.badges}>
                     <Badge tone={m.kind === "kmb" ? "yellow" : m.kind === "guide" ? "lilac" : "sky"}>
                       {m.kind === "kmb"
@@ -90,7 +87,7 @@ export function MaterialsPage() {
                     </Badge>
                     {m.audience === "block" && <Badge tone="peach">Для участников блока</Badge>}
                   </div>
-                  <p>{m.description}</p>
+                  <p className={cards.description}>{m.description}</p>
                   <RouteLink
                     to={`/materials/${encodeURIComponent(m.material_id)}`}
                   >
@@ -209,6 +206,8 @@ function MaterialEdit({ material: m }: { material: Material }) {
       <ActionForm
         revision={m.revision}
         record={`material:${m.material_id}`}
+        externalState={body}
+        savedExternalState={source}
         savedDetails={<MarkdownContent body={source} />}
         onReplaceWithSaved={() => setBody(source)}
         fields={[

@@ -32,6 +32,51 @@ def own_event(uid, event_id):
     )
 
 
+def participation(uid):
+    """Actual personal teams, independent of global management permissions.
+
+    The home page needs names and the actor's roles, never the full team rosters.
+    Blocks continue between seasons; events belong to every non-closed season.
+    """
+    from database import BlockORM
+    from membership import block_id_for
+
+    block_roles = (
+        (access.BLOCK_MASTER, "master"),
+        (access.BLOCK_DEPUTY, "deputy_master"),
+        (access.BLOCK_MEMBER, "member"),
+    )
+    blocks = []
+    events = []
+    with db._session() as session:
+        for block in session.query(BlockORM).order_by(BlockORM.name):
+            relations = access.scope_relations(uid, "block", block.name)
+            roles = [name for relation, name in block_roles if relation in relations]
+            if roles:
+                blocks.append(dict(block_id=block_id_for(block.name), name=block.name, roles=roles))
+        for event in sorted(db.list_events(), key=lambda item: (item.title.casefold(), item.event_id)):
+            if not live(event.season_id):
+                continue
+            relations = access.scope_relations(uid, "event", event.event_id)
+            roles = []
+            if access.EVENT_LEADER in relations:
+                roles.append("event_leader")
+            if access.EVENT_DEPUTY in relations:
+                roles.append("event_deputy")
+            for subevent in db.list_subevents(event.event_id):
+                sub_relations = access.scope_relations(uid, "subevent", subevent.subevent_id)
+                for relation, name in (
+                    (access.SUB_LEADER, "subevent_leader"),
+                    (access.SUB_DEPUTY, "subevent_deputy"),
+                    (access.ORGANIZER, "organizer"),
+                ):
+                    if relation in sub_relations and name not in roles:
+                        roles.append(name)
+            if roles:
+                events.append(dict(event_id=event.event_id, title=event.title, season_id=event.season_id, roles=roles))
+    return dict(blocks=blocks, events=events)
+
+
 def meeting_read(uid, m):
     return access.meeting_read(uid, m.owner_kind, m.owner_id)
 

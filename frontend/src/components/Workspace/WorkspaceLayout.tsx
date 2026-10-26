@@ -69,7 +69,7 @@ export function WorkspaceLayout() {
           {links}
         </details>
         <div className={s.profile}>
-          <Link to="/profile">
+          <Link to="/profile" aria-label="Мой профиль" aria-current={pathname === "/profile" ? "page" : pathname.startsWith("/profile/") ? "true" : undefined}>
             <Glyph name="account_circle" className={s.icon} />
             <span>{user?.name} {user?.surname}</span>
           </Link>

@@ -5,7 +5,6 @@ import { filesApi } from "../../utils/api/files.api";
 import { fileAccept } from "../../utils/filePolicy";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { QueryState } from "./WorkspaceUI";
-import { Image } from "../Image/Image";
 import s from "./Workspace.module.css";
 import { userMessage } from "../../utils/api/messages";
 import { useMe } from "../../utils/me";
@@ -91,15 +90,6 @@ export function AvatarPicker() {
           {error}
         </p>
       )}
-      <details className={s.details}>
-        <summary>Аватар по умолчанию</summary>
-        <Image
-          src="/avatars/default.svg"
-          alt="Аватар по умолчанию"
-          width={96}
-          height={96}
-        />
-      </details>
     </div>
   );
 }

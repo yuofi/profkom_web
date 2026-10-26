@@ -76,6 +76,7 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ('GET', '/api/merits/{merit_id}'),
     ('GET', '/api/notifications'),
     ('GET', '/api/participants/{user_id}/category'),
+    ('GET', '/api/participation'),
     ('GET', '/api/pgas'),
     ('GET', '/api/pgas-admins'),
     ('GET', '/api/profile/me'),

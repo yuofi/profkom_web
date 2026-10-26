@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
   Page,
@@ -12,233 +12,110 @@ import {
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { workspaceApi } from "../../utils/api/workspace.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
-import { eventsApi } from "../../utils/api/events.api";
 import {
   targetRoute,
-  getTaskRoute,
   getEventRoute,
   getBlockRoute,
+  getMeetingRoute,
 } from "../../utils/routes";
 import { displayDate, displayTime } from "../../utils/dates";
-import { monthDays, moscowDay } from "../../utils/calendar";
+import { monthDays, moscowDay, shiftMonth, monthTitle } from "../../utils/calendar";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { can, useSession } from "../../utils/session";
-import type { CalendarItem } from "../../utils/api/contract";
+import type { CalendarItem, ParticipationRole } from "../../utils/api/contract";
 import s from "../../components/Workspace/Workspace.module.css";
 import { toneStyle, type Tone } from "../../components/Workspace/sections";
 import c from "./calendar.module.css";
+import p from "./participation.module.css";
+import { useConfirmedNavigation } from "../../components/Workspace/unsavedChangesHooks";
 function useSeasons() {
   return useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
 }
+const ROLE_LABELS: Record<ParticipationRole, string> = {
+  member: "Участник блока",
+  master: "Мастер",
+  deputy_master: "Заместитель мастера",
+  event_leader: "Главорг",
+  event_deputy: "Заместитель главорга",
+  subevent_leader: "Ответственный за подмероприятие",
+  subevent_deputy: "Заместитель ответственного",
+  organizer: "Организатор",
+};
+const TEAM_PAGE_SIZE = 8;
+interface PersonalTeam {
+  id: string;
+  title: string;
+  to: string;
+  roles: ParticipationRole[];
+  detail?: string;
+}
+function PersonalTeams({ title, teams, empty }: { title: string; teams: PersonalTeam[]; empty: string }) {
+  const [selectedPage, setSelectedPage] = useState(0);
+  const pages = Math.ceil(teams.length / TEAM_PAGE_SIZE);
+  const page = Math.min(selectedPage, Math.max(0, pages - 1));
+  return (
+    <Card title={`${title} · ${teams.length}`}>
+      <ul className={p.teams}>
+        {teams.slice(page * TEAM_PAGE_SIZE, (page + 1) * TEAM_PAGE_SIZE).map((team) => (
+          <li key={team.id}>
+            <Link to={team.to}>{team.title}</Link>
+            <div className={s.badges}>
+              {team.roles.map((role) => <Badge key={role}>{ROLE_LABELS[role]}</Badge>)}
+            </div>
+            {team.detail && <small className={s.muted}>{team.detail}</small>}
+          </li>
+        ))}
+      </ul>
+      {!teams.length && <Empty>{empty}</Empty>}
+      {pages > 1 && <nav className={p.paging} aria-label={`${title}: страницы`}>
+        <button className={s.button} disabled={page === 0} onClick={() => setSelectedPage(page - 1)}>Назад</button>
+        <span role="status">{page + 1} из {pages}</span>
+        <button className={s.button} disabled={page + 1 >= pages} onClick={() => setSelectedPage(page + 1)}>Далее</button>
+      </nav>}
+    </Card>
+  );
+}
 export function DashboardPage() {
   const { session } = useSession();
-  const query = useQuery({
-    queryKey: ["dashboard"],
-    queryFn: workspaceApi.dashboard,
-  });
+  const query = useQuery({ queryKey: ["participation"], queryFn: workspaceApi.participation });
   const seasons = useSeasons();
   const [seasonId, setSeasonId] = useState("");
-  const data = query.data;
-  const meetings = data?.upcoming_meetings ?? [];
-  const meetingSeasons = useQueries({
-    queries: meetings.map((m) => ({
-      queryKey: ["dashboard", "meeting-season", m.owner_kind, m.owner_id],
-      queryFn: async () => {
-        const eventId =
-          m.owner_kind === "event"
-            ? m.owner_id
-            : (await eventsApi.subevent(m.owner_id)).event_id;
-        return (await eventsApi.get(eventId)).season_id;
-      },
-      initialData:
-        m.owner_kind === "event"
-          ? data?.my_events.find((e) => e.event_id === m.owner_id)?.season_id
-          : undefined,
-      retry: false,
-    })),
-  });
-  const inSeason = (id: string) =>
-    (!seasonId || id === seasonId) &&
-    !!seasons.data?.items.some(
-      (s) => s.season_id === id && s.state !== "closed",
-    );
-  const tasks = data?.my_tasks.filter((t) => inSeason(t.season_id)) ?? [];
-  const events = data?.my_events.filter((e) => inSeason(e.season_id)) ?? [];
-  const unresolved =
-    data?.unresolved_assignments.filter((a) => inSeason(a.season_id)) ?? [];
-  const filteredMeetings = meetings
-    .map((meeting, index) => ({ meeting, season: meetingSeasons[index] }))
-    .filter(({ season }) => (season.data ? inSeason(season.data) : !seasonId));
-  const unknownMeetings = meetingSeasons.filter((q) => !q.data).length;
-  // Block requests are decided by block leads, HR and the chair's team; an activist
-  // without such a role has no queue to see (owner, 2026-10-25).
-  const reviewsRequests =
-    can(session, "review_registrations") ||
-    !!session?.assignments?.some((a) => a.scope_kind === "block");
-  const showRequests = reviewsRequests || !!data?.actionable_requests.length;
-  const showDecisions =
-    showRequests || !!unresolved.length || !!data?.pending_registration_count;
-  const seasonTitle = (id: string) =>
-    seasons.data?.items.find((s) => s.season_id === id)?.title ?? "Сезон";
+  const [search, setSearch] = useState("");
+  const needle = search.trim().toLocaleLowerCase("ru");
+  const blocks = (query.data?.blocks ?? []).filter((b) => b.name.toLocaleLowerCase("ru").includes(needle));
+  const events = (query.data?.events ?? []).filter((event) =>
+    (!seasonId || event.season_id === seasonId) && event.title.toLocaleLowerCase("ru").includes(needle),
+  );
+  const seasonTitle = (id: string) => seasons.data?.items.find((season) => season.season_id === id)?.title ?? "Сезон";
   return (
-    <Page
-      title="Рабочий экран"
-      description="Ваша работа и ближайшие встречи во всех незакрытых сезонах."
-      actions={
-        <RouteLink to="/notifications">
-          Уведомления{" "}
-          {data?.unread_notification_count
-            ? `· ${data.unread_notification_count}`
-            : ""}
-        </RouteLink>
-      }
-    >
-      <label className={s.field}>
-        Сезон
-        <select value={seasonId} onChange={(e) => setSeasonId(e.target.value)}>
-          <option value="">Все незакрытые сезоны</option>
-          {seasons.data?.items
-            .filter((s) => s.state !== "closed")
-            .map((s) => (
-              <option key={s.season_id} value={s.season_id}>
-                {s.title}
-                {s.is_current ? " · текущий" : ""}
-              </option>
-            ))}
-        </select>
-      </label>
-      <QueryState
-        loading={query.isLoading || seasons.isLoading}
-        error={query.error ?? seasons.error}
-        retry={() => {
-          void query.refetch();
-          void seasons.refetch();
-        }}
-      >
-        {data && (
-          <div className={s.grid}>
-            {showDecisions && <Card title="Требуют решения" icon="pending_actions" tone="peach" wide>
-              <div className={s.decisions}>
-                {showRequests && (
-                  <div>
-                    <p>
-                      Заявки в блоки (не зависят от сезона):{" "}
-                      {data.actionable_requests.length}
-                    </p>
-                    <RouteLink to="/blocks/requests">Рассмотреть заявки</RouteLink>
-                  </div>
-                )}
-                {can(session, "review_registrations") && (
-                  <div>
-                    <p>Регистрации, ожидающие решения: {data.pending_registration_count}</p>
-                    <RouteLink to="/admin/registrations">Рассмотреть регистрации</RouteLink>
-                  </div>
-                )}
-                {unresolved.length > 0 && (
-                  <div>
-                    <p>
-                      Оставшаяся работа в выбранных сезонах: {unresolved.length}
-                    </p>
-                    <RouteLink
-                      to={`/tasks/unresolved${seasonId ? `?season_id=${encodeURIComponent(seasonId)}` : ""}`}
-                    >
-                      Разобрать назначения
-                    </RouteLink>
-                  </div>
-                )}
-              </div>
-              {!data.actionable_requests.length && !unresolved.length && !data.pending_registration_count && (
-                <Empty>В очереди нет решений.</Empty>
-              )}
-            </Card>}
-            <Card title="Мои задачи" icon="task_alt" tone="lilac">
-              <ul className={s.list}>
-                {tasks.map((t) => (
-                  <li key={t.task_id}>
-                    <Badge>{seasonTitle(t.season_id)}</Badge>
-                    <p>
-                      <RouteLink to={getTaskRoute(t.task_id)}>
-                        {t.title}
-                      </RouteLink>
-                    </p>
-                    <span className={s.muted}>
-                      Дедлайн {displayDate(t.deadline_at)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              {!tasks.length && (
-                <Empty>В выбранных сезонах назначенных задач нет.</Empty>
-              )}
-              <RouteLink to="/tasks">Открыть трекер</RouteLink>
-            </Card>
-            <Card title="Ближайшие созвоны" icon="videocam" tone="sky">
-              <ul className={s.list}>
-                {filteredMeetings.map(({ meeting: m, season }) => (
-                  <li key={m.meeting_id}>
-                    <RouteLink
-                      to={`/meetings/${m.owner_kind}/${encodeURIComponent(m.owner_id)}`}
-                    >
-                      {m.title}
-                    </RouteLink>
-                    <p>{displayDate(m.starts_at)}</p>
-                    <Badge>
-                      {season.data
-                        ? seasonTitle(season.data)
-                        : season.isError
-                          ? "Сезон недоступен"
-                          : "Сезон уточняется…"}
-                    </Badge>
-                  </li>
-                ))}
-              </ul>
-              {!filteredMeetings.length && !unknownMeetings && (
-                <Empty>В выбранных сезонах созвонов нет.</Empty>
-              )}
-              {unknownMeetings > 0 && (
-                <p role="status">
-                  Уточняем сезон для {unknownMeetings} созвонов.{" "}
-                  {seasonId &&
-                    "Они появятся после проверки принадлежности к сезону."}{" "}
-                  <button
-                    className={s.button}
-                    onClick={() =>
-                      meetingSeasons
-                        .filter((q) => !q.data)
-                        .forEach((q) => void q.refetch())
-                    }
-                  >
-                    Обновить созвоны
-                  </button>
-                </p>
-              )}
-              <RouteLink to="/calendar">Календарь</RouteLink>
-            </Card>
-            <Card title={can(session, "view_all_areas") ? "Все блоки и мероприятия" : "Мои команды"} icon="groups" tone="mint">
-              <ul className={s.list}>
-                {data.my_blocks.map((b) => (
-                  <li key={b.block_id}>
-                    <RouteLink to={getBlockRoute(b.block_id)}>
-                      {b.name}
-                    </RouteLink>
-                    <Badge>Между сезонами</Badge>
-                  </li>
-                ))}
-                {events.map((e) => (
-                  <li key={e.event_id}>
-                    <RouteLink to={getEventRoute(e.event_id)}>
-                      {e.title}
-                    </RouteLink>{" "}
-                    <Badge>{seasonTitle(e.season_id)}</Badge>
-                  </li>
-                ))}
-              </ul>
-              {!events.length && (
-                <Empty>В выбранных сезонах мероприятий нет.</Empty>
-              )}
-            </Card>
-          </div>
-        )}
+    <Page title="Мои блоки и мероприятия" description="Ваше участие и роли в командах. Блоки не зависят от сезона.">
+      <nav className={p.quickLinks} aria-label="Рабочие разделы">
+        <RouteLink to="/tasks">Мои задачи</RouteLink>
+        <RouteLink to="/calendar">Календарь</RouteLink>
+        <RouteLink to="/blocks/requests">Мои заявки и решения</RouteLink>
+        {can(session, "view_unresolved_assignments") && <RouteLink to="/tasks/unresolved">Назначения к решению</RouteLink>}
+        {can(session, "review_registrations") && <RouteLink to="/admin/registrations">Регистрации</RouteLink>}
+      </nav>
+      <div className={s.filters}>
+        <label className={s.field}>Поиск по моим командам
+          <input value={search} onChange={(event) => setSearch(event.target.value)} />
+        </label>
+        <label className={s.field}>Сезон мероприятий
+          <select value={seasonId} onChange={(event) => setSeasonId(event.target.value)}>
+            <option value="">Все незакрытые сезоны</option>
+            {seasons.data?.items.filter((season) => season.state !== "closed").map((season) =>
+              <option key={season.season_id} value={season.season_id}>{season.title}{season.is_current ? " · текущий" : ""}</option>,
+            )}
+          </select>
+        </label>
+      </div>
+      <QueryState loading={query.isLoading || seasons.isLoading} error={query.error ?? seasons.error} retry={() => { void query.refetch(); void seasons.refetch(); }}>
+        {query.data && <div className={p.columns}>
+          <PersonalTeams key={`blocks-${search}`} title="Мои блоки" teams={blocks.map((block) => ({ id: block.block_id, title: block.name, to: getBlockRoute(block.block_id), roles: block.roles }))}
+            empty={needle ? "Блоков по этому запросу нет." : "Вы пока не участвуете в блоках. Посмотрите раздел «Блоки», чтобы выбрать команду."} />
+          <PersonalTeams key={`events-${search}-${seasonId}`} title="Мои мероприятия" teams={events.map((event) => ({ id: event.event_id, title: event.title, to: getEventRoute(event.event_id), roles: event.roles, detail: seasonTitle(event.season_id) }))}
+            empty={needle ? "Мероприятий по этому запросу нет." : "В выбранных сезонах вы пока не участвуете в мероприятиях."} />
+        </div>}
       </QueryState>
     </Page>
   );
@@ -250,7 +127,9 @@ const KINDS: Record<CalendarItem["kind"], { label: string; tone: Tone }> = {
   meeting: { label: "Созвон", tone: "yellow" },
 };
 function CalendarEntry({ item, title, inDay = false }: { item: CalendarItem; title: string; inDay?: boolean }) {
-  const route = targetRoute(item.target);
+  const route = item.kind === "meeting" && (item.target.kind === "event" || item.target.kind === "subevent")
+    ? getMeetingRoute(item.target.kind, item.target.id)
+    : targetRoute(item.target);
   const kind = KINDS[item.kind];
   return (
     <div className={c.entry} style={toneStyle(kind?.tone)}>
@@ -294,17 +173,12 @@ export function CalendarPage() {
       description="Дедлайны, мероприятия и доступные созвоны. Время указано по МСК."
     >
       <div className={s.filters}>
-        <label className={s.field}>
-          Месяц
-          <input
-            type="month"
-            value={month}
-            onChange={(e) => {
-              if (/^\d{4}-\d{2}$/.test(e.target.value))
-                setMonth(e.target.value);
-            }}
-          />
-        </label>
+        <div className={c.monthNav} role="group" aria-label="Выбор месяца">
+          <button className={s.button} aria-label="Предыдущий месяц" onClick={() => setMonth(shiftMonth(month, -1))}>←</button>
+          <strong className={c.monthTitle} aria-live="polite">{monthTitle(month)}</strong>
+          <button className={s.button} aria-label="Следующий месяц" onClick={() => setMonth(shiftMonth(month, 1))}>→</button>
+          <button className={s.button} onClick={() => setMonth(moscowDay(new Date().toISOString()).slice(0, 7))}>Сегодня</button>
+        </div>
         <label className={s.field}>
           Сезон
           <select
@@ -369,6 +243,7 @@ export function CalendarPage() {
   );
 }
 export function NotificationsPage() {
+  const navigate = useConfirmedNavigation();
   const { perform } = useWorkspaceActions();
   const query = useQuery({
     queryKey: ["notifications"],
@@ -408,7 +283,18 @@ export function NotificationsPage() {
                 </div>
                 <div className={s.row}>
                   {route ? (
-                    <RouteLink to={route}>Перейти к источнику</RouteLink>
+                    <Link className={s.linkButton} to={route}
+                      onClick={(event) => {
+                        const read = () => n.read_at ? Promise.resolve() : perform(() => workspaceApi.read(n.id)).then(() => undefined).catch(() => undefined);
+                        if (event.altKey) return;
+                        if (event.metaKey || event.ctrlKey || event.shiftKey) { void read(); return; }
+                        event.preventDefault();
+                        navigate(route, read);
+                      }}
+                      onAuxClick={(event) => {
+                        if (event.button === 1 && !n.read_at) void perform(() => workspaceApi.read(n.id)).catch(() => undefined);
+                      }}
+                    >Перейти к источнику</Link>
                   ) : (
                     <span className={s.muted}>Источник больше недоступен</span>
                   )}

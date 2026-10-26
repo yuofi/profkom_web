@@ -1,7 +1,22 @@
 import axios from "axios";
 import type { FileRef, UploadIntent, UploadIntentCreate } from "./contract";
-import { idPath, request, normalizeApiError } from "./request";
+import { idPath, request, normalizeApiError, ApiError } from "./request";
 import { normalizeUpload } from "../filePolicy";
+/** Upload failures retain only a stage and safe API diagnostics, never signed addresses. */
+export type UploadStage = "intent" | "transfer" | "complete";
+export class UploadError extends ApiError {
+  constructor(stage: UploadStage, error: unknown) {
+    const original = normalizeApiError(error);
+    const transfer = stage === "transfer";
+    super(
+      transfer ? `Передача файла не завершена${original.status ? ` (HTTP ${original.status})` : ""}` : original.message,
+      original.status,
+      transfer ? "upload_transfer_failed" : original.code,
+      { ...(transfer ? {} : original.fields), upload_stage: stage },
+    );
+    this.name = "UploadError";
+  }
+}
 export const filesApi = {
   intent: async (data: UploadIntentCreate) =>
     request<UploadIntent>("post", "/files/upload-intents", normalizeUpload(data)),
@@ -19,12 +34,17 @@ export const filesApi = {
     onProgress?: (percent: number) => void,
     signal?: AbortSignal,
   ): Promise<FileRef> => {
-    const intent = await filesApi.intent(normalizeUpload({
-      ...owner,
-      name: file.name,
-      mime_type: file.type,
-      size_bytes: file.size,
-    }));
+    let intent: UploadIntent;
+    try {
+      intent = await filesApi.intent(normalizeUpload({
+        ...owner,
+        name: file.name,
+        mime_type: file.type,
+        size_bytes: file.size,
+      }));
+    } catch (error) {
+      throw new UploadError("intent", error);
+    }
     try {
       await axios.request({
         url: intent.upload_url,
@@ -38,9 +58,15 @@ export const filesApi = {
             event.total ? Math.round((event.loaded / event.total) * 100) : 0,
           ),
       });
+    } catch (error) {
+      // A cancelled request is intentional, not a storage failure.
+      if (axios.isCancel(error)) throw normalizeApiError(error);
+      throw new UploadError("transfer", error);
+    }
+    try {
       return await filesApi.complete(intent.file_id);
     } catch (error) {
-      throw normalizeApiError(error);
+      throw new UploadError("complete", error);
     }
   },
 };

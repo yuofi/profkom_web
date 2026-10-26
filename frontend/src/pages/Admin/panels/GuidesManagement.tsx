@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, useMemo, useEffect } from "react";
+import { useId, useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { FormikProvider } from "formik";
+import { useGuardedAction } from "../../../components/Workspace/unsavedChangesHooks";
 import { guidesApi } from "../../../utils/api/guides.api";
 import { blocksApi } from "../../../utils/api/blocks.api";
 import styles from "./BlocksManagement.module.css";
@@ -21,6 +22,8 @@ type SortType = "default" | "alphabetical" | "block";
 
 export const GuidesManagement = () => {
   const me = useMe();
+  const scope = useId();
+  const requestClose = useGuardedAction(scope);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -114,6 +117,7 @@ export const GuidesManagement = () => {
       owner_block: me?.super_user ? "none" : (userMasterBlock || "none"),
     },
     validationSchema: GuideValidationSchema,
+    protectChanges: { enabled: isModalOpen, scope, label: "Сведения о гайде", externalBusy: createMutation.isPending || updateMutation.isPending },
     onSubmit: async (values) => {
       const selectedOwnerBlock = values.owner_block || "none";
       if (editingGuide) {
@@ -142,22 +146,21 @@ export const GuidesManagement = () => {
   useEffect(() => {
     if (isModalOpen) {
       if (editingGuide) {
-        formik.setValues({
+        formik.resetForm({ values: {
           title: editingGuide.title,
           description: editingGuide.description || "",
           owner_block: editingGuide.owner_block || "none",
-        });
+        } });
       } else {
-        formik.resetForm();
-        formik.setValues({
+        formik.resetForm({ values: {
           title: "",
           description: "",
           owner_block: me?.super_user ? "none" : (userMasterBlock || "none"),
-        });
+        } });
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isModalOpen, editingGuide, me, userMasterBlock]);
+  }, [isModalOpen, editingGuide]);
 
   const openCreateModal = () => {
     setEditingGuide(null);
@@ -420,7 +423,7 @@ export const GuidesManagement = () => {
       </div>
 
       {isModalOpen && (
-        <div className={styles.modalOverlay} onClick={closeModal}>
+        <div className={styles.modalOverlay} onClick={() => requestClose(closeModal)}>
           <div
             className={styles.modal}
             role="dialog"
@@ -461,7 +464,7 @@ export const GuidesManagement = () => {
                 {isSuccess && <p role="status" className={s.success}>Успешно сохранено!</p>}
 
                 <div className={styles.modalActions}>
-                  <button type="button" className={s.button} onClick={closeModal}>
+                  <button type="button" className={s.button} onClick={() => requestClose(closeModal)}>
                     Отмена
                   </button>
                   <button

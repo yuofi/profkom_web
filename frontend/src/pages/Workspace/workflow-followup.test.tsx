@@ -210,7 +210,7 @@ it("combines contact category with search/block filters and shows an accurate em
   expect(page.container.textContent).toContain("Подходящих контактов нет");
 });
 
-it("filters meetings and assignment queues by season along with tasks, while keeping global requests explicit", async () => {
+it("filters personal events by season while block membership stays independent", async () => {
   const mock = installMockTransport("chair", { delay: 0 });
   restore = mock.restore;
   page = await mountWorkspace(<DashboardPage />);
@@ -223,11 +223,7 @@ it("filters meetings and assignment queues by season along with tasks, while kee
   )!;
   await change(selector, other.season_id);
   await settle();
-  expect(page.container.textContent).not.toContain(
-    mock.state.meetings[0].title,
-  );
-  expect(page.container.textContent).toContain(
-    "В выбранных сезонах созвонов нет",
-  );
-  expect(page.container.textContent).toContain("не зависят от сезона");
+  expect(page.container.querySelector(`a[href="/events/${mock.state.events[0].event_id}"]`)).toBeNull();
+  expect(page.container.textContent).toContain("В выбранных сезонах вы пока не участвуете в мероприятиях");
+  expect(page.container.textContent).toContain("Блоки не зависят от сезона");
 });

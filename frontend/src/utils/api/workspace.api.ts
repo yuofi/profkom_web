@@ -1,7 +1,8 @@
-import type { Dashboard, CalendarItem, Notification } from "./contract";
+import type { Dashboard, CalendarItem, Notification, Participation } from "./contract";
 import { idPath, allPages as page, request } from "./request";
 export const workspaceApi = {
   dashboard: () => request<Dashboard>("get", "/dashboard"),
+  participation: () => request<Participation>("get", "/participation"),
   calendar: (from: string, to: string) =>
     page<CalendarItem>("/calendar", { from, to, timezone: "Europe/Moscow" }),
   notifications: () => page<Notification>("/notifications"),
