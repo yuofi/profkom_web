@@ -7,6 +7,7 @@ import membership
 import vk_auth  # noqa: F401  (fails at startup without VK_CLIENT_ID in production)
 import contact_rules
 from api_contract import Page, cursor_page, install_errors, legacy
+from errors import InvalidInput
 from validation import Command
 from datetime import datetime, timezone
 from typing import List, Optional, Union, Literal
@@ -559,7 +560,32 @@ class TaskAssigneeIn(Command):
     hours: float = 0.0
 
 
+class TaskQueueCreateIn(Command):
+    name: str = Field(min_length=1,max_length=200)
+    key: str = Field(min_length=1,max_length=32,pattern=r"^[A-Z]+$")
+    scope: dict
+    owner_user_id: int
+    is_private: bool = False
+
+
+class TaskQueuePatchIn(Command):
+    expected_revision: int
+    name: Optional[str] = Field(default=None,min_length=1,max_length=200)
+    owner_user_id: Optional[int] = None
+    is_private: Optional[bool] = None
+
+
+class TaskQueueRequestIn(Command):
+    message: str = Field(default="",max_length=2000)
+
+
+class TaskQueueDecisionIn(Command):
+    expected_revision: int
+
+
 class TaskCreateIn(Command):
+    queue_id: Optional[str] = None
+    parent_task_id: Optional[str] = None
     season_id: str
     scope: dict
     title: str
@@ -570,6 +596,7 @@ class TaskCreateIn(Command):
 
 
 class TaskPatchIn(Command):
+    parent_task_id: Optional[str] = None
     expected_revision: int
     title: Optional[str] = None
     description: Optional[Union[RichTextSchema, str]] = None
@@ -624,6 +651,13 @@ class TaskStatusIn(Command):
     reason: Optional[str] = None
 
 
+class TaskHistoryChangeOut(BaseModel):
+    field: str
+    label: Optional[str] = None
+    before: Union[str,list[str],None] = None
+    after: Union[str,list[str],None] = None
+
+
 class TaskHistoryOut(BaseModel):
     event_id: str
     kind: str
@@ -632,6 +666,7 @@ class TaskHistoryOut(BaseModel):
     description: str
     from_status: Optional[str] = None
     to_status: Optional[str] = None
+    changes: list[TaskHistoryChangeOut] = []
 
 
 class TaskPublicOut(BaseModel):
@@ -643,6 +678,10 @@ class TaskPublicOut(BaseModel):
     deadline_at: str
     assignments: list[AssignmentPublicOut] = []
     assignees: list[UserRefOut] = []
+    queue: Optional[dict] = None
+    parent_task: Optional[dict] = None
+    parent_task_id: Optional[str] = None
+    parent_task_unavailable: bool = False
     task_key: str = ""
     status: str = "assigned"
     created_by: Optional[UserRefOut] = None
@@ -1895,6 +1934,7 @@ def _to_task_public_out(t) -> TaskPublicOut:
         deadline_at=t.deadline_at,
         assignments=[_to_assignment_public_out(a) for a in t.assignments],
         assignees=[_to_user_ref_out(user) for user in t.assignees],
+        queue=t.queue,parent_task=t.parent_task,parent_task_id=t.parent_task_id,parent_task_unavailable=t.parent_task_unavailable,
         task_key=t.task_key, status=t.status,
         created_by=_to_user_ref_out(t.created_by) if t.created_by else None,
         created_at=t.created_at, updated_at=t.updated_at, scope_title=t.scope_title,
@@ -2473,6 +2513,62 @@ def correct_season(payload: SeasonCorrectionIn, cur: User = Depends(get_current_
 #  BE-03: TASKS & ASSIGNMENTS ENDPOINTS
 # ═══════════════════════════════════════════════════════════
 
+@router.get("/task-queues")
+def task_queue_catalog(cursor: Optional[str] = None,cur: User = Depends(get_current_user)):
+    import task_queues
+    return task_queues.catalog(cur.user_id,cursor)
+
+
+@router.post("/task-queues")
+def create_task_queue(payload: TaskQueueCreateIn,cur: User = Depends(get_current_user)):
+    import task_queues
+    return task_queues.create(cur.user_id,**payload.model_dump())
+
+
+@router.get("/task-queues/{queue_id}")
+def get_task_queue(queue_id: str,cur: User = Depends(get_current_user)):
+    import task_queues
+    return task_queues.get(queue_id,cur.user_id)
+
+
+@router.patch("/task-queues/{queue_id}")
+def patch_task_queue(queue_id: str,payload: TaskQueuePatchIn,cur: User = Depends(get_current_user)):
+    import task_queues
+    values=payload.model_dump(exclude_unset=True)
+    if any(v is None for k,v in values.items() if k!='expected_revision'):raise InvalidInput("Queue fields cannot be null")
+    return task_queues.patch(queue_id,cur.user_id,**values)
+
+
+@router.post("/task-queues/{queue_id}/access-requests")
+def request_task_queue_access(queue_id: str,payload: TaskQueueRequestIn,cur: User = Depends(get_current_user)):
+    import task_queues
+    return task_queues.request_access(queue_id,cur.user_id,payload.message)
+
+
+@router.get("/task-queues/{queue_id}/access-requests")
+def list_task_queue_requests(queue_id: str,cursor: Optional[str] = None,cur: User = Depends(get_current_user)):
+    import task_queues
+    return task_queues.requests(queue_id,cur.user_id,cursor)
+
+
+@router.post("/task-queues/{queue_id}/access-requests/{request_id}/approve")
+def approve_task_queue_request(queue_id: str,request_id: str,payload: TaskQueueDecisionIn,cur: User = Depends(get_current_user)):
+    import task_queues
+    return task_queues.decide(queue_id,request_id,cur.user_id,payload.expected_revision,True)
+
+
+@router.post("/task-queues/{queue_id}/access-requests/{request_id}/reject")
+def reject_task_queue_request(queue_id: str,request_id: str,payload: TaskQueueDecisionIn,cur: User = Depends(get_current_user)):
+    import task_queues
+    return task_queues.decide(queue_id,request_id,cur.user_id,payload.expected_revision,False)
+
+
+@router.post("/task-queues/{queue_id}/members/{user_id}/revoke")
+def revoke_task_queue_member(queue_id: str,user_id: int,payload: TaskQueueDecisionIn,cur: User = Depends(get_current_user)):
+    import task_queues
+    return task_queues.revoke(queue_id,user_id,cur.user_id,payload.expected_revision)
+
+
 @router.post("/tasks", response_model=TaskPublicOut)
 def create_task(payload: TaskCreateIn, cur: User = Depends(get_current_user)):
     desc_body = _to_rich_text_body(payload.description)
@@ -2498,13 +2594,14 @@ def create_task(payload: TaskCreateIn, cur: User = Depends(get_current_user)):
         deadline_at=payload.deadline_at,
         criteria_dict=crit_dict,
         assignees=assignees,
-        created_by_user_id=cur.user_id,
+        created_by_user_id=cur.user_id,queue_id=payload.queue_id,parent_task_id=payload.parent_task_id,
     )
     return _to_task_public_out(t)
 
 
 @router.get("/tasks")
 def list_tasks(
+    queue_id: Optional[str] = None,
     season_id: Optional[str] = None,
     scope_kind: Optional[Literal["block", "subevent"]] = None,
     scope_id: Optional[str] = None,
@@ -2521,7 +2618,7 @@ def list_tasks(
     cur: User = Depends(get_current_user),
 ):
     from tracker import task_page
-    return task_page(cur.user_id, season_id=season_id, scope_kind=scope_kind,
+    return task_page(cur.user_id, queue_id=queue_id,season_id=season_id, scope_kind=scope_kind,
         scope_id=scope_id, mine=mine, status=status, q=q, unfinished=unfinished,
         overdue=overdue, assignee_user_id=assignee_user_id, sort=sort, order=order,
         cursor=cursor, limit=limit, converter=_to_task_public_out)
@@ -2543,7 +2640,7 @@ def patch_task(task_id: str, payload: TaskPatchIn, cur: User = Depends(get_curre
         expected_revision=payload.expected_revision,
         title=payload.title,
         description=desc_body,
-        user_id=cur.user_id,
+        user_id=cur.user_id,parent_task_id=payload.parent_task_id,parent_supplied="parent_task_id" in payload.model_fields_set,
     )
     if payload.file_ids is not None:
         from tracker import patch_files

@@ -94,11 +94,54 @@
   color: var(--on-surface-variant);
   margin: 0;
 }
-.hint {
-  color: var(--on-surface-variant);
-  line-height: 1.5;
-}
 @media (max-width: 600px) {
   .tool { min-width: 34px; padding-inline: 7px; }
   .input, .preview { padding: 10px; }
 }
+.toolShell, .menuShell { display: inline-flex; position: relative; }
+.icon { width: 21px; height: 21px; flex: 0 0 auto; }
+.tool .icon + .icon { width: 14px; height: 14px; margin-left: 3px; }
+.tooltip {
+  position: fixed;
+  z-index: 160;
+  max-width: min(300px, calc(100vw - 16px));
+  padding: 8px 12px;
+  border-radius: var(--radius-small);
+  background: var(--inverse-surface);
+  color: var(--inverse-on-surface);
+  box-shadow: var(--elevation-2);
+  font-size: 13px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+.menu {
+  position: fixed;
+  z-index: 150;
+  min-width: min(300px, calc(100vw - 16px));
+  max-width: calc(100vw - 16px);
+  padding: 6px;
+  overflow-y: auto;
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-medium);
+  background: var(--surface-container-high);
+  box-shadow: var(--elevation-3);
+}
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--on-surface);
+  text-align: left;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.menuItem:hover, .menuItem:focus-visible { background: var(--surface-container-highest);outline: 1px solid var(--outline-variant); }
+.menuIcon { display: inline-flex; align-items: center; justify-content: center; width: 26px; flex: 0 0 auto;font-weight: 600; }
+.menuItem kbd { margin-left: auto; padding: 2px 5px; border-radius: 4px; background: var(--surface-container-highest); color: var(--on-surface-variant); white-space: nowrap; font: 12px/1.4 ui-monospace, monospace; }

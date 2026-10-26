@@ -55,3 +55,5 @@ a.person:hover { background: var(--surface-container-highest); color: var(--prim
   .deadline { grid-column: 1 / -1; grid-row: 4; }.deadline::before { content: "Дедлайн · "; opacity: .7; }
   .pagination > div { width: 100%; justify-content: space-between; }.filterChip { font-size: 12px; }
 }
+
+.headerLinks { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

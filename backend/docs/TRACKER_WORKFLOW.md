@@ -107,3 +107,52 @@ literal authentication/OpenAPI inventory in `tests/test_api_contract.py`.
 Old individual `Database` workflow methods are retained as low-level legacy fixture/domain
 helpers. No production route calls them: compatibility URLs must keep using
 `tracker.legacy_command`, including the separate start/resume source-state guards.
+
+## Queues and task hierarchy
+
+TaskQueue is a separate entity within the original block/subevent scope. Multiple
+queues can share that scope. Its unique immutable key contains only uppercase ASCII
+letters; TaskTracker stores a per-queue monotonic number and optional parent UUID.
+Task URLs continue to use the original UUID. The additive migration creates a public
+default queue per existing scope, keeps the old `TASK-N` as a search alias, and does
+not invent creation/update dates or rewrite personal accounting/history. Running the
+migration twice does not change keys, counters, timestamps, outcomes or credits.
+
+Queue access is the intersection of current original scope access and the queue's
+privacy rule. A private queue is readable by its owner and approved active grants.
+Chair/HR/scope-lead roles do not bypass privacy. The approved-account catalogue
+exposes only a locked queue's ID/name/key and the reader's own request status; it
+never exposes scope, owner, task counts or participants. Queue grants never create
+scope membership. Requests, decisions and revocations are durable and notifications
+stay inside the site. An old approval cannot restore a revoked grant. Session
+`access_revision` includes owner/privacy/grant changes, so frontend caches invalidate.
+
+Queue owner transfer requires an active approved scope reader. If an owner later
+leaves the scope or is archived, owner management becomes unavailable; recovery
+needs an explicit ownership policy. There is deliberately no implicit chair bypass.
+
+Task creation validates both scope permissions and queue access for creator and
+assignees. All task/list/unresolved/calendar/dashboard/history/comment/file/
+assessment/season-correction paths repeat that intersection. Ledger/summary numeric
+credits remain complete; projections of inaccessible task credits mask titles,
+assignment IDs and inputs, including XLSX and immutable summary-version reads.
+Groups containing inaccessible task sources use generic scope labels; visible
+summary labels and immutable snapshots keep their original values.
+Season-close blockers continue to block unfinished private work using one generic
+queue-level blocker without task titles or assignee identities. Persisted ledger and
+approved snapshots remain unchanged by these redactions.
+
+Parents may come from any currently readable queue in the same season. Self-links,
+cycles and corrections that would split linked tasks between seasons are rejected
+atomically. If access to a parent is revoked, the child remains readable, but its
+parent ID/title/key are masked, including historical parent diffs. Omitted parent
+fields on an unrelated description edit preserve the stored link.
+
+Current assignees may edit description (including Markdown checkbox toggles) using
+the task revision; title/parent/files keep the original editor permissions. The task
+author and all current assignees may edit comments, in addition to their original
+author. A comment retains its original author; public history records the actual
+editor. Structured public diffs are observed before/after values for title,
+description, deadline, status, comments, attachments, parent and assignee IDs. Old
+activities without saved values return empty changes. Assessment hours, evaluations,
+private reasons and raw audit records are never included in public task history.

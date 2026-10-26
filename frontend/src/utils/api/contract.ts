@@ -181,12 +181,46 @@ export interface Assignment extends Versioned {
 export interface TaskSubmission extends Submission {
   submitted_by?: UserRef | null;
 }
+export interface TaskQueueRef {
+  queue_id: string;
+  name: string;
+  key: string;
+}
+export interface TaskQueue extends TaskQueueRef {
+  access: "granted" | "locked";
+  capabilities: string[];
+  can_request_access: boolean;
+  access_request_status: "pending" | "approved" | "rejected" | null;
+  scope?: ScopeRef;
+  owner?: UserRef | null;
+  is_private?: boolean;
+  revision?: number;
+  created_at?: string | null;
+}
+export interface TaskQueueCatalog extends Page<TaskQueue> {
+  create_scopes?: (ScopeRef & { title: string })[];
+}
+export interface TaskQueueAccessRequest extends Versioned {
+  request_id: string;
+  user: UserRef;
+  message: string;
+  access_granted?: boolean;
+  status: "pending" | "approved" | "rejected" | "revoked";
+  created_at: string;
+}
+export interface TaskHistoryChange {
+  field: string;
+  label?: string;
+  before: string | string[] | null;
+  after: string | string[] | null;
+}
 export interface TaskHistoryEvent {
   event_id: string;
   kind: string;
   created_at: string;
   actor: UserRef | null;
   description: string;
+  changes?: TaskHistoryChange[];
   from_status?: AssignmentStatus | null;
   to_status?: AssignmentStatus | null;
 }
@@ -200,6 +234,10 @@ export interface Task extends Versioned {
   assignments: Assignment[];
   assignees?: UserRef[];
   task_key?: string;
+  queue?: TaskQueueRef;
+  parent_task?: { task_id: string; task_key: string; title: string } | null;
+  parent_task_id?: string | null;
+  parent_task_unavailable?: boolean;
   status?: AssignmentStatus;
   created_by?: UserRef | null;
   created_at?: string;
@@ -490,6 +528,8 @@ export interface ArchivedAccount {
   master_conflicts?: { block_id: string; current_master: UserRef }[];
 }
 export interface TaskCreate {
+  queue_id?: string;
+  parent_task_id?: string | null;
   season_id: string;
   scope: ScopeRef;
   title: string;

@@ -53,3 +53,13 @@
   color: var(--error) !important;
   white-space: pre-wrap;
 }
+.content :global(.task-list-item) { list-style: none; }
+.content input[type="checkbox"] { margin-inline: 0 8px; accent-color: var(--primary); width: 16px; height: 16px; vertical-align: -2px; }
+.content input[type="checkbox"]:not(:disabled) { cursor: pointer; }
+.content input[type="checkbox"]:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+.highlighted :global(.hljs-keyword), .highlighted :global(.hljs-selector-tag), .highlighted :global(.hljs-literal), .highlighted :global(.hljs-built_in), .highlighted :global(.hljs-type) { color: var(--accent-lilac); }
+.highlighted :global(.hljs-string), .highlighted :global(.hljs-attr), .highlighted :global(.hljs-template-variable), .highlighted :global(.hljs-addition) { color: var(--accent-mint); }
+.highlighted :global(.hljs-number), .highlighted :global(.hljs-regexp), .highlighted :global(.hljs-symbol), .highlighted :global(.hljs-meta) { color: var(--accent-peach); }
+.highlighted :global(.hljs-title), .highlighted :global(.hljs-name), .highlighted :global(.hljs-section), .highlighted :global(.hljs-attribute) { color: var(--accent-sky); }
+.highlighted :global(.hljs-comment), .highlighted :global(.hljs-quote) { color: var(--outline-variant); font-style: italic; }
+.highlighted :global(.hljs-deletion) { color: var(--accent-rose); }

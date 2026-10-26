@@ -1,8 +1,9 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { MarkdownContent } from "./MarkdownContent";
 import { Glyph } from "./WorkspaceUI";
 import { editorShortcut } from "../../utils/editorShortcuts";
-import { insertMarkdown } from "../../utils/markdown";
+import { insertMarkdown, transformMarkdownLines } from "../../utils/markdown";
+import { FormattingTool as EditorTool, FormattingMenu, EditorIcon } from "./MarkdownTools";
 import s from "./Workspace.module.css";
 import editor from "./MarkdownEditor.module.css";
 
@@ -17,12 +18,6 @@ export interface MarkdownEditorProps {
   context?: "material" | "comment" | "result" | "task";
   placeholder?: string;
   disabled?: boolean;
-}
-
-function EditorTool({ label, title = label, className = "", disabled, onClick, children }: {
-  label: string; title?: string; className?: string; disabled: boolean; onClick: () => void; children: ReactNode;
-}) {
-  return <button type="button" className={`${editor.tool} ${className}`} aria-label={label} title={title} disabled={disabled} onClick={onClick}>{children}</button>;
 }
 
 /** The source stays Markdown: inserting a command never rewrites the rest of a document. */
@@ -68,16 +63,60 @@ export function MarkdownEditor({
     setPreview(false);
     emit(insertMarkdown(value, old.start, old.end, before + (selected ? "" : fallback), after), old.start + before.length, old.start + before.length + middle.length);
   };
-  const prefixLines = (prefix: (index: number) => string) => {
+  const editLines = (transform: (line: string, index: number) => string) => {
     if (disabled) return;
     const old = snapshot();
-    remember(undo.current, old); redo.current = [];
-    const start = old.start === 0 ? 0 : value.lastIndexOf("\n", old.start - 1) + 1;
-    const endOfLine = value.indexOf("\n", old.end);
-    const end = endOfLine < 0 ? value.length : endOfLine;
-    const content = value.slice(start, end).split("\n").map((line, index) => prefix(index) + line).join("\n");
-    setPreview(false);
-    emit(value.slice(0, start) + content + value.slice(end), start, start + content.length);
+    const next = transformMarkdownLines(value, old.start, old.end, transform);
+    if (next.value === value) { input.current?.focus();input.current?.setSelectionRange(old.start, old.end);return; }
+    remember(undo.current, old);redo.current = [];
+    setPreview(false);emit(next.value, next.start, next.end);
+  };
+  const prefixLines = (prefix: (index: number) => string) => editLines((line, index) => prefix(index) + line);
+  const heading = (level: number) => editLines(line => line.replace(/^([ \t]{0,3})(?:#{1,6}[ \t]+)?(.*)$/, (_all, indent: string, text: string) => indent + "#".repeat(level) + (level ? " " : "") + text));
+  const list = (ordered: boolean) => editLines((line, index) => {
+    const bare = line.replace(/^([ \t]*)(?:[-+*]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?/, "$1");
+    return bare.replace(/^([ \t]*)(.*)$/, (_all, indent: string, text: string) => `${indent}${ordered ? `${index + 1}.` : "-"} ${text}`);
+  });
+  const indent = (out = false) => {
+    const firstIndex = value.slice(0, input.current?.selectionStart ?? value.length).split("\n").length - 1;
+    const lines = value.split("\n");
+    const width = (space: string) => space.replace(/\t/g, "    ").length;
+    const item = (line: string) => {
+      const match = line.match(/^([ \t]*)([-+*]|\d+[.)])([ \t]+)(.*)$/);
+      return match ? { space: match[1], depth: width(match[1]), marker: match[2], gap: match[3], ordered: /^\d/.test(match[2]) } : null;
+    };
+    const first = item(lines[firstIndex]);
+    if (!first) { editLines(line => out ? line.replace(/^(?: {1,2}|\t)/, "") : "  " + line);return; }
+    let predecessor: { index: number; entry: NonNullable<ReturnType<typeof item>> } | null = null;
+    for (let index = firstIndex - 1; index >= 0; index--) {
+      if (!lines[index].trim()) continue;
+      const entry = item(lines[index]);
+      if (entry && (out ? entry.depth < first.depth : entry.depth <= first.depth)) { predecessor = { index, entry };break; }
+      if (!entry && width(lines[index].match(/^[ \t]*/)?.[0] ?? "") <= first.depth) break;
+    }
+    // A first item has no parent to nest under; indenting it would only create a code block.
+    if ((!out && (!predecessor || predecessor.entry.depth !== first.depth)) || (out && first.depth === 0)) {
+      input.current?.focus();return;
+    }
+    const target = out ? predecessor?.entry.depth ?? Math.max(0, first.depth - 4)
+      : predecessor!.entry.depth + Math.max(4, predecessor!.entry.marker.length + width(predecessor!.entry.gap));
+    const delta = target - first.depth;
+    let ordinal = out && predecessor?.entry.ordered ? Number.parseInt(predecessor.entry.marker, 10) + 1 : 1;
+    if (!out && predecessor) {
+      for (let index = predecessor.index + 1; index < firstIndex; index++) {
+        const child = item(lines[index]);
+        if (child?.ordered && child.depth === target) ordinal = Number.parseInt(child.marker, 10) + 1;
+      }
+    }
+    editLines(line => {
+      const current = item(line);
+      let next = line;
+      if (current?.ordered && current.depth === first.depth) next = line.replace(/^(\s*)\d+([.)])/, (_all, space: string, delimiter: string) => `${space}${ordinal++}${delimiter}`);
+      if (delta >= 0) return " ".repeat(delta) + next;
+      let remaining = -delta, index = 0;
+      while (remaining > 0 && /[ \t]/.test(next[index] ?? "")) { remaining -= next[index] === "\t" ? 4 : 1;index++; }
+      return " ".repeat(Math.max(0, -remaining)) + next.slice(index);
+    });
   };
   const insertCodeBlock = () => {
     const selected = value.slice(input.current?.selectionStart ?? value.length, input.current?.selectionEnd ?? value.length);
@@ -102,28 +141,32 @@ export function MarkdownEditor({
   return (
     <div className={editor.editor}>
       <div className={editor.toolbar} role="toolbar" aria-label="Форматирование Markdown">
-        <button type="button" className={editor.tool} aria-label={preview ? "Редактирование" : "Предпросмотр"}
-          aria-pressed={preview} title={preview ? "Вернуться к редактированию" : "Просмотр Markdown"} onClick={togglePreview}>
+        <EditorTool label={preview ? "Редактирование" : "Предпросмотр"} disabled={false}
+          aria-pressed={preview} hint={preview ? "Вернуться к редактированию" : "Просмотр Markdown"} onClick={togglePreview}>
           <Glyph name={preview ? "edit" : "visibility"} />
-        </button>
+        </EditorTool>
         {preview ? <span className={editor.mode}>Просмотр Markdown</span> : <>
           <span className={editor.separator} aria-hidden="true" />
-          {<EditorTool label={"Отменить"} disabled={disabled} onClick={() => restore("undo")} title={"Отменить · Cmd/Ctrl+Z"}>{"↶"}</EditorTool>}
-          {<EditorTool label={"Повторить"} disabled={disabled} onClick={() => restore("redo")} title={"Повторить · Cmd/Ctrl+Shift+Z"}>{"↷"}</EditorTool>}
+          {<EditorTool label={"Отменить"} disabled={disabled} onClick={() => restore("undo")} hint={"Отменить · Cmd/Ctrl+Z"}><EditorIcon name="undo" /></EditorTool>}
+          {<EditorTool label={"Повторить"} disabled={disabled} onClick={() => restore("redo")} hint={"Повторить · Cmd/Ctrl+Shift+Z"}><EditorIcon name="redo" /></EditorTool>}
           <span className={editor.separator} aria-hidden="true" />
-          {<EditorTool label={"Жирный"} disabled={disabled} onClick={() => insert("**", "**")} title={"Жирный · Cmd/Ctrl+B"} className={editor.strong}>{"B"}</EditorTool>}
-          {<EditorTool label={"Курсив"} disabled={disabled} onClick={() => insert("*", "*")} title={"Курсив · Cmd/Ctrl+I"} className={editor.italic}>{"I"}</EditorTool>}
-          {<EditorTool label={"Зачёркнутый"} disabled={disabled} onClick={() => insert("~~", "~~")} title={"Зачёркнутый"} className={editor.strike}>{"S"}</EditorTool>}
-          {<EditorTool label={"Заголовок"} disabled={disabled} onClick={() => prefixLines(() => "## ")}>{"H₂"}</EditorTool>}
+          {<EditorTool label={"Жирный"} disabled={disabled} onClick={() => insert("**", "**")} hint={"Жирный · Cmd/Ctrl+B"} className={editor.strong}>{"B"}</EditorTool>}
+          {<EditorTool label={"Курсив"} disabled={disabled} onClick={() => insert("*", "*")} hint={"Курсив · Cmd/Ctrl+I"} className={editor.italic}>{"I"}</EditorTool>}
+          {<EditorTool label={"Зачёркнутый"} disabled={disabled} onClick={() => insert("~~", "~~")} hint={"Зачёркнутый"} className={editor.strike}>{"S"}</EditorTool>}
+          <FormattingMenu label="Заголовок" disabled={disabled} items={Array.from({ length: 7 }, (_, level) => ({ label: level ? `Заголовок ${level}` : "Текст", icon: level ? `H${level}` : "T", shortcut: `⌥⌘${level}`, action: () => heading(level) }))}><span>H</span></FormattingMenu>
           <span className={editor.separator} aria-hidden="true" />
-          {<EditorTool label={"Маркированный список"} disabled={disabled} onClick={() => prefixLines(() => "- ")}>{"• ≡"}</EditorTool>}
-          {<EditorTool label={"Нумерованный список"} disabled={disabled} onClick={() => prefixLines(index => `${index + 1}. `)}>{"1. ≡"}</EditorTool>}
+          <FormattingMenu label="Список" disabled={disabled} items={[
+            { label: "Маркированный список", icon: <EditorIcon name="bullets" />, shortcut: "⇧⌘L", action: () => list(false) },
+            { label: "Нумерованный список", icon: <EditorIcon name="numbered" />, shortcut: "⇧⌘M", action: () => list(true) },
+            { label: "Увеличить отступ", icon: <EditorIcon name="indent" />, action: () => indent() },
+            { label: "Уменьшить отступ", icon: <EditorIcon name="outdent" />, action: () => indent(true) },
+          ]}><EditorIcon name="bullets" /></FormattingMenu>
           {<EditorTool label={"Чеклист"} disabled={disabled} onClick={() => prefixLines(() => "- [ ] ")}>{"☑"}</EditorTool>}
           {<EditorTool label={"Цитата"} disabled={disabled} onClick={() => prefixLines(() => "> ")}>{"❞"}</EditorTool>}
-          {<EditorTool label={"Ссылка"} disabled={disabled} onClick={() => insert("[", "](https://example.com)")} title={"Ссылка · Cmd/Ctrl+K"}>{<Glyph name="share" />}</EditorTool>}
+          {<EditorTool label={"Ссылка"} disabled={disabled} onClick={() => insert("[", "](https://example.com)")} hint={"Ссылка · Cmd/Ctrl+K"}><EditorIcon name="link" /></EditorTool>}
           {<EditorTool label={"Изображение"} disabled={disabled} onClick={() => insert("![", "](/avatars/default.svg)", "Описание изображения")}>{<Glyph name="image" />}</EditorTool>}
-          {<EditorTool label={"Код в строке"} disabled={disabled} onClick={() => insert("`", "`", "код")} title={"Код в строке"} className={editor.code}>{"‹›"}</EditorTool>}
-          {<EditorTool label={"Блок кода"} disabled={disabled} onClick={insertCodeBlock} title={"Блок кода"} className={editor.code}>{"{ }"}</EditorTool>}
+          {<EditorTool label={"Код в строке"} disabled={disabled} onClick={() => insert("`", "`", "код")} hint={"Код в строке"} className={editor.code}>{"‹›"}</EditorTool>}
+          {<EditorTool label={"Блок кода"} disabled={disabled} onClick={insertCodeBlock} hint={"Блок кода"} className={editor.code}>{"{ }"}</EditorTool>}
           {<EditorTool label={"Таблица"} disabled={disabled} onClick={() => insert("\n\n| Заголовок 1 | Заголовок 2 | Заголовок 3 |\n| --- | --- | --- |\n| Ячейка 1 | Ячейка 2 | Ячейка 3 |\n| Ячейка 4 | Ячейка 5 | Ячейка 6 |\n\n")}>{"▦"}</EditorTool>}
           {<EditorTool label={"Формула в строке"} disabled={disabled} onClick={() => insert("$", "$", "x^2")}>{"𝑥²"}</EditorTool>}
           {<EditorTool label={"Формула отдельным блоком"} disabled={disabled} onClick={() => insert("\n$$\n", "\n$$\n", "\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}")}>{"∑"}</EditorTool>}
@@ -143,6 +186,13 @@ export function MarkdownEditor({
             onChange(event.target.value);
           }}
           onKeyDown={(event) => {
+            const composing = event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229;
+            if (!disabled && !composing) {
+              const digit = event.code?.match(/^Digit([0-6])$/)?.[1] ?? (/^[0-6]$/.test(event.key) ? event.key : undefined);
+              if ((event.metaKey || event.ctrlKey) && event.altKey && digit !== undefined) { event.preventDefault();heading(Number(digit));return; }
+              if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && ["KeyL", "KeyM"].includes(event.code)) { event.preventDefault();list(event.code === "KeyM");return; }
+              if (event.key === "Tab" && (input.current?.selectionStart !== input.current?.selectionEnd || /^[ \t]*(?:[-+*]|\d+[.)])[ \t]+/.test(value.slice(value.lastIndexOf("\n", (input.current?.selectionStart ?? 0) - 1) + 1)))) { event.preventDefault();indent(event.shiftKey);return; }
+            }
             const key = editorShortcut(event);
             if (!key || disabled) return;
             if (["b", "i", "k", "z", "y"].includes(key)) event.preventDefault();
@@ -156,8 +206,7 @@ export function MarkdownEditor({
       {preview && <div className={editor.preview} role="region" aria-label={`Просмотр: ${label}`}>
         {value.trim() ? <MarkdownContent body={value} /> : <p className={editor.empty}>Здесь появится отформатированный текст.</p>}
       </div>}
-      <small className={editor.hint}>Markdown · Cmd/Ctrl+B — жирный, I — курсив, K — ссылка{context === "material" && draft ? ", S — сохранить черновик." : "."}</small>
-      <details className={s.details}>
+      {context !== "comment" && <details className={s.details}>
         <summary>{context === "material" ? "Как оформить материал" : "Справка по Markdown"}</summary>
         <p>Выделите текст и выберите команду. Поддерживаются заголовки, списки, чеклисты, цитаты, ссылки, изображения, блоки кода и таблицы.</p>
         <p>Формула в строке: <code>{"$x^2$"}</code>. Отдельная формула: <code>{"$$\\sum_i x_i$$"}</code> на отдельных строках. Кнопка с глазом показывает текущий текст без отправки.</p>
@@ -165,7 +214,7 @@ export function MarkdownEditor({
           <p>«Галерея» вставляет блок gallery: укажите внутри ссылки на изображения, каждую с новой строки. «Контакт» вставляет блок chip с полями карточки.</p>
           <p>{draft ? "Сохранение обновляет только черновик; публикация выполняется отдельной кнопкой." : "Изменения публикуются только по явному нажатию кнопки публикации."}</p>
         </> : <p>Текст отправляется только по нажатию кнопки отправки или сохранения под редактором.</p>}
-      </details>
+      </details>}
     </div>
   );
 }

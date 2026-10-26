@@ -11,14 +11,17 @@ import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
 import { useGuardedAction } from "../../components/Workspace/unsavedChangesHooks";
 import { text } from "../../components/Workspace/formValues";
 import { tasksApi } from "../../utils/api/tasks.api";
+import { userMessage } from "../../utils/api/messages";
+import { recordOwnChange, useOwnRevisions } from "../../components/Workspace/ownRevisions";
 import { richText, type Assignment, type Comment, type FileRef, type Task } from "../../utils/api/contract";
 import { can } from "../../utils/session";
 import { displayDate } from "../../utils/dates";
-import { getBlockRoute, getSubeventRoute, getSeasonRoute, getTaskRoute, getContactRoute } from "../../utils/routes";
+import { getBlockRoute, getSubeventRoute, getSeasonRoute, getTaskRoute, getContactRoute, getTaskQueueRoute, getTaskQueuesRoute } from "../../utils/routes";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { TaskStatusMenu } from "./TaskStatusMenu";
 import { statusNames, taskStatus } from "./trackerStatus";
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
+import { TrackerTaskHistoryDiff } from "./TrackerTaskHistoryDiff";
 import w from "../../components/Workspace/Workspace.module.css";
 import s from "./TrackerTaskDetail.module.css";
 
@@ -34,8 +37,24 @@ export function TrackerTaskPage() {
   </section>;
 }
 function TaskContent({ task, assignmentId, returnSeason }: { task: Task; assignmentId: string | null; returnSeason: string | null }) {
-  const [editor, setEditor] = useState<"description" | "files" | null>(null);
+  const [editor, setEditor] = useState<"description" | "files" | "parent" | null>(null);
   const [copied, setCopied] = useState("");
+  const [checklistBusy, setChecklistBusy] = useState(false), [checklistError, setChecklistError] = useState("");
+  const checklistSaving = useRef(false);
+  const { perform, refresh } = useWorkspaceActions();const own = useOwnRevisions();
+  const descriptionEditable = can(task, "edit_task_description") || can(task, "edit_task");
+  const updateChecklist = async (body: string) => {
+    if (checklistSaving.current || !descriptionEditable || editor === "description") return;
+    checklistSaving.current = true;setChecklistBusy(true);setChecklistError("");
+    try {
+      await perform(async () => {
+        const saved = await tasksApi.update(task.task_id, { expected_revision: task.revision, description: richText(body) });
+        recordOwnChange(own, `task:${task.task_id}`, task.revision, saved.revision);
+        own.setQueryData(["tasks", task.task_id], saved);return saved;
+      });
+    } catch (failure) { setChecklistError(userMessage(failure));await refresh(); }
+    finally { checklistSaving.current = false;setChecklistBusy(false); }
+  };
   const [accounting, setAccounting] = useState(false);
   const [parametersOpen, setParametersOpen] = useState(() => typeof window === "undefined" || typeof window.matchMedia !== "function" || window.matchMedia("(min-width: 901px)").matches);
   const accountingRef = useRef<HTMLDetailsElement>(null);
@@ -62,7 +81,7 @@ function TaskContent({ task, assignmentId, returnSeason }: { task: Task; assignm
   const hasAccounting = task.assignments.some(item => can(item, "view_assessment_inputs")) || can(task, "view_assessment_inputs");
   return <>
     <header className={s.header}>
-      <div className={s.breadcrumbs} aria-label="Путь задачи"><Link to="/tasks">Задачи</Link><span>›</span><Link to={scopeRoute}>{task.scope_title ?? "Команда задачи"}</Link><span>›</span><span>{task.task_key ?? "Задача"}</span></div>
+      <div className={s.breadcrumbs} aria-label="Путь задачи"><Link to={task.queue ? getTaskQueueRoute(task.queue.queue_id) : getTaskQueuesRoute()}>{task.queue?.name ?? "Очереди задач"}</Link><span>›</span>{task.parent_task && <><Link to={getTaskRoute(task.parent_task.task_id)}>{task.parent_task.task_key} · {task.parent_task.title}</Link><span>›</span></>}<span>{task.task_key ?? "Задача"}</span></div>
       <div className={s.titleRow}><h1>{task.title}</h1><div className={s.headerTools}>
         <button type="button" className={s.iconButton} aria-label="Скопировать ссылку на задачу" title="Скопировать ссылку" onClick={async () => {
           try { await navigator.clipboard.writeText(new URL(getTaskRoute(task.task_id), window.location.origin).href);setCopied("Ссылка скопирована"); }
@@ -80,13 +99,14 @@ function TaskContent({ task, assignmentId, returnSeason }: { task: Task; assignm
         {reviewNotes.length > 0 && <section className={s.reviewNote} aria-label="Комментарий руководителя"><h2>Комментарий руководителя</h2>{reviewNotes.map(note => <MarkdownContent key={note} body={note} />)}</section>}
         {task.legacy_mixed_statuses && <p className={w.warning}>У этой задачи сохранены разные исторические результаты исполнителей. Они остаются в учёте; общий статус не заменяет прежние решения.</p>}
         <section className={s.description} aria-label="Описание задачи">
-          <div className={s.sectionHeading}><h2>Описание</h2>{can(task, "edit_task") && <button type="button" className={s.subtleButton} onClick={() => setEditor("description")}><Glyph name="edit" />Редактировать</button>}</div>
-          {task.description.body ? <MarkdownContent body={task.description.body} /> : <p className={w.muted}>Описание пока не добавлено.</p>}
+          <div className={s.sectionHeading}><h2>Описание</h2>{descriptionEditable && <button type="button" className={s.subtleButton} onClick={() => setEditor("description")}><Glyph name="edit" />Редактировать</button>}</div>
+          {task.description.body ? <MarkdownContent body={task.description.body} onChecklistChange={descriptionEditable ? body => { void updateChecklist(body); } : undefined} checklistDisabled={checklistBusy || editor === "description"} /> : <p className={w.muted}>Описание пока не добавлено.</p>}
+          {checklistBusy && <p role="status" className={w.muted}>Сохраняем отметку…</p>}{checklistError && <p role="alert" className={w.error}>{checklistError} <button type="button" className={s.subtleButton} onClick={() => { void refresh(); }}>Обновить описание</button></p>}
           <div className={s.inlineActions}>{can(task, "attach_task_file") && <button type="button" className={s.subtleButton} onClick={() => setEditor("files")}><Glyph name="attach_file" />Прикрепить файлы</button>}
-            <DeferredButton icon="add" label="Связь с задачей" /><DeferredButton icon="fact_check" label="Чеклист" /></div>
+            <DeferredButton icon="add" label="Связь с задачей" /></div>
           {(task.attachments?.length ?? 0) > 0 && <div className={s.descriptionFiles}><Attachments files={task.attachments ?? []} /></div>}
         </section>
-        <section className={s.related} aria-label="Связанные задачи"><div className={s.sectionHeading}><h2>Связанные задачи</h2><DeferredButton icon="add" label="Добавить связь" /></div><div className={s.relatedRow}><span>Родительская задача</span><span className={s.planned}>Запланировано</span></div><div className={s.relatedRow}><span>Связи с другими задачами</span><span className={s.planned}>Запланировано</span></div></section>
+        <section className={s.related} aria-label="Связанные задачи"><div className={s.sectionHeading}><h2>Связанные задачи</h2><DeferredButton icon="add" label="Добавить связь" /></div><div className={s.relatedRow}><span>Родительская задача</span><div className={s.parentValue}>{task.parent_task ? <Link to={getTaskRoute(task.parent_task.task_id)}>{task.parent_task.task_key} · {task.parent_task.title}</Link> : <span className={w.muted}>{task.parent_task_unavailable ? "Недоступна" : "Не выбрана"}</span>}{can(task, "edit_task") && <button type="button" className={s.subtleButton} onClick={() => setEditor("parent")}>Изменить родительскую задачу</button>}</div></div><div className={s.relatedRow}><span>Связи с другими задачами</span><span className={s.planned}>Запланировано</span></div></section>
         <TaskActivity task={task} />
         {assignmentId && !task.assignments.some(item => item.assignment_id === assignmentId) && <Empty>Назначение больше недоступно.</Empty>}
         {(hasAccounting || assignmentId) && <details ref={accountingRef} className={s.accounting} open={accounting || !!assignmentId} onToggle={event => setAccounting(event.currentTarget.open)}>
@@ -101,6 +121,7 @@ function TaskContent({ task, assignmentId, returnSeason }: { task: Task; assignm
         <div><dt>Тип</dt><dd><DeferredValue label="Тип задачи" /></dd></div>
         <div><dt>Приоритет</dt><dd><DeferredValue label="Приоритет задачи" /></dd></div>
         <div><dt>Дедлайн, МСК</dt><dd><time dateTime={task.deadline_at} className={new Date(task.deadline_at).getTime() < now && !["accepted", "not_completed", "cancelled"].includes(taskStatus(task)) ? s.overdue : undefined}>{displayDate(task.deadline_at)}</time>{datesEditable && <button type="button" className={s.deadlineEdit} onClick={editDeadline}>Изменить дедлайн</button>}</dd></div>
+        <div><dt>Очередь</dt><dd>{task.queue ? <Link to={getTaskQueueRoute(task.queue.queue_id)}>{task.queue.name}</Link> : <Link to={getTaskQueuesRoute()}>Открыть очереди</Link>}</dd></div>
         <div><dt>Команда</dt><dd><Link to={scopeRoute}>{task.scope_title ?? "Открыть команду"}</Link></dd></div>
         <div><dt>Сезон</dt><dd><Link to={getSeasonRoute(task.season_id)}>Открыть сезон</Link></dd></div>
         <div><dt>Цели</dt><dd><DeferredValue label="Цели задачи" /></dd></div>
@@ -112,7 +133,7 @@ function TaskContent({ task, assignmentId, returnSeason }: { task: Task; assignm
         <div><dt>Наблюдатели</dt><dd><DeferredValue label="Наблюдатели задачи" /></dd></div>
       </dl></details></aside>
     </div>
-    {editor && (editor === "description" ? can(task, "edit_task") : can(task, "attach_task_file")) && <UnsavedChangesScope>{editor === "description" ? <DescriptionEditor task={task} onClose={() => setEditor(null)} /> : <TaskFilesEditor task={task} onClose={() => setEditor(null)} />}</UnsavedChangesScope>}
+    {editor && (editor === "description" ? descriptionEditable : editor === "parent" ? can(task, "edit_task") : can(task, "attach_task_file")) && <UnsavedChangesScope>{editor === "description" ? <DescriptionEditor task={task} onClose={() => setEditor(null)} /> : editor === "parent" ? <ParentTaskEditor task={task} onClose={() => setEditor(null)} /> : <TaskFilesEditor task={task} onClose={() => setEditor(null)} />}</UnsavedChangesScope>}
   </>;
 }
 function PersonChip({ user }: { user: { user_id: number | null; display_name: string } }) {
@@ -125,12 +146,34 @@ function DeferredValue({ label }: { label: string }) { return <span className={s
 
 function DescriptionEditor({ task, onClose }: { task: Task; onClose: () => void }) {
   const [body, setBody] = useState(task.description.body);const [busy, setBusy] = useState(false);const { perform, refresh } = useWorkspaceActions();
-  return <TrackerTaskDialog title="Редактировать задачу" onClose={onClose} busy={busy}><ActionForm fields={[{ name: "title", label: "Название задачи", value: task.title, required: true }]} revision={task.revision} record={`task:${task.task_id}`} onConflict={refresh}
+  return <TrackerTaskDialog title="Редактировать задачу" onClose={onClose} busy={busy}><ActionForm fields={can(task, "edit_task") ? [{ name: "title", label: "Название задачи", value: task.title, required: true }] : []} revision={task.revision} record={`task:${task.task_id}`} onConflict={refresh}
     externalState={body} savedExternalState={task.description.body} onReplaceWithSaved={() => setBody(task.description.body)}
     savedDetails={<div><p>Сохранённое название: {task.title}</p><MarkdownContent body={task.description.body} /></div>} submitLabel="Сохранить описание"
-    onSubmit={async (values, expectedRevision) => { setBusy(true);try { const saved = await perform(() => tasksApi.update(task.task_id, { expected_revision: expectedRevision!, title: text(values, "title"), description: richText(body) }));return saved; } finally { setBusy(false); } }}>
+    onSubmit={async (values, expectedRevision) => { setBusy(true);try { const saved = await perform(() => tasksApi.update(task.task_id, { expected_revision: expectedRevision!, ...(can(task, "edit_task") ? { title: text(values, "title") } : {}), description: richText(body) }));return saved; } finally { setBusy(false); } }}>
       <MarkdownEditor value={body} onChange={setBody} label="Описание задачи в Markdown" name="body" rows={12} context="task" />
     </ActionForm></TrackerTaskDialog>;
+}
+function ParentTaskEditor({ task, onClose }: { task: Task; onClose: () => void }) {
+  const [search, setSearch] = useState("");
+  const [parentId, setParentId] = useState(task.parent_task?.task_id ?? ""), [busy, setBusy] = useState(false);
+  const { perform, refresh } = useWorkspaceActions();
+  const candidates = useQuery({ queryKey: ["tasks", "parent-candidates", task.task_id, task.season_id, search], queryFn: () => tasksApi.listPage({ season_id: task.season_id, q: search || undefined, limit: 100 }) });
+  const selectedParent = useQuery({ queryKey: ["tasks", parentId], queryFn: () => tasksApi.get(parentId), enabled: !!parentId });
+  const options = (candidates.data?.items ?? []).filter(candidate => candidate.task_id !== task.task_id && candidate.season_id === task.season_id).map(candidate => ({ task_id: candidate.task_id, task_key: candidate.task_key, title: candidate.title, queue: candidate.queue }));
+  if (selectedParent.data?.task_id === parentId && selectedParent.data.season_id === task.season_id && selectedParent.data.task_id !== task.task_id && !options.some(candidate => candidate.task_id === parentId)) options.unshift({ task_id: selectedParent.data.task_id, task_key: selectedParent.data.task_key, title: selectedParent.data.title, queue: selectedParent.data.queue });
+  if (task.parent_task && !options.some(candidate => candidate.task_id === task.parent_task!.task_id)) options.unshift({ ...task.parent_task, queue: undefined });
+  return <TrackerTaskDialog title="Родительская задача" onClose={onClose} busy={busy}>
+    <p className={w.muted}>Можно выбрать доступную задачу из любой очереди этого сезона. Одна задача не может быть своим родителем или потомком.</p>
+    <ActionForm fields={[]} revision={task.revision} record={`task:${task.task_id}`} onConflict={refresh} externalState={parentId} savedExternalState={task.parent_task?.task_id ?? ""}
+      onReplaceWithSaved={() => setParentId(task.parent_task?.task_id ?? "")} savedDetails={<p>Сохранённая родительская задача: {task.parent_task ? `${task.parent_task.task_key} · ${task.parent_task.title}` : task.parent_task_unavailable ? "Недоступна" : "Не выбрана"}</p>} submitLabel="Сохранить родительскую задачу"
+      onSubmit={async (_values, expectedRevision) => { setBusy(true);try { return await perform(() => tasksApi.update(task.task_id, { expected_revision: expectedRevision!, parent_task_id: parentId || null })); } finally { setBusy(false); } }}>
+      <label className={s.parentField}>Поиск родительской задачи<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Название или ключ задачи" /></label>
+      <QueryState loading={candidates.isLoading} error={candidates.error} keepDataOnError={!!candidates.data} retry={() => { void candidates.refetch(); }}>
+        <label className={s.parentField}>Родительская задача<select value={parentId} onChange={event => setParentId(event.target.value)}><option value="">Без родительской задачи</option>{options.map(candidate => <option value={candidate.task_id} key={candidate.task_id}>{candidate.task_key ?? "Задача"} · {candidate.title}{candidate.queue ? ` · ${candidate.queue.name}` : ""}</option>)}</select></label>
+        {candidates.data && (candidates.data.next_cursor || (candidates.data.total ?? 0) > candidates.data.items.length) && <p className={w.muted}>Загружено задач: {candidates.data.items.length}{candidates.data.total !== undefined ? ` из ${candidates.data.total}` : ""}. Уточните поиск, чтобы найти другую задачу.</p>}
+      </QueryState>
+    </ActionForm>
+  </TrackerTaskDialog>;
 }
 function TaskFilesEditor({ task, onClose }: { task: Task; onClose: () => void }) {
   const [files, setFiles] = useState<FileRef[]>(task.attachments ?? []), [uploading, setUploading] = useState(false), [busy, setBusy] = useState(false);const { perform, refresh } = useWorkspaceActions();
@@ -204,7 +247,7 @@ function TaskAttachments({ task, order }: { task: Task; order: "newest" | "oldes
 function TaskHistory({ task, order }: { task: Task; order: "newest" | "oldest" }) {
   const query = useQuery({ queryKey: ["tasks", task.task_id, "history"], queryFn: () => tasksApi.history(task.task_id) });
   const items = [...(query.data?.items ?? [])].sort((a, b) => (order === "newest" ? -1 : 1) * (a.created_at.localeCompare(b.created_at) || a.event_id.localeCompare(b.event_id)));
-  return <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!query.data}><ol className={s.history}>{items.map(item => <li key={item.event_id}><div className={s.historyMarker}><Glyph name="sync" /></div><div><p>{item.actor && <PersonChip user={item.actor} />}<time dateTime={item.created_at}>{displayDate(item.created_at)}</time></p><p>{item.description}</p>{item.to_status && <span className={w.muted}>{item.from_status ? `${statusNames[item.from_status]} → ` : ""}{statusNames[item.to_status]}</span>}</div></li>)}</ol>{!items.length && <Empty>История появится по мере работы над задачей.</Empty>}</QueryState>;
+  return <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!query.data}><ol className={s.history}>{items.map(item => <li key={item.event_id}><div className={s.historyMarker}><Glyph name="sync" /></div><div><p>{item.actor && <PersonChip user={item.actor} />}<time dateTime={item.created_at}>{displayDate(item.created_at)}</time></p><p>{item.description}</p>{item.changes && item.changes.length > 0 && <TrackerTaskHistoryDiff changes={item.changes} />}{!item.changes?.some(change => change.field === "status") && item.to_status && <span className={w.muted}>{item.from_status ? `${statusNames[item.from_status]} → ` : ""}{statusNames[item.to_status]}</span>}</div></li>)}</ol>{!items.length && <Empty>История появится по мере работы над задачей.</Empty>}</QueryState>;
 }
 function AssignmentAccounting({ assignment, focused }: { assignment: Assignment; focused: boolean }) {
   const ref = useRef<HTMLDivElement>(null);

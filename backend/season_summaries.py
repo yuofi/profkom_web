@@ -254,6 +254,8 @@ def correct(season_id, expected_version, reason, changes, uid):
                 obj = s.get(cls, c["id"])
                 if not obj:
                     raise NotFound("Correction object not found")
+                task=s.get(TaskORM,obj.task_id) if cls is AssignmentORM else obj if cls is TaskORM else None
+                if task and not db.can_read_task(uid,task,s):raise NotFound("Correction object not found")
                 sid = (
                     s.get(TaskORM, obj.task_id).season_id
                     if cls is AssignmentORM
@@ -368,13 +370,14 @@ def register_routes(router):
         if not access.allowed(uid, "summary.view"):
             raise HTTPException(403, "Summary reader required")
 
-    def metadata(row):
+    def metadata(row,uid):
         with db._session() as s:
             author = (
                 db._get_user_ref(s, row.changed_by_user_id)
                 if row.changed_by_user_id
                 else None
             )
+            hidden=any(not db.can_read_task(uid,task,s) for task in s.query(TaskORM).filter_by(season_id=row.season_id))
             return dict(
                 version=row.version,
                 changed_by=(
@@ -383,7 +386,7 @@ def register_routes(router):
                     else dict(user_id=None, display_name="Система", avatar_url=None)
                 ),
                 changed_at=row.created_at,
-                reason=row.reason,
+                reason="Подробности изменения закрытой очереди скрыты" if hidden else row.reason,
                 previous_summary_version=row.previous_summary_version,
             )
 
@@ -393,7 +396,7 @@ def register_routes(router):
         with db._session() as s:
             return Page(
                 items=[
-                    metadata(r)
+                    metadata(r,cur.user_id)
                     for r in s.query(SummaryVersionORM)
                     .filter_by(season_id=season_id)
                     .order_by(SummaryVersionORM.version.desc())
@@ -403,6 +406,7 @@ def register_routes(router):
     @router.get("/seasons/{season_id}/summary/versions/{version}")
     def version(season_id: str, version: int, cur: User = Depends(get_current_user)):
         from directory import current_avatars
+        from task_queues import mask_snapshot_summary,mask_snapshot_contributions
 
         require_reader(cur.user_id)
         with db._session() as s:
@@ -414,9 +418,9 @@ def register_routes(router):
             if not r:
                 raise HTTPException(404, "Summary version not found")
             return dict(
-                **metadata(r),
+                **metadata(r,cur.user_id),
                 # Saved as they were, but with today's avatars (A-MAT-16).
-                summary=current_avatars(json.loads(r.summary_json)),
-                contributions=current_avatars(json.loads(r.contributions_json)),
+                summary=current_avatars(mask_snapshot_summary(s,json.loads(r.summary_json),season_id,cur.user_id)),
+                contributions=current_avatars(mask_snapshot_contributions(s,json.loads(r.contributions_json),cur.user_id)),
                 master_bonuses=current_avatars(json.loads(r.bonuses_json))
             )

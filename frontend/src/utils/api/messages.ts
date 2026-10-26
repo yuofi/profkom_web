@@ -9,6 +9,8 @@ import type { SeasonBlocker } from "./contract";
 export const ERROR_TEXTS: Record<string, string> = {
   unauthenticated: "Сессия закончилась. Войдите снова.",
   forbidden: "Нет доступа к этому действию. Возможно, роль снята.",
+  queue_access_required: "Для этой очереди нужен доступ. Можно отправить запрос её владельцу.",
+  queue_key_conflict: "Этот ключ очереди уже занят. Выберите другой ключ.",
   not_found: "Объект не найден или недоступен.",
   conflict: "Запись изменилась. Обновите данные и проверьте ввод.",
   revision_conflict: "Запись изменилась. Обновите данные и проверьте ввод.",

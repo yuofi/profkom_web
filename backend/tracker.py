@@ -61,24 +61,28 @@ def status_values(states):
         if status in states:return status,True
 
 
-def metadata(session, task):
+def metadata(session, task, queue=None):
     rows=_rows(session,TaskTrackerORM,task_id=task.task_id)
     if rows:return rows[0]
     status,mixed=status_of(participants(session,task.task_id))
     item=TaskTrackerORM(task_id=task.task_id,status=status,legacy_mixed_statuses=mixed,
         public_statuses_json=json.dumps({a.assignment_id:(a.status or "assigned") for a in _rows(session,AssignmentORM,task_id=task.task_id)}),public_updated_at=None,files_json="[]")
     session.add(item)
+    from task_queues import bind_task
+    bind_task(session,task,item,queue)
     return item
 
 
-def activity(session, task, kind, actor, description, *, at=None, before=None, after=None):
+def activity(session, task, kind, actor, description, *, at=None, before=None, after=None, changes=None):
     at=at or now();meta=metadata(session,task);meta.public_updated_at=at
     session.add(TaskActivityORM(event_id="activity-"+str(uuid.uuid4()),task_id=task.task_id,
-        kind=kind,actor_user_id=actor,created_at=at,description=description,from_status=before,to_status=after))
+        kind=kind,actor_user_id=actor,created_at=at,description=description,from_status=before,to_status=after,changes_json=json.dumps(changes or ([dict(field="status",label="Статус",before=before,after=after)] if before is not None or after is not None else []),ensure_ascii=False)))
 
 
 def seed_existing():
     """Repeatable migration adds numbers only; no assignments, scores or dates are guessed."""
+    from task_queues import migrate_columns
+    migrate_columns()
     from sqlalchemy import text
     with engine.begin() as connection:
         names={row[1] for row in connection.execute(text("pragma table_info(task_tracker)"))}
@@ -89,6 +93,8 @@ def seed_existing():
             if not json.loads(meta.public_statuses_json or "{}"):
                 meta.public_statuses_json=json.dumps({a.assignment_id:(a.status or "assigned") for a in _rows(session,AssignmentORM,task_id=task.task_id)})
         session.commit()
+    from task_queues import migrate
+    migrate()
 
 
 def install_activity_hooks():
@@ -98,21 +104,41 @@ def install_activity_hooks():
     def public_changes(session,_context,_instances):
         if session.info.get("tracker_batch"):return
         from access import actor_id
-        actor=actor_id.get()
+        actor=actor_id.get() or session.info.get("tracker_actor")
         for obj in list(session.new):
             if isinstance(obj,TaskORM):
                 metadata(session,obj)
-                activity(session,obj,"task_created",obj.created_by_user_id,"Задача создана",at=obj.created_at)
+                activity(session,obj,"task_created",obj.created_by_user_id,"Задача создана",at=obj.created_at,
+                    changes=[dict(field="title",label="Название",before=None,after=obj.title),
+                        dict(field="description",label="Описание",before=None,after=json.loads(obj.description_json or '{}').get('body','')),
+                        dict(field="deadline_at",label="Срок",before=None,after=obj.deadline_at),
+                        dict(field="status",label="Статус",before=None,after=metadata(session,obj).status)])
             elif isinstance(obj,CommentORM):
                 task=session.get(TaskORM,obj.task_id)
-                if task:activity(session,task,"comment_added",obj.author_user_id,"Добавлен комментарий",at=obj.created_at)
+                if task:activity(session,task,"comment_added",obj.author_user_id,"Добавлен комментарий",at=obj.created_at,
+                    changes=[dict(field="comment",label="Комментарий",before=None,after=json.loads(obj.content_json or '{}').get('body',''))])
         for obj in list(session.dirty):
             if isinstance(obj,TaskORM):
                 fields=[name for name in ("title","description_json","deadline_at") if inspect(obj).attrs[name].history.has_changes()]
-                if fields:activity(session,obj,"task_updated",actor,"Изменены параметры задачи")
+                if fields:
+                    changes=[]
+                    for name in fields:
+                        hist=inspect(obj).attrs[name].history
+                        before=hist.deleted[0] if hist.deleted else None
+                        after=hist.added[0] if hist.added else getattr(obj,name)
+                        field,label={"title":("title","Название"),"description_json":("description","Описание"),"deadline_at":("deadline_at","Срок")}[name]
+                        if name=="description_json":
+                            before=json.loads(before or '{}').get('body','');after=json.loads(after or '{}').get('body','')
+                        changes.append(dict(field=field,label=label,before=before,after=after))
+                    activity(session,obj,"task_updated",actor,"Изменены параметры задачи",changes=changes)
             elif isinstance(obj,CommentORM) and inspect(obj).attrs.content_json.history.has_changes():
                 task=session.get(TaskORM,obj.task_id)
-                if task:activity(session,task,"comment_edited",obj.author_user_id,"Комментарий отредактирован",at=obj.updated_at)
+                if task:
+                    hist=inspect(obj).attrs.content_json.history
+                    before=json.loads(hist.deleted[0] if hist.deleted else '{}').get('body','')
+                    after=json.loads(obj.content_json).get('body','')
+                    activity(session,task,"comment_edited",actor,"Комментарий отредактирован",at=obj.updated_at,
+                        changes=[dict(field="comment",label="Комментарий",before=before,after=after)])
             elif isinstance(obj,AssignmentORM) and inspect(obj).attrs.status.history.has_changes():
                 private = any(isinstance(audit,AuditLogORM) and audit.target_kind=="assignment" and audit.target_id==obj.assignment_id and "hours" in json.loads(audit.old_values_json or "{}") for audit in session.new)
                 reassigned=any(isinstance(audit,AuditLogORM) and audit.target_kind=="assignment" and audit.target_id==obj.assignment_id and "new_assignment_id" in json.loads(audit.new_values_json or "{}") for audit in session.new)
@@ -141,7 +167,7 @@ def _file_refs(session, ids):
 def can_work(session,task,uid):
     user=session.get(UserORM,uid)
     return bool(user and not user.banned and user.account_state=="active" and
-        db.can_view_scope(uid,task.scope_kind,task.scope_id) and
+        db.can_read_task(uid,task,session) and
         any(a.assignee_user_id==uid for a in participants(session,task.task_id)))
 
 
@@ -155,7 +181,17 @@ def _submission_dict(session,row,shared=True):
 def enrich_task(session,task,result,uid):
     meta=metadata(session,task)
     if meta.task_number is None:session.flush()
-    result.task_key="TASK-"+str(meta.task_number)
+    from task_queues import task_queue,queue_ref,task_read
+    queue=task_queue(session,task)
+    result.queue=queue_ref(queue) if queue else None
+    result.task_key=queue.key+"-"+str(meta.queue_number) if queue and meta.queue_number else "TASK-"+str(meta.task_number)
+    result.legacy_task_key=meta.legacy_task_key
+    parent=session.get(TaskORM,meta.parent_task_id) if meta.parent_task_id else None
+    result.parent_task_unavailable=bool(meta.parent_task_id and (not parent or not task_read(session,parent,uid)))
+    result.parent_task_id=None if result.parent_task_unavailable else meta.parent_task_id
+    if parent and not result.parent_task_unavailable:
+        parent_meta=metadata(session,parent);parent_queue=task_queue(session,parent)
+        result.parent_task=dict(task_id=parent.task_id,task_key=parent_queue.key+"-"+str(parent_meta.queue_number) if parent_queue else "TASK-"+str(parent_meta.task_number),title=parent.title)
     result.status=meta.status
     result.legacy_status_conflict=meta.legacy_mixed_statuses
     current_ids={a.assignment_id for a in participants(session,task.task_id)}
@@ -194,12 +230,43 @@ def enrich_task(session,task,result,uid):
             if result.status in {"assigned","in_progress","needs_revision"}:result.capabilities.append("request_task_help")
             if result.status in {"assigned","in_progress","help_required","needs_revision"}:result.capabilities.append("submit_task_result")
         result.capabilities+=_task_caps(task,uid,{"review_task":"task.review","attach_task_file":"task.edit"})
+        if can_edit_description(session,task,uid):result.capabilities.append("edit_task_description")
     return result
+
+
+def can_edit_description(session,task,uid):
+    import access
+    if not db.can_read_task(uid,task,session):return False
+    state=session.get(SeasonORM,task.season_id).state
+    return access.allowed(uid,"task.edit",task.scope_kind,task.scope_id,state=state) or (state!="closed" and can_work(session,task,uid))
+
+
+def can_edit_comment(session,comment,uid):
+    task=session.get(TaskORM,comment.task_id)
+    return bool(task and db.can_read_task(uid,task,session) and (comment.author_user_id==uid or task.created_by_user_id==uid or can_work(session,task,uid)))
+
+
+def public_changes(session,event,uid):
+    from task_queues import task_read,task_queue
+    allowed={"title","description","deadline_at","status","comment","attachments","parent_task_id","assignees"}
+    changes=[]
+    for raw in json.loads(event.changes_json or "[]"):
+        if raw.get("field") not in allowed:continue
+        item={k:raw[k] for k in ("field","label","before","after") if k in raw}
+        if item['field']=='parent_task_id':
+            for side in ('before','after'):
+                parent=session.get(TaskORM,item.get(side)) if item.get(side) else None
+                if parent and task_read(session,parent,uid):
+                    q=task_queue(session,parent);m=metadata(session,parent)
+                    item[side]=(q.key+'-'+str(m.queue_number)) if q else 'TASK-'+str(m.task_number)
+                elif item.get(side):item[side]='Недоступная задача'
+        changes.append(item)
+    return changes
 
 
 def visible_task(session,task_id,uid):
     task=session.get(TaskORM,task_id)
-    if not task or not db.can_view_scope(uid,task.scope_kind,task.scope_id):raise NotFound("Task not found")
+    if not task or not db.can_read_task(uid,task,session):raise NotFound("Task not found")
     return task
 
 
@@ -210,10 +277,10 @@ def history(task_id,uid):
         result=[]
         if not any(e.kind=="task_created" for e in events):
             ref=_user_to_ref_dc(session.get(UserORM,task.created_by_user_id))
-            result.append(dict(event_id="created:"+task_id,kind="task_created",created_at=task.created_at,actor=asdict(ref) if ref else None,description="Задача создана",from_status=None,to_status=None))
+            result.append(dict(event_id="created:"+task_id,kind="task_created",created_at=task.created_at,actor=asdict(ref) if ref else None,description="Задача создана",from_status=None,to_status=None,changes=[]))
         for row in events:
             ref=_user_to_ref_dc(session.get(UserORM,row.actor_user_id)) if row.actor_user_id else None
-            result.append(dict(event_id=row.event_id,kind=row.kind,created_at=row.created_at,actor=asdict(ref) if ref else None,description=row.description,from_status=row.from_status,to_status=row.to_status))
+            result.append(dict(event_id=row.event_id,kind=row.kind,created_at=row.created_at,actor=asdict(ref) if ref else None,description=row.description,from_status=row.from_status,to_status=row.to_status,changes=public_changes(session,row,uid)))
         return result
 
 
@@ -228,7 +295,7 @@ def patch_files(task_id,uid,expected_revision,file_ids,*,increment_revision=True
         meta=metadata(session,task);before=json.loads(meta.files_json or "[]")
         meta.files_json=json.dumps(file_ids)
         if increment_revision:task.revision+=1
-        if before!=file_ids:activity(session,task,"attachments_updated",uid,"Изменены вложения задачи")
+        if before!=file_ids:activity(session,task,"attachments_updated",uid,"Изменены вложения задачи",changes=[dict(field="attachments",label="Вложения",before=[x["name"] for x in _file_refs(session,before)],after=[x["name"] for x in _file_refs(session,file_ids)])])
         session.commit()
         return db.get_task(task_id,uid)
 
@@ -304,6 +371,8 @@ def change_status(task_id,uid,expected_revision,status,*,text="",links=None,file
                     _recalculate_assignment_contribution(session,row,task)
             if status=="help_required" and message and message.strip():
                 session.add(CommentORM(comment_id="comment-"+str(uuid.uuid4()),task_id=task_id,author_user_id=uid,content_json=json.dumps({"format":"markdown","body":message}),history_json="[]",created_at=stamp))
+                activity(session,task,"comment_added",uid,"Добавлен комментарий",at=stamp,
+                    changes=[dict(field="comment",label="Комментарий",before=None,after=message)])
             meta=metadata(session,task);meta.status=status;meta.legacy_mixed_statuses=False
             for row in rows:public_statuses[row.assignment_id]=status
             meta.public_statuses_json=json.dumps(public_statuses);task.revision+=1
@@ -312,6 +381,7 @@ def change_status(task_id,uid,expected_revision,status,*,text="",links=None,file
             recipients=[a.assignee_user_id for a in rows]
             if status=="help_required":recipients=db.get_scope_leads(task.scope_kind,task.scope_id)
             kind={"help_required":"task_help_required","needs_revision":"task_revision_requested","accepted":"task_accepted"}.get(status,"task_status_changed")
+            recipients=[recipient for recipient in recipients if db.can_read_task(recipient,task,session)]
             emit(session,recipients,kind,dict(task_id=task_id,title=task.title,status=status),"task-status:"+task_id+":"+str(task.revision),uid)
             session.commit()
         finally:session.info.pop('tracker_batch',None)
@@ -325,7 +395,7 @@ def legacy_command(assignment_id,uid,expected_revision,status,*,required_source_
         row=session.get(AssignmentORM,assignment_id)
         if not row:raise NotFound("Assignment not found")
         task=session.get(TaskORM,row.task_id)
-        if not task or not db.can_view_scope(uid,task.scope_kind,task.scope_id):raise Forbidden("Forbidden: scope access ended")
+        if not task or not db.can_read_task(uid,task,session):raise Forbidden("Forbidden: scope access ended")
         if status in {"in_progress","help_required","submitted"}:
             if row.assignee_user_id!=uid:raise Forbidden("Forbidden: only assignee can work on assignment")
             if session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
@@ -341,11 +411,15 @@ def legacy_command(assignment_id,uid,expected_revision,status,*,required_source_
         return next(item for item in updated.assignments if item.assignment_id==assignment_id)
 
 
-def task_page(uid,*,season_id=None,scope_kind=None,scope_id=None,mine=False,status=None,q="",unfinished=False,overdue=False,assignee_user_id=None,sort="deadline",order="asc",cursor=None,limit=20,converter):
+def task_page(uid,*,queue_id=None,season_id=None,scope_kind=None,scope_id=None,mine=False,status=None,q="",unfinished=False,overdue=False,assignee_user_id=None,sort="deadline",order="asc",cursor=None,limit=20,converter):
     from api_contract import cursor_page
     from membership import legacy_name,scope_out
     internal_scope=legacy_name(scope_id) if scope_kind=="block" and scope_id else scope_id
     rows=db.list_tasks(current_user_id=uid,season_id=season_id,scope_kind=scope_kind,scope_id=internal_scope)
+    if queue_id:
+        from task_queues import get
+        get(queue_id,uid)
+        rows=[t for t in rows if t.queue and t.queue["queue_id"]==queue_id]
     scopes={};assignees={}
     for task in rows:
         scope=scope_out(task.scope);scopes[(scope['kind'],scope['id'])]=dict(**scope,title=task.scope_title)
@@ -359,11 +433,11 @@ def task_page(uid,*,season_id=None,scope_kind=None,scope_id=None,mine=False,stat
         current=datetime.now(timezone.utc)
         rows=[t for t in rows if t.status in ACTIVE and datetime.fromisoformat(t.deadline_at.replace('Z','+00:00'))<current]
     needle=q.strip().casefold()
-    if needle:rows=[t for t in rows if needle in t.title.casefold() or needle in t.task_key.casefold()]
+    if needle:rows=[t for t in rows if needle in t.title.casefold() or needle in t.task_key.casefold() or (t.legacy_task_key and needle in t.legacy_task_key.casefold())]
     field={'deadline':'deadline_at','updated':'updated_at','created':'created_at'}[sort]
     def key(item):return (getattr(item,field) or item.created_at or "",item.task_id)
     import base64,hashlib,binascii
-    context=hashlib.sha256(json.dumps(dict(uid=uid,season_id=season_id,scope_kind=scope_kind,scope_id=internal_scope,mine=mine,status=status,q=needle,unfinished=unfinished,overdue=overdue,assignee_user_id=assignee_user_id,sort=sort,order=order,limit=limit),sort_keys=True).encode()).hexdigest()
+    context=hashlib.sha256(json.dumps(dict(uid=uid,queue_id=queue_id,season_id=season_id,scope_kind=scope_kind,scope_id=internal_scope,mine=mine,status=status,q=needle,unfinished=unfinished,overdue=overdue,assignee_user_id=assignee_user_id,sort=sort,order=order,limit=limit),sort_keys=True).encode()).hexdigest()
     inner=None
     if cursor:
         try:

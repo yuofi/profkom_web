@@ -294,7 +294,7 @@ def season_state(season_id):
 def scope_access_revision(uid):
     """Memberships and organizer rosters are not RoleAssignments in session. Blocks count
     by ID, so renaming a block does not change its members' revision (A-FE-1)."""
-    from database import SubeventORM
+    from database import SubeventORM,TaskQueueORM,TaskQueueMemberORM
     from membership import block_id_for
 
     user = db.get_user(uid)
@@ -306,6 +306,9 @@ def scope_access_revision(uid):
                 if db.is_subevent_organizer(uid, row.subevent_id)
             ),
         ]
+        # Privacy/owner/grant changes invalidate client caches independently of role assignments.
+        scopes.append(sorted((q.queue_id,q.owner_user_id,q.is_private,q.revision) for q in session.query(TaskQueueORM)))
+        scopes.append(sorted((m.queue_id,m.active,m.request_id,m.revoked_at) for m in session.query(TaskQueueMemberORM).filter_by(user_id=uid)))
     return hashlib.sha256(json.dumps(scopes, ensure_ascii=True).encode()).hexdigest()
 
 

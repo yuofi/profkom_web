@@ -118,8 +118,13 @@ def notifications(uid):
                 target = {"kind": m.owner_kind, "id": m.owner_id} if m else None
             elif p.get("task_id"):
                 t = s.get(TaskORM, p["task_id"])
-                allowed = bool(t and db.can_view_scope(uid, t.scope_kind, t.scope_id))
+                allowed = bool(t and db.can_read_task(uid,t,s))
                 target = {"kind": "task", "id": p["task_id"]}
+            elif p.get("queue_id"):
+                from task_queues import TaskQueueORM,can_read
+                queue=s.get(TaskQueueORM,p["queue_id"])
+                allowed=bool(queue)  # queue name/key are intentionally discoverable
+                target={"kind":"task_queue","id":p["queue_id"]} if queue else None
             elif p.get("subevent_id"):
                 allowed = db.can_view_scope(uid, "subevent", p["subevent_id"])
                 target = {"kind": "subevent", "id": p["subevent_id"]}

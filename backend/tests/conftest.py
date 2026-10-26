@@ -71,6 +71,7 @@ TABLES = (
     "submissions",
     "assignments",
     "tasks",
+    "task_queue_members", "task_queue_requests", "task_queues",
     "contributions",
     "master_bonuses",
     "season_summaries",

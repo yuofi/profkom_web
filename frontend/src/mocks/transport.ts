@@ -12,6 +12,9 @@ import {
   type Task,
   type TaskInputs,
   type TaskHistoryEvent,
+  type TaskHistoryChange,
+  type TaskQueue,
+  type TaskQueueAccessRequest,
   type Report,
   type ReportVersion,
   type Material,
@@ -190,7 +193,7 @@ export function installMockTransport(
     state.subevents.some(
       (s) => s.event_id === id && readsSubevent(s.subevent_id),
     );
-  const readsTask = (task: Task) =>
+  const readsScopeTask = (task: Task) =>
     task.scope.kind === "subevent"
       ? readsSubevent(task.scope.id)
       : state.chair ||
@@ -202,6 +205,15 @@ export function installMockTransport(
               b.master?.user.user_id === state.session.user_id ||
               b.master?.deputy_user_ids.includes(state.session.user_id)),
         );
+  const queueRequests: (TaskQueueAccessRequest & { queue_id: string })[] = [];
+  const readsQueue = (queue: TaskQueue) => !!queue.scope && readsScopeTask({ scope: queue.scope } as Task) && (!queue.is_private || queue.owner?.user_id === state.session.user_id || queueRequests.some(r => r.queue_id === queue.queue_id && r.user.user_id === state.session.user_id && r.status === "approved"));
+  const readsTask = (task: Task) => readsScopeTask(task) && (!task.queue || !state.queues.some(q => q.queue_id === task.queue!.queue_id) || readsQueue(state.queues.find(q => q.queue_id === task.queue!.queue_id)!));
+  const visibleQueue = (queue: TaskQueue): TaskQueue => {
+    const own = queueRequests.find(r => r.queue_id === queue.queue_id && r.user.user_id === state.session.user_id);
+    const access_request_status = own?.status === "revoked" ? null : own?.status ?? null;
+    if (!readsQueue(queue)) return { queue_id: queue.queue_id, name: queue.name, key: queue.key, access: "locked", capabilities: [], can_request_access: access_request_status !== "pending" && !!queue.scope && readsScopeTask({ scope: queue.scope } as Task), access_request_status };
+    return { ...clone(queue), access: "granted", can_request_access: false, access_request_status };
+  };
   let sequence = 10;
   let leadership = {
     chair: state.people[3],
@@ -234,9 +246,9 @@ export function installMockTransport(
       : items;
 
   const taskHistory = new Map<string, TaskHistoryEvent[]>();
-  const rememberTask = (task: Task, kind: string, description: string, from?: AssignmentStatus, to?: AssignmentStatus) => {
+  const rememberTask = (task: Task, kind: string, description: string, from?: AssignmentStatus, to?: AssignmentStatus, changes?: TaskHistoryChange[]) => {
     const events = taskHistory.get(task.task_id) ?? [];
-    events.push({ event_id: id("task-event"), kind, description, created_at: mockNow, actor: clone(state.user), from_status: from, to_status: to });
+    events.push({ event_id: id("task-event"), kind, description, created_at: mockNow, actor: clone(state.user), from_status: from, to_status: to, changes });
     taskHistory.set(task.task_id, events);task.updated_at = mockNow;
   };
   const taskFiles = (ids: unknown): FileRef[] => ((ids as string[]) ?? []).map(fileId => files.get(fileId)).filter(file => !!file).map(file => ({ file_id: file!.file_id, name: file!.name, mime_type: file!.mime_type, size_bytes: file!.size_bytes }));
@@ -907,9 +919,54 @@ export function installMockTransport(
           parent_series_id: "series-event-1",
         },
       ]);
+    if (parts[0] === "task-queues") {
+      if (parts.length === 1) {
+        if (method === "get") return [200, { items: state.queues.map(visibleQueue), next_cursor: null, create_scopes: [ ...state.blocks.filter(b => b.capabilities.includes("create_task")).map(b => ({ kind: "block", id: b.block_id, title: b.name })), ...state.subevents.filter(b => b.capabilities.includes("create_task")).map(b => ({ kind: "subevent", id: b.subevent_id, title: b.title })) ] }];
+        if (!state.manager) return denied();
+        const scope = data.scope as Record<string, unknown> | undefined;
+        if (!scope || Object.keys(scope).some(key => !["kind", "id"].includes(key)) || !["block", "subevent"].includes(String(scope.kind)) || typeof scope.id !== "string") return fail(422, "validation_error", "Требуется точный контекст команды");
+        if (!/^[A-Z]+$/.test(String(data.key)) || state.queues.some(q => q.key === data.key)) return fail(422, "invalid_input", "Проверьте ключ очереди");
+        const owner = state.people.find(p => p.user_id === Number(data.owner_user_id));
+        if (!owner) return denied();
+        const queue: TaskQueue = { queue_id: id("queue"), name: String(data.name), key: String(data.key), scope: clone(data.scope) as TaskQueue["scope"], owner: clone(owner), is_private: !!data.is_private, revision: 1, created_at: mockNow, access: "granted", can_request_access: false, access_request_status: null, capabilities: ["create_task", ...(owner.user_id === state.session.user_id ? ["manage_queue", "view_queue_requests"] : [])] };
+        state.queues.push(queue);return [201, visibleQueue(queue)];
+      }
+      const queue = state.queues.find(q => q.queue_id === parts[1]);
+      if (!queue) return fail(404, "not_found", "Очередь недоступна");
+      const owns = queue.owner?.user_id === state.session.user_id;
+      if (parts[2] === "access-requests") {
+        if (parts.length === 3 && method === "get") return owns ? list(clone(queueRequests.filter(r => r.queue_id === queue.queue_id))) : denied();
+        if (parts.length === 3) {
+          if (!visibleQueue(queue).can_request_access) return denied();
+          const item: TaskQueueAccessRequest & { queue_id: string } = { request_id: id("queue-request"), queue_id: queue.queue_id, user: clone(state.user), message: String(data.message ?? ""), status: "pending", created_at: mockNow, revision: 1, capabilities: [] };
+          queueRequests.push(item);return [201, visibleQueue(queue)];
+        }
+        if (!owns) return denied();
+        const item = queueRequests.find(r => r.request_id === parts[3] && r.queue_id === queue.queue_id);
+        if (!item) return fail(404, "not_found", "Запрос недоступен");
+        if (mismatch(data, item)) return conflict();
+        item.status = parts[4] === "approve" ? "approved" : "rejected";item.capabilities = [];return changed(item);
+      }
+      if (parts[2] === "members") {
+        if (!owns) return denied();
+        const item = queueRequests.find(r => r.queue_id === queue.queue_id && r.user.user_id === Number(parts[3]) && r.status === "approved");
+        if (!item) return fail(404, "not_found", "Участник недоступен");
+        if (mismatch(data, item)) return conflict();
+        item.status = "revoked";return changed(item);
+      }
+      if (!readsQueue(queue)) return fail(403, "queue_access_required", "Нет доступа к очереди", { queue: { queue_id: queue.queue_id, name: queue.name, key: queue.key }, can_request_access: visibleQueue(queue).can_request_access, access_request_status: visibleQueue(queue).access_request_status });
+      if (method === "get") return [200, visibleQueue(queue)];
+      if (!owns) return denied();
+      if (mismatch(data, { revision: queue.revision! })) return conflict();
+      if (typeof data.name === "string") queue.name = data.name;
+      if (typeof data.is_private === "boolean") queue.is_private = data.is_private;
+      if (data.owner_user_id !== undefined) queue.owner = state.people.find(p => p.user_id === Number(data.owner_user_id)) ?? queue.owner;
+      queue.revision!++;return [200, visibleQueue(queue)];
+    }
     if (path === "/tasks") {
       if (method === "get") {
         let tasks = filter(state.tasks, url).filter(readsTask);
+        if (url.searchParams.get("queue_id")) tasks = tasks.filter(t => t.queue?.queue_id === url.searchParams.get("queue_id"));
         if (url.searchParams.get("scope_id"))
           tasks = tasks.filter(
             (t) => t.scope.id === url.searchParams.get("scope_id"),
@@ -984,6 +1041,9 @@ export function installMockTransport(
           capabilities: inputsCaps(),
         }),
       );
+      const queue = state.queues.find(q => q.queue_id === data.queue_id || (!data.queue_id && q.scope?.id === task.scope.id && q.scope?.kind === task.scope.kind));
+      if (queue) { task.queue = { queue_id: queue.queue_id, name: queue.name, key: queue.key };task.task_key = `${queue.key}-${state.tasks.filter(t => t.queue?.queue_id === queue.queue_id).length + 1}`; }
+      if (typeof data.parent_task_id === "string") { const parent = state.tasks.find(t => t.task_id === data.parent_task_id);if (parent) { task.parent_task_id = parent.task_id;task.parent_task = { task_id: parent.task_id, task_key: parent.task_key!, title: parent.title }; } }
       state.tasks.push(task);rememberTask(task, "task_created", "Создана задача");
       return [201, clone(task)];
     }
@@ -1032,12 +1092,21 @@ export function installMockTransport(
         return [200, clone(inputs)];
       }
       if (method === "get") return [200, clone(task)];
-      if (!state.manager) return denied();
+      if (!state.manager && (!(task.capabilities.includes("edit_task_description")) || Object.keys(data).some(k => !["expected_revision", "description"].includes(k)))) return denied();
       if (mismatch(data, task)) return conflict();
+      const changes: TaskHistoryChange[] = [];
+      if (typeof data.title === "string" && data.title !== task.title) changes.push({ field: "title", label: "Название", before: task.title, after: data.title });
+      if (data.description && publicSubmission(data.description).body !== task.description.body) changes.push({ field: "description", label: "Описание", before: task.description.body, after: publicSubmission(data.description).body });
+      if ("parent_task_id" in data) {
+        const parent = state.tasks.find(t => t.task_id === data.parent_task_id && readsTask(t));
+        if (data.parent_task_id && (!parent || parent.task_id === task.task_id || parent.season_id !== task.season_id)) return fail(422, "invalid_input", "Недопустимая родительская задача");
+        const before = task.parent_task?.task_key ?? null;task.parent_task_id = parent?.task_id ?? null;task.parent_task = parent ? { task_id: parent.task_id, task_key: parent.task_key!, title: parent.title } : null;
+        changes.push({ field: "parent_task", label: "Родительская задача", before, after: parent?.task_key ?? null });
+      }
       if (data.file_ids) task.attachments = taskFiles(data.file_ids);
       if (typeof data.title === "string") task.title = data.title;
       if (data.description) task.description = publicSubmission(data.description);
-      rememberTask(task, "task_updated", "Обновлена задача");
+      rememberTask(task, "task_updated", "Обновлена задача", undefined, undefined, changes);
       return changed(task);
     }
     if (path === "/assignments/unresolved")
@@ -1191,9 +1260,11 @@ export function installMockTransport(
     }
     if (parts[0] === "comments") {
       const comment = state.comments.find((c) => c.comment_id === parts[1]);
-      if (!comment || comment.author.user_id !== state.session.user_id)
-        return denied();
+      const task = comment && state.tasks.find(t => t.task_id === comment.task_id);
+      if (!comment || !task || !readsTask(task) || (comment.author.user_id !== state.session.user_id && task.created_by?.user_id !== state.session.user_id && !task.assignments.some(a => a.assignee.user_id === state.session.user_id && !a.assignee_unavailable_reason))) return denied();
+      const before = comment.content.body;
       comment.content = publicSubmission(data.content);
+      rememberTask(task, "comment_edited", "Комментарий отредактирован", undefined, undefined, [{ field: "comment", label: "Комментарий", before, after: comment.content.body }]);
       comment.updated_at = mockNow;
       return [200, clone(comment)];
     }

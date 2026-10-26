@@ -26,6 +26,8 @@ export const getMeetingRoute = (kind: "event" | "subevent", id: string) =>
 export const getSubeventRoute = (id: string) =>
   `/subevents/${encodeURIComponent(id)}`;
 export const getTaskRoute = (id: string) => `/tasks/${encodeURIComponent(id)}`;
+export const getTaskQueuesRoute = () => "/tasks/queues";
+export const getTaskQueueRoute = (id: string) => `/tasks/queues/${encodeURIComponent(id)}`;
 export const getBlockRoute = (id: string) =>
   `/blocks/${encodeURIComponent(id)}`;
 export const getReportRoute = (id: string) =>
@@ -42,6 +44,7 @@ export function targetRoute(
     event: getEventRoute,
     subevent: getSubeventRoute,
     task: getTaskRoute,
+    task_queue: getTaskQueueRoute,
     block: getBlockRoute,
     report: getReportRoute,
     material: getMaterialRoute,

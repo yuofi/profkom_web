@@ -357,6 +357,7 @@ export function ActionForm({
                     value={form.values[field.name] ?? initialValues[field.name]}
                     onChange={(e) => {
                       void form.setFieldValue(field.name, e.target.value);
+                      field.onSelectionChange?.([e.target.value]);
                     }}
                   >
                     <option value="">Выберите…</option>

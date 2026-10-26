@@ -65,6 +65,7 @@ it("formats selected lines without rewriting later fences", async () => {
   const rest = "\n\n```chip\nФамилия: Тест\n```";
   page = await mountWorkspace(<Editor initial={"один\nдва" + rest} />);
   const input = page.container.querySelector("textarea")!;input.focus();input.setSelectionRange(0, 8);
+  await click("Список");
   await click("Нумерованный список");
   expect(input.value).toBe("1. один\n2. два" + rest);
   await click("Отменить");expect(input.value).toBe("один\nдва" + rest);

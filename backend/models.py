@@ -251,6 +251,11 @@ class TaskPublic:
     deadline_at: str
     assignments: list[AssignmentPublic] = field(default_factory=list)
     assignees: list[UserRef] = field(default_factory=list)
+    queue: Optional[dict] = None
+    parent_task: Optional[dict] = None
+    parent_task_id: Optional[str] = None
+    parent_task_unavailable: bool = False
+    legacy_task_key: Optional[str] = None
     task_key: str = ""
     status: str = "assigned"
     created_by: Optional[UserRef] = None
@@ -309,6 +314,7 @@ class CalculatedContribution:
     merit_id: Optional[str] = None
     bonus_id: Optional[str] = None
     capabilities: list[str] = field(default_factory=list)
+    source_hidden: bool = False  # private queue projection; never persisted to accounting
     created_at: str = ""  # page order of /assessments; not part of the API
 
 

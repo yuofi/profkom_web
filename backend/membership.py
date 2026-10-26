@@ -301,6 +301,7 @@ def patch_block(id, payload, uid):
             if s.get(BlockORM, new):
                 fail(409, "Block name already exists", "name_taken")
             from database import (
+                TaskQueueORM,
                 TaskORM,
                 MeritORM,
                 ContributionORM,
@@ -318,6 +319,7 @@ def patch_block(id, payload, uid):
                     RoleAssignmentORM.scope_id,
                 ),
                 (TaskORM, TaskORM.scope_kind, TaskORM.scope_id),
+                (TaskQueueORM, TaskQueueORM.scope_kind, TaskQueueORM.scope_id),
                 (MeritORM, MeritORM.scope_kind, MeritORM.scope_id),
             ]:
                 s.query(cls).filter(kindcol == "block", idcol == name).update(

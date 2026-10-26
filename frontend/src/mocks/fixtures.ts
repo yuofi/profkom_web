@@ -20,6 +20,7 @@ import type {
   ArchivedAccount,
   Merit,
   Comment,
+  TaskQueue,
 } from "../utils/api/contract";
 import { emptyCriteria, richText } from "../utils/api/contract";
 import type { MeOut } from "../utils/api/types";
@@ -345,6 +346,7 @@ export function createFixtures(role: MockRole = "organizer") {
       revision: 1,
       capabilities: [
         "comment_task",
+        ...(userId === 101 || eventManager ? ["edit_task_description"] : []),
         ...(userId === 101 ? ["start_task", "resume_task", "request_task_help", "submit_task_result"] : []),
         ...(eventManager
           ? ["edit_task", "attach_task_file", "review_task", "view_assessment_inputs", "create_task"]
@@ -417,6 +419,11 @@ export function createFixtures(role: MockRole = "organizer") {
         : []),
     ],
   });
+  const queues: TaskQueue[] = [
+    { queue_id: "queue-tasks", name: "Задачи встречи", key: "TASK", access: "granted", scope: { kind: "subevent", id: "subevent-1" }, owner: people[1], is_private: false, revision: 1, created_at: mockNow, can_request_access: false, access_request_status: null, capabilities: [...(eventManager ? ["create_task"] : []), ...(userId === 102 ? ["manage_queue", "view_queue_requests"] : [])] },
+    ...blocks.map((block, i): TaskQueue => ({ queue_id: `queue-${block.block_id}`, name: block.name, key: i === 0 ? "INFO" : "HR", access: "granted", scope: { kind: "block", id: block.block_id }, owner: block.master?.user ?? null, is_private: false, revision: 1, created_at: mockNow, can_request_access: false, access_request_status: null, capabilities: block.capabilities.includes("create_task") ? ["create_task"] : [] })),
+  ];
+  for (const task of tasks) { task.queue = { queue_id: queues[0].queue_id, name: queues[0].name, key: queues[0].key };task.parent_task = null;task.parent_task_id = null; }
   // Dates of a task are moved by the chair, deputies and HR master only (УВ-5).
   const inputsCaps = ["view_assessment_inputs", "edit_assessment_inputs", ...(global ? ["edit_assessment_dates"] : [])];
   const inputs: TaskInputs = {
@@ -637,7 +644,7 @@ export function createFixtures(role: MockRole = "organizer") {
       content: richText("Если нужна помощь, напишите в комментариях."),
       created_at: mockNow,
       updated_at: null,
-      capabilities: userId === 102 ? ["edit_comment"] : [],
+      capabilities: userId === 102 || userId === 101 ? ["edit_comment"] : [],
     },
   ];
   return {
@@ -650,6 +657,7 @@ export function createFixtures(role: MockRole = "organizer") {
     subevents,
     blocks,
     tasks,
+    queues,
     inputs,
     assessments,
     reports,

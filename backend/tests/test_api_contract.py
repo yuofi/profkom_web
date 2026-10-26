@@ -38,6 +38,16 @@ from database import db
 #  не будучи ни разу проверенным на «а спросит ли он токен».
 #
 API_ROUTES: tuple[tuple[str, str], ...] = (
+    ('GET', '/api/task-queues'),
+    ('POST', '/api/task-queues'),
+    ('GET', '/api/task-queues/{queue_id}'),
+    ('PATCH', '/api/task-queues/{queue_id}'),
+    ('POST', '/api/task-queues/{queue_id}/access-requests'),
+    ('GET', '/api/task-queues/{queue_id}/access-requests'),
+    ('POST', '/api/task-queues/{queue_id}/access-requests/{request_id}/approve'),
+    ('POST', '/api/task-queues/{queue_id}/access-requests/{request_id}/reject'),
+    ('POST', '/api/task-queues/{queue_id}/members/{user_id}/revoke'),
+
     ('DELETE', '/api/blocks/{block_id}/members/{user_id}'),
     ('DELETE', '/api/blocks/{block_name}'),
     ('DELETE', '/api/events/{event_id}/meeting'),

@@ -8,6 +8,7 @@ from database import (
     EventORM,
     SubeventORM,
     TaskORM,
+    TaskTrackerORM,
     MeritORM,
     ReportORM,
     AssignmentORM,
@@ -89,6 +90,16 @@ def correct(kind, id, revision, target_id, reason, uid):
                 merits = [obj]
             else:
                 raise InvalidInput("Invalid correction object kind")
+            for task in tasks:
+                if not db.can_read_task(uid,task,s):raise Forbidden("Queue access is required for every moved task")
+            # A correction moves a complete hierarchy. Parent links cannot silently cross seasons.
+            moving={task.task_id for task in tasks}
+            for meta in s.query(TaskTrackerORM).filter(TaskTrackerORM.parent_task_id.isnot(None)):
+                if meta.task_id not in moving and meta.parent_task_id not in moving:continue
+                child=s.get(TaskORM,meta.task_id);parent=s.get(TaskORM,meta.parent_task_id)
+                child_season=target_id if meta.task_id in moving else child.season_id if child else None
+                parent_season=target_id if meta.parent_task_id in moving else parent.season_id if parent else None
+                if child_season!=parent_season:raise Conflict("Season correction must preserve task hierarchy")
             if obj.revision != revision:
                 raise revision_conflict()
             source_id = obj.season_id

@@ -76,7 +76,7 @@ def comment_added(session, comment, task, actor):
         [
             uid
             for uid in recipients
-            if db.can_view_scope(uid, task.scope_kind, task.scope_id)
+            if db.can_read_task(uid,task,session)
         ],
         "task_comment",
         dict(task_id=task.task_id, title=task.title),

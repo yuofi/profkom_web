@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
-from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, String, Text, create_engine, event, func, text
+from sqlalchemy import Index, UniqueConstraint, Boolean, Column, Float, ForeignKey, Integer, String, Text, create_engine, event, func, text
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session, declarative_base, relationship, sessionmaker, joinedload
 
@@ -293,6 +293,49 @@ class TaskORM(Base):
     revision = Column(Integer, default=1, nullable=False)
 
 
+class TaskQueueORM(Base):
+    __tablename__ = "task_queues"
+    queue_id = Column(String, primary_key=True)
+    name = Column(String, nullable=False)
+    key = Column(String, nullable=False, unique=True)
+    scope_kind = Column(String, nullable=False)
+    scope_id = Column(String, nullable=False)
+    owner_user_id = Column(Integer, ForeignKey("users.user_id"), nullable=True)
+    is_private = Column(Boolean, nullable=False, default=False)
+    is_default = Column(Boolean, nullable=False, default=False)
+    next_task_number = Column(Integer, nullable=False, default=1)
+    revision = Column(Integer, nullable=False, default=1)
+    created_at = Column(String, nullable=True)
+    __table_args__ = (Index("uq_task_queue_default_scope", "scope_kind", "scope_id", unique=True,
+        sqlite_where=text("is_default = 1")),)
+
+
+class TaskQueueRequestORM(Base):
+    __tablename__ = "task_queue_requests"
+    request_id = Column(String, primary_key=True)
+    queue_id = Column(String, ForeignKey("task_queues.queue_id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
+    message = Column(Text, nullable=False, default="")
+    status = Column(String, nullable=False, default="pending")
+    created_at = Column(String, nullable=False)
+    decided_at = Column(String, nullable=True)
+    decided_by_user_id = Column(Integer, nullable=True)
+    revision = Column(Integer, nullable=False, default=1)
+    __table_args__ = (Index("uq_task_queue_pending_request", "queue_id", "user_id", unique=True,
+        sqlite_where=text("status = 'pending'")),)
+
+
+class TaskQueueMemberORM(Base):
+    __tablename__ = "task_queue_members"
+    queue_id = Column(String, ForeignKey("task_queues.queue_id"), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.user_id"), primary_key=True)
+    request_id = Column(String, ForeignKey("task_queue_requests.request_id"), nullable=False)
+    active = Column(Boolean, nullable=False, default=True)
+    granted_at = Column(String, nullable=False)
+    granted_by_user_id = Column(Integer, nullable=False)
+    revoked_at = Column(String, nullable=True)
+
+
 class TaskTrackerORM(Base):
     __tablename__ = "task_tracker"
     task_number = Column(Integer, primary_key=True, autoincrement=True)
@@ -302,6 +345,11 @@ class TaskTrackerORM(Base):
     public_statuses_json = Column(Text, nullable=False, default="{}")
     public_updated_at = Column(String, nullable=True)
     files_json = Column(Text, nullable=False, default="[]")
+    queue_id = Column(String, ForeignKey("task_queues.queue_id"), nullable=True, index=True)
+    queue_number = Column(Integer, nullable=True)
+    legacy_task_key = Column(String, nullable=True)
+    parent_task_id = Column(String, ForeignKey("tasks.task_id"), nullable=True)
+    __table_args__ = (UniqueConstraint("queue_id", "queue_number", name="uq_task_queue_number"),)
 
 
 class TaskActivityORM(Base):
@@ -314,6 +362,7 @@ class TaskActivityORM(Base):
     description = Column(String, nullable=False)
     from_status = Column(String, nullable=True)
     to_status = Column(String, nullable=True)
+    changes_json = Column(Text, nullable=False, default="[]")
 
 
 class TaskSubmissionORM(Base):
@@ -706,7 +755,7 @@ def generate_summary_xlsx(summary: SeasonSummaryDC, contributions: list[Calculat
             if c.season_id not in seasons:
                 season = session.get(SeasonORM, c.season_id)
                 seasons[c.season_id] = season.title if season else c.season_id
-            raw=session.get(ContributionORM,c.contribution_id)
+            raw=session.get(ContributionORM,c.contribution_id) if not c.source_hidden else None
             assignment=session.get(AssignmentORM,raw.assignment_id) if raw and raw.assignment_id else None
             task=session.get(TaskORM,assignment.task_id) if assignment else None
             merit=session.get(MeritORM,c.merit_id) if c.merit_id else None
@@ -1390,7 +1439,7 @@ def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: O
 
     caps = []
     task=session.get(TaskORM,a.task_id)
-    accessible=task and current_user_id and db.can_view_scope(current_user_id,task.scope_kind,task.scope_id)
+    accessible=task and current_user_id and db.can_read_task(current_user_id,task,session)
     if accessible and current_user_id==a.assignee_user_id:
         if a.status=="assigned": caps += ["start_assignment","submit_result","request_help"]
         if a.status in ("in_progress","help_required","needs_revision"): caps += ["submit_result"]
@@ -1419,6 +1468,7 @@ def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: O
 def _task_caps(t: TaskORM, uid: int, table: dict) -> list[str]:
     """Capabilities of a task or assignment, by the policy actions in `table`."""
     import access
+    if not db.can_read_task(uid,t):return []
     rel = access.relations(uid, t.scope_kind, t.scope_id)
     state = access.season_state(t.season_id)
     return [cap for cap, action in table.items() if access.allowed(uid, action, state=state, rel=rel)]
@@ -1463,7 +1513,8 @@ def _task_orm_to_dc(session: Session, t: TaskORM, current_user_id: Optional[int]
 def _comment_orm_to_dc(session: Session, c: CommentORM, current_user_id: Optional[int] = None) -> CommentDC:
     u = session.get(UserORM, c.author_user_id)
     author_ref = _user_to_ref_dc(u) or UserRefDC(user_id=c.author_user_id, display_name=f"Участник {c.author_user_id}", avatar_url=None)
-    caps = ["edit_comment"] if (current_user_id == c.author_user_id) else []
+    from tracker import can_edit_comment
+    caps = ["edit_comment"] if current_user_id and can_edit_comment(session,c,current_user_id) else []
     hist = []
     try:
         hist = json.loads(c.history_json or "[]")
@@ -3368,6 +3419,24 @@ class Database:
                                 "assignee": assignee(a),
                             })
 
+            from access import actor_id
+            actor=actor_id.get()
+            if actor:
+                from task_queues import task_queue
+                public_blockers=[];hidden_queues=set()
+                for blocker in blockers:
+                    assignment=session.get(AssignmentORM,blocker['owner_id']) if blocker['owner_kind']=='assignment' else None
+                    task=task_map.get(assignment.task_id) if assignment else None
+                    if task and not self.can_read_task(actor,task,session):
+                        queue=task_queue(session,task)
+                        key=(queue.queue_id if queue else 'unavailable',blocker['kind'])
+                        if key in hidden_queues:continue
+                        hidden_queues.add(key)
+                        blocker=dict(kind=blocker['kind'],owner_kind='task_queue',owner_id=key[0],
+                            title='Unfinished work in a private queue',subject='Закрытая очередь',assignee=None)
+                    public_blockers.append(blocker)
+                blockers=public_blockers
+
             # Check missing final reports for events and subevents
             events = session.query(EventORM).filter(EventORM.season_id == season_id).all()
             for ev in events:
@@ -3529,6 +3598,9 @@ class Database:
             summary.version=summary_orm.version
             summary.approved_at=summary_orm.approved_at
             session.commit()
+            if access.actor_id.get():
+                from task_queues import mask_summary
+                summary=mask_summary(session,summary,access.actor_id.get())
             return _season_orm_to_dc(row), summary
 
     # ─────────────────────────────────────────────────────────────
@@ -4541,9 +4613,15 @@ class Database:
         import access
         return access.allowed(user_id, "task.view", scope_kind, scope_id)
 
+    def can_read_task(self,user_id,t,session=None):
+        from task_queues import task_read
+        if session is not None:return task_read(session,t,user_id)
+        with self._session() as current:return task_read(current,t,user_id)
+
     def require_task_right(self, user_id: int, action: str, t, state, denied: str, closed_denied: str) -> None:
         """Raises the 403 for `action` on task `t`; a closed season has its own message."""
         import access
+        if not self.can_read_task(user_id,t):raise Forbidden("Forbidden: task queue access ended")
         if not access.allowed(user_id, action, t.scope_kind, t.scope_id, state=state):
             raise Forbidden(closed_denied if state == "closed" else denied)
 
@@ -4595,6 +4673,8 @@ class Database:
         criteria_dict: dict,
         assignees: list[dict],
         created_by_user_id: int,
+        queue_id: Optional[str] = None,
+        parent_task_id: Optional[str] = None,
     ) -> TaskPublicDC:
         with self._session() as session:
             season = session.get(SeasonORM, season_id)
@@ -4621,6 +4701,13 @@ class Database:
             if not self.can_manage_scope(created_by_user_id, scope_kind, scope_id):
                 raise Forbidden("Forbidden: cannot create task in this scope")
 
+            from task_queues import default_queue,can_read,validate_parent
+            queue=session.get(TaskQueueORM,queue_id) if queue_id else default_queue(session,scope_kind,scope_id)
+            if not queue:raise NotFound("Queue not found")
+            if not can_read(session,queue,created_by_user_id):raise Forbidden("Queue access is required")
+            if queue.scope_kind!=scope_kind or queue.scope_id!=scope_id:raise InvalidInput("Queue scope mismatch")
+            validate_parent(session,None,season_id,parent_task_id,created_by_user_id)
+
             from validation import period, timestamp, hours as check_hours
             deadline_at=timestamp(deadline_at)
             period(datetime.now(timezone.utc).isoformat(),deadline_at,season.ends_at)
@@ -4635,6 +4722,7 @@ class Database:
                 u = session.get(UserORM, uid)
                 if not u or u.banned or getattr(u, "account_state", "active") != "active":
                     raise InvalidInput(f"Invalid assignee user {uid}: user must be active and approved", "inactive_user")
+                if not can_read(session,queue,uid):raise InvalidInput("Assignee must have access to this queue")
                 if not self.is_member_or_leader_in_scope(uid, scope_kind, scope_id):
                     raise InvalidInput(f"User {uid} is not a member or leader of this scope")
 
@@ -4655,6 +4743,9 @@ class Database:
                 revision=1,
             )
             session.add(t)
+            from tracker import metadata
+            meta=metadata(session,t,queue)
+            meta.parent_task_id=parent_task_id
 
             for a in assignees:
                 uid = a.get("user_id")
@@ -4686,6 +4777,7 @@ class Database:
                     )
                 )
 
+            meta.public_statuses_json=json.dumps({a.assignment_id:"assigned" for a in session.new if isinstance(a,AssignmentORM) and a.task_id==task_id})
             session.commit()
             return self.get_task(task_id, created_by_user_id)
 
@@ -4695,7 +4787,7 @@ class Database:
             if not t:
                 return None
             if current_user_id is not None:
-                if not (self.can_view_scope(current_user_id, t.scope_kind, t.scope_id)):
+                if not (self.can_read_task(current_user_id,t,session)):
                     raise NotFound("Task not found")
             return _task_orm_to_dc(session, t, current_user_id)
 
@@ -4738,7 +4830,7 @@ class Database:
             if current_user_id is not None:
                 filtered_rows = []
                 for r in rows:
-                    if self.can_view_scope(current_user_id, r.scope_kind, r.scope_id):
+                    if self.can_read_task(current_user_id,r,session):
                         filtered_rows.append(r)
                 rows = filtered_rows
             from tracker import participants,metadata as tracker_metadata
@@ -4755,18 +4847,32 @@ class Database:
         title: Optional[str],
         description: Optional[str],
         user_id: int,
+        parent_task_id: Optional[str] = None,
+        parent_supplied: bool = False,
     ) -> TaskPublicDC:
         with self._session() as session:
             t = session.get(TaskORM, task_id)
-            if not t or not self.can_view_scope(user_id, t.scope_kind, t.scope_id):
+            if not t or not self.can_read_task(user_id,t,session):
                 raise NotFound("Task not found")  # FIX_PLAN 0.1: no hint that the task exists
             season = session.get(SeasonORM, t.season_id)
-            self.require_task_right(user_id, "task.edit", t, season and season.state,
-                                    "Forbidden: cannot edit this task",
-                                    "Forbidden: only the chair and deputies can edit tasks in a closed season")
+            from tracker import can_edit_description,metadata,activity
+            if title is not None or parent_supplied or description is None:
+                self.require_task_right(user_id, "task.edit", t, season and season.state,
+                                        "Forbidden: cannot edit this task",
+                                        "Forbidden: only the chair and deputies can edit tasks in a closed season")
+            elif not can_edit_description(session,t,user_id):raise Forbidden("Cannot edit task description")
             if t.revision != expected_revision:
                 raise revision_conflict()
+            session.info["tracker_actor"]=user_id
 
+            if parent_supplied:
+                from task_queues import validate_parent
+                validate_parent(session,task_id,t.season_id,parent_task_id,user_id)
+                meta=metadata(session,t)
+                if meta.parent_task_id!=parent_task_id:
+                    before=meta.parent_task_id;meta.parent_task_id=parent_task_id
+                    activity(session,t,"task_updated",user_id,"Изменена родительская задача",
+                        changes=[dict(field="parent_task_id",label="Родительская задача",before=before,after=parent_task_id)])
             if title is not None:
                 t.title = title
             if description is not None:
@@ -4785,7 +4891,7 @@ class Database:
             if not a:
                 raise NotFound("Assignment not found")
             task=session.get(TaskORM,a.task_id)
-            if not task or not self.can_view_scope(user_id,task.scope_kind,task.scope_id):raise Forbidden("Forbidden: scope access ended")
+            if not task or not self.can_read_task(user_id,task,session):raise Forbidden("Forbidden: scope access ended")
             if session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
             if a.assignee_user_id != user_id:
                 raise Forbidden("Forbidden: only assignee can start assignment")
@@ -4808,7 +4914,7 @@ class Database:
             if not a:
                 raise NotFound("Assignment not found")
             task=session.get(TaskORM,a.task_id)
-            if not task or not self.can_view_scope(user_id,task.scope_kind,task.scope_id):raise Forbidden("Forbidden: scope access ended")
+            if not task or not self.can_read_task(user_id,task,session):raise Forbidden("Forbidden: scope access ended")
             if session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
             if a.assignee_user_id != user_id:
                 raise Forbidden("Forbidden: only assignee can request help")
@@ -4863,7 +4969,7 @@ class Database:
             if not a:
                 raise NotFound("Assignment not found")
             task=session.get(TaskORM,a.task_id)
-            if not task or not self.can_view_scope(user_id,task.scope_kind,task.scope_id):raise Forbidden("Forbidden: scope access ended")
+            if not task or not self.can_read_task(user_id,task,session):raise Forbidden("Forbidden: scope access ended")
             if session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
             if a.assignee_user_id != user_id:
                 raise Forbidden("Forbidden: only assignee can resume assignment")
@@ -4892,7 +4998,7 @@ class Database:
             if not a:
                 raise NotFound("Assignment not found")
             task=session.get(TaskORM,a.task_id)
-            if not task or not self.can_view_scope(user_id,task.scope_kind,task.scope_id):raise Forbidden("Forbidden: scope access ended")
+            if not task or not self.can_read_task(user_id,task,session):raise Forbidden("Forbidden: scope access ended")
             if session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
             if a.assignee_user_id != user_id:
                 raise Forbidden("Forbidden: only assignee can submit assignment")
@@ -5178,6 +5284,7 @@ class Database:
                 if public_status not in active_statuses:continue
                 if current_user_id is not None:
                     import access
+                    if not self.can_read_task(current_user_id,t,session):continue
                     if not access.allowed(current_user_id, "task.review", t.scope_kind, t.scope_id,
                                           state=access.season_state(t.season_id)):
                         continue
@@ -5257,6 +5364,7 @@ class Database:
             new_u = session.get(UserORM, new_assignee_user_id)
             if not new_u or new_u.banned or getattr(new_u, "account_state", "active") != "active":
                 raise InvalidInput(f"Invalid new assignee {new_assignee_user_id}: user must be active and approved", "inactive_user")
+            if not self.can_read_task(new_assignee_user_id,t,session):raise InvalidInput("New assignee must have queue access")
             if not self.is_member_or_leader_in_scope(new_assignee_user_id, t.scope_kind, t.scope_id):
                 raise InvalidInput(f"New assignee {new_assignee_user_id} is not in scope")
 
@@ -5264,6 +5372,7 @@ class Database:
             if any(row.assignee_user_id == new_assignee_user_id for row in participants(session,t.task_id)):
                 raise Conflict("New assignee already has an active assignment on this task")
 
+            before_assignees=[str(row.assignee_user_id) for row in participants(session,t.task_id)]
             shared_status, was_mixed = shared_meta.status, shared_meta.legacy_mixed_statuses
             now_str = datetime.now(timezone.utc).isoformat()
             old_status = a.status
@@ -5317,7 +5426,8 @@ class Database:
                 )
             )
             from tracker import activity
-            activity(session,t,"assignee_changed",manager_user_id,"Изменён состав исполнителей",at=now_str)
+            activity(session,t,"assignee_changed",manager_user_id,"Изменён состав исполнителей",at=now_str,
+                changes=[dict(field="assignees",label="Исполнители (ID)",before=before_assignees,after=[str(row.assignee_user_id) for row in participants(session,t.task_id)])])
             from season_summaries import refresh
             refresh(session,t.season_id,manager_user_id,reason)
             session.commit()
@@ -5332,7 +5442,7 @@ class Database:
             if not t:
                 raise NotFound("Task not found")
             # Not readable at all: the same answer as a missing task (A-SEC-6).
-            if not self.can_view_scope(current_user_id, t.scope_kind, t.scope_id):
+            if not self.can_read_task(current_user_id,t,session):
                 raise NotFound("Task not found")
             import access
             if not access.scope_inputs(current_user_id, t.scope_kind, t.scope_id, t.season_id):
@@ -5440,7 +5550,7 @@ class Database:
             t = session.get(TaskORM, a.task_id)
             if not t:
                 raise NotFound("Task not found")
-            if not self.can_view_scope(current_user_id, t.scope_kind, t.scope_id):
+            if not self.can_read_task(current_user_id,t,session):
                 raise NotFound("Assignment not found")
             import access
             if not access.scope_inputs(current_user_id, t.scope_kind, t.scope_id, t.season_id):
@@ -5605,13 +5715,17 @@ class Database:
 
             contribs = q.order_by(ContributionORM.created_at.desc()).all()
             results = []
+            from task_queues import opaque_credit_id
             for c in contribs:
                 u = session.get(UserORM, c.user_id)
                 u_ref = _user_to_ref_dc(u) or UserRefDC(user_id=c.user_id, display_name=f"Участник {c.user_id}", avatar_url=None)
                 asgn_inputs = None
+                source_hidden=False
                 if c.assignment_id:
                     a = session.get(AssignmentORM, c.assignment_id)
-                    if a:
+                    task=session.get(TaskORM,a.task_id) if a else None
+                    source_hidden=not task or not self.can_read_task(current_user_id,task,session)
+                    if a and not source_hidden:
                         asgn_inputs = AssessmentInputsDC(
                             assignment_id=a.assignment_id,
                             hours=a.hours,
@@ -5622,13 +5736,14 @@ class Database:
                         )
                 results.append(
                     CalculatedContributionDC(
-                        contribution_id=c.contribution_id,
+                        contribution_id=opaque_credit_id(c.contribution_id) if source_hidden else c.contribution_id,
                         season_id=c.season_id,
                         participant_id=c.participant_id,
                         user=u_ref,
                         source_kind=c.source_kind,
                         source_id=c.source_id,
-                        source_title=c.source_title,
+                        source_title="Закрытая задача" if source_hidden else c.source_title,
+                        source_hidden=source_hidden,
                         score=c.score,
                         calculation_version=c.calculation_version,
                         assignment_inputs=asgn_inputs,
@@ -5918,15 +6033,17 @@ class Database:
                     caps = ["view_summary", "export_xlsx"]
                     if access.allowed(current_user_id, "summary.correct"):
                         caps.append("correct_summary")
-                    return SeasonSummaryDC(
+                    from task_queues import mask_summary
+                    return mask_summary(session,SeasonSummaryDC(
                         season_id=season_id,
                         state="approved",
                         version=sum_orm.version,
                         approved_at=sum_orm.approved_at,
                         rows=rows,
                         capabilities=caps,
-                    )
-            return _calculate_season_summary_for_session(session, season_id)
+                    ),current_user_id)
+            from task_queues import mask_summary
+            return mask_summary(session,_calculate_season_summary_for_session(session, season_id),current_user_id)
 
     def update_summary_decisions(
         self,
@@ -5956,7 +6073,7 @@ class Database:
             t = session.get(TaskORM, task_id)
             if not t:
                 raise NotFound("Task not found")
-            if not (self.can_view_scope(current_user_id, t.scope_kind, t.scope_id)):
+            if not (self.can_read_task(current_user_id,t,session)):
                 raise NotFound("Task not found")
             rows = session.query(CommentORM).filter(CommentORM.task_id == task_id).order_by(CommentORM.created_at.asc()).all()
             return [_comment_orm_to_dc(session, c, current_user_id) for c in rows]
@@ -5966,7 +6083,7 @@ class Database:
             t = session.get(TaskORM, task_id)
             if not t:
                 raise NotFound("Task not found")
-            if not (self.can_view_scope(author_user_id, t.scope_kind, t.scope_id)):
+            if not (self.can_read_task(author_user_id,t,session)):
                 raise Forbidden("Forbidden: cannot comment on this task")
 
             body = content.get("body", "") if isinstance(content, dict) else str(content)
@@ -5993,9 +6110,10 @@ class Database:
             if not c:
                 raise NotFound("Comment not found")
             task=session.get(TaskORM,c.task_id)
-            if not task or not self.can_view_scope(user_id,task.scope_kind,task.scope_id):raise Forbidden("Forbidden: scope access ended")
-            if c.author_user_id != user_id:
-                raise Forbidden("Forbidden: cannot edit someone else's comment")
+            if not task or not self.can_read_task(user_id,task,session):raise Forbidden("Forbidden: scope access ended")
+            from tracker import can_edit_comment
+            if not can_edit_comment(session,c,user_id):
+                raise Forbidden("Forbidden: cannot edit this comment")
 
             body = content.get("body", "") if isinstance(content, dict) else str(content)
             if not body or not body.strip():
@@ -6014,6 +6132,7 @@ class Database:
                 pass
             hist.append({"content": prev_content, "edited_at": now_str})
 
+            session.info["tracker_actor"]=user_id
             c.content_json = json.dumps({"format": "markdown", "body": body})
             c.history_json = json.dumps(hist)
             c.updated_at = now_str

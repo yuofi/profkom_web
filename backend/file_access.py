@@ -130,7 +130,7 @@ def permitted(session, fr, uid, write=False):
         from tracker import metadata, can_work
         from database import TaskSubmissionORM, SeasonORM
         task = session.get(TaskORM,fr.owner_id)
-        if not task or not db.can_view_scope(uid,task.scope_kind,task.scope_id):return False
+        if not task or not db.can_read_task(uid,task,session):return False
         meta = metadata(session,task)
         attached = set(json.loads(meta.files_json or "[]"))
         for sub in session.query(TaskSubmissionORM).filter_by(task_id=task.task_id):attached.update(json.loads(sub.files_json or "[]"))
@@ -146,7 +146,7 @@ def permitted(session, fr, uid, write=False):
         a = session.get(AssignmentORM, fr.owner_id)
         if not a or (write and a.assignee_user_id != uid):return False
         task = session.get(TaskORM, a.task_id)
-        return bool(task and db.can_view_scope(uid, task.scope_kind, task.scope_id))
+        return bool(task and db.can_read_task(uid,task,session))
     if fr.owner_kind == "report":
         r = session.get(ReportORM, fr.owner_id)
         if not r:

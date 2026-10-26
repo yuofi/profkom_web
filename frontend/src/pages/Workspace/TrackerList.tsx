@@ -1,13 +1,14 @@
-import { useEffect, useRef, type MouseEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, type MouseEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Empty, Glyph, QueryState, RouteLink } from "../../components/Workspace/WorkspaceUI";
+import { taskQueuesApi } from "../../utils/api/taskQueues.api";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { directoryApi } from "../../utils/api/directory.api";
-import type { ScopeRef, Task } from "../../utils/api/contract";
+import type { ScopeRef, Task, TaskQueue } from "../../utils/api/contract";
 import { can, useSession } from "../../utils/session";
-import { getContactRoute, getTaskRoute } from "../../utils/routes";
+import { getContactRoute, getTaskRoute, getTaskQueuesRoute } from "../../utils/routes";
 import { displayDate } from "../../utils/dates";
 import { TaskCreateForm } from "./TaskCreateForm";
 import { TaskStatusMenu } from "./TaskStatusMenu";
@@ -21,10 +22,10 @@ function interactive(target: EventTarget | null) {
 }
 const optionLabels: Record<string, string> = {
   mine: "Назначение", status: "Статус", season_id: "Сезон", scope: "Команда",
-  assignee_user_id: "Исполнитель", unfinished: "Незавершённые", overdue: "Просроченные", q: "Поиск",
+  assignee_user_id: "Исполнитель", unfinished: "Незавершённые", overdue: "Просроченные", q: "Поиск", queue_id: "Очередь",
 };
 
-export function TrackerListPage() {
+export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?: ReactNode }) {
   const navigate = useNavigate();
   const { session } = useSession();
   const [params, setParams] = useSearchParams();
@@ -39,6 +40,7 @@ export function TrackerListPage() {
   const cursor = params.get("cursor") ?? "";
   const pageNumber = Math.max(1, Number(params.get("page")) || 1);
   const filters = {
+    queue_id: queue?.queue_id ?? params.get("queue_id") ?? "",
     mine: params.get("mine") ?? "false",
     status: params.get("status") ?? "",
     season_id: params.get("season_id") ?? "",
@@ -55,13 +57,14 @@ export function TrackerListPage() {
   };
   const requestFilters = Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== ""));
   const query = useQuery({ queryKey: ["tasks", "page", requestFilters], queryFn: () => tasksApi.listPage(requestFilters) });
+  const queues = useQuery({ queryKey: ["tasks", "queues", "catalog"], queryFn: taskQueuesApi.catalog, enabled: !queue });
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
   const people = useQuery({ queryKey: ["contacts"], queryFn: directoryApi.contacts });
   const tasks = query.data?.items ?? [];
   const scopes = query.data?.scopes ?? [];
   const selectedScope = scopes.find((scope) => scope.kind === filters.scope_kind && scope.id === filters.scope_id);
-  const scope: ScopeRef | null = ["block", "subevent"].includes(filters.scope_kind) && filters.scope_id
-    ? { kind: filters.scope_kind as ScopeRef["kind"], id: filters.scope_id } : null;
+  const scope: ScopeRef | null = queue?.scope ?? (["block", "subevent"].includes(filters.scope_kind) && filters.scope_id
+    ? { kind: filters.scope_kind as ScopeRef["kind"], id: filters.scope_id } : null);
   const scopeValue = scope ? JSON.stringify([scope.kind, scope.id]) : "";
   const update = (key: string, value: string, replace = false) => {
     const next = new URLSearchParams(params);
@@ -105,11 +108,12 @@ export function TrackerListPage() {
     if (event.target === event.currentTarget && ["Enter", " "].includes(event.key)) { event.preventDefault(); navigate(getTaskRoute(task.task_id)); }
   };
   const active: { key: string; label: string }[] = [];
+  if (!queue && filters.queue_id) active.push({ key: "queue_id", label: `Очередь: ${queues.data?.items.find(item => item.queue_id === filters.queue_id)?.name ?? "выбрана"}` });
   if (params.has("mine")) active.push({ key: "mine", label: filters.mine === "true" ? "Мои задачи" : "Все доступные" });
   if (filters.status) active.push({ key: "status", label: `Статус: ${statusNames[filters.status as keyof typeof statusNames] ?? filters.status}` });
   if (filters.q) active.push({ key: "q", label: `Поиск: ${filters.q}` });
   if (filters.season_id) active.push({ key: "season_id", label: `Сезон: ${seasons.data?.items.find((item) => item.season_id === filters.season_id)?.title ?? "выбран"}` });
-  if (scope) active.push({ key: "scope", label: `Команда: ${selectedScope?.title ?? (scope.kind === "block" ? "блок" : "подмероприятие")}` });
+  if (scope && !queue) active.push({ key: "scope", label: `Команда: ${selectedScope?.title ?? (scope.kind === "block" ? "блок" : "подмероприятие")}` });
   if (filters.assignee_user_id) {
     const person = people.data?.find((item) => String(item.user_id) === filters.assignee_user_id);
     active.push({ key: "assignee_user_id", label: `Исполнитель: ${person ? `${person.surname} ${person.name}` : "выбран"}` });
@@ -117,10 +121,10 @@ export function TrackerListPage() {
   if (filters.unfinished === "true") active.push({ key: "unfinished", label: "Незавершённые" });
   if (filters.overdue === "true") active.push({ key: "overdue", label: "Просроченные" });
   return <section className={s.page}>
-    <header className={s.header}>
+    {header ?? <header className={s.header}>
       <div><p className={s.eyebrow}>Профком ВМК · Трекер</p><h1>Задачи</h1><p className={s.subtitle}>Одна совместная работа — одна задача и общий статус.</p></div>
-      {can(session, "view_unresolved_assignments") && <RouteLink to="/tasks/unresolved">Оставшаяся работа</RouteLink>}
-    </header>
+      <div className={s.headerLinks}><RouteLink to={getTaskQueuesRoute()}>Очереди</RouteLink>{can(session, "view_unresolved_assignments") && <RouteLink to="/tasks/unresolved">Оставшаяся работа</RouteLink>}</div>
+    </header>}
     <div className={s.topbar}>
       <label className={s.search}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg><input type="search" aria-label="Поиск задач" placeholder="Название или ключ задачи" value={filters.q} onChange={(event) => update("q", event.target.value, true)} /></label>
       <div className={s.views} aria-label="Представление задач">
@@ -134,7 +138,8 @@ export function TrackerListPage() {
           <label className={w.field}>Назначение<select aria-label="Назначение" value={params.get("mine") ?? ""} onChange={(event) => update("mine", event.target.value)}><option value="">Без фильтра</option><option value="true">Мои задачи</option><option value="false">Все доступные</option></select></label>
           <label className={w.field}>Статус<select aria-label="Статус" value={filters.status} onChange={(event) => update("status", event.target.value)}><option value="">Любой статус</option>{Object.entries(statusNames).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           <label className={w.field}>Сезон<select aria-label="Сезон" value={filters.season_id} onChange={(event) => update("season_id", event.target.value)}><option value="">Все сезоны</option>{seasons.data?.items.map((item) => <option key={item.season_id} value={item.season_id}>{item.title}</option>)}</select></label>
-          <label className={w.field}>Команда<select aria-label="Команда" value={scopeValue} onChange={(event) => update("scope", event.target.value)}><option value="">Все команды</option>{scope && !selectedScope && <option value={scopeValue}>Текущая команда</option>}{scopes.map((item) => <option key={`${item.kind}/${item.id}`} value={JSON.stringify([item.kind, item.id])}>{item.title}</option>)}</select></label>
+          {!queue && <label className={w.field}>Очередь<select aria-label="Очередь" value={filters.queue_id} onChange={event => update("queue_id", event.target.value)}><option value="">Все доступные очереди</option>{queues.data?.items.filter(item => item.access === "granted").map(item => <option key={item.queue_id} value={item.queue_id}>{item.key} · {item.name}</option>)}</select></label>}
+          {!queue && <label className={w.field}>Команда<select aria-label="Команда" value={scopeValue} onChange={(event) => update("scope", event.target.value)}><option value="">Все команды</option>{scope && !selectedScope && <option value={scopeValue}>Текущая команда</option>}{scopes.map((item) => <option key={`${item.kind}/${item.id}`} value={JSON.stringify([item.kind, item.id])}>{item.title}</option>)}</select></label>}
           <label className={w.field}>Исполнитель<select aria-label="Исполнитель" value={filters.assignee_user_id} onChange={(event) => update("assignee_user_id", event.target.value)}><option value="">Все исполнители</option>{people.data?.filter((item) => item.in_profcom).map((item) => <option key={item.user_id} value={item.user_id}>{item.surname} {item.name}</option>)}</select></label>
           <label className={w.field}>Сортировать<select aria-label="Сортировать" value={filters.sort} onChange={(event) => update("sort", event.target.value)}><option value="deadline">По дедлайну</option><option value="updated">По обновлению</option><option value="created">По созданию</option></select></label>
           <label className={w.field}>Порядок<select aria-label="Порядок" value={filters.order} onChange={(event) => update("order", event.target.value)}><option value="asc">По возрастанию</option><option value="desc">По убыванию</option></select></label>
@@ -168,6 +173,6 @@ export function TrackerListPage() {
         <div><button className={w.button} disabled={!cursor} onClick={goBack}>Назад</button><span>Страница {pageNumber}</span><button className={w.button} disabled={!query.data?.next_cursor} onClick={() => query.data?.next_cursor && turnPage(query.data.next_cursor)}>Далее</button></div>
       </footer>
     </QueryState>
-    {scope && <TaskCreateForm key={`${scope.kind}/${scope.id}`} scope={scope} />}
+    {scope && (!queue || can(queue, "create_task")) && <TaskCreateForm key={`${scope.kind}/${scope.id}/${queue?.queue_id ?? ""}`} scope={scope} queueId={queue?.queue_id} />}
   </section>;
 }

@@ -53,3 +53,11 @@ Every page may reach only localhost: other requests are aborted and listed by `e
 The default suite excludes integration tests. The integration configuration only accepts localhost and calls the actual HTTP API through frontend clients. Use a disposable backend with synthetic chair@example.com / Synthetic-Local-2026; never provision these credentials on a shared installation. Integration exercises pending registration, approval of the same user, safe directory DTOs and material save/publication. Browser verification uses VITE_DEMO_MODE=false against the same local API.
 
 `check_live.py` targets a running server and follows the API 1.3 contract. Without `--read-only` it registers a pending user (or, with `--email`, also sends denied writes and edits then restores the account's own `location`). `--read-only` sends only GET and CORS preflight, plus `POST /api/auth/login`, `/refresh` and `/logout` with `--email`. `tests/test_check_live.py` runs every mode against a disposable `tests/live_api.py` and checks the request log. It is separate from isolated tests. Real provider VK verification, private S3 PUT/HEAD/GET/CORS, production migrations, image builds and deployed smoke tests must be reported separately from mocked/local checks.
+
+`tests/test_tracker_queues.py` covers queue key uniqueness/immutability and per-queue
+numbering, default compatibility, migration twice, current scope plus private grant
+ACL, minimal locked catalogue, owner-only durable request approval/revocation and
+stale/replayed decisions, cache revisions, collaborative description/comment edits
+with actual actors, cross-queue parents/cycles/revoked-parent masking, rename
+preservation, private credit/XLSX/version redaction with unchanged ledger snapshots,
+and atomic season-correction hierarchy guards. All data/providers are synthetic.

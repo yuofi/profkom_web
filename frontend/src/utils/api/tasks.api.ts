@@ -34,7 +34,7 @@ export const tasksApi = {
   create: (data: TaskCreate) => request<Task>("post", "/tasks", data),
   update: (
     id: string,
-    data: Revision & { title?: string; description?: RichText; file_ids?: string[] },
+    data: Revision & { title?: string; description?: RichText; file_ids?: string[]; parent_task_id?: string | null },
   ) => request<Task>("patch", `/tasks/${idPath(id)}`, data),
   command: <C extends keyof AssignmentCommands>(
     id: string,
