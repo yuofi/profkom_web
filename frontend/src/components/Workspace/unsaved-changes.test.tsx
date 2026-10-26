@@ -58,6 +58,22 @@ it("guards POP/back and can stay or discard", async () => {
   await act(async () => { await page.router.navigate(-1); }); await click(button(page.container, "Уйти без сохранения"));
   expect(page.router.state.location.pathname).toBe("/destination"); expect(save).not.toHaveBeenCalled();
 });
+it.each(["discard", "save"])("can %s and leave again for the same Back/Forward history target", async (choice) => {
+  const save = vi.fn(async () => {});
+  const page = await mount(<Editor save={save} />, ["/destination", "/edit"]);
+  let destinationKey: string | undefined;
+  for (let cycle = 0; cycle < 2; cycle++) {
+    await change(field(page.container, "title"), `Черновик ${cycle + 1}`);
+    await act(async () => { await page.router.navigate(-1); });
+    await click(button(page.container, choice === "save" ? "Сохранить и перейти" : "Уйти без сохранения"));
+    expect(page.router.state.location.pathname).toBe("/destination");
+    if (destinationKey) expect(page.router.state.location.key).toBe(destinationKey);
+    else destinationKey = page.router.state.location.key;
+    expect(page.container.querySelector("dialog")).toBeNull();
+    if (cycle === 0) await act(async () => { await page.router.navigate(1); });
+  }
+  expect(save).toHaveBeenCalledTimes(choice === "save" ? 2 : 0);
+});
 it("allows anchors and warns before closing only while dirty", async () => {
   const page = await mount(<Editor />);
   const clean = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(clean); expect(clean.defaultPrevented).toBe(false);

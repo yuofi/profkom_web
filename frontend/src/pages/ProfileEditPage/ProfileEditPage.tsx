@@ -99,9 +99,9 @@ export const ProfileEditPage = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
-  const { 
-    formik: passwordFormik, 
-    globalError: passwordError, 
+  const {
+    formik: passwordFormik,
+    globalError: passwordError,
     isSuccess: passwordSuccess,
     setIsSuccess: setPasswordSuccess
   } = useForm({
@@ -117,7 +117,7 @@ export const ProfileEditPage = () => {
       if (hasPassword && !values.oldPassword) {
         throw new Error("Заполните старый пароль");
       }
-      
+
       await authApi.changePassword({
         old_password: hasPassword ? values.oldPassword || "" : "",
         new_password: values.newPassword
@@ -129,10 +129,13 @@ export const ProfileEditPage = () => {
   });
 
   // Handle closing modal and resetting password form
-  const handleClosePasswordModal = () => requestLeave(() => {
-    setIsPasswordModalOpen(false);
-    passwordFormik.resetForm();
-  });
+  const handleClosePasswordModal = () => {
+    if (passwordFormik.isSubmitting) return;
+    requestLeave(() => {
+      setIsPasswordModalOpen(false);
+      passwordFormik.resetForm();
+    });
+  };
   useUnsavedChanges({
     dirty: profileFormik.dirty,
     busy: profileFormik.isSubmitting,
@@ -170,63 +173,65 @@ export const ProfileEditPage = () => {
       </Helmet>
       <FormikProvider value={profileFormik}>
         <form className={styles.form} onSubmit={profileFormik.handleSubmit}>
-          <div className={s.columns}>
-            <div className={s.stack}>
-              <Card title="Основная информация">
-                <div className={styles.person}>
-                  <Avatar src={user.photo_url} size={64} mode="view" />
-                  <p>{user.name} {user.surname}</p>
-                </div>
-                <div className={styles.fields}>
-                  <FormTextField name="surname" label="Фамилия" color="on-surface" />
-                  <FormTextField name="name" label="Имя" color="on-surface" />
-                  <FormTextField name="patronymic" label="Отчество" color="on-surface" />
-                </div>
-              </Card>
-              <Card title="Безопасность">
-                <div className={s.row}>
-                  <button type="button" className={s.button} onClick={() => setIsPasswordModalOpen(true)}>
-                    {hasPassword ? "Изменить пароль" : "Задать пароль"}
-                  </button>
-                  {visibleAdminTabs(session).length > 0 && (
-                    <RouteLink to="/admin">Администрирование</RouteLink>
-                  )}
-                </div>
-              </Card>
-            </div>
-            <div className={s.stack}>
-              <Card title="Данные об обучении">
-                <div className={styles.fields}>
-                  <div className={styles.formGrid}>
-                    <FormTextField name="group_number" label="Номер группы" color="on-surface" />
-                    <FormTextField name="budget" label="Форма обучения" color="on-surface" />
+          <fieldset className={s.formFields} disabled={profileFormik.isSubmitting}>
+            <div className={s.columns}>
+              <div className={s.stack}>
+                <Card title="Основная информация">
+                  <div className={styles.person}>
+                    <Avatar src={user.photo_url} size={64} mode="view" />
+                    <p>{user.name} {user.surname}</p>
                   </div>
-                  <FormTextField name="location" label="Место жительства" color="on-surface" />
-                </div>
-              </Card>
-              <Card title="Контактные данные">
-                <div className={styles.fields}>
-                  <FormTextField name="phone" label="Телефон" type="tel" color="on-surface" />
-                  <FormTextField name="tg" label="Телеграмм" color="on-surface" />
-                  <FormTextField name="email" label="Почта" type="email" color="on-surface" />
-                  <FormTextField name="vk" label="ВК (ссылка)" color="on-surface" />
-                </div>
-              </Card>
+                  <div className={styles.fields}>
+                    <FormTextField name="surname" label="Фамилия" color="on-surface" />
+                    <FormTextField name="name" label="Имя" color="on-surface" />
+                    <FormTextField name="patronymic" label="Отчество" color="on-surface" />
+                  </div>
+                </Card>
+                <Card title="Безопасность">
+                  <div className={s.row}>
+                    <button type="button" className={s.button} onClick={() => setIsPasswordModalOpen(true)}>
+                      {hasPassword ? "Изменить пароль" : "Задать пароль"}
+                    </button>
+                    {visibleAdminTabs(session).length > 0 && (
+                      <RouteLink to="/admin">Администрирование</RouteLink>
+                    )}
+                  </div>
+                </Card>
+              </div>
+              <div className={s.stack}>
+                <Card title="Данные об обучении">
+                  <div className={styles.fields}>
+                    <div className={styles.formGrid}>
+                      <FormTextField name="group_number" label="Номер группы" color="on-surface" />
+                      <FormTextField name="budget" label="Форма обучения" color="on-surface" />
+                    </div>
+                    <FormTextField name="location" label="Место жительства" color="on-surface" />
+                  </div>
+                </Card>
+                <Card title="Контактные данные">
+                  <div className={styles.fields}>
+                    <FormTextField name="phone" label="Телефон" type="tel" color="on-surface" />
+                    <FormTextField name="tg" label="Телеграмм" color="on-surface" />
+                    <FormTextField name="email" label="Почта" type="email" color="on-surface" />
+                    <FormTextField name="vk" label="ВК (ссылка)" color="on-surface" />
+                  </div>
+                </Card>
+              </div>
             </div>
-          </div>
-          {/* The way to save stays in sight under the fields, and tells what happened. */}
-          <div className={styles.saveBar}>
-            {profileError ? (
-              <p role="alert" className={styles.saveError}>{profileError}</p>
-            ) : updateMutation.isSuccess && !profileFormik.dirty ? (
-              <p role="status" className={s.success}>Профиль успешно обновлён</p>
-            ) : (
-              <p className={s.muted}>{profileFormik.dirty ? "Есть несохранённые изменения" : "Изменений нет"}</p>
-            )}
-            <button type="submit" className={`${s.button} ${s.primary}`} disabled={profileFormik.isSubmitting}>
-              {profileFormik.isSubmitting ? "Сохраняем…" : "Сохранить"}
-            </button>
-          </div>
+            {/* The way to save stays in sight under the fields, and tells what happened. */}
+            <div className={styles.saveBar}>
+              {profileError ? (
+                <p role="alert" className={styles.saveError}>{profileError}</p>
+              ) : updateMutation.isSuccess && !profileFormik.dirty ? (
+                <p role="status" className={s.success}>Профиль успешно обновлён</p>
+              ) : (
+                <p className={s.muted}>{profileFormik.dirty ? "Есть несохранённые изменения" : "Изменений нет"}</p>
+              )}
+              <button type="submit" className={`${s.button} ${s.primary}`} disabled={profileFormik.isSubmitting}>
+                {profileFormik.isSubmitting ? "Сохраняем…" : "Сохранить"}
+              </button>
+            </div>
+          </fieldset>
         </form>
       </FormikProvider>
 
@@ -237,48 +242,50 @@ export const ProfileEditPage = () => {
           <div className={styles.modalContent}>
             <div className={styles.modalHeader}>
               <h3>Изменение пароля</h3>
-              <button type="button" className={styles.closeBtn} onClick={handleClosePasswordModal} aria-label="Закрыть окно пароля">
+              <button type="button" className={styles.closeBtn} disabled={passwordFormik.isSubmitting} onClick={handleClosePasswordModal} aria-label="Закрыть окно пароля">
                 <Icon name="close" size={24} />
               </button>
             </div>
-            
+
             <FormikProvider value={passwordFormik}>
               <form className={styles.form} onSubmit={passwordFormik.handleSubmit}>
-                {hasPassword && (
-                  <FormTextField 
-                    name="oldPassword"
-                    label="Старый пароль" 
+                <fieldset className={s.formFields} disabled={passwordFormik.isSubmitting}>
+                  {hasPassword && (
+                    <FormTextField
+                      name="oldPassword"
+                      label="Старый пароль"
+                      type="password"
+                      isPassword
+                      color="on-surface"
+                    />
+                  )}
+                  <FormTextField
+                    name="newPassword"
+                    label="Новый пароль"
                     type="password"
                     isPassword
                     color="on-surface"
                   />
-                )}
-                <FormTextField 
-                  name="newPassword"
-                  label="Новый пароль" 
-                  type="password"
-                  isPassword
-                  color="on-surface"
-                />
-                <FormTextField 
-                  name="newPasswordAgain"
-                  label="Новый пароль ещё раз" 
-                  type="password"
-                  isPassword
-                  color="on-surface"
-                />
-                
-                {passwordError && <div style={{ color: "var(--error)", fontSize: "14px" }}>{passwordError}</div>}
-                {passwordSuccess && <div style={{ color: "var(--primary)", fontSize: "14px" }}>Пароль успешно {hasPassword ? "изменен" : "установлен"}!</div>}
-                
-                <div className={styles.modalActions}>
-                  <button type="button" className={styles.cancelBtn} onClick={handleClosePasswordModal}>
-                    Отмена
-                  </button>
-                  <Button variant="primary" type="submit" disabled={passwordFormik.isSubmitting}>
-                    Сохранить
-                  </Button>
-                </div>
+                  <FormTextField
+                    name="newPasswordAgain"
+                    label="Новый пароль ещё раз"
+                    type="password"
+                    isPassword
+                    color="on-surface"
+                  />
+
+                  {passwordError && <div style={{ color: "var(--error)", fontSize: "14px" }}>{passwordError}</div>}
+                  {passwordSuccess && <div style={{ color: "var(--primary)", fontSize: "14px" }}>Пароль успешно {hasPassword ? "изменен" : "установлен"}!</div>}
+
+                  <div className={styles.modalActions}>
+                    <button type="button" className={styles.cancelBtn} onClick={handleClosePasswordModal}>
+                      Отмена
+                    </button>
+                    <Button variant="primary" type="submit" disabled={passwordFormik.isSubmitting}>
+                      Сохранить
+                    </Button>
+                  </div>
+                </fieldset>
               </form>
             </FormikProvider>
           </div>

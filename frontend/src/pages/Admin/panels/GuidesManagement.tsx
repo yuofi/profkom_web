@@ -142,6 +142,7 @@ export const GuidesManagement = () => {
       }
     },
   });
+  const isSaving = formik.isSubmitting || createMutation.isPending || updateMutation.isPending;
 
   useEffect(() => {
     if (isModalOpen) {
@@ -163,12 +164,14 @@ export const GuidesManagement = () => {
   }, [isModalOpen, editingGuide]);
 
   const openCreateModal = () => {
+    if (isSaving) return;
     setEditingGuide(null);
     setIsModalOpen(true);
   };
 
   const openEditModal = (e: React.MouseEvent, guide: GuideOut) => {
     e.stopPropagation();
+    if (isSaving) return;
     setEditingGuide(guide);
     setIsModalOpen(true);
   };
@@ -177,6 +180,10 @@ export const GuidesManagement = () => {
     setIsModalOpen(false);
     setEditingGuide(null);
     formik.resetForm();
+  };
+
+  const requestModalClose = () => {
+    if (!isSaving) requestClose(closeModal);
   };
 
   const handleDelete = async (e: React.MouseEvent, guide: GuideOut) => {
@@ -279,7 +286,7 @@ export const GuidesManagement = () => {
             Сбросить
           </button>
           {canCreateGuide && (
-            <button className={`${s.button} ${s.primary}`} onClick={openCreateModal}>
+            <button className={`${s.button} ${s.primary}`} disabled={isSaving} onClick={openCreateModal}>
               <Glyph name="add" />
               Создать гайд
             </button>
@@ -423,7 +430,7 @@ export const GuidesManagement = () => {
       </div>
 
       {isModalOpen && (
-        <div className={styles.modalOverlay} onClick={() => requestClose(closeModal)}>
+        <div className={styles.modalOverlay} onClick={requestModalClose}>
           <div
             className={styles.modal}
             role="dialog"
@@ -437,44 +444,47 @@ export const GuidesManagement = () => {
 
             <FormikProvider value={formik}>
               <form className={styles.modalForm} onSubmit={formik.handleSubmit}>
-                <FormTextField
-                  name="title"
-                  label="Название гайда"
-                  color="secondary"
-                />
+                <fieldset className={s.formFields} disabled={isSaving}>
+                  <FormTextField
+                    name="title"
+                    label="Название гайда"
+                    color="secondary"
+                  />
 
-                <FormTextField
-                  name="description"
-                  label="Краткое описание"
-                  color="secondary"
-                />
+                  <FormTextField
+                    name="description"
+                    label="Краткое описание"
+                    color="secondary"
+                  />
 
-                <FormAutocompleteField
-                  name="owner_block"
-                  label="Видимость / Блок гайда"
-                  options={me?.super_user ? superUserBlockOptions : masterBlockOptions}
-                />
+                  <FormAutocompleteField
+                    name="owner_block"
+                    label="Видимость / Блок гайда"
+                    options={me?.super_user ? superUserBlockOptions : masterBlockOptions}
+                    disabled={isSaving}
+                  />
 
-                {globalError && (
-                  <p role="alert" className={s.fieldError}>
-                    {globalError}
-                  </p>
-                )}
+                  {globalError && (
+                    <p role="alert" className={s.fieldError}>
+                      {globalError}
+                    </p>
+                  )}
 
-                {isSuccess && <p role="status" className={s.success}>Успешно сохранено!</p>}
+                  {isSuccess && <p role="status" className={s.success}>Успешно сохранено!</p>}
 
-                <div className={styles.modalActions}>
-                  <button type="button" className={s.button} onClick={() => requestClose(closeModal)}>
-                    Отмена
-                  </button>
-                  <button
-                    className={`${s.button} ${s.primary}`}
-                    type="submit"
-                    disabled={formik.isSubmitting}
-                  >
-                    {editingGuide ? "Сохранить" : "Создать"}
-                  </button>
-                </div>
+                  <div className={styles.modalActions}>
+                    <button type="button" className={s.button} onClick={requestModalClose}>
+                      Отмена
+                    </button>
+                    <button
+                      className={`${s.button} ${s.primary}`}
+                      type="submit"
+                      disabled={formik.isSubmitting}
+                    >
+                      {editingGuide ? "Сохранить" : "Создать"}
+                    </button>
+                  </div>
+                </fieldset>
               </form>
             </FormikProvider>
           </div>

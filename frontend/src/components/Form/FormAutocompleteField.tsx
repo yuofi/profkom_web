@@ -1,4 +1,4 @@
-import { useField } from 'formik';
+import { useField, useFormikContext } from 'formik';
 import { useState, useRef, useEffect } from 'react';
 import { TextField } from '../TextField/TextField';
 import styles from './FormAutocompleteField.module.css';
@@ -24,6 +24,8 @@ export const FormAutocompleteField = ({
   disabled 
 }: FormAutocompleteFieldProps) => {
   const [field, meta, helpers] = useField(name);
+  const { isSubmitting } = useFormikContext();
+  const isDisabled = disabled || isSubmitting;
   const [isOpen, setIsOpen] = useState(false);
   const [inputValue, setInputValue] = useState<string | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -48,12 +50,14 @@ export const FormAutocompleteField = ({
   }, []);
 
   const handleSelect = (option: Option) => {
+    if (isDisabled || wrapperRef.current?.closest('fieldset:disabled')) return;
     helpers.setValue(option.value);
     setInputValue(null); // Reset local input to track field.value again
     setIsOpen(false);
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isDisabled || wrapperRef.current?.closest('fieldset:disabled')) return;
     const value = e.target.value;
     setInputValue(value);
     helpers.setValue(value);
@@ -66,16 +70,18 @@ export const FormAutocompleteField = ({
         {...field}
         value={searchTerm}
         onChange={handleInputChange}
-        onFocus={() => setIsOpen(true)}
+        onFocus={() => {
+          if (!isDisabled && !wrapperRef.current?.closest('fieldset:disabled')) setIsOpen(true);
+        }}
         label={label}
         error={hasError}
         supportingText={hasError ? meta.error : supportingText}
-        disabled={disabled}
+        disabled={isDisabled}
         autoComplete="off"
         color = 'secondary'
       />
       
-      {isOpen && filteredOptions.length > 0 && (
+      {isOpen && !isDisabled && filteredOptions.length > 0 && (
         <ul className={styles.optionsList}>
           {filteredOptions.map((option, index) => (
             <li 

@@ -34,7 +34,7 @@ export function WorkspaceLayout() {
     notifications.data?.items.filter((n) => !n.read_at).length ?? 0;
   const { pathname } = useLocation();
   const section = sectionOf(pathname);
-  const links = (
+  const links = (includeProfile = false) => (
     <nav
       className={s.nav}
       aria-label="Основная навигация"
@@ -54,6 +54,10 @@ export function WorkspaceLayout() {
           )}
         </Link>
       ))}
+      {includeProfile && <Link className={s.mobileProfile} to="/profile" style={toneStyle("yellow")}
+        aria-label="Мой профиль" aria-current={pathname === "/profile" ? "page" : pathname.startsWith("/profile/") ? "true" : undefined}>
+        <Glyph name="account_circle" className={s.icon} />Мой профиль
+      </Link>}
     </nav>
   );
   return (
@@ -63,10 +67,10 @@ export function WorkspaceLayout() {
           <ProfkomLogo variant="desktop" width={42} strokeWidth={16} aria-hidden="true" />
           <span>Профком<small>ВМК МГУ</small></span>
         </Link>
-        {links}
+        {links()}
         <details className={s.mobile}>
           <summary><Glyph name="menu" className={s.icon} />Меню</summary>
-          {links}
+          {links(true)}
         </details>
         <div className={s.profile}>
           <Link to="/profile" aria-label="Мой профиль" aria-current={pathname === "/profile" ? "page" : pathname.startsWith("/profile/") ? "true" : undefined}>

@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { MarkdownContent } from "./MarkdownContent";
+import { editorShortcut } from "../../utils/editorShortcuts";
 import { insertMarkdown } from "../../utils/markdown";
 import s from "./Workspace.module.css";
 
@@ -7,12 +8,14 @@ type Snapshot = { value: string; start: number; end: number };
 export function MarkdownEditor({ value, onChange, draft = true }: { value: string; onChange: (value: string) => void; draft?: boolean }) {
   const input = useRef<HTMLTextAreaElement>(null);
   const selection = useRef<{ start: number; end: number } | null>(null);
+  const beforeInput = useRef<Snapshot | null>(null);
   const undo = useRef<Snapshot[]>([]);
   const redo = useRef<Snapshot[]>([]);
   const [preview, setPreview] = useState(false);
   const remember = (stack: Snapshot[], item: Snapshot) => { stack.push(item); if (stack.length > 100) stack.shift(); };
   const snapshot = (): Snapshot => ({ value, start: input.current?.selectionStart ?? value.length, end: input.current?.selectionEnd ?? value.length });
   const emit = (next: string, start: number, end = start) => {
+    beforeInput.current = null;
     selection.current = { start, end };
     onChange(next);
   };
@@ -22,6 +25,14 @@ export function MarkdownEditor({ value, onChange, draft = true }: { value: strin
     selection.current = null;
     input.current.focus();
     input.current.setSelectionRange(next.start, next.end);
+  }, [value, preview]);
+  useLayoutEffect(() => {
+    const node = input.current;
+    if (!node) return;
+    // Native beforeinput runs before the DOM caret moves; onChange already sees the new caret.
+    const capture = () => { beforeInput.current = { value, start: node.selectionStart, end: node.selectionEnd }; };
+    node.addEventListener("beforeinput", capture);
+    return () => node.removeEventListener("beforeinput", capture);
   }, [value, preview]);
   const insert = (before: string, after = "") => {
     const old = snapshot();
@@ -59,12 +70,13 @@ export function MarkdownEditor({ value, onChange, draft = true }: { value: strin
           Содержимое в Markdown
           <textarea ref={input} value={value} rows={18}
             onChange={(event) => {
-              remember(undo.current, snapshot()); redo.current = [];
+              remember(undo.current, beforeInput.current ?? snapshot()); redo.current = [];
+              beforeInput.current = null;
               onChange(event.target.value);
             }}
             onKeyDown={(event) => {
-              if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
-              const key = event.key.toLowerCase();
+              const key = editorShortcut(event);
+              if (!key) return;
               if (["b", "i", "k", "z", "y"].includes(key)) event.preventDefault();
               if (key === "b") insert("**", "**");
               if (key === "i") insert("*", "*");

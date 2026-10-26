@@ -1,3 +1,4 @@
+import { editorShortcut } from "../../utils/editorShortcuts";
 import { useId, useRef, useState, type ReactNode } from "react";
 import { useFormik } from "formik";
 import { z } from "zod";
@@ -295,7 +296,7 @@ export function ActionForm({
   };
   return (
     <form className={s.form} onSubmit={form.handleSubmit} noValidate onKeyDown={(event) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s" && !event.altKey) {
+      if (editorShortcut(event) === "s") {
         event.preventDefault();
         if (allowExitSave && variant !== "danger" && (fields.length > 0 || externalState !== undefined) && !disabled && !externalBusy && !form.isSubmitting) void form.submitForm();
       }

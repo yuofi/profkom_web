@@ -91,7 +91,13 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
     if (action) await action.run();
   }, [pending, blocker]);
   useEffect(() => {
-    if (blocker.state === "blocked" && lastBlockedKey.current !== blocker.location.key) {
+    // A later POP may revisit the same history key. End this cycle when it is
+    // no longer blocked, but keep the in-flight latch for stale proceed calls.
+    if (blocker.state !== "blocked") {
+      lastBlockedKey.current = null;
+      return;
+    }
+    if (lastBlockedKey.current !== blocker.location.key) {
       lastBlockedKey.current = blocker.location.key;
       transitioning.current = false;
     }

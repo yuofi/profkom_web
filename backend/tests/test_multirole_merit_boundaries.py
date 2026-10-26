@@ -1,5 +1,6 @@
 """A member/organizer/subevent-lead has scoped volunteer rights, not global KKR."""
 from datetime import datetime, timedelta, timezone
+import json
 
 from database import ContributionORM, MeritORM, db
 from domain_seed import meta_for
@@ -38,7 +39,12 @@ def test_multiple_roles_keep_merits_scoped_and_revocation_atomic(client, superus
 
     def snapshot():
         with db._session() as session:
-            return (session.query(MeritORM).count(), session.query(ContributionORM).count(),
+            contributions = sorted(
+                tuple((column.name, json.dumps(getattr(row, column.name), sort_keys=True, default=str))
+                      for column in ContributionORM.__table__.columns)
+                for row in session.query(ContributionORM).all()
+            )
+            return (session.query(MeritORM).count(), contributions,
                     req("GET", f"/merits/{merit['merit_id']}"))
 
     saved = snapshot()

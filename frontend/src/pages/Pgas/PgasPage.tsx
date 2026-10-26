@@ -116,6 +116,7 @@ export const PgasPage = () => {
       await createMutation.mutateAsync(values);
     },
   });
+  const isSaving = formik.isSubmitting || createMutation.isPending;
 
   const resetFile = () => {
     setSelectedFile(null);
@@ -126,6 +127,7 @@ export const PgasPage = () => {
   };
 
   const openModal = () => {
+    if (isSaving) return;
     resetFile();
     setIsModalOpen(true);
   };
@@ -136,7 +138,12 @@ export const PgasPage = () => {
     formik.resetForm();
   };
 
+  const requestModalClose = () => {
+    if (!isSaving) requestClose(closeModal);
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isSaving) return;
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -164,7 +171,7 @@ export const PgasPage = () => {
       description="Документы для ПГАС"
       actions={
         canManage && (
-          <button className={s.button} onClick={openModal}>
+          <button className={s.button} disabled={isSaving} onClick={openModal}>
             <Glyph name="upload" />
             Загрузить файл
           </button>
@@ -247,7 +254,7 @@ export const PgasPage = () => {
       )}
 
       {isModalOpen && (
-        <div className={styles.modalOverlay} onClick={() => requestClose(closeModal)}>
+        <div className={styles.modalOverlay} onClick={requestModalClose}>
           <div
             className={styles.modal}
             role="dialog"
@@ -257,82 +264,84 @@ export const PgasPage = () => {
           >
             <div className={styles.modalHeader}>
               <h3 id="pgas-upload-title">Загрузить файл</h3>
-              <button type="button" className={s.button} onClick={() => requestClose(closeModal)} aria-label="Закрыть">
+              <button type="button" className={s.button} disabled={isSaving} onClick={requestModalClose} aria-label="Закрыть">
                 <Glyph name="close" />
               </button>
             </div>
 
             <FormikProvider value={formik}>
               <form className={s.form} onSubmit={formik.handleSubmit}>
-                <label className={s.field}>
-                  Название мероприятия
-                  <input
-                    name="title"
-                    value={formik.values.title}
-                    onChange={formik.handleChange}
-                    onBlur={formik.handleBlur}
-                  />
-                  {formik.touched.title && formik.errors.title && (
-                    <span className={s.fieldError}>{String(formik.errors.title)}</span>
-                  )}
-                </label>
+                <fieldset className={s.formFields} disabled={isSaving}>
+                  <label className={s.field}>
+                    Название мероприятия
+                    <input
+                      name="title"
+                      value={formik.values.title}
+                      onChange={formik.handleChange}
+                      onBlur={formik.handleBlur}
+                    />
+                    {formik.touched.title && formik.errors.title && (
+                      <span className={s.fieldError}>{String(formik.errors.title)}</span>
+                    )}
+                  </label>
 
-                <label className={s.field}>
-                  Год
-                  <select
-                    name="year"
-                    value={formik.values.year}
-                    onChange={(e) => formik.setFieldValue("year", Number(e.target.value))}
-                    onBlur={formik.handleBlur}
-                  >
-                    {YEAR_OPTIONS.map((year) => (
-                      <option key={year} value={year}>
-                        {year}
-                      </option>
-                    ))}
-                  </select>
-                  {formik.touched.year && formik.errors.year && (
-                    <span className={s.fieldError}>{String(formik.errors.year)}</span>
-                  )}
-                </label>
+                  <label className={s.field}>
+                    Год
+                    <select
+                      name="year"
+                      value={formik.values.year}
+                      onChange={(e) => formik.setFieldValue("year", Number(e.target.value))}
+                      onBlur={formik.handleBlur}
+                    >
+                      {YEAR_OPTIONS.map((year) => (
+                        <option key={year} value={year}>
+                          {year}
+                        </option>
+                      ))}
+                    </select>
+                    {formik.touched.year && formik.errors.year && (
+                      <span className={s.fieldError}>{String(formik.errors.year)}</span>
+                    )}
+                  </label>
 
-                <div className={styles.fileField}>
-                  <button
-                    type="button"
-                    className={s.button}
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    <Glyph name="attach_file" />
-                    Выбрать файл
-                  </button>
-                  <span className={styles.chosenFileName}>
-                    {selectedFile ? selectedFile.name : "Файл не выбран"}
-                  </span>
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    style={{ display: "none" }}
-                    accept={fileAccept("pgas")}
-                    onChange={handleFileChange}
-                  />
-                </div>
+                  <div className={styles.fileField}>
+                    <button
+                      type="button"
+                      className={s.button}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <Glyph name="attach_file" />
+                      Выбрать файл
+                    </button>
+                    <span className={styles.chosenFileName}>
+                      {selectedFile ? selectedFile.name : "Файл не выбран"}
+                    </span>
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      style={{ display: "none" }}
+                      accept={fileAccept("pgas")}
+                      onChange={handleFileChange}
+                    />
+                  </div>
 
-                {fileError && <p role="alert" className={s.fieldError}>{fileError}</p>}
+                  {fileError && <p role="alert" className={s.fieldError}>{fileError}</p>}
 
-                {globalError && <p role="alert" className={s.fieldError}>{globalError}</p>}
+                  {globalError && <p role="alert" className={s.fieldError}>{globalError}</p>}
 
-                <div className={styles.modalActions}>
-                  <button className={s.button} type="button" onClick={() => requestClose(closeModal)}>
-                    Отмена
-                  </button>
-                  <button
-                    className={`${s.button} ${s.primary}`}
-                    type="submit"
-                    disabled={formik.isSubmitting}
-                  >
-                    {formik.isSubmitting ? "Загрузка..." : "Загрузить"}
-                  </button>
-                </div>
+                  <div className={styles.modalActions}>
+                    <button className={s.button} type="button" onClick={requestModalClose}>
+                      Отмена
+                    </button>
+                    <button
+                      className={`${s.button} ${s.primary}`}
+                      type="submit"
+                      disabled={formik.isSubmitting}
+                    >
+                      {formik.isSubmitting ? "Загрузка..." : "Загрузить"}
+                    </button>
+                  </div>
+                </fieldset>
               </form>
             </FormikProvider>
           </div>
