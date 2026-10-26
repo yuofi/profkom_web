@@ -36,6 +36,7 @@ it.each(["material", "report", "task", "task-inputs", "assessment", "bulk"] as c
   const prefix = kind === "material" ? "materials" : kind === "report" ? "reports" : "tasks";
   page = await mountWorkspace(<Routes><Route path={`/${prefix}/:id`} element={kind === "material" ? <MaterialPage /> : kind === "report" ? <ReportPage /> : <TaskPage />} /></Routes>, {path: `/${prefix}/${id}`});
   await settle(); await settle();
+  if (kind === "task") await click(page.container, "Редактировать");
   const form = kind === "bulk" ? forms().find(f => f.querySelector('[name="assignments"]'))!
     : kind === "assessment" ? forms().find(f => f.querySelector('[name="evaluation"]'))!
     : field(page.container, kind === "task-inputs" ? "assigned" : "title").closest("form")!;

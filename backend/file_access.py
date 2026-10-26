@@ -72,7 +72,7 @@ def check_metadata(fr, metadata):
 
 
 def validate_metadata(kind, purpose, name, mime, size):
-    if kind not in ("avatar", "assignment", "report", "material", "pgas"):
+    if kind not in ("avatar", "assignment", "task", "report", "material", "pgas"):
         raise InvalidInput("Unsupported file context")
     expected = {
         "avatar": "avatar",
@@ -81,7 +81,7 @@ def validate_metadata(kind, purpose, name, mime, size):
         "material": "material",
         "pgas": "pgas",
     }
-    if purpose != expected[kind]:
+    if (kind == "task" and purpose not in {"attachment", "submission"}) or (kind != "task" and purpose != expected[kind]):
         raise InvalidInput("Invalid file purpose")
     limit = 10 if kind == "avatar" else 20
     if not 0 < size <= limit * 1024 * 1024:
@@ -126,14 +126,26 @@ def permitted(session, fr, uid, write=False):
             and meta
             and meta.avatar_file_id == fr.file_id
         )
-    if fr.owner_kind in ("assignment", "task"):
-        if fr.owner_kind == "assignment":
-            a = session.get(AssignmentORM, fr.owner_id)
-            if not a or (write and a.assignee_user_id != uid):
-                return False
-            task = session.get(TaskORM, a.task_id)
-        else:
-            task = session.get(TaskORM, fr.owner_id)
+    if fr.owner_kind == "task":
+        from tracker import metadata, can_work
+        from database import TaskSubmissionORM, SeasonORM
+        task = session.get(TaskORM,fr.owner_id)
+        if not task or not db.can_view_scope(uid,task.scope_kind,task.scope_id):return False
+        meta = metadata(session,task)
+        attached = set(json.loads(meta.files_json or "[]"))
+        for sub in session.query(TaskSubmissionORM).filter_by(task_id=task.task_id):attached.update(json.loads(sub.files_json or "[]"))
+        import access
+        if fr.purpose == "attachment":
+            writable = access.allowed(uid,"task.edit",task.scope_kind,task.scope_id,state=session.get(SeasonORM,task.season_id).state)
+        elif fr.purpose == "submission":
+            writable = can_work(session,task,uid) and session.get(SeasonORM,task.season_id).state != "closed"
+        else:return False
+        if write:return writable and (fr.file_id in attached or fr.uploaded_by_user_id == uid)
+        return fr.file_id in attached or (writable and fr.uploaded_by_user_id == uid)
+    if fr.owner_kind == "assignment":
+        a = session.get(AssignmentORM, fr.owner_id)
+        if not a or (write and a.assignee_user_id != uid):return False
+        task = session.get(TaskORM, a.task_id)
         return bool(task and db.can_view_scope(uid, task.scope_kind, task.scope_id))
     if fr.owner_kind == "report":
         r = session.get(ReportORM, fr.owner_id)
@@ -173,7 +185,7 @@ def owner_exists(session, kind, owner_id):
     """An upload into a missing assignment, report or material is a 404 (A-SEC-7)."""
     from domain_models import MaterialORM
 
-    model = {"assignment": AssignmentORM, "report": ReportORM, "material": MaterialORM}.get(kind)
+    model = {"assignment": AssignmentORM, "task": TaskORM, "report": ReportORM, "material": MaterialORM}.get(kind)
     return model is None or session.get(model, owner_id) is not None
 
 

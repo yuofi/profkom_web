@@ -28,9 +28,9 @@ it("formats selection with Cmd/Ctrl shortcuts, preserves fences and restores cur
 it("toolbar and keyboard use the same insertion and preview shows draft", async () => {
   page = await mountWorkspace(<Editor />);
   const input = page.container.querySelector("textarea")!; input.focus(); input.setSelectionRange(0, 5);
-  const italic = [...page.container.querySelectorAll("button")].find((element) => element.textContent === "Курсив")!;
+  const italic = [...page.container.querySelectorAll("button")].find((element) => element.getAttribute("aria-label") === "Курсив")!;
   await act(async () => italic.click()); expect(input.value).toBe("*Текст*" + custom);
-  const preview = [...page.container.querySelectorAll("button")].find((element) => element.textContent === "Предпросмотр")!;
+  const preview = [...page.container.querySelectorAll("button")].find((element) => element.getAttribute("aria-label") === "Предпросмотр")!;
   await act(async () => preview.click()); expect(page.container.querySelector("textarea")).toBeNull();
   expect(page.container.querySelector("em")!.textContent).toBe("Текст");
 });

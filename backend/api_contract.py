@@ -25,7 +25,7 @@ class Page(BaseModel, Generic[T]):
 PAGE_SIZE = 100
 
 
-def cursor_page(items, key, cursor=None, *, descending=False):
+def cursor_page(items, key, cursor=None, *, descending=False, limit=None):
     """One keyset page of `items`, which already holds only what the reader may see.
 
     The opaque cursor is the sort key of the last item on the previous page, so a page
@@ -43,7 +43,8 @@ def cursor_page(items, key, cursor=None, *, descending=False):
             ordered = [item for item in ordered if (key(item) < last if descending else key(item) > last)]
         except (ValueError, TypeError, UnicodeError):
             raise HTTPException(422, "Invalid cursor")
-    page, rest = ordered[:PAGE_SIZE], ordered[PAGE_SIZE:]
+    size=min(limit,PAGE_SIZE) if limit is not None else PAGE_SIZE
+    page, rest = ordered[:size], ordered[size:]
     following = base64.urlsafe_b64encode(json.dumps(list(key(page[-1]))).encode()).decode() if rest else None
     return Page(items=page, next_cursor=following)
 

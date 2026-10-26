@@ -105,7 +105,7 @@ describe("Rendered authorization with a deliberately stale private cache", () =>
       "/tasks/task-1",
       "/tasks/:id",
     );
-    expect(html).toContain("Решение руководителя");
+    expect(html).toContain("Отменить задачу");
     expect(html).toContain("Исходные поля оценивания");
   });
   it.each([

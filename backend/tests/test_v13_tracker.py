@@ -452,11 +452,11 @@ def test_hidden_inputs_keep_the_assignees_revision(client, work):
     assert r.status_code == 409, r.text
     inputs = client.get(url, headers=w["master"].headers).json()
     assert (inputs["revision"], inputs["hours"]) == (4, 6)
-    # An evaluation that changes the status is visible to the assignee and moves both.
+    # A personal accounting outcome is private; the shared workflow and public revision stay fixed.
     r = client.patch(url, headers=w["master"].headers, json=dict(expected_revision=inputs["revision"], evaluation=1, reason="Оценка"))
     assert r.status_code == 200, r.text
     assert r.json()["revision"] == 5
-    assert public_revision(client, w, aid) == seen + 2
+    assert public_revision(client, w, aid) == seen + 1
     r = client.patch(url, headers=w["master"].headers, json=dict(expected_revision=5, evaluation=1.5, reason="Оценка"))
     assert r.status_code == 200, r.text
-    assert public_revision(client, w, aid) == seen + 2
+    assert public_revision(client, w, aid) == seen + 1

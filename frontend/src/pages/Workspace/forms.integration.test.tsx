@@ -170,14 +170,11 @@ it("2.12 A-FE-2: a returned registration saves its details and is resubmitted wi
 it("2.12 A-FE-2: two rows of one summary save one after another without a conflict", async () => {
   const people = [await liveParticipant("summary-a"), await liveParticipant("summary-b")];
   const { season, task } = await subeventTask(people, "Задача для сводной");
-  for (const person of people) {
-    await liveLogin(person.email);
-    const own = task.assignments.find(a => a.assignee.user_id === person.user_id)!;
-    await tasksApi.command(own.assignment_id, "submit", { expected_revision: own.revision, text: richText("Сдано") });
-  }
+  await liveLogin(people[0].email);
+  await tasksApi.changeStatus(task.task_id, { expected_revision: task.revision, status: "submitted", text: richText("Общий результат") });
   await liveLogin();
-  for (const a of (await tasksApi.get(task.task_id)).assignments)
-    await tasksApi.command(a.assignment_id, "accept", { expected_revision: a.revision, evaluation: 1 });
+  const submitted = await tasksApi.get(task.task_id);
+  await tasksApi.changeStatus(task.task_id, { expected_revision: submitted.revision, status: "accepted", evaluation: 1 });
   // Decisions are edited while the season is summarized; closed totals are corrected elsewhere.
   const current = (await seasonsApi.list()).items.find(s => s.season_id === season.season_id)!;
   await seasonsApi.command(season.season_id, "begin-summary", { expected_revision: current.revision });
@@ -203,7 +200,9 @@ it("2.12 A-TSK-5: a help request keeps its text through a conflict and is sent a
   const second = await actorClient(org.email);
   await liveLogin(org.email);
   await taskPage(task.task_id);
-  const help = () => inDetails("Попросить помощь")?.querySelector("form");
+  await until(() => [...page!.container.querySelectorAll("button")].some(button => button.textContent === "Попросить помощь"));
+  await click(page!.container, "Попросить помощь");
+  const help = () => page!.container.querySelector<HTMLFormElement>("dialog form");
   await until(() => !!help());
   await change(field(help()!, "message"), "Не хватает доступа к папке");
   await second.post(`/assignments/${own.assignment_id}/start`, { expected_revision: own.revision });
@@ -226,7 +225,9 @@ it("2.12 A-TSK-12: a submission replaced after a conflict leaves with no text an
   const second = await actorClient(org.email);
   await liveLogin(org.email);
   await taskPage(task.task_id);
-  const draft = () => inDetails("Сдать результат");
+  await until(() => [...page!.container.querySelectorAll("button")].some(button => button.textContent === "Сдать результат"));
+  await click(page!.container, "Сдать результат");
+  const draft = () => page!.container.querySelector("dialog");
   const result = () => draft()?.querySelector("form");
   await until(() => !!result());
   const input = draft()!.querySelector<HTMLInputElement>('input[type="file"]')!;
@@ -247,7 +248,7 @@ it("2.12 A-TSK-12: a submission replaced after a conflict leaves with no text an
   await change(field(result()!, "body"), "Результат без файла");
   await submit(result()!);
   await until(() => !result());
-  const last = (await tasksApi.get(task.task_id)).assignments[0].submissions.at(-1)!;
+  const last = (await tasksApi.get(task.task_id)).submissions!.at(-1)!;
   expect([last.text.body, last.files]).toEqual(["Результат без файла", []]);
 });
 
@@ -258,7 +259,9 @@ it("2.12 EDITORS-05 (decision 32): hours changed by the lead do not stop the ass
   const chair = await actorClient("chair@example.com");
   await liveLogin(org.email);
   await taskPage(task.task_id);
-  const result = () => inDetails("Сдать результат")?.querySelector("form");
+  await until(() => [...page!.container.querySelectorAll("button")].some(button => button.textContent === "Сдать результат"));
+  await click(page!.container, "Сдать результат");
+  const result = () => page!.container.querySelector<HTMLFormElement>("dialog form");
   await until(() => !!result());
   await change(field(result()!, "body"), "Результат после смены часов");
   const inputs = (await chair.get(`/assignments/${own.assignment_id}/assessment-inputs`)).data;

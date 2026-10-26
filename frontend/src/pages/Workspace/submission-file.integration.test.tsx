@@ -31,13 +31,14 @@ it("an assignee uploads and submits a file without text; foreign and revoked use
   let subevent = await eventsApi.createSubevent(event.event_id, { title: "File-only team", description: richText() });
   subevent = await eventsApi.organizers(subevent.subevent_id, [worker.user_id], { expected_revision: subevent.revision });
   const task = await tasksApi.create({ season_id: season.season_id, scope: { kind: "subevent", id: subevent.subevent_id }, title: "Сдать только файл", description: richText(), deadline_at: new Date(Date.now() + 86400000).toISOString(), criteria: emptyCriteria(), assignees: [{ user_id: worker.user_id, hours: 1 }] });
-  const assignment = task.assignments[0];
-  const owner = { owner_kind: "assignment", owner_id: assignment.assignment_id, purpose: "submission" };
+  const owner = { owner_kind: "task", owner_id: task.task_id, purpose: "submission" };
   await liveLogin(foreign.email);
   await expect(filesApi.intent({ ...owner, name: "result.txt", mime_type: "text/plain", size_bytes: 12 })).rejects.toMatchObject({ status: 403 });
   const session = await liveLogin(worker.email);
   page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TaskPage />} /></Routes>, { path: `/tasks/${task.task_id}`, session });
   await waitForPage(page);
+  const open = [...page.container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Сдать результат")!;
+  await act(async () => open.click());await waitForPage(page);
   const input = page.container.querySelector<HTMLInputElement>('input[type="file"]')!;
   expect(input).not.toBeNull();
   const file = new File(["Synthetic file-only result"], "result.txt", { type: "text/plain" });
@@ -53,7 +54,8 @@ it("an assignee uploads and submits a file without text; foreign and revoked use
   await submit(form);
   await waitForPage(page, () => !page!.container.querySelector('input[type="file"]'));
   const saved = await tasksApi.get(task.task_id);
-  const result = saved.assignments[0].submissions.at(-1)!;
+  const result = saved.submissions!.at(-1)!;
+  expect(saved.status).toBe("submitted");
   expect(result.text.body).toBe("");
   expect(result.files).toHaveLength(1);
   const attached = result.files[0];

@@ -293,6 +293,40 @@ class TaskORM(Base):
     revision = Column(Integer, default=1, nullable=False)
 
 
+class TaskTrackerORM(Base):
+    __tablename__ = "task_tracker"
+    task_number = Column(Integer, primary_key=True, autoincrement=True)
+    task_id = Column(String, ForeignKey("tasks.task_id"), nullable=False, unique=True, index=True)
+    status = Column(String, nullable=False, default="assigned")
+    legacy_mixed_statuses = Column(Boolean, nullable=False, default=False)
+    public_statuses_json = Column(Text, nullable=False, default="{}")
+    public_updated_at = Column(String, nullable=True)
+    files_json = Column(Text, nullable=False, default="[]")
+
+
+class TaskActivityORM(Base):
+    __tablename__ = "task_activity"
+    event_id = Column(String, primary_key=True)
+    task_id = Column(String, ForeignKey("tasks.task_id"), nullable=False, index=True)
+    kind = Column(String, nullable=False)
+    actor_user_id = Column(Integer, nullable=True)
+    created_at = Column(String, nullable=False)
+    description = Column(String, nullable=False)
+    from_status = Column(String, nullable=True)
+    to_status = Column(String, nullable=True)
+
+
+class TaskSubmissionORM(Base):
+    __tablename__ = "task_submissions"
+    submission_id = Column(String, primary_key=True)
+    task_id = Column(String, ForeignKey("tasks.task_id"), nullable=False, index=True)
+    submitted_at = Column(String, nullable=False)
+    created_by_user_id = Column(Integer, nullable=False)
+    text_json = Column(Text, nullable=False)
+    links_json = Column(Text, nullable=False, default="[]")
+    files_json = Column(Text, nullable=False, default="[]")
+
+
 # Assignments without a final outcome; accepted, not_completed and cancelled are final.
 UNRESOLVED_STATUSES = ("assigned", "in_progress", "help_required", "submitted", "needs_revision")
 
@@ -1411,7 +1445,7 @@ def _task_orm_to_dc(session: Session, t: TaskORM, current_user_id: Optional[int]
     except Exception:
         desc_body = str(t.description_json or "")
 
-    return TaskPublicDC(
+    result = TaskPublicDC(
         task_id=t.task_id,
         season_id=t.season_id,
         scope=ScopeRefDC(kind=t.scope_kind, id=t.scope_id),
@@ -1422,6 +1456,8 @@ def _task_orm_to_dc(session: Session, t: TaskORM, current_user_id: Optional[int]
         revision=t.revision,
         capabilities=caps,
     )
+    from tracker import enrich_task
+    return enrich_task(session, t, result, current_user_id)
 
 
 def _comment_orm_to_dc(session: Session, c: CommentORM, current_user_id: Optional[int] = None) -> CommentDC:
@@ -3307,7 +3343,12 @@ class Database:
                 assignments = session.query(AssignmentORM).filter(AssignmentORM.task_id.in_(list(task_map.keys()))).all()
                 for a in assignments:
                     t = task_map.get(a.task_id)
-                    if a.status not in ("accepted", "not_completed", "cancelled"):
+                    from tracker import metadata as tracker_metadata, participants
+                    shared_meta=tracker_metadata(session,t)
+                    current_ids={item.assignment_id for item in participants(session,t.task_id)}
+                    public_statuses=json.loads(shared_meta.public_statuses_json or "{}")
+                    public_status=shared_meta.status if a.assignment_id in current_ids and not shared_meta.legacy_mixed_statuses else public_statuses.get(a.assignment_id,a.status)
+                    if public_status in UNRESOLVED_STATUSES:
                         blockers.append({
                             "kind": "unfinished_assignment",
                             "owner_kind": "assignment",
@@ -4688,15 +4729,6 @@ class Database:
                     .all()
                 ]
                 query = query.filter(TaskORM.task_id.in_(task_ids))
-            if status:
-                task_ids = [
-                    a.task_id
-                    for a in session.query(AssignmentORM.task_id)
-                    .filter(AssignmentORM.status == status)
-                    .all()
-                ]
-                query = query.filter(TaskORM.task_id.in_(task_ids))
-
             if sort == "deadline":
                 query = query.order_by(TaskORM.deadline_at.asc())
             else:
@@ -4709,6 +4741,11 @@ class Database:
                     if self.can_view_scope(current_user_id, r.scope_kind, r.scope_id):
                         filtered_rows.append(r)
                 rows = filtered_rows
+            from tracker import participants,metadata as tracker_metadata
+            if mine_user_id is not None:
+                rows=[task for task in rows if any(a.assignee_user_id==mine_user_id for a in participants(session,task.task_id))]
+            if status:
+                rows=[task for task in rows if tracker_metadata(session,task).status==status]
             return [_task_orm_to_dc(session, r, current_user_id) for r in rows]
 
     def patch_task(
@@ -5120,7 +5157,6 @@ class Database:
             query = (
                 session.query(AssignmentORM, TaskORM)
                 .join(TaskORM, AssignmentORM.task_id == TaskORM.task_id)
-                .filter(AssignmentORM.status.in_(active_statuses))
             )
             if season_id:
                 query = query.filter(TaskORM.season_id == season_id)
@@ -5131,7 +5167,15 @@ class Database:
 
             pairs = query.all()
             results = []
+            from tracker import metadata as tracker_metadata, participants
+            current_by_task={}
+            public_tasks={}
             for a, t in pairs:
+                meta=tracker_metadata(session,t)
+                if t.task_id not in current_by_task:current_by_task[t.task_id]={item.assignment_id for item in participants(session,t.task_id)}
+                if a.assignment_id not in current_by_task[t.task_id]:continue
+                public_status=json.loads(meta.public_statuses_json or "{}").get(a.assignment_id,a.status) if meta.legacy_mixed_statuses else meta.status
+                if public_status not in active_statuses:continue
                 if current_user_id is not None:
                     import access
                     if not access.allowed(current_user_id, "task.review", t.scope_kind, t.scope_id,
@@ -5148,7 +5192,8 @@ class Database:
                 if orphaned_only and unavail is None:
                     continue
 
-                a_dc = _assignment_orm_to_dc(session, a, current_user_id)
+                if t.task_id not in public_tasks:public_tasks[t.task_id]=_task_orm_to_dc(session,t,current_user_id)
+                a_dc=next(item for item in public_tasks[t.task_id].assignments if item.assignment_id==a.assignment_id)
                 a_dc.assignee_unavailable_reason = unavail
                 results.append(
                     UnresolvedAssignmentDC(
@@ -5189,7 +5234,10 @@ class Database:
             if a.revision != expected_revision:
                 raise revision_conflict()
 
-            if a.status not in UNRESOLVED_STATUSES:raise Conflict("Conflict: only unresolved assignments can be reassigned")
+            from tracker import metadata as tracker_metadata, participants
+            shared_meta = tracker_metadata(session, t)
+            if shared_meta.status not in UNRESOLVED_STATUSES or a.assignment_id not in {row.assignment_id for row in participants(session,t.task_id)}:
+                raise Conflict("Conflict: only current unresolved task participants can be reassigned")
             from validation import hours as check_hours
             check_hours(hours)
             if previous_outcome not in ("cancelled", "not_completed"):
@@ -5212,19 +5260,11 @@ class Database:
             if not self.is_member_or_leader_in_scope(new_assignee_user_id, t.scope_kind, t.scope_id):
                 raise InvalidInput(f"New assignee {new_assignee_user_id} is not in scope")
 
-            # Check new assignee does not already have an active unresolved assignment on this task
-            existing_active = (
-                session.query(AssignmentORM)
-                .filter(
-                    AssignmentORM.task_id == t.task_id,
-                    AssignmentORM.assignee_user_id == new_assignee_user_id,
-                    AssignmentORM.status.in_(("assigned", "in_progress", "help_required", "submitted", "needs_revision")),
-                )
-                .count()
-            )
-            if existing_active > 0:
+            # Current joint participation is independent of private personal outcomes.
+            if any(row.assignee_user_id == new_assignee_user_id for row in participants(session,t.task_id)):
                 raise Conflict("New assignee already has an active assignment on this task")
 
+            shared_status, was_mixed = shared_meta.status, shared_meta.legacy_mixed_statuses
             now_str = datetime.now(timezone.utc).isoformat()
             old_status = a.status
             a.status = previous_outcome
@@ -5238,11 +5278,17 @@ class Database:
                 assignment_id=f"assignment-{uuid.uuid4()}",
                 task_id=t.task_id,
                 assignee_user_id=new_assignee_user_id,
-                status="assigned",
+                status=shared_status if not was_mixed else "assigned",
                 hours=hours,
+                effective_completed_at=a.effective_completed_at if shared_status == "submitted" and not was_mixed else None,
                 revision=1,
                 created_at=now_str,
             )
+            t.revision += 1
+            public_statuses=json.loads(shared_meta.public_statuses_json or "{}")
+            public_statuses[a.assignment_id]=previous_outcome
+            public_statuses[new_asgn.assignment_id]=new_asgn.status
+            shared_meta.public_statuses_json=json.dumps(public_statuses)
             session.add(new_asgn)
             session.add(
                 NotificationORM(
@@ -5270,6 +5316,8 @@ class Database:
                     created_at=now_str,
                 )
             )
+            from tracker import activity
+            activity(session,t,"assignee_changed",manager_user_id,"Изменён состав исполнителей",at=now_str)
             from season_summaries import refresh
             refresh(session,t.season_id,manager_user_id,reason)
             session.commit()
@@ -5455,9 +5503,8 @@ class Database:
             if effective_completed_at is not None:
                 a.effective_completed_at = effective_completed_at
 
-            # The assignee sees only the status: the assignment revision moves with it alone.
-            if a.status != old_status:
-                a.revision += 1
+            # Personal accounting outcomes do not change the joint workflow revision.
+            # The shared task status and activity remain independent of private inputs.
             a.updated_at = datetime.now(timezone.utc).isoformat()
             _recalculate_assignment_contribution(session, a, t)
 
@@ -6186,3 +6233,9 @@ preserve_closed_summaries()
 
 from observed_participation_seed import seed_observed_participation
 seed_observed_participation()
+
+
+# Additive tracker metadata migration is separate from immutable accounting history.
+from tracker import seed_existing as seed_task_tracker, install_activity_hooks
+seed_task_tracker()
+install_activity_hooks()

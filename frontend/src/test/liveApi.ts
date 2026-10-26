@@ -36,10 +36,11 @@ export async function liveCloseSeasons() {
   const chair = await liveLogin();
   for (const season of (await seasonsApi.list()).items.sort((a, b) => a.sequence_number - b.sequence_number)) {
     if (season.state === "closed") continue;
-    for (const task of (await tasksApi.list({ season_id: season.season_id, mine: false })).items)
-      for (const a of task.assignments)
-        if (!["accepted", "cancelled", "not_completed"].includes(a.status))
-          await tasksApi.command(a.assignment_id, "cancel", { expected_revision: a.revision, reason: "Finish disposable acceptance fixture" });
+    for (const task of (await tasksApi.list({ season_id: season.season_id, mine: false })).items) {
+      if (!task.status) throw Error("Disposable task has no common status");
+      if (!["accepted", "cancelled", "not_completed"].includes(task.status))
+        await tasksApi.changeStatus(task.task_id, { expected_revision: task.revision, status: "cancelled", reason: "Finish disposable acceptance fixture" });
+    }
     for (const event of (await eventsApi.list({ season_id: season.season_id })).items) {
       await eventsApi.leaders("events", event.event_id, [chair.user_id], { expected_revision: event.revision });
       const owners: { owner_kind: "event" | "subevent"; owner_id: string }[] = [{ owner_kind: "event", owner_id: event.event_id }];

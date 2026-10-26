@@ -21,7 +21,7 @@ export interface Section {
 export const SECTIONS: Section[] = [
   { to: "/", label: "Моё участие", icon: "space_dashboard", tone: "yellow" },
   { to: "/events", label: "Мероприятия", icon: "celebration", tone: "mint", under: ["/subevents", "/meetings", "/reports"] },
-  { to: "/tasks", label: "Мои задачи", icon: "task_alt", tone: "lilac" },
+  { to: "/tasks", label: "Задачи", icon: "task_alt", tone: "lilac" },
   { to: "/calendar", label: "Календарь", icon: "calendar_month", tone: "sky" },
   { to: "/contacts", label: "Контакты", icon: "contacts", tone: "sky" },
   { to: "/notifications", label: "Уведомления", icon: "notifications", tone: "peach" },

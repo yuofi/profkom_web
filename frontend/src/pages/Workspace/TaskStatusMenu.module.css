@@ -1,0 +1,16 @@
+.root { position: relative; display: inline-block; min-width: 0; max-width: 100%; vertical-align: middle; }
+.chip { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 32px; max-width: 100%; box-sizing: border-box; padding: 5px 7px; border: 1px solid color-mix(in srgb, var(--tone, var(--primary)) 35%, transparent); border-radius: 9px; background: color-mix(in srgb, var(--tone, var(--primary)) 14%, var(--surface-container-low)); color: var(--tone, var(--on-surface)); font: inherit; font-size: 13px; cursor: pointer; white-space: normal; }
+.chip:focus-visible,.option:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+.chip:disabled { cursor: progress; opacity: .7; }
+.dot,.menuDot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--tone, var(--primary)); flex: 0 0 auto; }
+.menu { position: absolute; z-index: 30; inset-inline-start: 0; top: calc(100% + 7px); width: 240px; max-width: calc(100vw - 40px); padding: 7px; border: 1px solid var(--outline-variant); border-radius: 12px; background: var(--surface-container-high); box-shadow: 0 12px 35px rgb(0 0 0 / .4); }
+.menuNote { margin: 5px 6px 8px; font-size: 12px; color: var(--on-surface); opacity: .65; }
+.option { display: flex; gap: 9px; align-items: center; padding: 9px; width: 100%; border: 0; border-radius: 6px; font: inherit; font-size: 14px; background: none; color: var(--on-surface); text-align: left; cursor: pointer; }
+.option:hover:not(:disabled) { background: var(--surface-container-highest); }
+.option:disabled { opacity: .42; cursor: not-allowed; }
+.option[aria-current] { opacity: .8; }
+.option span:last-child:not(:first-child) { margin-left: auto; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+@media(max-width: 768px) { .actions { gap: 7px; }.actions button { flex-grow: 1; }.menu { position: fixed; inset: auto 14px 20px; width: auto; max-width: none; max-height: calc(100dvh - 100px); overflow-y: auto; } }
+
+.chipLabel { overflow-wrap: anywhere; min-width: 0; text-align: left; }.chip > span:last-child { flex: 0 0 auto; font-size: 16px; }

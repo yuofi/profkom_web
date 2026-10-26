@@ -2,7 +2,7 @@
 import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
-import { mountWorkspace, settle } from "../../test/workspace";
+import { mountWorkspace, waitForPage } from "../../test/workspace";
 import { UserProvider } from "../../utils/ctx";
 import { ProfilePage } from "./ProfilePage";
 
@@ -22,13 +22,14 @@ afterEach(async () => { await page?.cleanup(); page = undefined; mock?.restore()
 it("a chosen avatar shows on the profile without a reload", async () => {
   mock = installMockTransport("organizer", { delay: 0 });
   page = await mountWorkspace(<UserProvider><ProfilePage /></UserProvider>, { role: "organizer", path: "/profile" });
-  await settle(); await settle();
+  await waitForPage(page, () => Array.from(page!.container.querySelectorAll("button")).some((button) => button.querySelector("img") && button.textContent));
   const avatar = () => page!.container.querySelector<HTMLImageElement>('img[alt="Avatar"]')!.getAttribute("src");
   const preset = Array.from(page.container.querySelectorAll("button")).find((b) => b.querySelector("img") && b.textContent);
   expect(preset).toBeTruthy();
   const chosen = preset!.querySelector("img")!.getAttribute("src");
   expect(avatar()).not.toBe(chosen);
-  await act(async () => preset!.click()); await settle(); await settle();
+  await act(async () => preset!.click());
+  await waitForPage(page, () => page!.container.textContent?.includes("Аватар сохранён") ?? false);
   expect(page.container.textContent).toContain("Аватар сохранён");
   expect(avatar()).toBe(chosen);
 });

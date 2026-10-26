@@ -1,5 +1,9 @@
 import type {
   Task,
+  TaskListPageResponse,
+  TaskStatusChange,
+  TaskHistoryEvent,
+  Page,
   TaskCreate,
   Assignment,
   Revision,
@@ -23,11 +27,14 @@ export interface AssignmentCommands {
 }
 export const tasksApi = {
   list: (params?: object) => page<Task>("/tasks", params),
+  listPage: (params?: object) => request<TaskListPageResponse>("get", "/tasks", undefined, params),
+  changeStatus: (id: string, data: TaskStatusChange) => request<Task>("post", `/tasks/${idPath(id)}/status`, data),
+  history: (id: string) => request<Page<TaskHistoryEvent>>("get", `/tasks/${idPath(id)}/history`),
   get: (id: string) => request<Task>("get", `/tasks/${idPath(id)}`),
   create: (data: TaskCreate) => request<Task>("post", "/tasks", data),
   update: (
     id: string,
-    data: Revision & { title?: string; description?: RichText },
+    data: Revision & { title?: string; description?: RichText; file_ids?: string[] },
   ) => request<Task>("patch", `/tasks/${idPath(id)}`, data),
   command: <C extends keyof AssignmentCommands>(
     id: string,

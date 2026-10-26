@@ -147,6 +147,7 @@ def notifications(uid):
                             or {
                                 "task_assignment": "Вам назначена задача",
                                 "task_help_required": "Требуется помощь",
+                                "task_status_changed": "Изменён статус задачи",
                                 "block_left": "Участник вышел из блока",
                             }.get(n.kind, "Изменение рабочего объекта")
                         )

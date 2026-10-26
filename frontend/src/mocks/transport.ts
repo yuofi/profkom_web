@@ -11,6 +11,7 @@ import {
   type Subevent,
   type Task,
   type TaskInputs,
+  type TaskHistoryEvent,
   type Report,
   type ReportVersion,
   type Material,
@@ -231,6 +232,56 @@ export function installMockTransport(
     url.searchParams.get("season_id")
       ? items.filter((x) => x.season_id === url.searchParams.get("season_id"))
       : items;
+
+  const taskHistory = new Map<string, TaskHistoryEvent[]>();
+  const rememberTask = (task: Task, kind: string, description: string, from?: AssignmentStatus, to?: AssignmentStatus) => {
+    const events = taskHistory.get(task.task_id) ?? [];
+    events.push({ event_id: id("task-event"), kind, description, created_at: mockNow, actor: clone(state.user), from_status: from, to_status: to });
+    taskHistory.set(task.task_id, events);task.updated_at = mockNow;
+  };
+  const taskFiles = (ids: unknown): FileRef[] => ((ids as string[]) ?? []).map(fileId => files.get(fileId)).filter(file => !!file).map(file => ({ file_id: file!.file_id, name: file!.name, mime_type: file!.mime_type, size_bytes: file!.size_bytes }));
+  const transitionTask = (task: Task, data: Body): Reply => {
+    const extra = extraInputs(data, ["status", "message", "text", "links", "file_ids", "evaluation", "evaluations", "review_note", "reason"]);
+    if (extra) return extra;
+    if (!["assigned", "in_progress", "help_required", "submitted", "accepted", "needs_revision", "not_completed", "cancelled"].includes(String(data.status))) return fail(422, "invalid_input", "Неизвестный статус");
+    if (mismatch(data, task)) return conflict();
+    const next = data.status as AssignmentStatus, current = task.status ?? task.assignments[0]?.status ?? "assigned";
+    const active = !["accepted", "not_completed", "cancelled"].includes(current);
+    const worker = task.assignments.some(a => a.assignee.user_id === state.session.user_id && !a.assignee_unavailable_reason);
+    const reviewer = task.capabilities.includes("review_task");
+    if (["in_progress", "help_required", "submitted"].includes(next) ? !worker : !reviewer) return denied();
+    const edges: Partial<Record<AssignmentStatus, AssignmentStatus[]>> = {
+      in_progress: ["assigned", "help_required", "needs_revision"], help_required: ["assigned", "in_progress", "needs_revision"],
+      submitted: ["assigned", "in_progress", "help_required", "needs_revision"], accepted: ["submitted"], needs_revision: ["submitted", "accepted"],
+      not_completed: ["assigned", "in_progress", "help_required", "submitted", "needs_revision"], cancelled: ["assigned", "in_progress", "help_required", "submitted", "needs_revision"],
+    };
+    if ((!active && next !== "needs_revision") || !edges[next]?.includes(current)) return conflict();
+    const reason = String(data.reason ?? data.review_note ?? "");
+    if (["needs_revision", "not_completed", "cancelled"].includes(next) && !reason.trim()) return fail(422, "invalid_input", "Укажите причину");
+    if (next === "accepted" && ![1, 1.5].includes(Number(data.evaluation))) return fail(422, "invalid_input", "Укажите оценку");
+    if (next === "not_completed" && ![0, -1].includes(Number(data.evaluation))) return fail(422, "invalid_input", "Укажите оценку");
+    if (next === "submitted") {
+      const content = publicSubmission(data.text), links = (data.links as string[]) ?? [], ids = (data.file_ids as string[]) ?? [];
+      if (!content.body.trim() && !links.length && !ids.length) return fail(422, "invalid_input", "Добавьте результат, ссылку или файл");
+      const submission = { submission_id: id("submission"), submitted_at: mockNow, submitted_by: clone(state.user), text: content, links, files: taskFiles(ids) };
+      task.submissions ??= [];task.submissions.push(submission);
+      task.assignments.forEach(a => a.submissions.push(clone(submission)));
+    }
+    if (next === "help_required" && publicSubmission(data.message).body.trim()) state.comments.push({ comment_id: id("comment"), task_id: task.task_id, author: clone(state.user), content: publicSubmission(data.message), created_at: mockNow, updated_at: null, capabilities: ["edit_comment"] });
+    task.status = next;task.revision++;
+    task.assignments.forEach(assignment => {
+      assignment.status = next;assignment.revision++;
+      if (reason) assignment.review_note = reason;
+      const inputs = state.assessments.find(item => item.assignment_id === assignment.assignment_id);
+      if (inputs && ["accepted", "not_completed", "cancelled"].includes(next)) {
+        const overrides = data.evaluations as { assignment_id: string; evaluation: -1 | 0 | 1 | 1.5 }[] | undefined;
+        inputs.evaluation = next === "cancelled" ? null : overrides?.find(item => item.assignment_id === assignment.assignment_id)?.evaluation ?? (inputs.evaluation !== null && (next === "accepted" ? inputs.evaluation >= 1 : inputs.evaluation <= 0) ? inputs.evaluation : Number(data.evaluation) as -1 | 0 | 1 | 1.5);
+        inputs.effective_completed_at = next === "accepted" ? task.submissions?.at(-1)?.submitted_at ?? null : null;inputs.revision++;
+      }
+    });
+    rememberTask(task, "status_changed", "Изменён статус задачи", current, next);
+    return [200, clone(task)];
+  };
 
   uploads.onAny().reply((config) => {
     const fileId = config.url?.split("/").pop() ?? "";
@@ -869,13 +920,18 @@ export function installMockTransport(
               (a) => a.assignee.user_id === state.session.user_id,
             ),
           );
-        if (url.searchParams.get("status"))
-          tasks = tasks.filter((t) =>
-            t.assignments.some(
-              (a) => a.status === url.searchParams.get("status"),
-            ),
-          );
-        return list(options.scenario === "empty" ? [] : clone(tasks));
+        if (url.searchParams.get("status")) tasks = tasks.filter(t => (t.status ?? t.assignments[0]?.status) === url.searchParams.get("status"));
+        const query = (url.searchParams.get("q") ?? "").toLowerCase();
+        if (query) tasks = tasks.filter(t => `${t.title} ${t.task_key ?? ""} ${t.description.body}`.toLowerCase().includes(query));
+        if (url.searchParams.get("unfinished") === "true") tasks = tasks.filter(t => !["accepted", "not_completed", "cancelled"].includes(t.status ?? "assigned"));
+        if (url.searchParams.get("overdue") === "true") tasks = tasks.filter(t => t.deadline_at < (options.now ?? mockNow) && !["accepted", "not_completed", "cancelled"].includes(t.status ?? "assigned"));
+        if (url.searchParams.get("assignee_user_id")) tasks = tasks.filter(t => t.assignments.some(a => a.assignee.user_id === Number(url.searchParams.get("assignee_user_id"))));
+        const sort = url.searchParams.get("sort"), direction = url.searchParams.get("order") === "desc" ? -1 : 1;
+        tasks = [...tasks].sort((a, b) => direction * ((sort === "updated" ? a.updated_at ?? a.created_at ?? "" : sort === "created" ? a.created_at ?? "" : a.deadline_at).localeCompare(sort === "updated" ? b.updated_at ?? b.created_at ?? "" : sort === "created" ? b.created_at ?? "" : b.deadline_at) || a.task_id.localeCompare(b.task_id)));
+        if (options.scenario === "empty") tasks = [];
+        const offset = Number((url.searchParams.get("cursor") ?? "mock:0").split(":")[1]), limit = 20;
+        const scopes = [...new Map(state.tasks.filter(readsTask).map(task => [`${task.scope.kind}:${task.scope.id}`, { ...task.scope, title: task.scope_title ?? "Команда" }])).values()];
+        return [200, { items: clone(tasks.slice(offset, offset + limit)), total: tasks.length, scopes, assignees: clone(state.people), next_cursor: offset + limit < tasks.length ? `mock:${offset + limit}` : null }];
       }
       if (!state.manager) return denied();
       const task: Task = {
@@ -885,8 +941,10 @@ export function installMockTransport(
         description: publicSubmission(data.description),
         deadline_at: String(data.deadline_at),
         task_id: id("task"),
-        revision: 1,
-        capabilities: ["edit_task", "comment_task", "view_assessment_inputs"],
+        task_key: `TASK-${state.tasks.length + 1}`, status: "assigned", created_by: clone(state.user), created_at: mockNow, updated_at: mockNow,
+        scope_title: data.scope && (data.scope as Task["scope"]).kind === "block" ? state.blocks.find(b => b.block_id === (data.scope as Task["scope"]).id)?.name : state.subevents.find(t => t.subevent_id === (data.scope as Task["scope"]).id)?.title,
+        attachments: [], submissions: [], revision: 1,
+        capabilities: ["edit_task", "comment_task", "view_assessment_inputs", "attach_task_file", "review_task", ...((data.assignees as { user_id: number }[]).some(a => a.user_id === state.session.user_id) ? ["start_task", "resume_task", "request_task_help", "submit_task_result"] : [])],
         assignments: (
           data.assignees as { user_id: number; hours: number }[]
         ).map((a) => ({
@@ -926,7 +984,7 @@ export function installMockTransport(
           capabilities: inputsCaps(),
         }),
       );
-      state.tasks.push(task);
+      state.tasks.push(task);rememberTask(task, "task_created", "Создана задача");
       return [201, clone(task)];
     }
     if (parts[0] === "tasks") {
@@ -934,6 +992,8 @@ export function installMockTransport(
       if (!task) return fail(404, "not_found", "Задача недоступна");
       if (!readsTask(task))
         return method === "get" ? fail(404, "not_found", "Задача недоступна") : denied();
+      if (parts[2] === "history") return list(clone(taskHistory.get(task.task_id) ?? []));
+      if (parts[2] === "status") return transitionTask(task, data);
       if (parts[2] === "comments") {
         if (method === "get")
           return list(
@@ -948,7 +1008,7 @@ export function installMockTransport(
           updated_at: null,
           capabilities: ["edit_comment"],
         };
-        state.comments.push(comment);
+        state.comments.push(comment);rememberTask(task, "comment_added", "Добавлен комментарий");
         return [201, clone(comment)];
       }
       if (parts[2] === "assessment-inputs") {
@@ -974,7 +1034,10 @@ export function installMockTransport(
       if (method === "get") return [200, clone(task)];
       if (!state.manager) return denied();
       if (mismatch(data, task)) return conflict();
-      Object.assign(task, data);
+      if (data.file_ids) task.attachments = taskFiles(data.file_ids);
+      if (typeof data.title === "string") task.title = data.title;
+      if (data.description) task.description = publicSubmission(data.description);
+      rememberTask(task, "task_updated", "Обновлена задача");
       return changed(task);
     }
     if (path === "/assignments/unresolved")
@@ -1094,122 +1157,13 @@ export function installMockTransport(
           { previous_assignment: clone(assignment), assignment: clone(next) },
         ];
       }
-      const statuses: Record<string, AssignmentStatus> = {
-        start: "in_progress",
-        resume: "in_progress",
-        "request-help": "help_required",
-        submit: "submitted",
-        accept: "accepted",
-        "request-revision": "needs_revision",
-        "not-complete": "not_completed",
-        cancel: "cancelled",
-      };
-      if (!statuses[parts[2]])
-        return fail(404, "not_found", "Команда не найдена");
-      // As on the server: every command accepts exactly its own fields.
-      const accepted: Record<string, string[]> = {
-        start: [],
-        resume: [],
-        "request-help": ["message"],
-        submit: ["text", "links", "file_ids"],
-        accept: ["evaluation", "review_note"],
-        "request-revision": ["review_note"],
-        "not-complete": ["evaluation", "reason"],
-        cancel: ["reason"],
-      };
-      const extra = extraInputs(data, accepted[parts[2]]);
-      if (extra) return extra;
-      const allowed: Record<string, AssignmentStatus[]> = {
-        start: ["assigned"],
-        resume: ["help_required"],
-        "request-help": ["assigned", "in_progress", "needs_revision"],
-        submit: ["assigned", "in_progress", "help_required", "needs_revision"],
-        accept: ["submitted"],
-        "request-revision": ["submitted", "accepted"],
-        "not-complete": [
-          "assigned",
-          "in_progress",
-          "help_required",
-          "submitted",
-          "needs_revision",
-        ],
-        cancel: [
-          "assigned",
-          "in_progress",
-          "help_required",
-          "submitted",
-          "needs_revision",
-        ],
-      };
-      if (!allowed[parts[2]].includes(assignment.status)) return conflict();
-      if (
-        parts[2] === "request-help" &&
-        data.message &&
-        publicSubmission(data.message).body.trim()
-      )
-        state.comments.push({
-          comment_id: id("comment"),
-          task_id: task.task_id,
-          author: state.user,
-          content: publicSubmission(data.message),
-          created_at: mockNow,
-          updated_at: null,
-          capabilities: ["edit_comment"],
-        });
-      assignment.status = statuses[parts[2]];
-      if (data.review_note || data.reason)
-        assignment.review_note = String(data.review_note ?? data.reason);
-      if (parts[2] === "submit")
-        assignment.submissions.push({
-          submission_id: id("submission"),
-          submitted_at: mockNow,
-          text: publicSubmission(data.text),
-          links: (data.links as string[]) ?? [],
-          files: ((data.file_ids as string[]) ?? [])
-            .map((fid) => files.get(fid)!)
-            .filter(Boolean)
-            .map(({ file_id, name, mime_type, size_bytes }) => ({
-              file_id,
-              name,
-              mime_type,
-              size_bytes,
-            })),
-        });
-      const assessment = state.assessments.find(
-        (a) => a.assignment_id === assignment.assignment_id,
-      );
-      if (
-        assessment &&
-        ["accept", "not-complete", "cancel"].includes(parts[2])
-      ) {
-        assessment.evaluation =
-          parts[2] === "cancel" ? null : (data.evaluation as 0 | -1 | 1 | 1.5);
-        assessment.effective_completed_at =
-          parts[2] === "accept"
-            ? (assignment.submissions.at(-1)?.submitted_at ?? null)
-            : null;
-        assessment.revision++;
-      }
-      assignment.capabilities = [
-        ...(own &&
-        !["accepted", "cancelled", "not_completed"].includes(assignment.status)
-          ? [
-              "start_assignment",
-              "resume_assignment",
-              "request_help",
-              "submit_result",
-            ]
-          : []),
-        ...(state.manager
-          ? [
-              "review_assignment",
-              "view_assessment_inputs",
-              "edit_assessment_inputs",
-              "reassign_assignment",
-            ]
-          : []),
-      ];
-      return changed(assignment);
+      const statuses: Record<string, AssignmentStatus> = { start: "in_progress", resume: "in_progress", "request-help": "help_required", submit: "submitted", accept: "accepted", "request-revision": "needs_revision", "not-complete": "not_completed", cancel: "cancelled" };
+      const next = statuses[parts[2]];
+      if (!next) return fail(404, "not_found", "Команда не найдена");
+      const allowed: Record<string, string[]> = { start: [], resume: [], "request-help": ["message"], submit: ["text", "links", "file_ids"], accept: ["evaluation", "review_note"], "request-revision": ["review_note"], "not-complete": ["evaluation", "reason"], cancel: ["reason"] };
+      const extra = extraInputs(data, allowed[parts[2]]);if (extra) return extra;
+      const response = transitionTask(task, { ...data, expected_revision: task.revision, status: next });
+      return response[0] === 200 ? [200, clone(assignment)] : response;
     }
     if (path === "/assessment-inputs/bulk-hours") {
       if (!state.manager) return denied();

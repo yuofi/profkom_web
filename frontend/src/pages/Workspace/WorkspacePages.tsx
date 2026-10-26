@@ -90,7 +90,7 @@ export function DashboardPage() {
   return (
     <Page title="Мои блоки и мероприятия" description="Ваше участие и роли в командах. Блоки не зависят от сезона.">
       <nav className={p.quickLinks} aria-label="Рабочие разделы">
-        <RouteLink to="/tasks">Мои задачи</RouteLink>
+        <RouteLink to="/tasks?mine=true">Мои задачи</RouteLink>
         <RouteLink to="/calendar">Календарь</RouteLink>
         <RouteLink to="/blocks/requests">Мои заявки и решения</RouteLink>
         {can(session, "view_unresolved_assignments") && <RouteLink to="/tasks/unresolved">Назначения к решению</RouteLink>}

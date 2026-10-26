@@ -327,6 +327,14 @@ export function createFixtures(role: MockRole = "organizer") {
   const tasks: Task[] = [
     {
       task_id: "task-1",
+      task_key: "TASK-1",
+      status: "assigned",
+      created_by: people[1],
+      created_at: "2026-10-18T09:00:00Z",
+      updated_at: "2026-10-18T09:00:00Z",
+      scope_title: "Подготовка встречи",
+      attachments: [],
+      submissions: [],
       season_id: "season-1",
       scope: { kind: "subevent", id: "subevent-1" },
       title: "Подготовить материалы для встречи",
@@ -337,8 +345,9 @@ export function createFixtures(role: MockRole = "organizer") {
       revision: 1,
       capabilities: [
         "comment_task",
+        ...(userId === 101 ? ["start_task", "resume_task", "request_task_help", "submit_task_result"] : []),
         ...(eventManager
-          ? ["edit_task", "view_assessment_inputs", "create_task"]
+          ? ["edit_task", "attach_task_file", "review_task", "view_assessment_inputs", "create_task"]
           : []),
       ],
       assignments: [
@@ -365,7 +374,7 @@ export function createFixtures(role: MockRole = "organizer") {
         {
           assignment_id: "assignment-2",
           assignee: people[4],
-          status: "help_required",
+          status: "assigned",
           submissions: [],
           assignee_unavailable_reason: "left_scope",
           review_note: null,

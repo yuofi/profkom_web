@@ -362,8 +362,10 @@ describe("API commands through mock transport", () => {
   });
   it("reviews a submission using its server submission time and retains revision history", async () => {
     const fixture = useMock("leader");
-    const a = fixture.state.tasks[0].assignments[0];
-    a.status = "submitted";
+    const task = fixture.state.tasks[0];
+    const a = task.assignments[0];
+    task.status = "submitted";
+    task.assignments.forEach(assignment => { assignment.status = "submitted"; });
     a.submissions.push({
       submission_id: "s1",
       submitted_at: "2026-10-17T09:00:00Z",
@@ -371,13 +373,15 @@ describe("API commands through mock transport", () => {
       links: [],
       files: [],
     });
+    task.submissions = [{ ...a.submissions[0], submitted_by: a.assignee }];
     const reviewed = await tasksApi.command(
       a.assignment_id,
       "request-revision",
       { expected_revision: 1, review_note: "Уточнить" },
     );
     expect(reviewed.submissions).toHaveLength(1);
-    a.status = "submitted";
+    task.status = "submitted";
+    task.assignments.forEach(assignment => { assignment.status = "submitted"; });
     await tasksApi.command(a.assignment_id, "accept", {
       expected_revision: reviewed.revision,
       evaluation: 1.5,
@@ -394,11 +398,14 @@ describe("API commands through mock transport", () => {
   });
   it("refuses an assignment command with a field of another command, as the server does (A-TSK-1)", async () => {
     const fixture = useMock("leader");
-    const a = fixture.state.tasks[0].assignments[0];
-    a.status = "submitted";
+    const task = fixture.state.tasks[0];
+    const a = task.assignments[0];
+    task.status = "submitted";
+    task.assignments.forEach(assignment => { assignment.status = "submitted"; });
     const body = { expected_revision: a.revision, evaluation: 1, reason: "Лишнее поле" } as never;
     await expect(tasksApi.command(a.assignment_id, "accept", body)).rejects.toMatchObject({ status: 422 });
     expect(a.status).toBe("submitted");
+    expect(task.status).toBe("submitted");expect(task.revision).toBe(1);
     // Revision may be requested again after acceptance (database.request_revision_assignment).
     const accepted = await tasksApi.command(a.assignment_id, "accept", { expected_revision: a.revision, evaluation: 1 });
     const back = await tasksApi.command(a.assignment_id, "request-revision", { expected_revision: accepted.revision, review_note: "Вернуть" });

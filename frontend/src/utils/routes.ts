@@ -16,6 +16,7 @@ export const getDocEditRoute = (id: string | number = ":id") => {
 
 export const getHomeRoute = () => "/";
 export const getProfilePage = () => "/profile";
+export const getContactRoute = (id: number | string) => `/contacts/${encodeURIComponent(id)}`;
 export const getPgasRoute = () => "/pgas";
 
 export const getEventRoute = (id: string) =>

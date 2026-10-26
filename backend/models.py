@@ -250,6 +250,16 @@ class TaskPublic:
     description: RichText
     deadline_at: str
     assignments: list[AssignmentPublic] = field(default_factory=list)
+    assignees: list[UserRef] = field(default_factory=list)
+    task_key: str = ""
+    status: str = "assigned"
+    created_by: Optional[UserRef] = None
+    created_at: str = ""
+    updated_at: Optional[str] = None
+    scope_title: str = ""
+    attachments: list[FileRef] = field(default_factory=list)
+    submissions: list = field(default_factory=list)
+    legacy_status_conflict: bool = False
     revision: int = 1
     capabilities: list[str] = field(default_factory=list)
 

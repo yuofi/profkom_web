@@ -19,7 +19,7 @@ it("the personal home keeps role-gated queue links without the old decisions car
   mock.state.requests = [];
   page = await mountWorkspace(<DashboardPage />, { role: "organizer", session: plain });
   await settle(); await settle();
-  expect(page.container.textContent).toContain("Мои задачи");
+  expect(page.container.querySelector('a[href="/tasks?mine=true"]')?.textContent).toBe("Мои задачи");
   expect(page.container.textContent).not.toContain("Требуют решения");
   expect(links(page.container)).not.toContain("Рассмотреть заявки");
   await page.cleanup(); mock.restore();

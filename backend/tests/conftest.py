@@ -66,6 +66,7 @@ TABLES = (
     "external_identities",
     "audit_logs",
     "file_records",
+    "task_activity", "task_submissions", "task_tracker",
     "task_comments",
     "submissions",
     "assignments",

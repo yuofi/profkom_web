@@ -178,6 +178,18 @@ export interface Assignment extends Versioned {
   assignee_unavailable_reason: "left_scope" | "archived" | null;
   review_note: string | null;
 }
+export interface TaskSubmission extends Submission {
+  submitted_by?: UserRef | null;
+}
+export interface TaskHistoryEvent {
+  event_id: string;
+  kind: string;
+  created_at: string;
+  actor: UserRef | null;
+  description: string;
+  from_status?: AssignmentStatus | null;
+  to_status?: AssignmentStatus | null;
+}
 export interface Task extends Versioned {
   task_id: string;
   season_id: string;
@@ -186,6 +198,33 @@ export interface Task extends Versioned {
   description: RichText;
   deadline_at: string;
   assignments: Assignment[];
+  assignees?: UserRef[];
+  task_key?: string;
+  status?: AssignmentStatus;
+  created_by?: UserRef | null;
+  created_at?: string;
+  updated_at?: string | null;
+  scope_title?: string;
+  attachments?: FileRef[];
+  submissions?: TaskSubmission[];
+  legacy_status_conflict?: boolean;
+  legacy_mixed_statuses?: boolean;
+}
+export interface TaskListPageResponse extends Page<Task> {
+  total?: number;
+  scopes?: (ScopeRef & { title: string })[];
+  assignees?: UserRef[];
+}
+export interface TaskStatusChange extends Revision {
+  status: AssignmentStatus;
+  message?: RichText;
+  text?: RichText;
+  links?: string[];
+  file_ids?: string[];
+  evaluation?: -1 | 0 | 1 | 1.5;
+  evaluations?: { assignment_id: string; evaluation: -1 | 0 | 1 | 1.5 }[];
+  review_note?: string;
+  reason?: string;
 }
 export interface UnresolvedAssignment {
   assignment: Assignment;

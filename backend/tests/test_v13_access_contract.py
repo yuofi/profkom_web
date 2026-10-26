@@ -111,7 +111,10 @@ def test_legacy_enter_cannot_bypass_application(client, user, make_block):
 def test_new_lists_use_cursor_envelope(client, user, path):
     r = client.get("/api" + path, headers=user.headers)
     assert r.status_code == 200
-    assert set(r.json()) == {"items", "next_cursor"}
+    expected={"items", "next_cursor", "total", "scopes", "assignees"} if path=="/tasks" else {"items", "next_cursor"}
+    assert set(r.json()) == expected
+    if path=="/tasks":
+        assert r.json()["total"] == 0 and r.json()["scopes"] == [] and r.json()["assignees"] == []
     assert isinstance(r.json()["items"], list)
     assert r.json()["next_cursor"] is None
 

@@ -1,0 +1,55 @@
+.content {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.tableWrap {
+  max-width: 100%;
+  overflow-x: auto;
+  margin-block: 12px;
+}
+.tableWrap:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.tableWrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.tableWrap th, .tableWrap td {
+  padding: 8px 12px;
+  border: 1px solid var(--outline-variant);
+  text-align: start;
+  min-width: 80px;
+}
+.tableWrap th {
+  background: var(--surface-container-high);
+  font-weight: 700;
+}
+.content :global(.katex) {
+  color: inherit;
+  font-size: 1.1em;
+}
+.content :global(span.katex) {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  vertical-align: middle;
+  padding-block: 2px;
+}
+.content :global(.katex-display) {
+  max-width: 100%;
+  padding-block: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.content :global(.katex-display .katex) {
+  display: block;
+  overflow: visible;
+}
+.content :global(.katex-error) {
+  color: var(--error) !important;
+  white-space: pre-wrap;
+}

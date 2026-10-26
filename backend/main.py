@@ -573,6 +573,7 @@ class TaskPatchIn(Command):
     expected_revision: int
     title: Optional[str] = None
     description: Optional[Union[RichTextSchema, str]] = None
+    file_ids: Optional[list[str]] = None
 
 
 class FileRefOut(BaseModel):
@@ -601,6 +602,38 @@ class AssignmentPublicOut(BaseModel):
     capabilities: list[str] = []
 
 
+class TaskSubmissionOut(SubmissionOut):
+    submitted_by: Optional[UserRefOut] = None
+
+
+class TaskEvaluationIn(Command):
+    assignment_id: str
+    evaluation: float
+
+
+class TaskStatusIn(Command):
+    expected_revision: int
+    status: Literal["assigned", "in_progress", "help_required", "submitted", "accepted", "needs_revision", "not_completed", "cancelled"]
+    text: Union[RichTextSchema, str] = ""
+    message: Optional[Union[RichTextSchema, str]] = None
+    links: list[str] = []
+    file_ids: list[str] = []
+    evaluation: Optional[float] = None
+    evaluations: list[TaskEvaluationIn] = []
+    review_note: Optional[str] = None
+    reason: Optional[str] = None
+
+
+class TaskHistoryOut(BaseModel):
+    event_id: str
+    kind: str
+    created_at: str
+    actor: Optional[UserRefOut] = None
+    description: str
+    from_status: Optional[str] = None
+    to_status: Optional[str] = None
+
+
 class TaskPublicOut(BaseModel):
     task_id: str
     season_id: str
@@ -609,6 +642,17 @@ class TaskPublicOut(BaseModel):
     description: RichTextSchema
     deadline_at: str
     assignments: list[AssignmentPublicOut] = []
+    assignees: list[UserRefOut] = []
+    task_key: str = ""
+    status: str = "assigned"
+    created_by: Optional[UserRefOut] = None
+    created_at: str = ""
+    updated_at: Optional[str] = None
+    scope_title: str = ""
+    attachments: list[FileRefOut] = []
+    submissions: list[TaskSubmissionOut] = []
+    legacy_status_conflict: bool = False
+    legacy_mixed_statuses: bool = False
     revision: int = 1
     capabilities: list[str] = []
 
@@ -1850,6 +1894,13 @@ def _to_task_public_out(t) -> TaskPublicOut:
         description=RichTextSchema(format=t.description.format, body=t.description.body),
         deadline_at=t.deadline_at,
         assignments=[_to_assignment_public_out(a) for a in t.assignments],
+        assignees=[_to_user_ref_out(user) for user in t.assignees],
+        task_key=t.task_key, status=t.status,
+        created_by=_to_user_ref_out(t.created_by) if t.created_by else None,
+        created_at=t.created_at, updated_at=t.updated_at, scope_title=t.scope_title,
+        attachments=t.attachments, submissions=t.submissions,
+        legacy_status_conflict=t.legacy_status_conflict,
+        legacy_mixed_statuses=t.legacy_status_conflict,
         revision=t.revision,
         capabilities=t.capabilities,
     )
@@ -2455,21 +2506,25 @@ def create_task(payload: TaskCreateIn, cur: User = Depends(get_current_user)):
 @router.get("/tasks")
 def list_tasks(
     season_id: Optional[str] = None,
-    scope_kind: Optional[str] = None,
+    scope_kind: Optional[Literal["block", "subevent"]] = None,
     scope_id: Optional[str] = None,
     mine: bool = False,
-    status: Optional[str] = None,
+    status: Optional[Literal["assigned", "in_progress", "help_required", "submitted", "accepted", "needs_revision", "not_completed", "cancelled"]] = None,
+    q: str = Query("", max_length=200),
+    unfinished: bool = False,
+    overdue: bool = False,
+    assignee_user_id: Optional[int] = None,
+    sort: Literal["deadline", "updated", "created"] = "deadline",
+    order: Literal["asc", "desc"] = "asc",
+    cursor: Optional[str] = None,
+    limit: int = Query(20,ge=1,le=100),
     cur: User = Depends(get_current_user),
 ):
-    tasks = db.list_tasks(
-        current_user_id=cur.user_id,
-        season_id=season_id,
-        scope_kind=scope_kind,
-        scope_id=membership.legacy_name(scope_id) if scope_kind=="block" and scope_id else scope_id,
-        mine_user_id=cur.user_id if mine else None,
-        status=status,
-    )
-    return {"items": [_to_task_public_out(t) for t in tasks], "next_cursor": None}
+    from tracker import task_page
+    return task_page(cur.user_id, season_id=season_id, scope_kind=scope_kind,
+        scope_id=scope_id, mine=mine, status=status, q=q, unfinished=unfinished,
+        overdue=overdue, assignee_user_id=assignee_user_id, sort=sort, order=order,
+        cursor=cursor, limit=limit, converter=_to_task_public_out)
 
 
 @router.get("/tasks/{task_id}", response_model=TaskPublicOut)
@@ -2490,56 +2545,84 @@ def patch_task(task_id: str, payload: TaskPatchIn, cur: User = Depends(get_curre
         description=desc_body,
         user_id=cur.user_id,
     )
+    if payload.file_ids is not None:
+        from tracker import patch_files
+        t = patch_files(task_id, cur.user_id, t.revision, payload.file_ids, increment_revision=False)
     return _to_task_public_out(t)
+
+
+@router.post("/tasks/{task_id}/status", response_model=TaskPublicOut)
+def task_status(task_id: str, payload: TaskStatusIn, cur: User = Depends(get_current_user)):
+    from tracker import change_status
+    result = change_status(task_id, cur.user_id, payload.expected_revision, payload.status,
+        text=_to_rich_text_body(payload.text), links=payload.links, file_ids=payload.file_ids,
+        message=_to_rich_text_body(payload.message) if payload.message else None,
+        evaluation=payload.evaluation, evaluations=[x.model_dump() for x in payload.evaluations],
+        review_note=payload.review_note, reason=payload.reason)
+    return _to_task_public_out(result)
+
+
+@router.get("/tasks/{task_id}/history", response_model=Page[TaskHistoryOut])
+def task_history(task_id: str, cur: User = Depends(get_current_user)):
+    from tracker import history
+    return {"items": history(task_id,cur.user_id), "next_cursor": None}
 
 
 @router.post("/assignments/{assignment_id}/start", response_model=AssignmentPublicOut)
 def start_assignment(assignment_id: str, payload: StartAssignmentIn, cur: User = Depends(get_current_user)):
-    a = db.start_assignment(assignment_id, payload.expected_revision, cur.user_id)
+    from tracker import legacy_command
+    a = legacy_command(assignment_id,cur.user_id,payload.expected_revision,"in_progress",required_source_status="assigned")
     return _to_assignment_public_out(a)
 
 
 @router.post("/assignments/{assignment_id}/request-help", response_model=AssignmentPublicOut)
 def request_help_assignment(assignment_id: str, payload: RequestHelpIn, cur: User = Depends(get_current_user)):
     msg = _to_rich_text_body(payload.message) if payload.message else None
-    a = db.request_help_assignment(assignment_id, payload.expected_revision, cur.user_id, msg)
+    from tracker import legacy_command
+    a = legacy_command(assignment_id,cur.user_id,payload.expected_revision,"help_required",message=msg)
     return _to_assignment_public_out(a)
 
 
 @router.post("/assignments/{assignment_id}/resume", response_model=AssignmentPublicOut)
 def resume_assignment(assignment_id: str, payload: ResumeAssignmentIn, cur: User = Depends(get_current_user)):
-    a = db.resume_assignment(assignment_id, payload.expected_revision, cur.user_id)
+    from tracker import legacy_command
+    a = legacy_command(assignment_id,cur.user_id,payload.expected_revision,"in_progress",required_source_status="help_required")
     return _to_assignment_public_out(a)
 
 
 @router.post("/assignments/{assignment_id}/submit", response_model=AssignmentPublicOut)
 def submit_assignment(assignment_id: str, payload: SubmitAssignmentIn, cur: User = Depends(get_current_user)):
     text_body = _to_rich_text_body(payload.text)
-    a = db.submit_assignment(assignment_id, payload.expected_revision, cur.user_id, text_body, payload.links, payload.file_ids)
+    from tracker import legacy_command
+    a = legacy_command(assignment_id,cur.user_id,payload.expected_revision,"submitted",text=text_body,links=payload.links,file_ids=payload.file_ids)
     return _to_assignment_public_out(a)
 
 
 @router.post("/assignments/{assignment_id}/accept", response_model=AssignmentPublicOut)
 def accept_assignment(assignment_id: str, payload: AcceptAssignmentIn, cur: User = Depends(get_current_user)):
-    a = db.accept_assignment(assignment_id, payload.expected_revision, payload.evaluation, payload.review_note, cur.user_id)
+    from tracker import legacy_command
+    a = legacy_command(assignment_id,cur.user_id,payload.expected_revision,"accepted",evaluation=payload.evaluation,review_note=payload.review_note)
     return _to_assignment_public_out(a)
 
 
 @router.post("/assignments/{assignment_id}/request-revision", response_model=AssignmentPublicOut)
 def request_revision_assignment(assignment_id: str, payload: RequestRevisionIn, cur: User = Depends(get_current_user)):
-    a = db.request_revision_assignment(assignment_id, payload.expected_revision, payload.review_note, cur.user_id)
+    from tracker import legacy_command
+    a = legacy_command(assignment_id,cur.user_id,payload.expected_revision,"needs_revision",reason=payload.review_note)
     return _to_assignment_public_out(a)
 
 
 @router.post("/assignments/{assignment_id}/not-complete", response_model=AssignmentPublicOut)
 def not_complete_assignment(assignment_id: str, payload: NotCompleteAssignmentIn, cur: User = Depends(get_current_user)):
-    a = db.not_complete_assignment(assignment_id, payload.expected_revision, payload.evaluation, payload.reason, cur.user_id)
+    from tracker import legacy_command
+    a = legacy_command(assignment_id,cur.user_id,payload.expected_revision,"not_completed",evaluation=payload.evaluation,reason=payload.reason)
     return _to_assignment_public_out(a)
 
 
 @router.post("/assignments/{assignment_id}/cancel", response_model=AssignmentPublicOut)
 def cancel_assignment(assignment_id: str, payload: CancelAssignmentIn, cur: User = Depends(get_current_user)):
-    a = db.cancel_assignment(assignment_id, payload.expected_revision, payload.reason, cur.user_id)
+    from tracker import legacy_command
+    a = legacy_command(assignment_id,cur.user_id,payload.expected_revision,"cancelled",reason=payload.reason)
     return _to_assignment_public_out(a)
 
 

@@ -131,32 +131,35 @@ it("УВ-5: an area lead fills criteria but reads the task dates; the chair move
 
 it("A-TSK-5: a help request keeps its text through a conflict and is sent after consent", async () => {
   await taskPage("organizer");
-  const help = () => Array.from(page!.container.querySelectorAll("details")).find((d) => d.querySelector("summary")?.textContent === "Попросить помощь")!.querySelector("form")!;
+  await clickButton(page!.container, "Попросить помощь");
+  const help = () => page!.container.querySelector<HTMLFormElement>("dialog form")!;
   await change(field(help(), "message"), "Не хватает доступа к папке");
-  mock!.state.tasks[0].assignments[0].revision++;
+  mock!.state.tasks[0].revision++;
   await submit(help());
   expect(help().querySelector('[role="alert"]')?.textContent).toContain("Обновить данные");
   await clickButton(help(), "Обновить данные");
   expect(field(help(), "message").value).toBe("Не хватает доступа к папке");
-  expect(help().textContent).toContain("Версия назначения обновилась, видимых вам изменений нет.");
+  expect(help().textContent).toContain("Версия задачи обновилась, видимых вам изменений нет.");
   await clickButton(help(), "Сохранить мой ввод с обновлённой версией");
   await submit(help());
   expect(JSON.parse(mock!.adapter.history.post.at(-1)!.data).expected_revision).toBe(2);
-  expect(mock!.state.tasks[0].assignments[0].status).toBe("help_required");
+  expect(mock!.state.tasks[0].status).toBe("help_required");
+  expect(mock!.state.tasks[0].assignments.every(assignment => assignment.status === "help_required")).toBe(true);
 });
 
 it("A-TSK-12: replacing a submission draft with the saved values empties its text and files", async () => {
   await taskPage("organizer");
   vi.spyOn(filesApi, "upload").mockResolvedValue({ file_id: "file-result", name: "result.pdf", mime_type: "application/pdf", size_bytes: 10 });
-  const result = () => Array.from(page!.container.querySelectorAll("form")).find((f) => f.textContent?.includes("Отправить на проверку"))!;
-  const draft = () => result().closest("details")!;
+  await clickButton(page!.container, "Сдать результат");
+  const result = () => page!.container.querySelector<HTMLFormElement>("dialog form")!;
+  const draft = () => result().closest("dialog")!;
   const input = draft().querySelector<HTMLInputElement>('input[type="file"]')!;
   Object.defineProperty(input, "files", { value: [new File(["%PDF-1.7"], "result.pdf", { type: "application/pdf" })] });
   await act(async () => input.dispatchEvent(new Event("change", { bubbles: true }))); await settle();
   expect(draft().textContent).toContain("result.pdf");
   await change(field(result(), "body"), "Мой результат");
   await change(field(result(), "links"), "https://example.org/result");
-  mock!.state.tasks[0].assignments[0].revision++;
+  mock!.state.tasks[0].revision++;
   await submit(result());
   await clickButton(result(), "Обновить данные");
   expect(field(result(), "body").value).toBe("Мой результат");

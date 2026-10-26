@@ -141,6 +141,7 @@ import { UserProvider } from "./utils/ctx";
 import { retryTransient, workspaceQueryCache } from "./utils/api/invalidation";
 import { ProtectedRoute, GuideEditRoute } from "./pages/Wrappers/wrappers";
 import { ProfilePage } from "./pages/ProfilePage/ProfilePage";
+const MemberProfilePage = lazy(() => import("./pages/Workspace/MemberProfilePage").then((m) => ({ default: m.MemberProfilePage })));
 import { ProfileEditPage } from "./pages/ProfileEditPage/ProfileEditPage";
 import { GuidesPage } from "./pages/Guides/GuidesPage";
 import { PgasPage } from "./pages/Pgas/PgasPage";
@@ -171,6 +172,7 @@ const router = createBrowserRouter(createRoutesFromElements(
                     <Route path="profile" element={<ProfilePage />} />
                     <Route path="profile/edit" element={<ProfileEditPage />} />
                     <Route path="contacts" element={<DirectoryPage />} />
+                    <Route path="contacts/:id" element={<MemberProfilePage />} />
                     <Route
                       path="contacts/former"
                       element={<FormerContactsPage />}

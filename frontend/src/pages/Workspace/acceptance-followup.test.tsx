@@ -50,64 +50,37 @@ async function click(container: ParentNode, label: string) {
   await settle();
 }
 
-it("completes submission, revision, resubmission and acceptance through the UI without changing another assignee", async () => {
+it("completes one shared submission, revision and acceptance while preserving individual hours", async () => {
   mock = installMockTransport("leader", { delay: 0 });
   const task = await tasksApi.create({
-    season_id: "season-1",
-    scope: { kind: "subevent", id: mock.state.subevents[0].subevent_id },
-    title: "Задача приёмки",
-    description: richText("Описание"),
-    deadline_at: "2026-10-25T12:00:00Z",
-    criteria: emptyCriteria(),
-    assignees: [
-      { user_id: mock.state.session.user_id, hours: 2 },
-      { user_id: 101, hours: 3 },
-    ],
+    season_id: "season-1", scope: { kind: "subevent", id: mock.state.subevents[0].subevent_id },
+    title: "Задача приёмки", description: richText("Описание"), deadline_at: "2026-10-25T12:00:00Z", criteria: emptyCriteria(),
+    assignees: [{ user_id: mock.state.session.user_id, hours: 2 }, { user_id: 101, hours: 3 }],
   });
-  page = await mountWorkspace(
-    <Routes>
-      <Route path="/tasks/:id" element={<TaskPage />} />
-    </Routes>,
-    { role: "leader", path: `/tasks/${task.task_id}` },
-  );
+  page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TaskPage />} /></Routes>, { role: "leader", path: `/tasks/${task.task_id}` });
   await settle();
-  const own = () =>
-    Array.from(
-      page!.container.querySelectorAll<HTMLElement>("[aria-label]"),
-    ).find(
-      (e) =>
-        e.getAttribute("aria-label") ===
-        `Назначение: ${mock.state.user.display_name}`,
-    )!;
-  await submit(form(own(), "Начать работу"));
-  let submission = form(own(), "Отправить на проверку");
-  await change(field(submission, "body"), "Первая сдача");
-  await submit(submission);
-  let review = form(own(), "Сохранить");
-  await change(field(review, "decision"), "request-revision");
-  await change(field(review, "note"), "Добавить подробности");
-  await submit(review);
-  expect(own().textContent).toContain("На доработке");
-  expect(own().textContent).toContain("Первая сдача");
-  submission = form(own(), "Отправить на проверку");
-  await change(field(submission, "body"), "Исправленная сдача");
-  await submit(submission);
-  review = form(own(), "Сохранить");
-  await change(field(review, "decision"), "accept:1");
-  await change(field(review, "note"), "Принято");
-  await submit(review);
-  const saved = await tasksApi.get(task.task_id);
-  expect(saved.assignments[0].status).toBe("accepted");
-  expect(saved.assignments[0].submissions.map((s) => s.text.body)).toEqual([
-    "Первая сдача",
-    "Исправленная сдача",
-  ]);
-  expect(saved.assignments[1].status).toBe("assigned");
-  expect(saved.assignments[1].submissions).toHaveLength(0);
-  expect(
-    (await tasksApi.assessment(saved.assignments[0].assignment_id))
-      .effective_completed_at,
-  ).toBe(saved.assignments[0].submissions[1].submitted_at);
+  await click(page.container, "Взять в работу");
+  expect((await tasksApi.get(task.task_id)).status).toBe("in_progress");
+  await click(page.container, "Сдать результат");
+  let submission = form(page.container.querySelector("dialog")!, "Отправить на проверку");
+  await change(field(submission, "body"), "Первая сдача");await submit(submission);
+  await click(page.container, "Вернуть на доработку");
+  let review = form(page.container.querySelector("dialog")!, "Вернуть на доработку");
+  await change(field(review, "note"), "Добавить подробности");await submit(review);
+  let saved = await tasksApi.get(task.task_id);
+  expect(saved.status).toBe("needs_revision");expect(saved.submissions?.map(item => item.text.body)).toEqual(["Первая сдача"]);
+  await click(page.container, "Сдать результат");
+  submission = form(page.container.querySelector("dialog")!, "Отправить на проверку");
+  await change(field(submission, "body"), "Исправленная сдача");await submit(submission);
+  await click(page.container, "Принять задачу");
+  review = form(page.container.querySelector("dialog")!, "Принять задачу");
+  await change(field(review, "evaluation"), "1");await change(field(review, "note"), "Принято");await submit(review);
+  saved = await tasksApi.get(task.task_id);
+  expect(saved.status).toBe("accepted");expect(saved.assignments.every(item => item.status === "accepted")).toBe(true);
+  expect(saved.submissions?.map(item => item.text.body)).toEqual(["Первая сдача", "Исправленная сдача"]);
+  const inputs = await Promise.all(saved.assignments.map(item => tasksApi.assessment(item.assignment_id)));
+  expect(inputs.map(item => item.hours)).toEqual([2, 3]);
+  expect(inputs.map(item => item.effective_completed_at)).toEqual([saved.submissions![1].submitted_at, saved.submissions![1].submitted_at]);
 });
 
 it("keeps two editor drafts through a conflict and version refresh, publishes explicitly, then removes revoked editing", async () => {

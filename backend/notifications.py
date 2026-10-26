@@ -67,9 +67,9 @@ def meeting_changed(session, meeting, actor):
 
 
 def comment_added(session, comment, task, actor):
+    from tracker import participants
     recipients = {
-        a.assignee_user_id
-        for a in session.query(AssignmentORM).filter_by(task_id=task.task_id)
+        a.assignee_user_id for a in participants(session,task.task_id)
     } | set(db.get_scope_leads(task.scope_kind, task.scope_id))
     emit(
         session,
