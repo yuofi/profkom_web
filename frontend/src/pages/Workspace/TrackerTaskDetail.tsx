@@ -94,7 +94,7 @@ function TaskContent({ task, assignmentId, returnSeason }: { task: Task; assignm
     <BrandedHeader className={s.header}>
       <TrackerHomeLink className={s.brandLabel} />
       <nav className={s.breadcrumbs} aria-label="Путь задачи"><Link to={task.queue ? getTaskQueueRoute(task.queue.queue_id) : getTaskQueuesRoute()}>{task.queue?.name ?? "Очереди"}</Link><span aria-hidden="true">›</span>{task.parent_task && <><Link to={getTaskRoute(task.parent_task.task_id)}>{task.parent_task.title}</Link><span aria-hidden="true">›</span></>}<span aria-current="page">{task.task_key ?? "Задача"}</span></nav>
-      <div className={s.titleRow}><div className={s.titleIdentity}><div className={s.titleClassifications}><TaskClassificationMenu task={task} field="task_type" iconOnly onBrand /><TaskClassificationMenu task={task} field="priority" iconOnly onBrand /></div><h1 className={w.title}>{task.title}</h1></div><div className={s.headerTools}>
+      <div className={s.titleRow}><h1 className={w.title}>{task.title}</h1><div className={s.headerTools}>
         <button type="button" className={s.iconButton} aria-label="Скопировать ссылку на задачу" title="Скопировать ссылку" onClick={async () => {
           try { await navigator.clipboard.writeText(new URL(getTaskRoute(task.task_id), window.location.origin).href);setCopied("Ссылка скопирована"); }
           catch { setCopied("Не удалось скопировать ссылку"); }

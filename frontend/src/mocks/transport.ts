@@ -264,6 +264,13 @@ export function installMockTransport(
   const hydrateTask = (task: Task) => {
     task.task_type ??= "task";task.priority ??= "normal";task.starts_at ??= null;task.checklist ??= [];
     task.is_favorite = personalFavorites.get(state.session.user_id)?.has(task.task_id) ?? false;
+    if (role === "hr") {
+      task.capabilities = task.capabilities.filter(cap => !["edit_task", "edit_task_description", "attach_task_file"].includes(cap));
+      const closed = state.seasons.find(season => season.season_id === task.season_id)?.state === "closed";
+      const queueOwner = state.queues.find(queue => queue.queue_id === (task.queue?.queue_id ?? task.scope.id))?.owner?.user_id;
+      const independentOwner = task.scope.kind === "queue" && (task.created_by?.user_id === state.session.user_id || queueOwner === state.session.user_id);
+      if (state.session.account_state === "active" && readsTask(task) && (!closed || independentOwner)) task.capabilities.push("edit_task", "edit_task_description", "attach_task_file");
+    }
     task.capabilities = task.capabilities.filter(cap => !["edit_task_metadata", "manage_task_links", "edit_task_checklist", "change_task_type", "change_task_priority", "toggle_task_checklist"].includes(cap));
     if (state.session.account_state === "active" && readsTask(task)) task.capabilities.push("change_task_type", "change_task_priority", "toggle_task_checklist");
     if (publicTaskWritable(task)) {

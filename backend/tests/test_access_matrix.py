@@ -523,7 +523,7 @@ EXPECTED = {
     # the leadership-only policy tested independently in test_tracker_reader_policy.
     "T1": TACHKI | TRACKER_HR | EVENT_LEAD | SUB_TEAM, "T2": TACHKI | TRACKER_HR | IT_LEAD | IT_MEMBERS,
     "T3": TACHKI | TRACKER_HR | EVENT_LEAD | SUB_TEAM, "T4": TACHKI | TRACKER_HR | IT_LEAD | IT_MEMBERS,
-    "T5": TACHKI | EVENT_LEAD | SUB_LEAD, "T6": TACHKI | IT_LEAD,  # title edit; collaborative descriptions are checked separately
+    "T5": TACHKI | HRM | EVENT_LEAD | SUB_LEAD, "T6": TACHKI | HRM | IT_LEAD,  # global HR master public edit; collaborative descriptions are checked separately
     "T7": TACHKI | HRM | EVENT_LEAD | SUB_LEAD, "T8": TACHKI | HRM | IT_LEAD,
     "T9": TACHKI | HRM | EVENT_LEAD | SUB_LEAD, "T10": TACHKI | HRM | EVENT_LEAD | SUB_LEAD,
     "T11": TACHKI | HRM | IT_LEAD, "T12": TACHKI | HRM | EVENT_LEAD | SUB_LEAD,

@@ -87,7 +87,7 @@ POLICY = {
     "task.view": TACHKI | {HR_MASTER,HR_TRACKER_READER} | AREA_TEAM,
     "task.create": TACHKI | {HR_MASTER,HR_TRACKER_READER} | AREA_TEAM,
     "task.assign_others": TACHKI | AREA_LEADS,
-    "task.edit": ByState({"*": TACHKI | AREA_LEADS, "closed": TACHKI}),  # title and description (АВ-3)
+    "task.edit": ByState({"*": TACHKI | {HR_MASTER} | AREA_LEADS, "closed": TACHKI}),  # public task editing; closed seasons keep chair-only leadership policy
     "task.review": ByState({"*": TACHKI | {HR_MASTER} | AREA_LEADS, "closed": TACHKI}),
     "task.inputs.view": TACHKI | {HR_MASTER} | AREA_LEADS,
     "task.inputs.edit": ByState({"*": TACHKI | {HR_MASTER} | AREA_LEADS, "closed": TACHKI}),

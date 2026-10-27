@@ -1,4 +1,5 @@
-.link { display:inline-flex;align-items:center;max-width:100%;box-sizing:border-box;margin:0 0 12px;padding:3px 9px;border:1.5px dashed currentColor;color:inherit;background:transparent;font-size:11px;line-height:1.5;letter-spacing:.12em;text-transform:uppercase;text-decoration:none;overflow-wrap:anywhere;opacity:.8;transition:background-color .15s,opacity .15s; }
-.link:hover,.link:focus-visible { border-style:solid;background:color-mix(in srgb,currentColor 8%,transparent);opacity:1;text-decoration:none; }
-.link:focus-visible { outline:2px solid currentColor;outline-offset:4px; }
+/* Keep the stamp's context colour ahead of the workspace's generic link tint. */
+.link.link { display:inline-flex;align-items:center;max-width:100%;box-sizing:border-box;margin:0 0 12px;padding:3px 9px;border:1.5px dashed currentColor;color:inherit;background:transparent;font-size:11px;line-height:1.5;letter-spacing:.12em;text-transform:uppercase;text-decoration:none;overflow-wrap:anywhere;opacity:.8;transition:background-color .15s,opacity .15s; }
+.link.link:hover,.link.link:focus-visible { border-style:solid;background:color-mix(in srgb,currentColor 8%,transparent);opacity:1;text-decoration:none; }
+.link.link:focus-visible { outline:2px solid currentColor;outline-offset:4px; }
 @media(prefers-reduced-motion:reduce) { .link { transition:none; } }

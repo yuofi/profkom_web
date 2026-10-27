@@ -84,6 +84,16 @@ public field editing has no accounting freeze. Comments retain their original au
 task author/current assignees/original comment author may edit with actual editor
 recorded in public history.
 
+The current master of the configured HR block is also a global public task editor
+in non-closed seasons, including other blocks, subevents and independent/private
+queues. The central `task.edit` policy grants title/Markdown-description editing and
+the corresponding public editor controls; Markdown checkboxes use that same guarded
+description PATCH. This does not transfer queue ownership or change any accounting,
+report or analytics permission. The HR deputy retains global tracker reading and
+ordinary reader controls, without a new global editing or private-accounting grant.
+Closed scoped tasks remain editable only by the chair/deputies. Closed independent
+tasks retain the existing creator/queue-owner exception; HR role alone does not bypass it.
+
 ## Real roster and watcher subscriptions
 
 `TaskRoster` records assignee/watcher/left roles independently of private outcomes.

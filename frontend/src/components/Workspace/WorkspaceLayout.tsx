@@ -4,8 +4,7 @@ import { Link, Outlet, useLocation } from "react-router-dom";
 import { useMe } from "../../utils/me";
 import { can, useSession } from "../../utils/session";
 import { DemoRolePicker } from "./DemoRolePicker";
-import { useQuery } from "@tanstack/react-query";
-import { workspaceApi } from "../../utils/api/workspace.api";
+import { NotificationBell } from "./NotificationBell";
 import s from "./WorkspaceLayout.module.css";
 import ws from "./Workspace.module.css";
 import ProfkomLogo from "../profkomLogo";
@@ -26,12 +25,6 @@ const shown: Record<string, (session: Session | null) => boolean> = {
 export function WorkspaceLayout() {
   const user = useMe();
   const { session } = useSession();
-  const notifications = useQuery({
-    queryKey: ["notifications"],
-    queryFn: workspaceApi.notifications,
-  });
-  const unread =
-    notifications.data?.items.filter((n) => !n.read_at).length ?? 0;
   const { pathname } = useLocation();
   const section = sectionOf(pathname);
   const links = (includeProfile = false) => (
@@ -44,14 +37,11 @@ export function WorkspaceLayout() {
       }}
     >
       {/* The item of the page's section is marked on its inner pages too (a subevent is under Мероприятия). */}
-      {SECTIONS.filter(({ to }) => shown[to]?.(session) ?? true).map(({ to, label, icon, tone }) => (
+      {SECTIONS.filter(({ to }) => to !== "/notifications" && (shown[to]?.(session) ?? true)).map(({ to, label, icon, tone }) => (
         <Link key={to} to={to} style={toneStyle(tone)}
           aria-current={pathname === to ? "page" : section.to === to ? "true" : undefined}>
           <Glyph name={icon} className={s.icon} />
           {label}
-          {to === "/notifications" && unread > 0 && (
-            <span className={s.count}><span className={s.hiddenText}> · </span>{unread}</span>
-          )}
         </Link>
       ))}
       {includeProfile && <Link className={s.mobileProfile} to="/profile" style={toneStyle("yellow")}
@@ -80,6 +70,7 @@ export function WorkspaceLayout() {
         </div>
         <DemoRolePicker />
       </aside>
+      <div className={s.notifications}><NotificationBell /></div>
       <main className={s.content}>
         {user?.has_password === false && (
           // VK is the only way in for this account; a password is the way when VK fails (АВ-52).

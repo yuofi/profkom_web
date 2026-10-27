@@ -12,7 +12,7 @@ import s from "./TaskClassificationMenu.module.css";
 /** Decorative identity; icon-only controls supply their own accessible field label. */
 export function TaskClassificationIcon({ field, value, onBrand = false, className = "" }: { field: TaskClassificationField; value: TaskClassificationValue; onBrand?: boolean; className?: string }) {
   return <svg className={`${s.icon} ${onBrand ? s.onBrand : ""} ${className}`} data-field={field} data-value={value} viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
-    {field === "task_type" ? value === "milestone" ? <><path d="m12 3 9 9-9 9-9-9Z" /><circle cx="12" cy="12" r="2" /></> : value === "epic" ? <path d="m13.5 2-9 12H11l-.5 8 9-13H13l.5-7Z" /> : <><rect x="4" y="4" width="16" height="16" rx="3" /><path d="m8 12 3 3 5-6" /></>
+    {field === "task_type" ? value === "milestone" ? <><path d="m12 3 9 9-9 9-9-9Z" /><circle cx="12" cy="12" r="2" /></> : value === "epic" ? <path d="m13.5 2-9 12H11l-.5 8 9-13H13l.5-7Z" /> : <><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8Z" /><path d="M14 3v5h5M8 12h8M8 16h6" /></>
       : value === "low" ? <path d="m6 9 6 6 6-6" /> : value === "urgent" ? <><path d="m6 8 6-5 6 5M6 14l6-5 6 5M6 20l6-5 6 5" /></> : value === "high" ? <path d="m6 11 6-5 6 5M6 18l6-5 6 5" /> : <path d="m6 15 6-6 6 6" />}
   </svg>;
 }

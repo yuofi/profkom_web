@@ -48,4 +48,5 @@
 .tableBadge { display:flex;align-items:center;gap:5px;margin-top:7px;color:var(--on-surface-variant);font-size:10px; }
 .owner { display:flex;flex-direction:column;align-items:flex-start;gap:7px; }
 .owner>small { color:var(--on-surface-variant);font-size:11px; }
+.header .owner,.header .owner>small { color:inherit; }
 @media(max-width:768px) { .table th,.table td { padding:12px 5px; }.table th { font-size:10px; }.queueName { font-size:12px; }.table .key { font-size:10px; }.table th:first-child { width:37%; }.table th:nth-child(2) { width:23%; }.table th:nth-child(3) { width:40%; }.headerActions { gap:8px; } }

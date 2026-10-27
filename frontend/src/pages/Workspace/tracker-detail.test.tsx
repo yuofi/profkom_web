@@ -183,6 +183,10 @@ it("uses real queue and parent breadcrumbs while keeping the scope in task param
   expect(trail.querySelector('[aria-current="page"]')?.textContent).toBe(task.task_key);expect(trail.querySelectorAll('a,[aria-current="page"]')).toHaveLength(3);
   expect(trail.textContent).not.toContain("WEB-12");expect(trail.textContent).toContain("Дизайн");expect(trail.textContent).not.toContain("DSN");expect(trail.textContent).not.toContain(task.scope_title);
   expect(page!.container.querySelector('[aria-label="Параметры задачи"]')?.textContent).toContain(task.scope_title);
+  expect(page!.container.querySelector('header button[aria-label^="Тип задачи:"]')).toBeNull();
+  expect(page!.container.querySelector('header button[aria-label^="Приоритет:"]')).toBeNull();
+  expect(page!.container.querySelectorAll('[aria-label="Параметры задачи"] button[aria-label^="Тип задачи:"]')).toHaveLength(1);
+  expect(page!.container.querySelectorAll('[aria-label="Параметры задачи"] button[aria-label^="Приоритет:"]')).toHaveLength(1);
 });
 
 it.each([true, false])("without a parent the breadcrumb has only the queue and current key (queue supplied: %s)", async (hasQueue) => {
