@@ -101,7 +101,7 @@ def test_checklist_assignee_can_edit_with_stable_order_ids_but_not_metadata(clie
     response = update(client, task, work['member'], checklist=[{**second_item, 'checked': True}, {**first, 'text': 'Первый изменён'}])
     assert response.status_code == 200, response.text
     changed = response.json();assert changed['checklist'] == [{**second_item, 'checked': True}, {**first, 'text': 'Первый изменён'}]
-    assert update(client, changed, work['member'], priority='high').status_code == 403
+    assert update(client, changed, work['member'], starts_at=(datetime.now(timezone.utc) + timedelta(days=1)).isoformat()).status_code == 403
     assert update(client, task, work['member'], checklist=[]).status_code == 409
     assert private() == before
     response = update(client, changed, work['member'], checklist=[changed['checklist'][0]])
@@ -197,7 +197,7 @@ def test_closed_metadata_freeze_favorite_allowed_status_unrestricted_and_no_kkr_
     with db._session() as session:
         session.get(SeasonORM, a['season_id']).state = 'closed';session.commit()
     before = private()
-    assert update(client, a, work['master'], priority='urgent').status_code == 403
+    assert update(client, a, work['master'], starts_at=(datetime.now(timezone.utc) + timedelta(days=1)).isoformat()).status_code == 403
     assert update(client, a, work['member'], checklist=[{'text': 'Нет'}]).status_code == 403
     assert link(client, a, work['master'], b).status_code == 403
     assert client.post('/api/tasks/' + a['task_id'] + '/favorite', headers=work['member'].headers, json={'favorite': True}).status_code == 200
@@ -278,9 +278,7 @@ def test_type_change_cannot_break_grouping_or_create_milestone_interval(client, 
     task = response.json();start = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
     response = update(client, task, work['master'], starts_at=start);assert response.status_code == 200
     task = response.json();before = snapshot()
-    assert update(client, task, work['master'], task_type='milestone').status_code == 422
-    assert snapshot() == before
-    response = update(client, task, work['master'], task_type='milestone', starts_at=None)
+    response = update(client, task, work['master'], task_type='milestone')
     assert response.status_code == 200 and response.json()['task_type'] == 'milestone' and response.json()['starts_at'] is None
     before = snapshot()
     assert update(client, response.json(), work['master'], starts_at=start).status_code == 422

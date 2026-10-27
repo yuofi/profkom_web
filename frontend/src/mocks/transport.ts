@@ -264,7 +264,8 @@ export function installMockTransport(
   const hydrateTask = (task: Task) => {
     task.task_type ??= "task";task.priority ??= "normal";task.starts_at ??= null;task.checklist ??= [];
     task.is_favorite = personalFavorites.get(state.session.user_id)?.has(task.task_id) ?? false;
-    task.capabilities = task.capabilities.filter(cap => !["edit_task_metadata", "manage_task_links", "edit_task_checklist"].includes(cap));
+    task.capabilities = task.capabilities.filter(cap => !["edit_task_metadata", "manage_task_links", "edit_task_checklist", "change_task_type", "change_task_priority", "toggle_task_checklist"].includes(cap));
+    if (state.session.account_state === "active" && readsTask(task)) task.capabilities.push("change_task_type", "change_task_priority", "toggle_task_checklist");
     if (publicTaskWritable(task)) {
       if (task.capabilities.includes("edit_task")) task.capabilities.push("edit_task_metadata", "manage_task_links");
       if (task.capabilities.includes("edit_task_description") || task.capabilities.includes("edit_task")) task.capabilities.push("edit_task_checklist");
@@ -296,10 +297,12 @@ export function installMockTransport(
     return { value };
   };
   const stage2Patch = (data: Body, task?: Task): { value?: Pick<Task, "task_type" | "priority" | "starts_at" | "checklist">; error?: Reply } => {
-    const type = "task_type" in data ? data.task_type : task?.task_type ?? "task", priority = "priority" in data ? data.priority : task?.priority ?? "normal", starts = "starts_at" in data ? data.starts_at : task?.starts_at ?? null;
+    const type = "task_type" in data ? data.task_type : task?.task_type ?? "task", priority = "priority" in data ? data.priority : task?.priority ?? "normal";
+    const implicitMilestoneStart = !!task && "task_type" in data && data.task_type === "milestone" && !("starts_at" in data);
+    const starts = implicitMilestoneStart ? null : "starts_at" in data ? data.starts_at : task?.starts_at ?? null;
     if (!["task", "milestone", "epic"].includes(String(type)) || !["low", "normal", "high", "urgent"].includes(String(priority))) return { error: fail(422, "invalid_input", "Неизвестный тип или приоритет") };
     if (starts !== null && (typeof starts !== "string" || !Number.isFinite(Date.parse(starts)) || Date.parse(starts) > Date.parse(task?.deadline_at ?? String(data.deadline_at))) || type === "milestone" && starts !== null) return { error: fail(422, "invalid_input", "Проверьте плановую дату начала") };
-    if (task && taskLinks.some(link => link.kind === "epic" || link.kind === "milestone" ? link.source === task.task_id && type !== "task" || link.target === task.task_id && type !== link.kind : false)) return { error: fail(422, "invalid_input", "Тип несовместим с существующими связями") };
+    if (task && taskLinks.some(link => link.kind === "epic" || link.kind === "milestone" ? link.source === task.task_id && type !== "task" || link.target === task.task_id && type !== link.kind : false)) return { error: fail(422, "task_type_conflict", "Тип несовместим с существующими связями") };
     const checklist = "checklist" in data ? checklistValue(data.checklist, task?.checklist) : { value: task?.checklist ?? [] };if (checklist.error) return { error: checklist.error };
     return { value: { task_type: type as Task["task_type"], priority: priority as Task["priority"], starts_at: starts as string | null, checklist: checklist.value } };
   };
@@ -1143,6 +1146,19 @@ export function installMockTransport(
         if (targetId && (!target || !readsTask(target))) result.changes = [{ field: "links", label: "Связь недоступна", before: null, after: null }];return result;
       }));
       hydrateTask(task);
+      if (parts[2] === "checklist" && parts[4] === "toggle" && parts.length === 5 && method === "post") {
+        const extra = extraInputs(data, ["checked"]);if (extra) return extra;
+        if (!Number.isInteger(data.expected_revision) || typeof data.checked !== "boolean") return fail(422, "invalid_input", "Укажите версию задачи и состояние пункта");
+        if (mismatch(data, task)) return conflict();
+        const item = task.checklist?.find(entry => entry.item_id === parts[3]);
+        if (!item) return fail(404, "not_found", "Пункт чеклиста недоступен");
+        if (item.checked === data.checked) return [200, visibleTask(task)];
+        const before = (task.checklist ?? []).map(entry => `- [${entry.checked ? "x" : " "}] ${entry.text}`);
+        item.checked = data.checked;
+        const after = (task.checklist ?? []).map(entry => `- [${entry.checked ? "x" : " "}] ${entry.text}`);
+        rememberTask(task, "task_updated", "Изменена отметка чеклиста", undefined, undefined, [{ field: "checklist", label: "Чеклист", before, after }]);
+        task.revision++;return [200, visibleTask(task)];
+      }
       if (parts[2] === "favorite" && method === "post") {
         if (Object.keys(data).some(key => key !== "favorite") || typeof data.favorite !== "boolean") return fail(422, "invalid_input", "Укажите состояние избранного");
         const saved = personalFavorites.get(state.session.user_id) ?? new Set<string>();
@@ -1262,17 +1278,19 @@ export function installMockTransport(
       if (method === "get") return [200, visibleTask(task)];
       const extraTask = extraInputs(data, ["title", "description", "parent_task_id", "file_ids", "task_type", "priority", "starts_at", "checklist"]);if (extraTask) return extraTask;
       if (!Number.isInteger(data.expected_revision)) return fail(422, "invalid_input", "Укажите версию задачи");
-      if (!publicTaskWritable(task)) return denied();
-      if (["task_type", "priority", "starts_at"].some(key => key in data) && !task.capabilities.includes("edit_task_metadata")) return denied();
-      if ("checklist" in data && !task.capabilities.includes("edit_task_checklist")) return denied();
-      const stage2 = stage2Patch(data, task);if (stage2.error) return stage2.error;
-      if (!state.manager && task.created_by?.user_id !== state.session.user_id && (!(task.capabilities.includes("edit_task_description")) || Object.keys(data).some(k => !["expected_revision", "description", "checklist"].includes(k)))) return denied();
       if (mismatch(data, task)) return conflict();
+      if ("starts_at" in data && !task.capabilities.includes("edit_task_metadata")) return denied();
+      if ("checklist" in data && !task.capabilities.includes("edit_task_checklist")) return denied();
+      const hasClassic = ["title", "description", "parent_task_id", "file_ids"].some(key => key in data);
+      if (hasClassic && !publicTaskWritable(task)) return denied();
+      if (["title", "parent_task_id", "file_ids"].some(key => key in data) && !task.capabilities.includes("edit_task")) return denied();
+      if ("description" in data && !task.capabilities.includes("edit_task_description") && !task.capabilities.includes("edit_task")) return denied();
+      const stage2 = stage2Patch(data, task);if (stage2.error) return stage2.error;
       const changes: TaskHistoryChange[] = [];
       for (const field of ["task_type", "priority", "starts_at"] as const) {
-        if (field in data && stage2.value![field] !== task[field]) changes.push({ field, label: field === "task_type" ? "Тип задачи" : field === "priority" ? "Приоритет" : "Плановое начало", before: task[field] ?? null, after: stage2.value![field] ?? null });
+        if ((field in data || field === "starts_at" && "task_type" in data && data.task_type === "milestone" && !("starts_at" in data)) && stage2.value![field] !== task[field]) changes.push({ field, label: field === "task_type" ? "Тип задачи" : field === "priority" ? "Приоритет" : "Плановое начало", before: task[field] ?? null, after: stage2.value![field] ?? null });
       }
-      if ("checklist" in data && JSON.stringify(stage2.value!.checklist) !== JSON.stringify(task.checklist)) changes.push({ field: "checklist", label: "Чеклист", before: (task.checklist ?? []).map(item => `${item.checked ? "[x]" : "[ ]"} ${item.text}`), after: (stage2.value!.checklist ?? []).map(item => `${item.checked ? "[x]" : "[ ]"} ${item.text}`) });
+      if ("checklist" in data && JSON.stringify(stage2.value!.checklist) !== JSON.stringify(task.checklist)) changes.push({ field: "checklist", label: "Чеклист", before: (task.checklist ?? []).map(item => `- ${item.checked ? "[x]" : "[ ]"} ${item.text}`), after: (stage2.value!.checklist ?? []).map(item => `- ${item.checked ? "[x]" : "[ ]"} ${item.text}`) });
       if (typeof data.title === "string" && data.title !== task.title) changes.push({ field: "title", label: "Название", before: task.title, after: data.title });
       if (data.description && publicSubmission(data.description).body !== task.description.body) changes.push({ field: "description", label: "Описание", before: task.description.body, after: publicSubmission(data.description).body });
       if ("parent_task_id" in data) {
@@ -1285,8 +1303,11 @@ export function installMockTransport(
       if (data.file_ids) task.attachments = taskFiles(data.file_ids);
       if (typeof data.title === "string") task.title = data.title;
       if (data.description) task.description = publicSubmission(data.description);
-      rememberTask(task, "task_updated", "Обновлена задача", undefined, undefined, changes);
-      task.revision++;return [200, visibleTask(task)];
+      if (changes.length || hasClassic) {
+        rememberTask(task, "task_updated", "Обновлена задача", undefined, undefined, changes);
+        task.revision++;
+      }
+      return [200, visibleTask(task)];
     }
     if (path === "/assignments/unresolved")
       return state.manager

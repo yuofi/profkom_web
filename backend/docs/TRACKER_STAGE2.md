@@ -18,9 +18,10 @@ status/dates/scores do not automatically change the epic or its private accounti
 
 Creation accepts the planning fields and checklist. The normal versioned task PATCH
 accepts planning and checklist fields alongside title/description/parent/attachments.
-A mixed update commits atomically with one public revision. Public editors may edit
-planning; description editors (including current assignees under the existing seasonal
-rules) may edit checklist items. Existing closed scoped-task freezes remain in force.
+A mixed update commits atomically with one public revision. Public editors retain
+planned-start editing; description editors (including current assignees under the
+existing seasonal rules) retain full-checklist editing. Reader classification and
+checkmark controls are described below; the other closed scoped-task freezes remain.
 Changes appear in public history; private assessment counters remain unchanged.
 
 ## Structured checklist
@@ -89,3 +90,25 @@ fabricates past public events. Tests rehearse an old-schema database copy throug
 imports, preserve original column values and private rows, and cover permissions,
 version/rollback behavior, inverse links, DAG and grouping constraints, favorites,
 revocation masking, date/filter cursors and concurrent epic assignment.
+
+## Reader quick controls
+
+Every current task reader, including in a closed season, can change `task_type` and
+`priority` through the versioned task PATCH. Capabilities `change_task_type` and
+`change_task_priority` expose these narrow controls independently of `edit_task_metadata`.
+They do not grant title/parent/file/start-date editing or full-checklist replacement;
+a mixed request containing such protected fields is rejected atomically under the
+original permissions. An explicit `starts_at`, including null, keeps its original guard.
+A type-only change to `milestone` implicitly clears its planned start in that same
+transaction/revision/history because a milestone is a deadline point. Existing grouping
+constraints still apply; `task_type_conflict` explains that incompatible relations must
+be removed before a type change.
+
+`toggle_task_checklist` is available to every current reader. The dedicated POST
+`/api/tasks/{task_id}/checklist/{item_id}/toggle` accepts only `expected_revision` and a
+strict boolean `checked`. It updates one already-existing item, retaining its ID, text
+and position. Same-value commands are idempotent without a new history/revision; stale
+revisions are rejected even for same-value commands. A missing/foreign item or lost task
+access is 404. Full checklist CRUD/text/reordering retain `edit_task_checklist` and the
+original description-editor/closed-season rules. Neither quick control changes private
+accounting or private input revisions.

@@ -641,6 +641,11 @@ class TaskFavoriteIn(Command):
     favorite: bool
 
 
+class TaskChecklistToggleIn(Command):
+    expected_revision: int
+    checked: bool = Field(strict=True)
+
+
 class FileRefOut(BaseModel):
     file_id: str
     name: str
@@ -2731,6 +2736,12 @@ def remove_task_link(task_id: str,link_id: str,payload: TaskRosterIn,cur: User =
 def favorite_task(task_id: str,payload: TaskFavoriteIn,cur: User = Depends(get_current_user)):
     from tracker_stage2 import set_favorite
     return _to_task_public_out(set_favorite(task_id,cur.user_id,payload.favorite))
+
+
+@router.post("/tasks/{task_id}/checklist/{item_id}/toggle", response_model=TaskPublicOut)
+def toggle_task_checklist(task_id: str,item_id: str,payload: TaskChecklistToggleIn,cur: User = Depends(get_current_user)):
+    from tracker_stage2 import toggle_checklist
+    return _to_task_public_out(toggle_checklist(task_id,item_id,cur.user_id,payload.expected_revision,payload.checked))
 
 
 @router.post("/tasks/{task_id}/take", response_model=TaskPublicOut)

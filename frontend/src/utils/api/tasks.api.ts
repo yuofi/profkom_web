@@ -45,6 +45,7 @@ export const tasksApi = {
     data: Revision & TaskPublicPatch,
   ) => request<Task>("patch", `/tasks/${idPath(id)}`, data),
   setFavorite: (id: string, favorite: boolean) => request<Task>("post", `/tasks/${idPath(id)}/favorite`, { favorite }),
+  toggleChecklist: (id: string, itemId: string, data: Revision & { checked: boolean }) => request<Task>("post", `/tasks/${idPath(id)}/checklist/${idPath(itemId)}/toggle`, data),
   addLink: (id: string, data: Revision & { target_task_id: string; kind: TaskLinkKind }) => request<Task>("post", `/tasks/${idPath(id)}/links`, data),
   removeLink: (id: string, linkId: string, data: Revision) => request<Task>("delete", `/tasks/${idPath(id)}/links/${idPath(linkId)}`, data),
   command: <C extends keyof AssignmentCommands>(

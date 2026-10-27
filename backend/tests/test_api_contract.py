@@ -40,6 +40,7 @@ from database import db
 API_ROUTES: tuple[tuple[str, str], ...] = (
     ('POST', '/api/tasks/{task_id}/take'),
     ('POST', '/api/tasks/{task_id}/favorite'),
+    ('POST', '/api/tasks/{task_id}/checklist/{item_id}/toggle'),
     ('POST', '/api/tasks/{task_id}/links'),
     ('DELETE', '/api/tasks/{task_id}/links/{link_id}'),
     ('POST', '/api/tasks/{task_id}/join'),

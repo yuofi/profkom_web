@@ -1,3 +1,4 @@
+import { TaskClassificationMenu } from "./TaskClassificationMenu";
 import { TrackerHomeLink } from "../../components/Workspace/TrackerHomeLink";
 import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
 import { EntityPicker } from "../../components/Workspace/EntityPicker";
@@ -181,8 +182,8 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
         <table className={s.table} aria-label="Список задач">
           <thead><tr><th scope="col">Ключ</th><th scope="col">Задача</th><th scope="col">Исполнители</th><th scope="col">Статус</th><th scope="col" aria-sort={filters.sort === "deadline" ? filters.order === "desc" ? "descending" : "ascending" : "none"}><button onClick={() => changeSort("deadline")}>Дедлайн {filters.sort === "deadline" && (filters.order === "asc" ? "↑" : "↓")}</button></th><th scope="col">Команда</th><th scope="col" aria-sort={filters.sort === "updated" ? filters.order === "desc" ? "descending" : "ascending" : "none"}><button onClick={() => changeSort("updated")}>Обновлено {filters.sort === "updated" && (filters.order === "asc" ? "↑" : "↓")}</button></th></tr></thead>
           <tbody>{tasks.map((task) => <tr key={task.task_id} tabIndex={0} aria-label={`Открыть задачу ${task.task_key ?? task.title}`} onClick={(event) => open(event, task)} onAuxClick={(event) => open(event, task)} onKeyDown={(event) => openKeyboard(event, task)}>
-            <td className={s.key} data-label="Ключ"><div className={s.keyRow}><span>{task.task_key ?? "Задача"}</span><TrackerFavoriteButton task={task} compact /></div></td>
-            <td className={s.taskTitle}><Link to={getTaskRoute(task.task_id)}>{task.title}</Link><div className={s.taskTags}><span>{taskTypeNames[task.task_type ?? "task"]}</span><span data-priority={task.priority ?? "normal"}>{taskPriorityNames[task.priority ?? "normal"]}</span></div></td>
+            <td className={s.key} data-label="Ключ"><div className={s.keyRow}><div className={s.classificationControls}><TaskClassificationMenu task={task} field="task_type" iconOnly /><TaskClassificationMenu task={task} field="priority" iconOnly /></div><span className={s.keyText}>{task.task_key ?? "Задача"}</span><TrackerFavoriteButton task={task} compact /></div></td>
+            <td className={s.taskTitle}><Link to={getTaskRoute(task.task_id)}>{task.title}</Link></td>
             <td className={s.assignees} data-label="Исполнители"><div>{(task.assignees ?? task.assignments.map((assignment) => assignment.assignee)).map((person, index) => <UserChip user={person} key={`${person.user_id ?? "historical"}-${index}`} />)}</div></td>
             <td className={s.status} data-label="Статус"><TaskStatusMenu task={task} variant="chip" /></td>
             <td className={s.deadline} data-label="Дедлайн"><time dateTime={task.deadline_at}>{displayDate(task.deadline_at)}</time></td>

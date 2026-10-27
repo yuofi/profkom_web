@@ -1,3 +1,4 @@
+import { TaskClassificationIcon } from "./TaskClassificationMenu";
 import { planningDraft, planningPayload, type PlanningDraft } from "./trackerStage2Drafts";
 import { useState } from "react";
 import type { Task, TaskPriority, TaskType } from "../../utils/api/contract";
@@ -12,8 +13,8 @@ import s from "./TrackerTaskStage2.module.css";
 
 export function TaskPlanningFields({ value, onChange, disabled = false, deadline }: { value: PlanningDraft; onChange: (value: PlanningDraft) => void; disabled?: boolean; deadline?: string }) {
   return <div className={s.planningFields}>
-    <label className={w.field}>Тип задачи<select name="task_type" value={value.task_type} disabled={disabled} onChange={event => { const type = event.target.value as TaskType;onChange({ ...value, task_type: type, starts: type === "milestone" ? "" : value.starts }); }}>{Object.entries(taskTypeNames).map(([key,label]) => <option value={key} key={key}>{label}</option>)}</select></label>
-    <label className={w.field}>Приоритет<select name="priority" value={value.priority} disabled={disabled} onChange={event => onChange({ ...value, priority: event.target.value as TaskPriority })}>{Object.entries(taskPriorityNames).map(([key,label]) => <option value={key} key={key}>{label}</option>)}</select></label>
+    <label className={w.field}><span className={s.classificationLabel}><TaskClassificationIcon field="task_type" value={value.task_type} />Тип задачи</span><select name="task_type" value={value.task_type} disabled={disabled} onChange={event => { const type = event.target.value as TaskType;onChange({ ...value, task_type: type, starts: type === "milestone" ? "" : value.starts }); }}>{Object.entries(taskTypeNames).map(([key,label]) => <option value={key} key={key}>{label}</option>)}</select></label>
+    <label className={w.field}><span className={s.classificationLabel}><TaskClassificationIcon field="priority" value={value.priority} />Приоритет</span><select name="priority" value={value.priority} disabled={disabled} onChange={event => onChange({ ...value, priority: event.target.value as TaskPriority })}>{Object.entries(taskPriorityNames).map(([key,label]) => <option value={key} key={key}>{label}</option>)}</select></label>
     {value.task_type !== "milestone" ? <label className={w.field}>Плановое начало, МСК<input name="starts_at" type="datetime-local" value={value.starts} max={deadline && Number.isFinite(Date.parse(deadline)) ? moscowInput(deadline) : undefined} disabled={disabled} onChange={event => onChange({ ...value, starts: event.target.value })} /></label> : <p className={s.hint}>Веха — контрольная точка по дедлайну. Дата начала ей не нужна.</p>}
   </div>;
 }

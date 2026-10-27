@@ -86,7 +86,7 @@ def apply_fields(session, task, values, uid=None, *, initial=False):
             source_type = planned_type if link.source_task_id == task.task_id else metadata(session, session.get(TaskORM, link.source_task_id)).task_type
             target_type = planned_type if link.target_task_id == task.task_id else metadata(session, session.get(TaskORM, link.target_task_id)).task_type
             if source_type != "task" or target_type != link.kind:
-                raise InvalidInput("Remove incompatible epic or milestone links before changing task type")
+                raise InvalidInput("Remove incompatible epic or milestone links before changing task type", "task_type_conflict")
     changes = []
     for name in ("task_type", "priority", "starts_at"):
         if name not in values:
@@ -136,10 +136,15 @@ def patch(task_id, uid, expected_revision, values):
             task = visible_task(session, task_id, uid)
             if task.revision != expected_revision:
                 raise revision_conflict()
-            if extras.keys() - {"checklist"} and not can_edit_public(session, task, uid):
+            if "starts_at" in extras and not can_edit_public(session, task, uid):
                 raise Forbidden("Cannot edit task planning")
             if "checklist" in extras and not can_edit_description(session, task, uid):
                 raise Forbidden("Cannot edit task checklist")
+            # Type/priority are public reader controls, like the public status.
+            # A milestone is a point: clearing its interval is an inseparable
+            # effect of that type command, not a general planned-date permission.
+            if extras.get("task_type") == "milestone" and "starts_at" not in extras:
+                extras["starts_at"] = None
             if classic:
                 db.patch_task(task_id, expected_revision, classic.get("title"), classic.get("description"), uid,
                     parent_task_id=classic.get("parent_task_id"), parent_supplied="parent_task_id" in classic)
@@ -191,8 +196,33 @@ def enrich(session, task, result, uid):
             result.capabilities += ["edit_task_metadata", "manage_task_links"]
         if can_edit_description(session, task, uid):
             result.capabilities.append("edit_task_checklist")
-        result.capabilities.append("toggle_task_favorite")
+        result.capabilities += ["toggle_task_favorite", "change_task_type", "change_task_priority", "toggle_task_checklist"]
     return result
+
+
+def toggle_checklist(task_id, item_id, uid, expected_revision, checked):
+    """Readers may mark one stored item; text/order/full replacement keep old ACL."""
+    from tracker import visible_task, activity
+    if not isinstance(checked, bool):
+        raise InvalidInput("Checklist state must be boolean")
+    with db.atomic():
+        with db._session() as session:
+            task = visible_task(session, task_id, uid)
+            if task.revision != expected_revision:
+                raise revision_conflict()
+            item = session.get(TaskChecklistORM, item_id)
+            if not item or item.task_id != task_id:
+                raise NotFound("Checklist item not found")
+            if item.checked == checked:
+                return db.get_task(task_id, uid)
+            before = _checklist_snapshot(checklist_rows(session, task_id))
+            item.checked = checked
+            after = _checklist_snapshot(checklist_rows(session, task_id))
+            task.revision += 1
+            activity(session, task, "task_updated", uid, "Изменена отметка чеклиста",
+                changes=[dict(field="checklist", label="Чеклист", before=before, after=after)])
+            session.commit()
+            return db.get_task(task_id, uid)
 
 
 def set_favorite(task_id, uid, favorite):

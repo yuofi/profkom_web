@@ -1,8 +1,8 @@
+import { TaskClassificationMenu } from "./TaskClassificationMenu";
 import { TrackerFavoriteButton } from "./TrackerFavoriteButton";
 import { TaskPlanningEditor } from "./TrackerTaskPlanning";
 import { TrackerTaskChecklist } from "./TrackerTaskChecklist";
 import { TrackerTaskRelations } from "./TrackerTaskRelations";
-import { taskTypeNames, taskPriorityNames } from "./trackerPlanning";
 import { TeamChip } from "../../components/Workspace/TeamChip";
 import { TrackerHomeLink } from "../../components/Workspace/TrackerHomeLink";
 import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
@@ -93,13 +93,13 @@ function TaskContent({ task, assignmentId, returnSeason }: { task: Task; assignm
   return <>
     <BrandedHeader className={s.header}>
       <TrackerHomeLink className={s.brandLabel} />
-      <nav className={s.breadcrumbs} aria-label="Путь задачи"><Link to={task.queue ? getTaskQueueRoute(task.queue.queue_id) : getTaskQueuesRoute()}>Очередь задач</Link><span aria-hidden="true">›</span>{task.parent_task && <><Link to={getTaskRoute(task.parent_task.task_id)}>{task.parent_task.title}</Link><span aria-hidden="true">›</span></>}<span aria-current="page">{task.task_key ?? "Задача"}</span></nav>
-      <div className={s.titleRow}><h1 className={w.title}>{task.title}</h1><div className={s.headerTools}>
+      <nav className={s.breadcrumbs} aria-label="Путь задачи"><Link to={task.queue ? getTaskQueueRoute(task.queue.queue_id) : getTaskQueuesRoute()}>{task.queue?.name ?? "Очереди"}</Link><span aria-hidden="true">›</span>{task.parent_task && <><Link to={getTaskRoute(task.parent_task.task_id)}>{task.parent_task.title}</Link><span aria-hidden="true">›</span></>}<span aria-current="page">{task.task_key ?? "Задача"}</span></nav>
+      <div className={s.titleRow}><div className={s.titleIdentity}><div className={s.titleClassifications}><TaskClassificationMenu task={task} field="task_type" iconOnly onBrand /><TaskClassificationMenu task={task} field="priority" iconOnly onBrand /></div><h1 className={w.title}>{task.title}</h1></div><div className={s.headerTools}>
         <button type="button" className={s.iconButton} aria-label="Скопировать ссылку на задачу" title="Скопировать ссылку" onClick={async () => {
           try { await navigator.clipboard.writeText(new URL(getTaskRoute(task.task_id), window.location.origin).href);setCopied("Ссылка скопирована"); }
           catch { setCopied("Не удалось скопировать ссылку"); }
         }}><Glyph name="share" /></button>
-        <TrackerFavoriteButton task={task} onBrand />
+        <TrackerFavoriteButton task={task} onBrand compact />
       </div></div>
       <div className={s.metadata}><span className={s.taskKey}>{task.task_key ?? "Задача"}</span><span>Создана: {task.created_at ? displayDate(task.created_at) : "дата не указана"}</span><span>Обновлена: {task.updated_at ? displayDate(task.updated_at) : "дата не зафиксирована"}</span></div>
       {copied && <p className={`${w.muted} ${s.headerNotice}`} role="status">{copied}</p>}
@@ -133,8 +133,8 @@ function TaskContent({ task, assignmentId, returnSeason }: { task: Task; assignm
       </div>
       <aside className={s.sidebar} aria-label="Параметры задачи"><details className={s.parameters} open={parametersOpen} onToggle={event => setParametersOpen(event.currentTarget.open)}><summary>Параметры</summary><dl>
         <div><dt>Статус</dt><dd><TaskStatusMenu task={task} /></dd></div>
-        <div><dt>Тип</dt><dd>{taskTypeNames[task.task_type ?? "task"]}{can(task,"edit_task_metadata") && <button type="button" className={s.deadlineEdit} onClick={() => setEditor("planning")}>Изменить параметры</button>}</dd></div>
-        <div><dt>Приоритет</dt><dd>{taskPriorityNames[task.priority ?? "normal"]}</dd></div>
+        <div><dt>Тип</dt><dd><TaskClassificationMenu task={task} field="task_type" />{can(task,"edit_task_metadata") && <button type="button" className={s.deadlineEdit} onClick={() => setEditor("planning")}>Изменить параметры</button>}</dd></div>
+        <div><dt>Приоритет</dt><dd><TaskClassificationMenu task={task} field="priority" /></dd></div>
         {task.task_type !== "milestone" && <div><dt>Плановое начало, МСК</dt><dd>{displayDate(task.starts_at)}</dd></div>}
         <div><dt>Дедлайн, МСК</dt><dd><time dateTime={task.deadline_at} className={new Date(task.deadline_at).getTime() < now && !["accepted", "not_completed", "cancelled"].includes(taskStatus(task)) ? s.overdue : undefined}>{displayDate(task.deadline_at)}</time>{datesEditable && <button type="button" className={s.deadlineEdit} onClick={editDeadline}>Изменить дедлайн</button>}</dd></div>
         <div><dt>Очередь</dt><dd>{task.queue ? <Link to={getTaskQueueRoute(task.queue.queue_id)}>{task.queue.name}</Link> : <Link to={getTaskQueuesRoute()}>Открыть очереди</Link>}</dd></div>

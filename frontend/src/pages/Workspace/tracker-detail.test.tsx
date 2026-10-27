@@ -179,9 +179,9 @@ it("uses real queue and parent breadcrumbs while keeping the scope in task param
   await mountTask(task);
   const trail = page!.container.querySelector('[aria-label="Путь задачи"]')!;
   expect([...trail.querySelectorAll("a")].map(link => link.getAttribute("href"))).toEqual(["/tasks/queues/queue-design", "/tasks/parent-task"]);
-  expect(trail.tagName).toBe("NAV");expect([...trail.querySelectorAll("a")].map(link => link.textContent)).toEqual(["Очередь задач", "Подготовить запуск"]);
+  expect(trail.tagName).toBe("NAV");expect([...trail.querySelectorAll("a")].map(link => link.textContent)).toEqual(["Дизайн", "Подготовить запуск"]);
   expect(trail.querySelector('[aria-current="page"]')?.textContent).toBe(task.task_key);expect(trail.querySelectorAll('a,[aria-current="page"]')).toHaveLength(3);
-  expect(trail.textContent).not.toContain("WEB-12");expect(trail.textContent).not.toContain("Дизайн");expect(trail.textContent).not.toContain(task.scope_title);
+  expect(trail.textContent).not.toContain("WEB-12");expect(trail.textContent).toContain("Дизайн");expect(trail.textContent).not.toContain("DSN");expect(trail.textContent).not.toContain(task.scope_title);
   expect(page!.container.querySelector('[aria-label="Параметры задачи"]')?.textContent).toContain(task.scope_title);
 });
 
@@ -190,7 +190,7 @@ it.each([true, false])("without a parent the breadcrumb has only the queue and c
   await mountTask(task);
   const trail = page!.container.querySelector('[aria-label="Путь задачи"]')!;
   expect(trail.querySelectorAll('a,[aria-current="page"]')).toHaveLength(2);
-  expect(trail.querySelector("a")?.textContent).toBe("Очередь задач");expect(trail.querySelector("a")?.getAttribute("href")).toBe(hasQueue ? "/tasks/queues/queue-design" : "/tasks/queues");
+  expect(trail.querySelector("a")?.textContent).toBe(hasQueue ? "Дизайн" : "Очереди");expect(trail.querySelector("a")?.getAttribute("href")).toBe(hasQueue ? "/tasks/queues/queue-design" : "/tasks/queues");
   expect(trail.querySelector('[aria-current="page"]')?.textContent).toBe(task.task_key);
 });
 
@@ -207,7 +207,7 @@ it("selects and clears a cross-queue parent in one combobox with revision protec
   await act(async () => dialog.querySelector<HTMLElement>('[role="option"]')!.click());await submit(dialog.querySelector("form")!);await waitForPage(page!);
   expect(update).toHaveBeenLastCalledWith(task.task_id, { expected_revision: task.revision - 1, parent_task_id: other.task_id });expect(page!.container.querySelector('[aria-label="Путь задачи"]')?.textContent).toContain(other.title);
   const trail = page!.container.querySelector('[aria-label="Путь задачи"]')!;
-  expect([...trail.querySelectorAll("a")].map(link => [link.textContent, link.getAttribute("href")])).toEqual([["Очередь задач", "/tasks/queues/queue-design"], [other.title, "/tasks/other-task"]]);
+  expect([...trail.querySelectorAll("a")].map(link => [link.textContent, link.getAttribute("href")])).toEqual([["Дизайн", "/tasks/queues/queue-design"], [other.title, "/tasks/other-task"]]);
   expect(trail.querySelector('[aria-current="page"]')?.textContent).toBe(task.task_key);
   await act(async () => dialog.querySelector<HTMLButtonElement>('[aria-label="Убрать родительскую задачу"]')!.click());await submit(dialog.querySelector("form")!);await waitForPage(page!);
   expect(update).toHaveBeenLastCalledWith(task.task_id, { expected_revision: task.revision - 1, parent_task_id: null });
