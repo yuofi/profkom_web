@@ -43,6 +43,7 @@ export const getReportRoute = (id: string) =>
   `/reports/${encodeURIComponent(id)}`;
 export const getMaterialRoute = (id: string) =>
   `/materials/${encodeURIComponent(id)}`;
+export const getMaterialCreateRoute = () => "/materials/new";
 export const getSeasonRoute = (id: string) =>
   `/seasons/${encodeURIComponent(id)}`;
 export const getSeasonCreateRoute = () => "/seasons/new";

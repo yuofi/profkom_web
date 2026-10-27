@@ -59,6 +59,11 @@ const MaterialPage = lazy(() =>
     default: m.MaterialPage,
   })),
 );
+const MaterialCreatePage = lazy(() =>
+  import("./pages/Workspace/MaterialPages").then((m) => ({
+    default: m.MaterialCreatePage,
+  })),
+);
 const BlocksPage = lazy(() =>
   import("./pages/Workspace/MembershipPages").then((m) => ({
     default: m.BlocksPage,
@@ -193,6 +198,7 @@ const router = createBrowserRouter(createRoutesFromElements(
                     />
                     <Route path="guides" element={<GuidesPage />} />
                     <Route path="materials" element={<MaterialsPage />} />
+                    <Route path="materials/new" element={<MaterialCreatePage />} />
                     <Route path="materials/:id" element={<MaterialPage />} />
                     <Route path="pgas" element={<PgasPage />} />
                     <Route path="docs/:id" element={<DocViewerPage />} />

@@ -13,6 +13,7 @@ import { richText } from "../../utils/api/contract";
 import { UserContext } from "../../utils/me";
 import { GuidesManagement } from "../Admin/panels/GuidesManagement";
 import { MaterialPage } from "./MaterialPages";
+import { openMaterialEditor } from "../../test/materialEditor";
 
 // FIX_PLAN 0.2 (A-MAT-1): editors work on the stored text. Readers used to get links
 // signed for 5 minutes, now API addresses (decision 23); saving the shown text back
@@ -40,13 +41,14 @@ it("0.2: saving and publishing without changes keeps file:<id> and the old link,
   const shown = `/api/files/${attached.file_id}/content`;
   expect(m.published_content?.body).toBe(source.replace(`file:${attached.file_id}`, shown));
   page = await mountWorkspace(<Routes><Route path="/materials/:id" element={<MaterialPage />} /></Routes>, { path: `/materials/${id}`, session });
-  await waitForPage(page, () => !!page!.container.querySelector("textarea"));
+  await openMaterialEditor(page);
   expect(page.container.querySelector("textarea")!.value).toBe(source);
   await submit(button("Сохранить черновик").closest("form")!);
   await waitForPage(page, () => button("Опубликовать сохранённый черновик").disabled === false);
   expect((await materialsApi.get(id)).draft_content?.body).toBe(source);
-  await submit(button("Опубликовать сохранённый черновик").closest("form")!);
-  await waitForPage(page, () => !!page!.container.textContent?.includes("Изменения сохранены"));
+  const publication = button("Опубликовать сохранённый черновик").closest("form")!;
+  await submit(publication);
+  await waitForPage(page, () => !!publication.textContent?.includes("Изменения сохранены"));
   const saved = await materialsApi.get(id);
   expect(saved.draft_content).toBeUndefined();
   expect(saved.source_content?.body).toBe(source);

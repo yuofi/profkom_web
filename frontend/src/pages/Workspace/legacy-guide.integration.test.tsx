@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it } from "vitest";
+import { act } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
 import axios from "axios";
 import { liveLogin, liveParticipant, livePassword } from "../../test/liveApi";
@@ -9,6 +10,7 @@ import { materialsApi } from "../../utils/api/materials.api";
 import { api } from "../../utils/api";
 import { DocEditPage } from "../DocEditPage/DocEditPage";
 import { MaterialPage } from "./MaterialPages";
+import { openMaterialEditor } from "../../test/materialEditor";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 afterEach(async () => { await page?.cleanup(); page = undefined; });
@@ -21,6 +23,10 @@ function form(label: string) {
   const button = Array.from(page!.container.querySelectorAll("button")).find(b => b.textContent === label);
   expect(button).toBeDefined();
   return button!.closest("form")!;
+}
+async function finishEditing() {
+  const done = [...page!.container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Готово")!;
+  expect(done).toBeDefined();await act(async () => done.click());await until(() => !page!.container.querySelector("textarea"));
 }
 
 it("L2: a real legacy URL opens its material, saves a private draft, then publishes separately", async () => {
@@ -39,9 +45,9 @@ it("L2: a real legacy URL opens its material, saves a private draft, then publis
     <Route path="/materials/:id" element={<MaterialPage />} />
   </Routes></>, { path: `/docs/${guide.guide_id}/edit`, session });
   page = await mount();
-  await until(() => !!page!.container.querySelector("textarea"));
+  await openMaterialEditor(page);
   expect(page.container.querySelector('[aria-label="Текущий путь"]')?.textContent).toBe(`/materials/${materialId}`);
-  expect(page.container.textContent).toContain("Изменения сохраняются в черновик");
+  expect(page.container.textContent).toContain("Сохраните изменения в черновик");
   expect(page.container.textContent).not.toContain("изменения сразу видны читателям");
   await change(page.container.querySelector("textarea")!, newBody);
   await submit(form("Сохранить черновик"));
@@ -54,15 +60,18 @@ it("L2: a real legacy URL opens its material, saves a private draft, then publis
   expect(readerDraft.published_content.body).toBe(oldBody);
   expect(readerDraft).not.toHaveProperty("draft_content");
   expect((await readonly.get(`/guides/${guide.guide_id}`)).data.text).toBe(oldBody);
+  await finishEditing();
   expect(page.container.textContent).toContain("Старая публикация L2");
-  await submit(form("Опубликовать сохранённый черновик"));
-  // The publish button stays on the page; the published card switching to the new text is the signal.
-  await until(() => !page!.container.textContent!.includes("Старая публикация L2"));
+  await openMaterialEditor(page);
+  const publication = form("Опубликовать сохранённый черновик");
+  await submit(publication);
+  await until(() => !!publication.textContent?.includes("Изменения сохранены"));
   expect((await materialsApi.get(materialId)).published_content?.body).toBe(newBody);
   expect((await readonly.get(`/guides/${guide.guide_id}`)).data.text).toBe(newBody);
   expect((await readonly.get(`/materials/${materialId}`)).data.published_content.body).toBe(newBody);
+  await finishEditing();expect(page.container.textContent).toContain("Новая публикация L2");
   await page.cleanup(); page = await mount();
-  await until(() => !!page!.container.querySelector("textarea"));
+  await openMaterialEditor(page);
   expect(page.container.querySelector('[aria-label="Текущий путь"]')?.textContent).toBe(`/materials/${materialId}`);
   expect(page.container.querySelector("textarea")!.value).toBe(newBody);
   expect(page.container.textContent).toContain("Новая публикация L2");

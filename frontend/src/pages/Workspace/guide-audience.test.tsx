@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { act } from "react";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, expect, it } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
@@ -17,6 +18,8 @@ const open = async (role: "chair" | "organizer") => {
 
 it("a guide's writer decides who reads it; a reader is told who does", async () => {
   await open("chair");
+  expect(page!.container.querySelector("form")).toBeNull();
+  await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Редактировать материал"]')!.click());await settle();
   const form = field(page!.container, "audience").closest("form")!;
   expect(page!.container.textContent).toContain("Кто видит гайд");
   expect(field(form, "audience").value).toBe("block");

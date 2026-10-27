@@ -21,7 +21,7 @@ import {
 } from "../../test/workspace";
 import { TaskPage } from "./TaskPages";
 import { ReportPage } from "./ReportPages";
-import { MaterialPage, MaterialsPage } from "./MaterialPages";
+import { MaterialCreatePage, MaterialPage, MaterialsPage } from "./MaterialPages";
 import { BlockRequestsPage } from "./MembershipPages";
 import { DocEditPage } from "../DocEditPage/DocEditPage";
 import { PgasPage } from "../Pgas/PgasPage";
@@ -156,24 +156,29 @@ it("creates, edits, publishes and deletes a material through available routes", 
   page = await mountWorkspace(
     <Routes>
       <Route path="/materials" element={<MaterialsPage />} />
+      <Route path="/materials/new" element={<MaterialCreatePage />} />
       <Route path="/materials/:id" element={<MaterialPage />} />
     </Routes>,
     { path: "/materials" },
   );
   await settle();
+  expect(page.container.querySelector("form")).toBeNull();
+  await act(async () => page!.container.querySelector<HTMLAnchorElement>('a[href="/materials/new"]')!.click());await settle();
   const create = form(page.container, "Создать черновик");
   for (const [name, value] of Object.entries({
     title: "Материал приёмки",
     description: "Описание",
     kind: "general",
   }))
-    await change(field(create, name), value);
+    await change(field(page.container, name), value);
   await submit(create);
   await settle();
   const material = mock.state.materials.find(
     (m) => m.title === "Материал приёмки",
   )!;
-  const body = page.container.querySelector("textarea")!;
+  expect(page.container.querySelector("form")).toBeNull();
+  await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Редактировать материал"]')!.click());await settle();
+  const body = page.container.querySelector<HTMLTextAreaElement>('textarea[name="body"]')!;
   await change(body, "**Текст материала**");
   await submit(form(page.container, "Сохранить черновик"));
   expect(

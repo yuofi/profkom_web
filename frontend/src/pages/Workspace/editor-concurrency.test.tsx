@@ -37,6 +37,7 @@ it.each(["material", "report", "task", "task-inputs", "assessment", "bulk"] as c
   page = await mountWorkspace(<Routes><Route path={`/${prefix}/:id`} element={kind === "material" ? <MaterialPage /> : kind === "report" ? <ReportPage /> : <TaskPage />} /></Routes>, {path: `/${prefix}/${id}`});
   await settle(); await settle();
   if (kind === "task") await click(page.container, "Редактировать");
+  if (kind === "material") { await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Редактировать материал"]')!.click());await settle(); }
   const form = kind === "bulk" ? forms().find(f => f.querySelector('[data-entity-picker][data-field-name="assignments"]'))!
     : kind === "assessment" ? forms().find(f => f.querySelector('[name="evaluation"]'))!
     : field(page.container, kind === "task-inputs" ? "assigned" : "title").closest("form")!;
@@ -75,6 +76,7 @@ it("replacing a material draft also replaces Markdown outside Formik", async () 
   const m = mock.state.materials[0];
   page = await mountWorkspace(<Routes><Route path="/materials/:id" element={<MaterialPage />} /></Routes>, {path: `/materials/${m.material_id}`});
   await settle(); await settle();
+  await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Редактировать материал"]')!.click());await settle();
   const form = field(page.container, "title").closest("form")!;
   await change(form.querySelector("textarea")!, "ЛОКАЛЬНЫЙ MARKDOWN");
   m.revision++; m.title = "СЕРВЕРНОЕ НАЗВАНИЕ"; m.draft_content = richText("СЕРВЕРНЫЙ MARKDOWN");
@@ -128,6 +130,7 @@ it("a first foreign material draft cannot initialize publication with an implici
   const m = mock.state.materials[0]; delete m.draft_content;
   page = await mountWorkspace(<Routes><Route path="/materials/:id" element={<MaterialPage />} /></Routes>, {path: `/materials/${m.material_id}`});
   await settle(); await settle();
+  await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Редактировать материал"]')!.click());await settle();
   const publication = namedForm("Опубликовать сохранённый черновик");
   expect((publication.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBe(true);
   m.revision++; m.draft_content = richText("FIRST FOREIGN DRAFT");
@@ -146,6 +149,7 @@ it.each(["material", "report", "task-inputs", "assessment"] as const)("retains i
   const id = kind === "material" ? mock.state.materials[0].material_id : kind === "report" ? mock.state.reports[0].report_id : mock.state.tasks[0].task_id;
   page = await mountWorkspace(<Routes><Route path={`/${prefix}/:id`} element={kind === "material" ? <MaterialPage /> : kind === "report" ? <ReportPage /> : <TaskPage />} /></Routes>, {path: `/${prefix}/${id}`});
   await settle(); await settle();
+  if (kind === "material") { await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Редактировать материал"]')!.click());await settle(); }
   const name = kind === "assessment" ? "hours" : kind === "task-inputs" ? "deadline" : "title";
   const form = kind === "assessment" ? forms().find(f => f.querySelector('[name="evaluation"]'))! : field(page.container, name).closest("form")!;
   const value = kind === "assessment" ? "7" : kind === "task-inputs" ? "2026-10-26T18:00" : "НЕСОХРАНЁННЫЙ ВВОД";

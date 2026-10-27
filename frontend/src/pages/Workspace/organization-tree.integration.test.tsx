@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { Route, Routes } from "react-router-dom";
+import { act } from "react";
 import { afterEach, expect, it } from "vitest";
 import { liveLogin, liveParticipant } from "../../test/liveApi";
 import { mountWorkspace, waitForPage } from "../../test/workspace";
@@ -23,11 +24,15 @@ it("shows the real leadership and every block to an ordinary approved reader wit
     if (user.user_id !== null) expect(top.querySelector(`a[href="${getContactRoute(user.user_id)}"]`)).not.toBeNull();
   }
   const branches = tree.querySelector('ul[aria-label="Блоки Профкома"]')!;expect(branches.children).toHaveLength(blocks.length);
+  expect(tree.querySelector('section[aria-label^="Руководство блока "]')).toBeNull();
+  const expand = [...tree.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Развернуть все")!;
+  expect(expand).toBeDefined();await act(async () => expand.click());await waitForPage(page);
   for (const block of blocks) {
     expect(branches.querySelector(`a[href="${getBlockRoute(block.block_id)}"]`)).not.toBeNull();
     const leaders = tree.querySelector(`section[aria-label="Руководство блока ${block.name}"]`)!;
     if (block.master) expect(leaders.textContent).toContain(block.master.user.display_name);
   }
   expect(page.container.querySelector('a[href="/blocks/requests"]')).not.toBeNull();
-  expect(tree.querySelector('form,input,select,button')).toBeNull();
+  expect(tree.querySelector('input[type="search"]')).not.toBeNull();
+  expect(tree.querySelector('form,select,input:not([type="search"])')).toBeNull();
 });

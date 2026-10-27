@@ -17,6 +17,7 @@ import { filesApi } from "../../utils/api/files.api";
 import { richText, emptyCriteria } from "../../utils/api/contract";
 import { UserProvider } from "../../utils/ctx";
 import { MaterialPage } from "./MaterialPages";
+import { openMaterialEditor } from "../../test/materialEditor";
 import { ReportPage } from "./ReportPages";
 import { TaskPage } from "./TaskPages";
 
@@ -65,6 +66,7 @@ it.each(["keep", "replace"])("LOC-02: two real material editors refetch, compare
   const other = await actorClient(b.email);
   const session = await liveLogin(a.email);
   page = await mountWorkspace(<Routes><Route path="/materials/:id" element={<MaterialPage />} /></Routes>, {path: `/materials/${m.material_id}`, session});
+  await openMaterialEditor(page);
   await until(() => !!page!.container.querySelector('[name="title"]'));
   const editor = form("Сохранить черновик");
   await change(field(editor, "title"), "MY LOCAL TITLE");
