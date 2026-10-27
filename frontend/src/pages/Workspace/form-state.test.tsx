@@ -3,7 +3,7 @@ import { act, useState } from "react";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
-import { mountWorkspace, settle, change, field, submit, waitForPage } from "../../test/workspace";
+import { mountWorkspace, settle, change, field, pick, submit, waitForPage } from "../../test/workspace";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { EventEditPage } from "./EventPages";
 import { BlockPage } from "./MembershipPages";
@@ -136,7 +136,7 @@ it("A06: selected missing recipients keep their fields and values until explicit
   page = await mountWorkspace(<MeritForm seasonId="season-1" initialSource="block_volunteer" initialScopeId={mock.state.blocks[0].block_id} />);
   await settle(); await settle();
   const ids = mock.state.people.slice(0, 3).map((p) => p.user_id!);
-  for (const id of ids.slice(0, 2)) await act(async () => page!.container.querySelector<HTMLInputElement>(`input[type="checkbox"][value="${id}"]`)!.click());
+  for (const id of ids.slice(0, 2)) await pick(page!.container, "users", String(id));
   await meritBase(page.container);
   for (const id of ids.slice(0, 2)) { await change(field(page.container, `hours_${id}`), "7"); await change(field(page.container, `evaluation_${id}`), "0"); }
   await change(field(page.container, `evaluation_${ids[0]}`), "1");
@@ -148,11 +148,11 @@ it("A06: selected missing recipients keep their fields and values until explicit
   expect(field(page.container, `evaluation_${ids[0]}`).value).toBe("1");
   expect(field(page.container, `completed_${ids[0]}`).value).toBe("2026-10-05T13:00");
   expect(page.container.textContent).toContain("нет в актуальном справочнике");
-  expect(page.container.querySelector(`input[type="checkbox"][value="${ids[2]}"]`)).toBeNull();
+  expect(document.querySelector(`[role="option"][data-option-value="${ids[2]}"]`)).toBeNull();
   await submit(page.container.querySelector("form")!);
   expect(mock.state.merits[0].recipients.map((r) => r.user_id)).toEqual(ids.slice(0, 2));
   await act(async () => page!.client.setQueryData(["contacts"], contacts.filter((p) => p.user_id !== ids[0]))); await settle();
-  await act(async () => page!.container.querySelector<HTMLInputElement>(`input[type="checkbox"][value="${ids[0]}"]`)!.click());
+  await pick(page!.container, "users", String(ids[0]), false);
   expect(page.container.querySelector(`[name="hours_${ids[0]}"]`)).toBeNull();
   await submit(page.container.querySelector("form")!);
   expect(mock.state.merits[1].recipients.map((r) => r.user_id)).toEqual([ids[1]]);
@@ -165,7 +165,7 @@ it("A06: a newly fetched recipient gets valid empty optional fields", async () =
   const contacts = page.client.getQueryData<object[]>(["contacts"])!;
   const template = contacts[0];
   await act(async () => page!.client.setQueryData(["contacts"], [...contacts, { ...template, user_id: 9999, in_profcom: true }])); await settle();
-  await act(async () => page!.container.querySelector<HTMLInputElement>('input[type="checkbox"][value="9999"]')!.click());
+  await pick(page!.container, "users", "9999");
   expect(field(page.container, "completed_9999").value).toBe("");
   await meritBase(page.container);
   await change(field(page.container, "hours_9999"), "2"); await change(field(page.container, "evaluation_9999"), "0");

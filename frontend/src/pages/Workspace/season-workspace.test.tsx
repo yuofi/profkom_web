@@ -38,7 +38,10 @@ it("keeps creation and global season corrections off the catalog with a dedicate
 it("creates through the visual shell with a preview and exact server dates", async () => {
   await mount(<Routes><Route path="/seasons/new" element={<SeasonCreatePage />} /><Route path="/seasons/:id" element={<p>Созданный сезон</p>} /></Routes>, "/seasons/new");
   transport!.state.seasons.splice(transport!.state.seasons.findIndex(season => season.state === "planned"), 1);
-  await change(field(page!.container, "title"), "Новый сезон из редактора");await change(field(page!.container, "start"), "2027-02-01T12:00");await change(field(page!.container, "end"), "2027-06-01T12:00");await change(field(page!.container, "type"), "winter_spring");expect(page!.container.querySelector('[aria-label="Предпросмотр сезона"]')?.textContent).toContain("Новый сезон из редактора");
+  expect(page!.container.querySelector('[aria-label="Предпросмотр сезона"]')).toBeNull();
+  await change(field(page!.container, "title"), "Новый сезон из редактора");await change(field(page!.container, "start"), "2027-02-01T12:00");await change(field(page!.container, "end"), "2027-06-01T12:00");await change(field(page!.container, "type"), "winter_spring");
+  await click("Показать предпросмотр сезона");expect(page!.container.querySelector('button[aria-controls][aria-pressed="true"]')).not.toBeNull();expect(page!.container.querySelector('[aria-label="Предпросмотр сезона"]')?.textContent).toContain("Новый сезон из редактора");
+  await click("Скрыть предпросмотр сезона");expect(page!.container.querySelector('[aria-label="Предпросмотр сезона"]')).toBeNull();expect(field(page!.container, "title").value).toBe("Новый сезон из редактора");expect(field(page!.container, "start").value).toBe("2027-02-01T12:00");
   await submit(page!.container.querySelector("form")!);await waitForPage(page!, () => page!.container.textContent?.includes("Созданный сезон") ?? false, 3000);const request = transport!.adapter.history.post.find(request => request.url === "/seasons")!;expect(JSON.parse(request.data)).toEqual({ title: "Новый сезон из редактора", starts_at: "2027-02-01T09:00:00.000Z", ends_at: "2027-06-01T09:00:00.000Z", type: "winter_spring" });
 });
 it("opens period editing by pencil and saves the same season with revision and reason", async () => {
@@ -55,21 +58,21 @@ it("keeps the summary deep link and labels evaluated assignments honestly", asyn
 it("retains missing history as gaps and sends participant/source filters", async () => {
   const data = analytics();data.totals = { completed_tasks: null, credited_hours: null, kkr: 18 };data.weekly = [];data.basis = { kind: "approved_snapshot", version: 4, approved_at: data.as_of };
   const api = vi.spyOn(seasonsApi, "analytics").mockResolvedValue(data);await mount(<SeasonAnalytics seasonId="season-1" />);expect(page!.container.textContent).toContain("Для этого показателя нет датированных данных");expect(page!.container.textContent).toContain("Исторические часы неизвестны");expect(page!.container.querySelectorAll("strong")[0].textContent).toBe("—");
-  const selects = page!.container.querySelectorAll("select");await change(selects[0], "person-1");await waitForPage(page!);await change(selects[1], "it");await waitForPage(page!);expect(api).toHaveBeenLastCalledWith("season-1", { participant_id: "person-1", block_id: "it" });
+  await change(field(page!.container, "participant"), "person-1");await waitForPage(page!);await change(field(page!.container, "block"), "it");await waitForPage(page!);expect(api).toHaveBeenLastCalledWith("season-1", { participant_id: "person-1", block_id: "it" });
   await click("По сезонам");expect(page!.container.textContent).toContain("Для этого показателя нет датированных данных");await click("ККР");expect(page!.container.querySelector('svg[aria-label="ККР, по сезонам; баллов"]')).not.toBeNull();
 });
 it("shows negative values and identifies retrospective work distribution", async () => {
-  vi.spyOn(seasonsApi, "analytics").mockResolvedValue(analytics());await mount(<SeasonAnalytics seasonId="season-1" />);await click("ККР");expect(page!.container.querySelector('svg [role="button"]')?.getAttribute("aria-label")).toContain("-2");expect(page!.container.textContent).toContain("не история баланса ККР на каждый день");expect(page!.container.querySelector('svg path')?.getAttribute("d")).not.toMatch(/NaN|Infinity/);
+  vi.spyOn(seasonsApi, "analytics").mockResolvedValue(analytics());await mount(<SeasonAnalytics seasonId="season-1" />);await click("ККР");expect(page!.container.querySelector('svg[role="img"] [role="button"]')?.getAttribute("aria-label")).toContain("-2");expect(page!.container.textContent).toContain("не история баланса ККР на каждый день");expect(page!.container.querySelector('svg[role="img"] path')?.getAttribute("d")).not.toMatch(/NaN|Infinity/);
 });
 it("places weekly observations at their real date distances instead of equal category spacing", async () => {
   const data = analytics();data.weekly = ["2026-10-05", "2026-10-12", "2026-11-09"].map((starts_on, index) => ({ starts_on, completed_tasks: index + 1, credited_hours: index + 1, kkr: index + 1 }));
   vi.spyOn(seasonsApi, "analytics").mockResolvedValue(data);await mount(<SeasonAnalytics seasonId="season-1" />);
-  const positions = [...page!.container.querySelectorAll("svg circle")].map(circle => Number(circle.getAttribute("cx")));expect(positions).toHaveLength(3);expect((positions[2] - positions[1]) / (positions[1] - positions[0])).toBeCloseTo(4);
+  const positions = [...page!.container.querySelectorAll('svg[role="img"] circle')].map(circle => Number(circle.getAttribute("cx")));expect(positions).toHaveLength(3);expect((positions[2] - positions[1]) / (positions[1] - positions[0])).toBeCloseTo(4);
 });
 it("omits empty future weeks from current observation without mutating or hiding dated facts", async () => {
   const data = analytics();data.weekly = [{ starts_on: "2026-10-19", completed_tasks: 1, credited_hours: 2, kkr: 3 }, { starts_on: "2026-11-02", completed_tasks: 0, credited_hours: 0, kkr: 0 }, { starts_on: "2026-11-09", completed_tasks: 1, credited_hours: 1, kkr: 2 }];
   vi.spyOn(seasonsApi, "analytics").mockResolvedValue(data);await mount(<SeasonAnalytics seasonId="season-1" />);
-  expect(page!.container.querySelectorAll("svg circle")).toHaveLength(2);expect([...page!.container.querySelectorAll('svg [role="button"]')].some(point => point.getAttribute("aria-label")?.includes("2 нояб"))).toBe(false);expect(data.weekly).toHaveLength(3);
+  expect(page!.container.querySelectorAll('svg[role="img"] circle')).toHaveLength(2);expect([...page!.container.querySelectorAll('svg[role="img"] [role="button"]')].some(point => point.getAttribute("aria-label")?.includes("2 нояб"))).toBe(false);expect(data.weekly).toHaveLength(3);
 });
 it.each(["seasons", "summary"] as const)("retains a real decision draft through %s refetch503, then removes it on403", async resource => {
   await mount(<Routes><Route path="/seasons/:id/summary" element={<SummaryPage />} /></Routes>, "/seasons/season-1/summary");
@@ -82,7 +85,7 @@ it.each(["seasons", "summary"] as const)("retains a real decision draft through 
 });
 it("preserves chart metric and period when participant filters refetch", async () => {
   vi.spyOn(seasonsApi, "analytics").mockResolvedValue(analytics());await mount(<SeasonAnalytics seasonId="season-1" />);await click("ККР");await click("По сезонам");
-  await change(page!.container.querySelector('select[aria-label="Участник"]')!, "person-1");await waitForPage(page!);
+  await change(field(page!.container, "participant"), "person-1");await waitForPage(page!);
   expect([...page!.container.querySelectorAll("button")].find(button => button.textContent === "ККР")?.getAttribute("aria-pressed")).toBe("true");expect([...page!.container.querySelectorAll("button")].find(button => button.textContent === "По сезонам")?.getAttribute("aria-pressed")).toBe("true");
 });
 it("guards unsaved creation and never creates a season through Cancel", async () => {

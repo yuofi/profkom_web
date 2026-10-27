@@ -15,6 +15,7 @@ import { QueryClient } from "@tanstack/react-query";
 import {
   change,
   field,
+  pick,
   mountWorkspace,
   settle,
   submit,
@@ -198,19 +199,14 @@ it("shows recipient inputs only for two selected people out of 100 and preserves
   await settle();
   const container = page.container;
   await change(
-    container.querySelectorAll("select")[1],
+    field(container, "scope"),
     mock.state.blocks.find((b) =>
       b.capabilities.includes("create_volunteer_merit"),
     )!.block_id,
   );
   expect(container.querySelectorAll('[name^="hours_"]')).toHaveLength(0);
-  const boxes = container.querySelectorAll<HTMLInputElement>(
-    'input[type="checkbox"]',
-  );
-  await act(async () => {
-    boxes[0].click();
-    boxes[1].click();
-  });
+  await pick(container, "users", "1001");
+  await pick(container, "users", "1002");
   expect(
     container.querySelectorAll(
       '[name^="hours_"], [name^="evaluation_"], [name^="completed_"]',
@@ -218,9 +214,9 @@ it("shows recipient inputs only for two selected people out of 100 and preserves
   ).toHaveLength(6);
   await change(field(container, "hours_1001"), "3");
   await change(field(container, "evaluation_1001"), "0");
-  await act(async () => boxes[0].click());
+  await pick(container, "users", "1001", false);
   expect(container.querySelector('[name="hours_1001"]')).toBeNull();
-  await act(async () => boxes[0].click());
+  await pick(container, "users", "1001");
   expect(field(container, "hours_1001").value).toBe("3");
   await change(field(container, "hours_1002"), "5");
   await change(field(container, "evaluation_1002"), "-1");

@@ -4,7 +4,6 @@ import { Glyph } from "./WorkspaceUI";
 import { editorShortcut } from "../../utils/editorShortcuts";
 import { insertMarkdown, transformMarkdownLines } from "../../utils/markdown";
 import { FormattingTool as EditorTool, FormattingMenu, EditorIcon } from "./MarkdownTools";
-import s from "./Workspace.module.css";
 import editor from "./MarkdownEditor.module.css";
 
 type Snapshot = { value: string; start: number; end: number };
@@ -22,7 +21,7 @@ export interface MarkdownEditorProps {
 
 /** The source stays Markdown: inserting a command never rewrites the rest of a document. */
 export function MarkdownEditor({
-  value, onChange, draft = true, label = "Содержимое в Markdown", name, rows = 18,
+  value, onChange, label = "Содержимое в Markdown", name, rows = 18,
   context = "material", placeholder, disabled = false,
 }: MarkdownEditorProps) {
   const input = useRef<HTMLTextAreaElement>(null);
@@ -206,15 +205,7 @@ export function MarkdownEditor({
       {preview && <div className={editor.preview} role="region" aria-label={`Просмотр: ${label}`}>
         {value.trim() ? <MarkdownContent body={value} /> : <p className={editor.empty}>Здесь появится отформатированный текст.</p>}
       </div>}
-      {context !== "comment" && <details className={s.details}>
-        <summary>{context === "material" ? "Как оформить материал" : "Справка по Markdown"}</summary>
-        <p>Выделите текст и выберите команду. Поддерживаются заголовки, списки, чеклисты, цитаты, ссылки, изображения, блоки кода и таблицы.</p>
-        <p>Формула в строке: <code>{"$x^2$"}</code>. Отдельная формула: <code>{"$$\\sum_i x_i$$"}</code> на отдельных строках. Кнопка с глазом показывает текущий текст без отправки.</p>
-        {context === "material" ? <>
-          <p>«Галерея» вставляет блок gallery: укажите внутри ссылки на изображения, каждую с новой строки. «Контакт» вставляет блок chip с полями карточки.</p>
-          <p>{draft ? "Сохранение обновляет только черновик; публикация выполняется отдельной кнопкой." : "Изменения публикуются только по явному нажатию кнопки публикации."}</p>
-        </> : <p>Текст отправляется только по нажатию кнопки отправки или сохранения под редактором.</p>}
-      </details>}
+
     </div>
   );
 }

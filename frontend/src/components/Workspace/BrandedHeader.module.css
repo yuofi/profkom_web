@@ -1,0 +1,5 @@
+.root.root { overflow: visible; background: none; z-index: 1; }
+.root.root::before,.root.root::after { display: none; }
+.backdrop.backdrop { position: absolute; inset: 0; z-index: -1; margin: 0; padding: 0; pointer-events: none; }
+.root.root > :nth-child(2) { flex: 1 1 22rem; min-width: 0; }
+@media(max-width: 768px) { .root.root > :nth-child(2) { margin-top: 0; } }

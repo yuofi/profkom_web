@@ -18,7 +18,10 @@ function Photo({ source, large = false }: { source?: string | null; large?: bool
   return <img className={large ? s.largePhoto : s.photo} src={safeAvatar(source)} alt="" loading="lazy" referrerPolicy="no-referrer" onError={event => { if (event.currentTarget.getAttribute("src") !== fallbackAvatar) event.currentTarget.src = fallbackAvatar; }} />;
 }
 /** A profile preview reads the same authorized directory projection as the contacts page. */
-export function UserChip({ user, className = "" }: { user: UserRef; className?: string }) {
+export function UserChip({ user, className = "", interactive = true }: { user: UserRef; className?: string; interactive?: boolean }) {
+  return interactive ? <ProfileUserChip user={user} className={className} /> : <span className={`${s.chip} ${className}`}><Photo source={user.avatar_url} /><span>{user.display_name}</span></span>;
+}
+function ProfileUserChip({ user, className }: { user: UserRef; className: string }) {
   const id = useId(), anchor = useRef<HTMLSpanElement>(null), popup = useRef<HTMLDivElement>(null);
   const showTimer = useRef<ReturnType<typeof setTimeout> | null>(null), hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [open, setOpen] = useState(false);

@@ -78,9 +78,13 @@ it("2.13: four deputies of the chair are refused as an input error with the serv
   const session = await liveLogin();
   const before = await sessionApi.leadership();
   page = await mountWorkspace(<Routes><Route path="/leadership" element={<LeadershipPage />} /></Routes>, { path: "/leadership", session });
-  const box = (id: number) => page!.container.querySelector<HTMLInputElement>(`input[name="users"][value="${id}"]`);
-  await waitForPage(page, () => people.every(p => !!box(p.user_id)));
-  const form = box(people[0].user_id)!.closest("form")!;
+  await waitForPage(page, () => !!page!.container.querySelector('[data-entity-picker][data-field-name="users"]'));
+  const picker = page.container.querySelector<HTMLElement>('[data-entity-picker][data-field-name="users"]')!;
+  const input = picker.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  await act(async () => { input.focus();input.click(); });await waitForPage(page);
+  const candidates = document.getElementById(input.getAttribute("aria-controls")!)!;
+  for (const person of people) expect(candidates.querySelector(`[data-option-value="${person.user_id}"]`)).not.toBeNull();
+  const form = picker.closest("form")!;
   for (const p of people) await pick(form, "users", String(p.user_id));
   await submit(form);
   await waitForPage(page, () => !!form.querySelector('[role="alert"]'));
@@ -88,7 +92,7 @@ it("2.13: four deputies of the chair are refused as an input error with the serv
   expect(text).toContain("Можно назначить не больше 3 заместителей.");
   readable(text);
   expect(buttons(form)).not.toContain("Обновить данные");
-  for (const p of people) expect(box(p.user_id)!.checked).toBe(true);
+  for (const p of people) expect(picker.querySelector(`[data-selected-value="${p.user_id}"]`)).not.toBeNull();
   expect((await sessionApi.leadership()).revision).toBe(before.revision);
 });
 

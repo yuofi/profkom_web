@@ -1,3 +1,5 @@
+import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
+import { EntityPicker } from "../../components/Workspace/EntityPicker";
 import { useEffect, useRef, type MouseEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -32,7 +34,7 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
   const previous = useRef(new Map<string, string>());
   const filterMenu = useRef<HTMLDetailsElement>(null);
   useEffect(() => {
-    const close = (event: PointerEvent) => { if (event.target instanceof Node && !filterMenu.current?.contains(event.target)) filterMenu.current?.removeAttribute("open"); };
+    const close = (event: PointerEvent) => { if (event.target instanceof Node && !filterMenu.current?.contains(event.target) && !(event.target instanceof Element && event.target.closest("[data-entity-picker-popup]"))) filterMenu.current?.removeAttribute("open"); };
     const escape = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape" && filterMenu.current?.open) { filterMenu.current.open = false; filterMenu.current.querySelector("summary")?.focus(); } };
     document.addEventListener("pointerdown", close); document.addEventListener("keydown", escape);
     return () => { document.removeEventListener("pointerdown", close); document.removeEventListener("keydown", escape); };
@@ -121,10 +123,10 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
   if (filters.unfinished === "true") active.push({ key: "unfinished", label: "Незавершённые" });
   if (filters.overdue === "true") active.push({ key: "overdue", label: "Просроченные" });
   return <section className={s.page}>
-    {header ?? <header className={s.header}>
-      <div><p className={s.eyebrow}>Профком ВМК · Трекер</p><h1>Задачи</h1><p className={s.subtitle}>Одна совместная работа — одна задача и общий статус.</p></div>
+    {header ?? <BrandedHeader className={s.header}>
+      <div><p className={w.eyebrow}>Профком ВМК · Трекер</p><h1 className={w.title}>Задачи</h1><p className={w.description}>Одна совместная работа — одна задача и общий статус.</p></div>
       <div className={s.headerLinks}><RouteLink to={getTaskQueuesRoute()}>Очереди</RouteLink>{can(session, "view_unresolved_assignments") && <RouteLink to="/tasks/unresolved">Оставшаяся работа</RouteLink>}</div>
-    </header>}
+    </BrandedHeader>}
     <div className={s.topbar}>
       <label className={s.search}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg><input type="search" aria-label="Поиск задач" placeholder="Название или ключ задачи" value={filters.q} onChange={(event) => update("q", event.target.value, true)} /></label>
       {(queue ? can(queue, "create_task") : queues.data?.items.some(item => can(item, "create_task"))) && <RouteLink to={getTaskCreateRoute({ queueId: queue?.queue_id, ...(scope ? { scope } : {}) })}>Создать задачу</RouteLink>}
@@ -140,8 +142,8 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
           <label className={w.field}>Статус<select aria-label="Статус" value={filters.status} onChange={(event) => update("status", event.target.value)}><option value="">Любой статус</option>{Object.entries(statusNames).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           <label className={w.field}>Сезон<select aria-label="Сезон" value={filters.season_id} onChange={(event) => update("season_id", event.target.value)}><option value="">Все сезоны</option>{seasons.data?.items.map((item) => <option key={item.season_id} value={item.season_id}>{item.title}</option>)}</select></label>
           {!queue && <label className={w.field}>Очередь<select aria-label="Очередь" value={filters.queue_id} onChange={event => update("queue_id", event.target.value)}><option value="">Все доступные очереди</option>{queues.data?.items.filter(item => item.access === "granted").map(item => <option key={item.queue_id} value={item.queue_id}>{item.key} · {item.name}</option>)}</select></label>}
-          {!queue && <label className={w.field}>Команда<select aria-label="Команда" value={scopeValue} onChange={(event) => update("scope", event.target.value)}><option value="">Все команды</option>{scope && !selectedScope && <option value={scopeValue}>Текущая команда</option>}{scopes.map((item) => <option key={`${item.kind}/${item.id}`} value={JSON.stringify([item.kind, item.id])}>{item.title}</option>)}</select></label>}
-          <label className={w.field}>Исполнитель<select aria-label="Исполнитель" value={filters.assignee_user_id} onChange={(event) => update("assignee_user_id", event.target.value)}><option value="">Все исполнители</option>{people.data?.filter((item) => item.in_profcom).map((item) => <option key={item.user_id} value={item.user_id}>{item.surname} {item.name}</option>)}</select></label>
+          {!queue && <EntityPicker label="Команда" value={scopeValue} onChange={value => update("scope", value)} placeholder="Все команды" options={[{ value: "", label: "Все команды" }, ...(scope && !selectedScope ? [{ value: scopeValue, label: "Текущая команда", scope: { kind: scope.kind, name: "Текущая команда" } }] : []), ...scopes.map(item => ({ value: JSON.stringify([item.kind, item.id]), label: item.title, scope: { kind: item.kind, name: item.title } }))]} />}
+          <EntityPicker label="Исполнитель" value={filters.assignee_user_id} onChange={value => update("assignee_user_id", value)} placeholder="Все исполнители" options={[{ value: "", label: "Все исполнители" }, ...(people.data?.filter(item => item.in_profcom).map(item => ({ value: String(item.user_id), label: [item.surname, item.name, item.patronymic].filter(Boolean).join(" "), user: { user_id: item.user_id, display_name: [item.surname, item.name, item.patronymic].filter(Boolean).join(" "), avatar_url: item.photo_url ?? null } })) ?? [])]} />
           <label className={w.field}>Сортировать<select aria-label="Сортировать" value={filters.sort} onChange={(event) => update("sort", event.target.value)}><option value="deadline">По дедлайну</option><option value="updated">По обновлению</option><option value="created">По созданию</option></select></label>
           <label className={w.field}>Порядок<select aria-label="Порядок" value={filters.order} onChange={(event) => update("order", event.target.value)}><option value="asc">По возрастанию</option><option value="desc">По убыванию</option></select></label>
           <label className={w.check}><input type="checkbox" checked={filters.unfinished === "true"} onChange={(event) => update("unfinished", event.target.checked ? "true" : "")} />Незавершённые</label>

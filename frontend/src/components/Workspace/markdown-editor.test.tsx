@@ -92,3 +92,10 @@ it("Russian-layout undo and redo restore the same Markdown draft", async () => {
   await key(input, "н", { code: "KeyY" });
   expect(input.value).toBe("**Текст**" + custom);
 });
+
+it.each(["material", "task", "result", "comment"] as const)("all editors omit permanent Markdown help: %s", async context => {
+  page = await mountWorkspace(<MarkdownEditor value="**Текст**" onChange={() => {}} context={context} />);
+  expect(page.container.querySelector("details")).toBeNull();
+  expect(page.container.textContent).not.toMatch(/Справка по Markdown|Как оформить материал|Markdown ·/);
+  expect(page.container.querySelector('button[aria-label="Предпросмотр"]')).not.toBeNull();
+});

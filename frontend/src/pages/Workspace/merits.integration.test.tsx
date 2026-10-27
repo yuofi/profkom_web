@@ -1,9 +1,8 @@
 // @vitest-environment jsdom
-import { act } from "react";
 import { afterEach, expect, it } from "vitest";
 import { Route, Routes } from "react-router-dom";
 import { liveLogin, liveParticipant } from "../../test/liveApi";
-import { change, field, mountWorkspace, submit, waitForPage } from "../../test/workspace";
+import { change, field, mountWorkspace, pick, submit, waitForPage } from "../../test/workspace";
 import { eventsApi } from "../../utils/api/events.api";
 import { membershipApi } from "../../utils/api/membership.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
@@ -67,9 +66,13 @@ for (const state of ["open", "summarizing"] as const)
       const hours = `hours_${w.volunteer.user_id}`;
       await waitForPage(page!, () => !!card(title)?.querySelector(`[name="${hours}"]`));
       const form = card(title)!.querySelector(`[name="${hours}"]`)!.closest("form")!;
-      const scopeSelect = select(card(title)!, "Область работы");
-      if (scopeName === null) expect(scopeSelect, source_kind).toBeUndefined();
-      else expect(scopeSelect?.selectedOptions[0]?.textContent, source_kind).toBe(scopeName);
+      const scopePicker = card(title)!.querySelector('[data-entity-picker][data-field-name="scope"]');
+      if (scopeName === null) expect(scopePicker, source_kind).toBeNull();
+      else {
+        expect(field(scopePicker!, "scope").value, source_kind).toBe(scope.scope?.id ?? scope.event_id);
+        expect(scopePicker?.querySelector("[data-selected-value]")?.textContent, source_kind).toContain(scopeName);
+        expect(scopePicker?.querySelector("[role=combobox]")?.matches(":disabled"), source_kind).toBe(true);
+      }
       await change(field(form, hours), "5");
       await change(field(form, "reason"), "Исправили часы");
       await submit(form);
@@ -85,18 +88,18 @@ it("1.2: recording a work leaves an empty form, and a second click records nothi
   const w = await world("open");
   await openMerits("chair@example.com", w.season.season_id);
   const newCard = () => card("Учесть выполненную работу")!;
-  await waitForPage(page!, () => !!select(newCard() ?? document, "Область работы"));
+  await waitForPage(page!, () => !!newCard()?.querySelector('[data-entity-picker][data-field-name="scope"]'));
   await change(select(newCard(), "Вид записи")!, "subevent_volunteer");
   await waitForPage(page!);
-  await change(select(newCard(), "Область работы")!, w.sub.subevent_id);
-  await waitForPage(page!, () => !!newCard().querySelector(`input[type="checkbox"][value="${w.volunteer.user_id}"]`));
+  await change(field(newCard(), "scope"), w.sub.subevent_id);
+  await waitForPage(page!, () => !!newCard().querySelector('[data-entity-picker][data-field-name="users"]'));
   let form = newCard().querySelector("form")!;
   const title = "Помощь на регистрации";
   await change(field(form, "title"), title);
   await change(field(form, "body"), "Встречали гостей");
   await change(field(form, "assigned"), moscowInput(hoursAgo(3)));
   await change(field(form, "deadline"), moscowInput(hoursAgo(2)));
-  await act(async () => form.querySelector<HTMLInputElement>(`input[type="checkbox"][value="${w.volunteer.user_id}"]`)!.click());
+  await pick(form, "users", String(w.volunteer.user_id));
   await change(field(form, `hours_${w.volunteer.user_id}`), "2");
   await change(field(form, `evaluation_${w.volunteer.user_id}`) as HTMLSelectElement, "1");
   await change(field(form, `completed_${w.volunteer.user_id}`), moscowInput(hoursAgo(2)));
@@ -107,9 +110,9 @@ it("1.2: recording a work leaves an empty form, and a second click records nothi
   // The form is a new one: the kind, scope, recipients and every field start over.
   form = newCard().querySelector("form")!;
   expect(select(newCard(), "Вид записи")!.value).toBe("block_volunteer");
-  expect(select(newCard(), "Область работы")!.value).toBe("");
+  expect(field(newCard(), "scope").value).toBe("");
   expect((field(form, "title") as HTMLInputElement).value).toBe("");
-  expect(form.querySelectorAll('input[type="checkbox"]:checked')).toHaveLength(0);
+  expect(form.querySelectorAll('[data-entity-picker][data-field-name="users"] [data-selected-value]')).toHaveLength(0);
   await submit(form);
   await waitForPage(page!);
   const records = (await seasonsApi.merits({season_id: w.season.season_id})).items.filter(m => m.title === title);

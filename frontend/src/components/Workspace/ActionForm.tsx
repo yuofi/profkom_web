@@ -8,6 +8,7 @@ import { ErrorDetail } from "./WorkspaceUI";
 import s from "./Workspace.module.css";
 import type { Values } from "./formValues";
 import { RecipientPicker } from "./RecipientPicker";
+import { EntityPicker, type EntityKind, type EntityOption } from "./EntityPicker";
 import { advanceOwn, recordOwnChange, useOwnRevisions } from "./ownRevisions";
 import { useUnsavedChanges } from "./unsavedChangesHooks";
 export interface Field {
@@ -26,7 +27,11 @@ export interface Field {
   /** A function makes the field required depending on the other values. */
   required?: boolean | ((values: Values) => boolean);
   value?: string | string[];
-  options?: { value: string; label: string }[];
+  options?: EntityOption[];
+  /** Explicit entity metadata selects the search-first picker; ordinary enum fields stay native. */
+  entity?: EntityKind;
+  loading?: boolean;
+  placeholder?: string;
   hint?: string;
   min?: number;
   max?: number;
@@ -315,6 +320,13 @@ export function ActionForm({
           .map((field) => {
             const id = `${formId}-${field.name}`;
             const error = form.touched[field.name] && form.errors[field.name];
+            const entityPicker = !!field.entity || !!field.options?.some(option => option.user || option.block || option.scope);
+            const pickerProps = {
+              id, name: field.name, labelledBy: `${id}-label`, entity: field.entity, options: field.options ?? [],
+              invalid: !!error, describedBy: error ? `${id}-error` : undefined, required: isRequired(field, form.values),
+              disabled: form.isSubmitting || refreshing || disabled || externalBusy, loading: field.loading, placeholder: field.placeholder,
+              onBlur: () => { void form.setFieldTouched(field.name, true); },
+            };
             const props = {
               id,
               name: field.name,
@@ -328,12 +340,18 @@ export function ActionForm({
               <div className={s.field} key={field.name}>
                 <label
                   id={`${id}-label`}
-                  htmlFor={field.type === "multi" ? `${id}-search` : id}
+                  htmlFor={field.type === "multi" && !entityPicker ? `${id}-search` : id}
                 >
                   {field.label}
                   {isRequired(field, form.values) ? " *" : ""}
                 </label>
-                {field.type === "multi" ? (
+                {field.type === "multi" && entityPicker ? (
+                  <EntityPicker {...pickerProps} multiple value={(form.values[field.name] as string[] | undefined) ?? []}
+                    onChange={value => { void form.setFieldValue(field.name, value);setPendingRemoval([]);field.onSelectionChange?.(value); }} />
+                ) : field.type === "select" && entityPicker ? (
+                  <EntityPicker {...pickerProps} value={String(form.values[field.name] ?? initialValues[field.name] ?? "")}
+                    onChange={value => { void form.setFieldValue(field.name, value);field.onSelectionChange?.([value]); }} />
+                ) : field.type === "multi" ? (
                   <RecipientPicker
                     id={id}
                     name={field.name}

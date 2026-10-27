@@ -38,6 +38,13 @@ async function click(container: ParentNode, label: string) {
   const b = Array.from(container.querySelectorAll("button")).find(b => b.textContent === label);
   expect(b, label).toBeDefined(); await act(async () => b!.click()); await waitForPage(page!, taskActionsSettled);
 }
+async function pickerOptions(container: ParentNode, name: string) {
+  const input = container.querySelector<HTMLInputElement>(`[data-entity-picker][data-field-name="${name}"] [role="combobox"]`)!;
+  expect(input, `picker ${name}`).not.toBeNull();
+  await act(async () => { input.focus();input.click(); });
+  await until(() => !!input.getAttribute("aria-controls") && !!document.getElementById(input.getAttribute("aria-controls")!));
+  return document.getElementById(input.getAttribute("aria-controls")!)!;
+}
 async function save(editor: HTMLFormElement) {
   await submit(editor);
   await until(() => !!editor.textContent?.includes("Изменения сохранены") && !(editor.querySelector('button[type="submit"]') as HTMLButtonElement).disabled);
@@ -108,7 +115,9 @@ it("2.12 A-FE-1, A-FE-2: the chair's block description draft survives making the
   let block = (await membershipApi.blocks()).find(b => b.name === "Integration IT")!;
   block = await eventsApi.blockLeader(block.block_id, other.user_id, { expected_revision: block.revision });
   await mount(`/blocks/${block.block_id}`, "/blocks/:id", <BlockPage />, true);
-  await until(() => !!page!.container.querySelector('[name="url"]') && !!page!.container.querySelector(`[name="user"] option[value="${chair.user_id}"]`));
+  await until(() => !!page!.container.querySelector('[name="url"]') && !!page!.container.querySelector('[data-entity-picker][data-field-name="user"]'));
+  const masterOptions = await pickerOptions(page!.container, "user");
+  expect(masterOptions.querySelector(`[data-option-value="${chair.user_id}"]`)).not.toBeNull();
   const description = field(page!.container, "url").closest("form")!;
   await change(field(description, "body"), "ЧЕРНОВИК ОПИСАНИЯ БЛОКА");
   const fingerprint = accessFingerprint(session());
@@ -133,7 +142,9 @@ it("2.12 A-FE-2: a subevent's organizers and then its description save without a
   await mount(`/subevents/${sub.subevent_id}`, "/subevents/:id", <SubeventPage />);
   const organizers = () => forms().find(f => f.querySelector("label")?.textContent?.startsWith("Организаторы"))!;
   const description = () => forms().find(f => (f.querySelector('[name="title"]') as HTMLInputElement | null)?.value === sub.title)!;
-  await until(() => !!organizers()?.querySelector(`input[name="users"][value="${org.user_id}"]`) && !!description());
+  await until(() => !!organizers()?.querySelector('[data-entity-picker][data-field-name="users"]') && !!description());
+  const organizerOptions = await pickerOptions(organizers(), "users");
+  expect(organizerOptions.querySelector(`[data-option-value="${org.user_id}"]`)).not.toBeNull();
   await change(field(description(), "description"), "Новое описание команды");
   await pick(organizers(), "users", String(org.user_id));
   await save(organizers());
@@ -294,18 +305,20 @@ it("2.12 A-ROL-13: the chair adds a second deputy by a click and confirms a remo
   const deputies = async () => (await sessionApi.leadership()).deputies.map(p => p.user_id).sort();
   try {
     await mount("/leadership", "/leadership", <LeadershipPage />);
-    const choice = () => page!.container.querySelector(`input[name="users"][value="${b.user_id}"]`)?.closest("form");
+    const choice = () => page!.container.querySelector('[data-entity-picker][data-field-name="users"]')?.closest("form");
     await until(() => !!choice());
+    const deputyOptions = await pickerOptions(choice()!, "users");
+    expect(deputyOptions.querySelector(`[data-option-value="${b.user_id}"]`)).not.toBeNull();
     await pick(choice()!, "users", String(b.user_id));
     await submit(choice()!);
-    await until(() => !!page!.container.querySelector<HTMLInputElement>(`input[name="users"][value="${b.user_id}"]:checked`));
+    await until(() => !!choice()?.querySelector(`[data-selected-value="${b.user_id}"]`));
     expect(await deputies()).toEqual([a.user_id, b.user_id].sort());
     await pick(choice()!, "users", String(a.user_id), false);
     await submit(choice()!);
     expect(choice()!.querySelector('[role="alert"]')?.textContent).toContain("Будут сняты: Тестовый deputy-a.");
     expect(await deputies()).toEqual([a.user_id, b.user_id].sort());
     await click(choice()!, "Снять и сохранить");
-    await until(() => !page!.container.querySelector<HTMLInputElement>(`input[name="users"][value="${a.user_id}"]:checked`) && !!choice());
+    await until(() => !choice()?.querySelector(`[data-selected-value="${a.user_id}"]`) && !!choice());
     expect(await deputies()).toEqual([b.user_id]);
   } finally {
     await liveLogin();

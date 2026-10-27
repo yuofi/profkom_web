@@ -115,7 +115,7 @@ function PgasAdmins() {
   const current = new Set(admins.data?.items.map((a) => a.user_id));
   const choices = people.data
     ?.filter((p) => !current.has(p.user_id))
-    .map((p) => ({ value: String(p.user_id), label: fullName(p) })) ?? [];
+    .map((p) => ({ value: String(p.user_id), label: fullName(p), user: { user_id: p.user_id, display_name: fullName(p), avatar_url: p.photo_url ?? null } })) ?? [];
   return (
     <Page
       title="Администраторы ПГАС"
@@ -138,7 +138,7 @@ function PgasAdmins() {
           <Card title="Выдать право">
             <ActionForm
               resetOnSuccess
-              fields={[{ name: "user", label: "Участник", type: "select", required: true, options: choices }]}
+              fields={[{ name: "user", label: "Участник", type: "select", entity: "person", required: true, options: choices }]}
               submitLabel="Выдать право"
               onSubmit={async (v) => {
                 await perform(() => adminApi.setPgasAdmin(number(v, "user"), true));
@@ -159,7 +159,7 @@ function TemporaryPasswords() {
   const leaders = new Set([leadership.data?.chair.user_id, ...(leadership.data?.deputies.map((d) => d.user_id) ?? [])]);
   const choices = people.data
     ?.filter((p) => !leaders.has(p.user_id))
-    .map((p) => ({ value: String(p.user_id), label: fullName(p) })) ?? [];
+    .map((p) => ({ value: String(p.user_id), label: fullName(p), user: { user_id: p.user_id, display_name: fullName(p), avatar_url: p.photo_url ?? null } })) ?? [];
   const person = issued && people.data?.find((p) => p.user_id === issued.user_id);
   return (
     <Page
@@ -172,7 +172,7 @@ function TemporaryPasswords() {
             <p>Прежний пароль перестанет действовать, а открытые сессии участника завершатся.</p>
             <ActionForm
               resetOnSuccess
-              fields={[{ name: "user", label: "Участник", type: "select", required: true, options: choices }]}
+              fields={[{ name: "user", label: "Участник", type: "select", entity: "person", required: true, options: choices }]}
               submitLabel="Выдать временный пароль"
               onSubmit={async (v) => {
                 setIssued(null);

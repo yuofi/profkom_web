@@ -273,6 +273,7 @@ export function BulkHoursPanel({ task }: { task: Task }) {
               .map((a) => ({
                 value: a.assignment_id,
                 label: a.assignee.display_name,
+                user: a.assignee,
               })),
           },
           {

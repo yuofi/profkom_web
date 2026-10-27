@@ -1,3 +1,4 @@
+import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams, useSearchParams } from "react-router-dom";
@@ -84,9 +85,10 @@ function TaskContent({ task, assignmentId, returnSeason }: { task: Task; assignm
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list, enabled: hasAccounting });
   const seasonClosed = seasons.data?.items.find(season => season.season_id === task.season_id)?.state === "closed";
   return <>
-    <header className={s.header}>
+    <BrandedHeader className={s.header}>
+      <p className={`${w.eyebrow} ${s.brandLabel}`}>Профком ВМК · Трекер</p>
       <div className={s.breadcrumbs} aria-label="Путь задачи"><Link to={task.queue ? getTaskQueueRoute(task.queue.queue_id) : getTaskQueuesRoute()}>{task.queue?.name ?? "Очереди задач"}</Link><span>›</span>{task.parent_task && <><Link to={getTaskRoute(task.parent_task.task_id)}>{task.parent_task.task_key} · {task.parent_task.title}</Link><span>›</span></>}<span>{task.task_key ?? "Задача"}</span></div>
-      <div className={s.titleRow}><h1>{task.title}</h1><div className={s.headerTools}>
+      <div className={s.titleRow}><h1 className={w.title}>{task.title}</h1><div className={s.headerTools}>
         <button type="button" className={s.iconButton} aria-label="Скопировать ссылку на задачу" title="Скопировать ссылку" onClick={async () => {
           try { await navigator.clipboard.writeText(new URL(getTaskRoute(task.task_id), window.location.origin).href);setCopied("Ссылка скопирована"); }
           catch { setCopied("Не удалось скопировать ссылку"); }
@@ -94,10 +96,10 @@ function TaskContent({ task, assignmentId, returnSeason }: { task: Task; assignm
         <DeferredButton icon="workspace_premium" label="Добавить в избранное" />
       </div></div>
       <div className={s.metadata}><span className={s.taskKey}>{task.task_key ?? "Задача"}</span><span>Создана: {task.created_at ? displayDate(task.created_at) : "дата не указана"}</span><span>Обновлена: {task.updated_at ? displayDate(task.updated_at) : "дата не зафиксирована"}</span></div>
-      {copied && <p className={w.muted} role="status">{copied}</p>}
+      {copied && <p className={`${w.muted} ${s.headerNotice}`} role="status">{copied}</p>}
       {returnSeason && <Link className={s.backLink} to={getSeasonRoute(returnSeason)}>← К закрытию сезона</Link>}
       <TaskStatusMenu task={task} variant="actions" />
-    </header>
+    </BrandedHeader>
     <div className={s.workspace}>
       <div className={s.main}>
         {reviewNotes.length > 0 && <section className={s.reviewNote} aria-label="Комментарий руководителя"><h2>Комментарий руководителя</h2>{reviewNotes.map(note => <MarkdownContent key={note} body={note} />)}</section>}

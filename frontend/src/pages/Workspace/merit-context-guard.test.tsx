@@ -22,6 +22,12 @@ async function click(container: HTMLElement, text: string) {
   await act(async () => button.click()); await settle();
 }
 const select = (container: HTMLElement, label: string) => [...container.querySelectorAll("label")].find((item) => item.textContent?.trim().startsWith(label))!.querySelector<HTMLSelectElement>("select")!;
+async function availableScopes(container: HTMLElement) {
+  const input = container.querySelector<HTMLInputElement>('[data-entity-picker][data-field-name="scope"] [role="combobox"]')!;
+  await act(async () => { input.focus();input.click(); });
+  const list = document.getElementById(input.getAttribute("aria-controls")!)!;
+  return [...list.querySelectorAll<HTMLElement>("[data-option-value]")].map(option => option.dataset.optionValue!).filter(Boolean);
+}
 
 it.each(["source", "scope"])("changing merit %s requires confirmation and preserves fields on stay or failed save", async (kind) => {
   const fixture = createFixtures("chair");
@@ -35,13 +41,13 @@ it.each(["source", "scope"])("changing merit %s requires confirmation and preser
   cleanup = async () => { await act(async () => root.unmount()); router.dispose(); client.clear(); container.remove(); mock.restore(); };
   await act(async () => root.render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>));
   await waitForPage({ client, container });
-  const scopes = [...select(container, "Область работы").options].filter((item) => item.value);
+  const scopes = await availableScopes(container);
   expect(scopes.length).toBeGreaterThan(1);
-  await change(select(container, "Область работы"), scopes[0].value);
+  await change(field(container, "scope"), scopes[0]);
   await change(field(container, "title"), "Сохранить введённое название");
-  const contextSelect = () => select(container, kind === "source" ? "Вид записи" : "Область работы");
+  const contextSelect = () => kind === "source" ? select(container, "Вид записи") : field(container, "scope");
   const previous = contextSelect().value;
-  const next = kind === "source" ? [...contextSelect().options].find((item) => item.value && item.value !== previous)!.value : scopes[1].value;
+  const next = kind === "source" ? [...select(container, "Вид записи").options].find((item) => item.value && item.value !== previous)!.value : scopes[1];
   await change(contextSelect(), next);
   expect(container.querySelector("dialog")).not.toBeNull();
   await click(container, "Остаться");

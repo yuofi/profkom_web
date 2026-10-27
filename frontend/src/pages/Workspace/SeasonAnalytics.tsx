@@ -1,3 +1,4 @@
+import { EntityPicker } from "../../components/Workspace/EntityPicker";
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { seasonsApi } from "../../utils/api/seasons.api";
@@ -16,7 +17,7 @@ export function SeasonAnalytics({ seasonId }: { seasonId: string }) {
   const [participant, setParticipant] = useState(""), [block, setBlock] = useState("");
   const [mode, setMode] = useState<"weeks" | "seasons">("weeks"), [metric, setMetric] = useState<Metric>("completed_tasks");
   const query = useQuery({ queryKey: analyticsKey(seasonId, participant, block), queryFn: () => seasonsApi.analytics(seasonId, analyticsParams(participant, block)) });
-  return <section className={u.stack} aria-label="Аналитика сезона"><div className={u.toolbar}><label>Участник<select aria-label="Участник" value={participant} onChange={e => setParticipant(e.target.value)}><option value="">Все участники</option>{query.data?.participants.map(person => <option key={person.participant_id} value={person.participant_id}>{person.user.display_name}</option>)}</select></label><label>Блок-источник<select aria-label="Блок-источник" value={block} onChange={e => setBlock(e.target.value)}><option value="">Все источники</option>{query.data?.blocks.map(item => <option key={item.block_id} value={item.block_id}>{item.name}</option>)}</select></label></div>
+  return <section className={u.stack} aria-label="Аналитика сезона"><div className={u.toolbar}><div><EntityPicker name="participant" entity="person" label="Участник" value={participant} onChange={setParticipant} placeholder="Все участники" options={[{ value: "", label: "Все участники" }, ...(query.data?.participants.map(person => ({ value: person.participant_id, label: person.user.display_name, user: person.user })) ?? [])]} /></div><div><EntityPicker name="block" entity="block" label="Блок-источник" value={block} onChange={setBlock} placeholder="Все источники" options={[{ value: "", label: "Все источники" }, ...(query.data?.blocks.map(item => ({ value: item.block_id, label: item.name, block: item })) ?? [])]} /></div></div>
     <QueryState loading={query.isLoading} error={query.error} retry={() => void query.refetch()}>{query.data && <AnalyticsContent data={query.data} mode={mode} setMode={setMode} metric={metric} setMetric={setMetric} />}</QueryState>
   </section>;
 }

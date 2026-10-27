@@ -88,6 +88,11 @@ export async function change(
   element: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement,
   value: string,
 ) {
+  const picker = element.closest<HTMLElement>("[data-entity-picker]");
+  if (picker && element instanceof HTMLInputElement && element.type === "hidden") {
+    await selectEntity(picker, value);
+    return;
+  }
   await act(async () => {
     const prototype =
       element instanceof HTMLSelectElement
@@ -114,8 +119,21 @@ export async function submit(form: HTMLFormElement) {
   });
   await settle();
 }
-/** Ticks or unticks one person of a multiple choice (RecipientPicker). */
+/** Selects through the visible combobox and listbox, including a portalled popup. */
+async function selectEntity(picker: HTMLElement, value: string, checked?: boolean) {
+  const input = picker.querySelector<HTMLInputElement>('[role="combobox"]');
+  if (!input) throw Error("Missing entity combobox");
+  await act(async () => { input.focus();input.click(); });
+  const listId = input.getAttribute("aria-controls");
+  const list = listId ? document.getElementById(listId) : null;
+  const option = Array.from(list?.querySelectorAll<HTMLElement>("[data-option-value]") ?? []).find(item => item.dataset.optionValue === value);
+  if (!option) throw Error(`Missing entity choice ${value}`);
+  if (checked === undefined || (option.getAttribute("aria-selected") === "true") !== checked) await act(async () => option.click());
+}
+/** Ticks or unticks one person through the actual selection UI. */
 export async function pick(container: ParentNode, name: string, value: string, checked = true) {
+  const picker = Array.from(container.querySelectorAll<HTMLElement>("[data-entity-picker]")).find(node => node.dataset.fieldName === name);
+  if (picker) { await selectEntity(picker, value, checked);return; }
   const box = container.querySelector<HTMLInputElement>(`input[type="checkbox"][name="${name}"][value="${value}"]`);
   if (!box) throw Error(`Missing choice ${value} of ${name}`);
   if (box.checked !== checked) await act(async () => box.click());

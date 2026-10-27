@@ -8,7 +8,7 @@ import { guidesApi } from "../../../utils/api/guides.api";
 import { blocksApi } from "../../../utils/api/blocks.api";
 import styles from "./BlocksManagement.module.css";
 import { FormTextField } from "../../../components/Form/FormTextFiled";
-import { FormAutocompleteField } from "../../../components/Form/FormAutocompleteField";
+import { EntityPicker, type EntityOption } from "../../../components/Workspace/EntityPicker";
 import { useForm } from "../../../components/Form/Form";
 import { getDocEditRoute, getDocRoute } from "../../../utils/routes";
 import { useMe } from "../../../utils/me";
@@ -54,10 +54,10 @@ export const GuidesManagement = () => {
 
   // Options for selecting owner block in modal for superusers
   const superUserBlockOptions = useMemo(() => {
-    const list = [{ label: "Глобальный (для всех)", value: "none" }];
+    const list: EntityOption[] = [{ label: "Глобальный (для всех)", value: "none" }];
     if (blocks) {
       blocks.forEach(b => {
-        list.push({ label: b.name, value: b.name });
+        list.push({ label: b.name, value: b.name, block: { block_id: b.block_id, name: b.name } });
       });
     }
     return list;
@@ -65,12 +65,13 @@ export const GuidesManagement = () => {
 
   // Options for selecting owner block in modal for masters (can toggle between global and their block)
   const masterBlockOptions = useMemo(() => {
-    const list = [{ label: "Глобальный (для всех)", value: "none" }];
+    const list: EntityOption[] = [{ label: "Глобальный (для всех)", value: "none" }];
     userMasterBlocks.forEach(bName => {
-      list.push({ label: `Только для блока ${bName}`, value: bName });
+      const block = blocks?.find(item => item.name === bName);
+      list.push({ label: `Только для блока ${bName}`, value: bName, ...(block ? { block: { block_id: block.block_id, name: block.name } } : {}) });
     });
     return list;
-  }, [userMasterBlocks]);
+  }, [userMasterBlocks, blocks]);
 
   // Check if current user has permission to edit/delete a given guide
   const canManageGuide = (guide: GuideOut) => {
@@ -261,19 +262,14 @@ export const GuidesManagement = () => {
             <option value="block">По блоку</option>
           </select>
         </label>
-        <label className={s.field}>
-          Блок
-          <select
-            value={blockFilter || ""}
-            onChange={(e) => setBlockFilter(e.target.value || null)}
-          >
-            <option value="">Все блоки</option>
-            <option value="none">Глобальные (для всех)</option>
-            {uniqueBlocksInGuides.map(b => (
-              <option key={b} value={b}>{b}</option>
-            ))}
-          </select>
-        </label>
+        <div className={s.field}>
+          <EntityPicker id={`${scope}-block-filter`} label="Блок" entity="block"
+            value={blockFilter || ""} onChange={value => setBlockFilter(value || null)}
+            options={[{ value: "", label: "Все блоки" }, { value: "none", label: "Глобальные (для всех)" }, ...uniqueBlocksInGuides.map(name => {
+              const block = blocks?.find(item => item.name === name);
+              return { value: name, label: name, ...(block ? { block: { block_id: block.block_id, name } } : {}) };
+            })]} />
+        </div>
         <div className={s.row}>
           <button
             className={s.button}
@@ -457,12 +453,21 @@ export const GuidesManagement = () => {
                     color="secondary"
                   />
 
-                  <FormAutocompleteField
-                    name="owner_block"
-                    label="Видимость / Блок гайда"
-                    options={me?.super_user ? superUserBlockOptions : masterBlockOptions}
-                    disabled={isSaving}
-                  />
+                  <div className={s.field}>
+                    <EntityPicker
+                      id={`${scope}-owner-block`}
+                      name="owner_block"
+                      label="Видимость / Блок гайда"
+                      entity="block"
+                      value={formik.values.owner_block ?? "none"}
+                      onChange={value => { void formik.setFieldValue("owner_block", value); }}
+                      onBlur={() => { void formik.setFieldTouched("owner_block", true); }}
+                      options={me?.super_user ? superUserBlockOptions : masterBlockOptions}
+                      disabled={isSaving}
+                      invalid={!!(formik.touched.owner_block && formik.errors.owner_block)}
+                    />
+                    {formik.touched.owner_block && formik.errors.owner_block && <span className={s.fieldError}>{String(formik.errors.owner_block)}</span>}
+                  </div>
 
                   {globalError && (
                     <p role="alert" className={s.fieldError}>

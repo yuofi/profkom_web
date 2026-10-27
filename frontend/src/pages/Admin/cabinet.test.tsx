@@ -33,6 +33,18 @@ async function clickButton(text: string) {
   if (!button) throw Error(`Missing button: ${text}`);
   await act(async () => button.click()); await settle();
 }
+async function openPeople(container: ParentNode) {
+  const input = container.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  await act(async () => input.focus()); await settle();
+  return input;
+}
+async function choosePerson(container: ParentNode, value: string) {
+  await openPeople(container);
+  const option = document.querySelector<HTMLElement>(`[role="option"][data-option-value="${value}"]`)!;
+  expect(option).not.toBeNull();
+  expect(option.querySelector("img")).not.toBeNull();
+  await act(async () => option.click()); await settle();
+}
 
 it("АВ-34: the cabinet opens on the registrations and shows the chair every tab", async () => {
   page = await cabinet("chair", "/admin");
@@ -75,7 +87,7 @@ it("decision 14: the chair gives the PGAS right and takes it back", async () => 
   await settle(); await settle();
   expect(page.container.textContent).toContain("Иван Петров");
   const give = Array.from(page.container.querySelectorAll("form")).find((f) => f.textContent?.includes("Выдать право"))!;
-  await change(field(give, "user"), "103");
+  await choosePerson(give, "103");
   await submit(give);
   expect(JSON.parse(mock!.adapter.history.put.at(-1)!.data)).toEqual({ pgas_admin: true });
   expect(mock!.adapter.history.put.at(-1)!.url).toMatch(/\/users\/103\/pgas-admin$/);
@@ -87,10 +99,11 @@ it("АВ-52: a temporary password is shown once, and not for the chair or deputi
   page = await cabinet("chair", "/admin/passwords");
   await settle(); await settle();
   const form = page.container.querySelector("form")!;
-  const choices = Array.from(field(form, "user").querySelectorAll("option")).map((o) => o.value);
+  await openPeople(form);
+  const choices = Array.from(document.querySelectorAll('[role="option"]')).map(o => o.getAttribute("data-option-value"));
   expect(choices).not.toContain("104");
   expect(choices).not.toContain("105");
-  await change(field(form, "user"), "101");
+  await choosePerson(form, "101");
   await submit(form);
   expect(page.container.textContent).toContain("Временный пароль: synthetic-temporary");
   expect(page.container.textContent).toContain("Почта для входа: member101@example.com");

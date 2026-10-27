@@ -1,10 +1,11 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { AttachmentPicker } from "../../components/Workspace/Attachments";
 import { MarkdownEditor } from "../../components/Workspace/MarkdownEditor";
-import { UserChip } from "../../components/Workspace/UserChip";
+import { EntityPicker } from "../../components/Workspace/EntityPicker";
 import { Empty, QueryState } from "../../components/Workspace/WorkspaceUI";
 import { useScopeMembers } from "../../components/Workspace/ScopeMembers";
 import { authApi } from "../../utils/api/auth.api";
@@ -59,7 +60,7 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId }: {
   const external = { queueId, title, body, deadline, season, assignees, watch, parentId, files };
   const [initial] = useState(external);
   return <>
-    <header className={s.header}><nav aria-label="Путь новой задачи"><Link to={returnRoute}>{queue?.name ?? "Очереди"}</Link><span>›</span><span>Новая задача</span></nav><div><h1>Новая задача</h1><Link className={w.button} to={returnRoute}>Отмена</Link></div></header>
+    <BrandedHeader className={s.header}><p className={`${w.eyebrow} ${s.brandLabel}`}>Профком ВМК · Трекер</p><nav aria-label="Путь новой задачи"><Link to={returnRoute}>{queue?.name ?? "Очереди"}</Link><span>›</span><span>Новая задача</span></nav><div className={s.titleRow}><h1 className={w.title}>Новая задача</h1><Link className={w.button} to={returnRoute}>Отмена</Link></div></BrandedHeader>
     <ActionForm fields={[]} submitLabel="Создать задачу" externalState={external} savedExternalState={initial} externalBusy={uploading || saving || queue?.scope?.kind === "subevent" && context.isFetching}
       disabled={!queue || saving} allowExitSave={false}
       onSubmit={async () => {
@@ -96,9 +97,8 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId }: {
 }
 function ScopedAssignees({ scope, value, onChange, disabled }: { scope: ScopeRef; value: string[]; onChange: (value: string[]) => void; disabled: boolean }) {
   const members = useScopeMembers(scope);
-  return <QueryState loading={members.loading} error={members.error}><PeopleChoices people={members.options.map(person => ({ user_id: Number(person.value), display_name: person.label, avatar_url: null }))} value={value} onChange={onChange} name="users" disabled={disabled} /></QueryState>;
+  return <QueryState loading={members.loading} error={members.error}><PeopleChoices people={members.options.map(person => person.user ?? ({ user_id: Number(person.value), display_name: person.label, avatar_url: null }))} value={value} onChange={onChange} name="users" disabled={disabled} /></QueryState>;
 }
 function PeopleChoices({ people, value, onChange, name, disabled }: { people: UserRef[]; value: string[]; onChange: (value: string[]) => void; name: string; disabled: boolean }) {
-  const id = useId();
-  return <div className={s.peopleChoices}>{people.map(person => <div key={person.user_id} className={s.personChoice}><input id={`${id}-${person.user_id}`} type="checkbox" name={name} value={String(person.user_id)} checked={value.includes(String(person.user_id))} disabled={disabled} aria-label={`${name === "users" ? "Назначить" : "Добавить наблюдателя"}: ${person.display_name}`} onChange={event => onChange(event.target.checked ? [...value, String(person.user_id)] : value.filter(item => item !== String(person.user_id)))} /><UserChip user={person} /></div>)}{!people.length && <span className={w.muted}>Нет доступных участников</span>}</div>;
+  return <div className={s.peopleChoices}><EntityPicker multiple name={name} label={name === "users" ? "Выбрать исполнителей" : "Выбрать наблюдателей"} value={value} onChange={onChange} options={people.map(person => ({ value: String(person.user_id), label: person.display_name, user: person }))} disabled={disabled} placeholder="Введите имя" emptyMessage="Нет доступных участников" /></div>;
 }

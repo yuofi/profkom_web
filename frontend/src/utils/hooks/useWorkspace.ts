@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { directoryApi } from '../api/directory.api';
 import { invalidateWorkspace } from '../api/invalidation';
+import type { EntityOption } from '../../components/Workspace/EntityPicker';
 export function useWorkspaceActions() {
   const client = useQueryClient();
   const refresh = () => invalidateWorkspace(client);
@@ -9,5 +10,9 @@ export function useWorkspaceActions() {
 }
 export function usePeopleOptions() {
   const query = useQuery({ queryKey: ['contacts'], queryFn: directoryApi.contacts });
-  return { ...query, options: query.data?.filter(p => p.in_profcom).map(p => ({ value: String(p.user_id), label: `${p.surname} ${p.name}` })) ?? [] };
+  const options: EntityOption[] = query.data?.filter(p => p.in_profcom).map(p => {
+    const label = `${p.surname} ${p.name}`;
+    return { value: String(p.user_id), label, user: { user_id: p.user_id, display_name: label, avatar_url: p.photo_url ?? null } };
+  }) ?? [];
+  return { ...query, options };
 }

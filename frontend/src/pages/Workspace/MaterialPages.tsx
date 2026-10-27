@@ -133,7 +133,7 @@ export function MaterialsPage() {
                         name: "block",
                         label: "Блок — для гайда",
                         type: "select" as const,
-                        options: guideBlocks.map((b) => ({ value: b.block_id, label: b.name })),
+                        options: guideBlocks.map((b) => ({ value: b.block_id, label: b.name, block: b })),
                       },
                     ]
                   : []),

@@ -1,3 +1,4 @@
+import { EntityPicker, type EntityOption } from "../../components/Workspace/EntityPicker";
 import { useState, type ComponentProps } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useSearchParams } from "react-router-dom";
@@ -135,10 +136,10 @@ function MeritEditor({
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list, enabled: !existing });
   const season = seasons.data?.items.find((x) => x.season_id === seasonId);
   const allowedKinds = allowedMeritKinds(session, contexts.data, season);
-  const [selectedPeople, setSelectedPeople] = useState<{ value: string; label: string }[]>(() =>
+  const [selectedPeople, setSelectedPeople] = useState<EntityOption[]>(() =>
     (existing?.recipients ?? []).map((r) => {
       const person = people.data?.find((p) => p.user_id === r.user_id);
-      return { value: String(r.user_id), label: person ? `${person.surname} ${person.name}` : `Участник #${r.user_id} · сохранённый получатель` };
+      return { value: String(r.user_id), label: person ? `${person.surname} ${person.name}` : `Участник #${r.user_id} · сохранённый получатель`, user: { user_id: r.user_id, display_name: person ? `${person.surname} ${person.name}` : `Участник #${r.user_id}`, avatar_url: person?.photo_url ?? null } };
     }),
   );
   const recipientOptions = [...people.options,
@@ -152,6 +153,7 @@ function MeritEditor({
         label: person
           ? `${person.surname} ${person.name}`
           : `Участник #${recipient.user_id} · сохранённый получатель`,
+        user: { user_id: recipient.user_id, display_name: person ? `${person.surname} ${person.name}` : `Участник #${recipient.user_id}`, avatar_url: person?.photo_url ?? null },
       });
     }
   }
@@ -162,15 +164,15 @@ function MeritEditor({
   const [scopeId, setScopeId] = useState(
     existing?.scope?.id ?? existing?.event_id ?? initialScopeId ?? "",
   );
-  const scopeOptions =
+  const scopeOptions: EntityOption[] | undefined =
     source === "block_volunteer"
       ? contexts.data?.blocks
           .filter((x) => can(x, "create_volunteer_merit"))
-          .map((x) => ({ value: x.block_id, label: x.name }))
+          .map((x) => ({ value: x.block_id, label: x.name, block: x }))
       : source === "subevent_volunteer"
         ? contexts.data?.subs
             .filter((x) => contexts.data?.events.some((e) => e.event_id === x.event_id && e.season_id === seasonId) && can(x, "create_volunteer_merit"))
-            .map((x) => ({ value: x.subevent_id, label: x.title }))
+            .map((x) => ({ value: x.subevent_id, label: x.title, scope: { kind: "subevent", name: x.title } }))
         : contexts.data?.events
             .filter((x) => x.season_id === seasonId && can(x, "create_head_merit"))
             .map((x) => ({ value: x.event_id, label: x.title }));
@@ -332,27 +334,12 @@ function MeritEditor({
           </select>
         </label>
         {source !== "chair_merit" && (
-          <label className={s.field}>
-            Область работы
-            <select
-              disabled={!!existing}
-              value={scopeId}
-              onChange={(e) => {
-                const next = e.target.value;
-                requestContextChange(() => { setScopeId(next); setSelectedPeople([]); });
-              }}
-            >
-              <option value="">Выберите…</option>
-              {(existing
-                ? [{ value: scopeId, label: savedScope ?? (contexts.isLoading ? "Загрузка названия…" : "Сохранённая область") }]
-                : scopeOptions
-              )?.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <EntityPicker name="scope" label="Область работы" disabled={!!existing} value={scopeId} placeholder="Выберите область"
+            onChange={next => requestContextChange(() => { setScopeId(next); setSelectedPeople([]); })}
+            options={existing
+              ? [{ value: scopeId, label: savedScope ?? (contexts.isLoading ? "Загрузка названия…" : "Сохранённая область"), ...(source === "block_volunteer" ? { block: { block_id: scopeId, name: savedScope ?? "Сохранённый блок" } } : {}) }]
+              : [{ value: "", label: "Не выбрана" }, ...(scopeOptions ?? [])]}
+          />
         )}
         <p className={s.muted}>
           {source.endsWith("_volunteer") ? (

@@ -36,9 +36,13 @@ it("creates a queue from catalog metadata with its creator as owner and assigns 
   await act(async () => [...page!.container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Создать очередь")!.click());await waitForPage(page, () => !!page!.container.querySelector("dialog form"));
   const creation = page.container.querySelector("dialog")!;
   const form = creation.querySelector("form")!;
-  const scopeSelect = form.querySelector<HTMLSelectElement>('select[name="scope"]')!;
-  const option = [...scopeSelect.options].find(item => item.textContent === team.title)!;expect(option).toBeDefined();
-  await change(scopeSelect, option.value);await waitForPage(page);expect(form.querySelector('[name="owner"]')).toBeNull();
+  const scopeInput = form.querySelector<HTMLInputElement>('[data-entity-picker][data-field-name="scope"] [role="combobox"]')!;
+  await act(async () => { scopeInput.focus();scopeInput.click(); });await waitForPage(page);
+  const scopeValue = JSON.stringify(["subevent", team.subevent_id]);
+  const options = document.getElementById(scopeInput.getAttribute("aria-controls")!)!;
+  const option = [...options.querySelectorAll<HTMLElement>("[data-option-value]")].find(item => item.dataset.optionValue === scopeValue)!;
+  expect(option).toBeDefined();expect(option.textContent).toContain(team.title);
+  await change(field(form, "scope"), scopeValue);await waitForPage(page);expect(form.querySelector('[name="owner"]')).toBeNull();
   const name = `Очередь через UI ${crypto.randomUUID()}`;
   await change(field(form, "name"), name);await change(field(form, "key"), "BAD1");
   await submit(form);await waitForPage(page);

@@ -1,6 +1,8 @@
+import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
 import { useState, type MouseEvent, type KeyboardEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams, useNavigate } from "react-router-dom";
+import type { EntityOption } from "../../components/Workspace/EntityPicker";
 import { UserChip } from "../../components/Workspace/UserChip";
 import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
 import { directoryApi } from "../../utils/api/directory.api";
@@ -33,7 +35,7 @@ export function TaskQueuesPage() {
   const keyboard = (event: KeyboardEvent<HTMLTableRowElement>, queue: TaskQueue) => { if (event.target === event.currentTarget && ["Enter", " "].includes(event.key)) { event.preventDefault();navigate(getTaskQueueRoute(queue.queue_id)); } };
   const items = (catalog.data?.items ?? []).filter(queue => (!access || queue.access === access) && `${queue.name} ${queue.key}`.toLocaleLowerCase().includes(search.toLocaleLowerCase().trim()));
   return <section className={s.page}>
-    <header className={s.header}><div><p className={s.eyebrow}>Профком ВМК · Трекер</p><h1>Очереди</h1><p>Общие и закрытые очереди задач.</p></div><div className={s.headerActions}><RouteLink to="/tasks">Все задачи</RouteLink>{session?.account_state === "active" && <button className={`${w.button} ${w.primary}`} onClick={() => setCreating(true)}>Создать очередь</button>}</div></header>
+    <BrandedHeader className={s.header}><div><p className={w.eyebrow}>Профком ВМК · Трекер</p><h1 className={w.title}>Очереди</h1><p className={w.description}>Общие и закрытые очереди задач.</p></div><div className={s.headerActions}><RouteLink to="/tasks">Все задачи</RouteLink>{session?.account_state === "active" && <button className={`${w.button} ${w.primary}`} onClick={() => setCreating(true)}>Создать очередь</button>}</div></BrandedHeader>
     <div className={s.filters}><label className={w.field}>Поиск очередей<input type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Название или ключ" /></label><label className={w.field}>Доступ<select value={access} onChange={e => setAccess(e.target.value)}><option value="">Все очереди</option><option value="granted">Доступные мне</option><option value="locked">Закрытые для меня</option></select></label></div>
     <QueryState loading={catalog.isLoading} error={catalog.error} keepDataOnError={!!catalog.data} retry={() => void catalog.refetch()}>
       <div className={s.tableWrap}><table className={s.table} aria-label="Список очередей"><thead><tr><th scope="col">Имя очереди</th><th scope="col">Ключ очереди</th><th scope="col">Владелец очереди</th></tr></thead><tbody>{items.map(queue => <tr key={queue.queue_id} tabIndex={0} onClick={event => open(event, queue)} onAuxClick={event => open(event, queue)} onKeyDown={event => keyboard(event, queue)} aria-label={`Открыть очередь ${queue.name}`}>
@@ -54,7 +56,7 @@ export function TaskQueuePage() {
 }
 function LockIcon() { return <svg aria-hidden="true" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="5" y="10" width="14" height="11" rx="2" /><path d="M8 10V6a4 4 0 0 1 8 0v4" /><path d="M12 14v3" /></svg>; }
 function QueueHeader({ queue }: { queue: TaskQueue }) {
-  return <><header className={s.header}><div><nav className={s.breadcrumbs} aria-label="Навигация очереди"><Link to={getTaskQueuesRoute()}>Очереди</Link><span aria-hidden="true">›</span><span>{queue.name}</span></nav><h1>{queue.name}</h1><p><span className={s.key}>{queue.key}</span> · {queue.is_private ? "Закрытая очередь" : queue.scope ? "Для участников команды" : "Для всех активных пользователей"}</p>{queue.owner && <Owner user={queue.owner} />}</div><RouteLink to="/tasks">Все задачи</RouteLink></header>{can(queue, "manage_queue") && <details className={s.manage}><summary>Настройки очереди и доступ</summary><div className={s.manageBody}><QueueEditor queue={queue} /><QueueRequests queue={queue} /></div></details>}</>;
+  return <><BrandedHeader className={s.header}><div><p className={w.eyebrow}>Профком ВМК · Трекер</p><nav className={s.breadcrumbs} aria-label="Навигация очереди"><Link to={getTaskQueuesRoute()}>Очереди</Link><span aria-hidden="true">›</span><span>{queue.name}</span></nav><h1 className={w.title}>{queue.name}</h1><p><span className={s.key}>{queue.key}</span> · {queue.is_private ? "Закрытая очередь" : queue.scope ? "Для участников команды" : "Для всех активных пользователей"}</p>{queue.owner && <Owner user={queue.owner} />}</div><RouteLink to="/tasks">Все задачи</RouteLink></BrandedHeader>{can(queue, "manage_queue") && <details className={s.manage}><summary>Настройки очереди и доступ</summary><div className={s.manageBody}><QueueEditor queue={queue} /><QueueRequests queue={queue} /></div></details>}</>;
 }
 function Owner({ user }: { user: UserRef }) {
   return <div className={s.owner}><small>Владелец очереди</small><UserChip user={user} /></div>;
@@ -65,7 +67,7 @@ function QueueCreateForm({ catalog }: { catalog: TaskQueueCatalog }) {
   return <><p className={w.muted}>Вы станете владельцем очереди. Команду можно не выбирать.</p><ActionForm fields={[
     { name: "name", label: "Название очереди", required: true },
     { name: "key", label: "Ключ очереди", required: true, hint: "От1 до32 заглавных английских букв A–Z. Ключ после создания не меняется." },
-    { name: "scope", label: "Команда очереди", type: "select", value: "none", onSelectionChange: values => setScopeChoice(values[0] ?? "none"), options: [{ value: "none", label: "Без команды" }, ...scopes.map(scope => ({ value: JSON.stringify([scope.kind, scope.id]), label: scope.title }))] },
+    { name: "scope", label: "Команда очереди", type: "select", entity: "scope", value: "none", onSelectionChange: values => setScopeChoice(values[0] ?? "none"), options: [{ value: "none", label: "Без команды" }, ...scopes.map(scope => ({ value: JSON.stringify([scope.kind, scope.id]), label: scope.title, scope: { kind: scope.kind, name: scope.title } }))] },
     { name: "visibility", label: "Доступ к очереди", type: "select", required: true, value: "public", options: [{ value: "public", label: scopeChoice === "none" ? "Все активные пользователи" : "Участники команды" }, { value: "private", label: "По одобрению владельца" }] },
   ]} submitLabel="Создать очередь" resetOnSuccess allowExitSave={false} onSubmit={async values => {
     const key = text(values, "key");if (!/^[A-Z]{1,32}$/.test(key)) throw Error("Ключ должен содержать только заглавные английские буквы A–Z, не более32");
@@ -82,15 +84,15 @@ function ScopedQueueEditor({ queue, scope }: { queue: TaskQueue; scope: ScopeRef
 }
 function IndependentQueueEditor({ queue }: { queue: TaskQueue }) {
   const people = useQuery({ queryKey: ["contacts"], queryFn: directoryApi.contacts });
-  return <QueryState loading={people.isLoading} error={people.error}><QueueEditForm queue={queue} people={people.data?.map(person => ({ value: String(person.user_id), label: [person.surname, person.name].join(" ") })) ?? []} /></QueryState>;
+  return <QueryState loading={people.isLoading} error={people.error}><QueueEditForm queue={queue} people={people.data?.map(person => ({ value: String(person.user_id), label: [person.surname, person.name, person.patronymic].filter(Boolean).join(" "), user: { user_id: person.user_id, display_name: [person.surname, person.name, person.patronymic].filter(Boolean).join(" "), avatar_url: person.photo_url ?? null } })) ?? []} /></QueryState>;
 }
-function QueueEditForm({ queue, people }: { queue: TaskQueue; people: { value: string; label: string }[] }) {
+function QueueEditForm({ queue, people }: { queue: TaskQueue; people: EntityOption[] }) {
   const { perform, refresh } = useWorkspaceActions();
   const options = [...people];
-  if (queue.owner?.user_id !== null && queue.owner?.user_id !== undefined && !options.some(p => p.value === String(queue.owner!.user_id))) options.unshift({ value: String(queue.owner.user_id), label: queue.owner.display_name });
+  if (queue.owner?.user_id !== null && queue.owner?.user_id !== undefined && !options.some(p => p.value === String(queue.owner!.user_id))) options.unshift({ value: String(queue.owner.user_id), label: queue.owner.display_name, user: queue.owner });
   return <ActionForm title="Параметры очереди" fields={[
     { name: "name", label: "Название очереди", value: queue.name, required: true },
-    { name: "owner", label: "Владелец очереди", type: "select", value: String(queue.owner?.user_id ?? ""), required: true, options },
+    { name: "owner", label: "Владелец очереди", type: "select", entity: "person", value: String(queue.owner?.user_id ?? ""), required: true, options },
     { name: "visibility", label: "Доступ к очереди", type: "select", required: true, value: queue.is_private ? "private" : "scope", options: [{ value: "scope", label: queue.scope ? "Участники команды" : "Все активные пользователи" }, { value: "private", label: "По одобрению владельца" }] },
   ]} revision={queue.revision!} record={`task-queue:${queue.queue_id}`} onConflict={refresh} submitLabel="Сохранить очередь" onSubmit={async (values, expectedRevision) => {
     const saved = await perform(() => taskQueuesApi.update(queue.queue_id, { expected_revision: expectedRevision!, name: text(values, "name").trim(), owner_user_id: number(values, "owner"), is_private: text(values, "visibility") === "private" }));

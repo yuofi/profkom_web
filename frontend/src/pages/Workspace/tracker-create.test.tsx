@@ -13,7 +13,7 @@ let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let mock: ReturnType<typeof installMockTransport> | undefined;
 afterEach(async () => { await page?.cleanup();page = undefined;mock?.restore();mock = undefined;vi.restoreAllMocks(); });
 async function chooseParent(title: string) {
-  const input = page!.container.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  const input = page!.container.querySelector<HTMLInputElement>('[role="combobox"][name="parent_task"]')!;
   await act(async () => input.focus());await change(input, title);await waitForPage(page!, () => !!page!.container.querySelector('[role="option"]'));
   const option = [...page!.container.querySelectorAll<HTMLElement>('[role="option"]')].find(node => node.textContent?.includes(title))!;
   expect(option).toBeDefined();await act(async () => option.click());await waitForPage(page!);
@@ -33,7 +33,7 @@ it("keeps typed Markdown when selecting another queue and has one searchable par
   mock = installMockTransport("chair", { delay: 0 });mock.state.queues.push({ ...mock.state.queues[0], queue_id: "extra", name: "Другая очередь", key: "EXTRA" });
   page = await mountWorkspace(<TaskCreateForm queueId={mock.state.queues[0].queue_id} />);await waitForPage(page, () => !!page!.container.querySelector("form"));
   const form = page.container.querySelector("form")!;await change(field(form, "description"), "Черновик $x^2$\n\n| A | B |\n| - | - |");await change(field(form, "queue"), "extra");await waitForPage(page);
-  expect(field(form, "description").value).toContain("Черновик $x^2$");expect(page.container.querySelectorAll('[role="combobox"]')).toHaveLength(1);expect(page.container.textContent).not.toContain("Поиск родительской задачи");
+  expect(field(form, "description").value).toContain("Черновик $x^2$");expect(page.container.querySelectorAll('[role="combobox"][name="parent_task"]')).toHaveLength(1);expect(page.container.textContent).not.toContain("Поиск родительской задачи");
 });
 it("binds an unbound attachment and a parent from another queue when creating", async () => {
   mock = installMockTransport("chair", { delay: 0 });mock.state.queues.push({ ...mock.state.queues[0], queue_id: "extra", name: "Подготовка", key: "PREP" });

@@ -3,7 +3,7 @@ import { act } from "react";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { liveLogin, liveParticipant } from "../../test/liveApi";
-import { mountWorkspace, change, field, submit, waitForPage } from "../../test/workspace";
+import { mountWorkspace, change, field, pick, submit, waitForPage } from "../../test/workspace";
 import { eventsApi } from "../../utils/api/events.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { tasksApi } from "../../utils/api/tasks.api";
@@ -41,7 +41,7 @@ it("creates an unassigned independent task with real draft bytes, manages its pu
   page = await mountWorkspace(<Routes><Route path="/tasks/new" element={<TrackerTaskCreatePage />} /><Route path="/tasks/:id" element={<TrackerTaskPage />} /></Routes>, { path: `/tasks/new?queue_id=${queue.queue_id}`, session });await waitForPage(page, () => !!page!.container.querySelector("form"));
   const form = page.container.querySelector("form")!;expect(field(form, "title").value).toBe("");expect(field(form, "description").value).toBe("");expect(form.querySelector('[name="hours"]')).toBeNull();
   await change(field(form, "title"), "Свободная задача из полного редактора");await change(field(form, "description"), "- [ ] Проверить файл\n\n$E=mc^2$");await change(field(form, "deadline"), "2026-10-29T18:00");
-  const watch = form.querySelector<HTMLInputElement>('input[name="watchers"]')!;await act(async () => watch.click());
+  await pick(form, "watchers", String(worker.user_id));
   const fileInput = form.querySelector<HTMLInputElement>('input[type="file"]')!, blob = new File(["Synthetic unassigned draft"], "unassigned-plan.txt", { type: "text/plain" });
   await act(async () => { Object.defineProperty(fileInput, "files", { configurable: true, value: [blob] });fileInput.dispatchEvent(new Event("change", { bubbles: true })); });
   await waitForPage(page, () => !!form.textContent?.includes("unassigned-plan.txt") && !form.textContent?.includes("Загрузка файла:"));expect(form.querySelector('[role="alert"]')).toBeNull();

@@ -173,6 +173,7 @@ export function LeadershipPage() {
       .map((p) => ({
         value: String(p.user_id),
         label: `${p.surname} ${p.name}`,
+        user: { user_id: p.user_id, display_name: `${p.surname} ${p.name}`, avatar_url: p.photo_url ?? null },
       })) ?? [];
   const requireEligible = (userIds: number[]) => {
     if (userIds.some((id) => !choices.some((p) => Number(p.value) === id)))
@@ -204,6 +205,7 @@ export function LeadershipPage() {
                   name: "user",
                   label: "Новый председатель",
                   type: "select",
+                  entity: "person",
                   options: choices,
                   required: true,
                 },
@@ -232,6 +234,7 @@ export function LeadershipPage() {
                   name: "users",
                   label: "До трёх заместителей",
                   type: "multi",
+                  entity: "person",
                   value: current.deputies.map((p) => String(p.user_id)),
                   options: choices,
                 },

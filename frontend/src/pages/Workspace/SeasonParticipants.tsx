@@ -1,3 +1,4 @@
+import { EntityPicker } from "../../components/Workspace/EntityPicker";
 import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
@@ -25,7 +26,7 @@ export function SeasonParticipants({ summary, renderDecisions }: { summary: Seas
       setExportError("");try { const blob = await seasonsApi.export(summary.season_id);const url = URL.createObjectURL(blob);const link = document.createElement("a");link.href = url;link.download = `kkr-${summary.season_id}.xlsx`;link.click();setTimeout(() => URL.revokeObjectURL(url), 1000); } catch (error) { setExportError(userMessage(error)); }
     }}>Скачать XLSX</button></div>
     {exportError && <p role="alert" className={w.error}>{exportError}</p>}
-    <div className={u.toolbar}><label>Поиск по имени или группе<input type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Имя или группа" /></label><label>Блок<select aria-label="Блок" value={block} onChange={e => setBlock(e.target.value)}><option value="">Все блоки</option>{blocks.map(item => <option key={item.block_id} value={item.block_id}>{item.name}</option>)}</select></label><label>Порядок<select aria-label="Порядок" value={sort} onChange={e => setSort(e.target.value)}><option value="rank">По месту в сводной</option><option value="score-asc">ККР по возрастанию</option><option value="name">По имени</option></select></label></div>
+    <div className={u.toolbar}><label>Поиск по имени или группе<input type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Имя или группа" /></label><div><EntityPicker label="Блок" value={block} onChange={setBlock} placeholder="Все блоки" options={[{ value: "", label: "Все блоки" }, ...blocks.map(item => ({ value: item.block_id, label: item.name, block: item }))]} /></div><label>Порядок<select aria-label="Порядок" value={sort} onChange={e => setSort(e.target.value)}><option value="rank">По месту в сводной</option><option value="score-asc">ККР по возрастанию</option><option value="name">По имени</option></select></label></div>
     <SummaryTable summary={summary} rows={rows} filter={search} renderDecisions={renderDecisions} onParticipantSelect={setPerson} />
     <p className={u.note}>Оценённые назначения включают работу с нулевой и отрицательной оценкой. Это количество личных расчётных записей, а не число выполненных задач.</p>
     {person && <UnsavedChangesScope><TrackerTaskDialog title="Начисления участника" onClose={() => setPerson(null)}><ParticipantWork seasonId={summary.season_id} person={person} /></TrackerTaskDialog></UnsavedChangesScope>}

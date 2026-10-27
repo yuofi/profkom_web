@@ -83,7 +83,7 @@ it("A02: adapter errors and FastAPI field errors use the same normalizer", async
 });
 
 async function fillMerit(container: HTMLElement, userId: number) {
-  await act(async () => container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+  await pick(container, "users", String(userId));
   for (const [name, value] of Object.entries({ title: "Помощь", body: "Выполненная работа", assigned: "2026-10-01T13:00", deadline: "2026-10-10T13:00", reason: "Подтверждено руководителем", [`hours_${userId}`]: "4", [`evaluation_${userId}`]: "0" })) await change(field(container, name), value);
   await submit(container.querySelector("form")!);
 }
@@ -102,7 +102,7 @@ it("A04: a master without summary access finds and submits the scoped volunteer 
   expect(page.container.textContent).not.toContain("Сводная ККР");
   await act(async () => page!.container.querySelector<HTMLAnchorElement>('a[href*="/seasons/season-1/merits"]')!.click());
   await settle(); await settle();
-  expect(page.container.querySelectorAll("select")[1].value).toBe(block.block_id);
+  expect(field(page.container, "scope").value).toBe(block.block_id);
   await fillMerit(page.container, mock.state.people[0].user_id!);
   expect(mock.state.merits).toHaveLength(1);
   expect(mock.state.merits[0]).toMatchObject({ source_kind: "block_volunteer", season_id: "season-1", scope: { kind: "block", id: block.block_id } });
@@ -120,7 +120,7 @@ it("A04: an event head with only object permission can submit head merit", async
   await act(async () => Array.from(page!.container.querySelectorAll("a")).find((a) => a.textContent === "Учесть особую заслугу")!.click());
   await settle(); await settle();
   expect(page.container.querySelectorAll("select")[0].value).toBe("head_merit");
-  expect(page.container.querySelectorAll("select")[1].value).toBe("event-1");
+  expect(field(page.container, "scope").value).toBe("event-1");
   await fillMerit(page.container, mock.state.people[0].user_id!);
   expect(mock.state.merits[0]).toMatchObject({ source_kind: "head_merit", season_id: "season-1", event_id: "event-1" });
   expect(mock.adapter.history.get.some((r) => /summary|assessments|master-bonuses/.test(r.url ?? ""))).toBe(false);
@@ -148,14 +148,19 @@ it("A08: leadership excludes pending candidates, preserves valid candidates outs
   client.setQueryData(["leadership"], { chair: f.user, deputies: [], revision: 1, capabilities: ["transfer_chair", "manage_chair_deputies"] });
   client.setQueryData(["contacts"], [{ ...f.profile, user_id: 998, blocks: "", in_profcom: true }, { ...f.profile, user_id: 999, in_profcom: false }]);
   page = await mountWorkspace(<LeadershipPage />, { client });
-  expect(page.container.querySelector('option[value="999"], input[value="999"]')).toBeNull();
-  expect(page.container.querySelector('input[type="checkbox"][value="998"]')).not.toBeNull();
+  const deputyPicker = page.container.querySelector<HTMLElement>('[data-entity-picker][data-field-name="users"]')!;
+  const deputySearch = deputyPicker.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  await act(async () => { deputySearch.focus();deputySearch.click(); });
+  const candidates = document.getElementById(deputySearch.getAttribute("aria-controls")!)!;
+  expect(candidates.querySelector('[data-option-value="999"]')).toBeNull();
+  expect(candidates.querySelector('[data-option-value="998"]')).not.toBeNull();
+  expect(page.container.querySelector('input[value="999"]')).toBeNull();
   await pick(page.container, "users", "998");
   await submit(field(page.container, "users").closest("form")!);
   expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("Участник не найден.");
   expect(page.container.querySelector('[role="alert"]')?.textContent).not.toContain("Unknown user");
   expect(JSON.parse(adapter.history.put[0].data).user_ids).toEqual([998]);
-  expect((field(page.container, "users") as HTMLInputElement).checked).toBe(true);
+  expect(deputyPicker.querySelector('[data-selected-value="998"]')).not.toBeNull();
   await change(field(page.container, "user"), "998");
   await act(async () => client.setQueryData(["contacts"], [{ ...f.profile, user_id: 998, in_profcom: false }]));
   await settle();

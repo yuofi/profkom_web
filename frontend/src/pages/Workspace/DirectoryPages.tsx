@@ -1,3 +1,4 @@
+import { EntityPicker } from "../../components/Workspace/EntityPicker";
 import { useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import {
@@ -170,15 +171,7 @@ export function DirectoryPage() {
             Фильтры{[block, category, funding, course].filter(Boolean).length > 0 && ` · ${[block, category, funding, course].filter(Boolean).length}`}
           </summary>
           <div className={s.filters}>
-            <label className={s.field}>
-              Блок
-              <select value={block} onChange={(e) => setBlock(e.target.value)}>
-                <option value="">Все блоки</option>
-                {blocks.map((b) => (
-                  <option key={b}>{b}</option>
-                ))}
-              </select>
-            </label>
+            <EntityPicker label="Блок" value={block} onChange={setBlock} placeholder="Все блоки" options={[{ value: "", label: "Все блоки" }, ...blocks.map(name => ({ value: name, label: name, block: { name } }))]} />
             <label className={s.field}>
               Категория
               <select
@@ -443,8 +436,9 @@ function RestoreForm({ account }: { account: ArchivedAccount }) {
           {
             value: String(c.current_master.user_id),
             label: c.current_master.display_name,
+            user: c.current_master,
           },
-          { value: String(account.user_id), label: account.display_name },
+          { value: String(account.user_id), label: account.display_name, user: { user_id: account.user_id, display_name: account.display_name, avatar_url: null } },
         ],
       }))}
       submitLabel="Восстановить аккаунт"
