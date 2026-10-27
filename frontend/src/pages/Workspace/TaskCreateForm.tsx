@@ -1,3 +1,6 @@
+import { TaskPlanningFields } from "./TrackerTaskPlanning";
+import { planningDraft, planningPayload, checklistPayload, type ChecklistDraft } from "./trackerStage2Drafts";
+import { ChecklistDraftFields } from "./TrackerTaskChecklist";
 import { TrackerHomeLink } from "../../components/Workspace/TrackerHomeLink";
 import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
 import { useEffect, useRef, useState } from "react";
@@ -45,6 +48,7 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId }: {
   const [queueId, setQueueId] = useState(initialQueueId), [title, setTitle] = useState(""), [body, setBody] = useState("");
   const [deadline, setDeadline] = useState(""), [season, setSeason] = useState(() => seasons.find(item => item.state === "open")?.season_id ?? seasons.find(item => item.state === "planned")?.season_id ?? "");
   const [assignees, setAssignees] = useState<string[]>([]), [watch, setWatch] = useState(false), [parentId, setParentId] = useState(parentTaskId ?? "");
+  const [planning,setPlanning] = useState(() => planningDraft()), [checklist,setChecklist] = useState<ChecklistDraft[]>([]);
   const [files, setFiles] = useState<FileRef[]>([]), [uploading, setUploading] = useState(false), [saving, setSaving] = useState(false), [attempted, setAttempted] = useState(false);
   const queue = queues.find(item => item.queue_id === queueId);
   const previousSeason = useRef("");
@@ -58,7 +62,7 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId }: {
   const selfAssigned = !!session && assignees.includes(String(session.user_id));
   const chooseAssignees = (value: string[]) => { setAssignees(value);if (session && value.includes(String(session.user_id))) setWatch(false); };
   const returnRoute = queue ? getTaskQueueRoute(queue.queue_id) : getTaskQueuesRoute();
-  const external = { queueId, title, body, deadline, season, assignees, watch, parentId, files };
+  const external = { queueId, title, body, deadline, season, assignees, watch, parentId, files, planning, checklist: checklistPayload(checklist) };
   const [initial] = useState(external);
   return <>
     <BrandedHeader className={s.header}><TrackerHomeLink className={s.brandLabel} /><nav aria-label="Путь новой задачи"><Link to={returnRoute}>{queue?.name ?? "Очереди"}</Link><span>›</span><span>Новая задача</span></nav><div className={s.titleRow}><h1 className={w.title}>Новая задача</h1><Link className={w.button} to={returnRoute}>Отмена</Link></div></BrandedHeader>
@@ -69,22 +73,26 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId }: {
         if (!queue) throw Error("Выберите доступную очередь");
         if (!title.trim()) throw Error("Введите название задачи");
         if (!deadline) throw Error("Укажите дедлайн");
-        const deadlineAt = toUtc(deadline);
+        const deadlineAt = toUtc(deadline), planned = planningPayload(planning);
+        if (planned.starts_at && Date.parse(planned.starts_at) > Date.parse(deadlineAt)) throw Error("Плановое начало не может быть позже дедлайна");
+        if (checklist.some(item => !item.text.trim())) throw Error("Заполните каждый пункт чеклиста");
         const selectedSeason = seasons.find(item => item.season_id === seasonId);
         if (!selectedSeason || !["open", "planned"].includes(selectedSeason.state)) throw Error("Выберите открытый или запланированный сезон");
         if (!session) throw Error("Войдите в аккаунт");
         setSaving(true);
         try {
-          const created = await perform(() => tasksApi.create({ queue_id: queue.queue_id, season_id: seasonId, title: title.trim(), description: richText(body), deadline_at: deadlineAt, criteria: emptyCriteria(), assignees: assignees.map(user => ({ user_id: Number(user), hours: 0 })), watcher_user_ids: watch ? [session.user_id] : [], parent_task_id: parentId || null, file_ids: files.map(file => file.file_id) }));
+          const created = await perform(() => tasksApi.create({ queue_id: queue.queue_id, season_id: seasonId, title: title.trim(), description: richText(body), deadline_at: deadlineAt, ...planned, checklist: checklistPayload(checklist), criteria: emptyCriteria(), assignees: assignees.map(user => ({ user_id: Number(user), hours: 0 })), watcher_user_ids: watch ? [session.user_id] : [], parent_task_id: parentId || null, file_ids: files.map(file => file.file_id) }));
           navigate(getTaskRoute(created.task_id));
         } finally { setSaving(false); }
       }}>
       <div className={s.workspace}>
         <section className={s.main} aria-label="Описание новой задачи"><label className={`${w.field} ${s.title}`}>Название задачи<input name="title" value={title} onChange={event => setTitle(event.target.value)} placeholder="Название задачи" required aria-invalid={attempted && !title.trim()} disabled={saving} /></label>
           <MarkdownEditor value={body} onChange={setBody} name="description" label="Описание задачи" rows={16} context="task" disabled={saving} draft={false} />
+          <section className={s.files}><h2>Чеклист</h2><ChecklistDraftFields items={checklist} onChange={setChecklist} disabled={saving} /></section>
           <section className={s.files}><h2>Вложения</h2><fieldset className={s.pickerFields} disabled={saving}><AttachmentPicker owner_kind="task" purpose="attachment" files={files} onChange={setFiles} onBusyChange={setUploading} /></fieldset></section>
         </section>
         <aside className={s.parameters} aria-label="Параметры новой задачи"><h2>Параметры</h2>
+          <TaskPlanningFields value={planning} onChange={setPlanning} disabled={saving} deadline={deadline ? toUtc(deadline) : undefined} />
           <label className={`${w.field} ${s.field}`}>Очередь<select name="queue" value={queueId} disabled={saving} onChange={event => { setQueueId(event.target.value);setAssignees([]); }}>{queues.map(item => <option key={item.queue_id} value={item.queue_id}>{item.key} · {item.name}</option>)}</select></label>
           {queue?.scope?.kind === "subevent" ? <div className={s.field}><span>Сезон</span><span>{context.isLoading ? "Загрузка…" : seasons.find(item => item.season_id === seasonId)?.title ?? "Не определён"}</span>{context.error && <QueryState loading={false} error={context.error}>{null}</QueryState>}</div> : <label className={`${w.field} ${s.field}`}>Сезон<select name="season" value={season} onChange={event => setSeason(event.target.value)} disabled={saving} required>{seasons.filter(item => ["open", "planned"].includes(item.state)).map(item => <option key={item.season_id} value={item.season_id}>{item.title}</option>)}</select></label>}
           <label className={`${w.field} ${s.field}`}>Дедлайн, МСК<input name="deadline" type="datetime-local" value={deadline} onChange={event => setDeadline(event.target.value)} required aria-invalid={attempted && !deadline} disabled={saving} /></label>

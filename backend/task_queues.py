@@ -138,8 +138,10 @@ def projection(session, queue, uid):
         owner=_user_to_ref_dc(session.get(UserORM,queue.owner_user_id)) if queue.owner_user_id else None
         if 'assign_task_others' in caps:
             result['assignable_users']=[asdict(_user_to_ref_dc(u)) for u in session.query(UserORM) if active(session,u.user_id) and can_read(session,queue,u.user_id) and db.is_member_or_leader_in_scope(u.user_id,queue.scope_kind,queue.scope_id)]
+        from queue_ownership import owner_available
         result.update(scope=None if queue.scope_kind=="queue" else scope_out(ScopeRef(kind=queue.scope_kind,id=queue.scope_id)),
-            owner=asdict(owner) if owner else None,is_private=queue.is_private,revision=queue.revision,created_at=queue.created_at)
+            owner=asdict(owner) if owner else None,owner_unavailable=not owner_available(session,queue),
+            is_private=queue.is_private,revision=queue.revision,created_at=queue.created_at)
     return result
 
 
@@ -214,10 +216,17 @@ def patch(queue_id,uid,expected_revision,**values):
         if 'name' in values:
             if not values['name'].strip():raise InvalidInput('Queue name is required')
             q.name=values['name'].strip()
+        previous_owner=q.owner_user_id
         if 'owner_user_id' in values:
             _validate_owner(session,values['owner_user_id'],q.scope_kind,q.scope_id);q.owner_user_id=values['owner_user_id']
         if 'is_private' in values:q.is_private=values['is_private']
-        q.revision+=1;session.commit()
+        q.revision+=1
+        if q.owner_user_id!=previous_owner:
+            from database import AuditLogORM
+            session.add(AuditLogORM(target_kind='task_queue',target_id=q.queue_id,changed_by_user_id=uid,
+                reason='Queue ownership transferred',old_values_json=json.dumps({'owner_user_id':previous_owner}),
+                new_values_json=json.dumps({'owner_user_id':q.owner_user_id,'automatic':False,'queue_revision':q.revision}),created_at=now()))
+        session.commit()
         return projection(session,q,uid)
 
 

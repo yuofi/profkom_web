@@ -352,7 +352,37 @@ class TaskTrackerORM(Base):
     parent_task_id = Column(String, ForeignKey("tasks.task_id"), nullable=True)
     roster_initialized = Column(Boolean, nullable=False, default=False)
     assessment_revision = Column(Integer, nullable=False, default=1)
+    task_type = Column(String, nullable=False, default="task", server_default="task")
+    priority = Column(String, nullable=False, default="normal", server_default="normal")
+    starts_at = Column(String, nullable=True)
     __table_args__ = (UniqueConstraint("queue_id", "queue_number", name="uq_task_queue_number"),)
+
+
+class TaskChecklistORM(Base):
+    __tablename__ = "task_checklist"
+    item_id = Column(String, primary_key=True)
+    task_id = Column(String, ForeignKey("tasks.task_id"), nullable=False, index=True)
+    text = Column(Text, nullable=False)
+    checked = Column(Boolean, nullable=False, default=False)
+    position = Column(Integer, nullable=False)
+
+
+class TaskLinkORM(Base):
+    __tablename__ = "task_links"
+    link_id = Column(String, primary_key=True)
+    source_task_id = Column(String, ForeignKey("tasks.task_id"), nullable=False, index=True)
+    target_task_id = Column(String, ForeignKey("tasks.task_id"), nullable=False, index=True)
+    kind = Column(String, nullable=False)  # related | blocks | epic | milestone (member -> group)
+    created_by_user_id = Column(Integer, nullable=False)
+    created_at = Column(String, nullable=False)
+    __table_args__ = (UniqueConstraint("source_task_id", "target_task_id", "kind", name="uq_task_link"),
+        Index("uq_task_epic_member", "source_task_id", unique=True, sqlite_where=text("kind = 'epic'")),)
+
+
+class TaskFavoriteORM(Base):
+    __tablename__ = "task_favorites"
+    task_id = Column(String, ForeignKey("tasks.task_id"), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.user_id"), primary_key=True)
 
 
 class TaskRosterORM(Base):
@@ -627,6 +657,20 @@ def _ensure_sqlite_block_avatar_column() -> None:
 
 
 _ensure_sqlite_block_avatar_column()
+
+
+def _ensure_sqlite_tracker_stage2_columns() -> None:
+    """Add planning defaults only; existing workflow/KKR/history rows stay untouched."""
+    with engine.begin() as conn:
+        names = {row[1] for row in conn.execute(text("PRAGMA table_info(task_tracker)"))}
+        for name, declaration in (("task_type", "VARCHAR NOT NULL DEFAULT 'task'"),
+                                  ("priority", "VARCHAR NOT NULL DEFAULT 'normal'"),
+                                  ("starts_at", "VARCHAR")):
+            if name not in names:
+                conn.execute(text(f"ALTER TABLE task_tracker ADD COLUMN {name} {declaration}"))
+
+
+_ensure_sqlite_tracker_stage2_columns()
 
 
 class SeasonNotReadyError(Conflict):
@@ -4706,6 +4750,7 @@ class Database:
         parent_task_id: Optional[str] = None,
         watcher_user_ids: Optional[list[int]] = None,
         file_ids: Optional[list[str]] = None,
+        planning: Optional[dict] = None,
     ) -> TaskPublicDC:
         with self._session() as session:
             season = session.get(SeasonORM, season_id)
@@ -4798,6 +4843,9 @@ class Database:
             meta.roster_initialized=True
             meta.files_json=json.dumps(file_ids)
             for fid in file_ids:session.get(FileRecordORM,fid).owner_id=task_id
+            if planning:
+                from tracker_stage2 import apply_fields
+                apply_fields(session, t, planning, created_by_user_id, initial=True)
 
             for a in assignees:
                 uid = a.get("user_id")
@@ -5573,6 +5621,8 @@ class Database:
                 raise InvalidInput("Reason is required")
 
             period(assigned_at or t.assigned_at,deadline_at or t.deadline_at,season.ends_at)
+            if meta.starts_at and dt(meta.starts_at)>dt(deadline_at or t.deadline_at):
+                raise InvalidInput("Planned start must not be later than the deadline")
             old_assigned = t.assigned_at
             old_deadline = t.deadline_at
             old_criteria = json.loads(t.criteria_json or "{}")
@@ -6434,3 +6484,7 @@ seed_observed_participation()
 from tracker import seed_existing as seed_task_tracker, install_activity_hooks
 seed_task_tracker()
 install_activity_hooks()
+
+from queue_ownership import install_hooks as install_queue_ownership_hooks, reconcile_existing as reconcile_queue_ownership
+install_queue_ownership_hooks()
+reconcile_queue_ownership()

@@ -1,3 +1,8 @@
+import { TrackerFavoriteButton } from "./TrackerFavoriteButton";
+import { TaskPlanningEditor } from "./TrackerTaskPlanning";
+import { TrackerTaskChecklist } from "./TrackerTaskChecklist";
+import { TrackerTaskRelations } from "./TrackerTaskRelations";
+import { taskTypeNames, taskPriorityNames } from "./trackerPlanning";
 import { TeamChip } from "../../components/Workspace/TeamChip";
 import { TrackerHomeLink } from "../../components/Workspace/TrackerHomeLink";
 import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
@@ -45,7 +50,7 @@ export function TrackerTaskPage() {
   </section>;
 }
 function TaskContent({ task, assignmentId, returnSeason }: { task: Task; assignmentId: string | null; returnSeason: string | null }) {
-  const [editor, setEditor] = useState<"description" | "files" | "parent" | null>(null);
+  const [editor, setEditor] = useState<"description" | "files" | "parent" | "planning" | null>(null);
   const [copied, setCopied] = useState("");
   const [checklistBusy, setChecklistBusy] = useState(false), [checklistError, setChecklistError] = useState("");
   const checklistSaving = useRef(false);
@@ -94,7 +99,7 @@ function TaskContent({ task, assignmentId, returnSeason }: { task: Task; assignm
           try { await navigator.clipboard.writeText(new URL(getTaskRoute(task.task_id), window.location.origin).href);setCopied("Ссылка скопирована"); }
           catch { setCopied("Не удалось скопировать ссылку"); }
         }}><Glyph name="share" /></button>
-        <DeferredButton icon="workspace_premium" label="Добавить в избранное" />
+        <TrackerFavoriteButton task={task} onBrand />
       </div></div>
       <div className={s.metadata}><span className={s.taskKey}>{task.task_key ?? "Задача"}</span><span>Создана: {task.created_at ? displayDate(task.created_at) : "дата не указана"}</span><span>Обновлена: {task.updated_at ? displayDate(task.updated_at) : "дата не зафиксирована"}</span></div>
       {copied && <p className={`${w.muted} ${s.headerNotice}`} role="status">{copied}</p>}
@@ -110,10 +115,11 @@ function TaskContent({ task, assignmentId, returnSeason }: { task: Task; assignm
           {task.description.body ? <MarkdownContent body={task.description.body} onChecklistChange={descriptionEditable ? body => { void updateChecklist(body); } : undefined} checklistDisabled={checklistBusy || editor === "description"} /> : <p className={w.muted}>Описание пока не добавлено.</p>}
           {checklistBusy && <p role="status" className={w.muted}>Сохраняем отметку…</p>}{checklistError && <p role="alert" className={w.error}>{checklistError} <button type="button" className={s.subtleButton} onClick={() => { void refresh(); }}>Обновить описание</button></p>}
           <div className={s.inlineActions}>{can(task, "attach_task_file") && <button type="button" className={s.subtleButton} onClick={() => setEditor("files")}><Glyph name="attach_file" />Прикрепить файлы</button>}
-            <DeferredButton icon="add" label="Связь с задачей" /></div>
+            <button type="button" className={s.subtleButton} onClick={() => document.getElementById("task-relations")?.scrollIntoView?.({block:"start",behavior:"smooth"})}><Glyph name="add" />Связь с задачей</button></div>
           {(task.attachments?.length ?? 0) > 0 && <div className={s.descriptionFiles}><Attachments files={task.attachments ?? []} /></div>}
         </section>
-        <section className={s.related} aria-label="Связанные задачи"><div className={s.sectionHeading}><h2>Связанные задачи</h2><DeferredButton icon="add" label="Добавить связь" /></div><div className={s.relatedRow}><span>Родительская задача</span><div className={s.parentValue}>{task.parent_task ? <Link to={getTaskRoute(task.parent_task.task_id)}>{task.parent_task.task_key} · {task.parent_task.title}</Link> : <span className={w.muted}>{task.parent_task_unavailable ? "Недоступна" : "Не выбрана"}</span>}{can(task, "edit_task") && <button type="button" className={s.subtleButton} onClick={() => setEditor("parent")}>Изменить родительскую задачу</button>}</div></div><div className={s.relatedRow}><span>Связи с другими задачами</span><span className={s.planned}>Запланировано</span></div></section>
+        <TrackerTaskChecklist task={task} />
+        <TrackerTaskRelations task={task} onEditParent={() => setEditor("parent")} />
         {assignmentId && !task.assignments.some(item => item.assignment_id === assignmentId) && <Empty>Назначение больше недоступно.</Empty>}
         {hasAccounting && <section ref={accountingRef} className={s.accounting} aria-label="Учёт работы и ККР">
           <div className={s.sectionHeading}><h2>Учёт работы и ККР</h2></div>
@@ -127,24 +133,20 @@ function TaskContent({ task, assignmentId, returnSeason }: { task: Task; assignm
       </div>
       <aside className={s.sidebar} aria-label="Параметры задачи"><details className={s.parameters} open={parametersOpen} onToggle={event => setParametersOpen(event.currentTarget.open)}><summary>Параметры</summary><dl>
         <div><dt>Статус</dt><dd><TaskStatusMenu task={task} /></dd></div>
-        <div><dt>Тип</dt><dd><DeferredValue label="Тип задачи" /></dd></div>
-        <div><dt>Приоритет</dt><dd><DeferredValue label="Приоритет задачи" /></dd></div>
+        <div><dt>Тип</dt><dd>{taskTypeNames[task.task_type ?? "task"]}{can(task,"edit_task_metadata") && <button type="button" className={s.deadlineEdit} onClick={() => setEditor("planning")}>Изменить параметры</button>}</dd></div>
+        <div><dt>Приоритет</dt><dd>{taskPriorityNames[task.priority ?? "normal"]}</dd></div>
+        {task.task_type !== "milestone" && <div><dt>Плановое начало, МСК</dt><dd>{displayDate(task.starts_at)}</dd></div>}
         <div><dt>Дедлайн, МСК</dt><dd><time dateTime={task.deadline_at} className={new Date(task.deadline_at).getTime() < now && !["accepted", "not_completed", "cancelled"].includes(taskStatus(task)) ? s.overdue : undefined}>{displayDate(task.deadline_at)}</time>{datesEditable && <button type="button" className={s.deadlineEdit} onClick={editDeadline}>Изменить дедлайн</button>}</dd></div>
         <div><dt>Очередь</dt><dd>{task.queue ? <Link to={getTaskQueueRoute(task.queue.queue_id)}>{task.queue.name}</Link> : <Link to={getTaskQueuesRoute()}>Открыть очереди</Link>}</dd></div>
         {task.scope.kind !== "queue" && <div><dt>Команда</dt><dd><TeamChip scope={task.scope} title={task.scope_title} avatarUrl={task.scope_avatar_url} /></dd></div>}
         <TaskSeasonParameter task={task} />
-        <div><dt>Цели</dt><dd><DeferredValue label="Цели задачи" /></dd></div>
         <div><dt>Автор</dt><dd>{task.created_by ? <PersonChip user={task.created_by} /> : <span className={w.muted}>Не указан</span>}</dd></div>
         <TaskPeopleParameters task={task} />
       </dl></details></aside>
     </div>
-    {editor && (editor === "description" ? descriptionEditable : editor === "parent" ? can(task, "edit_task") : can(task, "attach_task_file")) && <UnsavedChangesScope>{editor === "description" ? <DescriptionEditor task={task} onClose={() => setEditor(null)} /> : editor === "parent" ? <ParentTaskEditor task={task} onClose={() => setEditor(null)} /> : <TaskFilesEditor task={task} onClose={() => setEditor(null)} />}</UnsavedChangesScope>}
+    {editor && (editor === "description" ? descriptionEditable : editor === "parent" ? can(task, "edit_task") : editor === "planning" ? can(task,"edit_task_metadata") : can(task, "attach_task_file")) && <UnsavedChangesScope>{editor === "description" ? <DescriptionEditor task={task} onClose={() => setEditor(null)} /> : editor === "parent" ? <ParentTaskEditor task={task} onClose={() => setEditor(null)} /> : editor === "planning" ? <TaskPlanningEditor task={task} onClose={() => setEditor(null)} /> : <TaskFilesEditor task={task} onClose={() => setEditor(null)} />}</UnsavedChangesScope>}
   </>;
 }
-function DeferredButton({ label, icon }: { label: string; icon: "add" | "fact_check" | "workspace_premium" }) {
-  return <span className={s.deferred} title={`${label}: запланировано для следующего этапа`}><button type="button" className={s.subtleButton} disabled aria-label={`${label} — запланировано`}><Glyph name={icon} />{label}</button></span>;
-}
-function DeferredValue({ label }: { label: string }) { return <span className={s.planned} title={`${label}: запланировано для следующего этапа`}>Запланировано</span>; }
 
 function DescriptionEditor({ task, onClose }: { task: Task; onClose: () => void }) {
   const [body, setBody] = useState(task.description.body);const [busy, setBusy] = useState(false);const { perform, refresh } = useWorkspaceActions();

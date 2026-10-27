@@ -100,6 +100,13 @@ def correct(kind, id, revision, target_id, reason, uid):
                 child_season=target_id if meta.task_id in moving else child.season_id if child else None
                 parent_season=target_id if meta.parent_task_id in moving else parent.season_id if parent else None
                 if child_season!=parent_season:raise Conflict("Season correction must preserve task hierarchy")
+            from database import TaskLinkORM
+            for link in s.query(TaskLinkORM):
+                if link.source_task_id not in moving and link.target_task_id not in moving:continue
+                left=s.get(TaskORM,link.source_task_id);right=s.get(TaskORM,link.target_task_id)
+                left_season=target_id if link.source_task_id in moving else left.season_id if left else None
+                right_season=target_id if link.target_task_id in moving else right.season_id if right else None
+                if left_season!=right_season:raise Conflict("Season correction must preserve task relations")
             if obj.revision != revision:
                 raise revision_conflict()
             source_id = obj.season_id

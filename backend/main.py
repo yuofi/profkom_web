@@ -584,6 +584,12 @@ class TaskQueueDecisionIn(Command):
     expected_revision: int
 
 
+class TaskChecklistIn(Command):
+    item_id: Optional[str] = Field(default=None,max_length=100)
+    text: str = Field(min_length=1, max_length=1000)
+    checked: bool = False
+
+
 class TaskCreateIn(Command):
     queue_id: Optional[str] = None
     parent_task_id: Optional[str] = None
@@ -596,6 +602,10 @@ class TaskCreateIn(Command):
     assignees: list[TaskAssigneeIn] = []
     watcher_user_ids: list[int] = []
     file_ids: list[str] = []
+    task_type: Literal["task", "milestone", "epic"] = "task"
+    priority: Literal["low", "normal", "high", "urgent"] = "normal"
+    starts_at: Optional[str] = None
+    checklist: list[TaskChecklistIn] = Field(default_factory=list, max_length=200)
 
 
 class TaskRosterIn(Command):
@@ -615,6 +625,20 @@ class TaskPatchIn(Command):
     title: Optional[str] = None
     description: Optional[Union[RichTextSchema, str]] = None
     file_ids: Optional[list[str]] = None
+    task_type: Optional[Literal["task", "milestone", "epic"]] = None
+    priority: Optional[Literal["low", "normal", "high", "urgent"]] = None
+    starts_at: Optional[str] = None
+    checklist: Optional[list[TaskChecklistIn]] = Field(default=None, max_length=200)
+
+
+class TaskLinkIn(Command):
+    expected_revision: int
+    target_task_id: str = Field(min_length=1,max_length=100)
+    kind: Literal["related", "blocks", "blocked_by", "epic", "epic_member", "milestone", "milestone_member"]
+
+
+class TaskFavoriteIn(Command):
+    favorite: bool
 
 
 class FileRefOut(BaseModel):
@@ -714,6 +738,13 @@ class TaskPublicOut(BaseModel):
     updated_at: Optional[str] = None
     scope_title: str = ""
     scope_avatar_url: Optional[str] = None
+    task_type: str = "task"
+    priority: str = "normal"
+    starts_at: Optional[str] = None
+    is_favorite: bool = False
+    checklist: list[dict] = []
+    links: list[dict] = []
+    children: list[dict] = []
     attachments: list[FileRefOut] = []
     submissions: list[TaskSubmissionOut] = []
     legacy_status_conflict: bool = False
@@ -1969,6 +2000,8 @@ def _to_task_public_out(t) -> TaskPublicOut:
         task_key=t.task_key, status=t.status,
         created_by=_to_user_ref_out(t.created_by) if t.created_by else None,
         created_at=t.created_at, updated_at=t.updated_at, scope_title=t.scope_title, scope_avatar_url=t.scope_avatar_url,
+        task_type=t.task_type,priority=t.priority,starts_at=t.starts_at,is_favorite=t.is_favorite,
+        checklist=t.checklist,links=t.links,children=t.children,
         attachments=t.attachments, submissions=t.submissions,
         legacy_status_conflict=t.legacy_status_conflict,
         legacy_mixed_statuses=t.legacy_status_conflict,
@@ -2627,6 +2660,8 @@ def create_task(payload: TaskCreateIn, cur: User = Depends(get_current_user)):
         assignees=assignees,
         created_by_user_id=cur.user_id,queue_id=payload.queue_id,parent_task_id=payload.parent_task_id,
         watcher_user_ids=payload.watcher_user_ids,file_ids=payload.file_ids,
+        planning=dict(task_type=payload.task_type,priority=payload.priority,
+            starts_at=payload.starts_at,checklist=[item.model_dump() for item in payload.checklist]),
     )
     return _to_task_public_out(t)
 
@@ -2643,7 +2678,12 @@ def list_tasks(
     unfinished: bool = False,
     overdue: bool = False,
     assignee_user_id: Optional[int] = None,
-    sort: Literal["deadline", "updated", "created"] = "deadline",
+    task_type: Optional[Literal["task", "milestone", "epic"]] = None,
+    priority: Optional[Literal["low", "normal", "high", "urgent"]] = None,
+    favorite: bool = False,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    sort: Literal["deadline", "updated", "created", "priority", "starts"] = "deadline",
     order: Literal["asc", "desc"] = "asc",
     cursor: Optional[str] = None,
     limit: int = Query(20,ge=1,le=100),
@@ -2653,6 +2693,7 @@ def list_tasks(
     return task_page(cur.user_id, queue_id=queue_id,season_id=season_id, scope_kind=scope_kind,
         scope_id=scope_id, mine=mine, status=status, q=q, unfinished=unfinished,
         overdue=overdue, assignee_user_id=assignee_user_id, sort=sort, order=order,
+        task_type=task_type,priority=priority,favorite=favorite,date_from=date_from,date_to=date_to,
         cursor=cursor, limit=limit, converter=_to_task_public_out)
 
 
@@ -2666,18 +2707,30 @@ def get_task(task_id: str, cur: User = Depends(get_current_user)):
 
 @router.patch("/tasks/{task_id}", response_model=TaskPublicOut)
 def patch_task(task_id: str, payload: TaskPatchIn, cur: User = Depends(get_current_user)):
-    desc_body = _to_rich_text_body(payload.description) if payload.description is not None else None
-    t = db.patch_task(
-        task_id=task_id,
-        expected_revision=payload.expected_revision,
-        title=payload.title,
-        description=desc_body,
-        user_id=cur.user_id,parent_task_id=payload.parent_task_id,parent_supplied="parent_task_id" in payload.model_fields_set,
-    )
-    if payload.file_ids is not None:
-        from tracker import patch_files
-        t = patch_files(task_id, cur.user_id, t.revision, payload.file_ids, increment_revision=False)
+    from tracker_stage2 import patch
+    values=payload.model_dump(exclude_unset=True,exclude={"expected_revision"})
+    if "description" in values and payload.description is not None:
+        values["description"]=_to_rich_text_body(payload.description)
+    t=patch(task_id,cur.user_id,payload.expected_revision,values)
     return _to_task_public_out(t)
+
+
+@router.post("/tasks/{task_id}/links", response_model=TaskPublicOut)
+def add_task_link(task_id: str,payload: TaskLinkIn,cur: User = Depends(get_current_user)):
+    from tracker_stage2 import add_link
+    return _to_task_public_out(add_link(task_id,cur.user_id,payload.expected_revision,payload.target_task_id,payload.kind))
+
+
+@router.delete("/tasks/{task_id}/links/{link_id}", response_model=TaskPublicOut)
+def remove_task_link(task_id: str,link_id: str,payload: TaskRosterIn,cur: User = Depends(get_current_user)):
+    from tracker_stage2 import remove_link
+    return _to_task_public_out(remove_link(task_id,cur.user_id,payload.expected_revision,link_id))
+
+
+@router.post("/tasks/{task_id}/favorite", response_model=TaskPublicOut)
+def favorite_task(task_id: str,payload: TaskFavoriteIn,cur: User = Depends(get_current_user)):
+    from tracker_stage2 import set_favorite
+    return _to_task_public_out(set_favorite(task_id,cur.user_id,payload.favorite))
 
 
 @router.post("/tasks/{task_id}/take", response_model=TaskPublicOut)

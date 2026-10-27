@@ -203,6 +203,7 @@ export interface TaskQueue extends TaskQueueRef {
   is_private?: boolean;
   revision?: number;
   created_at?: string | null;
+  owner_unavailable?: boolean;
 }
 export interface TaskQueueCatalog extends Page<TaskQueue> {
   create_scopes?: (ScopeRef & { title: string })[];
@@ -233,7 +234,31 @@ export interface TaskHistoryEvent {
   from_status?: AssignmentStatus | null;
   to_status?: AssignmentStatus | null;
 }
+export type TaskType = "task" | "milestone" | "epic";
+export type TaskPriority = "low" | "normal" | "high" | "urgent";
+export interface TaskChecklistItem { item_id: string; text: string; checked: boolean }
+export interface TaskChecklistInput { item_id?: string; text: string; checked: boolean }
+export interface TrackerTaskRef {
+  task_id: string; task_key: string; title: string; status: AssignmentStatus;
+  deadline_at: string; starts_at: string | null; task_type: TaskType;
+}
+export type TaskLinkKind = "related" | "blocks" | "blocked_by" | "epic" | "epic_member" | "milestone" | "milestone_member";
+export interface TaskLink { link_id: string; kind: TaskLinkKind; task: TrackerTaskRef }
+export interface TaskPlanning {
+  task_type: TaskType; priority: TaskPriority; starts_at: string | null;
+}
+export interface TaskPublicPatch extends Partial<TaskPlanning> {
+  title?: string; description?: RichText; file_ids?: string[]; parent_task_id?: string | null;
+  checklist?: TaskChecklistInput[];
+}
 export interface Task extends Versioned {
+  task_type?: TaskType;
+  priority?: TaskPriority;
+  starts_at?: string | null;
+  is_favorite?: boolean;
+  checklist?: TaskChecklistItem[];
+  links?: TaskLink[];
+  children?: TrackerTaskRef[];
   task_id: string;
   season_id: string;
   scope: TaskScopeRef;
@@ -574,6 +599,10 @@ export interface ArchivedAccount {
   master_conflicts?: { block_id: string; current_master: UserRef }[];
 }
 export interface TaskCreate {
+  task_type?: TaskType;
+  priority?: TaskPriority;
+  starts_at?: string | null;
+  checklist?: TaskChecklistInput[];
   queue_id?: string;
   parent_task_id?: string | null;
   season_id: string;

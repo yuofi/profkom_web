@@ -535,3 +535,12 @@ INPUTS_CAPS = {"edit_assessment_inputs": "task.inputs.edit", "edit_assessment_da
 def inputs_caps(uid, kind, scope_id, season_id):
     """Capabilities of the assessment inputs of a task or an assignment."""
     return _caps(INPUTS_CAPS, uid, kind, scope_id, season_state(season_id))
+
+
+# main -> access -> database is a supported startup order. Database migrations
+# may defer ownership repair until every central ACL helper above is available.
+_QUEUE_OWNER_RECOVERY_READY = True
+import sys as _sys
+_finish_queue_recovery = getattr(_sys.modules.get("queue_ownership"), "finish_startup_recovery", None)
+if _finish_queue_recovery is not None:
+    _finish_queue_recovery()

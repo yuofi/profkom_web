@@ -264,6 +264,13 @@ class TaskPublic:
     updated_at: Optional[str] = None
     scope_title: str = ""
     scope_avatar_url: Optional[str] = None
+    task_type: str = "task"
+    priority: str = "normal"
+    starts_at: Optional[str] = None
+    is_favorite: bool = False
+    checklist: list[dict] = field(default_factory=list)
+    links: list[dict] = field(default_factory=list)
+    children: list[dict] = field(default_factory=list)
     attachments: list[FileRef] = field(default_factory=list)
     submissions: list = field(default_factory=list)
     legacy_status_conflict: bool = False

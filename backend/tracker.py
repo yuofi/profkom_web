@@ -262,7 +262,8 @@ def enrich_task(session,task,result,uid):
             if not member or member.role not in {"assignee","watcher"}:result.capabilities.append("watch_task")
             if member and member.role=="watcher":result.capabilities.append("unwatch_task")
             if participants(session,task.task_id):result.capabilities.append("remove_task_assignee")
-    return result
+    from tracker_stage2 import enrich
+    return enrich(session,task,result,uid)
 
 
 def can_edit_public(session,task,uid):
@@ -289,7 +290,7 @@ def can_edit_comment(session,comment,uid):
 
 def public_changes(session,event,uid):
     from task_queues import task_read,task_queue
-    allowed={"title","description","deadline_at","status","comment","attachments","parent_task_id","assignees","watchers","season_id"}
+    allowed={"title","description","deadline_at","status","comment","attachments","parent_task_id","assignees","watchers","season_id","task_type","priority","starts_at","checklist","links"}
     changes=[]
     for raw in json.loads(event.changes_json or "[]"):
         if raw.get("field") not in allowed:continue
@@ -316,6 +317,10 @@ def public_changes(session,event,uid):
             for side in ('before','after'):
                 season=session.get(SeasonORM,item.get(side)) if item.get(side) else None
                 if item.get(side):item[side]=season.title if season else 'Недоступный сезон'
+        if item['field']=='links':
+            from tracker_stage2 import public_link_change
+            for side in ('before','after'):
+                item[side]=public_link_change(session,item.get(side),uid)
         changes.append(item)
     return changes
 
@@ -469,7 +474,7 @@ def legacy_command(assignment_id,uid,expected_revision,status,*,required_source_
         return next(a for a in result.assignments if a.assignment_id==assignment_id)
 
 
-def task_page(uid,*,queue_id=None,season_id=None,scope_kind=None,scope_id=None,mine=False,status=None,q="",unfinished=False,overdue=False,assignee_user_id=None,sort="deadline",order="asc",cursor=None,limit=20,converter):
+def task_page(uid,*,queue_id=None,season_id=None,scope_kind=None,scope_id=None,mine=False,status=None,q="",unfinished=False,overdue=False,assignee_user_id=None,task_type=None,priority=None,favorite=False,date_from=None,date_to=None,sort="deadline",order="asc",cursor=None,limit=20,converter):
     from api_contract import cursor_page
     from membership import legacy_name,scope_out
     internal_scope=legacy_name(scope_id) if scope_kind=="block" and scope_id else scope_id
@@ -487,16 +492,29 @@ def task_page(uid,*,queue_id=None,season_id=None,scope_kind=None,scope_id=None,m
     if mine:rows=[t for t in rows if any(a.user_id==uid for a in t.assignees)]
     if assignee_user_id is not None:rows=[t for t in rows if any(a.user_id==assignee_user_id for a in t.assignees)]
     if status:rows=[t for t in rows if t.status==status]
+    if task_type:rows=[t for t in rows if t.task_type==task_type]
+    if priority:rows=[t for t in rows if t.priority==priority]
+    if favorite:rows=[t for t in rows if t.is_favorite]
+    from tracker_stage2 import _time,_moment,PRIORITY_ORDER
+    if date_from:date_from=_time(date_from)
+    if date_to:date_to=_time(date_to)
+    if date_from and date_to and _moment(date_from)>=_moment(date_to):raise InvalidInput("Date window must be increasing")
+    if date_from:rows=[t for t in rows if _moment(t.deadline_at)>=_moment(date_from)]
+    if date_to:rows=[t for t in rows if _moment(t.starts_at or t.deadline_at)<_moment(date_to)]
     if unfinished:rows=[t for t in rows if t.status in ACTIVE]
     if overdue:
         current=datetime.now(timezone.utc)
         rows=[t for t in rows if t.status in ACTIVE and datetime.fromisoformat(t.deadline_at.replace('Z','+00:00'))<current]
     needle=q.strip().casefold()
     if needle:rows=[t for t in rows if needle in t.title.casefold() or needle in t.task_key.casefold() or (t.legacy_task_key and needle in t.legacy_task_key.casefold())]
-    field={'deadline':'deadline_at','updated':'updated_at','created':'created_at'}[sort]
-    def key(item):return (getattr(item,field) or item.created_at or "",item.task_id)
+    field={'deadline':'deadline_at','updated':'updated_at','created':'created_at','priority':'priority','starts':'starts_at'}[sort]
+    def key(item):
+        if sort=='priority':value=str(PRIORITY_ORDER[item.priority])
+        elif sort=='starts':value=item.starts_at or item.deadline_at
+        else:value=getattr(item,field) or item.created_at or ""
+        return value,item.task_id
     import base64,hashlib,binascii
-    context=hashlib.sha256(json.dumps(dict(uid=uid,queue_id=queue_id,season_id=season_id,scope_kind=scope_kind,scope_id=internal_scope,mine=mine,status=status,q=needle,unfinished=unfinished,overdue=overdue,assignee_user_id=assignee_user_id,sort=sort,order=order,limit=limit),sort_keys=True).encode()).hexdigest()
+    context=hashlib.sha256(json.dumps(dict(uid=uid,queue_id=queue_id,season_id=season_id,scope_kind=scope_kind,scope_id=internal_scope,mine=mine,status=status,q=needle,unfinished=unfinished,overdue=overdue,assignee_user_id=assignee_user_id,task_type=task_type,priority=priority,favorite=favorite,date_from=date_from,date_to=date_to,sort=sort,order=order,limit=limit),sort_keys=True).encode()).hexdigest()
     inner=None
     if cursor:
         try:

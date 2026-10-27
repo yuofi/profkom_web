@@ -1,18 +1,21 @@
 import { UserChip } from "../../components/Workspace/UserChip";
 import type { UserRef } from "../../utils/api/contract";
 import { displayDate } from "../../utils/dates";
+import { taskTypeNames, taskPriorityNames } from "./trackerPlanning";
 import { statusNames } from "./trackerStatus";
 import s from "./TrackerTaskDetail.module.css";
 
 type HistoryValue = string | string[] | null;
 export interface ReadableTaskChange { field: string; label?: string; before: HistoryValue; after: HistoryValue; before_users?: UserRef[]; after_users?: UserRef[] }
-const publicFields = new Set(["title", "description", "deadline_at", "status", "comment", "attachments", "parent_task_id", "assignees", "watchers", "season_id"]);
-const fieldLabels: Record<string, string> = { season_id: "Сезон", watchers: "Наблюдатели", comment: "Комментарий", title: "Название", description: "Описание", status: "Статус", queue: "Очередь", queue_id: "Очередь", parent_task_id: "Родительская задача", parent_task: "Родительская задача", attachments: "Вложения", file_ids: "Вложения", assignees: "Исполнители", deadline_at: "Дедлайн" };
+const publicFields = new Set(["title", "description", "deadline_at", "status", "comment", "attachments", "parent_task_id", "assignees", "watchers", "season_id", "task_type", "priority", "starts_at", "checklist", "links"]);
+const fieldLabels: Record<string, string> = { task_type:"Тип задачи", priority:"Приоритет", starts_at:"Плановое начало", checklist:"Чеклист", links:"Связи задач", season_id: "Сезон", watchers: "Наблюдатели", comment: "Комментарий", title: "Название", description: "Описание", status: "Статус", queue: "Очередь", queue_id: "Очередь", parent_task_id: "Родительская задача", parent_task: "Родительская задача", attachments: "Вложения", file_ids: "Вложения", assignees: "Исполнители", deadline_at: "Дедлайн" };
 function readable(value: HistoryValue, field: string) {
   if (value === null) return "Не задано";
   if (Array.isArray(value)) return value.length ? value.join("\n") : "Не задано";
   if (field === "status" && value in statusNames) return statusNames[value as keyof typeof statusNames];
-  if (field === "deadline_at" && Number.isFinite(Date.parse(value))) return displayDate(value);
+  if (field === "task_type") return taskTypeNames[value] ?? value;
+  if (field === "priority") return taskPriorityNames[value] ?? value;
+  if ((field === "deadline_at" || field === "starts_at") && Number.isFinite(Date.parse(value))) return displayDate(value);
   return value || "Пусто";
 }
 /** Keep line breaks and unchanged edge context; replaced text remains literal, never executable Markdown. */

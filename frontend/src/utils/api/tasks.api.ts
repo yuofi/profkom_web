@@ -12,6 +12,8 @@ import type {
   AssessmentInputs,
   Comment,
   UnresolvedAssignment,
+  TaskPublicPatch,
+  TaskLinkKind,
 } from "./contract";
 import { idPath, allPages as page, request } from "./request";
 /** Body of each assignment command, exactly as the server accepts it: extra keys are 422. */
@@ -40,8 +42,11 @@ export const tasksApi = {
   create: (data: TaskCreate) => request<Task>("post", "/tasks", data),
   update: (
     id: string,
-    data: Revision & { title?: string; description?: RichText; file_ids?: string[]; parent_task_id?: string | null },
+    data: Revision & TaskPublicPatch,
   ) => request<Task>("patch", `/tasks/${idPath(id)}`, data),
+  setFavorite: (id: string, favorite: boolean) => request<Task>("post", `/tasks/${idPath(id)}/favorite`, { favorite }),
+  addLink: (id: string, data: Revision & { target_task_id: string; kind: TaskLinkKind }) => request<Task>("post", `/tasks/${idPath(id)}/links`, data),
+  removeLink: (id: string, linkId: string, data: Revision) => request<Task>("delete", `/tasks/${idPath(id)}/links/${idPath(linkId)}`, data),
   command: <C extends keyof AssignmentCommands>(
     id: string,
     command: C,

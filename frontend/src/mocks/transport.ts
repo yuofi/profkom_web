@@ -15,6 +15,9 @@ import {
   type TaskHistoryChange,
   type TaskQueue,
   type TaskQueueAccessRequest,
+  type TaskChecklistItem,
+  type TaskLinkKind,
+  type TrackerTaskRef,
   type Report,
   type ReportVersion,
   type Material,
@@ -254,12 +257,67 @@ export function installMockTransport(
     taskHistory.set(task.task_id, events);task.updated_at = mockNow;
   };
   const taskFiles = (ids: unknown): FileRef[] => ((ids as string[]) ?? []).map(fileId => files.get(fileId)).filter(file => !!file).map(file => ({ file_id: file!.file_id, name: file!.name, mime_type: file!.mime_type, size_bytes: file!.size_bytes }));
+  const personalFavorites = new Map<number, Set<string>>([[state.session.user_id, new Set(state.tasks.filter(task => task.is_favorite).map(task => task.task_id))]]);
+  const taskLinks: { link_id: string; source: string; target: string; kind: "related" | "blocks" | "epic" | "milestone" }[] = [];
+  const linkHistoryTargets = new Map<string, string>();
+  const publicTaskWritable = (task: Task) => task.scope.kind === "queue" || state.seasons.find(season => season.season_id === task.season_id)?.state !== "closed" || state.chair || role === "chair-deputy";
+  const hydrateTask = (task: Task) => {
+    task.task_type ??= "task";task.priority ??= "normal";task.starts_at ??= null;task.checklist ??= [];
+    task.is_favorite = personalFavorites.get(state.session.user_id)?.has(task.task_id) ?? false;
+    task.capabilities = task.capabilities.filter(cap => !["edit_task_metadata", "manage_task_links", "edit_task_checklist"].includes(cap));
+    if (publicTaskWritable(task)) {
+      if (task.capabilities.includes("edit_task")) task.capabilities.push("edit_task_metadata", "manage_task_links");
+      if (task.capabilities.includes("edit_task_description") || task.capabilities.includes("edit_task")) task.capabilities.push("edit_task_checklist");
+    }
+  };
+  const taskRef = (task: Task): TrackerTaskRef => ({ task_id: task.task_id, task_key: task.task_key ?? "Задача", title: task.title, status: task.status ?? "assigned", task_type: task.task_type ?? "task", starts_at: task.starts_at ?? null, deadline_at: task.deadline_at });
+  const visibleTask = (task: Task): Task => {
+    hydrateTask(task);const result = clone(task);
+    const parentId = task.parent_task_id ?? task.parent_task?.task_id, parent = state.tasks.find(item => item.task_id === parentId && readsTask(item));
+    result.parent_task = parent ? { task_id: parent.task_id, task_key: parent.task_key ?? "Задача", title: parent.title } : null;
+    result.parent_task_id = parent?.task_id ?? null;result.parent_task_unavailable = !!parentId && !parent;
+    result.children = state.tasks.filter(child => child.parent_task_id === task.task_id && readsTask(child)).map(taskRef);
+    const inverse = { related: "related", blocks: "blocked_by", epic: "epic_member", milestone: "milestone_member" } as const;
+    result.links = taskLinks.filter(link => link.source === task.task_id || link.target === task.task_id).flatMap(link => {
+      const outward = link.source === task.task_id, other = state.tasks.find(item => item.task_id === (outward ? link.target : link.source));
+      return other && readsTask(other) ? [{ link_id: link.link_id, kind: outward ? link.kind : inverse[link.kind], task: taskRef(other) }] : [];
+    });
+    return result;
+  };
+  const checklistValue = (raw: unknown, previous: TaskChecklistItem[] = []): { value?: TaskChecklistItem[]; error?: Reply } => {
+    if (!Array.isArray(raw) || raw.length > 200) return { error: fail(422, "invalid_input", "Чеклист должен содержать не более 200 пунктов") };
+    const used = new Set<string>(), value: TaskChecklistItem[] = [];
+    for (const item of raw) {
+      if (!item || typeof item !== "object" || Object.keys(item).some(key => !["item_id", "text", "checked"].includes(key)) || typeof item.text !== "string" || !item.text.trim() || item.text.trim().length > 1000 || (item.checked !== undefined && typeof item.checked !== "boolean")) return { error: fail(422, "invalid_input", "Проверьте пункт чеклиста") };
+      if (item.item_id !== undefined && (typeof item.item_id !== "string" || !previous.some(old => old.item_id === item.item_id))) return { error: fail(422, "invalid_input", "Пункт чеклиста недоступен") };
+      const itemId = item.item_id ?? id("checklist");if (used.has(itemId)) return { error: fail(422, "invalid_input", "Пункт чеклиста повторяется") };
+      used.add(itemId);value.push({ item_id: itemId, text: item.text.trim(), checked: item.checked ?? false });
+    }
+    return { value };
+  };
+  const stage2Patch = (data: Body, task?: Task): { value?: Pick<Task, "task_type" | "priority" | "starts_at" | "checklist">; error?: Reply } => {
+    const type = "task_type" in data ? data.task_type : task?.task_type ?? "task", priority = "priority" in data ? data.priority : task?.priority ?? "normal", starts = "starts_at" in data ? data.starts_at : task?.starts_at ?? null;
+    if (!["task", "milestone", "epic"].includes(String(type)) || !["low", "normal", "high", "urgent"].includes(String(priority))) return { error: fail(422, "invalid_input", "Неизвестный тип или приоритет") };
+    if (starts !== null && (typeof starts !== "string" || !Number.isFinite(Date.parse(starts)) || Date.parse(starts) > Date.parse(task?.deadline_at ?? String(data.deadline_at))) || type === "milestone" && starts !== null) return { error: fail(422, "invalid_input", "Проверьте плановую дату начала") };
+    if (task && taskLinks.some(link => link.kind === "epic" || link.kind === "milestone" ? link.source === task.task_id && type !== "task" || link.target === task.task_id && type !== link.kind : false)) return { error: fail(422, "invalid_input", "Тип несовместим с существующими связями") };
+    const checklist = "checklist" in data ? checklistValue(data.checklist, task?.checklist) : { value: task?.checklist ?? [] };if (checklist.error) return { error: checklist.error };
+    return { value: { task_type: type as Task["task_type"], priority: priority as Task["priority"], starts_at: starts as string | null, checklist: checklist.value } };
+  };
+  const linksReach = (from: string, to: string) => {
+    const seen = new Set<string>(), visit = [from];
+    while (visit.length) { const item = visit.pop()!;if (item === to) return true;if (seen.has(item)) continue;seen.add(item);taskLinks.filter(link => link.kind === "blocks" && link.source === item).forEach(link => visit.push(link.target)); }
+    return false;
+  };
+  const rememberLink = (task: Task, other: Task, added: boolean) => {
+    rememberTask(task, "task_links_changed", added ? "Добавлена связь задачи" : "Удалена связь задачи", undefined, undefined, [{ field: "links", label: "Связи", before: added ? null : `${other.task_key} · ${other.title}`, after: added ? `${other.task_key} · ${other.title}` : null }]);
+    const event = taskHistory.get(task.task_id)!.at(-1)!;linkHistoryTargets.set(event.event_id, other.task_id);
+  };
   const refreshTake = (task: Task) => {
     task.capabilities = task.capabilities.filter(capability => capability !== "take_task");
     const assigned = (task.assignees ?? task.assignments.filter(item => !item.assignee_unavailable_reason).map(item => item.assignee)).some(person => person.user_id === state.session.user_id);
     if (task.capabilities.includes("change_task_status") && (!assigned || task.status !== "in_progress" || task.legacy_mixed_statuses)) task.capabilities.push("take_task");
   };
-  state.tasks.forEach(refreshTake);
+  state.tasks.forEach(task => { refreshTake(task);hydrateTask(task); });
   const refreshRoster = (task: Task) => {
     task.assignees ??= task.assignments.filter(a => !a.assignee_unavailable_reason).map(a => a.assignee);task.watchers ??= [];
     task.capabilities = task.capabilities.filter(c => !["join_task", "take_task", "watch_task", "unwatch_task", "remove_task_assignee", "edit_task_description"].includes(c));
@@ -268,6 +326,7 @@ export function installMockTransport(
     refreshTake(task);
     task.capabilities.push(task.watchers.some(u => u.user_id === state.session.user_id) ? "unwatch_task" : "watch_task");
     if (task.assignees.some(u => u.user_id === state.session.user_id) || task.capabilities.includes("edit_task")) task.capabilities.push("edit_task_description");
+    hydrateTask(task);
   };
   const transitionTask = (task: Task, data: Body): Reply => {
     const extra = extraInputs(data, ["status", "message", "text", "links", "file_ids", "reason"]);if (extra) return extra;
@@ -276,7 +335,7 @@ export function installMockTransport(
     const current = task.status ?? "assigned", next = data.status as AssignmentStatus;
     task.status = next;task.revision++;task.assignments.forEach(a => { a.status = next;a.revision++; });refreshTake(task);
     rememberTask(task, "status_changed", "Изменён рабочий статус задачи", current, next);
-    return [200, clone(task)];
+    return [200, visibleTask(task)];
   };
 
   uploads.onAny().reply((config) => {
@@ -990,13 +1049,28 @@ export function installMockTransport(
         if (url.searchParams.get("unfinished") === "true") tasks = tasks.filter(t => !["accepted", "not_completed", "cancelled"].includes(t.status ?? "assigned"));
         if (url.searchParams.get("overdue") === "true") tasks = tasks.filter(t => t.deadline_at < (options.now ?? mockNow) && !["accepted", "not_completed", "cancelled"].includes(t.status ?? "assigned"));
         if (url.searchParams.get("assignee_user_id")) tasks = tasks.filter(t => t.assignments.some(a => a.assignee.user_id === Number(url.searchParams.get("assignee_user_id"))));
+        if (url.searchParams.has("task_type") && !["task", "milestone", "epic"].includes(url.searchParams.get("task_type")!)) return fail(422, "invalid_input", "Неизвестный тип задачи");
+        if (url.searchParams.has("priority") && !["low", "normal", "high", "urgent"].includes(url.searchParams.get("priority")!)) return fail(422, "invalid_input", "Неизвестный приоритет");
+        if (url.searchParams.has("favorite") && !["true", "false"].includes(url.searchParams.get("favorite")!)) return fail(422, "invalid_input", "Проверьте фильтр избранного");
+        tasks.forEach(hydrateTask);
+        if (url.searchParams.has("task_type")) tasks = tasks.filter(task => task.task_type === url.searchParams.get("task_type"));
+        if (url.searchParams.has("priority")) tasks = tasks.filter(task => task.priority === url.searchParams.get("priority"));
+        if (url.searchParams.has("favorite")) tasks = tasks.filter(task => !!task.is_favorite === (url.searchParams.get("favorite") === "true"));
+        const from = url.searchParams.get("date_from"), until = url.searchParams.get("date_to");
+        if (from && !Number.isFinite(Date.parse(from)) || until && !Number.isFinite(Date.parse(until))) return fail(422, "invalid_input", "Проверьте период");
+        if (from) tasks = tasks.filter(task => Date.parse(task.deadline_at) >= Date.parse(from));
+        if (until) tasks = tasks.filter(task => Date.parse(task.task_type === "milestone" ? task.deadline_at : task.starts_at ?? task.deadline_at) < Date.parse(until));
         const sort = url.searchParams.get("sort"), direction = url.searchParams.get("order") === "desc" ? -1 : 1;
-        tasks = [...tasks].sort((a, b) => direction * ((sort === "updated" ? a.updated_at ?? a.created_at ?? "" : sort === "created" ? a.created_at ?? "" : a.deadline_at).localeCompare(sort === "updated" ? b.updated_at ?? b.created_at ?? "" : sort === "created" ? b.created_at ?? "" : b.deadline_at) || a.task_id.localeCompare(b.task_id)));
+        const priorities = { low: 0, normal: 1, high: 2, urgent: 3 };
+        const sortValue = (task: Task) => sort === "priority" ? String(priorities[task.priority ?? "normal"]) : sort === "starts" ? task.starts_at ?? task.deadline_at : sort === "updated" ? task.updated_at ?? task.created_at ?? "" : sort === "created" ? task.created_at ?? "" : task.deadline_at;
+        tasks = [...tasks].sort((a, b) => direction * (sortValue(a).localeCompare(sortValue(b)) || a.task_id.localeCompare(b.task_id)));
         if (options.scenario === "empty") tasks = [];
-        const offset = Number((url.searchParams.get("cursor") ?? "mock:0").split(":")[1]), limit = 20;
+        const offset = Number((url.searchParams.get("cursor") ?? "mock:0").split(":")[1]), limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit")) || 20));
         const scopes = [...new Map(state.tasks.filter(readsTask).map(task => [`${task.scope.kind}:${task.scope.id}`, { ...task.scope, title: task.scope_title ?? "Команда" }])).values()];
-        return [200, { items: clone(tasks.slice(offset, offset + limit)), total: tasks.length, scopes, assignees: clone(state.people), next_cursor: offset + limit < tasks.length ? `mock:${offset + limit}` : null }];
+        return [200, { items: tasks.slice(offset, offset + limit).map(visibleTask), total: tasks.length, scopes, assignees: clone(state.people), next_cursor: offset + limit < tasks.length ? `mock:${offset + limit}` : null }];
       }
+      const extraTask = extraInputs(data, ["queue_id", "scope", "season_id", "title", "description", "deadline_at", "assignees", "watcher_user_ids", "file_ids", "parent_task_id", "criteria", "task_type", "priority", "starts_at", "checklist"]);if (extraTask) return extraTask;
+      const stage2 = stage2Patch(data);if (stage2.error) return stage2.error;
       const selectedQueue = state.queues.find(q => q.queue_id === data.queue_id);
       if (selectedQueue ? !readsQueue(selectedQueue) : !data.scope || !(trackerAdmin || readsScopeTask({ scope: data.scope } as Task))) return denied();
       if (!state.manager && ((data.assignees ?? []) as { user_id: number }[]).some(a => a.user_id !== state.session.user_id)) return denied();
@@ -1008,6 +1082,7 @@ export function installMockTransport(
         description: publicSubmission(data.description),
         deadline_at: String(data.deadline_at),
         task_id: id("task"),
+        ...stage2.value,
         task_key: `TASK-${state.tasks.length + 1}`, status: "assigned", created_by: clone(state.user), created_at: mockNow, updated_at: mockNow,
         scope_title: chosenScope.kind === "queue" ? selectedQueue?.name : chosenScope.kind === "block" ? state.blocks.find(b => b.block_id === chosenScope.id)?.name : state.subevents.find(t => t.subevent_id === chosenScope.id)?.title,
         attachments: [], submissions: [], revision: 1,
@@ -1056,20 +1131,59 @@ export function installMockTransport(
       if (typeof data.parent_task_id === "string") { const parent = state.tasks.find(t => t.task_id === data.parent_task_id);if (parent) { task.parent_task_id = parent.task_id;task.parent_task = { task_id: parent.task_id, task_key: parent.task_key!, title: parent.title }; } }
       task.assignees = task.assignments.map(a => a.assignee);task.watchers = ((data.watcher_user_ids ?? []) as number[]).map(uid => state.people.find(p => p.user_id === uid)!).filter(Boolean);task.attachments = taskFiles(data.file_ids);refreshRoster(task);
       state.tasks.push(task);rememberTask(task, "task_created", "Создана задача");
-      return [201, clone(task)];
+      return [201, visibleTask(task)];
     }
     if (parts[0] === "tasks") {
       const task = state.tasks.find((t) => t.task_id === parts[1]);
       if (!task) return fail(404, "not_found", "Задача недоступна");
       if (!readsTask(task))
         return method === "get" ? fail(404, "not_found", "Задача недоступна") : denied();
-      if (parts[2] === "history") return list(clone(taskHistory.get(task.task_id) ?? []));
+      if (parts[2] === "history") return list((taskHistory.get(task.task_id) ?? []).map(event => {
+        const result = clone(event), targetId = linkHistoryTargets.get(event.event_id), target = state.tasks.find(item => item.task_id === targetId);
+        if (targetId && (!target || !readsTask(target))) result.changes = [{ field: "links", label: "Связь недоступна", before: null, after: null }];return result;
+      }));
+      hydrateTask(task);
+      if (parts[2] === "favorite" && method === "post") {
+        if (Object.keys(data).some(key => key !== "favorite") || typeof data.favorite !== "boolean") return fail(422, "invalid_input", "Укажите состояние избранного");
+        const saved = personalFavorites.get(state.session.user_id) ?? new Set<string>();
+        if (data.favorite) saved.add(task.task_id);else saved.delete(task.task_id);personalFavorites.set(state.session.user_id, saved);
+        return [200, visibleTask(task)];
+      }
+      if (parts[2] === "links") {
+        if (!task.capabilities.includes("manage_task_links")) return denied();
+        if (!Number.isInteger(data.expected_revision)) return fail(422, "invalid_input", "Укажите версию задачи");
+        if (mismatch(data, task)) return conflict();
+        if (parts.length === 4 && method === "delete") {
+          const extra = extraInputs(data, []);if (extra) return extra;
+          const at = taskLinks.findIndex(link => link.link_id === parts[3] && (link.source === task.task_id || link.target === task.task_id));
+          if (at < 0) return fail(404, "not_found", "Связь недоступна");
+          const link = taskLinks[at], other = state.tasks.find(item => item.task_id === (link.source === task.task_id ? link.target : link.source));if (!other || !readsTask(other)) return fail(404, "not_found", "Связь недоступна");
+          taskLinks.splice(at, 1);task.revision++;other.revision++;rememberLink(task, other, false);rememberLink(other, task, false);return [200, visibleTask(task)];
+        }
+        if (parts.length !== 3 || method !== "post") return fail(404, "not_found", "Действие недоступно");
+        const extra = extraInputs(data, ["target_task_id", "kind"]);if (extra) return extra;
+        const other = state.tasks.find(item => item.task_id === data.target_task_id && readsTask(item));
+        if (!other) return fail(404, "not_found", "Задача недоступна");
+        if (other.task_id === task.task_id || other.season_id !== task.season_id) return fail(422, "invalid_input", "Недопустимая связь задач");
+        const requested = String(data.kind) as TaskLinkKind;
+        if (!["related", "blocks", "blocked_by", "epic", "epic_member", "milestone", "milestone_member"].includes(requested)) return fail(422, "invalid_input", "Неизвестный тип связи");
+        let source = task, target = other, kind: "related" | "blocks" | "epic" | "milestone";
+        if (["blocked_by", "epic_member", "milestone_member"].includes(requested)) { source = other;target = task;kind = requested === "blocked_by" ? "blocks" : requested === "epic_member" ? "epic" : "milestone"; }
+        else kind = requested as typeof kind;
+        if (kind === "related" && source.task_id > target.task_id) [source, target] = [target, source];
+        if (taskLinks.some(link => link.kind === kind && link.source === source.task_id && link.target === target.task_id)) return [200, visibleTask(task)];
+        if (kind === "blocks" && linksReach(target.task_id, source.task_id)) return fail(422, "invalid_input", "Зависимости образуют цикл");
+        if ((kind === "epic" || kind === "milestone") && ((source.task_type ?? "task") !== "task" || (target.task_type ?? "task") !== kind)) return fail(422, "invalid_input", "Типы задач несовместимы с этой связью");
+        if (kind === "epic" && taskLinks.some(link => link.kind === "epic" && link.source === source.task_id)) return fail(409, "task_epic_conflict", "У задачи уже есть эпик");
+        taskLinks.push({ link_id: id("task-link"), source: source.task_id, target: target.task_id, kind });
+        task.revision++;other.revision++;rememberLink(task, other, true);rememberLink(other, task, true);return [200, visibleTask(task)];
+      }
       if (parts[2] === "take" && method === "post") {
         const extra = extraInputs(data, []);if (extra) return extra;
         if (!Number.isInteger(data.expected_revision)) return fail(422, "invalid_input", "Укажите версию задачи");
         if (mismatch(data, task)) return conflict();refreshRoster(task);
         const assigned = task.assignees!.some(person => person.user_id === state.session.user_id), previous = task.status ?? "assigned";
-        if (assigned && previous === "in_progress" && !task.legacy_mixed_statuses) return [200, clone(task)];
+        if (assigned && previous === "in_progress" && !task.legacy_mixed_statuses) return [200, visibleTask(task)];
         if (!assigned) task.assignees!.push(clone(state.user));task.watchers = task.watchers!.filter(person => person.user_id !== state.session.user_id);
         let assignment = task.assignments.find(item => item.assignee.user_id === state.session.user_id);
         if (!assignment) {
@@ -1081,7 +1195,7 @@ export function installMockTransport(
         task.revision++;refreshRoster(task);
         if (!assigned) rememberTask(task, "task_people_updated", "Изменён состав задачи");
         if (previous !== "in_progress") rememberTask(task, "status_changed", "Изменён рабочий статус задачи", previous, "in_progress");
-        return [200, clone(task)];
+        return [200, visibleTask(task)];
       }
       if (parts[2] === "status") return transitionTask(task, data);
       if (parts[2] === "submit-result") {
@@ -1145,10 +1259,20 @@ export function installMockTransport(
         }
         return [200, clone(inputs)];
       }
-      if (method === "get") return [200, clone(task)];
-      if (!state.manager && task.created_by?.user_id !== state.session.user_id && (!(task.capabilities.includes("edit_task_description")) || Object.keys(data).some(k => !["expected_revision", "description"].includes(k)))) return denied();
+      if (method === "get") return [200, visibleTask(task)];
+      const extraTask = extraInputs(data, ["title", "description", "parent_task_id", "file_ids", "task_type", "priority", "starts_at", "checklist"]);if (extraTask) return extraTask;
+      if (!Number.isInteger(data.expected_revision)) return fail(422, "invalid_input", "Укажите версию задачи");
+      if (!publicTaskWritable(task)) return denied();
+      if (["task_type", "priority", "starts_at"].some(key => key in data) && !task.capabilities.includes("edit_task_metadata")) return denied();
+      if ("checklist" in data && !task.capabilities.includes("edit_task_checklist")) return denied();
+      const stage2 = stage2Patch(data, task);if (stage2.error) return stage2.error;
+      if (!state.manager && task.created_by?.user_id !== state.session.user_id && (!(task.capabilities.includes("edit_task_description")) || Object.keys(data).some(k => !["expected_revision", "description", "checklist"].includes(k)))) return denied();
       if (mismatch(data, task)) return conflict();
       const changes: TaskHistoryChange[] = [];
+      for (const field of ["task_type", "priority", "starts_at"] as const) {
+        if (field in data && stage2.value![field] !== task[field]) changes.push({ field, label: field === "task_type" ? "Тип задачи" : field === "priority" ? "Приоритет" : "Плановое начало", before: task[field] ?? null, after: stage2.value![field] ?? null });
+      }
+      if ("checklist" in data && JSON.stringify(stage2.value!.checklist) !== JSON.stringify(task.checklist)) changes.push({ field: "checklist", label: "Чеклист", before: (task.checklist ?? []).map(item => `${item.checked ? "[x]" : "[ ]"} ${item.text}`), after: (stage2.value!.checklist ?? []).map(item => `${item.checked ? "[x]" : "[ ]"} ${item.text}`) });
       if (typeof data.title === "string" && data.title !== task.title) changes.push({ field: "title", label: "Название", before: task.title, after: data.title });
       if (data.description && publicSubmission(data.description).body !== task.description.body) changes.push({ field: "description", label: "Описание", before: task.description.body, after: publicSubmission(data.description).body });
       if ("parent_task_id" in data) {
@@ -1157,11 +1281,12 @@ export function installMockTransport(
         const before = task.parent_task?.task_key ?? null;task.parent_task_id = parent?.task_id ?? null;task.parent_task = parent ? { task_id: parent.task_id, task_key: parent.task_key!, title: parent.title } : null;
         changes.push({ field: "parent_task", label: "Родительская задача", before, after: parent?.task_key ?? null });
       }
+      Object.assign(task, stage2.value);
       if (data.file_ids) task.attachments = taskFiles(data.file_ids);
       if (typeof data.title === "string") task.title = data.title;
       if (data.description) task.description = publicSubmission(data.description);
       rememberTask(task, "task_updated", "Обновлена задача", undefined, undefined, changes);
-      return changed(task);
+      task.revision++;return [200, visibleTask(task)];
     }
     if (path === "/assignments/unresolved")
       return state.manager

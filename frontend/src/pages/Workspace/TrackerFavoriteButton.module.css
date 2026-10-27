@@ -1,0 +1,10 @@
+.wrap { position:relative;display:inline-flex;vertical-align:middle;max-width:100%; }
+.button { display:inline-flex;align-items:center;gap:7px;border:0;border-radius:8px;padding:7px 9px;background:transparent;color:var(--on-surface-variant);font:inherit;font-size:12px;cursor:pointer; }
+.button svg { flex:0 0 20px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linejoin:round; }
+.button:hover { background:var(--surface-container-highest);color:var(--primary); }
+.button:focus-visible { outline:2px solid var(--primary);outline-offset:2px; }
+.selected { color:var(--primary); }.selected svg { fill:currentColor; }
+.compact { padding:5px; }.button:disabled { opacity:.5;cursor:wait; }
+.error { position:absolute;top:calc(100% + 5px);right:0;z-index:6;background:var(--surface-container-high);border:1px solid var(--error);border-radius:8px;padding:10px;width:min(230px,65vw);font-size:12px;color:var(--error);box-shadow:var(--elevation-2); }
+
+.onBrand .button { color:var(--surface); }.onBrand .button:hover { color:var(--surface);background:color-mix(in srgb,var(--surface) 12%,transparent); }.onBrand .button:focus-visible { outline-color:var(--surface); }
