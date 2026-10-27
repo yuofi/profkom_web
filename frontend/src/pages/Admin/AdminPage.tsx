@@ -156,7 +156,7 @@ function TemporaryPasswords() {
   const leadership = useQuery({ queryKey: ["leadership"], queryFn: sessionApi.leadership });
   const [issued, setIssued] = useState<TemporaryPassword | null>(null);
   // The chair and deputies change their own passwords; the server refuses theirs.
-  const leaders = new Set([leadership.data?.chair.user_id, ...(leadership.data?.deputies.map((d) => d.user_id) ?? [])]);
+  const leaders = new Set([leadership.data?.chair?.user_id, ...(leadership.data?.deputies.map((d) => d.user_id) ?? [])]);
   const choices = people.data
     ?.filter((p) => !leaders.has(p.user_id))
     .map((p) => ({ value: String(p.user_id), label: fullName(p), user: { user_id: p.user_id, display_name: fullName(p), avatar_url: p.photo_url ?? null } })) ?? [];

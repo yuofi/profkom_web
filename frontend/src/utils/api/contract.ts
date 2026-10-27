@@ -54,7 +54,7 @@ export interface TemporaryPassword {
   temporary_password: string;
 }
 export interface Leadership extends Versioned {
-  chair: UserRef;
+  chair: UserRef | null;
   deputies: UserRef[];
 }
 export interface Leader extends Versioned {

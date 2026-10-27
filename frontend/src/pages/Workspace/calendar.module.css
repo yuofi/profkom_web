@@ -46,32 +46,32 @@
   hyphens: auto;
   min-width: 0;
 }
-.entry a,
+.entry > a,
 .entry > span {
   color: var(--on-surface);
   text-decoration: none;
   font-weight: 500;
   max-width: 100%;
 }
-.entry a:hover {
+.entry > a:hover {
   text-decoration: underline;
 }
 .entry small {
   font-size: 11px;
   opacity: 0.75;
 }
-/* The season's pill keeps inside a narrow day and cuts a long name. */
-.entry > :last-child {
-  display: block;
-  box-sizing: border-box;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+/* The prefix makes this identity distinct from a person/team; the complete name remains in title/aria-label. */
+.entry > .seasonChip { display:inline-flex;max-width:100%;min-width:0;font-weight:400; }
+.seasonChip > a { max-width:100%;min-width:0;text-decoration:none; }
+.seasonChip > a > span { font-size:10px;max-width:100%;min-width:0; }
+.seasonChip svg { width:16px;height:16px;color:var(--accent-lilac); }
+.seasonLabel { display:flex;align-items:center;gap:4px;max-width:100%;min-width:0;overflow:hidden; }
+.seasonPrefix { flex:0 0 auto;color:var(--on-surface-variant); }
+.seasonName { display:block;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis; }
 .mobileList {
   display: none;
 }
-@media (max-width: 1000px) {
+@media (max-width: 1200px) {
   .calendar {
     display: none;
   }
@@ -80,6 +80,7 @@
     gap: 10px;
     margin-top: 20px;
   }
+  .mobileList .seasonChip > a > span { font-size:12px; }
   .mobileList .entry {
     margin: 0;
     padding: 12px 14px;

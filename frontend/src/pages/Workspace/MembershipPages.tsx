@@ -18,6 +18,9 @@ import { fundingLabels, registrationLabels } from "../../utils/contactFields";
 import { text, number } from "../../components/Workspace/formValues";
 import { membershipApi } from "../../utils/api/membership.api";
 import { eventsApi } from "../../utils/api/events.api";
+import { sessionApi } from "../../utils/api/session.api";
+import { directoryApi } from "../../utils/api/directory.api";
+import { canRetainData } from "../../utils/api/request";
 import { richText, type BlockRequest } from "../../utils/api/contract";
 import { can, useSession } from "../../utils/session";
 import { displayDate, waited } from "../../utils/dates";
@@ -27,6 +30,7 @@ import {
   useWorkspaceActions,
 } from "../../utils/hooks/useWorkspace";
 import { Leaders } from "./EventPages";
+import { OrganizationTree } from "./OrganizationTree";
 import s from "../../components/Workspace/Workspace.module.css";
 const requestStates = {
   pending_hr: "На рассмотрении HR",
@@ -44,30 +48,30 @@ const requestTones: Record<BlockRequest["state"], Tone | undefined> = {
 };
 const isOpen = (r: BlockRequest) => ["pending_hr", "pending_block"].includes(r.state);
 export function BlocksPage() {
+  const { session } = useSession();
+  const enabled = session?.account_state === "active" && session.registration_status === "approved";
   const query = useQuery({
     queryKey: ["workspaceBlocks"],
     queryFn: membershipApi.blocks,
+    enabled,
   });
+  const leadership = useQuery({ queryKey: ["leadership"], queryFn: sessionApi.leadership, enabled });
+  const people = useQuery({ queryKey: ["contacts"], queryFn: directoryApi.contacts, enabled });
+  const errors = [query.error, leadership.error, people.error].filter(Boolean);
+  const error = errors.find(item => !canRetainData(item)) ?? errors[0];
+  const ready = !!query.data && !!leadership.data && !!people.data;
   return (
     <Page
       title="Блоки"
+      description="Структура Профкома: руководство, мастера блоков и участники."
       actions={
         <RouteLink to="/blocks/requests">Мои заявки и решения</RouteLink>
       }
     >
-      <QueryState keepDataOnError={!!query.data}
-        loading={query.isLoading} error={query.error}>
-        <div className={s.grid}>
-          {query.data?.map((b) => (
-            <Card key={b.block_id} title={b.name}>
-              <Markdown content={b.description} preview />
-              <p>Мастер: {b.master?.user.display_name ?? "не назначен"}</p>
-              <RouteLink to={`/blocks/${encodeURIComponent(b.block_id)}`}>
-                О блоке
-              </RouteLink>
-            </Card>
-          ))}
-        </div>
+      <QueryState keepDataOnError={ready}
+        loading={query.isLoading || leadership.isLoading || people.isLoading} error={error}
+        retry={() => { void query.refetch();void leadership.refetch();void people.refetch(); }}>
+        {enabled && ready && <OrganizationTree blocks={query.data!} leadership={leadership.data!} people={people.data!.map(person => ({ user_id: person.user_id, display_name: [person.surname, person.name, person.patronymic].filter(Boolean).join(" "), avatar_url: person.photo_url ?? null }))} />}
       </QueryState>
     </Page>
   );

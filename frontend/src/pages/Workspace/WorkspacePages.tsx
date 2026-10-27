@@ -10,6 +10,7 @@ import {
   Empty,
 } from "../../components/Workspace/WorkspaceUI";
 import { ActionForm } from "../../components/Workspace/ActionForm";
+import { InteractiveChip } from "../../components/Workspace/InteractiveChip";
 import { workspaceApi } from "../../utils/api/workspace.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import {
@@ -17,6 +18,7 @@ import {
   getEventRoute,
   getBlockRoute,
   getMeetingRoute,
+  getSeasonRoute,
 } from "../../utils/routes";
 import { displayDate, displayTime } from "../../utils/dates";
 import { monthDays, moscowDay, shiftMonth, monthTitle } from "../../utils/calendar";
@@ -126,7 +128,7 @@ const KINDS: Record<CalendarItem["kind"], { label: string; tone: Tone }> = {
   event: { label: "Мероприятие", tone: "mint" },
   meeting: { label: "Созвон", tone: "yellow" },
 };
-function CalendarEntry({ item, title, inDay = false, today = false }: { item: CalendarItem; title: string; inDay?: boolean; today?: boolean }) {
+function CalendarEntry({ item, seasonTitle, inDay = false, today = false }: { item: CalendarItem; seasonTitle: string; inDay?: boolean; today?: boolean }) {
   const route = item.kind === "meeting" && (item.target.kind === "event" || item.target.kind === "subevent")
     ? getMeetingRoute(item.target.kind, item.target.id)
     : targetRoute(item.target);
@@ -140,7 +142,10 @@ function CalendarEntry({ item, title, inDay = false, today = false }: { item: Ca
       ) : (
         <span>{item.title}</span>
       )}
-      <Badge>{title}</Badge>
+      <InteractiveChip kind="link" to={getSeasonRoute(item.season_id)} className={c.seasonChip}
+        label={<span className={c.seasonLabel}><span className={c.seasonPrefix}>Сезон:</span><span className={c.seasonName}>{seasonTitle}</span></span>}
+        title={`Сезон: ${seasonTitle}`} ariaLabel={`Открыть сезон: ${seasonTitle}`}
+        icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3" /><path d="M3 10h18M8 3v4M16 3v4M8 14h3M13 17h3" /></svg>} />
     </div>
   );
 }
@@ -230,7 +235,7 @@ export function CalendarPage() {
                     <CalendarEntry
                       key={i.id}
                       item={i}
-                      title={label(i.season_id)}
+                      seasonTitle={label(i.season_id)}
                       inDay
                     />
                   ))}
@@ -240,7 +245,7 @@ export function CalendarPage() {
         </div>
         <div className={c.mobileList}>
           {items.map((i) => (
-            <CalendarEntry key={i.id} item={i} title={label(i.season_id)} today={moscowDay(i.starts_at) === today} />
+            <CalendarEntry key={i.id} item={i} seasonTitle={label(i.season_id)} today={moscowDay(i.starts_at) === today} />
           ))}
         </div>
         {!items.length && <Empty>На этот месяц нет доступных событий.</Empty>}

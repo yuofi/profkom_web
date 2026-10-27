@@ -169,7 +169,7 @@ export function LeadershipPage() {
   const current = leadership.data!;
   const choices =
     contacts.data
-      ?.filter((p) => p.in_profcom && p.user_id !== current.chair.user_id)
+      ?.filter((p) => p.in_profcom && p.user_id !== current.chair?.user_id)
       .map((p) => ({
         value: String(p.user_id),
         label: `${p.surname} ${p.name}`,
@@ -184,7 +184,7 @@ export function LeadershipPage() {
       {(leadership.error || contacts.error) && <ErrorState error={leadership.error || contacts.error} />}
       <div className={s.stack}>
         <Card title="Текущий состав">
-          <p>Председатель: {current.chair.display_name}</p>
+          <p>Председатель: {current.chair?.display_name ?? "не назначен"}</p>
           <p>
             Заместители:{" "}
             {current.deputies.map((p) => p.display_name).join(", ") ||
