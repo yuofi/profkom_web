@@ -14,15 +14,24 @@ import { text, ids } from "../../components/Workspace/formValues";
 import { eventsApi } from "../../utils/api/events.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { reportsApi } from "../../utils/api/reports.api";
-import { richText, type Event, type Leader } from "../../utils/api/contract";
+import { richText, type Leader } from "../../utils/api/contract";
 import { can, useSession } from "../../utils/session";
-import { getEventRoute, getSubeventRoute } from "../../utils/routes";
+import { getEventRoute, getEventCreateRoute, getEventEditRoute, getSubeventRoute } from "../../utils/routes";
 import {
   usePeopleOptions,
   useWorkspaceActions,
 } from "../../utils/hooks/useWorkspace";
-import { displayDate, moscowInput, toUtc } from "../../utils/dates";
+import { displayDate } from "../../utils/dates";
 import s from "../../components/Workspace/Workspace.module.css";
+import e from "./EventEditor.module.css";
+import { EventEditor } from "./EventEditor";
+import { useSeriesField, chosenSeries } from "./useReportSeries";
+import { TrackerTaskDialog } from "./TrackerTaskDialog";
+import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
+import { UserChip } from "../../components/Workspace/UserChip";
+import { SeasonPlacementEditor } from "../../components/Workspace/SeasonPlacementEditor";
+import { Glyph } from "../../components/Workspace/WorkspaceUI";
+import { useState } from "react";
 
 export function Leaders({ leaders }: { leaders: Leader[] }) {
   const people = usePeopleOptions();
@@ -34,7 +43,7 @@ export function Leaders({ leaders }: { leaders: Leader[] }) {
       )}
       {leaders.map((leader) => (
         <div key={leader.role_assignment_id} className={s.leader}>
-          <h3>{leader.user.display_name}</h3>
+          <UserChip user={leader.user} />
           <p className={s.muted}>
             Заместители:{" "}
             {leader.deputy_user_ids
@@ -90,60 +99,18 @@ function useReportsLink(owner_kind: "event" | "subevent", owner_id: string, canC
   });
   return canCreate || !!readable.data?.items.length;
 }
-const NEW_SERIES = "new";
-/**
- * The report series a new instance may continue (FIX_PLAN 2.21): event series for a new
- * event, the parent's child series not yet used by its subevents for a new subevent.
- * Each option names the latest instance and its season to tell similar series apart.
- */
-function useSeriesField(enabled: boolean, parent?: Event, used: string[] = []) {
-  const series = useQuery({ queryKey: ["reports", "series"], queryFn: eventsApi.series, enabled });
-  const events = useQuery({ queryKey: ["events"], queryFn: () => eventsApi.list(), enabled });
-  const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list, enabled });
-  const earlier = useQuery({
-    queryKey: ["events", "series-instances", parent?.event_id],
-    enabled: enabled && !!parent && !!events.data,
-    queryFn: async () => (await Promise.all(events.data!.items
-      .filter((e) => e.report_series_id === parent!.report_series_id && e.event_id !== parent!.event_id)
-      .map(async (e) => (await eventsApi.subevents(e.event_id)).items.map((sub) => ({ ...sub, season_id: e.season_id }))))).flat(),
-  });
-  const order = (seasonId: string) => seasons.data?.items.find((x) => x.season_id === seasonId)?.sequence_number ?? 0;
-  const instances = parent ? earlier.data ?? [] : events.data?.items ?? [];
-  const options = (series.data?.items ?? [])
-    .filter((x) => (parent
-      ? x.owner_kind === "subevent" && x.parent_series_id === parent.report_series_id
-      : x.owner_kind === "event") && !used.includes(x.series_id))
-    .map((x) => {
-      const latest = instances.filter((i) => i.report_series_id === x.series_id)
-        .sort((a, b) => order(b.season_id) - order(a.season_id))[0];
-      const season = latest && seasons.data?.items.find((y) => y.season_id === latest.season_id)?.title;
-      return { value: x.series_id, label: latest ? `${x.title} — ${latest.title}, ${season ?? "сезон недоступен"}` : x.title };
-    });
-  return {
-    name: "series",
-    label: "Серия отчётов",
-    type: "select" as const,
-    required: true,
-    value: NEW_SERIES,
-    hint: "Продолжение серии открывает её прошлые отчёты в истории.",
-    options: [{ value: NEW_SERIES, label: "Новая серия" }, ...options],
-  };
-}
-const chosenSeries = (value: string) => (value && value !== NEW_SERIES ? { report_series_id: value } : {});
 export function EventsListPage() {
   const { session } = useSession();
-  const navigate = useNavigate();
-  const { perform } = useWorkspaceActions();
   const events = useQuery({
     queryKey: ["events"],
     queryFn: () => eventsApi.list(),
   });
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
-  const seriesField = useSeriesField(can(session, "create_event"));
   return (
     <Page
       title="Мероприятия"
-      description="Все мероприятия профкома по сезонам. Задачи и созвоны — у команды подмероприятия."
+      description="Мероприятия, их команды и результаты работы."
+      actions={can(session, "create_event") && <RouteLink to={getEventCreateRoute()}>Создать мероприятие</RouteLink>}
     >
       <div className={s.stack}>
         <QueryState
@@ -172,70 +139,19 @@ export function EventsListPage() {
             <Empty>Мероприятий пока нет.</Empty>
           )}
         </QueryState>
-        {can(session, "create_event") && (
-          <Card title="Новое мероприятие">
-            <ActionForm
-              fields={[
-                { name: "title", label: "Название", required: true },
-                { name: "description", label: "Описание", type: "textarea" },
-                {
-                  name: "starts",
-                  label: "Начало, МСК — необязательно",
-                  type: "datetime-local",
-                },
-                {
-                  name: "ends",
-                  label: "Окончание, МСК — необязательно",
-                  type: "datetime-local",
-                },
-                {
-                  name: "season",
-                  label: "Сезон",
-                  type: "select",
-                  required: true,
-                  options: seasons.data?.items
-                    .filter((season) =>
-                      ["planned", "open"].includes(season.state),
-                    )
-                    .map((season) => ({
-                      value: season.season_id,
-                      label: season.title,
-                    })),
-                },
-                seriesField,
-              ]}
-              onSubmit={async (v) => {
-                if (
-                  text(v, "starts") &&
-                  text(v, "ends") &&
-                  text(v, "starts") > text(v, "ends")
-                )
-                  throw Error("Окончание раньше начала");
-                let target = "";
-                await perform(async () => {
-                  const created = await eventsApi.create({
-                    title: text(v, "title"),
-                    description: richText(text(v, "description")),
-                    season_id: text(v, "season"),
-                    ...(text(v, "starts")
-                      ? { starts_at: toUtc(text(v, "starts")) }
-                      : {}),
-                    ...(text(v, "ends")
-                      ? { ends_at: toUtc(text(v, "ends")) }
-                      : {}),
-                    ...chosenSeries(text(v, "series")),
-                  });
-                  target = created.event_id;
-                });
-                navigate(getEventRoute(target));
-              }}
-              submitLabel="Создать мероприятие"
-            />
-          </Card>
-        )}
+
       </div>
     </Page>
   );
+}
+export function EventCreatePage() {
+  const { session } = useSession();
+  return can(session, "create_event") ? <EventEditor /> : <Empty>Создавать мероприятия могут председатель и его заместители.</Empty>;
+}
+export function EventEditPage() {
+  const { id = "" } = useParams();
+  const query = useQuery({ queryKey: ["events", id], queryFn: () => eventsApi.get(id), enabled: !!id });
+  return <QueryState keepDataOnError={!!query.data} loading={query.isLoading} error={query.error} retry={() => void query.refetch()}>{query.data && (can(query.data, "edit_event") ? <EventEditor event={query.data} /> : <Empty>Изменение мероприятия вам недоступно.</Empty>)}</QueryState>;
 }
 export function EventPage() {
   const { id = "" } = useParams();
@@ -254,12 +170,13 @@ export function EventPage() {
   });
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
   const event = query.data;
+  const [editor, setEditor] = useState<"leaders" | "season" | "clone" | null>(null);
   const reportsLink = useReportsLink("event", event ? id : "", can(event, "create_report"));
   const seriesField = useSeriesField(can(event, "create_subevent"), event, subs.data?.items.map((x) => x.report_series_id));
   return (
     <Page
       title={event?.title ?? "Мероприятие"}
-      actions={<RouteLink to="/events">Все мероприятия</RouteLink>}
+      actions={<div className={s.row}>{can(event, "edit_event") && <RouteLink to={getEventEditRoute(id)}><Glyph name="edit" />Изменить мероприятие</RouteLink>}<RouteLink to="/events">Все мероприятия</RouteLink></div>}
     >
       <QueryState
         keepDataOnError={!!query.data}
@@ -272,11 +189,7 @@ export function EventPage() {
         {event && (
           <div className={s.stack}>
             <Card>
-              <Badge>
-                {seasons.data?.items.find(
-                  (x) => x.season_id === event.season_id,
-                )?.title ?? "Сезон"}
-              </Badge>
+              <div className={e.seasonLabel}><Badge>{seasons.data?.items.find(x => x.season_id === event.season_id)?.title ?? "Сезон"}</Badge>{can(session, "correct_season") && <button type="button" className={e.iconButton} aria-label="Изменить сезон мероприятия" title="Изменить сезон" onClick={() => setEditor("season")}><Glyph name="edit" /></button>}</div>
               {(event.starts_at || event.ends_at) && (
                 <p>
                   {displayDate(event.starts_at)} — {displayDate(event.ends_at)}
@@ -301,11 +214,10 @@ export function EventPage() {
               <Markdown content={event.description} />
             </Card>
             <div className={s.grid}>
-              <Card title="Главорги">
+              <Card>
+                <div className={e.sectionHeading}><h2>Главорги</h2>{can(event, "manage_leaders") && <button type="button" className={e.iconButton} aria-label="Изменить главоргов" title="Изменить главоргов" onClick={() => setEditor("leaders")}><Glyph name="edit" /></button>}</div>
                 <Leaders leaders={event.leaders} />
-                {can(event, "manage_leaders") && (
-                  <details className={s.details}>
-                    <summary>Изменить главоргов</summary>
+                {editor === "leaders" && <UnsavedChangesScope><TrackerTaskDialog title="Главорги мероприятия" onClose={() => setEditor(null)}>
                     <ActionForm
                       key={event.event_id}
                       revision={event.revision}
@@ -322,16 +234,12 @@ export function EventPage() {
                         },
                       ]}
                       onSubmit={async (v, expectedRevision) => {
-                        return perform(() =>
-                          eventsApi.leaders("events", id, ids(v, "users"), {
-                            expected_revision: expectedRevision!,
-                          }),
-                        );
+                        const saved = await perform(() => eventsApi.leaders("events", id, ids(v, "users"), { expected_revision: expectedRevision! }));
+                        setEditor(null);return saved;
                       }}
                       onConflict={refresh}
                     />
-                  </details>
-                )}
+                </TrackerTaskDialog></UnsavedChangesScope>}
               </Card>
               <Card title="Подмероприятия">
                 <QueryState loading={subs.isLoading} error={subs.error}>
@@ -373,61 +281,9 @@ export function EventPage() {
                 )}
               </Card>
             </div>
-            {can(event, "edit_event") && (
-              <Card title="Описание мероприятия">
-                <ActionForm
-                  key={event.event_id}
-                  revision={event.revision}
-                  record={`event:${event.event_id}`}
-                  fields={[
-                    {
-                      name: "title",
-                      label: "Название",
-                      required: true,
-                      value: event.title,
-                    },
-                    {
-                      name: "description",
-                      label: "Описание",
-                      type: "textarea",
-                      value: event.description.body,
-                    },
-                    {
-                      name: "starts",
-                      label: "Начало, МСК",
-                      type: "datetime-local",
-                      value: event.starts_at
-                        ? moscowInput(event.starts_at)
-                        : "",
-                    },
-                    {
-                      name: "ends",
-                      label: "Окончание, МСК",
-                      type: "datetime-local",
-                      value: event.ends_at ? moscowInput(event.ends_at) : "",
-                    },
-                  ]}
-                  onSubmit={async (v, expectedRevision) => {
-                    return perform(() =>
-                      eventsApi.update(id, {
-                        title: text(v, "title"),
-                        description: richText(text(v, "description")),
-                        expected_revision: expectedRevision!,
-                        starts_at: text(v, "starts")
-                          ? toUtc(text(v, "starts"))
-                          : null,
-                        ends_at: text(v, "ends")
-                          ? toUtc(text(v, "ends"))
-                          : null,
-                      }),
-                    );
-                  }}
-                  onConflict={refresh}
-                />
-              </Card>
-            )}
-            {can(session, "create_event") && (
-              <Card title="Создать новый ежегодный экземпляр">
+            {editor === "season" && <UnsavedChangesScope><TrackerTaskDialog title="Сезон мероприятия" onClose={() => setEditor(null)}><SeasonPlacementEditor objectKind="event" objectId={event.event_id} currentSeasonId={event.season_id} revision={event.revision} onSaved={() => setEditor(null)} /></TrackerTaskDialog></UnsavedChangesScope>}
+            {can(session, "create_event") && <button type="button" className={s.button} onClick={() => setEditor("clone")}>Создать новый ежегодный экземпляр</button>}
+            {can(session, "create_event") && editor === "clone" && <UnsavedChangesScope><TrackerTaskDialog title="Новый ежегодный экземпляр" onClose={() => setEditor(null)}>
                 <p>
                   Будут скопированы названия и описания подмероприятий.
                   Руководителей и организаторов нужно назначить заново; задачи и
@@ -461,8 +317,7 @@ export function EventPage() {
                   }}
                   submitLabel="Создать из структуры"
                 />
-              </Card>
-            )}
+              </TrackerTaskDialog></UnsavedChangesScope>}
           </div>
         )}
       </QueryState>

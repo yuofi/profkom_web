@@ -21,6 +21,8 @@ export const getPgasRoute = () => "/pgas";
 
 export const getEventRoute = (id: string) =>
   `/events/${encodeURIComponent(id)}`;
+export const getEventCreateRoute = () => "/events/new";
+export const getEventEditRoute = (id: string) => `/events/${encodeURIComponent(id)}/edit`;
 export const getMeetingRoute = (kind: "event" | "subevent", id: string) =>
   `/meetings/${kind}/${encodeURIComponent(id)}`;
 export const getSubeventRoute = (id: string) =>
@@ -43,6 +45,7 @@ export const getMaterialRoute = (id: string) =>
   `/materials/${encodeURIComponent(id)}`;
 export const getSeasonRoute = (id: string) =>
   `/seasons/${encodeURIComponent(id)}`;
+export const getSeasonCreateRoute = () => "/seasons/new";
 export function targetRoute(
   target: { kind: string; id: string } | null | undefined,
 ): string | null {

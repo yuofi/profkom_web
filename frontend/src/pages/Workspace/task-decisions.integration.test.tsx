@@ -64,7 +64,7 @@ it("1.1: a public cancellation preserves formal acceptance while authorized priv
   const accepted = await tasksApi.assessment(assignment.assignment_id);expect(accepted.workflow_status).toBe("accepted");expect(accepted.evaluation).toBe(1);
   page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TaskPage />} /></Routes>, { path: `/tasks/${task.task_id}`, session });await waitForPage(page);await choosePublic("cancelled");
   const inputs = card(assignment.assignee.display_name).querySelector('[name="hours"]')!.closest("form")!;expect(inputs.querySelector('[name="evaluation"]')).not.toBeNull();
-  await change(field(inputs, "hours"), "3");await change(field(inputs, "reason"), "Уточнили часы");await submit(inputs);await waitForPage(page, () => !!card(assignment.assignee.display_name).textContent?.includes("Часы: 3"));
+  await change(field(inputs, "hours"), "3");await change(field(inputs, "reason"), "Уточнили часы");await submit(inputs);await waitForPage(page, () => card(assignment.assignee.display_name).querySelector("[data-accounting-hours]")?.textContent === "3");
   expect((await tasksApi.get(task.task_id)).status).toBe("cancelled");const saved = await tasksApi.assessment(assignment.assignment_id);expect(saved.hours).toBe(3);expect(saved.evaluation).toBe(1);expect(saved.workflow_status).toBe("accepted");expect(saved.effective_completed_at).toBe(accepted.effective_completed_at);
 });
 

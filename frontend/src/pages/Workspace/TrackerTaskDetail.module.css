@@ -74,7 +74,7 @@
 .history li p { margin: 3px 0 8px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; line-height: 1.5; overflow-wrap: anywhere; }
 .history time { font-size: 12px; opacity: .5; }
 .accounting { border-top: 1px solid var(--surface-variant); padding-top: 20px; }
-.accounting > summary { cursor: pointer; font-size: 16px; color: var(--on-surface); }
+.accountingHint { font-size: 12px; line-height: 1.6; opacity: .65; margin: 9px 0 0; }
 .accountingBody { display: grid; gap: 16px; padding-top: 20px; }
 .accountingPerson { padding: 16px; border: 1px solid var(--surface-variant); border-radius: 12px; }
 .accountingPerson h3 { margin-top: 0; font-size: 15px; }
@@ -111,3 +111,5 @@
 
 .rosterDiff { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; padding: 8px 12px 13px; }.rosterDiff > section { display: grid; align-content: start; gap: 8px; min-width: 0; }.rosterDiff h4 { margin: 0; font-size: 11px; font-weight: 400; opacity: .6; }
 @media(max-width:520px) { .rosterDiff { grid-template-columns: minmax(0,1fr); } }
+
+.seasonEdit { display: flex; align-items: center; gap: 5px; margin-top: 7px; padding: 0; border: 0; background: transparent; color: var(--primary); font: inherit; font-size: 12px; cursor: pointer; text-align: left; }.seasonEdit > span { font-size: 15px; }.seasonEdit:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; }.seasonEdit:hover { text-decoration: underline; }.seasonContext { margin: 8px 0 0; font-size: 11px; line-height: 1.6; opacity: .7; }.seasonContext p { margin: 0 0 6px; }.seasonContext a { color: var(--primary); text-decoration: none; }.seasonContext a:hover { text-decoration: underline; }

@@ -23,6 +23,7 @@ import {
   type Merit,
   type Decision,
   type Season,
+  type SeasonAnalytics,
   type SummaryVersionSnapshot,
   type ParticipationRole,
 } from "../utils/api/contract";
@@ -460,6 +461,29 @@ export function installMockTransport(
       }
       const season = state.seasons.find((s) => s.season_id === parts[1]);
       if (!season) return fail(404, "not_found", "Сезон не найден");
+      if (parts[2] === "analytics" && method === "get") {
+        if (!state.global) return denied();
+        const participantId = url.searchParams.get("participant_id"), blockId = url.searchParams.get("block_id");
+        const summary = summaries.get(season.season_id)!;
+        const rows = summary.rows.filter(row => (!participantId || row.participant_id === participantId) && (!blockId || row.blocks.some(block => block.block_id === blockId)));
+        const closed = season.state === "closed";
+        const kkr = rows.reduce((sum, row) => sum + row.total_score, 0);
+        const selectedUsers = new Set(rows.map(row => row.user.user_id));
+        const accepted = state.tasks.filter(task => task.season_id === season.season_id && task.scope.kind !== "queue").flatMap(task => task.assignments.map(assignment => ({ task, assignment, inputs: state.assessments.find(input => input.assignment_id === assignment.assignment_id) }))).filter(item => selectedUsers.has(item.assignment.assignee.user_id) && item.inputs?.workflow_status === "accepted" && (!blockId || item.task.scope.kind === "block" && item.task.scope.id === blockId));
+        const completed = new Set(accepted.map(item => item.task.task_id)).size, hours = accepted.reduce((sum, item) => sum + (item.inputs?.hours ?? 0), 0);
+        const totals = { completed_tasks: closed ? null : completed, credited_hours: closed ? null : hours, kkr };
+        const basis: SeasonAnalytics["basis"] = { kind: closed ? "approved_snapshot" : "current_ledger", version: closed ? summary.version : null, approved_at: closed ? season.ends_at : null };
+        const analytics: SeasonAnalytics = {
+          season: { season_id: season.season_id, title: season.title, state: season.state, starts_at: season.starts_at, ends_at: season.ends_at }, as_of: options.now ?? mockNow, basis,
+          filters: { participant_id: participantId, block_id: blockId }, participants: summary.rows.map(row => ({ participant_id: row.participant_id, user: row.user })),
+          blocks: [...new Map(summary.rows.flatMap(row => row.blocks).map(block => [block.block_id, block])).values()], totals, weekly: [],
+          unallocated: { ...totals, contribution_count: rows.reduce((sum, row) => sum + row.source_scores.length, 0) },
+          source_breakdown: rows.flatMap(row => row.source_scores).map(source => ({ source_kind: source.source_kind, kkr: source.score, contribution_count: 1 })),
+          season_comparison: state.seasons.map(item => ({ season_id: item.season_id, title: item.title, state: item.state, starts_at: item.starts_at, ends_at: item.ends_at, basis: { kind: item.state === "closed" ? "approved_snapshot" : "current_ledger", version: item.state === "closed" ? summaries.get(item.season_id)?.version ?? 1 : null, approved_at: item.state === "closed" ? item.ends_at : null }, totals: item.season_id === season.season_id ? totals : { completed_tasks: null, credited_hours: null, kkr: summaries.get(item.season_id)?.rows.filter(row => !participantId || row.participant_id === participantId).reduce((sum, row) => sum + row.total_score, 0) ?? null } })),
+          coverage: { accepted_assignments: closed ? null : accepted.length, missing_hours_assignments: closed ? null : 0, undated_accepted_assignments: closed ? null : accepted.length, undated_contributions: rows.reduce((sum, row) => sum + row.source_scores.length, 0), notes: ["Синтетические тестовые данные: даты распределения по неделям не заданы."] },
+        };
+        return [200, clone(analytics)];
+      }
       if (parts[2] === "summary.xlsx")
         return state.global
           ? [

@@ -133,7 +133,7 @@ it("preserves changed task criteria and deadline when refreshing a conflicting i
     </Routes>,
     { role: "chair", path: `/tasks/${mock.state.tasks[0].task_id}` },
   );
-  await settle();
+  await waitForPage(page, () => !!page!.container.querySelector('[name="assigned"]'));
   const editor = field(page.container, "assigned").closest("form")!;
   await change(field(editor, "creative"), "true");
   await change(field(editor, "deadline"), "2026-10-26T18:00");

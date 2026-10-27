@@ -366,6 +366,36 @@ export interface SummaryRow {
   decisions: Decision[];
   previous_decisions: Decision[];
 }
+export interface SeasonAnalyticsTotals {
+  completed_tasks: number | null;
+  credited_hours: number | null;
+  kkr: number | null;
+}
+export interface SeasonAnalyticsBasis {
+  kind: "current_ledger" | "approved_snapshot" | "unavailable";
+  version: number | null;
+  approved_at: string | null;
+}
+export interface SeasonAnalytics {
+  season: Pick<Season, "season_id" | "title" | "state" | "starts_at" | "ends_at">;
+  as_of: string;
+  basis: SeasonAnalyticsBasis;
+  filters: { participant_id: string | null; block_id: string | null };
+  participants: { participant_id: string; user: UserRef }[];
+  blocks: { block_id: string; name: string }[];
+  totals: SeasonAnalyticsTotals;
+  weekly: (SeasonAnalyticsTotals & { starts_on: string })[];
+  unallocated: SeasonAnalyticsTotals & { contribution_count: number | null };
+  source_breakdown: { source_kind: SourceKind | "unallocated"; kkr: number | null; contribution_count: number | null }[];
+  season_comparison: {
+    season_id: string; title: string; state: Season["state"]; starts_at: string; ends_at: string;
+    basis: SeasonAnalyticsBasis; totals: SeasonAnalyticsTotals;
+  }[];
+  coverage: {
+    accepted_assignments: number | null; missing_hours_assignments: number | null;
+    undated_accepted_assignments: number | null; undated_contributions: number | null; notes: string[];
+  };
+}
 export interface SeasonSummary {
   season_id: string;
   state: "draft" | "approved";

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
@@ -88,7 +88,7 @@ export function DashboardPage() {
   );
   const seasonTitle = (id: string) => seasons.data?.items.find((season) => season.season_id === id)?.title ?? "Сезон";
   return (
-    <Page title="Мои блоки и мероприятия" description="Ваше участие и роли в командах. Блоки не зависят от сезона.">
+    <Page title="Рабочее пространство" description="Ваши команды, мероприятия и быстрый доступ к работе. Блоки не зависят от сезона.">
       <nav className={p.quickLinks} aria-label="Рабочие разделы">
         <RouteLink to="/tasks?mine=true">Мои задачи</RouteLink>
         <RouteLink to="/calendar">Календарь</RouteLink>
@@ -126,13 +126,13 @@ const KINDS: Record<CalendarItem["kind"], { label: string; tone: Tone }> = {
   event: { label: "Мероприятие", tone: "mint" },
   meeting: { label: "Созвон", tone: "yellow" },
 };
-function CalendarEntry({ item, title, inDay = false }: { item: CalendarItem; title: string; inDay?: boolean }) {
+function CalendarEntry({ item, title, inDay = false, today = false }: { item: CalendarItem; title: string; inDay?: boolean; today?: boolean }) {
   const route = item.kind === "meeting" && (item.target.kind === "event" || item.target.kind === "subevent")
     ? getMeetingRoute(item.target.kind, item.target.id)
     : targetRoute(item.target);
   const kind = KINDS[item.kind];
   return (
-    <div className={c.entry} style={toneStyle(kind?.tone)}>
+    <div className={`${c.entry} ${today ? c.todayEntry : ""}`} style={toneStyle(kind?.tone)}>
       {/* In a day of the month the day is already said: the time is enough. */}
       <small>{inDay ? displayTime(item.starts_at) : displayDate(item.starts_at)} · {kind?.label}</small>
       {route ? (
@@ -145,6 +145,12 @@ function CalendarEntry({ item, title, inDay = false }: { item: CalendarItem; tit
   );
 }
 export function CalendarPage() {
+  const [today, setToday] = useState(() => moscowDay(new Date().toISOString()));
+  useEffect(() => {
+    const update = () => setToday(moscowDay(new Date().toISOString()));
+    const timer = window.setInterval(update, 60_000);window.addEventListener("focus", update);
+    return () => { window.clearInterval(timer);window.removeEventListener("focus", update); };
+  }, []);
   const [month, setMonth] = useState(
     moscowDay(new Date().toISOString()).slice(0, 7),
   );
@@ -216,7 +222,7 @@ export function CalendarPage() {
               <div key={`empty-${i}`} className={c.empty} />
             ))}
             {range.days.map((day) => (
-              <div key={day} className={c.day} role="cell" aria-label={day}>
+              <div key={day} className={`${c.day} ${day === today ? c.today : ""}`} role="cell" aria-label={day} aria-current={day === today ? "date" : undefined}>
                 <span className={c.dayNumber}>{Number(day.slice(-2))}</span>
                 {items
                   .filter((i) => moscowDay(i.starts_at) === day)
@@ -234,7 +240,7 @@ export function CalendarPage() {
         </div>
         <div className={c.mobileList}>
           {items.map((i) => (
-            <CalendarEntry key={i.id} item={i} title={label(i.season_id)} />
+            <CalendarEntry key={i.id} item={i} title={label(i.season_id)} today={moscowDay(i.starts_at) === today} />
           ))}
         </div>
         {!items.length && <Empty>На этот месяц нет доступных событий.</Empty>}

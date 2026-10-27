@@ -122,8 +122,10 @@ def correct(kind, id, revision, target_id, reason, uid):
                 obj.revision += 1
             for item in [*tasks, *merits]:
                 if isinstance(item,TaskORM):
-                    from tracker import metadata
+                    from tracker import metadata, activity
                     meta=metadata(s,item);meta.assessment_revision=(meta.assessment_revision or 1)+1
+                    activity(s,item,"task_updated",uid,"Изменён сезон задачи",changes=[
+                        dict(field="season_id",label="Сезон",before=source_id,after=target_id)])
                 item.season_id = target_id
                 item.revision += 1
             for report in reports:

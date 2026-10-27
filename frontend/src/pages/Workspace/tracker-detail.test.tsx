@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { createFixtures, people } from "../../mocks/fixtures";
 import { mountWorkspace, waitForPage, settle, change, submit } from "../../test/workspace";
 import { tasksApi } from "../../utils/api/tasks.api";
+import { seasonsApi } from "../../utils/api/seasons.api";
 import { filesApi } from "../../utils/api/files.api";
 import { richText, type Task, type Comment, type FileRef } from "../../utils/api/contract";
 import { TrackerTaskPage } from "./TrackerTaskDetail";
@@ -21,6 +22,7 @@ async function click(text: string, root: ParentNode = page!.container) {
   expect(button, `Missing button ${text}`).toBeDefined();await act(async () => button!.click());await settle();
 }
 async function mountTask(task: Task, comments: Comment[] = []) {
+  vi.spyOn(seasonsApi, "list").mockResolvedValue({ items: createFixtures("chair").seasons, next_cursor: null });
   vi.spyOn(tasksApi, "get").mockResolvedValue(task);
   vi.spyOn(tasksApi, "comments").mockResolvedValue({ items: comments, next_cursor: null });
   vi.spyOn(tasksApi, "history").mockResolvedValue({ items: [], next_cursor: null });
@@ -113,8 +115,8 @@ it.each([true, false])("deadline shortcut follows actual date-edit rights (edita
     await click("Изменить дедлайн");
     const field = page!.container.querySelector<HTMLInputElement>('input[name="deadline"]')!;
     expect(document.activeElement).toBe(field);expect(field.closest("details")?.open).toBe(true);
-    const accounting = [...page!.container.querySelectorAll<HTMLDetailsElement>("details")].find(item => item.querySelector(":scope > summary")?.textContent === "Учёт работы и ККР");
-    expect(accounting?.open).toBe(true);
+    const accounting = page!.container.querySelector('section[aria-label="Учёт работы и ККР"]');
+    expect(accounting).not.toBeNull();expect(accounting?.getAttribute("hidden")).toBeNull();
   } else expect(page!.container.querySelector('input[name="deadline"]')).toBeNull();
 });
 

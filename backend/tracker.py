@@ -284,7 +284,7 @@ def can_edit_comment(session,comment,uid):
 
 def public_changes(session,event,uid):
     from task_queues import task_read,task_queue
-    allowed={"title","description","deadline_at","status","comment","attachments","parent_task_id","assignees","watchers"}
+    allowed={"title","description","deadline_at","status","comment","attachments","parent_task_id","assignees","watchers","season_id"}
     changes=[]
     for raw in json.loads(event.changes_json or "[]"):
         if raw.get("field") not in allowed:continue
@@ -307,6 +307,10 @@ def public_changes(session,event,uid):
                     q=task_queue(session,parent);m=metadata(session,parent)
                     item[side]=(q.key+'-'+str(m.queue_number)) if q else 'TASK-'+str(m.task_number)
                 elif item.get(side):item[side]='Недоступная задача'
+        if item['field']=='season_id':
+            for side in ('before','after'):
+                season=session.get(SeasonORM,item.get(side)) if item.get(side) else None
+                if item.get(side):item[side]=season.title if season else 'Недоступный сезон'
         changes.append(item)
     return changes
 

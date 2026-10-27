@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { ReactNode } from "react";
+import { act, type ReactNode } from "react";
 import { afterEach, expect, it } from "vitest";
 import { Route, Routes } from "react-router-dom";
 import { liveLogin, liveParticipant } from "../../test/liveApi";
@@ -9,7 +9,7 @@ import { reportsApi } from "../../utils/api/reports.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { richText, type Event, type Subevent } from "../../utils/api/contract";
 import { ReportHistoryPage, ReportPage } from "./ReportPages";
-import { EventPage, EventsListPage } from "./EventPages";
+import { EventCreatePage, EventPage, EventsListPage } from "./EventPages";
 import { DashboardPage } from "./WorkspacePages";
 
 // Step 5 of release 1: report history (FIX_PLAN 2.2), a series chosen on creation (2.21)
@@ -109,7 +109,12 @@ it("2.21: a new event and its subevent continue chosen series and show their his
   const oldReport = await publish("subevent", old.sub.subevent_id, "Отчёт старых лекций");
   const next = await plannedSeason();
 
-  await mount("chair@example.com", <Routes><Route path="/events" element={<EventsListPage />} /><Route path="/events/:id" element={<p>Мероприятие создано</p>} /></Routes>, "/events");
+  await mount("chair@example.com", <Routes><Route path="/events" element={<EventsListPage />} /><Route path="/events/new" element={<EventCreatePage />} /><Route path="/events/:id" element={<p>Мероприятие создано</p>} /></Routes>, "/events");
+  expect(page!.container.querySelector("form")).toBeNull();
+  const createLink = [...page!.container.querySelectorAll("a")].find(link => link.textContent?.trim() === "Создать мероприятие")!;
+  expect(createLink.getAttribute("href")).toBe("/events/new");
+  await act(async () => createLink.click());await waitForPage(page!, () => !!page!.container.querySelector('[name="series"]'));
+  expect(page!.container.querySelector("h1")?.textContent).toBe("Новое мероприятие");
   const form = field(page!.container, "series").closest("form")!;
   await waitForPage(page!, () => options(field(form, "series") as HTMLSelectElement).some(([value]) => value === old.event.report_series_id));
   const label = options(field(form, "series") as HTMLSelectElement).find(([value]) => value === old.event.report_series_id)![1];
@@ -118,7 +123,7 @@ it("2.21: a new event and its subevent continue chosen series and show their his
   await change(field(form, "season") as HTMLSelectElement, next.season_id);
   await change(field(form, "series") as HTMLSelectElement, old.event.report_series_id);
   await submit(form);
-  await waitForPage(page!);
+  await waitForPage(page!, () => text().includes("Мероприятие создано"));
   await page!.cleanup(); page = undefined;
   await liveLogin();
   const created = (await eventsApi.list()).items.find(e => e.title === "Посвят следующего года с серией")!;
@@ -154,7 +159,7 @@ it("the home page lists actual participation for every role, including the chair
   const outsider = await liveParticipant("home-outsider");
   for (const [email, listed] of [["chair@example.com", false], [outsider.email, false], [org.email, true]] as const) {
     await mount(email, <Routes><Route path="/" element={<DashboardPage />} /></Routes>, "/");
-    await waitForPage(page!, () => text().includes("Мои блоки и мероприятия"));
+    await waitForPage(page!, () => text().includes("Рабочее пространство"));
     const card = Array.from(page!.container.querySelectorAll("section")).find(s => s.querySelector(":scope > h2")?.textContent?.startsWith("Мои мероприятия ·"))!;
     expect(!!card.textContent?.includes(event.title), email).toBe(listed);
     if (email === "chair@example.com") expect(text()).not.toContain("Integration vacant");

@@ -106,6 +106,7 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ('GET', '/api/seasons'),
     ('GET', '/api/seasons/current'),
     ('GET', '/api/seasons/{season_id}'),
+    ('GET', '/api/seasons/{season_id}/analytics'),
     ('GET', '/api/seasons/{season_id}/master-bonuses'),
     ('GET', '/api/seasons/{season_id}/summary'),
     ('GET', '/api/seasons/{season_id}/summary.xlsx'),

@@ -1,6 +1,7 @@
 import type {
   Season,
   SeasonSummary,
+  SeasonAnalytics,
   MasterBonus,
   Contribution,
   Merit,
@@ -42,6 +43,8 @@ export const seasonsApi = {
     ),
   summary: (id: string) =>
     request<SeasonSummary>("get", `/seasons/${idPath(id)}/summary`),
+  analytics: (id: string, params: { participant_id?: string; block_id?: string } = {}) =>
+    request<SeasonAnalytics>("get", `/seasons/${idPath(id)}/analytics`, undefined, params),
   summaryVersions: (id: string) =>
     page<SummaryVersionMetadata>(`/seasons/${idPath(id)}/summary/versions`),
   summaryVersion: (id: string, version: number) =>

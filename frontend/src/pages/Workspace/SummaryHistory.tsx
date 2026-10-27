@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Card, Empty, QueryState } from "../../components/Workspace/WorkspaceUI";
+import { Empty, QueryState } from "../../components/Workspace/WorkspaceUI";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { can, useSession } from "../../utils/session";
 import { displayDate } from "../../utils/dates";
 import { SummaryTable } from "./SummaryTable";
 import s from "../../components/Workspace/Workspace.module.css";
+import u from "./SeasonWorkspace.module.css";
+import { UserChip } from "../../components/Workspace/UserChip";
 
 export function SummaryHistory({ seasonId }: { seasonId: string }) {
   const { session } = useSession();
@@ -23,8 +25,8 @@ export function SummaryHistory({ seasonId }: { seasonId: string }) {
   if (!allowed) return null;
   const historical = snapshot.data;
   const participant = (id: string) => historical?.summary.rows.find(r => r.participant_id === id)?.user.display_name ?? "Участник";
-  return <Card title="История утверждённых итогов">
-    <p>Сохранённые версии доступны только для чтения. Действующая сводная показана выше.</p>
+  return <section className={u.panel}><h2>Версии сводной</h2>
+    <p className={u.note}>Сохранённые версии доступны только для чтения. Действующие итоги — на вкладке «Участники и ККР».</p>
     <QueryState loading={versions.isLoading} error={versions.error} retry={() => { void versions.refetch(); }}>
       {versions.data?.items.length ? <label className={s.field}>
         Версия итогов
@@ -39,7 +41,7 @@ export function SummaryHistory({ seasonId }: { seasonId: string }) {
         {historical && <section aria-label="Историческая сводная" className={s.stack}>
           <div>
             <h3>Историческая версия {historical.version}</h3>
-            <p>{historical.changed_by.display_name} · {displayDate(historical.changed_at)}</p>
+            <div className={u.statusLine}><UserChip user={historical.changed_by} /><span>{displayDate(historical.changed_at)}</span></div>
             <p>Основание: {historical.reason}</p>
             {historical.previous_summary_version !== null && <p>Версия итогов предыдущего сезона: {historical.previous_summary_version}</p>}
           </div>
@@ -65,5 +67,5 @@ export function SummaryHistory({ seasonId }: { seasonId: string }) {
         </section>}
       </QueryState>}
     </QueryState>
-  </Card>;
+  </section>;
 }

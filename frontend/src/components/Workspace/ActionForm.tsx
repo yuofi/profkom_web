@@ -84,6 +84,7 @@ export function ActionForm({
   onReplaceWithSaved,
   adoptWhenUntouched = false,
   resetOnSuccess = false,
+  resetFieldsOnSuccess = [],
   changeRequired,
   variant = "primary",
   externalState,
@@ -104,6 +105,8 @@ export function ActionForm({
   adoptWhenUntouched?: boolean;
   /** A form that creates something starts empty again after a success (A-TSK-6). */
   resetOnSuccess?: boolean;
+  /** Clear one-shot decisions only after a successful save, retaining the other saved input. */
+  resetFieldsOnSuccess?: string[];
   /** Saving is offered only once one of these fields differs from its saved value (A-ROL-12). */
   changeRequired?: string[];
   /** The look of the submit: the main action, a minor one, or one that takes something away. */
@@ -234,7 +237,8 @@ export function ActionForm({
           if (revisionKey !== undefined && "revisionKey" in saved) setExpectedRevisionKey(saved.revisionKey);
         }
         confirmedRemoval.current = null;
-        form.resetForm({ values: resetOnSuccess ? savedValues(fields) : values });
+        const acceptedValues = resetOnSuccess ? savedValues(fields) : { ...values, ...Object.fromEntries(resetFieldsOnSuccess.map(name => [name, savedValues(fields)[name] ?? ""])) };
+        form.resetForm({ values: acceptedValues });
         setExternalBaseline(resetOnSuccess ? JSON.stringify(savedExternalState ?? externalState) : externalValue);
         submitted.current = true;
         setHoldSavedInput(!resetOnSuccess);

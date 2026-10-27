@@ -11,7 +11,7 @@ import { emptyCriteria, richText } from "../../utils/api/contract";
 import { UnresolvedPage } from "./TaskPages";
 import { ReportPage } from "./ReportPages";
 import { reportsApi } from "../../utils/api/reports.api";
-import { SummaryPage } from "./SeasonPages";
+import { SeasonPage, SummaryPage } from "./SeasonPages";
 import { invalidateWorkspace } from "../../utils/api/invalidation";
 import { act } from "react";
 import { ProfileEditPage } from "../ProfileEditPage/ProfileEditPage";
@@ -90,9 +90,15 @@ it("INT-03: closed correction keeps old totals immutable and exposes provenance 
   const old = await seasonsApi.summaryVersion(closed.season_id, summary.version);
   const row = summary.rows.find(r => r.user.user_id !== null)!;
   summary = await seasonsApi.decisions(closed.season_id, row.user.user_id!, { expected_version: summary.version, decisions: ["nice"], reason: "INT-03 новая отметка" });
-  page = await mountWorkspace(<Routes><Route path="/seasons/:id/summary" element={<SummaryPage />} /></Routes>, { path: `/seasons/${closed.season_id}/summary`, session });
-  await waitForPage(page, () => !!page!.container.querySelector('select'));
-  await change(page.container.querySelector('select')!, String(old.version));
+  page = await mountWorkspace(<Routes><Route path="/seasons/:id/summary" element={<SummaryPage />} /><Route path="/seasons/:id" element={<SeasonPage />} /></Routes>, { path: `/seasons/${closed.season_id}/summary`, session });
+  await waitForPage(page, () => !!page!.container.querySelector('section[aria-label="Участники и ККР"]'));
+  const historyTab = [...page.container.querySelectorAll<HTMLAnchorElement>('nav[aria-label="Разделы сезона"] a')].find(link => link.textContent === "История")!;
+  expect(historyTab.getAttribute("href")).toBe(`/seasons/${closed.season_id}?tab=history`);
+  await act(async () => historyTab.click());
+  const versionSelect = () => [...page!.container.querySelectorAll<HTMLSelectElement>("select")].find(select => select.closest("label")?.textContent?.trim().startsWith("Версия итогов"));
+  await waitForPage(page, () => !!versionSelect());
+  expect(page.container.querySelector('nav[aria-label="Разделы сезона"] a[aria-current="page"]')?.textContent).toBe("История");
+  await change(versionSelect()!, String(old.version));
   await waitForPage(page, () => !!page!.container.querySelector('[aria-label="Историческая сводная"]'));
   let historical = page.container.querySelector('[aria-label="Историческая сводная"]')!;
   expect(historical.textContent).toContain(`Историческая версия ${old.version}`);
@@ -105,7 +111,7 @@ it("INT-03: closed correction keeps old totals immutable and exposes provenance 
   expect((await seasonsApi.summaryVersion(closed.season_id, old.version))).toEqual(old);
   historical = page.container.querySelector('[aria-label="Историческая сводная"]')!;
   expect(historical.textContent).toBe(oldText);
-  expect(page.container.querySelector('select')!.querySelectorAll('option').length).toBeGreaterThan(3);
+  expect(versionSelect()!.querySelectorAll("option").length).toBeGreaterThan(3);
 }, CLOSES_SEASONS_TIMEOUT);
 
 it("INT-04: a real approved profile with @username and no patronymic can save one field", async () => {

@@ -768,7 +768,7 @@ export function CorrectionsPage() {
   const { perform } = useWorkspaceActions();
   const [kind, setKind] = useState<CorrectionKind>("assessment_inputs");
   const [objectId, setObjectId] = useState("");
-  const chair = can(session, "close_season");
+  const chair = can(session, "correct_season");
   const summary = useQuery({
     queryKey: ["summary", id],
     queryFn: () => seasonsApi.summary(id),
@@ -806,7 +806,7 @@ export function CorrectionsPage() {
       }
     >
       {!chair ? (
-        <Empty>Исправление доступно председателю.</Empty>
+        <Empty>Исправление доступно председателю и его заместителям.</Empty>
       ) : (
         <QueryState
           loading={summary.isLoading}

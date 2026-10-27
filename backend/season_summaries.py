@@ -69,7 +69,7 @@ def current(session, season_id):
     return session.query(SeasonSummaryORM).filter_by(season_id=season_id).first()
 
 
-def store_snapshot(session, season_id, uid, reason):
+def store_snapshot(session, season_id, uid, reason, *, capture_analytics=True):
     session.flush()
     row = current(session, season_id)
     if not row or row.state != "approved":
@@ -97,6 +97,11 @@ def store_snapshot(session, season_id, uid, reason):
         rows=json.loads(row.rows_json),
         capabilities=["view_summary"],
     )
+    # New versions preserve observed accounting facts for future analytics. Existing
+    # immutable versions are returned above and never enriched/backfilled on read.
+    from season_analytics import FACTS_KEY, snapshot_facts
+    if capture_analytics:
+        data[FACTS_KEY] = snapshot_facts(session, season_id)
     ledger = [
         dict(
             contribution_id=c.contribution_id,
@@ -165,7 +170,9 @@ def refresh(session, season_id, uid, reason):
         raise Conflict("Closed summary snapshot missing")
     if not access.allowed(uid, "summary.correct"):
         raise Forbidden("Forbidden: only chair can correct closed scoring")
-    store_snapshot(session, season_id, uid, "Initial preserved snapshot")
+    # A legacy approved row is preserved after input mutation. Its old analytic
+    # facts were never observed, so only the newly approved successor gets them.
+    store_snapshot(session, season_id, uid, "Initial preserved snapshot", capture_analytics=False)
     rows = json.loads(row.rows_json)
     old_version = row.version
     allowed = {r["participant_id"] for r in rows}
@@ -419,10 +426,15 @@ def register_routes(router):
             )
             if not r:
                 raise HTTPException(404, "Summary version not found")
+            from season_analytics import FACTS_KEY
+            saved_summary = json.loads(r.summary_json)
+            # Internal analytic facts contain private row identifiers, not part of
+            # the public summary DTO or its backwards-compatible version route.
+            saved_summary.pop(FACTS_KEY, None)
             return dict(
                 **metadata(r,cur.user_id),
                 # Saved as they were, but with today's avatars (A-MAT-16).
-                summary=current_avatars(mask_snapshot_summary(s,json.loads(r.summary_json),season_id,cur.user_id)),
+                summary=current_avatars(mask_snapshot_summary(s,saved_summary,season_id,cur.user_id)),
                 contributions=current_avatars(mask_snapshot_contributions(s,json.loads(r.contributions_json),cur.user_id)),
                 master_bonuses=current_avatars(json.loads(r.bonuses_json))
             )

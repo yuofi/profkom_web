@@ -31,7 +31,7 @@ it("the personal home keeps role-gated queue links without the old decisions car
   page = await mountWorkspace(<DashboardPage />, { role: "organizer", session: master });
   await settle(); await settle();
   expect(page.container.textContent).not.toContain("Требуют решения");
-  expect(page.container.textContent).toContain("Мои блоки и мероприятия");
+  expect(page.container.textContent).toContain("Рабочее пространство");
   expect(links(page.container)).toContain("Мои заявки и решения");
 });
 

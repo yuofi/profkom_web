@@ -3245,6 +3245,8 @@ from membership import register_routes as register_membership_routes
 register_membership_routes(router)
 from season_summaries import register_routes as register_summary_routes
 register_summary_routes(router)
+from season_analytics import register_routes as register_analytics_routes
+register_analytics_routes(router)
 from materials import register_routes as register_material_routes
 register_material_routes(router)
 

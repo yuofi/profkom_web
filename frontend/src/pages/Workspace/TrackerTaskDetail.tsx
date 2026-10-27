@@ -11,6 +11,8 @@ import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
 import { useGuardedAction } from "../../components/Workspace/unsavedChangesHooks";
 import { text } from "../../components/Workspace/formValues";
 import { tasksApi } from "../../utils/api/tasks.api";
+import { seasonsApi } from "../../utils/api/seasons.api";
+import { TaskSeasonParameter } from "./TaskSeasonParameter";
 import { userMessage } from "../../utils/api/messages";
 import { recordOwnChange, useOwnRevisions } from "../../components/Workspace/ownRevisions";
 import { richText, type Assignment, type Comment, type FileRef, type Task } from "../../utils/api/contract";
@@ -58,13 +60,11 @@ function TaskContent({ task, assignmentId, returnSeason }: { task: Task; assignm
     } catch (failure) { setChecklistError(userMessage(failure));await refresh(); }
     finally { checklistSaving.current = false;setChecklistBusy(false); }
   };
-  const [accounting, setAccounting] = useState(false);
   const [parametersOpen, setParametersOpen] = useState(() => typeof window === "undefined" || typeof window.matchMedia !== "function" || window.matchMedia("(min-width: 901px)").matches);
-  const accountingRef = useRef<HTMLDetailsElement>(null);
+  const accountingRef = useRef<HTMLElement>(null);
   const taskInputs = useQuery({ queryKey: ["assessments", "task", task.task_id], queryFn: () => tasksApi.inputs(task.task_id), enabled: can(task, "view_assessment_inputs") });
   const datesEditable = can(task, "view_assessment_inputs") && can(taskInputs.data, "edit_assessment_inputs") && can(taskInputs.data, "edit_assessment_dates");
   const editDeadline = () => {
-    setAccounting(true);
     window.setTimeout(() => {
       const input = accountingRef.current?.querySelector<HTMLInputElement>('input[name="deadline"]');
       if (!input) return;
@@ -80,7 +80,9 @@ function TaskContent({ task, assignmentId, returnSeason }: { task: Task; assignm
   useEffect(() => { const interval = window.setInterval(() => setNow(Date.now()), 60000);return () => window.clearInterval(interval); }, []);
   const reviewNotes = [...new Set(task.assignments.map(assignment => assignment.review_note?.trim()).filter((note): note is string => !!note))];
   const scopeRoute = task.scope.kind === "block" ? getBlockRoute(task.scope.id) : task.scope.kind === "subevent" ? getSubeventRoute(task.scope.id) : null;
-  const hasAccounting = task.assignments.some(item => can(item, "view_assessment_inputs")) || can(task, "view_assessment_inputs");
+  const hasAccounting = task.scope.kind !== "queue" && (task.assignments.some(item => can(item, "view_assessment_inputs")) || can(task, "view_assessment_inputs"));
+  const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list, enabled: hasAccounting });
+  const seasonClosed = seasons.data?.items.find(season => season.season_id === task.season_id)?.state === "closed";
   return <>
     <header className={s.header}>
       <div className={s.breadcrumbs} aria-label="Путь задачи"><Link to={task.queue ? getTaskQueueRoute(task.queue.queue_id) : getTaskQueuesRoute()}>{task.queue?.name ?? "Очереди задач"}</Link><span>›</span>{task.parent_task && <><Link to={getTaskRoute(task.parent_task.task_id)}>{task.parent_task.task_key} · {task.parent_task.title}</Link><span>›</span></>}<span>{task.task_key ?? "Задача"}</span></div>
@@ -109,14 +111,16 @@ function TaskContent({ task, assignmentId, returnSeason }: { task: Task; assignm
           {(task.attachments?.length ?? 0) > 0 && <div className={s.descriptionFiles}><Attachments files={task.attachments ?? []} /></div>}
         </section>
         <section className={s.related} aria-label="Связанные задачи"><div className={s.sectionHeading}><h2>Связанные задачи</h2><DeferredButton icon="add" label="Добавить связь" /></div><div className={s.relatedRow}><span>Родительская задача</span><div className={s.parentValue}>{task.parent_task ? <Link to={getTaskRoute(task.parent_task.task_id)}>{task.parent_task.task_key} · {task.parent_task.title}</Link> : <span className={w.muted}>{task.parent_task_unavailable ? "Недоступна" : "Не выбрана"}</span>}{can(task, "edit_task") && <button type="button" className={s.subtleButton} onClick={() => setEditor("parent")}>Изменить родительскую задачу</button>}</div></div><div className={s.relatedRow}><span>Связи с другими задачами</span><span className={s.planned}>Запланировано</span></div></section>
-        <TaskActivity task={task} />
         {assignmentId && !task.assignments.some(item => item.assignment_id === assignmentId) && <Empty>Назначение больше недоступно.</Empty>}
-        {(hasAccounting || assignmentId) && <details ref={accountingRef} className={s.accounting} open={accounting || !!assignmentId} onToggle={event => setAccounting(event.currentTarget.open)}>
-          <summary>Учёт работы и ККР</summary><div className={s.accountingBody}>
+        {hasAccounting && <section ref={accountingRef} className={s.accounting} aria-label="Учёт работы и ККР">
+          <div className={s.sectionHeading}><h2>Учёт работы и ККР</h2></div>
+          <p className={s.accountingHint}>Отдельное решение по каждому исполнителю. Публичный статус задачи не определяет ККР.</p>
+          <div className={s.accountingBody}>
+            {task.assignments.map(assignment => <AssignmentAccounting key={assignment.assignment_id} assignment={assignment} focused={assignment.assignment_id === assignmentId} hasResult={(task.submissions?.length ?? 0) > 0} seasonClosed={seasonClosed} />)}
             <TaskInputsPanel task={task} /><BulkHoursPanel task={task} />
-            {task.assignments.map(assignment => <AssignmentAccounting key={assignment.assignment_id} assignment={assignment} focused={assignment.assignment_id === assignmentId} />)}
           </div>
-        </details>}
+        </section>}
+        <TaskActivity task={task} />
       </div>
       <aside className={s.sidebar} aria-label="Параметры задачи"><details className={s.parameters} open={parametersOpen} onToggle={event => setParametersOpen(event.currentTarget.open)}><summary>Параметры</summary><dl>
         <div><dt>Статус</dt><dd><TaskStatusMenu task={task} /></dd></div>
@@ -125,7 +129,7 @@ function TaskContent({ task, assignmentId, returnSeason }: { task: Task; assignm
         <div><dt>Дедлайн, МСК</dt><dd><time dateTime={task.deadline_at} className={new Date(task.deadline_at).getTime() < now && !["accepted", "not_completed", "cancelled"].includes(taskStatus(task)) ? s.overdue : undefined}>{displayDate(task.deadline_at)}</time>{datesEditable && <button type="button" className={s.deadlineEdit} onClick={editDeadline}>Изменить дедлайн</button>}</dd></div>
         <div><dt>Очередь</dt><dd>{task.queue ? <Link to={getTaskQueueRoute(task.queue.queue_id)}>{task.queue.name}</Link> : <Link to={getTaskQueuesRoute()}>Открыть очереди</Link>}</dd></div>
         {scopeRoute && <div><dt>Команда</dt><dd><Link to={scopeRoute}>{task.scope_title ?? "Открыть команду"}</Link></dd></div>}
-        <div><dt>Сезон</dt><dd><Link to={getSeasonRoute(task.season_id)}>Открыть сезон</Link></dd></div>
+        <TaskSeasonParameter task={task} />
         <div><dt>Цели</dt><dd><DeferredValue label="Цели задачи" /></dd></div>
         <div><dt>Автор</dt><dd>{task.created_by ? <PersonChip user={task.created_by} /> : <span className={w.muted}>Не указан</span>}</dd></div>
         <TaskPeopleParameters task={task} />
@@ -253,11 +257,11 @@ function TaskHistory({ task, order }: { task: Task; order: "newest" | "oldest" }
   const items = [...(query.data?.items ?? [])].sort((a, b) => (order === "newest" ? -1 : 1) * (a.created_at.localeCompare(b.created_at) || a.event_id.localeCompare(b.event_id)));
   return <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!query.data}><ol className={s.history}>{items.map(item => <li key={item.event_id}><div className={s.historyMarker}><Glyph name="sync" /></div><div><p>{item.actor && <PersonChip user={item.actor} />}<time dateTime={item.created_at}>{displayDate(item.created_at)}</time></p><p>{item.description}</p>{item.changes && item.changes.length > 0 && <TrackerTaskHistoryDiff changes={item.changes} />}{!item.changes?.some(change => change.field === "status") && item.to_status && <span className={w.muted}>{item.from_status ? `${statusNames[item.from_status]} → ` : ""}{statusNames[item.to_status]}</span>}</div></li>)}</ol>{!items.length && <Empty>История появится по мере работы над задачей.</Empty>}</QueryState>;
 }
-function AssignmentAccounting({ assignment, focused }: { assignment: Assignment; focused: boolean }) {
+function AssignmentAccounting({ assignment, focused, hasResult, seasonClosed }: { assignment: Assignment; focused: boolean; hasResult: boolean; seasonClosed: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { if (focused) { ref.current?.focus();ref.current?.scrollIntoView?.({ block: "center" }); } }, [focused]);
   if (!can(assignment, "view_assessment_inputs") && !focused) return null;
   return <div ref={ref} tabIndex={-1} className={focused ? w.focusedAssignment : s.accountingPerson} aria-label={`Назначение: ${assignment.assignee.display_name}`}>
-    <h3><PersonChip user={assignment.assignee} /></h3>{focused && <p role="status">Назначение из препятствий закрытию сезона</p>}<AssessmentPanel assignment={assignment} open={focused} />
+    {focused && <p role="status">Назначение из препятствий закрытию сезона</p>}<AssessmentPanel assignment={assignment} open={focused} hasResult={hasResult} seasonClosed={seasonClosed} />
   </div>;
 }

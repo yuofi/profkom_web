@@ -16,6 +16,8 @@ const EventPage = lazy(() =>
     default: m.EventPage,
   })),
 );
+const EventCreatePage = lazy(() => import("./pages/Workspace/EventPages").then(m => ({ default: m.EventCreatePage })));
+const EventEditPage = lazy(() => import("./pages/Workspace/EventPages").then(m => ({ default: m.EventEditPage })));
 const SubeventPage = lazy(() =>
   import("./pages/Workspace/EventPages").then((m) => ({
     default: m.SubeventPage,
@@ -92,6 +94,7 @@ const SeasonsPage = lazy(() =>
     default: m.SeasonsPage,
   })),
 );
+const SeasonCreatePage = lazy(() => import("./pages/Workspace/SeasonPages").then(m => ({ default: m.SeasonCreatePage })));
 const SeasonPage = lazy(() =>
   import("./pages/Workspace/SeasonPages").then((m) => ({
     default: m.SeasonPage,
@@ -197,6 +200,8 @@ const router = createBrowserRouter(createRoutesFromElements(
                       <Route path="docs/:id/edit" element={<DocEditPage />} />
                     </Route>
                     <Route path="events" element={<EventsListPage />} />
+                    <Route path="events/new" element={<EventCreatePage />} />
+                    <Route path="events/:id/edit" element={<EventEditPage />} />
                     <Route path="events/:id" element={<EventPage />} />
                     <Route path="subevents/:id" element={<SubeventPage />} />
                     <Route path="leadership" element={<Navigate to="/admin/leadership" replace />} />
@@ -220,6 +225,7 @@ const router = createBrowserRouter(createRoutesFromElements(
                       element={<MeetingPage />}
                     />
                     <Route path="seasons" element={<SeasonsPage />} />
+                    <Route path="seasons/new" element={<SeasonCreatePage />} />
                     <Route path="seasons/:id" element={<SeasonPage />} />
                     <Route
                       path="seasons/:id/summary"

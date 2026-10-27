@@ -19,7 +19,7 @@ export interface Section {
 
 /** The menu: every page is in one of its sections, and the section gives it the colour. */
 export const SECTIONS: Section[] = [
-  { to: "/", label: "Моё участие", icon: "space_dashboard", tone: "yellow" },
+  { to: "/", label: "Рабочее пространство", icon: "space_dashboard", tone: "yellow" },
   { to: "/events", label: "Мероприятия", icon: "celebration", tone: "mint", under: ["/subevents", "/meetings", "/reports"] },
   { to: "/tasks", label: "Задачи", icon: "task_alt", tone: "lilac" },
   { to: "/calendar", label: "Календарь", icon: "calendar_month", tone: "sky" },

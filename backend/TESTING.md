@@ -70,3 +70,11 @@ URLs; real watchers receive notifications; independent queues/unassigned creatio
 self-only selection do not create memberships or private-input rights; HR deputy reads
 all private queues yet gains no KKR/report permissions; contextual code drafts bind
 atomically and reject binary payloads; safe roster-history UserRefs anonymize on read.
+
+`tests/test_season_analytics.py` covers global summary/accounting ACL, HR deputy denial,
+public/private status separation, distinct joint tasks versus summed assignment hours,
+Moscow week boundaries, negative/merit/bonus credits, source-block/participant filters,
+unknown hours/dates, current and legacy approved snapshots, new snapshot facts without
+old-version backfill, repeated GET without SQL writes, and public season-move revisions,
+safe history and atomic parent-link rollback. See `docs/SEASON_ANALYTICS.md` for the
+durable metric definitions and closed-season completeness rules.

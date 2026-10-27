@@ -3,9 +3,9 @@ import { act, useState } from "react";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
-import { mountWorkspace, settle, change, field, submit } from "../../test/workspace";
+import { mountWorkspace, settle, change, field, submit, waitForPage } from "../../test/workspace";
 import { ActionForm } from "../../components/Workspace/ActionForm";
-import { EventPage } from "./EventPages";
+import { EventEditPage } from "./EventPages";
 import { BlockPage } from "./MembershipPages";
 import { AccountStatePage } from "./SessionPages";
 import { MeetingPage } from "./ReportPages";
@@ -33,7 +33,7 @@ it.each(["event", "block", "registration", "meeting", "season", "decisions"] as 
   const role = kind === "registration" ? "pending" : "chair";
   mock = installMockTransport(role, { delay: 0 });
   const routes = {
-    event: ["/events/event-1", "/events/:id", <EventPage />, "description"],
+    event: ["/events/event-1/edit", "/events/:id/edit", <EventEditPage />, "description"],
     block: [`/blocks/${mock.state.blocks[0].block_id}`, "/blocks/:id", <BlockPage />, "body"],
     registration: ["/", "/", <AccountStatePage />, "phone"],
     meeting: ["/meetings/subevent/subevent-1", "/meetings/:kind/:id", <MeetingPage />, "title"],
@@ -43,6 +43,8 @@ it.each(["event", "block", "registration", "meeting", "season", "decisions"] as 
   const [path, route, element, name] = routes[kind];
   page = await mountWorkspace(<Routes><Route path={route} element={element} /></Routes>, { role, path });
   await settle(); await settle();
+  if (kind === "event") await waitForPage(page!, () => !!page!.container.querySelector('textarea[name="description"]'));
+  if (kind === "season") { await act(async () => page!.container.querySelector<HTMLButtonElement>('button[aria-label="Редактировать сезон"]')!.click());await settle(); }
   const form = kind === "event" ? Array.from(page.container.querySelectorAll("form")).find((f) => f.querySelector<HTMLInputElement>('[name="title"]')?.value === mock!.state.events[0].title && f.querySelector('[name="description"]'))! : field(page.container, name).closest("form")!;
   await change(field(form, name), "МОЙ НЕСОХРАНЁННЫЙ ТЕКСТ");
   if (kind === "season") await change(field(form, "reason"), "Уточнение плановых дат");
@@ -65,12 +67,15 @@ it.each(["event", "block", "registration", "meeting", "season", "decisions"] as 
   const payload = JSON.parse(mutations().at(-1)!.data);
   expect(payload.expected_revision ?? payload.expected_version).toBe(latestRevision);
   expect(form.querySelector('[role="alert"]'), page.container.textContent ?? "").toBeNull();
-  await change(field(form, name), "ПОВТОРНОЕ СОХРАНЕНИЕ");
-  await submit(form);
+  if (kind === "season") { await act(async () => page!.container.querySelector<HTMLButtonElement>('button[aria-label="Редактировать сезон"]')!.click());await settle(); }
+  const repeatedForm = kind === "season" ? field(page.container, name).closest("form")! : form;
+  await change(field(repeatedForm, name), "ПОВТОРНОЕ СОХРАНЕНИЕ");
+  if (kind === "season") await change(field(repeatedForm, "reason"), "Повторное уточнение плановых дат");
+  await submit(repeatedForm);
   expect(mutations()).toHaveLength(beforeConsent + 2);
   const repeated = JSON.parse(mutations().at(-1)!.data);
   expect(repeated.expected_revision ?? repeated.expected_version).toBe(latestRevision + 1);
-  expect(form.querySelector('[role="alert"]')).toBeNull();
+  expect(repeatedForm.querySelector('[role="alert"]')).toBeNull();
 });
 
 it("A05: background revisions do not silently authorize overwriting a draft", async () => {
