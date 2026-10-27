@@ -39,6 +39,14 @@ export function TaskStatusMenu({ task, variant = "chip", onChanged }: { task: Ta
       onChanged?.();
     } catch (failure) { setError(userMessage(failure));await refresh(); } finally { setBusy(false); }
   };
+  const take = async () => {
+    if (busy || !task.capabilities.includes("take_task")) return;
+    setError("");setBusy(true);
+    try {
+      await perform(async () => { const saved = await tasksApi.take(task.task_id, { expected_revision: task.revision });recordOwnChange(own, `task:${task.task_id}`, task.revision, saved.revision);own.setQueryData(["tasks", task.task_id], saved);return saved; });
+      onChanged?.();
+    } catch (failure) { setError(userMessage(failure));await refresh(); } finally { setBusy(false); }
+  };
   return <div ref={ref} className={s.root} onClick={event => event.stopPropagation()} onKeyDown={event => {
     event.stopPropagation();if (!open) return;
     if (event.key === "Escape") { event.preventDefault();setOpen(false);trigger.current?.focus();return; }
@@ -53,10 +61,9 @@ export function TaskStatusMenu({ task, variant = "chip", onChanged }: { task: Ta
       <button ref={trigger} type="button" className={s.chip} style={toneStyle(statusTones[state])} aria-label={`Статус задачи: ${statusNames[state]}`} aria-haspopup="menu" aria-expanded={open} disabled={busy} onClick={() => setOpen(!open)}><span className={s.dot} /><span className={s.chipLabel}>{statusNames[state]}</span><Glyph name="expand_more" /></button>
       {open && <div role="menu" tabIndex={-1} aria-label="Выбор статуса задачи" className={s.menu}><p className={s.menuNote}>Общий статус задачи</p>{Object.entries(statusNames).map(([key, label]) => <button type="button" role="menuitem" className={s.option} key={key} disabled={!transitions.includes(key as AssignmentStatus)} aria-current={key === state ? "true" : undefined} onClick={() => { void choose(key as AssignmentStatus); }}><span className={s.menuDot} style={toneStyle(statusTones[key as AssignmentStatus])} />{label}{key === state && <Glyph name="check" />}</button>)}</div>}
     </> : <div className={s.actions} aria-label="Действия с задачей">
-      {transitions.includes("in_progress") && <button type="button" className={w.button} disabled={busy} onClick={() => { void choose("in_progress"); }}>Взять в работу</button>}
+      {task.capabilities.includes("take_task") && <button type="button" className={w.button} disabled={busy} onClick={() => { void take(); }}>Взять в работу</button>}
       {transitions.includes("help_required") && <button type="button" className={w.button} disabled={busy} onClick={() => { void choose("help_required"); }}>Нужна помощь</button>}
       {task.capabilities.includes("submit_task_result") && <button type="button" className={`${w.button} ${w.primary}`} disabled={busy} onClick={() => setResultOpen(true)}>Сдать результат</button>}
-      <TaskStatusMenu task={task} onChanged={onChanged} />
     </div>}
     {error && <p role="alert" className={w.error}>{error}</p>}
     {resultOpen && task.capabilities.includes("submit_task_result") && <UnsavedChangesScope><ResultDialog task={task} onClose={() => setResultOpen(false)} onChanged={onChanged} /></UnsavedChangesScope>}

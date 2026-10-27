@@ -45,6 +45,7 @@ class BlockPatch(Revision):
     description: dict | None = None
     community_url: str | None = None
     name: str | None = None
+    avatar_file_id: str | None = Field(default=None, min_length=1)
 
 
 class CategoryPatch(Revision):
@@ -79,6 +80,53 @@ def scope_out(scope):
     if data["kind"] == "block":
         data["id"] = block_id_for(data["id"])
     return data
+
+
+def block_avatar_url(session, meta):
+    """Read current metadata without a storage call or a signed client URL."""
+    from database import FileRecordORM
+    from file_access import content_url
+
+    file = session.get(FileRecordORM, meta.avatar_file_id) if meta and meta.avatar_file_id else None
+    if file and file.state == "completed" and file.owner_kind == "block" and file.owner_id == meta.block_id and file.purpose == "avatar":
+        return content_url(file.file_id)
+    return None
+
+
+def scope_display(scope):
+    """Only for an already-readable task/assignment; project its current scope identity."""
+    from database import SubeventORM
+
+    kind, owner_id = (scope.kind, scope.id) if hasattr(scope, "kind") else (scope["kind"], scope["id"])
+    with db._session() as session:
+        if kind == "block":
+            meta = session.get(BlockMetaORM, owner_id) or session.query(BlockMetaORM).filter_by(legacy_name=owner_id).first()
+            block = session.get(BlockORM, meta.legacy_name) if meta else None
+            return dict(scope_title=block.name if block else "Блок", scope_avatar_url=block_avatar_url(session, meta) if block else None)
+        owner = session.get(SubeventORM, owner_id) if kind == "subevent" else None
+        return dict(scope_title=owner.title if owner else "", scope_avatar_url=None)
+
+
+def replace_block_avatar(session, meta, file_id, uid):
+    from database import FileRecordORM
+    from domain_models import ObjectDeletionORM
+    from file_access import INLINE, key, sealed_key
+
+    file = session.get(FileRecordORM, file_id) if file_id else None
+    if file_id and (not file or file.owner_kind != "block" or file.owner_id != meta.block_id or file.purpose != "avatar" or file.uploaded_by_user_id != uid or file.state != "completed" or not file.sealed_at or file.mime_type not in INLINE):
+        fail(422, "Completed own block avatar file required")
+    previous = meta.avatar_file_id
+    if previous == file_id:
+        return
+    meta.avatar_file_id = file_id
+    if previous:
+        old = session.get(FileRecordORM, previous)
+        if old and old.owner_kind == "block" and old.owner_id == meta.block_id:
+            for object_key in (key(previous), sealed_key(previous)):
+                if not session.get(ObjectDeletionORM, object_key):
+                    session.add(ObjectDeletionORM(object_key=object_key, requested_at=now()))
+            # A removed avatar cannot be rebound while its queued bytes await deletion.
+            session.delete(old)
 
 
 def card(s, b, uid):
@@ -117,6 +165,7 @@ def card(s, b, uid):
         members=members,
         guide_material_id=guide_id,
         community_url=m.community_url,
+        avatar_url=block_avatar_url(s, m),
         revision=m.revision,
         capabilities=sorted(set(caps)),
     )
@@ -356,6 +405,8 @@ def patch_block(id, payload, uid):
             ):
                 fail(422, "Invalid community URL")
             m.community_url = payload.community_url or None
+        if "avatar_file_id" in payload.model_fields_set:
+            replace_block_avatar(s, m, payload.avatar_file_id, uid)
         m.revision += 1
         audit(
             s,

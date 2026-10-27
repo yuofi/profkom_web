@@ -263,6 +263,7 @@ class TaskPublic:
     created_at: str = ""
     updated_at: Optional[str] = None
     scope_title: str = ""
+    scope_avatar_url: Optional[str] = None
     attachments: list[FileRef] = field(default_factory=list)
     submissions: list = field(default_factory=list)
     legacy_status_conflict: bool = False

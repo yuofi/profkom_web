@@ -1,0 +1,14 @@
+.shell { display:inline-flex;vertical-align:middle;align-items:stretch;max-width:100%;min-width:0;border-radius:24px;background:var(--surface-container-high);color:var(--on-surface); }
+.main { display:inline-flex;align-items:center;max-width:100%;min-width:0;box-sizing:border-box;border:0;background:transparent;color:inherit;padding:0;margin:0;border-radius:24px;font:inherit;text-decoration:none; }
+a.main,button.main { cursor:pointer; }
+a.main:hover,button.main:hover:not(:disabled) { color:var(--primary);background:var(--surface-container-highest); }
+a.main:hover>span,button.main:hover:not(:disabled)>span { background:transparent; }
+.main:focus-visible,.trailing:focus-visible { outline:2px solid var(--primary);outline-offset:3px; }
+button.main:disabled,.trailing:disabled { opacity:.45;cursor:default; }
+.shell[data-has-trailing] .main { flex:1 1 auto;max-width:calc(100% - 29px); }
+.trailing { display:inline-flex;align-items:center;justify-content:center;flex:0 0 27px;min-width:27px;min-height:28px;align-self:center;border:0;border-radius:50%;margin-right:2px;padding:5px;background:transparent;color:var(--on-surface-variant);cursor:pointer;opacity:0;pointer-events:none;transition:opacity .12s; }
+.trailing svg { width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round; }
+.shell:hover .trailing,.shell:focus-within .trailing { opacity:1;pointer-events:auto; }
+.trailing:hover:not(:disabled) { background:var(--surface-container-highest);color:var(--primary); }
+@media(hover:none),(pointer:coarse) { .trailing { opacity:1;pointer-events:auto;min-height:32px; } }
+@media(prefers-reduced-motion:reduce) { .trailing { transition:none; } }

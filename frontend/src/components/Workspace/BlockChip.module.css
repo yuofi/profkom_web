@@ -1,0 +1,9 @@
+.identity { display:flex;align-items:center;gap:12px;min-width:0; }
+.identity>div { display:grid;gap:5px;min-width:0; }
+.identity strong { font-size:15px;line-height:1.35;overflow-wrap:anywhere; }
+.identity small,.hint { color:var(--on-surface-variant);font-size:12px; }
+.details { display:grid;gap:10px;margin:18px 0 0; }
+.details>div { display:grid;grid-template-columns:76px minmax(0,1fr);gap:8px;align-items:center; }
+.details dt { color:var(--on-surface-variant);font-size:11px; }
+.details dd { margin:0;min-width:0;overflow-wrap:anywhere; }
+.hint { margin:0;line-height:1.5; }

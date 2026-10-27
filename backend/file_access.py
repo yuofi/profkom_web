@@ -72,10 +72,11 @@ def check_metadata(fr, metadata):
 
 
 def validate_metadata(kind, purpose, name, mime, size):
-    if kind not in ("avatar", "assignment", "task", "report", "material", "pgas"):
+    if kind not in ("avatar", "block", "assignment", "task", "report", "material", "pgas"):
         raise InvalidInput("Unsupported file context")
     expected = {
         "avatar": "avatar",
+        "block": "avatar",
         "assignment": "submission",
         "report": "report",
         "material": "material",
@@ -83,7 +84,7 @@ def validate_metadata(kind, purpose, name, mime, size):
     }
     if (kind == "task" and purpose not in {"attachment", "submission"}) or (kind != "task" and purpose != expected[kind]):
         raise InvalidInput("Invalid file purpose")
-    limit = 10 if kind == "avatar" else 20
+    limit = 10 if kind in ("avatar", "block") else 20
     if not 0 < size <= limit * 1024 * 1024:
         raise InvalidInput(f"File size must be between 1 byte and {limit} MiB")
     if not name or "/" in name or "\\" in name or any(ord(c) < 32 for c in name):
@@ -100,7 +101,7 @@ def validate_metadata(kind, purpose, name, mime, size):
     if canonical=="text/plain" and mime in {"text/markdown","text/x-python","text/x-python-script","application/javascript","text/javascript","application/typescript","text/typescript","application/json","text/yaml","application/yaml","application/toml","text/x-shellscript","text/x-csrc","text/x-c++src","text/x-java-source","text/css"}:mime="text/plain"
     if not canonical or mime != canonical:
         raise InvalidInput("File type is not allowed")
-    if kind == "avatar" and mime not in ("image/png", "image/jpeg", "image/webp"):
+    if kind in ("avatar", "block") and mime not in ("image/png", "image/jpeg", "image/webp"):
         raise InvalidInput("Avatar must be PNG, JPEG or WebP")
     if kind == "pgas" and ext not in ("pdf", "doc", "docx", "png", "jpg", "jpeg"):
         raise InvalidInput("Only pdf, doc, docx, png and jpg files are allowed for PGAS")
@@ -127,6 +128,17 @@ def permitted(session, fr, uid, write=False):
             and meta
             and meta.avatar_file_id == fr.file_id
         )
+    if fr.owner_kind == "block":
+        from database import BlockORM
+        from domain_models import BlockMetaORM
+        import access
+
+        meta = session.get(BlockMetaORM, fr.owner_id) if fr.owner_id else None
+        block = session.get(BlockORM, meta.legacy_name) if meta else None
+        if not block or fr.purpose != "avatar":
+            return False
+        own_draft = fr.uploaded_by_user_id == uid and access.allowed(uid, "block.edit", "block", block.name)
+        return own_draft if write else meta.avatar_file_id == fr.file_id or own_draft
     if fr.owner_kind == "task":
         from tracker import metadata, can_work
         from database import TaskSubmissionORM, SeasonORM
@@ -186,8 +198,12 @@ def permitted(session, fr, uid, write=False):
 
 def owner_exists(session, kind, owner_id):
     """An upload into a missing assignment, report or material is a 404 (A-SEC-7)."""
-    from domain_models import MaterialORM
+    from domain_models import MaterialORM, BlockMetaORM
 
+    if kind == "block":
+        from database import BlockORM
+        meta = session.get(BlockMetaORM, owner_id) if owner_id else None
+        return bool(meta and session.get(BlockORM, meta.legacy_name))
     if kind=="task" and owner_id is None:return True
     model = {"assignment": AssignmentORM, "task": TaskORM, "report": ReportORM, "material": MaterialORM}.get(kind)
     return model is None or session.get(model, owner_id) is not None
@@ -212,7 +228,7 @@ def verify_object(fr):
             Bucket=settings.S3_BUCKET_NAME, Key=key(fr.file_id)
         )
         check_metadata(fr, metadata)
-        if not 0 < fr.size_bytes <= (10 if fr.owner_kind == "avatar" else 20) * 1024 * 1024:
+        if not 0 < fr.size_bytes <= (10 if fr.owner_kind in ("avatar", "block") else 20) * 1024 * 1024:
             raise HTTPException(422, "Uploaded object exceeds context limit")
         response = s3_client.get_object(
             Bucket=settings.S3_BUCKET_NAME, Key=key(fr.file_id)

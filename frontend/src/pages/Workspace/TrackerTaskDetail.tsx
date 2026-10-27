@@ -1,3 +1,4 @@
+import { TeamChip } from "../../components/Workspace/TeamChip";
 import { TrackerHomeLink } from "../../components/Workspace/TrackerHomeLink";
 import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
 import { useEffect, useRef, useState } from "react";
@@ -20,7 +21,7 @@ import { recordOwnChange, useOwnRevisions } from "../../components/Workspace/own
 import { richText, type Assignment, type Comment, type FileRef, type Task } from "../../utils/api/contract";
 import { can } from "../../utils/session";
 import { displayDate } from "../../utils/dates";
-import { getBlockRoute, getSubeventRoute, getSeasonRoute, getTaskRoute, getTaskQueueRoute, getTaskQueuesRoute } from "../../utils/routes";
+import { getSeasonRoute, getTaskRoute, getTaskQueueRoute, getTaskQueuesRoute } from "../../utils/routes";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { TaskStatusMenu } from "./TaskStatusMenu";
 import { statusNames, taskStatus } from "./trackerStatus";
@@ -81,7 +82,6 @@ function TaskContent({ task, assignmentId, returnSeason }: { task: Task; assignm
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const interval = window.setInterval(() => setNow(Date.now()), 60000);return () => window.clearInterval(interval); }, []);
   const reviewNotes = [...new Set(task.assignments.map(assignment => assignment.review_note?.trim()).filter((note): note is string => !!note))];
-  const scopeRoute = task.scope.kind === "block" ? getBlockRoute(task.scope.id) : task.scope.kind === "subevent" ? getSubeventRoute(task.scope.id) : null;
   const hasAccounting = task.scope.kind !== "queue" && (task.assignments.some(item => can(item, "view_assessment_inputs")) || can(task, "view_assessment_inputs"));
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list, enabled: hasAccounting });
   const seasonClosed = seasons.data?.items.find(season => season.season_id === task.season_id)?.state === "closed";
@@ -131,7 +131,7 @@ function TaskContent({ task, assignmentId, returnSeason }: { task: Task; assignm
         <div><dt>Приоритет</dt><dd><DeferredValue label="Приоритет задачи" /></dd></div>
         <div><dt>Дедлайн, МСК</dt><dd><time dateTime={task.deadline_at} className={new Date(task.deadline_at).getTime() < now && !["accepted", "not_completed", "cancelled"].includes(taskStatus(task)) ? s.overdue : undefined}>{displayDate(task.deadline_at)}</time>{datesEditable && <button type="button" className={s.deadlineEdit} onClick={editDeadline}>Изменить дедлайн</button>}</dd></div>
         <div><dt>Очередь</dt><dd>{task.queue ? <Link to={getTaskQueueRoute(task.queue.queue_id)}>{task.queue.name}</Link> : <Link to={getTaskQueuesRoute()}>Открыть очереди</Link>}</dd></div>
-        {scopeRoute && <div><dt>Команда</dt><dd><Link to={scopeRoute}>{task.scope_title ?? "Открыть команду"}</Link></dd></div>}
+        {task.scope.kind !== "queue" && <div><dt>Команда</dt><dd><TeamChip scope={task.scope} title={task.scope_title} avatarUrl={task.scope_avatar_url} /></dd></div>}
         <TaskSeasonParameter task={task} />
         <div><dt>Цели</dt><dd><DeferredValue label="Цели задачи" /></dd></div>
         <div><dt>Автор</dt><dd>{task.created_by ? <PersonChip user={task.created_by} /> : <span className={w.muted}>Не указан</span>}</dd></div>
@@ -265,6 +265,6 @@ function AssignmentAccounting({ assignment, focused, hasResult, seasonClosed }: 
   useEffect(() => { if (focused) { ref.current?.focus();ref.current?.scrollIntoView?.({ block: "center" }); } }, [focused]);
   if (!can(assignment, "view_assessment_inputs") && !focused) return null;
   return <div ref={ref} tabIndex={-1} className={focused ? w.focusedAssignment : s.accountingPerson} aria-label={`Назначение: ${assignment.assignee.display_name}`}>
-    {focused && <p role="status">Назначение из препятствий закрытию сезона</p>}<AssessmentPanel assignment={assignment} open={focused} hasResult={hasResult} seasonClosed={seasonClosed} />
+    {focused && <p role="status">Выбрана оценка этого исполнителя</p>}<AssessmentPanel assignment={assignment} open={focused} hasResult={hasResult} seasonClosed={seasonClosed} />
   </div>;
 }

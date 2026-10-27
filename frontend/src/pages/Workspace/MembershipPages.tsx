@@ -1,3 +1,5 @@
+import { BlockChip } from "../../components/Workspace/BlockChip";
+import { BlockAvatarPicker } from "../../components/Workspace/BlockAvatarPicker";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
@@ -102,6 +104,7 @@ export function BlockPage() {
           <div className={s.stack}>
             <Card>
               <div className={s.row}>
+                <BlockChip block={b} interactive={false} />
                 {canViewTracker && (
                   <RouteLink
                     to={`/tasks?scope_kind=block&scope_id=${encodeURIComponent(id)}`}
@@ -223,6 +226,7 @@ export function BlockPage() {
                 )
               )}
             </Card>
+            {can(b, "edit_block") && <Card><BlockAvatarPicker block={b} /></Card>}
             {can(b, "edit_block") && (
               <Card title="Изменить описание">
                 <ActionForm

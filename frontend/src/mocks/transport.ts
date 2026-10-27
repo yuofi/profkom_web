@@ -84,7 +84,7 @@ export function installMockTransport(
   const uploads = new MockAdapter(axios);
   const files = new Map<
     string,
-    FileRef & { complete: boolean; uploaded: boolean }
+    FileRef & { complete: boolean; uploaded: boolean; owner_kind?: string; owner_id?: string; uploaded_by_user_id?: number }
   >();
   const taskInputs = new Map<string, TaskInputs>([
     [state.inputs.task_id, state.inputs],
@@ -254,11 +254,18 @@ export function installMockTransport(
     taskHistory.set(task.task_id, events);task.updated_at = mockNow;
   };
   const taskFiles = (ids: unknown): FileRef[] => ((ids as string[]) ?? []).map(fileId => files.get(fileId)).filter(file => !!file).map(file => ({ file_id: file!.file_id, name: file!.name, mime_type: file!.mime_type, size_bytes: file!.size_bytes }));
+  const refreshTake = (task: Task) => {
+    task.capabilities = task.capabilities.filter(capability => capability !== "take_task");
+    const assigned = (task.assignees ?? task.assignments.filter(item => !item.assignee_unavailable_reason).map(item => item.assignee)).some(person => person.user_id === state.session.user_id);
+    if (task.capabilities.includes("change_task_status") && (!assigned || task.status !== "in_progress" || task.legacy_mixed_statuses)) task.capabilities.push("take_task");
+  };
+  state.tasks.forEach(refreshTake);
   const refreshRoster = (task: Task) => {
     task.assignees ??= task.assignments.filter(a => !a.assignee_unavailable_reason).map(a => a.assignee);task.watchers ??= [];
-    task.capabilities = task.capabilities.filter(c => !["join_task", "watch_task", "unwatch_task", "remove_task_assignee", "edit_task_description"].includes(c));
+    task.capabilities = task.capabilities.filter(c => !["join_task", "take_task", "watch_task", "unwatch_task", "remove_task_assignee", "edit_task_description"].includes(c));
     task.capabilities.push("change_task_status", "submit_task_result", "remove_task_assignee");
     if (!task.assignees.some(u => u.user_id === state.session.user_id)) task.capabilities.push("join_task");
+    refreshTake(task);
     task.capabilities.push(task.watchers.some(u => u.user_id === state.session.user_id) ? "unwatch_task" : "watch_task");
     if (task.assignees.some(u => u.user_id === state.session.user_id) || task.capabilities.includes("edit_task")) task.capabilities.push("edit_task_description");
   };
@@ -267,7 +274,7 @@ export function installMockTransport(
     if (!["assigned", "in_progress", "help_required", "submitted", "accepted", "needs_revision", "not_completed", "cancelled"].includes(String(data.status))) return fail(422, "invalid_input", "Неизвестный статус");
     if (mismatch(data, task)) return conflict();
     const current = task.status ?? "assigned", next = data.status as AssignmentStatus;
-    task.status = next;task.revision++;task.assignments.forEach(a => { a.status = next;a.revision++; });
+    task.status = next;task.revision++;task.assignments.forEach(a => { a.status = next;a.revision++; });refreshTake(task);
     rememberTask(task, "status_changed", "Изменён рабочий статус задачи", current, next);
     return [200, clone(task)];
   };
@@ -1057,6 +1064,25 @@ export function installMockTransport(
       if (!readsTask(task))
         return method === "get" ? fail(404, "not_found", "Задача недоступна") : denied();
       if (parts[2] === "history") return list(clone(taskHistory.get(task.task_id) ?? []));
+      if (parts[2] === "take" && method === "post") {
+        const extra = extraInputs(data, []);if (extra) return extra;
+        if (!Number.isInteger(data.expected_revision)) return fail(422, "invalid_input", "Укажите версию задачи");
+        if (mismatch(data, task)) return conflict();refreshRoster(task);
+        const assigned = task.assignees!.some(person => person.user_id === state.session.user_id), previous = task.status ?? "assigned";
+        if (assigned && previous === "in_progress" && !task.legacy_mixed_statuses) return [200, clone(task)];
+        if (!assigned) task.assignees!.push(clone(state.user));task.watchers = task.watchers!.filter(person => person.user_id !== state.session.user_id);
+        let assignment = task.assignments.find(item => item.assignee.user_id === state.session.user_id);
+        if (!assignment) {
+          const aid = id("assignment");assignment = { assignment_id: aid, assignee: clone(state.user), status: "in_progress", submissions: [], assignee_unavailable_reason: null, review_note: null, revision: 1, capabilities: [] };task.assignments.push(assignment);
+          state.assessments.push({ assignment_id: aid, hours: 0, evaluation: null, effective_completed_at: null, revision: 1, workflow_revision: 1, workflow_status: "assigned", capabilities: state.manager && task.scope.kind !== "queue" ? inputsCaps() : [] });
+        }
+        assignment.assignee_unavailable_reason = null;task.status = "in_progress";task.legacy_mixed_statuses = false;
+        task.assignments.filter(item => task.assignees!.some(person => person.user_id === item.assignee.user_id)).forEach(item => { item.status = "in_progress";item.revision++; });
+        task.revision++;refreshRoster(task);
+        if (!assigned) rememberTask(task, "task_people_updated", "Изменён состав задачи");
+        if (previous !== "in_progress") rememberTask(task, "status_changed", "Изменён рабочий статус задачи", previous, "in_progress");
+        return [200, clone(task)];
+      }
       if (parts[2] === "status") return transitionTask(task, data);
       if (parts[2] === "submit-result") {
         if (mismatch(data, task)) return conflict();
@@ -1503,8 +1529,19 @@ export function installMockTransport(
         );
         return [200, { block_id: block.block_id, membership_state: "left" }];
       }
-      if (!state.manager) return denied();
+      const avatarChange = Object.hasOwn(data, "avatar_file_id");
+      if (avatarChange && !block.capabilities.includes("edit_block")) return denied();
+      if (!state.manager && !avatarChange) return denied();
       if (mismatch(data, block)) return conflict();
+      if (avatarChange) {
+        const fid = data.avatar_file_id;
+        const file = typeof fid === "string" ? files.get(fid) : undefined;
+        if (fid !== null && (!file || !file.complete || file.owner_kind !== "block" || file.owner_id !== block.block_id || file.uploaded_by_user_id !== state.session.user_id)) return fail(422, "invalid_input", "Нужен завершённый собственный аватар блока");
+        const previous = block.avatar_url?.match(/^\/api\/files\/([^/]+)\/content$/)?.[1];
+        if (previous && previous !== fid) files.delete(decodeURIComponent(previous));
+        block.avatar_url = typeof fid === "string" ? `/api/files/${encodeURIComponent(fid)}/content` : null;
+        for (const task of state.tasks.filter(task => task.scope.kind === "block" && task.scope.id === block.block_id)) { task.scope_title = block.name;task.scope_avatar_url = block.avatar_url; }
+      }
       if (parts[2] === "members")
         block.members = block.members.filter(
           (m) => m.user.user_id !== Number(parts[3]),
@@ -1517,7 +1554,7 @@ export function installMockTransport(
           revision: 1,
           capabilities: ["manage_deputies"],
         };
-      else Object.assign(block, data);
+      else { const update = { ...data };delete update.avatar_file_id;Object.assign(block, update); }
       return changed(block);
     }
     if (parts[0] === "block-requests") {
@@ -1730,6 +1767,12 @@ export function installMockTransport(
       ];
     }
     if (path === "/files/upload-intents") {
+      if (data.owner_kind === "block") {
+        const block = state.blocks.find(block => block.block_id === data.owner_id);
+        if (!block) return fail(404, "not_found", "Блок не найден");
+        if (!block.capabilities.includes("edit_block")) return denied();
+        if (data.purpose !== "avatar" || !["image/png", "image/jpeg", "image/webp"].includes(String(data.mime_type)) || Number(data.size_bytes) > 10 * 1024 * 1024) return fail(422, "invalid_input", "Некорректный аватар блока");
+      }
       const file_id = id("file");
       files.set(file_id, {
         file_id,
@@ -1738,6 +1781,9 @@ export function installMockTransport(
         size_bytes: Number(data.size_bytes),
         complete: false,
         uploaded: false,
+        owner_kind: typeof data.owner_kind === "string" ? data.owner_kind : undefined,
+        owner_id: typeof data.owner_id === "string" ? data.owner_id : undefined,
+        uploaded_by_user_id: state.session.user_id,
       });
       return [
         200,
@@ -1753,6 +1799,12 @@ export function installMockTransport(
     if (parts[0] === "files") {
       const file = files.get(parts[1]);
       if (!file) return fail(404, "not_found", "Файл не найден");
+      if (file.owner_kind === "block") {
+        const block = state.blocks.find(block => block.block_id === file.owner_id);
+        const own = file.uploaded_by_user_id === state.session.user_id && block?.capabilities.includes("edit_block");
+        const bound = block?.avatar_url === `/api/files/${encodeURIComponent(file.file_id)}/content`;
+        if (!block || (parts[2] === "complete" ? !own : !bound && !own)) return fail(404, "not_found", "Файл не найден");
+      }
       if (parts[2] === "content") return file.complete ? [200, new Blob(["Mock attachment"], { type: file.mime_type })] : fail(404, "not_found", "Файл не готов");
       if (parts[2] === "complete") {
         if (!file.uploaded)

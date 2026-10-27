@@ -238,6 +238,10 @@ def enrich_task(session,task,result,uid):
     result.updated_at=meta.public_updated_at
     owner=session.get(BlockORM,task.scope_id) if task.scope_kind=="block" else session.get(SubeventORM,task.scope_id) if task.scope_kind=="subevent" else None
     result.scope_title=(owner.name if task.scope_kind=="block" else owner.title) if owner else queue.name if queue else "Команда"
+    from membership import block_avatar_url
+    from domain_models import BlockMetaORM
+    block_meta = session.query(BlockMetaORM).filter_by(legacy_name=owner.name).first() if owner and task.scope_kind == "block" else None
+    result.scope_avatar_url = block_avatar_url(session, block_meta)
     result.attachments=_file_refs(session,json.loads(meta.files_json or "[]"))
     rows=session.query(TaskSubmissionORM).filter_by(task_id=task.task_id).order_by(TaskSubmissionORM.submitted_at).all()
     result.submissions=[_submission_dict(session,row) for row in rows]
@@ -254,6 +258,7 @@ def enrich_task(session,task,result,uid):
         if db.can_read_task(uid,task,session):
             member=next((m for m in roster(session,task.task_id) if m.user_id==uid),None)
             if not member or member.role!="assignee":result.capabilities.append("join_task")
+            if not member or member.role!="assignee" or meta.status!="in_progress" or meta.legacy_mixed_statuses:result.capabilities.append("take_task")
             if not member or member.role not in {"assignee","watcher"}:result.capabilities.append("watch_task")
             if member and member.role=="watcher":result.capabilities.append("unwatch_task")
             if participants(session,task.task_id):result.capabilities.append("remove_task_assignee")

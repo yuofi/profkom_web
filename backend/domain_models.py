@@ -39,6 +39,7 @@ class BlockMetaORM(Base):
     legacy_name = Column(String, nullable=False, unique=True)
     description = Column(Text, nullable=False, default="")
     community_url = Column(String, nullable=True)
+    avatar_file_id = Column(String, nullable=True)
     revision = Column(Integer, nullable=False, default=1)
 
 

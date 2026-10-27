@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { UserRef } from "../../utils/api/contract";
-import { UserChip } from "./UserChip";
+import { ChipFace, ChipInitials } from "./ChipFace";
 import { Glyph } from "./WorkspaceUI";
 import s from "./EntityPicker.module.css";
 
@@ -9,8 +9,8 @@ export interface EntityOption {
   value: string;
   label: string;
   user?: UserRef;
-  block?: { block_id?: string; name: string };
-  scope?: { kind: "block" | "subevent"; name: string };
+  block?: { block_id?: string; name: string; avatar_url?: string | null };
+  scope?: { kind: "block" | "subevent"; name: string; avatar_url?: string | null };
   disabled?: boolean;
 }
 export type EntityKind = "person" | "block" | "scope";
@@ -36,12 +36,11 @@ export type EntityPickerProps = CommonProps & (
 );
 
 function OptionChip({ option }: { option: EntityOption }) {
-  if (option.user) return <UserChip user={option.user} interactive={false} />;
-  if (option.block || option.scope) return <span className={s.entityChip}>
-    <Glyph name={option.scope?.kind === "subevent" ? "event" : "groups"} />
-    <span>{option.block?.name ?? option.scope?.name}</span>
-  </span>;
-  return <span className={s.plainChip}>{option.label}</span>;
+  if (option.user) return <ChipFace label={option.user.display_name} avatarUrl={option.user.avatar_url} />;
+  if (option.block) return <ChipFace label={option.block.name} avatarUrl={option.block.avatar_url ?? undefined} avatarFallback={<ChipInitials name={option.block.name} />} />;
+  if (option.scope?.kind === "block") return <ChipFace label={option.scope.name} avatarUrl={option.scope.avatar_url ?? undefined} avatarFallback={<ChipInitials name={option.scope.name} />} />;
+  if (option.scope) return <ChipFace label={option.scope.name} avatarUrl={option.scope.avatar_url ?? undefined} icon={<Glyph name={option.scope.kind === "subevent" ? "event" : "groups"} />} />;
+  return <ChipFace label={option.label} />;
 }
 function missingLabel(kind?: EntityKind) {
   return kind === "person" ? "Выбранный участник недоступен" : kind === "block" ? "Выбранный блок недоступен" : "Выбранное значение недоступно";

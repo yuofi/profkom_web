@@ -58,9 +58,9 @@ it("INT-01: real session opens only the manager's queue and loses access with th
   expect(corrected.revision).not.toBe(queued.assignment.revision);
   await act(async () => invalidateWorkspace(page!.client));await waitForPage(page);
   const action = [...page.container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.getAttribute("aria-label")?.startsWith(`Переназначить: ${task.title} ·`))!;
-  expect(action).toBeDefined();await act(async () => action.click());await waitForPage(page, () => !!page!.container.querySelector('dialog [name="user"]'));
-  const replacement = page.container.querySelector<HTMLFormElement>("dialog form")!;
-  await change(field(replacement, "user"), String(master.user_id));await change(field(replacement, "hours"), "4");await change(field(replacement, "outcome"), "cancelled");await change(field(replacement, "reason"), "INT-01 мастер принял оставшуюся работу");await submit(replacement);await waitForPage(page, () => !page!.container.querySelector("dialog"));
+  expect(action).toBeDefined();await act(async () => action.click());await waitForPage(page, () => !!document.querySelector('[data-anchored-popover] [name="user"]'));
+  const replacement = document.querySelector<HTMLFormElement>("[data-anchored-popover] form")!;
+  await change(field(replacement, "user"), String(master.user_id));await change(field(replacement, "hours"), "4");await change(field(replacement, "outcome"), "cancelled");await change(field(replacement, "reason"), "INT-01 мастер принял оставшуюся работу");await submit(replacement);await waitForPage(page, () => !document.querySelector("[data-anchored-popover]"));
   const reassigned = await tasksApi.get(task.task_id), nextAssignment = reassigned.assignments.find(assignment => assignment.assignee.user_id === master.user_id)!;
   expect(nextAssignment.assignment_id).not.toBe(oldAssignment.assignment_id);expect(reassigned.assignments.some(assignment => assignment.assignment_id === oldAssignment.assignment_id)).toBe(true);
   const previousInputs = await tasksApi.assessment(oldAssignment.assignment_id), nextInputs = await tasksApi.assessment(nextAssignment.assignment_id);

@@ -16,6 +16,7 @@ export const membershipApi = {
     data: Revision & {
       description?: Block["description"];
       community_url?: string;
+      avatar_file_id?: string | null;
     },
   ) => request<Block>("patch", `/blocks/${idPath(id)}`, data),
   requests: () => page<BlockRequest>("/block-requests"),

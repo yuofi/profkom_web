@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useRef, useState, type RefObject } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
-import { QueryState, Badge, Empty, Glyph } from "../../components/Workspace/WorkspaceUI";
+import { QueryState, Empty, Glyph } from "../../components/Workspace/WorkspaceUI";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
 import { TrackerHomeLink } from "../../components/Workspace/TrackerHomeLink";
@@ -13,10 +13,12 @@ import { tasksApi } from "../../utils/api/tasks.api";
 import type { AssignmentStatus, UnresolvedAssignment } from "../../utils/api/contract";
 import { can, useSession } from "../../utils/session";
 import { displayDate } from "../../utils/dates";
-import { getTaskRoute, getBlockRoute, getSubeventRoute } from "../../utils/routes";
+import { getTaskRoute } from "../../utils/routes";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
-import { statusTones } from "./trackerStatus";
-import { TrackerTaskDialog } from "./TrackerTaskDialog";
+import { TeamChip } from "../../components/Workspace/TeamChip";
+import { AccountingChip } from "../../components/Workspace/AccountingChip";
+import { AnchoredPopover } from "../../components/Workspace/AnchoredPopover";
+import { useGuardedAction } from "../../components/Workspace/unsavedChangesHooks";
 import w from "../../components/Workspace/Workspace.module.css";
 import s from "./UnresolvedPage.module.css";
 export { TrackerListPage as TasksListPage } from "./TrackerList";
@@ -24,10 +26,6 @@ export { TrackerTaskPage as TaskPage } from "./TrackerTaskDetail";
 export { TaskCreateForm } from "./TaskCreateForm";
 
 const unresolvedStates = new Set<AssignmentStatus>(["assigned", "in_progress", "help_required", "submitted", "needs_revision"]);
-const accountingNames: Record<AssignmentStatus, string> = {
-  assigned: "Ожидает оценки", in_progress: "В работе", help_required: "Нужны уточнения", submitted: "Ожидает проверки",
-  needs_revision: "На доработке", accepted: "Зачтено", not_completed: "Не выполнено", cancelled: "Исключено из ККР",
-};
 function ReassignForm({ item, onSaved, onBusy }: { item: UnresolvedAssignment; onSaved: () => void; onBusy: (busy: boolean) => void }) {
   const members = useScopeMembers(item.scope);
   const { perform, refresh } = useWorkspaceActions();
@@ -69,42 +67,52 @@ function ReassignForm({ item, onSaved, onBusy }: { item: UnresolvedAssignment; o
     </>}
   </QueryState>;
 }
-function TeamLink({ item }: { item: UnresolvedAssignment }) {
-  const block = item.scope.kind === "block";
-  return <Link className={s.team} to={block ? getBlockRoute(item.scope.id) : getSubeventRoute(item.scope.id)}><Glyph name={block ? "groups" : "event"} />{block ? "Блок" : "Подмероприятие"}</Link>;
-}
 export function UnresolvedPage() {
   const { session } = useSession(), [params] = useSearchParams();
+  const changeFilter = useGuardedAction();
   const seasonId = params.get("season_id");
-  const [onlyUnavailable, setOnlyUnavailable] = useState(false), [editingId, setEditingId] = useState<string | null>(null), [busy, setBusy] = useState(false), [saved, setSaved] = useState("");
+  const [onlyUnavailable, setOnlyUnavailable] = useState(false), [saved, setSaved] = useState("");
   const allowed = can(session, "view_unresolved_assignments");
   const query = useQuery({ queryKey: ["tasks", "unresolved"], queryFn: () => tasksApi.unresolved(), enabled: allowed });
   const items = query.data?.items.filter(item => (!seasonId || item.season_id === seasonId) && (!onlyUnavailable || item.assignment.assignee_unavailable_reason));
-  const editing = query.data?.items.find(item => item.assignment.assignment_id === editingId && can(item.assignment, "reassign_assignment"));
   return <section className={s.page}>
     <BrandedHeader className={s.header}><div><TrackerHomeLink /><h1 className={w.title}>Оставшаяся работа</h1><p className={w.description}>Незавершённые назначения и решения по ККР. Прежняя история сохраняется; новое назначение создаётся отдельно.</p></div><div className={s.headerActions}><Link to="/tasks" className={w.button}>Все задачи</Link>{seasonId && <Link to="/tasks/unresolved" className={w.button}>Все сезоны</Link>}</div></BrandedHeader>
     {!allowed ? <Empty>Нет доступа к очереди.</Empty> : <>
-      <div className={s.toolbar}><label className={w.check}><input type="checkbox" checked={onlyUnavailable} onChange={event => setOnlyUnavailable(event.target.checked)} />Только без доступного исполнителя</label>{seasonId && <span className={s.seasonFilter}>Выбранный сезон</span>}<span className={s.count} aria-live="polite">Назначений: {items?.length ?? 0}</span></div>
+      <div className={s.toolbar}><label className={w.check}><input type="checkbox" checked={onlyUnavailable} onChange={event => { const checked = event.target.checked;changeFilter(() => setOnlyUnavailable(checked)); }} />Только без доступного исполнителя</label>{seasonId && <span className={s.seasonFilter}>Выбранный сезон</span>}<span className={s.count} aria-live="polite">Назначений: {items?.length ?? 0}</span></div>
       {saved && <p role="status" className={w.success}>{saved}</p>}
       <QueryState keepDataOnError={!!query.data} loading={query.isLoading} error={query.error} retry={() => { void query.refetch(); }}>
         {!!items?.length && <div className={s.tableWrap}><table className={s.table} aria-label="Оставшаяся работа по назначениям">
-          <thead><tr>{["Задача", "Исполнитель", "Команда", "Учёт ККР", "Доступ исполнителя", "Дедлайн, МСК", "Действия"].map(title => <th scope="col" key={title}>{title}</th>)}</tr></thead>
+          <thead><tr>{["Задача", "Исполнитель", "Команда", "Учёт ККР", "Доступ исполнителя", "Дедлайн, МСК"].map(title => <th scope="col" key={title}>{title}</th>)}</tr></thead>
           <tbody>{items.map(item => <tr key={item.assignment.assignment_id}>
             <td className={s.task}><Link to={getTaskRoute(item.task_id)}>{item.task_title}</Link><Link className={s.history} to={`${getTaskRoute(item.task_id)}?assignment_id=${encodeURIComponent(item.assignment.assignment_id)}`}>Задача и история</Link></td>
-            <td className={s.person} data-label="Исполнитель"><UserChip user={item.assignment.assignee} /></td>
-            <td className={s.scope} data-label="Команда"><TeamLink item={item} /></td>
-            <td className={s.status} data-label="Учёт ККР"><Badge tone={statusTones[item.assignment.status]}>{accountingNames[item.assignment.status]}</Badge></td>
+            <td className={s.person} data-label="Исполнитель"><AssigneeReassignment item={item} onSaved={() => setSaved("Прежнее назначение закрыто. Новое назначение создано.")} /></td>
+            <td className={s.scope} data-label="Команда"><TeamChip scope={item.scope} title={item.scope_title} avatarUrl={item.scope_avatar_url} /></td>
+            <td className={s.status} data-label="Учёт ККР"><AccountingChip item={item} /></td>
             <td className={s.availability} data-label="Доступ исполнителя">{item.assignment.assignee_unavailable_reason === "archived" ? <span className={s.unavailable}>В архиве</span> : item.assignment.assignee_unavailable_reason === "left_scope" ? <span className={s.unavailable}>Нет доступа к задаче</span> : <span>Доступен</span>}</td>
             <td className={s.deadline} data-label="Дедлайн, МСК"><time dateTime={item.deadline_at}>{displayDate(item.deadline_at)}</time></td>
-            <td className={s.action}>{can(item.assignment, "reassign_assignment") ? <button type="button" className={s.reassign} aria-label={`Переназначить: ${item.task_title} · ${item.assignment.assignee.display_name}`} onClick={() => { setSaved("");setEditingId(item.assignment.assignment_id); }}>Переназначить</button> : <span className={s.readonly}>Только просмотр</span>}</td>
+
           </tr>)}</tbody>
         </table></div>}
         {items?.length === 0 && <div className={s.empty}><Glyph name="task_alt" /><h2>Оставшейся работы нет.</h2><p>{onlyUnavailable ? "Нет назначений без доступного исполнителя. Снимите фильтр, чтобы увидеть остальные." : seasonId ? "В выбранном сезоне нет незавершённых назначений." : "Все доступные назначения завершены или получили учётное решение."}</p><Link to="/tasks" className={w.button}>Открыть задачи</Link></div>}
       </QueryState>
-      {editing && <UnsavedChangesScope><TrackerTaskDialog title="Переназначить работу" onClose={() => setEditingId(null)} busy={busy}>
-        <div className={s.dialogContext}><Link to={getTaskRoute(editing.task_id)}>{editing.task_title}</Link><UserChip user={editing.assignment.assignee} /><p>Прежнее назначение останется в истории с выбранным учётным исходом. Новому исполнителю будет создано отдельное назначение.</p></div>
-        <ReassignForm item={editing} onBusy={setBusy} onSaved={() => { setEditingId(null);setSaved("Прежнее назначение закрыто. Новое назначение создано."); }} />
-      </TrackerTaskDialog></UnsavedChangesScope>}
     </>}
   </section>;
+}
+
+function AssigneeReassignment({ item, onSaved }: { item: UnresolvedAssignment; onSaved: () => void }) {
+  const anchor = useRef<HTMLSpanElement>(null);
+  const [open, setOpen] = useState(false), [busy, setBusy] = useState(false);
+  const allowed = can(item.assignment, "reassign_assignment");
+  return <span ref={anchor} className={s.assigneeAnchor}>
+    <UserChip user={item.assignment.assignee} previewDisabled={open}
+      trailingAction={allowed ? { label: `Переназначить: ${item.task_title} · ${item.assignment.assignee.display_name}`, icon: <span aria-hidden="true">×</span>, disabled: busy, expanded: open, hasPopup: "dialog", onClick: () => setOpen(true) } : undefined} />
+    {open && allowed && <UnsavedChangesScope><ReassignmentPopover item={item} anchor={anchor} busy={busy} onBusy={setBusy} onClose={() => setOpen(false)} onSaved={() => { setOpen(false);onSaved(); }} /></UnsavedChangesScope>}
+  </span>;
+}
+function ReassignmentPopover({ item, anchor, busy, onBusy, onClose, onSaved }: { item: UnresolvedAssignment; anchor: RefObject<HTMLSpanElement | null>; busy: boolean; onBusy: (busy: boolean) => void; onClose: () => void; onSaved: () => void }) {
+  const leave = useGuardedAction();
+  return <AnchoredPopover open anchorRef={anchor} label="Переназначить работу" width={420} busy={busy} onRequestClose={() => leave(onClose)}>
+    <div className={s.dialogContext}><strong>{item.task_title}</strong><p>Прежнее назначение сохранится в истории. Новому исполнителю будет создано отдельное назначение.</p></div>
+    <ReassignForm item={item} onBusy={onBusy} onSaved={onSaved} />
+  </AnchoredPopover>;
 }

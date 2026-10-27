@@ -16,9 +16,9 @@ const formats: Record<string, string> = {
 const aliases: Record<string, string> = {
   "image/jpg": "image/jpeg", "application/x-zip-compressed": "application/zip",
 };
-export const fileLimitMiB = (kind: string) => kind === "avatar" ? 10 : 20;
+export const fileLimitMiB = (kind: string) => ["avatar", "block"].includes(kind) ? 10 : 20;
 export function fileExtensions(kind: string) {
-  return kind === "avatar" ? ["png", "jpg", "jpeg", "webp"]
+  return ["avatar", "block"].includes(kind) ? ["png", "jpg", "jpeg", "webp"]
     : kind === "pgas" ? ["pdf", "doc", "docx", "png", "jpg", "jpeg"]
       : Object.keys(formats);
 }

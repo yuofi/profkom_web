@@ -618,6 +618,17 @@ import domain_models  # registers domain tables on the same Base
 Base.metadata.create_all(bind=engine)
 
 
+def _ensure_sqlite_block_avatar_column() -> None:
+    """Existing block metadata keeps its IDs, membership and nullable avatar unchanged."""
+    with engine.begin() as conn:
+        names = {row[1] for row in conn.execute(text("PRAGMA table_info(block_metadata)"))}
+        if names and "avatar_file_id" not in names:
+            conn.execute(text("ALTER TABLE block_metadata ADD COLUMN avatar_file_id VARCHAR"))
+
+
+_ensure_sqlite_block_avatar_column()
+
+
 class SeasonNotReadyError(Conflict):
     def __init__(self, blockers: list[dict]):
         super().__init__("Season is not ready to close", "season_not_ready", blockers=blockers)

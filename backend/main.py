@@ -243,6 +243,7 @@ class BlockOut(BaseModel):
     members: list[dict]
     guide_material_id: Optional[str] = None
     community_url: Optional[str] = None
+    avatar_url: Optional[str] = None
     revision: int
     capabilities: list[str]
 
@@ -712,6 +713,7 @@ class TaskPublicOut(BaseModel):
     created_at: str = ""
     updated_at: Optional[str] = None
     scope_title: str = ""
+    scope_avatar_url: Optional[str] = None
     attachments: list[FileRefOut] = []
     submissions: list[TaskSubmissionOut] = []
     legacy_status_conflict: bool = False
@@ -727,6 +729,8 @@ class UnresolvedAssignmentOut(BaseModel):
     season_id: str
     scope: dict
     deadline_at: str
+    scope_title: str = ""
+    scope_avatar_url: Optional[str] = None
 
 
 class StartAssignmentIn(Command):
@@ -1964,7 +1968,7 @@ def _to_task_public_out(t) -> TaskPublicOut:
         queue=t.queue,parent_task=t.parent_task,parent_task_id=t.parent_task_id,parent_task_unavailable=t.parent_task_unavailable,
         task_key=t.task_key, status=t.status,
         created_by=_to_user_ref_out(t.created_by) if t.created_by else None,
-        created_at=t.created_at, updated_at=t.updated_at, scope_title=t.scope_title,
+        created_at=t.created_at, updated_at=t.updated_at, scope_title=t.scope_title, scope_avatar_url=t.scope_avatar_url,
         attachments=t.attachments, submissions=t.submissions,
         legacy_status_conflict=t.legacy_status_conflict,
         legacy_mixed_statuses=t.legacy_status_conflict,
@@ -2676,6 +2680,12 @@ def patch_task(task_id: str, payload: TaskPatchIn, cur: User = Depends(get_curre
     return _to_task_public_out(t)
 
 
+@router.post("/tasks/{task_id}/take", response_model=TaskPublicOut)
+def take_task(task_id: str,payload: TaskRosterIn,cur: User = Depends(get_current_user)):
+    from task_roster import change
+    return _to_task_public_out(change(task_id,cur.user_id,payload.expected_revision,"take"))
+
+
 @router.post("/tasks/{task_id}/join", response_model=TaskPublicOut)
 def join_task(task_id: str,payload: TaskRosterIn,cur: User = Depends(get_current_user)):
     from task_roster import change
@@ -2811,6 +2821,7 @@ def list_unresolved_assignments(
                 season_id=u.season_id,
                 scope=membership.scope_out(u.scope),
                 deadline_at=u.deadline_at,
+                **membership.scope_display(u.scope),
             )
             for u in page.items
         ]

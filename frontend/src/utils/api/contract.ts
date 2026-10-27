@@ -101,7 +101,12 @@ export interface BlockRequest extends Versioned {
   decided_at?: string | null;
   decision_reason?: string | null;
 }
-export interface Block extends Versioned {
+export interface BlockRef {
+  block_id: string;
+  name: string;
+  avatar_url?: string | null;
+}
+export interface Block extends Versioned, BlockRef {
   block_id: string;
   name: string;
   is_hr: boolean;
@@ -249,6 +254,7 @@ export interface Task extends Versioned {
   created_at?: string;
   updated_at?: string | null;
   scope_title?: string;
+  scope_avatar_url?: string | null;
   attachments?: FileRef[];
   submissions?: TaskSubmission[];
   legacy_status_conflict?: boolean;
@@ -277,6 +283,8 @@ export interface UnresolvedAssignment {
   season_id: string;
   scope: ScopeRef;
   deadline_at: string;
+  scope_title?: string;
+  scope_avatar_url?: string | null;
 }
 export interface TaskInputs extends Versioned {
   task_id: string;

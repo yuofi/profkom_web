@@ -10,6 +10,7 @@ import type { RichText } from "../../utils/api/contract";
 import type { IconName } from "../icons";
 import { PageNavContext, SectionContext, toneStyle, type Tone } from "./sections";
 import s from "./Workspace.module.css";
+import { SectionHomeLink } from "./SectionHomeLink";
 /** An icon beside a text: it comes from CSS, so it is not part of the text. */
 export const Glyph = ({ name, className }: { name: IconName; className?: string }) => (
   <span className={clsx("material-symbols-rounded", s.glyph, className)} data-icon={name} aria-hidden="true" />
@@ -32,7 +33,7 @@ export function Page({
       <header className={s.header}>
         <div>
           {/* Where the page is; the section's own page says the section in its title. */}
-          <p className={s.eyebrow}>{section && section.label !== title ? section.label : "Профком ВМК"}</p>
+          <SectionHomeLink to={section?.to} label={section?.label} />
           <h1 className={s.title}>{title}</h1>
           {description && <p className={s.description}>{description}</p>}
         </div>

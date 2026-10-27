@@ -22,7 +22,7 @@ async function click(title: string, root: ParentNode = page!.container) {
   const button = [...root.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent?.trim() === title)!;expect(button).toBeDefined();await act(async () => button.click());await waitForPage(page!, taskActionsSettled);
 }
 async function chooseStatus(title: string) {
-  await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());await waitForPage(page!);await click(title, page!.container.querySelector('[role="menu"]')!);
+  await act(async () => page!.container.querySelector<HTMLButtonElement>('button[aria-label^="Статус задачи:"]')!.click());await waitForPage(page!);await click(title, page!.container.querySelector('[role="menu"]')!);
 }
 it("creates an unassigned independent task with real draft bytes, manages its public roster/status and preserves scoped accounting", async () => {
   const worker = await liveParticipant("usability-worker");await liveLogin();

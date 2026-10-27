@@ -30,6 +30,7 @@ export const tasksApi = {
   listPage: (params?: object) => request<TaskListPageResponse>("get", "/tasks", undefined, params),
   changeStatus: (id: string, data: TaskStatusChange) => request<Task>("post", `/tasks/${idPath(id)}/status`, data),
   submitResult: (id: string, data: Revision & { text: RichText; links?: string[]; file_ids?: string[] }) => request<Task>("post", `/tasks/${idPath(id)}/submit-result`, data),
+  take: (id: string, data: Revision) => request<Task>("post", `/tasks/${idPath(id)}/take`, data),
   join: (id: string, data: Revision) => request<Task>("post", `/tasks/${idPath(id)}/join`, data),
   watch: (id: string, data: Revision) => request<Task>("post", `/tasks/${idPath(id)}/watch`, data),
   unwatch: (id: string, data: Revision) => request<Task>("post", `/tasks/${idPath(id)}/unwatch`, data),

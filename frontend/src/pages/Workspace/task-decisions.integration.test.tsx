@@ -43,7 +43,7 @@ async function click(label: string) {
 }
 
 async function choosePublic(status: AssignmentStatus) {
-  await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());await waitForPage(page!);await click(statusNames[status]);
+  await act(async () => page!.container.querySelector<HTMLButtonElement>('button[aria-label^="Статус задачи:"]')!.click());await waitForPage(page!);await click(statusNames[status]);
 }
 it("1.1: public decisions change the joint task without changing private hours, evaluations or dates", async () => {
   const { tasks, session } = await submittedTasks(2, 4);
