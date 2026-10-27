@@ -23,6 +23,7 @@ export interface ScopeRef {
   kind: "block" | "subevent";
   id: string;
 }
+export type TaskScopeRef = ScopeRef | { kind: "queue"; id: string };
 export interface FileRef {
   file_id: string;
   name: string;
@@ -191,7 +192,8 @@ export interface TaskQueue extends TaskQueueRef {
   capabilities: string[];
   can_request_access: boolean;
   access_request_status: "pending" | "approved" | "rejected" | null;
-  scope?: ScopeRef;
+  scope?: ScopeRef | null;
+  assignable_users?: UserRef[];
   owner?: UserRef | null;
   is_private?: boolean;
   revision?: number;
@@ -213,6 +215,8 @@ export interface TaskHistoryChange {
   label?: string;
   before: string | string[] | null;
   after: string | string[] | null;
+  before_users?: UserRef[];
+  after_users?: UserRef[];
 }
 export interface TaskHistoryEvent {
   event_id: string;
@@ -227,12 +231,14 @@ export interface TaskHistoryEvent {
 export interface Task extends Versioned {
   task_id: string;
   season_id: string;
-  scope: ScopeRef;
+  scope: TaskScopeRef;
   title: string;
   description: RichText;
   deadline_at: string;
   assignments: Assignment[];
   assignees?: UserRef[];
+  watchers?: UserRef[];
+  allowed_statuses?: AssignmentStatus[];
   task_key?: string;
   queue?: TaskQueueRef;
   parent_task?: { task_id: string; task_key: string; title: string } | null;
@@ -279,6 +285,8 @@ export interface TaskInputs extends Versioned {
   criteria: Criteria;
 }
 export interface AssessmentInputs extends Versioned {
+  workflow_revision?: number | null;
+  workflow_status?: AssignmentStatus | null;
   assignment_id: string;
   hours: number | null;
   evaluation: -1 | 0 | 1 | 1.5 | null;
@@ -531,12 +539,14 @@ export interface TaskCreate {
   queue_id?: string;
   parent_task_id?: string | null;
   season_id: string;
-  scope: ScopeRef;
+  scope?: ScopeRef;
   title: string;
   description: RichText;
   deadline_at: string;
-  criteria: Criteria;
-  assignees: { user_id: number; hours: number }[];
+  criteria?: Criteria;
+  assignees?: { user_id: number; hours?: number }[];
+  watcher_user_ids?: number[];
+  file_ids?: string[];
 }
 export interface SeasonBlocker {
   kind:

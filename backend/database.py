@@ -343,13 +343,26 @@ class TaskTrackerORM(Base):
     status = Column(String, nullable=False, default="assigned")
     legacy_mixed_statuses = Column(Boolean, nullable=False, default=False)
     public_statuses_json = Column(Text, nullable=False, default="{}")
+    public_revisions_json = Column(Text, nullable=False, default="{}")
     public_updated_at = Column(String, nullable=True)
     files_json = Column(Text, nullable=False, default="[]")
     queue_id = Column(String, ForeignKey("task_queues.queue_id"), nullable=True, index=True)
     queue_number = Column(Integer, nullable=True)
     legacy_task_key = Column(String, nullable=True)
     parent_task_id = Column(String, ForeignKey("tasks.task_id"), nullable=True)
+    roster_initialized = Column(Boolean, nullable=False, default=False)
+    assessment_revision = Column(Integer, nullable=False, default=1)
     __table_args__ = (UniqueConstraint("queue_id", "queue_number", name="uq_task_queue_number"),)
+
+
+class TaskRosterORM(Base):
+    __tablename__ = "task_roster"
+    task_id = Column(String, ForeignKey("tasks.task_id"), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.user_id"), primary_key=True)
+    role = Column(String, nullable=False)  # assignee | watcher | left
+    assignment_id = Column(String, ForeignKey("assignments.assignment_id"), nullable=True)
+    created_at = Column(String, nullable=True)
+    updated_at = Column(String, nullable=True)
 
 
 class TaskActivityORM(Base):
@@ -408,8 +421,8 @@ def _advance_inputs_revision(session, _context, _instances):
     """Every change of an assignment's assessment inputs moves `inputs_revision`, whichever
     command made it: a correction, a decision or the assignee's own submission."""
     for obj in session.dirty:
-        if isinstance(obj, AssignmentORM) and any(
-            sa_inspect(obj).attrs[name].history.has_changes() for name in ASSESSMENT_INPUTS
+        if isinstance(obj, AssignmentORM) and obj.assignment_id not in session.info.get("manual_inputs_revision",set()) and any(
+            sa_inspect(obj).attrs[name].history.has_changes() for name in (*ASSESSMENT_INPUTS,"status")
         ):
             obj.inputs_revision = (obj.inputs_revision or 1) + 1
 
@@ -1435,7 +1448,7 @@ def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: O
         unavail = "archived"
     elif u:
         task=session.get(TaskORM,a.task_id)
-        if task and not db.is_member_or_leader_in_scope(u.user_id,task.scope_kind,task.scope_id):unavail="left_scope"
+        if task and not db.can_read_task(u.user_id,task,session):unavail="left_scope"
 
     caps = []
     task=session.get(TaskORM,a.task_id)
@@ -1471,7 +1484,9 @@ def _task_caps(t: TaskORM, uid: int, table: dict) -> list[str]:
     if not db.can_read_task(uid,t):return []
     rel = access.relations(uid, t.scope_kind, t.scope_id)
     state = access.season_state(t.season_id)
-    return [cap for cap, action in table.items() if access.allowed(uid, action, state=state, rel=rel)]
+    from tracker import can_edit_public
+    with db._session() as session:
+        return [cap for cap, action in table.items() if not (t.scope_kind=="queue" and action in {"task.inputs.view","task.inputs.edit","task.review"}) and (can_edit_public(session,t,uid) if action=="task.edit" else access.allowed(uid, action, state=state, rel=rel))]
 
 
 def _task_orm_to_dc(session: Session, t: TaskORM, current_user_id: Optional[int] = None) -> TaskPublicDC:
@@ -1724,12 +1739,13 @@ def _assessment_inputs_dc(a: AssignmentORM, t: TaskORM, uid: int) -> AssessmentI
         hours=a.hours,
         evaluation=a.evaluation,
         effective_completed_at=a.effective_completed_at,
-        revision=a.inputs_revision,
+        revision=a.inputs_revision,workflow_revision=a.inputs_revision,workflow_status=a.status,
         capabilities=access.inputs_caps(uid, t.scope_kind, t.scope_id, t.season_id),
     )
 
 
 def _recalculate_assignment_contribution(session: Session, a: AssignmentORM, t: TaskORM):
+    if t.scope_kind=="queue":return  # independent tasks have no invented accounting source
     if a.status in ("accepted", "not_completed") and a.evaluation is not None:
         crit_dict = {}
         try:
@@ -2045,7 +2061,7 @@ def _recalculate_closed_master_bonuses_for_session(session: Session, season_id: 
 def _calculate_season_summary_for_session(session: Session, season_id: str, is_approved: bool = False) -> SeasonSummaryDC:
     all_users = session.query(UserORM).all()
     included_users = []
-    season_task_ids = [t[0] for t in session.query(TaskORM.task_id).filter(TaskORM.season_id == season_id).all()]
+    season_task_ids = [t[0] for t in session.query(TaskORM.task_id).filter(TaskORM.season_id == season_id,TaskORM.scope_kind.in_(("block","subevent"))).all()]
     for u in all_users:
         is_arch = bool(u.banned or getattr(u, "account_state", "active") != "active")
         if not is_arch:
@@ -3395,11 +3411,8 @@ class Database:
                 for a in assignments:
                     t = task_map.get(a.task_id)
                     from tracker import metadata as tracker_metadata, participants
-                    shared_meta=tracker_metadata(session,t)
-                    current_ids={item.assignment_id for item in participants(session,t.task_id)}
-                    public_statuses=json.loads(shared_meta.public_statuses_json or "{}")
-                    public_status=shared_meta.status if a.assignment_id in current_ids and not shared_meta.legacy_mixed_statuses else public_statuses.get(a.assignment_id,a.status)
-                    if public_status in UNRESOLVED_STATUSES:
+                    if t.scope_kind=="queue":continue
+                    if a.status in UNRESOLVED_STATUSES:
                         blockers.append({
                             "kind": "unfinished_assignment",
                             "owner_kind": "assignment",
@@ -4605,9 +4618,9 @@ class Database:
                 return False
 
     def can_manage_scope(self, user_id: int, scope_kind: str, scope_id: str) -> bool:
-        """Leads a task area: creates tasks there (access.POLICY["task.create"])."""
+        """Original area-lead permission to assign other people, distinct from self-create."""
         import access
-        return access.allowed(user_id, "task.create", scope_kind, scope_id)
+        return access.allowed(user_id, "task.assign_others", scope_kind, scope_id)
 
     def can_view_scope(self, user_id: int, scope_kind: str, scope_id: str) -> bool:
         import access
@@ -4622,7 +4635,12 @@ class Database:
         """Raises the 403 for `action` on task `t`; a closed season has its own message."""
         import access
         if not self.can_read_task(user_id,t):raise Forbidden("Forbidden: task queue access ended")
-        if not access.allowed(user_id, action, t.scope_kind, t.scope_id, state=state):
+        if t.scope_kind=="queue" and action in {"task.inputs.view","task.inputs.edit","task.review","task.dates.edit"}:raise InvalidInput("Independent tasks have no accounting source")
+        if action=="task.edit":
+            from tracker import can_edit_public
+            with self._session() as session:permitted=can_edit_public(session,t,user_id)
+        else:permitted=access.allowed(user_id, action, t.scope_kind, t.scope_id, state=state)
+        if not permitted:
             raise Forbidden(closed_denied if state == "closed" else denied)
 
     def is_member_or_leader_in_scope(self, user_id: int, scope_kind: str, scope_id: str) -> bool:
@@ -4675,11 +4693,20 @@ class Database:
         created_by_user_id: int,
         queue_id: Optional[str] = None,
         parent_task_id: Optional[str] = None,
+        watcher_user_ids: Optional[list[int]] = None,
+        file_ids: Optional[list[str]] = None,
     ) -> TaskPublicDC:
         with self._session() as session:
             season = session.get(SeasonORM, season_id)
             if not season:
                 raise NotFound("Season not found")
+            from task_queues import default_queue,can_read,validate_parent
+            queue=session.get(TaskQueueORM,queue_id) if queue_id else None
+            if queue_id and not queue:raise NotFound("Queue not found")
+            if queue:
+                if not can_read(session,queue,created_by_user_id):raise Forbidden("Queue access is required")
+                if scope_kind and (scope_kind!=queue.scope_kind or scope_id!=queue.scope_id):raise InvalidInput("Queue scope mismatch")
+                scope_kind,scope_id=queue.scope_kind,queue.scope_id
             if scope_kind == "block":
                 block = session.get(BlockORM, scope_id)
                 if not block:
@@ -4695,14 +4722,12 @@ class Database:
                     raise InvalidInput("Subevent season mismatch")
                 if season.state not in ("planned", "open"):
                     raise Conflict("Tasks cannot be created in summarizing or closed season")
+            elif scope_kind=="queue" and queue:
+                if season.state not in ("planned","open"):raise Conflict("Tasks cannot be created in summarizing or closed season")
             else:
                 raise InvalidInput(f"Unsupported scope_kind '{scope_kind}'")
 
-            if not self.can_manage_scope(created_by_user_id, scope_kind, scope_id):
-                raise Forbidden("Forbidden: cannot create task in this scope")
-
-            from task_queues import default_queue,can_read,validate_parent
-            queue=session.get(TaskQueueORM,queue_id) if queue_id else default_queue(session,scope_kind,scope_id)
+            queue=queue or default_queue(session,scope_kind,scope_id)
             if not queue:raise NotFound("Queue not found")
             if not can_read(session,queue,created_by_user_id):raise Forbidden("Queue access is required")
             if queue.scope_kind!=scope_kind or queue.scope_id!=scope_id:raise InvalidInput("Queue scope mismatch")
@@ -4713,9 +4738,22 @@ class Database:
             period(datetime.now(timezone.utc).isoformat(),deadline_at,season.ends_at)
             if len({a.get("user_id") for a in assignees})!=len(assignees):raise InvalidInput("Duplicate assignees", "duplicate_users")
             for item in assignees:check_hours(item.get("hours",0))
+            import access
+            can_set_inputs=scope_kind!="queue" and access.allowed(created_by_user_id,"task.inputs.edit",scope_kind,scope_id,state=season.state)
+            if not can_set_inputs and (any(item.get("hours",0) not in (0,None) for item in assignees) or any((criteria_dict or {}).values())):
+                raise Forbidden("Private accounting inputs require the original accounting permission")
 
-            if not assignees:
-                raise InvalidInput("At least one assignee is required")
+            watcher_user_ids=watcher_user_ids or [];file_ids=file_ids or []
+            if len(watcher_user_ids)!=len(set(watcher_user_ids)):raise InvalidInput("Duplicate watchers","duplicate_users")
+            can_assign_others=scope_kind!="queue" and self.can_manage_scope(created_by_user_id,scope_kind,scope_id)
+            selected={a.get("user_id") for a in assignees}|set(watcher_user_ids)
+            if not can_assign_others and selected-{created_by_user_id}:raise Forbidden("Only self-assignment is allowed")
+            for uid in selected:
+                if not can_read(session,queue,uid):raise InvalidInput("Participant must have access to this queue")
+                if uid!=created_by_user_id and not self.is_member_or_leader_in_scope(uid,scope_kind,scope_id):raise InvalidInput("Participant is outside the original scope")
+            from file_access import check_attachments
+            check_attachments(session,file_ids,"task",None,created_by_user_id)
+            if any(session.get(FileRecordORM,fid).purpose!="attachment" for fid in file_ids):raise Forbidden("Invalid task attachment purpose")
 
             for a in assignees:
                 uid = a.get("user_id")
@@ -4723,7 +4761,7 @@ class Database:
                 if not u or u.banned or getattr(u, "account_state", "active") != "active":
                     raise InvalidInput(f"Invalid assignee user {uid}: user must be active and approved", "inactive_user")
                 if not can_read(session,queue,uid):raise InvalidInput("Assignee must have access to this queue")
-                if not self.is_member_or_leader_in_scope(uid, scope_kind, scope_id):
+                if uid!=created_by_user_id and not self.is_member_or_leader_in_scope(uid, scope_kind, scope_id):
                     raise InvalidInput(f"User {uid} is not a member or leader of this scope")
 
             now_str = datetime.now(timezone.utc).isoformat()
@@ -4746,6 +4784,9 @@ class Database:
             from tracker import metadata
             meta=metadata(session,t,queue)
             meta.parent_task_id=parent_task_id
+            meta.roster_initialized=True
+            meta.files_json=json.dumps(file_ids)
+            for fid in file_ids:session.get(FileRecordORM,fid).owner_id=task_id
 
             for a in assignees:
                 uid = a.get("user_id")
@@ -4761,6 +4802,7 @@ class Database:
                     created_at=now_str,
                 )
                 session.add(asgn)
+                session.add(TaskRosterORM(task_id=task_id,user_id=uid,role="assignee",assignment_id=assignment_id,created_at=now_str))
                 session.add(
                     NotificationORM(
                         notification_id=str(uuid.uuid4()),
@@ -4777,7 +4819,10 @@ class Database:
                     )
                 )
 
+            for uid in set(watcher_user_ids)-{a.get("user_id") for a in assignees}:
+                session.add(TaskRosterORM(task_id=task_id,user_id=uid,role="watcher",created_at=now_str))
             meta.public_statuses_json=json.dumps({a.assignment_id:"assigned" for a in session.new if isinstance(a,AssignmentORM) and a.task_id==task_id})
+            meta.public_revisions_json=json.dumps({a.assignment_id:1 for a in session.new if isinstance(a,AssignmentORM) and a.task_id==task_id})
             session.commit()
             return self.get_task(task_id, created_by_user_id)
 
@@ -4803,8 +4848,9 @@ class Database:
     ) -> list[TaskPublicDC]:
         with self._session() as session:
             if current_user_id is not None and scope_kind and scope_id:
-                if not (self.can_view_scope(current_user_id, scope_kind, scope_id)):
-                    raise Forbidden("Forbidden: cannot view tasks for this scope")
+                if scope_kind!="queue" and not (self.can_view_scope(current_user_id, scope_kind, scope_id)):
+                    from access import all_queue_reader
+                    if not all_queue_reader(current_user_id):raise Forbidden("Forbidden: cannot view tasks for this scope")
 
             query = session.query(TaskORM)
             if season_id:
@@ -5277,11 +5323,7 @@ class Database:
             current_by_task={}
             public_tasks={}
             for a, t in pairs:
-                meta=tracker_metadata(session,t)
-                if t.task_id not in current_by_task:current_by_task[t.task_id]={item.assignment_id for item in participants(session,t.task_id)}
-                if a.assignment_id not in current_by_task[t.task_id]:continue
-                public_status=json.loads(meta.public_statuses_json or "{}").get(a.assignment_id,a.status) if meta.legacy_mixed_statuses else meta.status
-                if public_status not in active_statuses:continue
+                if t.scope_kind=="queue" or a.status not in active_statuses:continue
                 if current_user_id is not None:
                     import access
                     if not self.can_read_task(current_user_id,t,session):continue
@@ -5293,14 +5335,13 @@ class Database:
                 unavail = None
                 if not u or u.banned or getattr(u, "account_state", "active") != "active":
                     unavail = "archived"
-                elif not self.is_member_or_leader_in_scope(a.assignee_user_id, t.scope_kind, t.scope_id):
+                elif not self.can_read_task(a.assignee_user_id,t,session):
                     unavail = "left_scope"
 
                 if orphaned_only and unavail is None:
                     continue
 
-                if t.task_id not in public_tasks:public_tasks[t.task_id]=_task_orm_to_dc(session,t,current_user_id)
-                a_dc=next(item for item in public_tasks[t.task_id].assignments if item.assignment_id==a.assignment_id)
+                a_dc=_assignment_orm_to_dc(session,a,current_user_id)
                 a_dc.assignee_unavailable_reason = unavail
                 results.append(
                     UnresolvedAssignmentDC(
@@ -5338,12 +5379,12 @@ class Database:
                                     "Forbidden: cannot manage assignments for this scope",
                                     "Forbidden: only the chair and deputies can reassign in a closed season")
 
-            if a.revision != expected_revision:
+            if a.inputs_revision != expected_revision:
                 raise revision_conflict()
 
             from tracker import metadata as tracker_metadata, participants
             shared_meta = tracker_metadata(session, t)
-            if shared_meta.status not in UNRESOLVED_STATUSES or a.assignment_id not in {row.assignment_id for row in participants(session,t.task_id)}:
+            if a.status not in UNRESOLVED_STATUSES or a.assignment_id not in {row.assignment_id for row in participants(session,t.task_id)}:
                 raise Conflict("Conflict: only current unresolved task participants can be reassigned")
             from validation import hours as check_hours
             check_hours(hours)
@@ -5387,18 +5428,29 @@ class Database:
                 assignment_id=f"assignment-{uuid.uuid4()}",
                 task_id=t.task_id,
                 assignee_user_id=new_assignee_user_id,
-                status=shared_status if not was_mixed else "assigned",
+                status="assigned",
                 hours=hours,
-                effective_completed_at=a.effective_completed_at if shared_status == "submitted" and not was_mixed else None,
+                effective_completed_at=None,
                 revision=1,
                 created_at=now_str,
             )
             t.revision += 1
             public_statuses=json.loads(shared_meta.public_statuses_json or "{}")
-            public_statuses[a.assignment_id]=previous_outcome
-            public_statuses[new_asgn.assignment_id]=new_asgn.status
+            public_statuses[a.assignment_id]="cancelled"
+            public_statuses[new_asgn.assignment_id]=shared_status
             shared_meta.public_statuses_json=json.dumps(public_statuses)
+            revisions=json.loads(shared_meta.public_revisions_json or "{}")
+            revisions[a.assignment_id]=revisions.get(a.assignment_id,1)+1
+            revisions[new_asgn.assignment_id]=1
+            shared_meta.public_revisions_json=json.dumps(revisions)
             session.add(new_asgn)
+            from tracker import roster
+            old_member=next((m for m in roster(session,t.task_id) if m.user_id==a.assignee_user_id),None)
+            if old_member:old_member.role="watcher";old_member.updated_at=now_str
+            new_member=next((m for m in roster(session,t.task_id) if m.user_id==new_assignee_user_id),None)
+            if not new_member:
+                new_member=TaskRosterORM(task_id=t.task_id,user_id=new_assignee_user_id,role="assignee",created_at=now_str);session.add(new_member)
+            new_member.role="assignee";new_member.assignment_id=new_asgn.assignment_id;new_member.updated_at=now_str
             session.add(
                 NotificationORM(
                     notification_id=str(uuid.uuid4()),
@@ -5444,6 +5496,7 @@ class Database:
             # Not readable at all: the same answer as a missing task (A-SEC-6).
             if not self.can_read_task(current_user_id,t,session):
                 raise NotFound("Task not found")
+            if t.scope_kind=="queue":raise InvalidInput("Independent tasks have no accounting source")
             import access
             if not access.scope_inputs(current_user_id, t.scope_kind, t.scope_id, t.season_id):
                 raise Forbidden("Forbidden: cannot view task assessment inputs")
@@ -5459,12 +5512,13 @@ class Database:
                 in_person=bool(crit_dict.get("in_person", False)),
                 fixed_time=bool(crit_dict.get("fixed_time", False)),
             )
+            from tracker import metadata
             return TaskInputsDC(
                 task_id=t.task_id,
                 assigned_at=t.assigned_at,
                 deadline_at=t.deadline_at,
                 criteria=crit,
-                revision=t.revision,
+                revision=metadata(session,t).assessment_revision or 1,
                 capabilities=access.inputs_caps(current_user_id, t.scope_kind, t.scope_id, t.season_id),
             )
 
@@ -5500,7 +5554,9 @@ class Database:
             if assigned_at is not None:assigned_at=timestamp(assigned_at)
             if deadline_at is not None:deadline_at=timestamp(deadline_at)
             self.require_dates_right(user_id, t, season and season.state, ((assigned_at, t.assigned_at), (deadline_at, t.deadline_at)))
-            if t.revision != expected_revision:
+            from tracker import metadata
+            meta=metadata(session,t)
+            if (meta.assessment_revision or 1) != expected_revision:
                 raise revision_conflict()
             if not reason or not reason.strip():
                 raise InvalidInput("Reason is required")
@@ -5518,7 +5574,8 @@ class Database:
             if criteria is not None:
                 t.criteria_json = json.dumps(criteria)
 
-            t.revision += 1
+            meta.assessment_revision=(meta.assessment_revision or 1)+1
+            if t.deadline_at!=old_deadline:t.revision+=1
             t.updated_at = datetime.now(timezone.utc).isoformat()
 
             session.add(
@@ -5552,6 +5609,7 @@ class Database:
                 raise NotFound("Task not found")
             if not self.can_read_task(current_user_id,t,session):
                 raise NotFound("Assignment not found")
+            if t.scope_kind=="queue":raise InvalidInput("Independent tasks have no accounting source")
             import access
             if not access.scope_inputs(current_user_id, t.scope_kind, t.scope_id, t.season_id):
                 raise Forbidden("Forbidden: cannot view assignment assessment inputs")
@@ -5592,6 +5650,13 @@ class Database:
             if hours is not None:check_hours(hours)
             if effective_completed_at is not None and a.effective_completed_at and dt(effective_completed_at) == dt(a.effective_completed_at):
                 effective_completed_at = None  # the same instant in another notation
+            if evaluation in (1,1.5) and not (effective_completed_at or a.effective_completed_at):
+                # An authorized evaluation may acknowledge an actual observed submission;
+                # this is not permission to invent or override a completion date.
+                shared=session.query(TaskSubmissionORM).filter_by(task_id=t.task_id).order_by(TaskSubmissionORM.submitted_at.desc()).first()
+                legacy=session.query(SubmissionORM).filter_by(assignment_id=a.assignment_id).order_by(SubmissionORM.submitted_at.desc()).first()
+                observed=[row.submitted_at for row in (shared,legacy) if row]
+                if observed:effective_completed_at=max(observed)
             assessment(evaluation if evaluation is not None else a.evaluation,effective_completed_at or a.effective_completed_at)
             old_hours = a.hours
             old_eval = a.evaluation
@@ -6163,7 +6228,7 @@ class Database:
             fr = FileRecordORM(
                 file_id=fid,
                 owner_kind=owner_kind,
-                owner_id=owner_id or str(user_id),
+                owner_id=owner_id if owner_kind=="task" else owner_id or str(user_id),
                 purpose=purpose,
                 name=name,
                 mime_type=mime_type,

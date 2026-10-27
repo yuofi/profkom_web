@@ -164,7 +164,7 @@ def test_concurrent_planned_creation_and_assignment_accept_are_atomic(
         w["member"].headers,
     )
     assert submitted.status_code == 200, submitted.text
-    body = dict(expected_revision=submitted.json()["revision"], evaluation=1)
+    body = dict(expected_revision=client.get("/api/assignments/"+aid+"/assessment-inputs",headers=w["master"].headers).json()["workflow_revision"], evaluation=1)
     with ThreadPoolExecutor(2) as pool:
         responses = list(
             pool.map(

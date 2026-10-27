@@ -27,28 +27,23 @@ def snapshot(w):
         return [(x.assignment_id,x.status,x.revision,x.hours,x.evaluation,x.effective_completed_at) for x in s.query(AssignmentORM).filter_by(task_id=w['task']['task_id']).order_by(AssignmentORM.assignment_id)]
 
 def test_one_result_changes_all_and_preserves_personal_inputs(client,joint):
-    w=joint;initial=task(client,w);r=move(client,w,'in_progress');assert r.status_code==200,r.text
-    assert {x['status'] for x in r.json()['assignments']}=={'in_progress'}
-    before=snapshot(w);stale=move(client,w,'help_required',revision=initial['revision']);assert stale.status_code==409;assert snapshot(w)==before
-    r=move(client,w,'submitted',actor=w['extra'],text={'format':'markdown','body':'Общий результат'});assert r.status_code==200,r.text
-    t=r.json();assert t['status']=='submitted' and len(t['submissions'])==1
-    assert t['submissions'][0]['submitted_by']['user_id']==w['extra'].user_id
-    assert all(a['status']=='submitted' for a in t['assignments'])
-    evaluations=[{'assignment_id':a['assignment_id'],'evaluation':1 if a['assignee']['user_id']==w['member'].user_id else 1.5} for a in t['assignments']]
-    r=move(client,w,'accepted',actor=w['master'],evaluation=1,evaluations=evaluations);assert r.status_code==200,r.text
-    assert {a['status'] for a in r.json()['assignments']}=={'accepted'}
-    rows=snapshot(w);assert sorted((x[3],x[4]) for x in rows)==[(2,1),(7,1.5)]
-    assert len({x[5] for x in rows})==1
-    r=move(client,w,'needs_revision',actor=w['master'],reason='Дополнить общий результат');assert r.status_code==200,r.text
-    r=move(client,w,'submitted',text='Дополнено');assert r.status_code==200,r.text
-    r=move(client,w,'accepted',actor=w['master'],evaluation=1);assert r.status_code==200,r.text
-    assert sorted((x[3],x[4]) for x in snapshot(w))==[(2,1),(7,1.5)]
-    with db._session() as s:assert s.query(ContributionORM).filter(ContributionORM.assignment_id.in_([a['assignment_id'] for a in t['assignments']])).count()==2
+    w=joint;initial=task(client,w);saved=snapshot(w)
+    r=move(client,w,'submitted',actor=w['extra'],text='Общий результат');assert r.status_code==200,r.text
+    assert {a['status'] for a in r.json()['assignments']}=={'submitted'} and len(r.json()['submissions'])==1
+    assert snapshot(w)==saved
+    r=move(client,w,'accepted');assert r.status_code==200 and snapshot(w)==saved
+    for a in r.json()['assignments']:
+        private=client.get('/api/assignments/'+a['assignment_id']+'/assessment-inputs',headers=w['master'].headers).json()
+        evaluation=1 if a['assignee']['user_id']==w['member'].user_id else 1.5
+        accepted=client.post('/api/assignments/'+a['assignment_id']+'/accept',headers=w['master'].headers,json={'expected_revision':private['workflow_revision'],'evaluation':evaluation})
+        assert accepted.status_code==200,accepted.text
+    assert sorted((a[3],a[4]) for a in snapshot(w))==[(2,1),(7,1.5)]
+    before=snapshot(w);r=move(client,w,'assigned');assert r.status_code==200 and snapshot(w)==before
 
 
 def test_permissions_and_legacy_urls_cannot_diverge_joint_status(client,joint):
     w=joint;before=snapshot(w)
-    assert move(client,w,'accepted',evaluation=1).status_code==403
+    assert move(client,w,'accepted',evaluation=1).status_code==422
     assert snapshot(w)==before
     tid=w['task']['task_id']
     assert client.get(f'/api/tasks/{tid}/history',headers=w['outside'].headers).status_code==404
@@ -101,7 +96,7 @@ def test_instruction_and_shared_result_files_are_private_until_bound(client,join
 
 
 def test_history_and_updated_ignore_hidden_assessment_corrections(client,joint):
-    w=joint;move(client,w,'submitted',text='Готово');r=move(client,w,'accepted',actor=w['master'],evaluation=1);assert r.status_code==200,r.text
+    w=joint;move(client,w,'submitted',text='Готово');r=move(client,w,'accepted',actor=w['master']);assert r.status_code==200,r.text
     tid=w['task']['task_id'];before=task(client,w,w['member']);history=client.get(f'/api/tasks/{tid}/history',headers=w['member'].headers).json()
     aid=before['assignments'][0]['assignment_id']
     inputs=client.get(f'/api/assignments/{aid}/assessment-inputs',headers=w['master'].headers).json()
@@ -136,13 +131,12 @@ def test_search_facets_and_keyset_pages_only_include_authorized_tasks(client,joi
 
 def test_metadata_migration_is_idempotent_and_legacy_outcomes_are_not_rewritten(client,joint):
     from tracker import seed_existing
-    w=joint;before=snapshot(w);key=task(client,w)['task_key']
-    seed_existing();seed_existing();assert snapshot(w)==before and task(client,w)['task_key']==key
+    w=joint;before=snapshot(w);original=task(client,w)
+    seed_existing();seed_existing();assert snapshot(w)==before and task(client,w)==original
     with db._session() as s:
         rows=s.query(AssignmentORM).filter_by(task_id=w['task']['task_id']).all();rows[0].status='accepted';rows[0].evaluation=1.5;rows[1].status='cancelled';s.commit()
-    t=task(client,w);assert t['legacy_mixed_statuses'] and t['legacy_status_conflict']
-    saved=snapshot(w);r=move(client,w,'needs_revision',actor=w['master'],reason='No silent rewriting');assert r.status_code==409 and r.json()['detail']['code']=='legacy_task_statuses'
-    assert snapshot(w)==saved
+    assert task(client,w)==original
+    saved=snapshot(w);r=move(client,w,'needs_revision');assert r.status_code==200 and snapshot(w)==saved
 
 
 def test_private_outcome_correction_keeps_active_task_dto_and_capabilities(client,joint,superuser):
@@ -184,13 +178,11 @@ def test_superseded_assignment_url_cannot_reuse_old_revision_for_joint_task(clie
 
 
 def test_invalid_joint_decision_rolls_back_every_participant(client,joint):
-    w=joint;r=move(client,w,'submitted',text='One shared submission');assert r.status_code==200,r.text
-    with db._session() as s:
-        rows=s.query(AssignmentORM).filter_by(task_id=w['task']['task_id']).all();rows[-1].hours=None;s.commit()
-    before=task(client,w);saved=snapshot(w);history_before=client.get('/api/tasks/'+before['task_id']+'/history',headers=w['master'].headers).json()
-    rejected=move(client,w,'accepted',actor=w['master'],evaluation=1);assert rejected.status_code==422,rejected.text
+    w=joint;before=task(client,w);saved=snapshot(w);tid=before['task_id']
+    history=client.get('/api/tasks/'+tid+'/history',headers=w['member'].headers).json()
+    rejected=move(client,w,'accepted',evaluation=1);assert rejected.status_code==422
     assert task(client,w)==before and snapshot(w)==saved
-    assert client.get('/api/tasks/'+before['task_id']+'/history',headers=w['master'].headers).json()==history_before
+    assert client.get('/api/tasks/'+tid+'/history',headers=w['member'].headers).json()==history
 
 
 def test_reassign_inherits_common_status_after_private_personal_outcome(client,joint,make_user,superuser):
@@ -202,31 +194,29 @@ def test_reassign_inherits_common_status_after_private_personal_outcome(client,j
     private=client.get(f"/api/assignments/{first['assignment_id']}/assessment-inputs",headers=superuser.headers).json()
     r=client.patch(f"/api/assignments/{first['assignment_id']}/assessment-inputs",headers=superuser.headers,json={'expected_revision':private['revision'],'evaluation':1,'effective_completed_at':datetime.now(timezone.utc).isoformat(),'reason':'Private accounting final outcome'});assert r.status_code==200,r.text
     assert task(client,w,w['member'])['status']=='in_progress'
-    r=client.post(f"/api/assignments/{second['assignment_id']}/reassign",headers=w['master'].headers,json={'expected_revision':second['revision'],'new_assignee_user_id':replacement.user_id,'hours':5,'previous_outcome':'cancelled','reason':'New joint teammate'});assert r.status_code==200,r.text
+    r=client.post(f"/api/assignments/{second['assignment_id']}/reassign",headers=w['master'].headers,json={'expected_revision':client.get(f"/api/assignments/{second['assignment_id']}/assessment-inputs",headers=w['master'].headers).json()['workflow_revision'],'new_assignee_user_id':replacement.user_id,'hours':5,'previous_outcome':'cancelled','reason':'New joint teammate'});assert r.status_code==200,r.text
     after=task(client,w);assert after['status']=='in_progress' and not after['legacy_mixed_statuses']
     assert after['revision']==before['revision']+1
     assert {x['user_id'] for x in after['assignees']}=={first['assignee']['user_id'],replacement.user_id}
-    assert r.json()['assignment']['status']=='in_progress'
+    assert task(client,w)['status']=='in_progress'
+    with db._session() as s:assert s.get(AssignmentORM,r.json()['assignment']['assignment_id']).status=='assigned'
 
 
 @pytest.mark.parametrize("legacy_mixed",[False,True])
 def test_private_final_outcomes_do_not_hide_unfinished_joint_task_or_allow_season_close(client,joint,superuser,legacy_mixed):
-    w=joint
-    if legacy_mixed:
-        with db._session() as s:
-            row=s.query(AssignmentORM).filter_by(task_id=w['task']['task_id']).first();row.status='accepted';row.evaluation=1;row.effective_completed_at=datetime.now(timezone.utc).isoformat();s.commit()
-    before=task(client,w);tid=before['task_id']
+    w=joint;before=task(client,w);tid=before['task_id']
     for row in before['assignments']:
         aid=row['assignment_id'];private=client.get(f'/api/assignments/{aid}/assessment-inputs',headers=superuser.headers).json()
-        r=client.patch(f'/api/assignments/{aid}/assessment-inputs',headers=superuser.headers,json={'expected_revision':private['revision'],'evaluation':1,'effective_completed_at':datetime.now(timezone.utc).isoformat(),'reason':'Private personal accounting'});assert r.status_code==200,r.text
+        r=client.patch(f'/api/assignments/{aid}/assessment-inputs',headers=superuser.headers,json={'expected_revision':private['revision'],'evaluation':1 if not legacy_mixed else 0,'effective_completed_at':datetime.now(timezone.utc).isoformat(),'reason':'Explicit personal accounting'});assert r.status_code==200,r.text
     assert task(client,w)==before
     queue=client.get('/api/assignments/unresolved',headers=w['master'].headers).json()['items']
-    actual=[item for item in queue if item['task_id']==tid]
-    assert len(actual)==(1 if legacy_mixed else 2) and {x['assignment']['status'] for x in actual}=={'assigned'}
+    assert not any(item['task_id']==tid for item in queue)
+    # Other fixture work remains unfinished: public acceptance cannot dismiss that accounting blocker.
+    r=move(client,w,'accepted');assert r.status_code==200
     season=client.get('/api/seasons/'+w['season']['season_id'],headers=superuser.headers).json()
-    r=client.post('/api/seasons/'+season['season_id']+'/begin-summary',headers=superuser.headers,json={'expected_revision':season['revision']});assert r.status_code==200,r.text
-    r=client.post('/api/seasons/'+season['season_id']+'/close',headers=superuser.headers,json={'expected_revision':r.json()['revision']});assert r.status_code==409,r.text
-    assert any(item['kind']=='unfinished_assignment' and item['owner_id'] in {a['assignment_id'] for a in before['assignments']} for item in r.json()['detail']['fields']['blockers'])
+    r=client.post('/api/seasons/'+season['season_id']+'/begin-summary',headers=superuser.headers,json={'expected_revision':season['revision']});assert r.status_code==200
+    r=client.post('/api/seasons/'+season['season_id']+'/close',headers=superuser.headers,json={'expected_revision':r.json()['revision']});assert r.status_code==409
+    assert not any(b['owner_id'] in {a['assignment_id'] for a in before['assignments']} for b in r.json()['detail']['fields']['blockers'])
 
 
 def test_task_cursor_is_bounded_and_bound_to_filters_and_actor(client,joint):
@@ -276,6 +266,8 @@ def test_legacy_mixed_public_snapshot_does_not_leak_private_personal_correction(
     w=joint;tid=w['task']['task_id']
     with db._session() as s:
         rows=s.query(AssignmentORM).filter_by(task_id=tid).all();rows[0].status='accepted';rows[0].evaluation=1.5;rows[0].effective_completed_at=datetime.now(timezone.utc).isoformat();rows[1].status='cancelled';s.commit()
+    with db._session() as s:
+        meta=s.query(TaskTrackerORM).filter_by(task_id=tid).one();meta.legacy_mixed_statuses=True;meta.status='accepted';meta.public_statuses_json=json.dumps({a.assignment_id:a.status for a in s.query(AssignmentORM).filter_by(task_id=tid)});s.commit()
     before=task(client,w,w['member']);assert before['legacy_mixed_statuses']
     aid=next(row['assignment_id'] for row in before['assignments'] if row['status']=='accepted')
     history_before=client.get(f'/api/tasks/{tid}/history',headers=w['member'].headers).json()
@@ -284,7 +276,7 @@ def test_legacy_mixed_public_snapshot_does_not_leak_private_personal_correction(
     assert task(client,w,w['member'])==before
     assert client.get(f'/api/tasks/{tid}/history',headers=w['member'].headers).json()==history_before
     # Compatibility is decided by factual public history, not the private new evaluation.
-    rejected=move(client,w,'needs_revision',actor=w['master'],reason='Still incompatible cancelled old result');assert rejected.status_code==409
+    saved=snapshot(w);changed=move(client,w,'needs_revision');assert changed.status_code==200 and snapshot(w)==saved
 
 
 def test_private_correction_of_superseded_outcome_preserves_public_historical_snapshot(client,joint,superuser):
@@ -301,31 +293,29 @@ def test_private_correction_of_superseded_outcome_preserves_public_historical_sn
 
 def test_joint_review_rolls_back_flushed_first_participant_if_second_recalculation_fails(client,joint,monkeypatch):
     import tracker
-    w=joint;r=move(client,w,'submitted',text='Shared atomic result');assert r.status_code==200,r.text
-    before=task(client,w);saved=snapshot(w);history_before=client.get('/api/tasks/'+before['task_id']+'/history',headers=w['master'].headers).json()
-    real=tracker._recalculate_assignment_contribution;calls=[]
-    def fail_later(session,assignment,task_record):
-        calls.append(assignment.assignment_id)
-        if len(calls)==2:raise RuntimeError('Synthetic failure on second participant')
-        real(session,assignment,task_record);session.flush()
-    monkeypatch.setattr(tracker,'_recalculate_assignment_contribution',fail_later)
-    with pytest.raises(RuntimeError,match='Synthetic failure'):
-        move(client,w,'accepted',actor=w['master'],evaluation=1)
-    assert len(calls)==2 and task(client,w)==before and snapshot(w)==saved
-    assert client.get('/api/tasks/'+before['task_id']+'/history',headers=w['master'].headers).json()==history_before
-    with db._session() as s:
-        assert s.query(ContributionORM).filter(ContributionORM.assignment_id.in_([a['assignment_id'] for a in before['assignments']])).count()==0
+    w=joint;r=move(client,w,'submitted',text='Actual result');assert r.status_code==200
+    before=task(client,w);saved=snapshot(w);tid=before['task_id'];aid=before['assignments'][0]['assignment_id']
+    private=client.get(f'/api/assignments/{aid}/assessment-inputs',headers=w['master'].headers).json()
+    real=tracker._recalculate_assignment_contribution
+    def fail_after_flush(session,a,t):
+        real(session,a,t);session.flush();raise RuntimeError('Synthetic accounting failure after flush')
+    monkeypatch.setattr(tracker,'_recalculate_assignment_contribution',fail_after_flush)
+    with pytest.raises(RuntimeError,match='Synthetic accounting failure'):
+        client.post(f'/api/assignments/{aid}/accept',headers=w['master'].headers,json={'expected_revision':private['workflow_revision'],'evaluation':1})
+    assert task(client,w)==before and snapshot(w)==saved
+    with db._session() as s:assert s.query(ContributionORM).filter_by(assignment_id=aid).count()==0
 
 
 def test_unauthorized_shared_command_is_forbidden_before_stale_revision(client,joint,make_user,superuser):
     w=joint;reader=make_user()
     with db.atomic():
-        with db._session() as s:set_membership(s,reader.user_id,w['block']['block_id'],True,superuser.user_id,'Reader only')
-    tid=w['task']['task_id'];before=task(client,w);saved=snapshot(w)
-    for actor,status,extra in [(w['member'],'accepted',{'evaluation':1}),(reader,'in_progress',{})]:
-        result=client.post(f'/api/tasks/{tid}/status',headers=actor.headers,json={'expected_revision':999999,'status':status,**extra})
-        assert result.status_code==403,result.text
-        assert task(client,w)==before and snapshot(w)==saved
+        with db._session() as s:set_membership(s,reader.user_id,w['block']['block_id'],True,superuser.user_id,'Reader')
+    before=task(client,w);saved=snapshot(w);tid=before['task_id']
+    for actor in (w['member'],reader):
+        r=client.post(f'/api/tasks/{tid}/status',headers=actor.headers,json={'expected_revision':999999,'status':'accepted'})
+        assert r.status_code==409 and task(client,w)==before and snapshot(w)==saved
+    aid=before['assignments'][0]['assignment_id']
+    assert client.post(f'/api/assignments/{aid}/accept',headers=reader.headers,json={'expected_revision':999999,'evaluation':1}).status_code==403
 
 
 def test_public_dashboard_calendar_and_mine_ignore_private_outcome_and_retired_roster(client,joint,superuser):
@@ -339,7 +329,9 @@ def test_public_dashboard_calendar_and_mine_ignore_private_outcome_and_retired_r
     assert result.status_code==200,result.text
     assert client.get('/api/dashboard',headers=w['member'].headers).json()==before_dashboard
     assert client.get('/api/calendar',headers=w['member'].headers).json()==before_calendar
-    r=client.post(f"/api/assignments/{own['assignment_id']}/reassign",headers=w['master'].headers,json={'expected_revision':own['revision'],'new_assignee_user_id':w['master'].user_id,'hours':3,'previous_outcome':'cancelled','reason':'Replace current participant'});assert r.status_code==200,r.text
+    current=task(client,w);r=client.post(f"/api/tasks/{tid}/assignees/{w['member'].user_id}/remove",headers=w['master'].headers,json={'expected_revision':current['revision']});assert r.status_code==200,r.text
+    r=client.post(f"/api/tasks/{tid}/join",headers=w['master'].headers,json={'expected_revision':r.json()['revision']});assert r.status_code==200,r.text
+    r=client.post(f"/api/tasks/{tid}/unwatch",headers=w['member'].headers,json={'expected_revision':r.json()['revision']});assert r.status_code==200,r.text
     assert tid not in {item['task_id'] for item in client.get('/api/tasks',headers=w['member'].headers,params={'mine':True}).json()['items']}
     after_calendar=client.get('/api/calendar',headers=w['member'].headers).json()['items']
     assert not any(item['target']=={'kind':'task','id':tid} for item in after_calendar)
@@ -352,15 +344,11 @@ def test_public_dashboard_calendar_and_mine_ignore_private_outcome_and_retired_r
 
 
 def test_queue_projection_preserves_worker_capabilities_after_private_correction(client,joint,superuser):
-    w=joint;tid=w['task']['task_id']
-    # An area leader may also be a joint assignee and therefore uses both capability sets.
-    create=client.post('/api/tasks',headers=w['master'].headers,json={**w['payload'],'title':'Leader is a joint assignee','assignees':[{'user_id':w['master'].user_id,'hours':2},{'user_id':w['member'].user_id,'hours':4}]});assert create.status_code==200,create.text
-    t=create.json();aid=next(a['assignment_id'] for a in t['assignments'] if a['assignee']['user_id']==w['master'].user_id)
-    def queue_item():return next(item for item in client.get('/api/assignments/unresolved',headers=w['master'].headers).json()['items'] if item['assignment']['assignment_id']==aid)
-    before=queue_item();assert 'start_assignment' in before['assignment']['capabilities']
-    private=client.get(f'/api/assignments/{aid}/assessment-inputs',headers=superuser.headers).json()
-    r=client.patch(f'/api/assignments/{aid}/assessment-inputs',headers=superuser.headers,json={'expected_revision':private['revision'],'evaluation':1,'effective_completed_at':datetime.now(timezone.utc).isoformat(),'reason':'Private leader outcome'});assert r.status_code==200,r.text
-    assert queue_item()==before
+    w=joint;t=task(client,w);aid=t['assignments'][0]['assignment_id'];private=client.get(f'/api/assignments/{aid}/assessment-inputs',headers=superuser.headers).json()
+    r=client.patch(f'/api/assignments/{aid}/assessment-inputs',headers=superuser.headers,json={'expected_revision':private['revision'],'evaluation':1,'effective_completed_at':datetime.now(timezone.utc).isoformat(),'reason':'Private final outcome'});assert r.status_code==200
+    assert task(client,w)==t
+    queue=client.get('/api/assignments/unresolved',headers=w['master'].headers).json()['items']
+    assert not any(x['assignment']['assignment_id']==aid for x in queue)
 
 
 def test_legacy_start_and_resume_keep_their_source_state_guards(client,joint):

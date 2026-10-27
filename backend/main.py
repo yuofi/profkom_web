@@ -563,8 +563,8 @@ class TaskAssigneeIn(Command):
 class TaskQueueCreateIn(Command):
     name: str = Field(min_length=1,max_length=200)
     key: str = Field(min_length=1,max_length=32,pattern=r"^[A-Z]+$")
-    scope: dict
-    owner_user_id: int
+    scope: Optional[dict] = None
+    owner_user_id: Optional[int] = None
     is_private: bool = False
 
 
@@ -587,12 +587,25 @@ class TaskCreateIn(Command):
     queue_id: Optional[str] = None
     parent_task_id: Optional[str] = None
     season_id: str
-    scope: dict
+    scope: Optional[dict] = None
     title: str
     description: Union[RichTextSchema, str] = ""
     deadline_at: str
     criteria: CriteriaSchema = CriteriaSchema()
-    assignees: list[TaskAssigneeIn]
+    assignees: list[TaskAssigneeIn] = []
+    watcher_user_ids: list[int] = []
+    file_ids: list[str] = []
+
+
+class TaskRosterIn(Command):
+    expected_revision: int
+
+
+class TaskResultIn(Command):
+    expected_revision: int
+    text: Union[RichTextSchema,str] = ""
+    links: list[str] = []
+    file_ids: list[str] = []
 
 
 class TaskPatchIn(Command):
@@ -652,10 +665,20 @@ class TaskStatusIn(Command):
 
 
 class TaskHistoryChangeOut(BaseModel):
+    before_users: Optional[list[UserRefOut]] = None
+    after_users: Optional[list[UserRefOut]] = None
     field: str
     label: Optional[str] = None
     before: Union[str,list[str],None] = None
     after: Union[str,list[str],None] = None
+
+
+    @model_serializer(mode="wrap")
+    def public_change(self,handler):
+        result=handler(self)
+        for key in ("before_users","after_users"):
+            if result.get(key) is None:result.pop(key,None)
+        return result
 
 
 class TaskHistoryOut(BaseModel):
@@ -678,6 +701,7 @@ class TaskPublicOut(BaseModel):
     deadline_at: str
     assignments: list[AssignmentPublicOut] = []
     assignees: list[UserRefOut] = []
+    watchers: list[UserRefOut] = []
     queue: Optional[dict] = None
     parent_task: Optional[dict] = None
     parent_task_id: Optional[str] = None
@@ -792,6 +816,8 @@ class AssessmentInputsOut(BaseModel):
     evaluation: Optional[float] = None
     effective_completed_at: Optional[str] = None
     revision: int = 1
+    workflow_revision: Optional[int] = None
+    workflow_status: Optional[str] = None
     capabilities: list[str] = []
 
 
@@ -1934,6 +1960,7 @@ def _to_task_public_out(t) -> TaskPublicOut:
         deadline_at=t.deadline_at,
         assignments=[_to_assignment_public_out(a) for a in t.assignments],
         assignees=[_to_user_ref_out(user) for user in t.assignees],
+        watchers=[_to_user_ref_out(user) for user in t.watchers],
         queue=t.queue,parent_task=t.parent_task,parent_task_id=t.parent_task_id,parent_task_unavailable=t.parent_task_unavailable,
         task_key=t.task_key, status=t.status,
         created_by=_to_user_ref_out(t.created_by) if t.created_by else None,
@@ -2010,7 +2037,7 @@ def _to_assessment_inputs_out(a) -> AssessmentInputsOut:
         hours=a.hours,
         evaluation=a.evaluation,
         effective_completed_at=a.effective_completed_at,
-        revision=a.revision,
+        revision=a.revision,workflow_revision=a.workflow_revision,workflow_status=a.workflow_status,
         capabilities=a.capabilities,
     )
 
@@ -2572,8 +2599,8 @@ def revoke_task_queue_member(queue_id: str,user_id: int,payload: TaskQueueDecisi
 @router.post("/tasks", response_model=TaskPublicOut)
 def create_task(payload: TaskCreateIn, cur: User = Depends(get_current_user)):
     desc_body = _to_rich_text_body(payload.description)
-    scope_kind = payload.scope.get("kind", "")
-    scope_id = payload.scope.get("id", "")
+    scope_kind = (payload.scope or {}).get("kind", "")
+    scope_id = (payload.scope or {}).get("id", "")
     if scope_kind=="block":
         from membership import legacy_name
         scope_id=legacy_name(scope_id)
@@ -2595,6 +2622,7 @@ def create_task(payload: TaskCreateIn, cur: User = Depends(get_current_user)):
         criteria_dict=crit_dict,
         assignees=assignees,
         created_by_user_id=cur.user_id,queue_id=payload.queue_id,parent_task_id=payload.parent_task_id,
+        watcher_user_ids=payload.watcher_user_ids,file_ids=payload.file_ids,
     )
     return _to_task_public_out(t)
 
@@ -2646,6 +2674,37 @@ def patch_task(task_id: str, payload: TaskPatchIn, cur: User = Depends(get_curre
         from tracker import patch_files
         t = patch_files(task_id, cur.user_id, t.revision, payload.file_ids, increment_revision=False)
     return _to_task_public_out(t)
+
+
+@router.post("/tasks/{task_id}/join", response_model=TaskPublicOut)
+def join_task(task_id: str,payload: TaskRosterIn,cur: User = Depends(get_current_user)):
+    from task_roster import change
+    return _to_task_public_out(change(task_id,cur.user_id,payload.expected_revision,"join"))
+
+
+@router.post("/tasks/{task_id}/watch", response_model=TaskPublicOut)
+def watch_task(task_id: str,payload: TaskRosterIn,cur: User = Depends(get_current_user)):
+    from task_roster import change
+    return _to_task_public_out(change(task_id,cur.user_id,payload.expected_revision,"watch"))
+
+
+@router.post("/tasks/{task_id}/unwatch", response_model=TaskPublicOut)
+def unwatch_task(task_id: str,payload: TaskRosterIn,cur: User = Depends(get_current_user)):
+    from task_roster import change
+    return _to_task_public_out(change(task_id,cur.user_id,payload.expected_revision,"unwatch"))
+
+
+@router.post("/tasks/{task_id}/assignees/{user_id}/remove", response_model=TaskPublicOut)
+def remove_task_assignee(task_id: str,user_id: int,payload: TaskRosterIn,cur: User = Depends(get_current_user)):
+    from task_roster import change
+    return _to_task_public_out(change(task_id,cur.user_id,payload.expected_revision,"remove",user_id))
+
+
+@router.post("/tasks/{task_id}/submit-result", response_model=TaskPublicOut)
+def submit_task_result(task_id: str,payload: TaskResultIn,cur: User = Depends(get_current_user)):
+    from tracker import change_status
+    return _to_task_public_out(change_status(task_id,cur.user_id,payload.expected_revision,"submitted",
+        text=_to_rich_text_body(payload.text),links=payload.links,file_ids=payload.file_ids,require_result=True))
 
 
 @router.post("/tasks/{task_id}/status", response_model=TaskPublicOut)
@@ -2966,7 +3025,8 @@ def correct_season_summary(
     classes = {"task_inputs": database_module.TaskORM, "assessment_inputs": database_module.AssignmentORM, "merit": database_module.MeritORM}
     with db._session() as session:
         objects = [(c, session.get(classes[c.kind], c.id)) for c in payload.changes]
-        revisions = [dict(kind=c.kind, id=c.id, revision=o.inputs_revision if c.kind == "assessment_inputs" else o.revision) for c, o in objects]
+        from tracker import metadata as tracker_metadata
+        revisions = [dict(kind=c.kind, id=c.id, revision=o.inputs_revision if c.kind == "assessment_inputs" else tracker_metadata(session,o).assessment_revision if c.kind=="task_inputs" else o.revision) for c, o in objects]
     return {**_to_season_summary_out(s).model_dump(), "applied_revisions": revisions}
 
 

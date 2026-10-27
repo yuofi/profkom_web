@@ -61,3 +61,12 @@ stale/replayed decisions, cache revisions, collaborative description/comment edi
 with actual actors, cross-queue parents/cycles/revoked-parent masking, rename
 preservation, private credit/XLSX/version redaction with unchanged ledger snapshots,
 and atomic season-correction hierarchy guards. All data/providers are synthetic.
+
+`tests/test_tracker_reader_policy.py` verifies the current owner policy: any reader may
+choose any public status even after season closure without ledger/date effects; public
+and private revisions/notes remain isolated; private evaluation derives only actual
+submission facts; roster remove/rejoin preserves credit and invalidates stale worker
+URLs; real watchers receive notifications; independent queues/unassigned creation and
+self-only selection do not create memberships or private-input rights; HR deputy reads
+all private queues yet gains no KKR/report permissions; contextual code drafts bind
+atomically and reject binary payloads; safe roster-history UserRefs anonymize on read.

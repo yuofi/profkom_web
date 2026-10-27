@@ -1,0 +1,22 @@
+.dialog { box-sizing: border-box; width: min(1000px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); margin: auto; padding: 0; border: 1px solid var(--outline-variant); border-radius: var(--radius-large); background: var(--surface-container-low); color: var(--on-surface); box-shadow: var(--elevation-3); }
+.dialog::backdrop { background: rgb(0 0 0 / .72); }
+.header { display: flex; gap: 16px; align-items: start; justify-content: space-between; padding: 18px 22px; border-bottom: 1px solid var(--surface-variant); }
+.header > div { min-width: 0; }
+.header h2 { margin: 0 0 4px; font-size: 19px; overflow-wrap: anywhere; }
+.header span { font-size: 12px; opacity: .7; }
+.header > button { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 36px; height: 36px; padding: 0; }
+.dialog button { min-height: 36px; padding: 7px 13px; border: 1px solid var(--outline-variant); border-radius: var(--radius-medium); background: var(--surface-container); color: var(--primary); font: inherit; font-size: 14px; cursor: pointer; }
+.dialog button:disabled { opacity: .5; cursor: default; }
+.dialog button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.body { max-height: calc(100dvh - 210px); min-height: 130px; padding: 18px 22px; overflow: auto; overscroll-behavior: contain; }
+.body > :first-child { margin-top: 0; }
+.body > :last-child { margin-bottom: 0; }
+.body pre { overflow: auto; padding: 12px 14px; font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.image { display: block; max-width: 100%; max-height: calc(100dvh - 260px); height: auto; margin: auto; object-fit: contain; }
+.footer { display: flex; justify-content: end; flex-wrap: wrap; gap: 10px; padding: 14px 22px; border-top: 1px solid var(--surface-variant); }
+.pdf { display: grid; gap: 12px; min-width: 0; }
+.pdfControls { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px; }
+.pdfControls span { font-size: 13px; }
+.pdfCanvas { display: block; max-width: 100%; height: auto; margin: auto; background: white; }
+.srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+@media (max-width: 600px) { .dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }.header, .body, .footer { padding: 14px; }.body { max-height: calc(100dvh - 205px); }.header h2 { font-size: 16px; } }

@@ -15,7 +15,7 @@ def accept(client, w):
     r = client.post(
         f"/api/assignments/{a}/accept",
         headers=w["master"].headers,
-        json=dict(expected_revision=2, evaluation=1),
+        json=dict(expected_revision=client.get(f"/api/assignments/{a}/assessment-inputs",headers=w["master"].headers).json()["workflow_revision"], evaluation=1),
     )
     assert r.status_code == 200, r.text
     return a
@@ -84,11 +84,11 @@ def test_correction_is_atomic_and_preserves_older_versions_and_categories(
     sid = w["season"]["season_id"]
     ver = original["version"]
 
-    def change(hours, revision=3):
+    def change(hours, revision=None):
         return dict(
             kind="assessment_inputs",
             id=aid,
-            expected_revision=revision,
+            expected_revision=revision if revision is not None else client.get(f"/api/assignments/{aid}/assessment-inputs",headers=superuser.headers).json()["revision"],
             values=dict(hours=hours),
         )
 
@@ -112,7 +112,7 @@ def test_correction_is_atomic_and_preserves_older_versions_and_categories(
     assert bad.status_code == 404, bad.text
     with db._session() as s:
         assert s.get(AssignmentORM, aid).hours == 2
-        assert s.get(AssignmentORM, aid).revision == 3
+        assert s.get(AssignmentORM, aid).status == "accepted"
     db.update_user(w["member"].user_id, category="activist")
     r = client.post(
         f"/api/seasons/{sid}/summary/correct",
@@ -121,7 +121,7 @@ def test_correction_is_atomic_and_preserves_older_versions_and_categories(
     )
     assert r.status_code == 200, r.text
     corrected = r.json()
-    assert corrected["applied_revisions"] == [dict(kind="assessment_inputs", id=aid, revision=4)]
+    assert corrected["applied_revisions"] == [dict(kind="assessment_inputs", id=aid, revision=3)]
     assert corrected["version"] == ver + 1
     assert (
         next(
@@ -144,7 +144,7 @@ def test_correction_is_atomic_and_preserves_older_versions_and_categories(
     r = client.patch(
         f"/api/assignments/{aid}/assessment-inputs",
         headers=superuser.headers,
-        json=dict(expected_revision=4, hours=6, reason="Second correction"),
+        json=dict(expected_revision=3, hours=6, reason="Second correction"),
     )
     assert r.status_code == 200, r.text
     assert (

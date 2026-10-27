@@ -329,6 +329,7 @@ export function createFixtures(role: MockRole = "organizer") {
     {
       task_id: "task-1",
       task_key: "TASK-1",
+      assignees: [people[0]], watchers: [], allowed_statuses: ["assigned", "in_progress", "help_required", "submitted", "accepted", "needs_revision", "not_completed", "cancelled"],
       status: "assigned",
       created_by: people[1],
       created_at: "2026-10-18T09:00:00Z",
@@ -345,7 +346,7 @@ export function createFixtures(role: MockRole = "organizer") {
       deadline_at: "2026-10-25T15:00:00Z",
       revision: 1,
       capabilities: [
-        "comment_task",
+        "comment_task", "change_task_status", "watch_task", "remove_task_assignee", "submit_task_result", ...(userId === 101 ? [] : ["join_task"]),
         ...(userId === 101 || eventManager ? ["edit_task_description"] : []),
         ...(userId === 101 ? ["start_task", "resume_task", "request_task_help", "submit_task_result"] : []),
         ...(eventManager
@@ -436,6 +437,7 @@ export function createFixtures(role: MockRole = "organizer") {
   };
   const assessments: AssessmentInputs[] = tasks[0].assignments.map((a) => ({
     assignment_id: a.assignment_id,
+    workflow_revision: 1, workflow_status: "assigned",
     hours: 2,
     evaluation: null,
     effective_completed_at: null,

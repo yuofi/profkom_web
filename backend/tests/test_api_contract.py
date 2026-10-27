@@ -38,6 +38,11 @@ from database import db
 #  не будучи ни разу проверенным на «а спросит ли он токен».
 #
 API_ROUTES: tuple[tuple[str, str], ...] = (
+    ('POST', '/api/tasks/{task_id}/join'),
+    ('POST', '/api/tasks/{task_id}/watch'),
+    ('POST', '/api/tasks/{task_id}/unwatch'),
+    ('POST', '/api/tasks/{task_id}/assignees/{user_id}/remove'),
+    ('POST', '/api/tasks/{task_id}/submit-result'),
     ('GET', '/api/task-queues'),
     ('POST', '/api/task-queues'),
     ('GET', '/api/task-queues/{queue_id}'),

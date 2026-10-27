@@ -75,7 +75,7 @@ def test_task_transitions_last_submission_and_hidden_inputs(client, work, superu
             headers=w["master"].headers,
             json={"expected_revision": 1, "evaluation": 1},
         ).status_code
-        == 409
+        == 422  # no observed submission or authorized completion date
     )
     r = client.post(
         f"/api/assignments/{aid}/submit",
@@ -92,7 +92,7 @@ def test_task_transitions_last_submission_and_hidden_inputs(client, work, superu
     r = client.post(
         f"/api/assignments/{aid}/accept",
         headers=w["master"].headers,
-        json={"expected_revision": 2, "evaluation": 1},
+        json={"expected_revision": accounting_revision(client,w,aid), "evaluation": 1},
     )
     assert r.status_code == 200, r.text
     own = client.get(f"/api/tasks/{t['task_id']}", headers=w["member"].headers).json()
@@ -257,7 +257,7 @@ def assignment_in(client, w, status):
     """A fresh assignment of the member, brought to `status` through the API."""
     task = client.post("/api/tasks", headers=w["master"].headers, json=w["payload"]).json()
     aid = task["assignments"][0]["assignment_id"]
-    post = lambda command, who, **body: client.post(f"/api/assignments/{aid}/{command}", headers=w[who].headers, json=dict(expected_revision=public_revision(client, w, aid), **body))  # noqa: E731
+    post = lambda command, who, **body: client.post(f"/api/assignments/{aid}/{command}", headers=w[who].headers, json=dict(expected_revision=public_revision(client,w,aid) if command=="submit" else accounting_revision(client,w,aid), **body))  # noqa: E731
     if status in ("submitted", "accepted", "not_completed"):
         assert post("submit", "member", text=dict(format="markdown", body="Готово")).status_code == 200
     if status == "accepted":
@@ -277,6 +277,12 @@ def public_revision(client, w, aid):
     return next(a["revision"] for a in task["assignments"] if a["assignment_id"] == aid)
 
 
+def accounting_revision(client,w,aid):
+    response=client.get(f'/api/assignments/{aid}/assessment-inputs',headers=w['master'].headers)
+    assert response.status_code==200,response.text
+    return response.json()['workflow_revision']
+
+
 def audit_rows(aid):
     import json
     from database import AuditLogORM
@@ -294,7 +300,7 @@ def test_final_outcome_is_not_overwritten_by_a_decision(client, work, superuser,
     aid = assignment_in(client, work, status)
     inputs = client.get(f"/api/assignments/{aid}/assessment-inputs", headers=work["master"].headers).json()
     totals = client.get("/api/assessments", headers=superuser.headers).json()
-    r = client.post(f"/api/assignments/{aid}/{command}", headers=work["master"].headers, json=dict(expected_revision=public_revision(client, work, aid), **body))
+    r = client.post(f"/api/assignments/{aid}/{command}", headers=work["master"].headers, json=dict(expected_revision=accounting_revision(client,work,aid), **body))
     assert r.status_code == 409, r.text
     assert r.json()["detail"]["code"] == "conflict"
     assert client.get(f"/api/assignments/{aid}/assessment-inputs", headers=work["master"].headers).json() == inputs
@@ -307,18 +313,22 @@ def test_final_outcome_is_not_overwritten_by_a_decision(client, work, superuser,
 
 def test_not_complete_and_cancel_are_audited_with_the_evaluation(client, work):
     aid = assignment_in(client, work, "submitted")
-    rev = public_revision(client, work, aid)
+    rev = accounting_revision(client,work,aid)
     r = client.post(f"/api/assignments/{aid}/not-complete", headers=work["master"].headers, json=dict(expected_revision=rev, evaluation=-1, reason="Сорван срок"))
     assert r.status_code == 200, r.text
-    assert audit_rows(aid)[-1] == ({"status": "submitted", "evaluation": None}, {"status": "not_completed", "evaluation": -1.0}, "Сорван срок")
+    old,new,reason=audit_rows(aid)[-1]
+    assert (old["status"],old["evaluation"],new["status"],new["evaluation"],reason)==("assigned",None,"not_completed",-1.0,"Сорван срок")
+    assert old["hours"]==new["hours"] and old["effective_completed_at"]==new["effective_completed_at"]
     # A revision request after acceptance keeps the evaluation; cancelling clears it.
     aid = assignment_in(client, work, "accepted")
-    rev = public_revision(client, work, aid)
+    rev = accounting_revision(client,work,aid)
     assert client.post(f"/api/assignments/{aid}/request-revision", headers=work["master"].headers, json=dict(expected_revision=rev, review_note="Доделать")).status_code == 200
     rev += 1
     r = client.post(f"/api/assignments/{aid}/cancel", headers=work["master"].headers, json=dict(expected_revision=rev, reason="Не нужна"))
     assert r.status_code == 200, r.text
-    assert audit_rows(aid)[-1] == ({"status": "needs_revision", "evaluation": 1.0}, {"status": "cancelled", "evaluation": None}, "Не нужна")
+    old,new,reason=audit_rows(aid)[-1]
+    assert (old["status"],old["evaluation"],new["status"],new["evaluation"],reason)==("needs_revision",1.0,"cancelled",None,"Не нужна")
+    assert old["hours"]==new["hours"] and old["effective_completed_at"]==new["effective_completed_at"]
     assert client.get(f"/api/assignments/{aid}/assessment-inputs", headers=work["master"].headers).json()["evaluation"] is None
 
 
@@ -430,33 +440,17 @@ def test_area_lead_fills_inputs_but_moves_no_dates(client, work, superuser):
 
 
 # Decision 32 (EDITORS-05 a): hidden inputs have their own revision; the assignee's does not move.
-def test_hidden_inputs_keep_the_assignees_revision(client, work):
-    w = work
-    aid = w["task"]["assignments"][0]["assignment_id"]
-    url = f"/api/assignments/{aid}/assessment-inputs"
-    seen = public_revision(client, w, aid)
-    inputs = client.get(url, headers=w["master"].headers).json()
-    r = client.patch(url, headers=w["master"].headers, json=dict(expected_revision=inputs["revision"], hours=3, reason="Часы"))
-    assert r.status_code == 200, r.text
-    assert r.json()["revision"] == inputs["revision"] + 1
-    r = client.post("/api/assessment-inputs/bulk-hours", headers=w["master"].headers, json=dict(items=[dict(assignment_id=aid, expected_revision=r.json()["revision"])], hours=6, reason="Часы"))
-    assert r.status_code == 200, r.text
-    assert r.json()["items"][0]["revision"] == inputs["revision"] + 2
-    assert public_revision(client, w, aid) == seen
-    # The assignee submits with the revision read before the hidden edits.
-    r = client.post(f"/api/assignments/{aid}/submit", headers=w["member"].headers, json=dict(expected_revision=seen, text=dict(format="markdown", body="Готово"), file_ids=[], links=[]))
-    assert r.status_code == 200, r.text
-    assert r.json()["revision"] == seen + 1
-    # The submission sets the completion date: an edit read before it is a conflict.
-    r = client.patch(url, headers=w["master"].headers, json=dict(expected_revision=inputs["revision"] + 2, hours=7, reason="Часы"))
-    assert r.status_code == 409, r.text
-    inputs = client.get(url, headers=w["master"].headers).json()
-    assert (inputs["revision"], inputs["hours"]) == (4, 6)
-    # A personal accounting outcome is private; the shared workflow and public revision stay fixed.
-    r = client.patch(url, headers=w["master"].headers, json=dict(expected_revision=inputs["revision"], evaluation=1, reason="Оценка"))
-    assert r.status_code == 200, r.text
-    assert r.json()["revision"] == 5
-    assert public_revision(client, w, aid) == seen + 1
-    r = client.patch(url, headers=w["master"].headers, json=dict(expected_revision=5, evaluation=1.5, reason="Оценка"))
-    assert r.status_code == 200, r.text
-    assert public_revision(client, w, aid) == seen + 1
+def test_hidden_inputs_keep_the_assignees_revision(client,work):
+    w=work;aid=w['task']['assignments'][0]['assignment_id'];url=f'/api/assignments/{aid}/assessment-inputs'
+    seen=public_revision(client,w,aid);inputs=client.get(url,headers=w['master'].headers).json()
+    r=client.patch(url,headers=w['master'].headers,json=dict(expected_revision=inputs['revision'],hours=3,reason='Часы'));assert r.status_code==200
+    r=client.post('/api/assessment-inputs/bulk-hours',headers=w['master'].headers,json=dict(items=[dict(assignment_id=aid,expected_revision=r.json()['revision'])],hours=6,reason='Часы'));assert r.status_code==200
+    assert public_revision(client,w,aid)==seen
+    private=client.get(url,headers=w['master'].headers).json()
+    r=client.post(f'/api/assignments/{aid}/submit',headers=w['member'].headers,json=dict(expected_revision=seen,text='Готово'));assert r.status_code==200,r.text
+    assert client.get(url,headers=w['master'].headers).json()==private  # result does not fabricate accounting inputs
+    r=client.post(f'/api/assignments/{aid}/accept',headers=w['master'].headers,json=dict(expected_revision=private['workflow_revision'],evaluation=1));assert r.status_code==200,r.text
+    assert public_revision(client,w,aid)==seen+1
+    current=client.get(url,headers=w['master'].headers).json();assert current['effective_completed_at']
+    r=client.patch(url,headers=w['master'].headers,json=dict(expected_revision=current['revision'],evaluation=1.5,reason='Оценка'));assert r.status_code==200,r.text
+    assert public_revision(client,w,aid)==seen+1

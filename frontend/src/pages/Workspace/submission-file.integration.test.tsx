@@ -48,7 +48,7 @@ it("an assignee uploads and submits a file without text; foreign and revoked use
   });
   await waitForPage(page, () => !!page!.container.textContent?.includes("result.txt") && !page!.container.textContent?.includes("Загрузка файла:"));
   expect(page.container.querySelector('[role="alert"]')).toBeNull();
-  const send = Array.from(page.container.querySelectorAll("button")).find((button) => button.textContent === "Отправить на проверку")!;
+  const send = Array.from(page.container.querySelectorAll("button")).find((button) => button.textContent === "Отправить результат")!;
   const form = send.closest("form")!;
   expect((form.querySelector('[name="body"]') as HTMLTextAreaElement).value).toBe("");
   await submit(form);

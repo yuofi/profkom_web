@@ -17,14 +17,14 @@ from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
 
 from database import (db, SessionLocal, engine, TaskORM, AssignmentORM, SubmissionORM,
-    TaskTrackerORM, TaskActivityORM, TaskSubmissionORM, CommentORM, FileRecordORM,
+    TaskTrackerORM, TaskRosterORM, TaskActivityORM, TaskSubmissionORM, CommentORM, FileRecordORM,
     SeasonORM, BlockORM, SubeventORM, UserORM, AuditLogORM, _user_to_ref_dc,
     _recalculate_assignment_contribution, _task_caps, _assignment_orm_to_dc)
 from errors import Conflict, Forbidden, InvalidInput, NotFound, revision_conflict, season_closed
 
 STATUSES = ("assigned", "in_progress", "help_required", "submitted", "accepted", "needs_revision", "not_completed", "cancelled")
 ACTIVE = {"assigned", "in_progress", "help_required", "submitted", "needs_revision"}
-LABELS = {"assigned":"Назначена", "in_progress":"В работе", "help_required":"Нужна помощь", "submitted":"На проверке", "accepted":"Принята", "needs_revision":"На доработке", "not_completed":"Не выполнена", "cancelled":"Отменена"}
+LABELS = {"assigned":"Открыта", "in_progress":"В работе", "help_required":"Нужна помощь", "submitted":"На проверке", "accepted":"Принята", "needs_revision":"На доработке", "not_completed":"Не выполнена", "cancelled":"Отменена"}
 
 
 def now(): return datetime.now(timezone.utc).isoformat()
@@ -36,7 +36,7 @@ def _rows(session, model, **filters):
     return rows
 
 
-def participants(session, task_id):
+def legacy_participants(session, task_id):
     """A former assignment explicitly replaced by reassign is historical, not a teammate."""
     rows = _rows(session, AssignmentORM, task_id=task_id)
     ids = {a.assignment_id for a in rows}
@@ -47,6 +47,25 @@ def participants(session, task_id):
         data = json.loads(item.new_values_json or "{}")
         if data.get("new_assignment_id") in ids: superseded.add(item.target_id)
     return [a for a in rows if a.assignment_id not in superseded]
+
+
+def roster(session,task_id):return _rows(session,TaskRosterORM,task_id=task_id)
+
+
+def participants(session,task_id):
+    metas=_rows(session,TaskTrackerORM,task_id=task_id)
+    if not metas or not metas[0].roster_initialized:return legacy_participants(session,task_id)
+    ids={m.assignment_id for m in roster(session,task_id) if m.role=="assignee" and m.assignment_id}
+    return [a for a in _rows(session,AssignmentORM,task_id=task_id) if a.assignment_id in ids]
+
+
+def ensure_roster(session,task,meta):
+    if meta.roster_initialized:return
+    for assignment in legacy_participants(session,task.task_id):
+        if not any(m.user_id==assignment.assignee_user_id for m in roster(session,task.task_id)):
+            session.add(TaskRosterORM(task_id=task.task_id,user_id=assignment.assignee_user_id,role="assignee",
+                assignment_id=assignment.assignment_id,created_at=None,updated_at=None))
+    meta.roster_initialized=True
 
 
 def status_of(rows):
@@ -65,7 +84,7 @@ def metadata(session, task, queue=None):
     rows=_rows(session,TaskTrackerORM,task_id=task.task_id)
     if rows:return rows[0]
     status,mixed=status_of(participants(session,task.task_id))
-    item=TaskTrackerORM(task_id=task.task_id,status=status,legacy_mixed_statuses=mixed,
+    item=TaskTrackerORM(task_id=task.task_id,status=status,legacy_mixed_statuses=mixed,assessment_revision=task.revision or 1,
         public_statuses_json=json.dumps({a.assignment_id:(a.status or "assigned") for a in _rows(session,AssignmentORM,task_id=task.task_id)}),public_updated_at=None,files_json="[]")
     session.add(item)
     from task_queues import bind_task
@@ -92,6 +111,10 @@ def seed_existing():
             meta=metadata(session,task)
             if not json.loads(meta.public_statuses_json or "{}"):
                 meta.public_statuses_json=json.dumps({a.assignment_id:(a.status or "assigned") for a in _rows(session,AssignmentORM,task_id=task.task_id)})
+            ensure_roster(session,task,meta)
+            revisions=json.loads(meta.public_revisions_json or "{}")
+            for assignment in _rows(session,AssignmentORM,task_id=task.task_id):revisions.setdefault(assignment.assignment_id,assignment.revision or 1)
+            meta.public_revisions_json=json.dumps(revisions)
         session.commit()
     from task_queues import migrate
     migrate()
@@ -107,12 +130,20 @@ def install_activity_hooks():
         actor=actor_id.get() or session.info.get("tracker_actor")
         for obj in list(session.new):
             if isinstance(obj,TaskORM):
-                metadata(session,obj)
+                ensure_roster(session,obj,metadata(session,obj))
                 activity(session,obj,"task_created",obj.created_by_user_id,"Задача создана",at=obj.created_at,
                     changes=[dict(field="title",label="Название",before=None,after=obj.title),
                         dict(field="description",label="Описание",before=None,after=json.loads(obj.description_json or '{}').get('body','')),
                         dict(field="deadline_at",label="Срок",before=None,after=obj.deadline_at),
                         dict(field="status",label="Статус",before=None,after=metadata(session,obj).status)])
+            elif isinstance(obj,AssignmentORM):
+                task=session.get(TaskORM,obj.task_id)
+                if task:
+                    meta=metadata(session,task)
+                    revisions=json.loads(meta.public_revisions_json or "{}")
+                    revisions.setdefault(obj.assignment_id,obj.revision or 1);meta.public_revisions_json=json.dumps(revisions)
+                    if meta.roster_initialized and not any(m.user_id==obj.assignee_user_id for m in roster(session,obj.task_id)):
+                        session.add(TaskRosterORM(task_id=obj.task_id,user_id=obj.assignee_user_id,role="assignee",assignment_id=obj.assignment_id,created_at=None,updated_at=None))
             elif isinstance(obj,CommentORM):
                 task=session.get(TaskORM,obj.task_id)
                 if task:activity(session,task,"comment_added",obj.author_user_id,"Добавлен комментарий",at=obj.created_at,
@@ -139,21 +170,8 @@ def install_activity_hooks():
                     after=json.loads(obj.content_json).get('body','')
                     activity(session,task,"comment_edited",actor,"Комментарий отредактирован",at=obj.updated_at,
                         changes=[dict(field="comment",label="Комментарий",before=before,after=after)])
-            elif isinstance(obj,AssignmentORM) and inspect(obj).attrs.status.history.has_changes():
-                private = any(isinstance(audit,AuditLogORM) and audit.target_kind=="assignment" and audit.target_id==obj.assignment_id and "hours" in json.loads(audit.old_values_json or "{}") for audit in session.new)
-                reassigned=any(isinstance(audit,AuditLogORM) and audit.target_kind=="assignment" and audit.target_id==obj.assignment_id and "new_assignment_id" in json.loads(audit.new_values_json or "{}") for audit in session.new)
-                if private or reassigned:continue
-                task=session.get(TaskORM,obj.task_id)
-                if task:
-                    hist=inspect(obj).attrs.status.history
-                    meta=metadata(session,task)
-                    public=json.loads(meta.public_statuses_json or "{}")
-                    before=public.get(obj.assignment_id,hist.deleted[0] if hist.deleted else None)
-                    public[obj.assignment_id]=obj.status
-                    meta.public_statuses_json=json.dumps(public)
-                    status,mixed=status_values({public.get(a.assignment_id,a.status) for a in participants(session,obj.task_id)})
-                    meta.status=status;meta.legacy_mixed_statuses=mixed
-                    activity(session,task,"assignment_status_changed",actor,"Изменён статус прежнего назначения",at=obj.updated_at,before=before,after=obj.status)
+            # Assignment outcomes/inputs are private accounting. No raw status is
+            # reaggregated into public Task workflow after its migration baseline.
 
 
 def _file_refs(session, ids):
@@ -196,12 +214,15 @@ def enrich_task(session,task,result,uid):
     result.legacy_status_conflict=meta.legacy_mixed_statuses
     current_ids={a.assignment_id for a in participants(session,task.task_id)}
     public_statuses=json.loads(meta.public_statuses_json or "{}")
+    public_revisions=json.loads(meta.public_revisions_json or "{}")
     season=session.get(SeasonORM,task.season_id)
     worker_caps={"start_assignment","resume_assignment","request_help","submit_result"}
     for assignment in result.assignments:
         visible_status=public_statuses.get(assignment.assignment_id,assignment.status)
         if assignment.assignment_id in current_ids and not result.legacy_status_conflict:visible_status=result.status
         assignment.status=visible_status
+        assignment.revision=public_revisions.get(assignment.assignment_id,1)
+        assignment.review_note=None
         assignment.capabilities=[c for c in assignment.capabilities if c not in worker_caps]
         if uid and season.state != "closed" and assignment.assignment_id in current_ids and assignment.assignee.user_id==uid and can_work(session,task,uid):
             if visible_status=="assigned":assignment.capabilities += ["start_assignment","submit_result","request_help"]
@@ -210,11 +231,13 @@ def enrich_task(session,task,result,uid):
             if visible_status=="help_required":assignment.capabilities.append("resume_assignment")
     result.assignees=[_user_to_ref_dc(session.get(UserORM,a.assignee_user_id)) for a in participants(session,task.task_id)]
     result.assignees=[user for user in result.assignees if user is not None]
+    result.watchers=[_user_to_ref_dc(session.get(UserORM,m.user_id)) for m in roster(session,task.task_id) if m.role=="watcher"]
+    result.watchers=[user for user in result.watchers if user is not None]
     result.created_by=_user_to_ref_dc(session.get(UserORM,task.created_by_user_id))
     result.created_at=task.created_at
     result.updated_at=meta.public_updated_at
-    owner=session.get(BlockORM,task.scope_id) if task.scope_kind=="block" else session.get(SubeventORM,task.scope_id)
-    result.scope_title=(owner.name if task.scope_kind=="block" else owner.title) if owner else "Команда"
+    owner=session.get(BlockORM,task.scope_id) if task.scope_kind=="block" else session.get(SubeventORM,task.scope_id) if task.scope_kind=="subevent" else None
+    result.scope_title=(owner.name if task.scope_kind=="block" else owner.title) if owner else queue.name if queue else "Команда"
     result.attachments=_file_refs(session,json.loads(meta.files_json or "[]"))
     rows=session.query(TaskSubmissionORM).filter_by(task_id=task.task_id).order_by(TaskSubmissionORM.submitted_at).all()
     result.submissions=[_submission_dict(session,row) for row in rows]
@@ -224,21 +247,34 @@ def enrich_task(session,task,result,uid):
         result.submissions=[_submission_dict(session,row,False) for row in old]
     if uid:
         state=session.get(SeasonORM,task.season_id).state
-        if state!="closed" and can_work(session,task,uid):
-            if result.status=="assigned":result.capabilities.append("start_task")
-            if result.status=="help_required":result.capabilities.append("resume_task")
-            if result.status in {"assigned","in_progress","needs_revision"}:result.capabilities.append("request_task_help")
-            if result.status in {"assigned","in_progress","help_required","needs_revision"}:result.capabilities.append("submit_task_result")
+        if db.can_read_task(uid,task,session):
+            result.capabilities += ["change_task_status","start_task","resume_task","request_task_help","submit_task_result"]
         result.capabilities+=_task_caps(task,uid,{"review_task":"task.review","attach_task_file":"task.edit"})
         if can_edit_description(session,task,uid):result.capabilities.append("edit_task_description")
+        if db.can_read_task(uid,task,session):
+            member=next((m for m in roster(session,task.task_id) if m.user_id==uid),None)
+            if not member or member.role!="assignee":result.capabilities.append("join_task")
+            if not member or member.role not in {"assignee","watcher"}:result.capabilities.append("watch_task")
+            if member and member.role=="watcher":result.capabilities.append("unwatch_task")
+            if participants(session,task.task_id):result.capabilities.append("remove_task_assignee")
     return result
 
 
-def can_edit_description(session,task,uid):
+def can_edit_public(session,task,uid):
     import access
     if not db.can_read_task(uid,task,session):return False
     state=session.get(SeasonORM,task.season_id).state
-    return access.allowed(uid,"task.edit",task.scope_kind,task.scope_id,state=state) or (state!="closed" and can_work(session,task,uid))
+    if access.allowed(uid,"task.edit",task.scope_kind,task.scope_id,state=state):return True
+    if state=="closed" and task.scope_kind!="queue":return False
+    from task_queues import task_queue
+    queue=task_queue(session,task)
+    return task.created_by_user_id==uid or bool(queue and queue.owner_user_id==uid)
+
+
+def can_edit_description(session,task,uid):
+    if can_edit_public(session,task,uid):return True
+    state=session.get(SeasonORM,task.season_id).state
+    return (state!="closed" or task.scope_kind=="queue") and can_work(session,task,uid)
 
 
 def can_edit_comment(session,comment,uid):
@@ -248,11 +284,22 @@ def can_edit_comment(session,comment,uid):
 
 def public_changes(session,event,uid):
     from task_queues import task_read,task_queue
-    allowed={"title","description","deadline_at","status","comment","attachments","parent_task_id","assignees"}
+    allowed={"title","description","deadline_at","status","comment","attachments","parent_task_id","assignees","watchers"}
     changes=[]
     for raw in json.loads(event.changes_json or "[]"):
         if raw.get("field") not in allowed:continue
         item={k:raw[k] for k in ("field","label","before","after") if k in raw}
+        if item['field'] in {'assignees','watchers'}:
+            item['label']='Исполнители' if item['field']=='assignees' else 'Наблюдатели'
+            for side in ('before','after'):
+                values=item.get(side)
+                if not isinstance(values,list):continue
+                refs=[]
+                for value in values:
+                    ref=_user_to_ref_dc(session.get(UserORM,int(value))) if str(value).isdigit() else None
+                    refs.append(asdict(ref) if ref else dict(user_id=None,display_name="Недоступный участник",avatar_url=None))
+                item[side]=[ref['display_name'] for ref in refs]
+                item[side+'_users']=refs
         if item['field']=='parent_task_id':
             for side in ('before','after'):
                 parent=session.get(TaskORM,item.get(side)) if item.get(side) else None
@@ -300,115 +347,117 @@ def patch_files(task_id,uid,expected_revision,file_ids,*,increment_revision=True
         return db.get_task(task_id,uid)
 
 
-def change_status(task_id,uid,expected_revision,status,*,text="",links=None,file_ids=None,message=None,evaluation=None,review_note=None,reason=None,evaluations=None,legacy_assignment=None):
+def change_status(task_id,uid,expected_revision,status,*,text="",links=None,file_ids=None,message=None,evaluation=None,review_note=None,reason=None,evaluations=None,legacy_assignment=None,require_result=False):
+    """Public workflow is freely editable by readers and never writes accounting."""
     from file_access import check_attachments
-    import access
     from notifications import emit
-    from season_summaries import refresh
     if status not in STATUSES:raise InvalidInput("Unsupported task status")
-    links=links or [];file_ids=file_ids or [];reason=reason or review_note or ""
+    if evaluation is not None or evaluations or review_note is not None:raise InvalidInput("Accounting values require an authorized accounting command")
+    links=links or [];file_ids=file_ids or []
+    has_result=bool(text.strip() or links or file_ids)
+    if require_result and not has_result:raise InvalidInput("A result, link or file is required")
     with db.atomic():
       with db._session() as session:
-        task=visible_task(session,task_id,uid);state=session.get(SeasonORM,task.season_id).state
-        rows=participants(session,task_id);meta=metadata(session,task);old,mixed=meta.status,meta.legacy_mixed_statuses
-        if not rows:raise Conflict("Task has no current assignees")
-        worker=status in {"in_progress","help_required","submitted"}
-        if worker:
-            if state=="closed":raise season_closed()
-            if not can_work(session,task,uid):raise Forbidden("Forbidden: only a current assignee can work on this task")
-        else:db.require_task_right(uid,"task.review",task,state,"Forbidden: cannot review this task","Forbidden: cannot review a closed task")
+        task=visible_task(session,task_id,uid);meta=metadata(session,task)
         if task.revision!=expected_revision:raise revision_conflict()
-        allowed={"in_progress":{"assigned","help_required"},"help_required":{"assigned","in_progress","needs_revision"},"submitted":{"assigned","in_progress","help_required","needs_revision"},"accepted":{"submitted"},"needs_revision":{"submitted","accepted"},"not_completed":ACTIVE,"cancelled":ACTIVE}
-        if status=="assigned":raise Conflict("Task cannot return to its initial state")
-        if old==status and not mixed:raise Conflict("Task already has this status")
-        # A legacy task can converge only if every old outcome can take this exact action.
-        if old not in allowed[status] and not mixed:raise Conflict("Task status does not permit this transition")
-        public_statuses=json.loads(meta.public_statuses_json or "{}")
-        if mixed:
-            for row in rows:
-                visible=public_statuses.get(row.assignment_id,row.status)
-                if visible==status:continue
-                if visible not in allowed[status]:raise Conflict("Legacy assignment outcomes require an explicit compatible decision","legacy_task_statuses")
-        if status in {"needs_revision","not_completed","cancelled"} and not reason.strip():raise InvalidInput("Reason is required")
-        if status=="accepted" and evaluation not in (1,1.5):raise InvalidInput("Evaluation must be 1 or 1.5")
-        if status=="not_completed" and evaluation not in (0,-1):raise InvalidInput("Evaluation must be 0 or -1")
-        overrides={item['assignment_id']:item['evaluation'] for item in (evaluations or [])}
-        if len(overrides)!=len(evaluations or []) or set(overrides)-{a.assignment_id for a in rows}:raise InvalidInput("Invalid individual evaluations")
-        if status not in {"accepted","not_completed"} and overrides:raise InvalidInput("Evaluations require a final decision")
-        if any(v not in ((1,1.5) if status=="accepted" else (0,-1)) for v in overrides.values()):raise InvalidInput("Invalid individual evaluation")
-        if status=="accepted" and any(a.hours is None for a in rows):raise InvalidInput("Hours must be set for every assignee")
-        if status=="submitted":
-            if not text.strip() and not links and not file_ids:raise InvalidInput("A result, link or file is required")
-            if any(not link.startswith(("https://","http://")) for link in links):raise InvalidInput("Invalid result link")
+        if any(not link.startswith(("https://","http://")) for link in links):raise InvalidInput("Invalid result link")
+        if file_ids:
+            check_attachments(session,file_ids,"assignment" if legacy_assignment else "task",legacy_assignment or task_id,uid)
+            if not legacy_assignment and any(session.get(FileRecordORM,fid).purpose!="submission" for fid in file_ids):raise Forbidden("Invalid result file purpose")
+        old=meta.status;stamp=now()
+        if status==old and not meta.legacy_mixed_statuses and not has_result and not message:return db.get_task(task_id,uid)
+        if has_result:
+            session.add(TaskSubmissionORM(submission_id="task-submission-"+str(uuid.uuid4()),task_id=task_id,submitted_at=stamp,
+                created_by_user_id=uid,text_json=json.dumps({"format":"markdown","body":text}),links_json=json.dumps(links),files_json=json.dumps(file_ids)))
             if legacy_assignment:
-                check_attachments(session,file_ids,"assignment",legacy_assignment,uid)
-            else:
-                check_attachments(session,file_ids,"task",task_id,uid)
-                if any(session.get(FileRecordORM,fid).purpose!="submission" for fid in file_ids):raise Forbidden("Forbidden: invalid submission purpose")
-        stamp=now();session.info['tracker_batch']=True
-        try:
-            if status=="submitted":
-                session.add(TaskSubmissionORM(submission_id="task-submission-"+str(uuid.uuid4()),task_id=task_id,submitted_at=stamp,created_by_user_id=uid,text_json=json.dumps({"format":"markdown","body":text}),links_json=json.dumps(links),files_json=json.dumps(file_ids)))
-                # A compatibility projection for old consumers, with one byte/file payload.
-                if legacy_assignment:
-                    session.add(SubmissionORM(submission_id="submission-"+str(uuid.uuid4()),assignment_id=legacy_assignment,submitted_at=stamp,created_by_user_id=uid,text_json=json.dumps({"format":"markdown","body":text}),links_json=json.dumps(links),files_json=json.dumps(file_ids)))
-            for row in rows:
-                if public_statuses.get(row.assignment_id,row.status)==status and mixed:continue
-                old_personal_status,old_evaluation=row.status,row.evaluation
-                preserve_private_final = worker and row.status in {"accepted","not_completed"}
-                if not preserve_private_final:row.status=status
-                row.revision+=1;row.updated_at=stamp
-                if status=="submitted" and not preserve_private_final:row.effective_completed_at=stamp
-                if status=="accepted":
-                    row.evaluation=overrides.get(row.assignment_id,row.evaluation if row.evaluation in (1,1.5) else evaluation)
-                    row.review_note=review_note
-                    if not row.effective_completed_at:raise InvalidInput("Shared submission required before acceptance")
-                elif status=="not_completed":row.evaluation=overrides.get(row.assignment_id,evaluation);row.review_note=reason
-                elif status=="cancelled":row.evaluation=None;row.review_note=reason
-                elif status=="needs_revision":row.review_note=reason
-                if status in {"accepted","not_completed","cancelled","needs_revision"}:
-                    session.add(AuditLogORM(target_kind="assignment",target_id=row.assignment_id,changed_by_user_id=uid,reason=reason or review_note or "Shared task accepted",old_values_json=json.dumps({"status":old_personal_status,"evaluation":old_evaluation}),new_values_json=json.dumps({"status":status,"evaluation":row.evaluation}),created_at=stamp))
-                    _recalculate_assignment_contribution(session,row,task)
-            if status=="help_required" and message and message.strip():
-                session.add(CommentORM(comment_id="comment-"+str(uuid.uuid4()),task_id=task_id,author_user_id=uid,content_json=json.dumps({"format":"markdown","body":message}),history_json="[]",created_at=stamp))
-                activity(session,task,"comment_added",uid,"Добавлен комментарий",at=stamp,
-                    changes=[dict(field="comment",label="Комментарий",before=None,after=message)])
-            meta=metadata(session,task);meta.status=status;meta.legacy_mixed_statuses=False
-            for row in rows:public_statuses[row.assignment_id]=status
-            meta.public_statuses_json=json.dumps(public_statuses);task.revision+=1
-            activity(session,task,"status_changed",uid,"Изменён статус задачи",at=stamp,before=old,after=status)
-            if status in {"accepted","not_completed","cancelled","needs_revision"}:refresh(session,task.season_id,uid,reason or "Shared task decision")
-            recipients=[a.assignee_user_id for a in rows]
-            if status=="help_required":recipients=db.get_scope_leads(task.scope_kind,task.scope_id)
-            kind={"help_required":"task_help_required","needs_revision":"task_revision_requested","accepted":"task_accepted"}.get(status,"task_status_changed")
-            recipients=[recipient for recipient in recipients if db.can_read_task(recipient,task,session)]
-            emit(session,recipients,kind,dict(task_id=task_id,title=task.title,status=status),"task-status:"+task_id+":"+str(task.revision),uid)
-            session.commit()
-        finally:session.info.pop('tracker_batch',None)
+                session.add(SubmissionORM(submission_id="submission-"+str(uuid.uuid4()),assignment_id=legacy_assignment,submitted_at=stamp,
+                    created_by_user_id=uid,text_json=json.dumps({"format":"markdown","body":text}),links_json=json.dumps(links),files_json=json.dumps(file_ids)))
+            activity(session,task,"result_submitted",uid,"Сдан результат задачи",at=stamp)
+        if message and message.strip():
+            session.add(CommentORM(comment_id="comment-"+str(uuid.uuid4()),task_id=task_id,author_user_id=uid,
+                content_json=json.dumps({"format":"markdown","body":message}),history_json="[]",created_at=stamp))
+        meta.status=status;meta.legacy_mixed_statuses=False
+        public=json.loads(meta.public_statuses_json or "{}");revisions=json.loads(meta.public_revisions_json or "{}")
+        for row in participants(session,task_id):
+            public[row.assignment_id]=status;revisions[row.assignment_id]=revisions.get(row.assignment_id,1)+1
+        meta.public_statuses_json=json.dumps(public);meta.public_revisions_json=json.dumps(revisions);task.revision+=1
+        if old!=status:activity(session,task,"status_changed",uid,"Изменён статус задачи",at=stamp,before=old,after=status)
+        recipients={m.user_id for m in roster(session,task_id) if m.role in {"assignee","watcher"}}
+        kind="task_status_changed"
+        if status=="help_required":
+            from task_queues import task_queue
+            queue=task_queue(session,task)
+            recipients |= set(db.get_scope_leads(task.scope_kind,task.scope_id))|({queue.owner_user_id} if queue and queue.owner_user_id else set())
+            kind="task_help_required"
+        emit(session,[u for u in recipients if db.can_read_task(u,task,session)],kind,
+            dict(task_id=task_id,title=task.title,status=status),"task-status:"+task_id+":"+str(task.revision),uid)
+        session.commit()
         return db.get_task(task_id,uid)
 
 
+def private_review(assignment_id,uid,expected_revision,status,*,evaluation=None,reason=None,review_note=None,**_ignored):
+    from season_summaries import refresh
+    with db.atomic():
+      with db._session() as session:
+        row=session.get(AssignmentORM,assignment_id)
+        if not row:raise NotFound("Assignment not found")
+        task=visible_task(session,row.task_id,uid)
+        state=session.get(SeasonORM,task.season_id).state
+        db.require_task_right(uid,"task.review",task,state,"Forbidden: cannot review task accounting","Forbidden: cannot review closed accounting")
+        if task.scope_kind=="queue":raise InvalidInput("Independent tasks have no accounting source")
+        if row.inputs_revision!=expected_revision:raise revision_conflict()
+        note=reason or review_note or ""
+        before=dict(status=row.status,hours=row.hours,evaluation=row.evaluation,effective_completed_at=row.effective_completed_at)
+        if status in {"cancelled","not_completed","needs_revision"} and not note.strip():raise InvalidInput("Reason is required")
+        if status in {"cancelled","not_completed"} and row.status not in ACTIVE:raise Conflict("Only unfinished private assignments may receive this outcome")
+        if status=="accepted" and row.status in {"cancelled","not_completed"}:raise Conflict("Private accounting outcome cannot be reopened by acceptance")
+        if status=="needs_revision" and row.status not in {"submitted","accepted"}:
+            observed=session.query(TaskSubmissionORM).filter_by(task_id=task.task_id).first() or session.query(SubmissionORM).filter_by(assignment_id=assignment_id).first()
+            if not observed:raise Conflict("Private assignment has no reviewable result")
+        if status=="accepted":
+            if evaluation not in (1,1.5):raise InvalidInput("Evaluation must be 1 or 1.5")
+            if row.hours is None:raise InvalidInput("Hours must be set before acceptance")
+            if not row.effective_completed_at:
+                shared=session.query(TaskSubmissionORM).filter_by(task_id=task.task_id).order_by(TaskSubmissionORM.submitted_at.desc()).first()
+                old=session.query(SubmissionORM).filter_by(assignment_id=assignment_id).order_by(SubmissionORM.submitted_at.desc()).first()
+                observed=[s.submitted_at for s in (shared,old) if s]
+                if not observed:raise InvalidInput("A real submission or explicit authorized completion date is required")
+                row.effective_completed_at=max(observed)
+        elif status=="not_completed":
+            if evaluation not in (0,-1):raise InvalidInput("Evaluation must be 0 or -1")
+        elif status not in {"cancelled","needs_revision"}:raise InvalidInput("Unsupported accounting outcome")
+        row.status=status
+        if status in {"accepted","not_completed"}:row.evaluation=evaluation
+        elif status=="cancelled":row.evaluation=None
+        row.review_note=note;row.revision+=1;row.inputs_revision+=1;row.updated_at=now()
+        session.info.setdefault("manual_inputs_revision",set()).add(row.assignment_id)
+        session.add(AuditLogORM(target_kind="assignment",target_id=assignment_id,changed_by_user_id=uid,reason=note or "Accounting decision",
+            old_values_json=json.dumps(before),new_values_json=json.dumps(dict(status=status,hours=row.hours,evaluation=row.evaluation,effective_completed_at=row.effective_completed_at)),created_at=now()))
+        try:
+            _recalculate_assignment_contribution(session,row,task)
+            refresh(session,task.season_id,uid,note or "Accounting decision")
+            session.commit()
+        finally:session.info.get("manual_inputs_revision",set()).discard(row.assignment_id)
+        return next(a for a in db.get_task(task.task_id,uid).assignments if a.assignment_id==assignment_id)
+
+
 def legacy_command(assignment_id,uid,expected_revision,status,*,required_source_status=None,**kwargs):
-    """Old URLs retain their ownership/revision boundary, then execute one joint command."""
+    if status in {"accepted","not_completed","cancelled","needs_revision"}:
+        return private_review(assignment_id,uid,expected_revision,status,**kwargs)
     with db.atomic():
       with db._session() as session:
         row=session.get(AssignmentORM,assignment_id)
         if not row:raise NotFound("Assignment not found")
         task=session.get(TaskORM,row.task_id)
-        if not task or not db.can_read_task(uid,task,session):raise Forbidden("Forbidden: scope access ended")
-        if status in {"in_progress","help_required","submitted"}:
-            if row.assignee_user_id!=uid:raise Forbidden("Forbidden: only assignee can work on assignment")
-            if session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
-        else:
-            state=session.get(SeasonORM,task.season_id).state
-            db.require_task_right(uid,"task.review",task,state,"Forbidden: cannot review this task","Forbidden: cannot review a closed task")
-        if row.revision!=expected_revision:raise revision_conflict()
-        if row.assignment_id not in {a.assignment_id for a in participants(session,task.task_id)}:
-            raise Conflict("Historical assignment cannot change the joint task")
-        if required_source_status is not None and metadata(session,task).status!=required_source_status:
-            raise Conflict("Task status does not permit this legacy command")
-        updated=change_status(task.task_id,uid,task.revision,status,legacy_assignment=assignment_id,**kwargs)
-        return next(item for item in updated.assignments if item.assignment_id==assignment_id)
+        if not task or not db.can_read_task(uid,task,session):raise Forbidden("Forbidden: task access ended")
+        if row.assignee_user_id!=uid:raise Forbidden("Forbidden: own assignment required")
+        if row.assignment_id not in {r.assignment_id for r in participants(session,row.task_id)}:raise Conflict("Assignment is no longer current")
+        if session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
+        meta=metadata(session,task);revision=json.loads(meta.public_revisions_json or "{}").get(row.assignment_id,1)
+        if revision!=expected_revision:raise revision_conflict()
+        if required_source_status and meta.status!=required_source_status:raise Conflict("Current public status does not permit this legacy command")
+        result=change_status(task.task_id,uid,task.revision,status,legacy_assignment=assignment_id,require_result=status=="submitted",**kwargs)
+        return next(a for a in result.assignments if a.assignment_id==assignment_id)
 
 
 def task_page(uid,*,queue_id=None,season_id=None,scope_kind=None,scope_id=None,mine=False,status=None,q="",unfinished=False,overdue=False,assignee_user_id=None,sort="deadline",order="asc",cursor=None,limit=20,converter):
@@ -422,7 +471,8 @@ def task_page(uid,*,queue_id=None,season_id=None,scope_kind=None,scope_id=None,m
         rows=[t for t in rows if t.queue and t.queue["queue_id"]==queue_id]
     scopes={};assignees={}
     for task in rows:
-        scope=scope_out(task.scope);scopes[(scope['kind'],scope['id'])]=dict(**scope,title=task.scope_title)
+        scope=scope_out(task.scope)
+        if scope['kind'] in {"block","subevent"}:scopes[(scope['kind'],scope['id'])]=dict(**scope,title=task.scope_title)
         for person in task.assignees:
             if person.user_id is not None:assignees[person.user_id]=asdict(person)
     if mine:rows=[t for t in rows if any(a.user_id==uid for a in t.assignees)]

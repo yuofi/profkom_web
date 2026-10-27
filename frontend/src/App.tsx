@@ -28,6 +28,7 @@ const TasksListPage = lazy(() =>
 );
 const TaskQueuesPage = lazy(() => import("./pages/Workspace/TaskQueuePages").then(m => ({ default: m.TaskQueuesPage })));
 const TaskQueuePage = lazy(() => import("./pages/Workspace/TaskQueuePages").then(m => ({ default: m.TaskQueuePage })));
+const TrackerTaskCreatePage = lazy(() => import("./pages/Workspace/TaskCreateForm").then(m => ({ default: m.TrackerTaskCreatePage })));
 const TaskPage = lazy(() =>
   import("./pages/Workspace/TaskPages").then((m) => ({ default: m.TaskPage })),
 );
@@ -206,6 +207,7 @@ const router = createBrowserRouter(createRoutesFromElements(
                     />
                     <Route path="tasks/queues" element={<TaskQueuesPage />} />
                     <Route path="tasks/queues/:id" element={<TaskQueuePage />} />
+                    <Route path="tasks/new" element={<TrackerTaskCreatePage />} />
                     <Route path="tasks/:id" element={<TaskPage />} />
                     <Route path="reports" element={<ReportsPage />} />
                     <Route

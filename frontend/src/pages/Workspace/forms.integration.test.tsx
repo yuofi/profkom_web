@@ -33,9 +33,10 @@ const forms = () => Array.from(page!.container.querySelectorAll("form"));
 const form = (label: string) => forms().find(f => f.querySelector('button[type="submit"]')?.textContent === label)!;
 const inDetails = (summary: string) => Array.from(page!.container.querySelectorAll("details")).find(d => d.querySelector("summary")?.textContent === summary);
 const session = () => page!.client.getQueryData<Session>(["session"])!;
+const taskActionsSettled = () => ![...page!.container.querySelectorAll<HTMLButtonElement>("button")].some(button => button.disabled && (button.matches('[aria-haspopup="menu"],[aria-label^="Убрать исполнителя:"]') || ["Стать исполнителем", "Наблюдать", "Перестать наблюдать", "Взять в работу", "Нужна помощь", "Сдать результат"].includes(button.textContent?.trim() ?? "")));
 async function click(container: ParentNode, label: string) {
   const b = Array.from(container.querySelectorAll("button")).find(b => b.textContent === label);
-  expect(b, label).toBeDefined(); await act(async () => b!.click()); await waitForPage(page!);
+  expect(b, label).toBeDefined(); await act(async () => b!.click()); await waitForPage(page!, taskActionsSettled);
 }
 async function save(editor: HTMLFormElement) {
   await submit(editor);
@@ -171,10 +172,10 @@ it("2.12 A-FE-2: two rows of one summary save one after another without a confli
   const people = [await liveParticipant("summary-a"), await liveParticipant("summary-b")];
   const { season, task } = await subeventTask(people, "Задача для сводной");
   await liveLogin(people[0].email);
-  await tasksApi.changeStatus(task.task_id, { expected_revision: task.revision, status: "submitted", text: richText("Общий результат") });
+  await tasksApi.submitResult(task.task_id, { expected_revision: task.revision, text: richText("Общий результат"), links: [], file_ids: [] });
   await liveLogin();
   const submitted = await tasksApi.get(task.task_id);
-  await tasksApi.changeStatus(task.task_id, { expected_revision: submitted.revision, status: "accepted", evaluation: 1 });
+  for (const assignment of submitted.assignments) { const inputs = await tasksApi.assessment(assignment.assignment_id);await tasksApi.updateAssessment(assignment.assignment_id, { expected_revision: inputs.revision, evaluation: 1, reason: "Подготовка реального приватного учёта" }); }
   // Decisions are edited while the season is summarized; closed totals are corrected elsewhere.
   const current = (await seasonsApi.list()).items.find(s => s.season_id === season.season_id)!;
   await seasonsApi.command(season.season_id, "begin-summary", { expected_revision: current.revision });
@@ -193,35 +194,20 @@ it("2.12 A-FE-2: two rows of one summary save one after another without a confli
   expect((await seasonsApi.summary(season.season_id)).version).toBe(before + 2);
 });
 
-it("2.12 A-TSK-5: a help request keeps its text through a conflict and is sent after consent", async () => {
-  const org = await liveParticipant("help");
-  const { task } = await subeventTask([org], "Задача с просьбой о помощи");
-  const own = task.assignments[0];
-  const second = await actorClient(org.email);
-  await liveLogin(org.email);
-  await taskPage(task.task_id);
-  await until(() => [...page!.container.querySelectorAll("button")].some(button => button.textContent === "Попросить помощь"));
-  await click(page!.container, "Попросить помощь");
-  const help = () => page!.container.querySelector<HTMLFormElement>("dialog form");
-  await until(() => !!help());
-  await change(field(help()!, "message"), "Не хватает доступа к папке");
-  await second.post(`/assignments/${own.assignment_id}/start`, { expected_revision: own.revision });
-  await submit(help()!);
-  await until(() => !!help()?.textContent?.includes("Обновить данные"));
-  await click(help()!, "Обновить данные");
-  expect(field(help()!, "message").value).toBe("Не хватает доступа к папке");
-  expect(help()!.querySelector('[role="status"] details')?.textContent).toContain("В работе");
-  await click(help()!, "Сохранить мой ввод с обновлённой версией");
-  await submit(help()!);
-  await until(() => !help());
-  expect((await tasksApi.get(task.task_id)).assignments[0].status).toBe("help_required");
-  expect((await tasksApi.comments(task.task_id)).items.map(c => c.content.body)).toContain("Не хватает доступа к папке");
+it("2.12 A-TSK-5: a public status conflict refreshes its counter without changing private accounting", async () => {
+  const org = await liveParticipant("help"), { task } = await subeventTask([org], "Задача с просьбой о помощи");
+  const second = await actorClient(org.email), chair = await actorClient("chair@example.com"), before = (await chair.get(`/assignments/${task.assignments[0].assignment_id}/assessment-inputs`)).data;
+  await liveLogin(org.email);await taskPage(task.task_id);await until(() => [...page!.container.querySelectorAll("button")].some(button => button.textContent === "Нужна помощь"));
+  await second.post(`/tasks/${task.task_id}/status`, { expected_revision: task.revision, status: "in_progress" });await click(page!.container, "Нужна помощь");
+  await until(() => !!page!.container.querySelector('[role="alert"]')?.textContent?.includes("Запись изменилась"));expect(page!.container.querySelector("dialog")).toBeNull();
+  await click(page!.container, "Нужна помощь");expect((await tasksApi.get(task.task_id)).status).toBe("help_required");
+  const after = (await chair.get(`/assignments/${task.assignments[0].assignment_id}/assessment-inputs`)).data;
+  expect([after.hours, after.evaluation, after.effective_completed_at, after.workflow_status, after.workflow_revision]).toEqual([before.hours, before.evaluation, before.effective_completed_at, before.workflow_status, before.workflow_revision]);
 });
 
 it("2.12 A-TSK-12: a submission replaced after a conflict leaves with no text and no files", async () => {
   const org = await liveParticipant("submit");
   const { task } = await subeventTask([org], "Задача со сдачей");
-  const own = task.assignments[0];
   const second = await actorClient(org.email);
   await liveLogin(org.email);
   await taskPage(task.task_id);
@@ -235,7 +221,7 @@ it("2.12 A-TSK-12: a submission replaced after a conflict leaves with no text an
   await act(async () => { input.dispatchEvent(new Event("change", { bubbles: true })); });
   await until(() => !!draft()?.textContent?.includes("result.pdf"));
   await change(field(result()!, "body"), "Мой результат");
-  await second.post(`/assignments/${own.assignment_id}/start`, { expected_revision: own.revision });
+  await second.post(`/tasks/${task.task_id}/status`, { expected_revision: task.revision, status: "in_progress" });
   await submit(result()!);
   await until(() => !!result()?.textContent?.includes("Обновить данные"));
   await click(result()!, "Обновить данные");

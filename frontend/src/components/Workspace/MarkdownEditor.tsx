@@ -167,7 +167,7 @@ export function MarkdownEditor({
           {<EditorTool label={"Изображение"} disabled={disabled} onClick={() => insert("![", "](/avatars/default.svg)", "Описание изображения")}>{<Glyph name="image" />}</EditorTool>}
           {<EditorTool label={"Код в строке"} disabled={disabled} onClick={() => insert("`", "`", "код")} hint={"Код в строке"} className={editor.code}>{"‹›"}</EditorTool>}
           {<EditorTool label={"Блок кода"} disabled={disabled} onClick={insertCodeBlock} hint={"Блок кода"} className={editor.code}>{"{ }"}</EditorTool>}
-          {<EditorTool label={"Таблица"} disabled={disabled} onClick={() => insert("\n\n| Заголовок 1 | Заголовок 2 | Заголовок 3 |\n| --- | --- | --- |\n| Ячейка 1 | Ячейка 2 | Ячейка 3 |\n| Ячейка 4 | Ячейка 5 | Ячейка 6 |\n\n")}>{"▦"}</EditorTool>}
+          {<EditorTool label={"Таблица"} disabled={disabled} onClick={() => insert("\n\n| Заголовок 1 | Заголовок 2 | Заголовок 3 |\n| --- | --- | --- |\n| Ячейка 1 | Ячейка 2 | Ячейка 3 |\n| Ячейка 4 | Ячейка 5 | Ячейка 6 |\n\n")}><EditorIcon name="table" /></EditorTool>}
           {<EditorTool label={"Формула в строке"} disabled={disabled} onClick={() => insert("$", "$", "x^2")}>{"𝑥²"}</EditorTool>}
           {<EditorTool label={"Формула отдельным блоком"} disabled={disabled} onClick={() => insert("\n$$\n", "\n$$\n", "\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}")}>{"∑"}</EditorTool>}
           {<EditorTool label={"Разделитель"} disabled={disabled} onClick={() => insert("\n\n---\n\n")}>{"—"}</EditorTool>}

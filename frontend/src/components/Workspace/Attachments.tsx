@@ -1,62 +1,44 @@
 import { useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import type { FileRef } from "../../utils/api/contract";
 import { filesApi } from "../../utils/api/files.api";
 import { apiUrl } from "../../utils/api";
 import { fileAccept, fileLimitMiB } from "../../utils/filePolicy";
 import s from "./Workspace.module.css";
 import { userMessage } from "../../utils/api/messages";
+import { idPath, normalizeApiError } from "../../utils/api/request";
+import { FilePreview } from "./FilePreview";
+function useFileDownload() {
+  const client = useQueryClient();
+  const [error, setError] = useState(""), [busy, setBusy] = useState<string | null>(null);
+  const download = async (file: FileRef) => {
+    setBusy(file.file_id);setError("");
+    try {
+      const checked = await filesApi.download(file.file_id);
+      const expected = new URL(apiUrl(`/api/files/${idPath(file.file_id)}/content`), window.location.origin);
+      const supplied = new URL(apiUrl(checked.download_url), window.location.origin);
+      if (!["http:", "https:"].includes(supplied.protocol) || supplied.href !== expected.href) throw Error("Недопустимая ссылка на файл");
+      const link = document.createElement("a");link.href = expected.href;link.download = file.name;link.rel = "noopener noreferrer";link.click();
+    } catch (caught) {
+      setError(userMessage(caught));
+      if ([401, 403, 404].includes(normalizeApiError(caught).status)) void client.invalidateQueries({ queryKey: ["files"] });
+    } finally { setBusy(null); }
+  };
+  return { error, busy, download };
+}
 export function Attachments({ files }: { files: FileRef[] }) {
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState<string | null>(null);
-  return (
-    <>
-      <ul className={s.list}>
-        {files.map((file) => (
-          <li key={file.file_id}>
-            <button
-              type="button"
-              className={s.button}
-              disabled={busy === file.file_id}
-              onClick={async () => {
-                setBusy(file.file_id);
-                setError("");
-                try {
-                  // Asking first checks access and renews the session the link then uses.
-                  const result = await filesApi.download(file.file_id);
-                  const url = new URL(apiUrl(result.download_url), window.location.origin);
-                  const protocol = url.protocol;
-                  if (
-                    !["http:", "https:"].includes(protocol) &&
-                    !(import.meta.env.DEV && protocol === "data:")
-                  )
-                    throw Error("Недопустимая ссылка на файл");
-                  const link = document.createElement("a");
-                  link.href = url.href;
-                  link.download = file.name;
-                  link.rel = "noopener noreferrer";
-                  link.click();
-                } catch (e) {
-                  setError(userMessage(e));
-                } finally {
-                  setBusy(null);
-                }
-              }}
-            >
-              Скачать {file.name}
-            </button>{" "}
-            <span className={s.muted}>
-              {Math.ceil(file.size_bytes / 1024)} КБ
-            </span>
-          </li>
-        ))}
-      </ul>
-      {error && (
-        <p role="alert" className={s.error}>
-          {error}
-        </p>
-      )}
-    </>
-  );
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const { error, busy, download } = useFileDownload();
+  const selected = files.find(file => file.file_id === previewId);
+  return <>
+    <ul className={s.list}>{files.map(file => <li key={file.file_id}>
+      <button type="button" className={s.linkButton} aria-label={`Открыть ${file.name}`} onClick={() => setPreviewId(file.file_id)}>{file.name}</button>{" "}
+      <span className={s.muted}>{Math.ceil(file.size_bytes / 1024)} КБ</span>{" "}
+      <button type="button" className={s.linkButton} aria-label={`Скачать ${file.name}`} disabled={busy !== null} onClick={() => { void download(file); }}>Скачать</button>
+    </li>)}</ul>
+    {error && <p role="alert" className={s.error}>{error}</p>}
+    {selected && <FilePreview key={selected.file_id} file={selected} onClose={() => setPreviewId(null)} onDownload={() => { void download(selected); }} downloading={busy === selected.file_id} downloadError={error} />}
+  </>;
 }
 export function AttachmentPicker({
   owner_kind,
@@ -74,6 +56,9 @@ export function AttachmentPicker({
   onBusyChange?: (busy: boolean) => void;
 }) {
   const input = useRef<HTMLInputElement>(null);
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const fileDownload = useFileDownload();
+  const selected = files.find(file => file.file_id === previewId);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
@@ -124,7 +109,7 @@ export function AttachmentPicker({
       )}
       {files.map((file) => (
         <div className={s.between} key={file.file_id}>
-          <span>{file.name}</span>
+          <button type="button" className={s.linkButton} aria-label={`Открыть ${file.name}`} onClick={() => setPreviewId(file.file_id)}>{file.name}</button>
           <button
             type="button"
             className={s.button}
@@ -137,6 +122,7 @@ export function AttachmentPicker({
           </button>
         </div>
       ))}
+      {selected && <FilePreview key={selected.file_id} file={selected} onClose={() => setPreviewId(null)} onDownload={() => { void fileDownload.download(selected); }} downloading={fileDownload.busy === selected.file_id} downloadError={fileDownload.error} />}
     </div>
   );
 }

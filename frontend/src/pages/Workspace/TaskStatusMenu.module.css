@@ -14,3 +14,5 @@
 @media(max-width: 768px) { .actions { gap: 7px; }.actions button { flex-grow: 1; }.menu { position: fixed; inset: auto 14px 20px; width: auto; max-width: none; max-height: calc(100dvh - 100px); overflow-y: auto; } }
 
 .chipLabel { overflow-wrap: anywhere; min-width: 0; text-align: left; }.chip > span:last-child { flex: 0 0 auto; font-size: 16px; }
+
+.pickerFields { border: 0; padding: 0; margin: 0; min-width: 0; }

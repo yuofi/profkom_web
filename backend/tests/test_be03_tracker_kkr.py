@@ -16,9 +16,10 @@ Acceptance tests for BE-03: Трекер, сдачи, комментарии, ф
      всем лидам области отправляется notification kind="task_help_required".
    - resume: help_required -> in_progress.
    - submit: submitted_at серверная, сдача с текстом/ссылками/файлами, статус submitted.
-   - accept: оценка 1 или 1.5, расчет ККР.
-   - request-revision: статус needs_revision, замечание обязательно, уведомление исполнителю
-     kind="task_revision_requested", начисление ККР отзывается.
+   - accept: частный исход accepted с оценкой 1 или 1.5 и расчетом ККР;
+     публичный статус/история не меняются, дата берётся из реальной сдачи.
+   - request-revision: частный исход needs_revision, замечание обязательно,
+     начисление ККР отзывается; частные решения не уведомляют обычного исполнителя.
    - not-complete: оценка 0 или -1, дата завершения не требуется, штраф -1 не ослабляется просрочкой.
    - cancel: отмена без баллов с сохранением причины и аудитом.
 
@@ -268,41 +269,60 @@ def test_полный_цикл_назначения_сдача_приемка_д
     assert res_sub.json()["status"] == "submitted"
     rev = res_sub.json()["revision"]
 
-    # 4. request-revision -> needs_revision + уведомление исполнителю
+    # Публичная сдача не утверждает частные часы/оценку/дату завершения.
+    private_before = client.get(f"{ASSIGNMENTS_URL}/{asgn_id}/assessment-inputs", headers=master.headers)
+    assert private_before.status_code == 200
+    private = private_before.json()
+    assert private["workflow_status"] == "assigned"
+    assert private["evaluation"] is None and private["effective_completed_at"] is None
+    public_before_review = client.get(f"{TASKS_URL}/{task['task_id']}", headers=member.headers).json()
+
+    # 4. Частная доработка использует собственную ревизию учёта, сохраняя public submitted.
     res_rev = client.post(
         f"{ASSIGNMENTS_URL}/{asgn_id}/request-revision",
-        json={"expected_revision": rev, "review_note": "Поправь стиль кода"},
+        json={"expected_revision": private["workflow_revision"], "review_note": "Поправь стиль кода"},
         headers=master.headers,
     )
     assert res_rev.status_code == 200
-    assert res_rev.json()["status"] == "needs_revision"
-    rev = res_rev.json()["revision"]
+    assert res_rev.json()["status"] == "submitted"
+    private = client.get(f"{ASSIGNMENTS_URL}/{asgn_id}/assessment-inputs", headers=master.headers).json()
+    assert private["workflow_status"] == "needs_revision"
+    assert private["workflow_revision"] == private_before.json()["workflow_revision"] + 1
+    assert client.get(f"{TASKS_URL}/{task['task_id']}", headers=member.headers).json() == public_before_review
+    assert client.get(f"{ASSIGNMENTS_URL}/{asgn_id}/assessment-inputs", headers=member.headers).status_code == 403
 
-    # Проверяем уведомление исполнителю о доработке
+    # Частное решение не раскрывается обычному исполнителю через уведомления.
     with db._session() as session:
-        notif_rev = session.query(NotificationORM).filter(
+        assert session.query(NotificationORM).filter(
             NotificationORM.user_id == member.user_id,
             NotificationORM.kind == "task_revision_requested",
-        ).first()
-        assert notif_rev is not None
+        ).count() == 0
 
-    # 5. Повторный submit
+    # 5. Повторная фактическая сдача использует прежнюю публичную ревизию.
     res_sub2 = client.post(
         f"{ASSIGNMENTS_URL}/{asgn_id}/submit",
         json={"expected_revision": rev, "text": "Поправил стиль", "links": [], "file_ids": []},
         headers=member.headers,
     )
     assert res_sub2.status_code == 200
-    rev = res_sub2.json()["revision"]
+    assert res_sub2.json()["status"] == "submitted"
+    public_before_accept = client.get(f"{TASKS_URL}/{task['task_id']}", headers=member.headers).json()
+    assert len(public_before_accept["submissions"]) == 2
+    actual_completed_at = public_before_accept["submissions"][-1]["submitted_at"]
+    assert private["effective_completed_at"] is None
 
-    # 6. accept -> accepted, начисление баллов
+    # 6. Приёмка меняет только частный исход, а не публичный Task/Assignment.status.
     res_acc = client.post(
         f"{ASSIGNMENTS_URL}/{asgn_id}/accept",
-        json={"expected_revision": rev, "evaluation": 1.5, "review_note": "Отличная работа!"},
+        json={"expected_revision": private["workflow_revision"], "evaluation": 1.5, "review_note": "Отличная работа!"},
         headers=master.headers,
     )
     assert res_acc.status_code == 200
-    assert res_acc.json()["status"] == "accepted"
+    assert res_acc.json()["status"] == "submitted"
+    accepted = client.get(f"{ASSIGNMENTS_URL}/{asgn_id}/assessment-inputs", headers=master.headers).json()
+    assert accepted["workflow_status"] == "accepted" and accepted["evaluation"] == 1.5
+    assert accepted["effective_completed_at"] == actual_completed_at
+    assert client.get(f"{TASKS_URL}/{task['task_id']}", headers=member.headers).json() == public_before_accept
 
 
 # ═════════════════════════════════════════════════════════════
@@ -331,7 +351,10 @@ def test_формула_ккр_граничные_значения(client, test_
     )
     task = res.json()
     asgn_id = task["assignments"][0]["assignment_id"]
-    rev = task["assignments"][0]["revision"]
+    private = client.get(f"{ASSIGNMENTS_URL}/{asgn_id}/assessment-inputs", headers=master.headers)
+    assert private.status_code == 200
+    rev = private.json()["workflow_revision"]
+    public_before = client.get(f"{TASKS_URL}/{task['task_id']}", headers=member.headers).json()
 
     # Оценка невыполнения (-1) -> штраф без ослабления просрочкой
     res_fail = client.post(
@@ -340,7 +363,10 @@ def test_формула_ккр_граничные_значения(client, test_
         headers=master.headers,
     )
     assert res_fail.status_code == 200
-    assert res_fail.json()["status"] == "not_completed"
+    assert res_fail.json()["status"] == "assigned"
+    private_after = client.get(f"{ASSIGNMENTS_URL}/{asgn_id}/assessment-inputs", headers=master.headers).json()
+    assert private_after["workflow_status"] == "not_completed" and private_after["evaluation"] == -1
+    assert client.get(f"{TASKS_URL}/{task['task_id']}", headers=member.headers).json() == public_before
 
     # Проверяем рассчитанный балл через /api/assessments (доступно тачкам)
     res_ass = client.get(f"/api/assessments?season_id={test_season['season_id']}&user_id={member.user_id}", headers=superuser.headers)
@@ -476,11 +502,20 @@ def test_закрытие_сезона_бонус_мастера_и_повыше
         headers=master.headers,
     )
     asgn = res_t.json()["assignments"][0]
-    # start -> submit -> accept
-    client.post(f"{ASSIGNMENTS_URL}/{asgn['assignment_id']}/start", json={"expected_revision": asgn["revision"]}, headers=member.headers)
-    res_sub = client.post(f"{ASSIGNMENTS_URL}/{asgn['assignment_id']}/submit", json={"expected_revision": asgn["revision"] + 1, "text": "Готово", "links": [], "file_ids": []}, headers=member.headers)
-    res_acc = client.post(f"{ASSIGNMENTS_URL}/{asgn['assignment_id']}/accept", json={"expected_revision": res_sub.json()["revision"], "evaluation": 1.0}, headers=master.headers)
+    # Публичные действия и частная приёмка используют разные счётчики ревизий.
+    res_start = client.post(f"{ASSIGNMENTS_URL}/{asgn['assignment_id']}/start", json={"expected_revision": asgn["revision"]}, headers=member.headers)
+    assert res_start.status_code == 200
+    res_sub = client.post(f"{ASSIGNMENTS_URL}/{asgn['assignment_id']}/submit", json={"expected_revision": res_start.json()["revision"], "text": "Готово", "links": [], "file_ids": []}, headers=member.headers)
+    assert res_sub.status_code == 200
+    private = client.get(f"{ASSIGNMENTS_URL}/{asgn['assignment_id']}/assessment-inputs", headers=master.headers)
+    assert private.status_code == 200
+    public_before = client.get(f"{TASKS_URL}/{res_t.json()['task_id']}", headers=member.headers).json()
+    res_acc = client.post(f"{ASSIGNMENTS_URL}/{asgn['assignment_id']}/accept", json={"expected_revision": private.json()["workflow_revision"], "evaluation": 1.0}, headers=master.headers)
     assert res_acc.status_code == 200
+    accounted = client.get(f"{ASSIGNMENTS_URL}/{asgn['assignment_id']}/assessment-inputs", headers=master.headers).json()
+    assert accounted["workflow_status"] == "accepted"
+    assert accounted["effective_completed_at"] == public_before["submissions"][-1]["submitted_at"]
+    assert client.get(f"{TASKS_URL}/{res_t.json()['task_id']}", headers=member.headers).json() == public_before
 
     # 2. Переводим сезон в summarizing
     res_sum = post_season(client,f"{SEASONS_URL}/{season_id}/begin-summary", json={"expected_revision": test_season["revision"]}, headers=superuser.headers)

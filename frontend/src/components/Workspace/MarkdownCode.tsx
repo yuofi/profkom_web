@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import hljs from "highlight.js/lib/core";
 import javascript from "highlight.js/lib/languages/javascript";
 import typescript from "highlight.js/lib/languages/typescript";
@@ -27,4 +27,11 @@ export function MarkdownCode({ className, source }: { className?: string; source
   }, [source, language]);
   // highlight.js escapes source before adding its own span markup. Raw Markdown HTML is disabled separately.
   return highlighted === null ? <code className={className}>{source}</code> : <code className={`${className ?? ""} ${s.highlighted}`} dangerouslySetInnerHTML={{ __html: highlighted }} />;
+}
+
+/** A language caption belongs to a block, never to inline code or custom gallery/chip fences. */
+export function MarkdownCodeBlock({ language, children }: { language?: string; children: ReactNode }) {
+  const normalized = language?.toLowerCase();
+  const label = !normalized || ["text", "txt", "plaintext"].includes(normalized) ? "Текст" : hljs.getLanguage(normalized)?.name ?? language;
+  return <figure className={s.codeBlock} aria-label={`Блок кода: ${label}`}><figcaption className={s.codeLanguage}>{label}</figcaption><pre>{children}</pre></figure>;
 }

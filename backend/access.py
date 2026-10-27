@@ -19,6 +19,7 @@ actor_id = ContextVar("profkom_actor_id", default=None)
 CHAIR = "chair"
 CHAIR_DEPUTY = "chair_deputy"
 HR_MASTER = "hr_master"
+HR_TRACKER_READER = "hr_tracker_reader"  # narrowly scoped global tracker read, not KKR/reports
 PGAS_ADMIN = "pgas_admin"
 BLOCK_LEAD_ANYWHERE = "block_lead_anywhere"  # master or deputy of some block
 QUEUE_HOLDER = "queue_holder"  # leads some block, event or subevent
@@ -83,8 +84,9 @@ POLICY = {
     "subevent.report.read": SUBEVENT_READERS,
     "report.read_all": TACHKI | {HR_MASTER},  # every published report, closed seasons too
     # Tasks; the scope is a block or a subevent
-    "task.view": TACHKI | {HR_MASTER} | AREA_TEAM,
-    "task.create": TACHKI | AREA_LEADS,
+    "task.view": TACHKI | {HR_MASTER,HR_TRACKER_READER} | AREA_TEAM,
+    "task.create": TACHKI | {HR_MASTER,HR_TRACKER_READER} | AREA_TEAM,
+    "task.assign_others": TACHKI | AREA_LEADS,
     "task.edit": ByState({"*": TACHKI | AREA_LEADS, "closed": TACHKI}),  # title and description (АВ-3)
     "task.review": ByState({"*": TACHKI | {HR_MASTER} | AREA_LEADS, "closed": TACHKI}),
     "task.inputs.view": TACHKI | {HR_MASTER} | AREA_LEADS,
@@ -180,7 +182,8 @@ def _global(uid):
     hr_blocks = _hr_block_names()
     for a in db.get_user_assignments(uid):
         if a.scope_kind == "block" and a.role == "deputy_master" and a.scope_id in hr_blocks:
-            continue  # the HR deputy is an ordinary HR block member in release 1 (АВ-25, УВ-2)
+            rel.add(HR_TRACKER_READER)
+            continue  # only tracker read/create is added; reports/KKR remain unchanged
         if a.role in QUEUE_ROLES.get(a.scope_kind, set()):
             rel.add(QUEUE_HOLDER)
         if a.scope_kind == "block" and a.role in ("master", "deputy_master"):
@@ -291,6 +294,14 @@ def season_state(season_id):
     return s.state if s else None
 
 
+def all_queue_reader(uid):
+    """Owner policy: HR deputy's global tracker read is separate from reports/KKR."""
+    user=db.get_user(uid)
+    if not user or user.banned or user.account_state!="active":return False
+    if db.is_chair(uid) or db.is_deputy_chair(uid) or db.is_hr_master(uid):return True
+    return any(db.is_block_master_deputy(uid,name) for name in _hr_block_names())
+
+
 def scope_access_revision(uid):
     """Memberships and organizer rosters are not RoleAssignments in session. Blocks count
     by ID, so renaming a block does not change its members' revision (A-FE-1)."""
@@ -307,6 +318,7 @@ def scope_access_revision(uid):
             ),
         ]
         # Privacy/owner/grant changes invalidate client caches independently of role assignments.
+        scopes.append(all_queue_reader(uid))
         scopes.append(sorted((q.queue_id,q.owner_user_id,q.is_private,q.revision) for q in session.query(TaskQueueORM)))
         scopes.append(sorted((m.queue_id,m.active,m.request_id,m.revoked_at) for m in session.query(TaskQueueMemberORM).filter_by(user_id=uid)))
     return hashlib.sha256(json.dumps(scopes, ensure_ascii=True).encode()).hexdigest()

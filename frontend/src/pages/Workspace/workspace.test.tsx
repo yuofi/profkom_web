@@ -98,14 +98,14 @@ describe("Rendered authorization with a deliberately stale private cache", () =>
     expect(html).not.toContain("Установить часы");
     expect(html).not.toContain("Даты и признаки");
   });
-  it("renders the review and assessment forms for an authorized task manager", () => {
+  it("renders separate public status controls and private assessment forms for an authorized task manager", () => {
     const html = renderPage(
       "leader",
       <TaskPage />,
       "/tasks/task-1",
       "/tasks/:id",
     );
-    expect(html).toContain("Отменить задачу");
+    expect(html).toContain("Статус задачи: Открыта");
     expect(html).toContain("Исходные поля оценивания");
   });
   it.each([

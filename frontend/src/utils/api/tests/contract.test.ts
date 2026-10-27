@@ -70,15 +70,17 @@ describe("API commands through mock transport", () => {
       assignees: [{ user_id: 102, hours: 4 }],
     });
     expect(task).not.toHaveProperty("criteria");
-    expect(task).not.toHaveProperty("assignees");
+    expect(task.assignees?.map(user => user.user_id)).toEqual([102]);
+    for (const user of task.assignees ?? []) for (const field of ["hours", "evaluation", "effective_completed_at", "score", "kkr_score"]) expect(user).not.toHaveProperty(field);
     const own = task.assignments[0];
     const submitted = await tasksApi.command(own.assignment_id, "submit", {
       expected_revision: own.revision,
       text: richText("Сделано"),
     });
     expect(submitted.capabilities).toContain("review_assignment");
+    const ownInputs = await tasksApi.assessment(own.assignment_id);
     await tasksApi.command(own.assignment_id, "accept", {
-      expected_revision: submitted.revision,
+      expected_revision: ownInputs.workflow_revision!,
       evaluation: 1,
     });
     expect((await tasksApi.assessment(own.assignment_id)).hours).toBe(4);
@@ -374,16 +376,19 @@ describe("API commands through mock transport", () => {
       files: [],
     });
     task.submissions = [{ ...a.submissions[0], submitted_by: a.assignee }];
+    const initialInputs = await tasksApi.assessment(a.assignment_id);
     const reviewed = await tasksApi.command(
       a.assignment_id,
       "request-revision",
-      { expected_revision: 1, review_note: "Уточнить" },
+      { expected_revision: initialInputs.workflow_revision!, review_note: "Уточнить" },
     );
     expect(reviewed.submissions).toHaveLength(1);
     task.status = "submitted";
     task.assignments.forEach(assignment => { assignment.status = "submitted"; });
+    const revisedInputs = await tasksApi.assessment(a.assignment_id);
+    expect(revisedInputs.workflow_status).toBe("needs_revision");
     await tasksApi.command(a.assignment_id, "accept", {
-      expected_revision: reviewed.revision,
+      expected_revision: revisedInputs.workflow_revision!,
       evaluation: 1.5,
     });
     expect(
@@ -391,7 +396,7 @@ describe("API commands through mock transport", () => {
     ).toBe("2026-10-17T09:00:00Z");
     await expect(
       tasksApi.command(a.assignment_id, "cancel", {
-        expected_revision: a.revision,
+        expected_revision: revisedInputs.workflow_revision!,
         reason: "Повтор",
       }),
     ).rejects.toMatchObject({ status: 409 });
@@ -400,16 +405,20 @@ describe("API commands through mock transport", () => {
     const fixture = useMock("leader");
     const task = fixture.state.tasks[0];
     const a = task.assignments[0];
-    task.status = "submitted";
-    task.assignments.forEach(assignment => { assignment.status = "submitted"; });
-    const body = { expected_revision: a.revision, evaluation: 1, reason: "Лишнее поле" } as never;
+    await tasksApi.submitResult(task.task_id, { expected_revision: task.revision, text: richText("Фактическая сдача"), links: [], file_ids: [] });
+    const publicRevision = task.revision;
+    const initial = await tasksApi.assessment(a.assignment_id);
+    const body = { expected_revision: initial.workflow_revision!, evaluation: 1, reason: "Лишнее поле" } as never;
     await expect(tasksApi.command(a.assignment_id, "accept", body)).rejects.toMatchObject({ status: 422 });
     expect(a.status).toBe("submitted");
-    expect(task.status).toBe("submitted");expect(task.revision).toBe(1);
+    expect(task.status).toBe("submitted");expect(task.revision).toBe(publicRevision);
     // Revision may be requested again after acceptance (database.request_revision_assignment).
-    const accepted = await tasksApi.command(a.assignment_id, "accept", { expected_revision: a.revision, evaluation: 1 });
-    const back = await tasksApi.command(a.assignment_id, "request-revision", { expected_revision: accepted.revision, review_note: "Вернуть" });
-    expect(back.status).toBe("needs_revision");
+    expect(await tasksApi.assessment(a.assignment_id)).toMatchObject({ revision: initial.revision, workflow_revision: initial.workflow_revision, evaluation: initial.evaluation });
+    await tasksApi.command(a.assignment_id, "accept", { expected_revision: initial.workflow_revision!, evaluation: 1 });
+    const acceptedInputs = await tasksApi.assessment(a.assignment_id);
+    await tasksApi.command(a.assignment_id, "request-revision", { expected_revision: acceptedInputs.workflow_revision!, review_note: "Вернуть" });
+    expect((await tasksApi.assessment(a.assignment_id)).workflow_status).toBe("needs_revision");
+    expect((await tasksApi.get(task.task_id)).status).toBe("submitted");
   });
   it("refuses a merit correction with fields fixed at creation, as the server does (A-KKR-1)", async () => {
     useMock("chair");

@@ -14,7 +14,7 @@ import { TaskQueuePage, TaskQueuesPage } from "./TaskQueuePages";
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 afterEach(async () => { await page?.cleanup();page = undefined;vi.restoreAllMocks(); });
 
-it("creates a queue from a catalog scope with display metadata, persists its owner and assigns its key to tasks", async () => {
+it("creates a queue from catalog metadata with its creator as owner and assigns its key to tasks", async () => {
   const owner = await liveParticipant("queue-create-owner");
   const session = await liveLogin();
   const seasons = (await seasonsApi.list()).items;
@@ -32,15 +32,15 @@ it("creates a queue from a catalog scope with display metadata, persists its own
   // Spy on the actual API wrapper, preserving its real HTTP request and strict server validation.
   const create = vi.spyOn(taskQueuesApi, "create");
   page = await mountWorkspace(<Routes><Route path="/tasks/queues" element={<TaskQueuesPage />} /><Route path="/tasks/queues/:id" element={<TaskQueuePage />} /></Routes>, { path: "/tasks/queues", session });
-  await waitForPage(page, () => !!page!.container.querySelector("details"));
-  const creation = [...page.container.querySelectorAll<HTMLDetailsElement>("details")].find(details => details.querySelector(":scope > summary")?.textContent === "Создать очередь")!;
-  expect(creation).toBeDefined();await act(async () => creation.querySelector<HTMLElement>("summary")!.click());
-  const scopeSelect = creation.querySelector<HTMLSelectElement>("select")!;
-  const option = [...scopeSelect.options].find(item => item.textContent === team.title)!;expect(option).toBeDefined();
-  await change(scopeSelect, option.value);await waitForPage(page, () => !!creation.querySelector('select[name="owner"] option[value="' + owner.user_id + '"]'));
+  await waitForPage(page, () => !![...page!.container.querySelectorAll("button")].find(button => button.textContent === "Создать очередь"));
+  await act(async () => [...page!.container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Создать очередь")!.click());await waitForPage(page, () => !!page!.container.querySelector("dialog form"));
+  const creation = page.container.querySelector("dialog")!;
   const form = creation.querySelector("form")!;
+  const scopeSelect = form.querySelector<HTMLSelectElement>('select[name="scope"]')!;
+  const option = [...scopeSelect.options].find(item => item.textContent === team.title)!;expect(option).toBeDefined();
+  await change(scopeSelect, option.value);await waitForPage(page);expect(form.querySelector('[name="owner"]')).toBeNull();
   const name = `Очередь через UI ${crypto.randomUUID()}`;
-  await change(field(form, "name"), name);await change(field(form, "owner"), String(owner.user_id));await change(field(form, "key"), "BAD1");
+  await change(field(form, "name"), name);await change(field(form, "key"), "BAD1");
   await submit(form);await waitForPage(page);
   expect(create).not.toHaveBeenCalled();expect(form.querySelector('[role="alert"]')?.textContent).toContain("Ключ должен содержать только заглавные английские буквы A–Z");
 
@@ -49,14 +49,14 @@ it("creates a queue from a catalog scope with display metadata, persists its own
   expect(create).toHaveBeenCalledTimes(1);
   const queue = (await taskQueuesApi.catalog()).items.find(item => item.key === key)!;expect(queue).toBeDefined();
   const saved = await taskQueuesApi.get(queue.queue_id);
-  expect(saved).toMatchObject({ name, key, owner: { user_id: owner.user_id }, scope: { kind: "subevent", id: team.subevent_id }, access: "granted" });
+  expect(saved).toMatchObject({ name, key, owner: { user_id: session.user_id }, scope: { kind: "subevent", id: team.subevent_id }, access: "granted" });
   const open = [...creation.querySelectorAll<HTMLAnchorElement>("a")].find(link => link.textContent === `Открыть ${key}`)!;
   expect(open).toBeDefined();await act(async () => open.click());await waitForPage(page, () => page!.container.querySelector("h1")?.textContent === name);
-  expect(page.container.querySelector(`a[href="/contacts/${owner.user_id}"]`)?.textContent).toContain(saved.owner!.display_name);
+  expect(page.container.querySelector(`a[href="/contacts/${session.user_id}"]`)?.textContent).toContain(saved.owner!.display_name);
 
   const task = await tasksApi.create({ season_id: season.season_id, scope: { kind: "subevent", id: team.subevent_id }, queue_id: saved.queue_id, title: "Проверка ключа новой очереди", description: richText("Создано после формы очереди"), deadline_at: new Date(Date.now() + 86400000).toISOString(), criteria: emptyCriteria(), assignees: [{ user_id: owner.user_id, hours: 2 }] });
   expect(task.queue?.queue_id).toBe(saved.queue_id);expect(task.task_key).toBe(`${key}-1`);
   await page.cleanup();page = undefined;
   await liveLogin(owner.email);
-  const owned = await taskQueuesApi.get(saved.queue_id);expect(owned.owner?.user_id).toBe(owner.user_id);expect(owned.capabilities).toContain("manage_queue");expect(owned.capabilities).toContain("view_queue_requests");
+  const otherReader = await taskQueuesApi.get(saved.queue_id);expect(otherReader.owner?.user_id).toBe(session.user_id);expect(otherReader.capabilities).not.toContain("manage_queue");await liveLogin();const owned = await taskQueuesApi.get(saved.queue_id);expect(owned.capabilities).toContain("manage_queue");expect(owned.capabilities).toContain("view_queue_requests");
 });

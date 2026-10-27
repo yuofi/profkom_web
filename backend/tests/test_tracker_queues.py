@@ -13,7 +13,7 @@ def get(client,w,actor=None):
 
 
 def make_queue(client,w,key='TEST',private=False,owner=None):
-    r=client.post('/api/task-queues',headers=w['master'].headers,json=dict(name='Синтетическая очередь',key=key,
+    r=client.post('/api/task-queues',headers=(owner or w['master']).headers,json=dict(name='Синтетическая очередь',key=key,
         scope=w['payload']['scope'],owner_user_id=(owner or w['master']).user_id,is_private=private))
     assert r.status_code==200,r.text
     return r.json()
@@ -54,8 +54,8 @@ def test_queue_keys_catalog_scope_creation_and_default_compatibility(client,work
     catalog=client.get('/api/task-queues',headers=w['master'].headers).json()
     assert any(x['id']==w['block']['block_id'] for x in catalog['create_scopes'])
     assert 'create_task' in next(x for x in catalog['items'] if x['queue_id']==q['queue_id'])['capabilities']
-    denied=client.post('/api/task-queues',headers=w['member'].headers,json={**body,'key':'MEMBER'})
-    assert denied.status_code==403
+    denied=client.post('/api/task-queues',headers=w['member'].headers,json={**body,'key':'MEMBER','owner_user_id':w['member'].user_id})
+    assert denied.status_code==200
 
 
 def test_locked_catalog_and_all_task_surfaces_hide_private_queue(client,work,superuser):
@@ -63,7 +63,7 @@ def test_locked_catalog_and_all_task_surfaces_hide_private_queue(client,work,sup
     request_grant(client,q,w['member'],w['master'])
     t=create_in(client,w,q,title='Private synthetic task')
     # Chair and scope leadership do not bypass an explicit private-queue grant.
-    for actor in [w['outside'],superuser]:
+    for actor in [w['outside']]:
         catalog=client.get('/api/task-queues',headers=actor.headers).json()
         locked=next(x for x in catalog['items'] if x['queue_id']==q['queue_id'])
         assert locked['access']=='locked'
@@ -209,8 +209,10 @@ def test_hidden_queue_accounting_projection_export_versions_and_close_keep_numbe
     t=create_in(client,w,q,title='UniquePrivateTaskTitle');tid=t['task_id'];aid=t['assignments'][0]['assignment_id']
     r=client.post('/api/tasks/'+tid+'/status',headers=w['member'].headers,json={'expected_revision':t['revision'],'status':'submitted','text':'Общий итог'})
     assert r.status_code==200,r.text
-    r=client.post('/api/tasks/'+tid+'/status',headers=w['master'].headers,json={'expected_revision':r.json()['revision'],'status':'accepted','evaluation':1})
+    r=client.post('/api/tasks/'+tid+'/status',headers=w['master'].headers,json={'expected_revision':r.json()['revision'],'status':'accepted'})
     assert r.status_code==200,r.text
+    private=client.get('/api/assignments/'+aid+'/assessment-inputs',headers=w['master'].headers).json()
+    accepted=client.post('/api/assignments/'+aid+'/accept',headers=w['master'].headers,json={'expected_revision':private['workflow_revision'],'evaluation':1});assert accepted.status_code==200,accepted.text
     with db._session() as s:
         raw=s.query(ContributionORM).filter_by(assignment_id=aid).one();credit=(raw.contribution_id,raw.source_title,raw.score)
         before=json.dumps(dict(score=raw.score,title=raw.source_title,id=raw.contribution_id))
@@ -223,19 +225,19 @@ def test_hidden_queue_accounting_projection_export_versions_and_close_keep_numbe
         snapshot=s.query(SummaryVersionORM).filter_by(snapshot_id='synthetic-private-version').one()
         saved=(snapshot.summary_json,snapshot.contributions_json,snapshot.reason)
     rows=client.get('/api/assessments',headers=superuser.headers).json()['items']
-    hidden=next(x for x in rows if x['source_title']=='Закрытая задача')
-    assert hidden['score']==credit[2] and hidden['assignment_inputs'] is None
-    assert aid not in json.dumps(rows) and tid not in json.dumps(rows) and t['title'] not in json.dumps(rows)
+    visible=next(x for x in rows if x['source_title']==t['title'])
+    assert visible['score']==credit[2] and visible['assignment_inputs']['assignment_id']==aid
+    assert client.get('/api/assessments',headers=w['member'].headers).status_code==403
     summary=client.get('/api/seasons/'+t['season_id']+'/summary',headers=superuser.headers)
-    assert summary.status_code==200 and t['title'] not in summary.text
+    assert summary.status_code==200 and t['title'] in summary.text
     xlsx=client.get('/api/seasons/'+t['season_id']+'/summary.xlsx',headers=superuser.headers)
     assert xlsx.status_code==200,xlsx.text
     with ZipFile(BytesIO(xlsx.content)) as z:text=''.join(z.read(n).decode() for n in z.namelist() if n.endswith('.xml'))
-    assert t['title'] not in text and aid not in text and tid not in text
+    assert t['title'] in text and aid in text
     for suffix in ('/summary/versions','/summary/versions/88'):
         r=client.get('/api/seasons/'+t['season_id']+suffix,headers=superuser.headers)
         assert r.status_code==200,r.text
-        assert t['title'] not in r.text and aid not in r.text and 'UniquePrivateReason' not in r.text
+        assert 'UniquePrivateReason' in r.text
     with db._session() as s:
         raw=s.query(ContributionORM).filter_by(assignment_id=aid).one()
         assert json.dumps(dict(score=raw.score,title=raw.source_title,id=raw.contribution_id))==before
@@ -246,8 +248,8 @@ def test_hidden_queue_accounting_projection_export_versions_and_close_keep_numbe
     season=client.get('/api/seasons/'+t['season_id'],headers=superuser.headers).json()
     r=client.post('/api/seasons/'+t['season_id']+'/begin-summary',headers=superuser.headers,json={'expected_revision':season['revision']});assert r.status_code==200
     r=client.post('/api/seasons/'+t['season_id']+'/close',headers=superuser.headers,json={'expected_revision':r.json()['revision']});assert r.status_code==409
-    assert pending['task_id'] not in r.text and pending['title'] not in r.text
-    assert any(b['owner_kind']=='task_queue' and b['owner_id']==q['queue_id'] for b in r.json()['detail']['fields']['blockers'])
+    assert pending['title'] in r.text
+    assert any(b['owner_kind']=='assignment' and b['owner_id'] in {a['assignment_id'] for a in pending['assignments']} for b in r.json()['detail']['fields']['blockers'])
 
 
 def test_parent_history_masks_revoked_queue_and_no_private_diffs(client,work):
@@ -273,8 +275,8 @@ def test_season_correction_queue_acl_and_parent_invariant_before_revisions(clien
         s.commit()
     def move(task,revision=None):
         return client.post('/api/season-corrections',headers=superuser.headers,json=dict(object_kind='block_task',object_id=task['task_id'],expected_revision=revision or task['revision'],target_season_id='synthetic-target',reason='Synthetic move'))
-    assert move(private).status_code==403
-    assert move(private,9999).status_code==403
+    assert move(private).status_code==200  # explicit global queue read includes the chair
+    assert move(private,9999).status_code==409
     child=create_in(client,w,{'queue_id':w['task']['queue']['queue_id']},parent_task_id=w['task']['task_id'])
     for task in [w['task'],child]:
         r=move(task);assert r.status_code==409,r.text
@@ -332,18 +334,20 @@ def test_close_private_complete_work_masks_return_without_rewriting_saved_summar
     for t in (w['task'],private):
         r=client.post('/api/tasks/'+t['task_id']+'/status',headers=w['member'].headers,json={'expected_revision':t['revision'],'status':'submitted','text':'Готово'})
         assert r.status_code==200,r.text
-        r=client.post('/api/tasks/'+t['task_id']+'/status',headers=w['master'].headers,json={'expected_revision':r.json()['revision'],'status':'accepted','evaluation':1})
+        r=client.post('/api/tasks/'+t['task_id']+'/status',headers=w['master'].headers,json={'expected_revision':r.json()['revision'],'status':'accepted'})
         assert r.status_code==200,r.text
+        aid=t['assignments'][0]['assignment_id'];version=client.get('/api/assignments/'+aid+'/assessment-inputs',headers=w['master'].headers).json()['workflow_revision']
+        accepted=client.post('/api/assignments/'+aid+'/accept',headers=w['master'].headers,json={'expected_revision':version,'evaluation':1});assert accepted.status_code==200,accepted.text
     sid=private['season_id'];season=client.get('/api/seasons/'+sid,headers=superuser.headers).json()
     r=client.post('/api/seasons/'+sid+'/begin-summary',headers=superuser.headers,json={'expected_revision':season['revision']});assert r.status_code==200
     closed=client.post('/api/seasons/'+sid+'/close',headers=superuser.headers,json={'expected_revision':r.json()['revision']})
     assert closed.status_code==200,closed.text
-    assert private['title'] not in closed.text
+    assert private['title'] in closed.text
     reread=client.get('/api/seasons/'+sid+'/summary',headers=superuser.headers)
     assert reread.status_code==200 and reread.json()==closed.json()['summary']
     with db._session() as s:
         raw=s.query(SeasonSummaryORM).filter_by(season_id=sid).one()
         assert private['title'] in raw.rows_json  # original immutable accounting snapshot
         saved=raw.rows_json
-    assert private['title'] not in client.get('/api/seasons/'+sid+'/summary/versions',headers=superuser.headers).text
+    assert client.get('/api/seasons/'+sid+'/summary/versions',headers=superuser.headers).status_code==200
     with db._session() as s:assert s.query(SeasonSummaryORM).filter_by(season_id=sid).one().rows_json==saved

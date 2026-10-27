@@ -10,6 +10,7 @@ import { tasksApi } from "../../utils/api/tasks.api";
 import { taskQueuesApi } from "../../utils/api/taskQueues.api";
 import { emptyCriteria, richText, type AssignmentStatus, type Task } from "../../utils/api/contract";
 import { TaskPage } from "./TaskPages";
+import { statusNames } from "./trackerStatus";
 
 // A joint task has one decision for the whole work. Individual hours/evaluations remain separate.
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
@@ -31,59 +32,41 @@ async function submittedTasks(peopleCount: number, taskCount = 1) {
   const tasks: Task[] = [];
   for (let i = 0;i < taskCount;i++) tasks.push(await tasksApi.create({ season_id: season.season_id, scope: { kind: "subevent", id: sub.subevent_id }, title: `Задача для решения ${i}`, description: richText("Сдать общий результат"), deadline_at: new Date(Date.now() + 86400000).toISOString(), criteria: emptyCriteria(), assignees: people.map((person, index) => ({ user_id: person.user_id, hours: index + 2 })) }));
   await liveLogin(people[0].email);
-  for (const task of tasks) await tasksApi.changeStatus(task.task_id, { expected_revision: task.revision, status: "submitted", text: richText("Одна общая сдача") });
+  for (const task of tasks) await tasksApi.submitResult(task.task_id, { expected_revision: task.revision, text: richText("Одна общая сдача"), links: [], file_ids: [] });
   const session = await liveLogin();return { tasks: await Promise.all(tasks.map(task => tasksApi.get(task.task_id))), session };
 }
 const card = (name: string) => page!.container.querySelector<HTMLElement>(`[aria-label="Назначение: ${name}"]`)!;
+const taskActionsSettled = () => ![...page!.container.querySelectorAll<HTMLButtonElement>("button")].some(button => button.disabled && (button.matches('[aria-haspopup="menu"],[aria-label^="Убрать исполнителя:"]') || ["Стать исполнителем", "Наблюдать", "Перестать наблюдать", "Взять в работу", "Нужна помощь", "Сдать результат"].includes(button.textContent?.trim() ?? "")));
 async function click(label: string) {
   const button = [...page!.container.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent?.trim() === label)!;
-  expect(button, label).toBeDefined();await act(async () => button.click());await waitForPage(page!);
+  expect(button, label).toBeDefined();await act(async () => button.click());await waitForPage(page!, taskActionsSettled);
 }
 
-it("1.1: four decisions use four joint tasks and exact form bodies; acceptance needs no comment", async () => {
+async function choosePublic(status: AssignmentStatus) {
+  await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());await waitForPage(page!);await click(statusNames[status]);
+}
+it("1.1: public decisions change the joint task without changing private hours, evaluations or dates", async () => {
   const { tasks, session } = await submittedTasks(2, 4);
-  const decisions: { status: AssignmentStatus; action: string; note: string; evaluation?: string }[] = [
-    { status: "accepted", action: "Принять задачу", note: "", evaluation: "1" },
-    { status: "needs_revision", action: "Вернуть на доработку", note: "Добавьте фотографии" },
-    { status: "not_completed", action: "Завершить как невыполненную", note: "Не успели к сроку", evaluation: "0" },
-    { status: "cancelled", action: "Отменить задачу", note: "Задача больше не нужна" },
-  ];
-  for (const [index, decision] of decisions.entries()) {
-    const task = tasks[index];
-    page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TaskPage />} /></Routes>, { path: `/tasks/${task.task_id}`, session });await waitForPage(page);
-    await click(decision.action);
-    const form = page.container.querySelector<HTMLFormElement>("dialog form")!;
-    if (decision.evaluation) await change(field(form, "evaluation"), decision.evaluation);
-    await change(field(form, "note"), decision.note);await submit(form);await waitForPage(page, () => !page!.container.querySelector("dialog"));
-    expect(page.container.querySelector('[role="alert"]')).toBeNull();
-    if (decision.note) expect(page.container.querySelector('[aria-label="Комментарий руководителя"]')?.textContent).toContain(decision.note);
-    const saved = await tasksApi.get(task.task_id);expect(saved.status).toBe(decision.status);
-    expect(saved.assignments.map(assignment => assignment.status)).toEqual([decision.status, decision.status]);
-    expect(saved.assignments.map(assignment => assignment.review_note)).toEqual([decision.note || null, decision.note || null]);
-    const inputs = await Promise.all(saved.assignments.map(assignment => tasksApi.assessment(assignment.assignment_id)));
-    expect(inputs.map(input => input.hours)).toEqual([2, 3]);
-    if (decision.status === "cancelled") expect(inputs.map(input => input.evaluation)).toEqual([null, null]);
-    await page.cleanup();page = undefined;
+  const decisions: AssignmentStatus[] = ["accepted", "needs_revision", "not_completed", "cancelled"];
+  for (const [index, status] of decisions.entries()) {
+    const task = tasks[index], before = await Promise.all(task.assignments.map(assignment => tasksApi.assessment(assignment.assignment_id)));
+    page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TaskPage />} /></Routes>, { path: `/tasks/${task.task_id}`, session });await waitForPage(page);await choosePublic(status);
+    expect(page.container.querySelector("dialog")).toBeNull();expect(page.container.querySelector('[role="alert"]')).toBeNull();
+    const saved = await tasksApi.get(task.task_id);expect(saved.status).toBe(status);expect(saved.assignments.map(assignment => assignment.status)).toEqual([status, status]);
+    const after = await Promise.all(saved.assignments.map(assignment => tasksApi.assessment(assignment.assignment_id)));
+    expect(after.map(input => [input.hours, input.evaluation, input.effective_completed_at, input.workflow_status, input.workflow_revision])).toEqual(before.map(input => [input.hours, input.evaluation, input.effective_completed_at, input.workflow_status, input.workflow_revision]));
+    expect(after.map(input => input.hours)).toEqual([2, 3]);await page.cleanup();page = undefined;
   }
 });
-it("1.1: a cancelled joint task stays cancelled when only individual hours are corrected", async () => {
-  const { tasks: [task], session } = await submittedTasks(1);
-  let assignment = task.assignments[0];
-  assignment = await tasksApi.command(assignment.assignment_id, "accept", { expected_revision: assignment.revision, evaluation: 1 });
-  await tasksApi.command(assignment.assignment_id, "request-revision", { expected_revision: assignment.revision, review_note: "Переделать" });
-  page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TaskPage />} /></Routes>, { path: `/tasks/${task.task_id}`, session });await waitForPage(page);
-  expect(page.container.querySelector('[aria-label="Статус задачи: На доработке"]')).not.toBeNull();
-  await click("Отменить задачу");const form = page.container.querySelector<HTMLFormElement>("dialog form")!;
-  await change(field(form, "note"), "Отменили после доработки");await submit(form);await waitForPage(page, () => !page!.container.querySelector("dialog"));
-  const inputs = card(assignment.assignee.display_name).querySelector('[name="hours"]')!.closest("form")!;
-  expect(inputs.querySelector('[name="evaluation"]')).toBeNull();
-  await change(field(inputs, "hours"), "3");await change(field(inputs, "reason"), "Уточнили часы");
-  const keep = [...inputs.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Сохранить мой ввод с обновлённой версией");
-  if (keep) { await act(async () => keep.click());await waitForPage(page); }
-  await submit(inputs);await waitForPage(page, () => !!card(assignment.assignee.display_name).textContent?.includes("Часы: 3"));
-  const saved = await tasksApi.get(task.task_id);expect(saved.status).toBe("cancelled");expect(saved.assignments[0].status).toBe("cancelled");expect((await tasksApi.assessment(assignment.assignment_id)).evaluation).toBeNull();
+it("1.1: a public cancellation preserves formal acceptance while authorized private hours remain editable", async () => {
+  const { tasks: [task], session } = await submittedTasks(1), assignment = task.assignments[0];
+  const initial = await tasksApi.assessment(assignment.assignment_id);await tasksApi.updateAssessment(assignment.assignment_id, { expected_revision: initial.revision, evaluation: 1, reason: "Явная формальная приёмка" });
+  const accepted = await tasksApi.assessment(assignment.assignment_id);expect(accepted.workflow_status).toBe("accepted");expect(accepted.evaluation).toBe(1);
+  page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TaskPage />} /></Routes>, { path: `/tasks/${task.task_id}`, session });await waitForPage(page);await choosePublic("cancelled");
+  const inputs = card(assignment.assignee.display_name).querySelector('[name="hours"]')!.closest("form")!;expect(inputs.querySelector('[name="evaluation"]')).not.toBeNull();
+  await change(field(inputs, "hours"), "3");await change(field(inputs, "reason"), "Уточнили часы");await submit(inputs);await waitForPage(page, () => !!card(assignment.assignee.display_name).textContent?.includes("Часы: 3"));
+  expect((await tasksApi.get(task.task_id)).status).toBe("cancelled");const saved = await tasksApi.assessment(assignment.assignment_id);expect(saved.hours).toBe(3);expect(saved.evaluation).toBe(1);expect(saved.workflow_status).toBe("accepted");expect(saved.effective_completed_at).toBe(accepted.effective_completed_at);
 });
-
 
 async function feedbackTasks() {
   const worker = await liveParticipant("feedback-worker");
@@ -131,7 +114,7 @@ it("feedback: a leader links a cross-queue parent in the UI and sees its genuine
   const { task, parent, chair } = await feedbackTasks();expect(parent.queue?.queue_id).not.toBe(task.queue?.queue_id);
   page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TaskPage />} /></Routes>, { path: `/tasks/${task.task_id}`, session: chair });await waitForPage(page);
   await click("Изменить родительскую задачу");const form = page.container.querySelector<HTMLFormElement>("dialog form")!;
-  await change(form.querySelector<HTMLInputElement>('input[type="search"]')!, parent.task_key!);await waitForPage(page, () => !!form.querySelector(`option[value="${parent.task_id}"]`));await change(form.querySelector<HTMLSelectElement>("select")!, parent.task_id);await submit(form);await waitForPage(page, () => !!form.textContent?.includes("Изменения сохранены"));
+  await change(form.querySelector<HTMLInputElement>('[role="combobox"]')!, parent.task_key!);await waitForPage(page, () => !![...form.querySelectorAll<HTMLElement>('[role="option"]')].find(option => option.textContent?.includes(parent.task_key!)));await act(async () => [...form.querySelectorAll<HTMLElement>('[role="option"]')].find(option => option.textContent?.includes(parent.task_key!))!.click());await submit(form);await waitForPage(page, () => !!form.textContent?.includes("Изменения сохранены"));
   let saved = await tasksApi.get(task.task_id);expect(saved.parent_task?.task_id).toBe(parent.task_id);
   const trail = page.container.querySelector('[aria-label="Путь задачи"]')!;expect(trail.querySelector(`a[href="/tasks/queues/${task.queue!.queue_id}"]`)).not.toBeNull();expect(trail.querySelector(`a[href="/tasks/${parent.task_id}"]`)?.textContent).toContain(parent.title);
   await expect(tasksApi.update(parent.task_id, { expected_revision: parent.revision, parent_task_id: task.task_id })).rejects.toMatchObject({ status: 422 });

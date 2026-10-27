@@ -3,10 +3,14 @@ import { act, useState } from "react";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
-import { mountWorkspace, change, field, pick, submit, settle } from "../../test/workspace";
+import { mountWorkspace, change, field, pick, submit, settle, waitForPage } from "../../test/workspace";
 import { ActionForm, type Field } from "../../components/Workspace/ActionForm";
 import { TaskPage } from "./TaskPages";
 import { filesApi } from "../../utils/api/files.api";
+import { tasksApi } from "../../utils/api/tasks.api";
+import { ApiError } from "../../utils/api/request";
+import { AssessmentPanel } from "../../components/Workspace/AssessmentPanel";
+import type { AssessmentInputs } from "../../utils/api/contract";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let mock: ReturnType<typeof installMockTransport> | undefined;
@@ -102,6 +106,7 @@ it("A-FE-2: own saves of one record move the other forms of it; a foreign revisi
 
 async function taskPage(role: "leader" | "chair" | "organizer") {
   mock = installMockTransport(role, { delay: 0 });
+  mock.state.tasks[0].capabilities.push("change_task_status", "submit_task_result");
   page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TaskPage />} /></Routes>, { role, path: "/tasks/task-1" });
   await settle(); await settle();
   return page;
@@ -129,26 +134,17 @@ it("УВ-5: an area lead fills criteria but reads the task dates; the chair move
   expect(datesPanel().textContent).not.toContain("Дедлайн:");
 });
 
-it("A-TSK-5: a help request keeps its text through a conflict and is sent after consent", async () => {
-  await taskPage("organizer");
-  await clickButton(page!.container, "Попросить помощь");
-  const help = () => page!.container.querySelector<HTMLFormElement>("dialog form")!;
-  await change(field(help(), "message"), "Не хватает доступа к папке");
-  mock!.state.tasks[0].revision++;
-  await submit(help());
-  expect(help().querySelector('[role="alert"]')?.textContent).toContain("Обновить данные");
-  await clickButton(help(), "Обновить данные");
-  expect(field(help(), "message").value).toBe("Не хватает доступа к папке");
-  expect(help().textContent).toContain("Версия задачи обновилась, видимых вам изменений нет.");
-  await clickButton(help(), "Сохранить мой ввод с обновлённой версией");
-  await submit(help());
-  expect(JSON.parse(mock!.adapter.history.post.at(-1)!.data).expected_revision).toBe(2);
-  expect(mock!.state.tasks[0].status).toBe("help_required");
-  expect(mock!.state.tasks[0].assignments.every(assignment => assignment.status === "help_required")).toBe(true);
+it("A-TSK-5: a public status conflict refreshes the task and a new explicit choice uses its current revision", async () => {
+  await taskPage("organizer");const task = mock!.state.tasks[0];
+  const status = vi.spyOn(tasksApi, "changeStatus").mockRejectedValueOnce(new ApiError("Changed", 409, "revision_conflict")).mockImplementation(async (_id, data) => { task.status = data.status;task.revision++;return structuredClone(task); });
+  const accounting = vi.spyOn(tasksApi, "updateAssessment");task.revision++;
+  await clickButton(page!.container, "Нужна помощь");await waitForPage(page!);expect(page!.container.querySelector('[role="alert"]')?.textContent).toContain("Запись изменилась");expect(page!.container.querySelector("dialog")).toBeNull();
+  await clickButton(page!.container, "Нужна помощь");await waitForPage(page!);expect(status).toHaveBeenLastCalledWith(task.task_id, { expected_revision: 2, status: "help_required" });expect(accounting).not.toHaveBeenCalled();
 });
 
 it("A-TSK-12: replacing a submission draft with the saved values empties its text and files", async () => {
   await taskPage("organizer");
+  const command = vi.spyOn(tasksApi, "submitResult").mockRejectedValueOnce(new ApiError("Changed", 409, "revision_conflict")).mockImplementation(async () => { mock!.state.tasks[0].status = "submitted";mock!.state.tasks[0].revision++;return structuredClone(mock!.state.tasks[0]); });
   vi.spyOn(filesApi, "upload").mockResolvedValue({ file_id: "file-result", name: "result.pdf", mime_type: "application/pdf", size_bytes: 10 });
   await clickButton(page!.container, "Сдать результат");
   const result = () => page!.container.querySelector<HTMLFormElement>("dialog form")!;
@@ -171,5 +167,22 @@ it("A-TSK-12: replacing a submission draft with the saved values empties its tex
   expect(result().textContent).not.toContain("Запись изменилась на сервере");
   await change(field(result(), "body"), "Новый результат");
   await submit(result());
-  expect(JSON.parse(mock!.adapter.history.post.at(-1)!.data)).toMatchObject({ expected_revision: 2, file_ids: [] });
+  expect(command).toHaveBeenLastCalledWith(mock!.state.tasks[0].task_id, expect.objectContaining({ expected_revision: 2, file_ids: [], links: [] }));
+});
+
+
+it("private cancellation governs evaluation controls even when the public status differs, and drops a stale evaluation", async () => {
+  mock = installMockTransport("leader", { delay: 0 });
+  const assignment = { ...mock.state.tasks[0].assignments[0], status: "cancelled" as const };
+  let inputs: AssessmentInputs = { ...mock.state.assessments[0], workflow_status: "assigned", workflow_revision: 1 };
+  vi.spyOn(tasksApi, "assessment").mockImplementation(async () => structuredClone(inputs));
+  const update = vi.spyOn(tasksApi, "updateAssessment").mockImplementation(async (_id, patch) => { inputs = { ...inputs, hours: patch.hours ?? inputs.hours, revision: inputs.revision + 1 };return structuredClone(inputs); });
+  page = await mountWorkspace(<AssessmentPanel assignment={assignment} open />);await waitForPage(page);
+  const form = page.container.querySelector("form")!;expect(form.querySelector('[name="evaluation"]')).not.toBeNull();
+  await change(field(form, "evaluation"), "1");await change(field(form, "hours"), "3");await change(field(form, "reason"), "Уточнили часы");
+  inputs = { ...inputs, workflow_status: "cancelled", revision: 2, workflow_revision: 2 };
+  await act(async () => { await page!.client.invalidateQueries({ queryKey: ["assessments", assignment.assignment_id] }); });await waitForPage(page);
+  expect(form.querySelector('[name="evaluation"]')).toBeNull();expect(field(form, "hours").value).toBe("3");
+  await clickButton(form, "Сохранить мой ввод с обновлённой версией");await submit(form);await waitForPage(page);
+  expect(update).toHaveBeenCalledWith(assignment.assignment_id, { expected_revision: 2, hours: 3, reason: "Уточнили часы" });
 });

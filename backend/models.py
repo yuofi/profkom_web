@@ -251,6 +251,7 @@ class TaskPublic:
     deadline_at: str
     assignments: list[AssignmentPublic] = field(default_factory=list)
     assignees: list[UserRef] = field(default_factory=list)
+    watchers: list[UserRef] = field(default_factory=list)
     queue: Optional[dict] = None
     parent_task: Optional[dict] = None
     parent_task_id: Optional[str] = None
@@ -296,6 +297,8 @@ class AssessmentInputs:
     evaluation: Optional[float] = None
     effective_completed_at: Optional[str] = None
     revision: int = 1
+    workflow_revision: Optional[int] = None
+    workflow_status: Optional[str] = None
     capabilities: list[str] = field(default_factory=list)
 
 

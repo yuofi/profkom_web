@@ -6,7 +6,7 @@ import remarkBreaks from "remark-breaks";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
-import { MarkdownCode } from "./MarkdownCode";
+import { MarkdownCode, MarkdownCodeBlock } from "./MarkdownCode";
 import { Gallery } from "../Gallery/Gallery";
 import { ContactChip } from "../ContactChip/ContactChip";
 import { apiUrl } from "../../utils/api";
@@ -68,7 +68,10 @@ export function MarkdownContent({ body, onChecklistChange, checklistDisabled = f
                   (c) => c === "language-gallery" || c === "language-chip",
                 ),
             );
-            return extension ? <div>{children}</div> : <pre>{children}</pre>;
+            const codeNode = node?.children.find(child => child.type === "element" && child.tagName === "code");
+            const names = codeNode?.type === "element" && Array.isArray(codeNode.properties.className) ? codeNode.properties.className : [];
+            const language = names.find(name => typeof name === "string" && name.startsWith("language-"));
+            return extension ? <div>{children}</div> : <MarkdownCodeBlock language={typeof language === "string" ? language.slice("language-".length) : undefined}>{children}</MarkdownCodeBlock>;
           },
           code: ({ className, children }) =>
             className === "language-gallery" ? (

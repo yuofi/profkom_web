@@ -70,8 +70,8 @@ export function AssessmentPanel({
                     required: true,
                     min: 0,
                   },
-                  // A cancelled assignment stays without an evaluation (A-TSK-2).
-                  ...(assignment.status === "cancelled"
+                  // The private accounting outcome, independent of the public task status.
+                  ...((inputs.workflow_status ?? assignment.status) === "cancelled"
                     ? []
                     : [
                         {
@@ -109,7 +109,7 @@ export function AssessmentPanel({
                       hours: number(v, "hours"),
                       // Only a changed evaluation is sent: it also changes the status.
                       // The form may still hold one from before a cancellation.
-                      ...(assignment.status !== "cancelled" &&
+                      ...((inputs.workflow_status ?? assignment.status) !== "cancelled" &&
                       text(v, "evaluation") &&
                       text(v, "evaluation") !== savedEvaluation
                         ? {

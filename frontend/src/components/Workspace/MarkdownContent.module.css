@@ -54,7 +54,30 @@
   white-space: pre-wrap;
 }
 .content :global(.task-list-item) { list-style: none; }
-.content input[type="checkbox"] { margin-inline: 0 8px; accent-color: var(--primary); width: 16px; height: 16px; vertical-align: -2px; }
+.content input[type="checkbox"] {
+  /* Reset text-field sizing without replacing the native checkbox or its keyboard semantics. */
+  appearance: auto;
+  box-sizing: border-box;
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  max-width: 18px;
+  min-height: 18px;
+  max-height: 18px;
+  inline-size: 18px;
+  block-size: 18px;
+  min-inline-size: 18px;
+  max-inline-size: 18px;
+  min-block-size: 18px;
+  max-block-size: 18px;
+  flex: 0 0 18px;
+  aspect-ratio: 1;
+  padding: 0;
+  margin: 0 8px 0 0;
+  accent-color: var(--primary);
+  vertical-align: -3px;
+}
 .content input[type="checkbox"]:not(:disabled) { cursor: pointer; }
 .content input[type="checkbox"]:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
 .highlighted :global(.hljs-keyword), .highlighted :global(.hljs-selector-tag), .highlighted :global(.hljs-literal), .highlighted :global(.hljs-built_in), .highlighted :global(.hljs-type) { color: var(--accent-lilac); }
@@ -63,3 +86,28 @@
 .highlighted :global(.hljs-title), .highlighted :global(.hljs-name), .highlighted :global(.hljs-section), .highlighted :global(.hljs-attribute) { color: var(--accent-sky); }
 .highlighted :global(.hljs-comment), .highlighted :global(.hljs-quote) { color: var(--outline-variant); font-style: italic; }
 .highlighted :global(.hljs-deletion) { color: var(--accent-rose); }
+
+.codeBlock {
+  min-width: 0;
+  max-width: 100%;
+  margin: 14px 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--surface-variant) 70%, transparent);
+  border-radius: var(--radius-medium);
+  background: var(--surface-container-lowest);
+}
+.codeLanguage {
+  padding: 7px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--surface-variant) 70%, transparent);
+  background: var(--surface-container-high);
+  color: var(--on-surface-variant);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.content .codeBlock > pre {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}

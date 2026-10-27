@@ -1,0 +1,7 @@
+.root { position: relative; display: grid; gap: 8px; min-width: 0; font-size: 13px; }
+.control { position: relative; min-width: 0; }.control input { width: 100%; box-sizing: border-box; padding-right: 34px; min-width: 0; }
+.control button { position: absolute; top: 50%; right: 7px; transform: translateY(-50%); width: 26px; height: 26px; border: 0; border-radius: 5px; background: transparent; color: var(--on-surface); font-size: 20px; cursor: pointer; }
+.control button:hover { background: var(--surface-variant); }.control button:focus-visible { outline: 2px solid var(--primary); }
+.popup { position: absolute; z-index: 12; inset: 100% 0 auto; margin-top: 5px; max-height: 320px; overflow: auto; border: 1px solid var(--outline-variant); border-radius: 10px; background: var(--surface-container); box-shadow: 0 12px 30px rgb(0 0 0 / .3); }
+.popup ul { list-style: none; margin: 0; padding: 5px; }.popup li { display: grid; gap: 4px; padding: 10px; border-radius: 6px; cursor: pointer; overflow-wrap: anywhere; }
+.popup li[data-active="true"] { background: var(--surface-variant); }.popup li[aria-selected="true"] { outline: 1px solid var(--primary); }.popup strong { color: var(--primary); font-size: 11px; }.popup small { opacity: .6; }.popup p { margin: 10px 12px; font-size: 12px; opacity: .7; line-height: 1.5; }

@@ -54,7 +54,7 @@ it("decision 23: a download asks the API first, then follows the checked address
     clicked.push({ href: this.href, download: this.download });
   });
   page = await mountWorkspace(<Attachments files={[{ file_id: "file-1", name: "Отчёт.pdf", mime_type: "application/pdf", size_bytes: 2048 }]} />);
-  const button = page.container.querySelector("button")!;
+  const button = page.container.querySelector<HTMLButtonElement>('button[aria-label="Скачать Отчёт.pdf"]')!;
   await act(async () => button.click());
   await settle();
   expect(asked).toHaveBeenCalledWith("file-1");

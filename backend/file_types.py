@@ -16,7 +16,7 @@ TYPES = {
     "application/msword": ("doc",),
     "application/vnd.ms-excel": ("xls",),
     "application/vnd.ms-powerpoint": ("ppt",),
-    "text/plain": ("txt",),
+    "text/plain": ("txt", "md", "py", "js", "jsx", "ts", "tsx", "json", "yaml", "yml", "toml", "ini", "cfg", "log", "sh", "zsh", "c", "h", "cpp", "hpp", "java", "rs", "go", "sql", "r", "css"),
 }
 
 

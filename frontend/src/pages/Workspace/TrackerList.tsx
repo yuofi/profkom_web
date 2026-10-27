@@ -8,10 +8,10 @@ import { seasonsApi } from "../../utils/api/seasons.api";
 import { directoryApi } from "../../utils/api/directory.api";
 import type { ScopeRef, Task, TaskQueue } from "../../utils/api/contract";
 import { can, useSession } from "../../utils/session";
-import { getContactRoute, getTaskRoute, getTaskQueuesRoute } from "../../utils/routes";
+import { getTaskRoute, getTaskQueuesRoute, getTaskCreateRoute } from "../../utils/routes";
 import { displayDate } from "../../utils/dates";
-import { TaskCreateForm } from "./TaskCreateForm";
 import { TaskStatusMenu } from "./TaskStatusMenu";
+import { UserChip } from "../../components/Workspace/UserChip";
 import { statusNames } from "./trackerStatus";
 import w from "../../components/Workspace/Workspace.module.css";
 import s from "./TrackerList.module.css";
@@ -127,6 +127,7 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
     </header>}
     <div className={s.topbar}>
       <label className={s.search}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg><input type="search" aria-label="Поиск задач" placeholder="Название или ключ задачи" value={filters.q} onChange={(event) => update("q", event.target.value, true)} /></label>
+      {(queue ? can(queue, "create_task") : queues.data?.items.some(item => can(item, "create_task"))) && <RouteLink to={getTaskCreateRoute({ queueId: queue?.queue_id, ...(scope ? { scope } : {}) })}>Создать задачу</RouteLink>}
       <div className={s.views} aria-label="Представление задач">
         <span aria-current="page">Список</span>
         <button type="button" disabled title="Календарное представление — следующий этап">Календарь <small>позже</small></button>
@@ -160,7 +161,7 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
           <tbody>{tasks.map((task) => <tr key={task.task_id} tabIndex={0} aria-label={`Открыть задачу ${task.task_key ?? task.title}`} onClick={(event) => open(event, task)} onAuxClick={(event) => open(event, task)} onKeyDown={(event) => openKeyboard(event, task)}>
             <td className={s.key} data-label="Ключ">{task.task_key ?? "Задача"}</td>
             <td className={s.taskTitle}><Link to={getTaskRoute(task.task_id)}>{task.title}</Link></td>
-            <td className={s.assignees} data-label="Исполнители"><div>{(task.assignees ?? task.assignments.map((assignment) => assignment.assignee)).map((person, index) => person.user_id == null ? <span className={s.person} data-row-action key={`historical-${index}`}>{person.display_name}</span> : <Link className={s.person} key={`${person.user_id}-${index}`} to={getContactRoute(person.user_id)}>{person.display_name}</Link>)}</div></td>
+            <td className={s.assignees} data-label="Исполнители"><div>{(task.assignees ?? task.assignments.map((assignment) => assignment.assignee)).map((person, index) => <UserChip user={person} key={`${person.user_id ?? "historical"}-${index}`} />)}</div></td>
             <td className={s.status} data-label="Статус"><TaskStatusMenu task={task} variant="chip" /></td>
             <td className={s.deadline} data-label="Дедлайн"><time dateTime={task.deadline_at}>{displayDate(task.deadline_at)}</time></td>
             <td className={s.scope} data-label="Команда">{task.scope_title ?? (task.scope.kind === "block" ? "Блок" : "Подмероприятие")}</td>
@@ -173,6 +174,6 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
         <div><button className={w.button} disabled={!cursor} onClick={goBack}>Назад</button><span>Страница {pageNumber}</span><button className={w.button} disabled={!query.data?.next_cursor} onClick={() => query.data?.next_cursor && turnPage(query.data.next_cursor)}>Далее</button></div>
       </footer>
     </QueryState>
-    {scope && (!queue || can(queue, "create_task")) && <TaskCreateForm key={`${scope.kind}/${scope.id}/${queue?.queue_id ?? ""}`} scope={scope} queueId={queue?.queue_id} />}
+
   </section>;
 }

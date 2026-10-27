@@ -1,4 +1,5 @@
 import axios from "axios";
+import { api } from "./index";
 import type { FileRef, UploadIntent, UploadIntentCreate } from "./contract";
 import { idPath, request, normalizeApiError, ApiError } from "./request";
 import { normalizeUpload } from "../filePolicy";
@@ -28,6 +29,11 @@ export const filesApi = {
       "get",
       `/files/${idPath(id)}/download`,
     ),
+  /** Checked bytes stay on the API origin; the caller owns cancellation and preview lifetime. */
+  content: async (id: string, signal?: AbortSignal): Promise<Blob> => {
+    try { return (await api.get<Blob>(`/files/${idPath(id)}/content`, { responseType: "blob", signal })).data; }
+    catch (error) { throw normalizeApiError(error); }
+  },
   upload: async (
     file: File,
     owner: Pick<UploadIntentCreate, "owner_kind" | "owner_id" | "purpose">,

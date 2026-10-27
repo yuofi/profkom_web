@@ -15,7 +15,7 @@ export const taskQueuesApi = {
     return { ...first, items, next_cursor: null };
   },
   get: (id: string) => request<TaskQueue>("get", `/task-queues/${idPath(id)}`),
-  create: (data: { name: string; key: string; scope: ScopeRef; owner_user_id: number; is_private: boolean }) => request<TaskQueue>("post", "/task-queues", { ...data, scope: { kind: data.scope.kind, id: data.scope.id } }),
+  create: (data: { name: string; key: string; scope?: ScopeRef | null; owner_user_id?: number; is_private: boolean }) => request<TaskQueue>("post", "/task-queues", { ...data, scope: data.scope ? { kind: data.scope.kind, id: data.scope.id } : null }),
   update: (id: string, data: Revision & { name?: string; owner_user_id?: number; is_private?: boolean }) => request<TaskQueue>("patch", `/task-queues/${idPath(id)}`, data),
   requestAccess: (id: string, message: string) => request<TaskQueue>("post", `/task-queues/${idPath(id)}/access-requests`, { message }),
   requests: (id: string): Promise<Page<TaskQueueAccessRequest>> => allPages(`/task-queues/${idPath(id)}/access-requests`),

@@ -1,158 +1,146 @@
-# Shared task workflow
+# Public tracker and private accounting
 
-The tracker has one joint task, one shared submission history and one public workflow
-status. Individual hours, evaluation and effective completion dates remain separate
-accounting inputs. `tracker.py` owns this boundary.
+A task has one public workflow and shared result history. Personal accounting outcomes,
+hours, evaluations and effective completion dates are separate. `tracker.py`,
+`task_roster.py` and `task_queues.py` own these boundaries.
 
-## Authoritative state and privacy
+## Public workflow
 
-`TaskTrackerORM.status` is authoritative. Do not reaggregate `AssignmentORM.status`
-on GET: the latter also carries a private personal accounting outcome. An HR/leader
-correction can change that outcome and its `inputs_revision` without moving the public
-task workflow, public assignment revisions, `updated_at`, capabilities or history.
+`TaskTracker.status` is authoritative. Every current task reader may choose any of the
+eight public statuses, including returning to `assigned` (Открыта), including in a
+closed season. Changing public status never changes an Assignment accounting outcome,
+inputs, completion date, contribution, summary or personal workflow revision. Public
+acceptance without a result is valid and creates no fictitious submission/date/score.
 
-`TaskPublic.assignments` projects the common status/capabilities for current participants.
-Historical superseded assignments retain their factual public outcome. A separate
-`public_statuses_json` snapshot protects legacy mixed and retired assignment statuses
-from later private accounting corrections; compatibility checks use this public snapshot
-too, so a private evaluation cannot change which public transition is allowed. `TaskPublic.assignees`
-is the current safe identity projection for profile chips. Closed/purged users follow
-the existing `UserRef` anonymization rule.
+`POST /api/tasks/{id}/status` uses the task's public `expected_revision`.
+`POST /api/tasks/{id}/submit-result` uses the same revision, requires actual text/link/
+file content and records the real submitting actor/time. A real result also chooses
+public `submitted`; it does not itself acknowledge accounting completion. Optional
+result fields on the compatible status route behave identically. Public endpoints
+reject private evaluation/assessment values.
 
-A public work action (start/help/resume/submit) changes the task and all current public
-workflow revisions together. It preserves a private final personal accounting outcome,
-its inputs and contribution. The actor cannot erase HR accounting by starting work.
-A review action is separately authorized by `access.POLICY['task.review']`; it may change
-personal outcomes and recalculate contributions/summary through the existing helpers.
-Hours stay personal. Acceptance defaults fill missing valid positive evaluations;
-explicit per-assignment overrides apply where supplied. Requesting revision/cancelling
-uses the existing accounting semantics and mandatory reasons.
+Public Assignment DTOs project the task's common status for current assignees, saved
+public statuses for historical rows, and persisted public revisions. They never expose
+new private review notes. Private corrections do not change public DTOs, status,
+revision, update/sort timestamp, capabilities or task history. Do not reaggregate raw
+`Assignment.status` after the migration baseline.
 
-Current participants exclude assignments with an explicit recorded replacement through
-reassign. A retired assignment URL cannot authorize a shared transition, even when its
-former assignee later rejoins the same task through a new assignment. Public roster
-changes advance the task revision and preserve the canonical workflow status.
+## Private accounting
 
-Unresolved queues and season-close blockers use the canonical shared status, or the
-factual public snapshot for mixed legacy tasks. Their full public capability projection
-follows the same rule as Task DTOs: a private correction cannot hide an unfinished task.
-Mine selection, calendar and comment notifications use current participants, excluding
-explicitly superseded assignments. Private summaries/exports intentionally continue to
-use personal accounting outcomes and contribution ledgers.
+Existing scope/season roles still govern inputs, evaluations, date overrides and
+formal private decisions. HR deputy's global tracker read gives no unrelated KKR,
+report, meeting, event-management or summary rights. Independent tasks have no
+invented block/subevent accounting source and expose no accounting controls.
 
-## API
+AssessmentInputs `revision`/`workflow_revision` version the private record; its
+`workflow_status` is the private Assignment outcome. Existing private review URLs and
+private reassignment use that private version. Every successful formal decision moves
+it, including a note-only/same-outcome decision, so old notes cannot overwrite a newer
+review. Private notes remain in authorized accounting/audit storage.
 
-- `GET /api/tasks`: q (title/key), mine, status, season_id, scope_kind/scope_id,
-  unfinished, overdue, assignee_user_id, sort (deadline/updated/created), order,
-  limit (default20, 1..100), cursor. The integration harness may lower the effective
-  page size. Response includes items, next_cursor, total, authorized scope and assignee
-  facets. Cursors bind actor, filters, sort and limit. ACL filtering precedes totals,
-  facets, paging and cursor evaluation.
-- `POST /api/tasks/{id}/status`: expected_revision, target status, action fields.
-  Work actions require a current assignee with current scope access and a non-closed
-  season. Reviews use the existing per-scope/closed-season policy. The joint result
-  is one `TaskSubmissionORM` with actual submitting actor/time and file references.
-  Decisions validate all participants before committing and have one atomic boundary.
-- Existing `/api/assignments/{id}/start|resume|request-help|submit|accept|request-revision|not-complete|cancel`
-  retain target ownership/current-participation and expected-revision checks, then
-  perform the same joint operation. The response remains an Assignment projection.
-- `PATCH /api/tasks/{id}` accepts optional file_ids with the existing task-edit revision
-  contract, alongside title/description. One command advances one task revision. Failed
-  file validation rolls back the other edits as well.
-- `GET /api/tasks/{id}/history` requires current task read access. It exposes only typed
-  public activity, actor, time and public status transition. It never exposes raw audit
-  records, private hours/evaluations/reasons or inferred historical events.
+A positive authorized evaluation may acknowledge the latest actual shared/legacy
+submission timestamp when no effective completion date exists. It may not invent
+`now`, override an existing date or bypass the original date-override permissions.
+Without an observed submission or an authorized explicit date it is rejected.
+TaskInputs have a separate `TaskTracker.assessment_revision`; private criteria/issue-date
+changes do not advance public task revision/history. A real visible deadline change
+advances both relevant versions and public history. Closed corrections acknowledge
+these private revisions from their write transaction.
 
-Task metadata also includes task_key (`TASK-N`), author, creation date, known public update
-date, scope title, general attachments and the shared submissions. Existing UUID URLs
-remain unchanged.
+Unresolved accounting queues and season readiness use private outcomes, not freely
+editable public statuses. A public terminal status cannot dismiss unfinished accounting;
+private finalized accounting may coexist with an open public task. Independent tasks
+are excluded from accounting readiness and evaluated-task counts. Numeric ledgers,
+bonus rules, prior approved snapshots and role restrictions remain intact.
 
-## Task file contexts
+## Queues, access and creation
 
-Both use owner_kind=task and owner_id=task_id:
+Every active approved user may create a queue and is its initial owner. A queue can
+belong to a readable block/subevent or be independent (`Queue.scope=null`,
+`Task.scope={kind:'queue',id:queue_id}`). Public independent queues are readable by all
+active approved users. Ordinary scoped queues retain their original scope read ACL;
+private scoped queues additionally require ownership/a current approved grant.
+Chair, chair deputy, HR master and HR deputy read every queue and its tasks, including
+private ones. Other scope masters retain scoped access. Global read does not imply
+queue management: requests/ownership/privacy remain with the current owner.
 
-- purpose=attachment: task editors upload/attach the instruction files;
-- purpose=submission: current eligible assignees upload a joint result.
+Unique queue keys contain only uppercase ASCII letters and are immutable. Task keys
+use per-queue monotonic numbers; original task UUID URLs remain valid. The approved
+catalogue's locked projection shows only ID/name/key and the reader's own access-request
+status, with no scope/owner/people/tasks/counts. Requests, decisions and revocations are
+durable, internal-only and never create block/event membership. Replayed old approvals
+cannot restore a revoked grant. Session access_revision fingerprints role/global-read,
+owner/privacy and membership/grant changes for cache invalidation.
 
-Unattached completed uploads stay private to their uploader with the corresponding
-current write right. Other writers cannot take an unpublished upload. Readers receive
-access only after the file is explicitly linked to instruction files or a shared result.
-The context/purpose is checked at binding. Removal/scope loss revokes reader access.
-The existing verified, sealed-object integrity protocol remains unchanged.
+Every queue reader may create a task, including with no assignees. Ordinary creation
+can assign/watch only the creator and cannot forge private hours/criteria (defaults
+0/false remain valid). Original authorized scoped leads may initially select other
+active readable teammates; the queue exposes those safe assignable UserRefs only
+under that capability. Independent queues do not invent team membership or KKR roles.
+Task creator and queue owner may edit public title/parent/attachments in addition to
+existing scope editors; current assignees may edit description. Scoped closed-season
+public field freeze is retained except for original authorized chair roles. Independent
+public field editing has no accounting freeze. Comments retain their original author;
+task author/current assignees/original comment author may edit with actual editor
+recorded in public history.
 
-## Additive migration and legacy tasks
+## Real roster and watcher subscriptions
 
-Three separate tables (`task_tracker`, `task_activity`, `task_submissions`) preserve legacy
-IDs, individual assignments, scores and original payloads. Stable task numbers are seeded
-once in deterministic creation/id order. Repeating the import does not renumber tasks.
-No past update date or activity is guessed; the factual creation event may be projected
-from the original Task record.
+`TaskRoster` records assignee/watcher/left roles independently of private outcomes.
+Every task reader may add themselves as an assignee or watcher. Every task reader may
+remove any current assignee, which converts that person into a watcher. A watcher may
+unwatch themselves. Joining an assignee already present or watching an existing
+assignee/watcher is idempotent. Assignee wins over duplicate initial watcher selection.
+All mutations use task expected_revision and record public assignee/watcher diffs.
 
-Mixed old personal statuses set legacy_mixed_statuses/legacy_status_conflict. The common
-legacy projection is explicitly flagged and no personal outcome is overwritten. A joint
-command may converge these only when the exact transition is compatible with every
-current old outcome; otherwise it fails with legacy_task_statuses409. Explicitly replaced
-assignments remain historical and do not block the current joint workflow.
+Removing/rejoining a person preserves previous hours, evaluations, dates, outcomes,
+credits and audit. Rejoin reuses the person's existing accounting row rather than
+creating duplicate credit. Public assignment revisions advance separately to reject
+stale old worker URLs. Private reassignment retains its original unresolved-private-
+outcome guard; choosing a public terminal status cannot lock or unlock that operation.
+Mine/calendar use current assignees. Actual watchers receive current readable comment/
+status notifications and stop after unwatch or loss of access. No external delivery is
+performed.
 
-## Regression coverage
+## Files and hierarchy
 
-`tests/test_tracker_shared.py` checks joint actions and one result, separate personal
-inputs, old route ownership/stale revisions, private active/final accounting isolation,
-real mocked file bytes and revocation, rollback, scoped facets/search/bounded cursors,
-reassignment A→B→A, unresolved/close semantics and importing a pre-tracker database twice.
-`tests/test_v13_tracker.py` retains legacy API/domain coverage with the public revision
-expectation adjusted to the joint-workflow privacy rule. New routes are included in the
-literal authentication/OpenAPI inventory in `tests/test_api_contract.py`.
+Task attachment drafts may be uploaded before creation with owner_kind=task and absent
+owner_id. Only their active uploader can read/complete them. Task creation atomically
+binds completed uploader-owned attachment drafts after queue/role validation; foreign,
+already-bound, wrong-purpose and incomplete IDs are rejected with full rollback.
+Existing contextual/sealed-byte integrity checks remain. Instruction attachments use
+public editor rights; shared result files use current task read rights. Unbound files
+stay uploader-only; bytes/download/complete recheck current queue access after binding,
+including after grant revocation. Code extensions use canonical text/plain and must be
+valid UTF-8 text without binary controls; HTML is never executed by the server.
 
-Old individual `Database` workflow methods are retained as low-level legacy fixture/domain
-helpers. No production route calls them: compatibility URLs must keep using
-`tracker.legacy_command`, including the separate start/resume source-state guards.
+Parents may come from any readable queue in the same season. Self-links/cycles and
+corrections splitting a linked hierarchy between seasons are rejected atomically.
+If parent access is lost, its ID/name/key are masked in the child and historical diffs.
+Omitting the parent field on an unrelated edit preserves a hidden stored link.
 
-## Queues and task hierarchy
+## History, migration and verification
 
-TaskQueue is a separate entity within the original block/subevent scope. Multiple
-queues can share that scope. Its unique immutable key contains only uppercase ASCII
-letters; TaskTracker stores a per-queue monotonic number and optional parent UUID.
-Task URLs continue to use the original UUID. The additive migration creates a public
-default queue per existing scope, keeps the old `TASK-N` as a search alias, and does
-not invent creation/update dates or rewrite personal accounting/history. Running the
-migration twice does not change keys, counters, timestamps, outcomes or credits.
+Public activity contains observed public before/after values and the actual actor.
+New creation/comment events include real initial values; old events lacking snapshots
+return empty changes. Raw audit, private notes/hours/evaluations/reasons are excluded.
+Roster IDs are stored without cached personal names; reads resolve safe current
+UserRefs/display names and preserve purged-user anonymization.
 
-Queue access is the intersection of current original scope access and the queue's
-privacy rule. A private queue is readable by its owner and approved active grants.
-Chair/HR/scope-lead roles do not bypass privacy. The approved-account catalogue
-exposes only a locked queue's ID/name/key and the reader's own request status; it
-never exposes scope, owner, task counts or participants. Queue grants never create
-scope membership. Requests, decisions and revocations are durable and notifications
-stay inside the site. An old approval cannot restore a revoked grant. Session
-`access_revision` includes owner/privacy/grant changes, so frontend caches invalidate.
+Additive migrations create default queues, stable numbers, roster/public revision
+baselines and private TaskInputs revisions without rewriting UUIDs, old outcomes,
+credits, immutable snapshots, dates or invented public activity. Repeating the import
+does not renumber tasks or change private/public versions. Legacy mixed snapshots are
+preserved as observed baseline; choosing a new public status does not rewrite private
+historical outcomes. Missing historical update timestamps remain unknown.
 
-Queue owner transfer requires an active approved scope reader. If an owner later
-leaves the scope or is archived, owner management becomes unavailable; recovery
-needs an explicit ownership policy. There is deliberately no implicit chair bypass.
+Old individual Database worker/review helpers remain for low-level legacy code;
+production compatibility routes use tracker.legacy_command. Worker URLs preserve own/
+current-assignment, public revision and old start/resume source guards. Private review
+URLs are separate authorized accounting commands.
 
-Task creation validates both scope permissions and queue access for creator and
-assignees. All task/list/unresolved/calendar/dashboard/history/comment/file/
-assessment/season-correction paths repeat that intersection. Ledger/summary numeric
-credits remain complete; projections of inaccessible task credits mask titles,
-assignment IDs and inputs, including XLSX and immutable summary-version reads.
-Groups containing inaccessible task sources use generic scope labels; visible
-summary labels and immutable snapshots keep their original values.
-Season-close blockers continue to block unfinished private work using one generic
-queue-level blocker without task titles or assignee identities. Persisted ledger and
-approved snapshots remain unchanged by these redactions.
-
-Parents may come from any currently readable queue in the same season. Self-links,
-cycles and corrections that would split linked tasks between seasons are rejected
-atomically. If access to a parent is revoked, the child remains readable, but its
-parent ID/title/key are masked, including historical parent diffs. Omitted parent
-fields on an unrelated description edit preserve the stored link.
-
-Current assignees may edit description (including Markdown checkbox toggles) using
-the task revision; title/parent/files keep the original editor permissions. The task
-author and all current assignees may edit comments, in addition to their original
-author. A comment retains its original author; public history records the actual
-editor. Structured public diffs are observed before/after values for title,
-description, deadline, status, comments, attachments, parent and assignee IDs. Old
-activities without saved values return empty changes. Assessment hours, evaluations,
-private reasons and raw audit records are never included in public task history.
+Tests cover reader statuses/closed seasons, private version/note/date isolation,
+roster reuse and stale URLs, watcher subscriptions, creator/self-only/private-input
+boundaries, HR-deputy read/revocation without KKR/report escalation, contextual draft
+bytes and queue revocation, migration twice, hierarchy, filtering/cursors, concurrency,
+private accounting rollback, season closure and unchanged numeric ledgers/snapshots.

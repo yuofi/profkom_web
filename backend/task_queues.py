@@ -26,11 +26,14 @@ def active(session, uid):
 
 
 def base_read(uid, queue):
-    return db.can_view_scope(uid,queue.scope_kind,queue.scope_id)
+    return queue.scope_kind=="queue" or db.can_view_scope(uid,queue.scope_kind,queue.scope_id)
 
 
 def can_read(session, queue, uid):
-    if not queue or not uid or not active(session,uid) or not base_read(uid,queue):return False
+    if not queue or not uid or not active(session,uid):return False
+    from access import all_queue_reader
+    if all_queue_reader(uid):return True
+    if not base_read(uid,queue):return False
     grant=session.get(TaskQueueMemberORM,(queue.queue_id,uid))
     return not queue.is_private or queue.owner_user_id==uid or bool(grant and grant.active)
 
@@ -43,9 +46,11 @@ def task_queue(session, task):
 
 
 def task_read(session, task, uid):
-    if not task or not db.can_view_scope(uid,task.scope_kind,task.scope_id):return False
+    if not task:return False
     queue=task_queue(session,task)
-    return can_read(session,queue,uid) if queue else True  # pre-migration in-memory fixtures
+    if queue:return can_read(session,queue,uid)
+    from access import all_queue_reader
+    return all_queue_reader(uid) or db.can_view_scope(uid,task.scope_kind,task.scope_id)  # pre-migration in-memory fixtures
 
 
 def require_task_read(session, task, uid):
@@ -93,8 +98,10 @@ def migrate_columns():
     """Add columns before loading old ORM metadata; repeatable without public events."""
     with engine.begin() as connection:
         columns={row[1] for row in connection.execute(text('pragma table_info(task_tracker)'))}
-        for name,typ in [('queue_id','TEXT'),('queue_number','INTEGER'),('legacy_task_key','TEXT'),('parent_task_id','TEXT')]:
-            if name not in columns:connection.execute(text(f'ALTER TABLE task_tracker ADD COLUMN {name} {typ}'))
+        for name,typ in [('queue_id','TEXT'),('queue_number','INTEGER'),('legacy_task_key','TEXT'),('parent_task_id','TEXT'),('roster_initialized','BOOLEAN NOT NULL DEFAULT 0'),('public_revisions_json',"TEXT NOT NULL DEFAULT '{}'"),('assessment_revision','INTEGER NOT NULL DEFAULT 1')]:
+            if name not in columns:
+                connection.execute(text(f'ALTER TABLE task_tracker ADD COLUMN {name} {typ}'))
+                if name=='assessment_revision':connection.execute(text('UPDATE task_tracker SET assessment_revision=(SELECT revision FROM tasks WHERE tasks.task_id=task_tracker.task_id)'))
         columns={row[1] for row in connection.execute(text('pragma table_info(task_activity)'))}
         if 'changes_json' not in columns:connection.execute(text("ALTER TABLE task_activity ADD COLUMN changes_json TEXT NOT NULL DEFAULT '[]'"))
         connection.execute(text('CREATE UNIQUE INDEX IF NOT EXISTS uq_task_queue_number ON task_tracker(queue_id,queue_number)'))
@@ -118,7 +125,8 @@ def projection(session, queue, uid):
     granted=can_read(session,queue,uid)
     request=_self_request(session,queue,uid)
     caps=[]
-    if granted and access.allowed(uid,'task.create',queue.scope_kind,queue.scope_id):caps.append('create_task')
+    if granted:caps.append('create_task')
+    if granted and queue.scope_kind!='queue' and access.allowed(uid,'task.assign_others',queue.scope_kind,queue.scope_id):caps.append('assign_task_others')
     if granted and queue.owner_user_id==uid:caps+=['manage_queue','view_queue_requests']
     can_request=not granted and active(session,uid) and (not request or request.status!='pending')
     if can_request:caps.append('request_queue_access')
@@ -128,7 +136,9 @@ def projection(session, queue, uid):
         from models import ScopeRef
         from membership import scope_out
         owner=_user_to_ref_dc(session.get(UserORM,queue.owner_user_id)) if queue.owner_user_id else None
-        result.update(scope=scope_out(ScopeRef(kind=queue.scope_kind,id=queue.scope_id)),
+        if 'assign_task_others' in caps:
+            result['assignable_users']=[asdict(_user_to_ref_dc(u)) for u in session.query(UserORM) if active(session,u.user_id) and can_read(session,queue,u.user_id) and db.is_member_or_leader_in_scope(u.user_id,queue.scope_kind,queue.scope_id)]
+        result.update(scope=None if queue.scope_kind=="queue" else scope_out(ScopeRef(kind=queue.scope_kind,id=queue.scope_id)),
             owner=asdict(owner) if owner else None,is_private=queue.is_private,revision=queue.revision,created_at=queue.created_at)
     return result
 
@@ -156,32 +166,36 @@ def catalog(uid,cursor=None):
         for kind,objects in [('block',session.query(BlockORM).all()),('subevent',session.query(SubeventORM).all())]:
             for obj in objects:
                 sid=obj.name if kind=='block' else obj.subevent_id
-                if access.allowed(uid,'task.create',kind,sid):
+                if db.can_view_scope(uid,kind,sid):
                     scopes.append(dict(**scope_out(ScopeRef(kind=kind,id=sid)),title=obj.name if kind=='block' else obj.title))
-        return dict(items=[projection(session,q,uid) for q in page.items],next_cursor=page.next_cursor,
+        return dict(items=[projection(session,q,uid) for q in page.items],next_cursor=page.next_cursor,can_create_queue=active(session,uid),
             create_scopes=sorted(scopes,key=lambda s:(s['title'],s['id'])))
 
 
 def _validate_owner(session,uid,kind,sid):
-    if not active(session,uid) or not db.can_view_scope(uid,kind,sid):raise InvalidInput('Queue owner must be an active member or scope reader')
+    if not active(session,uid) or (kind!='queue' and not db.can_view_scope(uid,kind,sid)):raise InvalidInput('Queue owner must be an active member or scope reader')
 
 
-def create(uid,name,key,scope,owner_user_id,is_private=False):
-    import access
+def create(uid,name,key,scope=None,owner_user_id=None,is_private=False):
     from membership import legacy_name
-    kind=scope.get('kind');sid=scope.get('id')
+    scope=scope or {};kind=scope.get('kind');sid=scope.get('id')
     if kind=='block':sid=legacy_name(sid)
-    if kind not in ('block','subevent') or not sid:raise InvalidInput('Invalid queue scope')
+    independent=not scope
+    if not independent and (kind not in ('block','subevent') or not sid):raise InvalidInput('Invalid queue scope')
     with db._session() as session:
-        scope_object=session.get(BlockORM,sid) if kind=='block' else session.get(SubeventORM,sid)
-        if not scope_object:raise NotFound('Queue scope not found')
-        if not access.allowed(uid,'task.create',kind,sid):raise Forbidden('Cannot create queue in this scope')
+        if not active(session,uid):raise Forbidden('Only active approved users may create queues')
+        if owner_user_id is not None and owner_user_id!=uid:raise InvalidInput('Queue creator must be its initial owner')
+        qid='queue-'+str(uuid.uuid4())
+        if independent:kind='queue';sid=qid
+        else:
+            scope_object=session.get(BlockORM,sid) if kind=='block' else session.get(SubeventORM,sid)
+            if not scope_object:raise NotFound('Queue scope not found')
+            if not db.can_view_scope(uid,kind,sid):raise Forbidden('Cannot create queue outside a readable scope')
         if not name.strip():raise InvalidInput('Queue name is required')
         if not re.fullmatch('[A-Z]+',key):raise InvalidInput('Queue key must contain uppercase ASCII letters only')
         if session.query(TaskQueueORM).filter_by(key=key).first():raise Conflict('Queue key already exists','queue_key_conflict')
-        _validate_owner(session,owner_user_id,kind,sid)
-        q=TaskQueueORM(queue_id='queue-'+str(uuid.uuid4()),name=name.strip(),key=key,scope_kind=kind,scope_id=sid,
-            owner_user_id=owner_user_id,is_private=is_private,is_default=False,next_task_number=1,revision=1,created_at=now())
+        q=TaskQueueORM(queue_id=qid,name=name.strip(),key=key,scope_kind=kind,scope_id=sid,
+            owner_user_id=uid,is_private=is_private,is_default=False,next_task_number=1,revision=1,created_at=now())
         session.add(q);session.commit()
         return projection(session,q,uid)
 

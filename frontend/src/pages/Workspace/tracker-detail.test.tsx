@@ -15,7 +15,7 @@ import { ApiError } from "../../utils/api/request";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 afterEach(async () => { await page?.cleanup();page = undefined;vi.restoreAllMocks(); });
-const makeTask = (extra: Partial<Task> = {}): Task => ({ ...createFixtures("chair").tasks[0], status: "in_progress", task_key: "TASK-123", created_at: "2026-10-26T09:00:00Z", updated_at: "2026-10-26T10:00:00Z", created_by: people[0], scope_title: "Команда проверки", attachments: [], submissions: [], capabilities: ["read_task", "comment_task", "request_task_help", "submit_task_result"], ...extra });
+const makeTask = (extra: Partial<Task> = {}): Task => ({ ...createFixtures("chair").tasks[0], status: "in_progress", task_key: "TASK-123", created_at: "2026-10-26T09:00:00Z", updated_at: "2026-10-26T10:00:00Z", created_by: people[0], scope_title: "Команда проверки", attachments: [], submissions: [], capabilities: ["read_task", "comment_task", "change_task_status", "submit_task_result"], ...extra });
 async function click(text: string, root: ParentNode = page!.container) {
   const button = [...root.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent?.trim() === text);
   expect(button, `Missing button ${text}`).toBeDefined();await act(async () => button!.click());await settle();
@@ -27,47 +27,45 @@ async function mountTask(task: Task, comments: Comment[] = []) {
   page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage />} /></Routes>, { path: `/tasks/${task.task_id}` });
   await waitForPage(page);return page;
 }
-it("uses the task's common status and genuine transitions instead of an assignee's old outcome", () => {
-  const task = makeTask({ status: "submitted", capabilities: ["review_task"] });
-  task.assignments[0].status = "cancelled";
-  expect(taskStatus(task)).toBe("submitted");expect(taskTransitions(task)).toEqual(["accepted", "needs_revision", "not_completed", "cancelled"]);
-  expect(taskTransitions({ ...task, status: "accepted" })).toEqual(["needs_revision"]);
-  expect(taskTransitions({ ...task, capabilities: [] })).toEqual([]);
+it("uses the common public status and permits every other target without reading the accounting outcome", () => {
+  const task = makeTask({ status: "submitted", capabilities: ["change_task_status"] });task.assignments[0].status = "cancelled";
+  expect(taskStatus(task)).toBe("submitted");expect(taskTransitions(task)).toHaveLength(7);expect(taskTransitions(task)).not.toContain("submitted");expect(taskTransitions(task)).toContain("assigned");
+  expect(taskTransitions({ ...task, status: "accepted" })).toContain("assigned");expect(taskTransitions({ ...task, capabilities: [] })).toEqual([]);
 });
 it("a status chip owns its click and starts the whole task with the task revision", async () => {
-  const task = makeTask({ status: "assigned", revision: 5, capabilities: ["start_task"] });
+  const task = makeTask({ status: "assigned", revision: 5, capabilities: ["change_task_status"] });
   const command = vi.spyOn(tasksApi, "changeStatus").mockResolvedValue({ ...task, revision: 6, status: "in_progress" });
   const openRow = vi.fn();page = await mountWorkspace(<div onClick={openRow}><TaskStatusMenu task={task} /></div>);
-  await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Статус задачи: Назначена"]')!.click());await settle();
+  await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Статус задачи: Открыта"]')!.click());await settle();
   expect(openRow).not.toHaveBeenCalled();
   const options = [...page.container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
-  expect(options.find(button => button.textContent?.includes("Принята"))?.disabled).toBe(true);
+  expect(options.find(button => button.textContent?.includes("Принята"))?.disabled).toBe(false);expect(options.find(button => button.textContent?.includes("Открыта"))?.disabled).toBe(true);
   await act(async () => options.find(button => button.textContent?.trim() === "В работе")!.click());await waitForPage(page);
   expect(command).toHaveBeenCalledWith(task.task_id, { expected_revision: 5, status: "in_progress" });expect(openRow).not.toHaveBeenCalled();
 });
 it("status menu supports arrow keys, Home/End and restores focus on Escape", async () => {
-  const task = makeTask({ status: "assigned", capabilities: ["start_task", "request_task_help", "submit_task_result"] });
+  const task = makeTask({ status: "assigned", capabilities: ["change_task_status", "submit_task_result"] });
   page = await mountWorkspace(<TaskStatusMenu task={task} />);
   const trigger = page.container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
   await act(async () => trigger.click());await settle();
   expect(document.activeElement?.textContent?.trim()).toBe("В работе");
   const press = async (key: string) => { await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }))); };
   await press("ArrowDown");expect(document.activeElement?.textContent?.trim()).toBe("Нужна помощь");
-  await press("End");expect(document.activeElement?.textContent?.trim()).toBe("На проверке");
+  await press("End");expect(document.activeElement?.textContent?.trim()).toBe("Отменена");
   await press("Home");expect(document.activeElement?.textContent?.trim()).toBe("В работе");
   await press("Escape");expect(page.container.querySelector('[role="menu"]')).toBeNull();expect(document.activeElement).toBe(trigger);
 });
 it("one shared file-only result targets the task rather than an individual assignment", async () => {
   const task = makeTask();const file: FileRef = { file_id: "shared-file", name: "result.txt", mime_type: "text/plain", size_bytes: 10 };
   const upload = vi.spyOn(filesApi, "upload").mockResolvedValue(file);
-  const command = vi.spyOn(tasksApi, "changeStatus").mockResolvedValue({ ...task, status: "submitted", revision: task.revision + 1 });
+  const command = vi.spyOn(tasksApi, "submitResult").mockResolvedValue({ ...task, status: "submitted", revision: task.revision + 1 });
   page = await mountWorkspace(<TaskStatusMenu task={task} variant="actions" />);await click("Сдать результат");
   const input = page.container.querySelector<HTMLInputElement>('input[type="file"]')!;
   const blob = new File(["shared result"], "result.txt", { type: "text/plain" });
   await act(async () => { Object.defineProperty(input, "files", { configurable: true, value: [blob] });input.dispatchEvent(new Event("change", { bubbles: true })); });await waitForPage(page);
   expect(upload).toHaveBeenCalledWith(blob, { owner_kind: "task", owner_id: task.task_id, purpose: "submission" }, expect.any(Function));
   await submit(page.container.querySelector("form")!);await waitForPage(page);
-  expect(command).toHaveBeenCalledWith(task.task_id, expect.objectContaining({ status: "submitted", text: richText(""), file_ids: [file.file_id] }));
+  expect(command).toHaveBeenCalledWith(task.task_id, expect.objectContaining({ text: richText(""), file_ids: [file.file_id] }));
 });
 it("comments switch newest/oldest order and retain the unposted Markdown draft across tabs", async () => {
   const task = makeTask();const comments: Comment[] = [
@@ -168,7 +166,7 @@ it("renders literal multiline public differences and translates status values", 
   page = await mountWorkspace(<TrackerTaskHistoryDiff changes={[{ field: "description", before: "Общая строка\nСтарое условие\nПоследняя строка", after: "Общая строка\nНовое условие\nДобавлен пункт\nПоследняя строка" }, { field: "status", before: "assigned", after: "in_progress" }]} />);
   const removed = [...page.container.querySelectorAll('[data-change="removed"]')].map(node => node.textContent).join("\n");
   const added = [...page.container.querySelectorAll('[data-change="added"]')].map(node => node.textContent).join("\n");
-  expect(removed).toContain("Старое условие");expect(removed).toContain("Назначена");
+  expect(removed).toContain("Старое условие");expect(removed).toContain("Открыта");
   expect(added).toContain("Новое условие");expect(added).toContain("Добавлен пункт");expect(added).toContain("В работе");
   expect(removed).not.toContain("Общая строка");expect(added).not.toContain("Последняя строка");
 });
@@ -183,21 +181,19 @@ it("uses real queue and parent breadcrumbs while keeping the scope in task param
   expect(page!.container.querySelector('[aria-label="Параметры задачи"]')?.textContent).toContain(task.scope_title);
 });
 
-it("selects and clears a parent from any readable queue of the same season with task revision protection", async () => {
+it("selects and clears a cross-queue parent in one combobox with revision protection", async () => {
   let task = makeTask({ capabilities: ["read_task", "edit_task"], queue: { queue_id: "queue-design", name: "Дизайн", key: "DSN" }, parent_task: null });
   const other = makeTask({ task_id: "other-task", title: "Задача из другой очереди", queue: { queue_id: "queue-web", name: "Разработка", key: "WEB" } });
   const candidates = vi.spyOn(tasksApi, "listPage").mockResolvedValue({ items: [task, other, makeTask({ task_id: "wrong-season", season_id: "other-season", title: "Другой сезон" })], total: 3, next_cursor: null });
   const update = vi.spyOn(tasksApi, "update").mockImplementation(async (_id, payload) => { task = { ...task, revision: task.revision + 1, parent_task: payload.parent_task_id ? { task_id: other.task_id, task_key: other.task_key!, title: other.title } : null };return task; });
-  await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async () => task);await click("Изменить родительскую задачу");await waitForPage(page!);
-  const dialog = page!.container.querySelector("dialog")!;
-  let select = dialog.querySelector<HTMLSelectElement>("select")!;
-  expect(select.textContent).toContain(other.title);expect(select.textContent).not.toContain("Другой сезон");expect([...select.options].map(option => option.value)).not.toContain(task.task_id);
-  expect(candidates).toHaveBeenCalledWith({ season_id: task.season_id, q: undefined, limit: 100 });
-  await change(dialog.querySelector<HTMLInputElement>('input[type="search"]')!, "WEB");await waitForPage(page!);expect(candidates).toHaveBeenLastCalledWith({ season_id: task.season_id, q: "WEB", limit: 100 });
-  select = dialog.querySelector<HTMLSelectElement>("select")!;await change(select, other.task_id);await submit(dialog.querySelector("form")!);await waitForPage(page!);
-  expect(update).toHaveBeenLastCalledWith(task.task_id, { expected_revision: task.revision - 1, parent_task_id: other.task_id });
-  expect(page!.container.querySelector('[aria-label="Путь задачи"]')?.textContent).toContain(other.title);
-  select = dialog.querySelector<HTMLSelectElement>("select")!;await change(select, "");await submit(dialog.querySelector("form")!);await waitForPage(page!);
+  await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async id => id === other.task_id ? other : task);await click("Изменить родительскую задачу");
+  const dialog = page!.container.querySelector("dialog")!, input = dialog.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  expect(dialog.querySelectorAll('[role="combobox"]')).toHaveLength(1);expect(dialog.textContent).not.toContain("Поиск родительской задачи");await act(async () => input.focus());await waitForPage(page!);
+  expect(dialog.textContent).toContain(other.title);expect(dialog.textContent).not.toContain("Другой сезон");expect([...dialog.querySelectorAll('[role="option"]')]).toHaveLength(1);
+  await change(input, "WEB");await waitForPage(page!);expect(candidates).toHaveBeenLastCalledWith({ season_id: task.season_id, q: "WEB", limit: 100 });
+  await act(async () => dialog.querySelector<HTMLElement>('[role="option"]')!.click());await submit(dialog.querySelector("form")!);await waitForPage(page!);
+  expect(update).toHaveBeenLastCalledWith(task.task_id, { expected_revision: task.revision - 1, parent_task_id: other.task_id });expect(page!.container.querySelector('[aria-label="Путь задачи"]')?.textContent).toContain(other.title);
+  await act(async () => dialog.querySelector<HTMLButtonElement>('[aria-label="Убрать родительскую задачу"]')!.click());await submit(dialog.querySelector("form")!);await waitForPage(page!);
   expect(update).toHaveBeenLastCalledWith(task.task_id, { expected_revision: task.revision - 1, parent_task_id: null });
 });
 
@@ -231,4 +227,30 @@ it("uses edit_comment capability for shared comments without requiring the origi
   await mountTask(task, [comment]);const article = page!.container.querySelector("article")!;await click("Редактировать", article);
   await change(article.querySelector<HTMLTextAreaElement>("textarea")!, "Правка исполнителя");await submit(article.querySelector("form")!);await waitForPage(page!);
   expect(edit).toHaveBeenCalledWith(comment.comment_id, richText("Правка исполнителя"));
+});
+
+
+it("a reader can accept an open task without a submission or accounting mutation", async () => {
+  const task = makeTask({ status: "assigned", submissions: [], assignees: [], capabilities: ["read_task", "change_task_status"] });
+  const status = vi.spyOn(tasksApi, "changeStatus").mockResolvedValue({ ...task, status: "accepted", revision: task.revision + 1 }), accounting = vi.spyOn(tasksApi, "updateAssessment");
+  page = await mountWorkspace(<TaskStatusMenu task={task} />);await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());await click("Принята");await waitForPage(page);
+  expect(status).toHaveBeenCalledWith(task.task_id, { expected_revision: task.revision, status: "accepted" });expect(accounting).not.toHaveBeenCalled();expect(page.container.querySelector("dialog")).toBeNull();
+});
+it("self joining and removing another assignee update the public roster and put the removed person in watchers", async () => {
+  const other = people[1], self = people.find(person => person.user_id === createFixtures("chair").session.user_id)!;let task = makeTask({ assignees: [other], watchers: [], capabilities: ["read_task", "join_task", "watch_task", "remove_task_assignee"] });
+  const join = vi.spyOn(tasksApi, "join").mockImplementation(async () => { task = { ...task, assignees: [other, self], revision: task.revision + 1 };return task; });
+  const remove = vi.spyOn(tasksApi, "removeAssignee").mockImplementation(async () => { task = { ...task, assignees: [self], watchers: [other], revision: task.revision + 1 };return task; });
+  await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async () => task);const firstRevision = task.revision;
+  await click("Стать исполнителем");await waitForPage(page!);expect(join).toHaveBeenCalledWith(task.task_id, { expected_revision: firstRevision });
+  const parameters = page!.container.querySelector('[aria-label="Параметры задачи"]')!;expect(parameters.textContent).not.toContain("Стать исполнителем");
+  const nextRevision = task.revision;await act(async () => parameters.querySelector<HTMLButtonElement>(`[aria-label="Убрать исполнителя: ${other.display_name}"]`)!.click());await waitForPage(page!);
+  expect(remove).toHaveBeenCalledWith(task.task_id, other.user_id, { expected_revision: nextRevision });expect(task.watchers?.map(person => person.user_id)).toEqual([other.user_id]);
+});
+it("readers can watch and unwatch independently of the accounting controls", async () => {
+  const self = people.find(person => person.user_id === createFixtures("chair").session.user_id)!;let task = makeTask({ assignees: [], watchers: [], capabilities: ["read_task", "watch_task", "unwatch_task"] });
+  task.assignments = task.assignments.map(assignment => ({ ...assignment, capabilities: [] }));
+  const watch = vi.spyOn(tasksApi, "watch").mockImplementation(async () => { task = { ...task, watchers: [self], revision: task.revision + 1 };return task; });
+  const unwatch = vi.spyOn(tasksApi, "unwatch").mockImplementation(async () => { task = { ...task, watchers: [], revision: task.revision + 1 };return task; });
+  await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async () => task);const first = task.revision;await click("Наблюдать");await waitForPage(page!);expect(watch).toHaveBeenCalledWith(task.task_id, { expected_revision: first });
+  const second = task.revision;await click("Перестать наблюдать");await waitForPage(page!);expect(unwatch).toHaveBeenCalledWith(task.task_id, { expected_revision: second });expect(page!.container.textContent).not.toContain("Учёт работы и ККР");
 });

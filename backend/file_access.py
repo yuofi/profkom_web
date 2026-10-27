@@ -97,6 +97,7 @@ def validate_metadata(kind, purpose, name, mime, size):
         "image/jpg": "image/jpeg",
         "application/x-zip-compressed": "application/zip",
     }.get(mime, mime)
+    if canonical=="text/plain" and mime in {"text/markdown","text/x-python","text/x-python-script","application/javascript","text/javascript","application/typescript","text/typescript","application/json","text/yaml","application/yaml","application/toml","text/x-shellscript","text/x-csrc","text/x-c++src","text/x-java-source","text/css"}:mime="text/plain"
     if not canonical or mime != canonical:
         raise InvalidInput("File type is not allowed")
     if kind == "avatar" and mime not in ("image/png", "image/jpeg", "image/webp"):
@@ -129,6 +130,7 @@ def permitted(session, fr, uid, write=False):
     if fr.owner_kind == "task":
         from tracker import metadata, can_work
         from database import TaskSubmissionORM, SeasonORM
+        if fr.owner_id is None:return fr.purpose=="attachment" and fr.uploaded_by_user_id==uid
         task = session.get(TaskORM,fr.owner_id)
         if not task or not db.can_read_task(uid,task,session):return False
         meta = metadata(session,task)
@@ -136,9 +138,10 @@ def permitted(session, fr, uid, write=False):
         for sub in session.query(TaskSubmissionORM).filter_by(task_id=task.task_id):attached.update(json.loads(sub.files_json or "[]"))
         import access
         if fr.purpose == "attachment":
-            writable = access.allowed(uid,"task.edit",task.scope_kind,task.scope_id,state=session.get(SeasonORM,task.season_id).state)
+            from tracker import can_edit_public
+            writable = can_edit_public(session,task,uid)
         elif fr.purpose == "submission":
-            writable = can_work(session,task,uid) and session.get(SeasonORM,task.season_id).state != "closed"
+            writable = db.can_read_task(uid,task,session)
         else:return False
         if write:return writable and (fr.file_id in attached or fr.uploaded_by_user_id == uid)
         return fr.file_id in attached or (writable and fr.uploaded_by_user_id == uid)
@@ -185,6 +188,7 @@ def owner_exists(session, kind, owner_id):
     """An upload into a missing assignment, report or material is a 404 (A-SEC-7)."""
     from domain_models import MaterialORM
 
+    if kind=="task" and owner_id is None:return True
     model = {"assignment": AssignmentORM, "task": TaskORM, "report": ReportORM, "material": MaterialORM}.get(kind)
     return model is None or session.get(model, owner_id) is not None
 
@@ -231,6 +235,11 @@ def verify_object(fr):
         "application/pdf": sample.startswith(b"%PDF-"),
     }
     valid = checks.get(fr.mime_type)
+    if fr.mime_type=="text/plain":
+        try:
+            decoded=data.decode("utf-8")
+            valid=not any(ord(char)<32 and char not in "\t\n\r\f" for char in decoded)
+        except UnicodeDecodeError:valid=False
     if fr.mime_type in ("application/zip",) or "openxmlformats" in fr.mime_type:
         valid = sample.startswith(b"PK\x03\x04")
     if fr.mime_type in (

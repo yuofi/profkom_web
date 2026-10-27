@@ -206,13 +206,14 @@ export function installMockTransport(
               b.master?.deputy_user_ids.includes(state.session.user_id)),
         );
   const queueRequests: (TaskQueueAccessRequest & { queue_id: string })[] = [];
-  const readsQueue = (queue: TaskQueue) => !!queue.scope && readsScopeTask({ scope: queue.scope } as Task) && (!queue.is_private || queue.owner?.user_id === state.session.user_id || queueRequests.some(r => r.queue_id === queue.queue_id && r.user.user_id === state.session.user_id && r.status === "approved"));
-  const readsTask = (task: Task) => readsScopeTask(task) && (!task.queue || !state.queues.some(q => q.queue_id === task.queue!.queue_id) || readsQueue(state.queues.find(q => q.queue_id === task.queue!.queue_id)!));
+  const trackerAdmin = ["chair", "chair-deputy", "hr", "hr-deputy"].includes(role);
+  const readsQueue = (queue: TaskQueue) => trackerAdmin || (!queue.scope || readsScopeTask({ scope: queue.scope } as Task)) && (!queue.is_private || queue.owner?.user_id === state.session.user_id || queueRequests.some(r => r.queue_id === queue.queue_id && r.user.user_id === state.session.user_id && r.status === "approved"));
+  const readsTask = (task: Task) => task.queue && state.queues.some(q => q.queue_id === task.queue!.queue_id) ? readsQueue(state.queues.find(q => q.queue_id === task.queue!.queue_id)!) : trackerAdmin || readsScopeTask(task);
   const visibleQueue = (queue: TaskQueue): TaskQueue => {
     const own = queueRequests.find(r => r.queue_id === queue.queue_id && r.user.user_id === state.session.user_id);
     const access_request_status = own?.status === "revoked" ? null : own?.status ?? null;
     if (!readsQueue(queue)) return { queue_id: queue.queue_id, name: queue.name, key: queue.key, access: "locked", capabilities: [], can_request_access: access_request_status !== "pending" && !!queue.scope && readsScopeTask({ scope: queue.scope } as Task), access_request_status };
-    return { ...clone(queue), access: "granted", can_request_access: false, access_request_status };
+    return { ...clone(queue), access: "granted", can_request_access: false, access_request_status, capabilities: [...new Set([...queue.capabilities, "create_task"])], ...(state.manager && queue.scope ? { assignable_users: clone(state.people), capabilities: [...new Set([...queue.capabilities, "create_task", "assign_task_others"])] } : {}) };
   };
   let sequence = 10;
   let leadership = {
@@ -252,46 +253,21 @@ export function installMockTransport(
     taskHistory.set(task.task_id, events);task.updated_at = mockNow;
   };
   const taskFiles = (ids: unknown): FileRef[] => ((ids as string[]) ?? []).map(fileId => files.get(fileId)).filter(file => !!file).map(file => ({ file_id: file!.file_id, name: file!.name, mime_type: file!.mime_type, size_bytes: file!.size_bytes }));
+  const refreshRoster = (task: Task) => {
+    task.assignees ??= task.assignments.filter(a => !a.assignee_unavailable_reason).map(a => a.assignee);task.watchers ??= [];
+    task.capabilities = task.capabilities.filter(c => !["join_task", "watch_task", "unwatch_task", "remove_task_assignee", "edit_task_description"].includes(c));
+    task.capabilities.push("change_task_status", "submit_task_result", "remove_task_assignee");
+    if (!task.assignees.some(u => u.user_id === state.session.user_id)) task.capabilities.push("join_task");
+    task.capabilities.push(task.watchers.some(u => u.user_id === state.session.user_id) ? "unwatch_task" : "watch_task");
+    if (task.assignees.some(u => u.user_id === state.session.user_id) || task.capabilities.includes("edit_task")) task.capabilities.push("edit_task_description");
+  };
   const transitionTask = (task: Task, data: Body): Reply => {
-    const extra = extraInputs(data, ["status", "message", "text", "links", "file_ids", "evaluation", "evaluations", "review_note", "reason"]);
-    if (extra) return extra;
+    const extra = extraInputs(data, ["status", "message", "text", "links", "file_ids", "reason"]);if (extra) return extra;
     if (!["assigned", "in_progress", "help_required", "submitted", "accepted", "needs_revision", "not_completed", "cancelled"].includes(String(data.status))) return fail(422, "invalid_input", "Неизвестный статус");
     if (mismatch(data, task)) return conflict();
-    const next = data.status as AssignmentStatus, current = task.status ?? task.assignments[0]?.status ?? "assigned";
-    const active = !["accepted", "not_completed", "cancelled"].includes(current);
-    const worker = task.assignments.some(a => a.assignee.user_id === state.session.user_id && !a.assignee_unavailable_reason);
-    const reviewer = task.capabilities.includes("review_task");
-    if (["in_progress", "help_required", "submitted"].includes(next) ? !worker : !reviewer) return denied();
-    const edges: Partial<Record<AssignmentStatus, AssignmentStatus[]>> = {
-      in_progress: ["assigned", "help_required", "needs_revision"], help_required: ["assigned", "in_progress", "needs_revision"],
-      submitted: ["assigned", "in_progress", "help_required", "needs_revision"], accepted: ["submitted"], needs_revision: ["submitted", "accepted"],
-      not_completed: ["assigned", "in_progress", "help_required", "submitted", "needs_revision"], cancelled: ["assigned", "in_progress", "help_required", "submitted", "needs_revision"],
-    };
-    if ((!active && next !== "needs_revision") || !edges[next]?.includes(current)) return conflict();
-    const reason = String(data.reason ?? data.review_note ?? "");
-    if (["needs_revision", "not_completed", "cancelled"].includes(next) && !reason.trim()) return fail(422, "invalid_input", "Укажите причину");
-    if (next === "accepted" && ![1, 1.5].includes(Number(data.evaluation))) return fail(422, "invalid_input", "Укажите оценку");
-    if (next === "not_completed" && ![0, -1].includes(Number(data.evaluation))) return fail(422, "invalid_input", "Укажите оценку");
-    if (next === "submitted") {
-      const content = publicSubmission(data.text), links = (data.links as string[]) ?? [], ids = (data.file_ids as string[]) ?? [];
-      if (!content.body.trim() && !links.length && !ids.length) return fail(422, "invalid_input", "Добавьте результат, ссылку или файл");
-      const submission = { submission_id: id("submission"), submitted_at: mockNow, submitted_by: clone(state.user), text: content, links, files: taskFiles(ids) };
-      task.submissions ??= [];task.submissions.push(submission);
-      task.assignments.forEach(a => a.submissions.push(clone(submission)));
-    }
-    if (next === "help_required" && publicSubmission(data.message).body.trim()) state.comments.push({ comment_id: id("comment"), task_id: task.task_id, author: clone(state.user), content: publicSubmission(data.message), created_at: mockNow, updated_at: null, capabilities: ["edit_comment"] });
-    task.status = next;task.revision++;
-    task.assignments.forEach(assignment => {
-      assignment.status = next;assignment.revision++;
-      if (reason) assignment.review_note = reason;
-      const inputs = state.assessments.find(item => item.assignment_id === assignment.assignment_id);
-      if (inputs && ["accepted", "not_completed", "cancelled"].includes(next)) {
-        const overrides = data.evaluations as { assignment_id: string; evaluation: -1 | 0 | 1 | 1.5 }[] | undefined;
-        inputs.evaluation = next === "cancelled" ? null : overrides?.find(item => item.assignment_id === assignment.assignment_id)?.evaluation ?? (inputs.evaluation !== null && (next === "accepted" ? inputs.evaluation >= 1 : inputs.evaluation <= 0) ? inputs.evaluation : Number(data.evaluation) as -1 | 0 | 1 | 1.5);
-        inputs.effective_completed_at = next === "accepted" ? task.submissions?.at(-1)?.submitted_at ?? null : null;inputs.revision++;
-      }
-    });
-    rememberTask(task, "status_changed", "Изменён статус задачи", current, next);
+    const current = task.status ?? "assigned", next = data.status as AssignmentStatus;
+    task.status = next;task.revision++;task.assignments.forEach(a => { a.status = next;a.revision++; });
+    rememberTask(task, "status_changed", "Изменён рабочий статус задачи", current, next);
     return [200, clone(task)];
   };
 
@@ -921,15 +897,15 @@ export function installMockTransport(
       ]);
     if (parts[0] === "task-queues") {
       if (parts.length === 1) {
-        if (method === "get") return [200, { items: state.queues.map(visibleQueue), next_cursor: null, create_scopes: [ ...state.blocks.filter(b => b.capabilities.includes("create_task")).map(b => ({ kind: "block", id: b.block_id, title: b.name })), ...state.subevents.filter(b => b.capabilities.includes("create_task")).map(b => ({ kind: "subevent", id: b.subevent_id, title: b.title })) ] }];
-        if (!state.manager) return denied();
-        const scope = data.scope as Record<string, unknown> | undefined;
-        if (!scope || Object.keys(scope).some(key => !["kind", "id"].includes(key)) || !["block", "subevent"].includes(String(scope.kind)) || typeof scope.id !== "string") return fail(422, "validation_error", "Требуется точный контекст команды");
+        if (method === "get") return [200, { items: state.queues.map(visibleQueue), next_cursor: null, create_scopes: [ ...state.blocks.filter(b => trackerAdmin || readsScopeTask({ scope: { kind: "block", id: b.block_id } } as Task)).map(b => ({ kind: "block", id: b.block_id, title: b.name })), ...state.subevents.filter(b => trackerAdmin || readsSubevent(b.subevent_id)).map(b => ({ kind: "subevent", id: b.subevent_id, title: b.title })) ] }];
+        if (state.session.account_state !== "active") return denied();
+        const scope = data.scope as Record<string, unknown> | null | undefined;
+        if (scope && (Object.keys(scope).some(key => !["kind", "id"].includes(key)) || !["block", "subevent"].includes(String(scope.kind)) || typeof scope.id !== "string")) return fail(422, "validation_error", "Требуется точный контекст команды");
         if (!/^[A-Z]+$/.test(String(data.key)) || state.queues.some(q => q.key === data.key)) return fail(422, "invalid_input", "Проверьте ключ очереди");
-        const owner = state.people.find(p => p.user_id === Number(data.owner_user_id));
-        if (!owner) return denied();
-        const queue: TaskQueue = { queue_id: id("queue"), name: String(data.name), key: String(data.key), scope: clone(data.scope) as TaskQueue["scope"], owner: clone(owner), is_private: !!data.is_private, revision: 1, created_at: mockNow, access: "granted", can_request_access: false, access_request_status: null, capabilities: ["create_task", ...(owner.user_id === state.session.user_id ? ["manage_queue", "view_queue_requests"] : [])] };
-        state.queues.push(queue);return [201, visibleQueue(queue)];
+        const owner = data.owner_user_id === undefined ? state.user : state.people.find(p => p.user_id === Number(data.owner_user_id));
+        if (!owner || owner.user_id !== state.session.user_id) return denied();
+        const queue: TaskQueue = { queue_id: id("queue"), name: String(data.name), key: String(data.key), scope: data.scope ? clone(data.scope) as TaskQueue["scope"] : null, owner: clone(owner), is_private: !!data.is_private, revision: 1, created_at: mockNow, access: "granted", can_request_access: false, access_request_status: null, capabilities: ["create_task", ...(owner.user_id === state.session.user_id ? ["manage_queue", "view_queue_requests"] : [])] };
+        state.queues.push(queue);return [200, visibleQueue(queue)];
       }
       const queue = state.queues.find(q => q.queue_id === parts[1]);
       if (!queue) return fail(404, "not_found", "Очередь недоступна");
@@ -990,20 +966,23 @@ export function installMockTransport(
         const scopes = [...new Map(state.tasks.filter(readsTask).map(task => [`${task.scope.kind}:${task.scope.id}`, { ...task.scope, title: task.scope_title ?? "Команда" }])).values()];
         return [200, { items: clone(tasks.slice(offset, offset + limit)), total: tasks.length, scopes, assignees: clone(state.people), next_cursor: offset + limit < tasks.length ? `mock:${offset + limit}` : null }];
       }
-      if (!state.manager) return denied();
+      const selectedQueue = state.queues.find(q => q.queue_id === data.queue_id);
+      if (selectedQueue ? !readsQueue(selectedQueue) : !data.scope || !(trackerAdmin || readsScopeTask({ scope: data.scope } as Task))) return denied();
+      if (!state.manager && ((data.assignees ?? []) as { user_id: number }[]).some(a => a.user_id !== state.session.user_id)) return denied();
+      const chosenScope: Task["scope"] = selectedQueue?.scope ?? (selectedQueue ? { kind: "queue", id: selectedQueue.queue_id } : clone(data.scope) as Task["scope"]);
       const task: Task = {
         season_id: String(data.season_id),
-        scope: clone(data.scope) as Task["scope"],
+        scope: chosenScope,
         title: String(data.title),
         description: publicSubmission(data.description),
         deadline_at: String(data.deadline_at),
         task_id: id("task"),
         task_key: `TASK-${state.tasks.length + 1}`, status: "assigned", created_by: clone(state.user), created_at: mockNow, updated_at: mockNow,
-        scope_title: data.scope && (data.scope as Task["scope"]).kind === "block" ? state.blocks.find(b => b.block_id === (data.scope as Task["scope"]).id)?.name : state.subevents.find(t => t.subevent_id === (data.scope as Task["scope"]).id)?.title,
+        scope_title: chosenScope.kind === "queue" ? selectedQueue?.name : chosenScope.kind === "block" ? state.blocks.find(b => b.block_id === chosenScope.id)?.name : state.subevents.find(t => t.subevent_id === chosenScope.id)?.title,
         attachments: [], submissions: [], revision: 1,
-        capabilities: ["edit_task", "comment_task", "view_assessment_inputs", "attach_task_file", "review_task", ...((data.assignees as { user_id: number }[]).some(a => a.user_id === state.session.user_id) ? ["start_task", "resume_task", "request_task_help", "submit_task_result"] : [])],
+        capabilities: ["change_task_status", "join_task", "watch_task", "remove_task_assignee", "submit_task_result", "edit_task_description", "edit_task", "comment_task", "view_assessment_inputs", "attach_task_file", "review_task", ...(((data.assignees ?? []) as { user_id: number }[]).some(a => a.user_id === state.session.user_id) ? ["start_task", "resume_task", "request_task_help", "submit_task_result"] : [])],
         assignments: (
-          data.assignees as { user_id: number; hours: number }[]
+          (data.assignees ?? []) as { user_id: number; hours: number }[]
         ).map((a) => ({
           assignment_id: id("assignment"),
           assignee: state.people.find((p) => p.user_id === a.user_id)!,
@@ -1034,7 +1013,7 @@ export function installMockTransport(
       task.assignments.forEach((a, i) =>
         state.assessments.push({
           assignment_id: a.assignment_id,
-          hours: (data.assignees as { hours: number }[])[i].hours,
+          hours: ((data.assignees ?? []) as { hours?: number }[])[i].hours ?? 0,
           evaluation: null,
           effective_completed_at: null,
           revision: 1,
@@ -1044,6 +1023,7 @@ export function installMockTransport(
       const queue = state.queues.find(q => q.queue_id === data.queue_id || (!data.queue_id && q.scope?.id === task.scope.id && q.scope?.kind === task.scope.kind));
       if (queue) { task.queue = { queue_id: queue.queue_id, name: queue.name, key: queue.key };task.task_key = `${queue.key}-${state.tasks.filter(t => t.queue?.queue_id === queue.queue_id).length + 1}`; }
       if (typeof data.parent_task_id === "string") { const parent = state.tasks.find(t => t.task_id === data.parent_task_id);if (parent) { task.parent_task_id = parent.task_id;task.parent_task = { task_id: parent.task_id, task_key: parent.task_key!, title: parent.title }; } }
+      task.assignees = task.assignments.map(a => a.assignee);task.watchers = ((data.watcher_user_ids ?? []) as number[]).map(uid => state.people.find(p => p.user_id === uid)!).filter(Boolean);task.attachments = taskFiles(data.file_ids);refreshRoster(task);
       state.tasks.push(task);rememberTask(task, "task_created", "Создана задача");
       return [201, clone(task)];
     }
@@ -1054,6 +1034,30 @@ export function installMockTransport(
         return method === "get" ? fail(404, "not_found", "Задача недоступна") : denied();
       if (parts[2] === "history") return list(clone(taskHistory.get(task.task_id) ?? []));
       if (parts[2] === "status") return transitionTask(task, data);
+      if (parts[2] === "submit-result") {
+        if (mismatch(data, task)) return conflict();
+        const body = publicSubmission(data.text), links = (data.links ?? []) as string[], ids = (data.file_ids ?? []) as string[];
+        if (!body.body.trim() && !links.length && !ids.length) return fail(422, "invalid_input", "Добавьте результат работы, ссылку или файл");
+        const result = { submission_id: id("submission"), submitted_at: mockNow, submitted_by: clone(state.user), text: body, links, files: taskFiles(ids) };
+        task.submissions ??= [];task.submissions.push(result);return transitionTask(task, { expected_revision: task.revision, status: "submitted" });
+      }
+      if (["join", "watch", "unwatch"].includes(parts[2]) || parts[2] === "assignees") {
+        if (mismatch(data, task)) return conflict();refreshRoster(task);
+        if (parts[2] === "join") {
+          if (!task.assignees!.some(p => p.user_id === state.session.user_id)) task.assignees!.push(clone(state.user));
+          task.watchers = task.watchers!.filter(p => p.user_id !== state.session.user_id);
+          if (!task.assignments.some(a => a.assignee.user_id === state.session.user_id)) {
+            const aid = id("assignment");task.assignments.push({ assignment_id: aid, assignee: clone(state.user), status: task.status ?? "assigned", submissions: [], assignee_unavailable_reason: null, review_note: null, revision: 1, capabilities: [] });
+            state.assessments.push({ assignment_id: aid, hours: 0, evaluation: null, effective_completed_at: null, revision: 1, workflow_revision: 1, workflow_status: "assigned", capabilities: state.manager && task.scope.kind !== "queue" ? inputsCaps() : [] });
+          }
+        } else if (parts[2] === "watch") { if (!task.watchers!.some(p => p.user_id === state.session.user_id)) task.watchers!.push(clone(state.user)); }
+        else if (parts[2] === "unwatch") task.watchers = task.watchers!.filter(p => p.user_id !== state.session.user_id);
+        else {
+          const uid = Number(parts[3]), person = task.assignees!.find(p => p.user_id === uid);if (!person) return fail(404, "not_found", "Исполнитель не найден");
+          task.assignees = task.assignees!.filter(p => p.user_id !== uid);if (!task.watchers!.some(p => p.user_id === uid)) task.watchers!.push(person);
+        }
+        refreshRoster(task);rememberTask(task, "task_people_updated", "Изменён состав задачи");return changed(task);
+      }
       if (parts[2] === "comments") {
         if (method === "get")
           return list(
@@ -1092,7 +1096,7 @@ export function installMockTransport(
         return [200, clone(inputs)];
       }
       if (method === "get") return [200, clone(task)];
-      if (!state.manager && (!(task.capabilities.includes("edit_task_description")) || Object.keys(data).some(k => !["expected_revision", "description"].includes(k)))) return denied();
+      if (!state.manager && task.created_by?.user_id !== state.session.user_id && (!(task.capabilities.includes("edit_task_description")) || Object.keys(data).some(k => !["expected_revision", "description"].includes(k)))) return denied();
       if (mismatch(data, task)) return conflict();
       const changes: TaskHistoryChange[] = [];
       if (typeof data.title === "string" && data.title !== task.title) changes.push({ field: "title", label: "Название", before: task.title, after: data.title });
@@ -1150,6 +1154,7 @@ export function installMockTransport(
         if (!assessment) {
           assessment = {
             assignment_id: assignment.assignment_id,
+            workflow_status: "assigned", workflow_revision: assignment.revision,
             hours: 2,
             evaluation: null,
             effective_completed_at: null,
@@ -1162,17 +1167,23 @@ export function installMockTransport(
           if (data.effective_completed_at && !assessment.capabilities.includes("edit_assessment_dates"))
             return denied();
           if (mismatch(data, assessment)) return conflict();
+          let observedDate = assessment.effective_completed_at;
+          if (Number(data.evaluation) > 0 && !data.effective_completed_at && !observedDate) {
+            observedDate = [...(task.submissions ?? []), ...task.assignments.flatMap(a => a.submissions)].map(s => s.submitted_at).sort().at(-1) ?? null;
+            if (!observedDate) return fail(422, "invalid_input", "Для оценки нужна фактическая сдача или разрешённая расчётная дата");
+          }
           Object.assign(assessment, data);
+          if (!assessment.effective_completed_at && observedDate) assessment.effective_completed_at = observedDate;
           assessment.revision++;
           // Inputs have their own revision; the assignee's moves only with the status.
-          if (typeof data.evaluation === "number") {
-            const status = data.evaluation >= 1 ? "accepted" : "not_completed";
-            if (assignment.status !== status) { assignment.status = status; assignment.revision++; }
-          }
+          if (typeof data.evaluation === "number") assessment.workflow_status = data.evaluation >= 1 ? "accepted" : "not_completed";
+          assessment.workflow_revision = assessment.revision;
         }
         return [200, clone(assessment)];
       }
-      if (mismatch(data, assignment)) return conflict();
+      const privateReview = ["accept", "request-revision", "not-complete", "cancel"].includes(parts[2]);
+      const privateInputs = state.assessments.find(a => a.assignment_id === assignment.assignment_id);
+      if (mismatch(data, privateReview && privateInputs ? { revision: privateInputs.workflow_revision ?? privateInputs.revision } : assignment)) return conflict();
       const own = assignment.assignee.user_id === state.session.user_id;
       if (
         ["start", "resume", "request-help", "submit"].includes(parts[2])
@@ -1231,7 +1242,21 @@ export function installMockTransport(
       if (!next) return fail(404, "not_found", "Команда не найдена");
       const allowed: Record<string, string[]> = { start: [], resume: [], "request-help": ["message"], submit: ["text", "links", "file_ids"], accept: ["evaluation", "review_note"], "request-revision": ["review_note"], "not-complete": ["evaluation", "reason"], cancel: ["reason"] };
       const extra = extraInputs(data, allowed[parts[2]]);if (extra) return extra;
-      const response = transitionTask(task, { ...data, expected_revision: task.revision, status: next });
+      if (privateReview) {
+        const observedDate = privateInputs?.effective_completed_at ?? [...(task.submissions ?? []), ...task.assignments.flatMap(a => a.submissions)].map(s => s.submitted_at).sort().at(-1) ?? null;
+        if (next === "accepted" && !observedDate) return fail(422, "invalid_input", "Для приёмки нужна фактическая сдача");
+        if (privateInputs) {
+          if (next === "accepted" && !privateInputs.effective_completed_at) privateInputs.effective_completed_at = observedDate;
+          privateInputs.workflow_status = next;privateInputs.workflow_revision = (privateInputs.workflow_revision ?? privateInputs.revision) + 1;privateInputs.revision++;
+          if (["accepted", "not_completed"].includes(next)) privateInputs.evaluation = Number(data.evaluation) as -1 | 0 | 1 | 1.5;
+          if (next === "cancelled") privateInputs.evaluation = null;
+        }
+        return [200, clone(assignment)];
+      }
+      if (next === "submitted") {
+        const result = { submission_id: id("submission"), submitted_at: mockNow, submitted_by: clone(state.user), text: publicSubmission(data.text), links: (data.links ?? []) as string[], files: taskFiles(data.file_ids) };task.submissions ??= [];task.submissions.push(result);assignment.submissions.push(clone(result));
+      }
+      const response = transitionTask(task, { expected_revision: task.revision, status: next });
       return response[0] === 200 ? [200, clone(assignment)] : response;
     }
     if (path === "/assessment-inputs/bulk-hours") {
@@ -1704,6 +1729,7 @@ export function installMockTransport(
     if (parts[0] === "files") {
       const file = files.get(parts[1]);
       if (!file) return fail(404, "not_found", "Файл не найден");
+      if (parts[2] === "content") return file.complete ? [200, new Blob(["Mock attachment"], { type: file.mime_type })] : fail(404, "not_found", "Файл не готов");
       if (parts[2] === "complete") {
         if (!file.uploaded)
           return fail(409, "upload_missing", "Сначала загрузите файл");
@@ -1721,7 +1747,7 @@ export function installMockTransport(
       return [
         200,
         {
-          download_url: "data:text/plain;charset=utf-8,Mock%20attachment",
+          download_url: `/api/files/${file.file_id}/content`,
           expires_at: "2026-10-18T13:00:00Z",
         },
       ];

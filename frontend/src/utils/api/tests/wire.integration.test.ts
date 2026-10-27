@@ -53,7 +53,16 @@ it("INT-06: actual response shapes, null relations and populated IDs match the p
   check("TaskInputs", await tasksApi.inputs(task.task_id));
   let assignment = task.assignments[0]; check("AssessmentInputs", await tasksApi.assessment(assignment.assignment_id));
   assignment = check("Assignment", await tasksApi.command(assignment.assignment_id, "submit", { expected_revision: assignment.revision, text: richText("Done") }));
-  check("Assignment", await tasksApi.command(assignment.assignment_id, "accept", { expected_revision: assignment.revision, evaluation: 1 }));
+  const privateInputs = check("AssessmentInputs", await tasksApi.assessment(assignment.assignment_id));
+  expect(typeof privateInputs.workflow_revision).toBe("number");
+  const publicBeforeReview = check("Task", await tasksApi.get(task.task_id));
+  const actualSubmissionTime = publicBeforeReview.submissions?.at(-1)?.submitted_at;expect(actualSubmissionTime).toBeTruthy();
+  check("Assignment", await tasksApi.command(assignment.assignment_id, "accept", { expected_revision: privateInputs.workflow_revision!, evaluation: 1 }));
+  const privateAccepted = check("AssessmentInputs", await tasksApi.assessment(assignment.assignment_id));
+  expect(privateAccepted.workflow_status).toBe("accepted");expect(privateAccepted.evaluation).toBe(1);expect(privateAccepted.hours).toBe(1);
+  expect(Date.parse(privateAccepted.effective_completed_at!)).toBe(Date.parse(actualSubmissionTime!));
+  const publicAfterReview = check("Task", await tasksApi.get(task.task_id));
+  expect([publicAfterReview.status, publicAfterReview.revision]).toEqual([publicBeforeReview.status, publicBeforeReview.revision]);
   check("Comment", await tasksApi.comment(task.task_id, richText("Comment")));
   check("Merit", await seasonsApi.createMerit({ season_id: season.season_id, source_kind: "chair_merit", title: "Wire merit", description: richText("Contribution"), assigned_at: new Date(Date.now() - 3600000).toISOString(), deadline_at: new Date(Date.now() + 3600000).toISOString(), criteria: emptyCriteria(), recipients: [{ user_id: person.user_id, hours: 1, evaluation: 1, completed_at: new Date(Date.now() - 60000).toISOString() }], reason: "Wire acceptance" }));
   (await seasonsApi.assessments({ season_id: season.season_id })).items.forEach(c => check("Contribution", c));

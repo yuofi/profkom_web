@@ -26,6 +26,7 @@ const bytes = (ext: string) => {
   return Buffer.from("Synthetic UTF-8 text: Тест");
 };
 const file = (ext: string, type = "") => new File([bytes(ext)], `synthetic.${ext}`, { type });
+const sourceFormats = ["txt", "md", "py", "js", "jsx", "ts", "tsx", "json", "yaml", "yml", "toml", "ini", "cfg", "log", "sh", "zsh", "c", "h", "cpp", "hpp", "java", "rs", "go", "sql", "r", "css"];
 async function currentSeason() {
   const seasons = (await seasonsApi.list()).items;
   return seasons.find(s => s.state === "open") ?? seasons.find(s => s.state === "planned") ?? seasonsApi.create({ title: "File acceptance", type: "autumn_winter", starts_at: new Date(Date.now() - 86400000).toISOString(), ends_at: new Date(Date.now() + 20 * 86400000).toISOString() });
@@ -41,6 +42,7 @@ async function downloadEquals(id: string, ext: string) {
   const shown = ["png", "jpg", "jpeg", "webp"].includes(ext) ? "inline" : "attachment";
   expect(response.headers["content-disposition"]).toBe(`${shown}; filename="synthetic.${ext}"; filename*=UTF-8''synthetic.${ext}`);
   expect(Buffer.from(response.data)).toEqual(bytes(ext));
+  if (sourceFormats.includes(ext)) expect(response.headers["content-type"]).toMatch(/^text\/plain\b/);
 }
 
 it("INT-05: every advertised attachment format completes PUT and remains in report history", async () => {
@@ -52,9 +54,9 @@ it("INT-05: every advertised attachment format completes PUT and remains in repo
   await liveLogin(author.email);
   let report = await reportsApi.create({ owner_kind: "event", owner_id: event.event_id, kind: "regular", title: "Проверенные файлы HTTP", content: richText("Local object transport"), file_ids: [] });
   const uploaded = [];
-  expect(fileExtensions("report")).toHaveLength(13);
+  expect(new Set(fileExtensions("report"))).toEqual(new Set(["png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "zip", ...sourceFormats]));
   for (const ext of fileExtensions("report")) {
-    const type = ext === "jpg" ? "image/jpg" : ext === "zip" ? "application/x-zip-compressed" : "";
+    const type = ({ jpg: "image/jpg", zip: "application/x-zip-compressed", py: "text/x-python", js: "application/javascript", ts: "video/mp2t", json: "application/json", md: "text/markdown" } as Record<string, string>)[ext] ?? "";
     const ref = await filesApi.upload(file(ext, type), { owner_kind: "report", owner_id: report.report_id, purpose: "report" });
     await downloadEquals(ref.file_id, ext);
     uploaded.push(ref);

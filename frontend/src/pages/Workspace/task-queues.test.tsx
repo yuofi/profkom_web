@@ -21,7 +21,7 @@ function button(label: string) { return [...page!.container.querySelectorAll("bu
 it("shows a locked queue in the directory without its owner or scope", async () => {
   transport = installMockTransport("organizer", { delay: 0 });transport.state.queues[0].is_private = true;transport.state.queues[0].owner = transport.state.people[3];
   await mount("/tasks/queues", "organizer");
-  const card = page!.container.querySelector<HTMLAnchorElement>('a[href="/tasks/queues/queue-tasks"]')!;
+  const card = page!.container.querySelector<HTMLAnchorElement>('a[href="/tasks/queues/queue-tasks"]')!.closest('tr')!;
   expect(card.textContent).toContain("TASK");expect(card.textContent).toContain("Нет доступа");expect(card.textContent).not.toContain(transport.state.people[3].display_name);expect(card.querySelector("img")).toBeNull();
 });
 it("persists an access request from the denied screen without loading tasks", async () => {
@@ -49,16 +49,27 @@ it("sends the owner's exact request revision and hides controls for participants
   await page!.cleanup();page = undefined;transport.restore();transport = undefined;vi.restoreAllMocks();transport = installMockTransport("organizer", { delay: 0 });await mount("/tasks/queues/queue-tasks", "organizer");expect(page!.container.textContent).not.toContain("Настройки очереди и доступ");
 });
 it("validates an uppercase-only key before creating a named queue", async () => {
-  transport = installMockTransport("leader", { delay: 0 });await mount("/tasks/queues");const create = vi.spyOn(taskQueuesApi, "create");
-  await change(page!.container.querySelector<HTMLInputElement>('input[name="name"]')!, "Веб-сайт");await change(page!.container.querySelector<HTMLInputElement>('input[name="key"]')!, "IT WEB-2");await submit(button("Создать очередь").closest("form")!);await waitForPage(page!);
+  transport = installMockTransport("leader", { delay: 0 });await mount("/tasks/queues");await act(async () => button("Создать очередь").click());await waitForPage(page!);const create = vi.spyOn(taskQueuesApi, "create");
+  await change(page!.container.querySelector<HTMLInputElement>('input[name="name"]')!, "Веб-сайт");await change(page!.container.querySelector<HTMLInputElement>('input[name="key"]')!, "IT WEB-2");await submit(page!.container.querySelector<HTMLFormElement>('dialog form')!);await waitForPage(page!);
   expect(create).not.toHaveBeenCalled();expect(page!.container.textContent).toContain("только заглавные английские буквы");
-  await change(page!.container.querySelector<HTMLInputElement>('input[name="key"]')!, "ITWEB");await submit(button("Создать очередь").closest("form")!);await waitForPage(page!);
+  await change(page!.container.querySelector<HTMLInputElement>('input[name="key"]')!, "ITWEB");await submit(page!.container.querySelector<HTMLFormElement>('dialog form')!);await waitForPage(page!);
   expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: "Веб-сайт", key: "ITWEB", is_private: false }));expect(page!.container.textContent).toContain("Открыть ITWEB");
   const wire = transport!.adapter.history.post.find(request => request.url?.endsWith("/task-queues"))!;
-  const body = JSON.parse(wire.data);expect(Object.keys(body.scope).sort()).toEqual(["id", "kind"]);
+  const body = JSON.parse(wire.data);expect(body.scope).toBeNull();
+  expect(transport!.state.queues.find(q => q.key === "ITWEB")?.owner?.user_id).toBe(transport!.state.session.user_id);
 });
 it("removes only the queue filter in the global task list", async () => {
   transport = installMockTransport("leader", { delay: 0 });const list = vi.spyOn(tasksApi, "listPage");await mount("/tasks?queue_id=queue-tasks&mine=true");
   expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ queue_id: "queue-tasks", mine: "true" }));await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Убрать фильтр: Очередь"]')!.click());await waitForPage(page!);
   expect(list.mock.lastCall?.[0]).not.toHaveProperty("queue_id");expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ mine: "true" }));
+});
+
+it("renders the three requested queue columns and permits an ordinary user to create without a team", async () => {
+  transport = installMockTransport("organizer", { delay: 0 });await mount("/tasks/queues", "organizer");
+  expect([...page!.container.querySelectorAll("thead th")].map(node => node.textContent)).toEqual(["Имя очереди", "Ключ очереди", "Владелец очереди"]);
+  expect(page!.container.querySelector('tr a[href^="/contacts/"] img')).not.toBeNull();
+  await act(async () => button("Создать очередь").click());await waitForPage(page!);
+  await change(page!.container.querySelector<HTMLInputElement>('input[name="name"]')!, "Своя очередь");await change(page!.container.querySelector<HTMLInputElement>('input[name="key"]')!, "SELFQUEUE");
+  await submit(page!.container.querySelector<HTMLFormElement>("dialog form")!);await waitForPage(page!);
+  const queue = transport!.state.queues.find(q => q.key === "SELFQUEUE")!;expect(queue.scope).toBeNull();expect(queue.owner?.user_id).toBe(transport!.state.session.user_id);expect(page!.container.textContent).toContain("Открыть SELFQUEUE");
 });

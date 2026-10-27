@@ -1,6 +1,8 @@
 import type { UploadIntentCreate } from "./api/contract";
 import { ApiError } from "./api/request";
 
+const textExtensions = new Set(["txt", "md", "py", "js", "jsx", "ts", "tsx", "json", "yaml", "yml", "toml", "ini", "cfg", "log", "sh", "zsh", "c", "h", "cpp", "hpp", "java", "rs", "go", "sql", "r", "css"]);
+const textApplicationMimes = new Set(["application/json", "application/javascript", "application/x-javascript", "application/typescript", "application/x-python-code", "application/x-sh", "application/x-shellscript", "application/yaml", "application/x-yaml", "application/toml", "application/sql"]);
 const formats: Record<string, string> = {
   png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp",
   pdf: "application/pdf", doc: "application/msword",
@@ -9,7 +11,7 @@ const formats: Record<string, string> = {
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   ppt: "application/vnd.ms-powerpoint",
   pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  zip: "application/zip", txt: "text/plain",
+  zip: "application/zip", ...Object.fromEntries([...textExtensions].map(ext => [ext, "text/plain"])),
 };
 const aliases: Record<string, string> = {
   "image/jpg": "image/jpeg", "application/x-zip-compressed": "application/zip",
@@ -30,7 +32,8 @@ export function fileMetadata(kind: string, file: { name: string; type: string; s
   const canonical = formats[ext];
   if (!canonical || !fileExtensions(kind).includes(ext)) fail("неподдерживаемый формат файла");
   const raw = file.type.trim().toLowerCase();
-  const mime = !raw || raw === "application/octet-stream" ? canonical : aliases[raw] ?? raw;
+  const textSource = textExtensions.has(ext) && (raw.startsWith("text/") || textApplicationMimes.has(raw) || ext === "ts" && raw === "video/mp2t");
+  const mime = !raw || raw === "application/octet-stream" || textSource ? canonical : aliases[raw] ?? raw;
   if (mime !== canonical) fail("тип файла не соответствует расширению");
   const limit = fileLimitMiB(kind);
   if (!Number.isInteger(file.size) || file.size <= 0 || file.size > limit * 1024 * 1024)

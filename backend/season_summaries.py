@@ -189,6 +189,7 @@ def refresh(session, season_id, uid, reason):
             .join(TaskORM)
             .filter(
                 TaskORM.season_id == season_id,
+                TaskORM.scope_kind.in_(("block","subevent")),
                 AssignmentORM.assignee_user_id == uid_row,
                 AssignmentORM.status.in_(["accepted", "not_completed"]),
                 AssignmentORM.evaluation.isnot(None),
@@ -236,6 +237,7 @@ def correct(season_id, expected_version, reason, changes, uid):
                 raise InvalidInput("Changes must be nonempty and unique")
             # Validate the whole command, including object/season ownership, before mutation.
             from main import TaskInputsPatchIn, AssignmentInputsPatchIn, MeritPatchIn
+            from tracker import metadata as tracker_metadata
 
             schemas = {
                 "task_inputs": TaskInputsPatchIn,
@@ -264,7 +266,7 @@ def correct(season_id, expected_version, reason, changes, uid):
                 if sid != season_id:
                     raise InvalidInput("Correction object belongs to another season")
                 # Assessment inputs carry their own revision (owner decision 32).
-                if (obj.inputs_revision if cls is AssignmentORM else obj.revision) != c["expected_revision"]:
+                if (obj.inputs_revision if cls is AssignmentORM else tracker_metadata(s,obj).assessment_revision if cls is TaskORM else obj.revision) != c["expected_revision"]:
                     raise revision_conflict("Conflict: object revision mismatch")
                 if {"expected_revision", "reason"} & set(c["values"]):
                     raise InvalidInput("Invalid correction values")

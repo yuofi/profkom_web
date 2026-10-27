@@ -146,7 +146,10 @@ def _build(org, make_user, make_block):
                                             title="Списки", description=rich("Списки"), deadline_at=stamp(3), criteria={},
                                             assignees=[{"user_id": org.uid("org1"), "hours": 1}]), "resp1")
     a = t_done["assignments"][0]
-    org.req("POST", f"/assignments/{a['assignment_id']}/cancel", {"expected_revision": a["revision"], "reason": "Фикстура"}, "resp1")
+    # Legacy review has an independent private workflow revision; the public task DTO
+    # cannot supply it once public tracker activity and accounting diverge.
+    private = org.req("GET", f"/assignments/{a['assignment_id']}/assessment-inputs", who="resp1")
+    org.req("POST", f"/assignments/{a['assignment_id']}/cancel", {"expected_revision": private["workflow_revision"], "reason": "Фикстура"}, "resp1")
     for kind, oid, who in (("event", de["event_id"], "head1"), ("subevent", ds["subevent_id"], "resp1")):
         r = org.req("POST", "/reports", dict(owner_kind=kind, owner_id=oid, kind="final", title="Финальный отчёт",
                                               content=rich("Итоги"), file_ids=[]), who)
@@ -324,10 +327,10 @@ def ops():
         Op("E13", "GET", lambda o: f"/events/{o.ids['event']}/subevents"),
         # Tasks
         Op("T1", "POST", lambda o: "/tasks", lambda o, r: dict(season_id=cur(o), scope={"kind": "subevent", "id": o.ids["sa"]},
-           title=f"probe-task-{r}", description=rich("p"), deadline_at=stamp(6), criteria={}, assignees=[{"user_id": o.uid("org2"), "hours": 1}]),
+           title=f"probe-task-{r}", description=rich("p"), deadline_at=stamp(6), criteria={}, assignees=[{"user_id": o.uid(r), "hours": 0}]),
            cap=("E5", "create_task")),
         Op("T2", "POST", lambda o: "/tasks", lambda o, r: dict(season_id=cur(o), scope={"kind": "block", "id": o.ids["it"]},
-           title=f"probe-btask-{r}", description=rich("p"), deadline_at=stamp(6), criteria={}, assignees=[{"user_id": o.uid("itmem"), "hours": 1}]),
+           title=f"probe-btask-{r}", description=rich("p"), deadline_at=stamp(6), criteria={}, assignees=[{"user_id": o.uid(r), "hours": 0}]),
            cap=("B1", "create_task")),
         Op("T3", "GET", lambda o: f"/tasks/{o.ids['task_sub']}", deny=(404,)),
         Op("T4", "GET", lambda o: f"/tasks/{o.ids['task_blk']}", deny=(404,)),
@@ -336,8 +339,8 @@ def ops():
         Op("T6", "PATCH", lambda o: f"/tasks/{o.ids['task_blk']}", same_title("tasks", "task_blk"), cap=("T4", "edit_task"),
            readers="T4"),
         Op("T7", "POST", lambda o: f"/assignments/{o.ids['asg_sub_org1']}/request-revision",
-           lambda o, r: {"expected_revision": BAD, "review_note": "probe"}, ok=(409,)),
-        Op("T8", "POST", lambda o: f"/assignments/{o.ids['asg_blk_org1']}/cancel", lambda o, r: {"expected_revision": BAD, "reason": "probe"}, ok=(409,)),
+           lambda o, r: {"expected_revision": BAD, "review_note": "probe"}, ok=(409,), readers="T3"),
+        Op("T8", "POST", lambda o: f"/assignments/{o.ids['asg_blk_org1']}/cancel", lambda o, r: {"expected_revision": BAD, "reason": "probe"}, ok=(409,), readers="T4"),
         Op("T9", "PATCH", lambda o: f"/assignments/{o.ids['asg_sub_org1']}/assessment-inputs",
            lambda o, r: {"expected_revision": BAD, "reason": "probe", "hours": 2}, ok=(409,), cap=("T3", "edit_assessment_inputs")),
         Op("T10", "GET", lambda o: f"/tasks/{o.ids['task_sub']}/assessment-inputs", cap=("T3", "view_assessment_inputs"), readers="T3"),
@@ -487,7 +490,9 @@ def run(org, role):
         body = op.body(org, role) if op.body else None
         status, data = org.raw(op.method, op.path(org), body, role)
         results[op.op] = status
-        if op.method == "GET" and isinstance(data, dict):
+        # A denied read has only an error envelope, not an advertised object DTO.
+        # HR deputies can create/read tasks without reading the subevent itself.
+        if op.method == "GET" and status == 200 and isinstance(data, dict):
             caps[op.op] = set(data.get("capabilities") or [])
     return results, caps
 
@@ -495,7 +500,8 @@ def run(org, role):
 # ───────────────────────────── expected (RELEASE_PLAN.md, section 2) ─────────────────────────────
 ALL = set(ROLES)
 TACHKI = {"chair", "deputy"}  # chair and the chair's deputies
-HRM = {"hrmaster"}  # the HR deputy is an ordinary HR block member in release 1 (АВ-25, УВ-2)
+HRM = {"hrmaster"}  # The HR deputy gains tracker read only, never private HR/KKR actions.
+TRACKER_HR = HRM | {"hrdeputy"}
 EVENT_LEAD = {"head1", "head1dep"}
 SUB_LEAD = {"resp1", "resp1dep"}
 SUB_TEAM = SUB_LEAD | {"org1"}
@@ -513,9 +519,11 @@ EXPECTED = {
     "E8": TACHKI, "E9": TACHKI | EVENT_LEAD, "E10": TACHKI | EVENT_LEAD,
     "E11": TACHKI, "E12": TACHKI | EVENT_LEAD,
     "E13": ALL,
-    "T1": TACHKI | EVENT_LEAD | SUB_LEAD, "T2": TACHKI | IT_LEAD,
-    "T3": TACHKI | HRM | EVENT_LEAD | SUB_TEAM, "T4": TACHKI | HRM | IT_LEAD | IT_MEMBERS,
-    "T5": TACHKI | EVENT_LEAD | SUB_LEAD, "T6": TACHKI | IT_LEAD,  # title and description (АВ-3, ACC-01)
+    # Any reader can create a task for themselves; assigning other people keeps
+    # the leadership-only policy tested independently in test_tracker_reader_policy.
+    "T1": TACHKI | TRACKER_HR | EVENT_LEAD | SUB_TEAM, "T2": TACHKI | TRACKER_HR | IT_LEAD | IT_MEMBERS,
+    "T3": TACHKI | TRACKER_HR | EVENT_LEAD | SUB_TEAM, "T4": TACHKI | TRACKER_HR | IT_LEAD | IT_MEMBERS,
+    "T5": TACHKI | EVENT_LEAD | SUB_LEAD, "T6": TACHKI | IT_LEAD,  # title edit; collaborative descriptions are checked separately
     "T7": TACHKI | HRM | EVENT_LEAD | SUB_LEAD, "T8": TACHKI | HRM | IT_LEAD,
     "T9": TACHKI | HRM | EVENT_LEAD | SUB_LEAD, "T10": TACHKI | HRM | EVENT_LEAD | SUB_LEAD,
     "T11": TACHKI | HRM | IT_LEAD, "T12": TACHKI | HRM | EVENT_LEAD | SUB_LEAD,

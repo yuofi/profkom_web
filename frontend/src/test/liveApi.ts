@@ -27,7 +27,7 @@ export async function liveParticipant(label: string) {
   return { user_id: pending.user_id, email };
 }
 
-/** Finish only disposable test data through public commands, including close blockers. */
+/** Finish disposable data through authorized commands; public task status never substitutes private accounting. */
 // liveCloseSeasons publishes a final report for every event and subevent the earlier files
 // left open, one after another. That grows with the suite and with the file order Vitest
 // picks from its last results, so the tests calling it get more than the default 30 s.
@@ -37,9 +37,13 @@ export async function liveCloseSeasons() {
   for (const season of (await seasonsApi.list()).items.sort((a, b) => a.sequence_number - b.sequence_number)) {
     if (season.state === "closed") continue;
     for (const task of (await tasksApi.list({ season_id: season.season_id, mine: false })).items) {
-      if (!task.status) throw Error("Disposable task has no common status");
-      if (!["accepted", "cancelled", "not_completed"].includes(task.status))
-        await tasksApi.changeStatus(task.task_id, { expected_revision: task.revision, status: "cancelled", reason: "Finish disposable acceptance fixture" });
+      if (task.scope.kind === "queue") continue;
+      for (const assignment of task.assignments) {
+        const inputs = await tasksApi.assessment(assignment.assignment_id);
+        if (!inputs.workflow_status || typeof inputs.workflow_revision !== "number") throw Error("Disposable scoped assignment has no private workflow version");
+        if (!["accepted", "cancelled", "not_completed"].includes(inputs.workflow_status))
+          await tasksApi.command(assignment.assignment_id, "cancel", { expected_revision: inputs.workflow_revision, reason: "Finish disposable private accounting fixture" });
+      }
     }
     for (const event of (await eventsApi.list({ season_id: season.season_id })).items) {
       await eventsApi.leaders("events", event.event_id, [chair.user_id], { expected_revision: event.revision });

@@ -74,8 +74,9 @@ export function FormattingMenu({ label, disabled, children, items }: { label: st
   </span>;
 }
 
-export function EditorIcon({ name }: { name: "link" | "undo" | "redo" | "chevron" | "bullets" | "numbered" | "indent" | "outdent" }) {
+export function EditorIcon({ name }: { name: "link" | "undo" | "redo" | "chevron" | "bullets" | "numbered" | "indent" | "outdent" | "table" }) {
   const paths = {
+    table: <><rect x="3" y="3" width="18" height="18" rx="1.5" /><path d="M12 3v18M3 12h18" /></>,
     link: <><path d="m10 13 4-4" /><path d="m8 15-1.4 1.4a3.5 3.5 0 0 1-5-5l4-4a3.5 3.5 0 0 1 5 0" /><path d="m14 9 1.4-1.4a3.5 3.5 0 0 1 5 5l-4 4a3.5 3.5 0 0 1-5 0" /></>,
     undo: <><path d="M8 5 3 10l5 5" /><path d="M3 10h11a6 6 0 0 1 6 6v3" /></>,
     redo: <><path d="m16 5 5 5-5 5" /><path d="M21 10H10a6 6 0 0 0-6 6v3" /></>,

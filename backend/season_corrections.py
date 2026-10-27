@@ -121,6 +121,9 @@ def correct(kind, id, revision, target_id, reason, uid):
                 obj.season_id = target_id
                 obj.revision += 1
             for item in [*tasks, *merits]:
+                if isinstance(item,TaskORM):
+                    from tracker import metadata
+                    meta=metadata(s,item);meta.assessment_revision=(meta.assessment_revision or 1)+1
                 item.season_id = target_id
                 item.revision += 1
             for report in reports:
