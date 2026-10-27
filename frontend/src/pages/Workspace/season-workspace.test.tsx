@@ -96,3 +96,35 @@ it("guards unsaved creation and never creates a season through Cancel", async ()
   await act(async () => [...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Отмена")!.click());expect(container.querySelector("dialog")?.textContent).toContain("Есть несохранённые изменения");expect(create).not.toHaveBeenCalled();
   await act(async () => [...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Остаться")!.click());expect(field(container, "title").value).toBe("Несохранённый сезон");expect(create).not.toHaveBeenCalled();
 });
+it("shows precise point tooltips on hover, focus and touch clicks, and dismisses them", async () => {
+  const data = analytics();data.weekly = [
+    { starts_on: "2026-10-05", completed_tasks: 1, credited_hours: 2, kkr: 1 },
+    { starts_on: "2026-10-12", completed_tasks: null, credited_hours: null, kkr: null },
+    { starts_on: "2026-11-09", completed_tasks: 1, credited_hours: 2, kkr: -12.3456789012345 },
+  ];
+  vi.spyOn(seasonsApi, "analytics").mockResolvedValue(data);await mount(<SeasonAnalytics seasonId="season-1" />);await click("ККР");
+  const chart = page!.container.querySelector('[data-chart-canvas]')!, point = chart.querySelector<SVGElement>('[data-point-key="2026-11-09"]')!;
+  expect(chart.querySelector("svg title")).toBeNull();expect(chart.querySelector('[role="tooltip"]')).toBeNull();
+  await act(async () => point.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
+  let tooltip = chart.querySelector('[role="tooltip"]')!;expect(tooltip.textContent).toContain("9 ноября 2026");expect(tooltip.textContent).toContain("15 ноября 2026");expect(tooltip.textContent).toContain("-12,3456789012345 баллов");expect(point.getAttribute("aria-describedby")).toBe(tooltip.id);expect(point.getAttribute("aria-pressed")).toBe("true");
+  expect(chart.nextElementSibling?.textContent).toBe("2 из 3 периодов с данными");
+  await act(async () => point.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" })));expect(chart.querySelector('[role="tooltip"]')).toBeNull();
+  await act(async () => point.focus());expect(chart.querySelector('[role="tooltip"]')).not.toBeNull();await act(async () => point.blur());expect(chart.querySelector('[role="tooltip"]')).toBeNull();
+  await act(async () => point.dispatchEvent(new MouseEvent("click", { bubbles: true })));tooltip = chart.querySelector('[role="tooltip"]')!;expect(tooltip.getAttribute("data-point-key")).toBe("2026-11-09");
+  await act(async () => point.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: document.body })));expect(chart.querySelector('[role="tooltip"]')).toBeNull();
+});
+it("keeps missing seasonal bars distinct from zero and identifies their full periods", async () => {
+  const data = analytics();data.season_comparison[0].totals.kkr = null;data.season_comparison.push({ season_id: "current", title: "Текущий сезон", state: "open", starts_at: "2026-10-01T00:00:00Z", ends_at: "2027-01-31T00:00:00Z", basis: data.basis, totals: { completed_tasks: 1, credited_hours: 3, kkr: -2.25 } });
+  vi.spyOn(seasonsApi, "analytics").mockResolvedValue(data);await mount(<SeasonAnalytics seasonId="season-1" />);await click("ККР");await click("По сезонам");
+  const chart = page!.container.querySelector('[data-chart-canvas]')!, gap = chart.querySelector<SVGElement>('[data-point-key="old"]')!, negative = chart.querySelector<SVGElement>('[data-point-key="current"]')!;
+  await act(async () => gap.dispatchEvent(new MouseEvent("click", { bubbles: true })));expect(chart.querySelector('[role="tooltip"]')?.textContent).toContain("Старый сезон");expect(chart.querySelector('[role="tooltip"]')?.textContent).toContain("1 июня 2026");expect(chart.querySelector('[role="tooltip"]')?.textContent).toContain("Нет данных");expect(chart.querySelector('[role="tooltip"] strong')?.textContent).not.toContain("0");
+  await act(async () => negative.focus());expect(chart.querySelector('[role="tooltip"] strong')?.textContent).toBe("-2,25 баллов");expect(chart.querySelector('svg rect[data-negative="true"]')).not.toBeNull();
+});
+it("clears active chart tooltips when the metric, filters or observations change", async () => {
+  const data = analytics(), read = vi.spyOn(seasonsApi, "analytics").mockResolvedValue(data);await mount(<SeasonAnalytics seasonId="season-1" />);
+  const activate = async () => { await act(async () => page!.container.querySelector('[data-chart-canvas] [role="button"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true })));expect(page!.container.querySelector('[role="tooltip"]')).not.toBeNull(); };
+  await activate();await click("Учтённые часы");expect(page!.container.querySelector('[role="tooltip"]')).toBeNull();
+  await activate();await change(field(page!.container, "participant"), "person-1");await waitForPage(page!);expect(page!.container.querySelector('[role="tooltip"]')).toBeNull();
+  await activate();await change(field(page!.container, "participant"), "");await waitForPage(page!);expect(page!.container.querySelector('[role="tooltip"]')).toBeNull();
+  await activate();read.mockResolvedValue({ ...data, weekly: data.weekly.map(row => ({ ...row, credited_hours: 7 })) });await act(async () => { await page!.client.invalidateQueries({ queryKey: ["summary", "analytics", "season-1", "", ""] }); });await waitForPage(page!);expect(page!.container.querySelector('[role="tooltip"]')).toBeNull();expect(page!.container.querySelector('[data-chart-canvas] [role="button"]')?.getAttribute("aria-label")).toContain("7 ч");
+});

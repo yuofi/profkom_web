@@ -24,7 +24,7 @@ async function mount() {
   const queue = { ...transport.state.queues[0], queue_id: "queue-blank", key: "BLANK", name: "Свободные задачи", scope: null, capabilities: ["create_task"] };
   vi.spyOn(taskQueuesApi, "catalog").mockResolvedValue({ items: [queue], next_cursor: null });
   const container = document.createElement("div");document.body.append(container);const root = createRoot(container), client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const router = createMemoryRouter([{ element: <UnsavedChangesProvider><Outlet /></UnsavedChangesProvider>, children: [{ path: "/tasks/new", element: <TrackerTaskCreatePage /> }, { path: "/tasks/queues/:id", element: <p>Страница очереди</p> }, { path: "/tasks/:id", element: <p>Созданная задача</p> }] }], { initialEntries: ["/tasks/new?queue_id=queue-blank"] });
+  const router = createMemoryRouter([{ element: <UnsavedChangesProvider><Outlet /></UnsavedChangesProvider>, children: [{ path: "/tasks", element: <p>Общий список задач</p> }, { path: "/tasks/new", element: <TrackerTaskCreatePage /> }, { path: "/tasks/queues/:id", element: <p>Страница очереди</p> }, { path: "/tasks/:id", element: <p>Созданная задача</p> }] }], { initialEntries: ["/tasks/new?queue_id=queue-blank"] });
   await act(async () => root.render(<QueryClientProvider client={client}><SessionContext.Provider value={{ session: transport!.state.session, loading: false, error: null, refresh: () => {} }}><RouterProvider router={router} /></SessionContext.Provider></QueryClientProvider>));
   cleanup = async () => { await act(async () => root.unmount());router.dispose();client.clear();container.remove(); };
   const page = { container, client, router };await waitForPage(page, () => !!container.querySelector("form"));return page;
@@ -44,4 +44,17 @@ it("a successful explicit create redirects without a stale unsaved-draft dialog"
   const page = await mount();vi.spyOn(tasksApi, "create").mockResolvedValue({ ...transport!.state.tasks[0], task_id: "created-task", scope: { kind: "queue", id: "queue-blank" }, assignees: [], assignments: [], watchers: [] });
   await change(field(page.container, "title"), "Создать без исполнителей");await change(field(page.container, "deadline"), "2026-10-29T18:00");await submit(page.container.querySelector("form")!);await waitForPage(page, () => page.router.state.location.pathname === "/tasks/created-task");
   expect(page.container.querySelector("dialog")).toBeNull();expect(page.container.textContent).toContain("Созданная задача");
+});
+
+
+it("the tracker stamp guards an unsaved task draft before returning to all tasks", async () => {
+  const page = await mount(), create = vi.spyOn(tasksApi, "create");
+  await change(field(page.container, "description"), "Не терять черновик задачи");
+  const home = () => [...page.container.querySelectorAll<HTMLAnchorElement>("a")].find(link => link.textContent === "Профком ВМК · Трекер")!;
+  expect(home().getAttribute("href")).toBe("/tasks");
+  await act(async () => home().click());
+  expect(page.router.state.location.pathname).toBe("/tasks/new");expect(page.container.querySelector("dialog")?.textContent).toContain("Есть несохранённые изменения");
+  await act(async () => button(page.container, "Остаться").click());expect(field(page.container, "description").value).toBe("Не терять черновик задачи");
+  await act(async () => home().click());await act(async () => button(page.container, "Уйти без сохранения").click());
+  expect(page.router.state.location.pathname).toBe("/tasks");expect(page.container.textContent).toContain("Общий список задач");expect(create).not.toHaveBeenCalled();
 });

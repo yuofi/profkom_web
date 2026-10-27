@@ -179,13 +179,24 @@ it("uses real queue and parent breadcrumbs while keeping the scope in task param
   await mountTask(task);
   const trail = page!.container.querySelector('[aria-label="Путь задачи"]')!;
   expect([...trail.querySelectorAll("a")].map(link => link.getAttribute("href"))).toEqual(["/tasks/queues/queue-design", "/tasks/parent-task"]);
-  expect(trail.textContent).toContain("Дизайн");expect(trail.textContent).not.toContain(task.scope_title);
+  expect(trail.tagName).toBe("NAV");expect([...trail.querySelectorAll("a")].map(link => link.textContent)).toEqual(["Очередь задач", "Подготовить запуск"]);
+  expect(trail.querySelector('[aria-current="page"]')?.textContent).toBe(task.task_key);expect(trail.querySelectorAll('a,[aria-current="page"]')).toHaveLength(3);
+  expect(trail.textContent).not.toContain("WEB-12");expect(trail.textContent).not.toContain("Дизайн");expect(trail.textContent).not.toContain(task.scope_title);
   expect(page!.container.querySelector('[aria-label="Параметры задачи"]')?.textContent).toContain(task.scope_title);
+});
+
+it.each([true, false])("without a parent the breadcrumb has only the queue and current key (queue supplied: %s)", async (hasQueue) => {
+  const task = makeTask({ parent_task: null, queue: hasQueue ? { queue_id: "queue-design", name: "Дизайн", key: "DSN" } : undefined });
+  await mountTask(task);
+  const trail = page!.container.querySelector('[aria-label="Путь задачи"]')!;
+  expect(trail.querySelectorAll('a,[aria-current="page"]')).toHaveLength(2);
+  expect(trail.querySelector("a")?.textContent).toBe("Очередь задач");expect(trail.querySelector("a")?.getAttribute("href")).toBe(hasQueue ? "/tasks/queues/queue-design" : "/tasks/queues");
+  expect(trail.querySelector('[aria-current="page"]')?.textContent).toBe(task.task_key);
 });
 
 it("selects and clears a cross-queue parent in one combobox with revision protection", async () => {
   let task = makeTask({ capabilities: ["read_task", "edit_task"], queue: { queue_id: "queue-design", name: "Дизайн", key: "DSN" }, parent_task: null });
-  const other = makeTask({ task_id: "other-task", title: "Задача из другой очереди", queue: { queue_id: "queue-web", name: "Разработка", key: "WEB" } });
+  const other = makeTask({ task_id: "other-task", task_key: "WEB-12", title: "Задача из другой очереди", queue: { queue_id: "queue-web", name: "Разработка", key: "WEB" } });
   const candidates = vi.spyOn(tasksApi, "listPage").mockResolvedValue({ items: [task, other, makeTask({ task_id: "wrong-season", season_id: "other-season", title: "Другой сезон" })], total: 3, next_cursor: null });
   const update = vi.spyOn(tasksApi, "update").mockImplementation(async (_id, payload) => { task = { ...task, revision: task.revision + 1, parent_task: payload.parent_task_id ? { task_id: other.task_id, task_key: other.task_key!, title: other.title } : null };return task; });
   await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async id => id === other.task_id ? other : task);await click("Изменить родительскую задачу");
@@ -195,6 +206,9 @@ it("selects and clears a cross-queue parent in one combobox with revision protec
   await change(input, "WEB");await waitForPage(page!);expect(candidates).toHaveBeenLastCalledWith({ season_id: task.season_id, q: "WEB", limit: 100 });
   await act(async () => dialog.querySelector<HTMLElement>('[role="option"]')!.click());await submit(dialog.querySelector("form")!);await waitForPage(page!);
   expect(update).toHaveBeenLastCalledWith(task.task_id, { expected_revision: task.revision - 1, parent_task_id: other.task_id });expect(page!.container.querySelector('[aria-label="Путь задачи"]')?.textContent).toContain(other.title);
+  const trail = page!.container.querySelector('[aria-label="Путь задачи"]')!;
+  expect([...trail.querySelectorAll("a")].map(link => [link.textContent, link.getAttribute("href")])).toEqual([["Очередь задач", "/tasks/queues/queue-design"], [other.title, "/tasks/other-task"]]);
+  expect(trail.querySelector('[aria-current="page"]')?.textContent).toBe(task.task_key);
   await act(async () => dialog.querySelector<HTMLButtonElement>('[aria-label="Убрать родительскую задачу"]')!.click());await submit(dialog.querySelector("form")!);await waitForPage(page!);
   expect(update).toHaveBeenLastCalledWith(task.task_id, { expected_revision: task.revision - 1, parent_task_id: null });
 });

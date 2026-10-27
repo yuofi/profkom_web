@@ -1,3 +1,4 @@
+import { TrackerHomeLink } from "../../components/Workspace/TrackerHomeLink";
 import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
@@ -60,7 +61,7 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId }: {
   const external = { queueId, title, body, deadline, season, assignees, watch, parentId, files };
   const [initial] = useState(external);
   return <>
-    <BrandedHeader className={s.header}><p className={`${w.eyebrow} ${s.brandLabel}`}>Профком ВМК · Трекер</p><nav aria-label="Путь новой задачи"><Link to={returnRoute}>{queue?.name ?? "Очереди"}</Link><span>›</span><span>Новая задача</span></nav><div className={s.titleRow}><h1 className={w.title}>Новая задача</h1><Link className={w.button} to={returnRoute}>Отмена</Link></div></BrandedHeader>
+    <BrandedHeader className={s.header}><TrackerHomeLink className={s.brandLabel} /><nav aria-label="Путь новой задачи"><Link to={returnRoute}>{queue?.name ?? "Очереди"}</Link><span>›</span><span>Новая задача</span></nav><div className={s.titleRow}><h1 className={w.title}>Новая задача</h1><Link className={w.button} to={returnRoute}>Отмена</Link></div></BrandedHeader>
     <ActionForm fields={[]} submitLabel="Создать задачу" externalState={external} savedExternalState={initial} externalBusy={uploading || saving || queue?.scope?.kind === "subevent" && context.isFetching}
       disabled={!queue || saving} allowExitSave={false}
       onSubmit={async () => {

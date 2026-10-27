@@ -1,3 +1,4 @@
+import { TrackerHomeLink } from "../../components/Workspace/TrackerHomeLink";
 import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
 import { EntityPicker } from "../../components/Workspace/EntityPicker";
 import { useEffect, useRef, type MouseEvent, type KeyboardEvent, type ReactNode } from "react";
@@ -124,7 +125,7 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
   if (filters.overdue === "true") active.push({ key: "overdue", label: "Просроченные" });
   return <section className={s.page}>
     {header ?? <BrandedHeader className={s.header}>
-      <div><p className={w.eyebrow}>Профком ВМК · Трекер</p><h1 className={w.title}>Задачи</h1><p className={w.description}>Одна совместная работа — одна задача и общий статус.</p></div>
+      <div><TrackerHomeLink /><h1 className={w.title}>Задачи</h1><p className={w.description}>Одна совместная работа — одна задача и общий статус.</p></div>
       <div className={s.headerLinks}><RouteLink to={getTaskQueuesRoute()}>Очереди</RouteLink>{can(session, "view_unresolved_assignments") && <RouteLink to="/tasks/unresolved">Оставшаяся работа</RouteLink>}</div>
     </BrandedHeader>}
     <div className={s.topbar}>

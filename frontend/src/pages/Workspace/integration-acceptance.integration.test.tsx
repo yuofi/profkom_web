@@ -49,6 +49,24 @@ it("INT-01: real session opens only the manager's queue and loses access with th
   await waitForPage(page, () => !!page!.container.textContent?.includes(task.title));
   expect(page.container.textContent).toContain(task.title);
   expect(page.container.textContent).not.toContain("Нет доступа к очереди");
+  // A private hours correction advances input versioning without the raw assignment
+  // counter. The reassignment dialog must use the authoritative input revision.
+  const oldAssignment = task.assignments[0], publicBefore = await tasksApi.get(task.task_id);
+  const privateBefore = await tasksApi.assessment(oldAssignment.assignment_id);
+  const corrected = await tasksApi.updateAssessment(oldAssignment.assignment_id, { expected_revision: privateBefore.revision, hours: 3, reason: "INT-01 уточнили часы перед переназначением" });
+  const queued = (await tasksApi.unresolved()).items.find(item => item.assignment.assignment_id === oldAssignment.assignment_id)!;
+  expect(corrected.revision).not.toBe(queued.assignment.revision);
+  await act(async () => invalidateWorkspace(page!.client));await waitForPage(page);
+  const action = [...page.container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.getAttribute("aria-label")?.startsWith(`Переназначить: ${task.title} ·`))!;
+  expect(action).toBeDefined();await act(async () => action.click());await waitForPage(page, () => !!page!.container.querySelector('dialog [name="user"]'));
+  const replacement = page.container.querySelector<HTMLFormElement>("dialog form")!;
+  await change(field(replacement, "user"), String(master.user_id));await change(field(replacement, "hours"), "4");await change(field(replacement, "outcome"), "cancelled");await change(field(replacement, "reason"), "INT-01 мастер принял оставшуюся работу");await submit(replacement);await waitForPage(page, () => !page!.container.querySelector("dialog"));
+  const reassigned = await tasksApi.get(task.task_id), nextAssignment = reassigned.assignments.find(assignment => assignment.assignee.user_id === master.user_id)!;
+  expect(nextAssignment.assignment_id).not.toBe(oldAssignment.assignment_id);expect(reassigned.assignments.some(assignment => assignment.assignment_id === oldAssignment.assignment_id)).toBe(true);
+  const previousInputs = await tasksApi.assessment(oldAssignment.assignment_id), nextInputs = await tasksApi.assessment(nextAssignment.assignment_id);
+  expect([previousInputs.workflow_status, previousInputs.hours, previousInputs.evaluation]).toEqual(["cancelled", 3, null]);expect([nextInputs.workflow_status, nextInputs.hours, nextInputs.evaluation]).toEqual(["assigned", 4, null]);
+  expect(reassigned.status).toBe(publicBefore.status);expect(reassigned.submissions).toEqual(publicBefore.submissions);
+  expect((await tasksApi.history(task.task_id)).items.some(event => event.kind === "assignee_changed" && event.actor?.user_id === master.user_id && event.changes?.some(change => change.field === "assignees"))).toBe(true);
   await page.cleanup(); page = undefined;
   await liveLogin();
   const current = await membershipApi.block(block.block_id);

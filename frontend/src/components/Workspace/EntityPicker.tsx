@@ -142,7 +142,7 @@ export function EntityPicker(props: EntityPickerProps) {
           aria-label={!props.label && !props.labelledBy ? "Поиск и выбор" : undefined} aria-labelledby={props.labelledBy ?? (props.label ? `${id}-label` : undefined)}
           aria-autocomplete="list" aria-expanded={expanded} aria-controls={expanded ? `${id}-options` : undefined} aria-activedescendant={expanded && activeIndex >= 0 ? `${id}-option-${activeIndex}` : undefined}
           aria-required={props.required || undefined} aria-invalid={props.invalid || undefined} aria-describedby={props.describedBy} disabled={props.disabled}
-          placeholder={props.placeholder ?? (props.multiple ? "Найти и добавить…" : "Найти и выбрать…")} value={search}
+          placeholder={selected.length ? props.multiple ? "Найти и добавить…" : "Изменить выбор…" : props.placeholder ?? (props.multiple ? "Найти и добавить…" : "Найти и выбрать…")} value={search}
           onFocus={activate} onClick={activate} onChange={event => { setSearch(event.target.value);setActive(0);activate(); }}
           onKeyDown={event => {
             if (event.key === "Enter") { event.preventDefault();event.stopPropagation();if (expanded && activeIndex >= 0) choose(filtered[activeIndex]);else activate(); }
