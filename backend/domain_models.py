@@ -40,6 +40,7 @@ class BlockMetaORM(Base):
     description = Column(Text, nullable=False, default="")
     community_url = Column(String, nullable=True)
     avatar_file_id = Column(String, nullable=True)
+    hr_user_id = Column(Integer, ForeignKey("users.user_id"), nullable=True)
     revision = Column(Integer, nullable=False, default=1)
 
 

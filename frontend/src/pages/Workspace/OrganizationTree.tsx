@@ -24,14 +24,14 @@ export function OrganizationTree({ blocks, leadership, people }: OrganizationTre
   const identities = new Map<number, UserRef>();
   const remember = (user: UserRef) => { if (user.user_id !== null) identities.set(user.user_id, user); };
   people.forEach(remember);
-  blocks.forEach(block => { block.members.forEach(member => remember(member.user));if (block.master) remember(block.master.user); });
+  blocks.forEach(block => { block.members.forEach(member => remember(member.user));if (block.master) remember(block.master.user);if (block.hr) remember(block.hr); });
   if (leadership.chair) remember(leadership.chair);
   leadership.deputies.forEach(remember);
   const rows = blocks.map(block => {
     const leaderIds = new Set([block.master?.user.user_id, ...(block.master?.deputy_user_ids ?? [])]);
     const deputies = [...new Set(block.master?.deputy_user_ids ?? [])].filter(userId => userId !== block.master?.user.user_id);
     const members = block.members.filter(member => member.user.user_id === null || !leaderIds.has(member.user.user_id));
-    const users = [...(block.master ? [block.master.user] : []), ...deputies.flatMap(userId => { const user = identities.get(userId);return user ? [user] : []; }), ...members.map(member => member.user)];
+    const users = [...(block.master ? [block.master.user] : []), ...(block.hr ? [block.hr] : []), ...deputies.flatMap(userId => { const user = identities.get(userId);return user ? [user] : []; }), ...members.map(member => member.user)];
     return { block, deputies, members, matches: matches(block.name) || users.some(user => matches(user.display_name)) };
   });
   const shown = searching ? rows.filter(row => row.matches) : rows;
@@ -71,6 +71,7 @@ export function OrganizationTree({ blocks, leadership, people }: OrganizationTre
               const user = identities.get(userId);
               return <li key={userId}>{user ? <UserChip user={user} className={matchClass(user.display_name)} /> : <UserChip user={{ user_id: null, display_name: "Профиль недоступен", avatar_url: null }} interactive={false} />}</li>;
             })}</ul></div>}
+            <div className={s.leaderRow}><h3>HR</h3>{block.hr ? <UserChip user={block.hr} className={matchClass(block.hr.display_name)} /> : <span className={s.empty}>Не назначен</span>}</div>
           </section>
           <div className={s.members}>
             <h3>Участники</h3>

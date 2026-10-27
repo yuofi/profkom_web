@@ -84,7 +84,7 @@ it("A02: adapter errors and FastAPI field errors use the same normalizer", async
 
 async function fillMerit(container: HTMLElement, userId: number) {
   await pick(container, "users", String(userId));
-  for (const [name, value] of Object.entries({ title: "Помощь", body: "Выполненная работа", assigned: "2026-10-01T13:00", deadline: "2026-10-10T13:00", reason: "Подтверждено руководителем", [`hours_${userId}`]: "4", [`evaluation_${userId}`]: "0" })) await change(field(container, name), value);
+  for (const [name, value] of Object.entries({ title: "Помощь", body: "Выполненная работа", assigned: "2026-10-01T13:00", deadline: "2026-10-10T13:00", [`hours_${userId}`]: "4", [`evaluation_${userId}`]: "0" })) await change(field(container, name), value);
   await submit(container.querySelector("form")!);
 }
 

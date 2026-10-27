@@ -112,6 +112,8 @@ export interface Block extends Versioned, BlockRef {
   is_hr: boolean;
   description: RichText;
   master: Leader | null;
+  /** Scoped HR curator; this service role does not imply ordinary block membership. */
+  hr?: UserRef | null;
   members: { user: UserRef; block_category: "junior" | "member" }[];
   guide_material_id: string | null;
   community_url: string | null;
@@ -368,11 +370,12 @@ export interface MeritCreate {
     evaluation: -1 | 0 | 1 | 1.5;
     completed_at: string | null;
   }[];
-  reason: string;
+  reason?: string;
 }
 /** The fields PATCH /merits/{id} accepts: kind, season and scope are fixed at creation. */
 export type MeritPatch = Pick<MeritCreate, "title" | "description" | "assigned_at" | "deadline_at" | "criteria" | "recipients">;
 export interface Merit extends MeritCreate, Versioned {
+  reason: string;
   merit_id: string;
   created_by: UserRef;
   created_at: string;

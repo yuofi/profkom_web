@@ -9,6 +9,8 @@ import { Empty, Glyph, QueryState, RouteLink } from "../../components/Workspace/
 import { taskQueuesApi } from "../../utils/api/taskQueues.api";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
+import { membershipApi } from "../../utils/api/membership.api";
+import { eventsApi } from "../../utils/api/events.api";
 import { directoryApi } from "../../utils/api/directory.api";
 import type { ScopeRef, Task, TaskQueue } from "../../utils/api/contract";
 import { can, useSession } from "../../utils/session";
@@ -84,6 +86,9 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
   const selectedScope = scopes.find((scope) => scope.kind === filters.scope_kind && scope.id === filters.scope_id);
   const scope: ScopeRef | null = queue?.scope ?? (["block", "subevent"].includes(filters.scope_kind) && filters.scope_id
     ? { kind: filters.scope_kind as ScopeRef["kind"], id: filters.scope_id } : null);
+  const scopedCreation = useQuery({ queryKey: ["tasks", "list-create-capability", scope?.kind, scope?.id], enabled: !!scope && !queue,
+    queryFn: async () => scope ? can(await (scope.kind === "block" ? membershipApi.block(scope.id) : eventsApi.subevent(scope.id)), "create_task") : false });
+  const canCreateInScope = (!scopedCreation.error || canRetainData(scopedCreation.error)) && scopedCreation.data === true;
   const scopeValue = scope ? JSON.stringify([scope.kind, scope.id]) : "";
   const update = (key: string, value: string, replace = false) => {
     const next = new URLSearchParams(params);
@@ -149,7 +154,7 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
     </BrandedHeader>}
     <div className={s.topbar}>
       <label className={s.search}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg><input type="search" aria-label="Поиск задач" placeholder="Название или ключ задачи" value={filters.q} onChange={(event) => update("q", event.target.value, true)} /></label>
-      {(queue ? can(queue, "create_task") : queues.data?.items.some(item => can(item, "create_task"))) && <RouteLink to={getTaskCreateRoute({ queueId: queue?.queue_id, ...(scope ? { scope } : {}) })}>Создать задачу</RouteLink>}
+      {(queue ? can(queue, "create_task") : canCreateInScope || queues.data?.items.some(item => can(item, "create_task"))) && <RouteLink to={getTaskCreateRoute({ queueId: queue?.queue_id, ...(scope ? { scope } : {}) })}>Создать задачу</RouteLink>}
       <div className={s.views} aria-label="Представление задач">
         {([["list", "Список"], ["calendar", "Календарь"], ["gantt", "Гантт"]] as const).map(([key, label]) => <button key={key} type="button" aria-pressed={view === key} onClick={() => update("view", key === "list" ? "" : key)}>{label}</button>)}
       </div>

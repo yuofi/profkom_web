@@ -19,6 +19,7 @@ actor_id = ContextVar("profkom_actor_id", default=None)
 CHAIR = "chair"
 CHAIR_DEPUTY = "chair_deputy"
 HR_MASTER = "hr_master"
+HR_DEPUTY = "hr_deputy"  # the actual deputy of the configured HR block
 HR_TRACKER_READER = "hr_tracker_reader"  # narrowly scoped global tracker read, not KKR/reports
 PGAS_ADMIN = "pgas_admin"
 BLOCK_LEAD_ANYWHERE = "block_lead_anywhere"  # master or deputy of some block
@@ -26,6 +27,7 @@ QUEUE_HOLDER = "queue_holder"  # leads some block, event or subevent
 # Block
 BLOCK_MASTER = "block_master"
 BLOCK_DEPUTY = "block_deputy"
+BLOCK_HR = "block_hr"  # explicit HR curator of this block; never a membership/guide role
 BLOCK_MEMBER = "block_member"
 # Event; a subevent also inherits the relations to its event
 EVENT_LEADER = "event_leader"
@@ -84,13 +86,13 @@ POLICY = {
     "subevent.report.read": SUBEVENT_READERS,
     "report.read_all": TACHKI | {HR_MASTER},  # every published report, closed seasons too
     # Tasks; the scope is a block or a subevent
-    "task.view": TACHKI | {HR_MASTER,HR_TRACKER_READER} | AREA_TEAM,
-    "task.create": TACHKI | {HR_MASTER,HR_TRACKER_READER} | AREA_TEAM,
-    "task.assign_others": TACHKI | AREA_LEADS,
+    "task.view": TACHKI | {HR_MASTER,HR_TRACKER_READER,BLOCK_HR} | AREA_TEAM,
+    "task.create": TACHKI | {HR_MASTER,HR_TRACKER_READER,BLOCK_HR} | AREA_TEAM,
+    "task.assign_others": TACHKI | AREA_LEADS | {BLOCK_HR},
     "task.edit": ByState({"*": TACHKI | {HR_MASTER} | AREA_LEADS, "closed": TACHKI}),  # public task editing; closed seasons keep chair-only leadership policy
-    "task.review": ByState({"*": TACHKI | {HR_MASTER} | AREA_LEADS, "closed": TACHKI}),
-    "task.inputs.view": TACHKI | {HR_MASTER} | AREA_LEADS,
-    "task.inputs.edit": ByState({"*": TACHKI | {HR_MASTER} | AREA_LEADS, "closed": TACHKI}),
+    "task.review": ByState({"*": TACHKI | {HR_MASTER,BLOCK_HR} | AREA_LEADS, "closed": TACHKI}),
+    "task.inputs.view": TACHKI | {HR_MASTER,BLOCK_HR} | AREA_LEADS,
+    "task.inputs.edit": ByState({"*": TACHKI | {HR_MASTER,BLOCK_HR} | AREA_LEADS, "closed": TACHKI}),
     # Issue date, deadline and completion date, once set; area leads do not move them (УВ-5)
     "task.dates.edit": ByState({"*": SUMMARY, "closed": TACHKI}),
     "queue.view": TACHKI | {HR_MASTER, QUEUE_HOLDER},
@@ -102,21 +104,23 @@ POLICY = {
     "summary.correct": TACHKI,  # closed season corrections (АВ-2)
     "merit.create.chair": TACHKI,
     "merit.create.head": TACHKI | EVENT_LEADS,  # decision 12
-    "merit.create.block_volunteer": TACHKI | {HR_MASTER} | BLOCK_LEADS,
+    "merit.create.block_volunteer": TACHKI | {HR_MASTER,BLOCK_HR} | BLOCK_LEADS,
     "merit.create.subevent_volunteer": TACHKI | {HR_MASTER} | EVENT_LEADS | SUB_LEADS,  # A-KKR-8 (a)
     "merit.manage.chair_merit": ByState({"*": SUMMARY, "closed": TACHKI}),
     "merit.manage.head_merit": ByState({"*": SUMMARY | EVENT_LEADS, "closed": TACHKI}),
-    "merit.manage.block_volunteer": ByState({"*": SUMMARY | BLOCK_LEADS, "closed": TACHKI}),
+    "merit.manage.block_volunteer": ByState({"*": SUMMARY | BLOCK_LEADS | {BLOCK_HR}, "closed": TACHKI}),
     "merit.manage.subevent_volunteer": ByState({"*": SUMMARY | EVENT_LEADS | SUB_LEADS, "closed": TACHKI}),
     # Blocks and membership
     "block.edit": TACHKI | BLOCK_LEADS,
     "block.rename": TACHKI,
     "block.remove_member": TACHKI | {HR_MASTER} | BLOCK_LEADS,  # A-ROL-2
     "block.manage_leader": TACHKI,
+    "block.hr.assign": TACHKI | {HR_MASTER},
     "block.manage_master_deputies": TACHKI | {BLOCK_MASTER},
-    "block.review_hr_stage": {HR_MASTER},  # the chair and deputies substitute after 72 hours
+    "block.review_hr_stage": {HR_MASTER,HR_DEPUTY},  # the chair and deputies substitute after 72 hours
     "block.review_block_stage": BLOCK_LEADS,
-    "block_request.view_all": TACHKI | {HR_MASTER},
+    "block_request.view_all": TACHKI | {HR_MASTER,HR_DEPUTY},
+    "block_request.navigate": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_LEAD_ANYWHERE},
     # Checked on the HR block: its whole team reads every request and why it was rejected (decision 16)
     "block_request.view_as_hr": BLOCK_LEADS | {BLOCK_MEMBER},
     "participant.category": SUMMARY,
@@ -182,8 +186,8 @@ def _global(uid):
     hr_blocks = _hr_block_names()
     for a in db.get_user_assignments(uid):
         if a.scope_kind == "block" and a.role == "deputy_master" and a.scope_id in hr_blocks:
-            rel.add(HR_TRACKER_READER)
-            continue  # only tracker read/create is added; reports/KKR remain unchanged
+            rel.update({HR_TRACKER_READER,HR_DEPUTY})
+            continue  # tracker read/create and HR-stage review, never global KKR/reports
         if a.role in QUEUE_ROLES.get(a.scope_kind, set()):
             rel.add(QUEUE_HOLDER)
         if a.scope_kind == "block" and a.role in ("master", "deputy_master"):
@@ -204,6 +208,11 @@ def _block(uid, block_id):
         rel.add(BLOCK_DEPUTY)
     if db.is_block_member(uid, name):
         rel.add(BLOCK_MEMBER)
+    from domain_models import BlockMetaORM
+    with db._session() as session:
+        metadata = session.query(BlockMetaORM).filter_by(legacy_name=name).one_or_none()
+        if metadata and getattr(metadata, "hr_user_id", None) == uid:
+            rel.add(BLOCK_HR)
     return rel
 
 
@@ -306,6 +315,7 @@ def scope_access_revision(uid):
     """Memberships and organizer rosters are not RoleAssignments in session. Blocks count
     by ID, so renaming a block does not change its members' revision (A-FE-1)."""
     from database import SubeventORM,TaskQueueORM,TaskQueueMemberORM
+    from domain_models import BlockMetaORM
     from membership import block_id_for
 
     user = db.get_user(uid)
@@ -321,6 +331,7 @@ def scope_access_revision(uid):
         scopes.append(all_queue_reader(uid))
         scopes.append(sorted((q.queue_id,q.owner_user_id,q.is_private,q.revision) for q in session.query(TaskQueueORM)))
         scopes.append(sorted((m.queue_id,m.active,m.request_id,m.revoked_at) for m in session.query(TaskQueueMemberORM).filter_by(user_id=uid)))
+        scopes.append(sorted((row.block_id,getattr(row,"hr_user_id",None)) for row in session.query(BlockMetaORM)))
     return hashlib.sha256(json.dumps(scopes, ensure_ascii=True).encode()).hexdigest()
 
 
@@ -333,6 +344,8 @@ GLOBAL_CAPS = {
     "create_material": "material.create",
     "create_shared_material": "material.create_general",  # A-MAT-13
     "view_unresolved_assignments": "queue.view",
+    "view_block_requests": "block_request.navigate",
+    "assign_block_hr": "block.hr.assign",
     "create_event": "event.create",
     "review_registrations": "registration.review",
     "create_chair_merit": "merit.create.chair",
@@ -478,6 +491,7 @@ BLOCK_CAPS = {
     "create_volunteer_merit": "merit.create.block_volunteer",
     "remove_member": "block.remove_member",
     "manage_leaders": "block.manage_leader",
+    "assign_block_hr": "block.hr.assign",
 }
 
 

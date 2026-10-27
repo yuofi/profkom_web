@@ -107,6 +107,8 @@ export function createFixtures(role: MockRole = "organizer") {
   const caps = active
     ? [
         "read",
+        ...(manager || role === "hr-deputy" ? ["view_block_requests"] : []),
+        ...(global ? ["assign_block_hr"] : []),
         ...(eventManager
           ? allManagement
           : role === "hr"
@@ -394,6 +396,7 @@ export function createFixtures(role: MockRole = "organizer") {
       ],
     },
   ];
+  for (const block of blocks) { block.hr = null;if (global) block.capabilities.push("assign_block_hr"); }
   blocks.push({
     ...structuredClone(blocks[0]),
     block_id: "block-hr",

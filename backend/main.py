@@ -240,6 +240,7 @@ class BlockOut(BaseModel):
     is_hr: bool
     description: dict
     master: Optional[dict] = None
+    hr: Optional[UserRefOut] = None
     members: list[dict]
     guide_material_id: Optional[str] = None
     community_url: Optional[str] = None
@@ -910,7 +911,7 @@ class MeritCreateIn(Command):
     deadline_at: str
     criteria: CriteriaSchema = CriteriaSchema()
     recipients: list[MeritRecipientIn]
-    reason: str
+    reason: str = "Создание записи учёта работы"
 
 
 class MeritPatchIn(Command):
@@ -3318,6 +3319,8 @@ from registration import register_routes as register_registration_routes
 register_registration_routes(router)
 from membership import register_routes as register_membership_routes
 register_membership_routes(router)
+from block_hr import register_routes as register_block_hr_routes
+register_block_hr_routes(router)
 from season_summaries import register_routes as register_summary_routes
 register_summary_routes(router)
 from season_analytics import register_routes as register_analytics_routes

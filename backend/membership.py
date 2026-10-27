@@ -130,6 +130,8 @@ def replace_block_avatar(session, meta, file_id, uid):
 
 
 def card(s, b, uid):
+    from block_hr import user_ref
+
     m = meta_for(s, b.name)
     seed_members(s, b, m)
     leaders = _load_leaders(s, "block", b.name, "master")
@@ -162,6 +164,7 @@ def card(s, b, uid):
         is_hr=b.is_hr,
         description=dict(format="markdown", body=m.description),
         master=master,
+        hr=user_ref(s, m),
         members=members,
         guide_material_id=guide_id,
         community_url=m.community_url,
@@ -436,6 +439,10 @@ def register_routes(router):
                 s.query(MembershipORM)
                 .filter_by(user_id=cur.user_id, block_id=bid, left_at=None)
                 .first()
+                # Service roles do not create ordinary membership. Use the
+                # current role helpers, including the HR master's deputies.
+                or db.is_block_master(cur.user_id, name)
+                or db.is_block_master_deputy(cur.user_id, name)
             ):
                 fail(409, "Already a member", "already_member")
             r = (

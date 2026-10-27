@@ -19,6 +19,8 @@ export const membershipApi = {
       avatar_file_id?: string | null;
     },
   ) => request<Block>("patch", `/blocks/${idPath(id)}`, data),
+  assignHr: (id: string, data: Revision & { user_id: number | null }) =>
+    request<Block>("put", `/blocks/${idPath(id)}/hr`, data),
   requests: () => page<BlockRequest>("/block-requests"),
   join: (block_id: string) =>
     request<BlockRequest>("post", "/block-requests", { block_id }),

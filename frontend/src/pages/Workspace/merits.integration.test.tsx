@@ -103,7 +103,6 @@ it("1.2: recording a work leaves an empty form, and a second click records nothi
   await change(field(form, `hours_${w.volunteer.user_id}`), "2");
   await change(field(form, `evaluation_${w.volunteer.user_id}`) as HTMLSelectElement, "1");
   await change(field(form, `completed_${w.volunteer.user_id}`), moscowInput(hoursAgo(2)));
-  await change(field(form, "reason"), "Постфактум");
   await submit(form);
   await waitForPage(page!, () => !!newCard().textContent?.includes(`Работа записана: ${title}`) || !!newCard().querySelector('[role="alert"]'));
   expect(newCard().querySelector('[role="alert"]')?.textContent).toBeUndefined();

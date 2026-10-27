@@ -2,9 +2,10 @@ import { useQuery } from "@tanstack/react-query";
 import type { ScopeRef } from "../../utils/api/contract";
 import { membershipApi } from "../../utils/api/membership.api";
 import { eventsApi } from "../../utils/api/events.api";
+import { canRetainData } from "../../utils/api/request";
 import { usePeopleOptions } from "../../utils/hooks/useWorkspace";
 export function useScopeMembers(scope: ScopeRef) {
-  const people = usePeopleOptions();
+  const people = usePeopleOptions({ includeNonMembers: true });
   const source = useQuery({
     queryKey: ["scopeMembers", scope.kind, scope.id],
     queryFn: async () => {
@@ -17,16 +18,20 @@ export function useScopeMembers(scope: ScopeRef) {
         ];
       }
       const sub = await eventsApi.subevent(scope.id);
+      const event = await eventsApi.get(sub.event_id);
       return [
         ...sub.organizer_user_ids,
+        ...event.leaders.flatMap((leader) => [leader.user.user_id, ...leader.deputy_user_ids]),
         ...sub.leaders.flatMap((l) => [l.user.user_id, ...l.deputy_user_ids]),
       ];
     },
   });
+  const errors = [source.error, people.error].filter(Boolean);
+  const error = errors.find(item => !canRetainData(item)) ?? errors[0];
   return {
     loading: source.isLoading || people.isLoading,
-    error: source.error ?? people.error,
-    options: people.options.filter((p) =>
+    error,
+    options: error && !canRetainData(error) ? [] : people.options.filter((p) =>
       source.data?.includes(Number(p.value)),
     ),
   };

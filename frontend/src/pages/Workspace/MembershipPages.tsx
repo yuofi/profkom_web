@@ -31,6 +31,7 @@ import {
 } from "../../utils/hooks/useWorkspace";
 import { Leaders } from "./EventPages";
 import { OrganizationTree } from "./OrganizationTree";
+import { BlockHr } from "./BlockHr";
 import s from "../../components/Workspace/Workspace.module.css";
 const requestStates = {
   pending_hr: "На рассмотрении HR",
@@ -65,7 +66,7 @@ export function BlocksPage() {
       title="Блоки"
       description="Структура Профкома: руководство, мастера блоков и участники."
       actions={
-        <RouteLink to="/blocks/requests">Мои заявки и решения</RouteLink>
+        <RouteLink to="/blocks/requests">{can(session, "view_block_requests") ? "Заявки в блоки" : "Мои заявки и решения"}</RouteLink>
       }
     >
       <QueryState keepDataOnError={ready}
@@ -85,8 +86,9 @@ export function BlockPage() {
     queryKey: ["workspaceBlocks", id],
     queryFn: () => membershipApi.block(id),
   });
-  const b = query.data;
+  const b = !query.error || canRetainData(query.error) ? query.data : undefined;
   const canViewTracker = can(b, "view_tasks");
+  const alreadyInBlock = !!b && !!session && (b.members.some(member => member.user.user_id === session.user_id) || b.master?.user.user_id === session.user_id || !!b.master?.deputy_user_ids.includes(session.user_id));
   const requests = useQuery({
     queryKey: ["blockRequests"],
     queryFn: membershipApi.requests,
@@ -169,6 +171,7 @@ export function BlockPage() {
                 />
               )}
             </Card>
+            <Card title="HR блока"><BlockHr block={b} /></Card>
             <Card title="Состав блока">
               <ul className={s.list}>
                 {b.members.map((m) => (
@@ -213,7 +216,7 @@ export function BlockPage() {
                     await perform(() => membershipApi.leave(id));
                   }}
                 />
-              ) : pending ? (
+              ) : alreadyInBlock ? null : pending ? (
                 <p>
                   Заявка: {requestStates[pending.state]} ·{" "}
                   <RouteLink to="/blocks/requests">Открыть</RouteLink>

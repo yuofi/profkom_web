@@ -200,6 +200,7 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ('POST', '/api/tasks/{task_id}/status'),
     ('POST', '/api/upload/presigned-url'),
     ('PUT', '/api/blocks/{block_id}/leader'),
+    ('PUT', '/api/blocks/{block_id}/hr'),
     ('PUT', '/api/events/{event_id}/leaders'),
     ('PUT', '/api/events/{event_id}/meeting'),
     ('PUT', '/api/guides/{guide_id}'),

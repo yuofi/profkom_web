@@ -1672,6 +1672,16 @@ export function installMockTransport(
       return [200, materialView(material)];
     }
     if (path === "/blocks") return [200, clone(state.blocks)];
+    if (parts[0] === "blocks" && parts[2] === "hr" && method === "put") {
+      const block = state.blocks.find(item => item.block_id === parts[1]);
+      if (!block) return fail(404, "not_found", "Блок недоступен");
+      if (!block.capabilities.includes("assign_block_hr")) return denied();
+      if (mismatch(data, block)) return conflict();
+      const person = data.user_id === null ? null : state.people.find(item => item.user_id === data.user_id);
+      if (data.user_id !== null && !person) return fail(422, "invalid_input", "Выберите действующего участника");
+      block.hr = person ? clone(person) : null;
+      return changed(block);
+    }
     if (parts[0] === "blocks") {
       const block = state.blocks.find((b) => b.block_id === parts[1]);
       if (!block) return fail(404, "not_found", "Блок не найден");
@@ -2154,8 +2164,10 @@ export function installMockTransport(
         Object.assign(merit, data);
         return changed(merit);
       }
+      if (data.reason !== undefined && (typeof data.reason !== "string" || !data.reason.trim())) return fail(422, "invalid_input", "Причина не может быть пустой");
       const merit: Merit = {
         ...(data as unknown as Merit),
+        reason: data.reason === undefined ? "Создание записи учёта работы" : String(data.reason),
         merit_id: parts[1] ?? id("merit"),
         created_by: state.user,
         created_at: mockNow,

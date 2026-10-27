@@ -500,7 +500,8 @@ def run(org, role):
 # ───────────────────────────── expected (RELEASE_PLAN.md, section 2) ─────────────────────────────
 ALL = set(ROLES)
 TACHKI = {"chair", "deputy"}  # chair and the chair's deputies
-HRM = {"hrmaster"}  # The HR deputy gains tracker read only, never private HR/KKR actions.
+HRM = {"hrmaster"}  # Global KKR remains exclusive to the master, not the HR deputy.
+REQUEST_HR = HRM | {"hrdeputy"}  # Owner decision 2026-10-28: both decide the HR stage.
 TRACKER_HR = HRM | {"hrdeputy"}
 EVENT_LEAD = {"head1", "head1dep"}
 SUB_LEAD = {"resp1", "resp1dep"}
@@ -554,7 +555,7 @@ EXPECTED = {
     "B1": ALL, "B1h": ALL,
     "B2": TACHKI | IT_LEAD, "B3": TACHKI | HRM,
     "B4": TACHKI | HRM | IT_LEAD, "B5": TACHKI | HRM,  # the master's deputy removes members (A-ROL-2)
-    "B6": HRM, "B7": HRM, "B8": IT_LEAD, "B9": HRM,  # chair and deputies only after 72 hours (АВ-29)
+    "B6": REQUEST_HR, "B7": REQUEST_HR, "B8": IT_LEAD, "B9": REQUEST_HR,  # chair and deputies only after 72 hours (АВ-29)
     "B12": TACHKI, "B13": TACHKI | {"master"}, "B14": TACHKI | HRM,
     "G1": TACHKI, "G2": TACHKI,  # the HR master does not review registrations (АВ-3)
     "A1": TACHKI, "A2": TACHKI, "A3": TACHKI,  # account archive (АВ-2)

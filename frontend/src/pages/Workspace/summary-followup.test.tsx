@@ -225,7 +225,6 @@ it("shows recipient inputs only for two selected people out of 100 and preserves
     body: "Описание работы",
     assigned: "2026-10-01T13:00",
     deadline: "2026-10-10T13:00",
-    reason: "Работа выполнена",
   }))
     await change(field(container, name), value);
   await submit(container.querySelector("form")!);

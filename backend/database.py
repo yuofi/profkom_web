@@ -659,6 +659,17 @@ def _ensure_sqlite_block_avatar_column() -> None:
 _ensure_sqlite_block_avatar_column()
 
 
+def _ensure_sqlite_block_hr_assignment_column() -> None:
+    """A curator is an explicit account ID; legacy HR names never grant rights."""
+    with engine.begin() as conn:
+        names = {row[1] for row in conn.execute(text("PRAGMA table_info(block_metadata)"))}
+        if names and "hr_user_id" not in names:
+            conn.execute(text("ALTER TABLE block_metadata ADD COLUMN hr_user_id INTEGER REFERENCES users(user_id)"))
+
+
+_ensure_sqlite_block_hr_assignment_column()
+
+
 def _ensure_sqlite_tracker_stage2_columns() -> None:
     """Add planning defaults only; existing workflow/KKR/history rows stay untouched."""
     with engine.begin() as conn:
@@ -5928,7 +5939,7 @@ class Database:
 
             from merit_rules import validate
             validate(session,merit_data)
-            reason = merit_data.get("reason")
+            reason = merit_data.get("reason", "Создание записи учёта работы")
             if not reason or not str(reason).strip():
                 raise InvalidInput("Reason is required")
 

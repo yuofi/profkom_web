@@ -122,7 +122,7 @@ function MeritEditor({
   seasonId: string;
   existing?: Merit;
   onCreated?: (merit: Merit) => void;
-  save?: (data: MeritCreate, revision: number, summaryVersion: number) => Promise<{revision: number; revisionKey: string}>;
+  save?: (data: MeritCreate & { reason: string }, revision: number, summaryVersion: number) => Promise<{revision: number; revisionKey: string}>;
   summaryVersion?: number;
   initialSource?: MeritCreate["source_kind"];
   initialScopeId?: string;
@@ -130,7 +130,7 @@ function MeritEditor({
   const { session } = useSession();
   const requestContextChange = useGuardedAction();
   const { perform, refresh } = useWorkspaceActions();
-  const people = usePeopleOptions();
+  const people = usePeopleOptions({ includeNonMembers: true });
   // An existing record needs the lists only for its scope name, so they never block its form.
   const contexts = useMeritContexts(true);
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list, enabled: !existing });
@@ -273,12 +273,7 @@ function MeritEditor({
           : "",
       },
     ]),
-    {
-      name: "reason",
-      label: "Основание записи / причина исправления",
-      required: true,
-      type: "textarea",
-    },
+    ...(existing ? [{ name: "reason", label: "Причина исправления", required: true, type: "textarea" as const }] : []),
   ];
   return (
     <QueryState
@@ -432,16 +427,16 @@ function MeritEditor({
                   ),
                 },
                 recipients,
-                reason: text(v, "reason"),
+                ...(existing ? { reason: text(v, "reason") } : {}),
               };
               if (save) {
-                return save(data, expectedRevision!, Number(expectedVersion));
+                return save({ ...data, reason: text(v, "reason") }, expectedRevision!, Number(expectedVersion));
               }
               if (existing)
                 return perform(() =>
                   seasonsApi.updateMerit(existing.merit_id, {
                     ...meritPatch(data),
-                    reason: data.reason,
+                    reason: text(v, "reason"),
                     expected_revision: expectedRevision!,
                   }),
                 );

@@ -129,7 +129,7 @@ it("A05: a failed refresh retains the same editor; a denied read removes it", as
 });
 
 async function meritBase(container: HTMLElement) {
-  for (const [name, value] of Object.entries({ title: "Помощь", body: "Выполненная работа", assigned: "2026-10-01T13:00", deadline: "2026-10-10T13:00", reason: "Учёт выполненного" })) await change(field(container, name), value);
+  for (const [name, value] of Object.entries({ title: "Помощь", body: "Выполненная работа", assigned: "2026-10-01T13:00", deadline: "2026-10-10T13:00" })) await change(field(container, name), value);
 }
 it("A06: selected missing recipients keep their fields and values until explicitly deselected", async () => {
   mock = installMockTransport("chair", { delay: 0 });
