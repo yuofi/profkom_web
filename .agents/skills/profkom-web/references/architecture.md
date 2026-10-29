@@ -4,6 +4,12 @@ Use the current source/tests when a recorded detail disagrees. This repository i
 
 ## Runtime and ownership
 
+The primary checkout owns the active code. Local runtimes, verification launchers,
+logs, transfer artifacts and preserved worktree files may live in ignored `.local/`.
+The local launcher derives its paths from this checkout; historical auxiliary
+scripts are retained as evidence and are not the default development entry point.
+
+
 React/Vite -> nginx -> same-origin `/api` -> FastAPI -> SQLite and contextual S3 I/O. FastAPI creates one `/api` router in main.py; domain modules register their routes on it. OpenAPI remains `/openapi.json`.
 
 - database.py owns legacy/core ORM, additive import-time schema upgrades, conversions, synchronization and Database.atomic. domain_models.py registers normalized extension tables on the same Base before create_all.

@@ -1,5 +1,22 @@
 # Verification workflow
 
+## Consolidated local workspace
+
+The primary checkout is the project root. When `.local/bin/profkom` is present,
+use it for the owner's relocated environment: `frontend` runs TypeScript, ESLint
+and unit tests; `build` creates a synthetic production build; `backend` runs the
+isolated pytest suite; `integration` runs the complete HTTP suite against its own
+disposable loopback API; `check` runs all of these. Commands derive paths from the
+checkout, install no dependencies and do not contact real providers or deployment
+environments. Runtime packages live in `.local/env`, unique logs in `.local/logs`,
+and verification builds in `.local/build/frontend`. See `.local/README.md`.
+
+`.local` is ignored local state, not part of a fresh clone. Historical scripts,
+logs and transfer artifacts there preserve their original evidence and paths;
+use the current launcher for ordinary checks rather than replaying an old command.
+The standard commands below remain the contract for other configured checkouts.
+
+
 Run backend commands from backend/ with an isolated Python environment. Read backend/TESTING.md for the current suite and safety boundaries.
 
 ```sh
