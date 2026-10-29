@@ -602,7 +602,7 @@ describe("API commands through mock transport", () => {
       throw Error("Expected blocker");
     } catch (error) {
       expect(error).toBeInstanceOf(ApiError);
-      expect((error as ApiError).blockers[0].kind).toBe("missing_final_report");
+      expect((error as ApiError).blockers).toContainEqual(expect.objectContaining({ kind: "missing_final_report" }));
     }
   });
   it("requires binary upload before complete and returns a FileRef", async () => {

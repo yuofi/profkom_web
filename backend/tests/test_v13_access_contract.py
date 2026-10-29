@@ -32,7 +32,7 @@ def test_registration_is_pending_and_does_not_log_password(client, caplog):
     "path",
     [
         "/blocks",
-        "/guides",
+        "/materials",
         "/events",
         "/seasons",
         "/reports",
@@ -135,7 +135,7 @@ def test_global_guide_is_private(client):
     g = db.create_guide(
         Guide(guide_id=0, title="Private", owner_block="none", text="Synthetic")
     )
-    assert client.get(f"/api/guides/{g.guide_id}").status_code == 401
+    assert client.get(f"/api/materials/legacy-guides/{g.guide_id}").status_code == 401
 
 
 def test_file_limits_and_complete_ownership(client, user, make_user):

@@ -19,12 +19,14 @@ export function useSeriesField(enabled: boolean, parent?: Event, used: string[] 
       .filter((e) => e.report_series_id === parent!.report_series_id && e.event_id !== parent!.event_id)
       .map(async (e) => (await eventsApi.subevents(e.event_id)).items.map((sub) => ({ ...sub, season_id: e.season_id }))))).flat(),
   });
+  const currentChildren = useQuery({ queryKey: ["events", parent?.event_id, "subevents"], queryFn: () => eventsApi.subevents(parent!.event_id), enabled: enabled && !!parent });
+  const usedIds = new Set([...used, ...(currentChildren.data?.items.map(item => item.report_series_id).filter((id): id is string => !!id) ?? [])]);
   const order = (seasonId: string) => seasons.data?.items.find((x) => x.season_id === seasonId)?.sequence_number ?? 0;
   const instances = parent ? earlier.data ?? [] : events.data?.items ?? [];
   const options = (series.data?.items ?? [])
     .filter((x) => (parent
       ? x.owner_kind === "subevent" && x.parent_series_id === parent.report_series_id
-      : x.owner_kind === "event") && !used.includes(x.series_id))
+      : x.owner_kind === "event") && !usedIds.has(x.series_id))
     .map((x) => {
       const latest = instances.filter((i) => i.report_series_id === x.series_id)
         .sort((a, b) => order(b.season_id) - order(a.season_id))[0];

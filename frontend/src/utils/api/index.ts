@@ -3,6 +3,7 @@ import { env } from "../env"
 import Cookies from "js-cookie"
 import type { RefreshResponse } from "./types";
 import { tryCatch } from "../tryCatch";
+import { recordApiDiagnostic } from "../diagnostics";
 
 const isDevelopment = env.VITE_ENVIRONMENT === "development";
 const prefix = isDevelopment ? `${env.VITE_BACKEND_URL}/api` : "/api";
@@ -20,6 +21,15 @@ export const api = axios.create({
         'Content-Type': 'application/json'
     },
 })
+
+api.interceptors.response.use(response => {
+    recordApiDiagnostic(response.config.method, response.config.url, response.status);
+    return response;
+}, (error: unknown) => {
+    const failure = error as AxiosError;
+    recordApiDiagnostic(failure.config?.method, failure.config?.url, failure.response?.status ?? null);
+    return Promise.reject(error);
+});
 
 api.interceptors.request.use(
     (config) => {

@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "./App.css";
 import { UnsavedChangesProvider } from "./components/Workspace/UnsavedChanges";
 import { WorkspaceLayout } from "./components/Workspace/WorkspaceLayout";
+import { FeedbackProvider } from "./components/Workspace/FeedbackButton";
 import { Loading } from "./components/Workspace/WorkspaceUI";
 const EventsListPage = lazy(() =>
   import("./pages/Workspace/EventPages").then((m) => ({
@@ -146,19 +147,20 @@ const MeetingPage = lazy(() =>
     default: m.MeetingPage,
   })),
 );
-import { DocViewerPage } from "./pages/DocViewPage/DocViewerPage";
+import { LegacyMaterialRedirect } from "./pages/Workspace/LegacyMaterialRedirect";
 import { GreetingPage } from "./pages/Greeting/Greeting";
 import { UserProvider } from "./utils/ctx";
 import { retryTransient, workspaceQueryCache } from "./utils/api/invalidation";
-import { ProtectedRoute, GuideEditRoute } from "./pages/Wrappers/wrappers";
+import { ProtectedRoute } from "./pages/Wrappers/wrappers";
 import { ProfilePage } from "./pages/ProfilePage/ProfilePage";
+import { ProfileSettingsPage } from "./pages/ProfilePage/ProfileSettingsPage";
+const KkrTemplatesPage = lazy(() => import("./pages/Workspace/SeasonPages").then(module => ({ default: module.KkrTemplatesPage })));
 const MemberProfilePage = lazy(() => import("./pages/Workspace/MemberProfilePage").then((m) => ({ default: m.MemberProfilePage })));
 import { ProfileEditPage } from "./pages/ProfileEditPage/ProfileEditPage";
-import { GuidesPage } from "./pages/Guides/GuidesPage";
 import { PgasPage } from "./pages/Pgas/PgasPage";
 const AdminPanel = lazy(() => import("./pages/Admin/AdminPage"));
-const DocEditPage = lazy(() => import("./pages/DocEditPage/DocEditPage"));
 const NotFoundPage = lazy(() => import("./pages/fallback/NotFoundPage"));
+const SupportPage = lazy(() => import("./pages/Workspace/SupportPage").then(module => ({ default: module.SupportPage })));
 const queryClient = new QueryClient({
   queryCache: workspaceQueryCache(),
   defaultOptions: { queries: { refetchOnWindowFocus: false, retry: retryTransient } },
@@ -167,9 +169,11 @@ function AppShell() {
   return (
     <UserProvider>
       <UnsavedChangesProvider>
+        <FeedbackProvider>
         <Suspense fallback={<Loading />}>
           <Outlet />
         </Suspense>
+        </FeedbackProvider>
       </UnsavedChangesProvider>
     </UserProvider>
   );
@@ -181,6 +185,8 @@ const router = createBrowserRouter(createRoutesFromElements(
                   <Route path="/" element={<WorkspaceLayout />}>
                     <Route index element={<DashboardPage />} />
                     <Route path="profile" element={<ProfilePage />} />
+                    <Route path="profile/settings" element={<ProfileSettingsPage />} />
+                    <Route path="support" element={<SupportPage />} />
                     <Route path="profile/edit" element={<ProfileEditPage />} />
                     <Route path="contacts" element={<DirectoryPage />} />
                     <Route path="contacts/:id" element={<MemberProfilePage />} />
@@ -196,15 +202,14 @@ const router = createBrowserRouter(createRoutesFromElements(
                       path="info"
                       element={<Navigate to="/contacts" replace />}
                     />
-                    <Route path="guides" element={<GuidesPage />} />
+                    <Route path="guides" element={<Navigate to="/materials?kind=guide" replace />} />
+                    <Route path="guides/:id" element={<LegacyMaterialRedirect />} />
                     <Route path="materials" element={<MaterialsPage />} />
                     <Route path="materials/new" element={<MaterialCreatePage />} />
                     <Route path="materials/:id" element={<MaterialPage />} />
                     <Route path="pgas" element={<PgasPage />} />
-                    <Route path="docs/:id" element={<DocViewerPage />} />
-                    <Route element={<GuideEditRoute />}>
-                      <Route path="docs/:id/edit" element={<DocEditPage />} />
-                    </Route>
+                    <Route path="docs/:id" element={<LegacyMaterialRedirect />} />
+                    <Route path="docs/:id/edit" element={<LegacyMaterialRedirect />} />
                     <Route path="events" element={<EventsListPage />} />
                     <Route path="events/new" element={<EventCreatePage />} />
                     <Route path="events/:id/edit" element={<EventEditPage />} />
@@ -232,6 +237,7 @@ const router = createBrowserRouter(createRoutesFromElements(
                     />
                     <Route path="seasons" element={<SeasonsPage />} />
                     <Route path="seasons/new" element={<SeasonCreatePage />} />
+                    <Route path="seasons/templates" element={<KkrTemplatesPage />} />
                     <Route path="seasons/:id" element={<SeasonPage />} />
                     <Route
                       path="seasons/:id/summary"

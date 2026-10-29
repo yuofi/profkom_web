@@ -5,6 +5,9 @@
   align-items: start;
   margin-top: 18px;
 }
+.taskPanels { display: grid; gap: 16px; min-width: 0; }
+.watching.watching { display:flex;flex-direction:row;align-items:center; }
+.watching.watching input { flex:0 0 20px; }
 .quickLinks {
   display: flex;
   flex-wrap: wrap;
@@ -47,3 +50,5 @@
 @media (max-width: 768px) {
   .columns { grid-template-columns: minmax(0, 1fr); }
 }
+.todayGrid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-items:start; }.todayGrid>section { min-width:0; }.agenda { display:grid;gap:9px;margin-bottom:16px; }.agenda>div { font-size:15px;padding:12px 15px; }.watching { display:flex;align-items:center;gap:10px;margin:8px 0 24px;color:var(--on-surface-variant); }.watching input { width:18px;height:18px;accent-color:var(--primary); }.tasks { list-style:none;margin:0 0 18px;padding:0; }.tasks li { display:grid;gap:9px;padding:15px 0;min-width:0; }.tasks li+li { border-top:1px solid var(--outline-variant); }.tasks a { color:var(--on-surface);text-decoration:none;display:block;line-height:1.5;overflow-wrap:anywhere; }.tasks a:hover { color:var(--primary); }.tasks a strong { color:var(--accent-lilac);font-size:12px;white-space:nowrap; }.tasks small { display:block;font-size:12px;color:var(--on-surface-variant);margin-top:5px; }.people { display:flex;flex-wrap:wrap;gap:6px; }.approvals { list-style:none;padding:0;display:grid;gap:6px; }.approvals a { display:flex;justify-content:space-between;gap:15px;align-items:center;color:var(--primary);padding:10px 0; }.myTeams { border-top:1px solid var(--outline-variant);margin-top:32px;padding-top:18px; }
+@media(max-width:900px) { .todayGrid { grid-template-columns:minmax(0,1fr); } }

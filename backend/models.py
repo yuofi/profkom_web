@@ -62,6 +62,8 @@ class PgasEntry:
     file_type: str = ""        # MIME-тип файла
     created_at: str = ""       # Дата загрузки, ISO-8601 UTC
     uploaded_by: Optional[int] = None  # Кто загрузил
+    half_year: Optional[int] = None  # Explicit period: 1 Jan–May, 2 Jun–Dec; legacy unknown.
+    revision: int = 1
 
 
 @dataclass
@@ -244,11 +246,11 @@ class AssignmentPublic:
 @dataclass
 class TaskPublic:
     task_id: str
-    season_id: str
+    season_id: Optional[str]
     scope: ScopeRef
     title: str
     description: RichText
-    deadline_at: str
+    deadline_at: Optional[str]
     assignments: list[AssignmentPublic] = field(default_factory=list)
     assignees: list[UserRef] = field(default_factory=list)
     watchers: list[UserRef] = field(default_factory=list)

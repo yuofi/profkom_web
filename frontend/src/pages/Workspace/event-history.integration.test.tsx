@@ -9,7 +9,7 @@ import { reportsApi } from "../../utils/api/reports.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { richText, type Event, type Subevent } from "../../utils/api/contract";
 import { ReportHistoryPage, ReportPage } from "./ReportPages";
-import { EventCreatePage, EventPage, EventsListPage } from "./EventPages";
+import { EventCreatePage, EventPage, EventsListPage, SubeventPage } from "./EventPages";
 import { DashboardPage } from "./WorkspacePages";
 
 // Step 5 of release 1: report history (FIX_PLAN 2.2), a series chosen on creation (2.21)
@@ -131,7 +131,8 @@ it("2.21: a new event and its subevent continue chosen series and show their his
   await eventsApi.leaders("events", created.event_id, [newhead.user_id], {expected_revision: created.revision});
 
   // The head of the new instance is offered the child series of its own series only.
-  await mount(newhead.email, <Routes><Route path="/events/:id" element={<EventPage />} /></Routes>, `/events/${created.event_id}`);
+  await mount(newhead.email, <Routes><Route path="/events/:id" element={<EventPage />} /><Route path="/subevents/:id" element={<SubeventPage />} /></Routes>, `/events/${created.event_id}`);
+  await act(async () => [...page!.container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Добавить подмероприятие")!.click());
   await waitForPage(page!, () => !!page!.container.querySelector('[name="series"]'));
   const subForm = field(page!.container, "series").closest("form")!;
   await waitForPage(page!, () => options(field(subForm, "series") as HTMLSelectElement).some(([value]) => value === old.sub.report_series_id));
@@ -139,7 +140,8 @@ it("2.21: a new event and its subevent continue chosen series and show their his
   expect(offered).not.toContain(foreign.sub.report_series_id);
   expect(offered).not.toContain(old.event.report_series_id);
   await change(field(subForm, "title"), "Лекции следующего года");
-  await change(field(subForm, "series") as HTMLSelectElement, old.sub.report_series_id);
+  expect(old.sub.report_series_id).not.toBeNull();
+  await change(field(subForm, "series") as HTMLSelectElement, old.sub.report_series_id!);
   await submit(subForm);
   await waitForPage(page!);
   expect(subForm.querySelector('[role="alert"]')).toBeNull();
@@ -162,7 +164,7 @@ it("the home page lists actual participation for every role, including the chair
     await waitForPage(page!, () => text().includes("Рабочее пространство"));
     const card = Array.from(page!.container.querySelectorAll("section")).find(s => s.querySelector(":scope > h2")?.textContent?.startsWith("Мои мероприятия ·"))!;
     expect(!!card.textContent?.includes(event.title), email).toBe(listed);
-    if (email === "chair@example.com") expect(text()).not.toContain("Integration vacant");
+    if (email === "chair@example.com") { const blocks = Array.from(page!.container.querySelectorAll("section")).find(section => section.querySelector(":scope > h2")?.textContent?.startsWith("Мои блоки ·"))!;expect(blocks.textContent).not.toContain("Integration vacant"); }
     if (email === org.email) expect(card.textContent).toContain("Организатор");
     await page!.cleanup(); page = undefined;
   }

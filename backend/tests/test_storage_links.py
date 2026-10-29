@@ -88,9 +88,10 @@ def test_reading_signs_nothing(client, superuser, user, mock_s3):
     unknown = f"https://global.s3.cloud.ru/{BUCKET}/reports/name.pdf"
     body = "\n".join(f"[{i}]({url})" for i, url in enumerate([*closed_links(fid), OLD, avatar, unknown]))
     guide_id = store(m["material_id"], published_body=body)
+    resolved = client.get(f"/api/materials/legacy-guides/{guide_id}", headers=user.headers).json()["material_id"]
     for read in (
         client.get("/api/materials/" + m["material_id"], headers=user.headers).json()["published_content"]["body"],
-        client.get(f"/api/guides/{guide_id}", headers=user.headers).json()["text"],
+        client.get(f"/api/materials/{resolved}", headers=user.headers).json()["published_content"]["body"],
     ):
         # Every link as written and unsigned (decision 23, owner decision 6).
         assert read == body and "operation=get_object" not in read
@@ -118,21 +119,21 @@ def test_new_bucket_links_are_refused_and_nothing_is_saved(client, superuser, ma
         assert s.get(MaterialORM, mid).published_body == "Опубликовано"
     master, block = make_master()
     guides = len(db.list_guides())
-    legacy = client.post("/api/guides", headers=master.headers, json=dict(title="Гайд", owner_block=block.name, text=link))
-    assert legacy.status_code == 422, legacy.text
+    bid = client.get('/api/blocks/'+block.name,headers=master.headers).json()['block_id']
+    scoped = client.post("/api/materials", headers=master.headers, json=dict(kind="guide", title="Гайд", description="", owner_block_id=bid, content=dict(format="markdown",body=link)))
+    assert scoped.status_code == 422, scoped.text
     assert len(db.list_guides()) == guides
-    own = client.post("/api/guides", headers=master.headers, json=dict(title="Гайд", owner_block=block.name, text="Свой гайд"))
+    own = client.post("/api/materials", headers=master.headers, json=dict(kind="guide", title="Гайд", description="", owner_block_id=bid, content=dict(format="markdown",body="Свой гайд")))
     assert own.status_code == 200, own.text
-    g = own.json()
-    for method in ("POST", "PUT", "PATCH"):
-        r = client.request(method, f"/api/guides/{g['guide_id']}", headers=master.headers, json=dict(expected_revision=g["revision"], text=link))
-        assert r.status_code == 422, (method, r.text)
-        assert db.get_guide(g["guide_id"]).text == "Свой гайд"
+    own = own.json()
+    r = client.patch(f"/api/materials/{own['material_id']}", headers=master.headers, json=dict(expected_revision=own["revision"], content=dict(format="markdown",body=link)))
+    assert r.status_code == 422, r.text
+    assert client.get(f"/api/materials/{own['material_id']}", headers=master.headers).json()['source_content']['body'] == "Свой гайд"
 
 
 def test_editor_round_trips_the_stored_source(client, superuser, user, make_guide, mock_s3):
     g = make_guide(text=f"Старый [файл]({OLD})")
-    mid = client.get(f"/api/guides/{g.guide_id}/material", headers=superuser.headers).json()["material_id"]
+    mid = client.get(f"/api/materials/legacy-guides/{g.guide_id}", headers=superuser.headers).json()["material_id"]
     fid = upload(client, superuser, mock_s3, "material", mid)
     source = f"Старый [файл]({OLD})\n\n[Вложение](file:{fid})"
     m = client.get("/api/materials/" + mid, headers=superuser.headers).json()
@@ -154,23 +155,27 @@ def test_editor_round_trips_the_stored_source(client, superuser, user, make_guid
 
 def test_links_sent_back_are_stored_as_references(client, superuser, make_guide, mock_s3):
     g = make_guide(text=f"Старый [файл]({OLD})")
-    mid = client.get(f"/api/guides/{g.guide_id}/material", headers=superuser.headers).json()["material_id"]
+    mid = client.get(f"/api/materials/legacy-guides/{g.guide_id}", headers=superuser.headers).json()["material_id"]
     fid = upload(client, superuser, mock_s3, "material", mid)
     source = f"Старый [файл]({OLD})\n\n[Вложение](file:{fid})"
     m = client.get("/api/materials/" + mid, headers=superuser.headers).json()
     m = client.patch("/api/materials/" + mid, headers=superuser.headers, json=dict(expected_revision=m["revision"], content=dict(format="markdown", body=source))).json()
     client.post(f"/api/materials/{mid}/publish", headers=superuser.headers, json=dict(expected_revision=m["revision"])).raise_for_status()
-    # An old client saves the text it was shown: the attachment by its API address.
-    shown = client.get(f"/api/guides/{g.guide_id}", headers=superuser.headers).json()
-    assert shown["text"] == source.replace(f"file:{fid}", f"/api/files/{fid}/content")
-    edited = shown["text"] + "\n\nДополнение"
-    saved = client.put(f"/api/guides/{g.guide_id}", headers=superuser.headers, json=dict(expected_revision=shown["revision"], text=edited))
+    # An old source copied from a rendered screen still resolves its own file IDs.
+    shown = client.get(f"/api/materials/{mid}", headers=superuser.headers).json()
+    assert shown["published_content"]["body"] == source.replace(f"file:{fid}", f"/api/files/{fid}/content")
+    edited = shown["published_content"]["body"] + "\n\nДополнение"
+    saved = client.patch(f"/api/materials/{mid}", headers=superuser.headers, json=dict(expected_revision=shown["revision"], content=dict(format="markdown",body=edited)))
+    assert saved.status_code == 200, saved.text
+    saved = client.post(f"/api/materials/{mid}/publish",headers=superuser.headers,json=dict(expected_revision=saved.json()['revision']))
     assert saved.status_code == 200, saved.text
     assert db.get_guide(g.guide_id).text == source + "\n\nДополнение"
     # A text saved from a screen of the earlier version, with its signed links (A-MAT-1).
     sign = "?X-Amz-Expires=300&X-Amz-Signature=fake"
     signed_text = f"Старый [файл]({OLD}{sign})\n\n[Вложение]({HOSTS[1]}/{BUCKET}/sealed/{fid}{sign})"
-    saved = client.put(f"/api/guides/{g.guide_id}", headers=superuser.headers, json=dict(expected_revision=saved.json()["revision"], text=signed_text))
+    saved = client.patch(f"/api/materials/{mid}", headers=superuser.headers, json=dict(expected_revision=saved.json()["revision"], content=dict(format="markdown",body=signed_text)))
+    assert saved.status_code == 200, saved.text
+    saved = client.post(f"/api/materials/{mid}/publish",headers=superuser.headers,json=dict(expected_revision=saved.json()['revision']))
     assert saved.status_code == 200, saved.text
     assert db.get_guide(g.guide_id).text == source
     m = client.get("/api/materials/" + mid, headers=superuser.headers).json()
@@ -182,10 +187,13 @@ def test_links_sent_back_are_stored_as_references(client, superuser, make_guide,
 def test_guide_rename_without_text_keeps_the_source(client, superuser, make_guide, mock_s3):
     mixed = f"# Гайд\n\n<p>Абзац <b>HTML</b></p>\n\n**Markdown** [файл]({OLD})"
     g = make_guide(text=mixed)
-    current = client.get(f"/api/guides/{g.guide_id}", headers=superuser.headers).json()
+    current = client.get(f"/api/materials/legacy-guides/{g.guide_id}", headers=superuser.headers).json()
+    mid=current['material_id']
     with db._session() as s:
         before = s.query(MaterialORM).filter_by(legacy_guide_id=g.guide_id).one().published_body
-    r = client.post(f"/api/guides/{g.guide_id}", headers=superuser.headers, json=dict(expected_revision=current["revision"], title="Новое имя"))
+    r = client.patch(f"/api/materials/{mid}", headers=superuser.headers, json=dict(expected_revision=current["revision"], title="Новое имя"))
+    assert r.status_code == 200, r.text
+    r=client.post(f"/api/materials/{mid}/publish",headers=superuser.headers,json=dict(expected_revision=r.json()['revision']))
     assert r.status_code == 200, r.text
     with db._session() as s:
         assert s.query(MaterialORM).filter_by(legacy_guide_id=g.guide_id).one().published_body == before
@@ -219,7 +227,7 @@ def run_repair(path, *flags):
 def test_repair_restores_damaged_texts_and_prints_only_numbers(client, superuser, user, make_guide, mock_s3, tmp_path):
     fid = foreign_file(client, superuser, mock_s3)
     g = make_guide(text=f"[файл]({OLD})")
-    mid = client.get(f"/api/guides/{g.guide_id}/material", headers=superuser.headers).json()["material_id"]
+    mid = client.get(f"/api/materials/legacy-guides/{g.guide_id}", headers=superuser.headers).json()["material_id"]
     own = upload(client, superuser, mock_s3, "material", mid)
     sign = "?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=300&X-Amz-Signature=deadbeef"
     damaged = f"[своё]({HOSTS[1]}/{BUCKET}/sealed/{own}{sign})\n[старое]({OLD}{sign})\n[чужое]({HOSTS[0]}/{BUCKET}/sealed/{fid}{sign})"

@@ -55,6 +55,12 @@ assert str(_TMP_DB) in database_module.DATABASE_URL, (
 )
 
 TABLES = (
+    "history_redactions",
+    "support_notes", "feedback_reports", "feedback_rate_limits", "support_staff", "support_config",
+    "kkr_template_uses", "kkr_templates",
+    "notification_delivery_events", "notification_preferences", "profile_editor_versions",
+    "achievement_events", "achievement_grants", "achievement_definitions",
+    "event_workspace_metadata",
     "object_deletions",
     "account_archives",
     "profile_metadata", "former_contacts",

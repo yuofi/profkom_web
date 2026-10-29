@@ -3,14 +3,13 @@ import { afterEach, expect, it } from "vitest";
 import { Route, Routes } from "react-router-dom";
 import axios from "axios";
 import Cookies from "js-cookie";
-import { liveLogin, liveParticipant, livePassword } from "../../test/liveApi";
+import { liveLogin, liveParticipant, liveLegacyGuide, livePassword } from "../../test/liveApi";
 import { mountWorkspace, waitForPage } from "../../test/workspace";
 import { api, apiUrl } from "../../utils/api";
 import { filesApi } from "../../utils/api/files.api";
-import { guidesApi } from "../../utils/api/guides.api";
 import { materialsApi } from "../../utils/api/materials.api";
 import { richText } from "../../utils/api/contract";
-import { DocViewerPage } from "../DocViewPage/DocViewerPage";
+import { LegacyMaterialRedirect } from "./LegacyMaterialRedirect";
 import { MaterialPage } from "./MaterialPages";
 
 // Step 8 of release 1 against the live local API: a file comes by its API address, which
@@ -76,8 +75,8 @@ it("A-MAT-15: a download gets the name it was uploaded with", async () => {
 
 it("A-MAT-14: an HTML guide opens at /docs/:id as formatted Markdown", async () => {
   const session = await liveLogin();
-  const guide = await guidesApi.create({ title: `HTML-гайд ${crypto.randomUUID().slice(0, 6)}`, owner_block: "none", text: "<p>Абзац <strong>Жирный</strong></p>" });
-  page = await mountWorkspace(<Routes><Route path="/docs/:id" element={<DocViewerPage />} /></Routes>, { path: `/docs/${guide.guide_id}`, session });
+  const guide = await liveLegacyGuide({ title: `HTML-гайд ${crypto.randomUUID().slice(0, 6)}`, owner_block: "none", text: "<p>Абзац <strong>Жирный</strong></p>" });
+  page = await mountWorkspace(<Routes><Route path="/docs/:id" element={<LegacyMaterialRedirect />} /><Route path="/materials/:id" element={<MaterialPage />} /></Routes>, { path: `/docs/${guide.guide_id}`, session });
   await until(() => !!page!.container.querySelector("strong"));
   expect(page.container.querySelector("strong")!.textContent).toBe("Жирный");
   expect(page.container.textContent).not.toContain("<p>");

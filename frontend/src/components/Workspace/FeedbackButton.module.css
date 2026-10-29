@@ -1,0 +1,9 @@
+.trigger { position: fixed; right: 22px; bottom: 22px; z-index: 40; width: 48px; height: 48px; display: grid; place-items: center; border: 1px solid var(--outline); border-radius: 50%; background: var(--accent-yellow); color: var(--surface); cursor: pointer; box-shadow: 0 4px 16px #0003; }
+.trigger:focus-visible { outline: 3px solid var(--accent-lilac); outline-offset: 3px; }
+.overlay { position: fixed; inset: 0; z-index: 1200; background: #0008; display: grid; place-items: center; padding: 18px; }
+.dialog { background: var(--surface); color: var(--on-surface); border: 1px solid var(--outline); border-radius: 20px; padding: 24px; width: min(660px, 100%); max-height: 90dvh; overflow: auto; box-sizing: border-box; }
+.header { display: flex; gap: 15px; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+.header h2 { margin: 0; font-size: 22px; }
+.preview { display: block; max-width: 100%; max-height: 240px; object-fit: contain; border-radius: 10px; }
+.diagnostics { max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+@media(max-width:768px) { .trigger { right: 14px; bottom: 14px; }.dialog { padding: 18px; }.overlay { padding: 10px; } }

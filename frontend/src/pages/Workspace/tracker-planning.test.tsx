@@ -28,6 +28,14 @@ it("uses Moscow civil dates and never substitutes creation or accounting dates f
   expect(taskPlanning(task({ starts_at: null, created_at: "2026-09-01T00:00:00Z" }))).toEqual({ first: "2026-10-09", last: "2026-10-09", hasStart: false });
   expect(taskPlanning(task({ task_type: "milestone" }))).toEqual({ first: "2026-10-09", last: "2026-10-09", hasStart: false });expect(taskPlanning(task({ starts_at: "2026-10-10T00:00:00Z" })).hasStart).toBe(false);
 });
+it("keeps year-round service tickets undated and excludes them from date plans", async () => {
+  const service = task({ task_id: "service", scope: { kind: "queue", id: "support" }, season_id: null, starts_at: null, deadline_at: null });
+  expect(moscowDay(null)).toBe("");
+  expect(taskPlanning(service)).toEqual({ first: "", last: "", hasStart: false });
+  const dated = task();
+  vi.spyOn(tasksApi, "listPage").mockResolvedValue({ items: [service, dated], next_cursor: null });
+  expect(await loadPlanningTasks({}, planningRange("2026-10", "calendar"))).toEqual([dated]);
+});
 it("shows complete Monday-first calendar weeks and a three-month Gantt overview", () => {
   const range = planningRange("2026-10", "calendar");expect(range.first).toBe("2026-09-28");expect(range.last).toBe("2026-11-08");expect(range.days).toHaveLength(42);expect(planningRange("2026-10", "gantt").days).toHaveLength(31);
   const quarter = planningRange("2026-10", "gantt", "month");expect(quarter.first).toBe("2026-09-01");expect(quarter.last).toBe("2026-11-30");expect(quarter.days).toHaveLength(91);
@@ -82,7 +90,7 @@ it("requests a half-open period that includes its final millisecond and excludes
   const last = task({ task_id: "last-millisecond", starts_at: "2026-11-08T20:59:59.999Z", deadline_at: "2026-11-08T20:59:59.999Z" }), next = task({ task_id: "next-midnight", starts_at: "2026-11-08T21:00:00.000Z", deadline_at: "2026-11-08T22:00:00.000Z" });
   const get = vi.spyOn(tasksApi, "listPage").mockImplementation(async filters => {
     const { date_from, date_to } = filters as { date_from: string; date_to: string };
-    return { items: [last, next].filter(item => Date.parse(item.deadline_at) >= Date.parse(date_from) && Date.parse(item.starts_at ?? item.deadline_at) < Date.parse(date_to)), next_cursor: null };
+    return { items: [last, next].filter(item => item.deadline_at !== null && Date.parse(item.deadline_at) >= Date.parse(date_from) && Date.parse(item.starts_at ?? item.deadline_at) < Date.parse(date_to)), next_cursor: null };
   });
   expect((await loadPlanningTasks({}, planningRange("2026-10", "calendar"))).map(item => item.task_id)).toEqual([last.task_id]);
   expect(get).toHaveBeenCalledWith(expect.objectContaining({ date_to: "2026-11-08T21:00:00.000Z" }));

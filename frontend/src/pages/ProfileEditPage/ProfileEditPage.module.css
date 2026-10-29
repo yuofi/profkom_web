@@ -58,6 +58,10 @@
   margin: 0;
 }
 
+@media (max-width: 768px) {
+  .saveBar { padding-inline-end: 76px; }
+}
+
 .saveError {
   color: var(--error);
 }

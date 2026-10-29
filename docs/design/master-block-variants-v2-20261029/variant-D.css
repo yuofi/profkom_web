@@ -1,0 +1,6 @@
+[data-qa-master-card] [class*="masterBlock"] { background: none !important; box-shadow: none !important; border: 0 !important; border-radius: 0 !important; padding: 0 !important; }
+[data-qa-master-card] [class*="blockLink"], [data-qa-demo-block] a { text-decoration: none !important; }
+[data-qa-demo-block] { color: #bdbdaf; font-weight: 400; }
+[data-qa-demo-block] a { color: inherit !important; }
+[data-qa-master-card] [class*="masterBlock"] a { color: inherit !important; font-weight: inherit; }
+[data-qa-master-card] [class*="masterBlock"] { color: var(--accent-mint) !important; font-weight: 600 !important; }

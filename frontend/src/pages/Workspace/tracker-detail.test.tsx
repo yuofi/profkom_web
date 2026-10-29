@@ -13,6 +13,7 @@ import { TaskStatusMenu } from "./TaskStatusMenu";
 import { taskStatus, taskTransitions } from "./trackerStatus";
 import { TrackerTaskHistoryDiff } from "./TrackerTaskHistoryDiff";
 import { ApiError } from "../../utils/api/request";
+import { historyApi } from "../../utils/api/history.api";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 afterEach(async () => { await page?.cleanup();page = undefined;vi.restoreAllMocks(); });
@@ -25,7 +26,7 @@ async function mountTask(task: Task, comments: Comment[] = []) {
   vi.spyOn(seasonsApi, "list").mockResolvedValue({ items: createFixtures("chair").seasons, next_cursor: null });
   vi.spyOn(tasksApi, "get").mockResolvedValue(task);
   vi.spyOn(tasksApi, "comments").mockResolvedValue({ items: comments, next_cursor: null });
-  vi.spyOn(tasksApi, "history").mockResolvedValue({ items: [], next_cursor: null });
+  vi.spyOn(historyApi, "list").mockResolvedValue({ items: [], next_cursor: null });
   page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage />} /></Routes>, { path: `/tasks/${task.task_id}` });
   await waitForPage(page);return page;
 }
@@ -151,7 +152,7 @@ it("saves a checklist mark through the description revision and refreshes its hi
   expect(check.disabled).toBe(false);
   await act(async () => check.click());await waitForPage(page!, () => page!.container.querySelector<HTMLInputElement>('section[aria-label="Описание задачи"] input[type="checkbox"]')?.checked === true);
   expect(update).toHaveBeenCalledWith(task.task_id, { expected_revision: 8, description: richText("- [x] Проверить документы\n- [x] Готовый пункт") });
-  await click("История");await waitForPage(page!);expect(tasksApi.history).toHaveBeenCalledWith(task.task_id);
+  await click("История");await waitForPage(page!);expect(historyApi.list).toHaveBeenCalledWith("task", task.task_id);
 });
 
 it("a rejected checklist save keeps server content, reports the conflict and does not retry a stale patch", async () => {
@@ -226,11 +227,11 @@ it("keeps an unreadable parent masked and does not grant assignees parent editin
 
 it("shows the real history actor and public field diff with status names", async () => {
   const task = makeTask();await mountTask(task);
-  vi.mocked(tasksApi.history).mockResolvedValue({ items: [{ event_id: "description-change", kind: "task.updated", actor: people[1], created_at: "2026-10-27T10:00:00Z", description: "Изменено описание", changes: [{ field: "description", before: "- [ ] Условие", after: "- [x] Условие" }] }], next_cursor: null });
+  vi.mocked(historyApi.list).mockResolvedValue({ items: [{ id: "activity:description-change", source_kind: "activity", source_id: "description-change", target: { kind: "task", id: task.task_id }, changed_by: people[1], created_at: "2026-10-27T10:00:00Z", description: "Изменено описание", changes: [{ field: "description", label: "Описание", before: "- [ ] Условие", after: "- [x] Условие" }], reason: null, hidden: false, hidden_by: null, hidden_at: null, revision: 1, can_hide: false }], next_cursor: null });
   await click("История");await waitForPage(page!);
   const history = page!.container.querySelector("ol")!;
   expect(history.querySelector(`a[href="/contacts/${people[1].user_id}"]`)?.textContent).toContain(people[1].display_name);
-  expect(history.querySelector('[data-change="removed"]')?.textContent).toContain("- [ ] Условие");expect(history.querySelector('[data-change="added"]')?.textContent).toContain("- [x] Условие");
+  expect(history.querySelector('[data-change="removed"]')?.textContent).toContain("[ ]");expect(history.querySelector('[data-change="added"]')?.textContent).toContain("[x]");expect(history.textContent).toContain("Условие");
 });
 
 

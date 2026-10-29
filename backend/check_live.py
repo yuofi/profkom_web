@@ -222,7 +222,7 @@ def run_public(api: Api, rep: Report) -> None:
     # API 1.3: содержимое видно только одобренным участникам (AUTH-01).
     for path, what in [
         ("/api/blocks", "блоки"),
-        ("/api/guides", "гайды"),
+        ("/api/materials", "материалы"),
         ("/api/contacts", "справочник контактов"),
         ("/api/session", "сессия"),
         ("/api/profile/me", "профиль"),
@@ -247,7 +247,7 @@ def run_public(api: Api, rep: Report) -> None:
     def cors():
         st, _, headers = api.request(
             "OPTIONS",
-            "/api/guides",
+            "/api/materials",
             extra_headers={
                 "Origin": "https://evil.example.com",
                 "Access-Control-Request-Method": "GET",
@@ -408,7 +408,7 @@ def run_pending(api: Api, rep: Report, session: dict) -> None:
             return ""
         return probe
 
-    for path in ("/api/profile/me", "/api/blocks", "/api/guides", "/api/contacts"):
+    for path in ("/api/profile/me", "/api/blocks", "/api/materials", "/api/contacts"):
         check(rep, f"GET {path} до одобрения → 403", forbidden(path))
 
 
@@ -457,35 +457,35 @@ def run_approved(api: Api, rep: Report, session: dict, read_only: bool) -> None:
 
     check(rep, "GET /api/contacts — справочник участника", contacts)
 
-    def guides():
-        st, body, _ = api.request("GET", "/api/guides", auth=True)
-        expect_status(st, 200, "/api/guides", body)
-        assert isinstance(body, list), "ожидался список"
-        if body:
-            expect_fields(body[0], ["guide_id", "title", "owner_block", "text", "description"], "GuideOut")
-            state["guide_id"] = body[0]["guide_id"]
-        return f"доступно гайдов: {len(body)}"
+    def materials():
+        st, body, _ = api.request("GET", "/api/materials", auth=True)
+        expect_status(st, 200, "/api/materials", body)
+        expect_fields(body, ["items", "next_cursor"], "MaterialPage")
+        if body["items"]:
+            expect_fields(body["items"][0], ["material_id", "title", "published_content", "revision", "capabilities"], "Material")
+            state["material_id"] = body["items"][0]["material_id"]
+        return f"материалов на странице: {len(body['items'])}"
 
-    check(rep, "GET /api/guides — список гайдов", guides)
+    check(rep, "GET /api/materials — доступные материалы", materials)
 
-    def guide_one():
-        gid = state.get("guide_id")
-        if gid is None:
-            raise SkipCheck("на сервере нет ни одного доступного гайда")
-        st, body, _ = api.request("GET", f"/api/guides/{gid}", auth=True)
-        expect_status(st, 200, f"/api/guides/{gid}", body)
-        expect_fields(body, ["guide_id", "title", "owner_block", "text"], "GuideOut")
-        return f"гайд #{gid}: {body['title']!r}"
+    def material_one():
+        mid = state.get("material_id")
+        if mid is None:
+            raise SkipCheck("нет доступных материалов")
+        st, body, _ = api.request("GET", f"/api/materials/{mid}", auth=True)
+        expect_status(st, 200, f"/api/materials/{mid}", body)
+        expect_fields(body, ["material_id", "title", "published_content"], "Material")
+        return f"материал: {body['title']!r}"
 
-    check(rep, "GET /api/guides/{id} — один гайд", guide_one)
+    check(rep, "GET /api/materials/{id} — один материал", material_one)
 
     def guide_404():
-        st, body, _ = api.request("GET", "/api/guides/99999999", auth=True)
-        expect_status(st, 404, "несуществующий гайд", body)
-        assert body.get("detail") == "Guide not found", f"detail={body.get('detail')!r}"
+        st, body, _ = api.request("GET", "/api/materials/legacy-guides/99999999", auth=True)
+        expect_status(st, 404, "несуществующий старый id", body)
+        assert body.get("detail", {}).get("code") == "not_found", "Ожидалась типовая ошибка not_found"
         return ""
 
-    check(rep, "GET /api/guides/{id} несуществующего → 404", guide_404)
+    check(rep, "GET /api/materials/legacy-guides/{id} несуществующего → 404", guide_404)
 
     def writing(fn):
         """Изменяющие проверки не выполняются в режиме --read-only."""
@@ -495,14 +495,14 @@ def run_approved(api: Api, rep: Report, session: dict, read_only: bool) -> None:
             return fn()
         return wrapped
 
-    def guides_create_forbidden():
-        if "create_material" in caps:
-            raise SkipCheck("учётка может создавать материалы — проверка запрета неприменима")
-        st, body, _ = api.request("POST", "/api/guides", {"title": "проверка прав"}, auth=True)
-        expect_status(st, 403, "создание гайда без права create_material", body)
-        return "участник без права не может создавать гайды"
+    def materials_create_forbidden():
+        if "create_shared_material" in caps:
+            raise SkipCheck("учётка может создавать общие материалы — проверка запрета неприменима")
+        st, body, _ = api.request("POST", "/api/materials", {"kind": "general", "title": "проверка прав", "description": "", "content": {"format": "markdown", "body": ""}}, auth=True)
+        expect_status(st, 403, "создание материала без права", body)
+        return "участник без права не может создавать общие материалы"
 
-    check(rep, "POST /api/guides без права → 403", writing(guides_create_forbidden))
+    check(rep, "POST /api/materials без права → 403", writing(materials_create_forbidden))
 
     def blocks_create_forbidden():
         if is_chair:

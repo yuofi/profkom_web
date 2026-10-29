@@ -104,7 +104,7 @@ def test_creation_without_reason_saves_provenance_and_exact_contribution(client,
     assert created["created_by"]["user_id"] == actor.user_id and created["revision"] == 1
     assert request(client, actor, "GET", f"/merits/{created['merit_id']}") == created
     source_id = {
-        "head_merit": context["event"]["event_id"], "chair_merit": "merit",
+        "head_merit": context["event"]["event_id"], "chair_merit": "chair-merits:" + context["season"]["season_id"],
         "block_volunteer": context["block"]["name"], "subevent_volunteer": context["subevent"]["subevent_id"],
     }[source_kind]
     with db._session() as session:

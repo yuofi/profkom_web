@@ -10,9 +10,8 @@ from domain_models import ProfileMetadataORM, FormerContactORM, MigrationORM
 from auth import get_current_user
 from models import User
 from api_contract import Page
-from domain_contract import FormerContact as FormerOut
 from validation import Command
-from registration import audit, now, fail
+from registration import audit, now, fail, version
 import access
 
 PRESETS = {
@@ -46,6 +45,16 @@ class Former(Command):
     tg: str = ""
     vk: str = ""
     participation_periods: list[Period] = []
+
+
+class FormerPatch(Former):
+    expected_revision: int
+
+
+class FormerOut(Former):
+    contact_id: str
+    revision: int
+    capabilities: list[str]
 
 
 class Avatar(Command):
@@ -200,7 +209,7 @@ def register_routes(router):
     def former(q: str | None = None, cur: User = Depends(get_current_user)):
         with db._session() as s:
             cards = [
-                dict(contact_id=c.contact_id, **json.loads(c.fields_json))
+                dict(contact_id=c.contact_id, revision=c.revision, capabilities=["edit_former_contact"] if access.allowed(cur.user_id, "former_contact.edit") else [], **json.loads(c.fields_json))
                 for c in s.query(FormerContactORM).order_by(FormerContactORM.created_at)
             ]
             return Page(
@@ -219,11 +228,16 @@ def register_routes(router):
             c = s.get(FormerContactORM, cid) if cid else None
             if cid and not c:
                 fail(404, "Former contact not found")
+            if c:
+                version(c, payload.expected_revision)
             old = json.loads(c.fields_json) if c else {}
             if not c:
-                c = FormerContactORM(contact_id=str(uuid.uuid4()), created_at=now())
+                c = FormerContactORM(contact_id=str(uuid.uuid4()), created_at=now(), revision=1)
                 s.add(c)
-            c.fields_json = payload.model_dump_json()
+            else:
+                c.revision += 1
+            fields = payload.model_dump(exclude={"expected_revision"})
+            c.fields_json = json.dumps(fields, ensure_ascii=False)
             c.updated_at = now()
             audit(
                 s,
@@ -232,17 +246,17 @@ def register_routes(router):
                 uid,
                 "Former contact saved",
                 old,
-                payload.model_dump(),
+                fields,
             )
             s.commit()
-            return dict(contact_id=c.contact_id, **payload.model_dump())
+            return dict(contact_id=c.contact_id, revision=c.revision, capabilities=["edit_former_contact"], **fields)
 
     @router.post("/contacts/archive", response_model=FormerOut)
     def create(payload: Former, cur: User = Depends(get_current_user)):
         return save(payload, cur.user_id)
 
     @router.patch("/contacts/archive/{contact_id}", response_model=FormerOut)
-    def patch(contact_id: str, payload: Former, cur: User = Depends(get_current_user)):
+    def patch(contact_id: str, payload: FormerPatch, cur: User = Depends(get_current_user)):
         return save(payload, cur.user_id, contact_id)
 
     @router.get("/avatars")

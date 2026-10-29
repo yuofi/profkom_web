@@ -23,6 +23,25 @@ def install_integration_nonce(app, nonce):
     def integration_nonce():
         return {"nonce": nonce}
 
+    from fastapi import HTTPException, Request
+
+    @app.post("/_test/legacy-guides", include_in_schema=False)
+    def legacy_guide_fixture(payload: dict, request: Request):
+        """Import a synthetic pre-migration row; never restore the retired API."""
+        if not secrets.compare_digest(request.headers.get("x-profkom-test-nonce", ""), nonce):
+            raise HTTPException(403, "Disposable integration nonce required")
+        from database import db
+        from models import Guide
+        from materials import legacy_mapping
+        allowed = {"title", "owner_block", "text", "description", "original_link"}
+        if set(payload) - allowed:
+            raise HTTPException(422, "Unsupported synthetic guide fields")
+        guide = db.create_guide(Guide(guide_id=0, title=payload.get("title", "Synthetic imported guide"), owner_block=payload.get("owner_block", "none"), text=payload.get("text", ""), description=payload.get("description", ""), original_link=payload.get("original_link")))
+        with db._session() as session:
+            material = legacy_mapping(session, guide.guide_id)
+            session.commit()
+            return {"guide_id": guide.guide_id, "material_id": material.material_id, "revision": material.revision}
+
 
 def install_request_log(app, path):
     """Append 'METHOD /path' for every request, to verify what a client really sent."""

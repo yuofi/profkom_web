@@ -36,6 +36,7 @@ EVENT_SUB_LEAD = "event_sub_lead"  # leads one of the event's subevents
 # Subevent
 SUB_LEADER = "sub_leader"
 SUB_DEPUTY = "sub_deputy"
+SUBEVENT_HR = "subevent_hr"  # exact curator ID, never an inherited event role
 ORGANIZER = "organizer"
 # Material
 MATERIAL_EDITOR = "material_editor"
@@ -74,7 +75,8 @@ POLICY = {
     "event.meeting.edit": TACHKI | EVENT_LEADS,
     "event.report.create": EVENT_LEADS,
     "event.report.read": TACHKI | {HR_MASTER} | EVENT_LEADS,
-    "subevent.view": SUBEVENT_READERS,  # working data: tasks, meeting, report (УВ-3)
+    "subevent.view": SUBEVENT_READERS | {SUBEVENT_HR},  # working data: tasks, meeting, report (УВ-3)
+    "subevent.hr.assign": TACHKI | {HR_MASTER},
     "subevent.list_all": TACHKI | {HR_MASTER} | EVENT_LEADS,
     "subevent.edit": TACHKI | EVENT_LEADS | SUB_LEADS,
     "subevent.manage_leaders": TACHKI | EVENT_LEADS,
@@ -86,13 +88,13 @@ POLICY = {
     "subevent.report.read": SUBEVENT_READERS,
     "report.read_all": TACHKI | {HR_MASTER},  # every published report, closed seasons too
     # Tasks; the scope is a block or a subevent
-    "task.view": TACHKI | {HR_MASTER,HR_TRACKER_READER,BLOCK_HR} | AREA_TEAM,
-    "task.create": TACHKI | {HR_MASTER,HR_TRACKER_READER,BLOCK_HR} | AREA_TEAM,
-    "task.assign_others": TACHKI | AREA_LEADS | {BLOCK_HR},
+    "task.view": TACHKI | {HR_MASTER,HR_TRACKER_READER,BLOCK_HR,SUBEVENT_HR} | AREA_TEAM,
+    "task.create": TACHKI | {HR_MASTER,HR_TRACKER_READER,BLOCK_HR,SUBEVENT_HR} | AREA_TEAM,
+    "task.assign_others": TACHKI | AREA_LEADS | {BLOCK_HR,SUBEVENT_HR},
     "task.edit": ByState({"*": TACHKI | {HR_MASTER} | AREA_LEADS, "closed": TACHKI}),  # public task editing; closed seasons keep chair-only leadership policy
-    "task.review": ByState({"*": TACHKI | {HR_MASTER,BLOCK_HR} | AREA_LEADS, "closed": TACHKI}),
-    "task.inputs.view": TACHKI | {HR_MASTER,BLOCK_HR} | AREA_LEADS,
-    "task.inputs.edit": ByState({"*": TACHKI | {HR_MASTER,BLOCK_HR} | AREA_LEADS, "closed": TACHKI}),
+    "task.review": ByState({"*": TACHKI | {HR_MASTER,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS, "closed": TACHKI}),
+    "task.inputs.view": TACHKI | {HR_MASTER,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS,
+    "task.inputs.edit": ByState({"*": TACHKI | {HR_MASTER,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS, "closed": TACHKI}),
     # Issue date, deadline and completion date, once set; area leads do not move them (УВ-5)
     "task.dates.edit": ByState({"*": SUMMARY, "closed": TACHKI}),
     "queue.view": TACHKI | {HR_MASTER, QUEUE_HOLDER},
@@ -100,16 +102,17 @@ POLICY = {
     # KKR, summary, merits
     "kkr.view": SUMMARY,
     "summary.view": SUMMARY,
-    "summary.decide": ByState({"*": SUMMARY, "closed": TACHKI}),
+    "summary.decide": ByState({"*": SUMMARY, "closed": {CHAIR}}),
     "summary.correct": TACHKI,  # closed season corrections (АВ-2)
     "merit.create.chair": TACHKI,
     "merit.create.head": TACHKI | EVENT_LEADS,  # decision 12
-    "merit.create.block_volunteer": TACHKI | {HR_MASTER,BLOCK_HR} | BLOCK_LEADS,
-    "merit.create.subevent_volunteer": TACHKI | {HR_MASTER} | EVENT_LEADS | SUB_LEADS,  # A-KKR-8 (a)
+    "merit.create.block_volunteer": TACHKI | {HR_MASTER,BLOCK_HR,SUBEVENT_HR} | BLOCK_LEADS,
+    "merit.create.subevent_volunteer": TACHKI | {HR_MASTER,SUBEVENT_HR} | EVENT_LEADS | SUB_LEADS,  # A-KKR-8 (a)
     "merit.manage.chair_merit": ByState({"*": SUMMARY, "closed": TACHKI}),
     "merit.manage.head_merit": ByState({"*": SUMMARY | EVENT_LEADS, "closed": TACHKI}),
     "merit.manage.block_volunteer": ByState({"*": SUMMARY | BLOCK_LEADS | {BLOCK_HR}, "closed": TACHKI}),
-    "merit.manage.subevent_volunteer": ByState({"*": SUMMARY | EVENT_LEADS | SUB_LEADS, "closed": TACHKI}),
+    "merit.manage.subevent_volunteer": ByState({"*": SUMMARY | EVENT_LEADS | SUB_LEADS | {SUBEVENT_HR}, "closed": TACHKI}),
+    "achievement.manage": TACHKI | {HR_MASTER, BLOCK_MASTER, EVENT_LEADER},
     # Blocks and membership
     "block.edit": TACHKI | BLOCK_LEADS,
     "block.rename": TACHKI,
@@ -241,6 +244,11 @@ def _subevent(uid, subevent_id):
         rel.add(SUB_DEPUTY)
     if db.is_subevent_organizer(uid, subevent_id):
         rel.add(ORGANIZER)
+    from event_workspace_models import EventWorkspaceMetaORM
+    with db._session() as session:
+        meta = session.get(EventWorkspaceMetaORM, ("subevent", subevent_id))
+        if meta and meta.hr_user_id == uid:
+            rel.add(SUBEVENT_HR)
     if db.is_event_leader(uid, sub.event_id):
         rel.add(EVENT_LEADER)
     if db.is_event_leader_deputy(uid, sub.event_id):
@@ -332,6 +340,11 @@ def scope_access_revision(uid):
         scopes.append(sorted((q.queue_id,q.owner_user_id,q.is_private,q.revision) for q in session.query(TaskQueueORM)))
         scopes.append(sorted((m.queue_id,m.active,m.request_id,m.revoked_at) for m in session.query(TaskQueueMemberORM).filter_by(user_id=uid)))
         scopes.append(sorted((row.block_id,getattr(row,"hr_user_id",None)) for row in session.query(BlockMetaORM)))
+        from event_workspace_models import EventWorkspaceMetaORM
+        scopes.append(sorted((row.owner_id,row.hr_user_id) for row in session.query(EventWorkspaceMetaORM).filter_by(owner_kind="subevent")))
+        from support_models import SupportConfigORM, SupportStaffORM
+        scopes.append(sorted((row.config_id, row.block_id, row.queue_id, row.revision) for row in session.query(SupportConfigORM)))
+        scopes.append(sorted((row.user_id, row.active) for row in session.query(SupportStaffORM)))
     return hashlib.sha256(json.dumps(scopes, ensure_ascii=True).encode()).hexdigest()
 
 
@@ -383,7 +396,7 @@ def season_caps(season, uid=None):
         "open": {"edit_season": "season.edit", "begin_summary": "season.begin_summary", "create_event": "event.create"},
         "summarizing": {"close_season": "season.close"},
     }
-    return _caps({**by_state.get(season.state, {}), "view_summary": "summary.view"}, uid)
+    return _caps({**by_state.get(season.state, {}), "view_summary": "summary.view", "view_readiness": "summary.view"}, uid)
 
 
 EVENT_CAPS = {
@@ -411,6 +424,8 @@ def event_caps(event, uid=None):
 
 
 SUBEVENT_CAPS = {
+    "assign_subevent_hr": "subevent.hr.assign",
+    "view_tasks": "task.view",
     "view_meeting": "subevent.meeting.view",
     "manage_leaders": "subevent.manage_leaders",
     "manage_deputies": "subevent.manage_leader_deputies",

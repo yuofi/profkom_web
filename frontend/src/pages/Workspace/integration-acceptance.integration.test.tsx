@@ -18,6 +18,8 @@ import { ProfileEditPage } from "../ProfileEditPage/ProfileEditPage";
 import { UserContext } from "../../utils/me";
 import { authApi } from "../../utils/api/auth.api";
 import { HelmetProvider } from "react-helmet-async";
+import { decisionLabels } from "../../utils/decisions";
+import { getContactRoute } from "../../utils/routes";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 afterEach(async () => { await page?.cleanup(); page = undefined; });
@@ -110,6 +112,22 @@ it("INT-03: closed correction keeps old totals immutable and exposes provenance 
   summary = await seasonsApi.decisions(closed.season_id, row.user.user_id!, { expected_version: summary.version, decisions: ["nice"], reason: "INT-03 новая отметка" });
   page = await mountWorkspace(<Routes><Route path="/seasons/:id/summary" element={<SummaryPage />} /><Route path="/seasons/:id" element={<SeasonPage />} /></Routes>, { path: `/seasons/${closed.season_id}/summary`, session });
   await waitForPage(page, () => !!page!.container.querySelector('section[aria-label="Участники и ККР"]'));
+  const expectDecisionColumns = (root: ParentNode, version: typeof summary) => {
+    expect([...root.querySelectorAll("thead th")].map(cell => cell.textContent).slice(-2)).toEqual(["Отметки", "Прошлые отметки"]);
+    const participant = version.rows.find(item => item.participant_id === row.participant_id)!;
+    // The version header also links its author, who may be this participant.
+    const participantRow = root.querySelector(`tbody a[href="${getContactRoute(row.user.user_id!)}"]`)?.closest("tr");
+    expect(participantRow, `Summary table row for ${row.participant_id}`).toBeDefined();
+    expect(participantRow).not.toBeNull();
+    const cells = participantRow!.querySelectorAll("td");
+    expect(cells).toHaveLength(7);
+    expect(cells[5].querySelector('[aria-label="Решения текущего сезона"]')?.textContent).toBe(participant.decisions.map(value => decisionLabels[value]).join("") || "Нет отметок");
+    expect(cells[6].textContent).toBe(participant.previous_decisions.map(value => decisionLabels[value]).join("") || "Нет отметок");
+    expect(cells[6].querySelector("form")).toBeNull();
+    return cells;
+  };
+  const currentCells = expectDecisionColumns(page.container, summary);
+  expect(currentCells[5].textContent).toContain("Изменить отметки");
   const historyTab = [...page.container.querySelectorAll<HTMLAnchorElement>('nav[aria-label="Разделы сезона"] a')].find(link => link.textContent === "История")!;
   expect(historyTab.getAttribute("href")).toBe(`/seasons/${closed.season_id}?tab=history`);
   await act(async () => historyTab.click());
@@ -122,6 +140,7 @@ it("INT-03: closed correction keeps old totals immutable and exposes provenance 
   expect(historical.textContent).toContain(`Историческая версия ${old.version}`);
   expect(historical.textContent).toContain(old.reason);
   expect(historical.querySelectorAll('form')).toHaveLength(0);
+  expectDecisionColumns(historical, old.summary);
   const oldText = historical.textContent;
   await seasonsApi.decisions(closed.season_id, row.user.user_id!, { expected_version: summary.version, decisions: ["golden_red_bull"], reason: "INT-03 ещё одна коррекция" });
   await act(async () => invalidateWorkspace(page!.client));
@@ -137,6 +156,7 @@ it("INT-04: a real approved profile with @username and no patronymic can save on
   const profile = (await authApi.getMe()).data;
   expect(profile.patronymic).toBe(""); expect(profile.tg).toBe("@profkom_test");
   page = await mountWorkspace(<HelmetProvider><UserContext.Provider value={profile}><ProfileEditPage /></UserContext.Provider></HelmetProvider>, { session });
+  await waitForPage(page);
   await change(field(page.container, "surname"), "Обновлена без отчества");
   await submit(page.container.querySelector('form')!);
   await waitForPage(page, () => !!page!.container.textContent?.includes("Профиль успешно обновлён"));

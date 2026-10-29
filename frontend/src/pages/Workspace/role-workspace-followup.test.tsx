@@ -48,10 +48,11 @@ it("a scoped HR curator still applies for ordinary membership independently", as
   await openBlock("organizer");expect(button(page!.container, "Подать заявку в блок")).toBeDefined();
 });
 
-it.each([true, false])("shows request navigation only with the explicit capability: %s", async granted => {
+it.each([true, false])("keeps requests inside blocks and labels the entry by capability: %s", async granted => {
   mock = installMockTransport("organizer", { delay: 0 });const session = { ...mock.state.session, capabilities: granted ? ["view_block_requests"] : [] };
   page = await mountWorkspace(<Routes><Route element={<WorkspaceLayout />}><Route path="/blocks" element={<BlocksPage />} /></Route></Routes>, { role: "organizer", path: "/blocks", session });await waitForPage(page);
-  expect(page.container.querySelectorAll('nav a[href="/blocks/requests"]').length > 0).toBe(granted);
+  expect(page.container.querySelector('nav a[href="/blocks/requests"]')).toBeNull();
+  expect(page.container.querySelector('a[href="/blocks/requests"]')?.textContent).toBe(granted ? "Заявки в блоки" : "Мои заявки и решения");
   expect(page.container.textContent).toContain(granted ? "Заявки в блоки" : "Мои заявки и решения");
 });
 

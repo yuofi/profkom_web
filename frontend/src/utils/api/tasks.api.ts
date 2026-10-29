@@ -98,7 +98,7 @@ export const tasksApi = {
           AssessmentInputs,
           "hours" | "evaluation" | "effective_completed_at"
         >
-      > & { reason: string },
+      > & { reason: string; template_selection?: { template_id: string; revision: number } },
   ) =>
     request<AssessmentInputs>(
       "patch",

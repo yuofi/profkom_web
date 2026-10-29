@@ -1,8 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Navigate, NavLink, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { GuidesManagement } from "./panels/GuidesManagement";
-import { Card, Empty, Page, QueryState, RouteLink } from "../../components/Workspace/WorkspaceUI";
+import { Card, Empty, Page, QueryState } from "../../components/Workspace/WorkspaceUI";
 import { PageNavContext } from "../../components/Workspace/sections";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { number } from "../../components/Workspace/formValues";
@@ -11,11 +10,10 @@ import { LeadershipPage } from "../Workspace/SessionPages";
 import { AccountArchivePage } from "../Workspace/DirectoryPages";
 import { adminApi } from "../../utils/api/admin.api";
 import { directoryApi } from "../../utils/api/directory.api";
-import { materialsApi } from "../../utils/api/materials.api";
 import { sessionApi } from "../../utils/api/session.api";
 import type { TemporaryPassword } from "../../utils/api/contract";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
-import { can, useSession } from "../../utils/session";
+import { useSession } from "../../utils/session";
 import s from "../../components/Workspace/Workspace.module.css";
 import { visibleAdminTabs, type AdminTab } from "./adminTabs";
 
@@ -24,13 +22,11 @@ const elements: Record<AdminTab, () => ReactNode> = {
   registrations: () => <RegistrationsPage />,
   leadership: () => <LeadershipPage />,
   accounts: () => <AccountArchivePage />,
-  materials: () => <SharedMaterials />,
   pgas: () => <PgasAdmins />,
   passwords: () => <TemporaryPasswords />,
-  guides: () => <Guides />,
 };
 /** Bookmarked addresses of the old admin panel. */
-const moved: Record<string, string> = { users: "/admin/registrations", blocks: "/blocks", events: "/events" };
+const moved: Record<string, string> = { users: "/admin/registrations", blocks: "/blocks", events: "/events", seasons: "/seasons", materials: "/materials?kind=general", guides: "/materials?kind=guide" };
 
 export const AdminPanel = () => {
   const { tab } = useParams<{ tab?: string }>();
@@ -55,12 +51,6 @@ export const AdminPanel = () => {
           {t.label}
         </NavLink>
       ))}
-      {can(session, "view_leadership") && (
-        <>
-          <NavLink to="/blocks">Блоки</NavLink>
-          <NavLink to="/seasons">Сезоны и ККР</NavLink>
-        </>
-      )}
     </nav>
   );
   return (
@@ -70,43 +60,10 @@ export const AdminPanel = () => {
   );
 };
 
-function Guides() {
-  return (
-    <Page title="Управление гайдами" actions={<RouteLink to="/materials">Материалы</RouteLink>}>
-      <GuidesManagement />
-    </Page>
-  );
-}
-
 function usePeople() {
   return useQuery({ queryKey: ["contacts"], queryFn: directoryApi.contacts });
 }
 const fullName = (p: { surname: string; name: string }) => `${p.surname} ${p.name}`;
-
-function SharedMaterials() {
-  const materials = useQuery({ queryKey: ["materials"], queryFn: materialsApi.list });
-  const people = usePeople();
-  const name = (id: number) => {
-    const person = people.data?.find((p) => p.user_id === id);
-    return person ? fullName(person) : `#${id}`;
-  };
-  const shared = materials.data?.items.filter((m) => m.owner_block_id === null) ?? [];
-  return (
-    <Page title="Общие материалы и редакторы" description="Состав редакторов меняется на странице материала.">
-      <QueryState loading={materials.isLoading} error={materials.error} keepDataOnError={!!materials.data}>
-        <div className={s.stack}>
-          {shared.map((m) => (
-            <Card key={m.material_id} title={m.title}>
-              <p>Редакторы: {m.editor_user_ids?.length ? m.editor_user_ids.map(name).join(", ") : "не назначены"}</p>
-              <RouteLink to={`/materials/${m.material_id}`}>Открыть и изменить редакторов</RouteLink>
-            </Card>
-          ))}
-          {materials.data && !shared.length && <Empty>Общих материалов нет.</Empty>}
-        </div>
-      </QueryState>
-    </Page>
-  );
-}
 
 function PgasAdmins() {
   const { perform } = useWorkspaceActions();

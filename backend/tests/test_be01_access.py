@@ -276,5 +276,6 @@ def test_однофамилец_мастера_не_получает_права_
     assert twin.user_id != master.user_id
 
     # Однофамилец не может создавать гайды блока
-    r = client.post("/api/guides", json={"title": "Чужой гайд", "owner_block": "Медиа"}, headers=twin.headers)
+    bid = client.get("/api/blocks/Медиа", headers=twin.headers).json()["block_id"]
+    r = client.post("/api/materials", json={"kind": "guide", "title": "Чужой гайд", "description": "", "owner_block_id": bid, "content": {"format": "markdown", "body": ""}}, headers=twin.headers)
     assert r.status_code == 403

@@ -151,9 +151,14 @@ def open_interval(session, uid, at):
 
 def record_roster(session, kind, id):
     from database import RoleAssignmentORM, SubeventORM
-    from domain_models import ScopeTenureORM
+    from domain_models import ScopeTenureORM, BlockMetaORM
 
     session.flush()
+    block_id = None
+    if kind == "block":
+        from domain_seed import meta_for
+        meta = session.get(BlockMetaORM, id) or meta_for(session, id)
+        block_id, id = meta.block_id, meta.legacy_name
     desired = {
         (r.user_id, r.role, r.principal_assignment_id)
         for r in session.query(RoleAssignmentORM).filter_by(
@@ -169,15 +174,19 @@ def record_roster(session, kind, id):
                 (uid, "organizer", None)
                 for uid in json.loads(sub.organizer_user_ids_json or "[]")
             )
-    current = (
-        session.query(ScopeTenureORM)
-        .filter_by(scope_kind=kind, scope_id=id, ended_at=None)
-        .all()
-    )
-    existing = {(r.user_id, r.role, r.principal_id) for r in current}
+    query = session.query(ScopeTenureORM).filter_by(scope_kind=kind, ended_at=None)
+    if kind == "block":
+        from sqlalchemy import or_, and_
+        query = query.filter(or_(ScopeTenureORM.scope_block_id == block_id,
+            and_(ScopeTenureORM.scope_block_id.is_(None), ScopeTenureORM.scope_id == id)))
+    else:
+        query = query.filter_by(scope_id=id)
+    current = query.all()
+    existing = {(r.user_id, r.role, r.principal_id) for r in current
+                if kind != "block" or r.scope_block_id is not None}
     stamp = now()
     for row in current:
-        if (row.user_id, row.role, row.principal_id) not in desired:
+        if (kind == "block" and row.scope_block_id is None) or (row.user_id, row.role, row.principal_id) not in desired:
             row.ended_at = stamp
     for uid, role, principal in desired - existing:
         session.add(
@@ -186,6 +195,7 @@ def record_roster(session, kind, id):
                 user_id=uid,
                 scope_kind=kind,
                 scope_id=id,
+                scope_block_id=block_id,
                 role=role,
                 principal_id=principal,
                 started_at=stamp,
@@ -210,16 +220,13 @@ def in_scope_at(session, uid, kind, id, at):
                     m.left_at is None or point < dt(m.left_at)
                 ):
                     return True
-    tenures = (
-        session.query(ScopeTenureORM)
-        .filter_by(user_id=uid, scope_kind=kind, scope_id=id)
-        .all()
-    )
+    query = session.query(ScopeTenureORM).filter_by(user_id=uid, scope_kind=kind)
+    tenures = (query.filter_by(scope_block_id=meta.block_id).all() if meta else []) if kind == "block" else query.filter_by(scope_id=id).all()
     for r in tenures:
         if dt(r.started_at) <= point and (r.ended_at is None or point < dt(r.ended_at)):
             return True
     # No history for imported current assignments: do not invent a historical absence.
-    if not tenures and db.is_member_or_leader_in_scope(uid, kind, id):
+    if kind != "block" and not tenures and db.is_member_or_leader_in_scope(uid, kind, id):
         return True
     if kind == "subevent":
         sub = session.get(SubeventORM, id)

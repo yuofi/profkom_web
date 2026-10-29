@@ -1,0 +1,83 @@
+{
+  "viewport": 1440,
+  "blockedExternal": 0,
+  "blockedMutations": 0,
+  "pageErrors": 0,
+  "variants": [
+    {
+      "id": "A",
+      "name": "Мягкий фирменный жёлтый",
+      "file": "variant-A.png",
+      "css": "variant-A.css",
+      "color": "rgb(242, 246, 158)",
+      "background": "rgba(242, 246, 158, 0.14)",
+      "boxShadow": "none",
+      "cardBackground": "rgb(32, 32, 24)",
+      "text": "Integration IT · мастер",
+      "width": 129.890625,
+      "height": 17,
+      "linkCount": 1,
+      "inline": true,
+      "avatarCount": 0,
+      "contrastRatio": 9.59,
+      "imageSize": {
+        "width": 362,
+        "height": 241
+      }
+    },
+    {
+      "id": "B",
+      "name": "Мягкий мятный",
+      "file": "variant-B.png",
+      "css": "variant-B.css",
+      "color": "rgb(159, 227, 198)",
+      "background": "rgba(159, 227, 198, 0.14)",
+      "boxShadow": "none",
+      "cardBackground": "rgb(32, 32, 24)",
+      "text": "Integration IT · мастер",
+      "width": 129.890625,
+      "height": 17,
+      "linkCount": 1,
+      "inline": true,
+      "avatarCount": 0,
+      "contrastRatio": 7.89,
+      "imageSize": {
+        "width": 362,
+        "height": 241
+      }
+    },
+    {
+      "id": "C",
+      "name": "Нейтральный с тонкой обводкой",
+      "file": "variant-C.png",
+      "css": "variant-C.css",
+      "color": "rgb(229, 227, 214)",
+      "background": "rgba(255, 255, 255, 0.04)",
+      "boxShadow": "rgba(197, 195, 178, 0.28) 0px 0px 0px 1px inset",
+      "cardBackground": "rgb(32, 32, 24)",
+      "text": "Integration IT · мастер",
+      "width": 129.890625,
+      "height": 17,
+      "linkCount": 1,
+      "inline": true,
+      "avatarCount": 0,
+      "contrastRatio": 11.37,
+      "imageSize": {
+        "width": 362,
+        "height": 241
+      }
+    }
+  ],
+  "crop": {
+    "width": 362,
+    "height": 240
+  },
+  "twoCards": false,
+  "pass": true,
+  "visualReview": {
+    "pass": true,
+    "reviewed": 3,
+    "sameCardAndContent": true,
+    "sourceAndDBUnchanged": true
+  }
+}

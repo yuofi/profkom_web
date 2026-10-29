@@ -229,7 +229,10 @@ def test_hidden_queue_accounting_projection_export_versions_and_close_keep_numbe
     assert visible['score']==credit[2] and visible['assignment_inputs']['assignment_id']==aid
     assert client.get('/api/assessments',headers=w['member'].headers).status_code==403
     summary=client.get('/api/seasons/'+t['season_id']+'/summary',headers=superuser.headers)
-    assert summary.status_code==200 and t['title'] in summary.text
+    assert summary.status_code==200
+    source=next(source for row in summary.json()['rows'] if row['user']['user_id']==w['member'].user_id
+                for source in row['source_scores'] if source['source_kind']=='block_task')
+    assert source==dict(source_kind='block_task',source_id=w['block']['block_id'],title=w['block']['name'],score=credit[2])
     xlsx=client.get('/api/seasons/'+t['season_id']+'/summary.xlsx',headers=superuser.headers)
     assert xlsx.status_code==200,xlsx.text
     with ZipFile(BytesIO(xlsx.content)) as z:text=''.join(z.read(n).decode() for n in z.namelist() if n.endswith('.xml'))
@@ -342,12 +345,14 @@ def test_close_private_complete_work_masks_return_without_rewriting_saved_summar
     r=client.post('/api/seasons/'+sid+'/begin-summary',headers=superuser.headers,json={'expected_revision':season['revision']});assert r.status_code==200
     closed=client.post('/api/seasons/'+sid+'/close',headers=superuser.headers,json={'expected_revision':r.json()['revision']})
     assert closed.status_code==200,closed.text
-    assert private['title'] in closed.text
+    grouped=[source for row in closed.json()['summary']['rows'] for source in row['source_scores'] if source['source_kind']=='block_task']
+    assert grouped and all(source['title']==w['block']['name'] and source['source_id']==w['block']['block_id'] for source in grouped)
     reread=client.get('/api/seasons/'+sid+'/summary',headers=superuser.headers)
     assert reread.status_code==200 and reread.json()==closed.json()['summary']
     with db._session() as s:
         raw=s.query(SeasonSummaryORM).filter_by(season_id=sid).one()
-        assert private['title'] in raw.rows_json  # original immutable accounting snapshot
+        assert json.loads(raw.rows_json)==closed.json()['summary']['rows']  # immutable approved source groups
+        assert s.query(ContributionORM).filter_by(assignment_id=private['assignments'][0]['assignment_id']).one().source_title==private['title']
         saved=raw.rows_json
     assert client.get('/api/seasons/'+sid+'/summary/versions',headers=superuser.headers).status_code==200
     with db._session() as s:assert s.query(SeasonSummaryORM).filter_by(season_id=sid).one().rows_json==saved

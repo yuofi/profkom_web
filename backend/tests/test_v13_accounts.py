@@ -323,19 +323,21 @@ def test_cleanup_object_queue_retries_without_repeating_database_purge(
     assert delete_pending_objects() == 0
 
 
-def test_cleanup_cli_refuses_apply_until_fix_plan_04_is_complete(superuser, make_user):
-    """Release 1 guard: purge still corrupts other people's data (A-DIR-1…5, A-KKR-17)."""
+def test_cleanup_cli_dry_run_is_read_only_and_apply_only_enqueues_without_storage_io(superuser, make_user):
+    """Only this disposable conftest database; object deletion requires another command."""
     import hashlib
     import subprocess
     import sys
     from pathlib import Path
     from accounts import archive
+    from domain_models import ObjectDeletionORM
     from settings import settings
 
     member = make_user()
     archive(member.user_id, "Leave", superuser.user_id)
     with db._session() as s:
         s.get(AccountArchiveORM, member.user_id).archived_at = "2020-01-01T00:00:00+00:00"
+        s.add(ObjectDeletionORM(object_key="synthetic-explicit-drain-only", requested_at="2020-01-01T00:00:00+00:00"))
         s.commit()
     root = Path(__file__).resolve().parents[1]
     path = Path(settings.DATABASE_PATH).resolve()
@@ -349,10 +351,12 @@ def test_cleanup_cli_refuses_apply_until_fix_plan_04_is_complete(superuser, make
 
     dry = run()
     assert dry.returncode == 0 and json.loads(dry.stdout)["eligible_user_ids"] == [member.user_id]
-    refused = run("--apply")
-    assert refused.returncode == 2
-    assert json.loads(refused.stderr) == dict(
-        applied=False, reason="Account cleanup is disabled until FIX_PLAN 0.4 is complete"
-    )
     assert hashlib.sha256(path.read_bytes()).hexdigest() == before
-    assert db.get_user(member.user_id).account_state == "archived"
+    applied = run("--apply")
+    assert applied.returncode == 0, applied.stderr
+    assert json.loads(applied.stdout) == dict(eligible_user_ids=[member.user_id], purged_count=1, dry_run=False)
+    assert db.get_user(member.user_id).account_state == "purged"
+    repeated = run("--apply")
+    assert repeated.returncode == 0 and json.loads(repeated.stdout)["purged_count"] == 0
+    with db._session() as s:
+        assert s.get(ObjectDeletionORM, "synthetic-explicit-drain-only").completed_at is None

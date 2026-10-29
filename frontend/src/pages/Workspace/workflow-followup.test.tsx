@@ -225,5 +225,7 @@ it("filters personal events by season while block membership stays independent",
   await settle();
   expect(page.container.querySelector(`a[href="/events/${mock.state.events[0].event_id}"]`)).toBeNull();
   expect(page.container.textContent).toContain("В выбранных сезонах вы пока не участвуете в мероприятиях");
-  expect(page.container.textContent).toContain("Блоки не зависят от сезона");
+  for (const block of mock.state.blocks.filter(block => block.members.some(member => member.user.user_id === mock.state.session.user_id) || block.master?.user.user_id === mock.state.session.user_id || block.master?.deputy_user_ids.includes(mock.state.session.user_id))) {
+    expect(page.container.querySelector(`a[href="/blocks/${block.block_id}"]`)).not.toBeNull();
+  }
 });

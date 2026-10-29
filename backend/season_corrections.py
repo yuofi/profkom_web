@@ -21,6 +21,27 @@ from registration import now, audit
 from season_summaries import refresh
 
 
+def preview_event(event_id, uid):
+    import access
+    if not access.allowed(uid, "season.correct"):
+        raise Forbidden("Forbidden: season correction requires leadership access")
+    with db._session() as session:
+        event = session.get(EventORM, event_id)
+        if not event:
+            raise NotFound("Event not found")
+        season = session.get(SeasonORM, event.season_id)
+        if not season or season.state == "closed":
+            raise season_closed("Conflict: source season is closed")
+        subs = [row.subevent_id for row in session.query(SubeventORM).filter_by(event_id=event_id)]
+        return dict(object_id=event_id, source_season_id=event.season_id, revision=event.revision,
+            counts=dict(subevents=len(subs),
+                tasks=session.query(TaskORM).filter(TaskORM.scope_kind == "subevent", TaskORM.scope_id.in_(subs)).count(),
+                reports=session.query(ReportORM).filter(((ReportORM.owner_kind == "event") & (ReportORM.owner_id == event_id)) |
+                    ((ReportORM.owner_kind == "subevent") & ReportORM.owner_id.in_(subs))).count(),
+                merits=session.query(MeritORM).filter((MeritORM.event_id == event_id) |
+                    ((MeritORM.scope_kind == "subevent") & MeritORM.scope_id.in_(subs))).count()))
+
+
 def correct(kind, id, revision, target_id, reason, uid):
     import access
 
@@ -76,6 +97,8 @@ def correct(kind, id, revision, target_id, reason, uid):
                 )
                 if obj.ends_at and dt(obj.ends_at) > dt(target.ends_at):
                     raise InvalidInput("Event deadline exceeds target season")
+                if obj.starts_at and dt(obj.starts_at) > dt(target.ends_at):
+                    raise InvalidInput("Event start exceeds target season")
             elif kind == "block_task":
                 obj = s.get(TaskORM, id)
                 if not obj or obj.scope_kind != "block":
@@ -149,6 +172,13 @@ def correct(kind, id, revision, target_id, reason, uid):
                 (ContributionORM.assignment_id.in_(aids))
                 | (ContributionORM.merit_id.in_(mids))
             ).update({"season_id": target_id}, synchronize_session=False)
+            # The chair's independent works are one source table per season.
+            # Moving a work must also move its stable source identity.
+            from season_summaries import chair_merit_table_id
+            s.query(ContributionORM).filter(
+                ContributionORM.merit_id.in_(mids),
+                ContributionORM.source_kind == "chair_merit",
+            ).update({"source_id": chair_merit_table_id(target_id)}, synchronize_session=False)
             s.add(
                 SeasonCorrectionORM(
                     correction_id=str(uuid.uuid4()),

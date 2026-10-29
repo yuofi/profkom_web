@@ -39,6 +39,10 @@ import {
   useWorkspaceActions,
 } from "../../utils/hooks/useWorkspace";
 import s from "../../components/Workspace/Workspace.module.css";
+import { KkrTemplateTools } from "../../components/Workspace/KkrTemplateLibrary";
+import type { TemplateSelection } from "../../utils/api/profileFeatures.api";
+import { HistoryDisclosure } from "../../components/Workspace/HistoryPanel";
+import { sourceNames } from "./seasonAnalyticsView";
 const kinds: Record<MeritCreate["source_kind"], string> = {
   head_merit: "Особая заслуга на мероприятии",
   chair_merit: "Заслуга председателя",
@@ -53,8 +57,8 @@ const criteriaLabels = {
   fixed_time: "В определённое время",
 };
 /** PATCH /merits/{id} takes only these fields; kind, season and scope stay as created (A-KKR-1). */
-function meritPatch({ title, description, assigned_at, deadline_at, criteria, recipients }: MeritCreate): MeritPatch {
-  return { title, description, assigned_at, deadline_at, criteria, recipients };
+function meritPatch({ title, description, assigned_at, deadline_at, criteria, recipients, template_selection }: MeritCreate & { template_selection?: TemplateSelection }): MeritPatch & { template_selection?: TemplateSelection } {
+  return { title, description, assigned_at, deadline_at, criteria, recipients, ...(template_selection ? { template_selection } : {}) };
 }
 function useMeritContexts(enabled: boolean) {
   return useQuery({
@@ -129,6 +133,7 @@ function MeritEditor({
 }) {
   const { session } = useSession();
   const requestContextChange = useGuardedAction();
+  const [templateSelection, setTemplateSelection] = useState<TemplateSelection | null>(null);
   const { perform, refresh } = useWorkspaceActions();
   const people = usePeopleOptions({ includeNonMembers: true });
   // An existing record needs the lists only for its scope name, so they never block its form.
@@ -312,6 +317,7 @@ function MeritEditor({
               const next = e.target.value as typeof source;
               requestContextChange(() => {
                 setSource(next);
+                setTemplateSelection(null);
                 setScopeId("");
                 setSelectedPeople([]);
               });
@@ -330,7 +336,7 @@ function MeritEditor({
         </label>
         {source !== "chair_merit" && (
           <EntityPicker name="scope" label="Область работы" disabled={!!existing} value={scopeId} placeholder="Выберите область"
-            onChange={next => requestContextChange(() => { setScopeId(next); setSelectedPeople([]); })}
+            onChange={next => requestContextChange(() => { setScopeId(next); setSelectedPeople([]);setTemplateSelection(null); })}
             options={existing
               ? [{ value: scopeId, label: savedScope ?? (contexts.isLoading ? "Загрузка названия…" : "Сохранённая область"), ...(source === "block_volunteer" ? { block: { block_id: scopeId, name: savedScope ?? "Сохранённый блок" } } : {}) }]
               : [{ value: "", label: "Не выбрана" }, ...(scopeOptions ?? [])]}
@@ -354,6 +360,8 @@ function MeritEditor({
             revision={existing?.revision}
             revisionKey={summaryVersion === undefined ? undefined : String(summaryVersion)}
             fields={fields}
+            externalState={templateSelection} savedExternalState={null} onReplaceWithSaved={() => setTemplateSelection(null)}
+            beforeFields={form => <KkrTemplateTools form={form} mode="merit" selection={templateSelection} onSelection={setTemplateSelection} />}
             onConflict={async () => {
               await people.refetch();
               await refresh();
@@ -399,8 +407,9 @@ function MeritEditor({
                   completed_at: completed ? toUtc(completed) : null,
                 };
               });
-              const data: MeritCreate = {
+              const data: MeritCreate & { template_selection?: TemplateSelection } = {
                 season_id: fixedSeason ?? seasonId,
+                ...(templateSelection ? { template_selection: templateSelection } : {}),
                 source_kind: source,
                 ...(source === "head_merit"
                   ? { event_id: scopeId }
@@ -491,6 +500,7 @@ export function MeritsPage() {
                 {kinds[m.source_kind]} · {displayDate(m.assigned_at)}
               </p>
               <Markdown content={m.description} />
+              <HistoryDisclosure kind="merit" id={m.merit_id} />
               {can(m, "edit_assessment_inputs") && (
                 <details className={s.details}>
                   <summary>Исправить исходные поля</summary>
@@ -516,9 +526,20 @@ export function MeritsPage() {
 export function SourcesPage() {
   const { id = "" } = useParams();
   const { session } = useSession();
+  const [params, setParams] = useSearchParams();
+  const requestedKind = params.get("source_kind") ?? "";
+  const sourceKind = requestedKind !== "unallocated" && Object.keys(sourceNames).includes(requestedKind) ? requestedKind : "";
+  const participantId = params.get("participant_id") ?? "";
+  const setFilter = (name: string, value: string) => setParams(previous => {
+    const next = new URLSearchParams(previous);
+    if (value) next.set(name, value);else next.delete(name);
+    return next;
+  });
+  const participants = useQuery({ queryKey: ["summary", id], queryFn: () => seasonsApi.summary(id), enabled: can(session, "view_kkr") && can(session, "view_summary") });
+  const participantOptions = (!participants.error || canRetainData(participants.error) ? participants.data?.rows : undefined)?.map(row => ({ value: row.participant_id, label: `${row.user.display_name}${row.group_number ? ` · ${row.group_number}` : ""}`, user: row.user })) ?? [];
   const query = useQuery({
-    queryKey: ["assessments", "sources", id],
-    queryFn: () => seasonsApi.assessments({ season_id: id }),
+    queryKey: ["assessments", "sources", id, sourceKind, participantId],
+    queryFn: () => seasonsApi.assessments({ season_id: id, ...(sourceKind ? { source_kind: sourceKind } : {}), ...(participantId ? { participant_id: participantId } : {}) }),
     enabled: can(session, "view_kkr"),
   });
   if (!can(session, "view_kkr"))
@@ -529,6 +550,11 @@ export function SourcesPage() {
     );
   return (
     <Page title="Подробные начисления">
+      <div className={s.row} aria-label="Фильтры начислений">
+        <label className={s.field}>Вид источника<select name="source_kind" value={sourceKind} onChange={event => setFilter("source_kind", event.target.value)}><option value="">Все источники</option>{Object.entries(sourceNames).filter(([kind]) => kind !== "unallocated").map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}</select></label>
+        <EntityPicker name="participant_id" label="Участник" value={participantId} onChange={value => setFilter("participant_id", value)} loading={participants.isLoading} placeholder="Все участники" options={[{ value: "", label: "Все участники" }, ...participantOptions]} />
+      </div>
+      {participants.error && <ErrorState error={participants.error} />}
       <QueryState loading={query.isLoading} error={query.error}>
         <div className={s.stack}>
           {query.data?.items.map((c) => (
@@ -549,9 +575,6 @@ export function SourcesPage() {
           ))}
           {query.data?.items.length === 0 && (
             <Empty>Начислений пока нет.</Empty>
-          )}
-          {!can(session, "view_kkr") && (
-            <Empty>Нет доступа к расчётным данным.</Empty>
           )}
         </div>
       </QueryState>
@@ -893,7 +916,9 @@ export function CorrectionsPage() {
 export function SeasonCorrectionForm() {
   const { session } = useSession();
   const { perform, refresh } = useWorkspaceActions();
-  const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
+  const [selectedObject, setSelectedObject] = useState("");
+  const allowed = can(session, "correct_season");
+  const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list, enabled: allowed });
   const objects = useQuery({
     queryKey: ["events", "correction-objects"],
     queryFn: async () => {
@@ -907,6 +932,7 @@ export function SeasonCorrectionForm() {
           kind: "event" as const,
           id: e.event_id,
           title: e.title,
+          season_id: e.season_id,
           revision: e.revision,
         })),
         ...tasks.items
@@ -915,6 +941,7 @@ export function SeasonCorrectionForm() {
             kind: "block_task" as const,
             id: t.task_id,
             title: t.title,
+            season_id: t.season_id,
             revision: t.revision,
           })),
         ...merits.items
@@ -925,13 +952,19 @@ export function SeasonCorrectionForm() {
             kind: "merit" as const,
             id: m.merit_id,
             title: m.title,
+            season_id: m.season_id,
             revision: m.revision,
           })),
       ];
     },
-    enabled: can(session, "correct_season"),
+    enabled: allowed,
   });
-  if (!can(session, "correct_season")) return null;
+  const sourceSeasons = (!seasons.error || canRetainData(seasons.error) ? seasons.data?.items : undefined) ?? [];
+  const currentObjects = (!objects.error || canRetainData(objects.error) ? objects.data : undefined)?.filter(object => sourceSeasons.some(season => season.season_id === object.season_id && season.state !== "closed")) ?? [];
+  const selected = currentObjects.find(object => `${object.kind}/${object.id}` === selectedObject);
+  const preview = useQuery({ queryKey: ["events", "correction-preview", selected?.id, selected?.revision], queryFn: () => seasonsApi.correctionPreview(selected!.id), enabled: allowed && selected?.kind === "event" });
+  const targets = sourceSeasons.filter(season => selected && season.season_id !== selected.season_id && season.state !== "closed" && (selected.kind === "event" || season.state !== "planned"));
+  if (!allowed) return null;
   return (
     <Card title="Исправить ошибочную принадлежность к сезону">
       <p>
@@ -939,9 +972,9 @@ export function SeasonCorrectionForm() {
         начислений. Оба сезона должны быть незакрыты; операция выполняется
         целиком.
       </p>
-      <QueryState keepDataOnError={!!objects.data} loading={objects.isLoading} error={objects.error}>
+      <QueryState keepDataOnError={!!objects.data && !!seasons.data} loading={objects.isLoading || seasons.isLoading} error={objects.error ?? seasons.error}>
         <ActionForm
-          revisionKey={revisionSnapshot(objects.data?.map(o => ({id: `${o.kind}/${o.id}`, revision: o.revision})) ?? [])}
+          revisionKey={revisionSnapshot(currentObjects.map(o => ({id: `${o.kind}/${o.id}`, revision: o.revision})))}
           onConflict={refresh}
           fields={[
             {
@@ -949,19 +982,18 @@ export function SeasonCorrectionForm() {
               label: "Объект",
               type: "select",
               required: true,
-              options: objects.data?.map((o) => ({
+              options: currentObjects.map((o) => ({
                 value: `${o.kind}/${o.id}`,
-                label: o.title,
+                label: `${o.title} · ${sourceSeasons.find(season => season.season_id === o.season_id)!.title}`,
               })),
+              onSelectionChange: values => setSelectedObject(values[0] ?? ""),
             },
             {
               name: "target",
               label: "Правильный сезон",
               type: "select",
               required: true,
-              options: seasons.data?.items
-                .filter((s) => s.state !== "closed")
-                .map((s) => ({ value: s.season_id, label: s.title })),
+              options: targets.map((s) => ({ value: s.season_id, label: s.title })),
             },
             {
               name: "reason",
@@ -971,18 +1003,11 @@ export function SeasonCorrectionForm() {
             },
           ]}
           onSubmit={async (v, _expectedRevision, snapshot) => {
-            const object = objects.data?.find(
+            const object = currentObjects.find(
               (o) => `${o.kind}/${o.id}` === text(v, "object"),
             );
             if (!object) throw Error("Выберите объект");
-            if (
-              object.kind !== "event" &&
-              seasons.data?.items.find((s) => s.season_id === text(v, "target"))
-                ?.state === "planned"
-            )
-              throw Error(
-                "Этой записи нужен открытый сезон или подведение итогов",
-              );
+            if (!targets.some(season => season.season_id === text(v, "target"))) throw Error("Выберите другой незакрытый сезон");
             const revisions = snapshotRevisions(snapshot);
             const objectKey = `${object.kind}/${object.id}`;
             if (!revisions.has(objectKey)) throw Error("Обновите список объектов");
@@ -998,7 +1023,7 @@ export function SeasonCorrectionForm() {
             revisions.set(objectKey, saved.revision);
             return {revisionKey: revisionSnapshot([...revisions].map(([id, revision]) => ({id, revision})))};
           }}
-        />
+        >{selected?.kind === "event" && <section aria-label="Связанные данные мероприятия"><QueryState loading={preview.isLoading} error={preview.error} retry={() => void preview.refetch()}>{preview.data && <p>Вместе с мероприятием будут перенесены: подмероприятия — {preview.data.counts.subevents}, задачи — {preview.data.counts.tasks}, отчёты — {preview.data.counts.reports}, заслуги — {preview.data.counts.merits}.</p>}</QueryState></section>}</ActionForm>
       </QueryState>
     </Card>
   );

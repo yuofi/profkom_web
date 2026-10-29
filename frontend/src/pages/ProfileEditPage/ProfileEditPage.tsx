@@ -1,13 +1,14 @@
 import { useState, useEffect, useId, useRef } from "react";
-import { useQueryClient, useMutation } from "@tanstack/react-query";
+import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
 import { useMe } from "../../utils/me";
 import { authApi } from "../../utils/api/auth.api";
-import { contactsApi } from "../../utils/api/contacts.api";
+import { profileFeaturesApi, type AvatarSelection, type ProfileEditorData } from "../../utils/api/profileFeatures.api";
+import { ProfileAvatarDraft } from "../../components/Workspace/ProfileAvatarDraft";
 import { FormTextField } from "../../components/Form/FormTextFiled";
 import { useForm } from "../../components/Form/Form";
 import { FormikProvider } from "formik";
 import { Button } from "../../components/Button/Button";
-import { Page, Card, RouteLink } from "../../components/Workspace/WorkspaceUI";
+import { Page, Card, RouteLink, QueryState } from "../../components/Workspace/WorkspaceUI";
 import s from "../../components/Workspace/Workspace.module.css";
 import { Icon } from "../../components/Icon";
 import { Avatar } from "../../components/Avatar/Avatar";
@@ -27,16 +28,35 @@ export const ProfileEditPage = () => {
   const passwordSaved = useRef(false);
   const passwordScope = useId();
   const requestLeave = useGuardedAction(passwordScope);
+  const editorQuery = useQuery({ queryKey: ["profileEditor"], queryFn: profileFeaturesApi.editor });
+  const baseline = useRef<ProfileEditorData | null>(null);
+  const [avatar, setAvatar] = useState<AvatarSelection | null>(null);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const avatarDrafts = useRef(new Set<string>());
+  const discardAvatarDrafts = () => {
+    for (const id of avatarDrafts.current) void profileFeaturesApi.discardAvatar(id).catch(() => {});
+    avatarDrafts.current.clear();setAvatar(null);
+  };
+  useEffect(() => () => {
+    for (const id of avatarDrafts.current) void profileFeaturesApi.discardAvatar(id).catch(() => {});
+    avatarDrafts.current.clear();
+  }, []);
 
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const hasPassword = user?.has_password ?? true;
 
   const updateMutation = useMutation({
-    mutationFn: (data: ProfileUpdate) => contactsApi.update(user!.user_id, data),
-    onSuccess: () => {
+    mutationFn: (data: ProfileUpdate) => {
+      if (!baseline.current) throw Error("Дождитесь загрузки профиля");
+      return profileFeaturesApi.saveEditor(baseline.current, data, avatar);
+    },
+    onSuccess: (saved) => {
+      baseline.current = saved;
+      if (avatar && "file_id" in avatar) avatarDrafts.current.delete(avatar.file_id);
+      discardAvatarDrafts();
       queryClient.invalidateQueries({ queryKey: ["currentUser"] });
       queryClient.invalidateQueries({ queryKey: ["contacts"] });
-
+      queryClient.setQueryData(["profileEditor"], saved);
     },
 
   });
@@ -79,6 +99,22 @@ export const ProfileEditPage = () => {
       profileSaved.current = true;
     }
   });
+
+  useEffect(() => {
+    const saved = editorQuery.data;
+    if (saved && baseline.current === null) {
+      baseline.current = saved;
+      const contact = saved.contact;
+      profileFormik.resetForm({ values: {
+        surname: contact.surname || "", name: contact.name || "", patronymic: contact.patronymic || "",
+        group_number: contact.group_number ? String(contact.group_number) : "", budget: contact.budget ? "Бюджет" : "Контракт",
+        location: contact.location || "", phone: contact.phone || "", tg: contact.tg || "", email: contact.email || "",
+        vk: contact.vk || "", photo_url: contact.photo_url || "",
+      } });
+    }
+  // This initializes the saved editor once; refetch never replaces a user's draft/baseline.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editorQuery.data]);
 
   useEffect(() => {
     if (user && !profileFormik.dirty) {
@@ -137,15 +173,15 @@ export const ProfileEditPage = () => {
     });
   };
   useUnsavedChanges({
-    dirty: profileFormik.dirty,
-    busy: profileFormik.isSubmitting,
+    dirty: profileFormik.dirty || avatar !== null,
+    busy: profileFormik.isSubmitting || avatarBusy,
     label: "Данные профиля",
     save: async () => {
       profileSaved.current = false;
       await profileFormik.submitForm();
       return profileSaved.current;
     },
-    discard: () => profileFormik.resetForm(),
+    discard: () => { profileFormik.resetForm();discardAvatarDrafts(); },
   });
   useUnsavedChanges({
     dirty: isPasswordModalOpen && passwordFormik.dirty,
@@ -171,9 +207,12 @@ export const ProfileEditPage = () => {
       <Helmet>
         <title>Редактирование профиля | Профком ВМК</title>
       </Helmet>
+      <QueryState loading={editorQuery.isLoading} error={editorQuery.error}>
+        {editorQuery.error && <button type="button" className={s.button} onClick={() => { baseline.current = null;void editorQuery.refetch(); }}>Перечитать профиль</button>}
+      </QueryState>
       <FormikProvider value={profileFormik}>
         <form className={styles.form} onSubmit={profileFormik.handleSubmit}>
-          <fieldset className={s.formFields} disabled={profileFormik.isSubmitting}>
+          <fieldset className={s.formFields} disabled={profileFormik.isSubmitting || avatarBusy || !editorQuery.data || !!editorQuery.error}>
             <div className={s.columns}>
               <div className={s.stack}>
                 <Card title="Основная информация">
@@ -187,6 +226,14 @@ export const ProfileEditPage = () => {
                     <FormTextField name="patronymic" label="Отчество" color="on-surface" />
                   </div>
                 </Card>
+                <ProfileAvatarDraft value={avatar} savedUrl={user.photo_url} disabled={profileFormik.isSubmitting}
+                  onBusy={setAvatarBusy} onChange={next => {
+                    if (avatar && "file_id" in avatar && (!("file_id" in next) || avatar.file_id !== next.file_id)) {
+                      const old = avatar.file_id;avatarDrafts.current.delete(old);void profileFeaturesApi.discardAvatar(old).catch(() => {});
+                    }
+                    if ("file_id" in next) avatarDrafts.current.add(next.file_id);
+                    setAvatar(next);
+                  }} />
                 <Card title="Безопасность">
                   <div className={s.row}>
                     <button type="button" className={s.button} onClick={() => setIsPasswordModalOpen(true)}>
@@ -222,10 +269,10 @@ export const ProfileEditPage = () => {
             <div className={styles.saveBar}>
               {profileError ? (
                 <p role="alert" className={styles.saveError}>{profileError}</p>
-              ) : updateMutation.isSuccess && !profileFormik.dirty ? (
+              ) : updateMutation.isSuccess && !profileFormik.dirty && avatar === null ? (
                 <p role="status" className={s.success}>Профиль успешно обновлён</p>
               ) : (
-                <p className={s.muted}>{profileFormik.dirty ? "Есть несохранённые изменения" : "Изменений нет"}</p>
+                <p className={s.muted}>{profileFormik.dirty || avatar !== null ? "Есть несохранённые изменения" : "Изменений нет"}</p>
               )}
               <button type="submit" className={`${s.button} ${s.primary}`} disabled={profileFormik.isSubmitting}>
                 {profileFormik.isSubmitting ? "Сохраняем…" : "Сохранить"}

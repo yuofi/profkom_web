@@ -221,7 +221,7 @@ def test_reads_survive_a_storage_outage(client, superuser, pgas_admin, user, mak
     make_guide(text="# Гайд")
     storage_down()
     for path in ("/api/contacts", "/api/contacts/emails", "/api/profile/me", "/api/leadership",
-                 "/api/pgas", "/api/guides", "/api/materials"):
+                 "/api/pgas", "/api/materials"):
         assert client.get(path, headers=superuser.headers).status_code == 200, path
     assert client.get("/api/profile/me", headers=user.headers).status_code == 200
     # Only the bytes themselves wait for the storage.
@@ -233,9 +233,10 @@ def test_reads_survive_a_storage_outage(client, superuser, pgas_admin, user, mak
 def test_a_new_guide_cannot_reference_files(client, superuser, make_master, mock_s3):
     """A-MAT-8: a master links a submission of their block in a new guide."""
     master, block = make_master()
+    bid=client.get('/api/blocks/'+block.name,headers=master.headers).json()['block_id']
     fid = upload(client, superuser, mock_s3, "pgas")
     for text in (f"[файл](file:{fid})", f"![](file:{fid})"):
-        r = client.post("/api/guides", headers=master.headers, json=dict(title="Гайд", owner_block=block.name, text=text))
+        r = client.post("/api/materials", headers=master.headers, json=dict(kind="guide",title="Гайд",description="",owner_block_id=bid,content=dict(format="markdown",body=text)))
         assert r.status_code == 422, r.text
 
 
@@ -251,14 +252,14 @@ def test_an_unreadable_file_costs_only_its_link(client, superuser, make_user, mo
     assert listing.status_code == 200
     item = next(i for i in listing.json()["items"] if i["material_id"] == m["material_id"])
     assert item["published_content"]["body"] == f"Смотрите [файл]({content(hidden)})"
-    assert client.get("/api/guides", headers=outsider.headers).status_code == 200
     assert client.get(content(hidden), headers=outsider.headers).status_code == 404
 
 
 def test_an_html_guide_is_shown_as_markdown(client, user, make_guide):
     """A-MAT-14: the old guide screens get the material's Markdown, not the HTML source."""
     g = make_guide(text="<p>Абзац <strong>Жирный</strong></p><ul><li>пункт</li></ul>")
-    text = client.get(f"/api/guides/{g.guide_id}", headers=user.headers).json()["text"]
+    mid=client.get(f"/api/materials/legacy-guides/{g.guide_id}",headers=user.headers).json()['material_id']
+    text = client.get(f"/api/materials/{mid}", headers=user.headers).json()["published_content"]['body']
     assert "**Жирный**" in text and "- пункт" in text and "<" not in text
 
 
@@ -277,13 +278,16 @@ def test_saving_the_shown_text_does_not_convert_it_again(client, superuser, make
     """A-MAT-4: an old editor sends back what it was shown. Converted again, the escaped
     «<br>» of this text would become a line break."""
     g = make_guide(text="<p>Тег &lt;br&gt; словами</p>")
-    shown = client.get(f"/api/guides/{g.guide_id}", headers=superuser.headers).json()
+    mid=client.get(f"/api/materials/legacy-guides/{g.guide_id}",headers=superuser.headers).json()['material_id']
+    shown = client.get(f"/api/materials/{mid}", headers=superuser.headers).json()
     with db._session() as s:
         before = s.query(MaterialORM).filter_by(legacy_guide_id=g.guide_id).one().published_body
-    assert before == "Тег <br> словами" == shown["text"]
-    r = client.put(f"/api/guides/{g.guide_id}", headers=superuser.headers,
-                   json=dict(expected_revision=shown["revision"], text=shown["text"]))
+    assert before == "Тег <br> словами" == shown["source_content"]['body']
+    r = client.patch(f"/api/materials/{mid}", headers=superuser.headers,
+                   json=dict(expected_revision=shown["revision"], content=shown["source_content"]))
     assert r.status_code == 200, r.text
+    r=client.post(f"/api/materials/{mid}/publish",headers=superuser.headers,json=dict(expected_revision=r.json()['revision']))
+    assert r.status_code == 200,r.text
     with db._session() as s:
         assert s.query(MaterialORM).filter_by(legacy_guide_id=g.guide_id).one().published_body == before
 
@@ -357,7 +361,7 @@ def test_old_uploads_are_adopted_in_place(client, superuser, user, make_user, ma
     text = (f"```gallery\n{picture}|Подпись\n```\n\nСм. {bucket('guides/plan.pdf')}.\n\n"
             f"[чужое]({bucket('sealed/file-someone-else')})")
     g = make_guide(text=text)
-    mid = client.get(f"/api/guides/{g.guide_id}/material", headers=superuser.headers).json()["material_id"]
+    mid = client.get(f"/api/materials/legacy-guides/{g.guide_id}", headers=superuser.headers).json()["material_id"]
     mock_s3["objects"].update({
         "avatars/old.png": (PNG, "image/png"),
         "pgas/Заявление.pdf": (PDF, "application/pdf"),
@@ -420,7 +424,7 @@ def test_an_adopted_avatar_is_deleted_with_its_account_unless_shared(client, sup
     alone = make_user(photo_url=bucket("avatars/alone.png"))
     shared = make_user(photo_url=bucket("avatars/shared.png"))
     g = make_guide(text=f"![]({bucket('avatars/shared.png')})")
-    client.get(f"/api/guides/{g.guide_id}/material", headers=superuser.headers).raise_for_status()
+    client.get(f"/api/materials/legacy-guides/{g.guide_id}", headers=superuser.headers).raise_for_status()
     run_adopt("--apply")
     for victim in (alone, shared):
         archive(victim.user_id, "Leave", superuser.user_id)

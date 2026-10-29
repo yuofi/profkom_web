@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   Page,
   Card,
@@ -11,7 +11,7 @@ import {
   Glyph,
 } from "../../components/Workspace/WorkspaceUI";
 import { ActionForm } from "../../components/Workspace/ActionForm";
-import { MarkdownContent } from "../../components/Workspace/MarkdownContent";
+import { MaterialContent } from "../../components/Workspace/MaterialContent";
 import { materialsApi } from "../../utils/api/materials.api";
 import { can, useSession } from "../../utils/session";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
@@ -21,13 +21,16 @@ import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
 import { canRetainData } from "../../utils/api/request";
 import { getMaterialCreateRoute } from "../../utils/routes";
 import { MaterialEditor } from "./MaterialEditor";
+import { MaterialAudience } from "../../components/Workspace/MaterialAudience";
 import u from "./MaterialWorkspace.module.css";
 import s from "../../components/Workspace/Workspace.module.css";
 import cards from "./MaterialCards.module.css";
 export function MaterialsPage() {
   const { session } = useSession();
   const [search, setSearch] = useState("");
-  const [kind, setKind] = useState("");
+  const [params, setParams] = useSearchParams();
+  const kind = ["kmb", "guide", "general"].includes(params.get("kind") ?? "") ? params.get("kind")! : "";
+  const setKind = (value: string) => setParams(previous => { const next = new URLSearchParams(previous);if (value) next.set("kind", value);else next.delete("kind");return next; });
   const query = useQuery({
     queryKey: ["materials"],
     queryFn: materialsApi.list,
@@ -117,6 +120,7 @@ function DeletedMaterials() {
         {query.data?.items.length === 0 && <Empty>Удалённых материалов нет.</Empty>}
         {query.data?.items.map((m) => (
           <Card key={m.material_id} title={m.title}>
+            <p className={s.muted}>{m.deleted_at ? `Удалён ${new Date(m.deleted_at).toLocaleDateString("ru-RU")}. Хранится в корзине один год.` : "Дата удаления неизвестна; автоматическое удаление не назначено."}</p>
             <ActionForm
               revision={m.revision}
               fields={[]}
@@ -138,10 +142,6 @@ export function MaterialCreatePage() {
     ? <section className={`${s.page} ${u.page}`}><UnsavedChangesScope><MaterialEditor /></UnsavedChangesScope></section>
     : <Page title="Новый материал"><Empty>Создание материалов недоступно.</Empty><RouteLink to="/materials">Все материалы</RouteLink></Page>;
 }
-const AUDIENCE = {
-  block: "Только участники блока, его мастер и замы, председатель и замы",
-  everyone: "Все участники Профкома",
-} as const;
 export function MaterialPage() {
   const { id = "" } = useParams();
   const { session } = useSession();
@@ -156,10 +156,11 @@ export function MaterialPage() {
       {m && (editing === id && manageable ? <UnsavedChangesScope><MaterialEditor key={m.material_id} material={m} onClose={() => setEditing(null)} /></UnsavedChangesScope> : <>
         <BrandedHeader className={u.header}><div><SectionHomeLink to="/materials" label="Материалы" /><nav aria-label="Путь материала"><Link to="/materials">Материалы</Link><span>›</span><span>{m.title}</span></nav><div className={u.titleRow}><h1 className={s.title}>{m.title}</h1>{manageable && <button type="button" className={u.pencil} aria-label="Редактировать материал" title="Редактировать материал" onClick={() => setEditing(id)}><Glyph name="edit" /></button>}</div>{m.description && <p className={s.description}>{m.description}</p>}</div></BrandedHeader>
         <Card className={u.reading}>
-          {m.published_content ? <MarkdownContent body={m.published_content.body} /> : <Empty>Материал ещё готовится. Опубликованный текст появится здесь.</Empty>}
+          {m.placeholder && m.community_url && <a className={s.linkButton} href={m.community_url} target="_blank" rel="noopener noreferrer">Сообщество блока</a>}
+          {m.published_content ? <MaterialContent body={m.published_content.body} /> : <Empty>Материал ещё готовится. Опубликованный текст появится здесь.</Empty>}
           {m.original_link && <a className={s.linkButton} href={m.original_link} target="_blank" rel="noopener noreferrer">Открыть оригинал</a>}
         </Card>
-        {m.audience && <p className={u.audience}><Glyph name="visibility" />{AUDIENCE[m.audience]}</p>}
+        {m.audience && <div className={u.audience}><MaterialAudience material={m} /></div>}
         <Link className={s.linkButton} to="/materials">Все материалы</Link>
       </>)}
     </QueryState>

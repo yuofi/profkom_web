@@ -41,11 +41,109 @@ def eligible(as_of):
     with db._session() as s:
         return [
             a.user_id
-            for a in s.query(AccountArchiveORM).filter_by(
-                restored_at=None, purged_at=None
-            )
+            for a in s.query(AccountArchiveORM).join(UserORM, UserORM.user_id == AccountArchiveORM.user_id).filter(
+                AccountArchiveORM.restored_at.is_(None), AccountArchiveORM.purged_at.is_(None), UserORM.account_state == "archived")
             if expires_at(a.archived_at) <= as_of
         ]
+
+
+# Explicit schema policy: report bodies are Markdown despite their historical names.
+JSON_COLUMNS = {
+    "leadership": {"deputies_json"}, "subevents": {"organizer_user_ids_json"},
+    "notifications": {"payload_json"}, "tasks": {"description_json", "criteria_json"},
+    "task_tracker": {"public_statuses_json", "public_revisions_json", "files_json"},
+    "task_activity": {"changes_json"}, "task_submissions": {"text_json", "links_json", "files_json"},
+    "submissions": {"text_json", "links_json", "files_json"},
+    "task_comments": {"content_json", "history_json"},
+    "merits": {"description_json", "criteria_json", "recipients_json"},
+    "master_bonuses": {"basis_json"}, "season_summaries": {"rows_json"},
+    "season_decisions": {"decisions_json"}, "reports": {"files_json", "draft_files_json"},
+    "report_versions": {"files_json"}, "audit_logs": {"old_values_json", "new_values_json"},
+    "registration_applications": {"fields_json", "history_json"},
+    "block_applications": {"history_json"}, "domain_migrations": {"report_json"},
+    "summary_versions": {"summary_json", "contributions_json", "bonuses_json"},
+    "profile_metadata": {"participation_periods_json"}, "former_contacts": {"fields_json"},
+    "account_archives": {"snapshot_json"},
+}
+MARKDOWN_COLUMNS = {("reports", "content_json"), ("reports", "draft_content_json"), ("report_versions", "content_json")}
+CORE_TABLES = set("users contact_info guides block pgas_entries refresh_tokens external_identities leadership role_assignments seasons report_series events subevents meetings notifications season_corrections tasks task_queues task_queue_requests task_queue_members task_tracker task_checklist task_links task_favorites task_roster task_activity task_submissions assignments submissions task_comments file_records merits contributions master_bonuses season_summaries season_decisions reports report_versions report_editors audit_logs registration_applications participation_intervals block_metadata memberships block_applications category_revisions domain_migrations scope_tenures summary_versions materials profile_metadata former_contacts account_archives object_deletions event_workspace_metadata".split())
+# Callback modules own their exact typed identity fields; no guessed JSON identifiers.
+CALLBACKS = (("profile_features_models", "profile_features"), ("support_models", "support"),
+             ("history_models", "history"))
+PRIVATE_FIELDS = {"surname", "name", "patronymic", "kkr_name", "group_number", "location", "residence", "phone", "email", "tg", "vk", "photo_url"}
+
+
+def _retention_policy():
+    import importlib
+    import importlib.util
+    known = set(CORE_TABLES)
+    callbacks = []
+    external = set()
+    for models_name, service_name in CALLBACKS:
+        if importlib.util.find_spec(models_name) is None:
+            continue
+        models = importlib.import_module(models_name)
+        tables = {value.__tablename__ for value in vars(models).values()
+                  if isinstance(value, type) and value.__module__ == models_name and hasattr(value, "__tablename__")}
+        service = importlib.import_module(service_name)
+        callback = getattr(service, "anonymize", None)
+        if not callable(callback):
+            raise RuntimeError("Retention callback is incomplete for " + models_name)
+        known.update(tables); external.update(tables); callbacks.append(callback)
+    unknown = set(Base.metadata.tables) - known
+    if unknown:
+        raise RuntimeError("Retention policy missing for tables: " + ", ".join(sorted(unknown)))
+    for table in Base.metadata.tables.values():
+        if table.name in external:
+            continue
+        for column in table.columns:
+            if column.name.endswith("_json") and column.name not in JSON_COLUMNS.get(table.name, set()) and (table.name, column.name) not in MARKDOWN_COLUMNS:
+                raise RuntimeError("Retention JSON policy missing for " + table.name + "." + column.name)
+    return callbacks, external
+
+
+def _validate_json(session, external):
+    # Validate the complete batch before mutation, not midway through person N.
+    for name, columns in JSON_COLUMNS.items():
+        table = Base.metadata.tables.get(name)
+        if table is None or name in external:
+            continue
+        for record in session.execute(table.select()).mappings():
+            for column in columns:
+                raw = record[column]
+                if raw is None:
+                    continue
+                try:
+                    json.loads(raw)
+                except (ValueError, TypeError) as error:
+                    identity = tuple(record[col.name] for col in table.primary_key.columns)
+                    from errors import InvalidInput
+                    raise InvalidInput(f"Invalid JSON in {name}.{column} at primary key {identity}") from error
+
+
+def _identity_json(value, uid, old_pid, new_pid, *, owned_contact=False, actors=False, key=None):
+    if isinstance(value, dict):
+        own_ref = value.get("user_id") == uid and "display_name" in value
+        own_row = isinstance(value.get("user"), dict) and value["user"].get("user_id") == uid
+        result = {k: _identity_json(v, uid, old_pid, new_pid, owned_contact=owned_contact, actors=actors, key=k)
+                  for k, v in value.items()}
+        if owned_contact:
+            for field in PRIVATE_FIELDS & result.keys():
+                result[field] = None
+        if own_ref:
+            result.update(user_id=None, display_name="Обезличенный участник", avatar_url=None)
+        if own_row and "group_number" in result:
+            result["group_number"] = ""
+        return result
+    if isinstance(value, list):
+        return [new_pid if item == old_pid else _identity_json(item, uid, old_pid, new_pid,
+                owned_contact=owned_contact, actors=actors, key=key) for item in value]
+    if key and key.endswith("participant_id") and value == old_pid:
+        return new_pid
+    if actors and key in {"actor", "author_user_id", "actor_user_id", "changed_by_user_id"} and value == uid:
+        return None
+    # Free-form strings and unrelated numeric values are deliberately unchanged.
+    return value
 
 
 def purge(as_of=None, dry_run=True):
@@ -54,239 +152,87 @@ def purge(as_of=None, dry_run=True):
         ids = eligible(as_of)
         if dry_run:
             return dict(eligible_user_ids=ids, purged_count=0, dry_run=True)
+        if not ids:
+            return dict(eligible_user_ids=[], purged_count=0, dry_run=False)
+        callbacks, external = _retention_policy()
+        purged = []
         with db._session() as s:
+            _validate_json(s, external)
             for uid in ids:
-                u = s.get(UserORM, uid)
-                a = s.get(AccountArchiveORM, uid)
+                u, archive = s.get(UserORM, uid), s.get(AccountArchiveORM, uid)
                 if not u or u.account_state != "archived":
                     continue
-                c = s.get(ContactInfoORM, uid)
-                old_pid = f"participant-{uid}"
-                new_pid = "anonymous-" + str(uuid.uuid4())
-                # Former-contact cards have no FK to an account and are deliberately untouched.
-                pii = []
-                if c:
-                    pii = [
-                        c.email,
-                        c.phone,
-                        c.tg,
-                        c.vk,
-                        c.kkr_name,
-                        " ".join(x for x in (c.surname, c.name, c.patronymic) if x),
-                    ]
-                pii = sorted(
-                    {x for x in pii if x and len(x) >= 4}, key=len, reverse=True
-                )
-
-                private_fields = {
-                    "surname",
-                    "name",
-                    "patronymic",
-                    "kkr_name",
-                    "group_number",
-                    "location",
-                    "residence",
-                    "phone",
-                    "email",
-                    "tg",
-                    "vk",
-                    "photo_url",
-                }
-
-                def redact(value, key=None, contact_record=False):
-                    if contact_record and key in private_fields:
-                        return None
-                    if isinstance(value, dict):
-                        if value.get("user_id") == uid and "display_name" in value:
-                            return {
-                                **{
-                                    k: redact(v, k, contact_record)
-                                    for k, v in value.items()
-                                },
-                                "user_id": None,
-                                "display_name": "Обезличенный участник",
-                                "avatar_url": None,
-                            }
-                        result = {
-                            k: redact(v, k, contact_record) for k, v in value.items()
-                        }
-                        if (
-                            isinstance(value.get("user"), dict)
-                            and value["user"].get("user_id") == uid
-                            and "group_number" in result
-                        ):
-                            result["group_number"] = ""
-                        return result
-                    if isinstance(value, list):
-                        return [redact(v, key, contact_record) for v in value]
-                    if (
-                        isinstance(value, int)
-                        and value == uid
-                        and key
-                        and (
-                            key
-                            in (
-                                "actor",
-                                "author",
-                                "changed_by",
-                                "updated_by",
-                                "user_ids",
-                                "deputy_user_ids",
-                            )
-                            or key.endswith("_user_id")
-                        )
-                    ):
-                        return None
-                    if isinstance(value, str):
-                        value = value.replace(old_pid, new_pid)
-                        for needle in pii:
-                            value = value.replace(needle, "[обезличено]")
-                    return value
-
-                excluded = {
-                    "users",
-                    "contact_info",
-                    "former_contacts",
-                    "account_archives",
-                    "domain_migrations",
-                }
-                # Every stored JSON snapshot/history is redacted, including immutable summary versions.
-                # Accounting values, revisions, timestamps, tasks and reports remain intact.
+                old_pid = archive.anonymous_participant_id or f"participant-{uid}"
+                new_pid = archive.anonymous_participant_id or "anonymous-" + str(uuid.uuid4())
+                # Only typed participant columns and registered JSON identity fields.
                 for table in Base.metadata.sorted_tables:
-                    if table.name in excluded:
+                    if table.name in external or table.name in {"users", "contact_info", "former_contacts", "account_archives", "domain_migrations"}:
                         continue
-                    columns = [
-                        col for col in table.columns if col.name.endswith("_json")
-                    ]
                     for record in s.execute(table.select()).mappings().all():
                         updates = {}
-                        if (
-                            "participant_id" in record
-                            and record["participant_id"] == old_pid
-                        ):
-                            updates["participant_id"] = new_pid
-                        for col in columns:
-                            raw = record[col.name]
-                            if not raw:
+                        for column in table.columns:
+                            if column.name.endswith("participant_id") and record[column.name] == old_pid:
+                                updates[column.name] = new_pid
+                        for column in JSON_COLUMNS.get(table.name, set()):
+                            raw = record[column]
+                            if raw is None:
                                 continue
-                            try:
-                                decoded = json.loads(raw)
-                            except json.JSONDecodeError as error:
-                                raise ValueError(
-                                    f"Invalid legacy JSON in {table.name}.{col.name}"
-                                ) from error
-                            owned_contact = (
-                                table.name == "audit_logs"
-                                and record.get("target_kind")
-                                in ("registration", "profile", "contact", "user")
-                                and record.get("target_id") == str(uid)
-                            )
-                            cleaned = redact(decoded, contact_record=owned_contact)
-                            encoded = json.dumps(cleaned, ensure_ascii=False)
-                            if json.loads(raw) != cleaned:
-                                updates[col.name] = encoded
-                        for col in table.columns:
-                            if (
-                                col.name in {c.name for c in columns}
-                                or col.primary_key
-                                or col.foreign_keys
-                            ):
-                                continue
-                            raw = record[col.name]
-                            if isinstance(raw, str) and not col.name.endswith("_id"):
-                                cleaned = redact(raw)
-                                if cleaned != raw:
-                                    updates[col.name] = cleaned
-                        if (
-                            table.name == "audit_logs"
-                            and record["changed_by_user_id"] == uid
-                        ):
+                            # Raw report Markdown never enters this branch.
+                            own_contact = table.name == "audit_logs" and record.get("target_kind") in {"registration", "profile", "contact", "user"} and record.get("target_id") == str(uid)
+                            cleaned = _identity_json(json.loads(raw), uid, old_pid, new_pid,
+                                owned_contact=own_contact, actors=(table.name in {"block_applications", "task_comments"} and column == "history_json"))
+                            if table.name == "leadership" and column == "deputies_json":
+                                cleaned = [person for person in cleaned if person != uid]
+                            if table.name == "subevents" and column == "organizer_user_ids_json":
+                                cleaned = [person for person in cleaned if person != uid]
+                            if cleaned != json.loads(raw):
+                                updates[column] = json.dumps(cleaned, ensure_ascii=False)
+                        if table.name == "audit_logs" and record["changed_by_user_id"] == uid:
                             updates["changed_by_user_id"] = 0
+                        for name in {"block_metadata": ("hr_user_id",), "event_workspace_metadata": ("hr_user_id",),
+                                     "task_activity": ("actor_user_id",), "summary_versions": ("changed_by_user_id",)}.get(table.name, ()):
+                            if record[name] == uid:
+                                updates[name] = None
                         if updates:
-                            where = [
-                                col == record[col.name]
-                                for col in table.primary_key.columns
-                            ]
-                            s.execute(table.update().where(*where).values(**updates))
-                for cls in (
-                    RefreshTokenORM,
-                    ExternalIdentityORM,
-                    RoleAssignmentORM,
-                    ProfileMetadataORM,
-                    RegistrationORM,
-                ):
-                    s.query(cls).filter_by(user_id=uid).delete(
-                        synchronize_session=False
-                    )
-                s.query(NotificationORM).filter_by(user_id=uid).delete(
-                    synchronize_session=False
-                )
+                            s.execute(table.update().where(*(column == record[column.name] for column in table.primary_key.columns)).values(**updates))
+                # Capture object addresses before removing account-owned metadata.
                 from file_access import key, sealed_key
                 from legacy_files import legacy_key
-
-                object_keys = [
-                    object_key
-                    for fr in s.query(FileRecordORM).filter_by(
-                        owner_kind="avatar", owner_id=str(uid)
-                    )
-                    for object_key in (
-                        (fr.storage_key,)  # an old upload adopted in place (АВ-10)
-                        if fr.storage_key
-                        else (key(fr.file_id), sealed_key(fr.file_id))
-                    )
-                ]
-                # Only an old public avatar; contextual files are deleted by FileRecord above.
+                avatars = s.query(FileRecordORM).filter_by(owner_kind="avatar", owner_id=str(uid)).all()
+                object_keys = {address for file in avatars for address in
+                               ((file.storage_key,) if file.storage_key else (key(file.file_id), sealed_key(file.file_id)))}
                 if u.photo_url and legacy_key(u.photo_url):
-                    object_keys.append(legacy_key(u.photo_url))
-                # An adopted old upload may also be linked from a material or PGAS.
-                shared = {
-                    k for (k,) in s.query(FileRecordORM.storage_key).filter(
-                        FileRecordORM.storage_key.in_(object_keys),
-                        ~((FileRecordORM.owner_kind == "avatar") & (FileRecordORM.owner_id == str(uid))),
-                    )
-                }
-                for object_key in dict.fromkeys(k for k in object_keys if k not in shared):
-                    if not s.get(ObjectDeletionORM, object_key):
-                        s.add(
-                            ObjectDeletionORM(
-                                object_key=object_key, requested_at=as_of.isoformat()
-                            )
-                        )
-                s.query(FileRecordORM).filter_by(
-                    owner_kind="avatar", owner_id=str(uid)
-                ).delete(synchronize_session=False)
+                    object_keys.add(legacy_key(u.photo_url))
+                shared = {address for (address,) in s.query(FileRecordORM.storage_key).filter(
+                    FileRecordORM.storage_key.in_(object_keys), ~((FileRecordORM.owner_kind == "avatar") & (FileRecordORM.owner_id == str(uid))))}
+                for other in s.query(UserORM).filter(UserORM.user_id != uid):
+                    if other.photo_url and legacy_key(other.photo_url) in object_keys:
+                        shared.add(legacy_key(other.photo_url))
+                for address in sorted(object_keys - shared):
+                    if not s.get(ObjectDeletionORM, address):
+                        s.add(ObjectDeletionORM(object_key=address, requested_at=as_of.isoformat()))
+                s.query(FileRecordORM).filter_by(owner_kind="avatar", owner_id=str(uid)).delete(synchronize_session=False)
+                for cls in (RefreshTokenORM, ExternalIdentityORM, RoleAssignmentORM, ProfileMetadataORM, RegistrationORM):
+                    s.query(cls).filter_by(user_id=uid).delete(synchronize_session=False)
+                s.query(NotificationORM).filter_by(user_id=uid).delete(synchronize_session=False)
                 for cls in (MembershipORM, ParticipationORM, ScopeTenureORM):
-                    s.query(cls).filter_by(user_id=uid).update(
-                        {"user_id": None}, synchronize_session=False
-                    )
-                if c:
-                    s.delete(c)
-                u.hashed_password = ""
-                u.photo_url = None
-                u.group_number = ""
-                u.blocks = ""
-                u.events_roles = "[]"
-                u.super_user = False
-                u.admin = False
-                u.pgas_admin = False
-                u.banned = True
-                u.account_state = "purged"
+                    s.query(cls).filter_by(user_id=uid).update({"user_id": None}, synchronize_session=False)
+                from domain_models import FormerContactORM
+                s.query(FormerContactORM).filter_by(source_user_id=uid).update({"source_user_id": None}, synchronize_session=False)
+                for callback in callbacks:
+                    callback(s, uid, old_pid, new_pid)
+                contact = s.get(ContactInfoORM, uid)
+                if contact:
+                    s.delete(contact)
+                u.hashed_password = ""; u.photo_url = None; u.group_number = ""; u.blocks = ""; u.events_roles = "[]"
+                u.super_user = False; u.admin = False; u.pgas_admin = False; u.banned = True; u.account_state = "purged"
                 u.session_version += 1
-                a.snapshot_json = "{}"
-                a.reason = "Истёк срок хранения аккаунта"
-                a.purged_at = as_of.isoformat()
-                a.anonymous_participant_id = new_pid
-                audit(
-                    s,
-                    "account",
-                    str(uid),
-                    0,
-                    "Retention cleanup",
-                    {},
-                    dict(state="purged", participant_id=new_pid),
-                )
+                archive.snapshot_json = "{}"; archive.reason = "Истёк срок хранения аккаунта"
+                archive.purged_at = as_of.isoformat(); archive.anonymous_participant_id = new_pid
+                audit(s, "account", str(uid), 0, "Retention cleanup", {}, dict(state="purged", participant_id=new_pid))
+                purged.append(uid)
             s.commit()
-        return dict(eligible_user_ids=ids, purged_count=len(ids), dry_run=False)
+        return dict(eligible_user_ids=ids, purged_count=len(purged), dry_run=False)
 
 
 def delete_pending_objects():

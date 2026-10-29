@@ -5,6 +5,8 @@ import { Card, Empty, Page, QueryState, RouteLink } from "../../components/Works
 import { directoryApi } from "../../utils/api/directory.api";
 import { useSession } from "../../utils/session";
 import w from "../../components/Workspace/Workspace.module.css";
+import { ProfileActivity } from "../../components/Workspace/ProfileActivity";
+import { ProfileAchievements } from "../../components/Workspace/ProfileAchievements";
 
 /** The same authorized directory projection, now with a bookmarkable participant URL. */
 export function MemberProfilePage() {
@@ -21,6 +23,7 @@ export function MemberProfilePage() {
           {session?.user_id === person.user_id && <Card title="Мой профиль"><RouteLink to="/profile">Управление своим профилем</RouteLink></Card>}
         </div>
       </div> : <Empty>Профиль участника недоступен в текущем справочнике.</Empty>}
+      {person && <><ProfileAchievements userId={person.user_id} /><ProfileActivity userId={person.user_id} /></>}
     </QueryState>
   </Page>;
 }

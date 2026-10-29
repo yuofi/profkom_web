@@ -88,7 +88,7 @@ it.each(["edit_material", "publish_material", "edit_audience", "delete_material"
   await click(button(page!.container, "Редактировать материал"));
   expect(page!.container.querySelector('[name="body"]') !== null).toBe(capability === "edit_material");
   if (capability === "publish_material") expect(form(page!.container, "Опубликовать сохранённый черновик")).toBeDefined();
-  if (capability === "edit_audience") expect(field(page!.container, "audience")).toBeDefined();
+  if (capability === "edit_audience") expect(button(page!.container, "Только свой блок")).toBeDefined();
   if (capability === "delete_material") expect(form(page!.container, "Удалить материал")).toBeDefined();
   if (capability === "manage_material_editors") expect(form(page!.container, "Установить состав редакторов")).toBeDefined();
 });

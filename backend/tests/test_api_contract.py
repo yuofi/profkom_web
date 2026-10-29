@@ -38,6 +38,41 @@ from database import db
 #  не будучи ни разу проверенным на «а спросит ли он токен».
 #
 API_ROUTES: tuple[tuple[str, str], ...] = (
+    ('GET', '/api/workspace/home'),
+    ('PUT', '/api/subevents/{subevent_id}/hr'),
+    ('GET', '/api/profile/me/features-context'),
+    ('GET', '/api/profiles/{user_id}/activity'),
+    ('GET', '/api/achievements'),
+    ('POST', '/api/achievements'),
+    ('PATCH', '/api/achievements/{achievement_id}'),
+    ('GET', '/api/profiles/{user_id}/achievements'),
+    ('POST', '/api/achievements/{achievement_id}/grant'),
+    ('POST', '/api/achievement-grants/{grant_id}/revoke'),
+    ('GET', '/api/profile/me/notification-preferences'),
+    ('PUT', '/api/profile/me/notification-preferences'),
+    ('GET', '/api/profile/me/editor'),
+    ('PATCH', '/api/profile/me/editor'),
+    ('DELETE', '/api/profile/me/avatar-drafts/{file_id}'),
+    ('GET', '/api/kkr-templates'),
+    ('POST', '/api/kkr-templates'),
+    ('PATCH', '/api/kkr-templates/{template_id}'),
+    ('POST', '/api/kkr-templates/{template_id}/prepare'),
+    ('GET', '/api/history'),
+    ('POST', '/api/history/{source_kind}/{source_id}/hide'),
+    ('GET', '/api/seasons/{season_id}/readiness'),
+    ('GET', '/api/season-corrections/event/{event_id}/preview'),
+    ('PATCH', '/api/pgas/{entry_id}'),
+    ('GET', '/api/support/context'),
+    ('PUT', '/api/support/settings'),
+    ('PUT', '/api/support/staff'),
+    ('POST', '/api/feedback'),
+    ('GET', '/api/feedback/mine'),
+    ('PATCH', '/api/feedback/{report_id}'),
+    ('GET', '/api/support/reports'),
+    ('GET', '/api/support/tasks/{task_id}'),
+    ('POST', '/api/support/tasks/{task_id}/notes'),
+    ('PUT', '/api/support/tasks/{task_id}/deadline'),
+    ('GET', '/api/support/tasks/{task_id}/screenshot'),
     ('POST', '/api/tasks/{task_id}/take'),
     ('POST', '/api/tasks/{task_id}/favorite'),
     ('POST', '/api/tasks/{task_id}/checklist/{item_id}/toggle'),
@@ -61,7 +96,6 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ('DELETE', '/api/blocks/{block_id}/members/{user_id}'),
     ('DELETE', '/api/blocks/{block_name}'),
     ('DELETE', '/api/events/{event_id}/meeting'),
-    ('DELETE', '/api/guides/{guide_id}'),
     ('DELETE', '/api/materials/{material_id}'),
     ('DELETE', '/api/pgas/{entry_id}'),
     ('DELETE', '/api/profile/{user_id}'),
@@ -85,11 +119,9 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ('GET', '/api/events/{event_id}/subevents'),
     ('GET', '/api/files/{file_id}/content'),
     ('GET', '/api/files/{file_id}/download'),
-    ('GET', '/api/guides'),
-    ('GET', '/api/guides/{guide_id}'),
-    ('GET', '/api/guides/{guide_id}/material'),
     ('GET', '/api/leadership'),
     ('GET', '/api/materials'),
+    ('GET', '/api/materials/legacy-guides/{guide_id}'),
     ('GET', '/api/materials/deleted'),
     ('GET', '/api/materials/{material_id}'),
     ('GET', '/api/merits'),
@@ -130,7 +162,6 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ('PATCH', '/api/comments/{comment_id}'),
     ('PATCH', '/api/contacts/archive/{contact_id}'),
     ('PATCH', '/api/events/{event_id}'),
-    ('PATCH', '/api/guides/{guide_id}'),
     ('PATCH', '/api/materials/{material_id}'),
     ('PATCH', '/api/merits/{merit_id}'),
     ('PATCH', '/api/participants/{user_id}/category'),
@@ -175,8 +206,6 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ('POST', '/api/events/{event_id}/subevents'),
     ('POST', '/api/files/upload-intents'),
     ('POST', '/api/files/{file_id}/complete'),
-    ('POST', '/api/guides'),
-    ('POST', '/api/guides/{guide_id}'),
     ('POST', '/api/leadership/transfer'),
     ('POST', '/api/materials'),
     ('POST', '/api/materials/{material_id}/publish'),
@@ -203,7 +232,6 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ('PUT', '/api/blocks/{block_id}/hr'),
     ('PUT', '/api/events/{event_id}/leaders'),
     ('PUT', '/api/events/{event_id}/meeting'),
-    ('PUT', '/api/guides/{guide_id}'),
     ('PUT', '/api/leadership/deputies'),
     ('PUT', '/api/materials/{material_id}/audience'),
     ('PUT', '/api/materials/{material_id}/editors'),
@@ -225,6 +253,7 @@ FASTAPI_BUILTIN_PATHS = frozenset(
 # ── Матрица доступа ────────────────────────────────────────────────
 # Маршруты, которые обязаны работать БЕЗ заголовка Authorization.
 PUBLIC_ROUTES: tuple[tuple[str,str], ...] = (
+    ('POST','/api/feedback'),
     ('POST','/api/auth/register'),('POST','/api/auth/login'),
     ('POST','/api/auth/vk'),('POST','/api/auth/refresh'),
 )
@@ -289,6 +318,11 @@ def url_for(
         .replace("{file_id}", str(file_id))
         .replace("{report_id}", str(report_id))
         .replace("{notification_id}", str(notification_id))
+        .replace("{achievement_id}", "missing-achievement")
+        .replace("{grant_id}", "missing-grant")
+        .replace("{template_id}", "missing-template")
+        .replace("{source_kind}", "audit")
+        .replace("{source_id}", "missing-history-entry")
     )
 
 
@@ -476,9 +510,9 @@ def test_публичный_маршрут_без_токена_не_отдаёт
     "method,path,expected_status",
     [
         pytest.param("GET", "/api/blocks", 401, id="GET-/api/blocks"),
-        pytest.param("GET", "/api/guides", 401, id="GET-/api/guides"),
+        pytest.param("GET", "/api/materials", 401, id="GET-/api/materials"),
         # пустая база: гайда нет
-        pytest.param("GET", "/api/guides/{guide_id}", 401, id="GET-/api/guides/{guide_id}"),
+        pytest.param("GET", "/api/materials/legacy-guides/{guide_id}", 401, id="GET-/api/materials/legacy-guides/{guide_id}"),
         # пустое тело: валидация pydantic
         pytest.param("POST", "/api/auth/register", 422, id="POST-/api/auth/register"),
         pytest.param("POST", "/api/auth/login", 422, id="POST-/api/auth/login"),
@@ -545,7 +579,7 @@ def test_забаненный_пользователь_на_публичных_�
 def test_забаненный_видит_публичные_гайды_как_аноним(client, make_user, make_guide):
     make_guide(title="Общий", owner_block="none")
     banned=make_user(banned=True,password=None)
-    resp=client.get('/api/guides',headers=banned.headers)
+    resp=client.get('/api/materials',headers=banned.headers)
     assert resp.status_code==403
     assert error_body(resp)=={'detail':'User is banned'}
 
@@ -670,7 +704,7 @@ def test_схема_bearer_регистронезависима(client, make_use
     [
         pytest.param("DELETE", "/api/blocks", "GET", id="DELETE-/api/blocks"),
         pytest.param("PUT", "/api/contacts", "GET", id="PUT-/api/contacts"),
-        pytest.param("PATCH", "/api/guides", "GET", id="PATCH-/api/guides"),
+        pytest.param("PATCH", "/api/materials", "GET", id="PATCH-/api/materials"),
         pytest.param("GET", "/api/auth/login", "POST", id="GET-/api/auth/login"),
         pytest.param("GET", "/api/contacts/filter", "POST", id="GET-/api/contacts/filter"),
         pytest.param("DELETE", "/api/auth/logout", "POST", id="DELETE-/api/auth/logout"),
@@ -700,7 +734,7 @@ def test_405_возвращается_до_проверки_авторизаци
 @pytest.mark.parametrize(
     "method,path",
     [
-        pytest.param("HEAD", "/api/guides", id="HEAD-/api/guides"),
+        pytest.param("HEAD", "/api/materials", id="HEAD-/api/materials"),
         pytest.param("HEAD", "/api/blocks", id="HEAD-/api/blocks"),
         pytest.param("HEAD", "/api/contacts", id="HEAD-/api/contacts"),
     ],
@@ -723,8 +757,8 @@ def test_head_на_get_маршрутах_не_поддерживается(clie
         pytest.param("POST", "/api/nonexistent", id="POST-/api/nonexistent"),
         pytest.param("GET", "/api", id="GET-/api"),
         pytest.param("GET", "/", id="GET-корень"),
-        pytest.param("GET", "/api/guides/1/extra", id="GET-лишний-сегмент"),
-        pytest.param("GET", "/api/Guides", id="GET-другой-регистр"),
+        pytest.param("GET", "/api/materials/1/extra", id="GET-лишний-сегмент"),
+        pytest.param("GET", "/api/Materials", id="GET-другой-регистр"),
     ],
 )
 def test_неизвестный_путь_даёт_404(client, method, path):
@@ -750,7 +784,7 @@ def test_пути_чувствительны_к_регистру(client):
 @pytest.mark.parametrize(
     "path,needs_auth",
     [
-        pytest.param("/api/guides", True, id="/api/guides"),
+        pytest.param("/api/materials", True, id="/api/materials"),
         pytest.param("/api/blocks", True, id="/api/blocks"),
         pytest.param("/api/contacts", True, id="/api/contacts"),
     ],
@@ -768,7 +802,7 @@ def test_путь_без_слэша_обрабатывается_напряму�
 @pytest.mark.parametrize(
     "path",
     [
-        pytest.param("/api/guides/", id="/api/guides/"),
+        pytest.param("/api/materials/", id="/api/materials/"),
         pytest.param("/api/blocks/", id="/api/blocks/"),
         pytest.param("/api/contacts/", id="/api/contacts/"),
         pytest.param("/api/profile/me/", id="/api/profile/me/"),
@@ -796,17 +830,17 @@ def test_location_редиректа_абсолютный_и_несёт_схем
     из запроса. За TLS-терминирующим прокси без X-Forwarded-Proto это даёт
     редирект на http:// — деградация до незашифрованного канала.
     """
-    resp = client.get("/api/guides/", follow_redirects=False)
+    resp = client.get("/api/materials/", follow_redirects=False)
     location = resp.headers["location"]
     assert location.startswith("http://"), (
         f"Ожидался абсолютный URL со схемой запроса, получен {location!r}"
     )
-    assert location.endswith("/api/guides")
+    assert location.endswith("/api/materials")
 
 
 def test_редирект_со_слэша_доводит_до_реального_ответа(client, make_guide):
     make_guide(title="Слэш",owner_block="none")
-    resp=client.get('/api/guides/',follow_redirects=True)
+    resp=client.get('/api/materials/',follow_redirects=True)
     assert [h.status_code for h in resp.history]==[307]
     assert resp.status_code==401
 
@@ -847,7 +881,7 @@ def test_список_origins_ровно_такой_как_объявлен():
 def test_preflight_разрешённого_origin_отражается_обратно(client, origin):
     """OPTIONS-preflight с разрешённого origin: 200 и эхо этого origin."""
     resp = client.options(
-        "/api/guides",
+        "/api/materials",
         headers={"Origin": origin, "Access-Control-Request-Method": "GET"},
     )
     assert resp.status_code == 200, (
@@ -863,7 +897,7 @@ def test_preflight_разрешённого_origin_отражается_обра
 def test_preflight_разрешает_передачу_учётных_данных(client, origin):
     """allow_credentials=True ⇒ access-control-allow-credentials: true."""
     resp = client.options(
-        "/api/guides",
+        "/api/materials",
         headers={"Origin": origin, "Access-Control-Request-Method": "POST"},
     )
     assert resp.headers.get("access-control-allow-credentials") == "true", (
@@ -876,7 +910,7 @@ def test_preflight_разрешает_передачу_учётных_данны
 def test_preflight_помечает_ответ_vary_origin(client, origin):
     """Vary: Origin обязателен, иначе кэш отдаст чужому origin чужие заголовки."""
     resp = client.options(
-        "/api/guides",
+        "/api/materials",
         headers={"Origin": origin, "Access-Control-Request-Method": "GET"},
     )
     assert "origin" in resp.headers.get("vary", "").lower(), (
@@ -887,7 +921,7 @@ def test_preflight_помечает_ответ_vary_origin(client, origin):
 def test_чужой_origin_в_preflight_не_отражается(client):
     """Ключевая проверка CORS: чужой origin не получает allow-origin."""
     resp = client.options(
-        "/api/guides",
+        "/api/materials",
         headers={"Origin": FOREIGN_ORIGIN, "Access-Control-Request-Method": "GET"},
     )
     assert resp.status_code == 400, (
@@ -922,11 +956,11 @@ def test_preflight_разрешает_все_http_методы(client):
     включая те, которых у эндпоинта нет. См. отчёт по дефектам.
     """
     resp = client.options(
-        "/api/guides",
+        "/api/materials",
         headers={"Origin": main_module.origins[0], "Access-Control-Request-Method": "DELETE"},
     )
     assert resp.status_code == 200, (
-        "DELETE не объявлен на /api/guides, но preflight его разрешает — "
+        "DELETE не объявлен на /api/materials, но preflight его разрешает — "
         f"получен {resp.status_code}"
     )
     allowed = {m.strip() for m in resp.headers["access-control-allow-methods"].split(",")}
@@ -938,7 +972,7 @@ def test_preflight_разрешает_все_http_методы(client):
 def test_preflight_с_нестандартным_методом_отклоняется(client):
     """Метод вне списка ALL_METHODS Starlette (например TRACE) не разрешается."""
     resp = client.options(
-        "/api/guides",
+        "/api/materials",
         headers={"Origin": main_module.origins[0], "Access-Control-Request-Method": "TRACE"},
     )
     assert resp.status_code == 400, f"Получен {resp.status_code}"
@@ -946,7 +980,7 @@ def test_preflight_с_нестандартным_методом_отклоняе
 
 def test_options_без_origin_не_обрабатывается_как_preflight(client):
     """Без заголовка Origin OPTIONS уходит в роутер и получает 405."""
-    resp = client.options("/api/guides")
+    resp = client.options("/api/materials")
     assert resp.status_code == 405, f"Получен {resp.status_code}: {resp.text[:200]}"
 
 
@@ -1053,16 +1087,13 @@ def test_полностью_публичный_маршрут_не_помече�
 @pytest.mark.parametrize(
     "method,path,anon_status",
     [
-        pytest.param("GET", "/api/guides", 401, id="GET-/api/guides"),
-        pytest.param("GET", "/api/guides/{guide_id}", 401, id="GET-/api/guides/{guide_id}"),
+        pytest.param("GET", "/api/materials", 401, id="GET-/api/materials"),
+        pytest.param("GET", "/api/materials/legacy-guides/{guide_id}", 401, id="GET-/api/materials/legacy-guides/{guide_id}"),
     ],
 )
 def test_схема_и_поведение_гайдов_требуют_вход(client, spec, method, path, anon_status):
     """
-    ЗАФИКСИРОВАННОЕ РАСХОЖДЕНИЕ. Маршруты гайдов используют
-    get_current_user_optional (auto_error=False), поэтому реально работают
-    анонимно, но OpenAPI помечает их как требующие OAuth2PasswordBearer:
-    сгенерированный из схемы клиент будет считать их закрытыми.
+    Материалы и resolver старых ссылок требуют входа; OpenAPI и HTTP согласованы.
     """
     route = route_object(method, path)
     assert route_requires_current_user(route)
@@ -1098,7 +1129,7 @@ def test_каждая_операция_описывает_ответ_422_для_
     "method,path,status,detail,needs_auth",
     [
         pytest.param("GET", "/api/profile/999999", 404, "User not found", True, id="404-профиль"),
-        pytest.param("GET", "/api/guides/999999", 404, "Guide not found", True, id="404-гайд"),
+        pytest.param("GET", "/api/materials/legacy-guides/999999", 404, "Guide not found", True, id="404-legacy-material"),
         pytest.param("GET", "/api/profile/me", 401, "Not authenticated", False, id="401-без-токена"),
         pytest.param("POST", "/api/auth/refresh", 401,
                      "Refresh token missing in cookies", False, id="401-refresh"),

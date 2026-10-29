@@ -1,4 +1,4 @@
-import { Fragment, Suspense, type CSSProperties } from "react";
+import { Suspense, type CSSProperties } from "react";
 import { Loading } from "./WorkspaceUI";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { useMe } from "../../utils/me";
@@ -38,12 +38,11 @@ export function WorkspaceLayout() {
     >
       {/* The item of the page's section is marked on its inner pages too (a subevent is under Мероприятия). */}
       {SECTIONS.filter(({ to }) => to !== "/notifications" && (shown[to]?.(session) ?? true)).map(({ to, label, icon, tone }) => (
-        <Fragment key={to}><Link to={to} style={toneStyle(tone)}
+        <Link key={to} to={to} style={toneStyle(tone)}
           aria-current={pathname === to ? "page" : section.to === to ? "true" : undefined}>
           <Glyph name={icon} className={s.icon} />
           {label}
         </Link>
-        {to === "/blocks" && can(session, "view_block_requests") && <Link to="/blocks/requests" style={toneStyle("peach")} aria-current={pathname === "/blocks/requests" ? "page" : undefined}><Glyph name="groups" className={s.icon} />Заявки в блоки</Link>}</Fragment>
       ))}
       {includeProfile && <Link className={s.mobileProfile} to="/profile" style={toneStyle("yellow")}
         aria-label="Мой профиль" aria-current={pathname === "/profile" ? "page" : pathname.startsWith("/profile/") ? "true" : undefined}>

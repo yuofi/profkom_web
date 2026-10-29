@@ -17,6 +17,7 @@ from database import (
     TaskQueueORM, UserORM, _active_session, db,
 )
 from domain_models import BlockMetaORM
+from event_workspace_models import EventWorkspaceMetaORM
 
 _MARKER = "queue_owner_recovery_needed"
 _RUNNING = "queue_owner_recovery_running"
@@ -25,6 +26,7 @@ _RELEVANT = {
     UserORM: ("account_state", "banned", "blocks"),
     BlockORM: ("name", "master_user_id", "is_hr", "arr_of_human"),
     BlockMetaORM: ("hr_user_id",),
+    EventWorkspaceMetaORM: ("hr_user_id",),
     LeadershipORM: ("chair_user_id", "deputies_json"),
     RoleAssignmentORM: ("user_id", "role", "scope_kind", "scope_id", "principal_assignment_id"),
     SubeventORM: ("organizer_user_ids_json", "event_id"),

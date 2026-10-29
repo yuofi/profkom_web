@@ -1,0 +1,7 @@
+[data-qa-master-card] [class*="masterBlock"] { background: none !important; box-shadow: none !important; border: 0 !important; border-radius: 0 !important; padding: 0 !important; }
+[data-qa-master-card] [class*="blockLink"], [data-qa-demo-block] a { text-decoration: none !important; }
+[data-qa-demo-block] { color: #bdbdaf; font-weight: 400; }
+[data-qa-demo-block] a { color: inherit !important; }
+[data-qa-master-card] [class*="masterBlock"] a { color: inherit !important; font-weight: inherit; }
+[data-qa-master-card] [class*="masterBlock"] { color: var(--on-background) !important; font-weight: 500 !important; position: relative; padding-left: 7px !important; }
+[data-qa-master-card] [class*="masterBlock"]::before { content: ""; position: absolute; left: 0; top: 1px; bottom: 1px; width: 2px; background: var(--accent-mint); border-radius: 1px; }

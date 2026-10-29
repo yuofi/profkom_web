@@ -11,7 +11,7 @@ import { taskTypeNames, taskPriorityNames } from "./trackerPlanning";
 import w from "../../components/Workspace/Workspace.module.css";
 import s from "./TrackerTaskStage2.module.css";
 
-export function TaskPlanningFields({ value, onChange, disabled = false, deadline }: { value: PlanningDraft; onChange: (value: PlanningDraft) => void; disabled?: boolean; deadline?: string }) {
+export function TaskPlanningFields({ value, onChange, disabled = false, deadline }: { value: PlanningDraft; onChange: (value: PlanningDraft) => void; disabled?: boolean; deadline?: string | null }) {
   return <div className={s.planningFields}>
     <label className={w.field}><span className={s.classificationLabel}><TaskClassificationIcon field="task_type" value={value.task_type} />Тип задачи</span><select name="task_type" value={value.task_type} disabled={disabled} onChange={event => { const type = event.target.value as TaskType;onChange({ ...value, task_type: type, starts: type === "milestone" ? "" : value.starts }); }}>{Object.entries(taskTypeNames).map(([key,label]) => <option value={key} key={key}>{label}</option>)}</select></label>
     <label className={w.field}><span className={s.classificationLabel}><TaskClassificationIcon field="priority" value={value.priority} />Приоритет</span><select name="priority" value={value.priority} disabled={disabled} onChange={event => onChange({ ...value, priority: event.target.value as TaskPriority })}>{Object.entries(taskPriorityNames).map(([key,label]) => <option value={key} key={key}>{label}</option>)}</select></label>
@@ -26,7 +26,7 @@ export function TaskPlanningEditor({ task, onClose }: { task: Task; onClose: () 
       onReplaceWithSaved={() => setDraft(planningDraft(task))} onConflict={refresh} submitLabel="Сохранить параметры" savedDetails={<p>{taskTypeNames[task.task_type ?? "task"]} · {taskPriorityNames[task.priority ?? "normal"]} · Начало: {displayDate(task.starts_at)}</p>}
       onSubmit={async (_, expectedRevision) => {
         const payload = planningPayload(draft);
-        if (payload.starts_at && Date.parse(payload.starts_at) > Date.parse(task.deadline_at)) throw Error("Плановое начало не может быть позже дедлайна");
+        if (payload.starts_at && task.deadline_at && Date.parse(payload.starts_at) > Date.parse(task.deadline_at)) throw Error("Плановое начало не может быть позже дедлайна");
         setBusy(true);try { return await perform(() => tasksApi.update(task.task_id, { expected_revision: expectedRevision!, ...payload })); } finally { setBusy(false); }
       }}>
       <TaskPlanningFields value={draft} onChange={setDraft} disabled={busy} deadline={task.deadline_at} />

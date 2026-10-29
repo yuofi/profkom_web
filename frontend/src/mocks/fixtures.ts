@@ -430,6 +430,7 @@ export function createFixtures(role: MockRole = "organizer") {
   for (const task of tasks) { task.queue = { queue_id: queues[0].queue_id, name: queues[0].name, key: queues[0].key };task.parent_task = null;task.parent_task_id = null; }
   // Dates of a task are moved by the chair, deputies and HR master only (УВ-5).
   const inputsCaps = ["view_assessment_inputs", "edit_assessment_inputs", ...(global ? ["edit_assessment_dates"] : [])];
+  if (!tasks[0].deadline_at) throw new Error("The scoped accounting fixture requires a real deadline");
   const inputs: TaskInputs = {
     task_id: "task-1",
     assigned_at: "2026-10-18T09:00:00Z",
@@ -565,6 +566,7 @@ export function createFixtures(role: MockRole = "organizer") {
       created_at: "2026-10-10T12:00:00Z",
       stage_entered_at: "2026-10-14T12:00:00Z",
       substitute_available_at: "2026-10-17T12:00:00Z",
+      approvals: [],
       revision: 1,
       capabilities: manager ? ["block_review_request"] : [],
     },
@@ -620,6 +622,8 @@ export function createFixtures(role: MockRole = "organizer") {
   const former: FormerContact[] = [
     {
       contact_id: "former-1",
+      revision: 1,
+      capabilities: ["edit_former_contact"],
       surname: "Волкова",
       name: "Елена",
       phone: "+79990000001",

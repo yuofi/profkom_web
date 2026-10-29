@@ -28,7 +28,10 @@ it("lets the actual HR master edit a foreign private-queue task and its Markdown
     expect(task.capabilities).toContain("edit_task");expect(task.capabilities).toContain("edit_task_description");expect(task.created_by?.user_id).not.toBe(actor.user_id);expect(task.assignees).toEqual([]);
     page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage />} /></Routes>, { path: `/tasks/${task.task_id}`, session });await waitForPage(page);
     const checkbox = page.container.querySelector<HTMLInputElement>('section[aria-label="Описание задачи"] input[type="checkbox"]')!;expect(checkbox.disabled).toBe(false);
-    await act(async () => checkbox.click());await waitForPage(page);task = await api(() => tasksApi.get(task.task_id));expect(task.description.body).toContain("- [x] Проверить доступ");
+    await act(async () => checkbox.click());await waitForPage(page, () => {
+      const saved = page!.container.querySelector<HTMLInputElement>('section[aria-label="Описание задачи"] input[type="checkbox"]');
+      return saved?.checked === true && !saved.disabled && !page!.container.textContent?.includes("Сохраняем отметку…");
+    });task = await api(() => tasksApi.get(task.task_id));expect(task.description.body).toContain("- [x] Проверить доступ");
     const edit = [...page.container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === "Редактировать")!;await act(async () => edit.click());await waitForPage(page);
     const dialog = page.container.querySelector<HTMLDialogElement>("dialog")!;await change(dialog.querySelector<HTMLInputElement>('input[name="title"]')!, "Изменено мастером HR");await submit(dialog.querySelector("form")!);await waitForPage(page);
     const saved = await api(() => tasksApi.get(task.task_id));expect(saved.title).toBe("Изменено мастером HR");expect(saved.assignees).toEqual([]);expect(saved.status).toBe(task.status);

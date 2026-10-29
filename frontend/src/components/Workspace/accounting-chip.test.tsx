@@ -11,6 +11,7 @@ let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 afterEach(async () => { await page?.cleanup();page = undefined;vi.restoreAllMocks(); });
 function item(): UnresolvedAssignment {
   const fixture = createFixtures("chair"), task = fixture.tasks[0];
+  if (!task.season_id || !task.deadline_at) throw new Error("Scoped fixture must retain its season and deadline");
   return { assignment: { ...task.assignments[0], capabilities: ["view_assessment_inputs"], status: "not_completed" }, task_id: task.task_id, task_title: task.title, season_id: task.season_id, scope: { kind: "block", id: "block-info" }, deadline_at: task.deadline_at, scope_title: "Инфо" };
 }
 it("links to the exact assessment and only mounts its private query when the preview opens", async () => {

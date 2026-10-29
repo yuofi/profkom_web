@@ -15,6 +15,8 @@ import type { PgasEntryOut } from "../../utils/api/types";
 import s from "../../components/Workspace/Workspace.module.css";
 import styles from "./PgasPage.module.css";
 import type { IconName } from "../../components/icons";
+import { userMessage } from "../../utils/api/messages";
+import { AnchoredPopover } from "../../components/Workspace/AnchoredPopover";
 
 const CURRENT_YEAR = new Date().getFullYear();
 // Годы для выпадающего списка: следующий год и семь предыдущих
@@ -35,6 +37,7 @@ const PgasValidationSchema = z.object({
     .int()
     .min(1900, "Некорректный год")
     .max(2200, "Некорректный год"),
+  half_year: z.string().refine((value): boolean => value === "1" || value === "2", "Выберите период документа"),
 });
 
 const getFileIcon = (fileType = ""): IconName => {
@@ -42,6 +45,41 @@ const getFileIcon = (fileType = ""): IconName => {
   if (fileType.startsWith("image/")) return "image";
   return "description";
 };
+
+const periodLabel = (period?: number | null) => period === 1 ? "Январь–май" : period === 2 ? "Июнь–декабрь" : "Не указан";
+
+function PeriodEditor({ entry }: { entry: PgasEntryOut }) {
+  const anchor = useRef<HTMLButtonElement>(null);
+  const queryClient = useQueryClient();
+  const [snapshot, setSnapshot] = useState<PgasEntryOut | null>(null);
+  const [error, setError] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  const mutation = useMutation({
+    mutationFn: (value: 1 | 2) => pgasApi.period(snapshot!.entry_id, value, snapshot!.revision ?? 1),
+    onSuccess: () => { setSnapshot(null);setError("");void queryClient.invalidateQueries({ queryKey: ["pgas"] }); },
+    onError: (failure) => { setError(userMessage(failure));void queryClient.invalidateQueries({ queryKey: ["pgas"] }); },
+  });
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      const entries = await queryClient.fetchQuery({ queryKey: ["pgas"], queryFn: pgasApi.getAll });
+      const current = entries.find(item => item.entry_id === entry.entry_id);
+      if (current) { setSnapshot(current);setError(""); } else setError("Документ уже удалён. Закройте окно.");
+    } catch (failure) { setError(userMessage(failure)); }
+    finally { setRefreshing(false); }
+  };
+  const busy = mutation.isPending || refreshing;
+  return <>
+    <button ref={anchor} type="button" className={styles.periodEdit} aria-label={`Изменить период документа «${entry.title}»`} aria-expanded={!!snapshot} onClick={() => { setSnapshot(entry);setError(""); }}><Glyph name="edit" /></button>
+    <AnchoredPopover open={!!snapshot} anchorRef={anchor} label="Период документа" width={300} busy={busy} onRequestClose={() => setSnapshot(null)}>
+      <p className={s.muted}>{entry.title}</p>
+      <div className={styles.periodChoices}>
+        {([1, 2] as const).map(value => <button key={value} type="button" className={s.button} aria-pressed={snapshot?.half_year === value} disabled={busy || !!error || snapshot?.half_year === value} onClick={() => mutation.mutate(value)}>{periodLabel(value)}</button>)}
+      </div>
+      {error && <><p role="alert" className={s.error}>{error}</p><button type="button" className={s.button} disabled={busy} onClick={() => void refresh()}>Перечитать данные</button></>}
+    </AnchoredPopover>
+  </>;
+}
 
 export const PgasPage = () => {
   const queryClient = useQueryClient();
@@ -53,6 +91,8 @@ export const PgasPage = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [sortType, setSortType] = useState<SortType>("default");
+  const [yearFilter, setYearFilter] = useState("all");
+  const [periodFilter, setPeriodFilter] = useState("all");
 
   const { session } = useSession();
   // The chair, deputies and pgas_admin edit (decision 14); the server decides it.
@@ -66,7 +106,7 @@ export const PgasPage = () => {
   const sortedEntries = useMemo(() => {
     if (!entries) return [];
 
-    const result = [...entries];
+    const result = entries.filter(entry => (yearFilter === "all" || entry.year === Number(yearFilter)) && (periodFilter === "all" || (periodFilter === "unknown" ? entry.half_year == null : entry.half_year === Number(periodFilter))));
 
     if (sortType === "alphabet") {
       result.sort((a, b) => a.title.localeCompare(b.title, "ru"));
@@ -76,10 +116,11 @@ export const PgasPage = () => {
 
     // "По умолчанию" — порядок, в котором записи лежат в базе (новые первыми)
     return result;
-  }, [entries, sortType]);
+  }, [entries, sortType, yearFilter, periodFilter]);
+  const filterYears = useMemo(() => [...new Set(entries?.map(entry => entry.year) ?? [])].sort((a, b) => b - a), [entries]);
 
   const createMutation = useMutation({
-    mutationFn: async (values: { title: string; year: number }) => {
+    mutationFn: async (values: { title: string; year: number; half_year: string }) => {
       if (!selectedFile) {
         throw new Error("Прикрепите файл");
       }
@@ -90,6 +131,7 @@ export const PgasPage = () => {
         file_url,
         file_name: selectedFile.name,
         file_type: selectedFile.type,
+        half_year: Number(values.half_year) as 1 | 2,
       });
     },
     onSuccess: () => {
@@ -109,6 +151,7 @@ export const PgasPage = () => {
     initialValues: {
       title: "",
       year: CURRENT_YEAR,
+      half_year: "",
     },
     validationSchema: PgasValidationSchema,
     protectChanges: { enabled: isModalOpen, scope, label: "Документ ПГАС", externalDirty: !!selectedFile, externalBusy: createMutation.isPending, discard: () => resetFile() },
@@ -181,7 +224,13 @@ export const PgasPage = () => {
       <Helmet>
         <title>ПГАС | Профком ВМК</title>
       </Helmet>
-      <div className={s.filters}>
+      <div className={styles.filters}>
+        <label className={s.field}>Год
+          <select aria-label="Год документов" value={yearFilter} onChange={event => setYearFilter(event.target.value)}><option value="all">Все годы</option>{filterYears.map(year => <option value={year} key={year}>{year}</option>)}</select>
+        </label>
+        <label className={s.field}>Период
+          <select aria-label="Период документов" value={periodFilter} onChange={event => setPeriodFilter(event.target.value)}><option value="all">Все периоды</option><option value="1">Январь–май</option><option value="2">Июнь–декабрь</option><option value="unknown">Не указан</option></select>
+        </label>
         <label className={s.field}>
           Порядок
           <select value={sortType} onChange={(e) => setSortType(e.target.value as SortType)}>
@@ -201,14 +250,15 @@ export const PgasPage = () => {
           <p>Не удалось загрузить список</p>
         </div>
       ) : sortedEntries.length === 0 ? (
-        <Empty>Записи пока не добавлены</Empty>
+        <Empty>{entries?.length ? "По выбранным фильтрам документов нет" : "Записи пока не добавлены"}</Empty>
       ) : (
-        <div className={s.tableWrap}>
-          <table className={s.table}>
+        <div className={`${s.tableWrap} ${styles.tableWrap}`} tabIndex={0} role="region" aria-label="Документы ПГАС">
+          <table className={`${s.table} ${styles.table}`}>
             <thead>
               <tr>
                 <th>Название мероприятия</th>
                 <th>Год</th>
+                <th>Период</th>
                 <th>Файл</th>
                 {canManage && <th aria-label="Действия"></th>}
               </tr>
@@ -220,6 +270,7 @@ export const PgasPage = () => {
                   <td>
                     <Badge tone="yellow">{entry.year}</Badge>
                   </td>
+                  <td><span className={styles.periodCell}>{periodLabel(entry.half_year)}{canManage && <PeriodEditor entry={entry} />}</span></td>
                   <td>
                     <a
                       className={styles.fileLink}
@@ -302,6 +353,13 @@ export const PgasPage = () => {
                     {formik.touched.year && formik.errors.year && (
                       <span className={s.fieldError}>{String(formik.errors.year)}</span>
                     )}
+                  </label>
+
+                  <label className={s.field}>Период документа
+                    <select name="half_year" value={formik.values.half_year} onChange={formik.handleChange} onBlur={formik.handleBlur} required>
+                      <option value="">Выберите период…</option><option value="1">Январь–май</option><option value="2">Июнь–декабрь</option>
+                    </select>
+                    {formik.touched.half_year && formik.errors.half_year && <span className={s.fieldError}>{String(formik.errors.half_year)}</span>}
                   </label>
 
                   <div className={styles.fileField}>

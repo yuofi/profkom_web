@@ -106,14 +106,9 @@ def test_legacy_id_mapping_markup_preservation_and_draft_conflict(
 ):
     source = '<p><strong>Жирный</strong> и <em>курсив</em><br>Строка</p><ul><li><a href="https://example.com">Ссылка</a></li></ul>'
     g = db.create_guide(Guide(guide_id=0, title="Old", owner_block="none", text=source))
-    legacy = client.get(f"/api/guides/{g.guide_id}", headers=user.headers).json()
-    mid = legacy["material_id"]
-    assert (
-        client.get(f"/api/guides/{g.guide_id}/material", headers=user.headers).json()[
-            "material_id"
-        ]
-        == mid
-    )
+    mapped = client.get(f"/api/materials/legacy-guides/{g.guide_id}", headers=user.headers).json()
+    mid = mapped["material_id"]
+    assert client.get(f"/api/materials/legacy-guides/{g.guide_id}", headers=user.headers).json()["material_id"] == mid
     with db._session() as s:
         assert s.get(GuideORM, g.guide_id).text == source
     material = client.get("/api/materials/" + mid, headers=user.headers).json()
@@ -130,14 +125,8 @@ def test_legacy_id_mapping_markup_preservation_and_draft_conflict(
             content=dict(format="markdown", body="Draft"),
         ),
     ).json()
-    assert (
-        client.post(
-            f"/api/guides/{g.guide_id}",
-            headers=superuser.headers,
-            json=dict(expected_revision=draft["revision"], text="Overwrite"),
-        ).status_code
-        == 409
-    )
+    assert client.patch("/api/materials/" + mid, headers=superuser.headers,
+                        json=dict(expected_revision=material["revision"], content=dict(format="markdown", body="Overwrite"))).status_code == 409
     assert (
         client.post(
             "/api/materials/" + mid + "/publish",
@@ -147,7 +136,7 @@ def test_legacy_id_mapping_markup_preservation_and_draft_conflict(
         == 200
     )
     assert (
-        client.get(f"/api/guides/{g.guide_id}", headers=user.headers).json()["text"]
+        client.get("/api/materials/"+mid, headers=user.headers).json()["published_content"]["body"]
         == "Draft"
     )
     assert (
@@ -155,7 +144,7 @@ def test_legacy_id_mapping_markup_preservation_and_draft_conflict(
         == 200
     )
     assert (
-        client.get(f"/api/guides/{g.guide_id}", headers=user.headers).status_code == 404
+        client.get(f"/api/materials/legacy-guides/{g.guide_id}", headers=user.headers).status_code == 404
     )
 
 

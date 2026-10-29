@@ -23,6 +23,7 @@ import s from "../../components/Workspace/Workspace.module.css";
 import { RegistrationForm } from "../../components/Workspace/RegistrationForm";
 import { missingFields } from "../../utils/contactFields";
 import { DemoRolePicker } from "../../components/Workspace/DemoRolePicker";
+import { HistoryDisclosure } from "../../components/Workspace/HistoryPanel";
 export function AccountStatePage() {
   const { session } = useSession();
   const { logout, busy, error } = useLogout();
@@ -191,6 +192,7 @@ export function LeadershipPage() {
               "не назначены"}
           </p>
         </Card>
+        <HistoryDisclosure kind="leadership" id="current" title="История руководства Профкома" />
         {can(current, "transfer_chair") && can(session, "transfer_chair") && (
           <Card title="Передача поста">
             <p>

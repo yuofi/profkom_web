@@ -1,0 +1,9 @@
+.layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; min-width: 0; }
+.body { min-width: 0; }
+.body :is(h1,h2,h3,h4,h5,h6) { scroll-margin-top: 24px; }
+.toc { border: 1px solid var(--outline-variant); border-radius: 14px; padding: 14px 18px; max-width: 100%; font-size: 14px; }
+.toc summary { cursor: pointer; font-weight: 600; }
+.toc ol { list-style: none; padding: 0; display: grid; gap: 9px; }
+.toc a { color: var(--primary); text-decoration: none; overflow-wrap: anywhere; }
+.toc a:hover { text-decoration: underline; }
+.toc a:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }

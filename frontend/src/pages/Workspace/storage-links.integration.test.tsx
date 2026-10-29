@@ -1,17 +1,12 @@
 // @vitest-environment jsdom
-import { act } from "react";
 import { afterEach, expect, it } from "vitest";
 import { Route, Routes } from "react-router-dom";
 import { liveLogin, liveParticipant } from "../../test/liveApi";
 import { change, field, mountWorkspace, submit, waitForPage } from "../../test/workspace";
 import { api } from "../../utils/api";
-import { authApi } from "../../utils/api/auth.api";
 import { filesApi } from "../../utils/api/files.api";
-import { guidesApi } from "../../utils/api/guides.api";
 import { materialsApi } from "../../utils/api/materials.api";
 import { richText } from "../../utils/api/contract";
-import { UserContext } from "../../utils/me";
-import { GuidesManagement } from "../Admin/panels/GuidesManagement";
 import { MaterialPage } from "./MaterialPages";
 import { openMaterialEditor } from "../../test/materialEditor";
 
@@ -22,7 +17,10 @@ let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 afterEach(async () => { await page?.cleanup(); page = undefined; });
 // Seeded by live_api --integration-suite: links to an old public upload in the bucket.
 const OLD = "https://global.s3.cloud.ru/synthetic/guides/%D0%A1%D1%82%D0%B0%D1%80%D1%8B%D0%B9.pdf";
-const legacyGuide = async () => (await guidesApi.getAll()).find(g => g.title.startsWith("Integration legacy guide"))!;
+const legacyGuide = async () => {
+  const mapped = await materialsApi.resolveLegacyGuide(1), material = await materialsApi.get(mapped.material_id);
+  expect(material.title).toMatch(/^Integration legacy guide/);return { ...material, ...mapped };
+};
 const pdf = () => new File([new TextEncoder().encode("%PDF-1.7 integration attachment\n")], "a.pdf", { type: "application/pdf" });
 function button(label: string) {
   const found = Array.from(page!.container.querySelectorAll("button")).find(b => b.textContent === label);
@@ -57,36 +55,22 @@ it("0.2: saving and publishing without changes keeps file:<id> and the old link,
   expect((await filesApi.download(attached.file_id)).download_url).toBe(shown);
 });
 
-it("0.2: renaming a guide in Admin → Гайды sends no text and keeps the source byte for byte", async () => {
-  const session = await liveLogin();
-  const me = (await authApi.getMe()).data;
-  const guide = await legacyGuide();
-  const before = (await materialsApi.get(guide.material_id!)).source_content?.body;
+it("0.2: renaming an imported guide in the current editor preserves the exact stored source", async () => {
+  const session = await liveLogin(), guide = await legacyGuide();
+  const before = (await materialsApi.get(guide.material_id)).source_content?.body;
   expect(before).toContain(OLD);
-  const sent: unknown[] = [];
-  const spy = api.interceptors.request.use(config => {
-    if (config.url === `/guides/${guide.guide_id}`) sent.push(config.data);
-    return config;
-  });
+  const sent: { url?: string; data: unknown }[] = [];
+  const spy = api.interceptors.request.use(config => { sent.push({ url: config.url, data: config.data });return config; });
   try {
-    page = await mountWorkspace(<UserContext.Provider value={me}><GuidesManagement /></UserContext.Provider>, { path: "/admin", session });
-    await waitForPage(page, () => !!page!.container.textContent?.includes(guide.title));
-    const row = Array.from(page.container.querySelectorAll("tr")).find(r => r.querySelector("td")?.textContent === guide.title);
-    const edit = row?.querySelector<HTMLButtonElement>('button[title="Изменить настройки гайда"]');
-    expect(edit).toBeTruthy();
-    await act(async () => edit!.click());
-    await waitForPage(page, () => !!page!.container.querySelector('input[name="title"]'));
-    const title = field(page.container, "title") as HTMLInputElement;
-    expect(title.value).toBe(guide.title);
+    page = await mountWorkspace(<Routes><Route path="/materials/:id" element={<MaterialPage />} /></Routes>, { path: `/materials/${guide.material_id}`, session });
+    await openMaterialEditor(page);
+    const title = field(page.container, "title");expect(title.value).toBe(guide.title);
     await change(title, "Integration legacy guide (переименован)");
-    await submit(title.closest("form")!);
-    await waitForPage(page, () => sent.length > 0);
-  } finally {
-    api.interceptors.request.eject(spy);
-  }
-  expect(sent).toHaveLength(1);
-  expect(sent[0]).not.toHaveProperty("text");
-  const after = await materialsApi.get(guide.material_id!);
-  expect(after.title).toBe("Integration legacy guide (переименован)");
-  expect(after.source_content?.body).toBe(before);
+    await submit(title.closest("form")!);await waitForPage(page, () => !!page!.container.textContent?.includes("Изменения сохранены"));
+  } finally { api.interceptors.request.eject(spy); }
+  expect(sent.every(request => !request.url?.startsWith("/guides"))).toBe(true);
+  const save = sent.find(request => request.url === `/materials/${guide.material_id}` && request.data);
+  expect(save).toBeDefined();expect(save!.data).toMatchObject({ content: { body: before } });
+  const after = await materialsApi.get(guide.material_id);
+  expect(after.title).toBe("Integration legacy guide (переименован)");expect(after.source_content?.body).toBe(before);
 });

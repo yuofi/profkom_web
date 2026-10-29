@@ -19,6 +19,9 @@ import { advanceOwn, recordOwnChange, useOwnRevisions } from "./ownRevisions";
 import { UserChip } from "./UserChip";
 import a from "./AssessmentPanel.module.css";
 import s from "./Workspace.module.css";
+import { KkrTemplateTools } from "./KkrTemplateLibrary";
+import type { TemplateSelection } from "../../utils/api/profileFeatures.api";
+import { HistoryDisclosure } from "./HistoryPanel";
 const criteriaNames: Record<string, string> = {
   unique: "Уникальная задача",
   creative: "Творческий подход",
@@ -40,6 +43,7 @@ export function AssessmentPanel({ assignment, open = false, hasResult = false, s
   assignment: Assignment; open?: boolean; hasResult?: boolean; seasonClosed?: boolean;
 }) {
   const { perform, refresh } = useWorkspaceActions();
+  const [templateSelection, setTemplateSelection] = useState<TemplateSelection | null>(null);
   const query = useQuery({ queryKey: ["assessments", assignment.assignment_id], queryFn: () => tasksApi.assessment(assignment.assignment_id), enabled: can(assignment, "view_assessment_inputs") });
   if (!can(assignment, "view_assessment_inputs")) return null;
   const inputs = query.data;
@@ -66,6 +70,8 @@ export function AssessmentPanel({ assignment, open = false, hasResult = false, s
             <p className={s.muted}>Часы и выбранное решение сохраняются вместе. Если решение не выбрано, изменятся только заполненные поля. Статус задачи и другие исполнители не изменятся.</p>
             {status === "cancelled" && <p className={s.muted}>Исключённому назначению нельзя поставить оценку. Доступно исправление часов{datesEditable ? " и расчётной даты" : ""}.</p>}
             <ActionForm key={assignment.assignment_id} revision={inputs.revision} record={`assignment-inputs:${assignment.assignment_id}`} adoptWhenUntouched
+              externalState={templateSelection} savedExternalState={null} onReplaceWithSaved={() => setTemplateSelection(null)}
+              beforeFields={form => <KkrTemplateTools form={form} mode="assessment" selection={templateSelection} onSelection={setTemplateSelection} />}
               fields={[
                 { name: "hours", label: "Часы", type: "number", value: String(inputs.hours ?? ""), required: true, min: 0 },
                 ...(status === "cancelled" ? [] : [{ name: "evaluation", label: "Решение по ККР и оценка", type: "select" as const, value: "", options: [
@@ -81,10 +87,12 @@ export function AssessmentPanel({ assignment, open = false, hasResult = false, s
                 ...(inputs.workflow_status !== "cancelled" && text(v, "evaluation") ? { evaluation: number(v, "evaluation") as -1 | 0 | 1 | 1.5 } : {}),
                 ...(datesEditable && text(v, "completed") && text(v, "completed") !== savedCompleted ? { effective_completed_at: toUtc(text(v, "completed")) } : {}),
                 reason: text(v, "reason"),
+                ...(templateSelection ? { template_selection: templateSelection } : {}),
               }))} />
           </div>
         </details>}
         <AccountingDecisions assignment={assignment} inputs={inputs} hasResult={hasResult || assignment.submissions.length > 0} />
+        <HistoryDisclosure kind="assignment" id={assignment.assignment_id} title="История исходных полей и решений ККР" />
       </>}
     </QueryState>
   </section>;
@@ -229,6 +237,7 @@ export function TaskInputsPanel({ task }: { task: Task }) {
             onConflict={refresh}
           />
         )}
+        {inputs && <HistoryDisclosure kind="task" id={task.task_id} title="История параметров и исходных полей задачи" />}
       </QueryState>
     </details>
   );

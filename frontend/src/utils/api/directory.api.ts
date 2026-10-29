@@ -4,7 +4,7 @@ import { idPath, allPages as page, request } from "./request";
 export const directoryApi = {
   contacts: () => request<ContactInfoOut[]>("get", "/contacts"),
   former: () => page<FormerContact>("/contacts/archive"),
-  saveFormer: (data: Omit<FormerContact, "contact_id">, id?: string) =>
+  saveFormer: (data: Omit<FormerContact, "contact_id" | "revision" | "capabilities"> & { expected_revision?: number }, id?: string) =>
     request<FormerContact>(
       id ? "patch" : "post",
       `/contacts/archive${id ? `/${idPath(id)}` : ""}`,
@@ -20,5 +20,6 @@ export const directoryApi = {
   restore: (
     id: number,
     master_conflicts: { block_id: string; keep_user_id: number }[],
-  ) => request<void>("post", `/accounts/${id}/restore`, { master_conflicts }),
+    block_scope_mappings: { role_assignment_id: string; block_id: string }[] = [],
+  ) => request<void>("post", `/accounts/${id}/restore`, { master_conflicts, block_scope_mappings }),
 };

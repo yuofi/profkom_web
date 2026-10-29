@@ -2,8 +2,8 @@ import { useEffect, useId, useLayoutEffect, useRef, type ReactNode, type RefObje
 import { createPortal } from "react-dom";
 import { ownedLayerTarget, useAnchoredLayer } from "./useAnchoredLayer";
 import s from "./AnchoredLayer.module.css";
-export function AnchoredPopover({ open, anchorRef, label, onRequestClose, children, busy = false, className = "", width = 400, initialFocusRef }: {
-  open: boolean; anchorRef: RefObject<HTMLElement | null>; label: string; onRequestClose: () => void; children: ReactNode; busy?: boolean; className?: string; width?: number; initialFocusRef?: RefObject<HTMLElement | null>;
+export function AnchoredPopover({ open, anchorRef, label, onRequestClose, children, busy = false, className = "", width = 400, initialFocusRef, focusRoot = false }: {
+  open: boolean; anchorRef: RefObject<HTMLElement | null>; label: string; onRequestClose: () => void; children: ReactNode; busy?: boolean; className?: string; width?: number; initialFocusRef?: RefObject<HTMLElement | null>; focusRoot?: boolean;
 }) {
   const titleId = useId(), layer = useRef<HTMLDivElement>(null), restore = useRef<HTMLElement | null>(null);
   const portal = useAnchoredLayer(open, anchorRef, layer, width);
@@ -11,10 +11,10 @@ export function AnchoredPopover({ open, anchorRef, label, onRequestClose, childr
     if (!open || !portal || !layer.current) return;
     restore.current = document.activeElement instanceof HTMLElement ? document.activeElement : anchorRef.current;
     const body = layer.current.querySelector<HTMLElement>("[data-popover-body]") ?? layer.current;
-    const target = initialFocusRef?.current ?? body.querySelector<HTMLElement>("[autofocus]") ?? body.querySelector<HTMLElement>("input:not([type=hidden]):not(:disabled),textarea:not(:disabled),select:not(:disabled)") ?? body.querySelector<HTMLElement>("button:not(:disabled),[tabindex='0']") ?? layer.current;
-    target.focus();
+    const target = focusRoot ? layer.current : initialFocusRef?.current ?? body.querySelector<HTMLElement>("[autofocus]") ?? body.querySelector<HTMLElement>("input:not([type=hidden]):not(:disabled),textarea:not(:disabled),select:not(:disabled)") ?? body.querySelector<HTMLElement>("button:not(:disabled),[tabindex='0']") ?? layer.current;
+    if (focusRoot) target.focus({ preventScroll: true });else target.focus();
     return () => { const previous = restore.current;if (previous?.isConnected) previous.focus(); };
-  }, [open, portal, anchorRef, initialFocusRef]);
+  }, [open, portal, anchorRef, initialFocusRef, focusRoot]);
   useEffect(() => {
     if (!open) return;
     const foreignDialog = (target: EventTarget | null) => target instanceof Element && !!target.closest("dialog") && target.closest("dialog") !== layer.current?.closest("dialog");

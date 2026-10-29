@@ -1,4 +1,4 @@
-"""Material drafts, publication, per-object editors and legacy-guide adapters."""
+"""Material drafts, publication, per-object editors and old-ID resolution."""
 
 import json, re, uuid
 from typing import Literal
@@ -94,6 +94,8 @@ def dto(s, m, uid):
 
     edit = can_edit(m.material_id, uid)
     draft = edit and m.has_draft
+    from material_updates import placeholder_text
+    published_body = placeholder_text(s, m.owner_block_id) if m.placeholder and m.revision == 1 and not m.has_draft and m.owner_block_id else m.published_body
     data = dict(
         material_id=m.material_id,
         kind=m.kind,
@@ -106,11 +108,13 @@ def dto(s, m, uid):
         ),
         original_link=m.draft_original_link if draft else m.original_link,
         published_content=(
-            dict(format="markdown", body=read_text(m.published_body))
+            dict(format="markdown", body=read_text(published_body))
             if m.published_body is not None
             else None
         ),
         revision=m.revision,
+        placeholder=m.placeholder,
+        community_url=(s.get(BlockMetaORM, m.owner_block_id).community_url if m.owner_block_id and s.get(BlockMetaORM, m.owner_block_id) else None),
         capabilities=[],
     )
     if m.kind == "guide" and m.owner_block_id:
@@ -148,6 +152,7 @@ def deleted_dto(m):
         published_content=None,
         revision=m.revision,
         capabilities=["restore_material"],
+        deleted_at=m.deleted_at,
     )
 
 
@@ -158,18 +163,19 @@ def block_material_id(s, bid):
     m = (
         s.query(MaterialORM)
         .filter_by(owner_block_id=bid, deleted=False)
-        .order_by(MaterialORM.placeholder, MaterialORM.created_at)
+        .order_by(MaterialORM.published_body.is_(None), MaterialORM.placeholder, MaterialORM.created_at)
         .first()
     )
     if not m:
         meta = s.get(BlockMetaORM, bid)
+        from material_updates import placeholder_text
         m = MaterialORM(
             material_id=str(uuid.uuid4()),
             kind="guide",
             owner_block_id=bid,
             title="Гайд " + meta.legacy_name,
             description="Материалы блока",
-            published_body="Материалы блока готовятся. Обратитесь к мастеру.",
+            published_body=placeholder_text(s, bid),
             has_draft=False,
             revision=1,
             placeholder=True,
@@ -282,36 +288,6 @@ def legacy_mapping(s, guide_id):
     return m
 
 
-def guide_text(g, m):
-    """What the old guide screens show: the material's Markdown, never the raw old
-    source, which may be HTML (A-MAT-14)."""
-    from legacy_files import read_text
-    from legacy_markup import to_markdown
-
-    if m.published_body is not None:
-        return read_text(m.published_body)
-    return read_text(to_markdown(g.text or ""))
-
-
-def guide_dto(g, uid):
-    with db._session() as s:
-        m = legacy_mapping(s, g.guide_id)
-        if m.deleted or not can_read(m.material_id, uid):
-            fail(404, "Guide not found")
-        s.commit()
-        return dict(
-            guide_id=g.guide_id,
-            title=g.title,
-            owner_block=g.owner_block,
-            text=guide_text(g, m),
-            description=g.description,
-            original_link=g.original_link,
-            material_id=m.material_id,
-            revision=m.revision,
-            capabilities=dto(s, m, uid)["capabilities"],
-        )
-
-
 def register_routes(router):
     @router.get(
         "/materials",
@@ -334,7 +310,7 @@ def register_routes(router):
                 next_cursor=None,
             )
 
-    @router.get("/materials/deleted", response_model=Page[MaterialOut])
+    @router.get("/materials/deleted", response_model=Page[MaterialOut], response_model_exclude_unset=True)
     def deleted(cur: User = Depends(get_current_user)):
         """Deleted materials, newest first, for the chair and deputies to restore (decision 18)."""
         if not access.allowed(cur.user_id, "material.restore"):
@@ -358,7 +334,13 @@ def register_routes(router):
             version(m, payload.expected_revision)
             if not m.deleted:
                 fail(409, "Material is not deleted")
+            from material_retention import expires_at
+            from datetime import datetime, timezone
+            expiry = expires_at(m.deleted_at)
+            if expiry is not None and expiry <= datetime.now(timezone.utc):
+                fail(404, "Material retention period has expired")
             m.deleted = False
+            m.deleted_at = None
             m.revision += 1
             audit(s, "material", material_id, cur.user_id, "Material restored", dict(deleted=True), dict(deleted=False))
             s.commit()
@@ -401,6 +383,9 @@ def register_routes(router):
             ):
                 fail(422, "Invalid original link")
             body = stored(s, payload.content.body, None, None)
+            if re.search(r"file:file-[\w-]+", body):
+                # A new object owns no files yet; upload after saving its draft.
+                fail(422, "A new material cannot reference files; attach them after creating its draft")
             m = MaterialORM(
                 material_id=str(uuid.uuid4()),
                 kind=payload.kind,
@@ -499,6 +484,7 @@ def register_routes(router):
             if not can_edit(material_id, cur.user_id):
                 fail(403, "Material editor required")
             m.deleted = True
+            m.deleted_at = now()
             m.revision += 1
             audit(
                 s,
@@ -583,128 +569,12 @@ def register_routes(router):
                 s.commit()
             return dto(s, m, cur.user_id)
 
-    @router.get("/guides/{guide_id}/material")
+    @router.get("/materials/legacy-guides/{guide_id}")
     def mapping(guide_id: int, cur: User = Depends(get_current_user)):
+        """Resolve a bookmarked old identifier using current material visibility."""
         with db._session() as s:
             m = legacy_mapping(s, guide_id)
-            if m.deleted:
+            if m.deleted or not can_read(m.material_id, cur.user_id):
                 fail(404, "Guide not found")
             s.commit()
-            return dict(
-                guide_id=guide_id, material_id=m.material_id, revision=m.revision
-            )
-
-
-def legacy_create(payload, uid):
-    from membership import legacy_name
-    from domain_seed import meta_for
-    from database import BlockORM
-
-    with db._session() as s:
-        owner = (payload.owner_block or "none").strip()
-        if owner.lower() not in ("none", "all", ""):
-            name = legacy_name(owner)
-            if not access.allowed(uid, "material.create_guide", "block", name):
-                fail(403, "Owning block editor required")
-            owner = name
-        elif not access.allowed(uid, "material.create_general"):
-            fail(403, "Global material creator required")
-        if payload.original_link and not payload.original_link.startswith(
-            ("http://", "https://")
-        ):
-            fail(422, "Invalid original link")
-        stored(s, payload.text, None, None)
-        if re.search(r"file:file-[\w-]+", payload.text or ""):
-            # A new guide owns no files yet; they are attached in the material editor (A-MAT-8).
-            fail(422, "A new guide cannot reference files; attach them in the material editor")
-        g = GuideORM(
-            title=payload.title,
-            owner_block=owner,
-            text=payload.text or "",
-            description=payload.description or "",
-            original_link=payload.original_link,
-        )
-        s.add(g)
-        s.flush()
-        m = legacy_mapping(s, g.guide_id)
-        if not (payload.text or "").strip() and not payload.original_link:
-            m.published_body = None
-            m.draft_body = ""
-            m.draft_title = m.title
-            m.draft_description = m.description
-            m.has_draft = True
-        audit(
-            s,
-            "material",
-            m.material_id,
-            uid,
-            "Legacy guide published",
-            {},
-            dict(revision=m.revision),
-        )
-        s.commit()
-        return guide_dto(db.get_guide(g.guide_id), uid)
-
-
-def legacy_update(guide_id, payload, uid):
-    with db._session() as s:
-        m = legacy_mapping(s, guide_id)
-        if m.deleted:
-            fail(404, "Guide not found")
-        if not can_edit(m.material_id, uid):
-            fail(403, "Material editor required")
-        if payload.expected_revision is None:
-            fail(409, "Open the mapped material or send expected_revision")
-        version(m, payload.expected_revision)
-        if m.has_draft:
-            fail(409, "A shared draft exists; continue in the material editor")
-        g = s.get(GuideORM, guide_id)
-        if payload.owner_block is not None and payload.owner_block != g.owner_block:
-            fail(422, "Material ownership cannot be changed through legacy guide save")
-        from legacy_markup import to_markdown
-
-        m.draft_title = payload.title if payload.title is not None else m.title
-        m.draft_description = (
-            payload.description if payload.description is not None else m.description
-        )
-        m.draft_original_link = (
-            payload.original_link
-            if "original_link" in payload.model_fields_set
-            else m.original_link
-        )
-        if m.draft_original_link and not m.draft_original_link.startswith(
-            ("http://", "https://")
-        ):
-            fail(422, "Invalid original link")
-        # The text as it was shown comes back unchanged: it is not converted again (A-MAT-4).
-        m.draft_body = (
-            to_markdown(payload.text)
-            if payload.text is not None and payload.text not in (g.text, guide_text(g, m))
-            else m.published_body or ""
-        )
-        m.has_draft = True
-        m.revision += 1
-        publish(s, m, uid)
-        return guide_dto(db.get_guide(guide_id), uid)
-
-
-def legacy_delete(guide_id, uid):
-    with db._session() as s:
-        m = legacy_mapping(s, guide_id)
-        if m.deleted:
-            fail(404, "Guide not found")
-        if not can_edit(m.material_id, uid):
-            fail(403, "Material editor required")
-        m.deleted = True
-        m.revision += 1
-        audit(
-            s,
-            "material",
-            m.material_id,
-            uid,
-            "Legacy guide deleted",
-            {},
-            dict(deleted=True),
-        )
-        s.commit()
-        return dict(deleted=True)
+            return dict(guide_id=guide_id, material_id=m.material_id, revision=m.revision)

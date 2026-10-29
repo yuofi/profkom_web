@@ -7,13 +7,12 @@ import { mountWorkspace, settle, change, field, submit, waitForPage } from "../.
 import { UserContext } from "../../utils/me";
 import { ProfileEditPage } from "../ProfileEditPage/ProfileEditPage";
 import { PgasPage } from "../Pgas/PgasPage";
-import { GuidesManagement } from "../Admin/panels/GuidesManagement";
-import { contactsApi } from "../../utils/api/contacts.api";
+import { MaterialEditor } from "./MaterialEditor";
+import { profileFeaturesApi } from "../../utils/api/profileFeatures.api";
 import { authApi } from "../../utils/api/auth.api";
 import { pgasApi } from "../../utils/api/pgas.api";
-import { guidesApi } from "../../utils/api/guides.api";
+import { materialsApi } from "../../utils/api/materials.api";
 import type { PgasEntryIn, PgasEntryOut } from "../../utils/api/types";
-import { blocksApi } from "../../utils/api/blocks.api";
 import * as uploads from "../../utils/s3-utils";
 
 vi.mock("../../assets/vk.svg?react", () => ({ default: () => null }));
@@ -38,9 +37,10 @@ function expectLocked(container: ParentNode) {
 it.each([false, true])("profile locks the submitted draft through a delayed save (failure: %s)", async (fails) => {
   mock = installMockTransport("chair", { delay: 0 });
   const pending = deferred();
-  const original = contactsApi.update;
-  const save = vi.spyOn(contactsApi, "update").mockImplementation(async (...args) => { await pending.promise; if (fails) throw Error("Синтетический сбой сохранения"); return original(...args); });
+  const original = profileFeaturesApi.saveEditor;
+  const save = vi.spyOn(profileFeaturesApi, "saveEditor").mockImplementation(async (...args) => { await pending.promise; if (fails) throw Error("Синтетический сбой сохранения"); return original(...args); });
   page = await mountWorkspace(<UserContext.Provider value={createFixtures("chair").profile}><ProfileEditPage /></UserContext.Provider>);
+  await waitForPage(page);
   const location = field(page.container, "location");
   const form = location.closest("form")!;
   await change(location, "Черновик А"); await submit(form);
@@ -61,6 +61,7 @@ it.each([false, true])("the password modal cannot erase a pending password chang
   const original = authApi.changePassword;
   const save = vi.spyOn(authApi, "changePassword").mockImplementation(async (...args) => { await pending.promise; if (fails) throw Error("Синтетический сбой сохранения"); return original(...args); });
   page = await mountWorkspace(<UserContext.Provider value={createFixtures("chair").profile}><ProfileEditPage /></UserContext.Provider>);
+  await waitForPage(page);
   await click(page.container, "Изменить пароль");
   const form = field(page.container, "oldPassword").closest("form")!;
   await change(field(form, "oldPassword"), "local-old-draft");
@@ -87,6 +88,7 @@ it.each([false, true])("PGAS locks its file picker, fields and dismissal while a
   await click(page.container, "Загрузить файл");
   const modal = page.container.querySelector('[role="dialog"]')!;
   await change(field(modal, "title"), "Документ А");
+  await change(field(modal, "half_year"), "1");
   const input = modal.querySelector<HTMLInputElement>('input[type="file"]')!;
   const file = new File(["%PDF-1.4\n"], "local.pdf", { type: "application/pdf" });
   Object.defineProperty(input, "files", { value: [file] });
@@ -110,40 +112,30 @@ it.each([false, true])("PGAS locks its file picker, fields and dismissal while a
   expect(modal.isConnected).toBe(false);
 });
 
-it.each([[false, false], [false, true], [true, false], [true, true]])("guide metadata locks custom choices and dismissal (editing: %s, failure: %s)", async (editing, fails) => {
+it.each([[false, false], [false, true], [true, false], [true, true]])("current material editor locks its pending draft and retains failed input (editing: %s, failure: %s)", async (editing, fails) => {
   mock = installMockTransport("chair", { delay: 0 });
-  const fixtures = createFixtures("chair");
-  const guide = { guide_id: 1234, title: "Исходный гайд", description: "", text: "Текст", owner_block: "none", revision: 1 };
-  vi.spyOn(guidesApi, "getAll").mockResolvedValue(editing ? [guide] : []);
-  vi.spyOn(blocksApi, "getAll").mockResolvedValue(fixtures.blocks);
-  const pending = deferred();
-  const create = vi.spyOn(guidesApi, "create").mockImplementation(async () => { await pending.promise; if (fails) throw Error("Синтетический сбой сохранения"); return guide; });
-  const update = vi.spyOn(guidesApi, "update").mockImplementation(async () => { await pending.promise; if (fails) throw Error("Синтетический сбой сохранения"); return guide; });
-  page = await mountWorkspace(<UserContext.Provider value={fixtures.profile}><GuidesManagement /></UserContext.Provider>); await waitForPage(page);
-  if (editing) await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Изменить настройки гайда «Исходный гайд»"]')!.click());
-  else await click(page.container, "Создать гайд");
-  const modal = page.container.querySelector('[role="dialog"]')!;
-  await change(field(modal, "title"), "Гайд А");
-  const owner = modal.querySelector<HTMLInputElement>('[role="combobox"]')!;
-  await act(async () => owner.focus()); await settle();
-  expect(document.querySelector('[role="option"][data-option-value="none"]')).not.toBeNull();
-  await submit(modal.querySelector("form")!);
-  if (editing) expect(update).toHaveBeenCalledWith(1234, expect.objectContaining({ title: "Гайд А", owner_block: "none", expected_revision: 1 }));
-  else expect(create).toHaveBeenCalledWith(expect.objectContaining({ title: "Гайд А", owner_block: "none" }));
-  expectLocked(modal);
-  expect(document.querySelector('[data-entity-picker-popup]')).toBeNull();
-  await click(modal, "Отмена");
-  expect(modal.isConnected).toBe(true);
-  await act(async () => pending.resolve()); await waitForPage(page);
+  const material = await materialsApi.get(mock.state.materials[0].material_id), pending = deferred(), close = vi.fn();
+  const originalCreate = materialsApi.create, originalUpdate = materialsApi.update;
+  const create = vi.spyOn(materialsApi, "create").mockImplementation(async data => { await pending.promise;if (fails) throw Error("Синтетический сбой сохранения");return originalCreate(data); });
+  const update = vi.spyOn(materialsApi, "update").mockImplementation(async (id, data) => { await pending.promise;if (fails) throw Error("Синтетический сбой сохранения");return originalUpdate(id, data); });
+  page = await mountWorkspace(<MaterialEditor material={editing ? material : undefined} onClose={close} />);await waitForPage(page);
+  await change(field(page.container, "title"), "Гайд А");
+  await change(field(page.container, "description"), "Описание черновика");
+  if (!editing) await change(field(page.container, "kind"), "general");
+  const form = field(page.container, "title").closest("form")!;
+  await submit(form);
+  expect((editing ? update : create)).toHaveBeenCalledTimes(1);
+  for (const name of ["title", "description", "original", "body", ...(!editing ? ["kind"] : [])]) expect(field(page.container, name).matches(":disabled")).toBe(true);
+  await click(page.container, editing ? "Готово" : "Отмена");expect(close).not.toHaveBeenCalled();
+  await act(async () => pending.resolve());await waitForPage(page);
   if (fails) {
-    expect(modal.isConnected).toBe(true);
-    expect(field(modal, "title").value).toBe("Гайд А");
-    expect(owner.matches(":disabled")).toBe(false);
-    await change(field(modal, "description"), "Уточнённый черновик");
-    create.mockResolvedValue(guide); update.mockResolvedValue(guide);
-    await submit(modal.querySelector("form")!); await waitForPage(page);
-    const saved = (editing ? update.mock.calls.at(-1)?.[1] : create.mock.calls.at(-1)?.[0]);
+    expect(field(page.container, "title").value).toBe("Гайд А");
+    expect(field(page.container, "description").value).toBe("Описание черновика");
+    expect(field(page.container, "title").matches(":disabled")).toBe(false);
+    await change(field(page.container, "description"), "Уточнённый черновик");
+    create.mockImplementation(originalCreate);update.mockImplementation(originalUpdate);
+    await submit(form);await waitForPage(page);
+    const saved = editing ? update.mock.calls.at(-1)?.[1] : create.mock.calls.at(-1)?.[0];
     expect(saved).toEqual(expect.objectContaining({ title: "Гайд А", description: "Уточнённый черновик" }));
   }
-  expect(modal.isConnected).toBe(false);
 });

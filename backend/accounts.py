@@ -43,6 +43,7 @@ class Conflict(Command):
 
 class Restore(Command):
     master_conflicts: list[Conflict] = []
+    block_scope_mappings: list[dict[str, str]] = []
 
 
 class PgasAdmin(BaseModel):
@@ -80,18 +81,44 @@ def chair_term(s):
     return r.role_assignment_id if r else None
 
 
+def rename_archived_block_scopes(session, old_name, new_name, block_id):
+    """The live rename supplies a trusted stable ID, unlike a guessed old label."""
+    # Observe current roles before the label changes. Unknown legacy intervals
+    # close at this operation; their old dates and labels never become proof.
+    record_roster(session, "block", old_name)
+    for archive in session.query(AccountArchiveORM):
+        if archive.purged_at:
+            continue
+        snapshot = json.loads(archive.snapshot_json)
+        changed = False
+        for role in snapshot.get("roles", []):
+            if role.get("scope_kind") == "block" and role.get("scope_block_id") == block_id:
+                role.update(scope_id=new_name, scope_block_id=block_id)
+                changed = True
+        if changed:
+            archive.snapshot_json = json.dumps(snapshot)
+
+
+def snapshot_block_name(session, role):
+    identity = role.get("scope_block_id")
+    meta = session.get(BlockMetaORM, identity) if identity else None
+    return meta.legacy_name if meta else role["scope_id"] if not identity else None
+
+
 def master_conflicts(s, a):
     snap = json.loads(a.snapshot_json)
     result = []
     for r in snap.get("roles", []):
         if r["role"] != "master" or r["user_id"] != a.user_id:
             continue
-        b = s.get(BlockORM, r["scope_id"])
+        name = snapshot_block_name(s, r)
+        b = s.get(BlockORM, name) if name else None
         if b and b.master_user_id and b.master_user_id != a.user_id:
             meta = s.query(BlockMetaORM).filter_by(legacy_name=b.name).one()
             result.append(
                 dict(
                     block_id=meta.block_id,
+                    block_name=b.name,
                     current_master=asdict(db._get_user_ref(s, b.master_user_id)),
                 )
             )
@@ -142,6 +169,15 @@ def _archive(uid, reason, actor):
             fail(409, "Only approved accounts can be archived")
         stamp = now()
         contact = s.get(ContactInfoORM, uid)
+        # An independent snapshot survives retention; never guess the owner of
+        # an existing manually-created card or overwrite its editor's changes.
+        from domain_models import FormerContactORM, ProfileMetadataORM
+        if contact and not s.query(FormerContactORM).filter_by(source_user_id=uid).first():
+            profile = s.get(ProfileMetadataORM, uid)
+            fields = {key: getattr(contact, key) for key in ("surname", "name", "patronymic", "phone", "email", "tg", "vk")}
+            fields["participation_periods"] = json.loads(profile.participation_periods_json or "[]") if profile else []
+            s.add(FormerContactORM(contact_id=str(uuid.uuid4()), source_user_id=uid, revision=1,
+                fields_json=json.dumps(fields, ensure_ascii=False), created_at=stamp, updated_at=stamp))
         owned = s.query(RoleAssignmentORM).filter_by(user_id=uid).all()
         principals = {r.role_assignment_id for r in owned}
         roles = owned + [
@@ -178,6 +214,14 @@ def _archive(uid, reason, actor):
             ],
             organizer_subevent_ids=[x.subevent_id for x in organizers],
         )
+        for role in snapshot["roles"]:
+            if role["scope_kind"] == "block":
+                meta = s.query(BlockMetaORM).filter_by(legacy_name=role["scope_id"]).first()
+                if not meta and s.get(BlockORM, role["scope_id"]):
+                    from domain_seed import meta_for
+                    meta = meta_for(s, role["scope_id"])
+                if meta:
+                    role["scope_block_id"] = meta.block_id
         a = s.get(AccountArchiveORM, uid)
         if not a:
             a = AccountArchiveORM(user_id=uid)
@@ -198,6 +242,11 @@ def _archive(uid, reason, actor):
         for b in s.query(BlockORM).filter_by(master_user_id=uid):
             b.master_user_id = None
             b.master = ""
+        changed_principals = {role.principal_assignment_id for role in roles if role.principal_assignment_id and role.principal_assignment_id not in principals}
+        for identity in changed_principals:
+            principal = s.get(RoleAssignmentORM, identity)
+            if principal:
+                principal.revision += 1
         for r in roles:
             s.delete(r)
         lead = s.get(LeadershipORM, 1)
@@ -258,6 +307,28 @@ def _restore(uid, payload, actor):
             fail(409, "Repair the missing contact profile before restore")
         if u.account_state == "active":
             return dict(user_id=uid, account_state="active")
+        snap = json.loads(a.snapshot_json)
+        roles_by_id = {role["role_assignment_id"]: role for role in snap.get("roles", [])}
+        mapped = set()
+        for mapping in payload.block_scope_mappings:
+            if set(mapping) != {"role_assignment_id", "block_id"} or mapping["role_assignment_id"] in mapped:
+                fail(422, "Invalid or duplicate archived block mapping")
+            role = roles_by_id.get(mapping["role_assignment_id"])
+            meta = s.get(BlockMetaORM, mapping["block_id"])
+            if not role or role["scope_kind"] != "block" or not meta:
+                fail(422, "Unknown archived role or block mapping")
+            if role.get("scope_block_id") and role["scope_block_id"] != meta.block_id:
+                fail(409, "A proved archived scope cannot be rebound")
+            role.update(scope_block_id=meta.block_id, scope_id=meta.legacy_name)
+            mapped.add(mapping["role_assignment_id"])
+        unresolved = [dict(role_assignment_id=role["role_assignment_id"], legacy_scope_id=role.get("scope_id"))
+                      for role in roles_by_id.values() if role["scope_kind"] == "block"
+                      and (not role.get("scope_block_id") or not s.get(BlockMetaORM, role["scope_block_id"]))]
+        if unresolved:
+            raise HTTPException(409, dict(code="archive_scope_mapping_required",
+                message="Укажите соответствие прежних назначений действующим блокам", assignments=unresolved))
+        if mapped:
+            a.snapshot_json = json.dumps(snap)
         conflicts = master_conflicts(s, a)
         choices = {c.block_id: c.keep_user_id for c in payload.master_conflicts}
         if len(choices) != len(payload.master_conflicts):
@@ -294,7 +365,24 @@ def _restore(uid, payload, actor):
                 set_membership(s, uid, m["block_id"], True, actor, "Account restored")
         skipped = set()
         scopes = set()
-        for r in snap["roles"]:
+        changed_principals = set()
+        for saved_role in sorted(snap["roles"], key=lambda role: bool(role.get("principal_assignment_id"))):
+            r = dict(saved_role)
+            if r["scope_kind"] == "block":
+                r["scope_id"] = snapshot_block_name(s, r)
+                if r["scope_id"] is None:
+                    skipped.add(r["role_assignment_id"])
+                    continue
+            owner = s.get(UserORM, r["user_id"])
+            if not owner or owner.account_state != "active" or owner.banned:
+                skipped.add(r["role_assignment_id"])
+                other_archive = s.get(AccountArchiveORM, r["user_id"])
+                if other_archive and not other_archive.purged_at:
+                    deferred = json.loads(other_archive.snapshot_json)
+                    if r["role_assignment_id"] not in {role["role_assignment_id"] for role in deferred.get("roles", [])}:
+                        deferred.setdefault("roles", []).append(saved_role)
+                        other_archive.snapshot_json = json.dumps(deferred)
+                continue
             if r["scope_kind"] == "global":
                 if r["role"] != "deputy_chair" or not restore_global:
                     skipped.add(r["role_assignment_id"])
@@ -341,10 +429,17 @@ def _restore(uid, payload, actor):
                 if not s.get(EventORM, r["scope_id"]):
                     continue
             if not s.get(RoleAssignmentORM, r["role_assignment_id"]):
-                s.add(RoleAssignmentORM(**{**r, "revision": r["revision"] + 1}))
+                fields = {column.name for column in RoleAssignmentORM.__table__.columns}
+                s.add(RoleAssignmentORM(**{**{key: value for key, value in r.items() if key in fields}, "revision": r["revision"] + 1}))
                 s.flush()
+                if r.get("principal_assignment_id"):
+                    changed_principals.add(r["principal_assignment_id"])
             if r["scope_kind"] in ("block", "event", "subevent", "material"):
                 scopes.add((r["scope_kind"], r["scope_id"]))
+        for identity in changed_principals:
+            principal = s.get(RoleAssignmentORM, identity)
+            if principal:
+                principal.revision += 1
         if restore_global:
             ids = json.loads(lead.deputies_json or "[]")
             lead.deputies_json = json.dumps(sorted(set(ids + [uid])))

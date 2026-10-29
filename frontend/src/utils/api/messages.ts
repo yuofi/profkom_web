@@ -26,6 +26,7 @@ export const ERROR_TEXTS: Record<string, string> = {
   registration_attempt_limit:
     "Лимит пяти отправок исчерпан. Для повторной подачи нужен сброс счётчика руководством.",
   master_conflicts: "У блоков уже есть другие мастера. Выберите, кто останется.",
+  archive_scope_mapping_required: "Для прежних назначений выберите действующие блоки.",
   chair_transfer_required: "Сначала передайте пост председателя.",
   restore_deputy_limit: "Все места заместителей заняты. Освободите место перед восстановлением.",
   already_chair: "Этот участник уже председатель.",
@@ -47,6 +48,10 @@ export const ERROR_TEXTS: Record<string, string> = {
   network_error: "Нет связи с сервером. Проверьте подключение и повторите.",
   unexpected: "Что-то пошло не так. Обновите страницу и повторите.",
   contract_mismatch: "Сервер ответил в неожиданном виде. Обновите страницу.",
+  feedback_duplicate_key: "Этот запрос уже использован для другого обращения. Откройте форму заново.",
+  support_queue_key_conflict: "Ключ очереди поддержки уже занят. Обратитесь к председателю.",
+  template_archived: "Шаблон перенесён в архив. Выберите другой шаблон.",
+  template_scope_mismatch: "Этот шаблон относится к другой команде. Выберите подходящий шаблон.",
   pagination_error: "Не удалось загрузить список целиком. Обновите страницу.",
 };
 
@@ -63,7 +68,7 @@ const BY_STATUS: Record<number, string> = {
 };
 
 /** Codes after which rereading the data is the way on: the form offers «Обновить данные». */
-const STALE = new Set(["conflict", "revision_conflict", "season_closed"]);
+const STALE = new Set(["conflict", "revision_conflict"]);
 export const isStale = (error: unknown) => {
   const e = normalizeApiError(error);
   return e.status === 409 && STALE.has(e.code);

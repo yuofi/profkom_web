@@ -1,3 +1,4 @@
+import { metricValue } from "./seasonAnalyticsView";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Empty, QueryState } from "../../components/Workspace/WorkspaceUI";
@@ -59,7 +60,7 @@ export function SummaryHistory({ seasonId }: { seasonId: string }) {
             {historical.master_bonuses.map(b => <div key={b.bonus_id}>
               <p>{b.recipient_participant_id ? participant(b.recipient_participant_id) : "Мастер не назначен"}: {b.amount.toFixed(2)} · {b.calculation_version}</p>
               <ul>{b.basis.map(m => <li key={m.participant_id}>
-                {m.user.display_name}: {m.member_task_score} — {m.included ? "включён" : m.exclusion === "master" ? "исключён как мастер" : "исключён: неположительный вклад"}
+                {m.user.display_name}: {metricValue(m.member_task_score)} — {m.included ? "включён" : m.exclusion === "master" ? "исключён как мастер" : "исключён: неположительный вклад"}
               </li>)}</ul>
             </div>)}
             {!historical.master_bonuses.length && <Empty>Бонусов в этой версии нет.</Empty>}

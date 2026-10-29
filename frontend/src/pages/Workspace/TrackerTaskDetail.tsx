@@ -29,12 +29,13 @@ import { displayDate } from "../../utils/dates";
 import { getSeasonRoute, getTaskRoute, getTaskQueueRoute, getTaskQueuesRoute } from "../../utils/routes";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { TaskStatusMenu } from "./TaskStatusMenu";
-import { statusNames, taskStatus } from "./trackerStatus";
+import { taskStatus } from "./trackerStatus";
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
 import { TrackerParentSelector } from "./TrackerParentSelector";
 import { UserChip as PersonChip } from "../../components/Workspace/UserChip";
 import { useSession } from "../../utils/session";
-import { TrackerTaskHistoryDiff } from "./TrackerTaskHistoryDiff";
+import { HistoryPanel } from "../../components/Workspace/HistoryPanel";
+import { SupportTaskPanel } from "../../components/Workspace/SupportTaskPanel";
 import w from "../../components/Workspace/Workspace.module.css";
 import s from "./TrackerTaskDetail.module.css";
 
@@ -130,13 +131,14 @@ function TaskContent({ task, assignmentId, returnSeason }: { task: Task; assignm
           </div>
         </section>}
         <TaskActivity task={task} />
+        {task.queue?.key === "WEBSUPPORT" && <SupportTaskPanel task={task} />}
       </div>
       <aside className={s.sidebar} aria-label="Параметры задачи"><details className={s.parameters} open={parametersOpen} onToggle={event => setParametersOpen(event.currentTarget.open)}><summary>Параметры</summary><dl>
         <div><dt>Статус</dt><dd><TaskStatusMenu task={task} /></dd></div>
         <div><dt>Тип</dt><dd><TaskClassificationMenu task={task} field="task_type" />{can(task,"edit_task_metadata") && <button type="button" className={s.deadlineEdit} onClick={() => setEditor("planning")}>Изменить параметры</button>}</dd></div>
         <div><dt>Приоритет</dt><dd><TaskClassificationMenu task={task} field="priority" /></dd></div>
         {task.task_type !== "milestone" && <div><dt>Плановое начало, МСК</dt><dd>{displayDate(task.starts_at)}</dd></div>}
-        <div><dt>Дедлайн, МСК</dt><dd><time dateTime={task.deadline_at} className={new Date(task.deadline_at).getTime() < now && !["accepted", "not_completed", "cancelled"].includes(taskStatus(task)) ? s.overdue : undefined}>{displayDate(task.deadline_at)}</time>{datesEditable && <button type="button" className={s.deadlineEdit} onClick={editDeadline}>Изменить дедлайн</button>}</dd></div>
+        <div><dt>Дедлайн, МСК</dt><dd>{task.deadline_at ? <time dateTime={task.deadline_at} className={Date.parse(task.deadline_at) < now && !["accepted", "not_completed", "cancelled"].includes(taskStatus(task)) ? s.overdue : undefined}>{displayDate(task.deadline_at)}</time> : <span>Не задан</span>}{datesEditable && <button type="button" className={s.deadlineEdit} onClick={editDeadline}>Изменить дедлайн</button>}</dd></div>
         <div><dt>Очередь</dt><dd>{task.queue ? <Link to={getTaskQueueRoute(task.queue.queue_id)}>{task.queue.name}</Link> : <Link to={getTaskQueuesRoute()}>Открыть очереди</Link>}</dd></div>
         {task.scope.kind !== "queue" && <div><dt>Команда</dt><dd><TeamChip scope={task.scope} title={task.scope_title} avatarUrl={task.scope_avatar_url} /></dd></div>}
         <TaskSeasonParameter task={task} />
@@ -258,9 +260,7 @@ function TaskAttachments({ task, order }: { task: Task; order: "newest" | "oldes
   </div>;
 }
 function TaskHistory({ task, order }: { task: Task; order: "newest" | "oldest" }) {
-  const query = useQuery({ queryKey: ["tasks", task.task_id, "history"], queryFn: () => tasksApi.history(task.task_id) });
-  const items = [...(query.data?.items ?? [])].sort((a, b) => (order === "newest" ? -1 : 1) * (a.created_at.localeCompare(b.created_at) || a.event_id.localeCompare(b.event_id)));
-  return <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!query.data}><ol className={s.history}>{items.map(item => <li key={item.event_id}><div className={s.historyMarker}><Glyph name="sync" /></div><div><p>{item.actor && <PersonChip user={item.actor} />}<time dateTime={item.created_at}>{displayDate(item.created_at)}</time></p><p>{item.description}</p>{item.changes && item.changes.length > 0 && <TrackerTaskHistoryDiff changes={item.changes} />}{!item.changes?.some(change => change.field === "status") && item.to_status && <span className={w.muted}>{item.from_status ? `${statusNames[item.from_status]} → ` : ""}{statusNames[item.to_status]}</span>}</div></li>)}</ol>{!items.length && <Empty>История появится по мере работы над задачей.</Empty>}</QueryState>;
+  return <HistoryPanel kind="task" id={task.task_id} order={order} />;
 }
 function AssignmentAccounting({ assignment, focused, hasResult, seasonClosed }: { assignment: Assignment; focused: boolean; hasResult: boolean; seasonClosed: boolean }) {
   const ref = useRef<HTMLDivElement>(null);

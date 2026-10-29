@@ -102,6 +102,7 @@ def apply_mapping(mapping):
         "participation_intervals",
         "categories",
         "reset_avatars",
+        "block_communities",
     }
     if set(mapping) - allowed:
         raise ValueError(
@@ -304,6 +305,18 @@ def apply_mapping(mapping):
                 u.photo_url = None
                 s.flush()
             # Mapping is idempotent; audit contains IDs, never passwords or OAuth tokens.
+            from urllib.parse import urlparse
+            for item in mapping.get("block_communities", []):
+                if set(item) != {"block_id", "community_url"}:
+                    raise ValueError("Invalid block community mapping")
+                meta = s.get(BlockMetaORM, item["block_id"])
+                address = item["community_url"]
+                parsed = urlparse(address) if isinstance(address, str) else None
+                if not meta or not parsed or parsed.scheme != "https" or parsed.hostname not in {"vk.com", "vk.ru"} or parsed.username or parsed.password or not parsed.path.strip("/") or parsed.query or parsed.fragment:
+                    raise ValueError("An explicit HTTPS VK community address and existing block ID are required")
+                meta.community_url = address
+            from material_updates import refresh_placeholders
+            refresh_placeholders(s)
             audit(
                 s,
                 "migration",

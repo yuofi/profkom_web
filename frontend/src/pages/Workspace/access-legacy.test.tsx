@@ -10,7 +10,7 @@ import { z } from "zod";
 import { api } from "../../utils/api";
 import { useForm } from "../../components/Form/Form";
 import { installMockTransport } from "../../mocks/transport";
-import { mountWorkspace, settle, change, field, pick, submit } from "../../test/workspace";
+import { mountWorkspace, settle, change, field, pick, submit, waitForPage } from "../../test/workspace";
 import { AdminPanel } from "../Admin/AdminPage";
 import { BlocksPage } from "./MembershipPages";
 import { EventsListPage } from "./EventPages";
@@ -114,12 +114,15 @@ it("A04: an event head with only object permission can submit head merit", async
   const session = { ...mock.state.session, capabilities: mock.state.session.capabilities.filter((c) => !["create_volunteer_merit", "view_summary"].includes(c)) };
   page = await mountWorkspace(<SessionContext.Provider value={{ session, loading: false, error: null, refresh: () => {} }}><Routes>
     <Route path="/events/:id" element={<EventPage />} />
+    <Route path="/merits" element={<MeritEntryPage />} />
     <Route path="/seasons/:id/merits" element={<MeritsPage />} />
   </Routes></SessionContext.Provider>, { role: "leader", path: "/events/event-1" });
   await settle(); await settle();
   await act(async () => Array.from(page!.container.querySelectorAll("a")).find((a) => a.textContent === "Учесть особую заслугу")!.click());
   await settle(); await settle();
-  expect(page.container.querySelectorAll("select")[0].value).toBe("head_merit");
+  await act(async () => Array.from(page!.container.querySelectorAll("a")).find((a) => a.textContent === "Особые заслуги и волонтёры")!.click());
+  await settle(); await settle();
+  expect([...page.container.querySelectorAll("label")].find(label => label.textContent?.trim().startsWith("Вид записи"))?.querySelector("select")?.value).toBe("head_merit");
   expect(field(page.container, "scope").value).toBe("event-1");
   await fillMerit(page.container, mock.state.people[0].user_id!);
   expect(mock.state.merits[0]).toMatchObject({ source_kind: "head_merit", season_id: "season-1", event_id: "event-1" });
@@ -172,8 +175,11 @@ it("A08: leadership excludes pending candidates, preserves valid candidates outs
 it("A02: the actual profile form awaits its mutation and shows structured field errors", async () => {
   const f = createFixtures("organizer");
   const adapter = new MockAdapter(api); restore = () => adapter.restore();
-  adapter.onPatch(`/profile/${f.profile.user_id}`).reply(422, { detail: { code: "invalid_input", message: "Invalid phone", fields: { phone: "Неверный телефон" } } });
+  adapter.onGet("/profile/me/editor").reply(200, { revision: 1, fingerprint: "0".repeat(64), contact: f.profile });
+  adapter.onGet("/avatars").reply(200, { items: [] });
+  adapter.onPatch("/profile/me/editor").reply(422, { detail: { code: "invalid_input", message: "Invalid phone", fields: { phone: "Неверный телефон" } } });
   page = await mountWorkspace(<HelmetProvider><UserContext.Provider value={f.profile}><ProfileEditPage /></UserContext.Provider></HelmetProvider>);
+  await waitForPage(page);
   for (const [name, value] of Object.entries({ patronymic: "Иванович", group_number: "201", tg: "", vk: "", email: "student@example.org", phone: "Мой ввод" })) await change(field(page.container, name), value);
   await submit(page.container.querySelector("form")!);
   expect(adapter.history.patch).toHaveLength(1);

@@ -26,7 +26,9 @@ export function SeasonBlockerLink({
     assignment_id: blocker.owner_id,
     return_season: seasonId,
   });
-  const link = assignment
+  const link = blocker.kind === "missing_final_report" && ["event", "subevent"].includes(blocker.owner_kind)
+    ? `/reports?owner_kind=${encodeURIComponent(blocker.owner_kind)}&owner_id=${encodeURIComponent(blocker.owner_id)}`
+    : assignment
     ? task
       ? `${getTaskRoute(task.task_id)}?${params}`
       : null

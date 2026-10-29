@@ -7,7 +7,8 @@ export const taskPriorityNames: Record<string, string> = { low: "Низкий", 
 const dayFormat = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Moscow", year: "numeric", month: "2-digit", day: "2-digit" });
 export const dayTitle = new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", day: "numeric", month: "long", year: "numeric" });
 export const monthTitle = new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", month: "long", year: "numeric" });
-export function moscowDay(value: string | number | Date = Date.now()): string {
+export function moscowDay(value: string | number | Date | null = Date.now()): string {
+  if (value === null) return "";
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return "";
   const parts = dayFormat.formatToParts(date), part = (type: Intl.DateTimeFormatPartTypes) => parts.find(item => item.type === type)?.value ?? "";
@@ -54,5 +55,5 @@ export async function loadPlanningTasks(filters: object, range: PlanningRange, s
       seen.add(cursor);
     }
   } while (cursor);
-  return [...items.values()];
+  return [...items.values()].filter(task => !!task.deadline_at);
 }

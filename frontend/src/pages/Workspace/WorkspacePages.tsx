@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   Page,
   Card,
@@ -10,24 +10,28 @@ import {
   Empty,
 } from "../../components/Workspace/WorkspaceUI";
 import { ActionForm } from "../../components/Workspace/ActionForm";
-import { InteractiveChip } from "../../components/Workspace/InteractiveChip";
 import { workspaceApi } from "../../utils/api/workspace.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import {
   targetRoute,
   getEventRoute,
   getBlockRoute,
-  getMeetingRoute,
-  getSeasonRoute,
 } from "../../utils/routes";
-import { displayDate, displayTime } from "../../utils/dates";
-import { monthDays, moscowDay, shiftMonth, monthTitle } from "../../utils/calendar";
+import { displayDate } from "../../utils/dates";
+import { moscowDay, normalizeMonth } from "../../utils/calendar";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { can, useSession } from "../../utils/session";
-import type { CalendarItem, ParticipationRole } from "../../utils/api/contract";
+import type { ParticipationRole } from "../../utils/api/contract";
 import s from "../../components/Workspace/Workspace.module.css";
-import { toneStyle, type Tone } from "../../components/Workspace/sections";
+import { EntityPicker } from "../../components/Workspace/EntityPicker";
+import { membershipApi } from "../../utils/api/membership.api";
+import { eventsApi } from "../../utils/api/events.api";
+import { taskQueuesApi } from "../../utils/api/taskQueues.api";
+import { WorkdayTasks } from "./WorkdayTasks";
+import { statusNames } from "./trackerStatus";
 import c from "./calendar.module.css";
+import { CalendarMonth, CalendarTimeGrid } from "./CalendarViews";
+import { calendarTitle, calendarView, calendarWindow, shiftCalendarDate, validDay, type CalendarView } from "./calendarLayout";
 import p from "./participation.module.css";
 import { useConfirmedNavigation } from "../../components/Workspace/unsavedChangesHooks";
 function useSeasons() {
@@ -42,6 +46,7 @@ const ROLE_LABELS: Record<ParticipationRole, string> = {
   subevent_leader: "Ответственный за подмероприятие",
   subevent_deputy: "Заместитель ответственного",
   organizer: "Организатор",
+  subevent_hr: "HR подмероприятия",
 };
 const TEAM_PAGE_SIZE = 8;
 interface PersonalTeam {
@@ -81,177 +86,71 @@ export function DashboardPage() {
   const { session } = useSession();
   const query = useQuery({ queryKey: ["participation"], queryFn: workspaceApi.participation });
   const seasons = useSeasons();
-  const [seasonId, setSeasonId] = useState("");
-  const [search, setSearch] = useState("");
+  const [watching, setWatching] = useState(false);
+  const day = useQuery({ queryKey: ["dashboard", "home", watching], queryFn: () => workspaceApi.home(watching), refetchInterval: 60_000 });
+  const [seasonId, setSeasonId] = useState(""), [search, setSearch] = useState("");
   const needle = search.trim().toLocaleLowerCase("ru");
-  const blocks = (query.data?.blocks ?? []).filter((b) => b.name.toLocaleLowerCase("ru").includes(needle));
-  const events = (query.data?.events ?? []).filter((event) =>
-    (!seasonId || event.season_id === seasonId) && event.title.toLocaleLowerCase("ru").includes(needle),
-  );
-  const seasonTitle = (id: string) => seasons.data?.items.find((season) => season.season_id === id)?.title ?? "Сезон";
-  return (
-    <Page title="Рабочее пространство" description="Ваши команды, мероприятия и быстрый доступ к работе. Блоки не зависят от сезона.">
-      <nav className={p.quickLinks} aria-label="Рабочие разделы">
-        <RouteLink to="/tasks?mine=true">Мои задачи</RouteLink>
-        <RouteLink to="/calendar">Календарь</RouteLink>
-        <RouteLink to="/blocks/requests">Мои заявки и решения</RouteLink>
-        {can(session, "view_unresolved_assignments") && <RouteLink to="/tasks/unresolved">Назначения к решению</RouteLink>}
-        {can(session, "review_registrations") && <RouteLink to="/admin/registrations">Регистрации</RouteLink>}
-      </nav>
-      <div className={s.filters}>
-        <label className={s.field}>Поиск по моим командам
-          <input value={search} onChange={(event) => setSearch(event.target.value)} />
-        </label>
-        <label className={s.field}>Сезон мероприятий
-          <select value={seasonId} onChange={(event) => setSeasonId(event.target.value)}>
-            <option value="">Все незакрытые сезоны</option>
-            {seasons.data?.items.filter((season) => season.state !== "closed").map((season) =>
-              <option key={season.season_id} value={season.season_id}>{season.title}{season.is_current ? " · текущий" : ""}</option>,
-            )}
-          </select>
-        </label>
+  const blocks = (query.data?.blocks ?? []).filter(block => block.name.toLocaleLowerCase("ru").includes(needle));
+  const events = (query.data?.events ?? []).filter(event => (!seasonId || event.season_id === seasonId) && event.title.toLocaleLowerCase("ru").includes(needle));
+  const seasonTitle = (id: string | null) => seasons.data?.items.find(season => season.season_id === id)?.title ?? "Сезон";
+  return <Page title="Рабочее пространство" description="Сегодня, ближайшие задачи и решения, которые ждут вас.">
+    <nav className={p.quickLinks} aria-label="Рабочие разделы"><RouteLink to="/tasks?mine=true">Мои задачи</RouteLink><RouteLink to="/calendar">Календарь</RouteLink>{can(session, "view_unresolved_assignments") && <RouteLink to="/tasks/unresolved">Назначения к решению</RouteLink>}</nav>
+    <label className={p.watching}><input type="checkbox" checked={watching} onChange={event => setWatching(event.target.checked)} />Также задачи, за которыми я наблюдаю</label>
+    <QueryState loading={day.isLoading} error={day.error} retry={() => void day.refetch()}>{day.data && <div className={p.todayGrid}>
+      <Card title={`Сегодня · ${day.data.today.split("-").reverse().join(".")}`} icon="calendar_month" tone="mint"><CalendarTimeGrid days={[day.data.today]} items={day.data.agenda} seasonTitle={seasonTitle} today={day.data.today} compact /><RouteLink to={`/calendar?view=day&date=${day.data.today}`}>Весь календарь</RouteLink></Card>
+      <div className={p.taskPanels}>
+        <Card title={`Просроченные · ${day.data.overdue_count}`} tone="rose"><WorkdayTasks tasks={day.data.overdue_tasks} overdue />{!day.data.overdue_count && <p className={s.muted}>Просроченных задач нет.</p>}{!!day.data.overdue_count && <RouteLink to="/tasks?mine=true&unfinished=true&overdue=true">Все просроченные задачи</RouteLink>}</Card>
+        <Card title="Ближайшие задачи" tone="lilac"><WorkdayTasks tasks={day.data.tasks} />{!day.data.tasks.length && <p className={s.muted}>Нет задач с будущим дедлайном.</p>}{!!day.data.undated_count && <p className={s.muted}>Без срока: {day.data.undated_count}</p>}<RouteLink to="/tasks?mine=true&unfinished=true&sort=deadline">Все мои задачи</RouteLink></Card>
       </div>
-      <QueryState loading={query.isLoading || seasons.isLoading} error={query.error ?? seasons.error} retry={() => { void query.refetch(); void seasons.refetch(); }}>
-        {query.data && <div className={p.columns}>
-          <PersonalTeams key={`blocks-${search}`} title="Мои блоки" teams={blocks.map((block) => ({ id: block.block_id, title: block.name, to: getBlockRoute(block.block_id), roles: block.roles }))}
-            empty={needle ? "Блоков по этому запросу нет." : "Вы пока не участвуете в блоках. Посмотрите раздел «Блоки», чтобы выбрать команду."} />
-          <PersonalTeams key={`events-${search}-${seasonId}`} title="Мои мероприятия" teams={events.map((event) => ({ id: event.event_id, title: event.title, to: getEventRoute(event.event_id), roles: event.roles, detail: seasonTitle(event.season_id) }))}
-            empty={needle ? "Мероприятий по этому запросу нет." : "В выбранных сезонах вы пока не участвуете в мероприятиях."} />
-        </div>}
-      </QueryState>
-    </Page>
-  );
-}
-/** What an entry is, by the colour of its section. */
-const KINDS: Record<CalendarItem["kind"], { label: string; tone: Tone }> = {
-  task_deadline: { label: "Дедлайн", tone: "lilac" },
-  event: { label: "Мероприятие", tone: "mint" },
-  meeting: { label: "Созвон", tone: "yellow" },
-};
-function CalendarEntry({ item, seasonTitle, inDay = false, today = false }: { item: CalendarItem; seasonTitle: string; inDay?: boolean; today?: boolean }) {
-  const route = item.kind === "meeting" && (item.target.kind === "event" || item.target.kind === "subevent")
-    ? getMeetingRoute(item.target.kind, item.target.id)
-    : targetRoute(item.target);
-  const kind = KINDS[item.kind];
-  return (
-    <div className={`${c.entry} ${today ? c.todayEntry : ""}`} style={toneStyle(kind?.tone)}>
-      {/* In a day of the month the day is already said: the time is enough. */}
-      <small>{inDay ? displayTime(item.starts_at) : displayDate(item.starts_at)} · {kind?.label}</small>
-      {route ? (
-        <Link to={route}>{item.title}</Link>
-      ) : (
-        <span>{item.title}</span>
-      )}
-      <InteractiveChip kind="link" to={getSeasonRoute(item.season_id)} className={c.seasonChip}
-        label={<span className={c.seasonLabel}><span className={c.seasonPrefix}>Сезон:</span><span className={c.seasonName}>{seasonTitle}</span></span>}
-        title={`Сезон: ${seasonTitle}`} ariaLabel={`Открыть сезон: ${seasonTitle}`}
-        icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3" /><path d="M3 10h18M8 3v4M16 3v4M8 14h3M13 17h3" /></svg>} />
-    </div>
-  );
+      {!!day.data.approvals.length && <Card title="Требует решения" tone="yellow"><ul className={p.approvals}>{day.data.approvals.map(item => <li key={`${item.kind}-${item.to}`}><Link to={item.to}>{item.title}<Badge>{item.count}</Badge></Link></li>)}</ul></Card>}
+      {!!day.data.merit_entries.length && <Card title="Учёт выполненной работы" tone="peach"><p>Добавьте выполненную работу в доступной области.</p><details><summary>Выбрать область</summary><ul className={p.approvals}>{day.data.merit_entries.map(item => <li key={item.to}><Link to={item.to}>{item.title}</Link></li>)}</ul></details><RouteLink to="/merits">Все записи</RouteLink></Card>}
+    </div>}</QueryState>
+    <section className={p.myTeams}><h2>Мои команды</h2><div className={s.filters}><label className={s.field}>Поиск по моим командам<input value={search} onChange={event => setSearch(event.target.value)} /></label><label className={s.field}>Сезон мероприятий<select value={seasonId} onChange={event => setSeasonId(event.target.value)}><option value="">Все незакрытые сезоны</option>{seasons.data?.items.filter(season => season.state !== "closed").map(season => <option key={season.season_id} value={season.season_id}>{season.title}{season.is_current ? " · текущий" : ""}</option>)}</select></label></div>
+      <QueryState loading={query.isLoading || seasons.isLoading} error={query.error ?? seasons.error} retry={() => { void query.refetch();void seasons.refetch(); }}>{query.data && <div className={p.columns}><PersonalTeams key={`blocks-${search}`} title="Мои блоки" teams={blocks.map(block => ({ id: block.block_id, title: block.name, to: getBlockRoute(block.block_id), roles: block.roles }))} empty={needle ? "Блоков по этому запросу нет." : "Вы пока не участвуете в блоках."} /><PersonalTeams key={`events-${search}-${seasonId}`} title="Мои мероприятия" teams={events.map(event => ({ id: event.event_id, title: event.title, to: getEventRoute(event.event_id), roles: event.roles, detail: seasonTitle(event.season_id) }))} empty={needle ? "Мероприятий по этому запросу нет." : "В выбранных сезонах вы пока не участвуете в мероприятиях."} /></div>}</QueryState>
+    </section>
+  </Page>;
 }
 export function CalendarPage() {
   const [today, setToday] = useState(() => moscowDay(new Date().toISOString()));
-  useEffect(() => {
-    const update = () => setToday(moscowDay(new Date().toISOString()));
-    const timer = window.setInterval(update, 60_000);window.addEventListener("focus", update);
-    return () => { window.clearInterval(timer);window.removeEventListener("focus", update); };
-  }, []);
-  const [month, setMonth] = useState(
-    moscowDay(new Date().toISOString()).slice(0, 7),
-  );
-  const [seasonId, setSeasonId] = useState("");
+  useEffect(() => { const update = () => setToday(moscowDay(new Date().toISOString()));const timer = window.setInterval(update, 60_000);window.addEventListener("focus", update);return () => { window.clearInterval(timer);window.removeEventListener("focus", update); }; }, []);
+  const [params, setParams] = useSearchParams();
+  const view = calendarView(params.get("view"));
+  const requestedDate = params.get("date");
+  const month = normalizeMonth(params.get("month") ?? (validDay(requestedDate) ? requestedDate.slice(0, 7) : today.slice(0, 7)));
+  const date = validDay(requestedDate) && requestedDate.startsWith(month) ? requestedDate : month === today.slice(0, 7) ? today : `${month}-01`;
+  const filters = { mine: params.get("mine") !== "false", kind: params.get("kind") ?? "", season_id: params.get("season_id") ?? "", block_id: params.get("block_id") ?? "", event_id: params.get("event_id") ?? "", queue_id: params.get("queue_id") ?? "", status: params.get("status") ?? "", q: params.get("q") ?? "" };
   const seasons = useSeasons();
-  const range = monthDays(month);
-  const query = useQuery({
-    queryKey: ["calendar", month],
-    queryFn: () => workspaceApi.calendar(range.from, range.to),
-  });
-  const items =
-    query.data?.items
-      .filter(
-        (i) =>
-          (!seasonId || i.season_id === seasonId) &&
-          seasons.data?.items.some(
-            (s) => s.season_id === i.season_id && s.state !== "closed",
-          ),
-      )
-      .sort((a, b) => a.starts_at.localeCompare(b.starts_at)) ?? [];
-  const label = (id: string) =>
-    seasons.data?.items.find((s) => s.season_id === id)?.title ?? "Сезон";
-  return (
-    <Page
-      title="Календарь"
-      description="Дедлайны, мероприятия и доступные созвоны. Время указано по МСК."
-    >
-      <div className={s.filters}>
-        <div className={c.monthNav} role="group" aria-label="Выбор месяца">
-          <button className={s.button} aria-label="Предыдущий месяц" onClick={() => setMonth(shiftMonth(month, -1))}>←</button>
-          <strong className={c.monthTitle} aria-live="polite">{monthTitle(month)}</strong>
-          <button className={s.button} aria-label="Следующий месяц" onClick={() => setMonth(shiftMonth(month, 1))}>→</button>
-          <button className={s.button} onClick={() => setMonth(moscowDay(new Date().toISOString()).slice(0, 7))}>Сегодня</button>
-        </div>
-        <label className={s.field}>
-          Сезон
-          <select
-            value={seasonId}
-            onChange={(e) => setSeasonId(e.target.value)}
-          >
-            <option value="">Все незакрытые</option>
-            {seasons.data?.items
-              .filter((s) => s.state !== "closed")
-              .map((s) => (
-                <option key={s.season_id} value={s.season_id}>
-                  {s.title}
-                </option>
-              ))}
-          </select>
-        </label>
-      </div>
-      <QueryState
-        loading={query.isLoading || seasons.isLoading}
-        error={query.error ?? seasons.error}
-        retry={() => {
-          void query.refetch();
-        }}
-      >
-        <div className={c.calendar} role="table" aria-label="Календарь месяца">
-          <div className={c.week} role="row">
-            {["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((d) => (
-              <strong role="columnheader" key={d}>
-                {d}
-              </strong>
-            ))}
-          </div>
-          <div className={c.days}>
-            {Array.from({ length: range.offset }, (_, i) => (
-              <div key={`empty-${i}`} className={c.empty} />
-            ))}
-            {range.days.map((day) => (
-              <div key={day} className={`${c.day} ${day === today ? c.today : ""}`} role="cell" aria-label={day} aria-current={day === today ? "date" : undefined}>
-                <span className={c.dayNumber}>{Number(day.slice(-2))}</span>
-                {items
-                  .filter((i) => moscowDay(i.starts_at) === day)
-                  .map((i) => (
-                    <CalendarEntry
-                      key={i.id}
-                      item={i}
-                      seasonTitle={label(i.season_id)}
-                      inDay
-                    />
-                  ))}
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className={c.mobileList}>
-          {items.map((i) => (
-            <CalendarEntry key={i.id} item={i} seasonTitle={label(i.season_id)} today={moscowDay(i.starts_at) === today} />
-          ))}
-        </div>
-        {!items.length && <Empty>На этот месяц нет доступных событий.</Empty>}
-      </QueryState>
-    </Page>
-  );
+  const blocks = useQuery({ queryKey: ["workspaceBlocks"], queryFn: membershipApi.blocks });
+  const events = useQuery({ queryKey: ["events"], queryFn: () => eventsApi.list() });
+  const queues = useQuery({ queryKey: ["tasks", "queues"], queryFn: taskQueuesApi.catalog });
+  const range = calendarWindow(view, date);
+  const query = useQuery({ queryKey: ["calendar", view, range.from, range.to, filters], queryFn: () => workspaceApi.calendar(range.from, range.to, Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== ""))) });
+  const update = (key: string, value: string) => { const next = new URLSearchParams(params);next.set("month", month);next.set("date", date);if (value) next.set(key, value);else next.delete(key);setParams(next); };
+  const navigatePeriod = (target: string, mode: CalendarView = view) => { const next = new URLSearchParams(params);next.set("date", target);next.set("month", target.slice(0, 7));next.set("view", mode);setParams(next); };
+  const periodName = view === "month" ? "месяц" : view === "week" ? "неделя" : "день";
+  const label = (id: string | null) => seasons.data?.items.find(season => season.season_id === id)?.title ?? "Сезон";
+  const items = query.data?.items.filter(item => !filters.season_id || item.season_id === filters.season_id) ?? [];
+  const names: Record<string, string> = { kind: "Вид записи", season_id: "Сезон", block_id: "Блок", event_id: "Мероприятие", queue_id: "Очередь", status: "Статус", q: "Поиск" };
+  return <Page title="Календарь" description="Дедлайны, мероприятия и доступные созвоны. Время указано по МСК.">
+    <div className={c.calendarToolbar}>
+      <div className={c.monthNav} role="group" aria-label="Выбор периода"><button className={s.button} aria-label={view === "week" ? "Предыдущая неделя" : `Предыдущий ${periodName}`} onClick={() => navigatePeriod(shiftCalendarDate(date, view, -1))}>←</button><strong className={c.monthTitle} aria-live="polite">{calendarTitle(view, date)}</strong><button className={s.button} aria-label={view === "week" ? "Следующая неделя" : `Следующий ${periodName}`} onClick={() => navigatePeriod(shiftCalendarDate(date, view, 1))}>→</button><button className={s.button} onClick={() => navigatePeriod(today)}>Сегодня</button></div>
+      <div className={c.viewSwitch} role="group" aria-label="Представление календаря">{([["day", "День"], ["week", "Неделя"], ["month", "Месяц"]] as const).map(([mode, title]) => <button type="button" className={s.button} key={mode} aria-pressed={view === mode} onClick={() => navigatePeriod(date, mode)}>{title}</button>)}</div>
+    </div>
+    <div className={c.topFilters}><label className={s.field}>Показывать<select value={filters.mine ? "mine" : "all"} onChange={event => update("mine", event.target.value === "all" ? "false" : "")}><option value="mine">Мои записи</option><option value="all">Все доступные</option></select></label><label className={s.field}>Поиск<input value={filters.q} placeholder="Название или ключ задачи" onChange={event => update("q", event.target.value)} /></label></div>
+    <details className={c.filterPanel}><summary>Фильтры календаря</summary><div className={c.filterGrid}>
+      <label className={s.field}>Вид записи<select value={filters.kind} onChange={event => update("kind", event.target.value)}><option value="">Все виды</option><option value="event">Мероприятия</option><option value="meeting">Созвоны</option><option value="task_deadline">Дедлайны</option></select></label>
+      <label className={s.field}>Сезон<select value={filters.season_id} onChange={event => update("season_id", event.target.value)}><option value="">Все незакрытые</option>{seasons.data?.items.map(season => <option value={season.season_id} key={season.season_id}>{season.title}</option>)}</select></label>
+      <EntityPicker label="Блок" entity="block" value={filters.block_id} onChange={value => update("block_id", value)} placeholder="Все блоки" options={blocks.data?.map(block => ({ value: block.block_id, label: block.name, block: { block_id: block.block_id, name: block.name, avatar_url: block.avatar_url } })) ?? []} />
+      <EntityPicker label="Мероприятие" value={filters.event_id} onChange={value => update("event_id", value)} placeholder="Все мероприятия" options={events.data?.items.map(event => ({ value: event.event_id, label: event.title })) ?? []} />
+      <EntityPicker label="Очередь" value={filters.queue_id} onChange={value => update("queue_id", value)} placeholder="Все очереди" options={queues.data?.items.filter(queue => queue.access === "granted").map(queue => ({ value: queue.queue_id, label: queue.name })) ?? []} />
+      <label className={s.field}>Статус задач<select value={filters.status} onChange={event => update("status", event.target.value)}><option value="">Незавершённые</option>{Object.entries(statusNames).map(([key, title]) => <option key={key} value={key}>{title}</option>)}</select></label>
+    </div></details>
+    <div className={c.activeFilters} aria-label="Активные фильтры">{Object.entries(names).filter(([key]) => filters[key as keyof typeof filters]).map(([key, title]) => <button type="button" key={key} className={s.button} aria-label={`Убрать фильтр: ${title}`} onClick={() => update(key, "")}>{title} ×</button>)}<button className={s.button} onClick={() => setParams({ month, date, view })}>Сбросить фильтры</button></div>
+    <QueryState loading={query.isLoading || seasons.isLoading} error={query.error ?? seasons.error} retry={() => { void query.refetch();void seasons.refetch(); }}>
+      {view === "month" ? <CalendarMonth days={range.days} offset={range.offset} items={items} today={today} seasonTitle={label} openDay={day => navigatePeriod(day, "day")} /> : <CalendarTimeGrid days={range.days} items={items} today={today} seasonTitle={label} />}
+      {!items.length && <p className={s.muted}>На этот период нет доступных событий по выбранным условиям.</p>}
+    </QueryState>
+  </Page>;
 }
 export function NotificationsPage() {
   const navigate = useConfirmedNavigation();

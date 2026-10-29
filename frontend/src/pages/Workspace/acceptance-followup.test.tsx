@@ -7,7 +7,6 @@ import { installMockTransport } from "../../mocks/transport";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { reportsApi } from "../../utils/api/reports.api";
 import { materialsApi } from "../../utils/api/materials.api";
-import { guidesApi } from "../../utils/api/guides.api";
 import { membershipApi } from "../../utils/api/membership.api";
 import { emptyCriteria, richText } from "../../utils/api/contract";
 import { UserContext } from "../../utils/me";
@@ -23,7 +22,8 @@ import { TaskPage } from "./TaskPages";
 import { ReportPage } from "./ReportPages";
 import { MaterialCreatePage, MaterialPage, MaterialsPage } from "./MaterialPages";
 import { BlockRequestsPage } from "./MembershipPages";
-import { DocEditPage } from "../DocEditPage/DocEditPage";
+import { LegacyMaterialRedirect } from "./LegacyMaterialRedirect";
+import { openMaterialEditor } from "../../test/materialEditor";
 import { PgasPage } from "../Pgas/PgasPage";
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let other: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
@@ -210,32 +210,18 @@ it("creates, edits, publishes and deletes a material through available routes", 
   expect(page.container.textContent).toContain("Удалённых материалов нет.");
 });
 
-it("explains immediate legacy publication and preserves guide text including Markdown extensions", async () => {
+it("a bookmarked guide enters the current read-only material and preserves Markdown extensions in a draft", async () => {
   mock = installMockTransport("chair", { delay: 0 });
-  const guide = await guidesApi.create({
-    title: "Старый гайд",
-    owner_block: "none",
-    text: "Исходный текст",
-  });
-  page = await mountWorkspace(
-    <Routes>
-      <Route path="/docs/:id/edit" element={<DocEditPage />} />
-    </Routes>,
-    { path: `/docs/${guide.guide_id}/edit` },
-  );
-  await settle();
-  expect(page.container.textContent).toContain(
-    "изменения сразу видны читателям",
-  );
-  const body =
-    "**Текст**\n\n```gallery\nhttps://example.com/image.png\n```\n\n```chip\nИмя: Анна\n```\n";
-  await change(page.container.querySelector("textarea")!, body);
-  await submit(form(page.container, "Опубликовать изменения гайда"));
-  expect((await guidesApi.getById(guide.guide_id)).text).toBe(body);
-  await guidesApi.delete(guide.guide_id);
-  expect(
-    (await guidesApi.getAll()).some((g) => g.guide_id === guide.guide_id),
-  ).toBe(false);
+  const material = mock.state.materials[0];material.published_content = richText("Исходный текст");
+  page = await mountWorkspace(<Routes><Route path="/docs/:id/edit" element={<LegacyMaterialRedirect />} /><Route path="/materials/:id" element={<MaterialPage />} /></Routes>, { path: "/docs/1/edit" });
+  await settle();await settle();expect(page.container.querySelector("textarea")).toBeNull();
+  await openMaterialEditor(page);
+  const body = "**Текст**\n\n```gallery\nhttps://example.com/image.png\n```\n\n```chip\nИмя: Анна\n```\n";
+  await change(page.container.querySelector('textarea[name="body"]')!, body);
+  await submit(form(page.container, "Сохранить черновик"));await settle();
+  const saved = await materialsApi.get(material.material_id);
+  expect(saved.source_content?.body).toBe(body);expect(saved.published_content?.body).toBe("Исходный текст");
+  expect(mock.adapter.history.post.every(request => !request.url?.startsWith("/guides"))).toBe(true);
 });
 
 it("finishes an HR request in one UI approval without adding a second stage", async () => {

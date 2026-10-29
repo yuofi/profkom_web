@@ -3,7 +3,7 @@ import { act } from "react";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, expect, it } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
-import { mountWorkspace, settle, change, field, submit } from "../../test/workspace";
+import { mountWorkspace, settle } from "../../test/workspace";
 import { MaterialPage } from "./MaterialPages";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
@@ -19,16 +19,15 @@ const open = async (role: "chair" | "organizer") => {
 it("a guide's writer decides who reads it; a reader is told who does", async () => {
   await open("chair");
   expect(page!.container.querySelector("form")).toBeNull();
-  await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Редактировать материал"]')!.click());await settle();
-  const form = field(page!.container, "audience").closest("form")!;
-  expect(page!.container.textContent).toContain("Кто видит гайд");
-  expect(field(form, "audience").value).toBe("block");
-  await change(field(form, "audience"), "everyone");
-  await submit(form); await settle();
+  const chip = [...page!.container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.includes("Только свой блок"))!;
+  await act(async () => chip.click());await settle();
+  const menu = [...document.querySelectorAll('[data-anchored-popover]')].find(node => node.textContent?.includes("Кто видит гайд"))!;
+  expect(menu).not.toBeNull();
+  await act(async () => [...menu.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Все активисты")!.click());await settle();await settle();
   expect(mock!.state.materials.find((m) => m.material_id === "material-1")!.audience).toBe("everyone");
   await page!.cleanup(); page = undefined; mock!.restore();
 
   await open("organizer");
   expect(page!.container.querySelector('[name="audience"]')).toBeNull();
-  expect(page!.container.textContent).toContain("Только участники блока");
+  expect(page!.container.textContent).toContain("Только свой блок");
 });

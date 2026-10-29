@@ -1,6 +1,6 @@
 import { editorShortcut } from "../../utils/editorShortcuts";
 import { useId, useRef, useState, type ReactNode } from "react";
-import { useFormik } from "formik";
+import { useFormik, type FormikProps } from "formik";
 import { z } from "zod";
 import { ApiError, normalizeApiError } from "../../utils/api/request";
 import { fieldMessage, isStale, userMessage } from "../../utils/api/messages";
@@ -96,6 +96,7 @@ export function ActionForm({
   savedExternalState,
   externalBusy = false,
   allowExitSave = true,
+  beforeFields,
 }: {
   title?: string;
   fields: Field[];
@@ -122,6 +123,8 @@ export function ActionForm({
   externalBusy?: boolean;
   /** Publishing/destructive actions must remain explicit in their own form. */
   allowExitSave?: boolean;
+  /** Opt-in helpers may copy values into the current draft without replacing dates/recipients. */
+  beforeFields?: (form: FormikProps<Values>) => ReactNode;
 } & Versioning) {
   const formId = useId();
   const submitted = useRef(false);
@@ -315,6 +318,7 @@ export function ActionForm({
         disabled={form.isSubmitting || refreshing || disabled || externalBusy}
       >
         {title && <h3>{title}</h3>}
+        {beforeFields?.(form)}
         {fields
           .filter((field) => visible(field, form.values))
           .map((field) => {

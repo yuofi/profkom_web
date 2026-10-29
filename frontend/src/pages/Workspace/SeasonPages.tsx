@@ -3,7 +3,7 @@ import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { QueryState, Empty, Glyph } from "../../components/Workspace/WorkspaceUI";
+import { QueryState, Empty, Glyph, Card } from "../../components/Workspace/WorkspaceUI";
 import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { text } from "../../components/Workspace/formValues";
@@ -13,7 +13,7 @@ import { seasonsApi } from "../../utils/api/seasons.api";
 import { normalizeApiError } from "../../utils/api/request";
 import { can, useSession } from "../../utils/session";
 import { displayDate } from "../../utils/dates";
-import { getSeasonRoute, getSeasonCreateRoute } from "../../utils/routes";
+import { getSeasonRoute, getSeasonCreateRoute, getKkrTemplatesRoute } from "../../utils/routes";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import type { Decision, Season, SeasonSummary, SummaryRow } from "../../utils/api/contract";
 import { decisionLabels } from "../../utils/decisions";
@@ -22,6 +22,8 @@ import { SeasonParticipants } from "./SeasonParticipants";
 import { SeasonAnalytics, AnalyticsMetrics } from "./SeasonAnalytics";
 import { analyticsKey, sourceNames, metricValue } from "./seasonAnalyticsView";
 import { SummaryHistory } from "./SummaryHistory";
+import { HistoryDisclosure } from "../../components/Workspace/HistoryPanel";
+import { KkrTemplateLibrary } from "../../components/Workspace/KkrTemplateLibrary";
 export { DecisionBadges } from "./SummaryTable";
 import w from "../../components/Workspace/Workspace.module.css";
 import u from "./SeasonWorkspace.module.css";
@@ -34,11 +36,16 @@ const dateRange = (season: Season) => `${displayDate(season.starts_at)} — ${di
 export function SeasonsPage() {
   const { session } = useSession();const query = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
   const ordered = [...(query.data?.items ?? [])].sort((a, b) => b.sequence_number - a.sequence_number);const current = ordered.find(season => season.is_current);const other = ordered.filter(season => season.season_id !== current?.season_id);
-  return <section className={u.page}><BrandedHeader className={u.header}><div><SectionHomeLink to="/seasons" label="Учёт работы" /><h1 className={w.title}>Сезоны и ККР</h1><p className={w.description}>Работа участников, начисления и итоги — в контексте выбранного сезона.</p></div>{can(session, "open_season") && <Link className={`${u.primary} ${w.button}`} to={getSeasonCreateRoute()}><Glyph name="add" />Создать сезон</Link>}</BrandedHeader>
+  return <section className={u.page}><BrandedHeader className={u.header}><div><SectionHomeLink to="/seasons" label="Учёт работы" /><h1 className={w.title}>Сезоны и ККР</h1><p className={w.description}>Работа участников, начисления и итоги — в контексте выбранного сезона.</p></div><div className={w.row}><Link className={w.button} to={getKkrTemplatesRoute()}><Glyph name="description" />Шаблоны ККР</Link>{can(session, "open_season") && <Link className={`${u.primary} ${w.button}`} to={getSeasonCreateRoute()}><Glyph name="add" />Создать сезон</Link>}</div></BrandedHeader>
     <QueryState loading={query.isLoading} error={query.error} retry={() => void query.refetch()}>
       {current && <section className={u.current} aria-label="Текущий сезон"><div><p className={u.eyebrow}>Текущий сезон</p><h2>{current.title}</h2><p>{dateRange(current)}</p><div className={u.statusLine}><State season={current} /><small>{typeNames[current.type]}</small></div></div><Link className={u.primary} to={getSeasonRoute(current.season_id)}>Открыть сезон <span aria-hidden="true">→</span></Link></section>}
       <section className={u.stack}><div className={u.sectionHeading}><h2>{current ? "Другие сезоны" : "Все сезоны"}</h2><small>{other.length} сезонов</small></div><div className={u.seasonList}>{other.map(season => <Link key={season.season_id} className={u.seasonRow} to={getSeasonRoute(season.season_id)}><div><h3>{season.title}</h3><p>{typeNames[season.type]}</p></div><span className={u.seasonDates}>{dateRange(season)}</span><State season={season} /><span aria-hidden="true">↗</span></Link>)}</div>{!other.length && <Empty>{current ? "Других сезонов пока нет." : "Сезонов пока нет. Создайте первый сезон, чтобы начать учёт работы."}</Empty>}</section>
     </QueryState>
+  </section>;
+}
+export function KkrTemplatesPage() {
+  return <section className={u.page}><BrandedHeader className={u.header}><div><SectionHomeLink to="/seasons" label="Учёт работы" /><h1 className={w.title}>Шаблоны ККР</h1><p className={w.description}>Личные и командные заготовки для учёта работы. Применение шаблона заполняет черновик.</p></div><Link to="/seasons" className={w.button}><Glyph name="arrow_back" />Сезоны и ККР</Link></BrandedHeader>
+    <Card><UnsavedChangesScope><KkrTemplateLibrary embedded /></UnsavedChangesScope></Card>
   </section>;
 }
 export function SeasonCreatePage() {
@@ -68,6 +75,7 @@ function SeasonHub({ initialTab = "overview" }: { initialTab?: Tab }) {
       </BrandedHeader>
       {allowed && <nav className={u.tabs} aria-label="Разделы сезона">{tabs.map(item => <Link key={item.id} to={`${getSeasonRoute(id)}${item.id === "overview" ? "" : `?tab=${item.id}`}`} aria-current={tab === item.id ? "page" : undefined}><Glyph name={item.icon} />{item.title}</Link>)}</nav>}
       {tab === "overview" || !allowed ? <SeasonOverview season={season} summary={summary.data} allowed={allowed} /> : tab === "participants" ? <QueryState loading={summary.isLoading} error={summary.error} keepDataOnError={!!summary.data} retry={() => void summary.refetch()}>{summary.data && <SeasonParticipants summary={summary.data} renderDecisions={row => can(summary.data, "edit_decisions") && row.user.user_id !== null ? <DecisionsForm row={row} summary={summary.data!} /> : null} />}</QueryState> : tab === "analytics" ? <SeasonAnalytics key={id} seasonId={id} /> : <section className={u.stack}><div className={u.sectionHeading}><h2>История итогов</h2></div><SummaryHistory key={id} seasonId={id} /></section>}
+      <HistoryDisclosure kind="season" id={id} title="История названия и периода сезона" />
     </> : !query.isLoading && <Empty>Сезон недоступен.</Empty>}</QueryState>
   </section>;
 }
@@ -75,14 +83,16 @@ function SeasonOverview({ season, summary, allowed }: { season: Season; summary?
   const { session } = useSession();const id = season.season_id;
   const analytics = useQuery({ queryKey: analyticsKey(id), queryFn: () => seasonsApi.analytics(id), enabled: allowed });
   const bonuses = useQuery({ queryKey: ["masterBonuses", id], queryFn: () => seasonsApi.bonuses(id), enabled: allowed });
+  const readiness = useQuery({ queryKey: ["seasons", "readiness", id], queryFn: () => seasonsApi.readiness(id), enabled: allowed && ["open", "summarizing"].includes(season.state) });
   const scores = analytics.data?.source_breakdown ?? [], maximum = Math.max(1, ...scores.map(source => Math.abs(source.kkr ?? 0)));
   return <div className={u.stack}>
+    {allowed && ["open", "summarizing"].includes(season.state) && <section className={u.panel} aria-label="Готовность к закрытию"><h2>Готовность к закрытию</h2><QueryState loading={readiness.isLoading} error={readiness.error} retry={() => void readiness.refetch()}>{readiness.data && (readiness.data.ready ? <p>Препятствий для закрытия нет.</p> : <ul className={w.list}>{readiness.data.blockers.map((blocker, index) => <li key={`${blocker.owner_kind}:${blocker.owner_id}:${index}`}><SeasonBlockerLink blocker={blocker} seasonId={id} /></li>)}</ul>)}</QueryState></section>}
     {allowed && <QueryState loading={analytics.isLoading} error={analytics.error} retry={() => void analytics.refetch()}>{analytics.data && <><AnalyticsMetrics totals={analytics.data.totals} />{analytics.data.coverage.notes.length > 0 && <p className={u.coverageLine}>{analytics.data.coverage.notes[0]}</p>}</>}</QueryState>}
     <div className={u.overviewColumns}><section className={u.panel}><div className={u.panelHeader}><h2>Работа сезона</h2></div><p>Задачи, результаты и мероприятия этого периода.</p><div className={u.actions}><Link className={u.secondary} to={`/tasks?season_id=${encodeURIComponent(id)}&mine=false`}>Задачи сезона <span aria-hidden="true">→</span></Link><Link className={u.secondary} to="/events">Мероприятия <span aria-hidden="true">→</span></Link>{["create_volunteer_merit", "create_head_merit", "create_chair_merit", "view_summary"].some(cap => can(session, cap)) && <Link className={u.secondary} to={`/seasons/${encodeURIComponent(id)}/merits`}>Заслуги и волонтёрство <span aria-hidden="true">→</span></Link>}</div><p className={u.note}>{season.state === "closed" ? "Итоги сезона сохранены. Правки исходных полей выполняются у соответствующей задачи; прежние версии остаются в истории." : "Статус задачи отражает ход работы. Начисления ККР появляются после отдельного расчётного решения уполномоченного руководителя."}</p></section>
       {allowed && <section className={u.panel}><div className={u.panelHeader}><h2>Источники ККР</h2><Link to={`/seasons/${encodeURIComponent(id)}/sources`}>Все начисления →</Link></div>{scores.length ? scores.map(source => <div className={u.source} key={source.source_kind}><div><span>{sourceNames[source.source_kind]}</span><strong>{metricValue(source.kkr)}</strong></div><div className={u.track}><span data-negative={(source.kkr ?? 0) < 0} style={{ width: `${Math.abs(source.kkr ?? 0) / maximum * 100}%` }} /></div></div>) : <p className={u.note}>{analytics.isLoading ? "Загружаем начисления…" : "Учтённых начислений пока нет."}</p>}</section>}
     </div>
     {allowed && summary && <section className={u.panel}><div className={u.panelHeader}><h2>Участники сезона</h2><Link to={`${getSeasonRoute(id)}?tab=participants`}>Все участники и ККР →</Link></div>{[...summary.rows].sort((a, b) => a.rank - b.rank).slice(0, 5).map(row => <div key={row.participant_id} className={u.personRank}><span>{row.rank}</span><UserChip user={row.user} /><strong>{metricValue(row.total_score)}</strong></div>)}{!summary.rows.length && <Empty>Участников с расчётными данными пока нет.</Empty>}</section>}
-    {allowed && <section className={u.panel}><details><summary>Бонусы мастеров и основания расчёта</summary><QueryState loading={bonuses.isLoading} error={bonuses.error}>{bonuses.data?.items.map(bonus => <details className={w.details} key={bonus.bonus_id}><summary>{bonus.recipient?.display_name ?? "Мастер не назначен"} · {bonus.amount.toFixed(2)} ККР · учитываемых организаторов {bonus.eligible_organizer_count}</summary><p className={u.note}>Версия расчёта: {bonus.calculation_version}</p><Link to={`/blocks/${encodeURIComponent(bonus.block_id)}`} className={u.tableAction}>Блок — источник бонуса →</Link><ul className={u.coverage}>{bonus.basis.map(member => <li key={member.participant_id}>{member.user.display_name}: {member.member_task_score} — {member.included ? "включён" : member.exclusion === "master" ? "исключён как мастер" : "исключён: неположительный вклад"}</li>)}</ul></details>)}{bonuses.data?.items.length === 0 && <Empty>Бонусов в этом сезоне нет.</Empty>}</QueryState></details></section>}
+    {allowed && <section className={u.panel}><details><summary>Бонусы мастеров и основания расчёта</summary><QueryState loading={bonuses.isLoading} error={bonuses.error}>{bonuses.data?.items.map(bonus => <details className={w.details} key={bonus.bonus_id}><summary>{bonus.recipient?.display_name ?? "Мастер не назначен"} · {bonus.amount.toFixed(2)} ККР · учитываемых организаторов {bonus.eligible_organizer_count}</summary><p className={u.note}>Версия расчёта: {bonus.calculation_version}</p><Link to={`/blocks/${encodeURIComponent(bonus.block_id)}`} className={u.tableAction}>Блок — источник бонуса →</Link><ul className={u.coverage}>{bonus.basis.map(member => <li key={member.participant_id}>{member.user.display_name}: {metricValue(member.member_task_score)} — {member.included ? "включён" : member.exclusion === "master" ? "исключён как мастер" : "исключён: неположительный вклад"}</li>)}</ul></details>)}{bonuses.data?.items.length === 0 && <Empty>Бонусов в этом сезоне нет.</Empty>}</QueryState></details></section>}
   </div>;
 }
 function DecisionsForm({ summary, row }: { summary: SeasonSummary; row: SummaryRow }) {

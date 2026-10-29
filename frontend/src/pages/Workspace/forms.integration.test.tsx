@@ -140,16 +140,19 @@ it("2.12 A-FE-2: a subevent's organizers and then its description save without a
   const event = await eventsApi.create({ season_id: season.season_id, title: "Мероприятие соседних форм", description: richText("") });
   const sub = await eventsApi.createSubevent(event.event_id, { title: "Соседние формы", description: richText("") });
   await mount(`/subevents/${sub.subevent_id}`, "/subevents/:id", <SubeventPage />);
-  const organizers = () => forms().find(f => f.querySelector("label")?.textContent?.startsWith("Организаторы"))!;
-  const description = () => forms().find(f => (f.querySelector('[name="title"]') as HTMLInputElement | null)?.value === sub.title)!;
-  await until(() => !!organizers()?.querySelector('[data-entity-picker][data-field-name="users"]') && !!description());
-  const organizerOptions = await pickerOptions(organizers(), "users");
+  await until(() => !!page!.container.querySelector('button[aria-label="Изменить состав организаторов"]'));
+  await act(async () => page!.container.querySelector<HTMLButtonElement>('button[aria-label="Изменить состав организаторов"]')!.click());
+  await until(() => !!page!.container.querySelector('dialog [data-entity-picker][data-field-name="users"]'));
+  const organizers = page!.container.querySelector<HTMLFormElement>('dialog form')!;
+  const organizerOptions = await pickerOptions(organizers, "users");
   expect(organizerOptions.querySelector(`[data-option-value="${org.user_id}"]`)).not.toBeNull();
-  await change(field(description(), "description"), "Новое описание команды");
-  await pick(organizers(), "users", String(org.user_id));
-  await save(organizers());
-  expect(description().textContent).not.toContain("Запись изменилась на сервере");
-  await save(description());
+  await pick(organizers, "users", String(org.user_id));await submit(organizers);
+  await until(() => !page!.container.querySelector("dialog"));
+  await click(page!.container, "Редактировать подмероприятие");
+  const description = field(page!.container, "description").closest("form")!;
+  await change(field(description, "description"), "Новое описание команды");
+  expect(description.textContent).not.toContain("Запись изменилась на сервере");
+  await submit(description);await until(() => !page!.container.querySelector('input[name="title"]'));
   const saved = await eventsApi.subevent(sub.subevent_id);
   expect(saved.organizer_user_ids).toEqual([org.user_id]);
   expect(saved.description.body).toBe("Новое описание команды");
@@ -272,7 +275,7 @@ it("2.12 EDITORS-05 (decision 32): hours changed by the lead do not stop the ass
   expect((await chair.get(`/assignments/${own.assignment_id}/assessment-inputs`)).data.hours).toBe(5);
 });
 
-it("2.12 A-TSK-6: a comment and a subevent are created once and leave an empty form", async () => {
+it("2.12 A-TSK-6: a comment resets and an explicit child canvas creates once before returning to its reader", async () => {
   const org = await liveParticipant("comment");
   const { event, task } = await subeventTask([org], "Задача с комментарием");
   await taskPage(task.task_id);
@@ -285,15 +288,16 @@ it("2.12 A-TSK-6: a comment and a subevent are created once and leave an empty f
   expect((await tasksApi.comments(task.task_id)).items.map(c => c.content.body)).toEqual(["Один комментарий"]);
   await page!.cleanup(); page = undefined;
 
-  await mount(`/events/${event.event_id}`, "/events/:id", <EventPage />);
-  const create = () => inDetails("Добавить подмероприятие")?.querySelector("form");
-  await until(() => !!create());
-  const before = (await eventsApi.subevents(event.event_id)).items.length;
-  await change(field(create()!, "title"), "Новое подмероприятие");
-  await save(create()!);
-  expect(field(create()!, "title").value).toBe("");
-  await submit(create()!);
+  page = await mountWorkspace(<Routes><Route path="/events/:id" element={<EventPage />} /><Route path="/subevents/:id" element={<SubeventPage />} /></Routes>, { path: `/events/${event.event_id}`, session: await sessionApi.get() });
   await waitForPage(page!);
+  expect(page!.container.querySelector('input[name="title"]')).toBeNull();
+  await click(page!.container, "Добавить подмероприятие");
+  const create = field(page!.container, "title").closest("form")!;
+  const before = (await eventsApi.subevents(event.event_id)).items.length;
+  await change(field(create, "title"), "Новое подмероприятие");
+  await submit(create);
+  await until(() => page!.container.querySelector("h1")?.textContent === "Новое подмероприятие");
+  expect(page!.container.querySelector('input[name="title"]')).toBeNull();
   expect((await eventsApi.subevents(event.event_id)).items.length).toBe(before + 1);
 });
 

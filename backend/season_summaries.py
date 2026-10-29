@@ -1,7 +1,7 @@
 """Immutable approved summaries and atomic scoring corrections."""
 
 from errors import Conflict, Forbidden, InvalidInput, NotFound, revision_conflict
-import json, copy, uuid
+import json, copy, uuid, math
 from collections import defaultdict
 from contextvars import ContextVar
 from dataclasses import asdict
@@ -33,6 +33,8 @@ DECISIONS = {"golden_red_bull", "kick_warning", "kick", "nice"}
 def source_id(c):
     from membership import block_id_for
 
+    if c.source_kind == "chair_merit":
+        return chair_merit_table_id(c.season_id)
     return (
         block_id_for(c.source_id)
         if c.source_kind in ("block_task", "block_volunteer", "master_bonus")
@@ -40,29 +42,57 @@ def source_id(c):
     )
 
 
+def chair_merit_table_id(season_id):
+    """One stable, server-owned chair table per season; no display-name identity."""
+    return "chair-merits:" + season_id
+
+
+def source_title(session, kind, identity):
+    from database import BlockORM, EventORM, SubeventORM
+    from domain_models import BlockMetaORM
+
+    if kind == "chair_merit":
+        return "Заслуги председателя"
+    if kind in {"block_task", "block_volunteer", "master_bonus"}:
+        meta = session.get(BlockMetaORM, identity) or session.query(BlockMetaORM).filter_by(legacy_name=identity).first()
+        block = session.get(BlockORM, meta.legacy_name if meta else identity)
+        title = block.name if block else (meta.legacy_name if meta else "Блок")
+        return "Мастер: " + title if kind == "master_bonus" else title
+    model = EventORM if kind == "head_merit" else SubeventORM
+    owner = session.get(model, identity)
+    return owner.title if owner else ("Мероприятие" if model is EventORM else "Подмероприятие")
+
+
 def totals(session, season_id, participant_id):
-    groups = defaultdict(float)
+    groups = defaultdict(list)
     titles = {}
     for c in session.query(ContributionORM).filter_by(
         season_id=season_id, participant_id=participant_id
     ):
         k = (c.source_kind, source_id(c))
-        groups[k] += c.score or 0
-        titles[k] = c.source_title
+        groups[k].append(c.score or 0)
+        titles[k] = source_title(session, c.source_kind, c.source_id)
     return [
-        dict(source_kind=k[0], source_id=k[1], title=titles[k], score=value)
+        dict(source_kind=k[0], source_id=k[1], title=titles[k], score=math.fsum(value))
         for k, value in sorted(groups.items())
     ]
 
 
 def rerank(rows):
-    rows.sort(key=lambda r: (-r["total_score"], r["participant_id"]))
+    def value(row, key):
+        return row[key] if isinstance(row, dict) else getattr(row, key)
+
+    rows.sort(key=lambda r: (-round(value(r, "total_score"), 9), value(r, "participant_id")))
     for i, row in enumerate(rows):
-        row["rank"] = (
+        rank = (
             i + 1
-            if i == 0 or row["total_score"] != rows[i - 1]["total_score"]
-            else rows[i - 1]["rank"]
+            if i == 0 or round(value(row, "total_score"), 9) != round(value(rows[i - 1], "total_score"), 9)
+            else value(rows[i - 1], "rank")
         )
+        if isinstance(row, dict):
+            row["rank"] = rank
+        else:
+            row.rank = rank
 
 
 def current(session, season_id):
@@ -176,20 +206,20 @@ def refresh(session, season_id, uid, reason):
     rows = json.loads(row.rows_json)
     old_version = row.version
     allowed = {r["participant_id"] for r in rows}
+    _recalculate_closed_master_bonuses_for_session(session, season_id)
+    session.flush()
     if any(
         c.participant_id not in allowed
         for c in session.query(ContributionORM).filter_by(season_id=season_id)
     ):
         raise InvalidInput("Recipient is outside the closed participant snapshot")
-    _recalculate_closed_master_bonuses_for_session(session, season_id)
-    session.flush()
     decisions = {
         d.user_id: json.loads(d.decisions_json)
         for d in session.query(SeasonDecisionORM).filter_by(season_id=season_id)
     }
     for r in rows:
         r["source_scores"] = totals(session, season_id, r["participant_id"])
-        r["total_score"] = sum(x["score"] for x in r["source_scores"])
+        r["total_score"] = math.fsum(x["score"] for x in r["source_scores"])
         uid_row = r["user"]["user_id"]
         r["evaluated_task_count"] = (
             session.query(AssignmentORM)
@@ -294,6 +324,7 @@ def correct(season_id, expected_version, reason, changes, uid):
             marker = _suppress.set(True)
             try:
                 for c, v in prepared:
+                    selection = v.pop("template_selection", None)
                     if c["kind"] == "task_inputs":
                         db.patch_task_assessment_inputs(
                             c["id"],
@@ -316,6 +347,11 @@ def correct(season_id, expected_version, reason, changes, uid):
                         )
                     else:
                         db.patch_merit(c["id"], c["expected_revision"], v, reason, uid)
+                    if selection:
+                        from profile_features import capture_template_use
+                        capture_template_use(s, uid, selection,
+                            "merit" if c["kind"] == "merit" else "assessment" if c["kind"] == "assessment_inputs" else "task",
+                            c["id"], v)
             finally:
                 _suppress.reset(marker)
             refresh(s, season_id, uid, reason)
@@ -375,6 +411,23 @@ def decisions(season_id, target, values, expected_version, reason, uid):
 
 
 def register_routes(router):
+    @router.get("/season-corrections/event/{event_id}/preview")
+    def correction_preview(event_id: str, cur: User = Depends(get_current_user)):
+        from season_corrections import preview_event
+        return preview_event(event_id, cur.user_id)
+
+    @router.get("/seasons/{season_id}/readiness")
+    def readiness(season_id: str, cur: User = Depends(get_current_user)):
+        if not access.allowed(cur.user_id, "summary.view"):
+            raise Forbidden("Forbidden: season readiness requires summary access")
+        from season_readiness import blockers
+        with db._session() as session:
+            season = session.get(SeasonORM, season_id)
+            if not season:
+                raise NotFound("Season not found")
+            items = blockers(session, season, cur.user_id)
+            return dict(ready=not items and season.state in {"open", "summarizing"}, blockers=items, revision=season.revision)
+
     def require_reader(uid):
         if not access.allowed(uid, "summary.view"):
             raise HTTPException(403, "Summary reader required")

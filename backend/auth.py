@@ -251,7 +251,8 @@ async def guard_working_access(request: Request):
     token=request_token(request)
     from access import actor_id
     path=request.url.path.removeprefix("/api")
-    exempt=path.startswith("/auth/") or path=="/session" or path in {"/registrations/me","/registrations/me/resubmit"}
+    feedback_intake = path == "/feedback" and request.method == "POST"
+    exempt=feedback_intake or path.startswith("/auth/") or path=="/session" or path in {"/registrations/me","/registrations/me/resubmit"}
     uid=None
     if not exempt:
         if token is None:
@@ -263,7 +264,7 @@ async def guard_working_access(request: Request):
             # Only the session, logout and the password change itself until then (АВ-52)
             raise HTTPException(403,PASSWORD_CHANGE_REQUIRED)
         uid=cur.user_id
-    elif token and not path.startswith("/auth/"):
+    elif token and not path.startswith("/auth/") and not feedback_intake:
         uid=get_current_user(token).user_id
     marker=actor_id.set(uid)
     try:

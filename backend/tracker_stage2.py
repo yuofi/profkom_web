@@ -102,7 +102,7 @@ def apply_fields(session, task, values, uid=None, *, initial=False):
             before = meta.priority or "normal"
         else:
             after = _time(after) if after is not None else None
-            if after and _moment(after) > _moment(task.deadline_at):
+            if after and task.deadline_at and _moment(after) > _moment(task.deadline_at):
                 raise InvalidInput("Planned start must not be later than the deadline")
             before = meta.starts_at
         setattr(meta, name, after)

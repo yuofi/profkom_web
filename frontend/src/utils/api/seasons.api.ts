@@ -1,5 +1,6 @@
 import type {
   Season,
+  SeasonBlocker,
   SeasonSummary,
   SeasonAnalytics,
   MasterBonus,
@@ -43,6 +44,7 @@ export const seasonsApi = {
     ),
   summary: (id: string) =>
     request<SeasonSummary>("get", `/seasons/${idPath(id)}/summary`),
+  readiness: (id: string) => request<{ ready: boolean; blockers: SeasonBlocker[]; revision: number }>("get", `/seasons/${idPath(id)}/readiness`),
   analytics: (id: string, params: { participant_id?: string; block_id?: string } = {}) =>
     request<SeasonAnalytics>("get", `/seasons/${idPath(id)}/analytics`, undefined, params),
   summaryVersions: (id: string) =>
@@ -92,6 +94,7 @@ export const seasonsApi = {
       target_season_id: string;
       revision: number;
     }>("post", "/season-corrections", data),
+  correctionPreview: (eventId: string) => request<{ object_id: string; source_season_id: string; revision: number; counts: { subevents: number; tasks: number; reports: number; merits: number } }>("get", `/season-corrections/event/${idPath(eventId)}/preview`),
   assessments: (params?: object) => page<Contribution>("/assessments", params),
   merits: (params?: object) => page<Merit>("/merits", params),
   merit: (id: string) => request<Merit>("get", `/merits/${idPath(id)}`),

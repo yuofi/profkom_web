@@ -61,8 +61,12 @@ def meta_for(s, name):
     if not m:
         if not s.get(BlockORM, name):
             fail(404, "Block not found")
+        derived_id = str(uuid.uuid5(uuid.NAMESPACE_URL, "profkom:block:" + name))
+        # A renamed block keeps its stable identity. Reusing its former name
+        # creates a distinct block rather than reclaiming that identity.
+        identity = derived_id if s.get(BlockMetaORM, derived_id) is None else str(uuid.uuid4())
         m = BlockMetaORM(
-            block_id=str(uuid.uuid5(uuid.NAMESPACE_URL, "profkom:block:" + name)),
+            block_id=identity,
             legacy_name=name,
             description="",
             revision=1,

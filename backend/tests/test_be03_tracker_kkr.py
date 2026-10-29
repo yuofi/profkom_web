@@ -391,7 +391,7 @@ def test_волонтерские_заслуги_только_вне_блока(
     member = test_block["member"]
     outsider = test_block["outsider"]
 
-    # 1. Попытка записать волонтерскую работу члену своего же блока -> 422
+    # 1. На дату работы членство уже началось: запись волонтёром запрещена.
     payload_invalid = {
         "season_id": test_season["season_id"],
         "source_kind": "block_volunteer",
@@ -401,11 +401,16 @@ def test_волонтерские_заслуги_только_вне_блока(
         "assigned_at": assigned_at,
         "deadline_at": deadline,
         "criteria": {"unique": False, "creative": False, "external_communication": False, "in_person": True, "fixed_time": False},
-        "recipients": [{"user_id": member.user_id, "hours": 3.0, "evaluation": 1.0,"completed_at":deadline}],
+        "recipients": [{"user_id": member.user_id, "hours": 3.0, "evaluation": 1.0,"completed_at":now.isoformat()}],
         "reason": "Волонтерство",
     }
     res_err = client.post(MERITS_URL, json=payload_invalid, headers=master.headers)
     assert res_err.status_code == 422
+
+    # Current membership never backdates history: yesterday this member was
+    # still outside the block (the fixture records the real join operation).
+    historical = dict(payload_invalid, recipients=[{"user_id": member.user_id, "hours": 3.0, "evaluation": 1.0, "completed_at": deadline}])
+    assert client.post(MERITS_URL, json=historical, headers=master.headers).status_code == 200
 
     # 2. Запись волонтерской работы участнику вне блока -> 200/201
     payload_valid = dict(payload_invalid, recipients=[{"user_id": outsider.user_id, "hours": 3.0, "evaluation": 1.0,"completed_at":deadline}])

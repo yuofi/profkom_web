@@ -2,7 +2,7 @@
 
 from errors import InvalidInput
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from dataclasses import asdict
 from participation import dt
 import access
@@ -19,6 +19,8 @@ from database import (
 
 
 def live(season_id):
+    if season_id is None:
+        return True  # year-round support queues carry no artificial season
     s = db.get_season(season_id)
     return bool(s and s.state != "closed")
 
@@ -27,7 +29,7 @@ def own_event(uid, event_id):
     """The user leads the event or works in one of its subevents."""
     rel = access.scope_relations(uid, "event", event_id)
     return bool(rel & (access.EVENT_LEADS | {access.EVENT_SUB_LEAD})) or any(
-        access.ORGANIZER in access.scope_relations(uid, "subevent", sub.subevent_id)
+        bool({access.ORGANIZER, access.SUBEVENT_HR} & access.scope_relations(uid, "subevent", sub.subevent_id))
         for sub in db.list_subevents(event_id)
     )
 
@@ -69,6 +71,7 @@ def participation(uid):
                     (access.SUB_LEADER, "subevent_leader"),
                     (access.SUB_DEPUTY, "subevent_deputy"),
                     (access.ORGANIZER, "organizer"),
+                    (access.SUBEVENT_HR, "subevent_hr"),
                 ):
                     if relation in sub_relations and name not in roles:
                         roles.append(name)
@@ -106,7 +109,11 @@ def notifications(uid):
             p = json.loads(n.payload_json or "{}")
             target = None
             allowed = True
-            if p.get("report_id"):
+            if n.kind == "pgas_document.created" and p.get("entry_id"):
+                from database import PgasEntryORM
+                allowed = s.get(PgasEntryORM, p["entry_id"]) is not None
+                target = {"kind": "pgas", "id": str(p["entry_id"])} if allowed else None
+            elif p.get("report_id"):
                 from database import ReportORM
 
                 r = s.get(ReportORM, p["report_id"])
@@ -154,6 +161,7 @@ def notifications(uid):
                                 "task_help_required": "Требуется помощь",
                                 "task_status_changed": "Изменён статус задачи",
                                 "block_left": "Участник вышел из блока",
+                                "pgas_document.created": "Добавлен документ для ПГАС",
                             }.get(n.kind, "Изменение рабочего объекта")
                         )
                         if allowed
@@ -263,63 +271,157 @@ def dashboard(uid):
         )
 
 
-def calendar(uid, start, end):
+def calendar(uid, start, end, *, mine=True, watching=False, kind=None, season_id=None,
+             block_id=None, event_id=None, queue_id=None, status=None, q=""):
+    """Exact half-open overlap, with source ACL applied before every filter.
+
+    Announcements are public to approved accounts; meetings and tracker data retain
+    their working permissions. A discoverable child never grants its queue or files.
+    """
+    from datetime import timedelta
+    from event_workspace import schedule
+    from membership import scope_out, legacy_name
+    from tracker import ACTIVE
+
+    lower, upper = dt(start), dt(end)
+    needle = q.strip().casefold()
+    wanted_block = legacy_name(block_id) if block_id else None
     result = []
-    with db._session() as s:
-        for t in db.list_tasks(current_user_id=uid, mine_user_id=uid):
-            if live(t.season_id) and dt(start) <= dt(t.deadline_at) <= dt(end):
-                result.append(
-                    dict(
-                        id="task-" + t.task_id,
-                        season_id=t.season_id,
-                        kind="task_deadline",
-                        title=t.title,
-                        starts_at=t.deadline_at,
-                        ends_at=None,
-                        target=dict(kind="task", id=t.task_id),
-                    )
-                )
-        for m in s.query(MeetingORM).all():
-            ev = (
-                s.get(EventORM, m.owner_id)
-                if m.owner_kind == "event"
-                else s.get(EventORM, s.get(SubeventORM, m.owner_id).event_id)
-            )
-            if (
-                live(ev.season_id)
-                and dt(start) <= dt(m.starts_at) <= dt(end)
-                and meeting_read(uid, m)
-            ):
-                result.append(
-                    dict(
-                        id="meeting-" + m.meeting_id,
-                        season_id=ev.season_id,
-                        kind="meeting",
-                        title=m.title,
-                        starts_at=m.starts_at,
-                        ends_at=None,
-                        target=dict(kind=m.owner_kind, id=m.owner_id),
-                    )
-                )
-        for e in db.list_events():
-            if (
-                live(e.season_id)
-                and e.starts_at
-                and dt(start) <= dt(e.starts_at) <= dt(end)
-                and (access.allowed(uid, "dashboard.all") or own_event(uid, e.event_id))
-            ):
-                result.append(
-                    dict(
-                        id="event-" + e.event_id,
-                        season_id=e.season_id,
-                        kind="event",
-                        title=e.title,
-                        starts_at=e.starts_at,
-                        ends_at=e.ends_at,
-                        target=dict(kind="event", id=e.event_id),
-                    )
-                )
-    return sorted(result, key=lambda v: v["starts_at"])
+
+    def in_window(starts, ends=None, all_day=False):
+        if not starts:
+            return False
+        first = dt(starts)
+        last = dt(ends) if ends else first
+        if all_day:
+            last += timedelta(days=1)
+        return first < upper and (last > lower if last > first else first >= lower)
+
+    def relevant(sid):
+        return sid == season_id if season_id else live(sid)
+
+    def accept(item):
+        if kind and item["kind"] != kind:
+            return
+        if needle and needle not in (item["title"] + " " + item.get("task_key", "")).casefold():
+            return
+        if in_window(item["starts_at"], item.get("ends_at"), item.get("all_day", False)):
+            result.append(item)
+
+    with db._session() as session:
+        for task in db.list_tasks(current_user_id=uid):
+            if not task.deadline_at or not relevant(task.season_id):
+                continue
+            own = any(a.user_id == uid for a in task.assignees)
+            follows = watching and any(a.user_id == uid for a in task.watchers)
+            if mine and not (own or follows):
+                continue
+            if status and task.status != status:
+                continue
+            if not status and task.status not in ACTIVE:
+                continue
+            if wanted_block and (task.scope.kind != "block" or task.scope.id != wanted_block):
+                continue
+            sub = session.get(SubeventORM, task.scope.id) if task.scope.kind == "subevent" else None
+            if event_id and (not sub or sub.event_id != event_id):
+                continue
+            queue = task.queue
+            if queue_id and (not queue or queue["queue_id"] != queue_id):
+                continue
+            accept(dict(id="task-" + task.task_id, season_id=task.season_id, kind="task_deadline",
+                        title=task.title, task_key=task.task_key, starts_at=task.deadline_at,
+                        ends_at=None, all_day=False, target=dict(kind="task", id=task.task_id),
+                        scope=scope_out(task.scope), queue=queue, status=task.status, event_id=sub.event_id if sub else None))
+        if not block_id and not queue_id:
+            for meeting in session.query(MeetingORM):
+                sub = session.get(SubeventORM, meeting.owner_id) if meeting.owner_kind == "subevent" else None
+                event = session.get(EventORM, meeting.owner_id if meeting.owner_kind == "event" else sub.event_id) if meeting.owner_kind == "event" or sub else None
+                if not event or not relevant(event.season_id) or not meeting_read(uid, meeting):
+                    continue
+                if event_id and event.event_id != event_id:
+                    continue
+                accept(dict(id="meeting-" + meeting.meeting_id, season_id=event.season_id, kind="meeting",
+                            title=meeting.title, starts_at=meeting.starts_at, ends_at=None, all_day=False,
+                            target=dict(kind=meeting.owner_kind, id=meeting.owner_id), event_id=event.event_id))
+            for event in db.list_events():
+                if not relevant(event.season_id) or event_id and event.event_id != event_id:
+                    continue
+                if mine and not own_event(uid, event.event_id):
+                    continue
+                accept(dict(id="event-" + event.event_id, season_id=event.season_id, kind="event",
+                            title=event.title, **schedule(session, "event", event),
+                            target=dict(kind="event", id=event.event_id), event_id=event.event_id))
+                for sub in db.list_subevents(event.event_id):
+                    if mine and not (access.scope_relations(uid, "subevent", sub.subevent_id) &
+                                     (access.EVENT_LEADS | access.SUB_LEADS | {access.ORGANIZER, access.SUBEVENT_HR})):
+                        continue
+                    accept(dict(id="subevent-" + sub.subevent_id, season_id=event.season_id, kind="event",
+                                title=sub.title, **schedule(session, "subevent", sub),
+                                target=dict(kind="subevent", id=sub.subevent_id), event_id=event.event_id))
+    return sorted(result, key=lambda item: (dt(item["starts_at"]), item["id"]))
+
+
+def home(uid, *, watching=False):
+    """A personal workday projection; global rights never expand personal tasks."""
+    import main
+    from zoneinfo import ZoneInfo
+    from datetime import time, timedelta
+    from tracker import ACTIVE
+    from membership import requests_for, blocks_for
+    from database import TaskQueueRequestORM, TaskQueueORM
+    from task_queues import can_read as queue_read
+    from domain_models import RegistrationORM
+
+    current = datetime.now(timezone.utc)
+    day = current.astimezone(ZoneInfo("Europe/Moscow")).date()
+    start = datetime.combine(day, time.min, ZoneInfo("Europe/Moscow"))
+    end = start + timedelta(days=1)
+    personal = [task for task in db.list_tasks(current_user_id=uid)
+                if live(task.season_id) and task.status in ACTIVE and
+                (any(user.user_id == uid for user in task.assignees) or
+                 watching and any(user.user_id == uid for user in task.watchers))]
+    undated = [task for task in personal if not task.deadline_at]
+    dated = sorted((task for task in personal if task.deadline_at), key=lambda task: (dt(task.deadline_at), task.task_id))
+    overdue = [task for task in dated if dt(task.deadline_at) < current]
+    upcoming = [task for task in dated if dt(task.deadline_at) >= current]
+    requests = [item for item in requests_for(uid)
+                if set(item["capabilities"]) & {"hr_review_request", "block_review_request"}]
+    approvals = []
+    if requests:
+        approvals.append(dict(kind="block_requests", title="Заявки в блоки", count=len(requests), to="/blocks/requests"))
+    with db._session() as session:
+        if access.allowed(uid, "registration.review"):
+            amount = session.query(RegistrationORM).filter_by(status="pending").count()
+            if amount:
+                approvals.append(dict(kind="registrations", title="Регистрации", count=amount, to="/admin/registrations"))
+        pending = session.query(TaskQueueRequestORM).filter_by(status="pending").all()
+        for request in pending:
+            queue = session.get(TaskQueueORM, request.queue_id)
+            if queue and queue.owner_user_id == uid and queue_read(session, queue, uid):
+                existing = next((item for item in approvals if item.get("queue_id") == queue.queue_id), None)
+                if existing:
+                    existing["count"] += 1
+                else:
+                    approvals.append(dict(kind="queue_access", title=queue.name, count=1,
+                                          queue_id=queue.queue_id, to="/tasks/queues/" + queue.queue_id))
+    merits = []
+    for block in blocks_for(uid):
+        if "create_volunteer_merit" in block["capabilities"]:
+            merits.append(dict(title=block["name"], to="/merits?source_kind=block_volunteer&scope_id=" + block["block_id"]))
+    for event in db.list_events():
+        if not live(event.season_id):
+            continue
+        if access.allowed(uid, "merit.create.head", "event", event.event_id):
+            merits.append(dict(title=event.title, to="/merits?source_kind=head_merit&scope_id=" + event.event_id))
+        for sub in db.list_subevents(event.event_id):
+            if access.allowed(uid, "merit.create.subevent_volunteer", "subevent", sub.subevent_id):
+                merits.append(dict(title=sub.title, to="/merits?source_kind=subevent_volunteer&scope_id=" + sub.subevent_id))
+    if access.allowed(uid, "merit.create.chair"):
+        merits.insert(0, dict(title="Особые заслуги председателя", to="/merits?source_kind=chair_merit"))
+    return dict(today=day.isoformat(), agenda=calendar(uid, start.isoformat(), end.isoformat(), watching=watching),
+                tasks=[main._to_task_public_out(task) for task in upcoming[:5]],
+                overdue_tasks=[main._to_task_public_out(task) for task in overdue[:5]],
+                overdue_count=len(overdue), undated_count=len(undated), approvals=approvals, merit_entries=merits)
 
 
 def date_range(start, end, timezone_name="Europe/Moscow"):
@@ -335,8 +437,8 @@ def date_range(start, end, timezone_name="Europe/Moscow"):
         if len(value) == 10:
             return (
                 datetime.combine(
-                    date.fromisoformat(value),
-                    time.max if last else time.min,
+                    date.fromisoformat(value) + (timedelta(days=1) if last else timedelta()),
+                    time.min,
                     tzinfo=zone,
                 )
                 .astimezone(timezone.utc)
@@ -345,6 +447,6 @@ def date_range(start, end, timezone_name="Europe/Moscow"):
         return dt(value).isoformat()
 
     a, b = bound(start, False), bound(end, True)
-    if dt(a) > dt(b):
+    if dt(a) >= dt(b):
         raise InvalidInput("Calendar range is reversed")
     return a, b

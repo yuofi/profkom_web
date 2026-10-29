@@ -1,5 +1,8 @@
 # Profkom Web frontend
 
+> Current unified-release UI (28 October 2026): [user guide](../docs/USER_GUIDE_20261028.md) and [current API contracts](../backend/docs/API_V13_ADDITIONS.md). Older descriptions below retain their historical context; the guide covers the updated profile, achievements, templates, history, support and material redirects.
+
+
 React 19, TypeScript and Vite; TanStack Query for server state, Formik and zod for forms, CSS Modules with the variables in `src/styles/vars.css`. API clients live in `src/utils/api/`; the texts of server errors are chosen by code in `src/utils/api/messages.ts`.
 
 ## Environment

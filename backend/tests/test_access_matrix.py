@@ -491,8 +491,9 @@ def run(org, role):
         status, data = org.raw(op.method, op.path(org), body, role)
         results[op.op] = status
         # A denied read has only an error envelope, not an advertised object DTO.
-        # HR deputies can create/read tasks without reading the subevent itself.
-        if op.method == "GET" and status == 200 and isinstance(data, dict):
+        # Public child announcements are visible to everyone. Their empty
+        # capabilities do not represent separate tracker access (e.g. HR deputy).
+        if op.method == "GET" and status == 200 and isinstance(data, dict) and not (op.op == "E5" and not data.get("working_access")):
             caps[op.op] = set(data.get("capabilities") or [])
     return results, caps
 
@@ -514,7 +515,7 @@ EXPECTED = {
     "S1": ALL, "E1": ALL, "E2": ALL,
     "E3": TACHKI | EVENT_LEAD,  # HR master does not edit events (УВ-4)
     "E4": TACHKI,
-    "E5": TACHKI | HRM | EVENT_LEAD | SUB_TEAM,  # subevent working data (УВ-3, УВ-4)
+    "E5": ALL,  # Safe announcement/roster; working description stays scoped.
     "E6": TACHKI | EVENT_LEAD | SUB_LEAD,
     "E7": TACHKI | EVENT_LEAD,
     "E8": TACHKI, "E9": TACHKI | EVENT_LEAD, "E10": TACHKI | EVENT_LEAD,
@@ -565,8 +566,9 @@ EXPECTED = {
     "MT6": TACHKI | IT_LEAD, "MT7": TACHKI | HRM,
     "C1": ALL, "C2": ALL, "C3": TACHKI | HRM,
 }
-SUBEVENTS_VISIBLE = {role: (["sa", "sb"] if role in TACHKI | HRM | EVENT_LEAD else ["sa"] if role in SUB_TEAM else [])
-                     for role in ROLES}
+WORKING_SUBEVENTS = {role: (["sa", "sb"] if role in TACHKI | HRM | EVENT_LEAD else ["sa"] if role in SUB_TEAM else [])
+                    for role in ROLES}
+SUBEVENTS_VISIBLE = {role: ["sa", "sb"] for role in ROLES}
 
 
 def test_every_operation_has_an_expectation():
@@ -589,6 +591,15 @@ def test_role_matrix(org, role):
     visible = sorted(k for k in ("sa", "sb") if any(i["subevent_id"] == org.ids[k] for i in listing["items"]))
     if visible != SUBEVENTS_VISIBLE[role]:
         problems.append(f"E13: видны подмероприятия {visible}, ожидалось {SUBEVENTS_VISIBLE[role]}")
+    for key in ("sa", "sb"):
+        child = next(item for item in listing["items"] if item["subevent_id"] == org.ids[key])
+        working = key in WORKING_SUBEVENTS[role]
+        assert child["working_access"] == working, (role, key)
+        if not working:
+            assert child["description"] == rich("") and child["report_series_id"] is None, (role, key)
+            assert child["capabilities"] == [], (role, key)
+        else:
+            assert child["description"]["body"] and child["report_series_id"], (role, key)
     assert not problems, f"{role}:\n  " + "\n  ".join(problems)
 
 

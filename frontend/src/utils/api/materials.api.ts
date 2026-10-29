@@ -1,6 +1,7 @@
 import type { Material, RichText, Revision } from "./contract";
 import { idPath, allPages as page, request } from "./request";
 export const materialsApi = {
+  resolveLegacyGuide: (id: string | number) => request<{ guide_id: number; material_id: string; revision: number }>("get", `/materials/legacy-guides/${idPath(id)}`),
   list: () => page<Material>("/materials"),
   get: (id: string) => request<Material>("get", `/materials/${idPath(id)}`),
   create: (data: {

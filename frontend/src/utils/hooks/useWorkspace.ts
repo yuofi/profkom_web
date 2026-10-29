@@ -9,8 +9,8 @@ export function useWorkspaceActions() {
   const perform = async <T,>(action: () => Promise<T>): Promise<T> => { const result = await action(); await refresh(); return result; };
   return { perform, refresh };
 }
-export function usePeopleOptions({ includeNonMembers = false }: { includeNonMembers?: boolean } = {}) {
-  const query = useQuery({ queryKey: ['contacts'], queryFn: directoryApi.contacts });
+export function usePeopleOptions({ includeNonMembers = false, enabled = true }: { includeNonMembers?: boolean; enabled?: boolean } = {}) {
+  const query = useQuery({ queryKey: ['contacts'], queryFn: directoryApi.contacts, enabled });
   const current = !query.error || canRetainData(query.error) ? query.data : undefined;
   const options: EntityOption[] = current?.filter(p => includeNonMembers || p.in_profcom).map(p => {
     const label = `${p.surname} ${p.name}`;

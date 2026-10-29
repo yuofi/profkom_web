@@ -14,27 +14,13 @@ parser = argparse.ArgumentParser(
 )
 parser.add_argument("--database", required=True, type=Path)
 parser.add_argument("--as-of", help="Aware ISO timestamp, for deterministic rehearsal")
-parser.add_argument(
-    "--apply", action="store_true", help="Apply cleanup; otherwise report eligible IDs"
-)
+mode = parser.add_mutually_exclusive_group()
+mode.add_argument("--apply", action="store_true", help="Apply database cleanup and enqueue owned objects; no storage calls")
+mode.add_argument("--delete-pending", action="store_true", help="Explicitly drain the previously committed object-deletion queue")
 args = parser.parse_args()
 if not args.database.is_absolute() or not args.database.is_file():
     parser.error("Select an existing absolute database path")
-if args.apply:
-    # FIX_PLAN 0.4 is open: purge still rewrites other people's participant IDs and
-    # names and fails on report texts (A-DIR-1…5, A-KKR-17). Release 2 removes this
-    # guard together with the full fix; until then no cleanup and no cron.
-    print(
-        json.dumps(
-            dict(
-                applied=False,
-                reason="Account cleanup is disabled until FIX_PLAN 0.4 is complete",
-            )
-        ),
-        file=sys.stderr,
-    )
-    sys.exit(2)
-if not args.apply:
+if not args.apply and not args.delete_pending:
     # Do not import the application: startup migrations must not write during dry-run.
     stamp = (
         datetime.fromisoformat(args.as_of.replace("Z", "+00:00"))
@@ -60,7 +46,8 @@ if not args.apply:
             sys.exit(0)
         ids = []
         for uid, archived in c.execute(
-            "SELECT user_id,archived_at FROM account_archives WHERE restored_at IS NULL AND purged_at IS NULL"
+            "SELECT a.user_id,a.archived_at FROM account_archives a JOIN users u ON u.user_id=a.user_id "
+            "WHERE a.restored_at IS NULL AND a.purged_at IS NULL AND u.account_state='archived'"
         ):
             at = datetime.fromisoformat(archived.replace("Z", "+00:00"))
             expiry = at.replace(
@@ -75,6 +62,6 @@ os.environ["DATABASE_PATH"] = str(args.database)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from account_cleanup import purge, delete_pending_objects
 
-result = purge(args.as_of, dry_run=False)
-result["deleted_objects"] = delete_pending_objects()
+result = (dict(deleted_objects=delete_pending_objects()) if args.delete_pending
+          else purge(args.as_of, dry_run=False))
 print(json.dumps(result, ensure_ascii=False))

@@ -28,7 +28,7 @@ it("pages a large personal team list and resets to the filtered first page", asy
   await act(async () => next.click());
   expect(page.container.textContent).toContain("2 из 3");
   expect(ownLinks()[0].textContent).toBe("Команда 09");
-  await change(page.container.querySelector("input")!, "Команда 22");
+  await change(page.container.querySelector<HTMLInputElement>('section[class*="myTeams"] input')!, "Команда 22");
   expect(ownLinks()).toHaveLength(1);
   expect(ownLinks()[0].textContent).toBe("Команда 22");
   expect(page.container.textContent).not.toContain("2 из 3");

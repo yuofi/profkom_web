@@ -30,6 +30,13 @@ LABELS = {"assigned":"Открыта", "in_progress":"В работе", "help_re
 def now(): return datetime.now(timezone.utc).isoformat()
 
 
+def task_state(session, task):
+    """Service tickets are seasonless; ordinary task creation still requires a season."""
+    if task.season_id is None:
+        return "open"
+    return session.get(SeasonORM, task.season_id).state
+
+
 def _rows(session, model, **filters):
     rows = session.query(model).filter_by(**filters).all()
     rows += [obj for obj in session.new if isinstance(obj, model) and all(getattr(obj,k)==v for k,v in filters.items()) and obj not in rows]
@@ -147,7 +154,7 @@ def install_activity_hooks():
             elif isinstance(obj,CommentORM):
                 task=session.get(TaskORM,obj.task_id)
                 if task:activity(session,task,"comment_added",obj.author_user_id,"Добавлен комментарий",at=obj.created_at,
-                    changes=[dict(field="comment",label="Комментарий",before=None,after=json.loads(obj.content_json or '{}').get('body',''))])
+                    changes=[dict(field="comment",label="Комментарий",comment_id=obj.comment_id,before=None,after=json.loads(obj.content_json or '{}').get('body',''))])
         for obj in list(session.dirty):
             if isinstance(obj,TaskORM):
                 fields=[name for name in ("title","description_json","deadline_at") if inspect(obj).attrs[name].history.has_changes()]
@@ -169,7 +176,7 @@ def install_activity_hooks():
                     before=json.loads(hist.deleted[0] if hist.deleted else '{}').get('body','')
                     after=json.loads(obj.content_json).get('body','')
                     activity(session,task,"comment_edited",actor,"Комментарий отредактирован",at=obj.updated_at,
-                        changes=[dict(field="comment",label="Комментарий",before=before,after=after)])
+                        changes=[dict(field="comment",label="Комментарий",comment_id=obj.comment_id,before=before,after=after)])
             # Assignment outcomes/inputs are private accounting. No raw status is
             # reaggregated into public Task workflow after its migration baseline.
 
@@ -215,7 +222,7 @@ def enrich_task(session,task,result,uid):
     current_ids={a.assignment_id for a in participants(session,task.task_id)}
     public_statuses=json.loads(meta.public_statuses_json or "{}")
     public_revisions=json.loads(meta.public_revisions_json or "{}")
-    season=session.get(SeasonORM,task.season_id)
+    season_state=task_state(session,task)
     worker_caps={"start_assignment","resume_assignment","request_help","submit_result"}
     for assignment in result.assignments:
         visible_status=public_statuses.get(assignment.assignment_id,assignment.status)
@@ -224,7 +231,7 @@ def enrich_task(session,task,result,uid):
         assignment.revision=public_revisions.get(assignment.assignment_id,1)
         assignment.review_note=None
         assignment.capabilities=[c for c in assignment.capabilities if c not in worker_caps]
-        if uid and season.state != "closed" and assignment.assignment_id in current_ids and assignment.assignee.user_id==uid and can_work(session,task,uid):
+        if uid and season_state != "closed" and assignment.assignment_id in current_ids and assignment.assignee.user_id==uid and can_work(session,task,uid):
             if visible_status=="assigned":assignment.capabilities += ["start_assignment","submit_result","request_help"]
             if visible_status in {"in_progress","help_required","needs_revision"}:assignment.capabilities.append("submit_result")
             if visible_status in {"in_progress","needs_revision"}:assignment.capabilities.append("request_help")
@@ -250,7 +257,7 @@ def enrich_task(session,task,result,uid):
         old=session.query(SubmissionORM).filter(SubmissionORM.assignment_id.in_(aids)).order_by(SubmissionORM.submitted_at).all() if aids else []
         result.submissions=[_submission_dict(session,row,False) for row in old]
     if uid:
-        state=session.get(SeasonORM,task.season_id).state
+        state=task_state(session,task)
         if db.can_read_task(uid,task,session):
             result.capabilities += ["change_task_status","start_task","resume_task","request_task_help","submit_task_result"]
         result.capabilities+=_task_caps(task,uid,{"review_task":"task.review","attach_task_file":"task.edit"})
@@ -269,7 +276,7 @@ def enrich_task(session,task,result,uid):
 def can_edit_public(session,task,uid):
     import access
     if not db.can_read_task(uid,task,session):return False
-    state=session.get(SeasonORM,task.season_id).state
+    state=task_state(session,task)
     if access.allowed(uid,"task.edit",task.scope_kind,task.scope_id,state=state):return True
     if state=="closed" and task.scope_kind!="queue":return False
     from task_queues import task_queue
@@ -279,7 +286,7 @@ def can_edit_public(session,task,uid):
 
 def can_edit_description(session,task,uid):
     if can_edit_public(session,task,uid):return True
-    state=session.get(SeasonORM,task.season_id).state
+    state=task_state(session,task)
     return (state!="closed" or task.scope_kind=="queue") and can_work(session,task,uid)
 
 
@@ -290,7 +297,7 @@ def can_edit_comment(session,comment,uid):
 
 def public_changes(session,event,uid):
     from task_queues import task_read,task_queue
-    allowed={"title","description","deadline_at","status","comment","attachments","parent_task_id","assignees","watchers","season_id","task_type","priority","starts_at","checklist","links"}
+    allowed={"title","description","deadline_at","status","comment","result","attachments","parent_task_id","assignees","watchers","season_id","task_type","priority","starts_at","checklist","links"}
     changes=[]
     for raw in json.loads(event.changes_json or "[]"):
         if raw.get("field") not in allowed:continue
@@ -348,7 +355,7 @@ def history(task_id,uid):
 def patch_files(task_id,uid,expected_revision,file_ids,*,increment_revision=True):
     from file_access import check_attachments
     with db._session() as session:
-        task=visible_task(session,task_id,uid);state=session.get(SeasonORM,task.season_id).state
+        task=visible_task(session,task_id,uid);state=task_state(session,task)
         db.require_task_right(uid,"task.edit",task,state,"Forbidden: cannot attach task files","Forbidden: cannot edit closed task files")
         if task.revision!=expected_revision:raise revision_conflict()
         check_attachments(session,file_ids,"task",task_id,uid)
@@ -386,7 +393,8 @@ def change_status(task_id,uid,expected_revision,status,*,text="",links=None,file
             if legacy_assignment:
                 session.add(SubmissionORM(submission_id="submission-"+str(uuid.uuid4()),assignment_id=legacy_assignment,submitted_at=stamp,
                     created_by_user_id=uid,text_json=json.dumps({"format":"markdown","body":text}),links_json=json.dumps(links),files_json=json.dumps(file_ids)))
-            activity(session,task,"result_submitted",uid,"Сдан результат задачи",at=stamp)
+            activity(session,task,"result_submitted",uid,"Сдан результат задачи",at=stamp,
+                changes=[dict(field="result",label="Результат",before=None,after=text)])
         if message and message.strip():
             session.add(CommentORM(comment_id="comment-"+str(uuid.uuid4()),task_id=task_id,author_user_id=uid,
                 content_json=json.dumps({"format":"markdown","body":message}),history_json="[]",created_at=stamp))
@@ -396,7 +404,7 @@ def change_status(task_id,uid,expected_revision,status,*,text="",links=None,file
             public[row.assignment_id]=status;revisions[row.assignment_id]=revisions.get(row.assignment_id,1)+1
         meta.public_statuses_json=json.dumps(public);meta.public_revisions_json=json.dumps(revisions);task.revision+=1
         if old!=status:activity(session,task,"status_changed",uid,"Изменён статус задачи",at=stamp,before=old,after=status)
-        recipients={m.user_id for m in roster(session,task_id) if m.role in {"assignee","watcher"}}
+        recipients={m.user_id for m in roster(session,task_id) if m.role in {"assignee","watcher"}} | {task.created_by_user_id}
         kind="task_status_changed"
         if status=="help_required":
             from task_queues import task_queue
@@ -416,7 +424,7 @@ def private_review(assignment_id,uid,expected_revision,status,*,evaluation=None,
         row=session.get(AssignmentORM,assignment_id)
         if not row:raise NotFound("Assignment not found")
         task=visible_task(session,row.task_id,uid)
-        state=session.get(SeasonORM,task.season_id).state
+        state=task_state(session,task)
         db.require_task_right(uid,"task.review",task,state,"Forbidden: cannot review task accounting","Forbidden: cannot review closed accounting")
         if task.scope_kind=="queue":raise InvalidInput("Independent tasks have no accounting source")
         if row.inputs_revision!=expected_revision:raise revision_conflict()
@@ -466,7 +474,7 @@ def legacy_command(assignment_id,uid,expected_revision,status,*,required_source_
         if not task or not db.can_read_task(uid,task,session):raise Forbidden("Forbidden: task access ended")
         if row.assignee_user_id!=uid:raise Forbidden("Forbidden: own assignment required")
         if row.assignment_id not in {r.assignment_id for r in participants(session,row.task_id)}:raise Conflict("Assignment is no longer current")
-        if session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
+        if task_state(session,task)=="closed":raise season_closed()
         meta=metadata(session,task);revision=json.loads(meta.public_revisions_json or "{}").get(row.assignment_id,1)
         if revision!=expected_revision:raise revision_conflict()
         if required_source_status and meta.status!=required_source_status:raise Conflict("Current public status does not permit this legacy command")
@@ -499,12 +507,12 @@ def task_page(uid,*,queue_id=None,season_id=None,scope_kind=None,scope_id=None,m
     if date_from:date_from=_time(date_from)
     if date_to:date_to=_time(date_to)
     if date_from and date_to and _moment(date_from)>=_moment(date_to):raise InvalidInput("Date window must be increasing")
-    if date_from:rows=[t for t in rows if _moment(t.deadline_at)>=_moment(date_from)]
-    if date_to:rows=[t for t in rows if _moment(t.starts_at or t.deadline_at)<_moment(date_to)]
+    if date_from:rows=[t for t in rows if t.deadline_at and _moment(t.deadline_at)>=_moment(date_from)]
+    if date_to:rows=[t for t in rows if (t.starts_at or t.deadline_at) and _moment(t.starts_at or t.deadline_at)<_moment(date_to)]
     if unfinished:rows=[t for t in rows if t.status in ACTIVE]
     if overdue:
         current=datetime.now(timezone.utc)
-        rows=[t for t in rows if t.status in ACTIVE and datetime.fromisoformat(t.deadline_at.replace('Z','+00:00'))<current]
+        rows=[t for t in rows if t.status in ACTIVE and t.deadline_at and datetime.fromisoformat(t.deadline_at.replace('Z','+00:00'))<current]
     needle=q.strip().casefold()
     if needle:rows=[t for t in rows if needle in t.title.casefold() or needle in t.task_key.casefold() or (t.legacy_task_key and needle in t.legacy_task_key.casefold())]
     field={'deadline':'deadline_at','updated':'updated_at','created':'created_at','priority':'priority','starts':'starts_at'}[sort]

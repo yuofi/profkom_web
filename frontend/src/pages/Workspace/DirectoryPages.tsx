@@ -1,4 +1,5 @@
 import { EntityPicker } from "../../components/Workspace/EntityPicker";
+import { Link } from "react-router-dom";
 import { useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import {
@@ -13,16 +14,17 @@ import {
 import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
 import { ContactDialog } from "../../components/Workspace/ContactDialog";
 import d from "./DirectoryCards.module.css";
-import { ActionForm } from "../../components/Workspace/ActionForm";
+import { ActionForm, type Field } from "../../components/Workspace/ActionForm";
 import { text, number } from "../../components/Workspace/formValues";
 import { Avatar } from "../../components/Avatar/Avatar";
 import { directoryApi } from "../../utils/api/directory.api";
 import { membershipApi } from "../../utils/api/membership.api";
-import { normalizeApiError } from "../../utils/api/request";
+import { normalizeApiError, canRetainData } from "../../utils/api/request";
 import type { ArchivedAccount, FormerContact } from "../../utils/api/contract";
 import { can, useSession } from "../../utils/session";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { displayDate } from "../../utils/dates";
+import { getBlockRoute } from "../../utils/routes";
 import { ParticipantCategoryPanel } from "./MembershipPages";
 import s from "../../components/Workspace/Workspace.module.css";
 function Category({ userId }: { userId: number }) {
@@ -84,6 +86,8 @@ export function DirectoryPage() {
     queryKey: ["contacts"],
     queryFn: directoryApi.contacts,
   });
+  const blockDirectory = useQuery({ queryKey: ["workspaceBlocks"], queryFn: membershipApi.blocks });
+  const blockCards = (!blockDirectory.error || canRetainData(blockDirectory.error) ? blockDirectory.data : undefined) ?? [];
   const [search, setSearch] = useState("");
   const [block, setBlock] = useState("");
   const [category, setCategory] = useState("");
@@ -260,7 +264,14 @@ export function DirectoryPage() {
                   <Avatar src={p.photo_url} size={48} />
                   <div className={d.identity}>
                     <h2>{p.surname} {p.name} {p.patronymic}</h2>
-                    <p className={d.summary}>{[p.group_number, p.blocks].filter(Boolean).join(" · ") || "Группа и блоки не указаны"}</p>
+                    <p className={d.summary}>{p.group_number || "Группа не указана"}</p>
+                    <div className={d.blocks}>{[...new Set([...p.blocks.split(",").map(name => name.trim()).filter(Boolean), ...blockCards.filter(block => block.master?.user.user_id === p.user_id).map(block => block.name)])].map((name, index) => {
+                      const item = blockCards.find(block => block.name === name);
+                      const master = item?.master?.user.user_id === p.user_id;
+                      return <span key={item?.block_id ?? name}>{index > 0 && ", "}<span className={master ? d.masterBlock : undefined} data-block-master={master || undefined}>
+                        {item ? <Link className={d.blockLink} to={getBlockRoute(item.block_id)} title={name} aria-description={master ? "Руководит блоком" : undefined}>{master && <svg className={d.masterIcon} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m3 6 5 4 4-6 4 6 5-4-2 12H5L3 6Z" /><path d="M5 21h14" /></svg>}{name}</Link> : <span className={s.muted}>{name}</span>}
+                      </span></span>;
+                    })}</div>
                   </div>
                   <div className={d.category}><Category userId={p.user_id} /></div>
                 </div>
@@ -302,9 +313,12 @@ export function DirectoryPage() {
   );
 }
 function FormerForm({ contact }: { contact?: FormerContact }) {
-  const { perform } = useWorkspaceActions();
+  const { perform, refresh } = useWorkspaceActions();
   return (
     <ActionForm
+      revision={contact?.revision}
+      record={contact ? `former:${contact.contact_id}` : undefined}
+      onConflict={refresh}
       fields={[
         ...Object.entries({
           surname: "Фамилия",
@@ -331,7 +345,7 @@ function FormerForm({ contact }: { contact?: FormerContact }) {
               .join("\n") ?? "",
         },
       ]}
-      onSubmit={async (v) => {
+      onSubmit={async (v, expectedRevision) => {
         const periods = text(v, "periods")
           .split("\n")
           .filter(Boolean)
@@ -341,7 +355,7 @@ function FormerForm({ contact }: { contact?: FormerContact }) {
               throw Error("Проверьте периоды участия");
             return { from_year: Number(match[1]), to_year: Number(match[2]) };
           });
-        await perform(() =>
+        return perform(() =>
           directoryApi.saveFormer(
             {
               surname: text(v, "surname"),
@@ -352,6 +366,7 @@ function FormerForm({ contact }: { contact?: FormerContact }) {
               tg: text(v, "tg"),
               vk: text(v, "vk"),
               participation_periods: periods,
+              ...(contact ? { expected_revision: expectedRevision! } : {}),
             },
             contact?.contact_id,
           ),
@@ -424,12 +439,24 @@ export function FormerContactsPage() {
 function RestoreForm({ account }: { account: ArchivedAccount }) {
   const { perform } = useWorkspaceActions();
   const [conflicts, setConflicts] = useState(account.master_conflicts ?? []);
+  const [assignments, setAssignments] = useState<{ role_assignment_id: string; legacy_scope_id: string | null }[]>([]);
+  const blocks = useQuery({ queryKey: ["workspaceBlocks"], queryFn: membershipApi.blocks, enabled: assignments.length > 0 || conflicts.some(conflict => !conflict.block_name) });
+  const blockOptions = (!blocks.error || canRetainData(blocks.error) ? blocks.data : undefined)?.map(block => ({ value: block.block_id, label: block.name, block })) ?? [];
   return (
+    <>
+    {assignments.length > 0 && <div role="status"><p>У прежних назначений нет подтверждённой связи с действующим блоком. Для каждого назначения выберите блок вручную; совпадение названий не определяет соответствие.</p><QueryState loading={blocks.isLoading} error={blocks.error} retry={() => void blocks.refetch()}>{null}</QueryState></div>}
     <ActionForm
-      key={conflicts.map((c) => c.block_id).join("/")}
-      fields={conflicts.map((c) => ({
-        name: c.block_id,
-        label: `Кто остаётся мастером блока ${c.block_id}`,
+      fields={[...assignments.map((assignment, index): Field => ({
+        name: `mapping-${assignment.role_assignment_id}`,
+        label: `Действующий блок для назначения ${index + 1}: ${assignment.legacy_scope_id || "прежний блок не указан"}`,
+        type: "select",
+        entity: "block",
+        required: true,
+        loading: blocks.isLoading,
+        options: blockOptions,
+      })), ...conflicts.map((c): Field => ({
+        name: `master-${c.block_id}`,
+        label: `Кто остаётся мастером блока ${c.block_name ?? blockOptions.find(block => block.value === c.block_id)?.label ?? "(блок недоступен)"}`,
         type: "select" as const,
         required: true,
         options: [
@@ -440,8 +467,9 @@ function RestoreForm({ account }: { account: ArchivedAccount }) {
           },
           { value: String(account.user_id), label: account.display_name, user: { user_id: account.user_id, display_name: account.display_name, avatar_url: null } },
         ],
-      }))}
+      }))]}
       submitLabel="Восстановить аккаунт"
+      allowExitSave={false}
       onSubmit={async (v) => {
         try {
           await perform(() =>
@@ -449,12 +477,17 @@ function RestoreForm({ account }: { account: ArchivedAccount }) {
               account.user_id,
               conflicts.map((c) => ({
                 block_id: c.block_id,
-                keep_user_id: number(v, c.block_id),
+                keep_user_id: number(v, `master-${c.block_id}`),
               })),
+              assignments.map(assignment => ({ role_assignment_id: assignment.role_assignment_id, block_id: text(v, `mapping-${assignment.role_assignment_id}`) })),
             ),
           );
         } catch (e) {
           const error = normalizeApiError(e);
+          if (error.code === "archive_scope_mapping_required" && Array.isArray(error.fields.assignments)) {
+            const required = error.fields.assignments.filter((entry): entry is { role_assignment_id: string; legacy_scope_id: string | null } => !!entry && typeof entry === "object" && typeof entry.role_assignment_id === "string" && (typeof entry.legacy_scope_id === "string" || entry.legacy_scope_id === null));
+            setAssignments(current => [...new Map([...current, ...required].map(entry => [entry.role_assignment_id, entry])).values()]);
+          }
           if (
             error.code === "master_conflicts" &&
             Array.isArray(error.fields.master_conflicts)
@@ -464,6 +497,7 @@ function RestoreForm({ account }: { account: ArchivedAccount }) {
         }
       }}
     />
+    </>
   );
 }
 export function AccountArchivePage() {

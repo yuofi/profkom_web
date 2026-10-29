@@ -1,0 +1,75 @@
+{
+  "viewport": 1440,
+  "blockedExternal": 0,
+  "blockedMutations": 0,
+  "pageErrors": 0,
+  "variants": [
+    {
+      "id": "D",
+      "name": "Типографика",
+      "file": "variant-D.png",
+      "css": "variant-D.css",
+      "color": "rgb(159, 227, 198)",
+      "fontWeight": "600",
+      "background": "rgba(0, 0, 0, 0)",
+      "boxShadow": "none",
+      "underline": "none",
+      "text": "Integration IT",
+      "crown": false,
+      "roleTextAbsent": true,
+      "imageSize": {
+        "width": 362,
+        "height": 241
+      }
+    },
+    {
+      "id": "E",
+      "name": "Вертикальная черта",
+      "file": "variant-E.png",
+      "css": "variant-E.css",
+      "color": "rgb(229, 227, 214)",
+      "fontWeight": "500",
+      "background": "rgba(0, 0, 0, 0)",
+      "boxShadow": "none",
+      "underline": "none",
+      "text": "Integration IT",
+      "crown": false,
+      "roleTextAbsent": true,
+      "imageSize": {
+        "width": 362,
+        "height": 241
+      }
+    },
+    {
+      "id": "F",
+      "name": "Контурный значок",
+      "file": "variant-F.png",
+      "css": "variant-F.css",
+      "color": "rgb(229, 227, 214)",
+      "fontWeight": "500",
+      "background": "rgba(0, 0, 0, 0)",
+      "boxShadow": "none",
+      "underline": "none",
+      "text": "Integration IT",
+      "crown": true,
+      "roleTextAbsent": true,
+      "imageSize": {
+        "width": 362,
+        "height": 241
+      }
+    }
+  ],
+  "demoOnlyBlock": "Видеолаба",
+  "pass": true,
+  "visualReview": {
+    "pass": true,
+    "reviewed": 3,
+    "sameOriginalCard": true,
+    "normalBlockIsDemoOnly": true,
+    "noHighlighter": true,
+    "noVisibleRoleText": true,
+    "noUnderline": true,
+    "sourceChanged": false,
+    "databaseChanged": false
+  }
+}

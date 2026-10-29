@@ -28,10 +28,19 @@ function validate(type: ts.Type, value: unknown, path: string, depth = 0): strin
   if (checker.isArrayType(type)) return Array.isArray(value)
     ? value.flatMap((v, i) => validate(checker.getTypeArguments(type as ts.TypeReference)[0], v, `${path}[${i}]`, depth + 1))
     : [`${path}: expected array`];
-  if (!value || typeof value !== "object") return [`${path}: expected object`];
-  return checker.getPropertiesOfType(type).flatMap(p => {
-    const field = (value as Record<string, unknown>)[p.name];
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [`${path}: expected object`];
+  const object = value as Record<string, unknown>;
+  const properties = checker.getPropertiesOfType(type);
+  const declared = new Set(properties.map(property => property.name));
+  const stringIndex = checker.getIndexTypeOfType(type, ts.IndexKind.String);
+  const numberIndex = checker.getIndexTypeOfType(type, ts.IndexKind.Number);
+  const extras = Object.keys(object).filter(key => !declared.has(key)).flatMap(key => {
+    const index = stringIndex ?? (String(Number(key)) === key ? numberIndex : undefined);
+    return index ? validate(index, object[key], `${path}.${key}`, depth + 1) : [`${path}.${key}: unexpected field`];
+  });
+  return [...extras, ...properties.flatMap(p => {
+    const field = Object.hasOwn(object, p.name) ? object[p.name] : undefined;
     if (field === undefined && p.flags & ts.SymbolFlags.Optional) return [];
     return validate(checker.getTypeOfSymbolAtLocation(p, p.valueDeclaration ?? p.declarations![0]), field, `${path}.${p.name}`, depth + 1);
-  });
+  })];
 }

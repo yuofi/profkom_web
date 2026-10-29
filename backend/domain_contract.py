@@ -1,7 +1,7 @@
 """Public response schemas for the API 1.3 domain extensions."""
 
 from typing import Literal
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class RichText(BaseModel):
@@ -40,6 +40,13 @@ class RegistrationApplication(BaseModel):
     capabilities: list[str]
 
 
+class BlockRequestApproval(BaseModel):
+    stage: Literal["hr", "block"]
+    actor: UserReference | None
+    at: str | None
+    substitute: bool
+
+
 class BlockRequest(BaseModel):
     request_id: str
     user: UserReference
@@ -51,6 +58,7 @@ class BlockRequest(BaseModel):
     # A closed request: when it was decided and, for a rejection, why (decision 16)
     decided_at: str | None = None
     decision_reason: str | None = None
+    approvals: list[BlockRequestApproval] = Field(default_factory=list)
     revision: int
     capabilities: list[str]
 
@@ -71,6 +79,9 @@ class Material(BaseModel):
     audience: Literal["block", "everyone"] | None = None
     revision: int
     capabilities: list[str]
+    deleted_at: str | None = None
+    placeholder: bool = False
+    community_url: str | None = None
 
 
 class EditorAssignment(BaseModel):

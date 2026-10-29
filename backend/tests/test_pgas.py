@@ -60,6 +60,8 @@ PGAS_ENTRY_FIELDS = {
     "file_type",
     "created_at",
     "uploaded_by",
+    "half_year",
+    "revision",
 }
 
 #: отказ require_pgas_admin (auth.py)
@@ -117,6 +119,32 @@ def assert_pgas_out_shape(body: dict) -> None:
 
 def ids_of(response) -> list[int]:
     return [e["entry_id"] for e in response.json()]
+
+
+def test_explicit_period_and_revision_do_not_infer_legacy_half_from_upload_time(client, user, pgas_admin, make_entry):
+    created = make_entry()
+    assert created['half_year'] is None and created['revision'] == 1
+    path = f"/api/pgas/{created['entry_id']}"
+    assert client.patch(path, headers=user.headers, json=dict(expected_revision=1, half_year=1)).status_code == 403
+    changed = client.patch(path, headers=pgas_admin.headers, json=dict(expected_revision=1, half_year=1))
+    assert changed.status_code == 200 and changed.json()['half_year'] == 1 and changed.json()['revision'] == 2
+    assert client.patch(path, headers=pgas_admin.headers, json=dict(expected_revision=1, half_year=2)).status_code == 409
+    saved = next(row for row in client.get(PGAS_URL, headers=user.headers).json() if row['entry_id'] == created['entry_id'])
+    assert saved['file_url'] == created['file_url'] and saved['half_year'] == 1
+    assert client.patch(path, headers=pgas_admin.headers, json=dict(expected_revision=2, half_year=3)).status_code == 422
+
+
+def test_new_pgas_notification_is_a_disabled_reference_only_delivery_event(client, user, pgas_admin, make_entry):
+    from profile_features_models import NotificationDeliveryEventORM
+    preferences = client.get('/api/profile/me/notification-preferences', headers=user.headers).json()
+    preferences['preferences']['pgas']['email'] = True
+    response = client.put('/api/profile/me/notification-preferences', headers=user.headers, json=dict(expected_revision=preferences['revision'], preferences=preferences['preferences']))
+    assert response.status_code == 200, response.text
+    created = make_entry()
+    with db._session() as session:
+        event = session.query(NotificationDeliveryEventORM).filter_by(user_id=user.user_id, category='pgas').one()
+        assert event.source_id == str(created['entry_id']) and event.state == 'not_connected'
+        assert event.source_kind == 'entry' and event.channel == 'email'
 
 
 @pytest.fixture

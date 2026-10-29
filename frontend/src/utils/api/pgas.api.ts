@@ -15,4 +15,8 @@ export const pgasApi = {
   delete: async (entryId: number): Promise<void> => {
     await api.delete(`/pgas/${entryId}`);
   },
+  period: async (entryId: number, half_year: 1 | 2, expected_revision: number): Promise<PgasEntryOut> => {
+    const response = await api.patch<PgasEntryOut>(`/pgas/${entryId}`, { half_year, expected_revision });
+    return response.data;
+  },
 };

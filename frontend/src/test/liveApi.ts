@@ -7,6 +7,14 @@ import { eventsApi } from "../utils/api/events.api";
 import { tasksApi } from "../utils/api/tasks.api";
 import { reportsApi } from "../utils/api/reports.api";
 import { richText } from "../utils/api/contract";
+import axios from "axios";
+
+/** Import historical synthetic data only through the nonce-gated disposable harness. */
+export async function liveLegacyGuide(data: { title: string; text: string; owner_block?: string; description?: string }) {
+  const origin = process.env.PROFKOM_TEST_API_ORIGIN, nonce = process.env.PROFKOM_TEST_API_NONCE;
+  if (!origin || !nonce) throw Error("A disposable integration API is required for historical fixtures");
+  return (await axios.post<{ guide_id: number; material_id: string; revision: number }>(new URL("/_test/legacy-guides", origin).href, data, { headers: { "X-Profkom-Test-Nonce": nonce } })).data;
+}
 
 export const livePassword = "Synthetic-Local-2026";
 export async function liveLogin(email = "chair@example.com") {

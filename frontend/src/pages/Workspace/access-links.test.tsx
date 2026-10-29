@@ -1,19 +1,20 @@
 // @vitest-environment jsdom
 import { Route, Routes } from "react-router-dom";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
 import { mountWorkspace, settle } from "../../test/workspace";
 import { createFixtures } from "../../mocks/fixtures";
 import { DashboardPage } from "./WorkspacePages";
 import { EventPage } from "./EventPages";
+import { workspaceApi } from "../../utils/api/workspace.api";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let mock: ReturnType<typeof installMockTransport> | undefined;
-afterEach(async () => { await page?.cleanup(); page = undefined; mock?.restore(); mock = undefined; });
+afterEach(async () => { await page?.cleanup(); page = undefined; mock?.restore(); mock = undefined; vi.restoreAllMocks(); });
 
 const links = (root: ParentNode) => Array.from(root.querySelectorAll("a")).map((a) => a.textContent);
 
-it("the personal home keeps role-gated queue links without the old decisions card", async () => {
+it("the personal home uses server-authorized approvals without inferring them from a role", async () => {
   mock = installMockTransport("organizer", { delay: 0 });
   const plain = { ...createFixtures("organizer").session, capabilities: [], assignments: [] };
   mock.state.requests = [];
@@ -28,11 +29,14 @@ it("the personal home keeps role-gated queue links without the old decisions car
   mock = installMockTransport("organizer", { delay: 0 });
   mock.state.requests = [];
   const master = { ...plain, assignments: [{ role_assignment_id: "master-it", role: "master", scope_kind: "block" as const, scope_id: "block-it", revision: 1, capabilities: [] }] };
+  const home = await workspaceApi.home();
+  vi.spyOn(workspaceApi, "home").mockResolvedValue({ ...home, approvals: [{ kind: "block_requests", title: "Заявки в блоки", count: 2, to: "/blocks/requests" }] });
   page = await mountWorkspace(<DashboardPage />, { role: "organizer", session: master });
   await settle(); await settle();
   expect(page.container.textContent).not.toContain("Требуют решения");
   expect(page.container.textContent).toContain("Рабочее пространство");
-  expect(links(page.container)).toContain("Мои заявки и решения");
+  expect(page.container.querySelector('a[href="/blocks/requests"]')?.textContent).toContain("Заявки в блоки");
+  expect(page.container.textContent).toContain("Требует решения");
 });
 
 it("an event page links its reports only for who may read or write one", async () => {

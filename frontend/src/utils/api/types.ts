@@ -112,35 +112,6 @@ export interface ContactFilter {
   budget?: boolean;
 }
 
-export interface GuideIn {
-  title: string;
-  owner_block?: string;
-  text?: string;
-  description?: string;
-  original_link?: string | null; 
-}
-
-export interface GuideUpdate {
-  expected_revision?: number;
-  title?: string;
-  owner_block?: string;
-  text?: string;
-  description?: string;
-  original_link?: string | null;
-}
-
-export interface GuideOut {
-  material_id?: string;
-  revision?: number;
-  capabilities?: string[];
-  guide_id: number;
-  title: string;
-  owner_block: string;
-  text: string;
-  description?: string;
-  original_link?: string | null;
-}
-
 export interface BlockOut {
   name: string;
   master: string;
@@ -170,6 +141,7 @@ export interface PgasEntryIn {
   file_url: string;
   file_name?: string;
   file_type?: string;
+  half_year?: 1 | 2;
 }
 
 export interface PgasEntryOut {
@@ -181,4 +153,6 @@ export interface PgasEntryOut {
   file_type: string;
   created_at: string;
   uploaded_by: number | null;
+  half_year?: 1 | 2 | null;
+  revision?: number;
 }

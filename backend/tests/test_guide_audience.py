@@ -5,7 +5,7 @@ from database import db
 
 def guide(client, headers, make_guide, owner="Медиа"):
     g = make_guide(title="Гайд блока", owner_block=owner, text="Как у нас всё устроено")
-    return client.get(f"/api/guides/{g.guide_id}/material", headers=headers).json()["material_id"], g
+    return client.get(f"/api/materials/legacy-guides/{g.guide_id}", headers=headers).json()["material_id"], g
 
 
 def listed(client, actor, material_id):
@@ -23,9 +23,8 @@ def test_block_guide_reads_to_its_block_until_opened_to_everyone(client, superus
         assert r.status_code == 200, r.text
         assert r.json()["audience"] == "block" and listed(client, actor, mid)
     assert client.get(f"/api/materials/{mid}", headers=outsider.headers).status_code == 404
-    assert client.get(f"/api/guides/{g.guide_id}", headers=outsider.headers).status_code == 404
+    assert client.get(f"/api/materials/legacy-guides/{g.guide_id}", headers=outsider.headers).status_code == 404
     assert not listed(client, outsider, mid)
-    assert g.guide_id not in [x["guide_id"] for x in client.get("/api/guides", headers=outsider.headers).json()]
 
     # Who writes the guide decides; a member who only reads does not.
     current = client.get(f"/api/materials/{mid}", headers=master.headers).json()
@@ -37,7 +36,7 @@ def test_block_guide_reads_to_its_block_until_opened_to_everyone(client, superus
     assert opened.status_code == 200, opened.text
     assert opened.json()["audience"] == "everyone" and opened.json()["revision"] == current["revision"] + 1
     assert client.get(f"/api/materials/{mid}", headers=outsider.headers).status_code == 200
-    assert client.get(f"/api/guides/{g.guide_id}", headers=outsider.headers).status_code == 200
+    assert client.get(f"/api/materials/legacy-guides/{g.guide_id}", headers=outsider.headers).status_code == 200
     assert listed(client, outsider, mid)
 
     stale = client.put(f"/api/materials/{mid}/audience", headers=superuser.headers, json=dict(audience="block", expected_revision=current["revision"]))
@@ -56,7 +55,7 @@ def test_only_a_block_guide_has_an_audience(client, superuser, make_user, make_g
     r = client.put(f"/api/materials/{mid}/audience", headers=superuser.headers,
                    json=dict(audience="block", expected_revision=m.json()["revision"]))
     assert r.status_code == 422
-    assert client.get(f"/api/guides/{g.guide_id}", headers=shared.headers).status_code == 200
+    assert client.get(f"/api/materials/legacy-guides/{g.guide_id}", headers=shared.headers).status_code == 200
 
 
 def test_a_left_member_no_longer_reads_the_block_guide(client, superuser, make_user, make_block, make_guide):

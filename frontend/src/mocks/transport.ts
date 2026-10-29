@@ -3,7 +3,7 @@ import axios, { type AxiosRequestConfig } from "axios";
 import MockAdapter from "axios-mock-adapter";
 import { api } from "../utils/api";
 import { createFixtures, mockNow, type MockRole } from "./fixtures";
-import type { GuideOut } from "../utils/api/types";
+import { profileFeatureMock } from "./profileFeatures";
 import {
   richText,
   type AssignmentStatus,
@@ -26,9 +26,11 @@ import {
   type Merit,
   type Decision,
   type Season,
+  type SeasonBlocker,
   type SeasonAnalytics,
   type SummaryVersionSnapshot,
   type ParticipationRole,
+  type CalendarItem,
 } from "../utils/api/contract";
 
 type Reply = [number, unknown];
@@ -68,6 +70,7 @@ export function installMockTransport(
   } = {},
 ) {
   const state = createFixtures(role);
+  const profileFeatures = profileFeatureMock(state, () => taskHistory);
   if (options.scenario === "empty") {
     state.tasks = [];
     state.events = [];
@@ -92,13 +95,7 @@ export function installMockTransport(
   const taskInputs = new Map<string, TaskInputs>([
     [state.inputs.task_id, state.inputs],
   ]);
-  let legacyGuides: GuideOut[] = state.materials.map((m, i) => ({
-    guide_id: i + 1,
-    title: m.title,
-    owner_block: m.owner_block_id ? "Инфо" : "none",
-    text: m.published_content?.body ?? "",
-    description: m.description,
-  }));
+  const legacyMaterialIds = new Map(state.materials.map((material, index) => [index + 1, material.material_id]));
   const snapshot = (r: Report): ReportVersion => ({
     report_id: r.report_id,
     version: r.published_version!,
@@ -192,6 +189,14 @@ export function installMockTransport(
               l.deputy_user_ids.includes(state.session.user_id),
           )),
     );
+  const publicSubevent = (sub: Subevent): Subevent => {
+    const working = readsSubevent(sub.subevent_id) || sub.hr?.user_id === state.session.user_id;
+    return { ...clone(sub), starts_at: sub.starts_at ?? null, ends_at: sub.ends_at ?? null,
+      announcement: sub.announcement ?? richText(""), all_day: sub.all_day ?? false, working_access: working,
+      organizers: sub.organizer_user_ids.flatMap(uid => { const person = state.people.find(person => person.user_id === uid);return person ? [person] : []; }),
+      description: working ? sub.description : richText(""), report_series_id: working ? sub.report_series_id : null,
+      capabilities: working ? sub.capabilities : [] };
+  };
   const readsEvent = (id: string) =>
     state.eventManager ||
     state.subevents.some(
@@ -245,7 +250,26 @@ export function installMockTransport(
   const denied = () => fail(403, "forbidden", "Действие недоступно");
   // Dates of a task are moved by the chair, deputies and HR master only (УВ-5).
   const inputsCaps = () => ["edit_assessment_inputs", ...(state.global ? ["edit_assessment_dates"] : [])];
-  const filter = <T extends { season_id?: string }>(items: T[], url: URL) =>
+  const seasonBlockers = (season: Season): SeasonBlocker[] => {
+    const blockers: SeasonBlocker[] = [];
+    const previous = state.seasons.find(item => item.season_id === season.previous_season_id);
+    if (previous && previous.state !== "closed") blockers.push({ kind: "previous_season_not_closed", owner_kind: "season", owner_id: previous.season_id, title: "Previous season not closed", subject: previous.title });
+    for (const task of state.tasks.filter(item => item.season_id === season.season_id && item.scope.kind !== "queue")) {
+      for (const assignment of task.assignments) {
+        const inputs = state.assessments.find(item => item.assignment_id === assignment.assignment_id);
+        const status = inputs?.workflow_status ?? assignment.status;
+        const kind = !["accepted", "not_completed", "cancelled"].includes(status) ? "unfinished_assignment"
+          : ["accepted", "not_completed"].includes(status) && (inputs?.evaluation == null || status === "accepted" && inputs.hours == null) ? "missing_assessment" : null;
+        if (kind) blockers.push({ kind, owner_kind: "assignment", owner_id: assignment.assignment_id, title: task.title, subject: task.title, assignee: assignment.assignee.display_name });
+      }
+    }
+    const events = state.events.filter(event => event.season_id === season.season_id);
+    const owners = [...events.map(event => ({ kind: "event", id: event.event_id, title: event.title })),
+      ...state.subevents.filter(sub => events.some(event => event.event_id === sub.event_id)).map(sub => ({ kind: "subevent", id: sub.subevent_id, title: sub.title }))];
+    for (const owner of owners) if (!state.reports.some(report => report.owner_kind === owner.kind && report.owner_id === owner.id && report.kind === "final" && report.state === "published")) blockers.push({ kind: "missing_final_report", owner_kind: owner.kind, owner_id: owner.id, title: owner.title, subject: owner.title });
+    return blockers;
+  };
+  const filter = <T extends { season_id?: string | null }>(items: T[], url: URL) =>
     url.searchParams.get("season_id")
       ? items.filter((x) => x.season_id === url.searchParams.get("season_id"))
       : items;
@@ -417,6 +441,8 @@ export function installMockTransport(
       return changed(state.registration);
     }
     if (state.session.account_state !== "active") return denied();
+    const profileReply = profileFeatures(path, method, data, url.searchParams);
+    if (profileReply) return profileReply;
     if (
       parts[0] === "profile" &&
       /^\d+$/.test(parts[1] ?? "") &&
@@ -537,6 +563,11 @@ export function installMockTransport(
       }
       const season = state.seasons.find((s) => s.season_id === parts[1]);
       if (!season) return fail(404, "not_found", "Сезон не найден");
+      if (parts[2] === "readiness" && method === "get") {
+        if (!state.global) return denied();
+        const blockers = seasonBlockers(season);
+        return [200, { ready: blockers.length === 0 && ["open", "summarizing"].includes(season.state), blockers, revision: season.revision }];
+      }
       if (parts[2] === "analytics" && method === "get") {
         if (!state.global) return denied();
         const participantId = url.searchParams.get("participant_id"), blockId = url.searchParams.get("block_id");
@@ -697,69 +728,7 @@ export function installMockTransport(
       if (!state.chair) return denied();
       if (mismatch(data, season)) return conflict();
       if (parts[2] === "close") {
-        const owners = [
-          ...state.events
-            .filter((e) => e.season_id === season.season_id)
-            .map((e) => ({ kind: "event", id: e.event_id, title: e.title })),
-          ...state.subevents
-            .filter((s) =>
-              state.events.some(
-                (e) =>
-                  e.event_id === s.event_id && e.season_id === season.season_id,
-              ),
-            )
-            .map((s) => ({
-              kind: "subevent",
-              id: s.subevent_id,
-              title: s.title,
-            })),
-        ];
-        const blockers = owners
-          .filter(
-            (o) =>
-              !state.reports.some(
-                (r) =>
-                  r.owner_kind === o.kind &&
-                  r.owner_id === o.id &&
-                  r.kind === "final" &&
-                  r.state === "published",
-              ),
-          )
-          .map((o) => ({
-            kind: "missing_final_report",
-            owner_kind: o.kind,
-            owner_id: o.id,
-            title: `Финальный отчёт: ${o.title}`,
-          }));
-        const previous = state.seasons.find(
-          (s) => s.season_id === season.previous_season_id,
-        );
-        if (previous && previous.state !== "closed")
-          blockers.push({
-            kind: "previous_season_not_closed",
-            owner_kind: "season",
-            owner_id: previous.season_id,
-            title: previous.title,
-          });
-        state.tasks
-          .filter((t) => t.season_id === season.season_id)
-          .forEach((t) =>
-            t.assignments
-              .filter(
-                (a) =>
-                  !["accepted", "not_completed", "cancelled"].includes(
-                    a.status,
-                  ),
-              )
-              .forEach((a) =>
-                blockers.push({
-                  kind: "unfinished_assignment",
-                  owner_kind: "assignment",
-                  owner_id: a.assignment_id,
-                  title: `${t.title}: ${a.assignee.display_name}`,
-                }),
-              ),
-          );
+        const blockers = seasonBlockers(season);
         if (blockers.length)
           return fail(409, "season_not_ready", "Сезон пока нельзя закрыть", {
             blockers,
@@ -855,8 +824,9 @@ export function installMockTransport(
         event_id: id("event"),
         report_series_id: (data.report_series_id as string | undefined) ?? id("series"),
         leaders: [],
-        starts_at: null,
-        ends_at: null,
+        starts_at: typeof data.starts_at === "string" ? data.starts_at : null,
+        ends_at: typeof data.ends_at === "string" ? data.ends_at : null,
+        all_day: !!data.all_day,
         revision: 1,
         capabilities: state.events[0]?.capabilities ?? [],
       };
@@ -871,6 +841,14 @@ export function installMockTransport(
       if (!item) return fail(404, "not_found", "Мероприятие недоступно");
       // Unreadable reads answer as missing ones (A-SEC-6); commands are refused.
       const hidden = () => (method === "get" ? fail(404, "not_found", "Объект недоступен") : denied());
+      if (!isEvent && parts.length === 2 && method === "get") {
+        return [200, publicSubevent(item as Subevent)];
+      }
+      if (!isEvent && parts[2] === "hr") {
+        if (!["chair", "chair-deputy", "hr"].includes(role)) return denied();
+        if (mismatch(data, item)) return conflict();
+        const sub = item as Subevent;sub.hr = state.people.find(person => person.user_id === Number(data.user_id)) ?? null;return changed(sub);
+      }
       if (!isEvent && !readsSubevent(parts[1])) return hidden();
       if (parts[2] === "meeting") {
         const kind = isEvent ? "event" : "subevent";
@@ -903,7 +881,7 @@ export function installMockTransport(
       if (isEvent && parts[2] === "subevents") {
         if (method === "get")
           return list(
-            clone(state.subevents.filter((s) => s.event_id === parts[1] && readsSubevent(s.subevent_id))),
+            state.subevents.filter((s) => s.event_id === parts[1]).map(publicSubevent),
           );
         if (!state.manager) return denied();
         // As on the server: an existing series must be a child series of the parent's.
@@ -1057,7 +1035,7 @@ export function installMockTransport(
         const query = (url.searchParams.get("q") ?? "").toLowerCase();
         if (query) tasks = tasks.filter(t => `${t.title} ${t.task_key ?? ""} ${t.description.body}`.toLowerCase().includes(query));
         if (url.searchParams.get("unfinished") === "true") tasks = tasks.filter(t => !["accepted", "not_completed", "cancelled"].includes(t.status ?? "assigned"));
-        if (url.searchParams.get("overdue") === "true") tasks = tasks.filter(t => t.deadline_at < (options.now ?? mockNow) && !["accepted", "not_completed", "cancelled"].includes(t.status ?? "assigned"));
+        if (url.searchParams.get("overdue") === "true") tasks = tasks.filter(t => t.deadline_at !== null && t.deadline_at < (options.now ?? mockNow) && !["accepted", "not_completed", "cancelled"].includes(t.status ?? "assigned"));
         if (url.searchParams.get("assignee_user_id")) tasks = tasks.filter(t => t.assignments.some(a => a.assignee.user_id === Number(url.searchParams.get("assignee_user_id"))));
         if (url.searchParams.has("task_type") && !["task", "milestone", "epic"].includes(url.searchParams.get("task_type")!)) return fail(422, "invalid_input", "Неизвестный тип задачи");
         if (url.searchParams.has("priority") && !["low", "normal", "high", "urgent"].includes(url.searchParams.get("priority")!)) return fail(422, "invalid_input", "Неизвестный приоритет");
@@ -1068,12 +1046,12 @@ export function installMockTransport(
         if (url.searchParams.has("favorite")) tasks = tasks.filter(task => !!task.is_favorite === (url.searchParams.get("favorite") === "true"));
         const from = url.searchParams.get("date_from"), until = url.searchParams.get("date_to");
         if (from && !Number.isFinite(Date.parse(from)) || until && !Number.isFinite(Date.parse(until))) return fail(422, "invalid_input", "Проверьте период");
-        if (from) tasks = tasks.filter(task => Date.parse(task.deadline_at) >= Date.parse(from));
-        if (until) tasks = tasks.filter(task => Date.parse(task.task_type === "milestone" ? task.deadline_at : task.starts_at ?? task.deadline_at) < Date.parse(until));
+        if (from) tasks = tasks.filter(task => !!task.deadline_at && Date.parse(task.deadline_at) >= Date.parse(from));
+        if (until) tasks = tasks.filter(task => !!task.deadline_at && Date.parse(task.task_type === "milestone" ? task.deadline_at : task.starts_at ?? task.deadline_at) < Date.parse(until));
         const sort = url.searchParams.get("sort"), direction = url.searchParams.get("order") === "desc" ? -1 : 1;
         const priorities = { low: 0, normal: 1, high: 2, urgent: 3 };
         const sortValue = (task: Task) => sort === "priority" ? String(priorities[task.priority ?? "normal"]) : sort === "starts" ? task.starts_at ?? task.deadline_at : sort === "updated" ? task.updated_at ?? task.created_at ?? "" : sort === "created" ? task.created_at ?? "" : task.deadline_at;
-        tasks = [...tasks].sort((a, b) => direction * (sortValue(a).localeCompare(sortValue(b)) || a.task_id.localeCompare(b.task_id)));
+        tasks = [...tasks].sort((a, b) => { const left = sortValue(a), right = sortValue(b);if (left == null || right == null) return left == null && right == null ? a.task_id.localeCompare(b.task_id) : left == null ? 1 : -1;return direction * (left.localeCompare(right) || a.task_id.localeCompare(b.task_id)); });
         if (options.scenario === "empty") tasks = [];
         const offset = Number((url.searchParams.get("cursor") ?? "mock:0").split(":")[1]), limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit")) || 20));
         const scopes = [...new Map(state.tasks.filter(readsTask).map(task => [`${task.scope.kind}:${task.scope.id}`, { ...task.scope, title: task.scope_title ?? "Команда" }])).values()];
@@ -1118,6 +1096,7 @@ export function installMockTransport(
           ],
         })),
       };
+      if (!task.deadline_at) return fail(422, "invalid_input", "Для обычной задачи нужен срок");
       taskInputs.set(task.task_id, {
         task_id: task.task_id,
         assigned_at: mockNow,
@@ -1263,6 +1242,7 @@ export function installMockTransport(
         return [201, clone(comment)];
       }
       if (parts[2] === "assessment-inputs") {
+        if (!task.deadline_at || !task.season_id) return denied();
         if (!task.capabilities.includes("view_assessment_inputs"))
           return denied();
         const inputs = taskInputs.get(task.task_id) ?? {
@@ -1583,6 +1563,11 @@ export function installMockTransport(
       else delete result.draft_content;
       return result;
     };
+    if (parts[0] === "materials" && parts[1] === "legacy-guides") {
+      const material = state.materials.find(item => item.material_id === legacyMaterialIds.get(Number(parts[2])));
+      if (method !== "get" || !material || (!material.published_content && !material.capabilities.includes("edit_material"))) return fail(404, "not_found", "Гайд недоступен");
+      return [200, { guide_id: Number(parts[2]), material_id: material.material_id, revision: material.revision }];
+    }
     if (path === "/materials") {
       if (method === "get")
         return list(
@@ -1760,6 +1745,7 @@ export function installMockTransport(
           substitute_available_at: new Date(
             Date.parse(created) + 72 * 3600_000,
           ).toISOString(),
+          approvals: [],
           revision: 1,
           capabilities: ["withdraw_request"],
         };
@@ -1792,6 +1778,14 @@ export function installMockTransport(
         reject: "rejected",
         withdraw: "withdrawn",
       } as const;
+      if (parts[2] === "hr-approve" || parts[2] === "block-approve") {
+        req.approvals.push({
+          stage: req.state === "pending_hr" ? "hr" : "block",
+          actor: clone(state.user),
+          at: options.now ?? mockNow,
+          substitute: (state.chair || role === "chair-deputy") && !!req.substitute_available_at && Date.parse(options.now ?? mockNow) >= Date.parse(req.substitute_available_at),
+        });
+      }
       req.state =
         parts[2] === "hr-approve" &&
         state.blocks.find((b) => b.block_id === req.block_id)?.is_hr
@@ -1845,11 +1839,16 @@ export function installMockTransport(
       return [200, clone(category)];
     }
     if (path === "/contacts/archive") {
-      if (method === "get") return list(clone(state.former));
+      if (method === "get") return list(state.former.map(contact => ({ ...clone(contact), capabilities: state.global ? ["edit_former_contact"] : [] })));
       if (!state.global) return denied();
+      if ("expected_revision" in data) return fail(422, "validation_error", "Unexpected creation revision", { errors: [{ loc: ["body", "expected_revision"], msg: "Extra inputs are not permitted" }] });
+      const invalid = extraInputs(data, ["surname", "name", "patronymic", "phone", "email", "tg", "vk", "participation_periods"]);
+      if (invalid) return invalid;
       const contact = {
         ...data,
         contact_id: id("former"),
+        revision: 1,
+        capabilities: ["edit_former_contact"],
       } as unknown as (typeof state.former)[number];
       state.former.push(contact);
       return [201, clone(contact)];
@@ -1858,8 +1857,13 @@ export function installMockTransport(
       if (!state.global) return denied();
       const contact = state.former.find((c) => c.contact_id === parts[2]);
       if (!contact) return fail(404, "not_found", "Контакт не найден");
-      Object.assign(contact, data);
-      return [200, clone(contact)];
+      const invalid = extraInputs(data, ["surname", "name", "patronymic", "phone", "email", "tg", "vk", "participation_periods"]);
+      if (invalid) return invalid;
+      if (!Number.isInteger(data.expected_revision) || Number(data.expected_revision) < 1) return fail(422, "validation_error", "Expected revision is required", { errors: [{ loc: ["body", "expected_revision"], msg: "A positive integer is required" }] });
+      if (mismatch(data, contact)) return conflict();
+      const fields = Object.fromEntries(Object.entries(data).filter(([name]) => name !== "expected_revision"));
+      Object.assign(contact, fields);
+      return changed(contact);
     }
     if (path === "/avatars")
       return [
@@ -2058,52 +2062,36 @@ export function installMockTransport(
             state.session.capabilities.includes("review_registrations") && queueApplication.status === "pending" ? 1 : 0,
         },
       ];
-    if (path === "/calendar")
-      return list(
-        [
-          ...state.tasks.filter(readsTask).map((t) => ({
-            id: `calendar-${t.task_id}`,
-            season_id: t.season_id,
-            kind: "task_deadline",
-            title: t.title,
-            starts_at: t.deadline_at,
-            ends_at: null,
-            target: { kind: "task", id: t.task_id },
-          })),
-          ...state.meetings
-            .filter((m) =>
-              m.owner_kind === "event"
-                ? state.eventManager
-                : readsSubevent(m.owner_id),
-            )
-            .map((m) => ({
-              id: `calendar-${m.meeting_id}`,
-              season_id: "season-1",
-              kind: "meeting",
-              title: m.title,
-              starts_at: m.starts_at,
-              ends_at: null,
-              target: { kind: m.owner_kind, id: m.owner_id },
-            })),
-          ...state.events
-            .filter((e) => readsEvent(e.event_id) && e.starts_at)
-            .map((e) => ({
-              id: `calendar-${e.event_id}`,
-              season_id: e.season_id,
-              kind: "event",
-              title: e.title,
-              starts_at: e.starts_at!,
-              ends_at: e.ends_at,
-              target: { kind: "event", id: e.event_id },
-            })),
-        ].filter(
-          (item) =>
-            (!url.searchParams.get("from") ||
-              item.starts_at >= url.searchParams.get("from")!) &&
-            (!url.searchParams.get("to") ||
-              item.starts_at <= url.searchParams.get("to")!),
-        ),
-      );
+    if (path === "/calendar" || path === "/workspace/home") {
+      const active = new Set(["assigned", "in_progress", "help_required", "submitted", "needs_revision"]);
+      const mine = url.searchParams.get("mine") !== "false", watching = url.searchParams.get("watching") === "true";
+      const personal = (task: Task) => (task.assignees ?? task.assignments.map(assignment => assignment.assignee)).some(user => user.user_id === state.session.user_id) || watching && !!task.watchers?.some(user => user.user_id === state.session.user_id);
+      const publicState = (task: Task) => task.status ?? task.assignments[0]?.status ?? "assigned";
+      const rows: CalendarItem[] = [
+        ...state.tasks.filter(task => readsTask(task) && !!task.deadline_at && (!mine || personal(task))).map(task => ({ id: `calendar-${task.task_id}`, season_id: task.season_id!, kind: "task_deadline" as const, title: task.title, starts_at: task.deadline_at!, ends_at: null, all_day: false, status: publicState(task), scope: task.scope, queue: task.queue, task_key: task.task_key, target: { kind: "task", id: task.task_id } })),
+        ...state.meetings.filter(meeting => meeting.owner_kind === "event" ? state.eventManager : readsSubevent(meeting.owner_id)).map(meeting => ({ id: `calendar-${meeting.meeting_id}`, season_id: "season-1", kind: "meeting" as const, title: meeting.title, starts_at: meeting.starts_at, ends_at: null, target: { kind: meeting.owner_kind, id: meeting.owner_id } })),
+        ...state.events.filter(event => event.starts_at && (!mine || readsEvent(event.event_id))).map(event => ({ id: `calendar-${event.event_id}`, season_id: event.season_id, kind: "event" as const, title: event.title, starts_at: event.starts_at!, ends_at: event.ends_at, all_day: event.all_day ?? false, event_id: event.event_id, target: { kind: "event", id: event.event_id } })),
+        ...state.subevents.filter(sub => sub.starts_at && (!mine || readsSubevent(sub.subevent_id))).map(sub => ({ id: `calendar-${sub.subevent_id}`, season_id: state.events.find(event => event.event_id === sub.event_id)!.season_id, kind: "event" as const, title: sub.title, starts_at: sub.starts_at!, ends_at: sub.ends_at ?? null, all_day: sub.all_day ?? false, event_id: sub.event_id, target: { kind: "subevent", id: sub.subevent_id } })),
+      ];
+      const filtered = (from: string, to: string) => rows.filter(item => {
+        const first = Date.parse(item.starts_at), last = Date.parse(item.ends_at ?? item.starts_at) + (item.all_day ? 86400000 : 0);
+        if (!(first < Date.parse(to) && (last > first ? last > Date.parse(from) : first >= Date.parse(from)))) return false;
+        if (url.searchParams.get("kind") && item.kind !== url.searchParams.get("kind")) return false;
+        if (url.searchParams.get("season_id") && item.season_id !== url.searchParams.get("season_id")) return false;
+        if (url.searchParams.get("block_id") && (item.scope?.kind !== "block" || item.scope.id !== url.searchParams.get("block_id"))) return false;
+        if (url.searchParams.get("queue_id") && item.queue?.queue_id !== url.searchParams.get("queue_id")) return false;
+        if (url.searchParams.get("event_id") && item.event_id !== url.searchParams.get("event_id")) return false;
+        if (item.kind === "task_deadline" && (url.searchParams.get("status") ? item.status !== url.searchParams.get("status") : !active.has(item.status ?? "assigned"))) return false;
+        return `${item.title} ${item.task_key ?? ""}`.toLocaleLowerCase().includes((url.searchParams.get("q") ?? "").toLocaleLowerCase());
+      });
+      if (path === "/calendar") return list(filtered(url.searchParams.get("from") ?? "1970-01-01", url.searchParams.get("to") ?? "2099-12-31"));
+      const today = new Date(Date.now() + 10800000).toISOString().slice(0, 10), first = `${today}T00:00:00+03:00`, last = new Date(Date.parse(first) + 86400000).toISOString();
+      const tasks = state.tasks.filter(task => readsTask(task) && personal(task) && active.has(publicState(task)));
+      const overdue = tasks.filter(task => task.deadline_at && Date.parse(task.deadline_at) < Date.now()).sort((a, b) => a.deadline_at!.localeCompare(b.deadline_at!));
+      return [200, { today, agenda: filtered(first, last), tasks: clone(tasks.filter(task => task.deadline_at && Date.parse(task.deadline_at) >= Date.now()).sort((a, b) => a.deadline_at!.localeCompare(b.deadline_at!)).slice(0, 5)), overdue_tasks: clone(overdue.slice(0, 5)), overdue_count: overdue.length, undated_count: tasks.filter(task => !task.deadline_at).length,
+        approvals: state.requests.some(request => requestCapabilities(request).some(cap => cap.endsWith("review_request"))) ? [{ kind: "block_requests", title: "Заявки в блоки", count: state.requests.length, to: "/blocks/requests" }] : [],
+        merit_entries: state.blocks.filter(block => block.capabilities.includes("create_volunteer_merit")).map(block => ({ title: block.name, to: `/merits?source_kind=block_volunteer&scope_id=${block.block_id}` })) }];
+    }
     if (path === "/notifications") return list(clone(state.notifications));
     if (parts[0] === "notifications") {
       state.notifications
@@ -2177,46 +2165,7 @@ export function installMockTransport(
       state.merits.push(merit);
       return [201, clone(merit)];
     }
-    if (parts[0] === "guides") {
-      if (method === "get") {
-        if (!parts[1]) return [200, clone(legacyGuides)];
-        const guide = legacyGuides.find((g) => g.guide_id === Number(parts[1]));
-        return guide
-          ? [200, clone(guide)]
-          : fail(404, "not_found", "Гайд недоступен");
-      }
-      const guide = legacyGuides.find((g) => g.guide_id === Number(parts[1]));
-      const owner = String(data.owner_block ?? guide?.owner_block ?? "none");
-      if (
-        !(
-          state.chair ||
-          state.blocks.some(
-            (b) =>
-              b.name === owner &&
-              b.master?.user.user_id === state.session.user_id,
-          )
-        )
-      )
-        return denied();
-      if (!parts[1]) {
-        const created: GuideOut = {
-          guide_id: Math.max(0, ...legacyGuides.map((g) => g.guide_id)) + 1,
-          title: String(data.title),
-          owner_block: owner,
-          text: String(data.text ?? ""),
-          description: String(data.description ?? ""),
-        };
-        legacyGuides.push(created);
-        return [201, clone(created)];
-      }
-      if (!guide) return fail(404, "not_found", "Гайд недоступен");
-      if (method === "delete") {
-        legacyGuides = legacyGuides.filter((g) => g !== guide);
-        return [200, {}];
-      }
-      Object.assign(guide, data);
-      return [200, clone(guide)];
-    }
+    if (parts[0] === "guides") return fail(404, "not_found", "Такого API больше нет");
     if (path === "/pgas") return [200, []];
     return fail(
       501,
@@ -2226,6 +2175,7 @@ export function installMockTransport(
   });
   return {
     state,
+    legacyMaterialIds,
     adapter,
     restore: () => {
       adapter.restore();

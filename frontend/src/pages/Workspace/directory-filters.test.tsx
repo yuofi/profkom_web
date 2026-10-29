@@ -4,6 +4,7 @@ import { act } from "react";
 import { installMockTransport } from "../../mocks/transport";
 import { mountWorkspace, settle, change } from "../../test/workspace";
 import { directoryApi } from "../../utils/api/directory.api";
+import { membershipApi } from "../../utils/api/membership.api";
 import type { ContactInfoOut } from "../../utils/api/types";
 import { DirectoryPage } from "./DirectoryPages";
 
@@ -67,4 +68,29 @@ it("contacts use compact cards and separate account management", async () => {
   await act(async () => manage.click());
   expect(page.container.querySelector("dialog")?.textContent).toContain("Причина архивирования");
   expect(page.container.querySelectorAll('[class*="contactGrid"] > section')).toHaveLength(2);
+});
+
+it("links full block names without avatar chips and marks only the explicit master ID", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const title = "Очень длинное название блока для проверки компактной карточки и полной ссылки";
+  const master = person(201, "Одинаковая", "301", true), namesake = person(202, "Одинаковая", "301", true);
+  namesake.blocks = title;
+  vi.spyOn(directoryApi, "contacts").mockResolvedValue([master, namesake]);
+  vi.spyOn(membershipApi, "blocks").mockResolvedValue([{ ...mock.state.blocks[0], block_id: "stable-master-block", name: title, master: { ...mock.state.blocks[0].master!, user: { user_id: master.user_id, display_name: "Одинаковая Тест", avatar_url: null } } }]);
+  page = await mountWorkspace(<DirectoryPage />, { role: "chair" });
+  await settle();await settle();
+  const cards = page.container.querySelectorAll('[class*="contactGrid"] > section');
+  expect(cards).toHaveLength(2);
+  for (const card of cards) {
+    const link = card.querySelector<HTMLAnchorElement>('a[href="/blocks/stable-master-block"]')!;
+    expect(link.textContent).toBe(title);expect(link.title).toBe(title);
+    expect(link.querySelector("img, [class*=avatar]")).toBeNull();
+  }
+  expect(cards[0].querySelector('[data-block-master="true"]')).not.toBeNull();
+  expect(cards[0].querySelector('[data-block-master] a')?.getAttribute("aria-description")).toBe("Руководит блоком");
+  expect(cards[0].querySelector('[data-block-master] a svg[aria-hidden="true"]')).not.toBeNull();
+  expect(cards[1].querySelector('a[href="/blocks/stable-master-block"] svg')).toBeNull();
+  expect(cards[0].textContent).not.toContain("мастер");expect(cards[0].querySelector('[class*="masterBlock"]')).not.toBeNull();
+  expect(cards[1].textContent).not.toContain("мастер");expect(cards[1].querySelector('[class*="masterBlock"]')).toBeNull();
+  expect(master.blocks).toBe("");
 });

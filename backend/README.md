@@ -1,5 +1,8 @@
 # Profkom Web backend — API 1.3
 
+> Current unified-release contracts (28 October 2026): [API additions](docs/API_V13_ADDITIONS.md), [profiles/templates](docs/PROFILE_FEATURES.md), [history](docs/HISTORY.md), [retired guide API](docs/LEGACY_GUIDE_RETIREMENT.md). Earlier notes below retain historical context; the linked contracts take precedence for the changed interfaces. [User guide](../docs/USER_GUIDE_20261028.md).
+
+
 FastAPI/Pydantic 2, SQLAlchemy 2 and SQLite. Run commands from `backend/`: modules use flat imports. All application routes are under `/api`; current schemas and security requirements are served at `/openapi.json` and `/docs`.
 
 Use Python 3.12, install `requirements.txt` in a virtual environment, configure environment variables from `.env.example`, then run `uvicorn main:app --host 127.0.0.1 --port 8000`. Set an explicit `DATABASE_PATH`; use a disposable path for development/tests. Production requires `APP_ENV=production` and a unique `JWT_SECRET_KEY` of at least 32 characters. Set `FRONTEND_URL` to the actual frontend origin. The Docker image sets production mode; Compose injects `backend/.env` at runtime. Secret files are excluded from the image.

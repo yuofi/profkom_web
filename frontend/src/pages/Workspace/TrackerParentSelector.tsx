@@ -11,14 +11,14 @@ type ParentRef = { task_id: string; task_key?: string; title: string };
 const label = (parent: ParentRef) => `${parent.task_key ?? "Задача"} · ${parent.title}`;
 /** One combobox owns both searching and choosing a readable parent; raw query text is never a saved relation. */
 export function TrackerParentSelector({ value, onChange, seasonId, taskId, initialParent, disabled = false, label: fieldLabel = "Родительская задача", taskType }: {
-  value: string; onChange: (id: string) => void; seasonId?: string; taskId?: string; initialParent?: ParentRef | null; disabled?: boolean; label?: string; taskType?: TaskType;
+  value: string; onChange: (id: string) => void; seasonId?: string | null; taskId?: string; initialParent?: ParentRef | null; disabled?: boolean; label?: string; taskType?: TaskType;
 }) {
   const id = useId(), root = useRef<HTMLDivElement>(null), input = useRef<HTMLInputElement>(null);
   const [picked, setPicked] = useState<ParentRef | null>(null);
   const [open, setOpen] = useState(false), [search, setSearch] = useState(""), [active, setActive] = useState(0);
   const selected = useQuery({ queryKey: ["tasks", value], queryFn: () => tasksApi.get(value), enabled: !!value });
-  const query = useQuery({ queryKey: ["tasks", "parent-combobox", seasonId ?? "", taskId ?? "", taskType ?? "", search], queryFn: () => tasksApi.listPage({ ...(seasonId ? { season_id: seasonId } : {}), q: search || undefined, ...(taskType ? { task_type: taskType } : {}), limit: 100 }), enabled: open && !disabled });
-  const options = (query.error && !canRetainData(query.error) ? [] : query.data?.items ?? []).filter(task => task.task_id !== taskId && (!seasonId || task.season_id === seasonId) && (!taskType || task.task_type === taskType));
+  const query = useQuery({ queryKey: ["tasks", "parent-combobox", seasonId === null ? "without-season" : seasonId ?? "", taskId ?? "", taskType ?? "", search], queryFn: () => tasksApi.listPage({ ...(seasonId ? { season_id: seasonId } : {}), q: search || undefined, ...(taskType ? { task_type: taskType } : {}), limit: 100 }), enabled: open && !disabled });
+  const options = (query.error && !canRetainData(query.error) ? [] : query.data?.items ?? []).filter(task => task.task_id !== taskId && (seasonId === undefined || task.season_id === seasonId) && (!taskType || task.task_type === taskType));
   const refused = !!selected.error && !canRetainData(selected.error);
   const parent = refused ? null : selected.data?.task_id === value ? selected.data : selected.isLoading && picked?.task_id === value ? picked : initialParent?.task_id === value ? initialParent : null;
   const selectedLabel = value ? parent ? label(parent) : selected.isLoading ? "Загрузка задачи…" : "Недоступная задача" : "";

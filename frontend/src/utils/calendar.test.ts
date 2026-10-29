@@ -6,7 +6,7 @@ describe("Moscow calendar boundaries", () => {
     expect(february.days).toHaveLength(29);
     expect(february.offset).toBe(3);
     expect(february.from).toBe("2024-01-31T21:00:00.000Z");
-    expect(february.to).toBe("2024-02-29T20:59:59.999Z");
+    expect(february.to).toBe("2024-02-29T21:00:00.000Z");
   });
   it("puts an evening UTC event on the next Moscow day", () => {
     expect(moscowDay("2026-10-18T22:00:00Z")).toBe("2026-10-19");

@@ -113,6 +113,8 @@ class ScopeTenureORM(Base):
     user_id = Column(Integer, nullable=True, index=True)
     scope_kind = Column(String, nullable=False, index=True)
     scope_id = Column(String, nullable=False, index=True)
+    # Legacy scope_id is a label; old rows remain unproved after migration.
+    scope_block_id = Column(String, ForeignKey("block_metadata.block_id"), nullable=True, index=True)
     role = Column(String, nullable=False)
     principal_id = Column(String, nullable=True)
     started_at = Column(String, nullable=False)
@@ -154,6 +156,7 @@ class MaterialORM(Base):
     revision = Column(Integer, nullable=False, default=1)
     placeholder = Column(Boolean, nullable=False, default=False)
     deleted = Column(Boolean, nullable=False, default=False)
+    deleted_at = Column(String, nullable=True)
     created_at = Column(String, nullable=False)
     # Who reads a block guide: "block" — its members, leads and the chair's team; "everyone" —
     # every active participant (owner, 2026-10-25). Other materials read to everyone.
@@ -172,6 +175,8 @@ class FormerContactORM(Base):
     __tablename__ = "former_contacts"
     contact_id = Column(String, primary_key=True)
     fields_json = Column(Text, nullable=False)
+    revision = Column(Integer, nullable=False, default=1, server_default="1")
+    source_user_id = Column(Integer, nullable=True)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
 

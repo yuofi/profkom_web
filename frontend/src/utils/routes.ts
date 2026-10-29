@@ -16,6 +16,7 @@ export const getDocEditRoute = (id: string | number = ":id") => {
 
 export const getHomeRoute = () => "/";
 export const getProfilePage = () => "/profile";
+export const getProfileSettingsRoute = () => "/profile/settings";
 export const getContactRoute = (id: number | string) => `/contacts/${encodeURIComponent(id)}`;
 export const getPgasRoute = () => "/pgas";
 
@@ -47,6 +48,7 @@ export const getMaterialCreateRoute = () => "/materials/new";
 export const getSeasonRoute = (id: string) =>
   `/seasons/${encodeURIComponent(id)}`;
 export const getSeasonCreateRoute = () => "/seasons/new";
+export const getKkrTemplatesRoute = () => "/seasons/templates";
 export function targetRoute(
   target: { kind: string; id: string } | null | undefined,
 ): string | null {
@@ -60,6 +62,7 @@ export function targetRoute(
     report: getReportRoute,
     material: getMaterialRoute,
     season: getSeasonRoute,
+    pgas: getPgasRoute,
   };
   return Object.hasOwn(builders, target.kind)
     ? builders[target.kind](target.id)

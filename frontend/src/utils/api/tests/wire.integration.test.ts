@@ -63,7 +63,9 @@ it("INT-06: actual response shapes, null relations and populated IDs match the p
   expect(Date.parse(privateAccepted.effective_completed_at!)).toBe(Date.parse(actualSubmissionTime!));
   const publicAfterReview = check("Task", await tasksApi.get(task.task_id));
   expect([publicAfterReview.status, publicAfterReview.revision]).toEqual([publicBeforeReview.status, publicBeforeReview.revision]);
-  check("Comment", await tasksApi.comment(task.task_id, richText("Comment")));
+  const comment = check("Comment", await tasksApi.comment(task.task_id, richText("Comment")));
+  const editedComment = check("Comment", await tasksApi.editComment(comment.comment_id, richText("Edited comment")));
+  expect(editedComment.history?.[0]?.content).toEqual(richText("Comment"));
   check("Merit", await seasonsApi.createMerit({ season_id: season.season_id, source_kind: "chair_merit", title: "Wire merit", description: richText("Contribution"), assigned_at: new Date(Date.now() - 3600000).toISOString(), deadline_at: new Date(Date.now() + 3600000).toISOString(), criteria: emptyCriteria(), recipients: [{ user_id: person.user_id, hours: 1, evaluation: 1, completed_at: new Date(Date.now() - 60000).toISOString() }], reason: "Wire acceptance" }));
   (await seasonsApi.assessments({ season_id: season.season_id })).items.forEach(c => check("Contribution", c));
   check("Dashboard", await workspaceApi.dashboard());
@@ -80,5 +82,5 @@ it("INT-06: actual response shapes, null relations and populated IDs match the p
   }
   chair = await liveLogin();
   expect(chair.user_id).toBeGreaterThan(0); expect(sub.subevent_id).toBeTruthy(); expect(report.published_version).toBe(1); expect(material.published_content).not.toBeNull();
-  expect(errors).toEqual([]);
+  expect(errors, errors.join("\n")).toEqual([]);
 }, CLOSES_SEASONS_TIMEOUT);

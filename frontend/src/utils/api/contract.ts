@@ -32,6 +32,7 @@ export interface FileRef {
 }
 export interface RoleAssignment extends Versioned {
   role_assignment_id: string;
+  user_id?: number;
   role: string;
   scope_kind: "global" | "block" | "event" | "subevent" | "material";
   scope_id: string | null;
@@ -43,6 +44,16 @@ export interface Session {
   registration_status: "pending" | "approved" | "rejected";
   access_revision?: string;
   capabilities: string[];
+  /** @deprecated Compatibility fields; permission checks use capabilities. */
+  permissions?: string[];
+  /** @deprecated Use capabilities and the dedicated leadership resource. */
+  leadership?: { is_chair: boolean; is_deputy: boolean } | null;
+  /** @deprecated Use capabilities. */
+  super_user?: boolean;
+  /** @deprecated Use capabilities. */
+  admin?: boolean;
+  /** @deprecated Use capabilities. */
+  pgas_admin?: boolean;
   assignments?: RoleAssignment[];
   /** A temporary password is in use: it must be changed before any work (АВ-52). */
   password_change_required?: boolean;
@@ -100,6 +111,7 @@ export interface BlockRequest extends Versioned {
   /** A closed request: when it was decided and, for a rejection, why (decision 16). */
   decided_at?: string | null;
   decision_reason?: string | null;
+  approvals: { stage: "hr" | "block"; actor: UserRef | null; at: string | null; substitute: boolean }[];
 }
 export interface BlockRef {
   block_id: string;
@@ -131,6 +143,7 @@ export interface Season extends Versioned {
   is_current: boolean;
 }
 export interface Event extends Versioned {
+  all_day?: boolean;
   event_id: string;
   season_id: string;
   title: string;
@@ -141,13 +154,21 @@ export interface Event extends Versioned {
   ends_at: string | null;
 }
 export interface Subevent extends Versioned {
+  starts_at?: string | null;
+  ends_at?: string | null;
+  all_day?: boolean;
+  announcement?: RichText;
+  working_access?: boolean;
+  outside_parent_dates?: boolean;
+  hr?: UserRef | null;
+  organizers?: UserRef[];
   subevent_id: string;
   event_id: string;
   title: string;
   description: RichText;
   leaders: Leader[];
   organizer_user_ids: number[];
-  report_series_id: string;
+  report_series_id: string | null;
 }
 export interface ReportSeries {
   series_id: string;
@@ -242,7 +263,7 @@ export interface TaskChecklistItem { item_id: string; text: string; checked: boo
 export interface TaskChecklistInput { item_id?: string; text: string; checked: boolean }
 export interface TrackerTaskRef {
   task_id: string; task_key: string; title: string; status: AssignmentStatus;
-  deadline_at: string; starts_at: string | null; task_type: TaskType;
+  deadline_at: string | null; starts_at: string | null; task_type: TaskType;
 }
 export type TaskLinkKind = "related" | "blocks" | "blocked_by" | "epic" | "epic_member" | "milestone" | "milestone_member";
 export interface TaskLink { link_id: string; kind: TaskLinkKind; task: TrackerTaskRef }
@@ -262,11 +283,11 @@ export interface Task extends Versioned {
   links?: TaskLink[];
   children?: TrackerTaskRef[];
   task_id: string;
-  season_id: string;
+  season_id: string | null;
   scope: TaskScopeRef;
   title: string;
   description: RichText;
-  deadline_at: string;
+  deadline_at: string | null;
   assignments: Assignment[];
   assignees?: UserRef[];
   watchers?: UserRef[];
@@ -468,6 +489,7 @@ export interface MasterBonus {
     exclusion: "master" | "non_positive" | null;
   }[];
   calculation_version: "master_bonus_v1";
+  is_final?: boolean;
 }
 export interface Report extends Versioned {
   report_id: string;
@@ -496,6 +518,9 @@ export interface ReportVersion {
   published_by: UserRef;
 }
 export interface Material extends Versioned {
+  deleted_at?: string | null;
+  placeholder?: boolean;
+  community_url?: string | null;
   editor_user_ids?: number[];
   material_id: string;
   kind: string;
@@ -517,6 +542,7 @@ export interface Comment {
   content: RichText;
   created_at: string;
   updated_at: string | null;
+  history?: { content: RichText; edited_at: string }[];
   capabilities: string[];
 }
 export interface Meeting extends Versioned {
@@ -540,6 +566,12 @@ export interface Notification {
   target: Target | null;
 }
 export interface CalendarItem {
+  all_day?: boolean;
+  task_key?: string | null;
+  scope?: TaskScopeRef | null;
+  queue?: { queue_id: string; name: string; key: string } | null;
+  status?: AssignmentStatus | null;
+  event_id?: string | null;
   id: string;
   season_id: string;
   kind: "task_deadline" | "meeting" | "event";
@@ -559,7 +591,7 @@ export interface Dashboard {
   /** Waiting registrations; 0 without review_registrations (A-ROL-21). */
   pending_registration_count: number;
 }
-export type ParticipationRole = "member" | "master" | "deputy_master" | "event_leader" | "event_deputy" | "subevent_leader" | "subevent_deputy" | "organizer";
+export type ParticipationRole = "member" | "master" | "deputy_master" | "event_leader" | "event_deputy" | "subevent_leader" | "subevent_deputy" | "organizer" | "subevent_hr";
 export interface Participation {
   blocks: { block_id: string; name: string; roles: ParticipationRole[] }[];
   events: { event_id: string; title: string; season_id: string; roles: ParticipationRole[] }[];
@@ -586,6 +618,8 @@ export interface AvatarPreset {
 }
 export interface FormerContact {
   contact_id: string;
+  revision: number;
+  capabilities: string[];
   surname: string;
   name: string;
   patronymic?: string | null;
@@ -599,7 +633,7 @@ export interface ArchivedAccount {
   user_id: number;
   display_name: string;
   archived_at: string;
-  master_conflicts?: { block_id: string; current_master: UserRef }[];
+  master_conflicts?: { block_id: string; block_name?: string; current_master: UserRef }[];
 }
 export interface TaskCreate {
   task_type?: TaskType;

@@ -1,4 +1,5 @@
 import { BlockChip } from "../../components/Workspace/BlockChip";
+import { UserChip } from "../../components/Workspace/UserChip";
 import { BlockAvatarPicker } from "../../components/Workspace/BlockAvatarPicker";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -32,6 +33,7 @@ import {
 import { Leaders } from "./EventPages";
 import { OrganizationTree } from "./OrganizationTree";
 import { BlockHr } from "./BlockHr";
+import { HistoryDisclosure } from "../../components/Workspace/HistoryPanel";
 import s from "../../components/Workspace/Workspace.module.css";
 const requestStates = {
   pending_hr: "На рассмотрении HR",
@@ -267,6 +269,7 @@ export function BlockPage() {
                 />
               </Card>
             )}
+            <HistoryDisclosure kind="block" id={id} />
           </div>
         )}
       </QueryState>
@@ -300,6 +303,17 @@ function RequestCard({
       {r.state === "rejected" && r.decision_reason && (
         <p>Причина отказа: {r.decision_reason}</p>
       )}
+      {(r.approvals?.length ?? 0) > 0 ? (
+        <div className={s.stack} role="group" aria-label="Одобрения заявки">
+          <strong>Кто одобрил</strong>
+          {r.approvals.map((approval, index) => <p className={s.row} key={`${approval.stage}-${index}`}>
+            <span>{approval.stage === "hr" ? "Этап HR" : "Этап блока"}:</span>
+            {approval.actor ? <UserChip user={approval.actor} /> : <span className={s.muted}>Автор неизвестен или архивирован</span>}
+            <small>{approval.at ? displayDate(approval.at) : "Дата не записана"}</small>
+            {approval.substitute && <Badge>Подмена руководства</Badge>}
+          </p>)}
+        </div>
+      ) : r.state === "approved" && <p className={s.muted}>Кто одобрил: сведения не сохранены.</p>}
       {r.substitute_available_at && (
         <p className={s.muted}>
           Срок для подмены руководства: {displayDate(r.substitute_available_at)}{" "}

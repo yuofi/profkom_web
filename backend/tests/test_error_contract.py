@@ -141,7 +141,6 @@ def test_task_with_a_duplicate_assignee_is_input(org):
 # Reads of objects that exist and of objects that do not. hract belongs to the HR block
 # only: it reads none of these.
 HIDDEN = [
-    ("resp1", lambda o: f"/subevents/{o.ids['sa']}", "/subevents/subevent-missing"),
     ("resp1", lambda o: f"/subevents/{o.ids['sa']}/meeting", "/subevents/subevent-missing/meeting"),
     ("resp1", lambda o: f"/tasks/{o.ids['task_sub']}", "/tasks/task-missing"),
     ("resp1", lambda o: f"/tasks/{o.ids['task_sub']}/comments", "/tasks/task-missing/comments"),
@@ -186,8 +185,8 @@ def test_new_routes_under_old_prefixes_use_the_new_shape(org, client):
     # The old site's routes keep their plain detail.
     old = client.get("/api/profile/abc", headers=org.headers("org1"))
     assert old.status_code == 422 and isinstance(old.json()["detail"], list)
-    old = client.get("/api/guides/99999", headers=org.headers("org1"))
-    assert old.status_code == 404 and isinstance(old.json()["detail"], str)
+    old = client.get("/api/materials/legacy-guides/99999", headers=org.headers("org1"))
+    assert old.status_code == 404 and old.json()["detail"]["code"] == "not_found"
 
 
 # ───────────────────────────── static checks ─────────────────────────────

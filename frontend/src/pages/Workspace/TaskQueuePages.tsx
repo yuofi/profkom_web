@@ -53,7 +53,7 @@ export function TaskQueuePage() {
   const query = useQuery({ queryKey: ["tasks", "queues", id], queryFn: () => taskQueuesApi.get(id), enabled: !!id });
   const error = query.error ? normalizeApiError(query.error) : null;
   if (error?.status === 403 && error.code === "queue_access_required") return <QueueAccessScreen id={id} error={error} refresh={() => query.refetch()} />;
-  return <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!query.data} retry={() => void query.refetch()}>{query.data?.access === "granted" && <TrackerListPage key={id} queue={query.data} header={<QueueHeader queue={query.data} />} />}</QueryState>;
+  return <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!query.data} retry={() => void query.refetch()}>{query.data?.access === "granted" && <>{query.data.key === "WEBSUPPORT" && <RouteLink to="/support">Обращения и настройки поддержки</RouteLink>}<TrackerListPage key={id} queue={query.data} header={<QueueHeader queue={query.data} />} /></>}</QueryState>;
 }
 function LockIcon() { return <svg aria-hidden="true" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="5" y="10" width="14" height="11" rx="2" /><path d="M8 10V6a4 4 0 0 1 8 0v4" /><path d="M12 14v3" /></svg>; }
 function QueueHeader({ queue }: { queue: TaskQueue }) {

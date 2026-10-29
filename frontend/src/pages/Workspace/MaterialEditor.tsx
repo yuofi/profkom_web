@@ -7,8 +7,9 @@ import { ActionForm } from "../../components/Workspace/ActionForm";
 import { MarkdownContent } from "../../components/Workspace/MarkdownContent";
 import { MarkdownEditor } from "../../components/Workspace/MarkdownEditor";
 import { EntityPicker } from "../../components/Workspace/EntityPicker";
+import { MaterialAudience } from "../../components/Workspace/MaterialAudience";
 import { Empty, QueryState } from "../../components/Workspace/WorkspaceUI";
-import { ids, text } from "../../components/Workspace/formValues";
+import { ids } from "../../components/Workspace/formValues";
 import { useGuardedAction } from "../../components/Workspace/unsavedChangesHooks";
 import { canRetainData } from "../../utils/api/request";
 import { materialsApi } from "../../utils/api/materials.api";
@@ -21,7 +22,6 @@ import w from "../../components/Workspace/Workspace.module.css";
 import s from "./MaterialWorkspace.module.css";
 
 const kinds: Record<string, string> = { kmb: "КМБ", guide: "Гайд блока", general: "Общий документ" };
-const audience = { block: "Только участники блока, его мастер и замы, председатель и замы", everyone: "Все участники Профкома" };
 
 /** Publication is always a separate explicit command; this editor only saves source drafts. */
 export function MaterialEditor({ material: m, onClose }: { material?: Material; onClose?: () => void }) {
@@ -81,7 +81,7 @@ function MaterialManagement({ material: m, onDeleteBusy }: { material: Material;
   const { session } = useSession(), { perform, refresh } = useWorkspaceActions();
   return <>
     {can(m, "publish_material") && <section className={s.management}><h3>Публикация</h3><p className={w.muted}>{m.draft_content ? "Есть сохранённый черновик. Публикация применит именно его, без несохранённых правок." : "Сначала сохраните черновик материала."}</p><ActionForm revision={m.revision} record={`material:${m.material_id}`} fields={[]} disabled={!m.draft_content} savedDetails={<MarkdownContent body={m.source_content?.body ?? ""} />} allowExitSave={false} submitLabel="Опубликовать сохранённый черновик" onConflict={refresh} onSubmit={async (_values, revision) => perform(() => materialsApi.publish(m.material_id, { expected_revision: revision! }))} /></section>}
-    {m.audience && can(m, "edit_audience") && <section className={s.management}><h3>Кто видит гайд</h3><ActionForm revision={m.revision} record={`material:${m.material_id}`} fields={[{ name: "audience", label: "Читатели", type: "select", value: m.audience, options: Object.entries(audience).map(([value, label]) => ({ value, label })) }]} submitLabel="Сохранить" onConflict={refresh} onSubmit={async (values, revision) => perform(() => materialsApi.audience(m.material_id, text(values, "audience") as "block" | "everyone", { expected_revision: revision! }))} /></section>}
+    {m.audience && <section className={s.management}><h3>Кто видит гайд</h3><MaterialAudience material={m} /></section>}
     {m.owner_block_id === null && can(session, "manage_material_editors") && <MaterialEditors material={m} />}
     {can(m, "delete_material") && <MaterialDeletion material={m} onBusy={onDeleteBusy} />}
   </>;

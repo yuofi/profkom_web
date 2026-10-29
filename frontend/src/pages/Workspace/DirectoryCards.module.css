@@ -5,7 +5,7 @@
   align-items: stretch;
 }
 .grid > .card {
-  height: 210px;
+  height: 240px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -13,7 +13,7 @@
   padding: 18px;
   min-width: 0;
 }
-.header { display: flex; align-items: flex-start; gap: 12px; min-width: 0; flex: 1; }
+.header { display: flex; align-items: flex-start; gap: 12px; min-width: 0; min-height: 0; flex: 1; }
 .header > :first-child { flex: 0 0 48px; }
 .identity { min-width: 0; flex: 1; }
 .identity h2, .summary {
@@ -30,7 +30,14 @@
 .category > * { white-space: normal; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--outline-variant); padding-top: 12px; margin-top: auto; }
 .actions button { font-size: 13px; }
+.blocks { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; max-height: 2.8em; overflow: hidden; margin-top: 4px; font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.blocks .blockLink, .blocks .blockLink:hover { color: color-mix(in srgb, var(--on-background) 80%, var(--surface)); text-decoration: none; }
+.blocks .blockLink:hover { color: var(--accent-mint); }
+.blockLink:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.masterBlock { display: inline; }
+.masterBlock .blockLink { color: var(--on-background); font-weight: 500; }
+.masterIcon { width: 14px; height: 14px; margin-right: 4px; vertical-align: -3px; color: var(--accent-mint); }
 @media (max-width: 768px) {
-  .grid > .card { height: 220px; }
+  .grid > .card { height: 250px; }
   .category { max-width: 80px; }
 }

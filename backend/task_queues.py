@@ -31,6 +31,8 @@ def base_read(uid, queue):
 
 def can_read(session, queue, uid):
     if not queue or not uid or not active(session,uid):return False
+    from support import is_support_queue, is_staff
+    if is_support_queue(session, queue):return is_staff(session, uid)
     from access import all_queue_reader
     if all_queue_reader(uid):return True
     if not base_read(uid,queue):return False
@@ -47,6 +49,8 @@ def task_queue(session, task):
 
 def task_read(session, task, uid):
     if not task:return False
+    from support import owns_task
+    if owns_task(session, task.task_id, uid):return True
     queue=task_queue(session,task)
     if queue:return can_read(session,queue,uid)
     from access import all_queue_reader
@@ -125,10 +129,13 @@ def projection(session, queue, uid):
     granted=can_read(session,queue,uid)
     request=_self_request(session,queue,uid)
     caps=[]
-    if granted:caps.append('create_task')
+    from support import is_support_queue
+    if granted and not is_support_queue(session,queue):caps.append('create_task')
     if granted and queue.scope_kind!='queue' and access.allowed(uid,'task.assign_others',queue.scope_kind,queue.scope_id):caps.append('assign_task_others')
-    if granted and queue.owner_user_id==uid:caps+=['manage_queue','view_queue_requests']
-    can_request=not granted and active(session,uid) and (not request or request.status!='pending')
+    from support import is_support_queue
+    if granted and queue.owner_user_id==uid and not is_support_queue(session,queue):caps+=['manage_queue','view_queue_requests']
+    from support import is_support_queue
+    can_request=not is_support_queue(session,queue) and not granted and active(session,uid) and (not request or request.status!='pending')
     if can_request:caps.append('request_queue_access')
     result=dict(**queue_ref(queue),access='granted' if granted else 'locked',capabilities=caps,
         can_request_access=can_request,access_request_status=request.status if request else None)
@@ -205,6 +212,8 @@ def create(uid,name,key,scope=None,owner_user_id=None,is_private=False):
 def managed(session,queue_id,uid):
     q=session.get(TaskQueueORM,queue_id)
     if not q:raise NotFound('Queue not found')
+    from support import is_support_queue
+    if is_support_queue(session,q):raise Forbidden('Use support settings to manage this queue')
     if not can_read(session,q,uid) or q.owner_user_id!=uid:raise Forbidden('Only the queue owner can manage this queue')
     return q
 
@@ -246,6 +255,8 @@ def request_access(queue_id,uid,message=''):
         q=session.get(TaskQueueORM,queue_id)
         if not q:raise NotFound('Queue not found')
         if not active(session,uid):raise Forbidden('Only active users may request queue access')
+        from support import is_support_queue
+        if is_support_queue(session,q):raise Forbidden('Support access is delegated by its leaders')
         if can_read(session,q,uid):raise Conflict('Queue access is already granted')
         current=_self_request(session,q,uid)
         if current and current.status=='pending':return projection(session,q,uid)

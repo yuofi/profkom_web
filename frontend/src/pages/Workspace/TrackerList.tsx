@@ -191,7 +191,7 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
             <td className={s.taskTitle}><Link to={getTaskRoute(task.task_id)}>{task.title}</Link></td>
             <td className={s.assignees} data-label="Исполнители"><div>{(task.assignees ?? task.assignments.map((assignment) => assignment.assignee)).map((person, index) => <UserChip user={person} key={`${person.user_id ?? "historical"}-${index}`} />)}</div></td>
             <td className={s.status} data-label="Статус"><TaskStatusMenu task={task} variant="chip" /></td>
-            <td className={s.deadline} data-label="Дедлайн"><time dateTime={task.deadline_at}>{displayDate(task.deadline_at)}</time></td>
+            <td className={s.deadline} data-label="Дедлайн">{task.deadline_at ? <time dateTime={task.deadline_at}>{displayDate(task.deadline_at)}</time> : <span>Не задан</span>}</td>
             <td className={s.scope} data-label="Команда">{task.scope_title ?? (task.scope.kind === "block" ? "Блок" : task.scope.kind === "subevent" ? "Подмероприятие" : "Очередь")}</td>
             <td className={s.updated} data-label="Обновлено">{task.updated_at ? <time dateTime={task.updated_at}>{displayDate(task.updated_at)}</time> : "Нет данных"}</td>
           </tr>)}</tbody>

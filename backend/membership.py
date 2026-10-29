@@ -195,12 +195,52 @@ def can_review(r, uid):
     return access.can_review_request(uid, r.state, legacy_name(r.block_id), ready)
 
 
+def _request_history(r):
+    """Read old history defensively without repairing or persisting it."""
+    try:
+        history = json.loads(r.history_json or "[]")
+    except (TypeError, ValueError, RecursionError):
+        return []
+    return [entry for entry in history if isinstance(entry, dict)] if isinstance(history, list) else []
+
+
+def _approval_time(value):
+    if not isinstance(value, str):
+        return None
+    try:
+        datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return value
+
+
+def request_approvals(s, r):
+    """Only a saved approval transition proves its stage, never today's roles."""
+    result = []
+    for entry in _request_history(r):
+        old, state = entry.get("old_state"), entry.get("state")
+        if old == "pending_hr" and state in ("pending_block", "approved"):
+            stage = "hr"
+        elif old == "pending_block" and state == "approved":
+            stage = "block"
+        else:
+            continue
+        actor_id = entry.get("actor")
+        actor = db._get_user_ref(s, actor_id) if type(actor_id) is int and 0 < actor_id <= 2**63 - 1 else None
+        result.append(dict(stage=stage, actor=asdict(actor) if actor else None,
+            at=_approval_time(entry.get("at")),
+            substitute=entry.get("substitute") is True))
+    return result
+
+
 def decision(r):
     """When a closed request was decided and, if rejected, the reason given."""
     if r.state in ("pending_hr", "pending_block"):
         return None, None
-    last = next((h for h in reversed(json.loads(r.history_json or "[]")) if h.get("state") == r.state), {})
-    return last.get("at"), last.get("reason") if r.state == "rejected" else None
+    last = next((h for h in reversed(_request_history(r)) if h.get("state") == r.state), {})
+    at = last.get("at") if isinstance(last.get("at"), str) else None
+    reason = last.get("reason") if r.state == "rejected" and isinstance(last.get("reason"), str) else None
+    return at, reason
 
 
 def request_dto(s, r, uid):
@@ -232,6 +272,7 @@ def request_dto(s, r, uid):
         decided_at=decided_at,
         # Everyone who sees the request is in the circle of decision 16
         decision_reason=reason,
+        approvals=request_approvals(s, r),
         revision=r.revision,
         capabilities=caps,
     )
@@ -352,6 +393,8 @@ def patch_block(id, payload, uid):
                 fail(422, "Invalid name")
             if s.get(BlockORM, new):
                 fail(409, "Block name already exists", "name_taken")
+            from accounts import rename_archived_block_scopes
+            rename_archived_block_scopes(s, name, new, m.block_id)
             from database import (
                 TaskQueueORM,
                 TaskORM,
@@ -467,20 +510,11 @@ def register_routes(router):
                     history_json="[]",
                 )
                 s.add(r)
-                for hr in s.query(BlockORM).filter_by(is_hr=True):
-                    if hr.master_user_id:
-                        s.add(
-                            NotificationORM(
-                                notification_id=str(uuid.uuid4()),
-                                user_id=hr.master_user_id,
-                                kind="block_request_pending_hr",
-                                payload_json=json.dumps(
-                                    dict(scope_kind="block", scope_id=name)
-                                ),
-                                is_read=False,
-                                created_at=now(),
-                            )
-                        )
+                from notifications import emit
+                recipients = [person.user_id for person in s.query(UserORM)
+                              if access.can_review_request(person.user_id, "pending_hr", name, False)]
+                emit(s, recipients, "block_request_pending_hr", dict(request_id=r.request_id, scope_kind="block", scope_id=name),
+                     f"block-request:{r.request_id}:created", cur.user_id)
                 audit(
                     s,
                     "block_request",
@@ -539,19 +573,11 @@ def register_routes(router):
                     fail(409, "Wrong review stage")
             if r.state == "pending_block":
                 r.stage_entered_at = now()
-                if b.master_user_id:
-                    s.add(
-                        NotificationORM(
-                            notification_id=str(uuid.uuid4()),
-                            user_id=b.master_user_id,
-                            kind="block_request_pending_block",
-                            payload_json=json.dumps(
-                                dict(scope_kind="block", scope_id=name)
-                            ),
-                            is_read=False,
-                            created_at=now(),
-                        )
-                    )
+                from notifications import emit
+                recipients = [person.user_id for person in s.query(UserORM)
+                              if access.can_review_request(person.user_id, "pending_block", name, False)]
+                emit(s, recipients, "block_request_pending_block", dict(request_id=r.request_id, scope_kind="block", scope_id=name),
+                     f"block-request:{r.request_id}:pending-block:{r.revision}", cur.user_id)
             if r.state == "approved":
                 u = s.get(UserORM, r.user_id)
                 if not u or u.account_state != "active" or u.banned:
@@ -591,6 +617,9 @@ def register_routes(router):
                     created_at=now(),
                 )
             )
+            from profile_features import collect_delivery_event
+            collect_delivery_event(s, r.user_id, "block_request_" + r.state, {"request_id": r.request_id},
+                                   f"block-request:{r.request_id}:state:{r.revision}")
             s.commit()
             return request_dto(s, r, cur.user_id)
 

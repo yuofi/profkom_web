@@ -152,6 +152,8 @@ class PgasEntryORM(Base):
     file_type = Column(String, nullable=False, default="")
     created_at = Column(String, nullable=False, default="")
     uploaded_by = Column(Integer, ForeignKey("users.user_id"), nullable=True)
+    half_year = Column(Integer, nullable=True)
+    revision = Column(Integer, nullable=False, default=1, server_default="1")
 
 
 class RefreshTokenORM(Base):
@@ -280,12 +282,12 @@ class TaskORM(Base):
     __tablename__ = "tasks"
 
     task_id = Column(String, primary_key=True)
-    season_id = Column(String, ForeignKey("seasons.season_id"), nullable=False, index=True)
+    season_id = Column(String, ForeignKey("seasons.season_id"), nullable=True, index=True)
     scope_kind = Column(String, nullable=False)  # "block" | "subevent"
     scope_id = Column(String, nullable=False, index=True)
     title = Column(String, nullable=False)
     description_json = Column(Text, nullable=False, default='{"format":"markdown","body":""}')
-    deadline_at = Column(String, nullable=False)
+    deadline_at = Column(String, nullable=True)
     assigned_at = Column(String, nullable=False)
     criteria_json = Column(Text, nullable=False, default='{"unique":false,"creative":false,"external_communication":false,"in_person":false,"fixed_time":false}')
     created_by_user_id = Column(Integer, nullable=False)
@@ -591,7 +593,7 @@ class ReportORM(Base):
     season_id = Column(String, ForeignKey("seasons.season_id"), nullable=False, index=True)
     kind = Column(String, nullable=False)  # "regular" | "final"
     title = Column(String, nullable=False)
-    content_json = Column(Text, nullable=False, default='{"format":"markdown","body":""}')
+    content_json = Column(Text, nullable=False, default="")
     files_json = Column(Text, nullable=False, default='[]')
     draft_title = Column(String, nullable=True)
     draft_content_json = Column(Text, nullable=True)
@@ -644,8 +646,23 @@ class AuditLogORM(Base):
 
 
 import domain_models  # registers domain tables on the same Base
+import event_workspace_models
+import profile_features_models
+import support_models
+import history_models
 
 Base.metadata.create_all(bind=engine)
+support_models.upgrade_tasks(engine)
+
+
+def _ensure_sqlite_material_deleted_at():
+    with engine.begin() as connection:
+        columns = {row[1] for row in connection.execute(text("PRAGMA table_info(materials)"))}
+        if columns and "deleted_at" not in columns:
+            connection.execute(text("ALTER TABLE materials ADD COLUMN deleted_at VARCHAR"))
+
+
+_ensure_sqlite_material_deleted_at()
 
 
 def _ensure_sqlite_block_avatar_column() -> None:
@@ -668,6 +685,38 @@ def _ensure_sqlite_block_hr_assignment_column() -> None:
 
 
 _ensure_sqlite_block_hr_assignment_column()
+
+
+def _ensure_sqlite_former_contact_columns() -> None:
+    """Do not infer identities for existing independent cards or merge duplicates."""
+    with engine.begin() as conn:
+        names = {row[1] for row in conn.execute(text("PRAGMA table_info(former_contacts)"))}
+        if not names:
+            return
+        if "revision" not in names:
+            conn.execute(text("ALTER TABLE former_contacts ADD COLUMN revision INTEGER NOT NULL DEFAULT 1"))
+        if "source_user_id" not in names:
+            conn.execute(text("ALTER TABLE former_contacts ADD COLUMN source_user_id INTEGER"))
+        duplicates = conn.execute(text("SELECT source_user_id FROM former_contacts WHERE source_user_id IS NOT NULL GROUP BY source_user_id HAVING count(*) > 1")).first()
+        if duplicates:
+            raise RuntimeError("Duplicate former-contact source identities require explicit repair; records were not merged")
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_former_contact_source_user ON former_contacts(source_user_id)"))
+
+
+_ensure_sqlite_former_contact_columns()
+
+
+def _ensure_sqlite_scope_tenure_provenance() -> None:
+    """Keep old role dates and labels unchanged; only future observations prove IDs."""
+    with engine.begin() as conn:
+        names = {row[1] for row in conn.execute(text("PRAGMA table_info(scope_tenures)"))}
+        if names and "scope_block_id" not in names:
+            conn.execute(text("ALTER TABLE scope_tenures ADD COLUMN scope_block_id VARCHAR REFERENCES block_metadata(block_id)"))
+        if names:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_scope_tenures_scope_block_id ON scope_tenures(scope_block_id)"))
+
+
+_ensure_sqlite_scope_tenure_provenance()
 
 
 def _ensure_sqlite_tracker_stage2_columns() -> None:
@@ -805,12 +854,19 @@ def generate_summary_xlsx(summary: SeasonSummaryDC, contributions: list[Calculat
         return res
 
     summary_headers = ["Место", "Участник", "Группа", "Категория", "Блоки", "Мастер", "Статус", "Кол-во задач", "Итоговый ККР", "Прошлое место", "Решения", "Прошлые решения"]
+    source_columns = {}
+    for row in summary.rows:
+        for source in row.source_scores:
+            source_columns[(source.source_kind, source.source_id)] = source.title
+    source_keys = sorted(source_columns)
+    summary_headers.extend(f"{source_columns[key]} ({XLSX_SOURCES.get(key[0], key[0])})" for key in source_keys)
     summary_rows = [summary_headers]
     for r in summary.rows:
         blocks_str = ", ".join(b.name for b in r.blocks)
         status_str = "Уже исключён" if r.is_archived else "Действующий"
         master_str = "Да" if r.is_master else "Нет"
         dec_str = ", ".join(XLSX_DECISIONS.get(d, d) for d in r.decisions)
+        source_values = {(source.source_kind, source.source_id): source.score for source in r.source_scores}
         summary_rows.append([
             r.rank,
             r.user.display_name,
@@ -824,7 +880,7 @@ def generate_summary_xlsx(summary: SeasonSummaryDC, contributions: list[Calculat
             r.previous_rank if r.previous_rank is not None else "",
             dec_str,
             ", ".join(XLSX_DECISIONS.get(d, d) for d in r.previous_decisions),
-        ])
+        ] + [source_values.get(key, 0.0) for key in source_keys])
 
     contrib_headers = ["ID", "Сезон", "Участник", "Тип источника", "Источник", "Баллы", "Версия расчёта", "ID участника", "ID источника", "Назначение", "Заслуга", "Бонус", "Часы", "Оценка", "Выдано", "Дедлайн", "Выполнено", "Критерии", "Баллы без округления"]
     contrib_rows = [contrib_headers]
@@ -899,8 +955,11 @@ def generate_summary_xlsx(summary: SeasonSummaryDC, contributions: list[Calculat
                     if isinstance(val, (int, float)):
                         s.append(f'<c r="{ref}"><v>{val}</v></c>')
                     else:
-                        esc = xml.sax.saxutils.escape(str(val))
-                        s.append(f'<c r="{ref}" t="inlineStr"><is><t>{esc}</t></is></c>')
+                        safe = "".join(character for character in str(val)
+                            if ord(character) in (9, 10, 13) or 0x20 <= ord(character) <= 0xD7FF
+                            or 0xE000 <= ord(character) <= 0xFFFD or 0x10000 <= ord(character) <= 0x10FFFF)
+                        esc = xml.sax.saxutils.escape(safe)
+                        s.append(f'<c r="{ref}" t="inlineStr"><is><t xml:space="preserve">{esc}</t></is></c>')
                 s.append("</row>")
             s.append("</sheetData></worksheet>")
             z.writestr(f"xl/worksheets/sheet{i}.xml", "".join(s))
@@ -1028,6 +1087,10 @@ def _ensure_sqlite_pgas_entries_columns() -> None:
         if not rows:
             return
         col_names = {r[1] for r in rows}
+        if "half_year" not in col_names:
+            conn.execute(text("ALTER TABLE pgas_entries ADD COLUMN half_year INTEGER"))
+        if "revision" not in col_names:
+            conn.execute(text("ALTER TABLE pgas_entries ADD COLUMN revision INTEGER NOT NULL DEFAULT 1"))
         if "full_name" in col_names and "title" not in col_names:
             conn.execute(text("ALTER TABLE pgas_entries RENAME COLUMN full_name TO title"))
         if "group_number" in col_names and "year" not in col_names:
@@ -1411,6 +1474,8 @@ def _pgas_orm_to_dc(p: PgasEntryORM) -> PgasEntryDC:
         file_type=p.file_type or "",
         created_at=p.created_at or "",
         uploaded_by=p.uploaded_by,
+        half_year=p.half_year,
+        revision=p.revision,
     )
 
 
@@ -1850,7 +1915,7 @@ def _recalculate_assignment_contribution(session: Session, a: AssignmentORM, t: 
                 contrib = ContributionORM(
                     contribution_id=f"contrib-{a.assignment_id}",
                     season_id=t.season_id,
-                    participant_id=f"participant-{a.assignee_user_id}",
+                    participant_id=accounting_participant_id(a.assignee_user_id),
                     user_id=a.assignee_user_id,
                     source_kind=source_kind,
                     source_id=t.scope_id,
@@ -1884,7 +1949,8 @@ def _recalculate_merit_contribution(session: Session, m: MeritORM):
         pass
 
     seen_uids = set()
-    source_id = (m.scope_id if m.scope_kind else m.event_id) or "merit"
+    from season_summaries import chair_merit_table_id
+    source_id = chair_merit_table_id(m.season_id) if m.source_kind == "chair_merit" else (m.scope_id if m.scope_kind else m.event_id) or "merit"
     now_str = datetime.now(timezone.utc).isoformat()
 
     for r in recipients:
@@ -1982,9 +2048,10 @@ def _calculate_master_bonuses_for_session(session: Session, season_id: str) -> l
         for c in contribs:
             candidate_uids.add(c.user_id)
 
-        member_task_scores: dict[int, float] = {uid: 0.0 for uid in candidate_uids}
+        member_scores = {uid: [] for uid in candidate_uids}
         for c in contribs:
-            member_task_scores[c.user_id] = member_task_scores.get(c.user_id, 0.0) + (c.score or 0.0)
+            member_scores.setdefault(c.user_id, []).append(c.score or 0.0)
+        member_task_scores = {uid: math.fsum(values) for uid, values in member_scores.items()}
 
         basis_items = []
         for uid in sorted(candidate_uids):
@@ -2011,7 +2078,7 @@ def _calculate_master_bonuses_for_session(session: Session, season_id: str) -> l
 
         eligible = [item for item in basis_items if item.included]
         eligible_count = len(eligible)
-        amount = sum(item.member_task_score for item in eligible) / eligible_count if eligible_count > 0 else 0.0
+        amount = math.fsum(item.member_task_score for item in eligible) / eligible_count if eligible_count > 0 else 0.0
 
         recip_u = session.get(UserORM, master_uid) if master_uid else None
         recip_ref = _user_to_ref_dc(recip_u) if recip_u else None
@@ -2023,7 +2090,7 @@ def _calculate_master_bonuses_for_session(session: Session, season_id: str) -> l
                 bonus_id=f"bonus-{season_id}-{b.name}",
                 season_id=season_id,
                 block_id=b.name,
-                recipient_participant_id=f"participant-{master_uid}" if master_uid else None,
+                recipient_participant_id=accounting_participant_id(master_uid) if master_uid else None,
                 recipient=recip_ref,
                 eligible_organizer_count=eligible_count,
                 amount=amount,
@@ -2049,7 +2116,8 @@ def _recalculate_closed_master_bonuses_for_session(session: Session, season_id: 
         new_basis = []
         for item in basis_items_data:
             uid = item.get("user", {}).get("user_id")
-            if not uid:
+            pid = item.get("participant_id") or (accounting_participant_id(uid) if uid is not None else None)
+            if not pid:
                 continue
             contribs = (
                 session.query(ContributionORM)
@@ -2057,15 +2125,15 @@ def _recalculate_closed_master_bonuses_for_session(session: Session, season_id: 
                     ContributionORM.season_id == season_id,
                     ContributionORM.source_kind == "block_task",
                     ContributionORM.source_id == mb.block_id,
-                    ContributionORM.user_id == uid,
+                    ContributionORM.participant_id == pid,
                 )
                 .all()
             )
-            score = sum(c.score or 0.0 for c in contribs)
+            score = math.fsum(c.score or 0.0 for c in contribs)
 
             included = False
             exclusion = None
-            if mb.recipient_user_id is not None and uid == mb.recipient_user_id:
+            if item.get("exclusion") == "master" or pid == mb.recipient_participant_id or (uid is not None and uid == mb.recipient_user_id):
                 exclusion = "master"
             elif score <= 0:
                 exclusion = "non_positive"
@@ -2074,7 +2142,7 @@ def _recalculate_closed_master_bonuses_for_session(session: Session, season_id: 
 
             new_basis.append(
                 {
-                    "participant_id": item.get("participant_id"),
+                    "participant_id": pid,
                     "user": item.get("user"),
                     "member_task_score": score,
                     "included": included,
@@ -2084,13 +2152,14 @@ def _recalculate_closed_master_bonuses_for_session(session: Session, season_id: 
 
         eligible = [b for b in new_basis if b["included"]]
         eligible_count = len(eligible)
-        amount = sum(b["member_task_score"] for b in eligible) / eligible_count if eligible_count > 0 else 0.0
+        amount = math.fsum(b["member_task_score"] for b in eligible) / eligible_count if eligible_count > 0 else 0.0
 
         mb.eligible_organizer_count = eligible_count
         mb.amount = amount
         mb.basis_json = json.dumps(new_basis)
 
         if mb.recipient_user_id:
+            mb.recipient_participant_id = accounting_participant_id(mb.recipient_user_id)
             c = (
                 session.query(ContributionORM)
                 .filter(
@@ -2180,6 +2249,7 @@ def _calculate_season_summary_for_session(session: Session, season_id: str, is_a
         except Exception:
             curr_decisions[dr.user_id] = []
 
+    provisional_bonuses = _calculate_master_bonuses_for_session(session, season_id) if not is_approved else []
     rows: list[SummaryRowDC] = []
     for u in included_users:
         u_ref = _user_to_ref_dc(u) or UserRefDC(user_id=u.user_id, display_name=f"Участник {u.user_id}", avatar_url=None)
@@ -2204,7 +2274,15 @@ def _calculate_season_summary_for_session(session: Session, season_id: str, is_a
         ).all()
         from season_summaries import totals
         source_scores=[SummaryRowSourceScoreDC(**x) for x in totals(session,season_id,accounting_participant_id(u.user_id))]
-        total_score = sum(c.score or 0.0 for c in contribs)
+        if not is_approved:
+            source_scores = [source for source in source_scores if source.source_kind != "master_bonus"]
+            for bonus in provisional_bonuses:
+                if bonus.recipient_participant_id == accounting_participant_id(u.user_id) and bonus.amount > 0:
+                    from season_summaries import source_title
+                    from membership import block_id_for
+                    source_scores.append(SummaryRowSourceScoreDC(source_kind="master_bonus", source_id=block_id_for(bonus.block_id),
+                        title=source_title(session, "master_bonus", bonus.block_id), score=bonus.amount))
+        total_score = math.fsum(source.score for source in source_scores)
 
         eval_count = (
             session.query(AssignmentORM).filter(
@@ -2236,17 +2314,16 @@ def _calculate_season_summary_for_session(session: Session, season_id: str, is_a
             )
         )
 
-    rows.sort(key=lambda r: r.total_score, reverse=True)
-    rank = 1
-    for i, r in enumerate(rows):
-        if i > 0 and r.total_score < rows[i - 1].total_score:
-            rank = i + 1
-        r.rank = rank
+    from season_summaries import rerank
+    rerank(rows)
 
     summary_state = "approved" if is_approved else "draft"
     caps = ["view_summary", "export_xlsx"]
     if summary_state == "approved":
         caps.append("correct_summary")
+        import access
+        if access.allowed(access.actor_id.get(), "summary.decide", state="closed"):
+            caps.append("edit_decisions")
     else:
         caps.append("edit_decisions")
 
@@ -2774,6 +2851,8 @@ class Database:
                 file_type=entry.file_type or "",
                 created_at=entry.created_at or "",
                 uploaded_by=entry.uploaded_by,
+                half_year=entry.half_year,
+                revision=1,
             )
             session.add(p)
             session.commit()
@@ -3414,6 +3493,7 @@ class Database:
                 if dt(merit.deadline_at)>dt(ends_at or row.ends_at):raise InvalidInput("Cannot shorten season before merit deadline")
             if row.revision != expected_revision:
                 raise revision_conflict()
+            session.info["history_reason"] = reason
             if title is not None:
                 row.title = title
             if starts_at is not None:
@@ -3421,7 +3501,9 @@ class Database:
             if ends_at is not None:
                 evs = session.query(EventORM).filter(EventORM.season_id == season_id).all()
                 for ev in evs:
-                    if ev.ends_at and ev.ends_at > ends_at:
+                    if ev.starts_at and dt(ev.starts_at) > dt(ends_at):
+                        raise InvalidInput("Cannot shorten season before event start")
+                    if ev.ends_at and dt(ev.ends_at) > dt(ends_at):
                         raise InvalidInput(f"Cannot shorten season ends_at before event '{ev.title}' deadline ({ev.ends_at})")
                 row.ends_at = ends_at
             row.revision += 1
@@ -3452,103 +3534,9 @@ class Database:
             if expected_revision is not None and row.revision != expected_revision:
                 raise revision_conflict()
 
-            blockers = []
-            if row.previous_season_id:
-                prev = session.get(SeasonORM, row.previous_season_id)
-                if prev and prev.state != "closed":
-                    blockers.append({
-                        "kind": "previous_season_not_closed",
-                        "owner_kind": "season",
-                        "owner_id": row.previous_season_id,
-                        "title": "Previous season not closed",
-                        "subject": prev.title,
-                    })
-
-            # Check unfinished assignments & missing assessments
-            season_tasks = session.query(TaskORM).filter(TaskORM.season_id == season_id).all()
-            task_map = {t.task_id: t for t in season_tasks}
-            # subject and assignee let the client say in Russian what blocks and whose it is (2.13).
-            def assignee(a):
-                ref = _user_to_ref_dc(session.get(UserORM, a.assignee_user_id))
-                return ref.display_name if ref else None
-
-            if season_tasks:
-                assignments = session.query(AssignmentORM).filter(AssignmentORM.task_id.in_(list(task_map.keys()))).all()
-                for a in assignments:
-                    t = task_map.get(a.task_id)
-                    from tracker import metadata as tracker_metadata, participants
-                    if t.scope_kind=="queue":continue
-                    if a.status in UNRESOLVED_STATUSES:
-                        blockers.append({
-                            "kind": "unfinished_assignment",
-                            "owner_kind": "assignment",
-                            "owner_id": a.assignment_id,
-                            "title": f"Unfinished assignment on task '{t.title if t else a.task_id}'",
-                            "subject": t.title if t else None,
-                            "assignee": assignee(a),
-                        })
-                    elif a.status in ("accepted", "not_completed"):
-                        if a.evaluation is None or (a.status == "accepted" and a.hours is None):
-                            blockers.append({
-                                "kind": "missing_assessment",
-                                "owner_kind": "assignment",
-                                "owner_id": a.assignment_id,
-                                "title": f"Missing assessment on task '{t.title if t else a.task_id}'",
-                                "subject": t.title if t else None,
-                                "assignee": assignee(a),
-                            })
-
+            from season_readiness import blockers as close_blockers
             from access import actor_id
-            actor=actor_id.get()
-            if actor:
-                from task_queues import task_queue
-                public_blockers=[];hidden_queues=set()
-                for blocker in blockers:
-                    assignment=session.get(AssignmentORM,blocker['owner_id']) if blocker['owner_kind']=='assignment' else None
-                    task=task_map.get(assignment.task_id) if assignment else None
-                    if task and not self.can_read_task(actor,task,session):
-                        queue=task_queue(session,task)
-                        key=(queue.queue_id if queue else 'unavailable',blocker['kind'])
-                        if key in hidden_queues:continue
-                        hidden_queues.add(key)
-                        blocker=dict(kind=blocker['kind'],owner_kind='task_queue',owner_id=key[0],
-                            title='Unfinished work in a private queue',subject='Закрытая очередь',assignee=None)
-                    public_blockers.append(blocker)
-                blockers=public_blockers
-
-            # Check missing final reports for events and subevents
-            events = session.query(EventORM).filter(EventORM.season_id == season_id).all()
-            for ev in events:
-                final_rep = session.query(ReportORM).filter(
-                    ReportORM.owner_kind == "event",
-                    ReportORM.owner_id == ev.event_id,
-                    ReportORM.kind == "final",
-                    ReportORM.state == "published",
-                ).first()
-                if not final_rep:
-                    blockers.append({
-                        "kind": "missing_final_report",
-                        "owner_kind": "event",
-                        "owner_id": ev.event_id,
-                        "title": f"Missing final report for event '{ev.title}'",
-                        "subject": ev.title,
-                    })
-                subevents = session.query(SubeventORM).filter(SubeventORM.event_id == ev.event_id).all()
-                for sub in subevents:
-                    sub_rep = session.query(ReportORM).filter(
-                        ReportORM.owner_kind == "subevent",
-                        ReportORM.owner_id == sub.subevent_id,
-                        ReportORM.kind == "final",
-                        ReportORM.state == "published",
-                    ).first()
-                    if not sub_rep:
-                        blockers.append({
-                            "kind": "missing_final_report",
-                            "owner_kind": "subevent",
-                            "owner_id": sub.subevent_id,
-                            "title": f"Missing final report for subevent '{sub.title}'",
-                            "subject": sub.title,
-                        })
+            blockers = close_blockers(session, row, actor_id.get())
 
             if blockers:
                 raise SeasonNotReadyError(blockers)
@@ -4034,6 +4022,7 @@ class Database:
         starts_at: Optional[str] = None,
         ends_at: Optional[str] = None,
         report_series_id: Optional[str] = None,
+        *, all_day: bool = False,
     ) -> EventDC:
         with self._session() as session:
             season = session.get(SeasonORM, season_id)
@@ -4070,6 +4059,9 @@ class Database:
                 revision=1,
             )
             session.add(ev)
+            session.flush()
+            from event_workspace import save_metadata
+            save_metadata(session, "event", ev.event_id, all_day=all_day, supplied={"all_day"})
             session.commit()
             return _event_orm_to_dc(session, ev)
 
@@ -4095,6 +4087,7 @@ class Database:
         ends_at: Optional[str] = None,
         clear_starts_at: bool = False,
         clear_ends_at: bool = False,
+        all_day: Optional[bool] = None,
     ) -> EventDC:
         with self._session() as session:
             ev = session.get(EventORM, event_id)
@@ -4103,7 +4096,8 @@ class Database:
             season=session.get(SeasonORM,ev.season_id)
             if season.state=="closed":raise season_closed("Conflict: closed event metadata is immutable")
             from event_rules import dates
-            normalized_start,normalized_end=dates(season,None if clear_starts_at else starts_at if starts_at is not None else ev.starts_at,None if clear_ends_at else ends_at if ends_at is not None else ev.ends_at)
+            changing_dates = clear_starts_at or clear_ends_at or starts_at is not None or ends_at is not None or all_day is not None
+            normalized_start, normalized_end = (dates(season, None if clear_starts_at else starts_at if starts_at is not None else ev.starts_at, None if clear_ends_at else ends_at if ends_at is not None else ev.ends_at) if changing_dates else (ev.starts_at, ev.ends_at))
             if starts_at is not None:starts_at=normalized_start
             if ends_at is not None:ends_at=normalized_end
             if title is not None and not title.strip():raise InvalidInput("Title is required")
@@ -4117,6 +4111,9 @@ class Database:
                 ev.starts_at = normalized_start
             if clear_ends_at or ends_at is not None:
                 ev.ends_at = normalized_end
+            if changing_dates:
+                from event_workspace import save_metadata
+                save_metadata(session, "event", ev.event_id, all_day=all_day, supplied={"starts_at", "ends_at"} | ({"all_day"} if all_day is not None else set()))
             ev.revision += 1
             session.commit()
             return _event_orm_to_dc(session, ev)
@@ -4127,6 +4124,8 @@ class Database:
         title: str,
         description: str,
         report_series_id: Optional[str] = None,
+        *, starts_at: Optional[str] = None, ends_at: Optional[str] = None,
+        all_day: bool = False, announcement: str = "",
     ) -> SubeventDC:
         with self._session() as session:
             ev = session.get(EventORM, event_id)
@@ -4160,6 +4159,9 @@ class Database:
                 revision=1,
             )
             session.add(sub)
+            session.flush()
+            from event_workspace import save_metadata
+            save_metadata(session, "subevent", sub.subevent_id, starts_at=starts_at, ends_at=ends_at, all_day=all_day, announcement=announcement, supplied={"starts_at", "ends_at", "all_day"})
             session.commit()
             return _subevent_orm_to_dc(session, sub)
 
@@ -4179,6 +4181,9 @@ class Database:
         expected_revision: int,
         title: Optional[str] = None,
         description: Optional[str] = None,
+        *, starts_at: Optional[str] = None, ends_at: Optional[str] = None,
+        all_day: Optional[bool] = None, announcement: Optional[str] = None,
+        supplied=frozenset(),
     ) -> SubeventDC:
         with self._session() as session:
             sub = session.get(SubeventORM, subevent_id)
@@ -4192,6 +4197,8 @@ class Database:
                 sub.title = title
             if description is not None:
                 sub.description = description
+            from event_workspace import save_metadata
+            save_metadata(session, "subevent", sub.subevent_id, starts_at=starts_at, ends_at=ends_at, all_day=all_day, announcement=announcement, supplied=supplied)
             sub.revision += 1
             session.commit()
             return _subevent_orm_to_dc(session, sub)
@@ -5008,7 +5015,7 @@ class Database:
                 raise NotFound("Assignment not found")
             task=session.get(TaskORM,a.task_id)
             if not task or not self.can_read_task(user_id,task,session):raise Forbidden("Forbidden: scope access ended")
-            if session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
+            if task.season_id and session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
             if a.assignee_user_id != user_id:
                 raise Forbidden("Forbidden: only assignee can start assignment")
             if a.revision != expected_revision:
@@ -5031,7 +5038,7 @@ class Database:
                 raise NotFound("Assignment not found")
             task=session.get(TaskORM,a.task_id)
             if not task or not self.can_read_task(user_id,task,session):raise Forbidden("Forbidden: scope access ended")
-            if session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
+            if task.season_id and session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
             if a.assignee_user_id != user_id:
                 raise Forbidden("Forbidden: only assignee can request help")
             if a.revision != expected_revision:
@@ -5086,7 +5093,7 @@ class Database:
                 raise NotFound("Assignment not found")
             task=session.get(TaskORM,a.task_id)
             if not task or not self.can_read_task(user_id,task,session):raise Forbidden("Forbidden: scope access ended")
-            if session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
+            if task.season_id and session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
             if a.assignee_user_id != user_id:
                 raise Forbidden("Forbidden: only assignee can resume assignment")
             if a.revision != expected_revision:
@@ -5115,7 +5122,7 @@ class Database:
                 raise NotFound("Assignment not found")
             task=session.get(TaskORM,a.task_id)
             if not task or not self.can_read_task(user_id,task,session):raise Forbidden("Forbidden: scope access ended")
-            if session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
+            if task.season_id and session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
             if a.assignee_user_id != user_id:
                 raise Forbidden("Forbidden: only assignee can submit assignment")
             if a.revision != expected_revision:
@@ -5844,7 +5851,12 @@ class Database:
             if source_kind:
                 q = q.filter(ContributionORM.source_kind == source_kind)
             if source_id:
-                q = q.filter(ContributionORM.source_id == source_id)
+                if source_id.startswith("chair-merits:"):
+                    q = q.filter(ContributionORM.source_kind == "chair_merit",
+                        ContributionORM.season_id == source_id.removeprefix("chair-merits:"),
+                        ContributionORM.source_id.in_((source_id, "merit")))
+                else:
+                    q = q.filter(ContributionORM.source_id == source_id)
             if user_id:
                 q = q.filter(ContributionORM.user_id == user_id)
             if participant_id:
@@ -5878,7 +5890,7 @@ class Database:
                         participant_id=c.participant_id,
                         user=u_ref,
                         source_kind=c.source_kind,
-                        source_id=c.source_id,
+                        source_id=("chair-merits:" + c.season_id) if c.source_kind == "chair_merit" else c.source_id,
                         source_title="Закрытая задача" if source_hidden else c.source_title,
                         source_hidden=source_hidden,
                         score=c.score,
@@ -6170,6 +6182,8 @@ class Database:
                     caps = ["view_summary", "export_xlsx"]
                     if access.allowed(current_user_id, "summary.correct"):
                         caps.append("correct_summary")
+                    if access.allowed(current_user_id, "summary.decide", state="closed"):
+                        caps.append("edit_decisions")
                     from task_queues import mask_summary
                     return mask_summary(session,SeasonSummaryDC(
                         season_id=season_id,
@@ -6476,6 +6490,8 @@ migrate_core()
 
 from material_seed import seed_materials
 seed_materials()
+from material_updates import migrate_kmb
+migrate_kmb()
 
 
 from directory_seed import migrate_avatars

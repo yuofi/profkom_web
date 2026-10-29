@@ -16,7 +16,7 @@ from fastapi import FastAPI, HTTPException, Depends, APIRouter, Request, Respons
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict, model_serializer
 
-from models import Block, ContactInfo, User, Guide, PgasEntry, Season, Event, Subevent, Meeting, Leader, ReportSeries, Report, ReportVersion, Notification
+from models import Block, ContactInfo, User, PgasEntry, Season, Event, Subevent, Meeting, Leader, ReportSeries, Report, ReportVersion, Notification
 from database import db, generate_summary_xlsx
 import database as database_module
 
@@ -166,41 +166,13 @@ class MeOut(ContactInfoOut):
     has_password: bool = True
 
 
-class GuideIn(BaseModel):
-    title: str
-    owner_block: Optional[str] = "none"
-    text: Optional[str] = ""
-    description: Optional[str] = ""
-    original_link: Optional[str] = None
-
-
-class GuideUpdate(BaseModel):
-    expected_revision: Optional[int] = None
-    title: Optional[str] = None
-    owner_block: Optional[str] = None
-    text: Optional[str] = None
-    description: Optional[str] = None
-    original_link: Optional[str] = None
-
-
-class GuideOut(BaseModel):
-    material_id: Optional[str] = None
-    revision: int = 1
-    capabilities: list[str] = []
-    guide_id: int
-    title: str
-    owner_block: str
-    text: str
-    description: str = ""
-    original_link: Optional[str] = None
-
-
 class PgasEntryIn(BaseModel):
     title: str = Field(..., min_length=1)
     year: int = Field(..., ge=1900, le=2200)
     file_url: str = Field(..., min_length=1)
     file_name: str = ""
     file_type: str = ""
+    half_year: Optional[Literal[1, 2]] = None
 
 
 class PgasEntryOut(BaseModel):
@@ -212,6 +184,13 @@ class PgasEntryOut(BaseModel):
     file_type: str = ""
     created_at: str = ""
     uploaded_by: Optional[int] = None
+    half_year: Optional[Literal[1, 2]] = None
+    revision: int = 1
+
+
+class PgasPeriodIn(Command):
+    expected_revision: int = Field(..., ge=1)
+    half_year: Literal[1, 2]
 
 
 class BlockIn(BaseModel):
@@ -442,9 +421,11 @@ class EventCreateIn(Command):
     starts_at: Optional[str] = None
     ends_at: Optional[str] = None
     report_series_id: Optional[str] = None
+    all_day: bool = False
 
 
 class EventPatchIn(Command):
+    all_day: Optional[bool] = None
     expected_revision: int
     title: Optional[str] = None
     description: Optional[Union[RichTextSchema, str]] = None
@@ -460,6 +441,7 @@ class EventCopyIn(Command):
 
 
 class EventOut(BaseModel):
+    all_day: bool = False
     event_id: str
     season_id: str
     title: str
@@ -473,25 +455,41 @@ class EventOut(BaseModel):
 
 
 class SubeventCreateIn(Command):
+    starts_at: Optional[str] = None
+    ends_at: Optional[str] = None
+    all_day: bool = False
+    announcement: Union[RichTextSchema, str] = ""
     title: str
     description: Union[RichTextSchema, str] = ""
     report_series_id: Optional[str] = None
 
 
 class SubeventPatchIn(Command):
+    starts_at: Optional[str] = None
+    ends_at: Optional[str] = None
+    all_day: Optional[bool] = None
+    announcement: Optional[Union[RichTextSchema, str]] = None
     expected_revision: int
     title: Optional[str] = None
     description: Optional[Union[RichTextSchema, str]] = None
 
 
 class SubeventOut(BaseModel):
+    starts_at: Optional[str] = None
+    ends_at: Optional[str] = None
+    all_day: bool = False
+    announcement: RichTextSchema = RichTextSchema(format="markdown", body="")
+    hr: Optional[UserRefOut] = None
+    organizers: list[UserRefOut] = []
+    outside_parent_dates: bool = False
+    working_access: bool = False
     subevent_id: str
     event_id: str
     title: str
     description: RichTextSchema
     leaders: list[LeaderOut] = []
     organizer_user_ids: list[int] = []
-    report_series_id: str
+    report_series_id: Optional[str] = None
     revision: int = 1
     capabilities: list[str] = []
 
@@ -725,11 +723,11 @@ class TaskHistoryOut(BaseModel):
 
 class TaskPublicOut(BaseModel):
     task_id: str
-    season_id: str
+    season_id: Optional[str]
     scope: dict
     title: str
     description: RichTextSchema
-    deadline_at: str
+    deadline_at: Optional[str]
     assignments: list[AssignmentPublicOut] = []
     assignees: list[UserRefOut] = []
     watchers: list[UserRefOut] = []
@@ -826,6 +824,9 @@ class ReassignAssignmentOut(BaseModel):
     assignment: AssignmentPublicOut
 
 
+from profile_features import TemplateSelection
+
+
 class TaskInputsPatchIn(Command):
     expected_revision: int
     reason: str
@@ -849,6 +850,7 @@ class AssignmentInputsPatchIn(Command):
     hours: Optional[float] = None
     evaluation: Optional[float] = None
     effective_completed_at: Optional[str] = None
+    template_selection: Optional[TemplateSelection] = None
 
 
 class AssessmentInputsOut(BaseModel):
@@ -912,6 +914,7 @@ class MeritCreateIn(Command):
     criteria: CriteriaSchema = CriteriaSchema()
     recipients: list[MeritRecipientIn]
     reason: str = "Создание записи учёта работы"
+    template_selection: Optional[TemplateSelection] = None
 
 
 class MeritPatchIn(Command):
@@ -923,6 +926,7 @@ class MeritPatchIn(Command):
     deadline_at: Optional[str] = None
     criteria: Optional[CriteriaSchema] = None
     recipients: Optional[list[MeritRecipientIn]] = None
+    template_selection: Optional[TemplateSelection] = None
 
 
 class MeritOut(BaseModel):
@@ -1149,6 +1153,12 @@ class DashboardOut(BaseModel):
 
 
 class CalendarItemOut(BaseModel):
+    all_day: bool = False
+    task_key: Optional[str] = None
+    scope: Optional[dict] = None
+    queue: Optional[dict] = None
+    status: Optional[str] = None
+    event_id: Optional[str] = None
     id: str
     season_id: str
     kind: str
@@ -1496,50 +1506,6 @@ def delete_user(user_id: int, cur: User = Depends(get_current_user)):
 
 
 # ═══════════════════════════════════════════════════════════
-#  GUIDES
-# ═══════════════════════════════════════════════════════════
-
-@router.get("/guides", response_model=List[GuideOut])
-def list_guides(cur: User = Depends(get_current_user)):
-    from materials import guide_dto
-    with db._session() as session:
-        from materials import legacy_mapping,can_read
-        return [guide_dto(g,cur.user_id) for g in db.list_guides() if can_read(legacy_mapping(session,g.guide_id).material_id,cur.user_id)]
-
-
-@router.get("/guides/{guide_id}", response_model=GuideOut)
-def get_guide(guide_id: int, cur: User = Depends(get_current_user)):
-    from materials import guide_dto
-    g=db.get_guide(guide_id)
-    if not g:raise HTTPException(404,"Guide not found")
-    return guide_dto(g,cur.user_id)
-
-
-@router.post("/guides", response_model=GuideOut)
-def create_guide(guide: GuideIn, cur: User = Depends(get_current_user)):
-    from materials import legacy_create
-    return legacy_create(guide,cur.user_id)
-
-
-@router.post("/guides/{guide_id}", response_model=GuideOut)
-@router.put("/guides/{guide_id}", response_model=GuideOut)
-@router.patch("/guides/{guide_id}", response_model=GuideOut)
-def edit_guide(
-    guide_id: int,
-    guide: GuideUpdate,
-    cur: User = Depends(get_current_user),
-):
-    from materials import legacy_update
-    return legacy_update(guide_id,guide,cur.user_id)
-
-
-@router.delete("/guides/{guide_id}")
-def delete_guide(guide_id: int, cur: User = Depends(get_current_user)):
-    from materials import legacy_delete
-    return legacy_delete(guide_id,cur.user_id)
-
-
-# ═══════════════════════════════════════════════════════════
 #  PGAS
 # ═══════════════════════════════════════════════════════════
 
@@ -1601,10 +1567,39 @@ def create_pgas(payload: PgasEntryIn, cur: User = Depends(require_pgas_admin)):
         file_type=fr.mime_type,
         created_at=datetime.now(timezone.utc).isoformat(),
         uploaded_by=cur.user_id,
+        half_year=payload.half_year,
     )
     created = db.create_pgas_entry(entry)
+    from notifications import emit
+    from database import UserORM
+    with db._session() as session:
+        recipients = [recipient.user_id for recipient in session.query(UserORM).filter(UserORM.banned == False, UserORM.account_state == "active")]
+        emit(session, recipients, "pgas_document.created", {"entry_id": created.entry_id},
+             event_key=f"pgas-created:{created.entry_id}")
+        session.commit()
     from legacy_files import read_url
     return PgasEntryOut(**{**created.__dict__, "file_url": read_url(created.file_url)})
+
+
+@router.patch("/pgas/{entry_id}", response_model=PgasEntryOut)
+def set_pgas_period(entry_id: int, payload: PgasPeriodIn, cur: User = Depends(require_pgas_admin)):
+    from database import PgasEntryORM
+    from registration import version, audit
+    with db._session() as session:
+        entry = session.get(PgasEntryORM, entry_id)
+        if entry is None:
+            raise HTTPException(404, "PGAS entry not found")
+        version(entry, payload.expected_revision)
+        if entry.half_year != payload.half_year:
+            before = entry.half_year
+            entry.half_year = payload.half_year
+            entry.revision += 1
+            audit(session, "pgas", str(entry_id), cur.user_id, "Изменение периода ПГАС",
+                  {"half_year": before}, {"half_year": payload.half_year})
+        session.commit()
+    from legacy_files import read_url
+    current = db.get_pgas_entry(entry_id)
+    return PgasEntryOut(**{**current.__dict__, "file_url": read_url(current.file_url)})
 
 
 @router.delete("/pgas/{entry_id}")
@@ -1894,7 +1889,10 @@ def _to_season_out(s: Season) -> SeasonOut:
 
 
 def _to_event_out(ev: Event) -> EventOut:
+    from event_workspace import extension
+    extra = extension("event", ev)
     return EventOut(
+        all_day=extra["all_day"],
         event_id=ev.event_id,
         season_id=ev.season_id,
         title=ev.title,
@@ -1918,11 +1916,16 @@ def _to_event_out(ev: Event) -> EventOut:
 
 
 def _to_subevent_out(sub: Subevent) -> SubeventOut:
+    from event_workspace import extension
+    extra = extension("subevent", sub)
+    working = access.allowed(access.actor_id.get(), "subevent.view", "subevent", sub.subevent_id)
     return SubeventOut(
+        **extra,
+        working_access=working,
         subevent_id=sub.subevent_id,
         event_id=sub.event_id,
         title=sub.title,
-        description=RichTextSchema(format=sub.description.format, body=sub.description.body),
+        description=RichTextSchema(format=sub.description.format, body=sub.description.body if working else ""),
         leaders=[
             LeaderOut(
                 role_assignment_id=l.role_assignment_id,
@@ -1934,9 +1937,9 @@ def _to_subevent_out(sub: Subevent) -> SubeventOut:
             for l in sub.leaders
         ],
         organizer_user_ids=sub.organizer_user_ids,
-        report_series_id=sub.report_series_id,
+        report_series_id=sub.report_series_id if working else None,
         revision=sub.revision,
-        capabilities=access.subevent_caps(sub),
+        capabilities=access.subevent_caps(sub) if working else [],
     )
 
 
@@ -2308,6 +2311,7 @@ def create_event(payload: EventCreateIn, cur: User = Depends(get_current_user)):
         payload.starts_at,
         payload.ends_at,
         payload.report_series_id,
+        all_day=payload.all_day,
     )
     return _to_event_out(ev)
 
@@ -2337,6 +2341,7 @@ def patch_event(event_id: str, payload: EventPatchIn, cur: User = Depends(get_cu
         payload.ends_at,
         clear_starts_at="starts_at" in payload.model_fields_set and payload.starts_at is None,
         clear_ends_at="ends_at" in payload.model_fields_set and payload.ends_at is None,
+        all_day=payload.all_day,
     )
     return _to_event_out(updated)
 
@@ -2369,6 +2374,8 @@ def create_subevent(event_id: str, payload: SubeventCreateIn, cur: User = Depend
         payload.title,
         _to_rich_text_body(payload.description),
         payload.report_series_id,
+        starts_at=payload.starts_at, ends_at=payload.ends_at, all_day=payload.all_day,
+        announcement=_to_rich_text_body(payload.announcement),
     )
     return _to_subevent_out(sub)
 
@@ -2378,12 +2385,7 @@ def list_subevents(event_id: str, cur: User = Depends(get_current_user)):
     ev = db.get_event(event_id)
     if not ev:
         raise HTTPException(404, "Event not found")
-    all_subs = db.list_subevents(event_id)
-    if access.allowed(cur.user_id, "subevent.list_all", "event", event_id):
-        return Page(items=[_to_subevent_out(s) for s in all_subs])
-    # Others see only the subevents whose working data they may read
-    return Page(items=[_to_subevent_out(s) for s in all_subs
-                       if access.allowed(cur.user_id, "subevent.view", "subevent", s.subevent_id)])
+    return Page(items=[_to_subevent_out(s) for s in db.list_subevents(event_id)])
 
 
 @router.get("/subevents/{subevent_id}", response_model=SubeventOut)
@@ -2391,8 +2393,6 @@ def get_subevent(subevent_id: str, cur: User = Depends(get_current_user)):
     sub = db.get_subevent(subevent_id)
     if not sub:
         raise HTTPException(404, "Subevent not found")
-    if not access.allowed(cur.user_id, "subevent.view", "subevent", subevent_id):
-        raise HTTPException(404, "Subevent not found")  # as for a missing one (A-SEC-6)
     return _to_subevent_out(sub)
 
 
@@ -2404,7 +2404,10 @@ def patch_subevent(subevent_id: str, payload: SubeventPatchIn, cur: User = Depen
     if not access.allowed(cur.user_id, "subevent.edit", "subevent", subevent_id):
         raise HTTPException(403, "Forbidden")
     desc = _to_rich_text_body(payload.description) if payload.description is not None else None
-    updated = db.patch_subevent(subevent_id, payload.expected_revision, payload.title, desc)
+    updated = db.patch_subevent(subevent_id, payload.expected_revision, payload.title, desc,
+        starts_at=payload.starts_at, ends_at=payload.ends_at, all_day=payload.all_day,
+        announcement=_to_rich_text_body(payload.announcement) if payload.announcement is not None else None,
+        supplied=payload.model_fields_set)
     return _to_subevent_out(updated)
 
 
@@ -2951,6 +2954,11 @@ def patch_assignment_assessment_inputs(assignment_id: str, payload: AssignmentIn
         effective_completed_at=payload.effective_completed_at,
         user_id=cur.user_id,
     )
+    if payload.template_selection:
+        from profile_features import capture_template_use
+        with db._session() as session:
+            capture_template_use(session, cur.user_id, payload.template_selection, "assessment", assignment_id,
+                                 dict(hours=a.hours, evaluation=a.evaluation, effective_completed_at=a.effective_completed_at))
     return _to_assessment_inputs_out(a)
 
 
@@ -3010,9 +3018,14 @@ def list_merits(
 @router.post("/merits", response_model=MeritOut)
 def create_merit(payload: MeritCreateIn, cur: User = Depends(get_current_user)):
     data=payload.model_dump()
+    selection = data.pop("template_selection", None)
     if (data.get("scope") or {}).get("kind")=="block":
         data["scope"]["id"]=membership.legacy_name(data["scope"]["id"])
     m = db.create_merit(data, cur.user_id)
+    if selection:
+        from profile_features import capture_template_use
+        with db._session() as session:
+            capture_template_use(session, cur.user_id, selection, "merit", m.merit_id, data)
     return _to_merit_out(m)
 
 
@@ -3025,6 +3038,7 @@ def get_merit(merit_id: str, cur: User = Depends(get_current_user)):
 @router.patch("/merits/{merit_id}", response_model=MeritOut)
 def patch_merit(merit_id: str, payload: MeritPatchIn, cur: User = Depends(get_current_user)):
     vals = payload.model_dump(exclude_unset=True)
+    selection = vals.pop("template_selection", None)
     vals.pop("expected_revision", None)
     vals.pop("reason", None)
     m = db.patch_merit(
@@ -3034,6 +3048,10 @@ def patch_merit(merit_id: str, payload: MeritPatchIn, cur: User = Depends(get_cu
         reason=payload.reason,
         user_id=cur.user_id,
     )
+    if selection:
+        from profile_features import capture_template_use
+        with db._session() as session:
+            capture_template_use(session, cur.user_id, selection, "merit", merit_id, vals)
     return _to_merit_out(m)
 
 
@@ -3284,6 +3302,15 @@ def get_calendar(
     from_date: Optional[str] = Query(None, alias="from"),
     to_date: Optional[str] = Query(None, alias="to"),
     timezone: str = "Europe/Moscow",
+    mine: bool = True,
+    watching: bool = False,
+    kind: Optional[Literal["task_deadline", "meeting", "event"]] = None,
+    season_id: Optional[str] = None,
+    block_id: Optional[str] = None,
+    event_id: Optional[str] = None,
+    queue_id: Optional[str] = None,
+    status: Optional[Literal["assigned", "in_progress", "help_required", "submitted", "accepted", "needs_revision", "not_completed", "cancelled"]] = None,
+    q: str = Query("", max_length=200),
     cur: User = Depends(get_current_user),
 ):
     from_d = from_date or "1970-01-01"
@@ -3291,7 +3318,8 @@ def get_calendar(
     from workspace import calendar
     from workspace import date_range
     from_d,to_d=date_range(from_d,to_d,timezone)
-    items = calendar(cur.user_id, from_d, to_d)
+    items = calendar(cur.user_id, from_d, to_d, mine=mine, watching=watching, kind=kind,
+        season_id=season_id, block_id=block_id, event_id=event_id, queue_id=queue_id, status=status, q=q)
     return Page(items=[CalendarItemOut(**item) for item in items])
 
 
@@ -3321,6 +3349,8 @@ from membership import register_routes as register_membership_routes
 register_membership_routes(router)
 from block_hr import register_routes as register_block_hr_routes
 register_block_hr_routes(router)
+from event_workspace import register_routes as register_event_workspace_routes
+register_event_workspace_routes(router)
 from season_summaries import register_routes as register_summary_routes
 register_summary_routes(router)
 from season_analytics import register_routes as register_analytics_routes
@@ -3329,10 +3359,18 @@ from materials import register_routes as register_material_routes
 register_material_routes(router)
 
 from directory import register_routes as register_directory_routes
+from profile_features import register_routes as register_profile_feature_routes
+register_profile_feature_routes(router)
+from history import register_routes as register_history_routes
+register_history_routes(router)
 register_directory_routes(router)
 
 from accounts import register_routes as register_account_routes
 register_account_routes(router)
+
+from support import register_routes as register_support_routes, register_worker as register_support_worker
+register_support_routes(router)
+register_support_worker(app)
 
 app.include_router(router)
 
@@ -3340,7 +3378,7 @@ def contract_openapi():
     if app.openapi_schema:return app.openapi_schema
     from fastapi.openapi.utils import get_openapi
     schema=get_openapi(title=app.title,version="1.3.0",routes=app.routes)
-    public={"/api/auth/register","/api/auth/login","/api/auth/vk","/api/auth/refresh"}
+    public={"/api/auth/register","/api/auth/login","/api/auth/vk","/api/auth/refresh","/api/feedback"}
     schema.setdefault('components',{}).setdefault('schemas',{})['DomainError']={
         'type':'object','required':['detail'],'properties':{'detail':{
             'type':'object','required':['code','message'],'properties':{

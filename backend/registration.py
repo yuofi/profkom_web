@@ -332,6 +332,9 @@ def register_routes(router):
                     created_at=now(),
                 )
             )
+            from profile_features import collect_delivery_event
+            collect_delivery_event(s, user_id, "registration_" + command, {"registration_user_id": user_id},
+                                   f"registration:{user_id}:decision:{r.revision}")
             s.commit()
             return dto(r, cur.user_id)
 

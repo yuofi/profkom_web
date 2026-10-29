@@ -20,7 +20,7 @@
 
 ## Legacy guides and storage
 
-`GET /guides/{guide_id}/material` returns `{guide_id, material_id, revision}`. Legacy guide DTOs carry the same mapping and object capabilities. Old IDs are preserved. Legacy saves require `expected_revision` and refuse to overwrite an existing shared draft. New material publication updates the same old Guide row.
+`GET /materials/legacy-guides/{guide_id}` returns `{guide_id, material_id, revision}` only after the current material read check. Old IDs and Guide rows are preserved as migration data. The duplicate `/guides` CRUD and old mapping endpoint are retired (АВ-11/37). Bookmarked `/docs/:id`, `/docs/:id/edit` and `/guides/:id` enter the current read-only material page. Draft save and explicit publication use only the material API; publication updates the same historical Guide row. See [LEGACY_GUIDE_RETIREMENT.md](LEGACY_GUIDE_RETIREMENT.md).
 
 New PGAS entries require `file_url: "file:<file_id>"` for a completed contextual PGAS file. Its saved verified name/MIME are authoritative; arbitrary URL creation cannot bypass complete. Existing raw URLs remain readable through the legacy adapter. The response gives that reference as `/api/files/<file_id>/content` (release 1, step 8: nothing is signed for a client); old public upload URLs and other bucket keys, including `private/` and `sealed/`, stay as written and unsigned. External legacy links stay unchanged; no remote content is downloaded by migration. Existing public bucket ACLs require an operator-side private-access rollout; changing a DTO does not revoke an old public URL.
 
@@ -78,13 +78,13 @@ capability выдаётся ровно тогда, когда сервер вы�
   его нет, опубликованный текст. В нём `file:<id>` и ссылки без подписи. Поле
   выдаётся только тем, у кого есть `edit_material`. `published_content` — только
   для показа, в нём `file:<id>` заменены адресами API.
-- `POST /materials`, `PATCH /materials/{id}`, публикация, `POST /guides` и
-  сохранение старого гайда отвечают 422, если в тексте появилась новая ссылка на
+- `POST /materials`, `PATCH /materials/{id}` и публикация
+  отвечают 422, если в тексте появилась новая ссылка на
   бакет, которой нет в опубликованном тексте. Новые файлы прикрепляются как
   `file:<id>`. Подписанная ссылка на вложение этого же материала сохраняется как
   `file:<id>`, подписанная ссылка на старую загрузку — без подписи.
-- `POST /guides/{id}` без `text` не меняет текст гайда; «Админка → Гайды» при
-  переименовании текст не отправляет.
+- `PATCH /materials/{id}` без `content` сохраняет исходный текст при
+  переименовании. Старого отдельного редактора и административной панели гайдов нет.
 - `scripts/repair_storage_links.py --database <путь> [--apply]` чинит тексты,
   в которые раньше попали подписанные ссылки. Без `--apply` база открывается только
   на чтение. Скрипт печатает только числа, повторный `--apply` меняет 0 строк.
@@ -98,9 +98,11 @@ capability выдаётся ровно тогда, когда сервер вы�
   При `APP_ENV=production` без него backend не стартует, в других окружениях вход
   через VK отвечает 503. Значения по умолчанию в коде нет.
 
-Очистка аккаунтов (FIX_PLAN 0.4, защитная часть): `scripts/cleanup_accounts.py
---apply` в выпуске 1 завершается с кодом 2 и ничего не меняет. Отчёт без `--apply`
-работает. Подробности — в `ACCOUNT_RETENTION.md`.
+Очистка аккаунтов (FIX_PLAN 0.4): `scripts/cleanup_accounts.py --apply` атомарно
+очищает БД и записывает собственные avatar-объекты в очередь. Внешнее удаление
+выполняется только отдельной явной командой `--delete-pending`; без флагов
+отчёт остаётся read-only. Неизвестная схема или неполный callback отменяет весь
+пакет. Подробности — в `ACCOUNT_RETENTION.md`.
 
 ## Назначения, заслуги и созвоны (выпуск 1)
 
@@ -341,16 +343,16 @@ capability выдаётся ровно тогда, когда сервер вы�
   сохранённые ссылки. У обезличенного участника `null` (A-MAT-16). Сохранённые
   данные не меняются.
 
-Старые гайды (FIX_PLAN 2.14):
+Старые гайды (FIX_PLAN 2.14, АВ-11/37):
 
-- `GET /guides` и `GET /guides/{id}` отдают в `text` Markdown материала, а не
-  исходный HTML (A-MAT-14).
+- Старые URL разрешаются через `/materials/legacy-guides/{id}` и открывают
+  текущий экран материала. Опубликованный текст — Markdown, исходный HTML
+  мигрируется без перезаписи строки `guides`.
 - `to_markdown` конвертирует только документы, которые действительно HTML.
   Если в тексте есть разметка Markdown или код, меняется только `<br>`, ничего не
-  экранируется. Теги внутри кода не учитываются. Текст, пришедший в
-  `POST /guides/{id}` таким, каким он был показан, повторно не конвертируется
-  (A-MAT-4).
-- `POST /guides` с `file:<id>` в тексте — 422: новый гайд ещё не владеет
+  экранируется. Теги внутри кода не учитываются. `source_content` текущего редактора
+  не конвертируется заново при сохранении (A-MAT-4).
+- `POST /materials` с `file:<id>` в тексте — 422: новый материал ещё не владеет
   файлами (A-MAT-8). Файл, недоступный читателю, ломает только свою ссылку, а
   не весь список.
 - Сохранение принимает показанный адрес `/api/files/<id>/content` вложения
@@ -379,10 +381,9 @@ capability выдаётся ровно тогда, когда сервер вы�
   `unknown_user` и `inactive_user`, `blockers` у `season_not_ready`, `errors` у
   `validation_error`.
 - Старую форму со строкой или списком в `detail` сохраняют только маршруты
-  старого сайта: `/auth/*`, `/profile/me`, `/profile/{id}`, `/guides`,
-  `/guides/{id}`, `/pgas`, `/pgas/{id}`, `/contacts`, `/contacts/filter`.
+  старого сайта: `/auth/*`, `/profile/me`, `/profile/{id}`, `/pgas`, `/pgas/{id}`, `/contacts`, `/contacts/filter`.
   Новые маршруты с теми же началами (`/profile/me/avatar`, `/contacts/archive`,
-  `/contacts/emails`, `/guides/{id}/material`, `/pgas-admins`) отвечают в новой
+  `/contacts/emails`, `/materials/legacy-guides/{id}`, `/pgas-admins`) отвечают в новой
   форме. Неизвестный путь — 404 `not_found`.
 - Статус задаёт класс ошибки (`backend/errors.py`), а не текст сообщения:
   `NotFound` 404, `Forbidden` 403, `Conflict` 409, `InvalidInput` 422. Маршруты
@@ -430,3 +431,55 @@ capability выдаётся ровно тогда, когда сервер вы�
 `identity_linked`, `vk_link_required`, `duplicate_files`, `upload_missing`,
 `upload_expired`, `unavailable`. Статус без своего кода приходит с `http_<статус>`. Тест
 `test_every_code_has_a_russian_text` сверяет коды backend с таблицей текстов.
+
+
+## Объединённый выпуск 28 октября: профиль, награды, уведомления и шаблоны
+
+Точные текущие контракты: [PROFILE_FEATURES.md](PROFILE_FEATURES.md),
+[HISTORY.md](HISTORY.md), [LEGACY_GUIDE_RETIREMENT.md](LEGACY_GUIDE_RETIREMENT.md).
+Инструкция по интерфейсу: [USER_GUIDE_20261028.md](../../docs/USER_GUIDE_20261028.md).
+
+- `GET/PATCH /profile/me/editor` сохраняет контактные данные и выбор аватара
+  одной транзакцией с общей ревизией/отпечатком. Аватар применяется общей кнопкой
+  сохранения; удаление неиспользованной собственной загрузки имеет отдельную
+  команду. Несохранённый файл не подменяет аватар профиля.
+- `GET /profiles/{id}/activity` показывает всем активистам только роли, команды
+  и достоверные даты. Текущие команды отделены от истории. Старые назначения с
+  неизвестной датой не получают выдуманный интервал; label-only история блока
+  не становится ссылкой на новый блок с тем же именем.
+- `/achievements` и `/achievement-grants` поддерживают ручную выдачу, повторы,
+  отзыв, архив каталога и историю. Глобальные права — председатель, его замы и
+  мастер HR; в своей области — мастера блоков и главорги. Их заместители не
+  получают дополнительное право автоматически. Самонаграждение проверяется
+  по тем же полномочиям. Отзыв не удаляет выдачу и не меняет ККР; служебные
+  основания закрыты от обычных читателей профиля.
+- `GET/PUT /profile/me/notification-preferences` хранит независимые настройки
+  email/Telegram/VK по трекеру, заявкам и документам ПГАС. Всё выключено по
+  умолчанию. События новых полных регистрационных заявок/повторной подачи,
+  HR-этапа и этапа блока, решений заявителю, изменений трекера и
+  `pgas_document.created` поступают в отключённую инфраструктуру доставки.
+  Получатели вычисляются в своих модулях по действующим правам; в outbox только
+  source references, без текста задач, контактов и секретов. Будущий sender
+  обязан повторить ACL. Внешняя доставка и провайдеры не подключены.
+- `/kkr-templates` хранит личные и командные заготовки названия, описания, часов,
+  оценки и критериев. `prepare` заполняет черновик, а `template_selection`
+  сопровождает обычное сохранение заслуги/оценивания. Проверки прав, дат,
+  закрытого сезона и версии шаблона сохраняются; использованная версия и
+  фактические значения фиксируются отдельно. Изменение шаблона не меняет
+  уже учтённую работу.
+
+## Полная история и скрытие текста версии
+
+`GET /history?target_kind=…&target_id=…` возвращает только разрешённую projection
+с before/after, автором и временем. История task/assignment/merit/season/block/
+event/subevent/leadership имеет общий контракт. Публичная история задачи не
+выдаёт private исходные поля, результаты оценивания и основания ККР.
+
+`POST /history/{activity|audit}/{source_id}/hide` с `expected_revision: 1`
+скрывает собственный текст версии и после закрытия сезона при текущем доступе.
+Чужие версии можно скрывать только при доказанном руководстве на дату изменения.
+Это относится и к председателю/замам: нынешняя должность не заменяет
+подтверждённый глобальный исторический интервал. Неизвестные даты и label-only
+идентичность блока не используются как доказательство. Остаются автор/скрывший/
+дата; текст источника и связанный predecessor следующей версии удаляются.
+Текущие объекты, числовые поля ККР и утверждённые снимки сезона не меняются.

@@ -255,7 +255,7 @@ def test_events_создание_и_права_доступа(client, superuser,
     assert r_series.json()["items"] == []  # Unassigned users do not gain report-series access.
 
 
-def test_subevents_изоляция_списков_не_раскрывает_чужие_подмероприятия(client, superuser, user, make_user):
+def test_subevents_public_announcements_do_not_reveal_working_descriptions(client, superuser, user, make_user):
     user2 = make_user(email="user2@test.local")
     user3 = make_user(email="user3@test.local")
     r_s = client.post(SEASONS_URL, json={
@@ -283,28 +283,34 @@ def test_subevents_изоляция_списков_не_раскрывает_ч�
     client.put(f"/api/subevents/{sub1_id}/organizers", json={"user_ids": [user.user_id], "expected_revision": 1}, headers=superuser.headers)
     client.put(f"/api/subevents/{sub2_id}/organizers", json={"user_ids": [user2.user_id], "expected_revision": 1}, headers=superuser.headers)
 
-    # user запрашивает список подмероприятий: видит ТОЛЬКО "Лекции", НЕ видит "Квест"!
+    # Every approved activist discovers both announcements, but working text
+    # and report series remain scoped to the team.
     r_subs_user = client.get(f"{EVENTS_URL}/{ev_id}/subevents", headers=user.headers)
     assert r_subs_user.status_code == 200
-    sub_titles = [s["title"] for s in r_subs_user.json()["items"]]
-    assert "Лекции" in sub_titles
-    assert "Квест" not in sub_titles
+    by_id = {row["subevent_id"]: row for row in r_subs_user.json()["items"]}
+    assert set(by_id) == {sub1_id, sub2_id}
+    assert by_id[sub1_id]["description"]["body"] == "Лекционная часть"
+    assert by_id[sub1_id]["working_access"]
+    assert by_id[sub2_id]["description"]["body"] == ""
+    assert not by_id[sub2_id]["working_access"]
+    assert by_id[sub2_id]["report_series_id"] is None and by_id[sub2_id]["capabilities"] == []
 
-    # user пытается напрямую открыть чужое подмероприятие "Квест" -> 404, как несуществующее (A-SEC-6)
-    r_direct = client.get(f"/api/subevents/{sub2_id}", headers=user.headers)
-    assert r_direct.status_code == 404
-    assert r_direct.json() == client.get("/api/subevents/subevent-missing", headers=user.headers).json()
+    direct = client.get(f"/api/subevents/{sub2_id}", headers=user.headers)
+    assert direct.status_code == 200 and direct.json() == by_id[sub2_id]
+    assert client.get("/api/subevents/subevent-missing", headers=user.headers).status_code == 404
+    assert client.get(f"/api/subevents/{sub2_id}/meeting", headers=user.headers).status_code == 404
 
-    # user3 (вообще не участвует) видит пустой список и 404 на прямой доступ
-    r_subs_user3 = client.get(f"{EVENTS_URL}/{ev_id}/subevents", headers=user3.headers)
-    assert r_subs_user3.status_code == 200
-    assert len(r_subs_user3.json()["items"]) == 0
-    assert client.get(f"/api/subevents/{sub1_id}", headers=user3.headers).status_code == 404
+    outsiders = client.get(f"{EVENTS_URL}/{ev_id}/subevents", headers=user3.headers)
+    assert outsiders.status_code == 200 and len(outsiders.json()["items"]) == 2
+    for row in outsiders.json()["items"]:
+        assert not row["working_access"] and row["description"]["body"] == ""
+        assert row["report_series_id"] is None and row["capabilities"] == []
+    direct = client.get(f"/api/subevents/{sub1_id}", headers=user3.headers)
+    assert direct.status_code == 200 and not direct.json()["working_access"]
 
-    # Председатель/тачки видят оба подмероприятия
-    r_subs_su = client.get(f"{EVENTS_URL}/{ev_id}/subevents", headers=superuser.headers)
-    assert r_subs_su.status_code == 200
-    assert len(r_subs_su.json()) == 2
+    chair = client.get(f"{EVENTS_URL}/{ev_id}/subevents", headers=superuser.headers)
+    assert chair.status_code == 200 and len(chair.json()["items"]) == 2
+    assert all(row["working_access"] and row["description"]["body"] for row in chair.json()["items"])
 
 
 def test_events_copy_структуры_без_старых_задач_и_людей(client, superuser, user):

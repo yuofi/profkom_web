@@ -58,7 +58,7 @@ def test_former_contact_is_separate_and_periods_validate(client, user, superuser
     fields["phone"] = "+79990000000"
     assert (
         client.patch(
-            "/api/contacts/archive/" + cid, headers=superuser.headers, json=fields
+            "/api/contacts/archive/" + cid, headers=superuser.headers, json={**fields, "expected_revision": made.json()["revision"]}
         ).json()["phone"]
         == fields["phone"]
     )

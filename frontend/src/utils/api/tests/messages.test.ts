@@ -65,9 +65,9 @@ describe("userMessage (FIX_PLAN 2.13)", () => {
   });
 
   it("offers a refresh only when the data changed", () => {
-    for (const code of ["conflict", "revision_conflict", "season_closed"])
+    for (const code of ["conflict", "revision_conflict"])
       expect(isStale(new ApiError("x", 409, code)), code).toBe(true);
-    for (const [status, code] of [[409, "master_conflicts"], [409, "inactive_user"], [422, "conflict"], [409, "planned_exists"]] as const)
+    for (const [status, code] of [[409, "season_closed"], [409, "master_conflicts"], [409, "inactive_user"], [422, "conflict"], [409, "planned_exists"]] as const)
       expect(isStale(new ApiError("x", status, code)), code).toBe(false);
   });
 
