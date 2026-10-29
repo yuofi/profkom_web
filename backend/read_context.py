@@ -96,6 +96,57 @@ def cached_current(namespace, key, load, *, copy_result=True):
     return cached(context.session, namespace, key, load, copy_result=copy_result)
 
 
+def prime_rows(session, namespace, key, rows):
+    """Retain query identities in a clean read UOW, never mutable DTOs or lists.
+
+    Loaded ORM objects already belong to the session's identity map and are held
+    by ReadContext.references. Pending/deleted/detached rows are deliberately not
+    cached. Any later command disables this cache along with permission values.
+    """
+    context = _context(session)
+    if context is None or not context.usable():
+        return False
+    identities = []
+    for row in rows:
+        state = inspect(row)
+        # Database._session() may return a lease proxy for this UOW's Session.
+        if not state.persistent or state.session is not context.session or state.identity is None:
+            return False
+        identities.append((type(row), state.identity))
+    context.values[("orm_rows", namespace, key)] = tuple(identities)
+    return True
+
+
+def orm_rows(session, namespace, key, load):
+    """Repeat a relation read using immutable PKs only within the same read UOW."""
+    context = _context(session)
+    if context is None or not context.usable():
+        return load()
+    cache_key = ("orm_rows", namespace, key)
+    if cache_key not in context.values:
+        rows = load()
+        prime_rows(session, namespace, key, rows)
+        return rows
+    # Always return a fresh container. ORM fields remain the session's current
+    # fields; a dirty/new/deleted object would have disabled reuse above.
+    return [session.get(model, identity) for model, identity in context.values[cache_key]]
+
+
+def orm_get(session, model, identity):
+    """Also remember absent PK reads, which SQLAlchemy itself does not retain."""
+    try:
+        hash(identity)
+    except TypeError:
+        # Session.get also accepts a dict/list identity. Keep its original
+        # lookup/error semantics for legacy values without trying to cache them.
+        return session.get(model, identity)
+    def load():
+        row = session.get(model, identity)
+        return [row] if row is not None else []
+    rows = orm_rows(session, "orm.get", (model, identity), load)
+    return rows[0] if rows else None
+
+
 def memoized(namespace, *, copy_result=True):
     """For pure helpers with hashable arguments (no ORM/Session arguments)."""
     def decorate(function):

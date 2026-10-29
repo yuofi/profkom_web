@@ -9,8 +9,8 @@ export const workspaceApi = {
   home: (watching = false) => request<Workday>("get", "/workspace/home", undefined, { watching }),
   dashboard: () => request<Dashboard>("get", "/dashboard"),
   participation: () => request<Participation>("get", "/participation"),
-  calendar: (from: string, to: string, filters: object = {}) =>
-    page<CalendarItem>("/calendar", { from, to, timezone: "Europe/Moscow", ...filters }),
+  calendar: (from: string, to: string, filters: object = {}, signal?: AbortSignal) =>
+    page<CalendarItem>("/calendar", { from, to, timezone: "Europe/Moscow", ...filters }, signal),
   notifications: () => page<Notification>("/notifications"),
   read: (id: string) =>
     request<void>("post", `/notifications/${idPath(id)}/read`, {}),

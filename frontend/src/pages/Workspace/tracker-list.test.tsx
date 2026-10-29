@@ -63,22 +63,22 @@ it("represents selected filters as independent removable chips and removes only 
   expect(page!.container.querySelector('[aria-label="Активные фильтры"]')?.textContent).toContain("Статус: В работе");
   await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Убрать фильтр: Статус"]')!.click());
   await waitForPage(page!);
-  expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ mine: "true", q: "общая" }));
+  expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ mine: "true", q: "общая" }), expect.any(AbortSignal));
   expect(list.mock.lastCall?.[0]).not.toHaveProperty("status");
   const url = page!.container.querySelector("[data-location]")!.textContent!;
   expect(new URLSearchParams(url).has("status")).toBe(false);
   expect(new URLSearchParams(url).get("mine")).toBe("true");
   await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Убрать фильтр: Назначение"]')!.click());
   await waitForPage(page!);
-  expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ mine: "false", q: "общая" }));
+  expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ mine: "false", q: "общая" }), expect.any(AbortSignal));
 });
 it("uses real next cursors and resets pagination when search changes", async () => {
   const { list } = await mount("/tasks", params => ({ items: [], next_cursor: "cursor" in params ? null : "page-two", total: 23, scopes: [], assignees: [] }));
   await act(async () => button("Далее").click()); await waitForPage(page!);
-  expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: "page-two" }));
+  expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: "page-two" }), expect.any(AbortSignal));
   expect(page!.container.textContent).toContain("Страница 2");
-  await change(page!.container.querySelector<HTMLInputElement>('[aria-label="Поиск задач"]')!, "TASK-17"); await waitForPage(page!);
-  expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ q: "TASK-17" }));
+  await change(page!.container.querySelector<HTMLInputElement>('[aria-label="Поиск задач"]')!, "TASK-17"); await waitForPage(page!, () => (list.mock.lastCall?.[0] as { q?: string })?.q === "TASK-17");
+  expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ q: "TASK-17" }), expect.any(AbortSignal));
   expect(list.mock.lastCall?.[0]).not.toHaveProperty("cursor");
   expect(page!.container.textContent).toContain("Страница 1");
 });

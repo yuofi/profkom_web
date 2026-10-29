@@ -36,7 +36,9 @@ export const UserProvider = ({ children }: { children: React.ReactNode }) => {
         // Other rights of the same account (A-FE-1): data no page shows is dropped, open
         // pages reread theirs and keep their input. A reread refused with 403/404 drops
         // its data (dropRefusedData), so nothing closed stays on screen.
-        client.removeQueries({ predicate: (q) => notSession(q) && q.getObserversCount() === 0 });
+        // A closed filter can retain a disabled observer. Those inactive
+        // catalogues must be evicted too, before they can be opened again.
+        client.removeQueries({ predicate: (q) => notSession(q) && !q.isActive() });
         void client.invalidateQueries({ predicate: notSession, refetchType: "active" });
       }
       return next;
@@ -57,7 +59,9 @@ export const UserProvider = ({ children }: { children: React.ReactNode }) => {
     <SessionContext.Provider
       value={{
         session: sessionQuery.data ?? null,
-        loading: sessionQuery.isLoading || (active && profile.isLoading),
+        // Authorization depends on the confirmed session. Its private profile is
+        // independent page data, so it must not serialize every workspace read.
+        loading: sessionQuery.isLoading,
         error: sessionQuery.error ?? profile.error,
         refresh: () => {
           void sessionQuery.refetch().then(({ data, error }) => {

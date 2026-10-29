@@ -250,7 +250,7 @@ export function DirectoryPage() {
             {filtered?.map((p) => (
               <Card key={p.user_id} className={d.card}>
                 <div className={d.header}>
-                  <Avatar src={p.photo_url} size={48} />
+                  <Avatar src={p.photo_url} size={48} loading="lazy" />
                   <div className={d.identity}>
                     <h2>{p.surname} {p.name} {p.patronymic}</h2>
                     <p className={d.summary}>{p.group_number || "Группа не указана"}</p>

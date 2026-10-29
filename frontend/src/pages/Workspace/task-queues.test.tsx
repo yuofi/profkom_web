@@ -35,7 +35,7 @@ it("persists an access request from the denied screen without loading tasks", as
 it("pins a queue on its page while clearing optional filters", async () => {
   transport = installMockTransport("leader", { delay: 0 });const list = vi.spyOn(tasksApi, "listPage");
   await mount("/tasks/queues/queue-tasks?mine=true&status=assigned&q=материалы");
-  expect(page!.container.querySelector("h1")?.textContent).toBe("Задачи встречи");expect(page!.container.querySelector('[aria-label="Навигация очереди"]')?.textContent).toContain("Очереди");expect(list).toHaveBeenCalledWith(expect.objectContaining({ queue_id: "queue-tasks", q: "материалы", status: "assigned" }));
+  expect(page!.container.querySelector("h1")?.textContent).toBe("Задачи встречи");expect(page!.container.querySelector('[aria-label="Навигация очереди"]')?.textContent).toContain("Очереди");expect(list).toHaveBeenCalledWith(expect.objectContaining({ queue_id: "queue-tasks", q: "материалы", status: "assigned" }), expect.any(AbortSignal));
   await act(async () => button("Сбросить все").click());await waitForPage(page!);
   const queueCall = list.mock.calls.filter(([params]) => params && "queue_id" in params).at(-1)![0];expect(queueCall).toMatchObject({ queue_id: "queue-tasks" });expect(queueCall).not.toHaveProperty("q");expect(page!.container.querySelectorAll("h1")).toHaveLength(1);expect(page!.container.querySelector('[aria-label="Очередь"]')).toBeNull();
 });
@@ -60,8 +60,8 @@ it("validates an uppercase-only key before creating a named queue", async () => 
 });
 it("removes only the queue filter in the global task list", async () => {
   transport = installMockTransport("leader", { delay: 0 });const list = vi.spyOn(tasksApi, "listPage");await mount("/tasks?queue_id=queue-tasks&mine=true");
-  expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ queue_id: "queue-tasks", mine: "true" }));await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Убрать фильтр: Очередь"]')!.click());await waitForPage(page!);
-  expect(list.mock.lastCall?.[0]).not.toHaveProperty("queue_id");expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ mine: "true" }));
+  expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ queue_id: "queue-tasks", mine: "true" }), expect.any(AbortSignal));await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Убрать фильтр: Очередь"]')!.click());await waitForPage(page!);
+  expect(list.mock.lastCall?.[0]).not.toHaveProperty("queue_id");expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ mine: "true" }), expect.any(AbortSignal));
 });
 
 it("renders the three requested queue columns and permits an ordinary user to create without a team", async () => {

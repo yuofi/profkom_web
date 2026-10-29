@@ -13,10 +13,11 @@ from sqlalchemy.orm import Load, selectinload
 from database import (
     db, TaskORM, TaskTrackerORM, TaskQueueORM, TaskRosterORM, AssignmentORM,
     AuditLogORM, TaskFavoriteORM, UserORM, ContactInfoORM, BlockORM, SubeventORM,
-    SeasonORM, _user_to_ref_dc,
+    SeasonORM, SubmissionORM, TaskSubmissionORM, FileRecordORM, _user_to_ref_dc,
 )
 from errors import Forbidden, NotFound
 from models import ScopeRef
+from read_context import prime_rows
 
 
 @dataclass
@@ -157,6 +158,7 @@ class TaskIndex:
             SeasonORM.season_id.in_({task.season_id for task, _ in pairs if task.season_id}))} if pairs else {}
         self._scope_titles = None
         self._refs = {}
+        self._roster = roster
 
     def readable(self, entries=None):
         from task_queues import readable_tasks
@@ -187,3 +189,91 @@ class TaskIndex:
         if not db.can_read_task(self.uid, item.row, self.session):
             raise NotFound("Task not found")
         return _task_orm_to_dc(self.session, item.row, self.uid)
+
+    def prepare(self, entries):
+        """Prepare full DTO relations only for the selected page, in bounded reads.
+
+        Priming is a no-op outside a clean readonly UOW. The ordinary converters
+        remain authoritative; a command/repair permanently discards these hints.
+        No linked task is made visible by preloading its metadata.
+        """
+        from read_context import _context
+        context = _context(self.session)
+        values = list(entries)
+        if not values or context is None or not context.usable():
+            return
+        session = self.session
+        ids = list(dict.fromkeys(item.task_id for item in values))
+        def by_ids(model, column, identifiers, *order):
+            rows = []
+            for offset in range(0, len(identifiers), 500):
+                query = session.query(model).filter(column.in_(identifiers[offset:offset+500]))
+                rows.extend(query.order_by(*order).all() if order else query.all())
+            return rows
+        def prime_tracker(model, task_id, rows):
+            prime_rows(session, "tracker.rows", (model, (("task_id", task_id),)), rows)
+        # The index deliberately deferred descriptions during selection. Fetch
+        # all selected fields once rather than one deferred SELECT per row.
+        by_ids(TaskORM, TaskORM.task_id, ids)
+        for task_id, meta in self.metas.items():
+            prime_tracker(TaskTrackerORM, task_id, [meta])
+        assignments = defaultdict(list)
+        for row in by_ids(AssignmentORM, AssignmentORM.task_id, ids):
+            assignments[row.task_id].append(row)
+        for task_id in ids:
+            prime_tracker(AssignmentORM, task_id, assignments[task_id])
+            # A global IN can scan physical row order, while the original
+            # single-task query may use its composite (task,user) PK index.
+            # Preserve the original public roster order for multi-row tasks.
+            if len(self._roster[task_id]) <= 1:
+                prime_tracker(TaskRosterORM, task_id, self._roster[task_id])
+        # AssignmentPublic exposes whether each assignee still has task access.
+        # Apply the same batch policy to their actual selected assignments, rather
+        # than repeating ownership/queue/scope queries for every personal row.
+        from task_queues import readable_tasks
+        assigned_tasks = defaultdict(dict)
+        for task_id, rows in assignments.items():
+            for row in rows:
+                assigned_tasks[row.assignee_user_id][task_id] = self.rows[task_id]
+        for user_id, tasks in assigned_tasks.items():
+            readable_tasks(session, list(tasks.values()), user_id)
+        assignment_ids = [row.assignment_id for rows in assignments.values() for row in rows]
+        legacy = by_ids(SubmissionORM, SubmissionORM.assignment_id, assignment_ids, SubmissionORM.submitted_at)
+        by_assignment = defaultdict(list)
+        for row in legacy:
+            by_assignment[row.assignment_id].append(row)
+        for aid in assignment_ids:
+            prime_rows(session, "assignment.submissions", aid, by_assignment[aid])
+        shared = defaultdict(list)
+        for row in by_ids(TaskSubmissionORM, TaskSubmissionORM.task_id, ids, TaskSubmissionORM.submitted_at):
+            shared[row.task_id].append(row)
+        from tracker import participants
+        for task_id in ids:
+            prime_rows(session, "task.submissions", task_id, shared[task_id])
+            current = [row.assignment_id for row in participants(session, task_id)]
+            current_set = set(current)
+            fallback = [row for row in legacy if row.assignment_id in current_set]
+            # The old combined fallback orders across all current assignments.
+            # Concatenating multiple IN chunks would not preserve timestamp ties
+            # across chunks, so retain the exact original query for large sets.
+            # SQLite's unspecified tie order may differ between a page-wide IN
+            # and the original task-local IN. Keep that exact query for ties.
+            if (len(current) <= 1 and len(assignment_ids) <= 500
+                    and len({row.submitted_at for row in fallback}) == len(fallback)):
+                prime_rows(session, "task.legacy_submissions", tuple(current),
+                           fallback)
+        def prefetch_file_ids(raw):
+            # This is only a fetch hint. The legacy assignment converter tolerates
+            # malformed JSON; authoritative projections retain their own exact
+            # validation/fallback rules and must not fail earlier in preparation.
+            try:
+                values = json.loads(raw or "[]")
+            except (ValueError, TypeError):
+                return ()
+            return tuple(value for value in values if isinstance(value, str)) if isinstance(values, (list, dict, str)) else ()
+        file_ids = {fid for row in legacy for fid in prefetch_file_ids(row.files_json)}
+        file_ids.update(fid for rows in shared.values() for row in rows for fid in prefetch_file_ids(row.files_json))
+        file_ids.update(fid for task_id in ids for fid in prefetch_file_ids(self.metas[task_id].files_json))
+        by_ids(FileRecordORM, FileRecordORM.file_id, list(file_ids))
+        from tracker_stage2 import prepare_relations
+        prepare_relations(session, ids, self.uid)

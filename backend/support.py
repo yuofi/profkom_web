@@ -22,6 +22,7 @@ from support_models import SupportConfigORM, SupportStaffORM, FeedbackORM, Suppo
 from errors import Forbidden, InvalidInput, NotFound, Conflict
 from registration import audit, version
 from validation import Command
+from read_context import cached
 
 
 def now():
@@ -74,12 +75,17 @@ def is_staff(session, uid):
 
 
 def is_support_queue(session, queue):
-    config = _config(session)
-    return bool(config and config.queue_id and queue and queue.queue_id == config.queue_id)
+    def load():
+        config = _config(session)
+        return config.queue_id if config else None
+    target = cached(session,"support.queue_id",None,load,copy_result=False)
+    return bool(target and queue and queue.queue_id == target)
 
 
 def owns_task(session, task_id, uid):
-    return bool(_active(session, uid) and session.query(FeedbackORM).filter_by(task_id=task_id, user_id=uid).first())
+    # This ACL needs existence only; diagnostics and screenshot blobs never need
+    # to be materialized just to decide access to a tracker reference.
+    return cached(session,"support.owns_task",(task_id,uid),lambda:bool(_active(session, uid) and session.query(FeedbackORM.report_id).filter_by(task_id=task_id, user_id=uid).first()),copy_result=False)
 
 
 def is_support_task(session, task):

@@ -54,7 +54,7 @@ it("preserves filters and selected day in URL when views and their arrow periods
   seed();const get = vi.spyOn(workspaceApi, "calendar").mockResolvedValue({ items: [], next_cursor: null });
   const internalScroll = vi.spyOn(Element.prototype, "scrollTop", "set"), pageScroll = vi.spyOn(window, "scrollTo");
   page = await mountWorkspace(<><CalendarPage /><Location /></>, { path: "/calendar?view=week&date=2026-10-29&mine=false&kind=meeting" });await waitForPage(page);
-  expect(get).toHaveBeenLastCalledWith("2026-10-25T21:00:00.000Z", "2026-11-01T21:00:00.000Z", expect.objectContaining({ mine: false, kind: "meeting" }));
+  expect(get).toHaveBeenLastCalledWith("2026-10-25T21:00:00.000Z", "2026-11-01T21:00:00.000Z", expect.objectContaining({ mine: false, kind: "meeting" }), expect.any(AbortSignal));
   expect(page.container.querySelector('[aria-label="Календарь недели"]')).not.toBeNull();
   await click("Следующая неделя");expect(page.container.querySelector('[data-location]')?.textContent).toContain("date=2026-11-05");
   await click("День");expect(page.container.querySelector('[aria-label="Календарь дня"]')).not.toBeNull();await click("Предыдущий день");expect(page.container.querySelector('[data-location]')?.textContent).toContain("date=2026-11-04");

@@ -1,4 +1,4 @@
-import type { Task } from "../../utils/api/contract";
+import type { Task, TaskListPageResponse } from "../../utils/api/contract";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { ApiError } from "../../utils/api/request";
 
@@ -47,7 +47,8 @@ export async function loadPlanningTasks(filters: object, range: PlanningRange, s
   void _cursor;
   do {
     if (signal?.aborted) throw new DOMException("Запрос отменён", "AbortError");
-    const page = await tasksApi.listPage({ ...base, limit: 100, date_from: new Date(dayMillis(range.first)).toISOString(), date_to: new Date(dayMillis(addDays(range.last, 1))).toISOString(), ...(cursor ? { cursor } : {}) });
+    const params: Record<string, unknown> = { ...base, limit: 100, date_from: new Date(dayMillis(range.first)).toISOString(), date_to: new Date(dayMillis(addDays(range.last, 1))).toISOString(), ...(cursor ? { cursor } : {}) };
+    const page: TaskListPageResponse = await (signal ? tasksApi.listPage(params, signal) : tasksApi.listPage(params));
     if (signal?.aborted) throw new DOMException("Запрос отменён", "AbortError");
     page.items.forEach(task => items.set(task.task_id, task));cursor = page.next_cursor;
     if (cursor) {

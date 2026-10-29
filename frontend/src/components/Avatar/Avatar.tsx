@@ -13,6 +13,7 @@ interface AvatarProps {
   mode?: "view" | "edit" | "disable";
   onUpload?: (url: string) => void;
   className?: string;
+  loading?: "lazy" | "eager";
 }
 
 export const Avatar: React.FC<AvatarProps> = ({
@@ -21,6 +22,7 @@ export const Avatar: React.FC<AvatarProps> = ({
   mode = "view",
   onUpload,
   className,
+  loading,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -60,6 +62,7 @@ export const Avatar: React.FC<AvatarProps> = ({
           alt="Avatar"
           className={styles.image}
           disableModal={mode === "edit" || mode === "disable"}
+          loading={loading}
           // A file the reader may no longer open, or a session that just ended.
           onError={(e) => {
             if (!e.currentTarget.src.endsWith(DEFAULT_AVATAR)) e.currentTarget.src = DEFAULT_AVATAR;

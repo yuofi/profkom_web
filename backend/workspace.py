@@ -56,7 +56,12 @@ def participation(uid):
             roles = [name for relation, name in block_roles if relation in relations]
             if roles:
                 blocks.append(dict(block_id=block_id_for(block.name), name=block.name, roles=roles))
-        for event in sorted(db.list_events(), key=lambda item: (item.title.casefold(), item.event_id)):
+        children = {}
+        for subevent in session.query(SubeventORM):
+            children.setdefault(subevent.event_id, []).append(subevent)
+        # This projection uses only identity, name and the actor's central
+        # relations; leadership cards and their user profiles are not needed.
+        for event in sorted(session.query(EventORM), key=lambda item: (item.title.casefold(), item.event_id)):
             if not live(event.season_id):
                 continue
             relations = access.scope_relations(uid, "event", event.event_id)
@@ -65,7 +70,7 @@ def participation(uid):
                 roles.append("event_leader")
             if access.EVENT_DEPUTY in relations:
                 roles.append("event_deputy")
-            for subevent in db.list_subevents(event.event_id):
+            for subevent in children.get(event.event_id, []):
                 sub_relations = access.scope_relations(uid, "subevent", subevent.subevent_id)
                 for relation, name in (
                     (access.SUB_LEADER, "subevent_leader"),
@@ -100,13 +105,32 @@ def meeting_dict(uid, m):
 def notifications(uid):
     result = []
     with db._session() as s:
-        for n in (
+        records = [(notification, json.loads(notification.payload_json or "{}")) for notification in (
             s.query(NotificationORM)
             .filter_by(user_id=uid)
             .order_by(NotificationORM.created_at.desc())
             .all()
-        ):
-            p = json.loads(n.payload_json or "{}")
+        )]
+        # Preserve the existing dispatch precedence: a payload carrying a report
+        # or meeting ID must never fall through to a more permissive task target.
+        task_ids = list(dict.fromkeys(
+            p["task_id"] for n, p in records
+            if not (n.kind == "pgas_document.created" and p.get("entry_id"))
+            and not p.get("report_id") and not p.get("meeting_id")
+            and isinstance(p.get("task_id"), str) and p["task_id"]
+        ))
+        readable_task_ids = set()
+        if task_ids:
+            from sqlalchemy.orm import load_only
+            from task_queues import readable_tasks
+
+            tasks = []
+            for offset in range(0, len(task_ids), 500):
+                tasks.extend(s.query(TaskORM).options(load_only(
+                    TaskORM.task_id, TaskORM.scope_kind, TaskORM.scope_id
+                )).filter(TaskORM.task_id.in_(task_ids[offset:offset + 500])))
+            readable_task_ids = {task.task_id for task in readable_tasks(s, tasks, uid)}
+        for n, p in records:
             target = None
             allowed = True
             if n.kind == "pgas_document.created" and p.get("entry_id"):
@@ -124,8 +148,12 @@ def notifications(uid):
                 allowed = bool(m and meeting_read(uid, m))
                 target = {"kind": m.owner_kind, "id": m.owner_id} if m else None
             elif p.get("task_id"):
-                t = s.get(TaskORM, p["task_id"])
-                allowed = bool(t and db.can_read_task(uid,t,s))
+                if isinstance(p["task_id"], str):
+                    allowed = p["task_id"] in readable_task_ids
+                else:
+                    # Retain the legacy lookup behavior for non-string payloads.
+                    t = s.get(TaskORM, p["task_id"])
+                    allowed = bool(t and db.can_read_task(uid, t, s))
                 target = {"kind": "task", "id": p["task_id"]}
             elif p.get("queue_id"):
                 from task_queues import TaskQueueORM,can_read
@@ -433,6 +461,7 @@ def home(uid, *, watching=False):
                     merits.append(dict(title=sub.title, to="/merits?source_kind=subevent_volunteer&scope_id=" + sub.subevent_id))
         if access.allowed(uid, "merit.create.chair"):
             merits.insert(0, dict(title="Особые заслуги председателя", to="/merits?source_kind=chair_merit"))
+        index.prepare(upcoming[:5] + overdue[:5])
         return dict(today=day.isoformat(),
                     agenda=calendar(uid, start.isoformat(), end.isoformat(), watching=watching, _task_entries=personal),
                     tasks=[main._to_task_public_out(index.project(task)) for task in upcoming[:5]],

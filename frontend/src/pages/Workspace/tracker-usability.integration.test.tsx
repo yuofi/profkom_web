@@ -10,6 +10,7 @@ import { tasksApi } from "../../utils/api/tasks.api";
 import { taskQueuesApi } from "../../utils/api/taskQueues.api";
 import { filesApi } from "../../utils/api/files.api";
 import { api } from "../../utils/api/index";
+import { moscowInput } from "../../utils/dates";
 import { emptyCriteria, richText, type AssessmentInputs } from "../../utils/api/contract";
 import { TrackerTaskCreatePage } from "./TaskCreateForm";
 import { TrackerTaskPage } from "./TrackerTaskDetail";
@@ -40,7 +41,7 @@ it("creates an unassigned independent task with real draft bytes, manages its pu
   const create = vi.spyOn(tasksApi, "create");
   page = await mountWorkspace(<Routes><Route path="/tasks/new" element={<TrackerTaskCreatePage />} /><Route path="/tasks/:id" element={<TrackerTaskPage />} /></Routes>, { path: `/tasks/new?queue_id=${queue.queue_id}`, session });await waitForPage(page, () => !!page!.container.querySelector("form"));
   const form = page.container.querySelector("form")!;expect(field(form, "title").value).toBe("");expect(field(form, "description").value).toBe("");expect(form.querySelector('[name="hours"]')).toBeNull();
-  await change(field(form, "title"), "Свободная задача из полного редактора");await change(field(form, "description"), "- [ ] Проверить файл\n\n$E=mc^2$");await change(field(form, "deadline"), "2026-10-29T18:00");
+  await change(field(form, "title"), "Свободная задача из полного редактора");await change(field(form, "description"), "- [ ] Проверить файл\n\n$E=mc^2$");await change(field(form, "deadline"), moscowInput(scoped.deadline_at!));
   await pick(form, "watchers", String(worker.user_id));
   const fileInput = form.querySelector<HTMLInputElement>('input[type="file"]')!, blob = new File(["Synthetic unassigned draft"], "unassigned-plan.txt", { type: "text/plain" });
   await act(async () => { Object.defineProperty(fileInput, "files", { configurable: true, value: [blob] });fileInput.dispatchEvent(new Event("change", { bubbles: true })); });

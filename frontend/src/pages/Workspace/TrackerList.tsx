@@ -2,9 +2,10 @@ import { TaskClassificationMenu } from "./TaskClassificationMenu";
 import { TrackerHomeLink } from "../../components/Workspace/TrackerHomeLink";
 import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
 import { EntityPicker } from "../../components/Workspace/EntityPicker";
-import { useEffect, useRef, type MouseEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { useDebouncedValue } from "../../utils/hooks/useDebouncedValue";
 import { Empty, Glyph, QueryState, RouteLink } from "../../components/Workspace/WorkspaceUI";
 import { taskQueuesApi } from "../../utils/api/taskQueues.api";
 import { tasksApi } from "../../utils/api/tasks.api";
@@ -42,6 +43,9 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
   const [params, setParams] = useSearchParams();
   const previous = useRef(new Map<string, string>());
   const filterMenu = useRef<HTMLDetailsElement>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const search = params.get("q") ?? "", settledSearch = useDebouncedValue(search);
+  const searchPending = search !== settledSearch;
   useEffect(() => {
     const close = (event: PointerEvent) => { if (event.target instanceof Node && !filterMenu.current?.contains(event.target) && !(event.target instanceof Element && event.target.closest("[data-entity-picker-popup]"))) filterMenu.current?.removeAttribute("open"); };
     const escape = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape" && filterMenu.current?.open) { filterMenu.current.open = false; filterMenu.current.querySelector("summary")?.focus(); } };
@@ -72,13 +76,16 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
     limit: 20,
     ...(cursor ? { cursor } : {}),
   };
-  const requestFilters = Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== ""));
-  const query = useQuery({ queryKey: ["tasks", "page", requestFilters], queryFn: () => tasksApi.listPage(requestFilters) });
-  const timeline = useQuery({ queryKey: ["tasks", "planning", requestFilters, range.first, range.last], queryFn: ({ signal }) => loadPlanningTasks(requestFilters, range, signal), enabled: view !== "list" });
+  const requestFilters = Object.fromEntries(Object.entries({ ...filters, q: settledSearch }).filter(([, value]) => value !== ""));
+  const listFilters = view === "list" ? requestFilters : { ...requestFilters, limit: 1 };
+  const query = useQuery({ queryKey: ["tasks", "page", listFilters], queryFn: ({ signal }) => tasksApi.listPage(listFilters, signal), enabled: !searchPending && (view === "list" || filtersOpen) });
+  const timeline = useQuery({ queryKey: ["tasks", "planning", requestFilters, range.first, range.last], queryFn: ({ signal }) => loadPlanningTasks(requestFilters, range, signal), enabled: view !== "list" && !searchPending });
   const queues = useQuery({ queryKey: ["tasks", "queues", "catalog"], queryFn: taskQueuesApi.catalog, enabled: !queue });
-  const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
-  const people = useQuery({ queryKey: ["contacts"], queryFn: directoryApi.contacts });
-  const errors = [query.error, view !== "list" ? timeline.error : null].filter(error => !!error);
+  const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list, enabled: filtersOpen || !!filters.season_id });
+  const people = useQuery({ queryKey: ["contacts"], queryFn: directoryApi.contacts, enabled: filtersOpen || !!filters.assignee_user_id });
+  const peopleOptions = filtersOpen && !people.isFetching && (!people.error || canRetainData(people.error)) ? people.data : undefined;
+  const seasonOptions = filtersOpen && !seasons.isFetching && (!seasons.error || canRetainData(seasons.error)) ? seasons.data : undefined;
+  const errors = [view === "list" || filtersOpen ? query.error : null, view !== "list" ? timeline.error : null].filter(error => !!error);
   // A transient companion request cannot mask a current access refusal on the plan.
   const error = errors.find(error => !canRetainData(error)) ?? errors[0] ?? null;
   const tasks = view === "list" ? query.data?.items ?? [] : timeline.data ?? [];
@@ -158,17 +165,17 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
       <div className={s.views} aria-label="Представление задач">
         {([["list", "Список"], ["calendar", "Календарь"], ["gantt", "Гантт"]] as const).map(([key, label]) => <button key={key} type="button" aria-pressed={view === key} onClick={() => update("view", key === "list" ? "" : key)}>{label}</button>)}
       </div>
-      <details ref={filterMenu} className={s.filters}>
+      <details ref={filterMenu} className={s.filters} onToggle={event => setFiltersOpen(event.currentTarget.open)}>
         <summary><Glyph name="filter_list" />Добавить фильтр</summary>
         <div className={s.filterPanel}>
           <label className={w.field}>Назначение<select aria-label="Назначение" value={params.get("mine") ?? ""} onChange={(event) => update("mine", event.target.value)}><option value="">Без фильтра</option><option value="true">Мои задачи</option><option value="false">Все доступные</option></select></label>
           <label className={w.field}>Статус<select aria-label="Статус" value={filters.status} onChange={(event) => update("status", event.target.value)}><option value="">Любой статус</option>{Object.entries(statusNames).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           <label className={w.field}>Тип<select aria-label="Тип задачи" value={filters.task_type} onChange={event => update("task_type", event.target.value)}><option value="">Все типы</option>{Object.entries(taskTypeNames).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           <label className={w.field}>Приоритет<select aria-label="Приоритет" value={filters.priority} onChange={event => update("priority", event.target.value)}><option value="">Все приоритеты</option>{Object.entries(taskPriorityNames).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-          <label className={w.field}>Сезон<select aria-label="Сезон" value={filters.season_id} onChange={(event) => update("season_id", event.target.value)}><option value="">Все сезоны</option>{seasons.data?.items.map((item) => <option key={item.season_id} value={item.season_id}>{item.title}</option>)}</select></label>
+          <label className={w.field}>Сезон<select aria-label="Сезон" value={filters.season_id} onChange={(event) => update("season_id", event.target.value)}><option value="">Все сезоны</option>{seasonOptions?.items.map((item) => <option key={item.season_id} value={item.season_id}>{item.title}</option>)}</select></label>
           {!queue && <label className={w.field}>Очередь<select aria-label="Очередь" value={filters.queue_id} onChange={event => update("queue_id", event.target.value)}><option value="">Все доступные очереди</option>{queues.data?.items.filter(item => item.access === "granted").map(item => <option key={item.queue_id} value={item.queue_id}>{item.key} · {item.name}</option>)}</select></label>}
           {!queue && <EntityPicker label="Команда" value={scopeValue} onChange={value => update("scope", value)} placeholder="Все команды" options={[{ value: "", label: "Все команды" }, ...(scope && !selectedScope ? [{ value: scopeValue, label: "Текущая команда", scope: { kind: scope.kind, name: "Текущая команда" } }] : []), ...scopes.map(item => ({ value: JSON.stringify([item.kind, item.id]), label: item.title, scope: { kind: item.kind, name: item.title } }))]} />}
-          <EntityPicker label="Исполнитель" value={filters.assignee_user_id} onChange={value => update("assignee_user_id", value)} placeholder="Все исполнители" options={[{ value: "", label: "Все исполнители" }, ...(people.data?.filter(item => item.in_profcom).map(item => ({ value: String(item.user_id), label: [item.surname, item.name, item.patronymic].filter(Boolean).join(" "), user: { user_id: item.user_id, display_name: [item.surname, item.name, item.patronymic].filter(Boolean).join(" "), avatar_url: item.photo_url ?? null } })) ?? [])]} />
+          <EntityPicker label="Исполнитель" value={filters.assignee_user_id} onChange={value => update("assignee_user_id", value)} placeholder="Все исполнители" options={[{ value: "", label: "Все исполнители" }, ...(peopleOptions?.filter(item => item.in_profcom).map(item => ({ value: String(item.user_id), label: [item.surname, item.name, item.patronymic].filter(Boolean).join(" "), user: { user_id: item.user_id, display_name: [item.surname, item.name, item.patronymic].filter(Boolean).join(" "), avatar_url: item.photo_url ?? null } })) ?? [])]} />
           <label className={w.field}>Сортировать<select aria-label="Сортировать" value={filters.sort} onChange={(event) => update("sort", event.target.value)}><option value="deadline">По дедлайну</option><option value="updated">По обновлению</option><option value="created">По созданию</option><option value="priority">По приоритету</option><option value="starts">По плановому началу</option></select></label>
           <label className={w.field}>Порядок<select aria-label="Порядок" value={filters.order} onChange={(event) => update("order", event.target.value)}><option value="asc">По возрастанию</option><option value="desc">По убыванию</option></select></label>
           <label className={w.check}><input type="checkbox" checked={filters.favorite === "true"} onChange={event => update("favorite", event.target.checked ? "true" : "")} />Только избранные</label>
@@ -182,7 +189,7 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
       {!active.length && <span className={s.filterHint}>Показаны все доступные вам задачи</span>}
       {active.length > 1 && <button type="button" className={s.clear} onClick={() => { previous.current.clear(); const next = new URLSearchParams();["view", "month", "zoom"].forEach(key => { const value = params.get(key);if (value) next.set(key, value); });setParams(next); }}>Сбросить все</button>}
     </div>
-    <QueryState loading={query.isLoading || view !== "list" && timeline.isLoading} error={error} keepDataOnError={view === "list" ? !!query.data : !!timeline.data} retry={() => { void query.refetch();if (view !== "list") void timeline.refetch(); }}>
+    <QueryState loading={searchPending || (view === "list" ? query.isLoading : timeline.isLoading)} error={error} keepDataOnError={view === "list" ? !!query.data : !!timeline.data} retry={() => { void query.refetch();if (view !== "list") void timeline.refetch(); }}>
       {view === "calendar" ? <TrackerCalendar tasks={tasks} range={range} month={month} onMonth={value => update("month", value)} /> : view === "gantt" ? <TrackerGantt tasks={tasks} range={range} month={month} onMonth={value => update("month", value)} zoom={zoom} onZoom={value => update("zoom", value)} /> : tasks.length ? <div className={s.tableWrap}>
         <table className={s.table} aria-label="Список задач">
           <thead><tr><th scope="col">Ключ</th><th scope="col">Задача</th><th scope="col">Исполнители</th><th scope="col">Статус</th><th scope="col" aria-sort={filters.sort === "deadline" ? filters.order === "desc" ? "descending" : "ascending" : "none"}><button onClick={() => changeSort("deadline")}>Дедлайн {filters.sort === "deadline" && (filters.order === "asc" ? "↑" : "↓")}</button></th><th scope="col">Команда</th><th scope="col" aria-sort={filters.sort === "updated" ? filters.order === "desc" ? "descending" : "ascending" : "none"}><button onClick={() => changeSort("updated")}>Обновлено {filters.sort === "updated" && (filters.order === "asc" ? "↑" : "↓")}</button></th></tr></thead>

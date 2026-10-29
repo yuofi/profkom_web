@@ -10,156 +10,129 @@ import { Loading } from "./components/Workspace/WorkspaceUI";
 const EventsListPage = lazy(() =>
   import("./pages/Workspace/EventPages").then((m) => ({
     default: m.EventsListPage,
-  })),
-);
+  })));
 const EventPage = lazy(() =>
   import("./pages/Workspace/EventPages").then((m) => ({
     default: m.EventPage,
-  })),
-);
+  })));
 const EventCreatePage = lazy(() => import("./pages/Workspace/EventPages").then(m => ({ default: m.EventCreatePage })));
 const EventEditPage = lazy(() => import("./pages/Workspace/EventPages").then(m => ({ default: m.EventEditPage })));
 const SubeventPage = lazy(() =>
   import("./pages/Workspace/EventPages").then((m) => ({
     default: m.SubeventPage,
-  })),
-);
+  })));
 const TasksListPage = lazy(() =>
-  import("./pages/Workspace/TaskPages").then((m) => ({
-    default: m.TasksListPage,
-  })),
-);
+  import("./pages/Workspace/TrackerList").then((m) => ({
+    default: m.TrackerListPage,
+  })));
 const TaskQueuesPage = lazy(() => import("./pages/Workspace/TaskQueuePages").then(m => ({ default: m.TaskQueuesPage })));
 const TaskQueuePage = lazy(() => import("./pages/Workspace/TaskQueuePages").then(m => ({ default: m.TaskQueuePage })));
 const TrackerTaskCreatePage = lazy(() => import("./pages/Workspace/TaskCreateForm").then(m => ({ default: m.TrackerTaskCreatePage })));
 const TaskPage = lazy(() =>
-  import("./pages/Workspace/TaskPages").then((m) => ({ default: m.TaskPage })),
-);
+  import("./pages/Workspace/TrackerTaskDetail").then((m) => ({ default: m.TrackerTaskPage })));
 const UnresolvedPage = lazy(() =>
-  import("./pages/Workspace/TaskPages").then((m) => ({
+  import("./pages/Workspace/UnresolvedPage").then((m) => ({
     default: m.UnresolvedPage,
-  })),
-);
+  })));
 const DirectoryPage = lazy(() =>
   import("./pages/Workspace/DirectoryPages").then((m) => ({
     default: m.DirectoryPage,
-  })),
-);
+  })));
 const FormerContactsPage = lazy(() =>
   import("./pages/Workspace/DirectoryPages").then((m) => ({
     default: m.FormerContactsPage,
-  })),
-);
+  })));
 const MaterialsPage = lazy(() =>
   import("./pages/Workspace/MaterialPages").then((m) => ({
     default: m.MaterialsPage,
-  })),
-);
+  })));
 const MaterialPage = lazy(() =>
   import("./pages/Workspace/MaterialPages").then((m) => ({
     default: m.MaterialPage,
-  })),
-);
+  })));
 const MaterialCreatePage = lazy(() =>
   import("./pages/Workspace/MaterialPages").then((m) => ({
     default: m.MaterialCreatePage,
-  })),
-);
+  })));
 const BlocksPage = lazy(() =>
   import("./pages/Workspace/MembershipPages").then((m) => ({
     default: m.BlocksPage,
-  })),
-);
+  })));
 const BlockPage = lazy(() =>
   import("./pages/Workspace/MembershipPages").then((m) => ({
     default: m.BlockPage,
-  })),
-);
+  })));
 const BlockRequestsPage = lazy(() =>
   import("./pages/Workspace/MembershipPages").then((m) => ({
     default: m.BlockRequestsPage,
-  })),
-);
+  })));
 const DashboardPage = lazy(() =>
   import("./pages/Workspace/WorkspacePages").then((m) => ({
     default: m.DashboardPage,
-  })),
-);
+  })));
 const CalendarPage = lazy(() =>
   import("./pages/Workspace/WorkspacePages").then((m) => ({
     default: m.CalendarPage,
-  })),
-);
+  })));
 const NotificationsPage = lazy(() =>
   import("./pages/Workspace/WorkspacePages").then((m) => ({
     default: m.NotificationsPage,
-  })),
-);
+  })));
 const SeasonsPage = lazy(() =>
   import("./pages/Workspace/SeasonPages").then((m) => ({
     default: m.SeasonsPage,
-  })),
-);
+  })));
 const SeasonCreatePage = lazy(() => import("./pages/Workspace/SeasonPages").then(m => ({ default: m.SeasonCreatePage })));
 const SeasonPage = lazy(() =>
   import("./pages/Workspace/SeasonPages").then((m) => ({
     default: m.SeasonPage,
-  })),
-);
+  })));
 const SummaryPage = lazy(() =>
   import("./pages/Workspace/SeasonPages").then((m) => ({
     default: m.SummaryPage,
-  })),
-);
+  })));
 const MeritsPage = lazy(() =>
   import("./pages/Workspace/MeritPages").then((m) => ({
     default: m.MeritsPage,
-  })),
-);
+  })));
 const MeritEntryPage = lazy(() => import("./pages/Workspace/MeritPages").then((m) => ({ default: m.MeritEntryPage })));
 const SourcesPage = lazy(() =>
   import("./pages/Workspace/MeritPages").then((m) => ({
     default: m.SourcesPage,
-  })),
-);
+  })));
 const CorrectionsPage = lazy(() =>
   import("./pages/Workspace/MeritPages").then((m) => ({
     default: m.CorrectionsPage,
-  })),
-);
+  })));
 const ReportsPage = lazy(() =>
   import("./pages/Workspace/ReportPages").then((m) => ({
     default: m.ReportsPage,
-  })),
-);
+  })));
 const ReportPage = lazy(() =>
   import("./pages/Workspace/ReportPages").then((m) => ({
     default: m.ReportPage,
-  })),
-);
+  })));
 const ReportHistoryPage = lazy(() =>
   import("./pages/Workspace/ReportPages").then((m) => ({
     default: m.ReportHistoryPage,
-  })),
-);
+  })));
 const MeetingPage = lazy(() =>
   import("./pages/Workspace/ReportPages").then((m) => ({
     default: m.MeetingPage,
-  })),
-);
-import { LegacyMaterialRedirect } from "./pages/Workspace/LegacyMaterialRedirect";
-import { GreetingPage } from "./pages/Greeting/Greeting";
+  })));
+const LegacyMaterialRedirect = lazy(() => import("./pages/Workspace/LegacyMaterialRedirect").then(m => ({ default: m.LegacyMaterialRedirect })));
+const GreetingPage = lazy(() => import("./pages/Greeting/Greeting").then(m => ({ default: m.GreetingPage })));
 import { UserProvider } from "./utils/ctx";
 import { retryTransient, workspaceQueryCache } from "./utils/api/invalidation";
 import { ProtectedRoute } from "./pages/Wrappers/wrappers";
-import { ProfilePage } from "./pages/ProfilePage/ProfilePage";
-import { ProfileSettingsPage } from "./pages/ProfilePage/ProfileSettingsPage";
+const ProfilePage = lazy(() => import("./pages/ProfilePage/ProfilePage").then(m => ({ default: m.ProfilePage })));
+const ProfileSettingsPage = lazy(() => import("./pages/ProfilePage/ProfileSettingsPage").then(m => ({ default: m.ProfileSettingsPage })));
 const KkrTemplatesPage = lazy(() => import("./pages/Workspace/SeasonPages").then(module => ({ default: module.KkrTemplatesPage })));
 const MemberProfilePage = lazy(() => import("./pages/Workspace/MemberProfilePage").then((m) => ({ default: m.MemberProfilePage })));
-import { ProfileEditPage } from "./pages/ProfileEditPage/ProfileEditPage";
-import { PgasPage } from "./pages/Pgas/PgasPage";
-const AdminPanel = lazy(() => import("./pages/Admin/AdminPage"));
-const NotFoundPage = lazy(() => import("./pages/fallback/NotFoundPage"));
+const ProfileEditPage = lazy(() => import("./pages/ProfileEditPage/ProfileEditPage").then(m => ({ default: m.ProfileEditPage })));
+const PgasPage = lazy(() => import("./pages/Pgas/PgasPage").then(m => ({ default: m.PgasPage })));
+const AdminPanel = lazy(() => import("./pages/Admin/AdminPage").then(m => ({ default: m.default })));
+const NotFoundPage = lazy(() => import("./pages/fallback/NotFoundPage").then(m => ({ default: m.default })));
 const SupportPage = lazy(() => import("./pages/Workspace/SupportPage").then(module => ({ default: module.SupportPage })));
 const queryClient = new QueryClient({
   queryCache: workspaceQueryCache(),

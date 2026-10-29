@@ -29,7 +29,7 @@ export interface AssignmentCommands {
 }
 export const tasksApi = {
   list: (params?: object) => page<Task>("/tasks", params),
-  listPage: (params?: object) => request<TaskListPageResponse>("get", "/tasks", undefined, params),
+  listPage: (params?: object, signal?: AbortSignal) => request<TaskListPageResponse>("get", "/tasks", undefined, params, signal),
   changeStatus: (id: string, data: TaskStatusChange) => request<Task>("post", `/tasks/${idPath(id)}/status`, data),
   submitResult: (id: string, data: Revision & { text: RichText; links?: string[]; file_ids?: string[] }) => request<Task>("post", `/tasks/${idPath(id)}/submit-result`, data),
   take: (id: string, data: Revision) => request<Task>("post", `/tasks/${idPath(id)}/take`, data),

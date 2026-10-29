@@ -33,6 +33,8 @@ import c from "./calendar.module.css";
 import { CalendarMonth, CalendarTimeGrid } from "./CalendarViews";
 import { calendarTitle, calendarView, calendarWindow, shiftCalendarDate, validDay, type CalendarView } from "./calendarLayout";
 import p from "./participation.module.css";
+import { canRetainData } from "../../utils/api/request";
+import { useDebouncedValue } from "../../utils/hooks/useDebouncedValue";
 import { useConfirmedNavigation } from "../../components/Workspace/unsavedChangesHooks";
 function useSeasons() {
   return useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
@@ -111,6 +113,7 @@ export function DashboardPage() {
   </Page>;
 }
 export function CalendarPage() {
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [today, setToday] = useState(() => moscowDay(new Date().toISOString()));
   useEffect(() => { const update = () => setToday(moscowDay(new Date().toISOString()));const timer = window.setInterval(update, 60_000);window.addEventListener("focus", update);return () => { window.clearInterval(timer);window.removeEventListener("focus", update); }; }, []);
   const [params, setParams] = useSearchParams();
@@ -119,12 +122,18 @@ export function CalendarPage() {
   const month = normalizeMonth(params.get("month") ?? (validDay(requestedDate) ? requestedDate.slice(0, 7) : today.slice(0, 7)));
   const date = validDay(requestedDate) && requestedDate.startsWith(month) ? requestedDate : month === today.slice(0, 7) ? today : `${month}-01`;
   const filters = { mine: params.get("mine") !== "false", kind: params.get("kind") ?? "", season_id: params.get("season_id") ?? "", block_id: params.get("block_id") ?? "", event_id: params.get("event_id") ?? "", queue_id: params.get("queue_id") ?? "", status: params.get("status") ?? "", q: params.get("q") ?? "" };
+  const settledSearch = useDebouncedValue(filters.q), searchPending = settledSearch !== filters.q;
+  const requestFilters = { ...filters, q: settledSearch };
   const seasons = useSeasons();
-  const blocks = useQuery({ queryKey: ["workspaceBlocks"], queryFn: membershipApi.blocks });
-  const events = useQuery({ queryKey: ["events"], queryFn: () => eventsApi.list() });
-  const queues = useQuery({ queryKey: ["tasks", "queues"], queryFn: taskQueuesApi.catalog });
+  const blocks = useQuery({ queryKey: ["workspaceBlocks"], queryFn: membershipApi.blocks, enabled: filtersOpen || !!filters.block_id });
+  const events = useQuery({ queryKey: ["events"], queryFn: () => eventsApi.list(), enabled: filtersOpen || !!filters.event_id });
+  const queues = useQuery({ queryKey: ["tasks", "queues", "catalog"], queryFn: taskQueuesApi.catalog, enabled: filtersOpen || !!filters.queue_id });
+  // Closed filters expose no cached directory metadata; opening waits for current reads.
+  const blockOptions = filtersOpen && !blocks.isFetching && (!blocks.error || canRetainData(blocks.error)) ? blocks.data : undefined;
+  const eventOptions = filtersOpen && !events.isFetching && (!events.error || canRetainData(events.error)) ? events.data : undefined;
+  const queueOptions = filtersOpen && !queues.isFetching && (!queues.error || canRetainData(queues.error)) ? queues.data : undefined;
   const range = calendarWindow(view, date);
-  const query = useQuery({ queryKey: ["calendar", view, range.from, range.to, filters], queryFn: () => workspaceApi.calendar(range.from, range.to, Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== ""))) });
+  const query = useQuery({ queryKey: ["calendar", view, range.from, range.to, requestFilters], queryFn: ({ signal }) => workspaceApi.calendar(range.from, range.to, Object.fromEntries(Object.entries(requestFilters).filter(([, value]) => value !== "")), signal), enabled: !searchPending });
   const update = (key: string, value: string) => { const next = new URLSearchParams(params);next.set("month", month);next.set("date", date);if (value) next.set(key, value);else next.delete(key);setParams(next); };
   const navigatePeriod = (target: string, mode: CalendarView = view) => { const next = new URLSearchParams(params);next.set("date", target);next.set("month", target.slice(0, 7));next.set("view", mode);setParams(next); };
   const periodName = view === "month" ? "месяц" : view === "week" ? "неделя" : "день";
@@ -137,16 +146,16 @@ export function CalendarPage() {
       <div className={c.viewSwitch} role="group" aria-label="Представление календаря">{([["day", "День"], ["week", "Неделя"], ["month", "Месяц"]] as const).map(([mode, title]) => <button type="button" className={s.button} key={mode} aria-pressed={view === mode} onClick={() => navigatePeriod(date, mode)}>{title}</button>)}</div>
     </div>
     <div className={c.topFilters}><label className={s.field}>Показывать<select value={filters.mine ? "mine" : "all"} onChange={event => update("mine", event.target.value === "all" ? "false" : "")}><option value="mine">Мои записи</option><option value="all">Все доступные</option></select></label><label className={s.field}>Поиск<input value={filters.q} placeholder="Название или ключ задачи" onChange={event => update("q", event.target.value)} /></label></div>
-    <details className={c.filterPanel}><summary>Фильтры календаря</summary><div className={c.filterGrid}>
+    <details className={c.filterPanel} onToggle={event => setFiltersOpen(event.currentTarget.open)}><summary>Фильтры календаря</summary><div className={c.filterGrid}>
       <label className={s.field}>Вид записи<select value={filters.kind} onChange={event => update("kind", event.target.value)}><option value="">Все виды</option><option value="event">Мероприятия</option><option value="meeting">Созвоны</option><option value="task_deadline">Дедлайны</option></select></label>
       <label className={s.field}>Сезон<select value={filters.season_id} onChange={event => update("season_id", event.target.value)}><option value="">Все незакрытые</option>{seasons.data?.items.map(season => <option value={season.season_id} key={season.season_id}>{season.title}</option>)}</select></label>
-      <EntityPicker label="Блок" entity="block" value={filters.block_id} onChange={value => update("block_id", value)} placeholder="Все блоки" options={blocks.data?.map(block => ({ value: block.block_id, label: block.name, block: { block_id: block.block_id, name: block.name, avatar_url: block.avatar_url } })) ?? []} />
-      <EntityPicker label="Мероприятие" value={filters.event_id} onChange={value => update("event_id", value)} placeholder="Все мероприятия" options={events.data?.items.map(event => ({ value: event.event_id, label: event.title })) ?? []} />
-      <EntityPicker label="Очередь" value={filters.queue_id} onChange={value => update("queue_id", value)} placeholder="Все очереди" options={queues.data?.items.filter(queue => queue.access === "granted").map(queue => ({ value: queue.queue_id, label: queue.name })) ?? []} />
+      <EntityPicker label="Блок" entity="block" value={filters.block_id} onChange={value => update("block_id", value)} placeholder="Все блоки" options={blockOptions?.map(block => ({ value: block.block_id, label: block.name, block: { block_id: block.block_id, name: block.name, avatar_url: block.avatar_url } })) ?? []} />
+      <EntityPicker label="Мероприятие" value={filters.event_id} onChange={value => update("event_id", value)} placeholder="Все мероприятия" options={eventOptions?.items.map(event => ({ value: event.event_id, label: event.title })) ?? []} />
+      <EntityPicker label="Очередь" value={filters.queue_id} onChange={value => update("queue_id", value)} placeholder="Все очереди" options={queueOptions?.items.filter(queue => queue.access === "granted").map(queue => ({ value: queue.queue_id, label: queue.name })) ?? []} />
       <label className={s.field}>Статус задач<select value={filters.status} onChange={event => update("status", event.target.value)}><option value="">Незавершённые</option>{Object.entries(statusNames).map(([key, title]) => <option key={key} value={key}>{title}</option>)}</select></label>
     </div></details>
     <div className={c.activeFilters} aria-label="Активные фильтры">{Object.entries(names).filter(([key]) => filters[key as keyof typeof filters]).map(([key, title]) => <button type="button" key={key} className={s.button} aria-label={`Убрать фильтр: ${title}`} onClick={() => update(key, "")}>{title} ×</button>)}<button className={s.button} onClick={() => setParams({ month, date, view })}>Сбросить фильтры</button></div>
-    <QueryState loading={query.isLoading || seasons.isLoading} error={query.error ?? seasons.error} retry={() => { void query.refetch();void seasons.refetch(); }}>
+    <QueryState loading={searchPending || query.isLoading || seasons.isLoading} error={query.error ?? seasons.error} retry={() => { void query.refetch();void seasons.refetch(); }}>
       {view === "month" ? <CalendarMonth days={range.days} offset={range.offset} items={items} today={today} seasonTitle={label} openDay={day => navigatePeriod(day, "day")} /> : <CalendarTimeGrid days={range.days} items={items} today={today} seasonTitle={label} />}
       {!items.length && <p className={s.muted}>На этот период нет доступных событий по выбранным условиям.</p>}
     </QueryState>

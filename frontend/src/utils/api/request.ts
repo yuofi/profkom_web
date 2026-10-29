@@ -82,15 +82,16 @@ export async function request<T>(
   url: string,
   data?: unknown,
   params?: object,
+  signal?: AbortSignal,
 ): Promise<T> {
   try {
-    return (await api.request<T>({ method, url, data, params })).data;
+    return (await api.request<T>({ method, url, data, params, signal })).data;
   } catch (error) {
     throw normalizeApiError(error);
   }
 }
-export async function page<T>(url: string, params?: object): Promise<Page<T>> {
-  const result = await request<Page<T>>("get", url, undefined, params);
+export async function page<T>(url: string, params?: object, signal?: AbortSignal): Promise<Page<T>> {
+  const result = await request<Page<T>>("get", url, undefined, params, signal);
   if (
     !result ||
     !Array.isArray(result.items) ||
@@ -110,6 +111,7 @@ export const idPath = (id: string | number) => encodeURIComponent(id);
 export async function allPages<T>(
   url: string,
   params?: object,
+  signal?: AbortSignal,
 ): Promise<Page<T>> {
   const items: T[] = [];
   const seen = new Set<string>();
@@ -118,7 +120,7 @@ export async function allPages<T>(
     const result: Page<T> = await page<T>(url, {
       ...params,
       ...(cursor ? { cursor } : {}),
-    });
+    }, signal);
     items.push(...result.items);
     cursor = result.next_cursor;
     if (cursor) {

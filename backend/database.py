@@ -1542,7 +1542,8 @@ def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: O
     u = session.get(UserORM, a.assignee_user_id)
     assignee_ref = _user_to_ref_dc(u) or UserRefDC(user_id=a.assignee_user_id, display_name=f"Участник {a.assignee_user_id}", avatar_url=None)
 
-    sub_orms = session.query(SubmissionORM).filter(SubmissionORM.assignment_id == a.assignment_id).order_by(SubmissionORM.submitted_at.asc()).all()
+    from read_context import orm_rows, orm_get
+    sub_orms = orm_rows(session, "assignment.submissions", a.assignment_id, lambda:session.query(SubmissionORM).filter(SubmissionORM.assignment_id == a.assignment_id).order_by(SubmissionORM.submitted_at.asc()).all())
     submissions = []
     for s in sub_orms:
         links = []
@@ -1557,7 +1558,7 @@ def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: O
             pass
         file_refs = []
         for fid in file_ids:
-            fr = session.get(FileRecordORM, fid)
+            fr = orm_get(session, FileRecordORM, fid)
             if fr:
                 file_refs.append(FileRefDC(file_id=fr.file_id, name=fr.name, mime_type=fr.mime_type, size_bytes=fr.size_bytes))
             else:
@@ -1629,7 +1630,9 @@ def _task_caps(t: TaskORM, uid: int, table: dict) -> list[str]:
 
 
 def _task_orm_to_dc(session: Session, t: TaskORM, current_user_id: Optional[int] = None) -> TaskPublicDC:
-    a_orms = session.query(AssignmentORM).filter(AssignmentORM.task_id == t.task_id).all()
+    from read_context import orm_rows
+    a_orms = orm_rows(session, "tracker.rows", (AssignmentORM, (("task_id", t.task_id),)),
+                      lambda:session.query(AssignmentORM).filter(AssignmentORM.task_id == t.task_id).all())
     assignments = [_assignment_orm_to_dc(session, a, current_user_id) for a in a_orms]
     caps = ["comment_task"]
     if current_user_id:

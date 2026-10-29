@@ -209,9 +209,12 @@ def _block(uid, block_id):
     if not name:
         return set()
     rel = set()
-    if db.is_block_master(uid, name):
+    from database import BlockORM
+    with db._session() as session:
+        block = session.get(BlockORM, name)
+    if (block and block.master_user_id == uid) or _has_scope_role(uid, "block", name, "master"):
         rel.add(BLOCK_MASTER)
-    if db.is_block_master_deputy(uid, name) and name not in _hr_block_names():
+    if _has_scope_role(uid, "block", name, "deputy_master") and name not in _hr_block_names():
         rel.add(BLOCK_DEPUTY)
     if db.is_block_member(uid, name):
         rel.add(BLOCK_MEMBER)
@@ -225,26 +228,31 @@ def _block(uid, block_id):
 
 def _event(uid, event_id):
     rel = set()
-    if db.is_event_leader(uid, event_id):
+    if _has_scope_role(uid, "event", event_id, "event_leader"):
         rel.add(EVENT_LEADER)
-    if db.is_event_leader_deputy(uid, event_id):
+    if _has_scope_role(uid, "event", event_id, "deputy_event_leader"):
         rel.add(EVENT_DEPUTY)
+    from database import SubeventORM
+    with db._session() as session:
+        children = [row[0] for row in session.query(SubeventORM.subevent_id).filter_by(event_id=event_id)]
     if any(
-        db.is_subevent_leader(uid, s.subevent_id) or db.is_subevent_leader_deputy(uid, s.subevent_id)
-        for s in db.list_subevents(event_id)
+        _has_scope_role(uid, "subevent", sid, "subevent_leader") or _has_scope_role(uid, "subevent", sid, "deputy_subevent_leader")
+        for sid in children
     ):
         rel.add(EVENT_SUB_LEAD)
     return rel
 
 
 def _subevent(uid, subevent_id):
-    sub = db.get_subevent(subevent_id)
+    from database import SubeventORM
+    with db._session() as session:
+        sub = session.get(SubeventORM, subevent_id)
     if not sub:
         return set()
     rel = set()
-    if db.is_subevent_leader(uid, subevent_id):
+    if _has_scope_role(uid, "subevent", subevent_id, "subevent_leader"):
         rel.add(SUB_LEADER)
-    if db.is_subevent_leader_deputy(uid, subevent_id):
+    if _has_scope_role(uid, "subevent", subevent_id, "deputy_subevent_leader"):
         rel.add(SUB_DEPUTY)
     if db.is_subevent_organizer(uid, subevent_id):
         rel.add(ORGANIZER)
@@ -253,11 +261,29 @@ def _subevent(uid, subevent_id):
         meta = session.get(EventWorkspaceMetaORM, ("subevent", subevent_id))
         if meta and meta.hr_user_id == uid:
             rel.add(SUBEVENT_HR)
-    if db.is_event_leader(uid, sub.event_id):
+    if _has_scope_role(uid, "event", sub.event_id, "event_leader"):
         rel.add(EVENT_LEADER)
-    if db.is_event_leader_deputy(uid, sub.event_id):
+    if _has_scope_role(uid, "event", sub.event_id, "deputy_event_leader"):
         rel.add(EVENT_DEPUTY)
     return rel
+
+
+@memoized("access.scoped_roles", copy_result=False)
+def _scoped_roles(uid):
+    """One immutable persisted role snapshot, only reused in a clean read UOW.
+
+    Scalar selection retains the old existence-query semantics in mixed command
+    sessions: unflushed role changes are not silently treated as committed roles.
+    """
+    from database import RoleAssignmentORM
+    with db._session() as session:
+        return frozenset(tuple(row) for row in session.query(
+            RoleAssignmentORM.scope_kind, RoleAssignmentORM.scope_id, RoleAssignmentORM.role
+        ).filter_by(user_id=uid))
+
+
+def _has_scope_role(uid, kind, scope_id, role):
+    return (kind, scope_id, role) in _scoped_roles(uid)
 
 
 def _material(uid, material_id):

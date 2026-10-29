@@ -25,6 +25,7 @@ import access
 from models import User
 from registration import Revision, Decision, audit, now, version, fail
 from api_contract import Page
+from read_context import memoized
 from domain_contract import BlockRequest as RequestOut
 
 
@@ -53,6 +54,7 @@ class CategoryPatch(Revision):
     reason: str = Field(min_length=1)
 
 
+@memoized("membership.legacy_name", copy_result=False)
 def legacy_name(id):
     with db._session() as s:
         m = s.get(BlockMetaORM, id)
@@ -63,6 +65,7 @@ def legacy_name(id):
         fail(404, "Block not found")
 
 
+@memoized("membership.block_id_for", copy_result=False)
 def block_id_for(name):
     with db._session() as s:
         m = (

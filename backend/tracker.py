@@ -21,6 +21,7 @@ from database import (db, SessionLocal, engine, TaskORM, AssignmentORM, Submissi
     SeasonORM, BlockORM, SubeventORM, UserORM, AuditLogORM, _user_to_ref_dc,
     _recalculate_assignment_contribution, _task_caps, _assignment_orm_to_dc)
 from errors import Conflict, Forbidden, InvalidInput, NotFound, revision_conflict, season_closed
+from read_context import orm_rows, orm_get
 
 STATUSES = ("assigned", "in_progress", "help_required", "submitted", "accepted", "needs_revision", "not_completed", "cancelled")
 ACTIVE = {"assigned", "in_progress", "help_required", "submitted", "needs_revision"}
@@ -38,9 +39,11 @@ def task_state(session, task):
 
 
 def _rows(session, model, **filters):
-    rows = session.query(model).filter_by(**filters).all()
-    rows += [obj for obj in session.new if isinstance(obj, model) and all(getattr(obj,k)==v for k,v in filters.items()) and obj not in rows]
-    return rows
+    def load():
+        rows = session.query(model).filter_by(**filters).all()
+        rows += [obj for obj in session.new if isinstance(obj, model) and all(getattr(obj,k)==v for k,v in filters.items()) and obj not in rows]
+        return rows
+    return orm_rows(session,"tracker.rows",(model,tuple(sorted(filters.items()))),load)
 
 
 def legacy_participants(session, task_id):
@@ -184,7 +187,7 @@ def install_activity_hooks():
 def _file_refs(session, ids):
     result=[]
     for fid in ids:
-        row=session.get(FileRecordORM,fid)
+        row=orm_get(session,FileRecordORM,fid)
         if row and row.state=="completed":result.append(dict(file_id=row.file_id,name=row.name,mime_type=row.mime_type,size_bytes=row.size_bytes))
     return result
 
@@ -247,14 +250,16 @@ def enrich_task(session,task,result,uid):
     result.scope_title=(owner.name if task.scope_kind=="block" else owner.title) if owner else queue.name if queue else "Команда"
     from membership import block_avatar_url
     from domain_models import BlockMetaORM
-    block_meta = session.query(BlockMetaORM).filter_by(legacy_name=owner.name).first() if owner and task.scope_kind == "block" else None
+    block_metas = orm_rows(session,"block.scope_meta",owner.name,
+        lambda:session.query(BlockMetaORM).filter_by(legacy_name=owner.name).limit(1).all()) if owner and task.scope_kind == "block" else []
+    block_meta = block_metas[0] if block_metas else None
     result.scope_avatar_url = block_avatar_url(session, block_meta)
     result.attachments=_file_refs(session,json.loads(meta.files_json or "[]"))
-    rows=session.query(TaskSubmissionORM).filter_by(task_id=task.task_id).order_by(TaskSubmissionORM.submitted_at).all()
+    rows=orm_rows(session,"task.submissions",task.task_id,lambda:session.query(TaskSubmissionORM).filter_by(task_id=task.task_id).order_by(TaskSubmissionORM.submitted_at).all())
     result.submissions=[_submission_dict(session,row) for row in rows]
     if not rows:
         aids=[a.assignment_id for a in participants(session,task.task_id)]
-        old=session.query(SubmissionORM).filter(SubmissionORM.assignment_id.in_(aids)).order_by(SubmissionORM.submitted_at).all() if aids else []
+        old=orm_rows(session,"task.legacy_submissions",tuple(aids),lambda:session.query(SubmissionORM).filter(SubmissionORM.assignment_id.in_(aids)).order_by(SubmissionORM.submitted_at).all()) if aids else []
         result.submissions=[_submission_dict(session,row,False) for row in old]
     if uid:
         state=task_state(session,task)
@@ -536,6 +541,7 @@ def task_page(uid,*,queue_id=None,season_id=None,scope_kind=None,scope_id=None,m
             except (ValueError,TypeError,AttributeError,UnicodeError,binascii.Error):raise InvalidInput("Task cursor does not match these filters")
         page=cursor_page(rows,key,inner,descending=order=="desc",limit=limit)
         following=base64.urlsafe_b64encode(json.dumps(dict(v=1,context=context,key=page.next_cursor)).encode()).decode() if page.next_cursor else None
+        index.prepare(page.items)
         return dict(items=[converter(index.project(item)) for item in page.items],next_cursor=following,total=len(rows),
             scopes=sorted(scopes.values(),key=lambda x:(x['title'],x['id'])),
             assignees=sorted(assignees.values(),key=lambda x:(x['display_name'],x['user_id'])))

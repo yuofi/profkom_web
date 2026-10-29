@@ -15,6 +15,7 @@ from database import (db, engine, SessionLocal, TaskORM, TaskTrackerORM, TaskAct
     TaskQueueORM, TaskQueueRequestORM, TaskQueueMemberORM, UserORM, BlockORM,
     SubeventORM, ContributionORM, AssignmentORM, _user_to_ref_dc)
 from errors import Forbidden, InvalidInput, NotFound, Conflict, revision_conflict
+from read_context import cached
 
 
 def now(): return datetime.now(timezone.utc).isoformat()
@@ -30,6 +31,12 @@ def base_read(uid, queue):
 
 
 def can_read(session, queue, uid):
+    if not queue or not uid:return False
+    key=tuple(getattr(queue,name,None) for name in ("queue_id","scope_kind","scope_id","owner_user_id","is_private"))+(uid,)
+    return cached(session,"queue.can_read",key,lambda:_can_read(session,queue,uid),copy_result=False)
+
+
+def _can_read(session, queue, uid):
     if not queue or not uid or not active(session,uid):return False
     from support import is_support_queue, is_staff
     if is_support_queue(session, queue):return is_staff(session, uid)
@@ -41,14 +48,19 @@ def can_read(session, queue, uid):
 
 
 def task_queue(session, task):
-    meta=session.query(TaskTrackerORM).filter_by(task_id=task.task_id).first()
-    if not meta:
-        meta=next((m for m in session.new if isinstance(m,TaskTrackerORM) and m.task_id==task.task_id),None)
+    from tracker import _rows
+    rows=_rows(session,TaskTrackerORM,task_id=task.task_id)
+    meta=rows[0] if rows else None
     return session.get(TaskQueueORM,meta.queue_id) if meta and meta.queue_id else None
 
 
 def task_read(session, task, uid):
     if not task:return False
+    key=(task.task_id,getattr(task,"scope_kind",None),getattr(task,"scope_id",None),uid)
+    return cached(session,"queue.task_read",key,lambda:_task_read(session,task,uid),copy_result=False)
+
+
+def _task_read(session, task, uid):
     from support import owns_task
     if owns_task(session, task.task_id, uid):return True
     queue=task_queue(session,task)
@@ -60,9 +72,9 @@ def task_read(session, task, uid):
 def readable_tasks(session, tasks, uid):
     """Batch materialization of task_read, using the same queue/scope policy.
 
-    No request/global cache is created here: revocation and unflushed metadata keep
-    their current transaction semantics. Support reporters bypass only their own
-    linked task; can_read still checks the support staff gate before global roles.
+    Decisions may be reused only by the existing clean read UOW; any command or
+    dirty state disables all hints. Support reporters bypass only their own linked
+    task; can_read still checks the support staff gate before global roles.
     """
     from sqlalchemy import or_
     from support_models import FeedbackORM
@@ -94,9 +106,12 @@ def readable_tasks(session, tasks, uid):
     scope_decisions={}
     global_reader=None
     result=[]
+    task_decisions=[]
     for task in values:
+        cached(session,"support.owns_task",(task.task_id,uid),
+               lambda task=task:task.task_id in owned,copy_result=False)
         if task.task_id in owned:
-            result.append(task);continue
+            result.append(task);task_decisions.append((task,True));continue
         meta=metadata.get(task.task_id)
         queue=queues.get(meta.queue_id) if meta and meta.queue_id else None
         if queue:
@@ -110,6 +125,10 @@ def readable_tasks(session, tasks, uid):
                 if key not in scope_decisions:scope_decisions[key]=db.can_view_scope(uid,*key)
                 allowed=scope_decisions[key]
         if allowed:result.append(task)
+        task_decisions.append((task,allowed))
+    for task,allowed in task_decisions:
+        key=(task.task_id,getattr(task,"scope_kind",None),getattr(task,"scope_id",None),uid)
+        cached(session,"queue.task_read",key,lambda allowed=allowed:bool(allowed),copy_result=False)
     return result
 
 

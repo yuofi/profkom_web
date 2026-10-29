@@ -11,6 +11,7 @@ import uuid
 from sqlalchemy import or_
 from database import db, TaskORM, TaskTrackerORM, TaskChecklistORM, TaskLinkORM, TaskFavoriteORM
 from errors import Forbidden, InvalidInput, NotFound, Conflict, revision_conflict
+from read_context import orm_rows, prime_rows, cached
 
 TYPES = ("task", "milestone", "epic")
 PRIORITIES = ("low", "normal", "high", "urgent")
@@ -29,8 +30,11 @@ def _moment(value):
 
 
 def checklist_rows(session, task_id):
-    rows = session.query(TaskChecklistORM).filter_by(task_id=task_id).all()
-    rows += [row for row in session.new if isinstance(row, TaskChecklistORM) and row.task_id == task_id and row not in rows]
+    def load():
+        rows = session.query(TaskChecklistORM).filter_by(task_id=task_id).all()
+        rows += [row for row in session.new if isinstance(row, TaskChecklistORM) and row.task_id == task_id and row not in rows]
+        return rows
+    rows = orm_rows(session, "task.checklist", task_id, load)
     return sorted((row for row in rows if row not in session.deleted), key=lambda row: (row.position, row.item_id))
 
 
@@ -176,10 +180,10 @@ def enrich(session, task, result, uid):
     result.task_type = meta.task_type or "task"
     result.priority = meta.priority or "normal"
     result.starts_at = meta.starts_at
-    result.is_favorite = bool(uid and session.get(TaskFavoriteORM, (task.task_id, uid)))
+    result.is_favorite = bool(uid and cached(session,"task.favorite",(task.task_id,uid),lambda:bool(session.get(TaskFavoriteORM, (task.task_id, uid))),copy_result=False))
     result.checklist = [dict(item_id=row.item_id, text=row.text, checked=row.checked) for row in checklist_rows(session, task.task_id)]
     result.links = []
-    for link in session.query(TaskLinkORM).filter(or_(TaskLinkORM.source_task_id == task.task_id, TaskLinkORM.target_task_id == task.task_id)).order_by(TaskLinkORM.created_at, TaskLinkORM.link_id):
+    for link in orm_rows(session,"task.links",task.task_id,lambda:session.query(TaskLinkORM).filter(or_(TaskLinkORM.source_task_id == task.task_id, TaskLinkORM.target_task_id == task.task_id)).order_by(TaskLinkORM.created_at, TaskLinkORM.link_id).all()):
         outgoing = link.source_task_id == task.task_id
         other = link.target_task_id if outgoing else link.source_task_id
         ref = task_ref(session, other, uid)
@@ -187,7 +191,7 @@ def enrich(session, task, result, uid):
             kind = link.kind if outgoing or link.kind == "related" else {"blocks":"blocked_by", "epic":"epic_member", "milestone":"milestone_member"}[link.kind]
             result.links.append(dict(link_id=link.link_id, kind=kind, task=ref))
     result.children = []
-    for child in session.query(TaskTrackerORM).filter_by(parent_task_id=task.task_id).order_by(TaskTrackerORM.queue_id, TaskTrackerORM.queue_number):
+    for child in orm_rows(session,"task.children",task.task_id,lambda:session.query(TaskTrackerORM).filter_by(parent_task_id=task.task_id).order_by(TaskTrackerORM.queue_id, TaskTrackerORM.queue_number).all()):
         ref = task_ref(session, child.task_id, uid)
         if ref:
             result.children.append(ref)
@@ -198,6 +202,34 @@ def enrich(session, task, result, uid):
             result.capabilities.append("edit_task_checklist")
         result.capabilities += ["toggle_task_favorite", "change_task_type", "change_task_priority", "toggle_task_checklist"]
     return result
+
+
+def prepare_relations(session, task_ids, uid):
+    """Prime selected task planning relations without changing reference ACL."""
+    from collections import defaultdict
+    from read_context import _context
+    context = _context(session)
+    if not task_ids or context is None or not context.usable():
+        return
+    checks, links, children = defaultdict(list), defaultdict(list), defaultdict(list)
+    favorites = set()
+    for offset in range(0, len(task_ids), 500):
+        batch = task_ids[offset:offset+500]
+        for row in session.query(TaskChecklistORM).filter(TaskChecklistORM.task_id.in_(batch)):
+            checks[row.task_id].append(row)
+        for row in session.query(TaskLinkORM).filter(or_(TaskLinkORM.source_task_id.in_(batch), TaskLinkORM.target_task_id.in_(batch))).order_by(TaskLinkORM.created_at, TaskLinkORM.link_id):
+            for task_id in {row.source_task_id, row.target_task_id} & set(batch):
+                links[task_id].append(row)
+        for row in session.query(TaskTrackerORM).filter(TaskTrackerORM.parent_task_id.in_(batch)).order_by(TaskTrackerORM.queue_id, TaskTrackerORM.queue_number):
+            children[row.parent_task_id].append(row)
+        if uid:
+            favorites.update(row.task_id for row in session.query(TaskFavoriteORM).filter(TaskFavoriteORM.user_id == uid, TaskFavoriteORM.task_id.in_(batch)))
+    for task_id in task_ids:
+        prime_rows(session,"task.checklist",task_id,checks[task_id])
+        prime_rows(session,"task.links",task_id,links[task_id])
+        prime_rows(session,"task.children",task_id,children[task_id])
+        # bool is immutable, and only this read UOW can observe the hint.
+        cached(session,"task.favorite",(task_id,uid),lambda task_id=task_id:task_id in favorites,copy_result=False)
 
 
 def toggle_checklist(task_id, item_id, uid, expected_revision, checked):
