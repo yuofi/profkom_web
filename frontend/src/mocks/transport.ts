@@ -218,11 +218,13 @@ export function installMockTransport(
   const trackerAdmin = ["chair", "chair-deputy", "hr", "hr-deputy"].includes(role);
   const readsQueue = (queue: TaskQueue) => trackerAdmin || (!queue.scope || readsScopeTask({ scope: queue.scope } as Task)) && (!queue.is_private || queue.owner?.user_id === state.session.user_id || queueRequests.some(r => r.queue_id === queue.queue_id && r.user.user_id === state.session.user_id && r.status === "approved"));
   const readsTask = (task: Task) => task.queue && state.queues.some(q => q.queue_id === task.queue!.queue_id) ? readsQueue(state.queues.find(q => q.queue_id === task.queue!.queue_id)!) : trackerAdmin || readsScopeTask(task);
-  const visibleQueue = (queue: TaskQueue): TaskQueue => {
+  const visibleQueue = (queue: TaskQueue, includeAssignable = true): TaskQueue => {
     const own = queueRequests.find(r => r.queue_id === queue.queue_id && r.user.user_id === state.session.user_id);
     const access_request_status = own?.status === "revoked" ? null : own?.status ?? null;
     if (!readsQueue(queue)) return { queue_id: queue.queue_id, name: queue.name, key: queue.key, access: "locked", capabilities: [], can_request_access: access_request_status !== "pending" && !!queue.scope && readsScopeTask({ scope: queue.scope } as Task), access_request_status };
-    return { ...clone(queue), access: "granted", can_request_access: false, access_request_status, capabilities: [...new Set([...queue.capabilities, "create_task"])], ...(state.manager && queue.scope ? { assignable_users: clone(state.people), capabilities: [...new Set([...queue.capabilities, "create_task", "assign_task_others"])] } : {}) };
+    const result: TaskQueue = { ...clone(queue), access: "granted", can_request_access: false, access_request_status, capabilities: [...new Set([...queue.capabilities, "create_task"])], ...(state.manager && queue.scope ? { assignable_users: clone(state.people), capabilities: [...new Set([...queue.capabilities, "create_task", "assign_task_others"])] } : {}) };
+    if (!includeAssignable) delete result.assignable_users;
+    return result;
   };
   let sequence = 10;
   let leadership = {
@@ -975,7 +977,7 @@ export function installMockTransport(
       ]);
     if (parts[0] === "task-queues") {
       if (parts.length === 1) {
-        if (method === "get") return [200, { items: state.queues.map(visibleQueue), next_cursor: null, create_scopes: [ ...state.blocks.filter(b => trackerAdmin || readsScopeTask({ scope: { kind: "block", id: b.block_id } } as Task)).map(b => ({ kind: "block", id: b.block_id, title: b.name })), ...state.subevents.filter(b => trackerAdmin || readsSubevent(b.subevent_id)).map(b => ({ kind: "subevent", id: b.subevent_id, title: b.title })) ] }];
+        if (method === "get") return [200, { items: state.queues.map(queue => visibleQueue(queue, false)), next_cursor: null, create_scopes: [ ...state.blocks.filter(b => trackerAdmin || readsScopeTask({ scope: { kind: "block", id: b.block_id } } as Task)).map(b => ({ kind: "block", id: b.block_id, title: b.name })), ...state.subevents.filter(b => trackerAdmin || readsSubevent(b.subevent_id)).map(b => ({ kind: "subevent", id: b.subevent_id, title: b.title })) ] }];
         if (state.session.account_state !== "active") return denied();
         const scope = data.scope as Record<string, unknown> | null | undefined;
         if (scope && (Object.keys(scope).some(key => !["kind", "id"].includes(key)) || !["block", "subevent"].includes(String(scope.kind)) || typeof scope.id !== "string")) return fail(422, "validation_error", "Требуется точный контекст команды");
@@ -1826,6 +1828,14 @@ export function installMockTransport(
           : null;
       }
       return changed(queueApplication);
+    }
+    if (path === "/participants/categories" && method === "get") {
+      const raw = url.searchParams.get("user_ids") ?? "";
+      const pieces = raw.split(",").map(value => value.trim());
+      const ids = [...new Set(pieces.map(Number))].sort((a, b) => a - b);
+      if (raw.length > 4096 || pieces.some(value => !/^[1-9][0-9]{0,18}$/.test(value)) || ids.length > 200)
+        return fail(422, "invalid_input", "Проверьте список участников");
+      return [200, { items: ids.flatMap(id => { const item = categories.get(id);return item ? [clone(item)] : []; }) }];
     }
     if (parts[0] === "participants") {
       if (method !== "get" && !state.global) return denied();

@@ -57,6 +57,62 @@ def task_read(session, task, uid):
     return all_queue_reader(uid) or db.can_view_scope(uid,task.scope_kind,task.scope_id)  # pre-migration in-memory fixtures
 
 
+def readable_tasks(session, tasks, uid):
+    """Batch materialization of task_read, using the same queue/scope policy.
+
+    No request/global cache is created here: revocation and unflushed metadata keep
+    their current transaction semantics. Support reporters bypass only their own
+    linked task; can_read still checks the support staff gate before global roles.
+    """
+    from sqlalchemy import or_
+    from support_models import FeedbackORM
+    from access import all_queue_reader
+    values=[task for task in tasks if task is not None]
+    if not values:return []
+    identifiers=list(dict.fromkeys(task.task_id for task in values))
+    chunks=lambda items: (items[index:index+500] for index in range(0,len(items),500))
+    owned=set()
+    if active(session,uid):
+        for batch in chunks(identifiers):
+            predicate=FeedbackORM.task_id.in_([item for item in batch if item is not None])
+            if None in batch:predicate=or_(predicate,FeedbackORM.task_id.is_(None))
+            owned.update(row[0] for row in session.query(FeedbackORM.task_id).filter(FeedbackORM.user_id==uid,predicate))
+    metadata={}
+    for batch in chunks(identifiers):
+        for row in session.query(TaskTrackerORM).filter(TaskTrackerORM.task_id.in_(batch)):
+            metadata[row.task_id]=row
+    # Match task_queue: a persisted row takes precedence over a pending duplicate.
+    wanted=set(identifiers)
+    for row in session.new:
+        if isinstance(row,TaskTrackerORM) and row.task_id in wanted:
+            metadata.setdefault(row.task_id,row)
+    queue_ids=list(dict.fromkeys(row.queue_id for row in metadata.values() if row.queue_id))
+    queues={}
+    for batch in chunks(queue_ids):
+        queues.update((row.queue_id,row) for row in session.query(TaskQueueORM).filter(TaskQueueORM.queue_id.in_(batch)))
+    decisions={}
+    scope_decisions={}
+    global_reader=None
+    result=[]
+    for task in values:
+        if task.task_id in owned:
+            result.append(task);continue
+        meta=metadata.get(task.task_id)
+        queue=queues.get(meta.queue_id) if meta and meta.queue_id else None
+        if queue:
+            if queue.queue_id not in decisions:decisions[queue.queue_id]=can_read(session,queue,uid)
+            allowed=decisions[queue.queue_id]
+        else:
+            if global_reader is None:global_reader=all_queue_reader(uid)
+            key=(task.scope_kind,task.scope_id)
+            if global_reader:allowed=True
+            else:
+                if key not in scope_decisions:scope_decisions[key]=db.can_view_scope(uid,*key)
+                allowed=scope_decisions[key]
+        if allowed:result.append(task)
+    return result
+
+
 def require_task_read(session, task, uid):
     if not task_read(session,task,uid):raise NotFound('Task not found')
 
@@ -124,7 +180,7 @@ def _self_request(session, queue, uid):
     return session.query(TaskQueueRequestORM).filter_by(queue_id=queue.queue_id,user_id=uid).order_by(TaskQueueRequestORM.created_at.desc(),TaskQueueRequestORM.request_id.desc()).first()
 
 
-def projection(session, queue, uid):
+def projection(session, queue, uid, *, include_assignable=True):
     import access
     granted=can_read(session,queue,uid)
     request=_self_request(session,queue,uid)
@@ -143,7 +199,7 @@ def projection(session, queue, uid):
         from models import ScopeRef
         from membership import scope_out
         owner=_user_to_ref_dc(session.get(UserORM,queue.owner_user_id)) if queue.owner_user_id else None
-        if 'assign_task_others' in caps:
+        if include_assignable and 'assign_task_others' in caps:
             result['assignable_users']=[asdict(_user_to_ref_dc(u)) for u in session.query(UserORM) if active(session,u.user_id) and can_read(session,queue,u.user_id) and db.is_member_or_leader_in_scope(u.user_id,queue.scope_kind,queue.scope_id)]
         from queue_ownership import owner_available
         result.update(scope=None if queue.scope_kind=="queue" else scope_out(ScopeRef(kind=queue.scope_kind,id=queue.scope_id)),
@@ -152,11 +208,11 @@ def projection(session, queue, uid):
     return result
 
 
-def get(queue_id,uid):
+def get(queue_id,uid,*,include_assignable=True):
     with db._session() as session:
         queue=session.get(TaskQueueORM,queue_id)
         if not queue:raise NotFound('Queue not found')
-        result=projection(session,queue,uid)
+        result=projection(session,queue,uid,include_assignable=include_assignable)
         if result['access']=='locked':
             raise Forbidden('Queue access is required','queue_access_required',queue=queue_ref(queue),
                 can_request_access=result['can_request_access'],access_request_status=result['access_request_status'])
@@ -177,7 +233,7 @@ def catalog(uid,cursor=None):
                 sid=obj.name if kind=='block' else obj.subevent_id
                 if db.can_view_scope(uid,kind,sid):
                     scopes.append(dict(**scope_out(ScopeRef(kind=kind,id=sid)),title=obj.name if kind=='block' else obj.title))
-        return dict(items=[projection(session,q,uid) for q in page.items],next_cursor=page.next_cursor,can_create_queue=active(session,uid),
+        return dict(items=[projection(session,q,uid,include_assignable=False) for q in page.items],next_cursor=page.next_cursor,can_create_queue=active(session,uid),
             create_scopes=sorted(scopes,key=lambda s:(s['title'],s['id'])))
 
 

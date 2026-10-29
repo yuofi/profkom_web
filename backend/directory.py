@@ -186,6 +186,9 @@ def contacts(q=None, group_number=None, blocks=None, in_profcom=None, budget=Non
 
 
 def register_routes(router):
+    from category_projection import register_routes as register_categories
+    register_categories(router)
+
     @router.get("/contacts/emails")
     def emails(
         q: str | None = None,

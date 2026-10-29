@@ -5,6 +5,7 @@ import type {
   RegistrationFields,
   Revision,
   ParticipantCategory,
+  ParticipantCategoryBatch,
   Category,
 } from "./contract";
 import { idPath, allPages as page, request } from "./request";
@@ -60,6 +61,16 @@ export const membershipApi = {
       `/registrations/${id}/${command}`,
       data,
     ),
+  categories: async (userIds: number[]): Promise<ParticipantCategory[]> => {
+    const ids = [...new Set(userIds)].sort((a, b) => a - b);
+    const items: ParticipantCategory[] = [];
+    for (let offset = 0; offset < ids.length; offset += 200) {
+      const result = await request<ParticipantCategoryBatch>("get", "/participants/categories", undefined,
+        { user_ids: ids.slice(offset, offset + 200).join(",") });
+      items.push(...result.items);
+    }
+    return items;
+  },
   category: (id: number) =>
     request<ParticipantCategory>("get", `/participants/${id}/category`),
   updateCategory: (

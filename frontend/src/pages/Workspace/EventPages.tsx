@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { Page, Card, QueryState, Markdown, RouteLink, Badge, Empty, Glyph } from "../../components/Workspace/WorkspaceUI";
+import { Page, Card, QueryState, Markdown, RouteLink, Badge, Empty, Glyph, Loading } from "../../components/Workspace/WorkspaceUI";
 import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
 import { SectionHomeLink } from "../../components/Workspace/SectionHomeLink";
 import { ActionForm } from "../../components/Workspace/ActionForm";
@@ -10,13 +10,16 @@ import { eventsApi } from "../../utils/api/events.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { reportsApi } from "../../utils/api/reports.api";
 import { workspaceApi } from "../../utils/api/workspace.api";
-import type { Event, Leader, Subevent } from "../../utils/api/contract";
+import type { Event, Subevent } from "../../utils/api/contract";
 import { can, useSession } from "../../utils/session";
 import { getEventRoute, getEventCreateRoute, getEventEditRoute, getSubeventRoute } from "../../utils/routes";
 import { usePeopleOptions, useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import s from "../../components/Workspace/Workspace.module.css";
 import e from "./EventEditor.module.css";
-import { EventEditor, SubeventEditor } from "./EventEditor";
+import { Leaders } from "./EventLeaders";
+
+const EventEditor = lazy(() => import("./EventEditor").then(module => ({ default: module.EventEditor })));
+const SubeventEditor = lazy(() => import("./EventEditor").then(module => ({ default: module.SubeventEditor })));
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
 import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
 import { UserChip } from "../../components/Workspace/UserChip";
@@ -24,19 +27,6 @@ import { SeasonPlacementEditor } from "../../components/Workspace/SeasonPlacemen
 import { eventPeriod, eventPhase } from "./eventDates";
 import { HistoryDisclosure } from "../../components/Workspace/HistoryPanel";
 
-export function Leaders({ leaders }: { leaders: Leader[] }) {
-  const people = usePeopleOptions({ includeNonMembers: true }), { perform, refresh } = useWorkspaceActions();
-  return <div className={e.leaders}>
-    {!leaders.length && <span className={`${s.muted} ${e.leaderHint}`}>Руководители пока не назначены</span>}
-    {leaders.map(leader => <div key={leader.role_assignment_id} className={e.leader}><UserChip user={leader.user} />
-      {leader.deputy_user_ids.length > 0 && <div className={e.deputies}><small>Заместители</small>{leader.deputy_user_ids.map(id => {
-        const person = people.options.find(person => person.value === String(id));
-        return person?.user ? <UserChip key={id} user={person.user} /> : <span key={id} className={`${s.muted} ${e.leaderHint}`}>Участник #{id}</span>;
-      })}</div>}
-      {can(leader, "manage_deputies") && <details className={e.deputiesEditor}><summary>Заместители</summary><ActionForm revision={leader.revision} fields={[{ name: "users", label: "До двух заместителей", type: "multi", value: leader.deputy_user_ids.map(String), options: people.options.filter(p => p.value !== String(leader.user.user_id)) }]} onSubmit={(values, revision) => perform(() => eventsApi.deputies(leader.role_assignment_id, ids(values, "users"), { expected_revision: revision! }))} onConflict={refresh} /></details>}
-    </div>)}
-  </div>;
-}
 function useReportsLink(owner_kind: "event" | "subevent", owner_id: string, canCreate: boolean, enabled = true) {
   const readable = useQuery({ queryKey: ["reports", "owner", owner_kind, owner_id], queryFn: () => reportsApi.list({ owner_kind, owner_id }), enabled: enabled && !!owner_id && !canCreate });
   return enabled && (canCreate || !readable.error && !!readable.data?.items.length);
@@ -68,10 +58,10 @@ export function EventsListPage() {
     </QueryState>
   </Page>;
 }
-export function EventCreatePage() { const { session } = useSession();return can(session, "create_event") ? <EventEditor /> : <Empty>Создавать мероприятия могут председатель и его заместители.</Empty>; }
+export function EventCreatePage() { const { session } = useSession();return can(session, "create_event") ? <Suspense fallback={<Loading />}><EventEditor /></Suspense> : <Empty>Создавать мероприятия могут председатель и его заместители.</Empty>; }
 export function EventEditPage() {
   const { id = "" } = useParams();const query = useQuery({ queryKey: ["events", id], queryFn: () => eventsApi.get(id), enabled: !!id });
-  return <QueryState keepDataOnError={!!query.data} loading={query.isLoading} error={query.error} retry={() => void query.refetch()}>{query.data && (can(query.data, "edit_event") ? <EventEditor event={query.data} /> : <Empty>Изменение мероприятия вам недоступно.</Empty>)}</QueryState>;
+  return <QueryState keepDataOnError={!!query.data} loading={query.isLoading} error={query.error} retry={() => void query.refetch()}>{query.data && (can(query.data, "edit_event") ? <Suspense fallback={<Loading />}><EventEditor event={query.data} /></Suspense> : <Empty>Изменение мероприятия вам недоступно.</Empty>)}</QueryState>;
 }
 function LeadersEditor({ owner, kind, onSaved }: { owner: Event | Subevent; kind: "events" | "subevents"; onSaved: () => void }) {
   const people = usePeopleOptions({ includeNonMembers: true }), { perform, refresh } = useWorkspaceActions();
@@ -93,7 +83,7 @@ export function EventPage() {
   const [editor, setEditor] = useState<"leaders" | "season" | "child" | null>(null);
   const event = query.data, reportsLink = useReportsLink("event", event ? id : "", can(event, "create_report"));
   const childRows = subs.data?.items ?? [], nearest = childRows.filter(item => ["current", "upcoming"].includes(eventPhase(item))).sort((left, right) => (left.starts_at ?? "").localeCompare(right.starts_at ?? "")).slice(0, 5);
-  if (editor === "child" && event && can(event, "create_subevent")) return <UnsavedChangesScope><SubeventEditor parent={event} onClose={() => setEditor(null)} /></UnsavedChangesScope>;
+  if (editor === "child" && event && can(event, "create_subevent")) return <UnsavedChangesScope><Suspense fallback={<Loading />}><SubeventEditor parent={event} onClose={() => setEditor(null)} /></Suspense></UnsavedChangesScope>;
   return <section className={s.page}><QueryState keepDataOnError={!!query.data} loading={query.isLoading} error={query.error} retry={() => void query.refetch()}>{event && <>
     <BrandedHeader className={e.eventHeader}><div><SectionHomeLink to="/events" label="Мероприятия" /><h1 className={s.title}>{event.title}</h1><p className={e.period}>{eventPeriod(event)}</p><div className={e.headerLeaders}><div className={e.sectionHeading}><h2>Главорги</h2>{can(event, "manage_leaders") && <button type="button" className={e.iconButton} aria-label="Изменить главоргов" onClick={() => setEditor("leaders")}><Glyph name="edit" /></button>}</div><Leaders leaders={event.leaders} /></div></div><div className={`${s.row} ${e.headerActions}`} role="group" aria-label="Действия мероприятия">{can(event, "edit_event") && <RouteLink to={getEventEditRoute(id)}><Glyph name="edit" />Изменить мероприятие</RouteLink>}<RouteLink to="/events">Все мероприятия</RouteLink></div></BrandedHeader>
     <Card><div className={e.seasonLabel}><Badge>{seasons.data?.items.find(season => season.season_id === event.season_id)?.title ?? "Сезон"}</Badge>{can(session, "correct_season") && <button type="button" className={e.iconButton} aria-label="Изменить сезон мероприятия" onClick={() => setEditor("season")}><Glyph name="edit" /></button>}</div><Markdown content={event.description} /><div className={s.row}>{can(event, "create_head_merit") && <RouteLink to={`/merits?source_kind=head_merit&scope_id=${encodeURIComponent(id)}`}>Учесть особую заслугу</RouteLink>}{reportsLink && <RouteLink to={`/reports?owner_kind=event&owner_id=${encodeURIComponent(id)}`}>Отчёты</RouteLink>}{can(event, "view_meeting") && <RouteLink to={`/meetings/event/${encodeURIComponent(id)}`}>Созвон руководителей</RouteLink>}</div></Card>
@@ -114,7 +104,7 @@ export function SubeventPage() {
   const working = sub?.working_access ?? !!sub?.capabilities.length;
   const reportsLink = useReportsLink("subevent", sub ? id : "", can(sub, "create_report"), working);
   const [editor, setEditor] = useState<"leaders" | "organizers" | "description" | "hr" | null>(null);
-  if (editor === "description" && sub && parent.data && can(sub, "edit_subevent")) return <UnsavedChangesScope><SubeventEditor subevent={sub} parent={parent.data} onClose={() => setEditor(null)} /></UnsavedChangesScope>;
+  if (editor === "description" && sub && parent.data && can(sub, "edit_subevent")) return <UnsavedChangesScope><Suspense fallback={<Loading />}><SubeventEditor subevent={sub} parent={parent.data} onClose={() => setEditor(null)} /></Suspense></UnsavedChangesScope>;
   const organizers = sub?.organizers ?? sub?.organizer_user_ids.flatMap(uid => { const user = people.options.find(item => item.value === String(uid))?.user;return user ? [user] : []; }) ?? [];
   return <section className={s.page}><QueryState keepDataOnError={!!query.data} loading={query.isLoading} error={query.error} retry={() => void query.refetch()}>{sub && <>
     <BrandedHeader className={e.eventHeader}><div><SectionHomeLink to="/events" label="Мероприятия" /><nav className={e.breadcrumbs}><Link to={getEventRoute(sub.event_id)}>{parent.data?.title ?? "Главное мероприятие"}</Link><span>›</span><span>Подмероприятие</span></nav><h1 className={s.title}>{sub.title}</h1><p className={e.period}>{eventPeriod(sub)}</p><div className={e.headerLeaders}><div className={e.sectionHeading}><h2>Ответственные</h2>{can(sub, "manage_leaders") && <button type="button" className={e.iconButton} aria-label="Изменить ответственных" onClick={() => setEditor("leaders")}><Glyph name="edit" /></button>}</div><Leaders leaders={sub.leaders} /></div></div>{can(sub, "edit_subevent") && <div className={`${s.row} ${e.headerActions}`} role="group" aria-label="Действия подмероприятия"><button type="button" className={s.button} onClick={() => setEditor("description")}><Glyph name="edit" />Редактировать подмероприятие</button></div>}</BrandedHeader>

@@ -91,11 +91,13 @@ it("scope candidates include organizers without block membership and parent even
 
 it.each([false, true])("task creation uses exactly the server's queue candidates, including an empty grant set: %s", async empty => {
   mock = installMockTransport("leader", { delay: 0 });const queue = mock.state.queues[0], organizer = mock.state.people[0];
-  vi.spyOn(taskQueuesApi, "catalog").mockResolvedValue({ items: [{ ...queue, capabilities: ["create_task", "assign_task_others"], assignable_users: empty ? [] : [organizer] }], next_cursor: null });
+  const detail = { ...queue, capabilities: ["create_task", "assign_task_others"], assignable_users: empty ? [] : [organizer] };
+  vi.spyOn(taskQueuesApi, "catalog").mockResolvedValue({ items: [{ ...queue, capabilities: detail.capabilities }], next_cursor: null });
+  const queueDetails = vi.spyOn(taskQueuesApi, "get").mockResolvedValue(detail);
   const contacts = vi.spyOn(directoryApi, "contacts");page = await mountWorkspace(<Routes><Route path="/tasks/new" element={<TaskCreateForm queueId={queue.queue_id} />} /><Route path="/tasks/:id" element={<p>Открыта созданная задача</p>} /></Routes>, { path: "/tasks/new", role: "leader" });await waitForPage(page);
   const combobox = page.container.querySelector<HTMLInputElement>('[data-field-name="users"] [role="combobox"]')!;await act(async () => combobox.click());
   const options = [...document.querySelectorAll<HTMLElement>('[data-entity-picker-popup] [data-option-value]')].map(item => item.dataset.optionValue);
-  expect(options).toEqual(empty ? [] : [String(organizer.user_id)]);expect(contacts).not.toHaveBeenCalled();
+  expect(options).toEqual(empty ? [] : [String(organizer.user_id)]);expect(contacts).not.toHaveBeenCalled();expect(queueDetails).toHaveBeenCalledWith(queue.queue_id);
   if (!empty) {
     await pick(page.container, "users", String(organizer.user_id));await change(field(page.container, "title"), "Для организатора");await change(field(page.container, "deadline"), "2026-10-29T18:00");
     const create = vi.spyOn(tasksApi, "create");await submit(page.container.querySelector("form")!);await waitForPage(page);

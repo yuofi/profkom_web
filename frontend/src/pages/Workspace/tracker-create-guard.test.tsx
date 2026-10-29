@@ -23,6 +23,7 @@ async function mount() {
   transport = installMockTransport("chair", { delay: 0 });
   const queue = { ...transport.state.queues[0], queue_id: "queue-blank", key: "BLANK", name: "Свободные задачи", scope: null, capabilities: ["create_task"] };
   vi.spyOn(taskQueuesApi, "catalog").mockResolvedValue({ items: [queue], next_cursor: null });
+  vi.spyOn(taskQueuesApi, "get").mockResolvedValue(queue);
   const container = document.createElement("div");document.body.append(container);const root = createRoot(container), client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const router = createMemoryRouter([{ element: <UnsavedChangesProvider><Outlet /></UnsavedChangesProvider>, children: [{ path: "/tasks", element: <p>Общий список задач</p> }, { path: "/tasks/new", element: <TrackerTaskCreatePage /> }, { path: "/tasks/queues/:id", element: <p>Страница очереди</p> }, { path: "/tasks/:id", element: <p>Созданная задача</p> }] }], { initialEntries: ["/tasks/new?queue_id=queue-blank"] });
   await act(async () => root.render(<QueryClientProvider client={client}><SessionContext.Provider value={{ session: transport!.state.session, loading: false, error: null, refresh: () => {} }}><RouterProvider router={router} /></SessionContext.Provider></QueryClientProvider>));

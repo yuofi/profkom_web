@@ -11,6 +11,7 @@ from contextvars import ContextVar
 import hashlib
 import json
 from database import db
+from read_context import memoized
 
 actor_id = ContextVar("profkom_actor_id", default=None)
 
@@ -157,6 +158,7 @@ QUEUE_ROLES = {
 }
 
 
+@memoized("access.hr_blocks")
 def _hr_block_names():
     from database import BlockORM
 
@@ -164,6 +166,7 @@ def _hr_block_names():
         return {b.name for b in session.query(BlockORM).filter(BlockORM.is_hr == True)}  # noqa: E712
 
 
+@memoized("access.block_name", copy_result=False)
 def block_name(block_id):
     """Blocks are addressed by API id or by their stored name; roles use the name."""
     from database import BlockORM
@@ -176,6 +179,7 @@ def block_name(block_id):
         return meta.legacy_name if meta else None
 
 
+@memoized("access.global")
 def _global(uid):
     rel = set()
     if db.is_chair(uid):
@@ -275,11 +279,13 @@ def _material(uid, material_id):
 SCOPES = {"block": _block, "event": _event, "subevent": _subevent, "material": _material}
 
 
+@memoized("access.scope_relations", copy_result=False)
 def scope_relations(uid, kind, scope_id):
     """Only the relations to the object itself, without global roles or the account check."""
     return frozenset(SCOPES[kind](uid, scope_id))
 
 
+@memoized("access.relations", copy_result=False)
 def relations(uid, kind=None, scope_id=None):
     """The actor's global relations plus those to one object."""
     if not uid:
@@ -289,7 +295,7 @@ def relations(uid, kind=None, scope_id=None):
         return frozenset()
     rel = _global(uid)
     if kind in SCOPES and scope_id is not None:
-        rel |= SCOPES[kind](uid, scope_id)
+        rel |= scope_relations(uid, kind, scope_id)
     return frozenset(rel)
 
 
@@ -306,11 +312,13 @@ def allowed(uid, action, kind=None, scope_id=None, *, state=None, rel=None):
     return bool(rel & roles_for(action, state))
 
 
+@memoized("access.season_state", copy_result=False)
 def season_state(season_id):
     s = db.get_season(season_id) if season_id else None
     return s.state if s else None
 
 
+@memoized("access.all_queue_reader", copy_result=False)
 def all_queue_reader(uid):
     """Owner policy: HR deputy's global tracker read is separate from reports/KKR."""
     user=db.get_user(uid)

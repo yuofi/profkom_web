@@ -78,6 +78,9 @@ export interface ParticipantCategory extends Versioned {
   user_id: number;
   category: Category;
 }
+export interface ParticipantCategoryBatch {
+  items: ParticipantCategory[];
+}
 export interface RegistrationFields {
   surname: string;
   name: string;
@@ -221,6 +224,7 @@ export interface TaskQueue extends TaskQueueRef {
   can_request_access: boolean;
   access_request_status: "pending" | "approved" | "rejected" | null;
   scope?: ScopeRef | null;
+  /** Detail/create/update only. The catalogue does not calculate candidates. */
   assignable_users?: UserRef[];
   owner?: UserRef | null;
   is_private?: boolean;

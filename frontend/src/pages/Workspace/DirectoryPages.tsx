@@ -1,7 +1,7 @@
 import { EntityPicker } from "../../components/Workspace/EntityPicker";
 import { Link } from "react-router-dom";
 import { useState } from "react";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   Page,
   Card,
@@ -20,25 +20,17 @@ import { Avatar } from "../../components/Avatar/Avatar";
 import { directoryApi } from "../../utils/api/directory.api";
 import { membershipApi } from "../../utils/api/membership.api";
 import { normalizeApiError, canRetainData } from "../../utils/api/request";
-import type { ArchivedAccount, FormerContact } from "../../utils/api/contract";
+import type { ArchivedAccount, FormerContact, ParticipantCategory } from "../../utils/api/contract";
 import { can, useSession } from "../../utils/session";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { displayDate } from "../../utils/dates";
 import { getBlockRoute } from "../../utils/routes";
-import { ParticipantCategoryPanel } from "./MembershipPages";
+import { ParticipantCategoryPanel } from "./ParticipantCategoryPanel";
 import s from "../../components/Workspace/Workspace.module.css";
-function Category({ userId }: { userId: number }) {
-  const query = useQuery({
-    queryKey: ["participantCategory", userId],
-    queryFn: () => membershipApi.category(userId),
-  });
-  return query.data ? (
-    <Badge tone={query.data.category === "junior" ? "mint" : undefined}>{query.data.category === "junior" ? "Джуниор" : "Активист"}</Badge>
-  ) : (
-    <span>
-      {query.isError ? "Категория недоступна" : "Категория загружается…"}
-    </span>
-  );
+function Category({ category, pending }: { category?: ParticipantCategory; pending: boolean }) {
+  return category ? (
+    <Badge tone={category.category === "junior" ? "mint" : undefined}>{category.category === "junior" ? "Джуниор" : "Активист"}</Badge>
+  ) : <span>{pending ? "Категория загружается…" : "Категория недоступна"}</span>;
 }
 function ContactLinks({
   email,
@@ -99,17 +91,16 @@ export function DirectoryPage() {
     typeof window.matchMedia !== "function" || window.matchMedia("(min-width: 769px)").matches,
   );
   const active = query.data?.filter((p) => p.in_profcom) ?? [];
-  const categories = useQueries({
-    queries: active.map((p) => ({
-      queryKey: ["participantCategory", p.user_id],
-      queryFn: () => membershipApi.category(p.user_id),
-    })),
+  const participantIds = [...new Set(active.map((p) => p.user_id))].sort((a, b) => a - b);
+  const categories = useQuery({
+    queryKey: ["participantCategory", "batch", participantIds],
+    queryFn: () => membershipApi.categories(participantIds),
+    enabled: participantIds.length > 0,
   });
-  const categoryByUser = new Map(
-    active.map((p, i) => [p.user_id, categories[i]]),
-  );
-  const categoriesPending = categories.some((q) => q.isPending);
-  const categoryFailed = categories.some((q) => q.isError);
+  const categoryData = categories.error && !canRetainData(categories.error) ? undefined : categories.data;
+  const categoryByUser = new Map(categoryData?.map((item) => [item.user_id, item] as const) ?? []);
+  const categoriesPending = participantIds.length > 0 && categories.isPending;
+  const categoryFailed = categories.isError || (!!categoryData && participantIds.some((id) => !categoryByUser.has(id)));
   const blocks = Array.from(
     new Set(
       query.data?.flatMap((p) =>
@@ -130,7 +121,7 @@ export function DirectoryPage() {
       (!funding || (funding === "budget") === !!p.budget) &&
       (!course || courseOf(p) === course) &&
       (!category ||
-        categoryByUser.get(p.user_id)?.data?.category === category) &&
+        categoryByUser.get(p.user_id)?.category === category) &&
       (!block ||
         p.blocks
           .split(",")
@@ -215,9 +206,7 @@ export function DirectoryPage() {
             <button
               className={s.button}
               onClick={() =>
-                categories
-                  .filter((q) => q.isError)
-                  .forEach((q) => void q.refetch())
+                void categories.refetch()
               }
             >
               Повторить загрузку категорий
@@ -273,7 +262,7 @@ export function DirectoryPage() {
                       </span></span>;
                     })}</div>
                   </div>
-                  <div className={d.category}><Category userId={p.user_id} /></div>
+                  <div className={d.category}><Category category={categoryByUser.get(p.user_id)} pending={categoriesPending} /></div>
                 </div>
                 <div className={d.actions}>
                   <button className={s.button} type="button" onClick={() => setSelected({ id: p.user_id, mode: "details" })}>Подробнее</button>

@@ -60,11 +60,13 @@ from models import (
 )
 from settings import settings
 from identity import participant_id as accounting_participant_id
+from read_context import cached, cached_current, invalidate as invalidate_reads, memoized, read_scope, install_engine
 
 DATABASE_URL = "sqlite:///" + settings.DATABASE_PATH
 
 POOL_SIZE, POOL_OVERFLOW = 5, 10
 engine = create_engine(DATABASE_URL, future=True, connect_args={"timeout": 30}, pool_size=POOL_SIZE, max_overflow=POOL_OVERFLOW)
+install_engine(engine)
 # Each HTTP request holds one connection for its unit of work. Requests beyond this many
 # wait for a slot on the loop instead of for a connection, which would block the loop the
 # holders need to commit and give theirs back. Two connections stay for work outside them.
@@ -1520,6 +1522,12 @@ def _format_blocks(items: list[str]) -> str:
 def _user_to_ref_dc(u: Optional[UserORM]) -> Optional[UserRefDC]:
     if not u:
         return None
+    return cached_current("database.user_ref", u.user_id, lambda: _user_to_ref_uncached(u))
+
+
+def _user_to_ref_uncached(u: UserORM) -> UserRefDC:
+    if not u:
+        return None
     if u.account_state=='purged':return UserRefDC(user_id=None,display_name='Обезличенный участник',avatar_url=None)
     display_name = f"Участник {u.user_id}"
     from directory import avatar_url
@@ -2378,6 +2386,8 @@ class Database:
         synchronous atomic() remains available for scripts and domain services.
         """
         if _active_session.get() is not None:
+            if write:
+                invalidate_reads(_active_session.get())
             yield
             return
         lock = None
@@ -2392,8 +2402,13 @@ class Database:
                         await to_thread.run_sync(lambda: session.execute(text("BEGIN IMMEDIATE")))
                     token = _active_session.set(session)
                     try:
-                        yield
-                        await to_thread.run_sync(session.commit)
+                        if write:
+                            yield
+                            await to_thread.run_sync(session.commit)
+                        else:
+                            with read_scope(session):
+                                yield
+                                await to_thread.run_sync(session.commit)
                     except BaseException:
                         await to_thread.run_sync(session.rollback)
                         raise
@@ -2406,6 +2421,8 @@ class Database:
     @contextmanager
     def atomic(self, write=True):
         if _active_session.get() is not None:
+            if write:
+                invalidate_reads(_active_session.get())
             yield
             return
         with self._SessionLocal() as session:
@@ -2413,8 +2430,13 @@ class Database:
                 session.execute(text("BEGIN IMMEDIATE"))
             token = _active_session.set(session)
             try:
-                yield
-                session.commit()
+                if write:
+                    yield
+                    session.commit()
+                else:
+                    with read_scope(session):
+                        yield
+                        session.commit()
             except BaseException:
                 session.rollback()
                 raise
@@ -2575,6 +2597,7 @@ class Database:
 
             return _user_orm_to_dc(u)
 
+    @memoized("database.user")
     def get_user(self, user_id: int) -> Optional[UserDC]:
         with self._session() as session:
             u = session.get(UserORM, user_id)
@@ -2811,6 +2834,7 @@ class Database:
                 blocks.add(b_name)
             return list(blocks)
 
+    @memoized("database.master_blocks")
     def get_user_master_block_names(self, user_id: int) -> list[str]:
         with self._session() as session:
             # Check explicit master_user_id first
@@ -3348,6 +3372,7 @@ class Database:
             )
             return count > 0
 
+    @memoized("database.assignments")
     def get_user_assignments(self, user_id: int) -> list[RoleAssignmentDC]:
         with self._session() as session:
             rows = session.query(RoleAssignmentORM).filter(RoleAssignmentORM.user_id == user_id).all()
@@ -4165,11 +4190,13 @@ class Database:
             session.commit()
             return _subevent_orm_to_dc(session, sub)
 
+    @memoized("database.subevent")
     def get_subevent(self, subevent_id: str) -> Optional[SubeventDC]:
         with self._session() as session:
             sub = session.get(SubeventORM, subevent_id)
             return _subevent_orm_to_dc(session, sub) if sub else None
 
+    @memoized("database.subevents")
     def list_subevents(self, event_id: str) -> list[SubeventDC]:
         with self._session() as session:
             rows = session.query(SubeventORM).filter(SubeventORM.event_id == event_id).all()
@@ -6413,6 +6440,11 @@ def _meeting_orm_to_dc(orm: MeetingORM) -> MeetingDC:
 
 
 def _load_leaders(session: Session, scope_kind: str, scope_id: str, role: str) -> list[LeaderDC]:
+    return cached(session, "database.leaders", (scope_kind, scope_id, role),
+                  lambda: _load_leaders_uncached(session, scope_kind, scope_id, role))
+
+
+def _load_leaders_uncached(session: Session, scope_kind: str, scope_id: str, role: str) -> list[LeaderDC]:
     rows = session.query(RoleAssignmentORM).filter(
         RoleAssignmentORM.scope_kind == scope_kind,
         RoleAssignmentORM.scope_id == scope_id,

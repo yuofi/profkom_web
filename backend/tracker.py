@@ -486,52 +486,56 @@ def task_page(uid,*,queue_id=None,season_id=None,scope_kind=None,scope_id=None,m
     from api_contract import cursor_page
     from membership import legacy_name,scope_out
     internal_scope=legacy_name(scope_id) if scope_kind=="block" and scope_id else scope_id
-    rows=db.list_tasks(current_user_id=uid,season_id=season_id,scope_kind=scope_kind,scope_id=internal_scope)
-    if queue_id:
-        from task_queues import get
-        get(queue_id,uid)
-        rows=[t for t in rows if t.queue and t.queue["queue_id"]==queue_id]
-    scopes={};assignees={}
-    for task in rows:
-        scope=scope_out(task.scope)
-        if scope['kind'] in {"block","subevent"}:scopes[(scope['kind'],scope['id'])]=dict(**scope,title=task.scope_title)
-        for person in task.assignees:
-            if person.user_id is not None:assignees[person.user_id]=asdict(person)
-    if mine:rows=[t for t in rows if any(a.user_id==uid for a in t.assignees)]
-    if assignee_user_id is not None:rows=[t for t in rows if any(a.user_id==assignee_user_id for a in t.assignees)]
-    if status:rows=[t for t in rows if t.status==status]
-    if task_type:rows=[t for t in rows if t.task_type==task_type]
-    if priority:rows=[t for t in rows if t.priority==priority]
-    if favorite:rows=[t for t in rows if t.is_favorite]
-    from tracker_stage2 import _time,_moment,PRIORITY_ORDER
-    if date_from:date_from=_time(date_from)
-    if date_to:date_to=_time(date_to)
-    if date_from and date_to and _moment(date_from)>=_moment(date_to):raise InvalidInput("Date window must be increasing")
-    if date_from:rows=[t for t in rows if t.deadline_at and _moment(t.deadline_at)>=_moment(date_from)]
-    if date_to:rows=[t for t in rows if (t.starts_at or t.deadline_at) and _moment(t.starts_at or t.deadline_at)<_moment(date_to)]
-    if unfinished:rows=[t for t in rows if t.status in ACTIVE]
-    if overdue:
-        current=datetime.now(timezone.utc)
-        rows=[t for t in rows if t.status in ACTIVE and t.deadline_at and datetime.fromisoformat(t.deadline_at.replace('Z','+00:00'))<current]
-    needle=q.strip().casefold()
-    if needle:rows=[t for t in rows if needle in t.title.casefold() or needle in t.task_key.casefold() or (t.legacy_task_key and needle in t.legacy_task_key.casefold())]
-    field={'deadline':'deadline_at','updated':'updated_at','created':'created_at','priority':'priority','starts':'starts_at'}[sort]
-    def key(item):
-        if sort=='priority':value=str(PRIORITY_ORDER[item.priority])
-        elif sort=='starts':value=item.starts_at or item.deadline_at
-        else:value=getattr(item,field) or item.created_at or ""
-        return value,item.task_id
-    import base64,hashlib,binascii
-    context=hashlib.sha256(json.dumps(dict(uid=uid,queue_id=queue_id,season_id=season_id,scope_kind=scope_kind,scope_id=internal_scope,mine=mine,status=status,q=needle,unfinished=unfinished,overdue=overdue,assignee_user_id=assignee_user_id,task_type=task_type,priority=priority,favorite=favorite,date_from=date_from,date_to=date_to,sort=sort,order=order,limit=limit),sort_keys=True).encode()).hexdigest()
-    inner=None
-    if cursor:
-        try:
-            token=json.loads(base64.urlsafe_b64decode(cursor.encode('ascii')))
-            if token.get('v')!=1 or token.get('context')!=context or not isinstance(token.get('key'),str):raise InvalidInput("Task cursor does not match these filters")
-            inner=token['key']
-        except (ValueError,TypeError,AttributeError,UnicodeError,binascii.Error):raise InvalidInput("Task cursor does not match these filters")
-    page=cursor_page(rows,key,inner,descending=order=="desc",limit=limit)
-    following=base64.urlsafe_b64encode(json.dumps(dict(v=1,context=context,key=page.next_cursor)).encode()).decode() if page.next_cursor else None
-    return dict(items=[converter(item) for item in page.items],next_cursor=following,total=len(rows),
-        scopes=sorted(scopes.values(),key=lambda x:(x['title'],x['id'])),
-        assignees=sorted(assignees.values(),key=lambda x:(x['display_name'],x['user_id'])))
+    from task_reads import TaskIndex
+    with db._session() as session:
+        index=TaskIndex(session,uid,season_id=season_id,scope_kind=scope_kind,scope_id=internal_scope)
+        rows=index.readable()
+        if queue_id:
+            from task_queues import get
+            get(queue_id,uid,include_assignable=False)
+            rows=[t for t in rows if t.queue and t.queue["queue_id"]==queue_id]
+        scopes={};assignees={}
+        for task in rows:
+            scope=scope_out(task.scope)
+            if scope['kind'] in {"block","subevent"}:scopes[(scope['kind'],scope['id'])]=dict(**scope,title=index.scope_title(task))
+            for user_id in task.assignee_ids:
+                person=index.user_ref(user_id)
+                if person and person.user_id is not None:assignees[person.user_id]=asdict(person)
+        if mine:rows=[t for t in rows if uid in t.assignee_ids]
+        if assignee_user_id is not None:rows=[t for t in rows if assignee_user_id in t.assignee_ids]
+        if status:rows=[t for t in rows if t.status==status]
+        if task_type:rows=[t for t in rows if t.task_type==task_type]
+        if priority:rows=[t for t in rows if t.priority==priority]
+        if favorite:rows=[t for t in rows if t.is_favorite]
+        from tracker_stage2 import _time,_moment,PRIORITY_ORDER
+        if date_from:date_from=_time(date_from)
+        if date_to:date_to=_time(date_to)
+        if date_from and date_to and _moment(date_from)>=_moment(date_to):raise InvalidInput("Date window must be increasing")
+        if date_from:rows=[t for t in rows if t.deadline_at and _moment(t.deadline_at)>=_moment(date_from)]
+        if date_to:rows=[t for t in rows if (t.starts_at or t.deadline_at) and _moment(t.starts_at or t.deadline_at)<_moment(date_to)]
+        if unfinished:rows=[t for t in rows if t.status in ACTIVE]
+        if overdue:
+            current=datetime.now(timezone.utc)
+            rows=[t for t in rows if t.status in ACTIVE and t.deadline_at and datetime.fromisoformat(t.deadline_at.replace('Z','+00:00'))<current]
+        needle=q.strip().casefold()
+        if needle:rows=[t for t in rows if needle in t.title.casefold() or needle in t.task_key.casefold() or (t.legacy_task_key and needle in t.legacy_task_key.casefold())]
+        field={'deadline':'deadline_at','updated':'updated_at','created':'created_at','priority':'priority','starts':'starts_at'}[sort]
+        def key(item):
+            if sort=='priority':value=str(PRIORITY_ORDER[item.priority])
+            elif sort=='starts':value=item.starts_at or item.deadline_at
+            else:value=getattr(item,field) or item.created_at or ""
+            return value,item.task_id
+        import base64,hashlib,binascii
+        context=hashlib.sha256(json.dumps(dict(uid=uid,queue_id=queue_id,season_id=season_id,scope_kind=scope_kind,scope_id=internal_scope,mine=mine,status=status,q=needle,unfinished=unfinished,overdue=overdue,assignee_user_id=assignee_user_id,task_type=task_type,priority=priority,favorite=favorite,date_from=date_from,date_to=date_to,sort=sort,order=order,limit=limit),sort_keys=True).encode()).hexdigest()
+        inner=None
+        if cursor:
+            try:
+                token=json.loads(base64.urlsafe_b64decode(cursor.encode('ascii')))
+                if token.get('v')!=1 or token.get('context')!=context or not isinstance(token.get('key'),str):raise InvalidInput("Task cursor does not match these filters")
+                inner=token['key']
+            except (ValueError,TypeError,AttributeError,UnicodeError,binascii.Error):raise InvalidInput("Task cursor does not match these filters")
+        page=cursor_page(rows,key,inner,descending=order=="desc",limit=limit)
+        following=base64.urlsafe_b64encode(json.dumps(dict(v=1,context=context,key=page.next_cursor)).encode()).decode() if page.next_cursor else None
+        return dict(items=[converter(index.project(item)) for item in page.items],next_cursor=following,total=len(rows),
+            scopes=sorted(scopes.values(),key=lambda x:(x['title'],x['id'])),
+            assignees=sorted(assignees.values(),key=lambda x:(x['display_name'],x['user_id'])))

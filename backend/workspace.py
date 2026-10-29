@@ -21,8 +21,8 @@ from database import (
 def live(season_id):
     if season_id is None:
         return True  # year-round support queues carry no artificial season
-    s = db.get_season(season_id)
-    return bool(s and s.state != "closed")
+    state = access.season_state(season_id)
+    return state is not None and state != "closed"
 
 
 def own_event(uid, event_id):
@@ -272,7 +272,7 @@ def dashboard(uid):
 
 
 def calendar(uid, start, end, *, mine=True, watching=False, kind=None, season_id=None,
-             block_id=None, event_id=None, queue_id=None, status=None, q=""):
+             block_id=None, event_id=None, queue_id=None, status=None, q="", _task_entries=None):
     """Exact half-open overlap, with source ACL applied before every filter.
 
     Announcements are public to approved accounts; meetings and tracker data retain
@@ -309,29 +309,39 @@ def calendar(uid, start, end, *, mine=True, watching=False, kind=None, season_id
             result.append(item)
 
     with db._session() as session:
-        for task in db.list_tasks(current_user_id=uid):
-            if not task.deadline_at or not relevant(task.season_id):
-                continue
-            own = any(a.user_id == uid for a in task.assignees)
-            follows = watching and any(a.user_id == uid for a in task.watchers)
-            if mine and not (own or follows):
-                continue
-            if status and task.status != status:
-                continue
-            if not status and task.status not in ACTIVE:
-                continue
-            if wanted_block and (task.scope.kind != "block" or task.scope.id != wanted_block):
-                continue
-            sub = session.get(SubeventORM, task.scope.id) if task.scope.kind == "subevent" else None
-            if event_id and (not sub or sub.event_id != event_id):
-                continue
-            queue = task.queue
-            if queue_id and (not queue or queue["queue_id"] != queue_id):
-                continue
-            accept(dict(id="task-" + task.task_id, season_id=task.season_id, kind="task_deadline",
-                        title=task.title, task_key=task.task_key, starts_at=task.deadline_at,
-                        ends_at=None, all_day=False, target=dict(kind="task", id=task.task_id),
-                        scope=scope_out(task.scope), queue=queue, status=task.status, event_id=sub.event_id if sub else None))
+        if kind is None or kind == "task_deadline":
+            from task_reads import TaskIndex
+            index = TaskIndex(session, uid) if _task_entries is None else None
+            candidates = index.entries if index is not None else _task_entries
+            selected = []
+            for task in candidates:
+                if not task.deadline_at or not (task.season_id == season_id if season_id else
+                        index.live(task) if index is not None else live(task.season_id)):
+                    continue
+                if mine and not (uid in task.assignee_ids or watching and uid in task.watcher_ids):
+                    continue
+                if status and task.status != status or not status and task.status not in ACTIVE:
+                    continue
+                if wanted_block and (task.scope.kind != "block" or task.scope.id != wanted_block):
+                    continue
+                if queue_id and (not task.queue or task.queue["queue_id"] != queue_id):
+                    continue
+                if needle and needle not in (task.title + " " + task.task_key).casefold():
+                    continue
+                if not in_window(task.deadline_at):
+                    continue
+                selected.append(task)
+            if index is not None:
+                selected = index.readable(selected)
+            for task in selected:
+                sub = session.get(SubeventORM, task.scope.id) if task.scope.kind == "subevent" else None
+                if event_id and (not sub or sub.event_id != event_id):
+                    continue
+                accept(dict(id="task-" + task.task_id, season_id=task.season_id, kind="task_deadline",
+                            title=task.title, task_key=task.task_key, starts_at=task.deadline_at,
+                            ends_at=None, all_day=False, target=dict(kind="task", id=task.task_id),
+                            scope=scope_out(task.scope), queue=task.queue, status=task.status,
+                            event_id=sub.event_id if sub else None))
         if not block_id and not queue_id:
             for meeting in session.query(MeetingORM):
                 sub = session.get(SubeventORM, meeting.owner_id) if meeting.owner_kind == "subevent" else None
@@ -343,7 +353,7 @@ def calendar(uid, start, end, *, mine=True, watching=False, kind=None, season_id
                 accept(dict(id="meeting-" + meeting.meeting_id, season_id=event.season_id, kind="meeting",
                             title=meeting.title, starts_at=meeting.starts_at, ends_at=None, all_day=False,
                             target=dict(kind=meeting.owner_kind, id=meeting.owner_id), event_id=event.event_id))
-            for event in db.list_events():
+            for event in session.query(EventORM):
                 if not relevant(event.season_id) or event_id and event.event_id != event_id:
                     continue
                 if mine and not own_event(uid, event.event_id):
@@ -351,7 +361,7 @@ def calendar(uid, start, end, *, mine=True, watching=False, kind=None, season_id
                 accept(dict(id="event-" + event.event_id, season_id=event.season_id, kind="event",
                             title=event.title, **schedule(session, "event", event),
                             target=dict(kind="event", id=event.event_id), event_id=event.event_id))
-                for sub in db.list_subevents(event.event_id):
+                for sub in session.query(SubeventORM).filter_by(event_id=event.event_id):
                     if mine and not (access.scope_relations(uid, "subevent", sub.subevent_id) &
                                      (access.EVENT_LEADS | access.SUB_LEADS | {access.ORGANIZER, access.SUBEVENT_HR})):
                         continue
@@ -362,13 +372,14 @@ def calendar(uid, start, end, *, mine=True, watching=False, kind=None, season_id
 
 
 def home(uid, *, watching=False):
-    """A personal workday projection; global rights never expand personal tasks."""
+    """Select personal deadlines once; hydrate only the ten visible task cards."""
     import main
     from zoneinfo import ZoneInfo
     from datetime import time, timedelta
     from tracker import ACTIVE
-    from membership import requests_for, blocks_for
-    from database import TaskQueueRequestORM, TaskQueueORM
+    from task_reads import TaskIndex
+    from membership import requests_for, block_id_for
+    from database import TaskQueueRequestORM, TaskQueueORM, BlockORM
     from task_queues import can_read as queue_read
     from domain_models import RegistrationORM
 
@@ -376,20 +387,19 @@ def home(uid, *, watching=False):
     day = current.astimezone(ZoneInfo("Europe/Moscow")).date()
     start = datetime.combine(day, time.min, ZoneInfo("Europe/Moscow"))
     end = start + timedelta(days=1)
-    personal = [task for task in db.list_tasks(current_user_id=uid)
-                if live(task.season_id) and task.status in ACTIVE and
-                (any(user.user_id == uid for user in task.assignees) or
-                 watching and any(user.user_id == uid for user in task.watchers))]
-    undated = [task for task in personal if not task.deadline_at]
-    dated = sorted((task for task in personal if task.deadline_at), key=lambda task: (dt(task.deadline_at), task.task_id))
-    overdue = [task for task in dated if dt(task.deadline_at) < current]
-    upcoming = [task for task in dated if dt(task.deadline_at) >= current]
-    requests = [item for item in requests_for(uid)
-                if set(item["capabilities"]) & {"hr_review_request", "block_review_request"}]
-    approvals = []
-    if requests:
-        approvals.append(dict(kind="block_requests", title="Заявки в блоки", count=len(requests), to="/blocks/requests"))
     with db._session() as session:
+        index = TaskIndex(session, uid)
+        personal = index.readable([task for task in index.entries if index.live(task)
+            and task.status in ACTIVE and (uid in task.assignee_ids or watching and uid in task.watcher_ids)])
+        undated = [task for task in personal if not task.deadline_at]
+        dated = sorted((task for task in personal if task.deadline_at), key=lambda task: (dt(task.deadline_at), task.task_id))
+        overdue = [task for task in dated if dt(task.deadline_at) < current]
+        upcoming = [task for task in dated if dt(task.deadline_at) >= current]
+        requests = [item for item in requests_for(uid)
+                    if set(item["capabilities"]) & {"hr_review_request", "block_review_request"}]
+        approvals = []
+        if requests:
+            approvals.append(dict(kind="block_requests", title="Заявки в блоки", count=len(requests), to="/blocks/requests"))
         if access.allowed(uid, "registration.review"):
             amount = session.query(RegistrationORM).filter_by(status="pending").count()
             if amount:
@@ -404,24 +414,30 @@ def home(uid, *, watching=False):
                 else:
                     approvals.append(dict(kind="queue_access", title=queue.name, count=1,
                                           queue_id=queue.queue_id, to="/tasks/queues/" + queue.queue_id))
-    merits = []
-    for block in blocks_for(uid):
-        if "create_volunteer_merit" in block["capabilities"]:
-            merits.append(dict(title=block["name"], to="/merits?source_kind=block_volunteer&scope_id=" + block["block_id"]))
-    for event in db.list_events():
-        if not live(event.season_id):
-            continue
-        if access.allowed(uid, "merit.create.head", "event", event.event_id):
-            merits.append(dict(title=event.title, to="/merits?source_kind=head_merit&scope_id=" + event.event_id))
-        for sub in db.list_subevents(event.event_id):
-            if access.allowed(uid, "merit.create.subevent_volunteer", "subevent", sub.subevent_id):
-                merits.append(dict(title=sub.title, to="/merits?source_kind=subevent_volunteer&scope_id=" + sub.subevent_id))
-    if access.allowed(uid, "merit.create.chair"):
-        merits.insert(0, dict(title="Особые заслуги председателя", to="/merits?source_kind=chair_merit"))
-    return dict(today=day.isoformat(), agenda=calendar(uid, start.isoformat(), end.isoformat(), watching=watching),
-                tasks=[main._to_task_public_out(task) for task in upcoming[:5]],
-                overdue_tasks=[main._to_task_public_out(task) for task in overdue[:5]],
-                overdue_count=len(overdue), undated_count=len(undated), approvals=approvals, merit_entries=merits)
+        merits = []
+        # This widget needs only the permitted creation targets, not full block
+        # cards (member profiles/guides) or full event leadership projections.
+        for block in session.query(BlockORM).order_by(BlockORM.name):
+            if access.allowed(uid, "merit.create.block_volunteer", "block", block.name):
+                merits.append(dict(title=block.name, to="/merits?source_kind=block_volunteer&scope_id=" + block_id_for(block.name)))
+        children = {}
+        for sub in session.query(SubeventORM):
+            children.setdefault(sub.event_id, []).append(sub)
+        for event in session.query(EventORM):
+            if not live(event.season_id):
+                continue
+            if access.allowed(uid, "merit.create.head", "event", event.event_id):
+                merits.append(dict(title=event.title, to="/merits?source_kind=head_merit&scope_id=" + event.event_id))
+            for sub in children.get(event.event_id, []):
+                if access.allowed(uid, "merit.create.subevent_volunteer", "subevent", sub.subevent_id):
+                    merits.append(dict(title=sub.title, to="/merits?source_kind=subevent_volunteer&scope_id=" + sub.subevent_id))
+        if access.allowed(uid, "merit.create.chair"):
+            merits.insert(0, dict(title="Особые заслуги председателя", to="/merits?source_kind=chair_merit"))
+        return dict(today=day.isoformat(),
+                    agenda=calendar(uid, start.isoformat(), end.isoformat(), watching=watching, _task_entries=personal),
+                    tasks=[main._to_task_public_out(index.project(task)) for task in upcoming[:5]],
+                    overdue_tasks=[main._to_task_public_out(index.project(task)) for task in overdue[:5]],
+                    overdue_count=len(overdue), undated_count=len(undated), approvals=approvals, merit_entries=merits)
 
 
 def date_range(start, end, timezone_name="Europe/Moscow"):

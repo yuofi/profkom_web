@@ -14,6 +14,26 @@ import { workspaceApi } from "../workspace.api";
 import { contactsApi } from "../contacts.api";
 import { richText, emptyCriteria } from "../contract";
 
+it("INT-CAT-01: category batch wire matches individual reads for editors and ordinary readers", async () => {
+  const person = await liveParticipant("category-batch");
+  try {
+    await liveLogin();
+    const editor = await membershipApi.category(person.user_id);
+    const batch = await membershipApi.categories([person.user_id, person.user_id]);
+    expect(batch).toEqual([editor]);
+    expect(wireIssues("ParticipantCategoryBatch", { items: batch })).toEqual([]);
+    expect(editor.capabilities).toContain("edit_participant_category");
+    await liveLogin(person.email);
+    const ordinary = await membershipApi.category(person.user_id);
+    const ordinaryBatch = await membershipApi.categories([person.user_id]);
+    expect(ordinaryBatch).toEqual([ordinary]);
+    expect(wireIssues("ParticipantCategoryBatch", { items: ordinaryBatch })).toEqual([]);
+    expect(ordinary.capabilities).toEqual([]);
+  } finally {
+    await liveLogin();
+  }
+});
+
 it("INT-06: actual response shapes, null relations and populated IDs match the public DTOs", async () => {
   const errors: string[] = [];
   const check = <T,>(name: string, value: T): T => { errors.push(...wireIssues(name, value)); return value; };
