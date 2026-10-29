@@ -34,6 +34,14 @@ TanStack Query's AbortSignal through the API helpers and every pagination reques
 so obsolete reads can be cancelled. Do not let a late response replace the current
 filter result or turn cancellation into access to stale private data.
 
+The season participant summary mounts at most one decision editor. Closed row
+disclosures contain no ActionForm or Formik subscriptions. Switching participant,
+closing the editor or changing a participant filter uses the participant panel's
+unsaved-change scope: save, explicitly discard, or stay. Sorting preserves the
+active participant identity. Successful saves retain the existing summary-version
+checks; opening or filtering the table never writes a decision. Exercise repeated
+row visits as well as the initial form count when checking responsiveness.
+
 ## Measuring changes
 
 Compare one frozen synthetic database and source manifest, with the same roles,

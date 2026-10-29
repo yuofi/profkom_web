@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, useState, type ReactNode } from "react";
+import { act, useEffect, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryRouter, Link, Outlet, RouterProvider, useNavigate } from "react-router-dom";
@@ -143,4 +143,68 @@ it("closing a clean or discarded password editor preserves unrelated profile edi
   expect(page.container.querySelector<HTMLInputElement>('[aria-label="Новый пароль"]')!.value).toBe("");
   await click(page.container.querySelector("a")!);
   expect(page.container.querySelector("dialog")).not.toBeNull();
+});
+
+it("saves the latest registered callback after parent rerenders with unchanged guard status", async () => {
+  const saved: number[] = [];
+  function Probe() {
+    const [value, setValue] = useState(0);
+    useUnsavedChanges({ dirty: true, busy: false, label: "Одна и та же форма", save: async () => { saved.push(value);return true; } });
+    return <><output>{value}</output><button onClick={() => setValue(previous => previous + 1)}>Изменить значение</button><Link to="/destination">Уйти</Link></>;
+  }
+  const page = await mount(<Probe />);
+  for (let index = 0; index < 4; index++) await click(button(page.container, "Изменить значение"));
+  expect(page.container.querySelector("output")?.textContent).toBe("4");await click(page.container.querySelector("a")!);
+  await click(button(page.container, "Сохранить и перейти"));expect(saved).toEqual([4]);expect(page.router.state.location.pathname).toBe("/destination");
+});
+
+it("retries a failed leave-save using a replacement callback even when dirty, busy and label stay equal", async () => {
+  const attempts: string[] = [];let replaceValue: (value: string) => void = () => {};
+  function Probe() {
+    const [value, setValue] = useState("old");useEffect(() => { replaceValue = setValue; }, []);
+    useUnsavedChanges({ dirty: true, busy: false, label: "Черновик", save: async () => { attempts.push(value);return value === "fresh"; } });
+    return <><output>{value}</output><Link to="/destination">Уйти</Link></>;
+  }
+  const page = await mount(<Probe />);await click(page.container.querySelector("a")!);await click(button(page.container, "Сохранить и перейти"));
+  expect(attempts).toEqual(["old"]);expect(page.router.state.location.pathname).toBe("/edit");expect(page.container.querySelector("dialog")?.textContent).toContain("Изменения не сохранены");
+  await act(async () => replaceValue("fresh"));await settle();await click(button(page.container, "Сохранить и перейти"));
+  expect(attempts).toEqual(["old", "fresh"]);expect(page.router.state.location.pathname).toBe("/destination");
+});
+
+it("removes a registration on unmount and uses only the remounted editor's latest discard callback", async () => {
+  const discarded: number[] = [];const saved = vi.fn(async () => true);
+  function Registration({ version }: { version: number }) {
+    useUnsavedChanges({ dirty: true, busy: false, label: "Одна и та же форма", save: saved, discard: () => discarded.push(version) });return <output>{version}</output>;
+  }
+  function Probe() {
+    const [visible, setVisible] = useState(true), [version, setVersion] = useState(0);
+    return <>{visible && <Registration version={version} />}<button onClick={() => setVisible(value => !value)}>Переключить редактор</button><button onClick={() => setVersion(value => value + 1)}>Обновить редактор</button><Link to="/destination">Уйти</Link></>;
+  }
+  const page = await mount(<Probe />);
+  await click(button(page.container, "Переключить редактор"));const removed = new Event("beforeunload", { cancelable: true });window.dispatchEvent(removed);expect(removed.defaultPrevented).toBe(false);
+  await click(button(page.container, "Обновить редактор"));await click(button(page.container, "Переключить редактор"));
+  for (let index = 0; index < 3; index++) await click(button(page.container, "Обновить редактор"));
+  const restored = new Event("beforeunload", { cancelable: true });window.dispatchEvent(restored);expect(restored.defaultPrevented).toBe(true);
+  await click(page.container.querySelector("a")!);await click(button(page.container, "Уйти без сохранения"));
+  expect(discarded).toEqual([4]);expect(saved).not.toHaveBeenCalled();expect(page.router.state.location.pathname).toBe("/destination");
+  const exited = new Event("beforeunload", { cancelable: true });window.dispatchEvent(exited);expect(exited.defaultPrevented).toBe(false);
+});
+
+it("updates an open leave prompt when the label, save availability and busy state change", async () => {
+  type Status = { label: string; canSave: boolean; busy: boolean };
+  let refresh: (next: Status) => void = () => {};const saved: string[] = [];
+  function Probe() {
+    const [status, setStatus] = useState<Status>({ label: "Первый редактор", canSave: false, busy: false });useEffect(() => { refresh = setStatus; }, []);
+    useUnsavedChanges({ dirty: true, busy: status.busy, label: status.label, save: status.canSave ? async () => { saved.push(status.label);return true; } : undefined });
+    return <Link to="/destination">Уйти</Link>;
+  }
+  const page = await mount(<Probe />);await click(page.container.querySelector("a")!);
+  expect(button(page.container, "Сохранить и перейти").disabled).toBe(true);expect(button(page.container, "Уйти без сохранения").disabled).toBe(false);
+  await act(async () => refresh({ label: "Текущий редактор", canSave: true, busy: false }));await settle();
+  expect(button(page.container, "Сохранить и перейти").disabled).toBe(false);expect(page.container.querySelector("dialog")?.textContent).toContain("Текущий редактор");
+  expect(page.container.querySelector("dialog")?.textContent).not.toContain("Первый редактор");
+  await act(async () => refresh({ label: "Текущий редактор", canSave: true, busy: true }));await settle();
+  expect(button(page.container, "Сохранить и перейти").disabled).toBe(true);expect(button(page.container, "Уйти без сохранения").disabled).toBe(true);
+  await act(async () => refresh({ label: "Текущий редактор", canSave: true, busy: false }));await settle();await click(button(page.container, "Сохранить и перейти"));
+  expect(saved).toEqual(["Текущий редактор"]);expect(page.router.state.location.pathname).toBe("/destination");
 });

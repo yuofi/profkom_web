@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, type ReactNode } from "react";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { Route, Routes } from "react-router-dom";
 import axios from "axios";
 import Cookies from "js-cookie";
@@ -27,7 +27,7 @@ import { AccountStatePage, LeadershipPage } from "./SessionPages";
 // offer a refresh (A-TSK-5, A-TSK-12), creating forms start empty (A-TSK-6), removals
 // are confirmed (A-ROL-13); decision 32 and УВ-5 on the task page.
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
-afterEach(async () => { await page?.cleanup(); page = undefined; });
+afterEach(async () => { await page?.cleanup(); page = undefined;vi.restoreAllMocks(); });
 const until = (predicate: () => boolean) => waitForPage(page!, predicate);
 const forms = () => Array.from(page!.container.querySelectorAll("form"));
 const form = (label: string) => forms().find(f => f.querySelector('button[type="submit"]')?.textContent === label)!;
@@ -195,17 +195,20 @@ it("2.12 A-FE-2: two rows of one summary save one after another without a confli
   await seasonsApi.command(season.season_id, "begin-summary", { expected_revision: current.revision });
   await mount(`/seasons/${season.season_id}/summary`, "/seasons/:id/summary", <SummaryPage />);
   const rows = () => forms().filter(f => f.querySelector('[name="decisions"]'));
-  await until(() => rows().length >= 2);
-  const [one, two] = rows();
-  await pick(two, "decisions", "nice");
-  await change(field(two, "reason"), "Вторая строка");
+  const participantRow = (id: number) => page!.container.querySelector(`tbody a[href="/contacts/${id}"]`)?.closest("tr");
+  await until(() => !!participantRow(people[0].user_id) && !!participantRow(people[1].user_id));expect(rows()).toHaveLength(0);
+  const decisions = vi.spyOn(seasonsApi, "decisions");const before = (await seasonsApi.summary(season.season_id)).version;
+  await act(async () => participantRow(people[0].user_id)!.querySelector("summary")!.click());await until(() => rows().length === 1);const one = rows()[0];
   await pick(one, "decisions", "nice");
   await change(field(one, "reason"), "Первая строка");
-  const before = (await seasonsApi.summary(season.season_id)).version;
   await save(one);
+  await act(async () => participantRow(people[1].user_id)!.querySelector("summary")!.click());await until(() => rows().length === 1 && !one.isConnected);const two = rows()[0];
+  await pick(two, "decisions", "nice");await change(field(two, "reason"), "Вторая строка");
   expect(two.textContent).not.toContain("Запись изменилась на сервере");
   await save(two);
-  expect((await seasonsApi.summary(season.season_id)).version).toBe(before + 2);
+  expect(decisions.mock.calls.map(([, userId, values]) => ({ userId, expected_version: values.expected_version }))).toEqual([{ userId: people[0].user_id, expected_version: before }, { userId: people[1].user_id, expected_version: before + 1 }]);
+  const after = await seasonsApi.summary(season.season_id);expect(after.version).toBe(before + 2);
+  for (const person of people) expect(after.rows.find(row => row.user.user_id === person.user_id)?.decisions).toEqual(["nice"]);
 });
 
 it("2.12 A-TSK-5: a public status conflict refreshes its counter without changing private accounting", async () => {

@@ -1,5 +1,5 @@
 import { EntityPicker } from "../../components/Workspace/EntityPicker";
-import { useState, type ReactNode } from "react";
+import { useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { seasonsApi } from "../../utils/api/seasons.api";
@@ -9,6 +9,7 @@ import { can, useSession } from "../../utils/session";
 import { QueryState, Empty } from "../../components/Workspace/WorkspaceUI";
 import { UserChip } from "../../components/Workspace/UserChip";
 import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
+import { useGuardedAction } from "../../components/Workspace/unsavedChangesHooks";
 import { getTaskRoute } from "../../utils/routes";
 import { displayDate } from "../../utils/dates";
 import { userMessage } from "../../utils/api/messages";
@@ -18,9 +19,11 @@ import { SummaryTable } from "./SummaryTable";
 import u from "./SeasonWorkspace.module.css";
 import w from "../../components/Workspace/Workspace.module.css";
 
-export function SeasonParticipants({ summary, renderDecisions }: { summary: SeasonSummary; renderDecisions?: (row: SummaryRow) => ReactNode }) {
+export function SeasonParticipants({ summary, renderDecisions, onFilterApply }: { summary: SeasonSummary; renderDecisions?: (row: SummaryRow) => ReactNode; onFilterApply?: () => void }) {
   const [search, setSearch] = useState(""), [block, setBlock] = useState(""), [sort, setSort] = useState("rank"), [person, setPerson] = useState<SummaryRow | null>(null), [exportError, setExportError] = useState("");
   const [category, setCategory] = useState(""), [master, setMaster] = useState(""), [archived, setArchived] = useState(""), [mark, setMark] = useState<Decision | "" | "any" | "none">("");
+  const guardFilter = useGuardedAction();
+  const updateFilter = <T extends string,>(current: T, next: T, update: Dispatch<SetStateAction<T>>) => { if (next !== current) guardFilter(() => { onFilterApply?.();update(next); }); };
   const blocks = [...new Map(summary.rows.flatMap(row => row.blocks.map(item => [item.block_id, item] as const))).values()];
   const rows = summary.rows.filter(row => (!block || row.blocks.some(item => item.block_id === block))
     && (!category || row.category === category)
@@ -33,11 +36,11 @@ export function SeasonParticipants({ summary, renderDecisions }: { summary: Seas
       setExportError("");try { const blob = await seasonsApi.export(summary.season_id);const url = URL.createObjectURL(blob);const link = document.createElement("a");link.href = url;link.download = `kkr-${summary.season_id}.xlsx`;link.click();setTimeout(() => URL.revokeObjectURL(url), 1000); } catch (error) { setExportError(userMessage(error)); }
     }}>Скачать XLSX</button></div>
     {exportError && <p role="alert" className={w.error}>{exportError}</p>}
-    <div className={u.toolbar} aria-label="Фильтры участников"><label>Поиск по имени или группе<input type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Имя или группа" /></label><div><EntityPicker name="block" label="Блок" value={block} onChange={setBlock} placeholder="Все блоки" options={[{ value: "", label: "Все блоки" }, ...blocks.map(item => ({ value: item.block_id, label: item.name, block: item }))]} /></div>
-      <label>Категория<select name="category" value={category} onChange={e => setCategory(e.target.value)}><option value="">Все категории</option><option value="junior">Джуниоры</option><option value="activist">Активисты</option></select></label>
-      <label>Мастера<select name="is_master" value={master} onChange={e => setMaster(e.target.value)}><option value="">Все участники</option><option value="true">Только мастера</option><option value="false">Кроме мастеров</option></select></label>
-      <label>Архив аккаунта<select name="is_archived" value={archived} onChange={e => setArchived(e.target.value)}><option value="">Все участники</option><option value="true">Уже исключён</option><option value="false">Действующие</option></select></label>
-      <label>Отметки текущего сезона<select name="marks" value={mark} onChange={e => setMark(e.target.value as typeof mark)}><option value="">Все отметки</option><option value="any">Есть отметки</option><option value="none">Без отметок</option>{Object.entries(decisionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+    <div className={u.toolbar} aria-label="Фильтры участников"><label>Поиск по имени или группе<input type="search" value={search} onChange={e => updateFilter(search, e.target.value, setSearch)} placeholder="Имя или группа" /></label><div><EntityPicker name="block" label="Блок" value={block} onChange={value => updateFilter(block, value, setBlock)} placeholder="Все блоки" options={[{ value: "", label: "Все блоки" }, ...blocks.map(item => ({ value: item.block_id, label: item.name, block: item }))]} /></div>
+      <label>Категория<select name="category" value={category} onChange={e => updateFilter(category, e.target.value, setCategory)}><option value="">Все категории</option><option value="junior">Джуниоры</option><option value="activist">Активисты</option></select></label>
+      <label>Мастера<select name="is_master" value={master} onChange={e => updateFilter(master, e.target.value, setMaster)}><option value="">Все участники</option><option value="true">Только мастера</option><option value="false">Кроме мастеров</option></select></label>
+      <label>Архив аккаунта<select name="is_archived" value={archived} onChange={e => updateFilter(archived, e.target.value, setArchived)}><option value="">Все участники</option><option value="true">Уже исключён</option><option value="false">Действующие</option></select></label>
+      <label>Отметки текущего сезона<select name="marks" value={mark} onChange={e => updateFilter(mark, e.target.value as typeof mark, setMark)}><option value="">Все отметки</option><option value="any">Есть отметки</option><option value="none">Без отметок</option>{Object.entries(decisionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       <label>Порядок<select aria-label="Порядок" value={sort} onChange={e => setSort(e.target.value)}><option value="rank">По месту в сводной</option><option value="score-asc">ККР по возрастанию</option><option value="name">По имени</option></select></label></div>
     <SummaryTable summary={summary} rows={rows} filter={search} renderDecisions={renderDecisions} onParticipantSelect={setPerson} />
     <p className={u.note}>Оценённые назначения включают работу с нулевой и отрицательной оценкой. Это количество личных расчётных записей, а не число выполненных задач.</p>

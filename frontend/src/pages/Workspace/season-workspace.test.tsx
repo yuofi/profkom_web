@@ -76,7 +76,9 @@ it("omits empty future weeks from current observation without mutating or hiding
 });
 it.each(["seasons", "summary"] as const)("retains a real decision draft through %s refetch503, then removes it on403", async resource => {
   await mount(<Routes><Route path="/seasons/:id/summary" element={<SummaryPage />} /></Routes>, "/seasons/season-1/summary");
-  const form = field(page!.container, "reason").closest("form")!;await act(async () => form.closest("details")!.querySelector("summary")!.click());await change(field(form, "reason"), "Несохранённое основание решения");
+  const disclosure = [...page!.container.querySelectorAll("tbody details")].find(node => node.querySelector("summary")?.textContent === "Изменить отметки")!;
+  await act(async () => disclosure.querySelector("summary")!.click());await waitForPage(page!, () => !!disclosure.querySelector('input[name="reason"]'));
+  const form = field(disclosure, "reason").closest("form")!;await change(field(form, "reason"), "Несохранённое основание решения");
   const read = vi.spyOn(api, "request");read.mockRejectedValue(new ApiError("Временная ошибка", 503));
   await act(async () => { await page!.client.invalidateQueries({ queryKey: resource === "seasons" ? ["seasons"] : ["summary", "season-1"] }); });await waitForPage(page!);
   expect(form.isConnected).toBe(true);expect(field(form, "reason").value).toBe("Несохранённое основание решения");expect(page!.container.textContent).toContain("Временная ошибка");
