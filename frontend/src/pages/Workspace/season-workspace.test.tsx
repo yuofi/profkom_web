@@ -10,6 +10,7 @@ import { mountWorkspace, waitForPage, change, field, submit } from "../../test/w
 import { SessionContext } from "../../utils/session";
 import { api } from "../../utils/api";
 import { ApiError } from "../../utils/api/request";
+import { kkrApi } from "../../utils/api/kkr.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import type { SeasonAnalytics as Analytics } from "../../utils/api/contract";
 import { UnsavedChangesProvider } from "../../components/Workspace/UnsavedChanges";
@@ -24,7 +25,7 @@ beforeEach(() => {
 });
 afterEach(async () => { await page?.cleanup();page = undefined;await otherCleanup?.();otherCleanup = undefined;transport?.restore();transport = undefined;vi.restoreAllMocks(); });
 async function mount(element: ReactNode, path = "/seasons", role: MockRole = "chair") {
-  transport = installMockTransport(role, { delay: 0 });page = await mountWorkspace(element, { path, role });await waitForPage(page);return page;
+  transport = installMockTransport(role, { delay: 0 });if (path.includes("/summary")) transport.state.summary.state="approved";page = await mountWorkspace(element, { path, role });await waitForPage(page);return page;
 }
 async function click(name: string) { const button = [...page!.container.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === name || item.getAttribute("aria-label") === name);expect(button, name).toBeDefined();await act(async () => button!.click());await waitForPage(page!); }
 const analytics = (): Analytics => ({
@@ -49,15 +50,15 @@ it("opens period editing by pencil and saves the same season with revision and r
   await click("Редактировать сезон");expect(field(page!.container, "title").value).toBe("Осень и зима 2026");await change(field(page!.container, "title"), "Уточнённое название");await change(field(page!.container, "reason"), "Исправили название");await submit(page!.container.querySelector("form")!);await waitForPage(page!, () => !page!.container.querySelector('input[name="title"]'));
   const request = transport!.adapter.history.patch.find(request => request.url === "/seasons/season-1")!;expect(JSON.parse(request.data)).toMatchObject({ expected_revision: 1, title: "Уточнённое название", reason: "Исправили название" });expect(page!.container.querySelector("h1")?.textContent).toBe("Уточнённое название");
 });
-it.each(["organizer", "leader", "hr-deputy"] as const)("never requests global summary or analytics for %s", async role => {
+it.each(["organizer", "leader"] as const)("never requests global summary or analytics for %s", async role => {
   await mount(<Routes><Route path="/seasons/:id" element={<SeasonPage />} /></Routes>, "/seasons/season-1?tab=analytics", role);expect(transport!.adapter.history.get.some(request => /\/summary|\/analytics/.test(request.url ?? ""))).toBe(false);expect(page!.container.querySelector('nav[aria-label="Разделы сезона"]')).toBeNull();expect(page!.container.querySelector('button[aria-label="Редактировать сезон"]')).toBeNull();
 });
 it("keeps the summary deep link and labels evaluated assignments honestly", async () => {
-  await mount(<Routes><Route path="/seasons/:id/summary" element={<SummaryPage />} /></Routes>, "/seasons/season-1/summary");expect(page!.container.querySelector('a[aria-current="page"]')?.textContent).toBe("Участники и ККР");expect(page!.container.textContent).toContain("Оценённых назначений");expect(page!.container.textContent).toContain("количество личных расчётных записей");expect(page!.container.querySelectorAll('tbody img').length).toBeGreaterThan(0);expect(page!.container.textContent).not.toContain("Исправить закрытые итоги");
+  await mount(<Routes><Route path="/seasons/:id/summary" element={<SummaryPage />} /></Routes>, "/seasons/season-1/summary");expect(page!.container.querySelector('a[aria-current="page"]')?.textContent).toBe("Участники и ККР");expect(page!.container.textContent).toContain("ККР блоков");expect(page!.container.textContent).toContain("посмотреть его начисления");expect(page!.container.querySelectorAll('tbody img').length).toBeGreaterThan(0);expect(page!.container.textContent).not.toContain("Исправить закрытые итоги");
 });
 it("retains missing history as gaps and sends participant/source filters", async () => {
   const data = analytics();data.totals = { completed_tasks: null, credited_hours: null, kkr: 18 };data.weekly = [];data.basis = { kind: "approved_snapshot", version: 4, approved_at: data.as_of };
-  const api = vi.spyOn(seasonsApi, "analytics").mockResolvedValue(data);await mount(<SeasonAnalytics seasonId="season-1" />);expect(page!.container.textContent).toContain("Для этого показателя нет датированных данных");expect(page!.container.textContent).toContain("Исторические часы неизвестны");expect(page!.container.querySelectorAll("strong")[0].textContent).toBe("—");
+  const api = vi.spyOn(seasonsApi, "analytics").mockResolvedValue(data);await mount(<SeasonAnalytics seasonId="season-1" />);expect(page!.container.textContent).toContain("Для этого показателя нет датированных данных");expect(page!.container.textContent).not.toContain("Полнота данных");expect(page!.container.querySelectorAll("strong")[0].textContent).toBe("—");
   await change(field(page!.container, "participant"), "person-1");await waitForPage(page!);await change(field(page!.container, "block"), "it");await waitForPage(page!);expect(api).toHaveBeenLastCalledWith("season-1", { participant_id: "person-1", block_id: "it" });
   await click("По сезонам");expect(page!.container.textContent).toContain("Для этого показателя нет датированных данных");await click("ККР");expect(page!.container.querySelector('svg[aria-label="ККР, по сезонам; баллов"]')).not.toBeNull();
 });
@@ -76,8 +77,9 @@ it("omits empty future weeks from current observation without mutating or hiding
 });
 it.each(["seasons", "summary"] as const)("retains a real decision draft through %s refetch503, then removes it on403", async resource => {
   await mount(<Routes><Route path="/seasons/:id/summary" element={<SummaryPage />} /></Routes>, "/seasons/season-1/summary");
-  const disclosure = [...page!.container.querySelectorAll("tbody details")].find(node => node.querySelector("summary")?.textContent === "Изменить отметки")!;
-  await act(async () => disclosure.querySelector("summary")!.click());await waitForPage(page!, () => !!disclosure.querySelector('input[name="reason"]'));
+  page!.client.setQueryData(["summary","season-1"], {...page!.client.getQueryData<object>(["summary","season-1"]),state:"approved"});await waitForPage(page!);
+  await act(async()=>page!.container.querySelector<HTMLButtonElement>('button[aria-label^="Изменить отметки:"]')!.click());await waitForPage(page!,()=>!!document.querySelector('[data-anchored-popover] input[name="reason"]'));
+  const disclosure=document.querySelector<HTMLElement>('[data-anchored-popover]')!;
   const form = field(disclosure, "reason").closest("form")!;await change(field(form, "reason"), "Несохранённое основание решения");
   const read = vi.spyOn(api, "request");read.mockRejectedValue(new ApiError("Временная ошибка", 503));
   await act(async () => { await page!.client.invalidateQueries({ queryKey: resource === "seasons" ? ["seasons"] : ["summary", "season-1"] }); });await waitForPage(page!);
@@ -129,4 +131,10 @@ it("clears active chart tooltips when the metric, filters or observations change
   await activate();await change(field(page!.container, "participant"), "person-1");await waitForPage(page!);expect(page!.container.querySelector('[role="tooltip"]')).toBeNull();
   await activate();await change(field(page!.container, "participant"), "");await waitForPage(page!);expect(page!.container.querySelector('[role="tooltip"]')).toBeNull();
   await activate();read.mockResolvedValue({ ...data, weekly: data.weekly.map(row => ({ ...row, credited_hours: 7 })) });await act(async () => { await page!.client.invalidateQueries({ queryKey: ["summary", "analytics", "season-1", "", ""] }); });await waitForPage(page!);expect(page!.container.querySelector('[role="tooltip"]')).toBeNull();expect(page!.container.querySelector('[data-chart-canvas] [role="button"]')?.getAttribute("aria-label")).toContain("7 ч");
+});
+
+it("does not fetch a collapsed activity chart on the statistics tab",async()=>{
+ vi.spyOn(kkrApi,"statistics").mockResolvedValue({items:[],preliminary:true});const read=vi.spyOn(seasonsApi,"analytics");await mount(<Routes><Route path="/seasons/:id" element={<SeasonPage/>}/></Routes>,"/seasons/season-1?tab=analytics");expect(read).not.toHaveBeenCalled();
+ const details=[...page!.container.querySelectorAll('details')].find(item=>item.querySelector('summary')?.textContent==='Динамика задач, часов и ККР')!;
+ await act(async()=>{details.open=true;details.dispatchEvent(new Event('toggle'));});await waitForPage(page!);expect(read).toHaveBeenCalledTimes(1);
 });

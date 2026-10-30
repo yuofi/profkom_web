@@ -7,16 +7,14 @@ import sys
 
 import pytest
 from database import engine
+from test_tracker_queues import legacy_queue
 from test_v13_tracker import work  # noqa: F401
 
 
 @pytest.mark.parametrize('entrypoint', ['main', 'database', 'access'])
 def test_populated_legacy_startup_recovery_is_import_order_independent(client, work, tmp_path, entrypoint):
     w = work
-    response = client.post('/api/task-queues', headers=w['member'].headers,
-        json={'name': 'Синтетическая очередь старой схемы', 'key': 'STARTUP', 'scope': w['payload']['scope'], 'is_private': True})
-    assert response.status_code == 200, response.text
-    queue = response.json()
+    queue=legacy_queue(client,w['member'],'STARTUP',True,w['payload']['scope'])
     path = tmp_path / ('synthetic-queue-startup-' + entrypoint + '.db')
     source = sqlite3.connect(engine.url.database)
     copy = sqlite3.connect(path)
@@ -51,4 +49,4 @@ def test_populated_legacy_startup_recovery_is_import_order_independent(client, w
             before, after = map(json.loads, audits[-1])
             assert before == {'owner_user_id': w['member'].user_id}
             assert after['owner_user_id'] == w['master'].user_id and after['recovery_tier'] == 'block_master'
-            assert connection.execute('SELECT task_type,priority,starts_at FROM task_tracker').fetchall() == [('task', 'normal', None)]
+            assert connection.execute('SELECT task_type,priority,starts_at FROM task_tracker WHERE task_id=?',(work['task']['task_id'],)).fetchall() == [('task', 'normal', None)]

@@ -22,6 +22,7 @@ from database import (
     _calculate_season_summary_for_session,
 )
 from domain_models import SummaryVersionORM
+from season_coefficients import weighted_score
 import access
 from registration import now, audit
 from api_contract import Page
@@ -30,16 +31,29 @@ _suppress = ContextVar("suppress_summary_snapshot", default=False)
 DECISIONS = {"golden_red_bull", "kick_warning", "kick", "nice"}
 
 
-def source_id(c):
+def source_id(c, session=None):
     from membership import block_id_for
 
     if c.source_kind == "chair_merit":
         return chair_merit_table_id(c.season_id)
-    return (
-        block_id_for(c.source_id)
-        if c.source_kind in ("block_task", "block_volunteer", "master_bonus")
-        else c.source_id
-    )
+    if c.source_kind not in ("block_task", "block_volunteer", "master_bonus"):
+        return c.source_id
+    if session is not None:
+        # Commands deliberately disable read-only memoization. Reuse the same
+        # transaction-local identity catalog as coefficients, rather than doing
+        # a failed PK lookup and legacy-name lookup for every ledger credit.
+        from season_coefficients import block_identities
+        identities = block_identities(session)
+        if c.source_id in identities:
+            return identities[c.source_id]
+    identity = block_id_for(c.source_id)
+    if session is not None:
+        # Preserve historical lazy repair for a block without metadata. Its flush
+        # may invalidate the catalog; reload it before retaining the observed pair.
+        identities = block_identities(session)
+        identities[c.source_id] = identity
+        identities[identity] = identity
+    return identity
 
 
 def chair_merit_table_id(season_id):
@@ -50,17 +64,20 @@ def chair_merit_table_id(season_id):
 def source_title(session, kind, identity):
     from database import BlockORM, EventORM, SubeventORM
     from domain_models import BlockMetaORM
-
-    if kind == "chair_merit":
-        return "Заслуги председателя"
-    if kind in {"block_task", "block_volunteer", "master_bonus"}:
-        meta = session.get(BlockMetaORM, identity) or session.query(BlockMetaORM).filter_by(legacy_name=identity).first()
-        block = session.get(BlockORM, meta.legacy_name if meta else identity)
-        title = block.name if block else (meta.legacy_name if meta else "Блок")
-        return "Мастер: " + title if kind == "master_bonus" else title
-    model = EventORM if kind == "head_merit" else SubeventORM
-    owner = session.get(model, identity)
-    return owner.title if owner else ("Мероприятие" if model is EventORM else "Подмероприятие")
+    if kind == "chair_merit":return "Заслуги председателя"
+    if kind == "chair_task":return "Работа председателя"
+    titles=session.info.get("season_source_title_cache")
+    if titles is None:
+        blocks={row.name:row.name for row in session.query(BlockORM)}
+        for meta in session.query(BlockMetaORM):blocks[meta.block_id]=meta.legacy_name
+        titles=dict(block=blocks,event={row.event_id:row.title for row in session.query(EventORM)},
+            subevent={row.subevent_id:row.title for row in session.query(SubeventORM)})
+        session.info["season_source_title_cache"]=titles
+    if kind in {"block_task","block_volunteer","master_bonus"}:
+        title=titles['block'].get(identity,'Блок')
+        return "Мастер: "+title if kind=='master_bonus' else title
+    category='event' if kind in {'head_merit','event_task'} else 'subevent'
+    return titles[category].get(identity,'Мероприятие' if category=='event' else 'Подмероприятие')
 
 
 def totals(session, season_id, participant_id):
@@ -69,8 +86,8 @@ def totals(session, season_id, participant_id):
     for c in session.query(ContributionORM).filter_by(
         season_id=season_id, participant_id=participant_id
     ):
-        k = (c.source_kind, source_id(c))
-        groups[k].append(c.score or 0)
+        k = (c.source_kind, source_id(c, session))
+        groups[k].append(weighted_score(session, season_id, c.source_kind, c.source_id, c.score))
         titles[k] = source_title(session, c.source_kind, c.source_id)
     return [
         dict(source_kind=k[0], source_id=k[1], title=titles[k], score=math.fsum(value))
@@ -132,14 +149,16 @@ def store_snapshot(session, season_id, uid, reason, *, capture_analytics=True):
     from season_analytics import FACTS_KEY, snapshot_facts
     if capture_analytics:
         data[FACTS_KEY] = snapshot_facts(session, season_id)
+        from season_coefficients import STATISTICS_KEY, statistics_facts
+        data[STATISTICS_KEY] = statistics_facts(session, season_id, uid)
     ledger = [
         dict(
             contribution_id=c.contribution_id,
             participant_id=c.participant_id,
             source_kind=c.source_kind,
-            source_id=source_id(c),
+            source_id=source_id(c, session),
             source_title=c.source_title,
-            score=c.score,
+            score=weighted_score(session, season_id, c.source_kind, c.source_id, c.score),
             calculation_version=c.calculation_version,
         )
         for c in session.query(ContributionORM).filter_by(season_id=season_id)
@@ -407,10 +426,22 @@ def decisions(season_id, target, values, expected_version, reason, uid):
         )
         refresh(s, season_id, uid, reason or "Summary decisions updated")
         s.commit()
-        return db.get_season_summary(season_id, uid)
+        if season.state == "closed":
+            return db.get_season_summary(season_id, uid)
+        summary.version = current(s, season_id).version
+        for person in summary.rows:
+            if person.user.user_id == target:
+                person.decisions = list(values)
+        return summary
 
 
 def register_routes(router):
+    from season_coefficients import register_routes as register_coefficients
+    register_coefficients(router)
+    from kkr_control import register_routes as register_control
+    from accounting_batch import register_routes as register_accounting
+    register_control(router)
+    register_accounting(router)
     @router.get("/season-corrections/event/{event_id}/preview")
     def correction_preview(event_id: str, cur: User = Depends(get_current_user)):
         from season_corrections import preview_event
@@ -484,6 +515,8 @@ def register_routes(router):
             # Internal analytic facts contain private row identifiers, not part of
             # the public summary DTO or its backwards-compatible version route.
             saved_summary.pop(FACTS_KEY, None)
+            from season_coefficients import STATISTICS_KEY
+            saved_summary.pop(STATISTICS_KEY, None)
             return dict(
                 **metadata(r,cur.user_id),
                 # Saved as they were, but with today's avatars (A-MAT-16).

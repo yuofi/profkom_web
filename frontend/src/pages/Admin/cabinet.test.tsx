@@ -73,11 +73,13 @@ it("A-ROL-21: waiting registrations come first; the status filter asks the serve
   await settle(); await settle();
   expect(mock!.adapter.history.get.find((r) => r.url?.endsWith("/registrations"))?.params).toMatchObject({ status: "pending" });
   expect(page.container.textContent).toContain("Ожидает решения");
+  expect(page.container.querySelector("form")).toBeNull();
+  await act(async () => page!.container.querySelector('summary')!.click());await settle();
   expect(page.container.textContent).toContain("Отправок: 1/5");
-  await change(field(page.container, "status"), "rejected");
+  await clickButton("Отклонённые");
   await settle(); await settle();
   expect(page.container.textContent).toContain("Отклонённые: заявок нет.");
-  await change(field(page.container, "status"), "");
+  await clickButton("Все");
   await settle(); await settle();
   expect(page.container.textContent).toContain("Ожидает решения");
 });

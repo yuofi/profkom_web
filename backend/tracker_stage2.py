@@ -140,11 +140,11 @@ def patch(task_id, uid, expected_revision, values):
             task = visible_task(session, task_id, uid)
             if task.revision != expected_revision:
                 raise revision_conflict()
-            if "starts_at" in extras and not can_edit_public(session, task, uid):
+            if any(name in extras for name in ("starts_at","task_type","priority")) and not can_edit_public(session, task, uid):
                 raise Forbidden("Cannot edit task planning")
             if "checklist" in extras and not can_edit_description(session, task, uid):
                 raise Forbidden("Cannot edit task checklist")
-            # Type/priority are public reader controls, like the public status.
+            # Classification and planning belong to task editors, not readers.
             # A milestone is a point: clearing its interval is an inseparable
             # effect of that type command, not a general planned-date permission.
             if extras.get("task_type") == "milestone" and "starts_at" not in extras:
@@ -163,6 +163,7 @@ def patch(task_id, uid, expected_revision, values):
 
 def task_ref(session, task_id, uid):
     from tracker import metadata
+    from tracker_status import public_status
     from task_queues import task_read, task_queue
     task = session.get(TaskORM, task_id)
     if not task or uid is None or not task_read(session, task, uid):
@@ -170,12 +171,12 @@ def task_ref(session, task_id, uid):
     meta = metadata(session, task)
     queue = task_queue(session, task)
     key = queue.key + "-" + str(meta.queue_number) if queue else "TASK-" + str(meta.task_number)
-    return dict(task_id=task.task_id, task_key=key, title=task.title, status=meta.status,
+    return dict(task_id=task.task_id, task_key=key, title=task.title, status=public_status(meta.status),
         deadline_at=task.deadline_at, starts_at=meta.starts_at, task_type=meta.task_type or "task")
 
 
 def enrich(session, task, result, uid):
-    from tracker import metadata, can_edit_public, can_edit_description
+    from tracker import metadata, can_edit_public, can_edit_description, is_control_task
     meta = metadata(session, task)
     result.task_type = meta.task_type or "task"
     result.priority = meta.priority or "normal"
@@ -189,7 +190,7 @@ def enrich(session, task, result, uid):
         ref = task_ref(session, other, uid)
         if ref:
             kind = link.kind if outgoing or link.kind == "related" else {"blocks":"blocked_by", "epic":"epic_member", "milestone":"milestone_member"}[link.kind]
-            result.links.append(dict(link_id=link.link_id, kind=kind, task=ref))
+            result.links.append(dict(link_id=link.link_id, kind=kind, task=ref,managed=is_control_task(session,task.task_id) or is_control_task(session,other)))
     result.children = []
     for child in orm_rows(session,"task.children",task.task_id,lambda:session.query(TaskTrackerORM).filter_by(parent_task_id=task.task_id).order_by(TaskTrackerORM.queue_id, TaskTrackerORM.queue_number).all()):
         ref = task_ref(session, child.task_id, uid)
@@ -197,10 +198,10 @@ def enrich(session, task, result, uid):
             result.children.append(ref)
     if uid:
         if can_edit_public(session, task, uid):
-            result.capabilities += ["edit_task_metadata", "manage_task_links"]
+            result.capabilities += ["edit_task_metadata", "manage_task_links", "change_task_type", "change_task_priority"]
         if can_edit_description(session, task, uid):
             result.capabilities.append("edit_task_checklist")
-        result.capabilities += ["toggle_task_favorite", "change_task_type", "change_task_priority", "toggle_task_checklist"]
+        result.capabilities += ["toggle_task_favorite", "toggle_task_checklist"]
     return result
 
 
@@ -300,8 +301,9 @@ def _check_dependency_cycle(session, source, target):
 
 
 def _editable(session, task_id, uid, expected_revision):
-    from tracker import visible_task, can_edit_public
+    from tracker import visible_task, can_edit_public, is_control_task
     task = visible_task(session, task_id, uid)
+    if is_control_task(session,task_id):raise Conflict("Control epic relations are managed automatically","control_epic_managed")
     if not can_edit_public(session, task, uid):
         raise Forbidden("Cannot edit task relations")
     if task.revision != expected_revision:
@@ -327,6 +329,8 @@ def add_link(task_id, uid, expected_revision, target_task_id, kind):
         with db._session() as session:
             task = _editable(session, task_id, uid, expected_revision)
             target = visible_task(session, target_task_id, uid)
+            from tracker import is_control_task
+            if is_control_task(session,task_id) or is_control_task(session,target_task_id):raise Conflict("Control epic relations are managed automatically","control_epic_managed")
             if task.season_id != target.season_id:
                 raise InvalidInput("Linked tasks must belong to the same season")
             source_id, target_id, kind = _canonical(task_id, target_task_id, kind)
@@ -362,6 +366,8 @@ def remove_link(task_id, uid, expected_revision, link_id):
                 raise NotFound("Task relation not found")
             other = link.target_task_id if link.source_task_id == task_id else link.source_task_id
             visible_task(session, other, uid)
+            from tracker import is_control_task
+            if is_control_task(session,task_id) or is_control_task(session,other):raise Conflict("Control epic relations are managed automatically","control_epic_managed")
             _relation_activity(session, link, uid, removed=True)
             session.delete(link)
             session.commit()

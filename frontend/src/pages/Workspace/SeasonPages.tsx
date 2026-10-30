@@ -1,16 +1,18 @@
 import { SectionHomeLink } from "../../components/Workspace/SectionHomeLink";
 import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { useState, useRef, type ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { QueryState, Empty, Glyph, Card } from "../../components/Workspace/WorkspaceUI";
 import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
 import { useGuardedAction } from "../../components/Workspace/unsavedChangesHooks";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { text } from "../../components/Workspace/formValues";
+import { AnchoredPopover } from "../../components/Workspace/AnchoredPopover";
 import { UserChip } from "../../components/Workspace/UserChip";
 import { SeasonBlockerLink } from "../../components/Workspace/SeasonBlockerLink";
 import { seasonsApi } from "../../utils/api/seasons.api";
+import { userMessage } from "../../utils/api/messages";
 import { normalizeApiError } from "../../utils/api/request";
 import { can, useSession } from "../../utils/session";
 import { displayDate } from "../../utils/dates";
@@ -22,6 +24,7 @@ import { SeasonEditor } from "./SeasonEditor";
 import { SeasonParticipants } from "./SeasonParticipants";
 import { SeasonAnalytics, AnalyticsMetrics } from "./SeasonAnalytics";
 import { analyticsKey, sourceNames, metricValue } from "./seasonAnalyticsView";
+import { SeasonStatistics, SeasonKkrHistory, SeasonKkrControl } from "./SeasonKkrViews";
 import { SummaryHistory } from "./SummaryHistory";
 import { HistoryDisclosure } from "../../components/Workspace/HistoryPanel";
 import { KkrTemplateLibrary } from "../../components/Workspace/KkrTemplateLibrary";
@@ -58,14 +61,14 @@ function SeasonCommand({ season, action, label }: { season: Season; action: "ope
     setFailure(null);try { const saved = await perform(() => seasonsApi.command(season.season_id, action, { expected_revision: expectedRevision! }));return "season" in saved ? saved.season : saved; } catch (error) { setFailure(normalizeApiError(error));throw error; }
   }} />{failure?.blockers.length ? <ul className={w.list} aria-label="Препятствия закрытию">{failure.blockers.map((blocker, index) => <li key={index}><SeasonBlockerLink blocker={blocker} seasonId={season.season_id} /></li>)}</ul> : null}</div>;
 }
-type Tab = "overview" | "participants" | "analytics" | "history";
-const tabs = [{ id: "overview", title: "Обзор", icon: "space_dashboard" }, { id: "participants", title: "Участники и ККР", icon: "groups" }, { id: "analytics", title: "Аналитика", icon: "insights" }, { id: "history", title: "История", icon: "sync" }] as const;
+type Tab = "overview" | "participants" | "analytics" | "history" | "control";
+const tabs = [{ id: "participants", title: "Участники и ККР", icon: "groups" }, { id: "analytics", title: "Аналитика", icon: "insights" }, { id: "history", title: "История ККР", icon: "sync" }, { id: "control", title: "Заполнение ККР", icon: "task_alt" }] as const;
 export function SeasonPage() { return <SeasonHub />; }
 /** Existing summary links enter the same workspace on its participants tab. */
 export function SummaryPage() { return <SeasonHub initialTab="participants" />; }
-function SeasonHub({ initialTab = "overview" }: { initialTab?: Tab }) {
-  const { id = "" } = useParams(), { session } = useSession();const [params] = useSearchParams();const [editing, setEditing] = useState(false);
-  const allowed = can(session, "view_summary");const selected = params.get("tab") ?? initialTab;const tab = tabs.some(tab => tab.id === selected) ? selected as Tab : "overview";
+function SeasonHub({ initialTab = "participants" }: { initialTab?: Tab }) {
+  const { id = "" } = useParams(), { session } = useSession();const navigate=useNavigate();const [params] = useSearchParams();const [editing, setEditing] = useState(false);const [showOverview,setShowOverview]=useState(false);
+  const allowed = can(session, "view_summary");const selected = params.get("tab") ?? initialTab;const tab = tabs.some(tab => tab.id === selected) ? selected as Tab : "participants";
   const query = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });const season = query.data?.items.find(season => season.season_id === id);
   const summary = useQuery({ queryKey: ["summary", id], queryFn: () => seasonsApi.summary(id), enabled: allowed });
   if (editing && season) return <UnsavedChangesScope><SeasonEditor key={id} season={season} onClose={() => setEditing(false)} /></UnsavedChangesScope>;
@@ -74,12 +77,19 @@ function SeasonHub({ initialTab = "overview" }: { initialTab?: Tab }) {
       <BrandedHeader className={u.header}><div><SectionHomeLink to="/seasons" label="Учёт работы" /><nav className={u.breadcrumbs} aria-label="Путь сезона"><Link to="/seasons">Сезоны</Link><span>›</span><span>{typeNames[season.type]}</span></nav><h1 className={w.title}>{season.title}</h1><div className={u.period}><span>{dateRange(season)}</span>{can(season, "edit_season") && <button type="button" className={u.iconButton} aria-label="Редактировать сезон" onClick={() => setEditing(true)}><Glyph name="edit" /></button>}</div><div className={u.statusLine}><State season={season} />{season.is_current && <small>Текущий сезон</small>}{allowed && summary.data && <small>{summary.data.state === "approved" ? "Итоги утверждены" : "Предварительные итоги"} · Версия {summary.data.version}</small>}</div></div>
         {season.capabilities.some(cap => ["open_season", "begin_summary", "close_season", "edit_season"].includes(cap)) && <details className={u.manage}><summary className={`${u.secondary} ${w.button}`}>Управление сезоном <Glyph name="expand_more" /></summary><div className={u.manageMenu}>{can(season, "edit_season") && <button type="button" className={u.secondary} onClick={() => setEditing(true)}><Glyph name="edit" />Название и период</button>}{can(season, "open_season") && <SeasonCommand season={season} action="open" label="Открыть и сделать текущим" />}{can(season, "begin_summary") && <SeasonCommand season={season} action="begin-summary" label="Начать подведение итогов" />}{can(season, "close_season") && <SeasonCommand season={season} action="close" label="Закрыть сезон" />}</div></details>}
       </BrandedHeader>
-      {allowed && <nav className={u.tabs} aria-label="Разделы сезона">{tabs.map(item => <Link key={item.id} to={`${getSeasonRoute(id)}${item.id === "overview" ? "" : `?tab=${item.id}`}`} aria-current={tab === item.id ? "page" : undefined}><Glyph name={item.icon} />{item.title}</Link>)}</nav>}
-      {tab === "overview" || !allowed ? <SeasonOverview season={season} summary={summary.data} allowed={allowed} /> : tab === "participants" ? <QueryState loading={summary.isLoading} error={summary.error} keepDataOnError={!!summary.data} retry={() => void summary.refetch()}>{summary.data && <UnsavedChangesScope><SeasonDecisionEditors key={summary.data.season_id} summary={summary.data} /></UnsavedChangesScope>}</QueryState> : tab === "analytics" ? <SeasonAnalytics key={id} seasonId={id} /> : <section className={u.stack}><div className={u.sectionHeading}><h2>История итогов</h2></div><SummaryHistory key={id} seasonId={id} /></section>}
+      {allowed && <label className={u.seasonSelect}>Сезон<select aria-label="Выбранный сезон" value={id} onChange={e=>navigate(`${getSeasonRoute(e.target.value)}?tab=${tab}`)}>{query.data?.items.map(item=><option key={item.season_id} value={item.season_id}>{item.title}</option>)}</select></label>}
+      {allowed && <nav className={u.tabs} aria-label="Разделы сезона">{tabs.map(item => <Link key={item.id} to={`${getSeasonRoute(id)}${item.id === "participants" ? "" : `?tab=${item.id}`}`} aria-current={tab === item.id ? "page" : undefined}><Glyph name={item.icon} />{item.title}</Link>)}</nav>}
+      {tab === "overview" || !allowed ? <SeasonOverview season={season} summary={summary.data} allowed={allowed} /> : tab === "participants" ? <QueryState loading={summary.isLoading} error={summary.error} keepDataOnError={!!summary.data} retry={() => void summary.refetch()}>{summary.data && <UnsavedChangesScope><SeasonDecisionEditors key={summary.data.season_id} summary={summary.data} /></UnsavedChangesScope>}</QueryState> : tab === "analytics" ? <section className={u.stack}><SeasonStatistics seasonId={id} summary={summary.data} /><LazyPanel key={`analytics:${id}`} title="Динамика задач, часов и ККР"><SeasonAnalytics key={id} seasonId={id} /></LazyPanel></section> : tab === "control" ? <SeasonKkrControl seasonId={id} /> : <section className={u.stack}><div className={u.sectionHeading}><h2>История ККР по сезонам</h2></div><SeasonKkrHistory /><LazyPanel key={`versions:${id}`} title="Версии утверждённых итогов"><SummaryHistory key={id} seasonId={id} /></LazyPanel></section>}
+      {allowed && <details className={u.panel} onToggle={e=>setShowOverview(e.currentTarget.open)}><summary>Работа сезона и управление итогами</summary>{showOverview&&<SeasonOverview season={season} summary={summary.data} allowed={allowed} />}</details>}
       <HistoryDisclosure kind="season" id={id} title="История названия и периода сезона" />
     </> : !query.isLoading && <Empty>Сезон недоступен.</Empty>}</QueryState>
   </section>;
 }
+function LazyPanel({title,children}:{title:string;children:ReactNode}) {
+  const [open,setOpen]=useState(false);
+  return <details onToggle={event=>setOpen(event.currentTarget.open)}><summary>{title}</summary>{open&&children}</details>;
+}
+
 function SeasonOverview({ season, summary, allowed }: { season: Season; summary?: SeasonSummary; allowed: boolean }) {
   const { session } = useSession();const id = season.season_id;
   const analytics = useQuery({ queryKey: analyticsKey(id), queryFn: () => seasonsApi.analytics(id), enabled: allowed });
@@ -87,7 +97,7 @@ function SeasonOverview({ season, summary, allowed }: { season: Season; summary?
   const readiness = useQuery({ queryKey: ["seasons", "readiness", id], queryFn: () => seasonsApi.readiness(id), enabled: allowed && ["open", "summarizing"].includes(season.state) });
   const scores = analytics.data?.source_breakdown ?? [], maximum = Math.max(1, ...scores.map(source => Math.abs(source.kkr ?? 0)));
   return <div className={u.stack}>
-    {allowed && ["open", "summarizing"].includes(season.state) && <section className={u.panel} aria-label="Готовность к закрытию"><h2>Готовность к закрытию</h2><QueryState loading={readiness.isLoading} error={readiness.error} retry={() => void readiness.refetch()}>{readiness.data && (readiness.data.ready ? <p>Препятствий для закрытия нет.</p> : <ul className={w.list}>{readiness.data.blockers.map((blocker, index) => <li key={`${blocker.owner_kind}:${blocker.owner_id}:${index}`}><SeasonBlockerLink blocker={blocker} seasonId={id} /></li>)}</ul>)}</QueryState></section>}
+    {allowed && ["open", "summarizing"].includes(season.state) && <section className={u.panel} aria-label="Проверки сезона"><h2>Проверки сезона</h2><QueryState loading={readiness.isLoading} error={readiness.error} retry={() => void readiness.refetch()}>{readiness.data && (readiness.data.ready ? <p>Препятствий для закрытия нет.</p> : <details><summary>Препятствий закрытию: {readiness.data.blockers.length}</summary><ul className={w.list}>{readiness.data.blockers.map((blocker, index) => <li key={`${blocker.owner_kind}:${blocker.owner_id}:${index}`}><SeasonBlockerLink blocker={blocker} seasonId={id} /></li>)}</ul></details>)}</QueryState></section>}
     {allowed && <QueryState loading={analytics.isLoading} error={analytics.error} retry={() => void analytics.refetch()}>{analytics.data && <><AnalyticsMetrics totals={analytics.data.totals} />{analytics.data.coverage.notes.length > 0 && <p className={u.coverageLine}>{analytics.data.coverage.notes[0]}</p>}</>}</QueryState>}
     <div className={u.overviewColumns}><section className={u.panel}><div className={u.panelHeader}><h2>Работа сезона</h2></div><p>Задачи, результаты и мероприятия этого периода.</p><div className={u.actions}><Link className={u.secondary} to={`/tasks?season_id=${encodeURIComponent(id)}&mine=false`}>Задачи сезона <span aria-hidden="true">→</span></Link><Link className={u.secondary} to="/events">Мероприятия <span aria-hidden="true">→</span></Link>{["create_volunteer_merit", "create_head_merit", "create_chair_merit", "view_summary"].some(cap => can(session, cap)) && <Link className={u.secondary} to={`/seasons/${encodeURIComponent(id)}/merits`}>Заслуги и волонтёрство <span aria-hidden="true">→</span></Link>}</div><p className={u.note}>{season.state === "closed" ? "Итоги сезона сохранены. Правки исходных полей выполняются у соответствующей задачи; прежние версии остаются в истории." : "Статус задачи отражает ход работы. Начисления ККР появляются после отдельного расчётного решения уполномоченного руководителя."}</p></section>
       {allowed && <section className={u.panel}><div className={u.panelHeader}><h2>Источники ККР</h2><Link to={`/seasons/${encodeURIComponent(id)}/sources`}>Все начисления →</Link></div>{scores.length ? scores.map(source => <div className={u.source} key={source.source_kind}><div><span>{sourceNames[source.source_kind]}</span><strong>{metricValue(source.kkr)}</strong></div><div className={u.track}><span data-negative={(source.kkr ?? 0) < 0} style={{ width: `${Math.abs(source.kkr ?? 0) / maximum * 100}%` }} /></div></div>) : <p className={u.note}>{analytics.isLoading ? "Загружаем начисления…" : "Учтённых начислений пока нет."}</p>}</section>}
@@ -102,8 +112,11 @@ function SeasonDecisionEditors({ summary }: { summary: SeasonSummary }) {
     onToggleEditor={() => { const next = active === row.participant_id ? null : row.participant_id;guardEditor(() => setActive(next)); }} /> : null} />;
 }
 function DecisionsForm({ summary, row, open, onToggleEditor }: { summary: SeasonSummary; row: SummaryRow; open: boolean; onToggleEditor: () => void }) {
-  const { perform, refresh } = useWorkspaceActions();
-  // A single scoped editor keeps registration/render work bounded. Closing or
-  // switching a dirty editor is confirmed before its form can unmount.
-  return <details open={open}><summary onClick={event => { event.preventDefault();onToggleEditor(); }}>Изменить отметки</summary>{open && <><p className={u.note}>Отметки сохраняют решение в сводной. Архивирование аккаунта выполняется отдельно.</p><ActionForm key={`${summary.season_id}/${row.user.user_id}`} revision={summary.version} record={`summary:${summary.season_id}`} fields={[{ name: "decisions", label: "Текущие отметки", type: "multi", confirmRemoval: false, value: row.decisions, options: Object.entries(decisionLabels).map(([value, label]) => ({ value, label })) }, { name: "reason", label: "Основание", required: true }]} onSubmit={async (values, revision) => perform(() => seasonsApi.decisions(summary.season_id, row.user.user_id!, { expected_version: revision!, decisions: values.decisions as Decision[], reason: text(values, "reason") }))} onConflict={refresh} /></>}</details>;
+  const anchorRef=useRef<HTMLButtonElement>(null);const client = useQueryClient(); const [busy,setBusy]=useState(false),[error,setError]=useState("");
+  const save=async(values:Decision[],reason?:string)=>{setBusy(true);setError("");try{const result=await seasonsApi.decisions(summary.season_id,row.user.user_id!,{expected_version:summary.version,decisions:values,...(reason?{reason}:{})});client.setQueryData(["summary",summary.season_id],result);await client.invalidateQueries({queryKey:["kkr-history"]});return result;}catch(e){setError(userMessage(e));if(normalizeApiError(e).code==="revision_conflict")await client.invalidateQueries({queryKey:["summary",summary.season_id]});throw e;}finally{setBusy(false);}};
+  return <><button ref={anchorRef} type="button" className={u.markTrigger} aria-label={`Изменить отметки: ${row.user.display_name}`} aria-expanded={open} aria-haspopup="dialog" onClick={onToggleEditor}><Glyph name="edit"/><span className={u.srOnly}>Изменить отметки</span></button>
+    <AnchoredPopover open={open} anchorRef={anchorRef} label={`Отметки: ${row.user.display_name}`} onRequestClose={onToggleEditor} busy={busy} width={340}>
+      {summary.state==="approved" ? <ActionForm revision={summary.version} record={`summary:${summary.season_id}`} adoptWhenUntouched onConflict={()=>void client.invalidateQueries({queryKey:["summary",summary.season_id]})} fields={[{name:"decisions",label:"Отметки",type:"multi",confirmRemoval:false,value:row.decisions,options:Object.entries(decisionLabels).map(([value,label])=>({value,label}))},{name:"reason",label:"Причина исправления",required:true}]} onSubmit={async values=>{const result=await save(values.decisions as Decision[],text(values,"reason"));return {revision:result.version};}}/> : <div className={u.markMenu}>{Object.entries(decisionLabels).map(([value,label])=><button type="button" key={value} disabled={busy} aria-pressed={row.decisions.includes(value as Decision)} onClick={()=>void save(row.decisions.includes(value as Decision)?row.decisions.filter(mark=>mark!==value):[...row.decisions,value as Decision]).catch(()=>{})}><span>{label}</span>{row.decisions.includes(value as Decision)&&<Glyph name="check"/>}</button>)}</div>}
+      {error&&<p role="alert" className={w.error}>{error}</p>}
+    </AnchoredPopover></>;
 }

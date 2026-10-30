@@ -26,7 +26,7 @@ def test_removal_changes_access_revision_and_blocks_task_comments_files(client, 
     assert client.get("/api/session", headers=headers).json()["access_revision"] == after["access_revision"]
 
 
-def test_leaving_keeps_independent_master_access(client, work):
+def test_self_removal_cannot_bypass_independent_master_appointment(client, work, superuser):
     w = work
     # The active master also joins as an ordinary member through synchronization.
     from membership import set_membership
@@ -34,9 +34,10 @@ def test_leaving_keeps_independent_master_access(client, work):
         set_membership(session, w["master"].user_id, w["block"]["block_id"], True, w["master"].user_id, "Synthetic membership")
         session.commit()
     before = client.get("/api/session", headers=w["master"].headers).json()
-    assert client.post(f"/api/blocks/{w['block']['block_id']}/leave", headers=w["master"].headers, json={}).status_code == 200
+    assert client.post(f"/api/blocks/{w['block']['block_id']}/leave", headers=w["master"].headers, json={}).status_code == 403
+    assert client.delete(f"/api/blocks/{w['block']['block_id']}/members/{w['master'].user_id}", headers=superuser.headers).status_code == 409
     after = client.get("/api/session", headers=w["master"].headers).json()
-    assert after["access_revision"] != before["access_revision"]
+    assert after["access_revision"] == before["access_revision"]
     assert after["assignments"] == before["assignments"]
     assert client.get(f"/api/tasks/{w['task']['task_id']}", headers=w["master"].headers).status_code == 200
 

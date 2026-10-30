@@ -92,19 +92,20 @@ def test_invalid_combined_edit_rolls_back_title_revision_and_history(client, wor
     assert snapshot() == before
 
 
-def test_checklist_assignee_can_edit_with_stable_order_ids_but_not_metadata(client, work):
+def test_checklist_editor_preserves_ids_order_and_reader_can_only_toggle(client, work):
     task = current(client, work);before = private()
-    response = update(client, task, work['member'], checklist=[{'text': 'Первый'}, {'text': 'Второй'}])
+    response = update(client, task, work['master'], checklist=[{'text': 'Первый'}, {'text': 'Второй'}])
     assert response.status_code == 200, response.text
     task = response.json();first, second_item = task['checklist']
-    assert 'edit_task_checklist' in task['capabilities'] and 'edit_task_metadata' not in task['capabilities']
-    response = update(client, task, work['member'], checklist=[{**second_item, 'checked': True}, {**first, 'text': 'Первый изменён'}])
+    assert 'edit_task_checklist' in task['capabilities'] and 'edit_task_metadata' in task['capabilities']
+    response = update(client, task, work['master'], checklist=[{**second_item, 'checked': True}, {**first, 'text': 'Первый изменён'}])
     assert response.status_code == 200, response.text
     changed = response.json();assert changed['checklist'] == [{**second_item, 'checked': True}, {**first, 'text': 'Первый изменён'}]
     assert update(client, changed, work['member'], starts_at=(datetime.now(timezone.utc) + timedelta(days=1)).isoformat()).status_code == 403
-    assert update(client, task, work['member'], checklist=[]).status_code == 409
+    assert update(client, task, work['master'], checklist=[]).status_code == 409
     assert private() == before
-    response = update(client, changed, work['member'], checklist=[changed['checklist'][0]])
+    assert update(client,changed,work['member'],checklist=[]).status_code==403
+    response = update(client, changed, work['master'], checklist=[changed['checklist'][0]])
     assert response.status_code == 200 and len(response.json()['checklist']) == 1
     history = client.get('/api/tasks/' + task['task_id'] + '/history', headers=work['member'].headers).json()['items']
     assert any(c['field'] == 'checklist' and '- [x] Второй' in c['after'] for e in history for c in e['changes'])
@@ -192,7 +193,7 @@ def test_revocation_masks_links_children_favorites_and_history(client, work):
     assert client.post('/api/tasks/' + hidden['task_id'] + '/favorite', headers=work['member'].headers, json={'favorite': False}).status_code == 404
 
 
-def test_closed_metadata_freeze_favorite_allowed_status_unrestricted_and_no_kkr_changes(client, work):
+def test_closed_season_metadata_freeze_favorite_and_author_closure_stay_separate(client, work):
     a = current(client, work);b = second(client, work)
     with db._session() as session:
         session.get(SeasonORM, a['season_id']).state = 'closed';session.commit()
@@ -202,8 +203,8 @@ def test_closed_metadata_freeze_favorite_allowed_status_unrestricted_and_no_kkr_
     assert link(client, a, work['master'], b).status_code == 403
     assert client.post('/api/tasks/' + a['task_id'] + '/favorite', headers=work['member'].headers, json={'favorite': True}).status_code == 200
     result = client.post('/api/tasks/' + a['task_id'] + '/status', headers=work['member'].headers,
-        json={'expected_revision': a['revision'], 'status': 'accepted'})
-    assert result.status_code == 200, result.text
+        json={'expected_revision': a['revision'], 'status': 'closed'})
+    assert result.status_code == 403, result.text
     assert private() == before
 
 
@@ -212,11 +213,11 @@ def test_filtered_dates_types_priorities_favorites_sort_and_bound_cursor(client,
     a = second(client, work, title='Ранний', starts_at=(now + timedelta(days=1)).isoformat(), priority='low', task_type='epic')
     b = second(client, work, title='Срочный', starts_at=(now + timedelta(days=2)).isoformat(), priority='urgent', task_type='epic')
     headers = work['master'].headers
-    r = client.get('/api/tasks', headers=headers, params={'task_type': 'epic', 'sort': 'priority', 'order': 'desc', 'limit': 1})
+    r = client.get('/api/tasks', headers=headers, params={'queue_id':a['queue']['queue_id'],'task_type': 'epic', 'sort': 'priority', 'order': 'desc', 'limit': 1})
     assert r.status_code == 200, r.text
     page = r.json();assert page['total'] == 2 and page['items'][0]['task_id'] == b['task_id']
-    assert client.get('/api/tasks', headers=headers, params={'task_type': 'epic', 'sort': 'priority', 'order': 'desc', 'limit': 1, 'cursor': page['next_cursor']}).json()['items'][0]['task_id'] == a['task_id']
-    assert client.get('/api/tasks', headers=headers, params={'task_type': 'task', 'sort': 'priority', 'order': 'desc', 'limit': 1, 'cursor': page['next_cursor']}).status_code == 422
+    assert client.get('/api/tasks', headers=headers, params={'queue_id':a['queue']['queue_id'],'task_type': 'epic', 'sort': 'priority', 'order': 'desc', 'limit': 1, 'cursor': page['next_cursor']}).json()['items'][0]['task_id'] == a['task_id']
+    assert client.get('/api/tasks', headers=headers, params={'queue_id':a['queue']['queue_id'],'task_type': 'task', 'sort': 'priority', 'order': 'desc', 'limit': 1, 'cursor': page['next_cursor']}).status_code == 422
     window = {'date_from': (now + timedelta(hours=1)).isoformat(), 'date_to': (now + timedelta(days=1, hours=1)).isoformat(), 'task_type': 'epic'}
     response = client.get('/api/tasks', headers=headers, params=window);assert response.status_code == 200
     assert [t['task_id'] for t in response.json()['items']] == [a['task_id']]
@@ -333,7 +334,7 @@ def test_legacy_schema_upgrade_twice_preserves_existing_rows_ids_and_private_val
         assert result.returncode == 0, result.stderr
         with sqlite3.connect(path) as connection:
             assert all(digest(connection, name, columns) == (columns, rows) for name, (columns, rows) in before.items())
-            assert connection.execute('SELECT task_type,priority,starts_at FROM task_tracker').fetchall() == [('task', 'normal', None)]
+            assert connection.execute('SELECT task_type,priority,starts_at FROM task_tracker WHERE task_id=?',(work['task']['task_id'],)).fetchall() == [('task', 'normal', None)]
             assert all(connection.execute('SELECT COUNT(*) FROM ' + name).fetchone()[0] == 0 for name in ['task_favorites', 'task_links', 'task_checklist'])
 
 

@@ -119,6 +119,7 @@ export function createFixtures(role: MockRole = "organizer") {
               ]
             : []),
         ...(global ? globalCaps : []),
+        ...(role === "hr-deputy" ? ["view_kkr", "view_summary", "edit_decisions", "view_all_areas"] : []),
         ...(chair ? ["create_chair_merit"] : []),
         ...(chair || role === "chair-deputy"
           ? [
@@ -312,7 +313,6 @@ export function createFixtures(role: MockRole = "organizer") {
       revision: 1,
       capabilities: [
         "view_tasks",
-        "leave_block",
         ...(eventManager
           ? [
               "create_task",
@@ -331,8 +331,8 @@ export function createFixtures(role: MockRole = "organizer") {
     {
       task_id: "task-1",
       task_key: "TASK-1",
-      assignees: [people[0]], watchers: [], allowed_statuses: ["assigned", "in_progress", "help_required", "submitted", "accepted", "needs_revision", "not_completed", "cancelled"],
-      status: "assigned",
+      assignees: [people[0]], watchers: [], allowed_statuses: ["open", "in_progress", "completed", "closed"],
+      status: "open",
       created_by: people[1],
       created_at: "2026-10-18T09:00:00Z",
       updated_at: "2026-10-18T09:00:00Z",
@@ -576,7 +576,7 @@ export function createFixtures(role: MockRole = "organizer") {
     state: "draft",
     version: 1,
     approved_at: null,
-    capabilities: global ? ["view_summary", "edit_decisions"] : [],
+    capabilities: global || role === "hr-deputy" ? ["view_summary", "edit_decisions"] : [],
     rows: [
       {
         participant_id: "participant-101",

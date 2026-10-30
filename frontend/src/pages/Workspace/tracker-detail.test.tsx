@@ -31,37 +31,37 @@ async function mountTask(task: Task, comments: Comment[] = []) {
   await waitForPage(page);return page;
 }
 it("uses the common public status and permits every other target without reading the accounting outcome", () => {
-  const task = makeTask({ status: "submitted", capabilities: ["change_task_status"] });task.assignments[0].status = "cancelled";
-  expect(taskStatus(task)).toBe("submitted");expect(taskTransitions(task)).toHaveLength(7);expect(taskTransitions(task)).not.toContain("submitted");expect(taskTransitions(task)).toContain("assigned");
-  expect(taskTransitions({ ...task, status: "accepted" })).toContain("assigned");expect(taskTransitions({ ...task, capabilities: [] })).toEqual([]);
+  const task = makeTask({ status: "completed", capabilities: ["change_task_status"] });task.assignments[0].status = "cancelled";
+  expect(taskStatus(task)).toBe("completed");expect(taskTransitions(task)).toHaveLength(3);expect(taskTransitions(task)).not.toContain("completed");expect(taskTransitions(task)).toContain("open");
+  expect(taskTransitions({ ...task, status: "closed" })).toContain("open");expect(taskTransitions({ ...task, capabilities: [] })).toEqual([]);
 });
 it("a status chip owns its click and starts the whole task with the task revision", async () => {
-  const task = makeTask({ status: "assigned", revision: 5, capabilities: ["change_task_status"] });
+  const task = makeTask({ status: "open", revision: 5, capabilities: ["change_task_status"] });
   const command = vi.spyOn(tasksApi, "changeStatus").mockResolvedValue({ ...task, revision: 6, status: "in_progress" });
   const openRow = vi.fn();page = await mountWorkspace(<div onClick={openRow}><TaskStatusMenu task={task} /></div>);
   await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Статус задачи: Открыта"]')!.click());await settle();
   expect(openRow).not.toHaveBeenCalled();
   const options = [...page.container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
-  expect(options.find(button => button.textContent?.includes("Принята"))?.disabled).toBe(false);expect(options.find(button => button.textContent?.includes("Открыта"))?.disabled).toBe(true);
+  expect(options.find(button => button.textContent?.includes("Закрыта"))?.disabled).toBe(false);expect(options.find(button => button.textContent?.includes("Открыта"))?.disabled).toBe(true);
   await act(async () => options.find(button => button.textContent?.trim() === "В работе")!.click());await waitForPage(page);
   expect(command).toHaveBeenCalledWith(task.task_id, { expected_revision: 5, status: "in_progress" });expect(openRow).not.toHaveBeenCalled();
 });
 it("status menu supports arrow keys, Home/End and restores focus on Escape", async () => {
-  const task = makeTask({ status: "assigned", capabilities: ["change_task_status", "submit_task_result"] });
+  const task = makeTask({ status: "open", capabilities: ["change_task_status", "submit_task_result"] });
   page = await mountWorkspace(<TaskStatusMenu task={task} />);
   const trigger = page.container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
   await act(async () => trigger.click());await settle();
   expect(document.activeElement?.textContent?.trim()).toBe("В работе");
   const press = async (key: string) => { await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }))); };
-  await press("ArrowDown");expect(document.activeElement?.textContent?.trim()).toBe("Нужна помощь");
-  await press("End");expect(document.activeElement?.textContent?.trim()).toBe("Отменена");
+  await press("ArrowDown");expect(document.activeElement?.textContent?.trim()).toBe("Выполнена");
+  await press("End");expect(document.activeElement?.textContent?.trim()).toBe("Закрыта");
   await press("Home");expect(document.activeElement?.textContent?.trim()).toBe("В работе");
   await press("Escape");expect(page.container.querySelector('[role="menu"]')).toBeNull();expect(document.activeElement).toBe(trigger);
 });
 it("one shared file-only result targets the task rather than an individual assignment", async () => {
   const task = makeTask();const file: FileRef = { file_id: "shared-file", name: "result.txt", mime_type: "text/plain", size_bytes: 10 };
   const upload = vi.spyOn(filesApi, "upload").mockResolvedValue(file);
-  const command = vi.spyOn(tasksApi, "submitResult").mockResolvedValue({ ...task, status: "submitted", revision: task.revision + 1 });
+  const command = vi.spyOn(tasksApi, "submitResult").mockResolvedValue({ ...task, status: "completed", revision: task.revision + 1 });
   page = await mountWorkspace(<TaskStatusMenu task={task} variant="actions" />);await click("Сдать результат");
   const input = page.container.querySelector<HTMLInputElement>('input[type="file"]')!;
   const blob = new File(["shared result"], "result.txt", { type: "text/plain" });
@@ -84,7 +84,7 @@ it("comments switch newest/oldest order and retain the unposted Markdown draft a
   await click("Комментарии");expect(editor.value).toBe("Несданный черновик $x^2$ с таблицей");
   const command = vi.spyOn(tasksApi, "comment").mockResolvedValue({ ...comments[0], comment_id: "posted" });
   await submit(editor.closest("form")!);await waitForPage(page!);
-  expect(command).toHaveBeenCalledWith(task.task_id, richText("Несданный черновик $x^2$ с таблицей"));expect(editor.value).toBe("");
+  expect(command).toHaveBeenCalledWith(task.task_id, richText("Несданный черновик $x^2$ с таблицей"), []);expect(editor.value).toBe("");
 });
 it("renders shared submissions once and leaves accounting hidden from ordinary readers", async () => {
   const task = makeTask({ capabilities: ["read_task"], submissions: [{ submission_id: "shared-result", submitted_at: "2026-10-26T11:00:00Z", submitted_by: people[0], text: richText("Общий результат"), links: [], files: [] }] });
@@ -105,23 +105,14 @@ it("removes an open description editor when editing rights are revoked", async (
   expect(page!.container.querySelector("dialog")).toBeNull();expect(page!.container.querySelector('input[name="title"]')).toBeNull();
 });
 
-it.each([true, false])("deadline shortcut follows actual date-edit rights (editable: %s)", async editable => {
-  const fixture = createFixtures("chair");
-  const task = makeTask({ capabilities: ["read_task", "view_assessment_inputs"], assignments: fixture.tasks[0].assignments.map(assignment => ({ ...assignment, capabilities: [] })) });
-  const inputs = vi.spyOn(tasksApi, "inputs").mockResolvedValue({ ...fixture.inputs, capabilities: ["view_assessment_inputs", "edit_assessment_inputs", ...(editable ? ["edit_assessment_dates"] : [])] });
+it.each(["open", "closed"] as const)("accounting opens only after closure (%s)", async status => {
+  const task=makeTask({status,capabilities:["read_task","view_assessment_inputs"]});
   await mountTask(task);
-  const button = [...page!.container.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === "Изменить дедлайн");
-  expect(!!button).toBe(editable);expect(inputs).toHaveBeenCalledTimes(1);
-  if (editable) {
-    await click("Изменить дедлайн");
-    const field = page!.container.querySelector<HTMLInputElement>('input[name="deadline"]')!;
-    expect(document.activeElement).toBe(field);expect(field.closest("details")?.open).toBe(true);
-    const accounting = page!.container.querySelector('section[aria-label="Учёт работы и ККР"]');
-    expect(accounting).not.toBeNull();expect(accounting?.getAttribute("hidden")).toBeNull();
-  } else expect(page!.container.querySelector('input[name="deadline"]')).toBeNull();
+  expect(page!.container.textContent?.includes("Оценить работу")).toBe(status==="closed");
+  expect(page!.container.querySelector('input[name="deadline"]')).toBeNull();
 });
 
-it.each(["needs_revision", "cancelled", "not_completed"] as const)("shows readable review reasons once for a shared %s task", async status => {
+it.each(["open", "completed", "closed"] as const)("shows readable review reasons once for a shared %s task", async status => {
   const reason = "Нужны фотографии встречи";
   const task = makeTask({ status, capabilities: ["read_task"] });
   task.assignments = task.assignments.map(assignment => ({ ...assignment, review_note: reason, capabilities: [] }));
@@ -132,7 +123,7 @@ it.each(["needs_revision", "cancelled", "not_completed"] as const)("shows readab
 });
 
 
-it("current assignees can edit description without receiving title controls or sending a title patch", async () => {
+it("an explicit description capability supplies the editor without title rights", async () => {
   const task = makeTask({ capabilities: ["read_task", "edit_task_description"] });
   const saved = { ...task, revision: task.revision + 1, description: richText("Обновлено исполнителем") };
   const update = vi.spyOn(tasksApi, "update").mockResolvedValue(saved);
@@ -145,19 +136,19 @@ it("current assignees can edit description without receiving title controls or s
 });
 
 it("saves a checklist mark through the description revision and refreshes its history", async () => {
-  let task = makeTask({ description: richText("- [ ] Проверить документы\n- [x] Готовый пункт"), revision: 8, capabilities: ["read_task", "edit_task_description"] });
-  const update = vi.spyOn(tasksApi, "update").mockImplementation(async (_id, data) => { task = { ...task, revision: 9, description: data.description! };return task; });
+  let task = makeTask({ description: richText("- [ ] Проверить документы\n- [x] Готовый пункт"), revision: 8, capabilities: ["read_task", "toggle_task_checklist"] });
+  const update = vi.spyOn(tasksApi, "descriptionChecklist").mockImplementation(async (_id, data) => { task = { ...task, revision: 9, description: richText(data.body) };return task; });
   await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async () => task);
   const check = page!.container.querySelector<HTMLInputElement>('section[aria-label="Описание задачи"] input[type="checkbox"]')!;
   expect(check.disabled).toBe(false);
   await act(async () => check.click());await waitForPage(page!, () => page!.container.querySelector<HTMLInputElement>('section[aria-label="Описание задачи"] input[type="checkbox"]')?.checked === true);
-  expect(update).toHaveBeenCalledWith(task.task_id, { expected_revision: 8, description: richText("- [x] Проверить документы\n- [x] Готовый пункт") });
+  expect(update).toHaveBeenCalledWith(task.task_id, { expected_revision: 8, body: "- [x] Проверить документы\n- [x] Готовый пункт" });
   await click("История");await waitForPage(page!);expect(historyApi.list).toHaveBeenCalledWith("task", task.task_id);
 });
 
 it("a rejected checklist save keeps server content, reports the conflict and does not retry a stale patch", async () => {
-  const task = makeTask({ description: richText("- [ ] Проверить документы"), revision: 8, capabilities: ["read_task", "edit_task_description"] });
-  const update = vi.spyOn(tasksApi, "update").mockRejectedValue(new ApiError("Changed", 409, "revision_conflict"));
+  const task = makeTask({ description: richText("- [ ] Проверить документы"), revision: 8, capabilities: ["read_task", "toggle_task_checklist"] });
+  const update = vi.spyOn(tasksApi, "descriptionChecklist").mockRejectedValue(new ApiError("Changed", 409, "revision_conflict"));
   await mountTask(task);
   await act(async () => page!.container.querySelector<HTMLInputElement>('section[aria-label="Описание задачи"] input[type="checkbox"]')!.click());await waitForPage(page!, () => !!page!.container.querySelector('[role="alert"]'));
   expect(update).toHaveBeenCalledTimes(1);
@@ -247,15 +238,15 @@ it("uses edit_comment capability for shared comments without requiring the origi
   const edit = vi.spyOn(tasksApi, "editComment").mockResolvedValue({ ...comment, content: richText("Правка исполнителя") });
   await mountTask(task, [comment]);const article = page!.container.querySelector("article")!;await click("Редактировать", article);
   await change(article.querySelector<HTMLTextAreaElement>("textarea")!, "Правка исполнителя");await submit(article.querySelector("form")!);await waitForPage(page!);
-  expect(edit).toHaveBeenCalledWith(comment.comment_id, richText("Правка исполнителя"));
+  expect(edit).toHaveBeenCalledWith(comment.comment_id, richText("Правка исполнителя"), []);
 });
 
 
-it("a reader can accept an open task without a submission or accounting mutation", async () => {
-  const task = makeTask({ status: "assigned", submissions: [], assignees: [], capabilities: ["read_task", "change_task_status"] });
-  const status = vi.spyOn(tasksApi, "changeStatus").mockResolvedValue({ ...task, status: "accepted", revision: task.revision + 1 }), accounting = vi.spyOn(tasksApi, "updateAssessment");
-  page = await mountWorkspace(<TaskStatusMenu task={task} />);await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());await click("Принята");await waitForPage(page);
-  expect(status).toHaveBeenCalledWith(task.task_id, { expected_revision: task.revision, status: "accepted" });expect(accounting).not.toHaveBeenCalled();expect(page.container.querySelector("dialog")).toBeNull();
+it("a reader completes an open task without a submission, closure rights or accounting mutation", async () => {
+  const task = makeTask({ status: "open", submissions: [], assignees: [], allowed_statuses:["open","in_progress","completed"], capabilities: ["read_task", "change_task_status"] });
+  const status = vi.spyOn(tasksApi, "changeStatus").mockResolvedValue({ ...task, status: "completed", revision: task.revision + 1 }), accounting = vi.spyOn(tasksApi, "updateAssessment");
+  page = await mountWorkspace(<TaskStatusMenu task={task} />);await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());await click("Выполнена");await waitForPage(page);
+  expect(status).toHaveBeenCalledWith(task.task_id, { expected_revision: task.revision, status: "completed" });expect(accounting).not.toHaveBeenCalled();expect(page.container.querySelector("dialog")).toBeNull();
 });
 it("self joining and removing another assignee update the public roster and put the removed person in watchers", async () => {
   const other = people[1], self = people.find(person => person.user_id === createFixtures("chair").session.user_id)!;let task = makeTask({ assignees: [other], watchers: [], capabilities: ["read_task", "join_task", "watch_task", "remove_task_assignee"] });

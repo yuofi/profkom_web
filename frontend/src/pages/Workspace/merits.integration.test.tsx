@@ -51,8 +51,8 @@ for (const state of ["open", "summarizing"] as const)
   it(`1.2: each kind of record is corrected through its form in a ${state} season`, async () => {
     const w = await world(state);
     const records: [string, MeritCreate["source_kind"], Partial<MeritCreate>, string | null][] = [
-      [w.master.email, "block_volunteer", {scope: {kind: "block", id: w.block.block_id}}, w.block.name],
-      [w.resp.email, "subevent_volunteer", {scope: {kind: "subevent", id: w.sub.subevent_id}}, w.sub.title],
+      ["chair@example.com", "block_volunteer", {scope: {kind: "block", id: w.block.block_id}}, w.block.name],
+      [w.head.email, "subevent_volunteer", {scope: {kind: "subevent", id: w.sub.subevent_id}}, w.sub.title],
       [w.head.email, "head_merit", {event_id: w.event.event_id}, w.event.title],
       ["chair@example.com", "chair_merit", {}, null],
     ];

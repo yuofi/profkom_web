@@ -1,3 +1,4 @@
+import { createClientId } from "../../utils/clientId";
 import { checklistDraft, checklistPayload, type ChecklistDraft } from "./trackerStage2Drafts";
 import { useState } from "react";
 import type { Task } from "../../utils/api/contract";
@@ -19,7 +20,7 @@ export function ChecklistDraftFields({ items, onChange, disabled = false }: { it
       <input aria-label={`Пункт чеклиста ${index+1}`} name={`checklist-${index}`} value={item.text} placeholder="Что нужно сделать" required maxLength={1000} disabled={disabled} onChange={event => onChange(items.map((row,i) => i === index ? { ...row, text: event.target.value } : row))} />
       <div className={s.itemActions}><button type="button" className={s.itemAction} aria-label={`Поднять пункт ${index+1}`} disabled={disabled || index===0} onClick={() => move(index,-1)}>↑</button><button type="button" className={s.itemAction} aria-label={`Опустить пункт ${index+1}`} disabled={disabled || index===items.length-1} onClick={() => move(index,1)}>↓</button><button type="button" className={s.itemAction} aria-label={`Удалить пункт ${index+1}`} disabled={disabled} onClick={() => onChange(items.filter((_,i) => i!==index))}>×</button></div>
     </div>)}
-    <button type="button" className={s.subtle} disabled={disabled || items.length>=200} onClick={() => onChange([...items,{ key: crypto.randomUUID(), text: "", checked: false }])}>+ Добавить пункт</button>
+    <button type="button" className={s.subtle} disabled={disabled || items.length>=200} onClick={() => onChange([...items,{ key: createClientId(), text: "", checked: false }])}>+ Добавить пункт</button>
   </div>;
 }
 export function TrackerTaskChecklist({ task }: { task: Task }) {

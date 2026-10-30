@@ -56,13 +56,9 @@ it("contacts use compact cards and separate account management", async () => {
   const cards = page.container.querySelectorAll('[class*="contactGrid"] > section');
   expect(cards).toHaveLength(2);
   expect(cards[0].querySelector("details")).toBeNull();
-  const details = Array.from(cards[0].querySelectorAll("button")).find((b) => b.textContent === "Подробнее")!;
-  await act(async () => details.click());
-  const dialog = page.container.querySelector("dialog")!;
-  expect(dialog.open).toBe(true);
-  expect(dialog.querySelector('[class*="contactLinks"]')).not.toBeNull();
-  expect(dialog.textContent).not.toContain("Причина архивирования");
-  await act(async () => dialog.querySelector<HTMLButtonElement>('[aria-label="Закрыть сведения об участнике"]')!.click());
+  expect(cards[0].querySelector('h2 a[href="/contacts/201"]')).not.toBeNull();
+  const details = Array.from(cards[0].querySelectorAll("a")).find((link) => link.textContent === "Подробнее")!;
+  expect(details.getAttribute("href")).toBe("/contacts/201");
   expect(page.container.querySelector("dialog")).toBeNull();
   const manage = Array.from(cards[0].querySelectorAll("button")).find((b) => b.textContent === "Управление аккаунтом")!;
   await act(async () => manage.click());

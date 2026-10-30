@@ -8,7 +8,7 @@ from database import (db, TaskORM, TaskTrackerORM, TaskChecklistORM, TaskActivit
     AssignmentORM, ContributionORM, SeasonORM)
 from errors import Conflict
 from test_v13_tracker import work  # noqa: F401
-from test_tracker_queues import make_queue, request_grant, create_in
+from test_tracker_queues import make_queue, request_grant, create_in, legacy_queue
 
 
 def rows(session, model):
@@ -61,42 +61,35 @@ def reader_case(client, work, make_user):
 
 
 @pytest.mark.parametrize('closed', [False, True])
-def test_ordinary_reader_classification_and_checkmarks_work_without_edit_rights(client, work, reader_case, closed):
+def test_ordinary_reader_checkmarks_work_but_classification_stays_editor_only(client, work, reader_case, closed):
     task, actor = reader_case
     if closed:
         with db._session() as session:
-            session.get(SeasonORM, task['season_id']).state = 'closed';session.commit()
-    task = get(client, task, actor)
-    caps = set(task['capabilities'])
-    assert {'change_task_type', 'change_task_priority', 'toggle_task_checklist'} <= caps
-    assert not {'edit_task', 'edit_task_metadata', 'edit_task_checklist', 'edit_task_description'} & caps
-    before = private()
-    response = patch(client, task, actor, priority='urgent', task_type='epic')
-    assert response.status_code == 200, response.text
-    changed = response.json();assert changed['revision'] == task['revision'] + 1
-    assert changed['priority'] == 'urgent' and changed['task_type'] == 'epic'
-    response = toggle(client, changed, actor)
-    assert response.status_code == 200, response.text
-    saved = response.json();assert saved['revision'] == changed['revision'] + 1
+            session.get(SeasonORM, task['season_id']).state='closed';session.commit()
+    task=get(client,task,actor);caps=set(task['capabilities'])
+    assert 'toggle_task_checklist' in caps
+    assert not {'change_task_type','change_task_priority','edit_task','edit_task_metadata','edit_task_checklist','edit_task_description'}&caps
+    before=private();unchanged=snapshot()
+    assert patch(client,task,actor,priority='urgent',task_type='epic').status_code==403
+    assert snapshot()==unchanged
+    response=toggle(client,task,actor);assert response.status_code==200,response.text
+    saved=response.json();assert saved['revision']==task['revision']+1
     assert saved['checklist'][0]['checked'] and not saved['checklist'][1]['checked']
-    assert [item['item_id'] for item in saved['checklist']] == [item['item_id'] for item in task['checklist']]
-    assert private() == before
-    history = client.get('/api/tasks/' + task['task_id'] + '/history', headers=actor.headers).json()['items']
-    changed_by_reader = [event for event in history if event['actor'] and event['actor']['user_id'] == actor.user_id]
-    fields = {change['field'] for event in changed_by_reader for change in event['changes']}
-    assert {'task_type', 'priority', 'checklist'} <= fields
-    assert not fields & {'hours', 'evaluation', 'effective_completed_at', 'criteria', 'assigned_at'}
+    assert private()==before
+    history=client.get('/api/tasks/'+task['task_id']+'/history',headers=actor.headers).json()['items']
+    changed=[event for event in history if event['actor'] and event['actor']['user_id']==actor.user_id]
+    assert {change['field'] for event in changed for change in event['changes']}=={'checklist'}
 
 
 def test_quick_milestone_type_atomically_clears_start_without_granting_date_edit(client, work, reader_case):
     task, actor = reader_case;before = private();start = task['starts_at']
-    response = patch(client, task, actor, task_type='milestone')
+    response = patch(client, task, work['master'], task_type='milestone')
     assert response.status_code == 200, response.text
     saved = response.json();assert saved['task_type'] == 'milestone' and saved['starts_at'] is None
     assert saved['revision'] == task['revision'] + 1 and saved['deadline_at'] == task['deadline_at']
     assert private() == before
     history = client.get('/api/tasks/' + task['task_id'] + '/history', headers=actor.headers).json()['items']
-    event = next(event for event in reversed(history) if event['actor'] and event['actor']['user_id'] == actor.user_id)
+    event = next(event for event in reversed(history) if event['actor'] and event['actor']['user_id'] == work['master'].user_id)
     assert event['changes'] == [dict(field='task_type', label='Тип задачи', before='task', after='milestone'),
         dict(field='starts_at', label='Плановое начало', before=start, after=None)]
     before = snapshot()
@@ -177,7 +170,8 @@ def test_reader_type_change_preserves_grouping_constraints_and_uses_actionable_c
     response = client.post('/api/tasks/' + task['task_id'] + '/links', headers=work['master'].headers,
         json={'expected_revision': task['revision'], 'target_task_id': epic['task_id'], 'kind': 'epic'})
     assert response.status_code == 200;task = response.json();before = snapshot()
-    response = patch(client, task, actor, task_type='milestone')
+    assert patch(client,task,actor,task_type='milestone').status_code==403
+    response = patch(client, task, work['master'], task_type='milestone')
     assert response.status_code == 422 and response.json()['detail']['code'] == 'task_type_conflict'
     assert snapshot() == before
 
@@ -198,23 +192,18 @@ def test_stale_classification_and_competing_toggles_preserve_private_versions(cl
 
 
 def test_unassigned_reader_of_independent_queue_gets_same_narrow_controls(client, work):
-    q = client.post('/api/task-queues', headers=work['master'].headers,
-        json={'name': 'Общая независимая очередь', 'key': 'QUICKINDEPENDENT', 'is_private': False})
-    assert q.status_code == 200, q.text
+    q=legacy_queue(client,work['master'],'QUICKINDEPENDENT')
     response = client.post('/api/tasks', headers=work['master'].headers,
-        json={'queue_id': q.json()['queue_id'], 'season_id': work['task']['season_id'],
+        json={'queue_id': q['queue_id'], 'season_id': work['task']['season_id'],
             'title': 'Работа без блока', 'description': '', 'deadline_at': work['payload']['deadline_at'],
             'assignees': [], 'checklist': [{'text': 'Проверить'}]})
     assert response.status_code == 200, response.text
     task = get(client, response.json(), work['outside']);assert task['scope']['kind'] == 'queue'
     assert 'edit_task_metadata' not in task['capabilities'] and 'edit_task_checklist' not in task['capabilities']
     before = private()
-    response = patch(client, task, work['outside'], task_type='epic', priority='high')
-    assert response.status_code == 200, response.text
-    task = response.json();stable = snapshot()
-    repeated = patch(client, task, work['outside'], task_type='epic', priority='high')
-    assert repeated.status_code == 200 and repeated.json()['revision'] == task['revision']
-    assert snapshot() == stable
+    stable=snapshot()
+    assert patch(client,task,work['outside'],task_type='epic',priority='high').status_code==403
+    assert snapshot()==stable
     response = toggle(client, task, work['outside'])
     assert response.status_code == 200 and response.json()['checklist'][0]['checked']
     assert private() == before

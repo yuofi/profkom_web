@@ -26,6 +26,8 @@ def preview_event(event_id, uid):
     if not access.allowed(uid, "season.correct"):
         raise Forbidden("Forbidden: season correction requires leadership access")
     with db._session() as session:
+        from domain_models import KkrControlEpicORM
+        control_ids={r.task_id for r in session.query(KkrControlEpicORM)}
         event = session.get(EventORM, event_id)
         if not event:
             raise NotFound("Event not found")
@@ -35,7 +37,7 @@ def preview_event(event_id, uid):
         subs = [row.subevent_id for row in session.query(SubeventORM).filter_by(event_id=event_id)]
         return dict(object_id=event_id, source_season_id=event.season_id, revision=event.revision,
             counts=dict(subevents=len(subs),
-                tasks=session.query(TaskORM).filter(TaskORM.scope_kind == "subevent", TaskORM.scope_id.in_(subs)).count(),
+                tasks=session.query(TaskORM).filter(~TaskORM.task_id.in_(control_ids)).filter((TaskORM.scope_kind == "subevent") & TaskORM.scope_id.in_(subs) | ((TaskORM.scope_kind == "event") & (TaskORM.scope_id == event_id))).count(),
                 reports=session.query(ReportORM).filter(((ReportORM.owner_kind == "event") & (ReportORM.owner_id == event_id)) |
                     ((ReportORM.owner_kind == "subevent") & ReportORM.owner_id.in_(subs))).count(),
                 merits=session.query(MeritORM).filter((MeritORM.event_id == event_id) |
@@ -51,6 +53,8 @@ def correct(kind, id, revision, target_id, reason, uid):
         raise InvalidInput("Reason is required")
     with db.atomic():
         with db._session() as s:
+            from domain_models import KkrControlEpicORM
+            control_ids={r.task_id for r in s.query(KkrControlEpicORM)}
             target = s.get(SeasonORM, target_id)
             if not target:
                 raise NotFound("Target season not found")
@@ -67,9 +71,9 @@ def correct(kind, id, revision, target_id, reason, uid):
                     r.subevent_id for r in s.query(SubeventORM).filter_by(event_id=id)
                 ]
                 tasks = (
-                    s.query(TaskORM)
+                    s.query(TaskORM).filter(~TaskORM.task_id.in_(control_ids))
                     .filter(
-                        TaskORM.scope_kind == "subevent", TaskORM.scope_id.in_(subs)
+                        ((TaskORM.scope_kind == "subevent") & TaskORM.scope_id.in_(subs)) | ((TaskORM.scope_kind == "event") & (TaskORM.scope_id == id))
                     )
                     .all()
                 )
@@ -101,7 +105,7 @@ def correct(kind, id, revision, target_id, reason, uid):
                     raise InvalidInput("Event start exceeds target season")
             elif kind == "block_task":
                 obj = s.get(TaskORM, id)
-                if not obj or obj.scope_kind != "block":
+                if not obj or obj.scope_kind != "block" or id in control_ids:
                     raise NotFound("Block task not found")
                 tasks = [obj]
             elif kind == "merit":
@@ -125,6 +129,7 @@ def correct(kind, id, revision, target_id, reason, uid):
                 if child_season!=parent_season:raise Conflict("Season correction must preserve task hierarchy")
             from database import TaskLinkORM
             for link in s.query(TaskLinkORM):
+                if link.kind=="related" and (link.source_task_id in control_ids or link.target_task_id in control_ids):continue
                 if link.source_task_id not in moving and link.target_task_id not in moving:continue
                 left=s.get(TaskORM,link.source_task_id);right=s.get(TaskORM,link.target_task_id)
                 left_season=target_id if link.source_task_id in moving else left.season_id if left else None
@@ -143,7 +148,7 @@ def correct(kind, id, revision, target_id, reason, uid):
             for item in [*tasks, *merits]:
                 if item.season_id != source_id:
                     raise Conflict("Conflict: inconsistent hierarchy season")
-                if dt(item.deadline_at) > dt(target.ends_at):
+                if item.deadline_at and dt(item.deadline_at) > dt(target.ends_at):
                     raise InvalidInput("Child deadline exceeds target season")
             if any(r.season_id != source_id for r in reports):
                 raise Conflict("Conflict: inconsistent report season")

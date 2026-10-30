@@ -72,7 +72,11 @@ export async function waitForPage(
   let quiet = 0;
   while (quiet < 2) {
     await settle();
-    const idle = page.client.isFetching() === 0 && page.client.isMutating() === 0;
+    // ActionForm uses Formik rather than a Query mutation. A quiet Query cache
+    // does not mean that an acknowledged form save has finished yet.
+    const savingForm = !!page.container && [...page.container.querySelectorAll<HTMLButtonElement>("button:disabled")]
+      .some(button => button.textContent?.trim() === "Сохраняем…");
+    const idle = page.client.isFetching() === 0 && page.client.isMutating() === 0 && !savingForm;
     quiet = predicate() && idle ? quiet + 1 : 0;
     if (quiet < 2 && Date.now() - started > timeout) {
       const busy = page.client.getQueryCache().findAll({ fetchStatus: "fetching" }).map((q) => JSON.stringify(q.queryKey));

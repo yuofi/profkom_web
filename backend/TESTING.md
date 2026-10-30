@@ -62,19 +62,28 @@ with actual actors, cross-queue parents/cycles/revoked-parent masking, rename
 preservation, private credit/XLSX/version redaction with unchanged ledger snapshots,
 and atomic season-correction hierarchy guards. All data/providers are synthetic.
 
-`tests/test_tracker_reader_policy.py` verifies the current owner policy: any reader may
-choose any public status even after season closure without ledger/date effects; public
-and private revisions/notes remain isolated; private evaluation derives only actual
-submission facts; roster remove/rejoin preserves credit and invalidates stale worker
-URLs; real watchers receive notifications; independent queues/unassigned creation and
-self-only selection do not create memberships or private-input rights; HR deputy reads
-all private queues yet gains no KKR/report permissions; contextual code drafts bind
-atomically and reject binary payloads; safe roster-history UserRefs anonymize on read.
+`tests/test_tracker_reader_policy.py`, `test_tracker_iteration.py` and
+`test_tracker_control_guards.py` verify the current owner policy: readers may move
+ordinary working statuses, toggle checklists and edit shared comments; closure and
+reopening remain author commands. Metadata and private accounting require separate
+rights. Task-specific grants do not grant queue/team/private access. Managed control
+epics revalidate current roles and cannot be manually altered or shared. The actual
+HR deputy has global KKR authority, without unrelated report or directory privileges.
+Roster removal/rejoin preserves credit, contextual files remain protected and safe
+history UserRefs anonymize on read. Old public status aliases do not rewrite private
+outcomes or invent completion dates.
 
-`tests/test_season_analytics.py` covers global summary/accounting ACL, HR deputy denial,
+`tests/test_season_analytics.py` covers global summary/accounting ACL, HR deputy access,
 public/private status separation, distinct joint tasks versus summed assignment hours,
 Moscow week boundaries, negative/merit/bonus credits, source-block/participant filters,
 unknown hours/dates, current and legacy approved snapshots, new snapshot facts without
 old-version backfill, repeated GET without SQL writes, and public season-move revisions,
 safe history and atomic parent-link rollback. See `docs/SEASON_ANALYTICS.md` for the
 durable metric definitions and closed-season completeness rules.
+
+`test_kkr_iteration.py` covers atomic multi-assignee accounting, season coefficients,
+managed accounting controls and immutable approved snapshots. `test_portal_core_iteration.py`
+checks the deadline-free formula and new event/chair work sources. Synthetic legacy
+schema imports are repeated through each supported import order in
+`test_portal_migration_iteration.py`; queue rebinding uses explicit source IDs and
+rejects changes to closed historical work.

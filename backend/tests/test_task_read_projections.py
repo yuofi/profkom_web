@@ -31,8 +31,8 @@ def task_set(work):
                 values = {column.name: getattr(assignment, column.name) for column in AssignmentORM.__table__.columns}
                 values.update(assignment_id=aid, task_id=task_id)
                 session.add(AssignmentORM(**values))
-                session.add(TaskTrackerORM(task_id=task_id, status='assigned', queue_id=queue.queue_id,
-                    queue_number=number + 2, roster_initialized=True, public_statuses_json=json.dumps({aid: 'assigned'}),
+                session.add(TaskTrackerORM(task_id=task_id, status='open', queue_id=queue.queue_id,
+                    queue_number=number + 2, roster_initialized=True, public_statuses_json=json.dumps({aid: 'open'}),
                     public_revisions_json=json.dumps({aid: 1}), task_type='task',
                     priority=('low', 'normal', 'high', 'urgent')[number % 4]))
                 session.add(TaskRosterORM(task_id=task_id, user_id=work['member'].user_id,
@@ -59,7 +59,7 @@ def test_page_hydrates_only_returned_rows_and_preserves_facets(client, task_set,
         expected_people = {person.user_id for task in full for person in task.assignees if person.user_id is not None}
     calls = track_hydration(monkeypatch)
     result = client.get('/api/tasks', headers=actor.headers, params={'limit': 1}).json()
-    assert result['total'] == 21
+    assert result['total'] == len(oracle)
     assert len(result['items']) == len(calls) == 1
     assert result['items'][0] == oracle[result['items'][0]['task_id']]
     assert {person['user_id'] for person in result['assignees']} == expected_people
@@ -72,6 +72,7 @@ def test_page_hydrates_only_returned_rows_and_preserves_facets(client, task_set,
 
 def test_keyset_pages_keep_exact_tasks_with_light_selection(client, task_set):
     actor = task_set['master']
+    expected = {task.task_id for task in db.list_tasks(current_user_id=actor.user_id)}
     for sort in ('deadline', 'updated', 'created', 'priority', 'starts'):
         seen, cursor = [], None
         while True:
@@ -85,7 +86,8 @@ def test_keyset_pages_keep_exact_tasks_with_light_selection(client, task_set):
             cursor = page['next_cursor']
             if not cursor:
                 break
-        assert len(seen) == len(set(seen)) == 21
+        assert len(seen) == len(set(seen)) == len(expected)
+        assert set(seen) == expected
 
 
 def test_calendar_never_hydrates_full_tasks_and_keeps_deadline_window(client, task_set, monkeypatch):
@@ -98,7 +100,7 @@ def test_calendar_never_hydrates_full_tasks_and_keeps_deadline_window(client, ta
     items = response.json()['items']
     assert len(items) == 20 and calls == []
     assert {item['target']['id'] for item in items} == {f'projection-task-{n:02}' for n in range(20)}
-    assert all(item['scope']['id'] == task_set['block']['block_id'] and item['status'] == 'assigned' for item in items)
+    assert all(item['scope']['id'] == task_set['block']['block_id'] and item['status'] == 'open' for item in items)
     response = client.get('/api/calendar', headers=task_set['member'].headers,
                           params={'from': start.isoformat(), 'to': end.isoformat(), 'q': 'absent synthetic title'})
     assert response.status_code == 200 and response.json()['items'] == [] and calls == []
@@ -115,7 +117,10 @@ def test_home_hydrates_only_ten_cards_and_reuses_light_tasks(client, task_set, m
     calls.clear()
     response = client.get('/api/workspace/home', headers=task_set['master'].headers)
     assert response.status_code == 200
-    assert response.json()['tasks'] == response.json()['overdue_tasks'] == [] and calls == []
+    personal = response.json()
+    assert personal['overdue_tasks'] == []
+    assert all(task['task_type'] == 'epic' and task['queue']['key'] == 'KKR' for task in personal['tasks'])
+    assert calls == [task['task_id'] for task in personal['tasks']]
 
 
 def test_light_metadata_matches_full_public_projection_and_purged_facets(task_set):

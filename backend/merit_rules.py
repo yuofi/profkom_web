@@ -23,16 +23,34 @@ def merit_scope(source_kind, event_id, scope_id):
     }.get(source_kind, (None, None))
 
 
+def _event_open(uid, source_kind, event_id, scope_id):
+    if access._global(uid) & access.TACHKI:
+        return True
+    with db._session() as session:
+        if source_kind == "subevent_volunteer":
+            sub = session.get(SubeventORM, scope_id)
+            event_id = sub.event_id if sub else None
+        if event_id:
+            from event_workspace import event_closed
+            return not event_closed(session, event_id)
+    return True
+
+
 def can_create(uid, source_kind, event_id, scope_id):
+    if not _event_open(uid, source_kind, event_id, scope_id):
+        return False
     kind, sid = merit_scope(source_kind, event_id, scope_id)
     return access.allowed(uid, CREATE_ACTIONS[source_kind], kind, sid)
 
 
 def can_manage(m, uid, write=False):
     """Viewing a merit; with `write`, editing it (a closed season narrows the rule)."""
+    if write and not _event_open(uid, m.source_kind, m.event_id, m.scope_id):
+        return False
     kind, sid = merit_scope(m.source_kind, m.event_id, m.scope_id)
     state = db.get_season(m.season_id).state if write else None
-    return access.allowed(uid, f"merit.manage.{m.source_kind}", kind, sid, state=state)
+    action = "merit.manage" if write else "merit.view"
+    return access.allowed(uid, f"{action}.{m.source_kind}", kind, sid, state=state)
 
 
 def validate(s, data):

@@ -29,7 +29,9 @@ it.each([false, true])("keeps closed-season task edits unavailable to a non-owne
   expect(current.capabilities).not.toContain("edit_task");expect(current.capabilities).not.toContain("edit_task_description");
   await expect(tasksApi.update(task.task_id, { expected_revision: current.revision, description: richText("Подмена") })).rejects.toMatchObject({ status: 403 });
 });
-it("does not turn an HR deputy's global read access into global editing", async () => {
-  const task = setup("hr-deputy", true), current = await tasksApi.get(task.task_id);expect(current.capabilities).toContain("change_task_type");expect(current.capabilities).not.toContain("edit_task");
-  await expect(tasksApi.update(task.task_id, { expected_revision: current.revision, description: richText("Подмена") })).rejects.toMatchObject({ status: 403 });
+it("gives the actual HR deputy the approved global public editing rights without touching KKR", async () => {
+  const task = setup("hr-deputy", true), beforePrivate = structuredClone({ inputs: mock!.state.inputs, assessments: mock!.state.assessments, summary: mock!.state.summary });
+  const current = await tasksApi.get(task.task_id);expect(current.capabilities).toEqual(expect.arrayContaining(["change_task_type", "edit_task", "edit_task_description"]));
+  const saved = await tasksApi.update(task.task_id, { expected_revision: current.revision, description: richText("Правка заместителя HR") });expect(saved.description.body).toBe("Правка заместителя HR");
+  expect({ inputs: mock!.state.inputs, assessments: mock!.state.assessments, summary: mock!.state.summary }).toEqual(beforePrivate);
 });

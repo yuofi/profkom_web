@@ -1,8 +1,8 @@
-"""Task queue ACL is an additional restriction, never a replacement for scope policy.
+"""Task queue grants open public work independently of team membership.
 
-Keys and per-queue numbers are immutable identities; existing UUID task URLs stay valid.
-Requests/grants are durable internal records. An approved request grants no block or
-organizer membership. Every read/write/file access intersects the original scope ACL.
+Keys and per-queue numbers are immutable identities; UUID task URLs stay valid.
+Explicit queue/task grants never confer private accounting or team authority.
+The WEBSUPPORT staff boundary remains a separate mandatory gate.
 """
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -13,7 +13,7 @@ import uuid
 from sqlalchemy import text
 from database import (db, engine, SessionLocal, TaskORM, TaskTrackerORM, TaskActivityORM,
     TaskQueueORM, TaskQueueRequestORM, TaskQueueMemberORM, UserORM, BlockORM,
-    SubeventORM, ContributionORM, AssignmentORM, _user_to_ref_dc)
+    SubeventORM, EventORM, ContributionORM, AssignmentORM, _user_to_ref_dc)
 from errors import Forbidden, InvalidInput, NotFound, Conflict, revision_conflict
 from read_context import cached
 
@@ -32,7 +32,7 @@ def base_read(uid, queue):
 
 def can_read(session, queue, uid):
     if not queue or not uid:return False
-    key=tuple(getattr(queue,name,None) for name in ("queue_id","scope_kind","scope_id","owner_user_id","is_private"))+(uid,)
+    key=tuple(getattr(queue,name,None) for name in ("queue_id","key","scope_kind","scope_id","owner_user_id","is_private"))+(uid,)
     return cached(session,"queue.can_read",key,lambda:_can_read(session,queue,uid),copy_result=False)
 
 
@@ -42,9 +42,10 @@ def _can_read(session, queue, uid):
     if is_support_queue(session, queue):return is_staff(session, uid)
     from access import all_queue_reader
     if all_queue_reader(uid):return True
-    if not base_read(uid,queue):return False
+    if getattr(queue,'key',None)=='KKR':return False
     grant=session.get(TaskQueueMemberORM,(queue.queue_id,uid))
-    return not queue.is_private or queue.owner_user_id==uid or bool(grant and grant.active)
+    if queue.owner_user_id==uid or bool(grant and grant.active):return True
+    return base_read(uid,queue) and not queue.is_private
 
 
 def task_queue(session, task):
@@ -64,7 +65,12 @@ def _task_read(session, task, uid):
     from support import owns_task
     if owns_task(session, task.task_id, uid):return True
     queue=task_queue(session,task)
-    if queue:return can_read(session,queue,uid)
+    if queue:
+        if can_read(session,queue,uid):return True
+        from support import is_support_queue
+        if is_support_queue(session,queue):return False
+        from tracker_collaboration import has_task_grant
+        return has_task_grant(session,task.task_id,uid)
     from access import all_queue_reader
     return all_queue_reader(uid) or db.can_view_scope(uid,task.scope_kind,task.scope_id)  # pre-migration in-memory fixtures
 
@@ -99,6 +105,19 @@ def readable_tasks(session, tasks, uid):
         if isinstance(row,TaskTrackerORM) and row.task_id in wanted:
             metadata.setdefault(row.task_id,row)
     queue_ids=list(dict.fromkeys(row.queue_id for row in metadata.values() if row.queue_id))
+    from tracker_collaboration_models import TaskAccessGrantORM
+    # Prime explicit grants once for the entire selection, including negatives;
+    # outsiders must not introduce one SELECT per hidden task.
+    granted=set()
+    if active(session,uid):
+        for batch in chunks(identifiers):
+            for grant in session.query(TaskAccessGrantORM).filter(TaskAccessGrantORM.user_id==uid,TaskAccessGrantORM.active.is_(True),TaskAccessGrantORM.task_id.in_(batch)):
+                if grant.source!="control":granted.add(grant.task_id)
+    from domain_models import KkrControlEpicORM
+    controls=cached(session,"kkr.control_task_ids",None,lambda:frozenset(row[0] for row in session.query(KkrControlEpicORM.task_id)),copy_result=False)
+    granted.difference_update(controls)
+    for task_id in identifiers:
+        if task_id not in controls:cached(session,"task.single_grant",(task_id,uid),lambda task_id=task_id:task_id in granted,copy_result=False)
     queues={}
     for batch in chunks(queue_ids):
         queues.update((row.queue_id,row) for row in session.query(TaskQueueORM).filter(TaskQueueORM.queue_id.in_(batch)))
@@ -117,6 +136,11 @@ def readable_tasks(session, tasks, uid):
         if queue:
             if queue.queue_id not in decisions:decisions[queue.queue_id]=can_read(session,queue,uid)
             allowed=decisions[queue.queue_id]
+            if not allowed:
+                from support import is_support_queue
+                if not is_support_queue(session,queue):
+                    from tracker_collaboration import has_task_grant
+                    allowed=has_task_grant(session,task.task_id,uid)
         else:
             if global_reader is None:global_reader=all_queue_reader(uid)
             key=(task.scope_kind,task.scope_id)
@@ -210,10 +234,14 @@ def projection(session, queue, uid, *, include_assignable=True):
     from support import is_support_queue
     if granted and queue.owner_user_id==uid and not is_support_queue(session,queue):caps+=['manage_queue','view_queue_requests']
     from support import is_support_queue
-    can_request=not is_support_queue(session,queue) and not granted and active(session,uid) and (not request or request.status!='pending')
+    managed_control=queue.key=='KKR'
+    if managed_control:caps=[]
+    can_request=not managed_control and not is_support_queue(session,queue) and not granted and active(session,uid) and (not request or request.status!='pending')
     if can_request:caps.append('request_queue_access')
+    if not managed_control and request and request.status=='pending' and request.user_id==uid:caps.append('cancel_queue_access_request')
     result=dict(**queue_ref(queue),access='granted' if granted else 'locked',capabilities=caps,
-        can_request_access=can_request,access_request_status=request.status if request else None)
+        can_request_access=can_request,access_request_status=request.status if request else None,
+        access_request_id=request.request_id if request else None,access_request_revision=request.revision if request else None)
     if granted:
         from models import ScopeRef
         from membership import scope_out
@@ -234,7 +262,8 @@ def get(queue_id,uid,*,include_assignable=True):
         result=projection(session,queue,uid,include_assignable=include_assignable)
         if result['access']=='locked':
             raise Forbidden('Queue access is required','queue_access_required',queue=queue_ref(queue),
-                can_request_access=result['can_request_access'],access_request_status=result['access_request_status'])
+                can_request_access=result['can_request_access'],access_request_status=result['access_request_status'],
+                access_request_id=result['access_request_id'],access_request_revision=result['access_request_revision'])
         return result
 
 
@@ -247,13 +276,16 @@ def catalog(uid,cursor=None):
         rows=session.query(TaskQueueORM).all() if active(session,uid) else []
         page=cursor_page(rows,lambda q:(q.key,q.queue_id),cursor)
         scopes=[]
-        for kind,objects in [('block',session.query(BlockORM).all()),('subevent',session.query(SubeventORM).all())]:
+        if access.allowed(uid,'queue.create','chair','chair'):
+            scopes.append(dict(kind='chair',id='chair',title='Председатель'))
+        for kind,objects in [('event',session.query(EventORM).all()),('block',session.query(BlockORM).all()),('subevent',session.query(SubeventORM).all())]:
             for obj in objects:
-                sid=obj.name if kind=='block' else obj.subevent_id
-                if db.can_view_scope(uid,kind,sid):
+                sid=obj.name if kind=='block' else obj.event_id if kind=='event' else obj.subevent_id
+                if access.allowed(uid,'queue.create',kind,sid):
                     scopes.append(dict(**scope_out(ScopeRef(kind=kind,id=sid)),title=obj.name if kind=='block' else obj.title))
-        return dict(items=[projection(session,q,uid,include_assignable=False) for q in page.items],next_cursor=page.next_cursor,can_create_queue=active(session,uid),
-            create_scopes=sorted(scopes,key=lambda s:(s['title'],s['id'])))
+        priority={'chair':0,'event':1,'block':2,'subevent':3}
+        return dict(items=[projection(session,q,uid,include_assignable=False) for q in page.items],next_cursor=page.next_cursor,can_create_queue=active(session,uid) and bool(scopes),
+            create_scopes=sorted(scopes,key=lambda s:(priority[s['kind']],s['title'],s['id'])))
 
 
 def _validate_owner(session,uid,kind,sid):
@@ -264,19 +296,23 @@ def create(uid,name,key,scope=None,owner_user_id=None,is_private=False):
     from membership import legacy_name
     scope=scope or {};kind=scope.get('kind');sid=scope.get('id')
     if kind=='block':sid=legacy_name(sid)
-    independent=not scope
-    if not independent and (kind not in ('block','subevent') or not sid):raise InvalidInput('Invalid queue scope')
+    if not scope:kind='chair';sid='chair'
+    if kind not in ('block','subevent','event','chair') or not sid:raise InvalidInput('Invalid queue scope')
     with db._session() as session:
+        import access
         if not active(session,uid):raise Forbidden('Only active approved users may create queues')
+        if not access.allowed(uid,'queue.create',kind,sid):raise Forbidden('Only leaders may create queues in their own teams')
         if owner_user_id is not None and owner_user_id!=uid:raise InvalidInput('Queue creator must be its initial owner')
         qid='queue-'+str(uuid.uuid4())
-        if independent:kind='queue';sid=qid
+        if kind=='chair':
+            if sid!='chair':raise InvalidInput('Invalid chair scope')
         else:
-            scope_object=session.get(BlockORM,sid) if kind=='block' else session.get(SubeventORM,sid)
+            scope_object=session.get(BlockORM,sid) if kind=='block' else session.get(EventORM,sid) if kind=='event' else session.get(SubeventORM,sid)
             if not scope_object:raise NotFound('Queue scope not found')
             if not db.can_view_scope(uid,kind,sid):raise Forbidden('Cannot create queue outside a readable scope')
         if not name.strip():raise InvalidInput('Queue name is required')
         if not re.fullmatch('[A-Z]+',key):raise InvalidInput('Queue key must contain uppercase ASCII letters only')
+        if key=='KKR':raise Conflict('Queue key KKR is reserved for accounting control','control_queue_conflict')
         if session.query(TaskQueueORM).filter_by(key=key).first():raise Conflict('Queue key already exists','queue_key_conflict')
         q=TaskQueueORM(queue_id=qid,name=name.strip(),key=key,scope_kind=kind,scope_id=sid,
             owner_user_id=uid,is_private=is_private,is_default=False,next_task_number=1,revision=1,created_at=now())
@@ -287,6 +323,7 @@ def create(uid,name,key,scope=None,owner_user_id=None,is_private=False):
 def managed(session,queue_id,uid):
     q=session.get(TaskQueueORM,queue_id)
     if not q:raise NotFound('Queue not found')
+    if q.key=='KKR':raise Conflict('Control queue is managed automatically','control_epic_managed')
     from support import is_support_queue
     if is_support_queue(session,q):raise Forbidden('Use support settings to manage this queue')
     if not can_read(session,q,uid) or q.owner_user_id!=uid:raise Forbidden('Only the queue owner can manage this queue')
@@ -329,6 +366,7 @@ def request_access(queue_id,uid,message=''):
     with db._session() as session:
         q=session.get(TaskQueueORM,queue_id)
         if not q:raise NotFound('Queue not found')
+        if q.key=='KKR':raise Conflict('Control queue access is managed automatically','control_epic_managed')
         if not active(session,uid):raise Forbidden('Only active users may request queue access')
         from support import is_support_queue
         if is_support_queue(session,q):raise Forbidden('Support access is delegated by its leaders')
@@ -351,6 +389,19 @@ def requests(queue_id,uid,cursor=None):
         rows=session.query(TaskQueueRequestORM).filter_by(queue_id=queue_id).all()
         page=cursor_page(rows,lambda r:(r.created_at,r.request_id),cursor,descending=True)
         return dict(items=[request_projection(session,r,uid) for r in page.items],next_cursor=page.next_cursor)
+
+
+def cancel_request(queue_id,request_id,uid,expected_revision):
+    """Only the requester can withdraw their still pending access request."""
+    with db._session() as session:
+        row=session.get(TaskQueueRequestORM,request_id)
+        if not row or row.queue_id!=queue_id or row.user_id!=uid:raise NotFound('Access request not found')
+        if row.revision!=expected_revision:raise revision_conflict()
+        if row.status!='pending':raise Conflict('Access request is no longer pending')
+        row.status='cancelled';row.decided_at=now();row.decided_by_user_id=uid;row.revision+=1
+        session.commit()
+        queue=session.get(TaskQueueORM,queue_id)
+        return projection(session,queue,uid)
 
 
 def decide(queue_id,request_id,uid,expected_revision,approve):
@@ -387,6 +438,8 @@ def validate_parent(session,task_id,season_id,parent_task_id,uid):
     if parent_task_id is None:return
     parent=session.get(TaskORM,parent_task_id)
     if not parent or not task_read(session,parent,uid):raise NotFound('Parent task not found')
+    from tracker import is_control_task
+    if is_control_task(session,parent_task_id):raise Conflict('Control epics cannot be parent tasks','control_epic_managed')
     if parent.season_id!=season_id:raise InvalidInput('Parent task must belong to the same season')
     seen={task_id};current=parent_task_id
     while current:

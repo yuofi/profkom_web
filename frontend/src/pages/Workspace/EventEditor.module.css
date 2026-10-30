@@ -61,3 +61,4 @@
 .eventDate { color:var(--on-surface-variant);font-size:12px;line-height:1.6;max-width:230px;text-align:right; }
 @media(max-width:1000px) { .eventOverview { grid-template-columns:minmax(0,1fr); } }
 @media(max-width:540px) { .eventRow { grid-template-columns:minmax(0,1fr) 18px;gap:4px 10px; }.eventName { grid-row:1; }.eventDate { grid-row:2;grid-column:1;text-align:left;max-width:none; }.eventRow>span:last-child { grid-row:1/3;grid-column:2; } }
+.titleLogo { width: 1.35em; height: 1.35em; object-fit: contain; vertical-align: middle; margin-inline-end: .4em; }

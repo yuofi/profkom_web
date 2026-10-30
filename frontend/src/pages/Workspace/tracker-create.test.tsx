@@ -20,13 +20,13 @@ async function chooseParent(title: string) {
 }
 it("opens a blank task-like editor with parameters, permits no assignees and omits accounting fields", async () => {
   mock = installMockTransport("chair", { delay: 0 });
-  const queue = { ...mock.state.queues[0], queue_id: "independent", name: "Самостоятельная очередь", key: "IND", scope: null, capabilities: ["create_task"] };mock.state.queues.push(queue);
+  const queue = { ...mock.state.queues[0], queue_id: "scoped", name: "Очередь блока", key: "IND", scope: { kind: "block" as const, id: mock.state.blocks[0].block_id }, capabilities: ["create_task"] };mock.state.queues.push(queue);
   const create = vi.spyOn(tasksApi, "create");
-  page = await mountWorkspace(<Routes><Route path="/tasks/new" element={<TrackerTaskCreatePage />} /><Route path="/tasks/:id" element={<p>Созданная задача</p>} /></Routes>, { path: "/tasks/new?queue_id=independent" });
+  page = await mountWorkspace(<Routes><Route path="/tasks/new" element={<TrackerTaskCreatePage />} /><Route path="/tasks/:id" element={<p>Созданная задача</p>} /></Routes>, { path: "/tasks/new?queue_id=scoped" });
   await waitForPage(page, () => !!page!.container.querySelector("form"));const form = page.container.querySelector("form")!;
-  expect(field(form, "title").value).toBe("");expect(field(form, "description").value).toBe("");expect(field(form, "queue").value).toBe(queue.queue_id);
+  expect(field(page.container, "title").value).toBe("");expect(form.querySelector('[name="title"]')).toBeNull();expect(field(form, "description").value).toBe("");expect(field(form, "queue").value).toBe(queue.queue_id);
   expect(form.querySelector('[name="hours"]')).toBeNull();expect(form.querySelector('[name="creative"]')).toBeNull();expect(form.querySelector('[aria-label="Параметры новой задачи"]')).not.toBeNull();
-  await change(field(form, "title"), "Новая свободная задача");await change(field(form, "deadline"), "2026-10-29T18:00");await submit(form);await waitForPage(page, () => !!page!.container.textContent?.includes("Созданная задача") || !!page!.container.querySelector('[role="alert"]'));expect(page!.container.textContent).toContain("Созданная задача");
+  await change(field(page.container, "title"), "Новая свободная задача");await change(field(form, "deadline"), "2026-10-29T18:00");await submit(form);await waitForPage(page, () => !!page!.container.textContent?.includes("Созданная задача") || !!page!.container.querySelector('[role="alert"]'));expect(page!.container.textContent).toContain("Созданная задача");
   expect(create).toHaveBeenCalledWith(expect.objectContaining({ queue_id: queue.queue_id, assignees: [], watcher_user_ids: [], file_ids: [], description: richText("") }));expect(create.mock.calls[0][0]).not.toHaveProperty("scope");
 });
 it("keeps typed Markdown when selecting another queue and has one searchable parent selector", async () => {
@@ -40,7 +40,7 @@ it("binds an unbound attachment and a parent from another queue when creating", 
   const parent = mock.state.tasks[0], file: FileRef = { file_id: "draft-file", name: "plan.txt", mime_type: "text/plain", size_bytes: 5 };
   const upload = vi.spyOn(filesApi, "upload").mockResolvedValue(file), create = vi.spyOn(tasksApi, "create");
   page = await mountWorkspace(<Routes><Route path="/new" element={<TaskCreateForm queueId="extra" />} /><Route path="/tasks/:id" element={<p>Созданная задача</p>} /></Routes>, { path: "/new" });await waitForPage(page, () => !!page!.container.querySelector("form"));
-  const form = page.container.querySelector("form")!;await change(field(form, "title"), "Проверить план");await change(field(form, "deadline"), "2026-10-29T18:00");await chooseParent(parent.title);
+  const form = page.container.querySelector("form")!;await change(field(page.container, "title"), "Проверить план");await change(field(form, "deadline"), "2026-10-29T18:00");await chooseParent(parent.title);
   const input = form.querySelector<HTMLInputElement>('input[type="file"]')!, blob = new File(["draft"], "plan.txt", { type: "text/plain" });
   await act(async () => { Object.defineProperty(input, "files", { configurable: true, value: [blob] });input.dispatchEvent(new Event("change", { bubbles: true })); });await waitForPage(page);
   expect(upload).toHaveBeenCalledWith(blob, { owner_kind: "task", owner_id: undefined, purpose: "attachment" }, expect.any(Function));

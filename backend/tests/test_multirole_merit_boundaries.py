@@ -1,4 +1,4 @@
-"""A member/organizer/subevent-lead has scoped volunteer rights, not global KKR."""
+"""Only a head/deputy or chair grants merits; other stacked roles do not."""
 from datetime import datetime, timedelta, timezone
 import json
 
@@ -35,6 +35,8 @@ def test_multiple_roles_keep_merits_scoped_and_revocation_atomic(client, superus
         "description": "Synthetic work", "assigned_at": (now - timedelta(days=1)).isoformat(),
         "deadline_at": (now + timedelta(days=1)).isoformat(), "criteria": {}, "reason": "Synthetic acceptance",
         "recipients": [{"user_id": outsider.user_id, "hours": 1, "evaluation": 1, "completed_at": work}]}
+    assert client.post('/api/merits',json=base,headers=multi.headers).status_code==403
+    event=req('PUT',f"/events/{event['event_id']}/leaders",{'user_ids':[multi.user_id],'expected_revision':event['revision']})
     merit = req("POST", "/merits", base, multi)
 
     def snapshot():
@@ -52,9 +54,7 @@ def test_multiple_roles_keep_merits_scoped_and_revocation_atomic(client, superus
     assert client.post("/api/merits", json=invalid, headers=multi.headers).status_code == 422
     assert snapshot() == saved
     forbidden = [
-        {**base, "scope": {"kind": "subevent", "id": first["subevent_id"]}},
         {**base, "source_kind": "block_volunteer", "scope": {"kind": "block", "id": block_id}},
-        {**{k: v for k, v in base.items() if k != "scope"}, "source_kind": "head_merit", "event_id": event["event_id"]},
         {**{k: v for k, v in base.items() if k != "scope"}, "source_kind": "chair_merit"},
     ]
     for payload in forbidden:
@@ -63,6 +63,7 @@ def test_multiple_roles_keep_merits_scoped_and_revocation_atomic(client, superus
     for path in [f"/assessments?season_id={season['season_id']}", f"/seasons/{season['season_id']}/summary"]:
         assert client.get("/api" + path, headers=multi.headers).status_code == 403
     req("PUT", f"/subevents/{second['subevent_id']}/leaders", {"user_ids": [replacement.user_id], "expected_revision": second["revision"]})
+    req("PUT", f"/events/{event['event_id']}/leaders", {"user_ids": [replacement.user_id], "expected_revision": event["revision"]})
     after_role_change = snapshot()
     assert client.post("/api/merits", json=base, headers=multi.headers).status_code == 403
     assert client.patch(f"/api/merits/{merit['merit_id']}", json={"expected_revision": merit["revision"], "title": "Denied", "reason": "Revoked"}, headers=multi.headers).status_code in (403, 404)

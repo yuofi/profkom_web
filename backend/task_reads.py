@@ -13,7 +13,7 @@ from sqlalchemy.orm import Load, selectinload
 from database import (
     db, TaskORM, TaskTrackerORM, TaskQueueORM, TaskRosterORM, AssignmentORM,
     AuditLogORM, TaskFavoriteORM, UserORM, ContactInfoORM, BlockORM, SubeventORM,
-    SeasonORM, SubmissionORM, TaskSubmissionORM, FileRecordORM, _user_to_ref_dc,
+    SeasonORM, EventORM, SubmissionORM, TaskSubmissionORM, FileRecordORM, _user_to_ref_dc,
 )
 from errors import Forbidden, NotFound
 from models import ScopeRef
@@ -40,7 +40,9 @@ class TaskEntry:
     @property
     def deadline_at(self): return self.row.deadline_at
     @property
-    def status(self): return self.meta.status
+    def status(self):
+        from tracker_status import public_status
+        return public_status(self.meta.status)
     @property
     def task_type(self): return self.meta.task_type or "task"
     @property
@@ -67,7 +69,10 @@ class TaskIndex:
         if scope_kind and scope_id and scope_kind != "queue":
             from access import all_queue_reader
             if not db.can_view_scope(uid, scope_kind, scope_id) and not all_queue_reader(uid):
-                raise Forbidden("Forbidden: cannot view tasks for this scope")
+                from task_queues import readable_tasks
+                candidates=session.query(TaskORM).filter_by(scope_kind=scope_kind,scope_id=scope_id).all()
+                if not readable_tasks(session,candidates,uid):
+                    raise Forbidden("Forbidden: cannot view tasks for this scope")
         query = session.query(TaskORM, TaskTrackerORM).outerjoin(
             TaskTrackerORM, TaskTrackerORM.task_id == TaskORM.task_id
         ).options(Load(TaskORM).load_only(
@@ -181,6 +186,9 @@ class TaskIndex:
             self._scope_titles = {("block", row.name): row.name for row in self.session.query(BlockORM).filter(BlockORM.name.in_(names))}
             self._scope_titles.update({("subevent", row.subevent_id): row.title for row in
                                       self.session.query(SubeventORM).filter(SubeventORM.subevent_id.in_(subs))})
+            events={entry.row.scope_id for entry in self.entries if entry.row.scope_kind=="event"}
+            self._scope_titles.update({("event",row.event_id):row.title for row in self.session.query(EventORM).filter(EventORM.event_id.in_(events))})
+            self._scope_titles[("chair","chair")]="Работа председателя"
         return self._scope_titles.get((item.row.scope_kind, item.row.scope_id),
                                      item.queue["name"] if item.queue else "Команда")
 

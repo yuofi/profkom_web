@@ -29,7 +29,7 @@ export const getMeetingRoute = (kind: "event" | "subevent", id: string) =>
 export const getSubeventRoute = (id: string) =>
   `/subevents/${encodeURIComponent(id)}`;
 export const getTaskRoute = (id: string) => `/tasks/${encodeURIComponent(id)}`;
-export const getTaskCreateRoute = ({ queueId, scope, parentTaskId }: { queueId?: string; scope?: { kind: "block" | "subevent"; id: string }; parentTaskId?: string } = {}) => {
+export const getTaskCreateRoute = ({ queueId, scope, parentTaskId }: { queueId?: string; scope?: { kind: "block" | "subevent" | "event" | "chair"; id: string }; parentTaskId?: string } = {}) => {
   const query = new URLSearchParams();
   if (queueId) query.set("queue_id", queueId);
   if (scope) { query.set("scope_kind", scope.kind);query.set("scope_id", scope.id); }

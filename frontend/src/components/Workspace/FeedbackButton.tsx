@@ -9,6 +9,7 @@ import { clearDiagnostics, recordDiagnostic, snapshotDiagnostics } from "../../u
 import { useConfirmedNavigation, useGuardedAction, useUnsavedChanges } from "./unsavedChangesHooks";
 import { Glyph } from "./WorkspaceUI";
 import { getTaskRoute } from "../../utils/routes";
+import { createClientId } from "../../utils/clientId";
 import s from "./Workspace.module.css";
 import f from "./FeedbackButton.module.css";
 
@@ -35,7 +36,7 @@ function FeedbackForm({ diagnostics, onClose }: { diagnostics: FeedbackInput["di
   const [kind, setKind] = useState<"bug" | "feature">("bug"), [title, setTitle] = useState(""), [body, setBody] = useState(""), [contact, setContact] = useState(""), [include, setInclude] = useState(true), [screenshot, setScreenshot] = useState<string | null>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [result, setResult] = useState<FeedbackReceipt | null>(null);
   const [attempted, setAttempted] = useState(false);
-  const payload = useRef<FeedbackInput | null>(null), nonce = useRef(crypto.randomUUID()), titleId = useId();
+  const payload = useRef<FeedbackInput | null>(null), nonce = useRef<string | null>(null), titleId = useId();
   const locked = busy || attempted;
   useUnsavedChanges({ scope, dirty: !result && !!(title || body || contact || screenshot), busy, label: "Обращение в поддержку" });
   const close = () => leave(onClose);
@@ -52,9 +53,12 @@ function FeedbackForm({ diagnostics, onClose }: { diagnostics: FeedbackInput["di
     }}>
       <header className={f.header}><h2 id={titleId}>Обращение в поддержку</h2><button type="button" className={s.button} aria-label="Закрыть обращение" disabled={busy} onClick={close}><Glyph name="close" /></button></header>
       {result ? <div className={s.stack}><p role="status">{result.task_key ? `Создан тикет ${result.task_key}` : "Обращение сохранено. Тикет появится после подключения очереди поддержки."}</p>{result.task_id && canTrack && <Link to={getTaskRoute(result.task_id)} onClick={onClose}>Открыть тикет</Link>}<p className={s.muted}>Номер обращения: {result.report_id}</p><button className={s.button} onClick={onClose}>Готово</button></div> : <form className={s.stack} onSubmit={async event => {
-        event.preventDefault();if (busy) return;setError("");setBusy(true);setAttempted(true);
-        payload.current ??= { kind, title: title.trim(), body: body.trim(), contact: contact.trim() || null, idempotency_key: nonce.current, diagnostics: include ? diagnostics : null, screenshot };
-        try { setResult(await supportApi.submit(payload.current)); }
+        event.preventDefault();if (busy) return;setError("");setBusy(true);
+        try {
+          nonce.current ??= createClientId();
+          payload.current ??= { kind, title: title.trim(), body: body.trim(), contact: contact.trim() || null, idempotency_key: nonce.current, diagnostics: include ? diagnostics : null, screenshot };
+          setAttempted(true);setResult(await supportApi.submit(payload.current));
+        }
         catch (failure) { setError(userMessage(failure)); }
         finally { setBusy(false); }
       }}>
@@ -66,7 +70,7 @@ function FeedbackForm({ diagnostics, onClose }: { diagnostics: FeedbackInput["di
         {include && <details><summary>Что будет приложено</summary><p className={s.muted}>Версия, маршрут, размер окна и последние действия/коды ошибок. Значения полей, пароли и содержимое запросов не собираются. Хранение — 90 дней.</p><pre className={f.diagnostics}>{JSON.stringify(diagnostics, null, 2)}</pre></details>}
         {window.location.hostname !== "test.profcom-cmc.online" && <label className={s.field}>Изображение экрана — по желанию, PNG до 2 МиБ<input type="file" accept="image/png" disabled={locked} onChange={event => loadScreenshot(event.target.files?.[0])} /></label>}
         {screenshot && <><img className={f.preview} src={screenshot} alt="Предварительный просмотр приложения к обращению" /><button type="button" className={s.button} disabled={locked} onClick={() => setScreenshot(null)}>Убрать изображение</button></>}
-        {error && <p role="alert" className={s.error}>{error} Повторная отправка использует тот же номер запроса.</p>}
+        {error && <p role="alert" className={s.error}>{error}{attempted && " Повторная отправка использует тот же номер запроса."}</p>}
         <button type="submit" className={`${s.button} ${s.primary}`} disabled={busy}>{busy ? "Отправляем…" : attempted ? "Повторить отправку" : "Отправить обращение"}</button>
         {(context.data?.can_configure || context.data?.can_triage) && <Link to="/support" onClick={event => { event.preventDefault();navigate("/support", onClose); }}>Управление поддержкой сайта</Link>}
         {canTrack && !context.data?.can_configure && !context.data?.can_triage && <Link to="/support" onClick={event => { event.preventDefault();navigate("/support", onClose); }}>Мои обращения</Link>}

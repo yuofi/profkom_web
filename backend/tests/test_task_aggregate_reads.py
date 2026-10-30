@@ -148,6 +148,11 @@ def test_acl_memo_keys_include_in_memory_scope_and_private_queue_policy(work):
             shared = dict(queue_id='in-memory-policy', scope_kind='queue', scope_id='independent', owner_user_id=work['master'].user_id)
             assert can_read(session, SimpleNamespace(**shared, is_private=False), uid)
             assert not can_read(session, SimpleNamespace(**shared, is_private=True), uid)
+            # Reserved identity changes public queue policy even with the same
+            # ID/scope/privacy; a clean read UOW must not reuse the ordinary grant.
+            assert not can_read(session, SimpleNamespace(**shared, key='KKR', is_private=False), uid)
+            assert can_read(session, SimpleNamespace(**shared, key='ORDINARY', is_private=False), uid)
+            assert not can_read(session, SimpleNamespace(**shared, key='KKR', is_private=False), uid)
 
 
 def test_ownership_query_does_not_materialize_private_diagnostics_and_sees_new_report(work):

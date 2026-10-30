@@ -55,7 +55,7 @@ it("an assignee uploads and submits a file without text; foreign and revoked use
   await waitForPage(page, () => !page!.container.querySelector('input[type="file"]'));
   const saved = await tasksApi.get(task.task_id);
   const result = saved.submissions!.at(-1)!;
-  expect(saved.status).toBe("submitted");
+  expect(saved.status).toBe("completed");
   expect(result.text.body).toBe("");
   expect(result.files).toHaveLength(1);
   const attached = result.files[0];

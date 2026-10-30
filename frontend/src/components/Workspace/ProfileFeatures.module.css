@@ -31,3 +31,7 @@
 .templateTools { display: flex; flex-wrap: wrap; gap: 10px; padding-bottom: 14px; border-bottom: 1px solid var(--outline-variant); }
 .library { display: grid; gap: 14px; }
 @media (max-width: 768px) { .roles { grid-template-columns: minmax(0, 1fr); } }
+.activityHistory { margin-top:18px; }
+.activityHistory>summary { cursor:pointer;color:var(--primary);padding:8px 0;font-size:14px; }
+.historyMore { border:0;background:transparent;color:var(--primary);font:inherit;font-size:13px;padding:12px 0;cursor:pointer; }
+.historyMore:focus-visible { outline:2px solid var(--primary);outline-offset:3px; }

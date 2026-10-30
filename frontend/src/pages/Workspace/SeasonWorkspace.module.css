@@ -65,3 +65,9 @@
 .chartTooltip span { color:var(--on-surface-variant);font-size:11px;line-height:1.5; }
 .chartTooltip strong { font-size:16px;font-weight:500;line-height:1.4;font-variant-numeric:tabular-nums; }
 .chartBar[data-active="true"] { stroke:var(--on-surface);stroke-width:1; }
+.statisticsParent{display:block;font-size:.78rem;opacity:.65;margin-top:.25rem}.immediateMarks{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.5rem}.immediateMarks button{padding:.3rem .5rem;border-radius:.6rem;font-size:.8rem}.immediateMarks button[aria-pressed=true]{background:var(--accent-color,#f2f69e);color:#17180c}.summaryTable td small{display:block}.compactReadiness{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
+.seasonSelect{display:flex;gap:.75rem;align-items:center;max-width:34rem}.seasonSelect select{flex:1;min-width:0}
+.srOnly{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.decisionIcons{display:flex;flex-wrap:wrap;gap:.35rem;align-items:center}.decisionIcon{display:inline-flex;align-items:center;justify-content:center;width:1.85rem;height:1.85rem;border-radius:.6rem;background:#ffffff0c;border:1px solid currentColor}.decisionIcon svg{width:1.15rem;height:1.15rem}.markTrigger{display:inline-flex;align-items:center;justify-content:center;padding:.3rem!important;min-width:1.9rem;width:1.9rem;height:1.9rem;margin-top:.35rem;border-radius:.6rem}.markMenu{display:grid;gap:.35rem}.markMenu button{display:flex;justify-content:space-between;align-items:center;text-align:left;padding:.65rem .8rem;border-radius:.6rem}.markMenu button[aria-pressed=true]{background:var(--accent-color,#f2f69e);color:#17180c}
+/* Absolute screen-reader labels in offscreen cells must share the scroll
+   container's containing block instead of escaping to the outer page shell. */
+.summaryWrap { position:relative; }

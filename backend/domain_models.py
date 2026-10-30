@@ -1,6 +1,6 @@
 """Persistence for registrations, membership history and stable block metadata."""
 
-from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, Index, text
+from sqlalchemy import Column, Integer, String, Text, Boolean, Float, ForeignKey, Index, UniqueConstraint, text
 from database import Base
 
 
@@ -197,3 +197,29 @@ class ObjectDeletionORM(Base):
     object_key = Column(String, primary_key=True)
     requested_at = Column(String, nullable=False)
     completed_at = Column(String, nullable=True)
+
+
+class SeasonCoefficientORM(Base):
+    __tablename__ = "season_coefficients"
+    coefficient_id = Column(String, primary_key=True)
+    season_id = Column(String, ForeignKey("seasons.season_id"), nullable=False, index=True)
+    source_kind = Column(String, nullable=False)
+    source_id = Column(String, nullable=False)
+    value = Column(Float, nullable=False, default=1.0)
+    revision = Column(Integer, nullable=False, default=1)
+    updated_by_user_id = Column(Integer, ForeignKey("users.user_id"), nullable=True)
+    updated_at = Column(String, nullable=False)
+    __table_args__ = (UniqueConstraint("season_id", "source_kind", "source_id", name="uq_season_coefficient_source"),)
+
+
+class KkrControlEpicORM(Base):
+    __tablename__ = "kkr_control_epics"
+    control_id = Column(String, primary_key=True)
+    season_id = Column(String, ForeignKey("seasons.season_id"), nullable=False, index=True)
+    source_kind = Column(String, nullable=False)
+    source_id = Column(String, nullable=False)
+    task_id = Column(String, ForeignKey("tasks.task_id"), nullable=False, unique=True)
+    queue_id = Column(String, ForeignKey("task_queues.queue_id"), nullable=False)
+    managed_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(String, nullable=False)
+    __table_args__ = (UniqueConstraint("season_id", "source_kind", "source_id", name="uq_kkr_control_source"),)

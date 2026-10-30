@@ -22,7 +22,7 @@ def test_participation_returns_compact_actual_block_roles(client, work, superuse
     own = client.get("/api/participation", headers=superuser.headers).json()["blocks"]
     assert [block["name"] for block in own] == ["Личная команда"]
     assert all(set(block) == {"block_id", "name", "roles"} for block in own)
-    left = client.post(f"/api/blocks/{expected}/leave", headers=w["member"].headers, json={})
+    left = client.delete(f"/api/blocks/{expected}/members/{w['member'].user_id}", headers=w["master"].headers)
     assert left.status_code == 200
     assert client.get("/api/participation", headers=w["member"].headers).json()["blocks"] == []
 

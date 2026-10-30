@@ -9,7 +9,7 @@ describe('Session gates and navigation', () => {
     expect(isActiveSession(createFixtures('archived').session)).toBe(false);
     expect(isActiveSession(createFixtures('organizer').session)).toBe(true);
     expect(can({ capabilities: [] }, 'view_kkr')).toBe(false);
-    expect(can(createFixtures('hr-deputy').session, 'view_kkr')).toBe(false);
+    expect(can(createFixtures('hr-deputy').session, 'view_kkr')).toBe(true);
   });
   it('changes the access identity when an assignment is withdrawn', () => {
     const { session } = createFixtures('leader'); const before = accessFingerprint(session);

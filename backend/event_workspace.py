@@ -31,6 +31,39 @@ def metadata(session, kind, identifier, *, create=False):
     return row
 
 
+def event_closed(session, event_id):
+    """Explicit lifecycle only; neither dates nor a report imply closure."""
+    row = metadata(session, "event", event_id)
+    return bool(row and row.is_closed)
+
+
+def change_event_state(event_id, actor, expected_revision, closed):
+    from registration import now, version
+    from errors import Forbidden
+    action = "event.close" if closed else "event.reopen"
+    if not access.allowed(actor, action, "event", event_id):
+        raise Forbidden("Only the chair and deputies may close or reopen an event")
+    with db.atomic():
+        with db._session() as session:
+            event = session.get(EventORM, event_id)
+            if not event:
+                raise NotFound("Event not found")
+            version(event, expected_revision)
+            row = metadata(session, "event", event_id, create=True)
+            previous = bool(row.is_closed)
+            if previous != closed:
+                row.is_closed = closed
+                row.closed_at = now() if closed else None
+                row.closed_by_user_id = actor if closed else None
+                event.revision += 1
+                audit(session, "event", event_id, actor,
+                      "Закрытие мероприятия" if closed else "Возобновление мероприятия",
+                      {"is_closed": previous}, {"is_closed": closed})
+                session.flush()
+    from main import _to_event_out
+    return _to_event_out(db.get_event(event_id))
+
+
 def schedule(session, kind, owner):
     row = metadata(session, kind, owner.event_id if kind == "event" else owner.subevent_id)
     start = owner.starts_at if kind == "event" else row.starts_at if row else None
@@ -75,6 +108,10 @@ def extension(kind, owner):
     identifier = owner.event_id if kind == "event" else owner.subevent_id
     with db._session() as session:
         result = schedule(session, kind, owner)
+        if kind == "event":
+            row = metadata(session, kind, identifier)
+            result.update(is_closed=bool(row and row.is_closed),
+                          closed_at=row.closed_at if row else None)
         if kind == "subevent":
             row = metadata(session, kind, identifier)
             result["announcement"] = {"format": "markdown", "body": row.announcement if row else ""}
@@ -129,6 +166,14 @@ def assign_hr(identifier, actor, payload):
 
 def register_routes(router):
     from main import TaskPublicOut, CalendarItemOut, SubeventOut
+
+    @router.post("/events/{event_id}/close")
+    def close_event(event_id: str, payload: Revision, cur: User = Depends(get_current_user)):
+        return change_event_state(event_id, cur.user_id, payload.expected_revision, True)
+
+    @router.post("/events/{event_id}/reopen")
+    def reopen_event(event_id: str, payload: Revision, cur: User = Depends(get_current_user)):
+        return change_event_state(event_id, cur.user_id, payload.expected_revision, False)
 
     class ApprovalOut(BaseModel):
         kind: str

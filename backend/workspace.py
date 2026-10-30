@@ -167,6 +167,11 @@ def notifications(uid):
                 e = s.get(EventORM, p["event_id"])
                 allowed = bool(e)
                 target = {"kind": "event", "id": p["event_id"]}
+            elif n.kind == "block_member_removed" and p.get("block_id"):
+                from domain_models import BlockMetaORM
+                meta = s.get(BlockMetaORM, p["block_id"])
+                allowed = bool(meta and access.allowed(uid, "block.remove_member", "block", meta.legacy_name))
+                target = {"kind": "block", "id": p["block_id"]}
             elif p.get("scope_kind") in ("block", "subevent"):
                 allowed = db.can_view_scope(uid, p["scope_kind"], p.get("scope_id"))
                 target = {
@@ -183,12 +188,19 @@ def notifications(uid):
                     kind=n.kind if allowed else "access_revoked",
                     text=(
                         (
-                            p.get("title")
+                            ({
+                                "task_mention": "Вас призвали в задачу: ",
+                                "task_mention_access_request": "Запрос доступа по призыву: ",
+                                "task_mention_access_approved": "Открыт доступ к задаче: ",
+                            }.get(n.kind, "") + (p.get("title") or "Задача"))
+                            if n.kind in {"task_mention", "task_mention_access_request", "task_mention_access_approved"}
+                            else p.get("title")
                             or {
                                 "task_assignment": "Вам назначена задача",
                                 "task_help_required": "Требуется помощь",
                                 "task_status_changed": "Изменён статус задачи",
                                 "block_left": "Участник вышел из блока",
+                                "block_member_removed": "Участник исключён из блока",
                                 "pgas_document.created": "Добавлен документ для ПГАС",
                             }.get(n.kind, "Изменение рабочего объекта")
                         )
@@ -309,7 +321,7 @@ def calendar(uid, start, end, *, mine=True, watching=False, kind=None, season_id
     from datetime import timedelta
     from event_workspace import schedule
     from membership import scope_out, legacy_name
-    from tracker import ACTIVE
+    from tracker import PUBLIC_ACTIVE, public_status
 
     lower, upper = dt(start), dt(end)
     needle = q.strip().casefold()
@@ -348,7 +360,7 @@ def calendar(uid, start, end, *, mine=True, watching=False, kind=None, season_id
                     continue
                 if mine and not (uid in task.assignee_ids or watching and uid in task.watcher_ids):
                     continue
-                if status and task.status != status or not status and task.status not in ACTIVE:
+                if status and task.status != public_status(status) or not status and task.status not in PUBLIC_ACTIVE:
                     continue
                 if wanted_block and (task.scope.kind != "block" or task.scope.id != wanted_block):
                     continue
@@ -363,13 +375,14 @@ def calendar(uid, start, end, *, mine=True, watching=False, kind=None, season_id
                 selected = index.readable(selected)
             for task in selected:
                 sub = session.get(SubeventORM, task.scope.id) if task.scope.kind == "subevent" else None
-                if event_id and (not sub or sub.event_id != event_id):
+                task_event_id = sub.event_id if sub else task.scope.id if task.scope.kind == "event" else None
+                if event_id and task_event_id != event_id:
                     continue
                 accept(dict(id="task-" + task.task_id, season_id=task.season_id, kind="task_deadline",
                             title=task.title, task_key=task.task_key, starts_at=task.deadline_at,
                             ends_at=None, all_day=False, target=dict(kind="task", id=task.task_id),
                             scope=scope_out(task.scope), queue=task.queue, status=task.status,
-                            event_id=sub.event_id if sub else None))
+                            event_id=task_event_id))
         if not block_id and not queue_id:
             for meeting in session.query(MeetingORM):
                 sub = session.get(SubeventORM, meeting.owner_id) if meeting.owner_kind == "subevent" else None
@@ -404,7 +417,7 @@ def home(uid, *, watching=False):
     import main
     from zoneinfo import ZoneInfo
     from datetime import time, timedelta
-    from tracker import ACTIVE
+    from tracker import PUBLIC_ACTIVE
     from task_reads import TaskIndex
     from membership import requests_for, block_id_for
     from database import TaskQueueRequestORM, TaskQueueORM, BlockORM
@@ -418,7 +431,7 @@ def home(uid, *, watching=False):
     with db._session() as session:
         index = TaskIndex(session, uid)
         personal = index.readable([task for task in index.entries if index.live(task)
-            and task.status in ACTIVE and (uid in task.assignee_ids or watching and uid in task.watcher_ids)])
+            and task.status in PUBLIC_ACTIVE and (uid in task.assignee_ids or watching and uid in task.watcher_ids)])
         undated = [task for task in personal if not task.deadline_at]
         dated = sorted((task for task in personal if task.deadline_at), key=lambda task: (dt(task.deadline_at), task.task_id))
         overdue = [task for task in dated if dt(task.deadline_at) < current]
@@ -442,25 +455,9 @@ def home(uid, *, watching=False):
                 else:
                     approvals.append(dict(kind="queue_access", title=queue.name, count=1,
                                           queue_id=queue.queue_id, to="/tasks/queues/" + queue.queue_id))
+        # The personal home no longer contains completed-work entry shortcuts.
+        # Keep the compatible field, without hydrating every team merely to hide it.
         merits = []
-        # This widget needs only the permitted creation targets, not full block
-        # cards (member profiles/guides) or full event leadership projections.
-        for block in session.query(BlockORM).order_by(BlockORM.name):
-            if access.allowed(uid, "merit.create.block_volunteer", "block", block.name):
-                merits.append(dict(title=block.name, to="/merits?source_kind=block_volunteer&scope_id=" + block_id_for(block.name)))
-        children = {}
-        for sub in session.query(SubeventORM):
-            children.setdefault(sub.event_id, []).append(sub)
-        for event in session.query(EventORM):
-            if not live(event.season_id):
-                continue
-            if access.allowed(uid, "merit.create.head", "event", event.event_id):
-                merits.append(dict(title=event.title, to="/merits?source_kind=head_merit&scope_id=" + event.event_id))
-            for sub in children.get(event.event_id, []):
-                if access.allowed(uid, "merit.create.subevent_volunteer", "subevent", sub.subevent_id):
-                    merits.append(dict(title=sub.title, to="/merits?source_kind=subevent_volunteer&scope_id=" + sub.subevent_id))
-        if access.allowed(uid, "merit.create.chair"):
-            merits.insert(0, dict(title="Особые заслуги председателя", to="/merits?source_kind=chair_merit"))
         index.prepare(upcoming[:5] + overdue[:5])
         return dict(today=day.isoformat(),
                     agenda=calendar(uid, start.isoformat(), end.isoformat(), watching=watching, _task_entries=personal),

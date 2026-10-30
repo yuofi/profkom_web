@@ -2,7 +2,7 @@
 import { Route, Routes } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
-import { mountWorkspace, settle } from "../../test/workspace";
+import { mountWorkspace, settle, waitForPage } from "../../test/workspace";
 import { createFixtures } from "../../mocks/fixtures";
 import { DashboardPage } from "./WorkspacePages";
 import { EventPage } from "./EventPages";
@@ -19,8 +19,8 @@ it("the personal home uses server-authorized approvals without inferring them fr
   const plain = { ...createFixtures("organizer").session, capabilities: [], assignments: [] };
   mock.state.requests = [];
   page = await mountWorkspace(<DashboardPage />, { role: "organizer", session: plain });
-  await settle(); await settle();
-  expect(page.container.querySelector('a[href="/tasks?mine=true"]')?.textContent).toBe("Мои задачи");
+  await waitForPage(page);
+  expect(page.container.querySelector('a[href="/tasks?mine=true"]')).toBeNull();
   expect(page.container.textContent).not.toContain("Требуют решения");
   expect(links(page.container)).not.toContain("Рассмотреть заявки");
   await page.cleanup(); mock.restore();

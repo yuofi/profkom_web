@@ -20,6 +20,7 @@ from database import (db, SeasonORM, SeasonSummaryORM, AssignmentORM, TaskORM,
 from domain_models import BlockMetaORM, SummaryVersionORM, AccountArchiveORM
 from errors import Forbidden, NotFound
 from models import User
+from season_coefficients import weighted_score
 
 MOSCOW = timezone(timedelta(hours=3))
 BLOCK_SOURCES = {"block_task", "block_volunteer", "master_bonus"}
@@ -57,10 +58,12 @@ def _block_maps(session):
 
 def _facts(session, tasks, assignments, contributions, merits, participant_ids, block_ids):
     """Only accounting facts, without titles/names/notes/private raw audit."""
+    from domain_models import KkrControlEpicORM
+    control_ids = {r.task_id for r in session.query(KkrControlEpicORM)}
     accepted = []
     for assignment in assignments:
         task = tasks.get(assignment.task_id)
-        if not task or task.scope_kind not in ("block", "subevent") or assignment.status != "accepted" or assignment.evaluation is None:
+        if not task or task.task_id in control_ids or task.scope_kind not in ("block", "subevent", "event", "chair") or assignment.status != "accepted" or assignment.evaluation is None:
             continue
         accepted.append(dict(task_id=task.task_id,
             participant_id=participant_ids.get(assignment.assignee_user_id, "participant-" + str(assignment.assignee_user_id)),
@@ -245,11 +248,11 @@ def analytics(season_id, uid, participant_id=None, block_id=None):
                 raw_credits = [row for row in contributions if row.season_id == season.season_id]
                 credits = [dict(contribution_id=row.contribution_id, participant_id=row.participant_id,
                     source_kind=row.source_kind, source_id=block_ids.get(row.source_id, row.source_id) if row.source_kind in BLOCK_SOURCES else row.source_id,
-                    score=row.score) for row in raw_credits]
+                    score=weighted_score(session, season.season_id, row.source_kind, row.source_id, row.score)) for row in raw_credits]
                 facts = _facts(session, season_tasks, season_assignments, raw_credits,
                     [row for row in merits if row.season_id == season.season_id], participant_ids, block_ids)
                 basis = dict(kind="current_ledger", version=None, approved_at=None)
-                visible_participants.update(participant_ids[row.assignee_user_id] for row in season_assignments if tasks[row.task_id].scope_kind in ("block", "subevent"))
+                visible_participants.update(participant_ids[row.assignee_user_id] for row in season_assignments if tasks[row.task_id].scope_kind in ("block", "subevent", "event", "chair"))
             # Versions from before stable block IDs may still use their legacy
             # source name. Normalize this read projection, never the saved JSON.
             for credit in credits:

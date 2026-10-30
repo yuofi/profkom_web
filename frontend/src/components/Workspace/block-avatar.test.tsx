@@ -15,7 +15,8 @@ import { BlockAvatarPicker } from "./BlockAvatarPicker";
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let transport: ReturnType<typeof installMockTransport> | undefined;
 afterEach(async () => { await page?.cleanup();page = undefined;transport?.restore();transport = undefined;vi.restoreAllMocks(); });
-async function mount() { transport = installMockTransport("chair", { delay: 0 });const block = transport.state.blocks[0];page = await mountWorkspace(<BlockAvatarPicker block={block} />);return block; }
+async function openEditor() { await act(async () => page!.container.querySelector<HTMLButtonElement>('button[aria-label="Изменить аватар блока"]')!.click()); }
+async function mount() { transport = installMockTransport("chair", { delay: 0 });const block = transport.state.blocks[0];page = await mountWorkspace(<BlockAvatarPicker block={block} />);expect(page.container.querySelector('input[type="file"]')).toBeNull();await openEditor();return block; }
 async function choose(name = "block.png") {
   const input = page!.container.querySelector<HTMLInputElement>('input[type="file"]')!, file = new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], name, { type: "image/png" });
   await act(async () => { Object.defineProperty(input, "files", { configurable: true, value: [file] });input.dispatchEvent(new Event("change", { bubbles: true })); });await waitForPage(page!, () => !!page!.container.textContent?.includes(`Выбрано: ${name}`));return file;
@@ -30,6 +31,7 @@ it("uploads a completed contextual draft then explicitly saves and clears it wit
   const file = await choose();expect(upload).toHaveBeenCalledWith(file, { owner_kind: "block", owner_id: block.block_id, purpose: "avatar" }, expect.any(Function), expect.any(AbortSignal));expect(save).not.toHaveBeenCalled();
   const completed = await upload.mock.results[0].value;await submit(page!.container.querySelector("form")!);await waitForPage(page!);
   expect(save).toHaveBeenLastCalledWith(block.block_id, { expected_revision: revision, avatar_file_id: completed.file_id });expect(block.avatar_url).toBe(`/api/files/${completed.file_id}/content`);
+  expect(page!.container.querySelector("dialog")).toBeNull();await openEditor();
   await act(async () => button("Убрать аватар").click());await submit(page!.container.querySelector("form")!);await waitForPage(page!);
   expect(save).toHaveBeenLastCalledWith(block.block_id, { expected_revision: revision + 1, avatar_file_id: null });expect(block.avatar_url).toBeNull();
 });
@@ -56,8 +58,9 @@ it("leaving with a completed avatar draft offers the shared guard and discard ne
   const router = createMemoryRouter([{ element: <UnsavedChangesProvider><Outlet /></UnsavedChangesProvider>, children: [{ path: "/edit", element: <><BlockAvatarPicker block={block} /><Link to="/next">Дальше</Link></> }, { path: "/next", element: <p>Другая страница</p> }] }], { initialEntries: ["/edit"] });
   await act(async () => root.render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>));
   page = { container, client, cleanup: async () => { await act(async () => root.unmount());router.dispose();client.clear();container.remove(); } };
+  await openEditor();
   await choose("draft.png");await act(async () => container.querySelector<HTMLAnchorElement>("a")!.click());
-  expect(router.state.location.pathname).toBe("/edit");expect(container.querySelector("dialog")?.textContent).toContain("Есть несохранённые изменения");
+  expect(router.state.location.pathname).toBe("/edit");expect([...container.querySelectorAll("dialog")].some(dialog => dialog.textContent?.includes("Есть несохранённые изменения"))).toBe(true);
   await act(async () => button("Остаться").click());expect(container.textContent).toContain("Выбрано: draft.png");
   await act(async () => container.querySelector<HTMLAnchorElement>("a")!.click());await act(async () => button("Уйти без сохранения").click());
   expect(router.state.location.pathname).toBe("/next");expect(save).not.toHaveBeenCalled();expect(block.avatar_url).toBe(avatarBefore);

@@ -30,9 +30,9 @@ function largeSummary(): SeasonSummary {
   return summary;
 }
 
-async function mountParticipants(otherEditor = false, renderBudget = 200) {
+async function mountParticipants(otherEditor = false, renderBudget = 200, approved = true) {
   const transport = installMockTransport("chair", { delay: 0 });
-  const summary = largeSummary(), read = vi.spyOn(seasonsApi, "summary").mockImplementation(async () => structuredClone(summary));
+  const summary = largeSummary();summary.state = approved ? "approved" : "draft";const read = vi.spyOn(seasonsApi, "summary").mockImplementation(async () => structuredClone(summary));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: Infinity } } });
   const container = document.createElement("div");document.body.append(container);const root = createRoot(container);
   let commits = 0;
@@ -50,11 +50,14 @@ function rowFor(container: HTMLElement, label: string) {
   const row = [...container.querySelectorAll<HTMLTableRowElement>("tbody tr")].find(row => row.textContent?.includes(label));
   expect(row, label).toBeDefined();return row!;
 }
-async function openDecision(page: Awaited<ReturnType<typeof mountParticipants>>, label = "Синтетический участник 000") {
-  const row = rowFor(page.container, label), disclosure = row.querySelector("details")!;
-  if (!disclosure.open) await act(async () => disclosure.querySelector("summary")!.click());await waitForPage(page, () => !!row.querySelector('input[name="reason"]'));
-  return { row, disclosure, form: row.querySelector("form")! };
+const popup=()=>document.querySelector<HTMLElement>('[data-anchored-popover]')!;
+async function openDecision(page:Awaited<ReturnType<typeof mountParticipants>>,label='Синтетический участник 000') {
+ const tableRow=rowFor(page.container,label),disclosure=tableRow.querySelector<HTMLButtonElement>('button[aria-label^="Изменить отметки:"]')!;
+ if(disclosure.getAttribute('aria-expanded')!=='true')await act(async()=>disclosure.click());
+ await waitForPage(page,()=>!!popup()?.querySelector('input[name="reason"]'));
+ return {row:popup(),disclosure,form:popup().querySelector('form')!};
 }
+
 function dialogButton(container: HTMLElement, label: string) {
   const button = [...container.querySelectorAll<HTMLButtonElement>("dialog button")].find(button => button.textContent === label);expect(button, label).toBeDefined();return button!;
 }
@@ -84,22 +87,22 @@ it("retains a dirty decision when a participant filter would hide its row", asyn
   } else {
     await change(field(page.container, "category"), "");await waitForPage(page);
   }
-  row = rowFor(page.container, "Синтетический участник 000");
+  row = popup();
   expect(field(row, "reason").value).toBe("Несохранённое основание");
   expect(row.querySelector<HTMLInputElement>('input[name="decisions"][value="nice"]')?.checked).toBe(true);
 });
 
 it("keeps the only dirty editor open on cancelled close and retains it through stable-row sorting", async () => {
-  const page = await mountParticipants();expect(page.container.querySelectorAll("tbody form")).toHaveLength(0);
-  const { row, disclosure, form } = await openDecision(page);expect(page.container.querySelectorAll("tbody form")).toHaveLength(1);
+  const page = await mountParticipants();expect(document.querySelectorAll("[data-anchored-popover] form")).toHaveLength(0);
+  const { row, disclosure, form } = await openDecision(page);expect(document.querySelectorAll("[data-anchored-popover] form")).toHaveLength(1);
   await pick(row, "decisions", "nice");await change(field(form, "reason"), "Черновик свёрнутого редактора");
-  await act(async () => disclosure.querySelector("summary")!.click());await waitForPage(page);
-  expect(disclosure.open).toBe(true);expect(page.container.querySelector("dialog")?.textContent).toContain("Есть несохранённые изменения");
+  await act(async () => disclosure.click());await waitForPage(page);
+  expect(disclosure.getAttribute("aria-expanded")).toBe("true");expect(page.container.querySelector("dialog")?.textContent).toContain("Есть несохранённые изменения");
   await act(async () => dialogButton(page.container, "Остаться").click());await waitForPage(page);
   expect(form.isConnected).toBe(true);expect(field(form, "reason").value).toBe("Черновик свёрнутого редактора");
   await change(page.container.querySelector<HTMLSelectElement>('select[aria-label="Порядок"]')!, "score-asc");await waitForPage(page);
   expect(page.container.querySelector("dialog")).toBeNull();expect(form.isConnected).toBe(true);
-  expect(field(form, "reason").value).toBe("Черновик свёрнутого редактора");expect(page.container.querySelectorAll("tbody form")).toHaveLength(1);
+  expect(field(form, "reason").value).toBe("Черновик свёрнутого редактора");expect(document.querySelectorAll("[data-anchored-popover] form")).toHaveLength(1);
 });
 
 it.each(["search", "block", "category", "master", "archived", "marks"] as const)("guards the %s filter while a decision is dirty and keeps its old value on stay", async filter => {
@@ -120,7 +123,7 @@ it("applies a filter only after explicitly discarding that season's decision dra
   await act(async () => dialogButton(page.container, "Уйти без сохранения").click());await waitForPage(page);
   expect(field(page.container, "category").value).toBe("junior");expect(page.container.querySelectorAll("tbody tr")).toHaveLength(50);expect(form.isConnected).toBe(false);
   expect(page.transport.adapter.history.put).toHaveLength(0);await change(field(page.container, "category"), "");await waitForPage(page);
-  expect(page.container.querySelectorAll("tbody form")).toHaveLength(0);
+  expect(document.querySelectorAll("[data-anchored-popover] form")).toHaveLength(0);
   const again = await openDecision(page);expect(field(again.form, "reason").value).toBe("");expect(again.form.querySelector<HTMLInputElement>('input[value="nice"]')?.checked).toBe(false);
 });
 
@@ -160,47 +163,58 @@ it("saves the first draft before switching to the next editor and uses the refre
   });
   await pick(first.row, "decisions", "nice");await change(field(first.form, "reason"), "Первая отметка");
   const nextRow = rowFor(page.container, "Синтетический участник 001");
-  await act(async () => nextRow.querySelector("summary")!.click());await waitForPage(page);
+  await act(async () => nextRow.querySelector<HTMLButtonElement>('button[aria-label^="Изменить отметки:"]')!.click());await waitForPage(page);
   await act(async () => dialogButton(page.container, "Остаться").click());await waitForPage(page);
   expect(first.form.isConnected).toBe(true);expect(nextRow.querySelector("form")).toBeNull();expect(field(first.form, "reason").value).toBe("Первая отметка");
-  await act(async () => nextRow.querySelector("summary")!.click());await waitForPage(page);
-  await act(async () => dialogButton(page.container, "Сохранить и перейти").click());await waitForPage(page, () => !!nextRow.querySelector("form"));
-  const second = { row: nextRow, form: nextRow.querySelector("form")! };expect(first.form.isConnected).toBe(false);expect(page.container.querySelectorAll("tbody form")).toHaveLength(1);
+  await act(async () => nextRow.querySelector<HTMLButtonElement>('button[aria-label^="Изменить отметки:"]')!.click());await waitForPage(page);
+  await act(async () => dialogButton(page.container, "Сохранить и перейти").click());await waitForPage(page, () => !!popup()?.querySelector("form") && popup().textContent?.includes("участник 001")===true);
+  const second = { row: popup(), form: popup().querySelector("form")! };expect(first.form.isConnected).toBe(false);expect(document.querySelectorAll("[data-anchored-popover] form")).toHaveLength(1);
   await pick(second.row, "decisions", "kick_warning");await change(field(second.form, "reason"), "Вторая отметка");
   await submit(second.form);await waitForPage(page);expect(save).toHaveBeenCalledTimes(2);
   expect(save.mock.calls.map(([, userId, values]) => ({ userId, version: values.expected_version }))).toEqual([{ userId: 9000, version: 1 }, { userId: 9001, version: 2 }]);
   expect(page.summary.version).toBe(3);expect(page.summary.rows[0].decisions).toEqual(["nice"]);expect(page.summary.rows[1].decisions).toEqual(["kick_warning"]);
-  expect(page.container.querySelectorAll("tbody form")).toHaveLength(1);
+  expect(document.querySelectorAll("[data-anchored-popover] form")).toHaveLength(1);
 });
 
 it("visits a hundred decision disclosures without accumulating hidden forms", async () => {
-  const page = await mountParticipants(false, 1000);expect(page.container.querySelectorAll("tbody form")).toHaveLength(0);
+  const page = await mountParticipants(false, 1000);expect(document.querySelectorAll("[data-anchored-popover] form")).toHaveLength(0);
   for (let index = 0; index < 100; index++) {
     const { disclosure } = await openDecision(page, `Синтетический участник ${index.toString().padStart(3, "0")}`);
-    expect(disclosure.open).toBe(true);expect(page.container.querySelectorAll("tbody form")).toHaveLength(1);
-    expect(page.container.querySelectorAll("tbody details[open]")).toHaveLength(1);
+    expect(disclosure.getAttribute("aria-expanded")).toBe("true");expect(document.querySelectorAll("[data-anchored-popover] form")).toHaveLength(1);
+    expect(document.querySelectorAll("[data-anchored-popover]")).toHaveLength(1);
   }
-  const last = rowFor(page.container, "Синтетический участник 099");await act(async () => last.querySelector("summary")!.click());await waitForPage(page);
-  expect(page.container.querySelectorAll("tbody form")).toHaveLength(0);expect(page.container.querySelectorAll("tbody details[open]")).toHaveLength(0);
+  const last = rowFor(page.container, "Синтетический участник 099");await act(async () => last.querySelector<HTMLButtonElement>('button[aria-label^="Изменить отметки:"]')!.click());await waitForPage(page);
+  expect(document.querySelectorAll("[data-anchored-popover] form")).toHaveLength(0);expect(document.querySelectorAll("[data-anchored-popover]")).toHaveLength(0);
   expect(page.container.querySelector("dialog")).toBeNull();expect(page.commits()).toBeLessThan(1000);expect(page.read).toHaveBeenCalledTimes(1);
 }, 15000);
 
 it("discards a draft only after explicit confirmation when switching to another participant", async () => {
   const page = await mountParticipants(), first = await openDecision(page), save = vi.spyOn(seasonsApi, "decisions");
   await pick(first.row, "decisions", "nice");await change(field(first.form, "reason"), "Явно отбрасываемый черновик");
-  const next = rowFor(page.container, "Синтетический участник 001");await act(async () => next.querySelector("summary")!.click());await waitForPage(page);
+  const next = rowFor(page.container, "Синтетический участник 001");await act(async () => next.querySelector<HTMLButtonElement>('button[aria-label^="Изменить отметки:"]')!.click());await waitForPage(page);
   expect(first.form.isConnected).toBe(true);await act(async () => dialogButton(page.container, "Уйти без сохранения").click());await waitForPage(page);
-  expect(first.form.isConnected).toBe(false);expect(next.querySelector("form")).not.toBeNull();expect(save).not.toHaveBeenCalled();
-  await openDecision(page);expect(field(first.row, "reason").value).toBe("");expect(first.row.querySelector<HTMLInputElement>('input[value="nice"]')?.checked).toBe(false);
+  expect(first.form.isConnected).toBe(false);expect(popup()?.querySelector("form")).not.toBeNull();expect(save).not.toHaveBeenCalled();
+  const reopened=await openDecision(page);expect(field(reopened.row,"reason").value).toBe("");expect(reopened.row.querySelector<HTMLInputElement>('input[value="nice"]')?.checked).toBe(false);
 });
 
 it("closes a clean editor and reopens with the current server values and version", async () => {
   const page = await mountParticipants(), first = await openDecision(page);
-  await act(async () => first.disclosure.querySelector("summary")!.click());await waitForPage(page);expect(first.form.isConnected).toBe(false);
+  await act(async () => first.disclosure.click());await waitForPage(page);expect(first.form.isConnected).toBe(false);
   page.summary.rows[0].decisions = ["kick"];page.summary.version = 7;
   await act(async () => { await page.client.invalidateQueries({ queryKey: ["summary", "season-1"] }); });await waitForPage(page);
   const reopened = await openDecision(page);expect(reopened.form.querySelector<HTMLInputElement>('input[value="kick"]')?.checked).toBe(true);
   const save = vi.spyOn(seasonsApi, "decisions").mockImplementation(async (_id, _userId, values) => { expect(values.expected_version).toBe(7);page.summary.version = 8;return structuredClone(page.summary); });
   await change(field(reopened.form, "reason"), "Подтверждаем актуальные отметки");await submit(reopened.form);await waitForPage(page);
   expect(save).toHaveBeenCalledExactlyOnceWith("season-1", 9000, { expected_version: 7, decisions: ["kick"], reason: "Подтверждаем актуальные отметки" });
+});
+
+it("open-season mark clicks save immediately without allocating editors or refetching the complete summary", async () => {
+ const page=await mountParticipants(false,200,false);
+ const save=vi.spyOn(seasonsApi,"decisions").mockImplementation(async(_sid,uid,data)=>{page.summary.rows.find(row=>row.user.user_id===uid)!.decisions=data.decisions;page.summary.version++;return structuredClone(page.summary);});
+ const row=rowFor(page.container,"Синтетический участник 000");
+ await act(async()=>row.querySelector<HTMLButtonElement>('button[aria-label^="Изменить отметки:"]')!.click());await waitForPage(page,()=>!!popup());
+ await act(async()=>[...popup().querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Найс')!.click());await waitForPage(page);
+ expect(save).toHaveBeenCalledExactlyOnceWith('season-1',9000,{expected_version:1,decisions:['nice']});
+ expect(page.container.querySelectorAll('tbody form')).toHaveLength(0);expect(page.read).toHaveBeenCalledTimes(1);expect(page.commits()).toBeLessThan(200);
+ expect([...popup().querySelectorAll('button')].find(button=>button.textContent==='Найс')?.getAttribute('aria-pressed')).toBe('true');
 });

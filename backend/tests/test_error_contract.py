@@ -110,20 +110,22 @@ def test_closed_season_refuses_by_role_and_by_state(org):
     assert org.req("GET", f"/tasks/{org.ids['task_closed']}")["revision"] == task["revision"]
 
 
-def test_hr_deputy_tracker_read_does_not_grant_private_inputs_or_title_edit(org):
-    """Tracker visibility and private accounting permissions are separate decisions."""
+def test_hr_deputy_has_approved_global_accounting_and_public_edit_rights(org):
+    """New HR deputy rights preserve missing-object and closed-season boundaries."""
     task_id = org.ids["task_sub"]
     before = org.req("GET", f"/tasks/{task_id}", who="hrdeputy")
-    assert "view_assessment_inputs" not in before["capabilities"]
-    assert "edit_task" not in before["capabilities"]
-    assert refused(org, "hrdeputy", "PATCH", f"/tasks/{task_id}",
-                   {"expected_revision": before["revision"], "title": "Запрещено"})[:2] == (403, "forbidden")
-    assert refused(org, "hrdeputy", "GET", f"/tasks/{task_id}/assessment-inputs")[:2] == (403, "forbidden")
+    assert {"view_assessment_inputs", "edit_task"} <= set(before["capabilities"])
+    updated = org.req("PATCH", f"/tasks/{task_id}",
+                      {"expected_revision": before["revision"], "title": "Уточнено HR"}, "hrdeputy")
+    assert updated["title"] == "Уточнено HR"
+    assert org.req("GET", f"/tasks/{task_id}/assessment-inputs", who="hrdeputy")["task_id"] == task_id
     assert refused(org, "hrdeputy", "PATCH", "/tasks/task-missing",
                    {"expected_revision": before["revision"], "title": "Нет задачи"})[:2] == (404, "not_found")
     assert refused(org, "hrdeputy", "GET", "/tasks/task-missing/assessment-inputs")[:2] == (404, "not_found")
     after = org.req("GET", f"/tasks/{task_id}", who="hrdeputy")
-    assert after == before
+    assert after == updated
+    org.req("PATCH", f"/tasks/{task_id}",
+            {"expected_revision": after["revision"], "title": before["title"]}, "hrdeputy")
 
 
 def test_upload_to_a_missing_owner_is_not_found(org):

@@ -18,7 +18,7 @@ export function TrackerParentSelector({ value, onChange, seasonId, taskId, initi
   const [open, setOpen] = useState(false), [search, setSearch] = useState(""), [active, setActive] = useState(0);
   const selected = useQuery({ queryKey: ["tasks", value], queryFn: () => tasksApi.get(value), enabled: !!value });
   const query = useQuery({ queryKey: ["tasks", "parent-combobox", seasonId === null ? "without-season" : seasonId ?? "", taskId ?? "", taskType ?? "", search], queryFn: () => tasksApi.listPage({ ...(seasonId ? { season_id: seasonId } : {}), q: search || undefined, ...(taskType ? { task_type: taskType } : {}), limit: 100 }), enabled: open && !disabled });
-  const options = (query.error && !canRetainData(query.error) ? [] : query.data?.items ?? []).filter(task => task.task_id !== taskId && (seasonId === undefined || task.season_id === seasonId) && (!taskType || task.task_type === taskType));
+  const options = (query.error && !canRetainData(query.error) ? [] : query.data?.items ?? []).filter(task => task.queue?.key!=="KKR" && task.task_id !== taskId && (seasonId === undefined || task.season_id === seasonId) && (!taskType || task.task_type === taskType));
   const refused = !!selected.error && !canRetainData(selected.error);
   const parent = refused ? null : selected.data?.task_id === value ? selected.data : selected.isLoading && picked?.task_id === value ? picked : initialParent?.task_id === value ? initialParent : null;
   const selectedLabel = value ? parent ? label(parent) : selected.isLoading ? "Загрузка задачи…" : "Недоступная задача" : "";

@@ -18,6 +18,7 @@ export const taskQueuesApi = {
   create: (data: { name: string; key: string; scope?: ScopeRef | null; owner_user_id?: number; is_private: boolean }) => request<TaskQueue>("post", "/task-queues", { ...data, scope: data.scope ? { kind: data.scope.kind, id: data.scope.id } : null }),
   update: (id: string, data: Revision & { name?: string; owner_user_id?: number; is_private?: boolean }) => request<TaskQueue>("patch", `/task-queues/${idPath(id)}`, data),
   requestAccess: (id: string, message: string) => request<TaskQueue>("post", `/task-queues/${idPath(id)}/access-requests`, { message }),
+  cancelAccess: (id: string, requestId: string, expected_revision: number) => request<TaskQueue>("post", `/task-queues/${idPath(id)}/access-requests/${idPath(requestId)}/cancel`, { expected_revision }),
   requests: (id: string): Promise<Page<TaskQueueAccessRequest>> => allPages(`/task-queues/${idPath(id)}/access-requests`),
   decide: (id: string, requestId: string, decision: "approve" | "reject", expected_revision: number) => request<TaskQueueAccessRequest>("post", `/task-queues/${idPath(id)}/access-requests/${idPath(requestId)}/${decision}`, { expected_revision }),
   revoke: (id: string, userId: number, expected_revision: number) => request<TaskQueueAccessRequest>("post", `/task-queues/${idPath(id)}/members/${idPath(userId)}/revoke`, { expected_revision }),

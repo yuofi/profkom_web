@@ -1,4 +1,5 @@
 /** Development/test transport. Synthetic state is discarded on reload; no KKR calculations. */
+import { publicStatus } from "../pages/Workspace/trackerStatus";
 import axios, { type AxiosRequestConfig } from "axios";
 import MockAdapter from "axios-mock-adapter";
 import { api } from "../utils/api";
@@ -7,6 +8,7 @@ import { profileFeatureMock } from "./profileFeatures";
 import {
   richText,
   type AssignmentStatus,
+  type TaskPublicStatus,
   type Event,
   type Subevent,
   type Task,
@@ -14,10 +16,12 @@ import {
   type TaskHistoryEvent,
   type TaskHistoryChange,
   type TaskQueue,
+  type TaskQueueCatalog,
   type TaskQueueAccessRequest,
   type TaskChecklistItem,
   type TaskLinkKind,
   type TrackerTaskRef,
+  type TaskMentionRequest,
   type Report,
   type ReportVersion,
   type Material,
@@ -148,6 +152,30 @@ export function installMockTransport(
     status: "pending" as typeof state.registration.status,
     capabilities: ["reset_registration_limit"],
   };
+  // Public profile projection: current team identities/roles only. Never copy
+  // task, private accounting or target-user capabilities into this resource.
+  const participantTeams = (uid: number) => ({
+    blocks: state.blocks.flatMap(block => {
+      const roles: ParticipationRole[] = [];
+      if (block.master?.user.user_id === uid) roles.push("master");
+      if (block.master?.deputy_user_ids.includes(uid)) roles.push("deputy_master");
+      if (block.members.some(member => member.user.user_id === uid)) roles.push("member");
+      return roles.length ? [{ block_id: block.block_id, name: block.name, roles }] : [];
+    }),
+    events: state.events.flatMap(event => {
+      if (state.seasons.find(season => season.season_id === event.season_id)?.state === "closed") return [];
+      const roles: ParticipationRole[] = [];
+      if (event.leaders.some(leader => leader.user.user_id === uid)) roles.push("event_leader");
+      if (event.leaders.some(leader => leader.deputy_user_ids.includes(uid))) roles.push("event_deputy");
+      for (const subevent of state.subevents.filter(item => item.event_id === event.event_id)) {
+        if (subevent.leaders.some(leader => leader.user.user_id === uid)) roles.push("subevent_leader");
+        if (subevent.leaders.some(leader => leader.deputy_user_ids.includes(uid))) roles.push("subevent_deputy");
+        if (subevent.organizer_user_ids.includes(uid)) roles.push("organizer");
+        if (subevent.hr?.user_id === uid) roles.push("subevent_hr");
+      }
+      return roles.length ? [{ event_id: event.event_id, title: event.title, season_id: event.season_id, roles: [...new Set(roles)] }] : [];
+    }),
+  });
   const requestCapabilities = (r: (typeof state.requests)[number]) => {
     if (!["pending_hr", "pending_block"].includes(r.state)) return [];
     const expired =
@@ -215,13 +243,26 @@ export function installMockTransport(
               b.master?.deputy_user_ids.includes(state.session.user_id)),
         );
   const queueRequests: (TaskQueueAccessRequest & { queue_id: string })[] = [];
+  const mentionRequests:TaskMentionRequest[]=[];const taskGrants=new Map<string,Set<number>>();
   const trackerAdmin = ["chair", "chair-deputy", "hr", "hr-deputy"].includes(role);
-  const readsQueue = (queue: TaskQueue) => trackerAdmin || (!queue.scope || readsScopeTask({ scope: queue.scope } as Task)) && (!queue.is_private || queue.owner?.user_id === state.session.user_id || queueRequests.some(r => r.queue_id === queue.queue_id && r.user.user_id === state.session.user_id && r.status === "approved"));
-  const readsTask = (task: Task) => task.queue && state.queues.some(q => q.queue_id === task.queue!.queue_id) ? readsQueue(state.queues.find(q => q.queue_id === task.queue!.queue_id)!) : trackerAdmin || readsScopeTask(task);
+  const queueCreateScopes = (): NonNullable<TaskQueueCatalog["create_scopes"]> => {
+    if (state.session.account_state !== "active" || state.session.registration_status !== "approved") return [];
+    const all = state.chair || role === "chair-deputy", uid = state.session.user_id;
+    const leads = (leaders: Event["leaders"]) => leaders.some(leader => leader.user.user_id === uid || leader.deputy_user_ids.includes(uid));
+    const eventLead = (id: string) => state.events.some(event => event.event_id === id && leads(event.leaders));
+    return [
+      ...(all ? [{ kind: "chair" as const, id: "chair", title: "Председатель" }] : []),
+      ...state.events.filter(event => all || leads(event.leaders)).map(event => ({ kind: "event" as const, id: event.event_id, title: event.title })),
+      ...state.blocks.filter(block => all || block.master && leads([block.master])).map(block => ({ kind: "block" as const, id: block.block_id, title: block.name })),
+      ...state.subevents.filter(subevent => all || leads(subevent.leaders) || eventLead(subevent.event_id)).map(subevent => ({ kind: "subevent" as const, id: subevent.subevent_id, title: subevent.title })),
+    ];
+  };
+  const readsQueue = (queue: TaskQueue) => trackerAdmin || queue.owner?.user_id === state.session.user_id || queueRequests.some(r => r.queue_id === queue.queue_id && r.user.user_id === state.session.user_id && r.status === "approved") || (!queue.scope || readsScopeTask({ scope: queue.scope } as Task)) && !queue.is_private;
+  const readsTask = (task: Task) => !!taskGrants.get(task.task_id)?.has(state.session.user_id) || (task.queue && state.queues.some(q => q.queue_id === task.queue!.queue_id) ? readsQueue(state.queues.find(q => q.queue_id === task.queue!.queue_id)!) : trackerAdmin || readsScopeTask(task));
   const visibleQueue = (queue: TaskQueue, includeAssignable = true): TaskQueue => {
-    const own = queueRequests.find(r => r.queue_id === queue.queue_id && r.user.user_id === state.session.user_id);
+    const own = queueRequests.filter(r => r.queue_id === queue.queue_id && r.user.user_id === state.session.user_id).at(-1);
     const access_request_status = own?.status === "revoked" ? null : own?.status ?? null;
-    if (!readsQueue(queue)) return { queue_id: queue.queue_id, name: queue.name, key: queue.key, access: "locked", capabilities: [], can_request_access: access_request_status !== "pending" && !!queue.scope && readsScopeTask({ scope: queue.scope } as Task), access_request_status };
+    if (!readsQueue(queue)) return { queue_id: queue.queue_id, name: queue.name, key: queue.key, access: "locked", capabilities: access_request_status === "pending" ? ["cancel_queue_access_request"] : [], can_request_access: access_request_status !== "pending", access_request_status, access_request_id: own?.request_id ?? null, access_request_revision: own?.revision ?? null };
     const result: TaskQueue = { ...clone(queue), access: "granted", can_request_access: false, access_request_status, capabilities: [...new Set([...queue.capabilities, "create_task"])], ...(state.manager && queue.scope ? { assignable_users: clone(state.people), capabilities: [...new Set([...queue.capabilities, "create_task", "assign_task_others"])] } : {}) };
     if (!includeAssignable) delete result.assignable_users;
     return result;
@@ -251,7 +292,8 @@ export function installMockTransport(
     );
   const denied = () => fail(403, "forbidden", "Действие недоступно");
   // Dates of a task are moved by the chair, deputies and HR master only (УВ-5).
-  const inputsCaps = () => ["edit_assessment_inputs", ...(state.global ? ["edit_assessment_dates"] : [])];
+  const kkrGlobal = () => state.global || role === "hr-deputy" && state.session.account_state === "active" && state.session.capabilities.includes("view_summary");
+  const inputsCaps = () => ["edit_assessment_inputs", ...(kkrGlobal() ? ["edit_assessment_dates"] : [])];
   const seasonBlockers = (season: Season): SeasonBlocker[] => {
     const blockers: SeasonBlocker[] = [];
     const previous = state.seasons.find(item => item.season_id === season.previous_season_id);
@@ -277,7 +319,7 @@ export function installMockTransport(
       : items;
 
   const taskHistory = new Map<string, TaskHistoryEvent[]>();
-  const rememberTask = (task: Task, kind: string, description: string, from?: AssignmentStatus, to?: AssignmentStatus, changes?: TaskHistoryChange[]) => {
+  const rememberTask = (task: Task, kind: string, description: string, from?: AssignmentStatus | TaskPublicStatus, to?: AssignmentStatus | TaskPublicStatus, changes?: TaskHistoryChange[]) => {
     const events = taskHistory.get(task.task_id) ?? [];
     events.push({ event_id: id("task-event"), kind, description, created_at: mockNow, actor: clone(state.user), from_status: from, to_status: to, changes });
     taskHistory.set(task.task_id, events);task.updated_at = mockNow;
@@ -288,23 +330,25 @@ export function installMockTransport(
   const linkHistoryTargets = new Map<string, string>();
   const publicTaskWritable = (task: Task) => task.scope.kind === "queue" || state.seasons.find(season => season.season_id === task.season_id)?.state !== "closed" || state.chair || role === "chair-deputy";
   const hydrateTask = (task: Task) => {
+    task.status=publicStatus(task.status);
     task.task_type ??= "task";task.priority ??= "normal";task.starts_at ??= null;task.checklist ??= [];
     task.is_favorite = personalFavorites.get(state.session.user_id)?.has(task.task_id) ?? false;
-    if (role === "hr") {
+    if (role === "hr" || role === "hr-deputy") {
       task.capabilities = task.capabilities.filter(cap => !["edit_task", "edit_task_description", "attach_task_file"].includes(cap));
       const closed = state.seasons.find(season => season.season_id === task.season_id)?.state === "closed";
       const queueOwner = state.queues.find(queue => queue.queue_id === (task.queue?.queue_id ?? task.scope.id))?.owner?.user_id;
       const independentOwner = task.scope.kind === "queue" && (task.created_by?.user_id === state.session.user_id || queueOwner === state.session.user_id);
       if (state.session.account_state === "active" && readsTask(task) && (!closed || independentOwner)) task.capabilities.push("edit_task", "edit_task_description", "attach_task_file");
     }
-    task.capabilities = task.capabilities.filter(cap => !["edit_task_metadata", "manage_task_links", "edit_task_checklist", "change_task_type", "change_task_priority", "toggle_task_checklist"].includes(cap));
-    if (state.session.account_state === "active" && readsTask(task)) task.capabilities.push("change_task_type", "change_task_priority", "toggle_task_checklist");
+    task.capabilities = task.capabilities.filter(cap => !["edit_task_metadata", "manage_task_links", "edit_task_checklist", "change_task_type", "change_task_priority", "toggle_task_checklist", "assign_task_participants", "remove_task_watcher", "remove_task_assignee"].includes(cap));
+    if (state.session.account_state === "active" && readsTask(task)) task.capabilities.push("toggle_task_checklist");
     if (publicTaskWritable(task)) {
-      if (task.capabilities.includes("edit_task")) task.capabilities.push("edit_task_metadata", "manage_task_links");
+      if (task.capabilities.includes("edit_task")) task.capabilities.push("edit_task_metadata", "manage_task_links", "change_task_type", "change_task_priority", "assign_task_participants", "remove_task_watcher", "remove_task_assignee");
       if (task.capabilities.includes("edit_task_description") || task.capabilities.includes("edit_task")) task.capabilities.push("edit_task_checklist");
     }
   };
-  const taskRef = (task: Task): TrackerTaskRef => ({ task_id: task.task_id, task_key: task.task_key ?? "Задача", title: task.title, status: task.status ?? "assigned", task_type: task.task_type ?? "task", starts_at: task.starts_at ?? null, deadline_at: task.deadline_at });
+  const assignmentStatus = (status: TaskPublicStatus): AssignmentStatus => ({open:"assigned",completed:"submitted",closed:"accepted"} as const)[status as "open"|"completed"|"closed"] ?? "in_progress";
+  const taskRef = (task: Task): TrackerTaskRef => ({ task_id: task.task_id, task_key: task.task_key ?? "Задача", title: task.title, status: publicStatus(task.status), task_type: task.task_type ?? "task", starts_at: task.starts_at ?? null, deadline_at: task.deadline_at });
   const visibleTask = (task: Task): Task => {
     hydrateTask(task);const result = clone(task);
     const parentId = task.parent_task_id ?? task.parent_task?.task_id, parent = state.tasks.find(item => item.task_id === parentId && readsTask(item));
@@ -357,19 +401,22 @@ export function installMockTransport(
   const refreshRoster = (task: Task) => {
     task.assignees ??= task.assignments.filter(a => !a.assignee_unavailable_reason).map(a => a.assignee);task.watchers ??= [];
     task.capabilities = task.capabilities.filter(c => !["join_task", "take_task", "watch_task", "unwatch_task", "remove_task_assignee", "edit_task_description"].includes(c));
-    task.capabilities.push("change_task_status", "submit_task_result", "remove_task_assignee");
+    task.capabilities.push("change_task_status", "submit_task_result");
     if (!task.assignees.some(u => u.user_id === state.session.user_id)) task.capabilities.push("join_task");
     refreshTake(task);
     task.capabilities.push(task.watchers.some(u => u.user_id === state.session.user_id) ? "unwatch_task" : "watch_task");
-    if (task.assignees.some(u => u.user_id === state.session.user_id) || task.capabilities.includes("edit_task")) task.capabilities.push("edit_task_description");
+    if (task.capabilities.includes("edit_task")) task.capabilities.push("edit_task_description");
     hydrateTask(task);
   };
   const transitionTask = (task: Task, data: Body): Reply => {
     const extra = extraInputs(data, ["status", "message", "text", "links", "file_ids", "reason"]);if (extra) return extra;
-    if (!["assigned", "in_progress", "help_required", "submitted", "accepted", "needs_revision", "not_completed", "cancelled"].includes(String(data.status))) return fail(422, "invalid_input", "Неизвестный статус");
+    if (!["open", "in_progress", "completed", "closed", "assigned", "help_required", "submitted", "accepted", "needs_revision", "not_completed", "cancelled"].includes(String(data.status))) return fail(422, "invalid_input", "Неизвестный статус");
     if (mismatch(data, task)) return conflict();
-    const current = task.status ?? "assigned", next = data.status as AssignmentStatus;
-    task.status = next;task.revision++;task.assignments.forEach(a => { a.status = next;a.revision++; });refreshTake(task);
+    const current = publicStatus(task.status), next = publicStatus(data.status as AssignmentStatus|TaskPublicStatus);
+    const author=task.created_by?.user_id;const owner=state.queues.find(q=>q.queue_id===task.queue?.queue_id)?.owner?.user_id;
+    if ((current==="closed"||next==="closed") && state.session.user_id!==(author??owner)) return denied();
+    if(next==="closed"&&current!=="closed")task.closed_at=mockNow;
+    task.status = next;task.revision++;task.assignments.forEach(a => { a.status = assignmentStatus(next);a.revision++; });refreshTake(task);
     rememberTask(task, "status_changed", "Изменён рабочий статус задачи", current, next);
     return [200, visibleTask(task)];
   };
@@ -566,12 +613,12 @@ export function installMockTransport(
       const season = state.seasons.find((s) => s.season_id === parts[1]);
       if (!season) return fail(404, "not_found", "Сезон не найден");
       if (parts[2] === "readiness" && method === "get") {
-        if (!state.global) return denied();
+        if (!kkrGlobal()) return denied();
         const blockers = seasonBlockers(season);
         return [200, { ready: blockers.length === 0 && ["open", "summarizing"].includes(season.state), blockers, revision: season.revision }];
       }
       if (parts[2] === "analytics" && method === "get") {
-        if (!state.global) return denied();
+        if (!kkrGlobal()) return denied();
         const participantId = url.searchParams.get("participant_id"), blockId = url.searchParams.get("block_id");
         const summary = summaries.get(season.season_id)!;
         const rows = summary.rows.filter(row => (!participantId || row.participant_id === participantId) && (!blockId || row.blocks.some(block => block.block_id === blockId)));
@@ -594,7 +641,7 @@ export function installMockTransport(
         return [200, clone(analytics)];
       }
       if (parts[2] === "summary.xlsx")
-        return state.global
+        return kkrGlobal()
           ? [
               200,
               new Blob(["Synthetic export fixture"], {
@@ -603,7 +650,7 @@ export function installMockTransport(
             ]
           : denied();
       if (parts[2] === "summary") {
-        if (!state.global) return denied();
+        if (!kkrGlobal()) return denied();
         const summary = summaries.get(season.season_id)!;
         if (parts[3] === "versions") {
           const history = summaryVersions.get(season.season_id) ?? [];
@@ -689,7 +736,7 @@ export function installMockTransport(
         return [200, clone(summary)];
       }
       if (parts[2] === "master-bonuses")
-        return state.global
+        return kkrGlobal()
           ? list([
               {
                 bonus_id: "bonus-1",
@@ -977,10 +1024,11 @@ export function installMockTransport(
       ]);
     if (parts[0] === "task-queues") {
       if (parts.length === 1) {
-        if (method === "get") return [200, { items: state.queues.map(queue => visibleQueue(queue, false)), next_cursor: null, create_scopes: [ ...state.blocks.filter(b => trackerAdmin || readsScopeTask({ scope: { kind: "block", id: b.block_id } } as Task)).map(b => ({ kind: "block", id: b.block_id, title: b.name })), ...state.subevents.filter(b => trackerAdmin || readsSubevent(b.subevent_id)).map(b => ({ kind: "subevent", id: b.subevent_id, title: b.title })) ] }];
+        if (method === "get") { const scopes = queueCreateScopes();return [200, { items: state.queues.map(queue => visibleQueue(queue, false)), next_cursor: null, create_scopes: scopes, can_create_queue: scopes.length > 0 }]; }
         if (state.session.account_state !== "active") return denied();
         const scope = data.scope as Record<string, unknown> | null | undefined;
-        if (scope && (Object.keys(scope).some(key => !["kind", "id"].includes(key)) || !["block", "subevent"].includes(String(scope.kind)) || typeof scope.id !== "string")) return fail(422, "validation_error", "Требуется точный контекст команды");
+        if (!scope || Object.keys(scope).some(key => !["kind", "id"].includes(key)) || !["block", "event", "subevent", "chair"].includes(String(scope.kind)) || typeof scope.id !== "string") return fail(422, "validation_error", "Требуется точный контекст команды");
+        if (!queueCreateScopes().some(item => item.kind === scope.kind && item.id === scope.id)) return denied();
         if (!/^[A-Z]+$/.test(String(data.key)) || state.queues.some(q => q.key === data.key)) return fail(422, "invalid_input", "Проверьте ключ очереди");
         const owner = data.owner_user_id === undefined ? state.user : state.people.find(p => p.user_id === Number(data.owner_user_id));
         if (!owner || owner.user_id !== state.session.user_id) return denied();
@@ -997,6 +1045,11 @@ export function installMockTransport(
           const item: TaskQueueAccessRequest & { queue_id: string } = { request_id: id("queue-request"), queue_id: queue.queue_id, user: clone(state.user), message: String(data.message ?? ""), status: "pending", created_at: mockNow, revision: 1, capabilities: [] };
           queueRequests.push(item);return [201, visibleQueue(queue)];
         }
+        if (parts[4] === "cancel") {
+          const item=queueRequests.find(r=>r.request_id===parts[3]&&r.queue_id===queue.queue_id&&r.user.user_id===state.session.user_id);
+          if(!item)return denied();if(mismatch(data,item))return conflict();if(item.status!=="pending")return fail(409,"conflict","Запрос уже обработан");
+          item.status="cancelled";item.revision++;return [200,visibleQueue(queue)];
+        }
         if (!owns) return denied();
         const item = queueRequests.find(r => r.request_id === parts[3] && r.queue_id === queue.queue_id);
         if (!item) return fail(404, "not_found", "Запрос недоступен");
@@ -1010,7 +1063,7 @@ export function installMockTransport(
         if (mismatch(data, item)) return conflict();
         item.status = "revoked";return changed(item);
       }
-      if (!readsQueue(queue)) return fail(403, "queue_access_required", "Нет доступа к очереди", { queue: { queue_id: queue.queue_id, name: queue.name, key: queue.key }, can_request_access: visibleQueue(queue).can_request_access, access_request_status: visibleQueue(queue).access_request_status });
+      if (!readsQueue(queue)) return fail(403, "queue_access_required", "Нет доступа к очереди", { queue: { queue_id: queue.queue_id, name: queue.name, key: queue.key }, can_request_access: visibleQueue(queue).can_request_access, access_request_status: visibleQueue(queue).access_request_status, access_request_id: visibleQueue(queue).access_request_id, access_request_revision: visibleQueue(queue).access_request_revision });
       if (method === "get") return [200, visibleQueue(queue)];
       if (!owns) return denied();
       if (mismatch(data, { revision: queue.revision! })) return conflict();
@@ -1036,8 +1089,8 @@ export function installMockTransport(
         if (url.searchParams.get("status")) tasks = tasks.filter(t => (t.status ?? t.assignments[0]?.status) === url.searchParams.get("status"));
         const query = (url.searchParams.get("q") ?? "").toLowerCase();
         if (query) tasks = tasks.filter(t => `${t.title} ${t.task_key ?? ""} ${t.description.body}`.toLowerCase().includes(query));
-        if (url.searchParams.get("unfinished") === "true") tasks = tasks.filter(t => !["accepted", "not_completed", "cancelled"].includes(t.status ?? "assigned"));
-        if (url.searchParams.get("overdue") === "true") tasks = tasks.filter(t => t.deadline_at !== null && t.deadline_at < (options.now ?? mockNow) && !["accepted", "not_completed", "cancelled"].includes(t.status ?? "assigned"));
+        if (url.searchParams.get("unfinished") === "true") tasks = tasks.filter(t => publicStatus(t.status)!=="closed");
+        if (url.searchParams.get("overdue") === "true") tasks = tasks.filter(t => t.deadline_at !== null && t.deadline_at < (options.now ?? mockNow) && publicStatus(t.status)!=="closed");
         if (url.searchParams.get("assignee_user_id")) tasks = tasks.filter(t => t.assignments.some(a => a.assignee.user_id === Number(url.searchParams.get("assignee_user_id"))));
         if (url.searchParams.has("task_type") && !["task", "milestone", "epic"].includes(url.searchParams.get("task_type")!)) return fail(422, "invalid_input", "Неизвестный тип задачи");
         if (url.searchParams.has("priority") && !["low", "normal", "high", "urgent"].includes(url.searchParams.get("priority")!)) return fail(422, "invalid_input", "Неизвестный приоритет");
@@ -1073,7 +1126,7 @@ export function installMockTransport(
         deadline_at: String(data.deadline_at),
         task_id: id("task"),
         ...stage2.value,
-        task_key: `TASK-${state.tasks.length + 1}`, status: "assigned", created_by: clone(state.user), created_at: mockNow, updated_at: mockNow,
+        task_key: `TASK-${state.tasks.length + 1}`, status: "open", created_by: clone(state.user), created_at: mockNow, updated_at: mockNow,
         scope_title: chosenScope.kind === "queue" ? selectedQueue?.name : chosenScope.kind === "block" ? state.blocks.find(b => b.block_id === chosenScope.id)?.name : state.subevents.find(t => t.subevent_id === chosenScope.id)?.title,
         attachments: [], submissions: [], revision: 1,
         capabilities: ["change_task_status", "join_task", "watch_task", "remove_task_assignee", "submit_task_result", "edit_task_description", "edit_task", "comment_task", "view_assessment_inputs", "attach_task_file", "review_task", ...(((data.assignees ?? []) as { user_id: number }[]).some(a => a.user_id === state.session.user_id) ? ["start_task", "resume_task", "request_task_help", "submit_task_result"] : [])],
@@ -1129,6 +1182,39 @@ export function installMockTransport(
       if (!task) return fail(404, "not_found", "Задача недоступна");
       if (!readsTask(task))
         return method === "get" ? fail(404, "not_found", "Задача недоступна") : denied();
+      const managesAccess=task.created_by?.user_id===state.session.user_id||state.queues.find(queue=>queue.queue_id===task.queue?.queue_id)?.owner?.user_id===state.session.user_id;
+      if(parts[2]==="mention-candidates")return list(clone(state.people));
+      if(parts[2]==="mentions") {
+        if(method==="get")return list(clone(managesAccess?mentionRequests.filter(row=>row.task_id===task.task_id):[]));
+        if(!managesAccess)return denied();const row=mentionRequests.find(row=>row.request_id===parts[3]&&row.task_id===task.task_id);
+        if(!row)return fail(404,"not_found","Призыв недоступен");if(mismatch(data,row))return conflict();if(row.status!=="pending")return fail(409,"conflict","Призыв уже обработан");
+        row.status=parts[4]==="approve"?"approved":"rejected";row.revision++;row.capabilities=row.status==="approved"?["revoke_task_access"]:[];
+        if(row.status==="approved"&&row.target?.user_id){const ids=taskGrants.get(task.task_id)??new Set<number>();ids.add(row.target.user_id);taskGrants.set(task.task_id,ids);}return [200,clone(row)];
+      }
+      if(parts[2]==="access") {if(!managesAccess)return denied();const uid=Number(parts[3]);taskGrants.get(task.task_id)?.delete(uid);mentionRequests.filter(row=>row.task_id===task.task_id&&row.target?.user_id===uid).forEach(row=>row.capabilities=[]);return [200,{revoked:true}];}
+      if(parts[2]==="description-checklist") {
+        if(mismatch(data,task))return conflict();const neutral=(body:string)=>body.replace(/^( {0,3}(?:[-+*]|\d+[.)])[ \t]+\[)[ xX](\])/gm,"$1 $2");
+        if(typeof data.body!=="string"||neutral(task.description.body)!==neutral(data.body))return denied();
+        const before=task.description.body;task.description=richText(data.body);task.revision++;rememberTask(task,"task_updated","Изменены отметки чеклиста",undefined,undefined,[{field:"description",before,after:data.body}]);return [200,visibleTask(task)];
+      }
+      if (parts[2] === "accounting-batch") {
+        if (!task.capabilities.includes("view_assessment_inputs")) return denied();
+        if (publicStatus(task.status) !== "closed") return fail(409,"task_not_closed","Сначала закройте задачу");
+        const inputs=taskInputs.get(task.task_id)??{...clone(state.inputs),task_id:task.task_id,deadline_at:task.deadline_at};taskInputs.set(task.task_id,inputs);
+        const assessments=task.assignments.map(assignment=>({assignment,inputs:state.assessments.find(row=>row.assignment_id===assignment.assignment_id)!}));
+        const closed=state.seasons.find(season=>season.season_id===task.season_id)?.state==="closed";
+        if(method==="put"){
+          if(!inputs.capabilities.includes("edit_assessment_inputs"))return denied();
+          if(data.expected_public_revision!==task.revision||data.expected_revision!==inputs.revision)return conflict();
+          const given=data.assignments as {assignment_id:string;expected_revision:number;hours:number|null;evaluation:-1|0|1|1.5|null;excluded:boolean}[];
+          if(!Array.isArray(given)||given.length!==assessments.length||new Set(given.map(row=>row.assignment_id)).size!==assessments.length)return conflict();
+          for(const value of given){const row=assessments.find(item=>item.assignment.assignment_id===value.assignment_id);if(!row||value.expected_revision!==row.inputs.revision)return conflict();if(!value.excluded&&(value.hours===null||!Number.isFinite(value.hours)||value.hours<0||value.evaluation===null))return fail(422,"missing_assessment","Заполните часы и оценки");}
+          if(closed&&!data.reason)return fail(422,"invalid_input","Укажите причину исправления");
+          if(JSON.stringify(inputs.criteria)!==JSON.stringify(data.criteria)){inputs.criteria=clone(data.criteria) as TaskInputs["criteria"];inputs.revision++;}
+          for(const value of given){const row=assessments.find(item=>item.assignment.assignment_id===value.assignment_id)!;row.inputs.hours=value.hours;row.inputs.evaluation=value.excluded?null:value.evaluation;row.inputs.workflow_status=value.excluded?"cancelled":value.evaluation!>0?"accepted":"not_completed";row.inputs.effective_completed_at=task.closed_at??row.inputs.effective_completed_at;row.inputs.revision++;}
+        }
+        return [200,{task_id:task.task_id,public_revision:task.revision,revision:inputs.revision,criteria:clone(inputs.criteria),closed_at:task.closed_at??null,season_closed:closed,assigned_at:inputs.assigned_at,deadline_at:task.deadline_at,capabilities:clone(inputs.capabilities),assignments:assessments.map(({assignment,inputs:row})=>({assignment_id:assignment.assignment_id,assignee:clone(assignment.assignee),hours:row.hours,evaluation:row.evaluation,excluded:row.workflow_status==="cancelled",effective_completed_at:row.effective_completed_at,revision:row.revision,is_current:true}))}];
+      }
       if (parts[2] === "history") return list((taskHistory.get(task.task_id) ?? []).map(event => {
         const result = clone(event), targetId = linkHistoryTargets.get(event.event_id), target = state.tasks.find(item => item.task_id === targetId);
         if (targetId && (!target || !readsTask(target))) result.changes = [{ field: "links", label: "Связь недоступна", before: null, after: null }];return result;
@@ -1209,13 +1295,25 @@ export function installMockTransport(
         const result = { submission_id: id("submission"), submitted_at: mockNow, submitted_by: clone(state.user), text: body, links, files: taskFiles(ids) };
         task.submissions ??= [];task.submissions.push(result);return transitionTask(task, { expected_revision: task.revision, status: "submitted" });
       }
+      if(parts[2]==="watchers"&&parts[4]==="remove") {
+        if(!task.capabilities.includes("remove_task_watcher"))return denied();if(mismatch(data,task))return conflict();
+        const uid=Number(parts[3]);if(!task.watchers?.some(person=>person.user_id===uid))return fail(404,"not_found","Наблюдатель недоступен");task.watchers=task.watchers.filter(person=>person.user_id!==uid);refreshRoster(task);rememberTask(task,"roster_changed","Изменён состав задачи");return changed(task);
+      }
+      if(parts[2]==="assignees"&&parts[4]==="add") {
+        if(!task.capabilities.includes("assign_task_participants"))return denied();if(mismatch(data,task))return conflict();
+        const person=state.people.find(person=>person.user_id===Number(parts[3]));if(!person)return fail(422,"invalid_input","Участник недоступен");
+        task.assignees??=[];if(task.assignees.some(row=>row.user_id===person.user_id))return [200,visibleTask(task)];task.assignees.push(clone(person));task.watchers=task.watchers?.filter(row=>row.user_id!==person.user_id);
+        if(!task.assignments.some(row=>row.assignee.user_id===person.user_id)){const aid=id("assignment");task.assignments.push({assignment_id:aid,assignee:clone(person),status:assignmentStatus(publicStatus(task.status)),revision:1,capabilities:[],submissions:[],assignee_unavailable_reason:null,review_note:null});state.assessments.push({assignment_id:aid,hours:0,evaluation:null,effective_completed_at:null,revision:1,workflow_revision:1,workflow_status:"assigned",capabilities:inputsCaps()});}
+        refreshRoster(task);rememberTask(task,"roster_changed","Изменён состав задачи");return changed(task);
+      }
       if (["join", "watch", "unwatch"].includes(parts[2]) || parts[2] === "assignees") {
+        if(parts[2]==="assignees"&&!task.capabilities.includes("remove_task_assignee"))return denied();
         if (mismatch(data, task)) return conflict();refreshRoster(task);
         if (parts[2] === "join") {
           if (!task.assignees!.some(p => p.user_id === state.session.user_id)) task.assignees!.push(clone(state.user));
           task.watchers = task.watchers!.filter(p => p.user_id !== state.session.user_id);
           if (!task.assignments.some(a => a.assignee.user_id === state.session.user_id)) {
-            const aid = id("assignment");task.assignments.push({ assignment_id: aid, assignee: clone(state.user), status: task.status ?? "assigned", submissions: [], assignee_unavailable_reason: null, review_note: null, revision: 1, capabilities: [] });
+            const aid = id("assignment");task.assignments.push({ assignment_id: aid, assignee: clone(state.user), status: assignmentStatus(publicStatus(task.status)), submissions: [], assignee_unavailable_reason: null, review_note: null, revision: 1, capabilities: [] });
             state.assessments.push({ assignment_id: aid, hours: 0, evaluation: null, effective_completed_at: null, revision: 1, workflow_revision: 1, workflow_status: "assigned", capabilities: state.manager && task.scope.kind !== "queue" ? inputsCaps() : [] });
           }
         } else if (parts[2] === "watch") { if (!task.watchers!.some(p => p.user_id === state.session.user_id)) task.watchers!.push(clone(state.user)); }
@@ -1240,6 +1338,9 @@ export function installMockTransport(
           updated_at: null,
           capabilities: ["edit_comment"],
         };
+        const mentions=(data.mentioned_user_ids??[]) as number[];
+        if(!Array.isArray(mentions)||mentions.some(uid=>!state.people.some(person=>person.user_id===uid)))return fail(422,"invalid_input","Участник недоступен");
+        for(const uid of new Set(mentions)){if(!mentionRequests.some(row=>row.task_id===task.task_id&&row.target?.user_id===uid&&row.status==="pending"))mentionRequests.push({request_id:id("mention"),task_id:task.task_id,task_key:task.task_key??null,target:clone(state.people.find(person=>person.user_id===uid)!),requested_by:clone(state.user),comment_id:comment.comment_id,status:"pending",created_at:mockNow,revision:1,capabilities:["approve_task_mention","reject_task_mention"]});}
         state.comments.push(comment);rememberTask(task, "comment_added", "Добавлен комментарий");
         return [201, clone(comment)];
       }
@@ -1268,6 +1369,8 @@ export function installMockTransport(
       const extraTask = extraInputs(data, ["title", "description", "parent_task_id", "file_ids", "task_type", "priority", "starts_at", "checklist"]);if (extraTask) return extraTask;
       if (!Number.isInteger(data.expected_revision)) return fail(422, "invalid_input", "Укажите версию задачи");
       if (mismatch(data, task)) return conflict();
+      if ("task_type" in data && !task.capabilities.includes("change_task_type")) return denied();
+      if ("priority" in data && !task.capabilities.includes("change_task_priority")) return denied();
       if ("starts_at" in data && !task.capabilities.includes("edit_task_metadata")) return denied();
       if ("checklist" in data && !task.capabilities.includes("edit_task_checklist")) return denied();
       const hasClassic = ["title", "description", "parent_task_id", "file_ids"].some(key => key in data);
@@ -1674,9 +1777,15 @@ export function installMockTransport(
       if (!block) return fail(404, "not_found", "Блок не найден");
       if (method === "get") return [200, clone(block)];
       if (parts[2] === "leave") {
-        block.members = block.members.filter(
-          (m) => m.user.user_id !== state.session.user_id,
-        );
+        return fail(403, "self_leave_forbidden", "Попросите руководителя блока или HR исключить вас из состава");
+      }
+      if (parts[2] === "members" && method === "delete") {
+        if (!block.capabilities.includes("remove_member")) return denied();
+        const uid = Number(parts[3]);
+        if (uid === state.session.user_id) return fail(403, "self_leave_forbidden", "Самостоятельный выход недоступен");
+        if (uid === block.master?.user.user_id || block.master?.deputy_user_ids.includes(uid))
+          return fail(409, "active_block_leader", "Сначала передайте или снимите руководящую роль");
+        block.members = block.members.filter(member => member.user.user_id !== uid);
         return [200, { block_id: block.block_id, membership_state: "left" }];
       }
       const avatarChange = Object.hasOwn(data, "avatar_file_id");
@@ -1836,6 +1945,12 @@ export function installMockTransport(
       if (raw.length > 4096 || pieces.some(value => !/^[1-9][0-9]{0,18}$/.test(value)) || ids.length > 200)
         return fail(422, "invalid_input", "Проверьте список участников");
       return [200, { items: ids.flatMap(id => { const item = categories.get(id);return item ? [clone(item)] : []; }) }];
+    }
+    if (parts[0] === "participants" && parts[2] === "participation" && method === "get") {
+      const target = Number(parts[1]);
+      if (state.session.account_state !== "active" || state.session.registration_status !== "approved") return denied();
+      if (!state.people.some(person => person.user_id === target) || state.archived.some(person => person.user_id === target)) return fail(404, "not_found", "Участник не найден");
+      return [200, participantTeams(target)];
     }
     if (parts[0] === "participants") {
       if (method !== "get" && !state.global) return denied();
@@ -2073,10 +2188,10 @@ export function installMockTransport(
         },
       ];
     if (path === "/calendar" || path === "/workspace/home") {
-      const active = new Set(["assigned", "in_progress", "help_required", "submitted", "needs_revision"]);
+      const active = new Set(["open", "in_progress", "completed"]);
       const mine = url.searchParams.get("mine") !== "false", watching = url.searchParams.get("watching") === "true";
       const personal = (task: Task) => (task.assignees ?? task.assignments.map(assignment => assignment.assignee)).some(user => user.user_id === state.session.user_id) || watching && !!task.watchers?.some(user => user.user_id === state.session.user_id);
-      const publicState = (task: Task) => task.status ?? task.assignments[0]?.status ?? "assigned";
+      const publicState = (task: Task) => publicStatus(task.status ?? task.assignments[0]?.status);
       const rows: CalendarItem[] = [
         ...state.tasks.filter(task => readsTask(task) && !!task.deadline_at && (!mine || personal(task))).map(task => ({ id: `calendar-${task.task_id}`, season_id: task.season_id!, kind: "task_deadline" as const, title: task.title, starts_at: task.deadline_at!, ends_at: null, all_day: false, status: publicState(task), scope: task.scope, queue: task.queue, task_key: task.task_key, target: { kind: "task", id: task.task_id } })),
         ...state.meetings.filter(meeting => meeting.owner_kind === "event" ? state.eventManager : readsSubevent(meeting.owner_id)).map(meeting => ({ id: `calendar-${meeting.meeting_id}`, season_id: "season-1", kind: "meeting" as const, title: meeting.title, starts_at: meeting.starts_at, ends_at: null, target: { kind: meeting.owner_kind, id: meeting.owner_id } })),
@@ -2112,7 +2227,7 @@ export function installMockTransport(
       return [200, {}];
     }
     if (path === "/assessments")
-      return state.global
+      return kkrGlobal()
         ? list(
             state.tasks
               .filter(

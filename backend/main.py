@@ -442,6 +442,8 @@ class EventCopyIn(Command):
 
 class EventOut(BaseModel):
     all_day: bool = False
+    is_closed: bool = False
+    closed_at: Optional[str] = None
     event_id: str
     season_id: str
     title: str
@@ -596,7 +598,7 @@ class TaskCreateIn(Command):
     scope: Optional[dict] = None
     title: str
     description: Union[RichTextSchema, str] = ""
-    deadline_at: str
+    deadline_at: Optional[str] = None
     criteria: CriteriaSchema = CriteriaSchema()
     assignees: list[TaskAssigneeIn] = []
     watcher_user_ids: list[int] = []
@@ -682,7 +684,7 @@ class TaskEvaluationIn(Command):
 
 class TaskStatusIn(Command):
     expected_revision: int
-    status: Literal["assigned", "in_progress", "help_required", "submitted", "accepted", "needs_revision", "not_completed", "cancelled"]
+    status: Literal["open", "in_progress", "completed", "closed", "assigned", "help_required", "submitted", "accepted", "needs_revision", "not_completed", "cancelled"]
     text: Union[RichTextSchema, str] = ""
     message: Optional[Union[RichTextSchema, str]] = None
     links: list[str] = []
@@ -736,7 +738,8 @@ class TaskPublicOut(BaseModel):
     parent_task_id: Optional[str] = None
     parent_task_unavailable: bool = False
     task_key: str = ""
-    status: str = "assigned"
+    status: str = "open"
+    closed_at: Optional[str] = None
     created_by: Optional[UserRefOut] = None
     created_at: str = ""
     updated_at: Optional[str] = None
@@ -763,7 +766,7 @@ class UnresolvedAssignmentOut(BaseModel):
     task_title: str
     season_id: str
     scope: dict
-    deadline_at: str
+    deadline_at: Optional[str]
     scope_title: str = ""
     scope_avatar_url: Optional[str] = None
 
@@ -838,7 +841,7 @@ class TaskInputsPatchIn(Command):
 class TaskInputsOut(BaseModel):
     task_id: str
     assigned_at: str
-    deadline_at: str
+    deadline_at: Optional[str]
     criteria: CriteriaSchema
     revision: int = 1
     capabilities: list[str] = []
@@ -1038,6 +1041,7 @@ class SummaryCorrectionIn(Command):
 
 class CommentIn(Command):
     content: Union[RichTextSchema, str]
+    mentioned_user_ids: list[int] = Field(default_factory=list, max_length=100)
 
 
 class CommentOut(BaseModel):
@@ -1892,7 +1896,7 @@ def _to_event_out(ev: Event) -> EventOut:
     from event_workspace import extension
     extra = extension("event", ev)
     return EventOut(
-        all_day=extra["all_day"],
+        all_day=extra["all_day"], is_closed=extra["is_closed"], closed_at=extra["closed_at"],
         event_id=ev.event_id,
         season_id=ev.season_id,
         title=ev.title,
@@ -2006,7 +2010,7 @@ def _to_task_public_out(t) -> TaskPublicOut:
         assignees=[_to_user_ref_out(user) for user in t.assignees],
         watchers=[_to_user_ref_out(user) for user in t.watchers],
         queue=t.queue,parent_task=t.parent_task,parent_task_id=t.parent_task_id,parent_task_unavailable=t.parent_task_unavailable,
-        task_key=t.task_key, status=t.status,
+        task_key=t.task_key, status=t.status, closed_at=t.closed_at,
         created_by=_to_user_ref_out(t.created_by) if t.created_by else None,
         created_at=t.created_at, updated_at=t.updated_at, scope_title=t.scope_title, scope_avatar_url=t.scope_avatar_url,
         task_type=t.task_type,priority=t.priority,starts_at=t.starts_at,is_favorite=t.is_favorite,
@@ -2679,10 +2683,10 @@ def create_task(payload: TaskCreateIn, cur: User = Depends(get_current_user)):
 def list_tasks(
     queue_id: Optional[str] = None,
     season_id: Optional[str] = None,
-    scope_kind: Optional[Literal["block", "subevent"]] = None,
+    scope_kind: Optional[Literal["block", "subevent", "event", "chair"]] = None,
     scope_id: Optional[str] = None,
     mine: bool = False,
-    status: Optional[Literal["assigned", "in_progress", "help_required", "submitted", "accepted", "needs_revision", "not_completed", "cancelled"]] = None,
+    status: Optional[Literal["open", "in_progress", "completed", "closed", "assigned", "help_required", "submitted", "accepted", "needs_revision", "not_completed", "cancelled"]] = None,
     q: str = Query("", max_length=200),
     unfinished: bool = False,
     overdue: bool = False,
@@ -3134,21 +3138,27 @@ def list_task_comments(task_id: str, cur: User = Depends(get_current_user)):
 
 @router.post("/tasks/{task_id}/comments", response_model=CommentOut)
 def create_task_comment(task_id: str, payload: CommentIn, cur: User = Depends(get_current_user)):
-    c = db.create_comment(
-        task_id=task_id,
-        content={"format":"markdown","body":_to_rich_text_body(payload.content)},
-        author_user_id=cur.user_id,
-    )
+    with db.atomic():
+        c = db.create_comment(
+            task_id=task_id,
+            content={"format":"markdown","body":_to_rich_text_body(payload.content)},
+            author_user_id=cur.user_id,
+        )
+        from tracker_collaboration import sync_comment_mentions
+        sync_comment_mentions(c.comment_id, cur.user_id, payload.mentioned_user_ids)
     return _to_comment_out(c)
 
 
 @router.patch("/comments/{comment_id}", response_model=CommentOut)
 def patch_comment(comment_id: str, payload: CommentIn, cur: User = Depends(get_current_user)):
-    c = db.patch_comment(
-        comment_id=comment_id,
-        content={"format":"markdown","body":_to_rich_text_body(payload.content)},
-        user_id=cur.user_id,
-    )
+    with db.atomic():
+        c = db.patch_comment(
+            comment_id=comment_id,
+            content={"format":"markdown","body":_to_rich_text_body(payload.content)},
+            user_id=cur.user_id,
+        )
+        from tracker_collaboration import sync_comment_mentions
+        sync_comment_mentions(c.comment_id, cur.user_id, payload.mentioned_user_ids)
     return _to_comment_out(c)
 
 
@@ -3309,7 +3319,7 @@ def get_calendar(
     block_id: Optional[str] = None,
     event_id: Optional[str] = None,
     queue_id: Optional[str] = None,
-    status: Optional[Literal["assigned", "in_progress", "help_required", "submitted", "accepted", "needs_revision", "not_completed", "cancelled"]] = None,
+    status: Optional[Literal["open", "in_progress", "completed", "closed", "assigned", "help_required", "submitted", "accepted", "needs_revision", "not_completed", "cancelled"]] = None,
     q: str = Query("", max_length=200),
     cur: User = Depends(get_current_user),
 ):
@@ -3371,6 +3381,9 @@ register_account_routes(router)
 from support import register_routes as register_support_routes, register_worker as register_support_worker
 register_support_routes(router)
 register_support_worker(app)
+
+from tracker_collaboration import register_routes as register_tracker_collaboration_routes
+register_tracker_collaboration_routes(router)
 
 app.include_router(router)
 

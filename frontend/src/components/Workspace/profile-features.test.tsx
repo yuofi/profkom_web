@@ -38,6 +38,9 @@ it("shows public past roles of inaccessible teams without working links or made-
     { scope: { kind: "block", id: "legacy", name: "Блок без даты" }, role: "master", started_at: null, ended_at: null, current: true, observed: false },
   ] });
   page = await mountWorkspace(<ProfileActivity userId={101} />);
+  await waitForPage(page);
+  expect(page.container.textContent).not.toContain("Прежняя команда");
+  await act(async () => page!.container.querySelector("summary")!.click());
   await waitForPage(page, () => page!.container.textContent?.includes("Прежняя команда") ?? false);
   expect(page.container.textContent).toContain("Ответственный");
   expect(page.container.textContent).toContain("Дата начала неизвестна");

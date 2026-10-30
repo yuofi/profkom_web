@@ -139,7 +139,7 @@ export function TaskInputsPanel({ task }: { task: Task }) {
   const inputs = query.data;
   // Issue date and deadline are moved by the chair, deputies and HR master only (УВ-5).
   const datesEditable = can(inputs, "edit_assessment_dates");
-  const saved = inputs && { assigned: moscowInput(inputs.assigned_at), deadline: moscowInput(inputs.deadline_at) };
+  const saved = inputs && { assigned: moscowInput(inputs.assigned_at), deadline: inputs.deadline_at ? moscowInput(inputs.deadline_at) : "" };
   const fields: Field[] = inputs && saved
     ? [
         ...(datesEditable
@@ -214,7 +214,7 @@ export function TaskInputsPanel({ task }: { task: Task }) {
               const moved = (name: "assigned" | "deadline") =>
                 datesEditable && text(v, name) !== saved![name] ? toUtc(text(v, name)) : undefined;
               const assigned = moved("assigned"), deadline = moved("deadline");
-              if (Date.parse(assigned ?? inputs.assigned_at) > Date.parse(deadline ?? inputs.deadline_at))
+              if (Date.parse(assigned ?? inputs.assigned_at) > Date.parse(deadline ?? inputs.deadline_at ?? ""))
                 throw Error("Выдача не может быть позже дедлайна");
               return perform(() =>
                 tasksApi.updateInputs(task.task_id, {

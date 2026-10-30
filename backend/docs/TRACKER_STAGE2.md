@@ -91,18 +91,18 @@ imports, preserve original column values and private rows, and cover permissions
 version/rollback behavior, inverse links, DAG and grouping constraints, favorites,
 revocation masking, date/filter cursors and concurrent epic assignment.
 
-## Reader quick controls
+## Versioned classification and reader checkmarks
 
-Every current task reader, including in a closed season, can change `task_type` and
-`priority` through the versioned task PATCH. Capabilities `change_task_type` and
-`change_task_priority` expose these narrow controls independently of `edit_task_metadata`.
-They do not grant title/parent/file/start-date editing or full-checklist replacement;
-a mixed request containing such protected fields is rejected atomically under the
-original permissions. An explicit `starts_at`, including null, keeps its original guard.
-A type-only change to `milestone` implicitly clears its planned start in that same
-transaction/revision/history because a milestone is a deadline point. Existing grouping
-constraints still apply; `task_type_conflict` explains that incompatible relations must
-be removed before a type change.
+The 2026-10-30 owner decision narrows classification to task authors and existing
+public editors. Being a reader or an assignee alone no longer grants type,
+priority, description, planning or checklist-text editing. The separate strict
+checkmark actions below remain available to every current reader. Mixed PATCHes
+validate every field atomically and do not grant private accounting rights.
+
+A type-only change to `milestone` still clears its planned start in the same public
+revision/history. Existing grouping constraints and `task_type_conflict` remain.
+Managed KKR controls cannot be manually classified, linked, unlinked or selected
+as a product parent/epic; their ordinary-work relations are server-maintained.
 
 `toggle_task_checklist` is available to every current reader. The dedicated POST
 `/api/tasks/{task_id}/checklist/{item_id}/toggle` accepts only `expected_revision` and a

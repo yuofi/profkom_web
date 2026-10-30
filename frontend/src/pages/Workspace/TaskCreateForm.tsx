@@ -31,7 +31,7 @@ import s from "./TaskCreateForm.module.css";
 export function TrackerTaskCreatePage() {
   const [params] = useSearchParams();
   const kind = params.get("scope_kind"), id = params.get("scope_id");
-  const scope = (kind === "block" || kind === "subevent") && id ? { kind, id } as ScopeRef : undefined;
+  const scope = (["block","subevent","event","chair"].includes(kind??"")) && id ? { kind, id } as ScopeRef : undefined;
   return <TaskCreateForm scope={scope} queueId={params.get("queue_id") ?? undefined} parentTaskId={params.get("parent_task_id") ?? undefined} />;
 }
 type ScopedCreation = { scope: ScopeRef; title: string; canAssignOthers: boolean; seasonId?: string };
@@ -48,6 +48,11 @@ export function TaskCreateForm({ scope, queueId, parentTaskId }: { scope?: Scope
     if (scope.kind === "block") {
       const block = await membershipApi.block(scope.id);
       return can(block, "create_task") ? { scope, title: block.name, canAssignOthers: can(block, "edit_block") || block.hr?.user_id === session?.user_id } : null;
+    }
+    if(scope.kind==="chair")return null;
+    if(scope.kind==="event"){
+      const event=await eventsApi.get(scope.id);
+      return can(event,"create_task")?{scope,title:event.title,canAssignOthers:false,seasonId:event.season_id}:null;
     }
     const sub = await eventsApi.subevent(scope.id);
     if (!can(sub, "create_task")) return null;
@@ -78,7 +83,8 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId, fal
   const queuePending = !!selectedQueue && queueDetails.isFetching;
   const creationScope = queue?.scope ?? fallback?.scope;
   const previousSeason = useRef("");
-  const context = useQuery({ queryKey: ["tasks", "create-queue-season", queue?.scope?.kind, queue?.scope?.id], enabled: creationScope?.kind === "subevent" && !fallback, queryFn: async () => {
+  const context = useQuery({ queryKey: ["tasks", "create-queue-season", queue?.scope?.kind, queue?.scope?.id], enabled: (creationScope?.kind === "subevent" || creationScope?.kind === "event") && !fallback, queryFn: async () => {
+    if(queue!.scope!.kind==="event")return (await eventsApi.get(queue!.scope!.id)).season_id;
     const subevent = await eventsApi.subevent(queue!.scope!.id);return (await eventsApi.get(subevent.event_id)).season_id;
   } });
   const profile = useQuery({ queryKey: ["tasks", "create-self"], queryFn: async () => (await authApi.getMe()).data });
@@ -89,7 +95,8 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId, fal
     const allowed = new Set(queueDetails.data.scope && can(queueDetails.data, "assign_task_others") ? (queueDetails.data.assignable_users ?? []).map(person => String(person.user_id)) : [String(session?.user_id)]);
     setAssignees(previous => previous.every(id => allowed.has(id)) ? previous : previous.filter(id => allowed.has(id)));
   }
-  const seasonId = creationScope?.kind === "subevent" ? fallback?.seasonId ?? context.data ?? "" : season;
+  const eventScope=creationScope?.kind==="subevent"||creationScope?.kind==="event";
+  const seasonId = eventScope ? fallback?.seasonId ?? context.data ?? "" : season;
   useEffect(() => { if (previousSeason.current && seasonId && previousSeason.current !== seasonId) setParentId("");if (seasonId) previousSeason.current = seasonId; }, [seasonId]);
   const selfAssigned = !!session && assignees.includes(String(session.user_id));
   const chooseAssignees = (value: string[]) => { setAssignees(value);if (session && value.includes(String(session.user_id))) setWatch(false); };
@@ -97,17 +104,16 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId, fal
   const external = { queueId, title, body, deadline, season, assignees, watch, parentId, files, planning, checklist: checklistPayload(checklist) };
   const [initial] = useState(external);
   return <>
-    <BrandedHeader className={s.header}><TrackerHomeLink className={s.brandLabel} /><nav aria-label="Путь новой задачи"><Link to={returnRoute}>{queue?.name ?? fallback?.title ?? "Очереди"}</Link><span>›</span><span>Новая задача</span></nav><div className={s.titleRow}><h1 className={w.title}>Новая задача</h1><Link className={w.button} to={returnRoute}>Отмена</Link></div></BrandedHeader>
-    <ActionForm fields={[]} submitLabel="Создать задачу" externalState={external} savedExternalState={initial} externalBusy={uploading || saving || queuePending || creationScope?.kind === "subevent" && !fallback && context.isFetching}
+    <BrandedHeader className={s.header}><TrackerHomeLink className={s.brandLabel} /><nav aria-label="Путь новой задачи"><Link to={returnRoute}>{queue?.name ?? fallback?.title ?? "Очереди"}</Link><span>›</span><span>Новая задача</span></nav><div className={s.titleRow}><h1 className={`${w.title} ${s.headerTitle}`}><input name="title" aria-label="Название задачи" value={title} onChange={event => setTitle(event.target.value)} placeholder="Название задачи" aria-invalid={attempted && !title.trim()} disabled={saving} /></h1><Link className={w.button} to={returnRoute}>Отмена</Link></div></BrandedHeader>
+    <ActionForm fields={[]} submitLabel="Создать задачу" externalState={external} savedExternalState={initial} externalBusy={uploading || saving || queuePending || eventScope && !fallback && context.isFetching}
       disabled={!queue && !fallback || !!selectedQueue && !queueReady || saving} allowExitSave={false}
       onSubmit={async () => {
         setAttempted(true);
         if (!queue && !fallback) throw Error("Выберите доступную очередь");
         if (selectedQueue && (!queueReady || queuePending)) throw Error("Дождитесь проверки доступа к выбранной очереди");
         if (!title.trim()) throw Error("Введите название задачи");
-        if (!deadline) throw Error("Укажите дедлайн");
-        const deadlineAt = toUtc(deadline), planned = planningPayload(planning);
-        if (planned.starts_at && Date.parse(planned.starts_at) > Date.parse(deadlineAt)) throw Error("Плановое начало не может быть позже дедлайна");
+        const deadlineAt = deadline ? toUtc(deadline) : null, planned = planningPayload(planning);
+        if (planned.starts_at && deadlineAt && Date.parse(planned.starts_at) > Date.parse(deadlineAt)) throw Error("Плановое начало не может быть позже дедлайна");
         if (checklist.some(item => !item.text.trim())) throw Error("Заполните каждый пункт чеклиста");
         const selectedSeason = seasons.find(item => item.season_id === seasonId);
         if (!selectedSeason || !["open", "planned"].includes(selectedSeason.state)) throw Error("Выберите открытый или запланированный сезон");
@@ -120,7 +126,7 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId, fal
         } finally { setSaving(false); }
       }}>
       <div className={s.workspace}>
-        <section className={s.main} aria-label="Описание новой задачи"><label className={`${w.field} ${s.title}`}>Название задачи<input name="title" value={title} onChange={event => setTitle(event.target.value)} placeholder="Название задачи" required aria-invalid={attempted && !title.trim()} disabled={saving} /></label>
+        <section className={s.main} aria-label="Описание новой задачи">
           <MarkdownEditor value={body} onChange={setBody} name="description" label="Описание задачи" rows={16} context="task" disabled={saving} draft={false} />
           <section className={s.files}><h2>Чеклист</h2><ChecklistDraftFields items={checklist} onChange={setChecklist} disabled={saving} /></section>
           <section className={s.files}><h2>Вложения</h2><fieldset className={s.pickerFields} disabled={saving}><AttachmentPicker owner_kind="task" purpose="attachment" files={files} onChange={setFiles} onBusyChange={setUploading} /></fieldset></section>
@@ -128,8 +134,8 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId, fal
         <aside className={s.parameters} aria-label="Параметры новой задачи"><h2>Параметры</h2>
           <TaskPlanningFields value={planning} onChange={setPlanning} disabled={saving} deadline={deadline ? toUtc(deadline) : undefined} />
           {queue ? <label className={`${w.field} ${s.field}`}>Очередь<select name="queue" value={queue?.queue_id ?? queueId} disabled={saving} onChange={event => { setQueueId(event.target.value);setAssignees([]); }}>{queues.map(item => <option key={item.queue_id} value={item.queue_id}>{item.key} · {item.name}</option>)}</select></label> : <div className={s.field}><span>Очередь</span><strong>Очередь команды по умолчанию</strong><small className={w.muted}>Задача появится в очереди этой команды.</small></div>}
-          {creationScope?.kind === "subevent" ? <div className={s.field}><span>Сезон</span><span>{!fallback && context.isLoading ? "Загрузка…" : seasons.find(item => item.season_id === seasonId)?.title ?? "Не определён"}</span>{context.error && <QueryState loading={false} error={context.error}>{null}</QueryState>}</div> : <label className={`${w.field} ${s.field}`}>Сезон<select name="season" value={season} onChange={event => setSeason(event.target.value)} disabled={saving} required>{seasons.filter(item => creationScope?.kind === "block" ? item.state === "open" : ["open", "planned"].includes(item.state)).map(item => <option key={item.season_id} value={item.season_id}>{item.title}</option>)}</select></label>}
-          <label className={`${w.field} ${s.field}`}>Дедлайн, МСК<input name="deadline" type="datetime-local" value={deadline} onChange={event => setDeadline(event.target.value)} required aria-invalid={attempted && !deadline} disabled={saving} /></label>
+          {eventScope ? <div className={s.field}><span>Сезон</span><span>{!fallback && context.isLoading ? "Загрузка…" : seasons.find(item => item.season_id === seasonId)?.title ?? "Не определён"}</span>{context.error && <QueryState loading={false} error={context.error}>{null}</QueryState>}</div> : <label className={`${w.field} ${s.field}`}>Сезон<select name="season" value={season} onChange={event => setSeason(event.target.value)} disabled={saving} required>{seasons.filter(item => creationScope?.kind === "block" ? item.state === "open" : ["open", "planned"].includes(item.state)).map(item => <option key={item.season_id} value={item.season_id}>{item.title}</option>)}</select></label>}
+          <label className={`${w.field} ${s.field}`}>Дедлайн, МСК<input name="deadline" type="datetime-local" value={deadline} onChange={event => setDeadline(event.target.value)}  disabled={saving} /></label>
           <section className={s.people}><h3>Исполнители</h3>{selectedQueue ? <QueryState loading={queuePending} error={queueDetails.error} retry={() => void queueDetails.refetch()}>{queueReady ? <PeopleChoices people={queue?.scope && can(queue, "assign_task_others") ? queue.assignable_users ?? [] : [self]} value={assignees} onChange={chooseAssignees} name="users" disabled={saving} /> : !queueDetails.error && !queuePending ? <Empty>Создание задачи в этой очереди недоступно.</Empty> : null}</QueryState> : fallback?.canAssignOthers ? <LegacyScopedAssignees scope={fallback.scope} value={assignees} onChange={chooseAssignees} disabled={saving} /> : <PeopleChoices people={[self]} value={assignees} onChange={chooseAssignees} name="users" disabled={saving} />}</section>
           <section className={s.people}><h3>Наблюдатели</h3><PeopleChoices people={[self]} value={watch && session ? [String(session.user_id)] : []} onChange={value => setWatch(value.length > 0)} name="watchers" disabled={saving || selfAssigned} />{selfAssigned && <small className={w.muted}>Исполнитель уже получает уведомления.</small>}</section>
           <TrackerParentSelector value={parentId} onChange={setParentId} seasonId={seasonId} disabled={!seasonId || saving} />

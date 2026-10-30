@@ -1,5 +1,19 @@
 # Public tracker and private accounting
 
+> Current contract (approved 2026-10-30): see [ITERATION_20261030.md](ITERATION_20261030.md).
+> Four working statuses replace the earlier eight-status public UI. Readers and
+> assignees change working status, comments and checkmarks, but do not edit metadata.
+> Only the task author (or the recorded fallback queue owner) closes/reopens work.
+> Actual HR deputies now have global KKR/summary authority; reports remain separate.
+> New queues require an authorized leader and a block/event/subevent/chair source.
+> Atomic accounting is entered after closure and uses an observed server closure
+> timestamp, without inventing legacy dates. Task-only mentions require approval
+> for outsiders and confer no queue/private-accounting rights. Managed KKR controls
+> and WEBSUPPORT keep their stricter service boundaries.
+>
+> The implementation notes below describe the earlier compatibility design; where
+> they differ, the approved iteration contract and current regression tests apply.
+
 A task has one public workflow and shared result history. Personal accounting outcomes,
 hours, evaluations and effective completion dates are separate. `tracker.py`,
 `task_roster.py` and `task_queues.py` own these boundaries.

@@ -4,7 +4,6 @@ import { useQuery } from "@tanstack/react-query";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import type { SeasonAnalytics as Analytics, SeasonAnalyticsTotals } from "../../utils/api/contract";
 import { QueryState } from "../../components/Workspace/WorkspaceUI";
-import { displayDate } from "../../utils/dates";
 import u from "./SeasonWorkspace.module.css";
 import { analyticsKey, analyticsParams, metricValue } from "./seasonAnalyticsView";
 
@@ -33,7 +32,7 @@ function AnalyticsContent({ data, mode, setMode, metric, setMetric }: { data: An
     <WorkChart key={`${mode}-${metric}-${JSON.stringify(points)}`} points={points} unit={metrics[metric].unit} period={mode} title={metrics[metric].title} />
     <p className={u.note}>{mode === "weeks" ? "Недели сгруппированы по расчётной дате выполнения работы, с понедельника по московскому времени. Это распределение текущего учёта по периодам, а не история баланса ККР на каждый день." : "Закрытые сезоны показаны по утверждённым снимкам. Пропуск означает, что показателя нет в сохранённых данных; нулём он не заменяется."}</p>
   </section>
-  <section className={u.panel}><div className={u.panelHeader}><h2>Полнота данных</h2><span className={u.note}>На {displayDate(data.as_of)}</span></div><div className={u.chartSummary}><span>{data.basis.kind === "approved_snapshot" ? `Утверждённая версия ${data.basis.version ?? "—"}` : data.basis.kind === "current_ledger" ? "Текущие расчётные данные" : "Расчётные данные недоступны"}</span><span>Без привязки к неделе: {metricValue(data.unallocated.kkr)} ККР · {metricValue(data.unallocated.credited_hours)} ч.</span></div>{data.coverage.notes.length > 0 && <ul className={u.coverage}>{data.coverage.notes.map((note, index) => <li key={index}>{note}</li>)}</ul>}</section>
+
   </div>;
 }
 function shortDate(value: string) { return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${value.slice(0, 10)}T12:00:00Z`)); }

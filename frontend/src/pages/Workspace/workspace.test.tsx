@@ -106,7 +106,8 @@ describe("Rendered authorization with a deliberately stale private cache", () =>
       "/tasks/:id",
     );
     expect(html).toContain("Статус задачи: Открыта");
-    expect(html).toContain("Исходные поля оценивания");
+    expect(html).not.toContain("Исходные поля оценивания");
+    expect(html).toContain("Открыта");
   });
   it.each([
     [

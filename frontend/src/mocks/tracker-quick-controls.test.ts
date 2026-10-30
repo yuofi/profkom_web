@@ -18,20 +18,19 @@ function reader(closed = false) {
 }
 function privateData() { return structuredClone({ inputs: mock!.state.inputs, assessments: mock!.state.assessments, summary: mock!.state.summary }); }
 
-it.each([false, true])("lets an unassigned reader classify and toggle in a closed=%s season without protected editing", async closed => {
+it.each([false, true])("lets an unassigned reader toggle the checklist but protects metadata in a closed=%s season", async closed => {
   const { state, task } = reader(closed), initial = await tasksApi.get(task.task_id), beforePrivate = privateData();
-  expect(initial.capabilities).toEqual(expect.arrayContaining(["change_task_type", "change_task_priority", "toggle_task_checklist"]));
+  expect(initial.capabilities).toContain("toggle_task_checklist");expect(initial.capabilities).not.toContain("change_task_type");expect(initial.capabilities).not.toContain("change_task_priority");
   expect(initial.capabilities).not.toEqual(expect.arrayContaining(["edit_task_metadata", "edit_task_checklist"]));
-  const priority = await tasksApi.update(task.task_id, { expected_revision: initial.revision, priority: "urgent" });
-  expect(priority.priority).toBe("urgent");expect(priority.revision).toBe(initial.revision + 1);
-  const milestone = await tasksApi.update(task.task_id, { expected_revision: priority.revision, task_type: "milestone" });
-  expect(milestone.task_type).toBe("milestone");expect(milestone.starts_at).toBeNull();expect(milestone.revision).toBe(priority.revision + 1);
-  const toggled = await tasksApi.toggleChecklist(task.task_id, "quick-first", { expected_revision: milestone.revision, checked: true });
+  await expect(tasksApi.update(task.task_id, { expected_revision: initial.revision, priority: "urgent" })).rejects.toMatchObject({ status: 403 });
+  await expect(tasksApi.update(task.task_id, { expected_revision: initial.revision, task_type: "milestone" })).rejects.toMatchObject({ status: 403 });
+  expect(await tasksApi.get(task.task_id)).toEqual(initial);
+  const toggled = await tasksApi.toggleChecklist(task.task_id, "quick-first", { expected_revision: initial.revision, checked: true });
   expect(toggled.checklist).toEqual([{ item_id: "quick-first", text: "Первый пункт", checked: true }, { item_id: "quick-second", text: "Второй пункт", checked: false }]);
-  expect(toggled.revision).toBe(milestone.revision + 1);expect(toggled.status).toBe(initial.status);expect(toggled.assignees).toEqual([]);
+  expect(toggled.revision).toBe(initial.revision + 1);expect(toggled.status).toBe(initial.status);expect(toggled.assignees).toEqual([]);
   expect(privateData()).toEqual(beforePrivate);
   const events = (await tasksApi.history(task.task_id)).items;
-  expect(events.at(-2)?.changes).toEqual(expect.arrayContaining([expect.objectContaining({ field: "task_type", before: "task", after: "milestone" }), expect.objectContaining({ field: "starts_at", before: initial.starts_at, after: null })]));
+  expect(events).toHaveLength(1);
   expect(events.at(-1)).toMatchObject({ kind: "task_updated", description: "Изменена отметка чеклиста", actor: { user_id: state.session.user_id }, changes: [{ field: "checklist", label: "Чеклист", before: ["- [ ] Первый пункт", "- [ ] Второй пункт"], after: ["- [x] Первый пункт", "- [ ] Второй пункт"] }] });
 });
 
@@ -60,7 +59,7 @@ it("makes per-item toggles idempotent, checks stale versions first and rejects f
   expect((await tasksApi.get(task.task_id)).checklist).toEqual(changed.checklist);expect((await tasksApi.get("foreign-task")).checklist![0].checked).toBe(false);
 });
 
-it("keeps one-epic and multi-milestone group constraints on reader classification", async () => {
+it("keeps one-epic and multi-milestone constraints on an authorized editor's classification", async () => {
   mock = installMockTransport("chair", { delay: 0 });const state = mock.state;
   const make = async (title: string, task_type: "task" | "epic" | "milestone") => tasksApi.create({ queue_id: state.queues[0].queue_id, season_id: state.seasons[0].season_id, title, task_type, priority: "normal", description: richText(""), deadline_at: "2026-10-29T12:00:00Z", assignees: [] });
   let task = await make("Работа", "task");const epic = await make("Результат", "epic"), mile1 = await make("Первая веха", "milestone"), mile2 = await make("Вторая веха", "milestone");

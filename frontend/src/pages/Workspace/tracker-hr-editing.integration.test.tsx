@@ -21,8 +21,12 @@ it("lets the actual HR master edit a foreign private-queue task and its Markdown
   const oldMaster = block.master?.user.user_id;
   await eventsApi.blockLeader(block.block_id, actor.user_id, { expected_revision: block.revision });
   try {
-    const season = (await seasonsApi.list()).items.find(item => ["open", "planned"].includes(item.state)) ?? await seasonsApi.create({ title: "HR tracker editing", type: "autumn_winter", starts_at: new Date(Date.now() - 86400000).toISOString(), ends_at: new Date(Date.now() + 30 * 86400000).toISOString() });
-    const queue = await taskQueuesApi.create({ name: "Foreign private queue", key: "HRTEST" + crypto.randomUUID().replace(/[^a-f]/g, "").slice(0, 10).toUpperCase(), is_private: true });
+    let season = (await seasonsApi.list()).items.find(item => item.state === "open") ?? (await seasonsApi.list()).items.find(item => item.state === "planned") ?? await seasonsApi.create({ title: "HR tracker editing", type: "autumn_winter", starts_at: new Date(Date.now() - 86400000).toISOString(), ends_at: new Date(Date.now() + 30 * 86400000).toISOString() });
+    if (season.state === "planned") {
+      const opened = await seasonsApi.command(season.season_id, "open", { expected_revision: season.revision });
+      season = "season" in opened ? opened.season : opened;
+    }
+    const queue = await taskQueuesApi.create({ name: "Foreign private queue", key: "HRTEST" + crypto.randomUUID().replace(/[^a-f]/g, "").slice(0, 10).toUpperCase(), scope: { kind: "chair", id: "chair" }, is_private: true });
     let task = await tasksApi.create({ queue_id: queue.queue_id, season_id: season.season_id, title: "Задача другого автора", description: richText("- [ ] Проверить доступ\n- [x] Сохранённый пункт"), deadline_at: new Date(Date.parse(season.ends_at) - 3600000).toISOString(), assignees: [] });
     const session = await liveLogin(actor.email);task = await tasksApi.get(task.task_id);
     expect(task.capabilities).toContain("edit_task");expect(task.capabilities).toContain("edit_task_description");expect(task.created_by?.user_id).not.toBe(actor.user_id);expect(task.assignees).toEqual([]);
@@ -33,7 +37,7 @@ it("lets the actual HR master edit a foreign private-queue task and its Markdown
       return saved?.checked === true && !saved.disabled && !page!.container.textContent?.includes("Сохраняем отметку…");
     });task = await api(() => tasksApi.get(task.task_id));expect(task.description.body).toContain("- [x] Проверить доступ");
     const edit = [...page.container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === "Редактировать")!;await act(async () => edit.click());await waitForPage(page);
-    const dialog = page.container.querySelector<HTMLDialogElement>("dialog")!;await change(dialog.querySelector<HTMLInputElement>('input[name="title"]')!, "Изменено мастером HR");await submit(dialog.querySelector("form")!);await waitForPage(page);
+    const dialog = page.container.querySelector<HTMLDialogElement>("dialog")!;await change(dialog.querySelector<HTMLInputElement>('input[name="title"]')!, "Изменено мастером HR");await submit(dialog.querySelector("form")!);await waitForPage(page, () => dialog.textContent?.includes("Изменения сохранены") === true && page!.container.querySelector("h1")?.textContent === "Изменено мастером HR");
     const saved = await api(() => tasksApi.get(task.task_id));expect(saved.title).toBe("Изменено мастером HR");expect(saved.assignees).toEqual([]);expect(saved.status).toBe(task.status);
     const history = (await api(() => tasksApi.history(task.task_id))).items;expect(history.some(event => event.actor?.user_id === actor.user_id && event.changes?.some(item => item.field === "description"))).toBe(true);expect(history.flatMap(event => event.changes ?? []).some(item => item.field === "title")).toBe(true);
   } finally {

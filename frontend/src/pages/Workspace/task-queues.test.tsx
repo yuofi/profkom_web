@@ -53,9 +53,9 @@ it("validates an uppercase-only key before creating a named queue", async () => 
   await change(page!.container.querySelector<HTMLInputElement>('input[name="name"]')!, "Веб-сайт");await change(page!.container.querySelector<HTMLInputElement>('input[name="key"]')!, "IT WEB-2");await submit(page!.container.querySelector<HTMLFormElement>('dialog form')!);await waitForPage(page!);
   expect(create).not.toHaveBeenCalled();expect(page!.container.textContent).toContain("только заглавные английские буквы");
   await change(page!.container.querySelector<HTMLInputElement>('input[name="key"]')!, "ITWEB");await submit(page!.container.querySelector<HTMLFormElement>('dialog form')!);await waitForPage(page!);
-  expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: "Веб-сайт", key: "ITWEB", is_private: false }));expect(page!.container.textContent).toContain("Открыть ITWEB");
+  expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: "Веб-сайт", key: "ITWEB", is_private: false }));expect(page!.container.querySelector("h1")?.textContent).toBe("Веб-сайт");
   const wire = transport!.adapter.history.post.find(request => request.url?.endsWith("/task-queues"))!;
-  const body = JSON.parse(wire.data);expect(body.scope).toBeNull();
+  const body = JSON.parse(wire.data);expect(body.scope).toEqual({ kind: "event", id: transport!.state.events[0].event_id });
   expect(transport!.state.queues.find(q => q.key === "ITWEB")?.owner?.user_id).toBe(transport!.state.session.user_id);
 });
 it("removes only the queue filter in the global task list", async () => {
@@ -64,12 +64,11 @@ it("removes only the queue filter in the global task list", async () => {
   expect(list.mock.lastCall?.[0]).not.toHaveProperty("queue_id");expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ mine: "true" }), expect.any(AbortSignal));
 });
 
-it("renders the three requested queue columns and permits an ordinary user to create without a team", async () => {
+it("renders the requested queue columns while ordinary readers cannot create a queue", async () => {
   transport = installMockTransport("organizer", { delay: 0 });await mount("/tasks/queues", "organizer");
   expect([...page!.container.querySelectorAll("thead th")].map(node => node.textContent)).toEqual(["Имя очереди", "Ключ очереди", "Владелец очереди"]);
   expect(page!.container.querySelector('tr a[href^="/contacts/"] img')).not.toBeNull();
-  await act(async () => button("Создать очередь").click());await waitForPage(page!);
-  await change(page!.container.querySelector<HTMLInputElement>('input[name="name"]')!, "Своя очередь");await change(page!.container.querySelector<HTMLInputElement>('input[name="key"]')!, "SELFQUEUE");
-  await submit(page!.container.querySelector<HTMLFormElement>("dialog form")!);await waitForPage(page!);
-  const queue = transport!.state.queues.find(q => q.key === "SELFQUEUE")!;expect(queue.scope).toBeNull();expect(queue.owner?.user_id).toBe(transport!.state.session.user_id);expect(page!.container.textContent).toContain("Открыть SELFQUEUE");
+  expect(button("Создать очередь")).toBeUndefined();expect(page!.container.querySelector("dialog")).toBeNull();
+  await expect(taskQueuesApi.create({ name: "Своя очередь", key: "SELFQUEUE", scope: { kind: "block", id: transport!.state.blocks[0].block_id }, is_private: false })).rejects.toMatchObject({ status: 403 });
+  await expect(taskQueuesApi.create({ name: "Без источника", key: "UNSCOPED", is_private: false })).rejects.toMatchObject({ status: 422 });
 });

@@ -24,7 +24,7 @@ import { TrackerCalendar } from "./TrackerCalendar";
 import { TrackerGantt } from "./TrackerGantt";
 import { loadPlanningTasks, planningMonth, planningRange, taskTypeNames, taskPriorityNames } from "./trackerPlanning";
 import { UserChip } from "../../components/Workspace/UserChip";
-import { statusNames } from "./trackerStatus";
+import { publicStatusNames as statusNames } from "./trackerStatus";
 import w from "../../components/Workspace/Workspace.module.css";
 import s from "./TrackerList.module.css";
 
@@ -197,7 +197,7 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
             <td className={s.key} data-label="Ключ"><div className={s.keyRow}><div className={s.classificationControls}><TaskClassificationMenu task={task} field="task_type" iconOnly /><TaskClassificationMenu task={task} field="priority" iconOnly /></div><span className={s.keyText}>{task.task_key ?? "Задача"}</span><TrackerFavoriteButton task={task} compact /></div></td>
             <td className={s.taskTitle}><Link to={getTaskRoute(task.task_id)}>{task.title}</Link></td>
             <td className={s.assignees} data-label="Исполнители"><div>{(task.assignees ?? task.assignments.map((assignment) => assignment.assignee)).map((person, index) => <UserChip user={person} key={`${person.user_id ?? "historical"}-${index}`} />)}</div></td>
-            <td className={s.status} data-label="Статус"><TaskStatusMenu task={task} variant="chip" /></td>
+            <td className={s.status} data-label="Статус"><TaskStatusMenu task={task} variant="chip" onClosed={saved => { if (can(saved, "view_assessment_inputs")) navigate(`${getTaskRoute(saved.task_id)}?kkr=1`); }} /></td>
             <td className={s.deadline} data-label="Дедлайн">{task.deadline_at ? <time dateTime={task.deadline_at}>{displayDate(task.deadline_at)}</time> : <span>Не задан</span>}</td>
             <td className={s.scope} data-label="Команда">{task.scope_title ?? (task.scope.kind === "block" ? "Блок" : task.scope.kind === "subevent" ? "Подмероприятие" : "Очередь")}</td>
             <td className={s.updated} data-label="Обновлено">{task.updated_at ? <time dateTime={task.updated_at}>{displayDate(task.updated_at)}</time> : "Нет данных"}</td>

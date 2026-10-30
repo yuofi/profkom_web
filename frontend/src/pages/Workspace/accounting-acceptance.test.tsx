@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import MockAdapter from "axios-mock-adapter";
+import { act } from "react";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, expect, it } from "vitest";
 import { api } from "../../utils/api";
@@ -46,7 +47,7 @@ it("renders previous marks in a separate seventh cell from current decisions and
   const summary = summaryFixture();summary.rows = [summary.rows[0]];
   page = await mountWorkspace(<SummaryTable summary={summary} renderDecisions={() => <button>Редактор текущих отметок</button>} />);
   const headings = Array.from(page.container.querySelectorAll("th")).map(th => th.textContent);
-  expect(headings).toEqual(["Место", "Участник", "Блоки", "ККР", "Оценённых назначений", "Отметки", "Прошлые отметки"]);
+  expect(headings).toEqual(["Место", "Участник", "ККР блоков", "ККР мероприятий", "Всего", "Отметки", "Прошлые отметки"]);
   const cells = page.container.querySelectorAll("tbody tr td");
   expect(cells[5].textContent).toContain("Найс");expect(cells[5].textContent).toContain("Редактор текущих отметок");expect(cells[5].textContent).not.toContain("Предупреждение");
   expect(cells[6].textContent).toContain("Предупреждение о кике");expect(cells[6].querySelector("button")).toBeNull();
@@ -98,7 +99,8 @@ it("shows authoritative readiness blockers before any attempt to close a season"
   adapter.onGet("/seasons").reply(200, response(fixture.seasons));adapter.onGet("/seasons/season-1/summary").reply(200, fixture.summary);
   adapter.onGet("/seasons/season-1/readiness").reply(200, { ready: false, revision: 1, blockers: [{ kind: "missing_final_report", owner_kind: "event", owner_id: "event-1", title: "Event has no final report" }] });
   page = await mountWorkspace(<Routes><Route path="/seasons/:id" element={<SeasonPage />} /></Routes>, { path: "/seasons/season-1" });await waitForPage(page);
-  const panel = page.container.querySelector('[aria-label="Готовность к закрытию"]');expect(panel).not.toBeNull();expect(panel?.querySelector("a")?.getAttribute("href")).toBe("/reports?owner_kind=event&owner_id=event-1");expect(panel?.textContent).toContain("Нет итогового отчёта мероприятия");
+  await act(async()=>{const overview=[...page!.container.querySelectorAll("details")].find(item=>item.querySelector("summary")?.textContent==="Работа сезона и управление итогами")!;overview.open=true;overview.dispatchEvent(new Event("toggle"));});await waitForPage(page);
+  const panel = page.container.querySelector('[aria-label="Проверки сезона"]');expect(panel).not.toBeNull();expect(panel?.querySelector("a")?.getAttribute("href")).toBe("/reports?owner_kind=event&owner_id=event-1");expect(panel?.textContent).toContain("Нет итогового отчёта мероприятия");
   expect(adapter.history.get.some(request => request.url?.endsWith("/readiness"))).toBe(true);expect(adapter.history.post).toHaveLength(0);
 });
 it("does not fetch private summary or readiness for a participant without accounting access", async () => {

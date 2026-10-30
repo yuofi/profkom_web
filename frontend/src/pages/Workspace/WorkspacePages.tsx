@@ -20,7 +20,6 @@ import {
 import { displayDate } from "../../utils/dates";
 import { moscowDay, normalizeMonth } from "../../utils/calendar";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
-import { can, useSession } from "../../utils/session";
 import type { ParticipationRole } from "../../utils/api/contract";
 import s from "../../components/Workspace/Workspace.module.css";
 import { EntityPicker } from "../../components/Workspace/EntityPicker";
@@ -85,18 +84,14 @@ function PersonalTeams({ title, teams, empty }: { title: string; teams: Personal
   );
 }
 export function DashboardPage() {
-  const { session } = useSession();
   const query = useQuery({ queryKey: ["participation"], queryFn: workspaceApi.participation });
   const seasons = useSeasons();
   const [watching, setWatching] = useState(false);
   const day = useQuery({ queryKey: ["dashboard", "home", watching], queryFn: () => workspaceApi.home(watching), refetchInterval: 60_000 });
-  const [seasonId, setSeasonId] = useState(""), [search, setSearch] = useState("");
-  const needle = search.trim().toLocaleLowerCase("ru");
-  const blocks = (query.data?.blocks ?? []).filter(block => block.name.toLocaleLowerCase("ru").includes(needle));
-  const events = (query.data?.events ?? []).filter(event => (!seasonId || event.season_id === seasonId) && event.title.toLocaleLowerCase("ru").includes(needle));
+  const blocks = query.data?.blocks ?? [];
+  const events = query.data?.events ?? [];
   const seasonTitle = (id: string | null) => seasons.data?.items.find(season => season.season_id === id)?.title ?? "Сезон";
   return <Page title="Рабочее пространство" description="Сегодня, ближайшие задачи и решения, которые ждут вас.">
-    <nav className={p.quickLinks} aria-label="Рабочие разделы"><RouteLink to="/tasks?mine=true">Мои задачи</RouteLink><RouteLink to="/calendar">Календарь</RouteLink>{can(session, "view_unresolved_assignments") && <RouteLink to="/tasks/unresolved">Назначения к решению</RouteLink>}</nav>
     <label className={p.watching}><input type="checkbox" checked={watching} onChange={event => setWatching(event.target.checked)} />Также задачи, за которыми я наблюдаю</label>
     <QueryState loading={day.isLoading} error={day.error} retry={() => void day.refetch()}>{day.data && <div className={p.todayGrid}>
       <Card title={`Сегодня · ${day.data.today.split("-").reverse().join(".")}`} icon="calendar_month" tone="mint"><CalendarTimeGrid days={[day.data.today]} items={day.data.agenda} seasonTitle={seasonTitle} today={day.data.today} compact /><RouteLink to={`/calendar?view=day&date=${day.data.today}`}>Весь календарь</RouteLink></Card>
@@ -105,10 +100,9 @@ export function DashboardPage() {
         <Card title="Ближайшие задачи" tone="lilac"><WorkdayTasks tasks={day.data.tasks} />{!day.data.tasks.length && <p className={s.muted}>Нет задач с будущим дедлайном.</p>}{!!day.data.undated_count && <p className={s.muted}>Без срока: {day.data.undated_count}</p>}<RouteLink to="/tasks?mine=true&unfinished=true&sort=deadline">Все мои задачи</RouteLink></Card>
       </div>
       {!!day.data.approvals.length && <Card title="Требует решения" tone="yellow"><ul className={p.approvals}>{day.data.approvals.map(item => <li key={`${item.kind}-${item.to}`}><Link to={item.to}>{item.title}<Badge>{item.count}</Badge></Link></li>)}</ul></Card>}
-      {!!day.data.merit_entries.length && <Card title="Учёт выполненной работы" tone="peach"><p>Добавьте выполненную работу в доступной области.</p><details><summary>Выбрать область</summary><ul className={p.approvals}>{day.data.merit_entries.map(item => <li key={item.to}><Link to={item.to}>{item.title}</Link></li>)}</ul></details><RouteLink to="/merits">Все записи</RouteLink></Card>}
     </div>}</QueryState>
-    <section className={p.myTeams}><h2>Мои команды</h2><div className={s.filters}><label className={s.field}>Поиск по моим командам<input value={search} onChange={event => setSearch(event.target.value)} /></label><label className={s.field}>Сезон мероприятий<select value={seasonId} onChange={event => setSeasonId(event.target.value)}><option value="">Все незакрытые сезоны</option>{seasons.data?.items.filter(season => season.state !== "closed").map(season => <option key={season.season_id} value={season.season_id}>{season.title}{season.is_current ? " · текущий" : ""}</option>)}</select></label></div>
-      <QueryState loading={query.isLoading || seasons.isLoading} error={query.error ?? seasons.error} retry={() => { void query.refetch();void seasons.refetch(); }}>{query.data && <div className={p.columns}><PersonalTeams key={`blocks-${search}`} title="Мои блоки" teams={blocks.map(block => ({ id: block.block_id, title: block.name, to: getBlockRoute(block.block_id), roles: block.roles }))} empty={needle ? "Блоков по этому запросу нет." : "Вы пока не участвуете в блоках."} /><PersonalTeams key={`events-${search}-${seasonId}`} title="Мои мероприятия" teams={events.map(event => ({ id: event.event_id, title: event.title, to: getEventRoute(event.event_id), roles: event.roles, detail: seasonTitle(event.season_id) }))} empty={needle ? "Мероприятий по этому запросу нет." : "В выбранных сезонах вы пока не участвуете в мероприятиях."} /></div>}</QueryState>
+    <section className={p.myTeams}><h2>Мои команды</h2>
+      <QueryState loading={query.isLoading || seasons.isLoading} error={query.error ?? seasons.error} retry={() => { void query.refetch();void seasons.refetch(); }}>{query.data && <div className={p.columns}><PersonalTeams title="Мои блоки" teams={blocks.map(block => ({ id: block.block_id, title: block.name, to: getBlockRoute(block.block_id), roles: block.roles }))} empty="Вы пока не участвуете в блоках." /><PersonalTeams title="Мои мероприятия" teams={events.map(event => ({ id: event.event_id, title: event.title, to: getEventRoute(event.event_id), roles: event.roles, detail: seasonTitle(event.season_id) }))} empty="Вы пока не участвуете в мероприятиях незакрытых сезонов." /></div>}</QueryState>
     </section>
   </Page>;
 }

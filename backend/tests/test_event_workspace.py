@@ -77,7 +77,8 @@ def test_exact_child_hr_can_edit_private_inputs_without_leadership_or_global_gra
     assert before!=ok(client.get('/api/session',headers=actor.headers))['access_revision']
     sub=ok(client.get('/api/subevents/'+sid,headers=actor.headers));assert sub['working_access']
     assert sub['description']['body']=='PRIVATE WORKING SECRET'
-    assert {'view_tasks','view_assessment_inputs','edit_assessment_inputs','create_volunteer_merit'}<=set(sub['capabilities'])
+    assert {'view_tasks','view_assessment_inputs','edit_assessment_inputs'}<=set(sub['capabilities'])
+    assert 'create_volunteer_merit' not in sub['capabilities']
     assert not {'edit_subevent','manage_leaders','manage_organizers','view_meeting','create_report'}&set(sub['capabilities'])
     path='/api/assignments/'+w['task']['assignments'][0]['assignment_id']+'/assessment-inputs'
     private=ok(client.get(path,headers=actor.headers))
@@ -113,15 +114,17 @@ def test_calendar_uses_overlap_without_expanding_task_meeting_acl(client,setup_e
 def test_calendar_public_outcome_filter_and_home_are_personal_and_readonly(client,setup_event,superuser):
     w=setup_event;actor=w['organizer'];task=w['task'];window={'from':(w['now']-timedelta(days=1)).isoformat(),'to':(w['now']+timedelta(days=9)).isoformat()}
     current=ok(client.get('/api/tasks/'+task['task_id'],headers=actor.headers))
-    ok(client.post('/api/tasks/'+task['task_id']+'/status',headers=actor.headers,json={'expected_revision':current['revision'],'status':'accepted'}))
+    ok(client.post('/api/tasks/'+task['task_id']+'/status',headers=w['head'].headers,json={'expected_revision':current['revision'],'status':'closed'}))
     assert not ok(client.get('/api/calendar',headers=actor.headers,params={**window,'kind':'task_deadline'}))['items']
-    accepted=ok(client.get('/api/calendar',headers=actor.headers,params={**window,'status':'accepted','kind':'task_deadline','q':'private','queue_id':task['queue']['queue_id']}))['items']
-    assert len(accepted)==1 and accepted[0]['status']=='accepted'
+    accepted=ok(client.get('/api/calendar',headers=actor.headers,params={**window,'status':'closed','kind':'task_deadline','q':'private','queue_id':task['queue']['queue_id']}))['items']
+    assert len(accepted)==1 and accepted[0]['status']=='closed'
     with db._session() as session:
         snapshot=[(row.assignment_id,row.status,row.hours,row.inputs_revision) for row in session.query(AssignmentORM)]
         ledger=[(row.contribution_id,row.score) for row in session.query(ContributionORM)]
     home=ok(client.get('/api/workspace/home',headers=actor.headers));assert home['tasks']==home['overdue_tasks']==[]
-    assert ok(client.get('/api/workspace/home',headers=superuser.headers))['tasks']==[]
+    chair_home = ok(client.get('/api/workspace/home',headers=superuser.headers))['tasks']
+    assert all(item['task_type']=='epic' and item['queue']['key']=='KKR' for item in chair_home)
+    assert not any(item['task_id']==task['task_id'] for item in chair_home)
     with db._session() as session:
         assert snapshot==[(row.assignment_id,row.status,row.hours,row.inputs_revision) for row in session.query(AssignmentORM)]
         assert ledger==[(row.contribution_id,row.score) for row in session.query(ContributionORM)]
@@ -147,9 +150,10 @@ def test_workday_bounds_lists_and_watcher_is_an_explicit_opt_in(client,setup_eve
     own=ok(client.get('/api/workspace/home',headers=actor.headers))
     assert len(own['tasks'])==5
     assert [item['task_id'] for item in own['tasks']]==[task['task_id']]+[item['task_id'] for item in created[:4]]
-    defaults=ok(client.get('/api/workspace/home',headers=w['lead'].headers));assert defaults['tasks']==[]
+    defaults=ok(client.get('/api/workspace/home',headers=w['lead'].headers));assert task['task_id'] not in {item['task_id'] for item in defaults['tasks']}
     watching=ok(client.get('/api/workspace/home',headers=w['lead'].headers,params={'watching':'true'}))
-    assert [item['task_id'] for item in watching['tasks']]==[task['task_id']]
+    normal_ids={task['task_id'],*[item['task_id'] for item in created]}
+    assert [item['task_id'] for item in watching['tasks'] if item['task_id'] in normal_ids]==[task['task_id']]
 
 
 def test_upper_event_all_day_and_half_open_midnight_dates(client,setup_event,superuser):

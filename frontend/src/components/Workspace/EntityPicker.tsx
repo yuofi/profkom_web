@@ -10,7 +10,7 @@ export interface EntityOption {
   label: string;
   user?: UserRef;
   block?: { block_id?: string; name: string; avatar_url?: string | null };
-  scope?: { kind: "block" | "subevent"; name: string; avatar_url?: string | null };
+  scope?: { kind: "block" | "subevent" | "event" | "chair"; name: string; avatar_url?: string | null };
   disabled?: boolean;
 }
 export type EntityKind = "person" | "block" | "scope";

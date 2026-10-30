@@ -179,6 +179,9 @@ span.icon {
   .mobile {
     display: block;
   }
+  .mobile:not([open]) > .nav {
+    display: none;
+  }
   .mobile summary {
     display: flex;
     align-items: center;
@@ -210,6 +213,8 @@ span.icon {
     border: 1px solid var(--surface-variant);
     border-radius: var(--radius-large);
     box-shadow: var(--elevation-3);
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr);
   }
   .mobile .nav a {
     padding: 12px;

@@ -260,10 +260,11 @@ class TaskPublic:
     parent_task_unavailable: bool = False
     legacy_task_key: Optional[str] = None
     task_key: str = ""
-    status: str = "assigned"
+    status: str = "open"
     created_by: Optional[UserRef] = None
     created_at: str = ""
     updated_at: Optional[str] = None
+    closed_at: Optional[str] = None
     scope_title: str = ""
     scope_avatar_url: Optional[str] = None
     task_type: str = "task"
@@ -287,14 +288,14 @@ class UnresolvedAssignment:
     task_title: str
     season_id: str
     scope: ScopeRef
-    deadline_at: str
+    deadline_at: Optional[str]
 
 
 @dataclass
 class TaskInputs:
     task_id: str
     assigned_at: str
-    deadline_at: str
+    deadline_at: Optional[str]
     criteria: Criteria
     revision: int = 1
     capabilities: list[str] = field(default_factory=list)

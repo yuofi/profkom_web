@@ -5,3 +5,5 @@
 @media(max-width:520px) { .parameters { grid-template-columns: minmax(0,1fr); }.titleRow { align-items: flex-start; }.workspace { gap: 20px; } }
 
 .pickerFields { border: 0; padding: 0; margin: 0; min-width: 0; }
+
+.headerTitle { flex:1;min-width:0; }.headerTitle input { box-sizing:border-box;width:100%;min-width:0;background:transparent;color:inherit;border:1px solid transparent;border-bottom:1px dashed currentColor;border-radius:8px;padding:8px 10px;font:inherit; }.headerTitle input::placeholder { color:inherit;opacity:.65; }.headerTitle input:hover { background:rgb(255 255 255 / .1); }.headerTitle input:focus { outline:2px solid currentColor;outline-offset:2px; }

@@ -1,0 +1,20 @@
+.statusTabs { display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px; }
+.statusTabs button[aria-pressed="true"] { background:var(--primary-container);color:var(--on-primary-container);border-color:var(--primary); }
+.registrationCard { padding:0;overflow:hidden; }
+.registrationDetails>summary { display:flex;align-items:center;justify-content:space-between;gap:16px;cursor:pointer;padding:18px 22px;list-style:none; }
+.registrationDetails>summary::-webkit-details-marker { display:none; }
+.registrationDetails>summary::after { content:"⌄";color:var(--primary);font-size:22px;flex:0 0 auto; }
+.registrationDetails[open]>summary::after { transform:rotate(180deg); }
+.registrationDetails>summary>div { display:grid;gap:6px;flex:1;min-width:0; }
+.registrationDetails strong { font-size:17px;overflow-wrap:anywhere; }
+.registrationDetails small { color:var(--on-surface-variant);font-size:13px;overflow-wrap:anywhere; }
+.registrationDetails>summary:focus-visible { outline:2px solid var(--primary);outline-offset:-4px;border-radius:var(--radius-large); }
+.registrationBody { padding:0 22px 20px;border-top:1px solid var(--outline-variant); }
+.registrationFields { display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:15px;margin:20px 0; }
+.registrationFields>div { min-width:0; }
+.registrationFields dt { color:var(--on-surface-variant);font-size:12px;margin-bottom:5px; }
+.registrationFields dd { margin:0;overflow-wrap:anywhere; }
+.decisions { display:flex;gap:10px;padding:0 22px 18px; }
+.decisions button:first-child { background:var(--primary);color:var(--on-primary); }
+.reject { color:var(--accent-rose); }
+@media(max-width:600px) { .registrationDetails>summary { gap:10px;flex-wrap:wrap;padding:16px; }.registrationBody { padding:0 16px 16px; }.decisions { padding:0 16px 16px; }.decisions button { flex:1; } }

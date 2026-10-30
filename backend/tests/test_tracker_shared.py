@@ -20,7 +20,7 @@ def task(client,w,actor=None):
 
 def move(client,w,status,actor=None,revision=None,**fields):
     current=task(client,w,actor)
-    return client.post('/api/tasks/'+current['task_id']+'/status',headers=(actor or w['member']).headers,json={'expected_revision':current['revision'] if revision is None else revision,'status':status,**fields})
+    return client.post('/api/tasks/'+current['task_id']+'/status',headers=(actor or (w['master'] if status in {'accepted','closed','cancelled','not_completed'} or current['status']=='closed' else w['member'])).headers,json={'expected_revision':current['revision'] if revision is None else revision,'status':status,**fields})
 
 def snapshot(w):
     with db._session() as s:
@@ -55,7 +55,7 @@ def test_permissions_and_legacy_urls_cannot_diverge_joint_status(client,joint):
     assert {a['status'] for a in task(client,w)['assignments']}=={'in_progress'}
     r=client.post(f"/api/assignments/{own['assignment_id']}/submit",headers=w['member'].headers,json={'expected_revision':r.json()['revision'],'text':'Один общий результат'});assert r.status_code==200,r.text
     assert len(r.json()['submissions'])==1
-    t=task(client,w);assert t['status']=='submitted' and len(t['submissions'])==1
+    t=task(client,w);assert t['status']=='completed' and len(t['submissions'])==1
     assert {a['status'] for a in t['assignments']}=={'submitted'}
 
 
@@ -91,7 +91,7 @@ def test_instruction_and_shared_result_files_are_private_until_bound(client,join
     assert task(client,w)['title']==t['title'] and task(client,w)['revision']==t['revision']
     r=client.patch('/api/tasks/'+tid,headers=w['master'].headers,json={'expected_revision':t['revision'],'file_ids':[]});assert r.status_code==200,r.text
     assert client.get(content,headers=w['member'].headers).status_code==404
-    r=client.post('/api/blocks/'+w['block']['block_id']+'/leave',headers=w['member'].headers,json={});assert r.status_code==200,r.text
+    r=client.request('DELETE','/api/blocks/'+w['block']['block_id']+'/members/'+str(w['member'].user_id),headers=w['master'].headers,json={});assert r.status_code==200,r.text
     assert client.get(shared_path,headers=w['member'].headers).status_code==404
 
 
@@ -276,7 +276,7 @@ def test_legacy_mixed_public_snapshot_does_not_leak_private_personal_correction(
     assert task(client,w,w['member'])==before
     assert client.get(f'/api/tasks/{tid}/history',headers=w['member'].headers).json()==history_before
     # Compatibility is decided by factual public history, not the private new evaluation.
-    saved=snapshot(w);changed=move(client,w,'needs_revision');assert changed.status_code==200 and snapshot(w)==saved
+    saved=snapshot(w);changed=move(client,w,'needs_revision',actor=w['master']);assert changed.status_code==200 and snapshot(w)==saved
 
 
 def test_private_correction_of_superseded_outcome_preserves_public_historical_snapshot(client,joint,superuser):

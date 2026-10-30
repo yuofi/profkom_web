@@ -16,7 +16,7 @@ import { taskQueuesApi } from "../../utils/api/taskQueues.api";
 import type { ScopeRef, TaskQueue, TaskQueueAccessRequest, TaskQueueCatalog, UserRef } from "../../utils/api/contract";
 import { normalizeApiError } from "../../utils/api/request";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
-import { can, useSession } from "../../utils/session";
+import { can } from "../../utils/session";
 import { getTaskQueueRoute, getTaskQueuesRoute } from "../../utils/routes";
 import { displayDate } from "../../utils/dates";
 import { TrackerListPage } from "./TrackerList";
@@ -26,7 +26,7 @@ import s from "./TaskQueuePages.module.css";
 export function TaskQueuesPage() {
   const catalog = useQuery({ queryKey: ["tasks", "queues", "catalog"], queryFn: taskQueuesApi.catalog });
   const [search, setSearch] = useState(""), [access, setAccess] = useState("");
-  const [creating, setCreating] = useState(false);const navigate = useNavigate();const { session } = useSession();
+  const [creating, setCreating] = useState(false);const navigate = useNavigate();
   const open = (event: MouseEvent<HTMLTableRowElement>, queue: TaskQueue) => {
     if (event.target instanceof Element && event.target.closest("a,button,input,select,[data-row-action]")) return;
     if (window.getSelection()?.toString()) return;
@@ -36,7 +36,7 @@ export function TaskQueuesPage() {
   const keyboard = (event: KeyboardEvent<HTMLTableRowElement>, queue: TaskQueue) => { if (event.target === event.currentTarget && ["Enter", " "].includes(event.key)) { event.preventDefault();navigate(getTaskQueueRoute(queue.queue_id)); } };
   const items = (catalog.data?.items ?? []).filter(queue => (!access || queue.access === access) && `${queue.name} ${queue.key}`.toLocaleLowerCase().includes(search.toLocaleLowerCase().trim()));
   return <section className={s.page}>
-    <BrandedHeader className={s.header}><div><TrackerHomeLink /><h1 className={w.title}>Очереди</h1><p className={w.description}>Общие и закрытые очереди задач.</p></div><div className={s.headerActions}><RouteLink to="/tasks">Все задачи</RouteLink>{session?.account_state === "active" && <button className={`${w.button} ${w.primary}`} onClick={() => setCreating(true)}>Создать очередь</button>}</div></BrandedHeader>
+    <BrandedHeader className={s.header}><div><TrackerHomeLink /><h1 className={w.title}>Очереди</h1><p className={w.description}>Общие и закрытые очереди задач.</p></div><div className={s.headerActions}><RouteLink to="/tasks">Все задачи</RouteLink>{catalog.data?.can_create_queue && <button className={`${w.button} ${w.primary}`} onClick={() => setCreating(true)}>Создать очередь</button>}</div></BrandedHeader>
     <div className={s.filters}><label className={w.field}>Поиск очередей<input type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Название или ключ" /></label><label className={w.field}>Доступ<select value={access} onChange={e => setAccess(e.target.value)}><option value="">Все очереди</option><option value="granted">Доступные мне</option><option value="locked">Закрытые для меня</option></select></label></div>
     <QueryState loading={catalog.isLoading} error={catalog.error} keepDataOnError={!!catalog.data} retry={() => void catalog.refetch()}>
       <div className={s.tableWrap}><table className={s.table} aria-label="Список очередей"><thead><tr><th scope="col">Имя очереди</th><th scope="col">Ключ очереди</th><th scope="col">Владелец очереди</th></tr></thead><tbody>{items.map(queue => <tr key={queue.queue_id} tabIndex={0} onClick={event => open(event, queue)} onAuxClick={event => open(event, queue)} onKeyDown={event => keyboard(event, queue)} aria-label={`Открыть очередь ${queue.name}`}>
@@ -63,22 +63,22 @@ function Owner({ user }: { user: UserRef }) {
   return <div className={s.owner}><small>Владелец очереди</small><UserChip user={user} /></div>;
 }
 function QueueCreateForm({ catalog }: { catalog: TaskQueueCatalog }) {
-  const { perform } = useWorkspaceActions();const [created, setCreated] = useState<TaskQueue | null>(null);const [scopeChoice, setScopeChoice] = useState("none");
+  const { perform } = useWorkspaceActions();const navigate = useNavigate();
   const scopes = catalog.create_scopes ?? [];
-  return <><p className={w.muted}>Вы станете владельцем очереди. Команду можно не выбирать.</p><ActionForm fields={[
+  return <><p className={w.muted}>Вы станете владельцем очереди своей команды.</p><ActionForm fields={[
     { name: "name", label: "Название очереди", required: true },
     { name: "key", label: "Ключ очереди", required: true, hint: "От1 до32 заглавных английских букв A–Z. Ключ после создания не меняется." },
-    { name: "scope", label: "Команда очереди", type: "select", entity: "scope", value: "none", onSelectionChange: values => setScopeChoice(values[0] ?? "none"), options: [{ value: "none", label: "Без команды" }, ...scopes.map(scope => ({ value: JSON.stringify([scope.kind, scope.id]), label: scope.title, scope: { kind: scope.kind, name: scope.title } }))] },
-    { name: "visibility", label: "Доступ к очереди", type: "select", required: true, value: "public", options: [{ value: "public", label: scopeChoice === "none" ? "Все активные пользователи" : "Участники команды" }, { value: "private", label: "По одобрению владельца" }] },
+    { name: "scope", label: "Команда очереди", type: "select", entity: "scope", required: true, value: scopes[0] ? JSON.stringify([scopes[0].kind,scopes[0].id]) : "", options: scopes.map(scope => ({ value: JSON.stringify([scope.kind, scope.id]), label: scope.title, scope: { kind: scope.kind, name: scope.title } })) },
+    { name: "visibility", label: "Доступ к очереди", type: "select", required: true, value: "public", options: [{ value: "public", label: "Участники команды" }, { value: "private", label: "По одобрению владельца" }] },
   ]} submitLabel="Создать очередь" resetOnSuccess allowExitSave={false} onSubmit={async values => {
     const key = text(values, "key");if (!/^[A-Z]{1,32}$/.test(key)) throw Error("Ключ должен содержать только заглавные английские буквы A–Z, не более32");
     const chosen = text(values, "scope");const scope = scopes.find(item => JSON.stringify([item.kind, item.id]) === chosen);
-    if (chosen !== "none" && !scope) throw Error("Выберите доступную команду либо создайте очередь без команды");
-    const result = await perform(() => taskQueuesApi.create({ name: text(values, "name").trim(), key, scope: scope ?? null, is_private: text(values, "visibility") === "private" }));setCreated(result);setScopeChoice("none");
-  }} />{created && <p role="status">Очередь создана. <Link to={getTaskQueueRoute(created.queue_id)}>Открыть {created.key}</Link></p>}</>;
+    if (!scope) throw Error("Выберите команду, которой вы руководите");
+    const result = await perform(() => taskQueuesApi.create({ name: text(values, "name").trim(), key, scope, is_private: text(values, "visibility") === "private" }));navigate(getTaskQueueRoute(result.queue_id));
+  }} /></>;
 }
 function QueueEditor({ queue }: { queue: TaskQueue }) {
-  return queue.scope ? <ScopedQueueEditor queue={queue} scope={queue.scope} /> : <IndependentQueueEditor queue={queue} />;
+  return queue.scope && ["block","subevent"].includes(queue.scope.kind) ? <ScopedQueueEditor queue={queue} scope={queue.scope} /> : <IndependentQueueEditor queue={queue} />;
 }
 function ScopedQueueEditor({ queue, scope }: { queue: TaskQueue; scope: ScopeRef }) {
   const members = useScopeMembers(scope);return <QueryState loading={members.loading} error={members.error}><QueueEditForm queue={queue} people={members.options} /></QueryState>;
@@ -107,7 +107,7 @@ function QueueRequests({ queue }: { queue: TaskQueue }) {
 }
 function QueueRequest({ queue, item }: { queue: TaskQueue; item: TaskQueueAccessRequest }) {
   const { perform, refresh } = useWorkspaceActions();
-  const states = { pending: "Ожидает решения", approved: "Доступ одобрен", rejected: "Отклонён", revoked: "Доступ отозван" };
+  const states: Record<string,string> = { pending: "Ожидает решения", approved: "Доступ одобрен", rejected: "Отклонён", revoked: "Доступ отозван", cancelled: "Отозван заявителем" };
   return <article className={s.request}><div><UserChip user={item.user} /><span>{item.status === "approved" && item.access_granted === false ? "Доступ отозван" : states[item.status]}</span><time dateTime={item.created_at}>{displayDate(item.created_at)}</time>{item.message && <p>{item.message}</p>}</div><div className={s.requestActions}>
     {can(item, "approve_queue_access") && <ActionForm fields={[]} revision={item.revision} onConflict={refresh} submitLabel="Одобрить доступ" allowExitSave={false} onSubmit={async (_, revision) => { const saved = await perform(() => taskQueuesApi.decide(queue.queue_id, item.request_id, "approve", revision!));return saved; }} />}
     {can(item, "reject_queue_access") && <ActionForm fields={[]} revision={item.revision} onConflict={refresh} submitLabel="Отклонить запрос" variant="quiet" allowExitSave={false} onSubmit={async (_, revision) => { const saved = await perform(() => taskQueuesApi.decide(queue.queue_id, item.request_id, "reject", revision!));return saved; }} />}
@@ -120,5 +120,5 @@ function QueueAccessScreen({ id, error, refresh }: { id: string; error: ReturnTy
   const queue = details && typeof details === "object" ? details as Record<string, unknown> : {};
   const pending = error.fields.access_request_status === "pending";
   const name = typeof queue.name === "string" ? queue.name : "Очередь недоступна";
-  return <section className={s.page}><TrackerHomeLink /><nav className={s.breadcrumbs} aria-label="Навигация очереди"><Link to={getTaskQueuesRoute()}>Очереди</Link><span aria-hidden="true">›</span><span>{name}</span></nav><div className={s.warning}><LockIcon /><h1>Нет доступа к очереди</h1><p>{name}{typeof queue.key === "string" ? ` · ${queue.key}` : ""}</p><p>Задачи этой очереди скрыты. Доступ подтверждает её владелец.</p>{pending ? <p role="status">Ваш запрос ожидает решения владельца.</p> : error.fields.can_request_access === true ? <ActionForm fields={[{ name: "message", label: "Сообщение владельцу", type: "textarea" }]} submitLabel="Запросить доступ" allowExitSave={false} successMessage="Запрос отправлен владельцу очереди" onSubmit={async values => { await perform(() => taskQueuesApi.requestAccess(id, text(values, "message")));await refresh(); }} /> : <p>Чтобы получить доступ, нужно также состоять в команде этой очереди.</p>}<button type="button" className={w.button} onClick={() => void refresh()}>Проверить доступ</button></div></section>;
+  return <section className={s.page}><TrackerHomeLink /><nav className={s.breadcrumbs} aria-label="Навигация очереди"><Link to={getTaskQueuesRoute()}>Очереди</Link><span aria-hidden="true">›</span><span>{name}</span></nav><div className={s.warning}><LockIcon /><h1>Нет доступа к очереди</h1><p>{name}{typeof queue.key === "string" ? ` · ${queue.key}` : ""}</p><p>Задачи этой очереди скрыты. Доступ подтверждает её владелец.</p>{pending ? <><p role="status">Ваш запрос ожидает решения владельца.</p>{typeof error.fields.access_request_id === "string" && typeof error.fields.access_request_revision === "number" && <ActionForm fields={[]} submitLabel="Отменить запрос" allowExitSave={false} onSubmit={async () => { await perform(() => taskQueuesApi.cancelAccess(id,String(error.fields.access_request_id),Number(error.fields.access_request_revision)));await refresh(); }} />}</> : error.fields.can_request_access === true ? <ActionForm fields={[{ name: "message", label: "Сообщение владельцу", type: "textarea" }]} submitLabel="Запросить доступ" allowExitSave={false} successMessage="Запрос отправлен владельцу очереди" onSubmit={async values => { await perform(() => taskQueuesApi.requestAccess(id, text(values, "message")));await refresh(); }} /> : <p>Запрос доступа сейчас недоступен.</p>}<button type="button" className={w.button} onClick={() => void refresh()}>Проверить доступ</button></div></section>;
 }

@@ -61,7 +61,7 @@ it("recovers a deadline network error manually and refreshes changed capabilitie
   expect(page.container.textContent).toContain("Не удалось загрузить заявки");
   failed = false;
   const refresh = Array.from(page.container.querySelectorAll("button")).find(
-    (b) => b.textContent === "Обновить заявки",
+    (b) => b.textContent === "Обновить данные",
   )!;
   await act(async () => {
     refresh.click();
@@ -132,7 +132,7 @@ it.each(["accepted", "in_progress"] as const)(
     const mock = installMockTransport("chair", { delay: 0 });
     restore = mock.restore;
     const a = mock.state.tasks[0].assignments[0];
-    a.status = status;
+    a.status = status;mock.state.tasks[0].status="closed";mock.state.tasks[0].closed_at="2026-10-27T12:00:00Z";
     page = await mountWorkspace(
       <Routes>
         <Route
@@ -161,9 +161,7 @@ it.each(["accepted", "in_progress"] as const)(
     await act(async () => link.click());
     await settle();
     expect(page.container.textContent).toContain("К закрытию сезона");
-    expect(document.activeElement?.getAttribute("aria-label")).toContain(
-      a.assignee.display_name,
-    );
+    expect(page.container.textContent).toContain("Оценить работу");
   },
 );
 
@@ -210,21 +208,19 @@ it("combines contact category with search/block filters and shows an accurate em
   expect(page.container.textContent).toContain("Подходящих контактов нет");
 });
 
-it("filters personal events by season while block membership stays independent", async () => {
+it("shows current personal events across seasons without the removed team filter", async () => {
   const mock = installMockTransport("chair", { delay: 0 });
   restore = mock.restore;
-  page = await mountWorkspace(<DashboardPage />);
-  await settle();
-  await settle();
-  const selector = page.container.querySelector("select")!;
   const other = mock.state.seasons.find(
     (s) =>
       s.season_id !== mock.state.events[0].season_id && s.state !== "closed",
   )!;
-  await change(selector, other.season_id);
-  await settle();
-  expect(page.container.querySelector(`a[href="/events/${mock.state.events[0].event_id}"]`)).toBeNull();
-  expect(page.container.textContent).toContain("В выбранных сезонах вы пока не участвуете в мероприятиях");
+  mock.state.events[0].leaders = [{ role_assignment_id: "home-current-head", user: mock.state.user, deputy_user_ids: [], revision: 1, capabilities: [] }];
+  mock.state.events.push({ ...structuredClone(mock.state.events[0]), event_id: "home-other-event", title: "Личное мероприятие другого сезона", season_id: other.season_id });
+  page = await mountWorkspace(<DashboardPage />);await settle();await settle();
+  expect(page.container.querySelector('section[class*="myTeams"] select')).toBeNull();
+  expect(page.container.querySelector(`a[href="/events/${mock.state.events[0].event_id}"]`)).not.toBeNull();
+  expect(page.container.querySelector('a[href="/events/home-other-event"]')).not.toBeNull();
   for (const block of mock.state.blocks.filter(block => block.members.some(member => member.user.user_id === mock.state.session.user_id) || block.master?.user.user_id === mock.state.session.user_id || block.master?.deputy_user_ids.includes(mock.state.session.user_id))) {
     expect(page.container.querySelector(`a[href="/blocks/${block.block_id}"]`)).not.toBeNull();
   }

@@ -13,6 +13,10 @@ import { directoryApi } from "../directory.api";
 import { workspaceApi } from "../workspace.api";
 import { contactsApi } from "../contacts.api";
 import { richText, emptyCriteria } from "../contract";
+import { kkrApi } from "../kkr.api";
+import { taskQueuesApi } from "../taskQueues.api";
+import { taskCollaborationApi } from "../taskCollaboration.api";
+import { publicParticipationApi } from "../publicParticipation.api";
 
 it("INT-CAT-01: category batch wire matches individual reads for editors and ordinary readers", async () => {
   const person = await liveParticipant("category-batch");
@@ -83,6 +87,28 @@ it("INT-06: actual response shapes, null relations and populated IDs match the p
   expect(Date.parse(privateAccepted.effective_completed_at!)).toBe(Date.parse(actualSubmissionTime!));
   const publicAfterReview = check("Task", await tasksApi.get(task.task_id));
   expect([publicAfterReview.status, publicAfterReview.revision]).toEqual([publicBeforeReview.status, publicBeforeReview.revision]);
+  const closedTask = check("Task", await tasksApi.changeStatus(task.task_id, { expected_revision: publicAfterReview.revision, status: "closed" }));
+  expect(closedTask.closed_at).toBeTruthy();
+  const accounting = check("AccountingBatch", await kkrApi.batch(task.task_id));
+  check("AccountingBatch", await kkrApi.saveBatch(task.task_id, {
+    expected_public_revision: accounting.public_revision, expected_revision: accounting.revision,
+    criteria: accounting.criteria, assignments: accounting.assignments.map(row => ({
+      assignment_id: row.assignment_id, expected_revision: row.revision,
+      hours: row.hours, evaluation: row.evaluation, excluded: row.excluded,
+    })),
+  }));
+  (await kkrApi.coefficients(season.season_id)).items.forEach(row => check("Coefficient", row));
+  (await kkrApi.statistics(season.season_id)).items.forEach(row => check("AccountingStatistic", row));
+  check("KkrHistory", await kkrApi.history({ count: 4 }));
+  (await kkrApi.controls(season.season_id)).items.forEach(row => check("KkrControl", row));
+  check("Participation", await publicParticipationApi.get(person.user_id));
+  check("TaskQueueCatalog", await taskQueuesApi.catalog());
+  // A mention of an outsider creates an approval request, without opening the queue.
+  await tasksApi.comment(task.task_id, richText("Нужна проверка"), [person.user_id]);
+  const mentions = await taskCollaborationApi.mentions(task.task_id);
+  mentions.items.forEach(row => check("TaskMentionRequest", row));
+  if (mentions.items[0]) check("TaskMentionRequest", await taskCollaborationApi.decide(task.task_id,
+    mentions.items[0].request_id, true, { expected_revision: mentions.items[0].revision }));
   const comment = check("Comment", await tasksApi.comment(task.task_id, richText("Comment")));
   const editedComment = check("Comment", await tasksApi.editComment(comment.comment_id, richText("Edited comment")));
   expect(editedComment.history?.[0]?.content).toEqual(richText("Comment"));

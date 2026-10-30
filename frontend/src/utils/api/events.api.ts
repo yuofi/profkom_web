@@ -12,6 +12,8 @@ import { idPath, allPages as page, request } from "./request";
 export const eventsApi = {
   list: (params?: object) => page<Event>("/events", params),
   get: (id: string) => request<Event>("get", `/events/${idPath(id)}`),
+  setClosed: (id: string, closed: boolean, version: Revision) =>
+    request<Event>("post", `/events/${idPath(id)}/${closed ? "close" : "reopen"}`, version),
   create: (data: {
     season_id: string;
     title: string;

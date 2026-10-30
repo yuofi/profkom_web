@@ -20,7 +20,7 @@ export interface UserRef {
   avatar_url: string | null;
 }
 export interface ScopeRef {
-  kind: "block" | "subevent";
+  kind: "block" | "subevent" | "event" | "chair";
   id: string;
 }
 export type TaskScopeRef = ScopeRef | { kind: "queue"; id: string };
@@ -147,6 +147,8 @@ export interface Season extends Versioned {
 }
 export interface Event extends Versioned {
   all_day?: boolean;
+  is_closed?: boolean;
+  closed_at?: string | null;
   event_id: string;
   season_id: string;
   title: string;
@@ -222,7 +224,9 @@ export interface TaskQueue extends TaskQueueRef {
   access: "granted" | "locked";
   capabilities: string[];
   can_request_access: boolean;
-  access_request_status: "pending" | "approved" | "rejected" | null;
+  access_request_status: "pending" | "approved" | "rejected" | "cancelled" | null;
+  access_request_id?: string | null;
+  access_request_revision?: number | null;
   scope?: ScopeRef | null;
   /** Detail/create/update only. The catalogue does not calculate candidates. */
   assignable_users?: UserRef[];
@@ -233,6 +237,7 @@ export interface TaskQueue extends TaskQueueRef {
   owner_unavailable?: boolean;
 }
 export interface TaskQueueCatalog extends Page<TaskQueue> {
+  can_create_queue?: boolean;
   create_scopes?: (ScopeRef & { title: string })[];
 }
 export interface TaskQueueAccessRequest extends Versioned {
@@ -240,7 +245,7 @@ export interface TaskQueueAccessRequest extends Versioned {
   user: UserRef;
   message: string;
   access_granted?: boolean;
-  status: "pending" | "approved" | "rejected" | "revoked";
+  status: "pending" | "approved" | "rejected" | "revoked" | "cancelled";
   created_at: string;
 }
 export interface TaskHistoryChange {
@@ -258,19 +263,24 @@ export interface TaskHistoryEvent {
   actor: UserRef | null;
   description: string;
   changes?: TaskHistoryChange[];
-  from_status?: AssignmentStatus | null;
-  to_status?: AssignmentStatus | null;
+  from_status?: AssignmentStatus | TaskPublicStatus | null;
+  to_status?: AssignmentStatus | TaskPublicStatus | null;
 }
+export interface TaskMentionRequest {
+  request_id:string;task_id:string;task_key:string|null;target:UserRef|null;requested_by:UserRef|null;
+  comment_id:string|null;status:"pending"|"approved"|"rejected";created_at:string;revision:number;capabilities:string[];
+}
+export type TaskPublicStatus = "open" | "in_progress" | "completed" | "closed";
 export type TaskType = "task" | "milestone" | "epic";
 export type TaskPriority = "low" | "normal" | "high" | "urgent";
 export interface TaskChecklistItem { item_id: string; text: string; checked: boolean }
 export interface TaskChecklistInput { item_id?: string; text: string; checked: boolean }
 export interface TrackerTaskRef {
-  task_id: string; task_key: string; title: string; status: AssignmentStatus;
+  task_id: string; task_key: string; title: string; status: TaskPublicStatus;
   deadline_at: string | null; starts_at: string | null; task_type: TaskType;
 }
 export type TaskLinkKind = "related" | "blocks" | "blocked_by" | "epic" | "epic_member" | "milestone" | "milestone_member";
-export interface TaskLink { link_id: string; kind: TaskLinkKind; task: TrackerTaskRef }
+export interface TaskLink { link_id: string; kind: TaskLinkKind; task: TrackerTaskRef; managed?: boolean }
 export interface TaskPlanning {
   task_type: TaskType; priority: TaskPriority; starts_at: string | null;
 }
@@ -295,16 +305,17 @@ export interface Task extends Versioned {
   assignments: Assignment[];
   assignees?: UserRef[];
   watchers?: UserRef[];
-  allowed_statuses?: AssignmentStatus[];
+  allowed_statuses?: TaskPublicStatus[];
   task_key?: string;
   queue?: TaskQueueRef;
   parent_task?: { task_id: string; task_key: string; title: string } | null;
   parent_task_id?: string | null;
   parent_task_unavailable?: boolean;
-  status?: AssignmentStatus;
+  status?: TaskPublicStatus;
   created_by?: UserRef | null;
   created_at?: string;
   updated_at?: string | null;
+  closed_at?: string | null;
   scope_title?: string;
   scope_avatar_url?: string | null;
   attachments?: FileRef[];
@@ -318,7 +329,7 @@ export interface TaskListPageResponse extends Page<Task> {
   assignees?: UserRef[];
 }
 export interface TaskStatusChange extends Revision {
-  status: AssignmentStatus;
+  status: TaskPublicStatus | AssignmentStatus;
   message?: RichText;
   text?: RichText;
   links?: string[];
@@ -334,14 +345,14 @@ export interface UnresolvedAssignment {
   task_title: string;
   season_id: string;
   scope: ScopeRef;
-  deadline_at: string;
+  deadline_at: string | null;
   scope_title?: string;
   scope_avatar_url?: string | null;
 }
 export interface TaskInputs extends Versioned {
   task_id: string;
   assigned_at: string;
-  deadline_at: string;
+  deadline_at: string | null;
   criteria: Criteria;
 }
 export interface AssessmentInputs extends Versioned {
@@ -355,6 +366,8 @@ export interface AssessmentInputs extends Versioned {
 export type SourceKind =
   | "block_task"
   | "subevent_task"
+  | "event_task"
+  | "chair_task"
   | "head_merit"
   | "chair_merit"
   | "block_volunteer"
@@ -574,7 +587,7 @@ export interface CalendarItem {
   task_key?: string | null;
   scope?: TaskScopeRef | null;
   queue?: { queue_id: string; name: string; key: string } | null;
-  status?: AssignmentStatus | null;
+  status?: TaskPublicStatus | AssignmentStatus | null;
   event_id?: string | null;
   id: string;
   season_id: string;
@@ -650,7 +663,7 @@ export interface TaskCreate {
   scope?: ScopeRef;
   title: string;
   description: RichText;
-  deadline_at: string;
+  deadline_at: string | null;
   criteria?: Criteria;
   assignees?: { user_id: number; hours?: number }[];
   watcher_user_ids?: number[];

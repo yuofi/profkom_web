@@ -1,3 +1,4 @@
+import { publicStatus } from "./trackerStatus";
 // @vitest-environment jsdom
 import { act, useState } from "react";
 import { Route, Routes } from "react-router-dom";
@@ -111,40 +112,26 @@ async function taskPage(role: "leader" | "chair" | "organizer") {
   await settle(); await settle();
   return page;
 }
-const datesPanel = () => Array.from(page!.container.querySelectorAll("details")).find((d) => d.querySelector("summary")?.textContent === "Даты и признаки задачи")!;
-
-it("УВ-5: an area lead fills criteria but reads the task dates; the chair moves them", async () => {
-  await taskPage("leader");
-  expect(datesPanel().querySelector('[name="deadline"]')).toBeNull();
-  expect(datesPanel().querySelector('[name="assigned"]')).toBeNull();
-  expect(datesPanel().textContent).toContain("Дедлайн:");
-  expect(page!.container.querySelector('[name="completed"]')).toBeNull();
-  const editor = field(datesPanel(), "creative").closest("form")!;
-  await change(field(editor, "creative"), "true");
-  await change(field(editor, "reason"), "Творческая задача");
-  await submit(editor);
-  const sent = JSON.parse(mock!.adapter.history.patch.at(-1)!.data);
-  expect(sent).not.toHaveProperty("deadline_at");
-  expect(sent).not.toHaveProperty("assigned_at");
-  expect(mock!.state.inputs.criteria.creative).toBe(true);
-  await page!.cleanup(); page = undefined; mock!.restore();
-
-  await taskPage("chair");
-  expect(datesPanel().querySelector('[name="deadline"]')).not.toBeNull();
-  expect(datesPanel().textContent).not.toContain("Дедлайн:");
+it("УВ-5: an area lead fills shared criteria after closure while only date-authorized roles edit dates", async () => {
+  mock=installMockTransport("leader",{delay:0});const task=mock.state.tasks[0];task.status="closed";task.closed_at="2026-10-30T00:00:00Z";
+  page=await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TaskPage/>}/></Routes>,{role:"leader",path:`/tasks/${task.task_id}?assignment_id=${task.assignments[0].assignment_id}`});await waitForPage(page,()=>!!page!.container.querySelector('table'));
+  expect(page.container.querySelector('[name="deadline"]')).toBeNull();expect(page.container.querySelector('[name="assigned"]')).toBeNull();
+  const creative=[...page.container.querySelectorAll('fieldset label')].find(label=>label.textContent==='Творческий подход')!.querySelector<HTMLInputElement>('input')!;await act(async()=>creative.click());
+  for(const input of page.container.querySelectorAll<HTMLSelectElement>('select[aria-label^="Оценка:"]'))await change(input,'1');
+  await submit(page.container.querySelector('form:has(table)')!);await waitForPage(page);
+  const sent=JSON.parse(mock.adapter.history.put.at(-1)!.data);expect(sent.criteria.creative).toBe(true);expect(sent).not.toHaveProperty('deadline_at');expect(sent).not.toHaveProperty('assigned_at');
 });
 
-it("A-TSK-5: a public status conflict refreshes the task and a new explicit choice uses its current revision", async () => {
-  await taskPage("organizer");const task = mock!.state.tasks[0];
-  const status = vi.spyOn(tasksApi, "changeStatus").mockRejectedValueOnce(new ApiError("Changed", 409, "revision_conflict")).mockImplementation(async (_id, data) => { task.status = data.status;task.revision++;return structuredClone(task); });
-  const accounting = vi.spyOn(tasksApi, "updateAssessment");task.revision++;
-  await clickButton(page!.container, "Нужна помощь");await waitForPage(page!);expect(page!.container.querySelector('[role="alert"]')?.textContent).toContain("Запись изменилась");expect(page!.container.querySelector("dialog")).toBeNull();
-  await clickButton(page!.container, "Нужна помощь");await waitForPage(page!);expect(status).toHaveBeenLastCalledWith(task.task_id, { expected_revision: 2, status: "help_required" });expect(accounting).not.toHaveBeenCalled();
+it("A-TSK-5: a public status conflict rereads the task before an explicit retry", async () => {
+  await taskPage("organizer");const task=mock!.state.tasks[0];const status=vi.spyOn(tasksApi,"changeStatus").mockRejectedValueOnce(new ApiError("Changed",409,"revision_conflict")).mockImplementation(async(_id,data)=>{task.status=publicStatus(data.status);task.revision++;return structuredClone(task);});
+  const accounting=vi.spyOn(tasksApi,"updateAssessment");task.revision++;
+  const choose=async()=>{await act(async()=>page!.container.querySelector<HTMLButtonElement>('button[aria-label^="Статус задачи:"]')!.click());await clickButton(page!.container.querySelector('[role="menu"]')!,"В работе");await waitForPage(page!);};
+  await choose();expect(page!.container.querySelector('[role="alert"]')?.textContent).toContain("Запись изменилась");await choose();expect(status).toHaveBeenLastCalledWith(task.task_id,{expected_revision:2,status:"in_progress"});expect(accounting).not.toHaveBeenCalled();
 });
 
 it("A-TSK-12: replacing a submission draft with the saved values empties its text and files", async () => {
   await taskPage("organizer");
-  const command = vi.spyOn(tasksApi, "submitResult").mockRejectedValueOnce(new ApiError("Changed", 409, "revision_conflict")).mockImplementation(async () => { mock!.state.tasks[0].status = "submitted";mock!.state.tasks[0].revision++;return structuredClone(mock!.state.tasks[0]); });
+  const command = vi.spyOn(tasksApi, "submitResult").mockRejectedValueOnce(new ApiError("Changed", 409, "revision_conflict")).mockImplementation(async () => { mock!.state.tasks[0].status = "completed";mock!.state.tasks[0].revision++;return structuredClone(mock!.state.tasks[0]); });
   vi.spyOn(filesApi, "upload").mockResolvedValue({ file_id: "file-result", name: "result.pdf", mime_type: "application/pdf", size_bytes: 10 });
   await clickButton(page!.container, "Сдать результат");
   const result = () => page!.container.querySelector<HTMLFormElement>("dialog form")!;

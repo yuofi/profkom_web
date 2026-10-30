@@ -53,10 +53,12 @@ it("АВ-34, A-ROL-21: the cabinet opens on the waiting registrations", async ()
   await cabinet("/admin");
   await until(() => text().includes(`Заявка ${label}`));
   expect(page!.container.querySelector("h1")?.textContent).toBe("Регистрации");
-  expect(field(page!.container, "status").value).toBe("pending");
-  const card = Array.from(page!.container.querySelectorAll("section")).find((s) => s.querySelector("h2")?.textContent === `Заявка ${label}`)!;
+  expect(page!.container.querySelector('[aria-label="Статус регистраций"] button[aria-pressed="true"]')?.textContent).toBe("Ожидают решения");
+  const card = Array.from(page!.container.querySelectorAll("details")).find((s) => s.querySelector("summary strong")?.textContent?.trim() === `Заявка ${label}`)!;
+  expect(card.open).toBe(false);expect(card.querySelector("form")).toBeNull();
+  await act(async () => card.querySelector("summary")!.click());await until(() => !!card.textContent?.includes("Контракт"));
   expect(card.textContent).toContain("Контракт");
-  await change(field(page!.container, "status"), "approved");
+  await click("Одобренные");
   await until(() => !text().includes(`Заявка ${label}`));
 });
 

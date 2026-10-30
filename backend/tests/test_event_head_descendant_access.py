@@ -1,3 +1,4 @@
+from domain_models import KkrControlEpicORM
 """Event heads inherit scoped task/KKR rights through every child team, never globally."""
 from datetime import datetime, timedelta, timezone
 
@@ -50,7 +51,7 @@ def merit(w, event, recipient):
 
 def private_snapshot():
     with db._session() as session:
-        return (sorted([tuple(getattr(row, c.name) for c in AssignmentORM.__table__.columns) for row in session.query(AssignmentORM)], key=repr),
+        return (sorted([tuple(getattr(row, c.name) for c in AssignmentORM.__table__.columns) for row in session.query(AssignmentORM).filter(~AssignmentORM.task_id.in_(session.query(KkrControlEpicORM.task_id)))], key=repr),
                 sorted([tuple(getattr(row, c.name) for c in ContributionORM.__table__.columns) for row in session.query(ContributionORM)], key=repr))
 
 

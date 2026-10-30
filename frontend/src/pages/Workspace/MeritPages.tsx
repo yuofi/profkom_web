@@ -631,7 +631,7 @@ function ClosedCorrectionEditor({
         label: "Дедлайн, МСК",
         type: "datetime-local",
         required: true,
-        value: moscowInput(data.record.deadline_at),
+        value: data.record.deadline_at ? moscowInput(data.record.deadline_at) : "",
       },
       ...Object.entries(criteriaLabels).map(([name, label]) => ({
         name,

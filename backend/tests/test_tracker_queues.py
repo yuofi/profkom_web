@@ -19,6 +19,22 @@ def make_queue(client,w,key='TEST',private=False,owner=None):
     return r.json()
 
 
+def legacy_queue(client,owner,key='LEGACY',private=False,scope=None):
+    """Historical unscoped records remain readable; new API creation is forbidden."""
+    import uuid
+    from tracker import now
+    qid='legacy-queue-'+str(uuid.uuid4())
+    from membership import legacy_name
+    kind=scope['kind'] if scope else 'queue';sid=scope['id'] if scope else qid
+    if kind=='block':sid=legacy_name(sid)
+    with db._session() as session:
+        session.add(TaskQueueORM(queue_id=qid,name='Историческая очередь',key=key,scope_kind=kind,scope_id=sid,owner_user_id=owner.user_id,is_private=private,revision=1,created_at=now()))
+        session.commit()
+    response=client.get('/api/task-queues/'+qid,headers=owner.headers)
+    assert response.status_code==200,response.text
+    return response.json()
+
+
 def request_grant(client,q,actor,owner):
     path='/api/task-queues/'+q['queue_id']+'/access-requests'
     r=client.post(path,headers=actor.headers,json={'message':'Нужен доступ к совместной работе'})
@@ -55,7 +71,7 @@ def test_queue_keys_catalog_scope_creation_and_default_compatibility(client,work
     assert any(x['id']==w['block']['block_id'] for x in catalog['create_scopes'])
     assert 'create_task' in next(x for x in catalog['items'] if x['queue_id']==q['queue_id'])['capabilities']
     denied=client.post('/api/task-queues',headers=w['member'].headers,json={**body,'key':'MEMBER','owner_user_id':w['member'].user_id})
-    assert denied.status_code==200
+    assert denied.status_code==403
 
 
 def test_locked_catalog_and_all_task_surfaces_hide_private_queue(client,work,superuser):
@@ -96,9 +112,9 @@ def test_grant_revocation_private_cache_and_underlying_membership(client,work):
     replay='/api/task-queues/'+q['queue_id']+'/access-requests/'+grant['request_id']+'/approve'
     assert client.post(replay,headers=w['master'].headers,json={'expected_revision':r.json()['revision']}).status_code==409
     request_grant(client,q,w['member'],w['master'])
-    assert client.post('/api/blocks/'+w['block']['block_id']+'/leave',headers=w['member'].headers,json={}).status_code==200
-    assert client.get('/api/tasks/'+t['task_id'],headers=w['member'].headers).status_code==404
-    assert client.get('/api/task-queues/'+q['queue_id'],headers=w['member'].headers).status_code==403
+    assert client.request('DELETE','/api/blocks/'+w['block']['block_id']+'/members/'+str(w['member'].user_id),headers=w['master'].headers,json={}).status_code==200
+    assert client.get('/api/tasks/'+t['task_id'],headers=w['member'].headers).status_code==200
+    assert client.get('/api/task-queues/'+q['queue_id'],headers=w['member'].headers).status_code==200
 
 
 def test_requests_are_durable_idempotent_and_owner_only(client,work):
@@ -114,13 +130,13 @@ def test_requests_are_durable_idempotent_and_owner_only(client,work):
     assert len(client.get(path,headers=w['master'].headers).json()['items'])==2
     # Scope outsiders can ask, but an approved queue grant creates no team membership.
     request_grant(client,q,w['outside'],w['master'])
-    assert client.get('/api/task-queues/'+q['queue_id'],headers=w['outside'].headers).status_code==403
+    assert client.get('/api/task-queues/'+q['queue_id'],headers=w['outside'].headers).status_code==200
 
 
 def test_assignees_description_checkboxes_and_actual_comment_editor(client,work):
     w=work;tid=w['task']['task_id'];before=get(client,w,w['member'])
-    assert 'edit_task_description' in before['capabilities'] and 'edit_task' not in before['capabilities']
-    r=client.patch('/api/tasks/'+tid,headers=w['member'].headers,json={'expected_revision':before['revision'],'description':{'format':'markdown','body':'- [x] Проверено'}})
+    assert 'edit_task_description' not in before['capabilities'] and 'edit_task' not in before['capabilities']
+    r=client.patch('/api/tasks/'+tid,headers=w['master'].headers,json={'expected_revision':before['revision'],'description':{'format':'markdown','body':'- [x] Проверено'}})
     assert r.status_code==200,r.text
     assert r.json()['description']['body']=='- [x] Проверено'
     assert client.patch('/api/tasks/'+tid,headers=w['member'].headers,json={'expected_revision':before['revision'],'description':'stale'}).status_code==409
@@ -135,7 +151,7 @@ def test_assignees_description_checkboxes_and_actual_comment_editor(client,work)
     assert edited['actor']['user_id']==w['member'].user_id
     assert edited['changes']==[dict(field='comment',label='Комментарий',before='Исходный комментарий',after='Совместная правка')]
     desc=next(h for h in history if h['kind']=='task_updated' and any(c['field']=='description' for c in h['changes']))
-    assert desc['actor']['user_id']==w['member'].user_id
+    assert desc['actor']['user_id']==w['master'].user_id
     assert desc['changes'][0]['before']=='Текст'
     assert not any(c['field'] in {'hours','evaluation','reason','criteria'} for h in history for c in h['changes'])
 
@@ -157,7 +173,7 @@ def test_cross_queue_parent_cycles_and_revocation_masking(client,work):
     assert r.status_code==200,r.text
     assert r.json()['parent_task'] is None and r.json()['parent_task_id'] is None and r.json()['parent_task_unavailable']
     assert parent['task_id'] not in r.text and parent['title'] not in r.text
-    assert client.patch('/api/tasks/'+child['task_id'],headers=w['member'].headers,json={'expected_revision':child['revision'],'description':'Checkbox only'}).status_code==200
+    assert client.patch('/api/tasks/'+child['task_id'],headers=w['member'].headers,json={'expected_revision':child['revision'],'description':'Checkbox only'}).status_code==403
     assert client.get('/api/tasks/'+child['task_id'],headers=w['master'].headers).json()['parent_task']['task_id']==parent['task_id']
 
 
@@ -319,7 +335,7 @@ def test_new_creation_and_comment_history_records_observed_initial_values(client
     assert fields['title']['before'] is None and fields['title']['after']==w['task']['title']
     assert fields['description']['before'] is None and fields['description']['after']=='Текст'
     assert fields['deadline_at']['after']==w['task']['deadline_at']
-    assert fields['status']['after']=='assigned'
+    assert fields['status']['after']=='open'
     comment=next(x for x in events if x['kind']=='comment_added')
     assert comment['actor']['user_id']==w['member'].user_id
     assert comment['changes']==[dict(field='comment',label='Комментарий',before=None,after='Новый **Markdown** комментарий')]

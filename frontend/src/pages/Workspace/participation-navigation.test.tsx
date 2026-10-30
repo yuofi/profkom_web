@@ -3,7 +3,7 @@ import { act } from "react";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, expect, it } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
-import { mountWorkspace, settle, change } from "../../test/workspace";
+import { mountWorkspace, settle } from "../../test/workspace";
 import { CalendarPage, DashboardPage, NotificationsPage } from "./WorkspacePages";
 import { SECTIONS, sectionOf } from "../../components/Workspace/sections";
 
@@ -11,7 +11,7 @@ let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let mock: ReturnType<typeof installMockTransport> | undefined;
 afterEach(async () => { await page?.cleanup(); page = undefined; mock?.restore(); mock = undefined; });
 
-it("pages a large personal team list and resets to the filtered first page", async () => {
+it("pages a large personal team list without the removed team filters and duplicate top links", async () => {
   mock = installMockTransport("chair", { delay: 0 });
   const prototype = mock.state.blocks[0];
   const member = prototype.members[0];
@@ -28,10 +28,10 @@ it("pages a large personal team list and resets to the filtered first page", asy
   await act(async () => next.click());
   expect(page.container.textContent).toContain("2 из 3");
   expect(ownLinks()[0].textContent).toBe("Команда 09");
-  await change(page.container.querySelector<HTMLInputElement>('section[class*="myTeams"] input')!, "Команда 22");
-  expect(ownLinks()).toHaveLength(1);
-  expect(ownLinks()[0].textContent).toBe("Команда 22");
-  expect(page.container.textContent).not.toContain("2 из 3");
+  expect(page.container.querySelector('section[class*="myTeams"] input')).toBeNull();
+  expect(page.container.querySelector('section[class*="myTeams"] select')).toBeNull();
+  expect(page.container.querySelector('nav[aria-label="Быстрые переходы"]')).toBeNull();
+  expect(page.container.textContent).not.toContain("Учёт выполненной работы");
 });
 
 it("a global administrator without personal assignments gets honest empty states", async () => {
@@ -42,7 +42,7 @@ it("a global administrator without personal assignments gets honest empty states
   page = await mountWorkspace(<DashboardPage />);
   await settle(); await settle();
   expect(page.container.textContent).toContain("Вы пока не участвуете в блоках");
-  expect(page.container.textContent).toContain("вы пока не участвуете в мероприятиях");
+  expect(page.container.textContent).toContain("Вы пока не участвуете в мероприятиях");
   expect(page.container.textContent).not.toContain("Все блоки и мероприятия");
   expect(page.container.querySelector('a[href^="/events/event-"]')).toBeNull();
 });

@@ -40,7 +40,7 @@ def command(client, r, cmd, u):
     )
 
 
-def test_two_stage_join_and_idempotent_leave(client, team):
+def test_two_stage_join_and_idempotent_authorized_removal(client, team):
     t = team
     u = t["user"]
     bid = t["ids"]["IT"]
@@ -54,18 +54,20 @@ def test_two_stage_join_and_idempotent_leave(client, team):
     card = client.get("/api/blocks/" + bid, headers=u.headers).json()
     assert card["members"][0]["user"]["user_id"] == u.user_id
     assert "view_tasks" in card["capabilities"]
+    assert "leave_block" not in card["capabilities"]
     assert (
         client.post(
             "/api/blocks/" + bid + "/leave", headers=u.headers, json={}
         ).status_code
-        == 200
+        == 403
     )
     assert (
-        client.post(
-            "/api/blocks/" + bid + "/leave", headers=u.headers, json={}
+        client.delete(
+            "/api/blocks/" + bid + f"/members/{u.user_id}", headers=t["hr"].headers,
         ).status_code
         == 200
     )
+    assert client.delete("/api/blocks/" + bid + f"/members/{u.user_id}", headers=t["hr"].headers).status_code == 200
     assert client.get("/api/blocks/" + bid, headers=u.headers).json()["members"] == []
     with db._session() as s:
         from database import NotificationORM

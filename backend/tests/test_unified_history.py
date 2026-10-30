@@ -37,7 +37,7 @@ def work(client, superuser, make_user):
         session.commit()
     season = ok(client.post('/api/seasons', headers=superuser.headers, json=dict(title='History season', type='autumn_winter', starts_at=(stamp-timedelta(days=1)).isoformat(), ends_at=(stamp+timedelta(days=10)).isoformat())))
     season = ok(client.post(f"/api/seasons/{season['season_id']}/open", headers=superuser.headers, json=dict(expected_revision=season['revision'])))
-    task = ok(client.post('/api/tasks', headers=master.headers, json=dict(season_id=season['season_id'], scope=dict(kind='block', id=block['block_id']), title='История задачи', description='Исходная версия', deadline_at=(stamp+timedelta(days=1)).isoformat(), assignees=[dict(user_id=worker.user_id, hours=2)])))
+    task = ok(client.post('/api/tasks', headers=worker.headers, json=dict(season_id=season['season_id'], scope=dict(kind='block', id=block['block_id']), title='История задачи', description='Исходная версия', deadline_at=(stamp+timedelta(days=1)).isoformat(), assignees=[dict(user_id=worker.user_id, hours=0)])))
     return dict(master=master, worker=worker, reader=reader, successor=successor, outsider=outsider, block=block, season=season, task=task)
 
 
@@ -134,7 +134,7 @@ def test_current_access_loss_blocks_even_own_redaction(client, work):
     current = ok(client.get('/api/tasks/'+work['task']['task_id'], headers=work['master'].headers))
     ok(client.post(f"/api/tasks/{current['task_id']}/assignees/{work['worker'].user_id}/remove", headers=work['master'].headers, json=dict(expected_revision=current['revision'])))
     # Removing the task's assignee leaves a watcher; leaving the block revokes scope read.
-    ok(client.post(f"/api/blocks/{work['block']['block_id']}/leave", headers=work['worker'].headers))
+    ok(client.delete(f"/api/blocks/{work['block']['block_id']}/members/{work['worker'].user_id}", headers=work['master'].headers))
     assert hide(client, work['worker'], target).status_code in {403,404}
 
 

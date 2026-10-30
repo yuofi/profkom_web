@@ -1,0 +1,6 @@
+.headerAvatar { position:relative;display:inline-flex;align-items:center;flex:0 0 auto; }
+.headerAvatar>img,.headerAvatar>span { width:64px;height:64px; }
+.edit { position:absolute;top:-5px;right:-5px;display:grid;place-items:center;width:28px;height:28px;padding:0;border:1px solid var(--outline-variant);border-radius:50%;background:var(--surface-container-high);color:var(--primary);cursor:pointer;opacity:0;transition:opacity .12s; }
+.headerAvatar:hover .edit,.headerAvatar:focus-within .edit { opacity:1; }
+.edit:focus-visible { outline:2px solid var(--primary);outline-offset:3px; }
+@media (hover:none) { .edit { opacity:1; } }

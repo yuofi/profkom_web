@@ -37,6 +37,9 @@ export const tasksApi = {
   watch: (id: string, data: Revision) => request<Task>("post", `/tasks/${idPath(id)}/watch`, data),
   unwatch: (id: string, data: Revision) => request<Task>("post", `/tasks/${idPath(id)}/unwatch`, data),
   removeAssignee: (id: string, userId: number, data: Revision) => request<Task>("post", `/tasks/${idPath(id)}/assignees/${idPath(userId)}/remove`, data),
+  assign: (id: string, userId: number, data: Revision) => request<Task>("post", `/tasks/${idPath(id)}/assignees/${idPath(userId)}/add`, data),
+  removeWatcher: (id: string, userId: number, data: Revision) => request<Task>("post", `/tasks/${idPath(id)}/watchers/${idPath(userId)}/remove`, data),
+  descriptionChecklist: (id: string, data: Revision & {body: string}) => request<Task>("post", `/tasks/${idPath(id)}/description-checklist`, data),
   history: (id: string) => request<Page<TaskHistoryEvent>>("get", `/tasks/${idPath(id)}/history`),
   get: (id: string) => request<Task>("get", `/tasks/${idPath(id)}`),
   create: (data: TaskCreate) => request<Task>("post", "/tasks", data),
@@ -116,8 +119,8 @@ export const tasksApi = {
       { items, hours, reason },
     ),
   comments: (id: string) => page<Comment>(`/tasks/${idPath(id)}/comments`),
-  comment: (id: string, content: RichText) =>
-    request<Comment>("post", `/tasks/${idPath(id)}/comments`, { content }),
-  editComment: (id: string, content: RichText) =>
-    request<Comment>("patch", `/comments/${idPath(id)}`, { content }),
+  comment: (id: string, content: RichText, mentioned_user_ids: number[] = []) =>
+    request<Comment>("post", `/tasks/${idPath(id)}/comments`, { content, mentioned_user_ids }),
+  editComment: (id: string, content: RichText, mentioned_user_ids: number[] = []) =>
+    request<Comment>("patch", `/comments/${idPath(id)}`, { content, mentioned_user_ids }),
 };

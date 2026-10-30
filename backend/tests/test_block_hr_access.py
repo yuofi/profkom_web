@@ -52,7 +52,8 @@ def test_curator_exact_typed_scope_caps_do_not_grant_guide_membership_or_global_
     actor = curator['actor'];bid = work['block']['block_id']
     card = require(client.get('/api/blocks/'+bid, headers=actor.headers))
     assert card['hr']['user_id'] == actor.user_id
-    assert {'view_tasks', 'create_task', 'view_assessment_inputs', 'edit_assessment_inputs', 'view_unresolved_assignments', 'create_volunteer_merit'} <= set(card['capabilities'])
+    assert {'view_tasks', 'create_task', 'view_assessment_inputs', 'edit_assessment_inputs', 'view_unresolved_assignments'} <= set(card['capabilities'])
+    assert 'create_volunteer_merit' not in card['capabilities']
     assert not {'edit_block', 'remove_member', 'manage_leaders', 'assign_block_hr'} & set(card['capabilities'])
     assert access.BLOCK_HR in access.relations(actor.user_id, 'block', bid)
     assert access.BLOCK_HR not in access.relations(curator['legacy'].user_id, 'block', bid)
@@ -95,10 +96,14 @@ def test_curator_evaluates_existing_member_and_creates_assigned_work_without_pub
     assert private_snapshot() == after
 
 
-def test_curator_can_record_and_manage_own_block_volunteer_work_but_not_other_sources(client, work, curator, superuser, make_block):
+def test_curator_can_read_own_block_volunteer_but_only_chair_can_fill_it(client, work, curator, superuser, make_block):
     actor = curator['actor'];body = volunteer(work, work['outside'])
-    record = require(client.post('/api/merits', headers=actor.headers, json=body))
-    record = require(client.patch('/api/merits/'+record['merit_id'], headers=actor.headers,
+    assert client.post('/api/merits', headers=actor.headers, json=body).status_code == 403
+    record = require(client.post('/api/merits', headers=superuser.headers, json=body))
+    assert client.patch('/api/merits/'+record['merit_id'], headers=actor.headers,
+        json={'expected_revision': record['revision'], 'title': 'Запрещено', 'reason': 'Проверено'}).status_code == 403
+    require(client.get('/api/merits/'+record['merit_id'], headers=actor.headers))
+    record = require(client.patch('/api/merits/'+record['merit_id'], headers=superuser.headers,
         json={'expected_revision': record['revision'], 'title': 'Уточненная работа', 'reason': 'Проверено'}))
     assert record['title'] == 'Уточненная работа'
     make_block(name='Другой синтетический блок')
@@ -158,8 +163,13 @@ def test_curator_assignment_never_grants_requests_or_leader_assignment(client, w
 
 def test_revoking_curator_recovers_their_scoped_queue_owner_in_the_same_transaction(client, work, curator, superuser):
     actor = curator['actor'];bid = work['block']['block_id']
-    queue = require(client.post('/api/task-queues', headers=actor.headers,
+    assert client.post('/api/task-queues', headers=actor.headers,
+        json={'name': 'Нет', 'key': 'NOCURATORQUEUE', 'scope': work['payload']['scope']}).status_code == 403
+    queue = require(client.post('/api/task-queues', headers=work['master'].headers,
         json={'name': 'Очередь HR блока', 'key': 'HRROLEQUEUE', 'scope': work['payload']['scope'], 'is_private': True}))
+    require(client.patch('/api/task-queues/'+queue['queue_id'], headers=work['master'].headers,
+        json={'expected_revision': queue['revision'], 'owner_user_id': actor.user_id}))
+    queue = require(client.get('/api/task-queues/'+queue['queue_id'], headers=actor.headers))
     assert queue['owner']['user_id'] == actor.user_id
     qid = queue['queue_id'];before = private_snapshot()
     with db._session() as session:

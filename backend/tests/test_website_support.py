@@ -63,13 +63,16 @@ def test_reporter_is_full_reader_of_one_ticket_without_queue_or_other_report_acc
     assert "change_task_status" in task["capabilities"] and "join_task" in task["capabilities"]
     assert req(client, author, "get", "/task-queues/" + settings["queue_id"]).status_code == 403
     assert req(client, author, "get", "/tasks/" + second["task_id"]).status_code == 404
-    for status in ["accepted", "in_progress"]:
+    for status in ["closed", "in_progress"]:
         task = ok(req(client, author, "post", f"/tasks/{task_id}/status", {"expected_revision": task["revision"], "status": status}))
         assert task["status"] == status
     task = ok(req(client, author, "post", f"/tasks/{task_id}/join", {"expected_revision": task["revision"]}))
     assert author.user_id in [user["user_id"] for user in task["assignees"]]
-    task = ok(req(client, author, "patch", f"/tasks/{task_id}", {"expected_revision": task["revision"], "priority": "urgent", "task_type": "epic"}))
-    assert task["priority"] == "urgent" and task["task_type"] == "epic"
+    assert not {"edit_task","edit_task_description","change_task_type","change_task_priority","assign_task_participants"}&set(task["capabilities"])
+    assert req(client,author,"patch",f"/tasks/{task_id}",{"expected_revision":task["revision"],"priority":"urgent","task_type":"epic"}).status_code==403
+    assert req(client,master,"post",f"/tasks/{task_id}/assignees/{other.user_id}/add",{"expected_revision":task["revision"]}).status_code==403
+    assert req(client,author,"post",f"/tasks/{task_id}/comments",{"content":"Скрытый призыв","mentioned_user_ids":[other.user_id]}).status_code==403
+    assert req(client,other,"get",f"/tasks/{task_id}").status_code==404
     with db._session() as session:
         assert session.query(ContributionORM).count() == 0
 

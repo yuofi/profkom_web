@@ -47,7 +47,7 @@ class Command(BaseModel):
             "ends_at",
         }:
             return timestamp(value)
-        if info.field_name == "hours":
+        if info.field_name == "hours" and value is not None:
             hours(value)
         if info.field_name in {"expected_revision", "expected_version"} and value < 1:
             raise ValueError("Version must be positive")
@@ -58,11 +58,11 @@ class Command(BaseModel):
         if info.field_name == "scope" and value is not None:
             if (
                 set(value) != {"kind", "id"}
-                or value["kind"] not in ("block", "subevent")
+                or value["kind"] not in ("block", "subevent", "event", "chair")
                 or not isinstance(value["id"], str)
                 or not value["id"]
             ):
-                raise ValueError("Exactly one block or subevent scope is required")
+                raise ValueError("Exactly one valid work scope is required")
         if (
             info.field_name in {"title", "reason"}
             and value is not None

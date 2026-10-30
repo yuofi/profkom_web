@@ -22,7 +22,7 @@ import { eventsApi } from "../../utils/api/events.api";
 import { sessionApi } from "../../utils/api/session.api";
 import { directoryApi } from "../../utils/api/directory.api";
 import { canRetainData } from "../../utils/api/request";
-import { richText, type BlockRequest } from "../../utils/api/contract";
+import { richText, type BlockRequest, type RegistrationApplication } from "../../utils/api/contract";
 import { can, useSession } from "../../utils/session";
 import { displayDate, waited } from "../../utils/dates";
 import { useDeadlineRefresh } from "../../utils/hooks/useDeadlineRefresh";
@@ -33,6 +33,10 @@ import {
 import { Leaders } from "./EventLeaders";
 import { OrganizationTree } from "./OrganizationTree";
 import { BlockHr } from "./BlockHr";
+import { TrackerTaskDialog } from "./TrackerTaskDialog";
+import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
+import { userMessage } from "../../utils/api/messages";
+import m from "./MembershipPages.module.css";
 import { HistoryDisclosure } from "../../components/Workspace/HistoryPanel";
 import s from "../../components/Workspace/Workspace.module.css";
 const requestStates = {
@@ -104,7 +108,7 @@ export function BlockPage() {
   return (
     <Page
       title={b?.name ?? "Блок"}
-      actions={<RouteLink to="/blocks">Все блоки</RouteLink>}
+      actions={<div className={s.row}>{b && <BlockAvatarPicker block={b} />}<RouteLink to="/blocks">Все блоки</RouteLink></div>}
     >
       <QueryState keepDataOnError={!!query.data}
         loading={query.isLoading} error={query.error}>
@@ -188,7 +192,7 @@ export function BlockPage() {
                         </Badge>
                       </span>
                       {can(b, "remove_member") &&
-                        m.user.user_id !== session?.user_id && (
+                        m.user.user_id !== session?.user_id && m.user.user_id !== b.master?.user.user_id && !b.master?.deputy_user_ids.includes(m.user.user_id!) && (
                           <ActionForm
                             fields={[]}
                             submitLabel="Убрать из состава"
@@ -208,17 +212,7 @@ export function BlockPage() {
                 Служебное назначение мастера или заместителя отдельно от
                 обычного членства.
               </p>
-              {can(b, "leave_block") &&
-              b.members.some((m) => m.user.user_id === session?.user_id) ? (
-                <ActionForm
-                  fields={[]}
-                  submitLabel="Выйти из блока"
-                  variant="danger"
-                  onSubmit={async () => {
-                    await perform(() => membershipApi.leave(id));
-                  }}
-                />
-              ) : alreadyInBlock ? null : pending ? (
+              {alreadyInBlock ? null : pending ? (
                 <p>
                   Заявка: {requestStates[pending.state]} ·{" "}
                   <RouteLink to="/blocks/requests">Открыть</RouteLink>
@@ -235,7 +229,6 @@ export function BlockPage() {
                 )
               )}
             </Card>
-            {can(b, "edit_block") && <Card><BlockAvatarPicker block={b} /></Card>}
             {can(b, "edit_block") && (
               <Card title="Изменить описание">
                 <ActionForm
@@ -291,7 +284,7 @@ function RequestCard({
   );
   return (
     <Card title={`${r.user.display_name} → ${blockName}`}>
-      <Badge tone={requestTones[r.state]}>{requestStates[r.state]}</Badge>
+      <div className={s.row}><Badge tone={requestTones[r.state]}>{requestStates[r.state]}</Badge>{open && <RouteLink to={`/blocks/${encodeURIComponent(r.block_id)}`}>Открыть блок</RouteLink>}</div>
       {open ? (
         <p>
           Текущий этап с {displayDate(r.stage_entered_at)} ·{" "}
@@ -439,18 +432,10 @@ export function BlockRequestsPage() {
     <Page
       title="Заявки в блоки"
       description="Обычный блок: HR, затем мастер. В HR-блок вступление завершается после одного решения HR."
-      actions={
-        <button
-          className={s.button}
-          disabled={query.isFetching}
-          onClick={() => void query.refetch()}
-        >
-          Обновить заявки
-        </button>
-      }
+
     >
       <QueryState keepDataOnError={!!query.data}
-        loading={query.isLoading} error={query.error}>
+        loading={query.isLoading} error={query.error} retry={() => void query.refetch()}>
         <div className={s.stack}>
           {sections.map(([title, items]) =>
             items.length === 0 ? null : title === "История" ? (
@@ -477,143 +462,42 @@ const registrationStatuses = {
   approved: "Одобренные",
 } as const;
 type RegistrationStatus = keyof typeof registrationStatuses;
+function RegistrationCard({ registration: r }: { registration: RegistrationApplication }) {
+  const { perform, refresh } = useWorkspaceActions();
+  const [expanded, setExpanded] = useState(false), [rejecting, setRejecting] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const approve = async () => {
+    if (busy) return;
+    setBusy(true);setError("");
+    try { await perform(() => membershipApi.registrationCommand(r.user_id, "approve", { expected_revision: r.revision })); }
+    catch (failure) { setError(userMessage(failure));await refresh(); }
+    finally { setBusy(false); }
+  };
+  return <Card className={m.registrationCard}>
+    <details className={m.registrationDetails} onToggle={event => setExpanded(event.currentTarget.open)}>
+      <summary><div><strong>{r.fields.surname} {r.fields.name} {r.fields.patronymic}</strong><small>{[r.fields.group_number, r.fields.email].filter(Boolean).join(" · ")}</small></div><Badge tone={r.status === "pending" ? "peach" : r.status === "rejected" ? "rose" : "mint"}>{r.status === "pending" ? "Ожидает решения" : r.status === "rejected" ? "Отклонена" : "Одобрена"}</Badge></summary>
+      {expanded && <div className={m.registrationBody}>
+        <dl className={m.registrationFields}>{Object.entries(registrationLabels).map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{r.fields[key as keyof typeof registrationLabels] || "—"}</dd></div>)}<div><dt>Основа обучения</dt><dd>{r.fields.funding ? fundingLabels[r.fields.funding] : "Не выбрано"}</dd></div></dl>
+        <p className={s.muted}>Отправок: {r.attempts_used}/{r.attempt_limit} · за всё время: {r.total_submissions}</p>
+        {r.rejection_reason && <p>Причина отказа: {r.rejection_reason}</p>}
+        {r.status !== "approved" && can(r, "reset_registration_limit") && <details className={s.details}><summary>Сбросить лимит отправок</summary><ActionForm revision={r.revision} record={`registration:${r.user_id}`} fields={[{ name: "reason", label: "Основание сброса счётчика", required: true }]} submitLabel="Сбросить лимит" variant="quiet" onConflict={refresh} onSubmit={async (values, revision) => perform(() => membershipApi.registrationCommand(r.user_id, "reset-attempts", { expected_revision: revision!, reason: text(values, "reason") }))} /></details>}
+      </div>}
+    </details>
+    {r.status === "pending" && <div className={m.decisions}><button type="button" className={s.button} aria-busy={busy} disabled={busy} onClick={() => void approve()}>Одобрить</button><button type="button" className={`${s.button} ${m.reject}`} disabled={busy} onClick={() => setRejecting(true)}>Отклонить</button></div>}
+    {error && <p role="alert" className={s.error}>{error}</p>}
+    {rejecting && r.status === "pending" && <UnsavedChangesScope><TrackerTaskDialog title="Отклонить регистрацию" onClose={() => setRejecting(false)}><p>{r.fields.surname} {r.fields.name}</p><ActionForm revision={r.revision} record={`registration:${r.user_id}`} fields={[{ name: "reason", label: "Причина отказа", type: "textarea", required: true }]} submitLabel="Отклонить регистрацию" variant="danger" onConflict={refresh} onSubmit={async (values, revision) => { const saved = await perform(() => membershipApi.registrationCommand(r.user_id, "reject", { expected_revision: revision!, reason: text(values, "reason") }));setRejecting(false);return saved; }} /></TrackerTaskDialog></UnsavedChangesScope>}
+  </Card>;
+}
 export function RegistrationsPage() {
   const { session } = useSession();
-  const { perform, refresh } = useWorkspaceActions();
-  // The waiting ones open first (A-ROL-21); "" lists every status, waiting first.
   const [status, setStatus] = useState<RegistrationStatus | "">("pending");
-  const query = useQuery({
-    queryKey: ["registrations", "queue", status],
-    queryFn: () => membershipApi.registrations(status || undefined),
-    enabled: can(session, "review_registrations"),
-  });
-  if (!can(session, "review_registrations"))
-    return (
-      <Page title="Регистрации">
-        <Empty>Нет доступа к заявкам.</Empty>
-      </Page>
-    );
-  return (
-    <Page title="Регистрации">
-      <label>
-        Показать{" "}
-        <select name="status" value={status} onChange={(e) => setStatus(e.target.value as RegistrationStatus | "")}>
-          {Object.entries(registrationStatuses).map(([value, label]) => (
-            <option key={value} value={value}>{label}</option>
-          ))}
-          <option value="">Все</option>
-        </select>
-      </label>
-      <QueryState keepDataOnError={!!query.data}
-        loading={query.isLoading} error={query.error}>
-        <div className={s.stack}>
-          {query.data?.items.length === 0 && (
-            <Empty>{status ? `${registrationStatuses[status]}: заявок нет.` : "Заявок нет."}</Empty>
-          )}
-          {query.data?.items.map((r) => (
-            <Card
-              key={r.user_id}
-              title={`${r.fields.surname} ${r.fields.name}`}
-            >
-              <Badge tone={r.status === "pending" ? "peach" : r.status === "rejected" ? "rose" : "mint"}>
-                {r.status === "pending"
-                  ? "Ожидает решения"
-                  : r.status === "rejected"
-                    ? "Отклонена"
-                    : "Одобрена"}
-              </Badge>
-              <dl>
-                {Object.entries(registrationLabels).map(([key, label]) => (
-                  <div key={key}>
-                    <dt>{label}</dt>
-                    <dd>{r.fields[key as keyof typeof registrationLabels] || "—"}</dd>
-                  </div>
-                ))}
-                <div>
-                  <dt>Основа обучения</dt>
-                  <dd>{r.fields.funding ? fundingLabels[r.fields.funding] : "Не выбрано"}</dd>
-                </div>
-              </dl>
-              <p>
-                Отправок: {r.attempts_used}/{r.attempt_limit} · за всё время:{" "}
-                {r.total_submissions}
-              </p>
-              {r.rejection_reason && <p>{r.rejection_reason}</p>}
-              {r.status === "pending" && (
-                <ActionForm
-                    revision={r.revision}
-                    record={`registration:${r.user_id}`}
-                  fields={[
-                    {
-                      name: "decision",
-                      label: "Решение",
-                      type: "select",
-                      required: true,
-                      options: [
-                        { value: "approve", label: "Одобрить" },
-                        { value: "reject", label: "Отклонить" },
-                      ],
-                    },
-                    {
-                      name: "reason",
-                      label: "Причина отказа",
-                      type: "textarea",
-                    },
-                  ]}
-                  onSubmit={async (v, expectedRevision) => {
-                    if (text(v, "decision") === "reject" && !text(v, "reason"))
-                      throw Error("Укажите причину отказа");
-                    return perform(() =>
-                      membershipApi.registrationCommand(
-                        r.user_id,
-                        text(v, "decision") as "approve" | "reject",
-                        {
-                          expected_revision: expectedRevision!,
-                          reason: text(v, "reason"),
-                        },
-                      ),
-                    );
-                  }}
-                  onConflict={refresh}
-                />
-              )}
-              {r.status !== "approved" &&
-                can(r, "reset_registration_limit") && (
-                  <details className={s.details}>
-                    <summary>Сбросить лимит отправок</summary>
-                    <ActionForm
-                      revision={r.revision}
-                      record={`registration:${r.user_id}`}
-                      fields={[
-                        {
-                          name: "reason",
-                          label: "Основание сброса счётчика",
-                          required: true,
-                        },
-                      ]}
-                      submitLabel="Сбросить лимит"
-                      variant="quiet"
-                      onConflict={refresh}
-                      onSubmit={async (v, expectedRevision) => {
-                        return perform(() =>
-                          membershipApi.registrationCommand(
-                            r.user_id,
-                            "reset-attempts",
-                            {
-                              expected_revision: expectedRevision!,
-                              reason: text(v, "reason"),
-                            },
-                          ),
-                        );
-                      }}
-                    />
-                  </details>
-                )}
-            </Card>
-          ))}
-        </div>
-      </QueryState>
-    </Page>
-  );
+  const query = useQuery({ queryKey: ["registrations", "queue", status], queryFn: () => membershipApi.registrations(status || undefined), enabled: can(session, "review_registrations") });
+  if (!can(session, "review_registrations")) return <Page title="Регистрации"><Empty>Нет доступа к заявкам.</Empty></Page>;
+  return <Page title="Регистрации" description="Одобрите заявку или раскройте карточку, чтобы проверить данные.">
+    <div className={m.statusTabs} role="group" aria-label="Статус регистраций">{[...Object.entries(registrationStatuses), ["", "Все"]].map(([value, label]) => <button type="button" key={value} className={s.button} aria-pressed={status === value} onClick={() => setStatus(value as RegistrationStatus | "")}>{label}</button>)}</div>
+    <QueryState keepDataOnError={!!query.data} loading={query.isLoading} error={query.error}><div className={s.stack}>
+      {query.data?.items.length === 0 && <Empty>{status ? `${registrationStatuses[status]}: заявок нет.` : "Заявок нет."}</Empty>}
+      {query.data?.items.map(registration => <RegistrationCard key={registration.user_id} registration={registration} />)}
+    </div></QueryState>
+  </Page>;
 }
 export { ParticipantCategoryPanel } from "./ParticipantCategoryPanel";

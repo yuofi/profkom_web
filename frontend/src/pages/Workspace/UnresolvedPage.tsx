@@ -86,7 +86,7 @@ export function UnresolvedPage() {
             <td className={s.scope} data-label="Команда"><TeamChip scope={item.scope} title={item.scope_title} avatarUrl={item.scope_avatar_url} /></td>
             <td className={s.status} data-label="Учёт ККР"><AccountingChip item={item} /></td>
             <td className={s.availability} data-label="Доступ исполнителя">{item.assignment.assignee_unavailable_reason === "archived" ? <span className={s.unavailable}>В архиве</span> : item.assignment.assignee_unavailable_reason === "left_scope" ? <span className={s.unavailable}>Нет доступа к задаче</span> : <span>Доступен</span>}</td>
-            <td className={s.deadline} data-label="Дедлайн, МСК"><time dateTime={item.deadline_at}>{displayDate(item.deadline_at)}</time></td>
+            <td className={s.deadline} data-label="Дедлайн, МСК">{item.deadline_at ? <time dateTime={item.deadline_at}>{displayDate(item.deadline_at)}</time> : "Без дедлайна"}</td>
 
           </tr>)}</tbody>
         </table></div>}

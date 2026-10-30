@@ -32,6 +32,7 @@ const acknowledge = (form: HTMLFormElement) => clickButton(form, "Сохрани
 it.each(["event", "block", "registration", "meeting", "season", "decisions"] as const)("A05: %s retains its draft through 409, refresh, consent and retry", async (kind) => {
   const role = kind === "registration" ? "pending" : "chair";
   mock = installMockTransport(role, { delay: 0 });
+  if(kind==="decisions") { const original=seasonsApi.summary;vi.spyOn(seasonsApi,"summary").mockImplementation(async id=>({...await original(id),state:"approved"}));const originalSave=seasonsApi.decisions;vi.spyOn(seasonsApi,"decisions").mockImplementation(async (...args)=>({...await originalSave(...args),state:"approved"})); }
   const routes = {
     event: ["/events/event-1/edit", "/events/:id/edit", <EventEditPage />, "description"],
     block: [`/blocks/${mock.state.blocks[0].block_id}`, "/blocks/:id", <BlockPage />, "body"],
@@ -45,8 +46,8 @@ it.each(["event", "block", "registration", "meeting", "season", "decisions"] as 
   await settle(); await settle();
   if (kind === "event") await waitForPage(page!, () => !!page!.container.querySelector('textarea[name="description"]'));
   if (kind === "season") { await act(async () => page!.container.querySelector<HTMLButtonElement>('button[aria-label="Редактировать сезон"]')!.click());await settle(); }
-  if (kind === "decisions") { await act(async () => [...page!.container.querySelectorAll("tbody details")].find(node => node.querySelector("summary")?.textContent === "Изменить отметки")!.querySelector("summary")!.click());await waitForPage(page, () => !!page!.container.querySelector('input[name="reason"]')); }
-  const form = kind === "event" ? Array.from(page.container.querySelectorAll("form")).find((f) => f.querySelector<HTMLInputElement>('[name="title"]')?.value === mock!.state.events[0].title && f.querySelector('[name="description"]'))! : field(page.container, name).closest("form")!;
+  if (kind === "decisions") { await act(async()=>page!.container.querySelector<HTMLButtonElement>('button[aria-label^="Изменить отметки:"]')!.click());await waitForPage(page,()=>!!document.querySelector('[data-anchored-popover] input[name="reason"]')); }
+  const form = kind === "event" ? Array.from(page.container.querySelectorAll("form")).find((f) => f.querySelector<HTMLInputElement>('[name="title"]')?.value === mock!.state.events[0].title && f.querySelector('[name="description"]'))! : field(kind==="decisions"?document:page.container,name).closest("form")!;
   await change(field(form, name), "МОЙ НЕСОХРАНЁННЫЙ ТЕКСТ");
   if (kind === "season") await change(field(form, "reason"), "Уточнение плановых дат");
   const record = kind === "event" ? mock.state.events[0] : kind === "block" ? mock.state.blocks[0] : kind === "registration" ? mock.state.registration : kind === "meeting" ? mock.state.meetings[0] : mock.state.seasons.find((s) => s.season_id === "season-1")!;
@@ -69,7 +70,7 @@ it.each(["event", "block", "registration", "meeting", "season", "decisions"] as 
   expect(payload.expected_revision ?? payload.expected_version).toBe(latestRevision);
   expect(form.querySelector('[role="alert"]'), page.container.textContent ?? "").toBeNull();
   if (kind === "season") { await act(async () => page!.container.querySelector<HTMLButtonElement>('button[aria-label="Редактировать сезон"]')!.click());await settle(); }
-  const repeatedForm = kind === "season" ? field(page.container, name).closest("form")! : form;
+  const repeatedForm = kind === "season" ? field(page.container,name).closest("form")! : form;
   await change(field(repeatedForm, name), "ПОВТОРНОЕ СОХРАНЕНИЕ");
   if (kind === "season") await change(field(repeatedForm, "reason"), "Повторное уточнение плановых дат");
   await submit(repeatedForm);

@@ -8,7 +8,7 @@ import { eventsApi } from "../../utils/api/events.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { taskQueuesApi } from "../../utils/api/taskQueues.api";
-import { emptyCriteria, richText, type AssignmentStatus, type Task } from "../../utils/api/contract";
+import { emptyCriteria, richText, type TaskPublicStatus, type Task } from "../../utils/api/contract";
 import { TaskPage } from "./TaskPages";
 import { statusNames } from "./trackerStatus";
 
@@ -35,38 +35,38 @@ async function submittedTasks(peopleCount: number, taskCount = 1) {
   for (const task of tasks) await tasksApi.submitResult(task.task_id, { expected_revision: task.revision, text: richText("Одна общая сдача"), links: [], file_ids: [] });
   const session = await liveLogin();return { tasks: await Promise.all(tasks.map(task => tasksApi.get(task.task_id))), session };
 }
-const card = (name: string) => page!.container.querySelector<HTMLElement>(`[aria-label="Назначение: ${name}"]`)!;
-const taskActionsSettled = () => ![...page!.container.querySelectorAll<HTMLButtonElement>("button")].some(button => button.disabled && (button.matches('[aria-haspopup="menu"],[aria-label^="Убрать исполнителя:"]') || ["Стать исполнителем", "Наблюдать", "Перестать наблюдать", "Взять в работу", "Нужна помощь", "Сдать результат"].includes(button.textContent?.trim() ?? "")));
+const taskActionsSettled = () => ![...page!.container.querySelectorAll<HTMLButtonElement>("button")].some(button => button.disabled && (button.matches('[aria-haspopup="menu"][aria-label^="Статус задачи:"],[aria-label^="Убрать исполнителя:"]') || ["Стать исполнителем", "Наблюдать", "Перестать наблюдать", "Взять в работу", "Нужна помощь", "Сдать результат"].includes(button.textContent?.trim() ?? "")));
 async function click(label: string) {
   const button = [...page!.container.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent?.trim() === label)!;
   expect(button, label).toBeDefined();await act(async () => button.click());await waitForPage(page!, taskActionsSettled);
 }
 
-async function choosePublic(status: AssignmentStatus) {
+async function choosePublic(status: TaskPublicStatus) {
   await act(async () => page!.container.querySelector<HTMLButtonElement>('button[aria-label^="Статус задачи:"]')!.click());await waitForPage(page!);await click(statusNames[status]);
 }
 it("1.1: public decisions change the joint task without changing private hours, evaluations or dates", async () => {
   const { tasks, session } = await submittedTasks(2, 4);
-  const decisions: AssignmentStatus[] = ["accepted", "needs_revision", "not_completed", "cancelled"];
+  const decisions: TaskPublicStatus[] = ["closed", "in_progress", "open", "completed"];
   for (const [index, status] of decisions.entries()) {
-    const task = tasks[index], before = await Promise.all(task.assignments.map(assignment => tasksApi.assessment(assignment.assignment_id)));
+    const task = tasks[index];if(status==="completed")await tasksApi.changeStatus(task.task_id,{expected_revision:task.revision,status:"open"});const before = await Promise.all(task.assignments.map(assignment => tasksApi.assessment(assignment.assignment_id)));
     page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TaskPage />} /></Routes>, { path: `/tasks/${task.task_id}`, session });await waitForPage(page);await choosePublic(status);
-    expect(page.container.querySelector("dialog")).toBeNull();expect(page.container.querySelector('[role="alert"]')).toBeNull();
-    const saved = await tasksApi.get(task.task_id);expect(saved.status).toBe(status);expect(saved.assignments.map(assignment => assignment.status)).toEqual([status, status]);
+    if(status==="closed"){expect(page.container.querySelector("dialog")?.textContent).toContain("Учёт работы и ККР");await act(async()=>page!.container.querySelector<HTMLButtonElement>('button[aria-label="Закрыть окно"]')!.click());await waitForPage(page);}expect(page.container.querySelector("dialog")).toBeNull();expect(page.container.querySelector('[role="alert"]')).toBeNull();
+    const saved = await tasksApi.get(task.task_id);expect(saved.status).toBe(status);expect(saved.assignments.map(assignment => assignment.status)).toEqual([status, status].map(state=>({open:"assigned",completed:"submitted",closed:"accepted",in_progress:"in_progress"}[state])));
     const after = await Promise.all(saved.assignments.map(assignment => tasksApi.assessment(assignment.assignment_id)));
     expect(after.map(input => [input.hours, input.evaluation, input.effective_completed_at, input.workflow_status, input.workflow_revision])).toEqual(before.map(input => [input.hours, input.evaluation, input.effective_completed_at, input.workflow_status, input.workflow_revision]));
     expect(after.map(input => input.hours)).toEqual([2, 3]);await page.cleanup();page = undefined;
   }
 });
-it("1.1: a public cancellation preserves formal acceptance while authorized private hours remain editable", async () => {
-  const { tasks: [task], session } = await submittedTasks(1), assignment = task.assignments[0];
-  const initial = await tasksApi.assessment(assignment.assignment_id);await tasksApi.updateAssessment(assignment.assignment_id, { expected_revision: initial.revision, evaluation: 1, reason: "Явная формальная приёмка" });
-  const accepted = await tasksApi.assessment(assignment.assignment_id);expect(accepted.workflow_status).toBe("accepted");expect(accepted.evaluation).toBe(1);
-  page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TaskPage />} /></Routes>, { path: `/tasks/${task.task_id}`, session });await waitForPage(page);await choosePublic("cancelled");
-  const inputs = card(assignment.assignee.display_name).querySelector('[name="hours"]')!.closest("form")!;expect(inputs.querySelector('[name="evaluation"]')).not.toBeNull();
-  await change(field(inputs, "hours"), "3");await change(field(inputs, "reason"), "Уточнили часы");await submit(inputs);await waitForPage(page, () => card(assignment.assignee.display_name).querySelector("[data-accounting-hours]")?.textContent === "3");
-  expect((await tasksApi.get(task.task_id)).status).toBe("cancelled");const saved = await tasksApi.assessment(assignment.assignment_id);expect(saved.hours).toBe(3);expect(saved.evaluation).toBe(1);expect(saved.workflow_status).toBe("accepted");expect(saved.effective_completed_at).toBe(accepted.effective_completed_at);
+it("1.1: public closure preserves formal acceptance and private hours remain separately editable",async()=>{
+ const {tasks:[task],session}=await submittedTasks(1),assignment=task.assignments[0];
+ const initial=await tasksApi.assessment(assignment.assignment_id);await tasksApi.updateAssessment(assignment.assignment_id,{expected_revision:initial.revision,evaluation:1,reason:"Явная формальная приёмка"});
+ const accepted=await tasksApi.assessment(assignment.assignment_id);expect(accepted.workflow_status).toBe("accepted");
+ page=await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TaskPage/>}/></Routes>,{path:`/tasks/${task.task_id}`,session});await waitForPage(page);await choosePublic("closed");
+ expect(await tasksApi.assessment(assignment.assignment_id)).toEqual(accepted);
+ const saved=await tasksApi.updateAssessment(assignment.assignment_id,{expected_revision:accepted.revision,hours:3,reason:"Уточнили часы"});
+ expect(saved.hours).toBe(3);expect(saved.evaluation).toBe(1);expect(saved.workflow_status).toBe("accepted");expect(saved.effective_completed_at).toBe(accepted.effective_completed_at);expect((await tasksApi.get(task.task_id)).status).toBe("closed");
 });
+
 
 async function feedbackTasks() {
   const worker = await liveParticipant("feedback-worker");
@@ -87,26 +87,23 @@ it("feedback: an assignee saves checklist/description and edits a shared comment
   const comment = await tasksApi.comment(task.task_id, richText("Комментарий автора задачи"));
   const session = await liveLogin(worker.email);
   let current = await tasksApi.get(task.task_id);
-  expect(current.capabilities).toContain("edit_task_description");expect(current.capabilities).not.toContain("edit_task");
+  expect(current.capabilities).not.toContain("edit_task_description");expect(current.capabilities).not.toContain("edit_task");
   page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TaskPage />} /></Routes>, { path: `/tasks/${task.task_id}`, session });await waitForPage(page);
   const checkbox = page.container.querySelector<HTMLInputElement>('section[aria-label="Описание задачи"] input[type="checkbox"]')!;
   expect(checkbox.disabled).toBe(false);await act(async () => checkbox.click());await waitForPage(page, () => !page!.container.textContent?.includes("Сохраняем отметку"));
   current = await tasksApi.get(task.task_id);expect(current.description.body).toBe("- [x] Проверить документы\n- [x] Подготовить встречу");
   await expect(tasksApi.update(task.task_id, { expected_revision: current.revision, title: "Запрещённая смена названия" })).rejects.toMatchObject({ status: 403 });
   expect((await tasksApi.get(task.task_id)).title).toBe(task.title);
-  const description = page.container.querySelector('section[aria-label="Описание задачи"]')!;
-  await act(async () => [...description.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === "Редактировать")!.click());await waitForPage(page);
-  let form = page.container.querySelector<HTMLFormElement>("dialog form")!;expect(form.querySelector('[name="title"]')).toBeNull();
-  await change(field(form, "body"), "- [x] Проверить документы\nДобавлен порядок проверки");await submit(form);await waitForPage(page, () => !!form.textContent?.includes("Изменения сохранены"));
-  await act(async () => page!.container.querySelector<HTMLButtonElement>('button[aria-label="Закрыть окно"]')!.click());await waitForPage(page, () => !page!.container.querySelector("dialog"));
+  await expect(tasksApi.update(task.task_id,{expected_revision:current.revision,description:richText("Переписанное описание")})).rejects.toMatchObject({status:403});
+  expect([...page.container.querySelectorAll('section[aria-label="Описание задачи"] button')].some(button=>button.textContent?.trim()==="Редактировать")).toBe(false);
   const article = [...page.container.querySelectorAll("article")].find(node => node.textContent?.includes("Комментарий автора задачи"))!;
   await act(async () => [...article.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === "Редактировать")!.click());await waitForPage(page);
-  form = article.querySelector("form")!;await change(field(form, "body"), "Общая правка исполнителя");await submit(form);await waitForPage(page, () => !article.querySelector("form"));
+  const form = article.querySelector("form")!;await change(field(form, "body"), "Общая правка исполнителя");await submit(form);await waitForPage(page, () => !article.querySelector("form"));
   const savedComment = (await tasksApi.comments(task.task_id)).items.find(item => item.comment_id === comment.comment_id)!;
   expect(savedComment.content.body).toBe("Общая правка исполнителя");expect(savedComment.author.user_id).toBe(comment.author.user_id);
   const history = (await tasksApi.history(task.task_id)).items;
   const edits = history.filter(item => item.actor?.user_id === worker.user_id && item.changes?.some(change => ["description", "comment"].includes(change.field)));
-  expect(edits.length).toBeGreaterThanOrEqual(3);expect(edits.every(item => item.actor?.user_id === worker.user_id)).toBe(true);
+  expect(edits.length).toBeGreaterThanOrEqual(2);expect(edits.every(item => item.actor?.user_id === worker.user_id)).toBe(true);
   expect(edits.some(item => item.changes?.some(change => change.field === "description" && change.before === "- [ ] Проверить документы\n- [x] Подготовить встречу" && change.after === "- [x] Проверить документы\n- [x] Подготовить встречу"))).toBe(true);
   expect(history.flatMap(item => item.changes ?? []).every(change => !["hours", "evaluation", "reason"].includes(change.field))).toBe(true);
 });

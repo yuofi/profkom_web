@@ -49,13 +49,12 @@ it("creates a queue from catalog metadata with its creator as owner and assigns 
   expect(create).not.toHaveBeenCalled();expect(form.querySelector('[role="alert"]')?.textContent).toContain("Ключ должен содержать только заглавные английские буквы A–Z");
 
   const key = `U${crypto.randomUUID().replace(/[^a-f]/g, "").slice(0, 9).toUpperCase()}`;
-  await change(field(form, "key"), key);await submit(form);await waitForPage(page, () => !!creation.textContent?.includes("Очередь создана."));
+  await change(field(form, "key"), key);await submit(form);await waitForPage(page, () => page!.container.querySelector("h1")?.textContent === name && !page!.container.querySelector("dialog"));
   expect(create).toHaveBeenCalledTimes(1);
   const queue = (await taskQueuesApi.catalog()).items.find(item => item.key === key)!;expect(queue).toBeDefined();
   const saved = await taskQueuesApi.get(queue.queue_id);
   expect(saved).toMatchObject({ name, key, owner: { user_id: session.user_id }, scope: { kind: "subevent", id: team.subevent_id }, access: "granted" });
-  const open = [...creation.querySelectorAll<HTMLAnchorElement>("a")].find(link => link.textContent === `Открыть ${key}`)!;
-  expect(open).toBeDefined();await act(async () => open.click());await waitForPage(page, () => page!.container.querySelector("h1")?.textContent === name);
+  expect(page.container.querySelector("h1")?.textContent).toBe(name);
   expect(page.container.querySelector(`a[href="/contacts/${session.user_id}"]`)?.textContent).toContain(saved.owner!.display_name);
 
   const task = await tasksApi.create({ season_id: season.season_id, scope: { kind: "subevent", id: team.subevent_id }, queue_id: saved.queue_id, title: "Проверка ключа новой очереди", description: richText("Создано после формы очереди"), deadline_at: new Date(Date.now() + 86400000).toISOString(), criteria: emptyCriteria(), assignees: [{ user_id: owner.user_id, hours: 2 }] });

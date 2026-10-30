@@ -11,9 +11,9 @@ import { TaskStatusMenu } from "./TaskStatusMenu";
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let transport: ReturnType<typeof installMockTransport> | undefined;
 afterEach(async () => { await page?.cleanup();page = undefined;transport?.restore();transport = undefined;vi.restoreAllMocks(); });
-const task = (status: Task["status"] = "assigned"): Task => ({ ...createFixtures("chair").tasks[0], status, assignees: [], watchers: [], revision: 5, capabilities: ["change_task_status", "take_task"] });
+const task = (status: Task["status"] = "open"): Task => ({ ...createFixtures("chair").tasks[0], status, assignees: [], watchers: [], revision: 5, capabilities: ["change_task_status", "take_task"] });
 async function takeButton() { const button = [...page!.container.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === "Взять в работу");expect(button).toBeDefined();await act(async () => button!.click());await waitForPage(page!); }
-it.each(["assigned", "in_progress"] as const)("uses atomic TAKE for an unassigned reader of %s and keeps the status chip out of actions", async status => {
+it.each(["open", "in_progress"] as const)("uses atomic TAKE for an unassigned reader of %s and keeps the status chip out of actions", async status => {
   const original = task(status), saved = { ...original, status: "in_progress" as const, revision: 6, assignees: [createFixtures("chair").user], capabilities: ["change_task_status"] };
   const take = vi.spyOn(tasksApi, "take").mockResolvedValue(saved), directStatus = vi.spyOn(tasksApi, "changeStatus"), changed = vi.fn();
   page = await mountWorkspace(<TaskStatusMenu task={original} variant="actions" onChanged={changed} />);
@@ -34,7 +34,7 @@ it("stale TAKE reports the error without publishing a half-joined task", async (
 });
 it("mock TAKE reuses a removed ledger row and preserves its private accounting", async () => {
   transport = installMockTransport("chair", { delay: 0 });const state = transport.state, original = state.tasks[0], own = state.user, assignment = original.assignments[0];
-  assignment.assignee = own;original.assignees = [];original.watchers = [own];original.status = "accepted";
+  assignment.assignee = own;original.assignees = [];original.watchers = [own];original.status = "closed";
   const privateRow = state.assessments.find(row => row.assignment_id === assignment.assignment_id)!;privateRow.workflow_status = "accepted";privateRow.hours = 4;privateRow.evaluation = 1;privateRow.effective_completed_at = "2026-10-20T12:00:00Z";
   const before = structuredClone(privateRow), saved = await tasksApi.take(original.task_id, { expected_revision: original.revision });
   expect(saved.status).toBe("in_progress");expect(saved.assignees).toEqual([own]);expect(saved.watchers).toEqual([]);expect(saved.assignments.filter(row => row.assignee.user_id === own.user_id)).toHaveLength(1);expect(privateRow).toEqual(before);

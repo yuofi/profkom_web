@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy import text
 from database import (db,engine,TaskQueueORM,AuditLogORM,AssignmentORM,TaskORM,TaskTrackerORM,ContributionORM)
 from models import Block
+from test_tracker_queues import legacy_queue
 from test_v13_tracker import work  # noqa:F401
 import queue_ownership
 queue_ownership.install_hooks()
@@ -16,11 +17,8 @@ def get(client,q,actor):
 
 
 def make(client,w,owner=None,scope=True,private=False):
-    actor=owner or w['member'];payload=dict(name='Передача очереди',key='INHERIT',is_private=private)
-    if scope:payload['scope']=w['payload']['scope']
-    r=client.post('/api/task-queues',headers=actor.headers,json=payload)
-    assert r.status_code==200,r.text
-    return r.json()
+    actor=owner or w['member']
+    return legacy_queue(client,actor,'INHERIT',private,w['payload']['scope'] if scope else None)
 
 
 def hr_master(make_user):
@@ -28,8 +26,8 @@ def hr_master(make_user):
     return actor
 
 
-def leave(client,w):
-    r=client.post('/api/blocks/'+w['block']['block_id']+'/leave',headers=w['member'].headers,json={})
+def leave(client,w,actor=None):
+    r=client.request('DELETE','/api/blocks/'+w['block']['block_id']+'/members/'+str(w['member'].user_id),headers=(actor or w['master']).headers,json={})
     assert r.status_code==200,r.text
 
 
@@ -41,10 +39,12 @@ def audits(qid):
 
 def snapshot():
     with db._session() as s:
+        from domain_models import KkrControlEpicORM
+        controls={row.task_id for row in s.query(KkrControlEpicORM)}
         return {
-            'tasks':[(t.task_id,t.revision,t.deadline_at,t.criteria_json) for t in s.query(TaskORM).order_by(TaskORM.task_id)],
-            'assignments':[(a.assignment_id,a.status,a.hours,a.evaluation,a.effective_completed_at,a.inputs_revision,a.revision) for a in s.query(AssignmentORM).order_by(AssignmentORM.assignment_id)],
-            'tracker':[(t.task_id,t.status,t.assessment_revision,t.public_updated_at,t.public_revisions_json) for t in s.query(TaskTrackerORM).order_by(TaskTrackerORM.task_id)],
+            'tasks':[(t.task_id,t.revision,t.deadline_at,t.criteria_json) for t in s.query(TaskORM).order_by(TaskORM.task_id) if t.task_id not in controls],
+            'assignments':[(a.assignment_id,a.status,a.hours,a.evaluation,a.effective_completed_at,a.inputs_revision,a.revision) for a in s.query(AssignmentORM).order_by(AssignmentORM.assignment_id) if a.task_id not in controls],
+            'tracker':[(t.task_id,t.status,t.assessment_revision,t.public_updated_at,t.public_revisions_json) for t in s.query(TaskTrackerORM).order_by(TaskTrackerORM.task_id) if t.task_id not in controls],
             'contributions':[(c.contribution_id,c.score) for c in s.query(ContributionORM).order_by(ContributionORM.contribution_id)],
         }
 
@@ -71,7 +71,7 @@ def test_fallback_hr_then_chair(client,work,superuser,make_user,skip_hr):
     w=work;hr=hr_master(make_user);q=make(client,w,private=True)
     db.update_user(w['master'].user_id,banned=True)
     if skip_hr:db.update_user(hr.user_id,banned=True)
-    before=snapshot();leave(client,w);expected=superuser if skip_hr else hr
+    before=snapshot();leave(client,w,superuser);expected=superuser if skip_hr else hr
     result=get(client,q,expected);assert result['owner']['user_id']==expected.user_id
     assert audits(q['queue_id'])[-1]['new']['recovery_tier']==('chair' if skip_hr else 'hr_master')
     assert snapshot()==before
@@ -85,7 +85,7 @@ def test_non_block_queue_skips_block_master(client,work,superuser,make_user,scop
         r=client.post('/api/events',headers=superuser.headers,json={'season_id':w['season']['season_id'],'title':'Событие','description':'Текст'});assert r.status_code==200,r.text;event=r.json()
         r=client.post('/api/events/'+event['event_id']+'/subevents',headers=superuser.headers,json={'title':'Команда','description':'Текст'});assert r.status_code==200,r.text;sub=r.json()
         r=client.put('/api/subevents/'+sub['subevent_id']+'/organizers',headers=superuser.headers,json={'expected_revision':sub['revision'],'user_ids':[w['member'].user_id]});assert r.status_code==200,r.text
-        r=client.post('/api/task-queues',headers=w['member'].headers,json={'name':'Очередь мероприятия','key':'EVENTQUEUE','scope':{'kind':'subevent','id':sub['subevent_id']},'is_private':True});assert r.status_code==200,r.text;q=r.json()
+        q=legacy_queue(client,w['member'],'EVENTQUEUE',True,{'kind':'subevent','id':sub['subevent_id']})
     db.update_user(w['member'].user_id,banned=True);result=get(client,q,hr)
     assert result['owner']['user_id']==hr.user_id
     assert audits(q['queue_id'])[-1]['new']['recovery_tier']=='hr_master'
@@ -112,7 +112,7 @@ def test_no_candidate_preserves_unavailable_owner_and_skips_deputy(client,work,s
             s.get(LeadershipORM,1).deputies_json=json.dumps([deputy.user_id])
             s.add(RoleAssignmentORM(role_assignment_id=str(uuid.uuid4()),user_id=deputy.user_id,role='deputy_chair',scope_kind='global',scope_id=None));s.commit()
     db.update_user(w['master'].user_id,banned=True);db.update_user(superuser.user_id,banned=True)
-    leave(client,w);result=get(client,q,deputy)
+    leave(client,w,deputy);result=get(client,q,deputy)
     assert result['owner']['user_id']==w['member'].user_id and result['owner_unavailable']
     assert result['revision']==q['revision'] and 'manage_queue' not in result['capabilities']
     assert audits(q['queue_id'])==[]

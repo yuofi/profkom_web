@@ -15,8 +15,17 @@
 .image { display: block; max-width: 100%; max-height: calc(100dvh - 260px); height: auto; margin: auto; object-fit: contain; }
 .footer { display: flex; justify-content: end; flex-wrap: wrap; gap: 10px; padding: 14px 22px; border-top: 1px solid var(--surface-variant); }
 .pdf { display: grid; gap: 12px; min-width: 0; }
-.pdfControls { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px; }
+.pdfControls { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
 .pdfControls span { font-size: 13px; }
-.pdfCanvas { display: block; max-width: 100%; height: auto; margin: auto; background: white; }
+.pdfControls label { display:flex;align-items:center;gap:8px;font-size:13px; }
+.pdfControls select { font:inherit;border:1px solid var(--outline-variant);border-radius:var(--radius-medium);background:var(--surface-container);color:var(--on-surface);padding:6px 8px; }
+.pdfPages { display:grid;gap:20px;min-width:0; }
+.pdfPage { margin-inline:auto;max-width:none;min-width:0; }
+.pdfPage:focus-visible { outline:2px solid var(--primary);outline-offset:4px; }
+.pdfSheet { position:relative;min-height:1px;background:#fff;box-shadow:0 1px 5px rgb(0 0 0 / .25); }
+.pdfCanvas { position:absolute;inset:0;display:block;width:100%;height:100%;background:white; }
+.pdfPlaceholder { position:absolute;inset:0;display:grid;place-items:center;color:#656565;font-size:13px; }
+.pdfCaption { display:block;text-align:center;padding-top:7px;color:var(--on-surface-variant);font-size:12px; }
+.pdfPageError { position:absolute;inset:15px;color:#9b1c1c;font-size:14px; }
 .srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 @media (max-width: 600px) { .dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }.header, .body, .footer { padding: 14px; }.body { max-height: calc(100dvh - 205px); }.header h2 { font-size: 16px; } }

@@ -17,13 +17,15 @@ def blockers(session, row, actor=None):
 
     # Check unfinished assignments & missing assessments
     season_tasks = session.query(TaskORM).filter(TaskORM.season_id == season_id).all()
-    task_map = {t.task_id: t for t in season_tasks}
+    from domain_models import KkrControlEpicORM
+    controls = {r.task_id for r in session.query(KkrControlEpicORM).filter_by(season_id=season_id)}
+    task_map = {t.task_id: t for t in season_tasks if t.task_id not in controls}
     # subject and assignee let the client say in Russian what blocks and whose it is (2.13).
     def assignee(a):
         ref = _user_to_ref_dc(session.get(UserORM, a.assignee_user_id))
         return ref.display_name if ref else None
 
-    if season_tasks:
+    if task_map:
         assignments = session.query(AssignmentORM).filter(AssignmentORM.task_id.in_(list(task_map.keys()))).all()
         for a in assignments:
             t = task_map.get(a.task_id)

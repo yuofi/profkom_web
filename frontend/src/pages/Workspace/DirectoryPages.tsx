@@ -86,7 +86,7 @@ export function DirectoryPage() {
   const [funding, setFunding] = useState("");
   const [course, setCourse] = useState("");
   const [emails, setEmails] = useState("");
-  const [selected, setSelected] = useState<{ id: number; mode: "details" | "manage" } | null>(null);
+  const [selected, setSelected] = useState<{ id: number; mode: "manage" } | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(() =>
     typeof window.matchMedia !== "function" || window.matchMedia("(min-width: 769px)").matches,
   );
@@ -103,12 +103,12 @@ export function DirectoryPage() {
   const categoryFailed = categories.isError || (!!categoryData && participantIds.some((id) => !categoryByUser.has(id)));
   const blocks = Array.from(
     new Set(
-      query.data?.flatMap((p) =>
+      [...blockCards.map(item => item.name), ...(query.data?.flatMap((p) =>
         p.blocks
           .split(",")
           .map((x) => x.trim())
           .filter(Boolean),
-      ) ?? [],
+      ) ?? [])],
     ),
   );
   // The course is the first digit of the group (owner, 2026-10-25): 301 is the third.
@@ -126,7 +126,7 @@ export function DirectoryPage() {
         p.blocks
           .split(",")
           .map((x) => x.trim())
-          .includes(block)) &&
+          .includes(block) || blockCards.some(item => item.name === block && item.master?.user.user_id === p.user_id)) &&
       `${p.surname} ${p.name} ${p.patronymic} ${p.group_number} ${p.email}`
         .toLowerCase()
         .includes(search.toLowerCase()),
@@ -252,7 +252,7 @@ export function DirectoryPage() {
                 <div className={d.header}>
                   <Avatar src={p.photo_url} size={48} loading="lazy" />
                   <div className={d.identity}>
-                    <h2>{p.surname} {p.name} {p.patronymic}</h2>
+                    <h2><Link className={d.profileLink} to={`/contacts/${p.user_id}`}>{p.surname} {p.name} {p.patronymic}</Link></h2>
                     <p className={d.summary}>{p.group_number || "Группа не указана"}</p>
                     <div className={d.blocks}>{[...new Set([...p.blocks.split(",").map(name => name.trim()).filter(Boolean), ...blockCards.filter(block => block.master?.user.user_id === p.user_id).map(block => block.name)])].map((name, index) => {
                       const item = blockCards.find(block => block.name === name);
@@ -265,20 +265,15 @@ export function DirectoryPage() {
                   <div className={d.category}><Category category={categoryByUser.get(p.user_id)} pending={categoriesPending} /></div>
                 </div>
                 <div className={d.actions}>
-                  <button className={s.button} type="button" onClick={() => setSelected({ id: p.user_id, mode: "details" })}>Подробнее</button>
+                  <Link className={s.button} to={`/contacts/${p.user_id}`}>Подробнее</Link>
                   {mayManage && <button className={s.button} type="button" onClick={() => setSelected({ id: p.user_id, mode: "manage" })}>Управление аккаунтом</button>}
                 </div>
               </Card>
             ))}
           </div>
           {selectedPerson && selected && (
-            <UnsavedChangesScope><ContactDialog key={`${selected.id}-${selected.mode}`} title={selected.mode === "manage" ? "Управление аккаунтом" : `${selectedPerson.surname} ${selectedPerson.name} ${selectedPerson.patronymic}`.trim()} onClose={() => setSelected(null)}>
-              {selected.mode === "details" ? <>
-                <p>{[selectedPerson.group_number, selectedPerson.blocks].filter(Boolean).join(" · ")}</p>
-                <p>{[selectedPerson.location, selectedPerson.budget ? "Бюджет" : "Контракт"].filter(Boolean).join(" · ")}</p>
-                <ContactLinks {...selectedPerson} />
-                {selectedPerson.user_id === session?.user_id && <RouteLink to="/profile/edit">Изменить свои контакты</RouteLink>}
-              </> : mayManage ? <>
+            <UnsavedChangesScope><ContactDialog key={selected.id} title="Управление аккаунтом" onClose={() => setSelected(null)}>
+              {mayManage ? <>
                 <p>{selectedPerson.surname} {selectedPerson.name} {selectedPerson.patronymic}</p>
                 <ParticipantCategoryPanel userId={selectedPerson.user_id} />
                 {can(session, "archive_account") && <ActionForm

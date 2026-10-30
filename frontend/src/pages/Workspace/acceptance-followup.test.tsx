@@ -59,18 +59,17 @@ it("keeps public submission/status separate from explicit private acceptance and
   const publicStatus = async (label: string) => { await act(async () => page!.container.querySelector<HTMLButtonElement>('button[aria-label^="Статус задачи:"]')!.click());await settle();await click(page!.container.querySelector('[role="menu"]')!, label);await waitForPage(page!); };
   await click(page.container, "Взять в работу");await waitForPage(page);expect((await tasksApi.get(task.task_id)).status).toBe("in_progress");
   await click(page.container, "Сдать результат");let submission = form(page.container.querySelector("dialog")!, "Отправить результат");await change(field(submission, "body"), "Первая сдача");await submit(submission);await waitForPage(page);
-  await publicStatus("На доработке");let saved = await tasksApi.get(task.task_id);expect(saved.status).toBe("needs_revision");expect(saved.submissions?.map(item => item.text.body)).toEqual(["Первая сдача"]);
+  await publicStatus("В работе");let saved = await tasksApi.get(task.task_id);expect(saved.status).toBe("in_progress");expect(saved.submissions?.map(item => item.text.body)).toEqual(["Первая сдача"]);
   await click(page.container, "Сдать результат");submission = form(page.container.querySelector("dialog")!, "Отправить результат");await change(field(submission, "body"), "Исправленная сдача");await submit(submission);await waitForPage(page);
-  await publicStatus("Принята");saved = await tasksApi.get(task.task_id);expect(saved.status).toBe("accepted");expect(saved.submissions?.map(item => item.text.body)).toEqual(["Первая сдача", "Исправленная сдача"]);
+  await publicStatus("Закрыта");saved = await tasksApi.get(task.task_id);expect(saved.status).toBe("closed");expect(saved.submissions?.map(item => item.text.body)).toEqual(["Первая сдача", "Исправленная сдача"]);
   const publicOnly = await Promise.all(saved.assignments.map(item => tasksApi.assessment(item.assignment_id)));
   expect(publicOnly.map(item => [item.hours, item.evaluation, item.effective_completed_at, item.workflow_status, item.workflow_revision])).toEqual(before.map(item => [item.hours, item.evaluation, item.effective_completed_at, item.workflow_status, item.workflow_revision]));
-  for (const assignment of saved.assignments) {
-    const block = page.container.querySelector(`[aria-label="Назначение: ${assignment.assignee.display_name}"]`)!;
-    const review = field(block, "evaluation").closest("form")!;await change(field(review, "evaluation"), "1");await change(field(review, "reason"), "Явная приёмка для ККР");await submit(review);await waitForPage(page);
-  }
+  for (const field of page.container.querySelectorAll<HTMLSelectElement>('select[aria-label^="Оценка:"]')) await change(field,"1");
+  const accounting = page.container.querySelector('form:has(select[aria-label^="Оценка:"])')!;
+  await submit(accounting as HTMLFormElement);await waitForPage(page);
   const inputs = await Promise.all(saved.assignments.map(item => tasksApi.assessment(item.assignment_id)));
   expect(inputs.map(item => item.hours)).toEqual([2, 3]);expect(inputs.map(item => item.evaluation)).toEqual([1, 1]);
-  expect(inputs.map(item => item.effective_completed_at)).toEqual([saved.submissions![1].submitted_at, saved.submissions![1].submitted_at]);expect((await tasksApi.get(task.task_id)).status).toBe("accepted");
+  expect(inputs.map(item => item.effective_completed_at)).toEqual([saved.closed_at, saved.closed_at]);expect((await tasksApi.get(task.task_id)).status).toBe("closed");
 });
 
 it("keeps two editor drafts through a conflict and version refresh, publishes explicitly, then removes revoked editing", async () => {
@@ -124,31 +123,14 @@ it("keeps two editor drafts through a conflict and version refresh, publishes ex
   );
 });
 
-it("preserves changed task criteria and deadline when refreshing a conflicting input revision", async () => {
-  // The chair moves dates; an area lead does not (УВ-5).
-  mock = installMockTransport("chair", { delay: 0 });
-  page = await mountWorkspace(
-    <Routes>
-      <Route path="/tasks/:id" element={<TaskPage />} />
-    </Routes>,
-    { role: "chair", path: `/tasks/${mock.state.tasks[0].task_id}` },
-  );
-  await waitForPage(page, () => !!page!.container.querySelector('[name="assigned"]'));
-  const editor = field(page.container, "assigned").closest("form")!;
-  await change(field(editor, "creative"), "true");
-  await change(field(editor, "deadline"), "2026-10-26T18:00");
-  await change(field(editor, "reason"), "Уточнён дедлайн");
-  mock.state.inputs.revision++;
-  await submit(editor);
-  expect(editor.querySelector('[role="alert"]')).not.toBeNull();
-  await click(editor, "Обновить данные");
-  expect(field(editor, "creative").value).toBe("true");
-  expect(field(editor, "deadline").value).toBe("2026-10-26T18:00");
-  await click(editor, "Сохранить мой ввод с обновлённой версией");
-  await submit(editor);
-  const saved = await tasksApi.inputs(mock.state.tasks[0].task_id);
-  expect(saved.criteria.creative).toBe(true);
-  expect(saved.deadline_at).toBe("2026-10-26T15:00:00.000Z");
+it("keeps authorized date editing separate from the atomic shared accounting inputs", async () => {
+  mock=installMockTransport("chair",{delay:0});const task=mock.state.tasks[0];task.status="closed";task.closed_at="2026-10-30T00:00:00Z";
+  page=await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TaskPage/>}/></Routes>,{role:"chair",path:`/tasks/${task.task_id}?assignment_id=${task.assignments[0].assignment_id}`});
+  await waitForPage(page,()=>!!page!.container.querySelector('dialog'));
+  const details=[...page.container.querySelectorAll('details')].find(item=>item.querySelector('summary')?.textContent==='Изменить даты задачи')!;
+  await act(async()=>{details.open=true;details.dispatchEvent(new Event('toggle'));});await waitForPage(page,()=>!!details.querySelector('input[name="deadline"]'));
+  const editor=field(details,'deadline').closest('form')!;await change(field(editor,'deadline'),'2026-10-26T18:00');await change(field(editor,'reason'),'Уточнение дат');await submit(editor);await waitForPage(page);
+  expect((await tasksApi.inputs(task.task_id)).deadline_at).toBe('2026-10-26T15:00:00.000Z');
 });
 
 it("creates, edits, publishes and deletes a material through available routes", async () => {

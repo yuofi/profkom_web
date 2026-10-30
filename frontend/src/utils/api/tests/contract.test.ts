@@ -45,10 +45,11 @@ describe("Safe contract fixtures", () => {
       expect(fixture.profile).not.toHaveProperty("kkr_score");
     },
   );
-  it("HR deputy does not inherit global KKR or HR-review capabilities", () => {
+  it("HR deputy has the approved global accounting rights without chair-only administration", () => {
     const caps = createFixtures("hr-deputy").session.capabilities;
-    expect(caps).not.toContain("view_kkr");
-    expect(caps).not.toContain("hr_review_request");
+    expect(caps).toEqual(expect.arrayContaining(["view_kkr", "view_summary", "edit_decisions", "view_all_areas"]));
+    expect(caps).not.toContain("transfer_chair");
+    expect(caps).not.toContain("close_season");
   });
   it("never grants chair-only actions to chair deputies", () => {
     const caps = createFixtures("chair-deputy").session.capabilities;
@@ -366,7 +367,7 @@ describe("API commands through mock transport", () => {
     const fixture = useMock("leader");
     const task = fixture.state.tasks[0];
     const a = task.assignments[0];
-    task.status = "submitted";
+    task.status = "completed";
     task.assignments.forEach(assignment => { assignment.status = "submitted"; });
     a.submissions.push({
       submission_id: "s1",
@@ -383,7 +384,7 @@ describe("API commands through mock transport", () => {
       { expected_revision: initialInputs.workflow_revision!, review_note: "Уточнить" },
     );
     expect(reviewed.submissions).toHaveLength(1);
-    task.status = "submitted";
+    task.status = "completed";
     task.assignments.forEach(assignment => { assignment.status = "submitted"; });
     const revisedInputs = await tasksApi.assessment(a.assignment_id);
     expect(revisedInputs.workflow_status).toBe("needs_revision");
@@ -411,14 +412,14 @@ describe("API commands through mock transport", () => {
     const body = { expected_revision: initial.workflow_revision!, evaluation: 1, reason: "Лишнее поле" } as never;
     await expect(tasksApi.command(a.assignment_id, "accept", body)).rejects.toMatchObject({ status: 422 });
     expect(a.status).toBe("submitted");
-    expect(task.status).toBe("submitted");expect(task.revision).toBe(publicRevision);
+    expect(task.status).toBe("completed");expect(task.revision).toBe(publicRevision);
     // Revision may be requested again after acceptance (database.request_revision_assignment).
     expect(await tasksApi.assessment(a.assignment_id)).toMatchObject({ revision: initial.revision, workflow_revision: initial.workflow_revision, evaluation: initial.evaluation });
     await tasksApi.command(a.assignment_id, "accept", { expected_revision: initial.workflow_revision!, evaluation: 1 });
     const acceptedInputs = await tasksApi.assessment(a.assignment_id);
     await tasksApi.command(a.assignment_id, "request-revision", { expected_revision: acceptedInputs.workflow_revision!, review_note: "Вернуть" });
     expect((await tasksApi.assessment(a.assignment_id)).workflow_status).toBe("needs_revision");
-    expect((await tasksApi.get(task.task_id)).status).toBe("submitted");
+    expect((await tasksApi.get(task.task_id)).status).toBe("completed");
   });
   it("refuses a merit correction with fields fixed at creation, as the server does (A-KKR-1)", async () => {
     useMock("chair");
@@ -514,7 +515,7 @@ describe("API commands through mock transport", () => {
       expected_revision: started.revision,
       message: richText("Нужна помощь"),
     });
-    expect(help.status).toBe("help_required");
+    expect(help.status).toBe("in_progress");
     const submitted = await tasksApi.command("assignment-1", "submit", {
       expected_revision: help.revision,
       text: richText("Готово"),

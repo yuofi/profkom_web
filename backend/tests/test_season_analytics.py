@@ -35,26 +35,31 @@ def test_analytics_acl_matches_global_summary_not_tracker_read(client, work, sup
         session.add(RoleAssignmentORM(role_assignment_id='hr-analytics', user_id=master.user_id, role='master', scope_kind='block', scope_id='Analytics HR', revision=1))
         session.add(RoleAssignmentORM(role_assignment_id='hr-analytics-deputy', user_id=deputy.user_id, role='deputy_master', scope_kind='block', scope_id='Analytics HR', principal_assignment_id='hr-analytics', revision=1))
         session.commit()
-    for actor in (superuser, master):
+    for actor in (superuser, master, deputy):
         assert analytics(client, work, actor)['totals'] == dict(completed_tasks=0, credited_hours=0, kkr=0)
-    for actor in (deputy, work['master'], work['member'], work['outside']):
+    for actor in (work['master'], work['member'], work['outside']):
         for sid in (work['task']['season_id'], 'missing-season'):
             assert client.get('/api/seasons/' + sid + '/analytics', headers=actor.headers).status_code == 403
     assert client.get('/api/seasons/missing-season/analytics', headers=superuser.headers).status_code == 404
 
 
-def test_public_accepted_is_not_an_accounted_task_and_independent_never_counted(client, work, superuser):
+def test_public_closed_is_not_an_accounted_task_and_unbound_legacy_credit_is_ignored(client, work, superuser):
     w = work; task = w['task']
-    response = client.post('/api/tasks/' + task['task_id'] + '/status', headers=w['member'].headers,
-        json=dict(expected_revision=task['revision'], status='accepted'))
-    assert response.status_code == 200
-    queue = client.post('/api/task-queues', headers=w['member'].headers, json=dict(name='Independent', key='ANALYTICS')).json()
-    task = client.post('/api/tasks', headers=w['member'].headers,
-        json=dict(queue_id=queue['queue_id'], season_id=task['season_id'], title='No accounting', deadline_at=task['deadline_at'], assignees=[dict(user_id=w['member'].user_id)])).json()
-    # Imported malformed independent credit must not invent an accounting source.
+    response = client.post('/api/tasks/' + task['task_id'] + '/status', headers=w['master'].headers,
+        json=dict(expected_revision=task['revision'], status='closed'))
+    assert response.status_code == 200,response.text
+    # No new unbound queues can be created. Imported unbound rows remain isolated
+    # until the owner explicitly binds them; they never acquire a fabricated source.
+    assert client.post('/api/task-queues', headers=w['member'].headers, json=dict(name='Independent', key='ANALYTICS')).status_code==403
+    from database import TaskQueueORM
     with db._session() as session:
-        assignment = session.get(AssignmentORM, task['assignments'][0]['assignment_id'])
-        assignment.status='accepted'; assignment.hours=99; assignment.evaluation=1
+        queue=TaskQueueORM(queue_id='legacy-unbound',name='Legacy unbound',key='ANALYTICS',scope_kind='queue',scope_id='legacy-unbound',owner_user_id=superuser.user_id,is_private=False,is_default=False,next_task_number=2,revision=1)
+        session.add(queue)
+        legacy=TaskORM(task_id='legacy-unbound-task',season_id=task['season_id'],scope_kind='queue',scope_id='legacy-unbound',title='Unbound legacy',assigned_at=task['assigned_at'] if 'assigned_at' in task else datetime.now(timezone.utc).isoformat(),deadline_at=task['deadline_at'],created_by_user_id=superuser.user_id,created_at=datetime.now(timezone.utc).isoformat(),revision=1)
+        session.add(legacy)
+        session.add(TaskTrackerORM(task_id=legacy.task_id,queue_id=queue.queue_id,queue_number=1,status='closed'))
+        assignment=AssignmentORM(assignment_id='legacy-unbound-assignment',task_id=legacy.task_id,assignee_user_id=w['member'].user_id,status='accepted',hours=99,evaluation=1,revision=1,created_at=datetime.now(timezone.utc).isoformat())
+        session.add(assignment)
         session.add(ContributionORM(contribution_id='fake-independent', season_id=task['season_id'], participant_id='participant-'+str(w['member'].user_id), user_id=w['member'].user_id, source_kind='block_task', source_id='Independent', source_title='Not a source', score=99, assignment_id=assignment.assignment_id, created_at=datetime.now(timezone.utc).isoformat()))
         session.commit()
     result = analytics(client, w, superuser)

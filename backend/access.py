@@ -33,6 +33,7 @@ BLOCK_MEMBER = "block_member"
 # Event; a subevent also inherits the relations to its event
 EVENT_LEADER = "event_leader"
 EVENT_DEPUTY = "event_deputy"
+EVENT_TEAM = "event_team"  # public tracker scope only; never report/meeting authority
 EVENT_SUB_LEAD = "event_sub_lead"  # leads one of the event's subevents
 # Subevent
 SUB_LEADER = "sub_leader"
@@ -43,7 +44,7 @@ ORGANIZER = "organizer"
 MATERIAL_EDITOR = "material_editor"
 
 TACHKI = frozenset({CHAIR, CHAIR_DEPUTY})  # the chair and the chair's deputies
-SUMMARY = TACHKI | {HR_MASTER}
+SUMMARY = TACHKI | {HR_MASTER, HR_DEPUTY}
 EVENT_LEADS = frozenset({EVENT_LEADER, EVENT_DEPUTY})
 SUB_LEADS = frozenset({SUB_LEADER, SUB_DEPUTY})
 BLOCK_LEADS = frozenset({BLOCK_MASTER, BLOCK_DEPUTY})
@@ -89,16 +90,19 @@ POLICY = {
     "subevent.report.read": SUBEVENT_READERS,
     "report.read_all": TACHKI | {HR_MASTER},  # every published report, closed seasons too
     # Tasks; the scope is a block or a subevent
-    "task.view": TACHKI | {HR_MASTER,HR_TRACKER_READER,BLOCK_HR,SUBEVENT_HR} | AREA_TEAM,
-    "task.create": TACHKI | {HR_MASTER,HR_TRACKER_READER,BLOCK_HR,SUBEVENT_HR} | AREA_TEAM,
+    "task.view": TACHKI | {HR_MASTER,HR_DEPUTY,HR_TRACKER_READER,BLOCK_HR,SUBEVENT_HR,EVENT_TEAM} | AREA_TEAM,
+    "task.create": TACHKI | {HR_MASTER,HR_TRACKER_READER,BLOCK_HR,SUBEVENT_HR,EVENT_TEAM} | AREA_TEAM,
     "task.assign_others": TACHKI | AREA_LEADS | {BLOCK_HR,SUBEVENT_HR},
-    "task.edit": ByState({"*": TACHKI | {HR_MASTER} | AREA_LEADS, "closed": TACHKI}),  # public task editing; closed seasons keep chair-only leadership policy
-    "task.review": ByState({"*": TACHKI | {HR_MASTER,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS, "closed": TACHKI}),
-    "task.inputs.view": TACHKI | {HR_MASTER,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS,
-    "task.inputs.edit": ByState({"*": TACHKI | {HR_MASTER,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS, "closed": TACHKI}),
+    "task.edit": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY} | AREA_LEADS, "closed": TACHKI}),  # public task editing; closed seasons keep chair-only leadership policy
+    "task.review": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS, "closed": TACHKI}),
+    "task.inputs.view": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS,
+    "task.inputs.edit": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS, "closed": TACHKI}),
     # Issue date, deadline and completion date, once set; area leads do not move them (УВ-5)
     "task.dates.edit": ByState({"*": SUMMARY, "closed": TACHKI}),
-    "queue.view": TACHKI | {HR_MASTER, QUEUE_HOLDER},
+    "queue.view": TACHKI | {HR_MASTER, HR_DEPUTY, QUEUE_HOLDER},
+    "queue.create": TACHKI | BLOCK_LEADS | EVENT_LEADS | SUB_LEADS,
+    "event.close": TACHKI,
+    "event.reopen": TACHKI,
     "dashboard.all": TACHKI | {HR_MASTER},  # every block and event on the home page (АВ-26, АВ-35)
     # KKR, summary, merits
     "kkr.view": SUMMARY,
@@ -107,17 +111,21 @@ POLICY = {
     "summary.correct": TACHKI,  # closed season corrections (АВ-2)
     "merit.create.chair": TACHKI,
     "merit.create.head": TACHKI | EVENT_LEADS,  # decision 12
-    "merit.create.block_volunteer": TACHKI | {HR_MASTER,BLOCK_HR,SUBEVENT_HR} | BLOCK_LEADS,
-    "merit.create.subevent_volunteer": TACHKI | {HR_MASTER,SUBEVENT_HR} | EVENT_LEADS | SUB_LEADS,  # A-KKR-8 (a)
-    "merit.manage.chair_merit": ByState({"*": SUMMARY, "closed": TACHKI}),
-    "merit.manage.head_merit": ByState({"*": SUMMARY | EVENT_LEADS, "closed": TACHKI}),
-    "merit.manage.block_volunteer": ByState({"*": SUMMARY | BLOCK_LEADS | {BLOCK_HR}, "closed": TACHKI}),
-    "merit.manage.subevent_volunteer": ByState({"*": SUMMARY | EVENT_LEADS | SUB_LEADS | {SUBEVENT_HR}, "closed": TACHKI}),
+    "merit.create.block_volunteer": TACHKI,
+    "merit.create.subevent_volunteer": TACHKI | EVENT_LEADS,  # A-KKR-8 (a)
+    "merit.view.chair_merit": SUMMARY,
+    "merit.view.head_merit": SUMMARY | EVENT_LEADS,
+    "merit.view.block_volunteer": SUMMARY | BLOCK_LEADS | {BLOCK_HR},
+    "merit.view.subevent_volunteer": SUMMARY | EVENT_LEADS | SUB_LEADS | {SUBEVENT_HR},
+    "merit.manage.chair_merit": ByState({"*": TACHKI, "closed": TACHKI}),
+    "merit.manage.head_merit": ByState({"*": TACHKI | EVENT_LEADS, "closed": TACHKI}),
+    "merit.manage.block_volunteer": ByState({"*": TACHKI, "closed": TACHKI}),
+    "merit.manage.subevent_volunteer": ByState({"*": TACHKI | EVENT_LEADS, "closed": TACHKI}),
     "achievement.manage": TACHKI | {HR_MASTER, BLOCK_MASTER, EVENT_LEADER},
     # Blocks and membership
     "block.edit": TACHKI | BLOCK_LEADS,
     "block.rename": TACHKI,
-    "block.remove_member": TACHKI | {HR_MASTER} | BLOCK_LEADS,  # A-ROL-2
+    "block.remove_member": TACHKI | {HR_MASTER,HR_DEPUTY} | BLOCK_LEADS,  # A-ROL-2
     "block.manage_leader": TACHKI,
     "block.hr.assign": TACHKI | {HR_MASTER},
     "block.manage_master_deputies": TACHKI | {BLOCK_MASTER},
@@ -127,8 +135,8 @@ POLICY = {
     "block_request.navigate": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_LEAD_ANYWHERE},
     # Checked on the HR block: its whole team reads every request and why it was rejected (decision 16)
     "block_request.view_as_hr": BLOCK_LEADS | {BLOCK_MEMBER},
-    "participant.category": SUMMARY,
-    "former_contact.edit": SUMMARY,
+    "participant.category": TACHKI | {HR_MASTER},
+    "former_contact.edit": TACHKI | {HR_MASTER},
     # Registrations, accounts, leadership
     "registration.review": TACHKI,  # not the HR master (АВ-3)
     "account.archive": TACHKI,  # АВ-2
@@ -194,7 +202,7 @@ def _global(uid):
     for a in db.get_user_assignments(uid):
         if a.scope_kind == "block" and a.role == "deputy_master" and a.scope_id in hr_blocks:
             rel.update({HR_TRACKER_READER,HR_DEPUTY})
-            continue  # tracker read/create and HR-stage review, never global KKR/reports
+            continue  # explicit HR deputy; its grants are defined by POLICY, not legacy names
         if a.role in QUEUE_ROLES.get(a.scope_kind, set()):
             rel.add(QUEUE_HOLDER)
         if a.scope_kind == "block" and a.role in ("master", "deputy_master"):
@@ -240,6 +248,8 @@ def _event(uid, event_id):
         for sid in children
     ):
         rel.add(EVENT_SUB_LEAD)
+    if any(db.is_subevent_organizer(uid, sid) for sid in children) or EVENT_SUB_LEAD in rel:
+        rel.add(EVENT_TEAM)
     return rel
 
 
@@ -302,7 +312,8 @@ def _material(uid, material_id):
         return {MATERIAL_EDITOR} if editor else set()
 
 
-SCOPES = {"block": _block, "event": _event, "subevent": _subevent, "material": _material}
+SCOPES = {"block": _block, "event": _event, "subevent": _subevent, "material": _material,
+          "chair": lambda uid, scope_id: set()}
 
 
 @memoized("access.scope_relations", copy_result=False)
@@ -373,6 +384,8 @@ def scope_access_revision(uid):
         scopes.append(all_queue_reader(uid))
         scopes.append(sorted((q.queue_id,q.owner_user_id,q.is_private,q.revision) for q in session.query(TaskQueueORM)))
         scopes.append(sorted((m.queue_id,m.active,m.request_id,m.revoked_at) for m in session.query(TaskQueueMemberORM).filter_by(user_id=uid)))
+        from tracker_collaboration_models import TaskAccessGrantORM
+        scopes.append(sorted((g.task_id,g.active,g.granted_at,g.revoked_at) for g in session.query(TaskAccessGrantORM).filter_by(user_id=uid)))
         scopes.append(sorted((row.block_id,getattr(row,"hr_user_id",None)) for row in session.query(BlockMetaORM)))
         from event_workspace_models import EventWorkspaceMetaORM
         scopes.append(sorted((row.owner_id,row.hr_user_id) for row in session.query(EventWorkspaceMetaORM).filter_by(owner_kind="subevent")))
@@ -435,6 +448,8 @@ def season_caps(season, uid=None):
 
 EVENT_CAPS = {
     "edit_event": "event.edit",
+    "close_event": "event.close",
+    "reopen_event": "event.reopen",
     "view_meeting": "event.meeting.view",  # A-EVT-4
     "manage_organizers": "subevent.manage_organizers",
     "edit_meeting": "event.meeting.edit",
@@ -454,7 +469,15 @@ def event_caps(event, uid=None):
     table = dict(EVENT_CAPS)  # manage_organizers on the event card: for its subevents
     if state in ("planned", "open"):
         table["create_subevent"] = "event.create_subevent"
-    return _caps(table, uid, "event", event.event_id, state)
+        table["create_task"] = "task.create"
+    result = _caps(table, uid, "event", event.event_id, state)
+    from event_workspace import event_closed
+    with db._session() as session:
+        closed = event_closed(session, event.event_id)
+    result = [cap for cap in result if cap != ("close_event" if closed else "reopen_event")]
+    if closed:
+        result = [cap for cap in result if cap != "create_head_merit" or bool(relations(uid) & TACHKI)]
+    return result
 
 
 SUBEVENT_CAPS = {
@@ -483,7 +506,12 @@ def subevent_caps(sub, uid=None):
     table = dict(SUBEVENT_CAPS)
     if state in ("planned", "open"):
         table["create_task"] = "task.create"
-    return _caps(table, uid, "subevent", sub.subevent_id, state)
+    result = _caps(table, uid, "subevent", sub.subevent_id, state)
+    if "create_volunteer_merit" in result:
+        from merit_rules import can_create
+        if not can_create(uid, "subevent_volunteer", None, sub.subevent_id):
+            result.remove("create_volunteer_merit")
+    return result
 
 
 def meeting_caps(owner_kind, owner_id, uid=None):
@@ -514,7 +542,13 @@ def assignment_caps(uid, kind, scope_id):
         return global_caps(uid)
     if _closed_scope(kind, scope_id) and not allowed(uid, "summary.correct"):
         return []
-    return _caps(ASSIGNMENT_CAPS.get(kind, {}), uid, kind, scope_id)
+    result = _caps(ASSIGNMENT_CAPS.get(kind, {}), uid, kind, scope_id)
+    if kind in {"event", "subevent"}:
+        from merit_rules import can_create
+        source = "head_merit" if kind == "event" else "subevent_volunteer"
+        if not can_create(uid, source, scope_id if kind == "event" else None, scope_id if kind == "subevent" else None):
+            result = [cap for cap in result if cap not in {"create_head_merit", "create_volunteer_merit"}]
+    return result
 
 
 def _closed_scope(kind, scope_id):
@@ -607,3 +641,6 @@ import sys as _sys
 _finish_queue_recovery = getattr(_sys.modules.get("queue_ownership"), "finish_startup_recovery", None)
 if _finish_queue_recovery is not None:
     _finish_queue_recovery()
+_finish_kkr_recovery = getattr(_sys.modules.get("kkr_control_hooks"), "finish_startup_recovery", None)
+if _finish_kkr_recovery is not None:
+    _finish_kkr_recovery()

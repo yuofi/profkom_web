@@ -41,3 +41,14 @@
   .grid > .card { height: 250px; }
   .category { max-width: 80px; }
 }
+
+/* Native stretched profile link keeps the full card clickable while nested
+ * block links and management controls retain their own independent actions. */
+.card { position:relative; }
+.identity h2 .profileLink { color:var(--on-surface);text-decoration:none; }
+.profileLink::after { content:"";position:absolute;inset:0;border-radius:var(--radius-large); }
+.profileLink:focus-visible { outline:none; }
+.profileLink:focus-visible::after { outline:2px solid var(--primary);outline-offset:3px; }
+.card:hover { border-color:color-mix(in srgb,var(--primary) 40%,var(--outline-variant)); }
+.blocks .blockLink,.actions>a,.actions>button { position:relative;z-index:1; }
+.actions>a { font-size:13px;text-decoration:none; }

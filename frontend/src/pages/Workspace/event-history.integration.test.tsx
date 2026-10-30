@@ -143,7 +143,7 @@ it("2.21: a new event and its subevent continue chosen series and show their his
   expect(old.sub.report_series_id).not.toBeNull();
   await change(field(subForm, "series") as HTMLSelectElement, old.sub.report_series_id!);
   await submit(subForm);
-  await waitForPage(page!);
+  await waitForPage(page!, () => !subForm.isConnected && text().includes("Лекции следующего года"));
   expect(subForm.querySelector('[role="alert"]')).toBeNull();
   const subs = (await eventsApi.subevents(created.event_id)).items;
   expect(subs.find(s => s.title === "Лекции следующего года")?.report_series_id).toBe(old.sub.report_series_id);

@@ -501,7 +501,8 @@ def run(org, role):
 # ───────────────────────────── expected (RELEASE_PLAN.md, section 2) ─────────────────────────────
 ALL = set(ROLES)
 TACHKI = {"chair", "deputy"}  # chair and the chair's deputies
-HRM = {"hrmaster"}  # Global KKR remains exclusive to the master, not the HR deputy.
+HRM = {"hrmaster"}  # Other HR master-only workflows keep their existing policy.
+KKR_HR = HRM | {"hrdeputy"}  # Approved global KKR and public task-editor roles.
 REQUEST_HR = HRM | {"hrdeputy"}  # Owner decision 2026-10-28: both decide the HR stage.
 TRACKER_HR = HRM | {"hrdeputy"}
 EVENT_LEAD = {"head1", "head1dep"}
@@ -525,19 +526,19 @@ EXPECTED = {
     # the leadership-only policy tested independently in test_tracker_reader_policy.
     "T1": TACHKI | TRACKER_HR | EVENT_LEAD | SUB_TEAM, "T2": TACHKI | TRACKER_HR | IT_LEAD | IT_MEMBERS,
     "T3": TACHKI | TRACKER_HR | EVENT_LEAD | SUB_TEAM, "T4": TACHKI | TRACKER_HR | IT_LEAD | IT_MEMBERS,
-    "T5": TACHKI | HRM | EVENT_LEAD | SUB_LEAD, "T6": TACHKI | HRM | IT_LEAD,  # global HR master public edit; collaborative descriptions are checked separately
-    "T7": TACHKI | HRM | EVENT_LEAD | SUB_LEAD, "T8": TACHKI | HRM | IT_LEAD,
-    "T9": TACHKI | HRM | EVENT_LEAD | SUB_LEAD, "T10": TACHKI | HRM | EVENT_LEAD | SUB_LEAD,
-    "T11": TACHKI | HRM | IT_LEAD, "T12": TACHKI | HRM | EVENT_LEAD | SUB_LEAD,
-    "T13": QUEUE, "T14": TACHKI | HRM | IT_LEAD,
-    "T15": TACHKI | HRM, "T16": TACHKI | HRM | EVENT_LEAD | SUB_LEAD, "T17": TACHKI | HRM,  # УВ-5
-    "K1": TACHKI | HRM, "K2": TACHKI | HRM, "K3": TACHKI | HRM, "K4": TACHKI | HRM, "K5": TACHKI | HRM,
+    "T5": TACHKI | KKR_HR | EVENT_LEAD | SUB_LEAD, "T6": TACHKI | KKR_HR | IT_LEAD,  # global HR master public edit; collaborative descriptions are checked separately
+    "T7": TACHKI | KKR_HR | EVENT_LEAD | SUB_LEAD, "T8": TACHKI | KKR_HR | IT_LEAD,
+    "T9": TACHKI | KKR_HR | EVENT_LEAD | SUB_LEAD, "T10": TACHKI | KKR_HR | EVENT_LEAD | SUB_LEAD,
+    "T11": TACHKI | KKR_HR | IT_LEAD, "T12": TACHKI | KKR_HR | EVENT_LEAD | SUB_LEAD,
+    "T13": QUEUE | KKR_HR, "T14": TACHKI | KKR_HR | IT_LEAD,
+    "T15": TACHKI | KKR_HR, "T16": TACHKI | KKR_HR | EVENT_LEAD | SUB_LEAD, "T17": TACHKI | KKR_HR,  # УВ-5
+    "K1": TACHKI | KKR_HR, "K2": TACHKI | KKR_HR, "K3": TACHKI | KKR_HR, "K4": TACHKI | KKR_HR, "K5": TACHKI | KKR_HR,
     "K6": TACHKI | EVENT_LEAD,  # decision 12: unchanged
-    "K7": TACHKI | HRM | IT_LEAD,
-    "K8": TACHKI | HRM | EVENT_LEAD | SUB_LEAD,  # A-KKR-8, variant (a)
+    "K7": TACHKI,
+    "K8": TACHKI | EVENT_LEAD,  # A-KKR-8, variant (a)
     "K9": TACHKI,
-    "K10": TACHKI | HRM | EVENT_LEAD | SUB_LEAD, "K11": TACHKI | HRM | EVENT_LEAD | SUB_LEAD,
-    "K12": TACHKI | HRM | EVENT_LEAD, "K13": TACHKI | HRM | IT_LEAD,
+    "K10": TACHKI | KKR_HR | EVENT_LEAD | SUB_LEAD, "K11": TACHKI | EVENT_LEAD,
+    "K12": TACHKI | EVENT_LEAD, "K13": TACHKI,
     "K14": TACHKI,  # closed season corrections (АВ-2)
     "K15": {"chair"},  # opening and closing a season (АВ-49)
     "K16": TACHKI, "K17": ALL,
@@ -555,7 +556,7 @@ EXPECTED = {
     "M5": TACHKI | EVENT_LEAD, "M6": TACHKI | EVENT_LEAD | SUB_LEAD,
     "B1": ALL, "B1h": ALL,
     "B2": TACHKI | IT_LEAD, "B3": TACHKI | HRM,
-    "B4": TACHKI | HRM | IT_LEAD, "B5": TACHKI | HRM,  # the master's deputy removes members (A-ROL-2)
+    "B4": TACHKI | REQUEST_HR | IT_LEAD, "B5": TACHKI | REQUEST_HR,  # the master's deputy removes members (A-ROL-2)
     "B6": REQUEST_HR, "B7": REQUEST_HR, "B8": IT_LEAD, "B9": REQUEST_HR,  # chair and deputies only after 72 hours (АВ-29)
     "B12": TACHKI, "B13": TACHKI | {"master"}, "B14": TACHKI | HRM,
     "G1": TACHKI, "G2": TACHKI,  # the HR master does not review registrations (АВ-3)

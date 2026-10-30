@@ -248,14 +248,14 @@ def test_полный_цикл_назначения_сдача_приемка_д
     # 2. request-help -> help_required + уведомление мастеру
     res_help = client.post(f"{ASSIGNMENTS_URL}/{asgn_id}/request-help", json={"expected_revision": rev, "message": "Нужна помощь с апи"}, headers=member.headers)
     assert res_help.status_code == 200
-    assert res_help.json()["status"] == "help_required"
+    assert res_help.json()["status"] == "in_progress"
     rev = res_help.json()["revision"]
 
     # Проверяем уведомление мастеру
     with db._session() as session:
         notif = session.query(NotificationORM).filter(
             NotificationORM.user_id == master.user_id,
-            NotificationORM.kind == "task_help_required",
+            NotificationORM.kind == "task_status_changed",
         ).first()
         assert notif is not None
 
@@ -383,7 +383,7 @@ def test_формула_ккр_граничные_значения(client, test_
 #  4. ВОЛОНТЕРЫ И ОСОБЫЕ ЗАСЛУГИ
 # ═════════════════════════════════════════════════════════════
 
-def test_волонтерские_заслуги_только_вне_блока(client, test_season, test_block):
+def test_волонтерские_заслуги_только_вне_блока(client, test_season, test_block, superuser):
     now = datetime.now(timezone.utc)
     assigned_at = (now - timedelta(days=2)).isoformat()
     deadline = (now - timedelta(days=1)).isoformat()
@@ -404,17 +404,18 @@ def test_волонтерские_заслуги_только_вне_блока(
         "recipients": [{"user_id": member.user_id, "hours": 3.0, "evaluation": 1.0,"completed_at":now.isoformat()}],
         "reason": "Волонтерство",
     }
-    res_err = client.post(MERITS_URL, json=payload_invalid, headers=master.headers)
+    assert client.post(MERITS_URL, json=payload_invalid, headers=master.headers).status_code == 403
+    res_err = client.post(MERITS_URL, json=payload_invalid, headers=superuser.headers)
     assert res_err.status_code == 422
 
     # Current membership never backdates history: yesterday this member was
     # still outside the block (the fixture records the real join operation).
     historical = dict(payload_invalid, recipients=[{"user_id": member.user_id, "hours": 3.0, "evaluation": 1.0, "completed_at": deadline}])
-    assert client.post(MERITS_URL, json=historical, headers=master.headers).status_code == 200
+    assert client.post(MERITS_URL, json=historical, headers=superuser.headers).status_code == 200
 
     # 2. Запись волонтерской работы участнику вне блока -> 200/201
     payload_valid = dict(payload_invalid, recipients=[{"user_id": outsider.user_id, "hours": 3.0, "evaluation": 1.0,"completed_at":deadline}])
-    res_ok = client.post(MERITS_URL, json=payload_valid, headers=master.headers)
+    res_ok = client.post(MERITS_URL, json=payload_valid, headers=superuser.headers)
     assert res_ok.status_code in (200, 201)
     assert res_ok.json()["source_kind"] == "block_volunteer"
 

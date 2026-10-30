@@ -138,7 +138,7 @@ def test_left_member_can_rejoin_without_losing_established_category(
     actor = make_user(password=None)
     block_id = organization["cards"]["IT"]["block_id"]
     join_as_member(actor, block_id, category, superuser)
-    left = client.post(f"/api/blocks/{block_id}/leave", headers=actor.headers, json={})
+    left = client.delete(f"/api/blocks/{block_id}/members/{actor.user_id}", headers=superuser.headers)
     assert left.status_code == 200, left.text
     with db._session() as session:
         previous = session.query(MembershipORM).filter_by(user_id=actor.user_id, block_id=block_id).one()

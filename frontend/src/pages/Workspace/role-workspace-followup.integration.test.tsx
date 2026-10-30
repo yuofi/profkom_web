@@ -47,10 +47,10 @@ it("an event head selects a child team's organizer, records private KKR and crea
   expect(page.container.querySelector('[role="alert"]')?.textContent).toBeUndefined();expect(createTask).toHaveBeenCalledTimes(1);
   let task = await api<Task>(() => createTask.mock.results[0].value as ReturnType<typeof tasksApi.create>);expect(task.queue?.queue_id).toBeTruthy();expect(task.scope).toMatchObject({ kind: "subevent", id: sub.subevent_id });expect(task.assignees?.map(user => user.user_id)).toEqual([organizer.user_id]);
   await page.cleanup();page = undefined;await liveLogin(organizer.email);task = await tasksApi.get(task.task_id);await tasksApi.submitResult(task.task_id, { expected_revision: task.revision, text: richText("Выполненная работа организатора") });
-  session = await liveLogin(head.email);task = await tasksApi.get(task.task_id);const publicStatus = task.status;
+  session = await liveLogin(head.email);task = await tasksApi.get(task.task_id);task=await tasksApi.changeStatus(task.task_id,{expected_revision:task.revision,status:"closed"});const publicStatus = task.status;
   page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage />} /></Routes>, { path: `/tasks/${task.task_id}`, session });await waitForPage(page);
-  const accounting = page.container.querySelector<HTMLElement>('section[aria-label^="ККР:"]')!, form = field(accounting, "hours").closest("form")!;
-  await change(field(form, "hours"), "2");await change(field(form, "evaluation"), "1");await change(field(form, "reason"), "Решение руководителя по сданной работе");await submit(form);await waitForPage(page);
+  await click(button(page.container,"Оценить работу"));const form=page.container.querySelector<HTMLFormElement>('dialog form:has(table)')!;
+  await change(form.querySelector<HTMLInputElement>('input[aria-label^="Часы:"]')!,"2");await change(form.querySelector<HTMLSelectElement>('select[aria-label^="Оценка:"]')!,"1");await submit(form);await waitForPage(page,()=>!!page!.container.textContent?.includes("ККР сохранён"));
   const saved = await api(() => tasksApi.assessment(task.assignments[0].assignment_id));expect(saved.hours).toBe(2);expect(saved.workflow_status).toBe("accepted");expect((await api(() => tasksApi.get(task.task_id))).status).toBe(publicStatus);
   await page.cleanup();page = undefined;
   page = await mountWorkspace(<MeritForm seasonId={season.season_id} initialSource="head_merit" initialScopeId={event.event_id} />, { session });await waitForPage(page);
@@ -73,15 +73,16 @@ it("assigns a scoped block HR from the page and exposes own-block accounting wit
     let block = await api(() => membershipApi.block(initial.block_id));expect(block.hr?.user_id).toBe(curator.user_id);expect(block.members.some(member => member.user.user_id === curator.user_id)).toBe(false);
     await page.cleanup();page = undefined;
     const worker = block.master!.user.user_id!;
-    const task = await tasksApi.create({ scope: { kind: "block", id: block.block_id }, season_id: season.season_id, title: "Учёт блока для его HR", description: richText("Работа команды"), deadline_at: new Date(Date.now() + 3600000).toISOString(), assignees: [{ user_id: worker, hours: 0 }] });
+    let task = await tasksApi.create({ scope: { kind: "block", id: block.block_id }, season_id: season.season_id, title: "Учёт блока для его HR", description: richText("Работа команды"), deadline_at: new Date(Date.now() + 3600000).toISOString(), assignees: [{ user_id: worker, hours: 0 }] });
+    task=await tasksApi.changeStatus(task.task_id,{expected_revision:task.revision,status:"closed"});
     const session = await liveLogin(curator.email);expect(session.capabilities).not.toContain("view_kkr");expect(session.capabilities).not.toContain("view_summary");expect(session.capabilities).not.toContain("view_block_requests");
-    block = await membershipApi.block(initial.block_id);expect(block.capabilities).toEqual(expect.arrayContaining(["view_tasks", "view_assessment_inputs", "create_volunteer_merit"]));
+    block = await membershipApi.block(initial.block_id);expect(block.capabilities).toEqual(expect.arrayContaining(["view_tasks", "view_assessment_inputs"]));
     page = await mountWorkspace(<Routes><Route path="/blocks/:id" element={<BlockPage />} /><Route path="/tasks/:id" element={<TrackerTaskPage />} /></Routes>, { path: `/blocks/${block.block_id}`, session });await waitForPage(page);
-    expect([...page.container.querySelectorAll("a")].some(link => link.textContent === "Учесть волонтёрскую работу")).toBe(true);expect(button(page.container, "Подать заявку в блок")).toBeDefined();expect(button(page.container, "Изменить HR блока")).toBeUndefined();
+    expect([...page.container.querySelectorAll("a")].some(link => link.textContent === "Учесть волонтёрскую работу")).toBe(false);expect(button(page.container, "Подать заявку в блок")).toBeDefined();expect(button(page.container, "Изменить HR блока")).toBeUndefined();
     await page.cleanup();page = undefined;
     page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage />} /></Routes>, { path: `/tasks/${task.task_id}`, session });await waitForPage(page);
-    const accounting = page.container.querySelector<HTMLElement>('section[aria-label^="ККР:"]')!, form = field(accounting, "hours").closest("form")!;
-    await change(field(form, "hours"), "3");await change(field(form, "evaluation"), "0");await change(field(form, "reason"), "Учётное решение HR своего блока");await submit(form);await waitForPage(page);
+    await click(button(page.container,"Оценить работу"));const form=page.container.querySelector<HTMLFormElement>('dialog form:has(table)')!;
+    await change(form.querySelector<HTMLInputElement>('input[aria-label^="Часы:"]')!,"3");await change(form.querySelector<HTMLSelectElement>('select[aria-label^="Оценка:"]')!,"0");await submit(form);await waitForPage(page,()=>!!page!.container.textContent?.includes("ККР сохранён"));
     const inputs = await api(() => tasksApi.assessment(task.assignments[0].assignment_id));expect(inputs.hours).toBe(3);expect(inputs.workflow_status).toBe("not_completed");expect((await api(() => tasksApi.get(task.task_id))).status).toBe(task.status);
     await expect(api(() => seasonsApi.analytics(season.season_id))).rejects.toMatchObject({ status: 403 });
   } finally {

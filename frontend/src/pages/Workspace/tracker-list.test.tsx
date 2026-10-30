@@ -20,7 +20,7 @@ afterEach(async () => { await page?.cleanup(); page = undefined; transport?.rest
 function Location() { return <output data-location>{useLocation().search}</output>; }
 async function mount(path = "/tasks", responder?: (params: object) => TaskListPageResponse) {
   transport = installMockTransport("chair", { delay: 0 });
-  const task = { ...createFixtures("chair").tasks[0], task_key: "TASK-17", title: "Проверка общей работы", status: "assigned" as const };
+  const task = { ...createFixtures("chair").tasks[0], task_key: "TASK-17", title: "Проверка общей работы", status: "open" as const };
   const list = vi.spyOn(tasksApi, "listPage").mockImplementation(async params => responder?.(params ?? {}) ?? ({ items: [task], next_cursor: null, total: 1, scopes: [], assignees: [] }));
   page = await mountWorkspace(<Routes>
     <Route path="/tasks" element={<><TrackerListPage /><Location /></>} />

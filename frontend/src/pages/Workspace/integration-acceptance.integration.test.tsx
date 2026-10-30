@@ -44,7 +44,8 @@ it("INT-01: real session opens only the manager's queue and loses access with th
   const task = await tasksApi.create({ season_id: seasons.find(s => s.state === "open")!.season_id,
     scope: { kind: "block", id: block.block_id }, title: "INT-01 оставшаяся работа", description: richText("Real HTTP"),
     deadline_at: new Date(Date.now() + 86400000).toISOString(), criteria: emptyCriteria(), assignees: [{ user_id: member.user_id, hours: 1 }] });
-  await liveLogin(member.email); await membershipApi.leave(block.block_id);
+  await liveLogin(member.email);await expect(membershipApi.leave(block.block_id)).rejects.toMatchObject({status:403});
+  await liveLogin(master.email);await membershipApi.remove(block.block_id,member.user_id);
   const session = await liveLogin(master.email);
   expect(session.capabilities).toContain("view_unresolved_assignments");
   page = await mountWorkspace(<Routes><Route path="/tasks/unresolved" element={<UnresolvedPage />} /></Routes>, { path: "/tasks/unresolved", session });
@@ -121,19 +122,24 @@ it("INT-03: closed correction keeps old totals immutable and exposes provenance 
     expect(participantRow).not.toBeNull();
     const cells = participantRow!.querySelectorAll("td");
     expect(cells).toHaveLength(7);
-    expect(cells[5].querySelector('[aria-label="Решения текущего сезона"]')?.textContent).toBe(participant.decisions.map(value => decisionLabels[value]).join("") || "Нет отметок");
-    expect(cells[6].textContent).toBe(participant.previous_decisions.map(value => decisionLabels[value]).join("") || "Нет отметок");
+    const current = cells[5].querySelector('[aria-label="Решения текущего сезона"]')!;
+    expect([...current.querySelectorAll('[role="img"]')].map(icon=>icon.getAttribute('aria-label'))).toEqual(participant.decisions.map(value=>decisionLabels[value]));
+    expect([...cells[6].querySelectorAll('[role="img"]')].map(icon=>icon.getAttribute('aria-label'))).toEqual(participant.previous_decisions.map(value=>decisionLabels[value]));
+    if(!participant.decisions.length) expect(current.textContent).toBe('Нет отметок');
+    if(!participant.previous_decisions.length) expect(cells[6].textContent).toBe('Нет отметок');
     expect(cells[6].querySelector("form")).toBeNull();
     return cells;
   };
   const currentCells = expectDecisionColumns(page.container, summary);
-  expect(currentCells[5].textContent).toContain("Изменить отметки");
-  const historyTab = [...page.container.querySelectorAll<HTMLAnchorElement>('nav[aria-label="Разделы сезона"] a')].find(link => link.textContent === "История")!;
+  expect(currentCells[5].querySelector('button[aria-label^="Изменить отметки:"]')).not.toBeNull();
+  const historyTab = [...page.container.querySelectorAll<HTMLAnchorElement>('nav[aria-label="Разделы сезона"] a')].find(link => link.textContent === "История ККР")!;
   expect(historyTab.getAttribute("href")).toBe(`/seasons/${closed.season_id}?tab=history`);
-  await act(async () => historyTab.click());
+  await act(async () => historyTab.click());await waitForPage(page);
+  const versions=[...page.container.querySelectorAll('details')].find(item=>item.querySelector('summary')?.textContent==='Версии утверждённых итогов')!;
+  await act(async()=>{versions.open=true;versions.dispatchEvent(new Event('toggle'));});
   const versionSelect = () => [...page!.container.querySelectorAll<HTMLSelectElement>("select")].find(select => select.closest("label")?.textContent?.trim().startsWith("Версия итогов"));
   await waitForPage(page, () => !!versionSelect());
-  expect(page.container.querySelector('nav[aria-label="Разделы сезона"] a[aria-current="page"]')?.textContent).toBe("История");
+  expect(page.container.querySelector('nav[aria-label="Разделы сезона"] a[aria-current="page"]')?.textContent).toBe("История ККР");
   await change(versionSelect()!, String(old.version));
   await waitForPage(page, () => !!page!.container.querySelector('[aria-label="Историческая сводная"]'));
   let historical = page.container.querySelector('[aria-label="Историческая сводная"]')!;

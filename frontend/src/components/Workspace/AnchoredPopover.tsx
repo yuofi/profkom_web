@@ -12,8 +12,8 @@ export function AnchoredPopover({ open, anchorRef, label, onRequestClose, childr
     restore.current = document.activeElement instanceof HTMLElement ? document.activeElement : anchorRef.current;
     const body = layer.current.querySelector<HTMLElement>("[data-popover-body]") ?? layer.current;
     const target = focusRoot ? layer.current : initialFocusRef?.current ?? body.querySelector<HTMLElement>("[autofocus]") ?? body.querySelector<HTMLElement>("input:not([type=hidden]):not(:disabled),textarea:not(:disabled),select:not(:disabled)") ?? body.querySelector<HTMLElement>("button:not(:disabled),[tabindex='0']") ?? layer.current;
-    if (focusRoot) target.focus({ preventScroll: true });else target.focus();
-    return () => { const previous = restore.current;if (previous?.isConnected) previous.focus(); };
+    target.focus({ preventScroll: true });
+    return () => { const previous = restore.current;if (previous?.isConnected) previous.focus({ preventScroll: true }); };
   }, [open, portal, anchorRef, initialFocusRef, focusRoot]);
   useEffect(() => {
     if (!open) return;

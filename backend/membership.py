@@ -152,8 +152,6 @@ def card(s, b, uid):
                 )
             )
     caps = access.block_caps(uid, b.name, any(x.state == "open" for x in db.get_seasons()))
-    if any(u["user"]["user_id"] == uid for u in members):
-        caps.append("leave_block")
     guide_id = None
     try:
         from materials import block_material_id
@@ -351,33 +349,72 @@ def set_membership(s, uid, bid, joined, actor, reason):
 
 
 def leave(id, uid, actor):
+    # Leaving membership is always a decision by another authorized person.
+    # Do not rely on the hidden UI: both legacy self-leave and DELETE must agree.
+    if uid == actor:
+        fail(403, "Ask a block or HR leader to remove your membership", "self_leave_forbidden")
     with db._session() as s:
         bid = meta_for(s, legacy_name(id)).block_id
+        name = legacy_name(bid)
+        if not access.allowed(actor, "block.remove_member", "block", name):
+            fail(403, "Cannot remove member")
+        block = s.get(BlockORM, name)
+        if block.master_user_id == uid or db.is_block_master_deputy(uid, name):
+            fail(409, "Transfer or remove the leadership appointment first", "active_block_leader")
         changed = set_membership(
             s,
             uid,
             bid,
             False,
             actor,
-            "Self leave" if actor == uid else "Membership removed",
+            "Membership removed",
         )
         if changed:
-            b = s.get(BlockORM, legacy_name(bid))
-            if b.master_user_id:
-                s.add(
-                    NotificationORM(
-                        notification_id=str(uuid.uuid4()),
-                        user_id=b.master_user_id,
-                        kind="block_left",
-                        payload_json=json.dumps(
-                            dict(scope_kind="block", scope_id=b.name)
-                        ),
-                        is_read=False,
-                        created_at=now(),
-                    )
-                )
+            from notifications import emit
+            s.flush()
+            removed = s.query(MembershipORM).filter_by(user_id=uid, block_id=bid).filter(
+                MembershipORM.left_at.is_not(None)
+            ).order_by(MembershipORM.left_at.desc()).first()
+            event = f"membership-removed:{removed.membership_id}:{removed.left_at}"
+            payload = dict(scope_kind="block", scope_id=name, block_id=bid,
+                           removed_user_id=uid, actor_user_id=actor)
+            # Keep the existing block-master notification and inform the actual
+            # HR office holders; names and legacy admin flags confer no rights.
+            emit(s, [block.master_user_id] if block.master_user_id is not None else [],
+                 "block_left", payload, event + ":block", actor)
+            recipients = set()
+            for hr in s.query(BlockORM).filter_by(is_hr=True):
+                for leader in _load_leaders(s, "block", hr.name, "master"):
+                    recipients.add(leader.user.user_id)
+                    recipients.update(leader.deputy_user_ids)
+            emit(s, recipients, "block_member_removed", payload, event + ":hr", actor)
         s.commit()
         return dict(block_id=bid, membership_state="left")
+
+
+def public_participation(uid, actor):
+    """Current public team identities; no target-user working permissions escape."""
+    from domain_models import RegistrationORM
+    from workspace import participation
+
+    with db._session() as session:
+        for target, refusal in [(actor, 403), (uid, 404)]:
+            user = session.get(UserORM, target)
+            registration = session.get(RegistrationORM, target)
+            if (not user or user.banned or user.account_state != "active"
+                    or registration is not None and registration.status != "approved"):
+                fail(refusal, "Participant not available")
+        data = participation(uid)
+        block_roles = {"member", "master", "deputy_master"}
+        event_roles = {"event_leader", "event_deputy", "subevent_leader", "subevent_deputy", "organizer", "subevent_hr"}
+        return dict(
+            blocks=[dict(block_id=item["block_id"], name=item["name"],
+                         roles=[role for role in item["roles"] if role in block_roles])
+                    for item in data["blocks"]],
+            events=[dict(event_id=item["event_id"], title=item["title"], season_id=item["season_id"],
+                         roles=[role for role in item["roles"] if role in event_roles])
+                    for item in data["events"]],
+        )
 
 
 def patch_block(id, payload, uid):
@@ -635,6 +672,10 @@ def register_routes(router):
         if not access.allowed(cur.user_id, "block.remove_member", "block", legacy_name(block_id)):
             fail(403, "Cannot remove member")
         return leave(block_id, user_id, cur.user_id)
+
+    @router.get("/participants/{user_id}/participation")
+    def participant_teams(user_id: int, cur: User = Depends(get_current_user)):
+        return public_participation(user_id, cur.user_id)
 
     @router.get("/participants/{user_id}/category")
     def category(user_id: int, cur: User = Depends(get_current_user)):

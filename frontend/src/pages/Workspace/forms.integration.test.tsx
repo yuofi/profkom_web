@@ -31,9 +31,8 @@ afterEach(async () => { await page?.cleanup(); page = undefined;vi.restoreAllMoc
 const until = (predicate: () => boolean) => waitForPage(page!, predicate);
 const forms = () => Array.from(page!.container.querySelectorAll("form"));
 const form = (label: string) => forms().find(f => f.querySelector('button[type="submit"]')?.textContent === label)!;
-const inDetails = (summary: string) => Array.from(page!.container.querySelectorAll("details")).find(d => d.querySelector("summary")?.textContent === summary);
 const session = () => page!.client.getQueryData<Session>(["session"])!;
-const taskActionsSettled = () => ![...page!.container.querySelectorAll<HTMLButtonElement>("button")].some(button => button.disabled && (button.matches('[aria-haspopup="menu"],[aria-label^="Убрать исполнителя:"]') || ["Стать исполнителем", "Наблюдать", "Перестать наблюдать", "Взять в работу", "Нужна помощь", "Сдать результат"].includes(button.textContent?.trim() ?? "")));
+const taskActionsSettled = () => ![...page!.container.querySelectorAll<HTMLButtonElement>("button")].some(button => button.disabled && (button.matches('[aria-haspopup="menu"][aria-label^="Статус задачи:"],[aria-label^="Убрать исполнителя:"]') || ["Стать исполнителем", "Наблюдать", "Перестать наблюдать", "Взять в работу", "Нужна помощь", "Сдать результат"].includes(button.textContent?.trim() ?? "")));
 async function click(container: ParentNode, label: string) {
   const b = Array.from(container.querySelectorAll("button")).find(b => b.textContent === label);
   expect(b, label).toBeDefined(); await act(async () => b!.click()); await waitForPage(page!, taskActionsSettled);
@@ -198,28 +197,25 @@ it("2.12 A-FE-2: two rows of one summary save one after another without a confli
   const participantRow = (id: number) => page!.container.querySelector(`tbody a[href="/contacts/${id}"]`)?.closest("tr");
   await until(() => !!participantRow(people[0].user_id) && !!participantRow(people[1].user_id));expect(rows()).toHaveLength(0);
   const decisions = vi.spyOn(seasonsApi, "decisions");const before = (await seasonsApi.summary(season.season_id)).version;
-  await act(async () => participantRow(people[0].user_id)!.querySelector("summary")!.click());await until(() => rows().length === 1);const one = rows()[0];
-  await pick(one, "decisions", "nice");
-  await change(field(one, "reason"), "Первая строка");
-  await save(one);
-  await act(async () => participantRow(people[1].user_id)!.querySelector("summary")!.click());await until(() => rows().length === 1 && !one.isConnected);const two = rows()[0];
-  await pick(two, "decisions", "nice");await change(field(two, "reason"), "Вторая строка");
-  expect(two.textContent).not.toContain("Запись изменилась на сервере");
-  await save(two);
+  const mark=(id:number)=>participantRow(id)!.querySelector<HTMLButtonElement>('button[aria-label^="Изменить отметки:"]')!;
+  const choose=async(id:number)=>{await act(async()=>mark(id).click());await until(()=>!!document.querySelector('[data-anchored-popover]'));const button=[...document.querySelectorAll<HTMLButtonElement>('[data-anchored-popover] button')].find(button=>button.textContent==='Найс')!;await act(async()=>button.click());await until(()=>button.getAttribute('aria-pressed')==='true'&&!button.disabled);};
+  await choose(people[0].user_id);await choose(people[1].user_id);
+  expect(rows()).toHaveLength(0);
   expect(decisions.mock.calls.map(([, userId, values]) => ({ userId, expected_version: values.expected_version }))).toEqual([{ userId: people[0].user_id, expected_version: before }, { userId: people[1].user_id, expected_version: before + 1 }]);
   const after = await seasonsApi.summary(season.season_id);expect(after.version).toBe(before + 2);
   for (const person of people) expect(after.rows.find(row => row.user.user_id === person.user_id)?.decisions).toEqual(["nice"]);
 });
 
-it("2.12 A-TSK-5: a public status conflict refreshes its counter without changing private accounting", async () => {
-  const org = await liveParticipant("help"), { task } = await subeventTask([org], "Задача с просьбой о помощи");
-  const second = await actorClient(org.email), chair = await actorClient("chair@example.com"), before = (await chair.get(`/assignments/${task.assignments[0].assignment_id}/assessment-inputs`)).data;
-  await liveLogin(org.email);await taskPage(task.task_id);await until(() => [...page!.container.querySelectorAll("button")].some(button => button.textContent === "Нужна помощь"));
-  await second.post(`/tasks/${task.task_id}/status`, { expected_revision: task.revision, status: "in_progress" });await click(page!.container, "Нужна помощь");
-  await until(() => !!page!.container.querySelector('[role="alert"]')?.textContent?.includes("Запись изменилась"));expect(page!.container.querySelector("dialog")).toBeNull();
-  await click(page!.container, "Нужна помощь");expect((await tasksApi.get(task.task_id)).status).toBe("help_required");
-  const after = (await chair.get(`/assignments/${task.assignments[0].assignment_id}/assessment-inputs`)).data;
-  expect([after.hours, after.evaluation, after.effective_completed_at, after.workflow_status, after.workflow_revision]).toEqual([before.hours, before.evaluation, before.effective_completed_at, before.workflow_status, before.workflow_revision]);
+it("2.12 A-TSK-5: a public status conflict refreshes its counter without changing private accounting",async()=>{
+ const org=await liveParticipant("status"),{task}=await subeventTask([org],"Задача с конфликтом статуса");
+ const second=await actorClient(org.email),chair=await actorClient("chair@example.com"),before=(await chair.get(`/assignments/${task.assignments[0].assignment_id}/assessment-inputs`)).data;
+ await liveLogin(org.email);await taskPage(task.task_id);await until(()=>!!page!.container.querySelector('button[aria-label^="Статус задачи:"]'));
+ const choose=async()=>{await act(async()=>page!.container.querySelector<HTMLButtonElement>('button[aria-label^="Статус задачи:"]')!.click());await click(page!.container,"Выполнена");};
+ await second.post(`/tasks/${task.task_id}/status`,{expected_revision:task.revision,status:"in_progress"});await choose();
+ await until(()=>!!page!.container.querySelector('[role="alert"]')?.textContent?.includes("Запись изменилась"));expect(page!.container.querySelector("dialog")).toBeNull();
+ await choose();expect((await tasksApi.get(task.task_id)).status).toBe("completed");
+ const after=(await chair.get(`/assignments/${task.assignments[0].assignment_id}/assessment-inputs`)).data;
+ expect([after.hours,after.evaluation,after.effective_completed_at,after.workflow_status,after.workflow_revision]).toEqual([before.hours,before.evaluation,before.effective_completed_at,before.workflow_status,before.workflow_revision]);
 });
 
 it("2.12 A-TSK-12: a submission replaced after a conflict leaves with no text and no files", async () => {
@@ -299,7 +295,7 @@ it("2.12 A-TSK-6: a comment resets and an explicit child canvas creates once bef
   const before = (await eventsApi.subevents(event.event_id)).items.length;
   await change(field(create, "title"), "Новое подмероприятие");
   await submit(create);
-  await until(() => page!.container.querySelector("h1")?.textContent === "Новое подмероприятие");
+  await until(() => !create.isConnected && page!.container.querySelector("h1")?.textContent === "Новое подмероприятие");
   expect(page!.container.querySelector('input[name="title"]')).toBeNull();
   expect((await eventsApi.subevents(event.event_id)).items.length).toBe(before + 1);
 });
@@ -333,34 +329,19 @@ it("2.12 A-ROL-13: the chair adds a second deputy by a click and confirms a remo
   }
 });
 
-it("2.12 УВ-5: a subevent lead fills criteria and reads the dates; the chair moves the deadline", async () => {
-  const lead = await liveParticipant("dates-lead"), org = await liveParticipant("dates-org");
-  const { sub, task } = await subeventTask([org], "Задача с датами");
-  await eventsApi.leaders("subevents", sub.subevent_id, [lead.user_id], { expected_revision: (await eventsApi.subevent(sub.subevent_id)).revision });
-  const dates = () => inDetails("Даты и признаки задачи");
-  await liveLogin(lead.email);
-  await taskPage(task.task_id);
-  await until(() => !!dates()?.querySelector('[name="creative"]'));
-  expect(dates()!.querySelector('[name="deadline"]')).toBeNull();
-  expect(dates()!.querySelector('[name="assigned"]')).toBeNull();
-  expect(dates()!.textContent).toContain("Дедлайн:");
-  expect(page!.container.querySelector('[name="completed"]')).toBeNull();
-  const criteria = field(dates()!, "creative").closest("form")!;
-  await change(field(criteria, "creative"), "true");
-  await change(field(criteria, "reason"), "Творческая задача");
-  await save(criteria);
-  expect((await tasksApi.inputs(task.task_id)).criteria.creative).toBe(true);
-  await page!.cleanup(); page = undefined;
-
-  await liveLogin();
-  await taskPage(task.task_id);
-  await until(() => !!dates()?.querySelector('[name="deadline"]'));
-  const moved = new Date(Math.floor((Date.now() + 2 * 86400000) / 60000) * 60000);
-  const editor = field(dates()!, "deadline").closest("form")!;
-  await change(field(editor, "deadline"), new Date(moved.getTime() + 3 * 3600000).toISOString().slice(0, 16));
-  await change(field(editor, "reason"), "Перенос дедлайна");
-  await save(editor);
-  const saved = await tasksApi.inputs(task.task_id);
-  expect(Date.parse(saved.deadline_at)).toBe(moved.getTime());
-  expect(saved.criteria.creative).toBe(true);
+it("2.12 УВ-5: a scoped lead fills common accounting criteria after closure and only the chair edits dates", async () => {
+  const lead=await liveParticipant('dates-lead'),org=await liveParticipant('dates-org');
+  const {sub,task}=await subeventTask([org],'Задача с датами');await eventsApi.leaders('subevents',sub.subevent_id,[lead.user_id],{expected_revision:(await eventsApi.subevent(sub.subevent_id)).revision});
+  await tasksApi.changeStatus(task.task_id,{expected_revision:(await tasksApi.get(task.task_id)).revision,status:'closed'});
+  await liveLogin(lead.email);await taskPage(task.task_id);await until(()=>[...page!.container.querySelectorAll('button')].some(button=>button.textContent==='Оценить работу'));await act(async()=>[...page!.container.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Оценить работу')!.click());await until(()=>!!page!.container.querySelector('dialog table'));
+  expect(page!.container.querySelector('[name="deadline"]')).toBeNull();expect(page!.container.querySelector('[name="assigned"]')).toBeNull();
+  const creative=[...page!.container.querySelectorAll('fieldset label')].find(label=>label.textContent==='Творческий подход')!.querySelector<HTMLInputElement>('input')!;await act(async()=>creative.click());
+  for(const input of page!.container.querySelectorAll<HTMLSelectElement>('select[aria-label^="Оценка:"]'))await change(input,'1');
+  await submit(page!.container.querySelector<HTMLFormElement>('form:has(table)')!);await until(()=>!!page!.container.textContent?.includes('ККР сохранён'));expect((await tasksApi.inputs(task.task_id)).criteria.creative).toBe(true);await page!.cleanup();page=undefined;
+  await liveLogin();await taskPage(task.task_id);await until(()=>[...page!.container.querySelectorAll('button')].some(button=>button.textContent==='Оценить работу'));await act(async()=>[...page!.container.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Оценить работу')!.click());await until(()=>!!page!.container.querySelector('dialog table'));
+  const dates=[...page!.container.querySelectorAll('details')].find(item=>item.querySelector('summary')?.textContent==='Изменить даты задачи')!;
+  await act(async()=>{dates.open=true;dates.dispatchEvent(new Event('toggle'));});await until(()=>!!dates.querySelector('[name="deadline"]'));
+  const moved=new Date(Math.floor((Date.now()+2*86400000)/60000)*60000);const editor=field(dates,'deadline').closest('form')!;
+  await change(field(editor,'deadline'),new Date(moved.getTime()+3*3600000).toISOString().slice(0,16));await change(field(editor,'reason'),'Перенос дедлайна');await save(editor);
+  const saved=await tasksApi.inputs(task.task_id);expect(Date.parse(saved.deadline_at!)).toBe(moved.getTime());expect(saved.criteria.creative).toBe(true);
 });

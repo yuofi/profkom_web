@@ -173,7 +173,7 @@ def test_help_notification_repeat_does_not_duplicate(client, work):
     with db._session() as s:
         assert (
             s.query(NotificationORM)
-            .filter_by(user_id=w["master"].user_id, kind="task_help_required")
+            .filter_by(user_id=w["master"].user_id, kind="task_status_changed")
             .count()
             == 1
         )

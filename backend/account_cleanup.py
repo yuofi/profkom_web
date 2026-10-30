@@ -64,9 +64,10 @@ JSON_COLUMNS = {
     "summary_versions": {"summary_json", "contributions_json", "bonuses_json"},
     "profile_metadata": {"participation_periods_json"}, "former_contacts": {"fields_json"},
     "account_archives": {"snapshot_json"},
+    "kkr_control_epics": {"managed_json"},
 }
 MARKDOWN_COLUMNS = {("reports", "content_json"), ("reports", "draft_content_json"), ("report_versions", "content_json")}
-CORE_TABLES = set("users contact_info guides block pgas_entries refresh_tokens external_identities leadership role_assignments seasons report_series events subevents meetings notifications season_corrections tasks task_queues task_queue_requests task_queue_members task_tracker task_checklist task_links task_favorites task_roster task_activity task_submissions assignments submissions task_comments file_records merits contributions master_bonuses season_summaries season_decisions reports report_versions report_editors audit_logs registration_applications participation_intervals block_metadata memberships block_applications category_revisions domain_migrations scope_tenures summary_versions materials profile_metadata former_contacts account_archives object_deletions event_workspace_metadata".split())
+CORE_TABLES = set("users contact_info guides block pgas_entries refresh_tokens external_identities leadership role_assignments seasons report_series events subevents meetings notifications season_corrections tasks task_queues task_queue_requests task_queue_members task_tracker task_checklist task_links task_favorites task_roster task_activity task_submissions assignments submissions task_comments file_records merits contributions master_bonuses season_summaries season_decisions reports report_versions report_editors audit_logs registration_applications participation_intervals block_metadata memberships block_applications category_revisions domain_migrations scope_tenures summary_versions materials profile_metadata former_contacts account_archives object_deletions event_workspace_metadata season_coefficients kkr_control_epics task_mention_requests task_access_grants".split())
 # Callback modules own their exact typed identity fields; no guessed JSON identifiers.
 CALLBACKS = (("profile_features_models", "profile_features"), ("support_models", "support"),
              ("history_models", "history"))
@@ -103,6 +104,7 @@ def _retention_policy():
 
 
 def _validate_json(session, external):
+    from errors import InvalidInput
     # Validate the complete batch before mutation, not midway through person N.
     for name, columns in JSON_COLUMNS.items():
         table = Base.metadata.tables.get(name)
@@ -114,10 +116,14 @@ def _validate_json(session, external):
                 if raw is None:
                     continue
                 try:
-                    json.loads(raw)
+                    parsed = json.loads(raw)
+                    if name == "kkr_control_epics" and column == "managed_json":
+                        if (not isinstance(parsed,dict) or set(parsed)-{"users"}
+                                or not isinstance(parsed.get("users",[]),list)
+                                or any(not isinstance(person,int) or isinstance(person,bool) for person in parsed.get("users",[]))):
+                            raise InvalidInput("Invalid managed accounting identities")
                 except (ValueError, TypeError) as error:
                     identity = tuple(record[col.name] for col in table.primary_key.columns)
-                    from errors import InvalidInput
                     raise InvalidInput(f"Invalid JSON in {name}.{column} at primary key {identity}") from error
 
 
@@ -181,6 +187,8 @@ def purge(as_of=None, dry_run=True):
                             own_contact = table.name == "audit_logs" and record.get("target_kind") in {"registration", "profile", "contact", "user"} and record.get("target_id") == str(uid)
                             cleaned = _identity_json(json.loads(raw), uid, old_pid, new_pid,
                                 owned_contact=own_contact, actors=(table.name in {"block_applications", "task_comments"} and column == "history_json"))
+                            if table.name == "kkr_control_epics" and column == "managed_json" and "users" in cleaned:
+                                cleaned["users"] = [person for person in cleaned["users"] if person != uid]
                             if table.name == "leadership" and column == "deputies_json":
                                 cleaned = [person for person in cleaned if person != uid]
                             if table.name == "subevents" and column == "organizer_user_ids_json":
@@ -189,12 +197,21 @@ def purge(as_of=None, dry_run=True):
                                 updates[column] = json.dumps(cleaned, ensure_ascii=False)
                         if table.name == "audit_logs" and record["changed_by_user_id"] == uid:
                             updates["changed_by_user_id"] = 0
-                        for name in {"block_metadata": ("hr_user_id",), "event_workspace_metadata": ("hr_user_id",),
+                        for name in {"block_metadata": ("hr_user_id",), "event_workspace_metadata": ("hr_user_id", "closed_by_user_id"),
+                                     "season_coefficients": ("updated_by_user_id",),
+                                     "task_access_grants": ("granted_by_user_id",),
+                                     "task_mention_requests": ("decided_by_user_id",),
                                      "task_activity": ("actor_user_id",), "summary_versions": ("changed_by_user_id",)}.get(table.name, ()):
                             if record[name] == uid:
                                 updates[name] = None
                         if updates:
                             s.execute(table.update().where(*(column == record[column.name] for column in table.primary_key.columns)).values(**updates))
+                # Explicit account-scoped collaboration records. Removing a requester
+                # must not revoke another person's already approved standalone grant.
+                from tracker_collaboration_models import TaskMentionRequestORM, TaskAccessGrantORM
+                s.query(TaskMentionRequestORM).filter((TaskMentionRequestORM.target_user_id == uid) |
+                    (TaskMentionRequestORM.requested_by_user_id == uid)).delete(synchronize_session=False)
+                s.query(TaskAccessGrantORM).filter_by(user_id=uid).delete(synchronize_session=False)
                 # Capture object addresses before removing account-owned metadata.
                 from file_access import key, sealed_key
                 from legacy_files import legacy_key

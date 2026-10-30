@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from database import db, AssignmentORM, ContributionORM, TaskORM, TaskTrackerORM, SeasonORM
 from models import Block
+from test_tracker_queues import legacy_queue
 from test_v13_tracker import work  # noqa: F401
 
 
@@ -59,8 +60,12 @@ def private_task(client, work, superuser, kind, *, owner=None):
         assert subevent.status_code == 200, subevent.text
         body['scope'] = {'kind': 'subevent', 'id': subevent.json()['subevent_id']}
         creator = superuser
-    queue = client.post('/api/task-queues', headers=creator.headers, json=body)
-    assert queue.status_code == 200, queue.text
+    if kind=='queue':
+        from types import SimpleNamespace
+        saved=legacy_queue(client,creator,body['key'],True);queue=SimpleNamespace(json=lambda:saved)
+    else:
+        queue = client.post('/api/task-queues', headers=creator.headers, json=body)
+        assert queue.status_code == 200, queue.text
     response = client.post('/api/tasks', headers=creator.headers,
         json={'queue_id': queue.json()['queue_id'], 'season_id': work['task']['season_id'],
             'title': 'Задача вне HR', 'description': {'format': 'markdown', 'body': '- [ ] Проверить памятку'},
@@ -118,21 +123,17 @@ def test_closed_independent_owner_exception_is_preserved(client, work, superuser
 
 
 @pytest.mark.parametrize('kind', ['block', 'subevent', 'queue'])
-def test_hr_deputy_global_read_does_not_gain_public_edit_or_private_rights(client, work, superuser, hr_roles, kind):
+def test_hr_deputy_global_public_edit_and_kkr_without_reports_or_event_management(client, work, superuser, hr_roles, kind):
     import access
-    actor = hr_roles['deputy'];task, queue = private_task(client, work, superuser, kind)
-    task = get(client, task, actor);before = private_snapshot()
-    assert not {'edit_task', 'edit_task_description', 'edit_task_metadata', 'edit_task_checklist', 'manage_task_links'} & set(task['capabilities'])
-    assert {'change_task_type', 'change_task_priority', 'toggle_task_checklist'} <= set(task['capabilities'])
-    assert patch(client, task, actor, title='Не разрешено').status_code == 403
-    assert patch(client, task, actor, description='- [x] Не разрешено').status_code == 403
-    assert patch(client, task, actor, starts_at=(datetime.now(timezone.utc) + timedelta(days=1)).isoformat()).status_code == 403
-    assert private_snapshot() == before
-    assert client.get('/api/assessments', headers=actor.headers).status_code == 403
-    assert client.get('/api/tasks/' + task['task_id'] + '/assessment-inputs', headers=actor.headers).status_code in (403, 422)
-    assert client.get('/api/seasons/' + task['season_id'] + '/analytics', headers=actor.headers).status_code == 403
-    assert not access.allowed(actor.user_id, 'report.read_all') and not access.allowed(actor.user_id, 'event.edit')
-    assert 'manage_queue' not in client.get('/api/task-queues/' + queue['queue_id'], headers=actor.headers).json()['capabilities']
+    actor=hr_roles['deputy'];task,queue=private_task(client,work,superuser,kind)
+    task=get(client,task,actor);before=private_snapshot()
+    assert {'edit_task','edit_task_description','edit_task_metadata','edit_task_checklist','manage_task_links'}<=set(task['capabilities'])
+    response=patch(client,task,actor,description='- [x] Проверено заместителем HR');assert response.status_code==200,response.text
+    assert private_snapshot()==before
+    if kind!='queue':assert client.get('/api/tasks/'+task['task_id']+'/assessment-inputs',headers=actor.headers).status_code==200
+    assert client.get('/api/seasons/'+task['season_id']+'/analytics',headers=actor.headers).status_code==200
+    assert not access.allowed(actor.user_id,'report.read_all') and not access.allowed(actor.user_id,'event.edit')
+    assert 'manage_queue' not in client.get('/api/task-queues/'+queue['queue_id'],headers=actor.headers).json()['capabilities']
 
 
 def test_hr_master_role_revocation_removes_global_read_and_edit_immediately(client, work, superuser, hr_roles, make_user):

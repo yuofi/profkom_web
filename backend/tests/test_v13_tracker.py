@@ -120,9 +120,9 @@ def test_lost_scope_cannot_submit_or_read_private_file(client, work):
     t = w["task"]
     a = t["assignments"][0]
     assert (
-        client.post(
-            f"/api/blocks/{w['block']['block_id']}/leave",
-            headers=w["member"].headers,
+        client.request(
+            "DELETE", f"/api/blocks/{w['block']['block_id']}/members/{w['member'].user_id}",
+            headers=w["master"].headers,
             json={},
         ).status_code
         == 200
@@ -361,21 +361,21 @@ def test_assessment_inputs_change_of_outcome_is_audited(client, work, status, ev
 
 # FIX_PLAN 1.2 (A-KKR-1): kind, season and scope of a merit are fixed at creation.
 @pytest.mark.parametrize("field,value", [("season_id", None), ("source_kind", "block_volunteer"), ("scope", None), ("event_id", None)])
-def test_merit_patch_refuses_fields_fixed_at_creation(client, work, field, value):
+def test_merit_patch_refuses_fields_fixed_at_creation(client, work, superuser, field, value):
     w = work
     merit = dict(
         season_id=w["season"]["season_id"], source_kind="block_volunteer", scope=dict(kind="block", id=w["block"]["block_id"]),
         title="Афиша", description="", assigned_at="2026-10-01T00:00:00Z", deadline_at="2026-10-02T00:00:00Z", criteria={},
         recipients=[dict(user_id=w["outside"].user_id, hours=2, evaluation=1, completed_at="2026-10-02T00:00:00Z")], reason="Постфактум",
     )
-    r = client.post("/api/merits", headers=w["master"].headers, json=merit)
+    r = client.post("/api/merits", headers=superuser.headers, json=merit)
     assert r.status_code == 200, r.text
     created = r.json()
     patch = dict(expected_revision=created["revision"], reason="Исправление", recipients=[dict(merit["recipients"][0], hours=3)])
-    r = client.patch(f"/api/merits/{created['merit_id']}", headers=w["master"].headers, json={**patch, field: merit.get(field, value)})
+    r = client.patch(f"/api/merits/{created['merit_id']}", headers=superuser.headers, json={**patch, field: merit.get(field, value)})
     assert r.status_code == 422, r.text
-    assert client.get(f"/api/merits/{created['merit_id']}", headers=w["master"].headers).json()["revision"] == created["revision"]
-    r = client.patch(f"/api/merits/{created['merit_id']}", headers=w["master"].headers, json=patch)
+    assert client.get(f"/api/merits/{created['merit_id']}", headers=superuser.headers).json()["revision"] == created["revision"]
+    r = client.patch(f"/api/merits/{created['merit_id']}", headers=superuser.headers, json=patch)
     assert r.status_code == 200, r.text
     assert (r.json()["revision"], r.json()["recipients"][0]["hours"]) == (created["revision"] + 1, 3)
 

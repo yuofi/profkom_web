@@ -153,7 +153,7 @@ def test_master_bonus_exact_basis_excludes_master_nonpositive_and_volunteer_and_
     for actor in people:
         command(client, superuser, "POST", "/merits", {**base, "source_kind": "chair_merit", "recipients": [
             {"user_id": actor.user_id, "hours": 100/1.5, "evaluation": 1, "completed_at": deadline.isoformat()}]})
-    command(client, work["master"], "POST", "/merits", {**base, "source_kind": "block_volunteer",
+    command(client, superuser, "POST", "/merits", {**base, "source_kind": "block_volunteer",
         "scope": {"kind": "block", "id": work["block"]["block_id"]}, "recipients": [
             {"user_id": work["outside"].user_id, "hours": 100/1.5, "evaluation": 1, "completed_at": deadline.isoformat()}]})
     closed = close(client, work, superuser)

@@ -14,7 +14,7 @@ def session_caps(client, actor):
 def test_unresolved_queue_reachable_scoped_and_revoked(client, work, superuser):
     w = work
     bid = w["block"]["block_id"]
-    assert client.post(f"/api/blocks/{bid}/leave", headers=w["member"].headers).status_code == 200
+    assert client.delete(f"/api/blocks/{bid}/members/{w['member'].user_id}", headers=w["master"].headers).status_code == 200
 
     for actor in (w["master"], superuser):
         queue = client.get("/api/assignments/unresolved", headers=actor.headers)

@@ -97,7 +97,7 @@ def close_season(client, context):
 @pytest.mark.parametrize("source_kind", ["head_merit", "chair_merit", "block_volunteer", "subevent_volunteer"])
 def test_creation_without_reason_saves_provenance_and_exact_contribution(client, merit_context, source_kind):
     context = merit_context
-    actor = context["chair"] if source_kind == "chair_merit" else context["head"]
+    actor = context["chair"] if source_kind in {"chair_merit", "block_volunteer"} else context["head"]
     payload = payload_for(context, source_kind)
     created = request(client, actor, "POST", "/merits", payload)
     assert created["reason"] == DEFAULT_REASON
@@ -129,7 +129,7 @@ def test_creation_without_reason_saves_provenance_and_exact_contribution(client,
 @pytest.mark.parametrize("reason", ["", " \t ", None])
 def test_explicit_empty_create_reason_is_not_replaced_by_the_default(client, merit_context, source_kind, reason):
     context = merit_context
-    actor = context["chair"] if source_kind == "chair_merit" else context["head"]
+    actor = context["chair"] if source_kind in {"chair_merit", "block_volunteer"} else context["head"]
     before = accounting_snapshot()
     response = client.post("/api/merits", headers=actor.headers,
                            json={**payload_for(context, source_kind), "reason": reason})

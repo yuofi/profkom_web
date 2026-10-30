@@ -2,8 +2,8 @@
 
 `GET /api/seasons/{season_id}/analytics` aggregates accounting in one request.
 It requires the existing global `summary.view` and `kkr.view` policies: chair,
-chair deputies and HR master. HR deputy's tracker access grants no analytic access.
-No role, schema, write command or season-management right is introduced.
+chair deputies, HR master and actual HR deputies (owner decision 2026-10-30).
+This read endpoint does not grant season-management or unrelated report rights.
 
 Optional filters are `participant_id` (stable accounting identity, including
 anonymized participants) and `block_id` (the **accounting source block**, not the
@@ -71,3 +71,23 @@ approved version. Recursive account-retention redaction covers participant ident
 Cross-season comparison applies the same filters and bases. GET uses table reads;
 it never invokes summary generation, metadata seeding, block ID creation, bonus
 recalculation, snapshot creation or audit writes. See `tests/test_season_analytics.py`.
+
+
+## Source statistics and coefficients (2026-10-30)
+
+The season's main analytics view uses `/seasons/{id}/statistics`: distinct CLOSED
+ordinary tasks (excluding service controls), current assignee count, tasks/person,
+mean nonzero KKR including negatives, and accepted known person-hours per accounted
+task. It is separate from the compatible private-outcome weekly trend above.
+
+`/seasons/{id}/coefficients` stores season-local finite nonnegative factors, default
+1, including zero. Blocks, direct main-event work, each subevent, chair work, chair
+merits and each event's head merits have independent factors. Raw ledger values
+are preserved; weighted source totals and master bonuses apply a factor once.
+New approved snapshots freeze applicable statistics, factors and values. Older
+unknown facts are not backfilled; closed corrections retain reason/version checks.
+
+`/kkr/history` filters current names, blocks and course while keeping each season's
+frozen rank, total and decisions. New statistics/history/control queries share the
+normal private-cache revocation and mutation invalidation boundary. The activity
+chart and historical version details mount only when explicitly expanded.

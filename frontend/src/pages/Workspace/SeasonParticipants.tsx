@@ -43,7 +43,7 @@ export function SeasonParticipants({ summary, renderDecisions, onFilterApply }: 
       <label>Отметки текущего сезона<select name="marks" value={mark} onChange={e => updateFilter(mark, e.target.value as typeof mark, setMark)}><option value="">Все отметки</option><option value="any">Есть отметки</option><option value="none">Без отметок</option>{Object.entries(decisionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       <label>Порядок<select aria-label="Порядок" value={sort} onChange={e => setSort(e.target.value)}><option value="rank">По месту в сводной</option><option value="score-asc">ККР по возрастанию</option><option value="name">По имени</option></select></label></div>
     <SummaryTable summary={summary} rows={rows} filter={search} renderDecisions={renderDecisions} onParticipantSelect={setPerson} />
-    <p className={u.note}>Оценённые назначения включают работу с нулевой и отрицательной оценкой. Это количество личных расчётных записей, а не число выполненных задач.</p>
+    <p className={u.note}>Нажмите на участника, чтобы посмотреть его начисления и перейти к учёту работы в задаче.</p>
     {person && <UnsavedChangesScope><TrackerTaskDialog title="Начисления участника" onClose={() => setPerson(null)}><ParticipantWork seasonId={summary.season_id} person={person} /></TrackerTaskDialog></UnsavedChangesScope>}
   </section>;
 }

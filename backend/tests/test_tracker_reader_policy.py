@@ -4,7 +4,7 @@ from datetime import datetime,timezone
 import pytest
 from database import db,TaskORM,AssignmentORM,TaskTrackerORM,TaskRosterORM,ContributionORM,SeasonORM,NotificationORM
 from test_v13_tracker import work  # noqa:F401
-from test_tracker_queues import make_queue,request_grant
+from test_tracker_queues import make_queue,request_grant,legacy_queue
 
 
 def read(client,w,actor=None):
@@ -19,18 +19,19 @@ def accounting(tid):
             [(c.contribution_id,c.score,c.assignment_id) for c in s.query(ContributionORM).order_by(ContributionORM.contribution_id)])
 
 
-def test_every_reader_any_status_including_closed_and_no_accounting_side_effect(client,work):
+def test_reader_working_statuses_and_author_close_reopen_leave_accounting_unchanged(client,work):
     w=work;tid=w['task']['task_id'];before=accounting(tid)
-    for target in ('accepted','assigned','not_completed','cancelled','submitted','in_progress','help_required','needs_revision'):
+    for target in ('open','in_progress','completed'):
         t=read(client,w)
-        r=client.post('/api/tasks/'+tid+'/status',headers=w['member'].headers,json={'expected_revision':t['revision'],'status':target})
-        assert r.status_code==200,r.text
-        assert r.json()['status']==target and accounting(tid)==before
-    with db._session() as s:s.get(SeasonORM,w['task']['season_id']).state='closed';s.commit()
+        response=client.post('/api/tasks/'+tid+'/status',headers=w['member'].headers,json={'expected_revision':t['revision'],'status':target})
+        assert response.status_code==200,response.text
+        assert response.json()['status']==target and accounting(tid)==before
     t=read(client,w)
-    r=client.post('/api/tasks/'+tid+'/status',headers=w['member'].headers,json={'expected_revision':t['revision'],'status':'accepted'});assert r.status_code==200,r.text
-    assert accounting(tid)==before
-    r=client.post('/api/tasks/'+tid+'/status',headers=w['outside'].headers,json={'expected_revision':r.json()['revision'],'status':'assigned'});assert r.status_code==404
+    assert client.post('/api/tasks/'+tid+'/status',headers=w['member'].headers,json={'expected_revision':t['revision'],'status':'closed'}).status_code==403
+    response=client.post('/api/tasks/'+tid+'/status',headers=w['master'].headers,json={'expected_revision':t['revision'],'status':'closed'});assert response.status_code==200,response.text
+    t=response.json();assert t['closed_at'] and accounting(tid)==before
+    assert client.post('/api/tasks/'+tid+'/status',headers=w['member'].headers,json={'expected_revision':t['revision'],'status':'open'}).status_code==403
+    assert client.post('/api/tasks/'+tid+'/status',headers=w['outside'].headers,json={'expected_revision':t['revision'],'status':'open'}).status_code==404
 
 
 def test_remove_to_watcher_rejoin_reuses_ledger_and_invalidates_old_public_command(client,work,superuser):
@@ -63,7 +64,7 @@ def test_watchers_are_persisted_get_comments_and_migration_twice_is_nondestructi
 def test_independent_queue_any_active_creator_blank_task_and_self_only(client,work):
     actor=work['outside']
     r=client.post('/api/task-queues',headers=actor.headers,json={'name':'Без команды','key':'INDEPENDENT','is_private':False})
-    assert r.status_code==200,r.text;q=r.json();assert q['scope'] is None and q['owner']['user_id']==actor.user_id
+    assert r.status_code==403,r.text;q=legacy_queue(client,actor,'INDEPENDENT');assert q['scope'] is None and q['owner']['user_id']==actor.user_id
     payload={'queue_id':q['queue_id'],'season_id':work['task']['season_id'],'title':'Без исполнителей','description':'','deadline_at':work['task']['deadline_at']}
     r=client.post('/api/tasks',headers=actor.headers,json=payload);assert r.status_code==200,r.text;t=r.json()
     assert t['scope']=={'kind':'queue','id':q['queue_id']} and not t['assignees'] and not t['watchers']
@@ -104,8 +105,8 @@ def test_hr_deputy_reads_all_private_queues_without_reports_or_kkr_rights(client
         assert client.get('/api/task-queues/'+q['queue_id'],headers=actor.headers).status_code==200
         assert client.get('/api/tasks/'+t['task_id'],headers=actor.headers).status_code==200
         assert t['task_id'] in client.get('/api/tasks',headers=actor.headers).text
-    assert client.get('/api/assessments',headers=deputy.headers).status_code==403
-    assert client.get('/api/tasks/'+t['task_id']+'/assessment-inputs',headers=deputy.headers).status_code==403
+    assert client.get('/api/assessments',headers=deputy.headers).status_code==200
+    assert client.get('/api/tasks/'+t['task_id']+'/assessment-inputs',headers=deputy.headers).status_code==200
     assert not access.allowed(deputy.user_id,'report.read_all') and not access.allowed(deputy.user_id,'event.edit')
     before=client.get('/api/session',headers=deputy.headers).json()['access_revision']
     with db._session() as s:s.query(RoleAssignmentORM).filter_by(role_assignment_id='synthetic-hr-deputy').delete();s.commit()
@@ -114,7 +115,7 @@ def test_hr_deputy_reads_all_private_queues_without_reports_or_kkr_rights(client
 
 
 def test_draft_code_file_owned_until_create_then_queue_acl(client,work,mock_s3):
-    w=work;actor=w['outside'];q=client.post('/api/task-queues',headers=actor.headers,json={'name':'Код','key':'CODE','is_private':True}).json()
+    w=work;actor=w['outside'];q=legacy_queue(client,actor,'CODE',True)
     data='print("синтетический пример")\n'.encode()
     r=client.post('/api/files/upload-intents',headers=actor.headers,json={'owner_kind':'task','purpose':'attachment','name':'example.py','mime_type':'text/x-python','size_bytes':len(data)})
     assert r.status_code==200,r.text;fid=r.json()['file_id'];mock_s3['objects']['private/'+fid]=(data,'text/plain')
@@ -169,7 +170,7 @@ def test_task_private_criteria_version_is_separate_and_public_edit_remains_valid
 
 def test_private_reassignment_ignores_public_terminal_and_does_not_reopen_final_credit(client,work):
     w=work;tid=w['task']['task_id'];aid=w['task']['assignments'][0]['assignment_id']
-    t=read(client,w);r=client.post('/api/tasks/'+tid+'/status',headers=w['member'].headers,json={'expected_revision':t['revision'],'status':'accepted'});assert r.status_code==200
+    t=read(client,w);r=client.post('/api/tasks/'+tid+'/status',headers=w['master'].headers,json={'expected_revision':t['revision'],'status':'closed'});assert r.status_code==200
     inputs=client.get('/api/assignments/'+aid+'/assessment-inputs',headers=w['master'].headers).json()
     r=client.post('/api/assignments/'+aid+'/reassign',headers=w['master'].headers,json={'expected_revision':inputs['workflow_revision'],'new_assignee_user_id':w['master'].user_id,'hours':3,'previous_outcome':'cancelled','reason':'Explicit accounting reassignment'})
     assert r.status_code==200,r.text;newid=r.json()['assignment']['assignment_id']
@@ -201,7 +202,7 @@ def test_reader_creation_cannot_forge_private_hours_or_criteria(client,work):
         r=client.post('/api/tasks',headers=w['member'].headers,json={**body,**extra})
         assert r.status_code==403,r.text
     r=client.post('/api/tasks',headers=w['member'].headers,json=body);assert r.status_code==200,r.text
-    q=client.post('/api/task-queues',headers=w['member'].headers,json={'name':'Без учёта','key':'NOACCOUNTING'}).json()
+    q=legacy_queue(client,w['member'],'NOACCOUNTING')
     r=client.post('/api/tasks',headers=w['member'].headers,json={'queue_id':q['queue_id'],'season_id':w['task']['season_id'],'title':'No forged inputs','deadline_at':w['task']['deadline_at'],'criteria':{'creative':True}})
     assert r.status_code==403
 

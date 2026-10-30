@@ -45,7 +45,7 @@ export async function liveCloseSeasons() {
   for (const season of (await seasonsApi.list()).items.sort((a, b) => a.sequence_number - b.sequence_number)) {
     if (season.state === "closed") continue;
     for (const task of (await tasksApi.list({ season_id: season.season_id, mine: false })).items) {
-      if (task.scope.kind === "queue") continue;
+      if (task.scope.kind === "queue" || !task.capabilities.includes("view_assessment_inputs")) continue;
       for (const assignment of task.assignments) {
         const inputs = await tasksApi.assessment(assignment.assignment_id);
         if (!inputs.workflow_status || typeof inputs.workflow_revision !== "number") throw Error("Disposable scoped assignment has no private workflow version");
