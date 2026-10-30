@@ -6,3 +6,12 @@ export const decisionLabels: Record<Decision, string> = {
   kick: "Кик",
   nice: "Найс",
 };
+
+export const decisionDescriptions: Partial<Record<Decision, string>> = {
+  nice: "Добровольный уход из Профкома по личным причинам.",
+  kick: "Принудительное исключение из Профкома за недостаточную работу.",
+};
+
+export const decisionTitle = (value: Decision) => decisionDescriptions[value]
+  ? `${decisionLabels[value]} — ${decisionDescriptions[value]}`
+  : decisionLabels[value];

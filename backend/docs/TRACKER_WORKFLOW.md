@@ -165,6 +165,29 @@ URLs are separate authorized accounting commands.
 
 Tests cover reader statuses/closed seasons, private version/note/date isolation,
 roster reuse and stale URLs, watcher subscriptions, creator/self-only/private-input
-boundaries, HR-deputy read/revocation without KKR/report escalation, contextual draft
+boundaries, current HR-deputy accounting rights without unrelated report escalation, contextual draft
 bytes and queue revocation, migration twice, hierarchy, filtering/cursors, concurrency,
 private accounting rollback, season closure and unchanged numeric ledgers/snapshots.
+
+## Comment identities and the editor
+
+The comment editor keeps formatting, source/preview and attachment/mention actions
+in one frame. Its file action retains the existing task attachment capability and
+does not introduce independent comment-file ownership. Other Markdown contexts keep
+their existing editor behavior.
+
+Authorized comment responses may include `mentioned_users`, a bounded batch of
+safe public UserRefs for canonical relative `/contacts/<id>` Markdown links.
+Comment display and preview use those identities for user chips, rather than
+trusting a user-authored link label. Missing, archived or banned targets become
+non-interactive unavailable-person chips. Code and foreign links remain ordinary
+Markdown. This is presentation only: writing a profile link never notifies anyone
+or grants access. The explicit mention command and author/queue-owner approval
+continue to control notifications and any revocable single-task grant.
+
+The editor tracks notification intent only for targets explicitly chosen in the
+current draft. Removing or untagging their inserted token clears that pending
+target; manually typed links and mentions from an existing comment never become
+implicit notification recipients. Control reminders include canonical links for
+their existing explicit recipients, while retaining the same ordinary mention
+notifications, source permissions and repeat behavior.

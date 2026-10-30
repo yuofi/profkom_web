@@ -15,6 +15,7 @@ import { UnifiedKkrEditor } from "../../components/Workspace/UnifiedKkrEditor";
 import { EntityPicker } from "../../components/Workspace/EntityPicker";
 import { taskCollaborationApi } from "../../utils/api/taskCollaboration.api";
 import { TaskMentionPicker, TaskMentionApprovals } from "./TrackerTaskMentions";
+import { newCommentMentionDraft, changeCommentMentionBody, addCommentMention, keepCommentMentions, commentMentionUsers } from "./commentMentionDraft";
 import { MarkdownContent } from "../../components/Workspace/MarkdownContent";
 import { MarkdownEditor } from "../../components/Workspace/MarkdownEditor";
 import { Empty, Glyph, QueryState } from "../../components/Workspace/WorkspaceUI";
@@ -110,7 +111,7 @@ function TaskContent({ task, assignmentId, accountingRequested=false, returnSeas
         {assignmentId && !task.assignments.some(item => item.assignment_id === assignmentId) && <Empty>Назначение больше недоступно.</Empty>}
         {hasAccounting && <section className={s.accounting} aria-label="Учёт работы и ККР"><div className={s.sectionHeading}><h2>Учёт работы и ККР</h2><button type="button" onClick={()=>setKkrOpen(true)}>Оценить работу</button></div></section>}
         <TaskMentionApprovals task={task} />
-        <TaskActivity task={task} />
+        <TaskActivity task={task} onAttachFiles={() => setEditor("files")} />
         {task.queue?.key === "WEBSUPPORT" && <SupportTaskPanel task={task} />}
       </div>
       <aside className={s.sidebar} aria-label="Параметры задачи"><details className={s.parameters} open={parametersOpen} onToggle={event => setParametersOpen(event.currentTarget.open)}><summary>Параметры</summary><dl>
@@ -184,8 +185,8 @@ function TaskFilesEditor({ task, onClose }: { task: Task; onClose: () => void })
   </TrackerTaskDialog>;
 }
 type ActivityTab = "comments" | "attachments" | "history";
-function TaskActivity({ task }: { task: Task }) { return <UnsavedChangesScope><TaskActivityContent task={task} /></UnsavedChangesScope>; }
-function TaskActivityContent({ task }: { task: Task }) {
+function TaskActivity({ task, onAttachFiles }: { task: Task; onAttachFiles: () => void }) { return <UnsavedChangesScope><TaskActivityContent task={task} onAttachFiles={onAttachFiles} /></UnsavedChangesScope>; }
+function TaskActivityContent({ task, onAttachFiles }: { task: Task; onAttachFiles: () => void }) {
   const [tab, setTab] = useState<ActivityTab>("comments"), [order, setOrder] = useState<"newest" | "oldest">("newest");
   return <section className={s.activity} aria-label="Обсуждение и история задачи">
     <div className={s.activityHeader}><div className={s.tabs} role="tablist" aria-label="Сведения о задаче" onKeyDown={event => {
@@ -198,38 +199,38 @@ function TaskActivityContent({ task }: { task: Task }) {
     }}>{([["comments", "Комментарии"], ["attachments", "Вложения"], ["history", "История"]] as const).map(([key, label]) => <button type="button" key={key} role="tab" tabIndex={tab === key ? 0 : -1} aria-selected={tab === key} id={`task-tab-${key}`} aria-controls={`task-panel-${key}`} onClick={() => setTab(key)}>{label}</button>)}</div>
       <label className={s.sort}><Glyph name="filter_list" /><span className={s.srOnly}>Порядок записей</span><select aria-label="Порядок записей" value={order} onChange={event => setOrder(event.target.value as "newest" | "oldest")}><option value="newest">Сначала новые</option><option value="oldest">Сначала старые</option></select></label>
     </div>
-    <div className={s.tabPanel} role="tabpanel" id="task-panel-comments" aria-labelledby="task-tab-comments" hidden={tab !== "comments"}><TaskComments task={task} order={order} /></div>
+    <div className={s.tabPanel} role="tabpanel" id="task-panel-comments" aria-labelledby="task-tab-comments" hidden={tab !== "comments"}><TaskComments task={task} order={order} onAttachFiles={onAttachFiles} /></div>
     {tab === "attachments" && <div className={s.tabPanel} role="tabpanel" id="task-panel-attachments" aria-labelledby="task-tab-attachments"><TaskAttachments task={task} order={order} /></div>}
     {tab === "history" && <div className={s.tabPanel} role="tabpanel" id="task-panel-history" aria-labelledby="task-tab-history"><TaskHistory task={task} order={order} /></div>}
   </section>;
 }
-function TaskComments({ task, order }: { task: Task; order: "newest" | "oldest" }) {
+function TaskComments({ task, order, onAttachFiles }: { task: Task; order: "newest" | "oldest"; onAttachFiles: () => void }) {
   const query = useQuery({ queryKey: ["tasks", task.task_id, "comments"], queryFn: () => tasksApi.comments(task.task_id) });
   const comments = [...(query.data?.items ?? [])].sort((a, b) => (order === "newest" ? -1 : 1) * (a.created_at.localeCompare(b.created_at) || a.comment_id.localeCompare(b.comment_id)));
   return <div className={s.commentStack}>
-    {can(task, "comment_task") && <CommentComposer task={task} />}
+    {can(task, "comment_task") && <CommentComposer task={task} onAttachFiles={onAttachFiles} />}
     <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!query.data}>
-      {comments.map(comment => <CommentItem key={comment.comment_id} task={task} comment={comment} />)}
+      {comments.map(comment => <CommentItem key={comment.comment_id} task={task} comment={comment} onAttachFiles={onAttachFiles} />)}
       {!comments.length && <Empty>Пока нет комментариев. Здесь можно обсудить задачу.</Empty>}
     </QueryState>
   </div>;
 }
-function CommentComposer({ task, comment, onSaved }: { task: Task; comment?: Comment; onSaved?: () => void }) {
-  const [body, setBody] = useState(comment?.content.body ?? "");const [mentions,setMentions]=useState<number[]>([]);const { perform } = useWorkspaceActions();
+function CommentComposer({ task, comment, onSaved, onAttachFiles }: { task: Task; comment?: Comment; onSaved?: () => void; onAttachFiles: () => void }) {
+  const [draft,setDraft]=useState(()=>newCommentMentionDraft(comment?.content.body??""));const {body}=draft;const mentions=draft.pending.flatMap(item=>item.user.user_id===null?[]:[item.user.user_id]);const mentionedUsers=commentMentionUsers(draft,comment?.mentioned_users);const { perform } = useWorkspaceActions();
   return <ActionForm fields={[]} externalState={{body,mentions}} savedExternalState={{body:comment?.content.body ?? "",mentions:[]}} allowExitSave={false} resetOnSuccess={!comment} submitLabel={comment ? "Сохранить комментарий" : "Добавить комментарий"}
-    onSubmit={async () => { if (!body.trim()) throw Error("Напишите текст комментария");await perform(() => comment ? tasksApi.editComment(comment.comment_id, richText(body), mentions) : tasksApi.comment(task.task_id, richText(body), mentions));if (!comment) {setBody("");setMentions([]);}onSaved?.(); }}>
-    <TaskMentionPicker taskId={task.task_id} value={mentions} onChange={setMentions} onMentionText={value=>setBody(body=>body+(body&&!body.endsWith(" ")?" ":"")+value+" ")} />
-    <MarkdownEditor value={body} onChange={setBody} label={comment ? "Редактирование комментария" : "Новый комментарий"} name="body" rows={7} context="comment" draft={false} />
+    onSubmit={async () => { if (!body.trim()) throw Error("Напишите текст комментария");await perform(() => comment ? tasksApi.editComment(comment.comment_id, richText(body), mentions) : tasksApi.comment(task.task_id, richText(body), mentions));if (!comment) setDraft(newCommentMentionDraft());onSaved?.(); }}>
+    <MarkdownEditor value={body} onChange={value=>setDraft(draft=>changeCommentMentionBody(draft,value))} label={comment ? "Редактирование комментария" : "Новый комментарий"} name="body" rows={7} context="comment" variant="comment" draft={false} placeholder="Добавьте комментарий…" mentionUsers={mentionedUsers}
+      footer={<>{can(task,"attach_task_file")&&<button type="button" className={s.commentAttachment} onClick={onAttachFiles} aria-label="Прикрепить файлы к задаче"><Glyph name="attach_file"/><span>Прикрепить файлы</span></button>}<TaskMentionPicker taskId={task.task_id} value={mentions} onChange={ids=>setDraft(draft=>keepCommentMentions(draft,ids))} onMentionUser={user=>setDraft(draft=>addCommentMention(draft,user))} /></>}/>
   </ActionForm>;
 }
-function CommentItem({ task, comment }: { task: Task; comment: Comment }) {
-  return <UnsavedChangesScope><CommentItemContent task={task} comment={comment} /></UnsavedChangesScope>;
+function CommentItem({ task, comment, onAttachFiles }: { task: Task; comment: Comment; onAttachFiles: () => void }) {
+  return <UnsavedChangesScope><CommentItemContent task={task} comment={comment} onAttachFiles={onAttachFiles} /></UnsavedChangesScope>;
 }
-function CommentItemContent({ task, comment }: { task: Task; comment: Comment }) {
+function CommentItemContent({ task, comment, onAttachFiles }: { task: Task; comment: Comment; onAttachFiles: () => void }) {
   const [editing, setEditing] = useState(false);const leave = useGuardedAction();
   return <article className={s.comment}>
     <header><PersonChip user={comment.author} /><time dateTime={comment.created_at}>{displayDate(comment.created_at)}{comment.updated_at ? " · изменён" : ""}</time>{can(comment, "edit_comment") && <button type="button" className={s.subtleButton} onClick={() => { if (editing) leave(() => setEditing(false));else setEditing(true); }}>{editing ? "Отменить редактирование" : "Редактировать"}</button>}</header>
-    {editing && can(comment, "edit_comment") ? <CommentComposer task={task} comment={comment} onSaved={() => setEditing(false)} /> : <MarkdownContent body={comment.content.body} />}
+    {editing && can(comment, "edit_comment") ? <CommentComposer task={task} comment={comment} onSaved={() => setEditing(false)} onAttachFiles={onAttachFiles} /> : <MarkdownContent body={comment.content.body} mentionUsers={comment.mentioned_users??[]} />}
   </article>;
 }
 function sharedSubmissions(task: Task) {

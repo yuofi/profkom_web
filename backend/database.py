@@ -1559,9 +1559,16 @@ def _user_to_ref_uncached(u: UserORM) -> UserRefDC:
     if not u:
         return None
     if u.account_state=='purged':return UserRefDC(user_id=None,display_name='Обезличенный участник',avatar_url=None)
-    display_name = f"Участник {u.user_id}"
     from directory import avatar_url
-    photo_url = avatar_url(u.user_id)
+    return _user_ref_with_avatar(u, avatar_url(u.user_id))
+
+
+def _user_ref_with_avatar(u: UserORM, photo_url) -> UserRefDC:
+    """The public reference policy, with a single or explicitly batched avatar."""
+    if not u:
+        return None
+    if u.account_state=='purged':return UserRefDC(user_id=None,display_name='Обезличенный участник',avatar_url=None)
+    display_name = f"Участник {u.user_id}"
     if u.contact:
         parts = [u.contact.surname, u.contact.name, u.contact.patronymic]
         display_name = " ".join([p for p in parts if p]).strip() or u.contact.kkr_name or display_name
@@ -2060,18 +2067,94 @@ def _recalculate_merit_contribution(session: Session, m: MeritORM):
             session.delete(c)
 
 
-def _calculate_master_bonuses_for_session(session: Session, season_id: str) -> list[MasterBonusDC]:
-    blocks = session.query(BlockORM).all()
+class _SeasonSummaryData:
+    """One explicit projection's inputs, valid only during this service call.
+
+    Mark writes cannot use the read-only UOW memo. These materialized identities
+    and facts avoid repeated negative PK/ACL queries without a reusable cache.
+    Authorization still runs against the central task policy after calculation.
+    """
+    def __init__(self, session, season_id):
+        from collections import defaultdict
+        from domain_models import AccountArchiveORM, BlockMetaORM, MembershipORM, ParticipationORM, KkrControlEpicORM
+        from directory import avatar_urls
+        self.session=session
+        self.season=session.get(SeasonORM,season_id)
+        self.users=session.query(UserORM).options(joinedload(UserORM.contact)).all()
+        self.users_by_id={user.user_id:user for user in self.users}
+        avatars=avatar_urls(session,self.users)
+        self.refs={user.user_id:_user_ref_with_avatar(user,avatars[user.user_id]) for user in self.users}
+        self.archives={row.user_id:row for row in session.query(AccountArchiveORM)}
+        self.blocks=session.query(BlockORM).all()
+        self.blocks_by_name={block.name:block for block in self.blocks}
+        self.block_meta={row.legacy_name:row for row in session.query(BlockMetaORM)}
+        self.master_roles={}
+        self.master_users=set()
+        for row in session.query(RoleAssignmentORM).filter_by(role="master",scope_kind="block"):
+            self.master_roles.setdefault(row.scope_id,row.user_id)
+            self.master_users.add(row.user_id)
+        self.master_users.update(block.master_user_id for block in self.blocks if block.master_user_id is not None)
+        self.memberships=defaultdict(list)
+        for row in session.query(MembershipORM):self.memberships[row.block_id].append(row)
+        self.contributions=session.query(ContributionORM).filter_by(season_id=season_id).all()
+        self.by_user=defaultdict(list);self.by_participant=defaultdict(list);self.by_source=defaultdict(list)
+        for row in self.contributions:
+            self.by_user[row.user_id].append(row);self.by_participant[row.participant_id].append(row)
+            self.by_source[(row.source_kind,row.source_id)].append(row)
+        self.accounting_task_ids=session.query(TaskORM.task_id).filter(TaskORM.season_id==season_id,
+            TaskORM.scope_kind.in_(("block","subevent","event","chair")),
+            ~TaskORM.task_id.in_(session.query(KkrControlEpicORM.task_id)))
+        self.assigned_users={uid for (uid,) in session.query(AssignmentORM.assignee_user_id).filter(AssignmentORM.task_id.in_(self.accounting_task_ids)).distinct()}
+        self.evaluated_counts=dict(session.query(AssignmentORM.assignee_user_id,func.count()).filter(
+            AssignmentORM.task_id.in_(self.accounting_task_ids),AssignmentORM.status.in_(["accepted","not_completed"]),
+            AssignmentORM.evaluation.isnot(None)).group_by(AssignmentORM.assignee_user_id))
+        archived_ids={self.participant_id(user.user_id) for user in self.users if user.banned or user.account_state!="active"}
+        self.participation=defaultdict(list)
+        if archived_ids:
+            from sqlalchemy import or_
+            predicate=ParticipationORM.participant_id.in_([identity for identity in archived_ids if identity is not None])
+            if None in archived_ids:predicate=or_(predicate,ParticipationORM.participant_id.is_(None))
+            for row in session.query(ParticipationORM).filter(predicate):
+                self.participation[row.participant_id].append(row)
+
+    def participant_id(self, uid):
+        if not isinstance(uid,int):return accounting_participant_id(uid,self.session)
+        archived=self.archives.get(uid)
+        return archived.anonymous_participant_id if archived and archived.purged_at else f"participant-{uid}"
+
+    def user(self, uid):
+        # Preserve the old lookup/coercion behavior for malformed legacy roster
+        # identities instead of inventing a person from a name or numeric string.
+        return self.users_by_id.get(uid) or self.session.get(UserORM,uid)
+
+    def user_ref(self, uid):
+        from dataclasses import replace
+        ref=self.refs.get(uid)
+        if ref is None:return _user_to_ref_dc(self.user(uid))
+        return replace(ref)
+
+    def ensure_block_meta(self, name):
+        meta=self.block_meta.get(name)
+        if meta is None:
+            from domain_seed import meta_for
+            meta=meta_for(self.session,name);self.block_meta[name]=meta
+        return meta
+
+
+def _calculate_master_bonuses_for_session(session: Session, season_id: str, *, prepared=None) -> list[MasterBonusDC]:
+    blocks = prepared.blocks if prepared is not None else session.query(BlockORM).all()
     bonuses = []
     for b in blocks:
         master_uid = b.master_user_id
         if not master_uid:
-            r = session.query(RoleAssignmentORM).filter(
+            r = None if prepared is not None else session.query(RoleAssignmentORM).filter(
                 RoleAssignmentORM.scope_kind == "block",
                 RoleAssignmentORM.scope_id == b.name,
                 RoleAssignmentORM.role == "master",
             ).first()
-            if r:
+            if prepared is not None:
+                master_uid=prepared.master_roles.get(b.name)
+            elif r:
                 master_uid = r.user_id
 
         candidate_uids = set()
@@ -2083,14 +2166,15 @@ def _calculate_master_bonuses_for_session(session: Session, season_id: str) -> l
 
         from domain_models import MembershipORM,BlockMetaORM
         from participation import dt
-        meta=session.query(BlockMetaORM).filter_by(legacy_name=b.name).first()
-        period=session.get(SeasonORM,season_id)
+        meta=prepared.block_meta.get(b.name) if prepared is not None else session.query(BlockMetaORM).filter_by(legacy_name=b.name).first()
+        period=prepared.season if prepared is not None else session.get(SeasonORM,season_id)
         if meta:
-            for member in session.query(MembershipORM).filter_by(block_id=meta.block_id):
+            members=prepared.memberships[meta.block_id] if prepared is not None else session.query(MembershipORM).filter_by(block_id=meta.block_id)
+            for member in members:
                 if member.user_id is not None and (not member.joined_at or dt(member.joined_at)<=dt(period.ends_at)) and (not member.left_at or dt(member.left_at)>=dt(period.starts_at)):
                     candidate_uids.add(member.user_id)
 
-        contribs = session.query(ContributionORM).filter(
+        contribs = prepared.by_source[("block_task",b.name)] if prepared is not None else session.query(ContributionORM).filter(
             ContributionORM.season_id == season_id,
             ContributionORM.source_kind == "block_task",
             ContributionORM.source_id == b.name,
@@ -2105,8 +2189,7 @@ def _calculate_master_bonuses_for_session(session: Session, season_id: str) -> l
 
         basis_items = []
         for uid in sorted(candidate_uids):
-            u = session.get(UserORM, uid)
-            u_ref = _user_to_ref_dc(u) or UserRefDC(user_id=uid, display_name=f"Участник {uid}", avatar_url=None)
+            u_ref = (prepared.user_ref(uid) if prepared is not None else _user_to_ref_dc(session.get(UserORM, uid))) or UserRefDC(user_id=uid, display_name=f"Участник {uid}", avatar_url=None)
             score = member_task_scores.get(uid, 0.0)
             included = False
             exclusion = None
@@ -2118,7 +2201,7 @@ def _calculate_master_bonuses_for_session(session: Session, season_id: str) -> l
                 included = True
             basis_items.append(
                 MasterBonusBasisItemDC(
-                    participant_id=accounting_participant_id(uid),
+                    participant_id=prepared.participant_id(uid) if prepared is not None else accounting_participant_id(uid),
                     user=u_ref,
                     member_task_score=score,
                     included=included,
@@ -2130,9 +2213,9 @@ def _calculate_master_bonuses_for_session(session: Session, season_id: str) -> l
         eligible_count = len(eligible)
         amount = math.fsum(item.member_task_score for item in eligible) / eligible_count if eligible_count > 0 else 0.0
 
-        recip_u = session.get(UserORM, master_uid) if master_uid else None
-        recip_ref = _user_to_ref_dc(recip_u) if recip_u else None
-        season_row = session.get(SeasonORM, season_id)
+        recip_u = (prepared.user(master_uid) if prepared is not None else session.get(UserORM, master_uid)) if master_uid else None
+        recip_ref = (prepared.user_ref(master_uid) if prepared is not None else _user_to_ref_dc(recip_u)) if recip_u else None
+        season_row = prepared.season if prepared is not None else session.get(SeasonORM, season_id)
         is_final = bool(season_row and season_row.state == "closed")
 
         bonuses.append(
@@ -2140,7 +2223,7 @@ def _calculate_master_bonuses_for_session(session: Session, season_id: str) -> l
                 bonus_id=f"bonus-{season_id}-{b.name}",
                 season_id=season_id,
                 block_id=b.name,
-                recipient_participant_id=accounting_participant_id(master_uid) if master_uid else None,
+                recipient_participant_id=(prepared.participant_id(master_uid) if prepared is not None else accounting_participant_id(master_uid)) if master_uid else None,
                 recipient=recip_ref,
                 eligible_organizer_count=eligible_count,
                 amount=amount,
@@ -2244,37 +2327,25 @@ def _recalculate_closed_master_bonuses_for_session(session: Session, season_id: 
 
 
 def _calculate_season_summary_for_session(session: Session, season_id: str, is_approved: bool = False) -> SeasonSummaryDC:
-    all_users = session.query(UserORM).all()
+    prepared = _SeasonSummaryData(session,season_id)
+    all_users = prepared.users
     included_users = []
-    from domain_models import KkrControlEpicORM
-    season_task_ids = [t[0] for t in session.query(TaskORM.task_id).filter(TaskORM.season_id == season_id,
-        TaskORM.scope_kind.in_(("block","subevent","event","chair")),
-        ~TaskORM.task_id.in_(session.query(KkrControlEpicORM.task_id))).all()]
     for u in all_users:
         is_arch = bool(u.banned or getattr(u, "account_state", "active") != "active")
         if not is_arch:
             included_users.append(u)
         else:
-            from domain_models import ParticipationORM
             from participation import dt
-            season=session.get(SeasonORM,season_id)
-            participated=any(dt(p.started_at)<dt(season.ends_at) and (not p.ended_at or dt(p.ended_at)>dt(season.starts_at)) for p in session.query(ParticipationORM).filter_by(participant_id=accounting_participant_id(u.user_id)))
+            season=prepared.season
+            participated=any(dt(p.started_at)<dt(season.ends_at) and (not p.ended_at or dt(p.ended_at)>dt(season.starts_at)) for p in prepared.participation[prepared.participant_id(u.user_id)])
             if participated:
                 included_users.append(u)
                 continue
-            has_contrib = session.query(ContributionORM).filter(
-                ContributionORM.season_id == season_id,
-                ContributionORM.user_id == u.user_id,
-            ).count() > 0
+            has_contrib = bool(prepared.by_user[u.user_id])
             if has_contrib:
                 included_users.append(u)
-            elif season_task_ids:
-                has_assign = session.query(AssignmentORM).filter(
-                    AssignmentORM.task_id.in_(season_task_ids),
-                    AssignmentORM.assignee_user_id == u.user_id,
-                ).count() > 0
-                if has_assign:
-                    included_users.append(u)
+            elif u.user_id in prepared.assigned_users:
+                included_users.append(u)
 
     prev_ranks: dict[int, int] = {}
     prev_decisions: dict[int, list[str]] = {}
@@ -2302,55 +2373,34 @@ def _calculate_season_summary_for_session(session: Session, season_id: str, is_a
         except Exception:
             curr_decisions[dr.user_id] = []
 
-    provisional_bonuses = _calculate_master_bonuses_for_session(session, season_id) if not is_approved else []
+    provisional_bonuses = _calculate_master_bonuses_for_session(session, season_id,prepared=prepared) if not is_approved else []
     rows: list[SummaryRowDC] = []
     for u in included_users:
-        u_ref = _user_to_ref_dc(u) or UserRefDC(user_id=u.user_id, display_name=f"Участник {u.user_id}", avatar_url=None)
+        participant_id = prepared.participant_id(u.user_id)
+        u_ref = prepared.user_ref(u.user_id) or UserRefDC(user_id=u.user_id, display_name=f"Участник {u.user_id}", avatar_url=None)
         group_num = u.contact.group_number if u.contact else None
         category = getattr(u, "category", "activist") or "activist"
         user_blocks = _parse_blocks(u.blocks) if u.blocks else []
-        from domain_seed import meta_for
-        blocks_dc = [SummaryRowBlockDC(block_id=meta_for(session,b).block_id, name=b) for b in user_blocks if session.get(BlockORM,b)]
-        is_master = bool(
-            session.query(RoleAssignmentORM).filter(
-                RoleAssignmentORM.user_id == u.user_id,
-                RoleAssignmentORM.role == "master",
-                RoleAssignmentORM.scope_kind == "block",
-            ).count() > 0
-            or session.query(BlockORM).filter(BlockORM.master_user_id == u.user_id).count() > 0
-        )
+        blocks_dc = [SummaryRowBlockDC(block_id=prepared.ensure_block_meta(b).block_id, name=b) for b in user_blocks if b in prepared.blocks_by_name]
+        is_master = u.user_id in prepared.master_users
         is_archived = bool(u.banned or getattr(u, "account_state", "active") != "active")
 
-        contribs = session.query(ContributionORM).filter(
-            ContributionORM.season_id == season_id,
-            ContributionORM.user_id == u.user_id,
-        ).all()
         from season_summaries import totals
-        source_scores=[SummaryRowSourceScoreDC(**x) for x in totals(session,season_id,accounting_participant_id(u.user_id))]
+        source_scores=[SummaryRowSourceScoreDC(**x) for x in totals(session,season_id,participant_id,contributions=prepared.by_participant[participant_id])]
         if not is_approved:
             source_scores = [source for source in source_scores if source.source_kind != "master_bonus"]
             for bonus in provisional_bonuses:
-                if bonus.recipient_participant_id == accounting_participant_id(u.user_id) and bonus.amount > 0:
+                if bonus.recipient_participant_id == participant_id and bonus.amount > 0:
                     from season_summaries import source_title
-                    from membership import block_id_for
-                    source_scores.append(SummaryRowSourceScoreDC(source_kind="master_bonus", source_id=block_id_for(bonus.block_id),
+                    source_scores.append(SummaryRowSourceScoreDC(source_kind="master_bonus", source_id=prepared.ensure_block_meta(bonus.block_id).block_id,
                         title=source_title(session, "master_bonus", bonus.block_id), score=bonus.amount * __import__("season_coefficients").factor_for(session, season_id, "master_bonus", bonus.block_id)))
         total_score = math.fsum(source.score for source in source_scores)
 
-        eval_count = (
-            session.query(AssignmentORM).filter(
-                AssignmentORM.task_id.in_(season_task_ids),
-                AssignmentORM.assignee_user_id == u.user_id,
-                AssignmentORM.status.in_(["accepted", "not_completed"]),
-                AssignmentORM.evaluation.isnot(None),
-            ).count()
-            if season_task_ids
-            else 0
-        )
+        eval_count = prepared.evaluated_counts.get(u.user_id,0)
 
         rows.append(
             SummaryRowDC(
-                participant_id=accounting_participant_id(u.user_id),
+                participant_id=participant_id,
                 user=u_ref,
                 group_number=group_num,
                 category=category,
@@ -6282,10 +6332,21 @@ class Database:
                 sum_orm = session.query(SeasonSummaryORM).filter(SeasonSummaryORM.season_id == season_id).first()
                 if sum_orm and sum_orm.rows_json:
                     rows_raw = json.loads(sum_orm.rows_json)
+                    from directory import avatar_urls
+                    identifiers={row.get("user",{}).get("user_id") for row in rows_raw if row.get("user",{}).get("user_id") is not None}
+                    users={}
+                    identifiers=list(identifiers)
+                    for start in range(0,len(identifiers),500):
+                        users.update((user.user_id,user) for user in session.query(UserORM).filter(UserORM.user_id.in_(identifiers[start:start+500])))
+                    avatars=avatar_urls(session,users.values())
+                    def snapshot_avatar(identity):
+                        user=users.get(identity)
+                        if user is None and identity is not None and not isinstance(identity,int):user=session.get(UserORM,identity)
+                        return avatars.get(user.user_id) if user and user.account_state!="purged" else None
                     rows = []
                     for r in rows_raw:
                         u_data = r.get("user", {})
-                        u_ref = UserRefDC(user_id=u_data.get("user_id"), display_name=u_data.get("display_name", ""), avatar_url=_snapshot_avatar(u_data.get("user_id")))
+                        u_ref = UserRefDC(user_id=u_data.get("user_id"), display_name=u_data.get("display_name", ""), avatar_url=snapshot_avatar(u_data.get("user_id")))
                         blocks_dc = [SummaryRowBlockDC(block_id=b["block_id"], name=b["name"]) for b in r.get("blocks", [])]
                         source_scores = [SummaryRowSourceScoreDC(source_kind=s["source_kind"], source_id=s["source_id"], title=s["title"], score=s["score"]) for s in r.get("source_scores", [])]
                         rows.append(

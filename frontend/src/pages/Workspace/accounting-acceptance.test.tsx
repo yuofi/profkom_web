@@ -10,7 +10,7 @@ import { emptyCriteria, richText, type Contribution, type SeasonSummary } from "
 import { SeasonParticipants } from "./SeasonParticipants";
 import { SeasonPage } from "./SeasonPages";
 import { SourcesPage, SeasonCorrectionForm } from "./MeritPages";
-import { SummaryTable } from "./SummaryTable";
+import { DecisionBadges, SummaryTable } from "./SummaryTable";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let adapter: MockAdapter | undefined;
@@ -45,12 +45,23 @@ it("combines participant filters without reranking and keeps anonymous participa
 });
 it("renders previous marks in a separate seventh cell from current decisions and their editor", async () => {
   const summary = summaryFixture();summary.rows = [summary.rows[0]];
-  page = await mountWorkspace(<SummaryTable summary={summary} renderDecisions={() => <button>Редактор текущих отметок</button>} />);
+  page = await mountWorkspace(<SummaryTable summary={summary} renderDecisions={row => <button><DecisionBadges values={row.decisions} /><span>Редактор текущих отметок</span></button>} />);
   const headings = Array.from(page.container.querySelectorAll("th")).map(th => th.textContent);
   expect(headings).toEqual(["Место", "Участник", "ККР блоков", "ККР мероприятий", "Всего", "Отметки", "Прошлые отметки"]);
   const cells = page.container.querySelectorAll("tbody tr td");
   expect(cells[5].textContent).toContain("Найс");expect(cells[5].textContent).toContain("Редактор текущих отметок");expect(cells[5].textContent).not.toContain("Предупреждение");
   expect(cells[6].textContent).toContain("Предупреждение о кике");expect(cells[6].querySelector("button")).toBeNull();
+});
+it("explains departure marks in tooltips while retaining every short accessible label", async () => {
+  page = await mountWorkspace(<DecisionBadges values={["nice", "kick", "kick_warning", "golden_red_bull"]} />);
+  const icons = [...page.container.querySelectorAll('[role="img"]')];
+  expect(icons.map(icon => icon.getAttribute("aria-label"))).toEqual(["Найс", "Кик", "Предупреждение о кике", "Золотой Red Bull"]);
+  expect(icons.map(icon => icon.getAttribute("title"))).toEqual([
+    "Найс — Добровольный уход из Профкома по личным причинам.",
+    "Кик — Принудительное исключение из Профкома за недостаточную работу.",
+    "Предупреждение о кике", "Золотой Red Bull",
+  ]);
+  expect(page.container.textContent).toBe("НайсКикПредупреждение о кикеЗолотой Red Bull");
 });
 it("passes source and stable anonymous participant filters to the server and replaces displayed contributions", async () => {
   adapter = new MockAdapter(api);const summary = summaryFixture();

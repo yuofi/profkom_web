@@ -215,8 +215,9 @@ def remind(season_id, uid):
         for item in data['items']:
             targets=[p['user_id'] for p in item['responsibles'] if p['user_id'] is not None]
             if item['missing_count'] and targets:
+                mentions=' '.join(f'[Участник {target}](/contacts/{target})' for target in targets)
                 add_mention_comment(session,session.get(TaskORM,item['task_id']),uid,
-                    'Призываю заполнить ККР закрытых задач. Осталось задач: '+str(item['missing_count'])+'.',targets)
+                    mentions+'\n\nПризываю заполнить ККР закрытых задач. Осталось задач: '+str(item['missing_count'])+'.',targets)
                 count+=1
         return dict(comments_created=count)
 

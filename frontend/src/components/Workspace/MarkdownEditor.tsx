@@ -1,10 +1,11 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { MarkdownContent } from "./MarkdownContent";
 import { Glyph } from "./WorkspaceUI";
 import { editorShortcut } from "../../utils/editorShortcuts";
 import { insertMarkdown, transformMarkdownLines } from "../../utils/markdown";
 import { FormattingTool as EditorTool, FormattingMenu, EditorIcon } from "./MarkdownTools";
 import editor from "./MarkdownEditor.module.css";
+import type { UserRef } from "../../utils/api/contract";
 
 type Snapshot = { value: string; start: number; end: number };
 export interface MarkdownEditorProps {
@@ -17,12 +18,16 @@ export interface MarkdownEditorProps {
   context?: "material" | "comment" | "result" | "task";
   placeholder?: string;
   disabled?: boolean;
+  /** A cohesive comment frame; other editor contexts keep their established layout. */
+  variant?: "default" | "comment";
+  footer?: ReactNode;
+  mentionUsers?: UserRef[];
 }
 
 /** The source stays Markdown: inserting a command never rewrites the rest of a document. */
 export function MarkdownEditor({
   value, onChange, label = "Содержимое в Markdown", name, rows = 18,
-  context = "material", placeholder, disabled = false,
+  context = "material", placeholder, disabled = false, variant = "default", footer, mentionUsers,
 }: MarkdownEditorProps) {
   const input = useRef<HTMLTextAreaElement>(null);
   const selection = useRef<{ start: number; end: number; scrollTop?: number } | null>(null);
@@ -137,13 +142,14 @@ export function MarkdownEditor({
     if (input.current) selection.current = { start: input.current.selectionStart, end: input.current.selectionEnd, scrollTop: input.current.scrollTop };
     setPreview(!preview);
   };
+  const previewControl = <EditorTool label={preview ? "Редактирование" : "Предпросмотр"} disabled={false}
+    aria-pressed={preview} hint={preview ? "Вернуться к редактированию" : "Просмотр Markdown"} onClick={togglePreview}>
+    <Glyph name={preview ? "edit" : "visibility"} />
+  </EditorTool>;
   return (
-    <div className={editor.editor}>
+    <div className={`${editor.editor} ${variant === "comment" ? editor.comment : ""}`} data-markdown-editor={variant}>
       <div className={editor.toolbar} role="toolbar" aria-label="Форматирование Markdown">
-        <EditorTool label={preview ? "Редактирование" : "Предпросмотр"} disabled={false}
-          aria-pressed={preview} hint={preview ? "Вернуться к редактированию" : "Просмотр Markdown"} onClick={togglePreview}>
-          <Glyph name={preview ? "edit" : "visibility"} />
-        </EditorTool>
+        {variant !== "comment" && previewControl}
         {preview ? <span className={editor.mode}>Просмотр Markdown</span> : <>
           <span className={editor.separator} aria-hidden="true" />
           {<EditorTool label={"Отменить"} disabled={disabled} onClick={() => restore("undo")} hint={"Отменить · Cmd/Ctrl+Z"}><EditorIcon name="undo" /></EditorTool>}
@@ -175,9 +181,10 @@ export function MarkdownEditor({
             {<EditorTool label={"Контакт"} disabled={disabled} onClick={() => insert("\n```chip\nФамилия: \nИмя: \nПочта: \n", "\n```\n")}>{<Glyph name="contacts" />}</EditorTool>}
           </>}
         </>}
+        {variant === "comment" && <span className={editor.previewControl}>{previewControl}</span>}
       </div>
       {!preview && <label className={editor.label}>
-        {label}
+        <span className={variant === "comment" ? editor.srOnly : undefined}>{label}</span>
         <textarea ref={input} name={name} className={editor.input} value={value} rows={rows} placeholder={placeholder} disabled={disabled}
           onChange={(event) => {
             remember(undo.current, beforeInput.current ?? snapshot()); redo.current = [];
@@ -203,9 +210,9 @@ export function MarkdownEditor({
           }} />
       </label>}
       {preview && <div className={editor.preview} role="region" aria-label={`Просмотр: ${label}`}>
-        {value.trim() ? <MarkdownContent body={value} /> : <p className={editor.empty}>Здесь появится отформатированный текст.</p>}
+        {value.trim() ? <MarkdownContent body={value} mentionUsers={mentionUsers} /> : <p className={editor.empty}>Здесь появится отформатированный текст.</p>}
       </div>}
-
+      {footer && <div className={editor.footer} data-editor-footer>{footer}</div>}
     </div>
   );
 }

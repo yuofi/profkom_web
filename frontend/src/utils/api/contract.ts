@@ -561,6 +561,8 @@ export interface Comment {
   updated_at: string | null;
   history?: { content: RichText; edited_at: string }[];
   capabilities: string[];
+  /** Safe current identities for canonical local profile links; never an access grant. */
+  mentioned_users?: UserRef[];
 }
 export interface Meeting extends Versioned {
   meeting_id: string;

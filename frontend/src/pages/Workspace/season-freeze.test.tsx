@@ -54,6 +54,8 @@ const popup=()=>document.querySelector<HTMLElement>('[data-anchored-popover]')!;
 async function openDecision(page:Awaited<ReturnType<typeof mountParticipants>>,label='Синтетический участник 000') {
  const tableRow=rowFor(page.container,label),disclosure=tableRow.querySelector<HTMLButtonElement>('button[aria-label^="Изменить отметки:"]')!;
  if(disclosure.getAttribute('aria-expanded')!=='true')await act(async()=>disclosure.click());
+ await waitForPage(page,()=>!!popup());
+ if(popup().matches('[role="menu"]'))await act(async()=>popup().querySelector<HTMLButtonElement>('[aria-checked="true"]')!.click());
  await waitForPage(page,()=>!!popup()?.querySelector('input[name="reason"]'));
  return {row:popup(),disclosure,form:popup().querySelector('form')!};
 }
@@ -167,7 +169,8 @@ it("saves the first draft before switching to the next editor and uses the refre
   await act(async () => dialogButton(page.container, "Остаться").click());await waitForPage(page);
   expect(first.form.isConnected).toBe(true);expect(nextRow.querySelector("form")).toBeNull();expect(field(first.form, "reason").value).toBe("Первая отметка");
   await act(async () => nextRow.querySelector<HTMLButtonElement>('button[aria-label^="Изменить отметки:"]')!.click());await waitForPage(page);
-  await act(async () => dialogButton(page.container, "Сохранить и перейти").click());await waitForPage(page, () => !!popup()?.querySelector("form") && popup().textContent?.includes("участник 001")===true);
+  await act(async () => dialogButton(page.container, "Сохранить и перейти").click());await waitForPage(page, () => popup()?.textContent?.includes("Отметка")===true);
+  await act(async()=>popup().querySelector<HTMLButtonElement>('[aria-checked="true"]')!.click());await waitForPage(page,()=>!!popup()?.querySelector("form"));
   const second = { row: popup(), form: popup().querySelector("form")! };expect(first.form.isConnected).toBe(false);expect(document.querySelectorAll("[data-anchored-popover] form")).toHaveLength(1);
   await pick(second.row, "decisions", "kick_warning");await change(field(second.form, "reason"), "Вторая отметка");
   await submit(second.form);await waitForPage(page);expect(save).toHaveBeenCalledTimes(2);
@@ -193,7 +196,7 @@ it("discards a draft only after explicit confirmation when switching to another 
   await pick(first.row, "decisions", "nice");await change(field(first.form, "reason"), "Явно отбрасываемый черновик");
   const next = rowFor(page.container, "Синтетический участник 001");await act(async () => next.querySelector<HTMLButtonElement>('button[aria-label^="Изменить отметки:"]')!.click());await waitForPage(page);
   expect(first.form.isConnected).toBe(true);await act(async () => dialogButton(page.container, "Уйти без сохранения").click());await waitForPage(page);
-  expect(first.form.isConnected).toBe(false);expect(popup()?.querySelector("form")).not.toBeNull();expect(save).not.toHaveBeenCalled();
+  expect(first.form.isConnected).toBe(false);expect(popup()?.getAttribute("role")).toBe("menu");expect(popup()?.getAttribute("aria-label")).toContain("участник 001");expect(save).not.toHaveBeenCalled();
   const reopened=await openDecision(page);expect(field(reopened.row,"reason").value).toBe("");expect(reopened.row.querySelector<HTMLInputElement>('input[value="nice"]')?.checked).toBe(false);
 });
 
@@ -213,8 +216,10 @@ it("open-season mark clicks save immediately without allocating editors or refet
  const save=vi.spyOn(seasonsApi,"decisions").mockImplementation(async(_sid,uid,data)=>{page.summary.rows.find(row=>row.user.user_id===uid)!.decisions=data.decisions;page.summary.version++;return structuredClone(page.summary);});
  const row=rowFor(page.container,"Синтетический участник 000");
  await act(async()=>row.querySelector<HTMLButtonElement>('button[aria-label^="Изменить отметки:"]')!.click());await waitForPage(page,()=>!!popup());
+ expect(popup().querySelector('[role="menuitemcheckbox"][aria-label="Найс"]')?.getAttribute('title')).toBe('Найс — Добровольный уход из Профкома по личным причинам.');
+ expect(popup().querySelector('[role="menuitemcheckbox"][aria-label="Кик"]')?.getAttribute('title')).toBe('Кик — Принудительное исключение из Профкома за недостаточную работу.');
  await act(async()=>[...popup().querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Найс')!.click());await waitForPage(page);
  expect(save).toHaveBeenCalledExactlyOnceWith('season-1',9000,{expected_version:1,decisions:['nice']});
  expect(page.container.querySelectorAll('tbody form')).toHaveLength(0);expect(page.read).toHaveBeenCalledTimes(1);expect(page.commits()).toBeLessThan(200);
- expect([...popup().querySelectorAll('button')].find(button=>button.textContent==='Найс')?.getAttribute('aria-pressed')).toBe('true');
+ expect(row.querySelector('[role="img"][aria-label="Найс"]')).not.toBeNull();expect(popup()).toBeNull();
 });

@@ -117,3 +117,8 @@
 @media(max-width:520px) { .rosterDiff { grid-template-columns: minmax(0,1fr); } }
 
 .seasonEdit { display: flex; align-items: center; gap: 5px; margin-top: 7px; padding: 0; border: 0; background: transparent; color: var(--primary); font: inherit; font-size: 12px; cursor: pointer; text-align: left; }.seasonEdit > span { font-size: 15px; }.seasonEdit:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; }.seasonEdit:hover { text-decoration: underline; }.seasonContext { margin: 8px 0 0; font-size: 11px; line-height: 1.6; opacity: .7; }.seasonContext p { margin: 0 0 6px; }.seasonContext a { color: var(--primary); text-decoration: none; }.seasonContext a:hover { text-decoration: underline; }
+
+.commentAttachment { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 7px 8px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--on-surface-variant); font: inherit; font-size: 13px; cursor: pointer; }
+.commentAttachment > span:first-child { font-size: 19px; }
+.commentAttachment:hover { color: var(--primary); background: var(--surface-container-high); }
+.commentAttachment:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }

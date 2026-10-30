@@ -74,6 +74,12 @@ export function installMockTransport(
   } = {},
 ) {
   const state = createFixtures(role);
+  const commentMentions = (body: string) => {
+    const prose = body.replace(/^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\1[ \t]*$/gm, "").replace(/^(?: {4}|\t).*$/gm, "").replace(/(`+)[\s\S]*?\1(?!`)/g, "");
+    const ids = new Set([...prose.matchAll(/(?<!!|\\)\[(?:\\.|[^\]\\\n])*\]\(\/contacts\/([1-9][0-9]*)\)/g)].map(match => Number(match[1])));
+    return clone(state.people.filter(person => person.user_id !== null && ids.has(person.user_id)));
+  };
+
   const profileFeatures = profileFeatureMock(state, () => taskHistory);
   if (options.scenario === "empty") {
     state.tasks = [];
@@ -1327,7 +1333,7 @@ export function installMockTransport(
       if (parts[2] === "comments") {
         if (method === "get")
           return list(
-            clone(state.comments.filter((c) => c.task_id === task.task_id)),
+            clone(state.comments.filter((c) => c.task_id === task.task_id).map(comment => ({...comment,mentioned_users:commentMentions(comment.content.body)}))),
           );
         const comment = {
           comment_id: id("comment"),
@@ -1337,6 +1343,7 @@ export function installMockTransport(
           created_at: mockNow,
           updated_at: null,
           capabilities: ["edit_comment"],
+          mentioned_users: commentMentions(publicSubmission(data.content).body),
         };
         const mentions=(data.mentioned_user_ids??[]) as number[];
         if(!Array.isArray(mentions)||mentions.some(uid=>!state.people.some(person=>person.user_id===uid)))return fail(422,"invalid_input","Участник недоступен");
@@ -1574,9 +1581,10 @@ export function installMockTransport(
     if (parts[0] === "comments") {
       const comment = state.comments.find((c) => c.comment_id === parts[1]);
       const task = comment && state.tasks.find(t => t.task_id === comment.task_id);
-      if (!comment || !task || !readsTask(task) || (comment.author.user_id !== state.session.user_id && task.created_by?.user_id !== state.session.user_id && !task.assignments.some(a => a.assignee.user_id === state.session.user_id && !a.assignee_unavailable_reason))) return denied();
+      if (!comment || !task || !readsTask(task)) return denied();
       const before = comment.content.body;
       comment.content = publicSubmission(data.content);
+      comment.mentioned_users = commentMentions(comment.content.body);
       rememberTask(task, "comment_edited", "Комментарий отредактирован", undefined, undefined, [{ field: "comment", label: "Комментарий", before, after: comment.content.body }]);
       comment.updated_at = mockNow;
       return [200, clone(comment)];

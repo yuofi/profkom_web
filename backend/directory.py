@@ -103,19 +103,45 @@ def avatar_url(uid):
         if not u:
             return "/avatars/default.svg"
         m = s.get(ProfileMetadataORM, uid)
-        if m and m.avatar_file_id:
-            fr = s.get(FileRecordORM, m.avatar_file_id)
-            if fr and fr.state == "completed":
-                from file_access import content_url
+        fr = s.get(FileRecordORM, m.avatar_file_id) if m and m.avatar_file_id else None
+        return _avatar_from_rows(u, m, fr)
 
-                return content_url(fr.file_id)
-        if m and m.preset_id:
-            return "/avatars/" + m.preset_id + ".svg"
-        if u.photo_url and not is_vk_photo(u.photo_url):
-            from legacy_files import read_url
 
-            return read_url(u.photo_url)
+def _avatar_from_rows(user, metadata, file):
+    """One policy for single reads and an explicitly materialized projection."""
+    if not user:
         return "/avatars/default.svg"
+    if metadata and metadata.avatar_file_id and file and file.state == "completed":
+        from file_access import content_url
+        return content_url(file.file_id)
+    if metadata and metadata.preset_id:
+        return "/avatars/" + metadata.preset_id + ".svg"
+    if user.photo_url and not is_vk_photo(user.photo_url):
+        from legacy_files import read_url
+        return read_url(user.photo_url)
+    return "/avatars/default.svg"
+
+
+def avatar_urls(session, users):
+    """Current avatar policy for these users, without retaining a permission cache.
+
+    The caller owns the session and the users. Missing metadata/files are explicit
+    negatives in this invocation only; no lazy metadata is created or persisted.
+    """
+    users=list(users)
+    identifiers=list(dict.fromkeys(user.user_id for user in users))
+    metadata={}
+    for index in range(0,len(identifiers),500):
+        metadata.update((row.user_id,row) for row in session.query(ProfileMetadataORM).filter(ProfileMetadataORM.user_id.in_(identifiers[index:index+500])))
+    file_ids=list({row.avatar_file_id for row in metadata.values() if row.avatar_file_id})
+    files={}
+    for index in range(0,len(file_ids),500):
+        files.update((row.file_id,row) for row in session.query(FileRecordORM).filter(FileRecordORM.file_id.in_(file_ids[index:index+500])))
+    result={}
+    for user in users:
+        saved=metadata.get(user.user_id)
+        result[user.user_id]=_avatar_from_rows(user,saved,files.get(saved.avatar_file_id) if saved else None)
+    return result
 
 
 def current_avatars(data):

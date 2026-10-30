@@ -149,6 +149,15 @@ def test_reminders_use_normal_mentions_and_allow_repeats(client,work,superuser,m
         assert result.json()['comments_created']==1
     with db._session() as session:
         assert session.query(NotificationORM).filter_by(user_id=work['master'].user_id,kind='task_mention').count()==before+2
+    controls=client.get('/api/seasons/'+sid+'/kkr-control',headers=hr.headers).json()['items']
+    control=next(item for item in controls if item['source_kind']=='block' and item['source_id']==work['block']['block_id'])
+    comments=client.get('/api/tasks/'+control['task_id']+'/comments',headers=hr.headers)
+    assert comments.status_code==200,comments.text
+    assert len(comments.json()['items'])==2
+    for comment in comments.json()['items']:
+        assert comment['task_id']==control['task_id'] and comment['author']['user_id']==hr.user_id
+        assert [person['user_id'] for person in comment['mentioned_users']]==[work['master'].user_id]
+        assert f'[Участник {work["master"].user_id}](/contacts/{work["master"].user_id})' in comment['content']['body']
 
 
 def test_immediate_mark_does_not_reconcile_controls(client,work,superuser,monkeypatch):

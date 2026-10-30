@@ -198,7 +198,7 @@ it("2.12 A-FE-2: two rows of one summary save one after another without a confli
   await until(() => !!participantRow(people[0].user_id) && !!participantRow(people[1].user_id));expect(rows()).toHaveLength(0);
   const decisions = vi.spyOn(seasonsApi, "decisions");const before = (await seasonsApi.summary(season.season_id)).version;
   const mark=(id:number)=>participantRow(id)!.querySelector<HTMLButtonElement>('button[aria-label^="Изменить отметки:"]')!;
-  const choose=async(id:number)=>{await act(async()=>mark(id).click());await until(()=>!!document.querySelector('[data-anchored-popover]'));const button=[...document.querySelectorAll<HTMLButtonElement>('[data-anchored-popover] button')].find(button=>button.textContent==='Найс')!;await act(async()=>button.click());await until(()=>button.getAttribute('aria-pressed')==='true'&&!button.disabled);};
+  const choose=async(id:number)=>{await act(async()=>mark(id).click());await until(()=>!!document.querySelector('[data-mark-menu]'));const button=document.querySelector<HTMLButtonElement>('[data-mark-menu] button[aria-label="Найс"]')!;await act(async()=>button.click());await until(()=>!!mark(id).querySelector('[role="img"][aria-label="Найс"]')&&!mark(id).disabled);};
   await choose(people[0].user_id);await choose(people[1].user_id);
   expect(rows()).toHaveLength(0);
   expect(decisions.mock.calls.map(([, userId, values]) => ({ userId, expected_version: values.expected_version }))).toEqual([{ userId: people[0].user_id, expected_version: before }, { userId: people[1].user_id, expected_version: before + 1 }]);

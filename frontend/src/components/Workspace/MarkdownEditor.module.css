@@ -94,6 +94,18 @@
   color: var(--on-surface-variant);
   margin: 0;
 }
+.comment { position: relative; gap: 0; overflow: hidden; border: 1px solid var(--outline-variant); border-radius: var(--radius-medium); background: var(--surface-container-low); }
+.comment:focus-within { border-color: var(--primary); box-shadow: 0 0 0 1px color-mix(in srgb,var(--primary) 35%,transparent); }
+.comment .toolbar { position: relative; box-sizing: border-box; min-height: 52px; border: 0; border-radius: 0; background: transparent; padding: 8px 52px 8px 8px; gap: 2px; }
+.comment .toolbar > :not(.previewControl) { order: 0; }
+.previewControl { position: absolute; top: 8px; right: 8px; display: inline-flex; }
+.comment .toolbar .separator:first-of-type { display: none; }
+.comment .label { gap: 0; }
+.comment .input, .comment .preview { min-height: 180px; border: 0; border-radius: 0; background: transparent; padding: 10px 16px 16px; }
+.comment .input:focus { outline: none; }
+.comment .preview { min-height: 210px; }
+.footer { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; padding: 5px 10px 10px; min-width: 0; }
+.srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 @media (max-width: 600px) {
   .tool { min-width: 34px; padding-inline: 7px; }
   .input, .preview { padding: 10px; }

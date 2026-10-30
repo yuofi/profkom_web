@@ -73,6 +73,22 @@ private queue, current membership/leadership, KKR or access_revision checks to
 reduce query counts. Refusal and immediate permission revocation remain part of
 the contract.
 
+## Season summaries
+
+A calculation-local materialization batches participant/contact/avatar/archive,
+membership/leadership, contribution and evaluation facts for a season. A fresh
+materialization is built for each calculation, including commands; it is not a
+write-unit permission cache and is never shared across requests or subsequent
+mutations. The avatar batch uses the same public avatar policy as individual
+directory reads.
+
+Summary source masking passes the complete lightweight task selection to the
+central batch task ACL once. Support, private queues, managed controls, individual
+grants and current permission loss retain their ordinary policy. Wire conversion
+resolves current stable block metadata in a batch without read-repair. Approved
+snapshot amounts and ranks remain frozen; refreshing live avatar presentation
+does not recalculate historical numbers.
+
 ## Verification
 
 `tests/test_task_read_projections.py` checks detail parity, full authorized facets,

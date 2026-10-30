@@ -12,7 +12,7 @@ export type InteractiveChipProps = Common & (
 );
 /** One primary semantic action and an optional sibling action; never nested interactive elements. */
 export function InteractiveChip({ anchorRef, ...props }: InteractiveChipProps) {
-  const face = <ChipFace label={props.label} avatarUrl={props.avatarUrl} avatarFallback={props.avatarFallback} icon={props.icon} />;
+  const face = <ChipFace label={props.label} avatarUrl={props.avatarUrl} avatarFallback={props.avatarFallback} avatarPresentation={props.avatarPresentation} icon={props.icon} />;
   const common = { className: s.main, title: props.title, "aria-label": props.ariaLabel, "aria-describedby": props.ariaDescribedBy };
   return <span ref={anchorRef} className={`${s.shell} ${props.className ?? ""}`} data-row-action={props.kind !== "display" || props.trailingAction ? true : undefined} data-has-trailing={!!props.trailingAction || undefined}>
     {props.kind === "link" ? <Link {...common} to={props.to} target={props.target} rel={props.rel} onClick={props.onClick}>{face}</Link> : props.kind === "action" ? <button {...common} type="button" disabled={props.disabled} onClick={props.onClick} aria-expanded={props.expanded} aria-controls={props.controls} aria-haspopup={props.hasPopup}>{face}</button> : <span {...common} tabIndex={props.focusable ? 0 : undefined}>{face}</span>}

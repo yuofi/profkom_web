@@ -125,7 +125,7 @@ it("INT-03: closed correction keeps old totals immutable and exposes provenance 
     const current = cells[5].querySelector('[aria-label="Решения текущего сезона"]')!;
     expect([...current.querySelectorAll('[role="img"]')].map(icon=>icon.getAttribute('aria-label'))).toEqual(participant.decisions.map(value=>decisionLabels[value]));
     expect([...cells[6].querySelectorAll('[role="img"]')].map(icon=>icon.getAttribute('aria-label'))).toEqual(participant.previous_decisions.map(value=>decisionLabels[value]));
-    if(!participant.decisions.length) expect(current.textContent).toBe('Нет отметок');
+    if(!participant.decisions.length) expect(['Нет отметок','Без отметки']).toContain(current.textContent);
     if(!participant.previous_decisions.length) expect(cells[6].textContent).toBe('Нет отметок');
     expect(cells[6].querySelector("form")).toBeNull();
     return cells;

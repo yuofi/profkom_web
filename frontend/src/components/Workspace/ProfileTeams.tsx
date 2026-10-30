@@ -22,7 +22,7 @@ function TeamList({ items, label }: { items: Team[]; label: string }) {
   const [expanded, setExpanded] = useState(false);
   return <>
     <ul className={t.teams}>{(expanded ? items : items.slice(0, 5)).map(item => <li key={item.id}>
-      <Link className={t.teamLink} to={item.to}><ChipAvatar src={item.avatar} fallback={<ChipInitials name={item.name} />} /><span>{item.name}</span></Link>
+      <Link className={t.teamLink} to={item.to}><ChipAvatar src={item.avatar} presentation="logo" fallback={<ChipInitials name={item.name} />} /><span>{item.name}</span></Link>
       <small>{item.roles.map(role => roleLabels[role]).join(" · ")}</small>
     </li>)}</ul>
     {items.length > 5 && <button type="button" className={t.more} aria-expanded={expanded} aria-label={`${expanded ? "Свернуть" : "Показать все"}: ${label}`} onClick={() => setExpanded(value => !value)}>{expanded ? "Свернуть" : `Показать все · ${items.length}`}</button>}

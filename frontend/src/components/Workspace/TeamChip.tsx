@@ -38,7 +38,7 @@ function ResolvedTeamChip(props: Props) {
 }
 function TeamIdentity({ scope, title, avatarUrl, interactive = true, className }: Props & { title: string }) {
   if (scope.kind === "block") return <BlockChip block={{ block_id: scope.id, name: title, avatar_url: avatarUrl }} interactive={interactive} className={className} />;
-  const face = { label: title, avatarUrl: avatarUrl ?? (scope.kind === "event" ? eventLogo(title) : null), avatarFallback: <ChipInitials name={title} />, className };
+  const face = { label: title, avatarUrl: avatarUrl ?? (scope.kind === "event" ? eventLogo(title) : null), avatarPresentation: avatarUrl ? "photo" as const : "logo" as const, avatarFallback: <ChipInitials name={title} />, className };
   const to = scope.kind === "event" ? getEventRoute(scope.id) : scope.kind === "chair" ? "/tasks?scope_kind=chair&scope_id=chair" : scope.kind === "subevent" ? getSubeventRoute(scope.id) : getTaskQueueRoute(scope.id);
   return interactive ? <InteractiveChip kind="link" to={to} {...face} /> : <InteractiveChip kind="display" {...face} />;
 }

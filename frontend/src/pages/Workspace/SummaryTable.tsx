@@ -2,18 +2,21 @@ import type { ReactNode } from "react";
 import type { Decision, SeasonSummary, SummaryRow } from "../../utils/api/contract";
 import { Badge } from "../../components/Workspace/WorkspaceUI";
 import { UserChip } from "../../components/Workspace/UserChip";
-import { decisionLabels } from "../../utils/decisions";
+import { decisionLabels, decisionTitle } from "../../utils/decisions";
 import s from "../../components/Workspace/Workspace.module.css";
 import u from "./SeasonWorkspace.module.css";
 
-const decisionPaths:Record<Decision,string>={
- golden_red_bull:"M9 3h6l1 4v13H8V7l1-4Zm-1 4h8M13 9l-3 5h3l-2 4 4-6h-3l1-3Z",
- kick_warning:"m12 3 10 18H2L12 3Zm0 6v5m0 3v1",
- kick:"M15 12a4 4 0 1 0-8 0 4 4 0 0 0 8 0Zm-9 9v-2a5 5 0 0 1 10 0v2M17 4h6",
- nice:"M8 10v11H3V10h5Zm0 10h10a2 2 0 0 0 2-2l1-7a2 2 0 0 0-2-2h-6l1-6a1 1 0 0 0-2-1l-4 8",
+const decisionSymbols: Record<Decision, ReactNode> = {
+  golden_red_bull: <><rect x="11" y="4" width="18" height="32" rx="5" fill="#f3c65b" /><path d="M14 9h12M14 31h12" stroke="#74602c" strokeWidth="2" /><path d="m22 12-8 11h7l-2 7 9-12h-7l1-6Z" fill="#352d19" /></>,
+  kick_warning: <><path d="m17 6-14 25a3 3 0 0 0 3 4h28a3 3 0 0 0 3-4L23 6a3.5 3.5 0 0 0-6 0Z" fill="#f4ad69" /><path d="M20 14v10M20 29v.2" stroke="#3c291d" strokeWidth="3" strokeLinecap="round" /></>,
+  kick: <><rect x="5" y="4" width="28" height="32" rx="4.5" fill="#ef8590" /><circle cx="14" cy="13" r="4" fill="#542e39" /><path d="M8 25v-2a6 6 0 0 1 12 0v2H8Z" fill="#542e39" /><path d="M24 11h4M24 16h4" stroke="#542e39" strokeWidth="2" strokeLinecap="round" /><circle cx="30" cy="29" r="9" fill="#171911" /><circle cx="30" cy="29" r="7.3" fill="#ef8590" /><path d="m27 26 6 6m0-6-6 6" stroke="#542e39" strokeWidth="2.7" strokeLinecap="round" /></>,
+  nice: <><path d="M5 4h19v6H11v21h13v6H5V4Z" fill="#a6bff2" /><path d="M19 21h18m-7-7 7 7-7 7" stroke="#a6bff2" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" /><circle cx="14.5" cy="20" r="1.2" fill="#a6bff2" /></>,
 };
+export function DecisionSymbol({value}:{value:Decision}) {
+ return <svg viewBox="0 0 40 40" width="24" height="24" fill="none" aria-hidden="true" focusable="false">{decisionSymbols[value]}</svg>;
+}
 export function DecisionBadges({ values }: { values: Decision[] }) {
-  return values.length ? <div className={u.decisionIcons}>{values.map(d=><span key={d} role="img" aria-label={decisionLabels[d]} title={decisionLabels[d]} className={`${u.decisionIcon} ${s[d]}`}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={decisionPaths[d]}/></svg><span className={u.srOnly}>{decisionLabels[d]}</span></span>)}</div> : <span>Нет отметок</span>;
+  return values.length ? <span className={u.decisionIcons}>{values.map(d=><span key={d} role="img" aria-label={decisionLabels[d]} title={decisionTitle(d)} className={u.decisionIcon}><DecisionSymbol value={d}/><span className={u.srOnly}>{decisionLabels[d]}</span></span>)}</span> : <span>Нет отметок</span>;
 }
 
 export function SummaryTable({ summary, filter = "", rows, renderDecisions, onParticipantSelect }: {
@@ -28,7 +31,7 @@ export function SummaryTable({ summary, filter = "", rows, renderDecisions, onPa
       <td>{row.source_scores.filter(source => ['block_task','block_volunteer','master_bonus','chair_task','chair_merit'].includes(source.source_kind)).reduce((sum,source)=>sum+source.score,0).toFixed(2)}</td>
       <td>{row.source_scores.filter(source => ['subevent_task','subevent_volunteer','event_task','head_merit'].includes(source.source_kind)).reduce((sum,source)=>sum+source.score,0).toFixed(2)}</td>
       <td><span className={u.score} data-negative={row.total_score < 0}>{row.total_score.toFixed(2)}</span></td>
-      <td className={u.decisionCell}><div aria-label="Решения текущего сезона"><DecisionBadges values={row.decisions} /></div>{renderDecisions?.(row)}</td>
+      <td className={u.decisionCell}>{renderDecisions?.(row)??<div aria-label="Решения текущего сезона"><DecisionBadges values={row.decisions} /></div>}</td>
       <td className={u.decisionCell}><DecisionBadges values={row.previous_decisions} /></td>
     </tr>)}</tbody>
   </table>{!shown.length && <p className={u.empty}>Участники не найдены.</p>}</div>;

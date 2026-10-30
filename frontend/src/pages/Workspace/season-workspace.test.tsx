@@ -78,7 +78,7 @@ it("omits empty future weeks from current observation without mutating or hiding
 it.each(["seasons", "summary"] as const)("retains a real decision draft through %s refetch503, then removes it on403", async resource => {
   await mount(<Routes><Route path="/seasons/:id/summary" element={<SummaryPage />} /></Routes>, "/seasons/season-1/summary");
   page!.client.setQueryData(["summary","season-1"], {...page!.client.getQueryData<object>(["summary","season-1"]),state:"approved"});await waitForPage(page!);
-  await act(async()=>page!.container.querySelector<HTMLButtonElement>('button[aria-label^="Изменить отметки:"]')!.click());await waitForPage(page!,()=>!!document.querySelector('[data-anchored-popover] input[name="reason"]'));
+  await act(async()=>page!.container.querySelector<HTMLButtonElement>('button[aria-label^="Изменить отметки:"]')!.click());await waitForPage(page!,()=>!!document.querySelector('[data-mark-menu]'));await act(async()=>document.querySelector<HTMLButtonElement>('[data-mark-menu] [aria-checked="true"]')!.click());await waitForPage(page!,()=>!!document.querySelector('[data-anchored-popover] input[name="reason"]'));
   const disclosure=document.querySelector<HTMLElement>('[data-anchored-popover]')!;
   const form = field(disclosure, "reason").closest("form")!;await change(field(form, "reason"), "Несохранённое основание решения");
   const read = vi.spyOn(api, "request");read.mockRejectedValue(new ApiError("Временная ошибка", 503));

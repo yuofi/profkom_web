@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { membershipApi } from '../../utils/api/membership.api';
 import { kkrApi, type AccountingStatistic } from '../../utils/api/kkr.api';
 import type { SeasonSummary } from '../../utils/api/contract';
 import { userMessage } from '../../utils/api/messages';
+import { normalizeApiError } from '../../utils/api/request';
+import { AnchoredPopover } from '../../components/Workspace/AnchoredPopover';
 import { useUnsavedChanges, useGuardedAction } from "../../components/Workspace/unsavedChangesHooks";
 import { EntityPicker } from '../../components/Workspace/EntityPicker';
 import { UserChip } from '../../components/Workspace/UserChip';
@@ -16,23 +18,39 @@ const n=(value:number|null)=>value===null?'—':new Intl.NumberFormat('ru-RU',{m
 
 export function SeasonStatistics({seasonId,summary}:{seasonId:string;summary?:SeasonSummary}) {
   const query=useQuery({queryKey:['season-statistics',seasonId],queryFn:()=>kkrApi.statistics(seasonId)});
-  const [tab,setTab]=useState('block');const [edit,setEdit]=useState<AccountingStatistic|null>(null);
+  const [tab,setTab]=useState('block'),[active,setActive]=useState<string|null>(null);const guard=useGuardedAction();
   const rows=query.data?.items.filter(row=>tab==='block'?['block','chair','chair_merit'].includes(row.source_kind):['event','subevent','head_merit'].includes(row.source_kind))??[];
-  return <section className={u.stack}><div className={u.chartModes}><button type="button" aria-pressed={tab==='block'} onClick={()=>setTab('block')}>Блоки</button><button type="button" aria-pressed={tab==='event'} onClick={()=>setTab('event')}>Мероприятия</button></div><QueryState loading={query.isLoading} error={query.error} retry={()=>void query.refetch()}><div className={u.summaryWrap}><table className={u.summaryTable}><thead><tr>{['Источник','Задач','Организаторов','Задач / организатора','Средний ККР','Часов / задачу','Коэффициент'].map(label=><th key={label}>{label}</th>)}</tr></thead><tbody>{rows.map(row=><tr key={row.source_kind+row.source_id}><td>{row.title}{row.parent_title&&<small className={u.statisticsParent}>{row.parent_title}</small>}</td><td>{n(row.task_count)}</td><td>{n(row.people_count)}</td><td>{n(row.tasks_per_person)}</td><td>{n(row.mean_kkr)}</td><td>{n(row.mean_person_hours)}</td><td>{row.capabilities.includes('edit_coefficient')?<button type="button" onClick={()=>setEdit(row)} aria-label={`Коэффициент: ${row.title}`}>{n(row.value)} <Glyph name="edit"/></button>:n(row.value)}</td></tr>)}</tbody></table></div><p className={u.note}>Закрытые рабочие задачи без служебных эпиков. Средний ККР рассчитан среди ненулевых значений, включая отрицательные; часы — принятые человеко-часы на учтённую задачу. {query.data?.preliminary?'Предварительные данные.':'Сохранённые итоги.'}</p></QueryState>{edit&&<CoefficientEditor key={edit.source_kind+edit.source_id} row={edit} seasonId={seasonId} summary={summary} onClose={()=>setEdit(null)}/>}</section>;
+  return <section className={u.stack}><div className={u.chartModes}><button type="button" aria-pressed={tab==='block'} onClick={()=>guard(()=>{setActive(null);setTab('block');})}>Блоки</button><button type="button" aria-pressed={tab==='event'} onClick={()=>guard(()=>{setActive(null);setTab('event');})}>Мероприятия</button></div><QueryState loading={query.isLoading} error={query.error} retry={()=>void query.refetch()}><div className={u.summaryWrap}><table className={`${u.summaryTable} ${u.statisticsTable}`}><thead><tr>{['Источник','Задач','Организаторов','Задач / организатора','Средний ККР','Часов / задачу','Коэффициент'].map(label=><th key={label}>{label}</th>)}</tr></thead><tbody>{rows.map(row=>{const key=row.source_kind+':'+row.source_id;return <tr key={key}><td>{row.title}{row.parent_title&&<small className={u.statisticsParent}>{row.parent_title}</small>}</td><td>{n(row.task_count)}</td><td>{n(row.people_count)}</td><td>{n(row.tasks_per_person)}</td><td>{n(row.mean_kkr)}</td><td>{n(row.mean_person_hours)}</td><td>{row.capabilities.includes('edit_coefficient')?<CoefficientInput row={row} seasonId={seasonId} summary={summary} closed={query.data?.preliminary===false} open={active===key} onOpen={()=>active&&active!==key?guard(()=>setActive(key)):setActive(key)} onClose={()=>setActive(null)}/>:n(row.value)}</td></tr>;})}</tbody></table></div></QueryState></section>;
 }
-function CoefficientEditor({row,seasonId,summary,onClose}:{row:AccountingStatistic;seasonId:string;summary?:SeasonSummary;onClose:()=>void}) {
-  const client=useQueryClient(),leave=useGuardedAction();const [value,setValue]=useState(String(row.value)),[reason,setReason]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);
-  const save=async()=>{
-    if(busy)return false;setBusy(true);setError('');
+type CoefficientDraft={value:string;revision:number;baseline:number;summaryVersion?:number};
+function CoefficientInput({row,seasonId,summary,closed,open,onOpen,onClose}:{row:AccountingStatistic;seasonId:string;summary?:SeasonSummary;closed:boolean;open:boolean;onOpen:()=>void;onClose:()=>void}) {
+  const client=useQueryClient(),leave=useGuardedAction(),anchor=useRef<HTMLInputElement>(null),saving=useRef(false),skipBlur=useRef(false);
+  const [draft,setDraft]=useState<CoefficientDraft|null>(null),[reason,setReason]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false),[conflict,setConflict]=useState(false);
+  const stale=!!draft&&(draft.revision!==row.revision||(closed&&draft.summaryVersion!==summary?.version));
+  const dirty=!!draft&&(draft.value!==String(draft.baseline)||!!reason);
+  const refresh=()=>Promise.all([client.invalidateQueries({queryKey:['summary',seasonId]}),client.invalidateQueries({queryKey:['season-statistics',seasonId]})]);
+  const discard=()=>{setDraft(null);setReason('');setError('');setConflict(false);onClose();};
+  const save=async(selected=draft,adopt=false):Promise<boolean>=>{
+    if(saving.current||!selected)return false;
+    if(!selected.value.trim()||!Number.isFinite(Number(selected.value))||Number(selected.value)<0){setError('Введите конечный неотрицательный коэффициент');return false;}
+    if(Number(selected.value)===selected.baseline&&!reason){setDraft(null);setError('');return true;}
+    if(!adopt&&(stale||conflict)){setConflict(true);setError('Коэффициент или итоги изменились. Проверьте актуальное значение перед повторным сохранением.');return false;}
+    if(closed&&!summary){setError('Дождитесь загрузки версии итогов');return false;}
+    if(closed&&!reason.trim()){onOpen();return false;}
+    saving.current=true;setBusy(true);setError('');
     try {
-      if(!value||!Number.isFinite(Number(value))||Number(value)<0)throw Error('Введите неотрицательный коэффициент');
-      if(summary?.state==='approved'&&!reason.trim())throw Error('Укажите причину исправления');
-      await kkrApi.coefficient(seasonId,{source_kind:row.source_kind,source_id:row.source_id,value:Number(value),expected_revision:row.revision,...(summary?.state==='approved'?{reason,expected_summary_version:summary.version}:{})});
-      await Promise.all([client.invalidateQueries({queryKey:['summary']}),client.invalidateQueries({queryKey:['season-statistics',seasonId]}),client.invalidateQueries({queryKey:['kkr-history']}),client.invalidateQueries({queryKey:['masterBonuses',seasonId]})]);onClose();return true;
-    }catch(e){setError(userMessage(e));return false;}finally{setBusy(false);}
+      const saved=await kkrApi.coefficient(seasonId,{source_kind:row.source_kind,source_id:row.source_id,value:Number(selected.value),expected_revision:adopt?row.revision:selected.revision,...(closed?{reason:reason.trim(),expected_summary_version:adopt?summary!.version:selected.summaryVersion}:{})});
+      client.setQueryData<Awaited<ReturnType<typeof kkrApi.statistics>>>(['season-statistics',seasonId],old=>old?{...old,items:old.items.map(item=>item.source_kind===saved.source_kind&&item.source_id===saved.source_id?{...item,...saved}:item)}:old);
+      setDraft(null);setReason('');setConflict(false);onClose();
+      await Promise.all([refresh(),client.invalidateQueries({queryKey:['kkr-history']}),client.invalidateQueries({queryKey:['masterBonuses',seasonId]})]);return true;
+    }catch(e){setError(userMessage(e));if(normalizeApiError(e).code==='revision_conflict'){setConflict(true);await refresh();}return false;}
+    finally{saving.current=false;setBusy(false);}
   };
-  useUnsavedChanges({dirty:value!==String(row.value)||!!reason,busy,label:'Коэффициент сезона',save,discard:()=>{setValue(String(row.value));setReason('');}});
-  return <form className={u.panel} onSubmit={event=>{event.preventDefault();void save();}}><h3>Коэффициент · {row.title}</h3><label>Значение<input type="number" min="0" step="any" required value={value} disabled={busy} onChange={e=>setValue(e.target.value)}/></label>{summary?.state==='approved'&&<label>Причина исправления<input required value={reason} disabled={busy} onChange={e=>setReason(e.target.value)}/></label>}{error&&<p role="alert" className={w.error}>{error}</p>}<div className={w.row}><button disabled={busy} type="submit">Сохранить коэффициент</button><button disabled={busy} type="button" onClick={()=>leave(onClose)}>Отмена</button></div></form>;
+  useUnsavedChanges({dirty,busy,label:`Коэффициент: ${row.title}`,save,discard});
+  const conflictActions=(conflict||stale)&&<div className={u.coefficientConflict}><span>Актуальное значение: {n(row.value)}</span><button type="button" disabled={busy} onClick={()=>void refresh()}>Обновить данные</button><button type="button" disabled={busy} onClick={()=>void save(draft,true)}>Сохранить мой ввод с обновлённой версией</button></div>;
+  return <div className={u.coefficientField}><input ref={anchor} type="number" min="0" step="any" inputMode="decimal" aria-label={`Коэффициент: ${row.title}`} aria-invalid={!!error} aria-busy={busy} value={draft?.value??String(row.value)} disabled={busy} onChange={event=>{setError('');setDraft(previous=>({...previous??{revision:row.revision,baseline:row.value,summaryVersion:summary?.version},value:event.target.value}));}} onBlur={()=>{if(skipBlur.current){skipBlur.current=false;return;}if(!open)void save();}} onKeyDown={event=>{if(event.key==='Enter'){event.preventDefault();void save();}if(event.key==='Escape'){event.preventDefault();skipBlur.current=true;discard();anchor.current?.blur();}}}/>{!open&&error&&<p role="alert" className={w.error}>{error}</p>}{!open&&conflictActions}
+    <AnchoredPopover open={open} anchorRef={anchor} label={`Коэффициент: ${row.title}`} busy={busy} width={340} onRequestClose={()=>leave(discard)}><form className={u.coefficientCorrection} onSubmit={event=>{event.preventDefault();void save();}}><p>Новое значение: <strong>{draft?.value}</strong></p><label>Причина исправления<input required value={reason} disabled={busy} onChange={event=>setReason(event.target.value)}/></label>{error&&<p role="alert" className={w.error}>{error}</p>}{conflictActions}<div className={w.row}><button disabled={busy} type="submit">Сохранить коэффициент</button><button disabled={busy} type="button" onClick={()=>leave(discard)}>Отмена</button></div></form></AnchoredPopover>
+  </div>;
 }
 
 export function SeasonKkrHistory() {
@@ -45,6 +63,13 @@ export function SeasonKkrHistory() {
 }
 
 export function SeasonKkrControl({seasonId}:{seasonId:string}) {
-  const client=useQueryClient();const query=useQuery({queryKey:['kkr-control',seasonId],queryFn:()=>kkrApi.controls(seasonId)});const [busy,setBusy]=useState(false),[message,setMessage]=useState('');
-  return <section className={u.stack}><div className={u.panelHeader}><h2>Заполнение ККР</h2>{query.data?.capabilities.includes('remind_kkr')&&<button type="button" disabled={busy} onClick={()=>{setBusy(true);setMessage('');void kkrApi.remind(seasonId).then(async result=>{setMessage(`Призывов отправлено: ${result.comments_created}`);await client.invalidateQueries({queryKey:['kkr-control',seasonId]});}).catch(e=>setMessage(userMessage(e))).finally(()=>setBusy(false));}}>Призвать на заполнение</button>}</div>{message&&<p role="status">{message}</p>}<QueryState loading={query.isLoading} error={query.error} retry={()=>void query.refetch()}>{query.data?.items.map(item=><section className={u.panel} key={item.control_id}><div className={u.panelHeader}><Link to={`/tasks/${encodeURIComponent(item.task_id)}`}>{item.title}</Link><strong>{item.missing_count} без ККР</strong></div><div className={w.row}>{item.responsibles.map(user=><UserChip key={user.user_id} user={user}/>)}</div>{item.missing_tasks.length?<ul className={u.detailList}>{item.missing_tasks.map(task=><li key={task.task_id}><Link to={`/tasks/${encodeURIComponent(task.task_id)}?kkr=1`}>{task.task_key} · {task.title}</Link><div className={w.row}>{task.missing_assignees.map(user=><UserChip key={user.user_id} user={user}/>)}</div></li>)}</ul>:<p className={u.note}>Все закрытые задачи заполнены. Контроль остаётся открытым до конца сезона.</p>}</section>)}{query.data?.items.length===0&&<Empty>Контрольные эпики ещё не созданы. Они формируются при настройке открытого сезона и его команд.</Empty>}</QueryState></section>;
+  const query=useQuery({queryKey:['kkr-control',seasonId],queryFn:()=>kkrApi.controls(seasonId)});
+  return <section className={u.stack}><div className={u.panelHeader}><h2>Заполнение ККР</h2></div><QueryState loading={query.isLoading} error={query.error} retry={()=>void query.refetch()}>{query.data?.items.map(item=><section className={u.panel} key={item.control_id}><div className={u.panelHeader}><Link to={`/tasks/${encodeURIComponent(item.task_id)}`}>{item.title}</Link><strong>{item.missing_count} без ККР</strong></div><div className={w.row}>{item.responsibles.map(user=><UserChip key={user.user_id} user={user}/>)}</div>{item.missing_tasks.length?<ul className={u.detailList}>{item.missing_tasks.map(task=><li key={task.task_id}><Link to={`/tasks/${encodeURIComponent(task.task_id)}?kkr=1`}>{task.task_key} · {task.title}</Link><div className={w.row}>{task.missing_assignees.map(user=><UserChip key={user.user_id} user={user}/>)}</div></li>)}</ul>:<p className={u.note}>Все закрытые задачи заполнены. Контроль остаётся открытым до конца сезона.</p>}</section>)}{query.data?.items.length===0&&<Empty>Контрольные эпики ещё не созданы. Они формируются при настройке открытого сезона и его команд.</Empty>}</QueryState></section>;
+}
+
+export function SeasonKkrSummon({seasonId}:{seasonId:string}) {
+  const client=useQueryClient(),query=useQuery({queryKey:['kkr-control',seasonId],queryFn:()=>kkrApi.controls(seasonId)});
+  const [busy,setBusy]=useState(false),[message,setMessage]=useState(''),[failed,setFailed]=useState(false);const saving=useRef(false);
+  if(!query.data?.capabilities.includes('remind_kkr'))return null;
+  return <div className={u.summon}><button type="button" className={u.primary} disabled={busy} aria-busy={busy} onClick={()=>{if(saving.current)return;saving.current=true;setBusy(true);setMessage('');setFailed(false);void kkrApi.remind(seasonId).then(async result=>{setMessage(`Призывов отправлено: ${result.comments_created}`);await client.invalidateQueries({queryKey:['kkr-control',seasonId]});}).catch(error=>{setFailed(true);setMessage(userMessage(error));}).finally(()=>{saving.current=false;setBusy(false);});}}><Glyph name="notifications"/>Призвать на заполнение</button>{message&&<p role={failed?'alert':'status'}>{message}</p>}</div>;
 }

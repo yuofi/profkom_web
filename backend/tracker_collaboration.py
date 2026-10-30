@@ -5,6 +5,7 @@ private KKR rights. Callers own the surrounding command transaction.
 """
 from dataclasses import asdict
 import json
+import re
 import uuid
 from fastapi import Depends
 from sqlalchemy.orm import selectinload
@@ -16,6 +17,56 @@ from database import db, TaskORM, CommentORM, UserORM, _user_to_ref_dc
 from tracker_collaboration_models import TaskMentionRequestORM, TaskAccessGrantORM
 from errors import Forbidden, InvalidInput, NotFound, Conflict, revision_conflict
 from read_context import cached
+
+
+def _comment_profile_ids(body):
+    """Recognize only explicit local profile links in a conservative prose subset.
+
+    This is display enrichment, not a mention command or an access grant. Code,
+    images, foreign addresses and unavailable identities never supply a chip.
+    """
+    prose=[]
+    fence=None
+    for line in body.splitlines(keepends=True):
+        marker=re.match(r"^ {0,3}(`{3,}|~{3,})",line)
+        if fence:
+            if marker and marker[1][0]==fence[0] and len(marker[1])>=len(fence) and not line[marker.end():].strip():
+                fence=None
+            continue
+        if marker:
+            fence=marker[1]
+            continue
+        if line.startswith(("    ","\t")):
+            continue
+        prose.append(line)
+    source=re.sub(r"(`+)[\s\S]*?\1(?!`)","",''.join(prose))
+    return list(dict.fromkeys(int(match[1]) for match in re.finditer(
+        r"(?<![!\\])\[(?:\\.|[^\]\\\n])*\]\(/contacts/([1-9][0-9]*)\)",source)
+        if len(match[1])<=18))[:100]
+
+
+def comment_mention_refs(comments):
+    """Batch safe identity chips for already-authorized comment DTOs.
+
+    Looking up a link never notifies its target and never opens task/queue access.
+    Archived, banned, missing and anonymized identities are omitted; the renderer
+    replaces their local link with a non-interactive unavailable-person chip.
+    """
+    by_comment={comment.comment_id:_comment_profile_ids(comment.content.body) for comment in comments}
+    ids=sorted({uid for values in by_comment.values() for uid in values})
+    refs={}
+    with db._session() as session:
+        from directory import avatar_urls
+        for start in range(0,len(ids),400):
+            rows=session.query(UserORM).options(selectinload(UserORM.contact)).filter(
+                UserORM.user_id.in_(ids[start:start+400]),UserORM.account_state=='active',UserORM.banned.is_(False)).all()
+            avatars=avatar_urls(session,rows)
+            for user in rows:
+                contact=user.contact
+                name=' '.join(part for part in (contact.surname,contact.name,contact.patronymic) if part).strip() if contact else ''
+                name=name or (contact.kkr_name if contact else None) or f'Участник {user.user_id}'
+                refs[user.user_id]=dict(user_id=user.user_id,display_name=name,avatar_url=avatars[user.user_id])
+    return {comment_id:[refs[uid] for uid in values if uid in refs] for comment_id,values in by_comment.items()}
 
 
 def has_task_grant(session, task_id, uid):

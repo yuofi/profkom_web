@@ -46,7 +46,7 @@ it.each(["event", "block", "registration", "meeting", "season", "decisions"] as 
   await settle(); await settle();
   if (kind === "event") await waitForPage(page!, () => !!page!.container.querySelector('textarea[name="description"]'));
   if (kind === "season") { await act(async () => page!.container.querySelector<HTMLButtonElement>('button[aria-label="Редактировать сезон"]')!.click());await settle(); }
-  if (kind === "decisions") { await act(async()=>page!.container.querySelector<HTMLButtonElement>('button[aria-label^="Изменить отметки:"]')!.click());await waitForPage(page,()=>!!document.querySelector('[data-anchored-popover] input[name="reason"]')); }
+  if (kind === "decisions") { await act(async()=>page!.container.querySelector<HTMLButtonElement>('button[aria-label^="Изменить отметки:"]')!.click());await waitForPage(page!,()=>!!document.querySelector('[data-mark-menu]'));await act(async()=>document.querySelector<HTMLButtonElement>('[data-mark-menu] [aria-checked="true"]')!.click());await waitForPage(page,()=>!!document.querySelector('[data-anchored-popover] input[name="reason"]')); }
   const form = kind === "event" ? Array.from(page.container.querySelectorAll("form")).find((f) => f.querySelector<HTMLInputElement>('[name="title"]')?.value === mock!.state.events[0].title && f.querySelector('[name="description"]'))! : field(kind==="decisions"?document:page.container,name).closest("form")!;
   await change(field(form, name), "МОЙ НЕСОХРАНЁННЫЙ ТЕКСТ");
   if (kind === "season") await change(field(form, "reason"), "Уточнение плановых дат");

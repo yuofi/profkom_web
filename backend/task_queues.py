@@ -452,8 +452,12 @@ def validate_parent(session,task_id,season_id,parent_task_id,uid):
 def hidden_summary_sources(session,season_id,uid):
     from membership import block_id_for
     hidden=set()
-    for task in session.query(TaskORM).filter_by(season_id=season_id):
-        if task_read(session,task,uid):continue
+    tasks=session.query(TaskORM).filter_by(season_id=season_id).all()
+    # A mark command is a write UOW, so the read-only memo intentionally cannot
+    # help it. Materialize the same policy in one bounded, command-local batch.
+    visible={task.task_id for task in readable_tasks(session,tasks,uid)}
+    for task in tasks:
+        if task.task_id in visible:continue
         kind='block_task' if task.scope_kind=='block' else 'subevent_task'
         hidden.add((kind,task.scope_id))
         if task.scope_kind=='block':hidden.add((kind,block_id_for(task.scope_id)))

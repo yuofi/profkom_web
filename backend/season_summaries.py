@@ -80,12 +80,13 @@ def source_title(session, kind, identity):
     return titles[category].get(identity,'Мероприятие' if category=='event' else 'Подмероприятие')
 
 
-def totals(session, season_id, participant_id):
+def totals(session, season_id, participant_id, *, contributions=None):
     groups = defaultdict(list)
     titles = {}
-    for c in session.query(ContributionORM).filter_by(
+    values = contributions if contributions is not None else session.query(ContributionORM).filter_by(
         season_id=season_id, participant_id=participant_id
-    ):
+    )
+    for c in values:
         k = (c.source_kind, source_id(c, session))
         groups[k].append(weighted_score(session, season_id, c.source_kind, c.source_id, c.score))
         titles[k] = source_title(session, c.source_kind, c.source_id)

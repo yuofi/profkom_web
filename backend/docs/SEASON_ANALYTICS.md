@@ -12,6 +12,18 @@ volunteering and master bonuses; event/subevent/chair sources are not attributed
 to the participant's current block. Options use safe current UserRefs and stable
 block IDs. Unknown filter identities return 404 after the role check.
 
+## Mark meanings and presentation
+
+The existing `kick` mark means involuntary exclusion from the organization for
+insufficient work. The existing `nice` mark means voluntary departure for personal
+reasons; it is not praise or a positive performance assessment. Short Russian
+labels and stored keys remain unchanged. Tooltips explain these meanings; the
+visual redesign does not add dismissal commands or change accounting behavior.
+
+Source statistics use a compact flat table with all seven columns. The source name
+gets a wide column, its parent is a secondary line, and numeric columns remain
+aligned. No grouping or source/coefficient semantics are implied by this layout.
+
 ## Metric definitions
 
 - `completed_tasks`: distinct scoped Task IDs with at least one selected privately

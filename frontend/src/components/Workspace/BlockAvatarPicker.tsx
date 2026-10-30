@@ -19,7 +19,7 @@ export function BlockAvatarPicker({ block }: { block: Block }) {
   const [editing, setEditing] = useState(false);
   const allowed = can(block, "edit_block");
   return <div className={a.headerAvatar} aria-label="Аватар блока">
-    <ChipAvatar src={block.avatar_url ?? blockLogo(block.name)} large fallback={<ChipInitials name={block.name} />} />
+    <ChipAvatar src={block.avatar_url ?? blockLogo(block.name)} presentation="logo" large fallback={<ChipInitials name={block.name} />} />
     {allowed && <button type="button" className={a.edit} aria-label="Изменить аватар блока" onClick={() => setEditing(true)}><Glyph name="edit" /></button>}
     {editing && allowed && <UnsavedChangesScope><TrackerTaskDialog title="Аватар блока" onClose={() => setEditing(false)}><AvatarEditor key={block.block_id} block={block} onSaved={() => setEditing(false)} /></TrackerTaskDialog></UnsavedChangesScope>}
   </div>;
@@ -37,13 +37,13 @@ function AvatarEditor({ block, onSaved }: { block: Block; onSaved: () => void })
   return <ActionForm fields={[]} revision={block.revision} record={`block:${block.block_id}`}
     externalState={{ avatar: preview }} savedExternalState={{ avatar: saved }} externalBusy={uploading}
     onReplaceWithSaved={() => { setDraft(undefined);setOriginalAvatar(saved);setError(""); }}
-    savedDetails={<ChipAvatar src={saved ?? blockLogo(block.name)} large fallback={<ChipInitials name={block.name} />} />}
+    savedDetails={<ChipAvatar src={saved ?? blockLogo(block.name)} presentation="logo" large fallback={<ChipInitials name={block.name} />} />}
     onSubmit={async (_, revision) => {
       if (draft === undefined) return { revision: revision! };
       const result = await perform(() => membershipApi.updateBlock(block.block_id, { expected_revision: revision!, avatar_file_id: draft?.file_id ?? null }));
       onSaved();return result;
     }} onConflict={refresh} submitLabel="Сохранить аватар" successMessage="Аватар блока сохранён">
-    <div className={s.row}><ChipAvatar src={preview ?? blockLogo(block.name)} large fallback={<ChipInitials name={block.name} />} /><span>{draft === null ? blockLogo(block.name) ? "Будет показан логотип блока" : "Будут показаны инициалы блока" : draft ? `Выбрано: ${draft.name}` : "Текущее изображение блока"}</span></div>
+    <div className={s.row}><ChipAvatar src={preview ?? blockLogo(block.name)} presentation="logo" large fallback={<ChipInitials name={block.name} />} /><span>{draft === null ? blockLogo(block.name) ? "Будет показан логотип блока" : "Будут показаны инициалы блока" : draft ? `Выбрано: ${draft.name}` : "Текущее изображение блока"}</span></div>
     <label className={s.field}>Загрузить аватар блока<input type="file" accept={fileAccept("block")} disabled={uploading}
       onChange={async event => {
         const input = event.currentTarget, file = input.files?.[0];if (!file) return;

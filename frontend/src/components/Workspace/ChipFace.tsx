@@ -13,20 +13,20 @@ export function ChipInitials({ name, className = "" }: { name: string; className
   const text = words.slice(0, 2).map(word => [...word][0]).join("").toLocaleUpperCase("ru") || "•";
   return <span className={`${s.initials} ${className}`} aria-hidden="true">{text}</span>;
 }
-export function ChipAvatar({ src, large = false, fallback, className = "" }: { src?: string | null; large?: boolean; fallback?: ReactNode; className?: string }) {
+export function ChipAvatar({ src, large = false, fallback, className = "", presentation = "photo" }: { src?: string | null; large?: boolean; fallback?: ReactNode; className?: string; presentation?: "photo" | "logo" }) {
   const [failed, setFailed] = useState<string | null>(null);
   const safe = safeAvatar(src), unavailable = !safe || failed === safe;
   if (unavailable && fallback) return <span className={`${s.fallback} ${large ? s.large : ""} ${className}`}>{fallback}</span>;
   const shown = unavailable ? fallbackAvatar : safe;
-  return <img className={`${s.avatar} ${large ? s.large : ""} ${className}`} src={shown} alt="" loading="lazy" referrerPolicy="no-referrer"
+  return <img className={`${s.avatar} ${large ? s.large : ""} ${presentation === "logo" && !unavailable ? s.logo : ""} ${className}`} src={shown} alt="" loading="lazy" referrerPolicy="no-referrer"
     onError={event => { if (shown !== fallbackAvatar) setFailed(shown);else if (event.currentTarget.getAttribute("src") !== fallbackAvatar) event.currentTarget.src = fallbackAvatar; }} />;
 }
-export interface ChipFaceProps { label: ReactNode; avatarUrl?: string | null; avatarFallback?: ReactNode; icon?: ReactNode; className?: string }
+export interface ChipFaceProps { label: ReactNode; avatarUrl?: string | null; avatarFallback?: ReactNode; avatarPresentation?: "photo" | "logo"; icon?: ReactNode; className?: string }
 /** Pure identity presentation: no links, buttons, preview or domain data reads. */
-export function ChipFace({ label, avatarUrl, avatarFallback, icon, className = "" }: ChipFaceProps) {
+export function ChipFace({ label, avatarUrl, avatarFallback, avatarPresentation, icon, className = "" }: ChipFaceProps) {
   const avatar = avatarUrl !== undefined || !!avatarFallback;
   return <span className={`${s.face} ${avatar || icon ? s.withIcon : ""} ${className}`}>
-    {avatar ? <ChipAvatar src={avatarUrl} fallback={avatarFallback} /> : icon && <span className={s.icon} aria-hidden="true">{icon}</span>}
+    {avatar ? <ChipAvatar src={avatarUrl} fallback={avatarFallback} presentation={avatarPresentation} /> : icon && <span className={s.icon} aria-hidden="true">{icon}</span>}
     <span className={s.label}>{label}</span>
   </span>;
 }

@@ -1053,6 +1053,7 @@ class CommentOut(BaseModel):
     updated_at: Optional[str] = None
     history: list[dict] = []
     capabilities: list[str] = []
+    mentioned_users: list[UserRefOut] = Field(default_factory=list)
 
 
 class UploadIntentIn(Command):
@@ -2051,7 +2052,7 @@ def _to_merit_out(m) -> MeritOut:
     )
 
 
-def _to_comment_out(c) -> CommentOut:
+def _to_comment_out(c, mentioned_users=None) -> CommentOut:
     return CommentOut(
         comment_id=c.comment_id,
         task_id=c.task_id,
@@ -2061,6 +2062,7 @@ def _to_comment_out(c) -> CommentOut:
         updated_at=c.updated_at,
         history=c.history,
         capabilities=c.capabilities,
+        mentioned_users=mentioned_users or [],
     )
 
 
@@ -2136,6 +2138,16 @@ def _to_master_bonus_out(mb) -> MasterBonusOut:
 
 
 def _to_season_summary_out(s) -> SeasonSummaryOut:
+    from domain_models import BlockMetaORM
+    with db._session() as session:
+        metadata=session.query(BlockMetaORM).all()
+        identities={row.legacy_name:row.block_id for row in metadata}
+        # Match block_id_for: an exact stable ID takes precedence over a
+        # different block's coincidentally identical legacy name.
+        identities.update((row.block_id,row.block_id) for row in metadata)
+    def block_identity(value):
+        if value not in identities:identities[value]=membership.block_id_for(value)
+        return identities[value]
     rows = []
     for r in s.rows:
         rows.append(
@@ -2144,7 +2156,7 @@ def _to_season_summary_out(s) -> SeasonSummaryOut:
                 user=_to_user_ref_out(r.user),
                 group_number=r.group_number,
                 category=r.category,
-                blocks=[SummaryRowBlockOut(block_id=membership.block_id_for(b.block_id), name=b.name) for b in r.blocks],
+                blocks=[SummaryRowBlockOut(block_id=block_identity(b.block_id), name=b.name) for b in r.blocks],
                 is_master=r.is_master,
                 is_archived=r.is_archived,
                 source_scores=[
@@ -3133,7 +3145,9 @@ def correct_season_summary(
 @router.get("/tasks/{task_id}/comments", response_model=Page[CommentOut])
 def list_task_comments(task_id: str, cur: User = Depends(get_current_user)):
     items = db.list_comments(task_id, cur.user_id)
-    return Page(items=[_to_comment_out(c) for c in items])
+    from tracker_collaboration import comment_mention_refs
+    mentions = comment_mention_refs(items)
+    return Page(items=[_to_comment_out(c, mentions.get(c.comment_id)) for c in items])
 
 
 @router.post("/tasks/{task_id}/comments", response_model=CommentOut)
@@ -3146,7 +3160,8 @@ def create_task_comment(task_id: str, payload: CommentIn, cur: User = Depends(ge
         )
         from tracker_collaboration import sync_comment_mentions
         sync_comment_mentions(c.comment_id, cur.user_id, payload.mentioned_user_ids)
-    return _to_comment_out(c)
+    from tracker_collaboration import comment_mention_refs
+    return _to_comment_out(c, comment_mention_refs([c]).get(c.comment_id))
 
 
 @router.patch("/comments/{comment_id}", response_model=CommentOut)
@@ -3159,7 +3174,8 @@ def patch_comment(comment_id: str, payload: CommentIn, cur: User = Depends(get_c
         )
         from tracker_collaboration import sync_comment_mentions
         sync_comment_mentions(c.comment_id, cur.user_id, payload.mentioned_user_ids)
-    return _to_comment_out(c)
+    from tracker_collaboration import comment_mention_refs
+    return _to_comment_out(c, comment_mention_refs([c]).get(c.comment_id))
 
 
 # ── Files ──

@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { UserRef } from "../../utils/api/contract";
 import { ChipFace, ChipInitials } from "./ChipFace";
+import { blockLogo } from "../../utils/teamLogos";
 import { Glyph } from "./WorkspaceUI";
 import s from "./EntityPicker.module.css";
 
@@ -37,8 +38,8 @@ export type EntityPickerProps = CommonProps & (
 
 function OptionChip({ option }: { option: EntityOption }) {
   if (option.user) return <ChipFace label={option.user.display_name} avatarUrl={option.user.avatar_url} />;
-  if (option.block) return <ChipFace label={option.block.name} avatarUrl={option.block.avatar_url ?? undefined} avatarFallback={<ChipInitials name={option.block.name} />} />;
-  if (option.scope?.kind === "block") return <ChipFace label={option.scope.name} avatarUrl={option.scope.avatar_url ?? undefined} avatarFallback={<ChipInitials name={option.scope.name} />} />;
+  if (option.block) return <ChipFace label={option.block.name} avatarUrl={option.block.avatar_url ?? blockLogo(option.block.name)} avatarPresentation="logo" avatarFallback={<ChipInitials name={option.block.name} />} />;
+  if (option.scope?.kind === "block") return <ChipFace label={option.scope.name} avatarUrl={option.scope.avatar_url ?? blockLogo(option.scope.name)} avatarPresentation="logo" avatarFallback={<ChipInitials name={option.scope.name} />} />;
   if (option.scope) return <ChipFace label={option.scope.name} avatarUrl={option.scope.avatar_url ?? undefined} icon={<Glyph name={option.scope.kind === "subevent" ? "event" : "groups"} />} />;
   return <ChipFace label={option.label} />;
 }

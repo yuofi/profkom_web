@@ -9,6 +9,8 @@ import "katex/dist/katex.min.css";
 import { MarkdownCode, MarkdownCodeBlock } from "./MarkdownCode";
 import { Gallery } from "../Gallery/Gallery";
 import { ContactChip } from "../ContactChip/ContactChip";
+import { UserChip } from "./UserChip";
+import type { UserRef } from "../../utils/api/contract";
 import { apiUrl } from "../../utils/api";
 import s from "./Workspace.module.css";
 import md from "./MarkdownContent.module.css";
@@ -40,8 +42,8 @@ function ChecklistCheckbox({ body, onChangeBody, busy, ...props }: InputHTMLAttr
   return <input {...props} disabled={!enabled} aria-label={position ? `${props.checked ? "Снять отметку" : "Отметить"}: ${position.label}` : "Пункт чеклиста"}
     onChange={() => { if (enabled && position && /[ xX]/.test(body[position.offset] ?? "")) onChangeBody?.(body.slice(0, position.offset) + (props.checked ? " " : "x") + body.slice(position.offset + 1)); }} />;
 }
-export interface MarkdownContentProps { body: string; onChecklistChange?: (nextBody: string) => void; checklistDisabled?: boolean }
-export function MarkdownContent({ body, onChecklistChange, checklistDisabled = false }: MarkdownContentProps) {
+export interface MarkdownContentProps { body: string; onChecklistChange?: (nextBody: string) => void; checklistDisabled?: boolean; mentionUsers?: UserRef[] }
+export function MarkdownContent({ body, onChecklistChange, checklistDisabled = false, mentionUsers }: MarkdownContentProps) {
   return (
     <div className={`${s.markdown} ${md.content}`}>
       <ReactMarkdown
@@ -51,6 +53,15 @@ export function MarkdownContent({ body, onChecklistChange, checklistDisabled = f
         // Files of a material are API addresses, checked on every request (decision 23).
         urlTransform={(url) => defaultUrlTransform(apiUrl(url))}
         components={{
+          a: ({ node, href, children, ...props }) => {
+            void node;
+            const profile = mentionUsers !== undefined && href?.match(/^\/contacts\/([1-9][0-9]*)$/);
+            if (profile) {
+              const user = mentionUsers?.find(person => person.user_id !== null && String(person.user_id) === profile[1]);
+              return <UserChip className={md.mention} user={user ?? {user_id:null,display_name:"Недоступный участник",avatar_url:null}} interactive={!!user} />;
+            }
+            return <a {...props} href={href}>{children}</a>;
+          },
           li: ({ node, children, ...props }) => {
             const offset = node?.properties["data-checklist-offset"], label = node?.properties["data-checklist-label"];
             const position = typeof offset === "number" ? { offset, label: String(label ?? "Пункт чеклиста") } : null;
