@@ -72,8 +72,8 @@ it("one shared file-only result targets the task rather than an individual assig
 });
 it("comments switch newest/oldest order and retain the unposted Markdown draft across tabs", async () => {
   const task = makeTask();const comments: Comment[] = [
-    { comment_id: "old", task_id: task.task_id, author: people[0], content: richText("Первый комментарий"), created_at: "2026-10-25T10:00:00Z", updated_at: null, capabilities: [] },
-    { comment_id: "new", task_id: task.task_id, author: people[1], content: richText("Второй комментарий"), created_at: "2026-10-26T10:00:00Z", updated_at: null, capabilities: [] },
+    { comment_id: "old", attachments: [], task_id: task.task_id, author: people[0], content: richText("Первый комментарий"), created_at: "2026-10-25T10:00:00Z", updated_at: null, capabilities: [] },
+    { comment_id: "new", attachments: [], task_id: task.task_id, author: people[1], content: richText("Второй комментарий"), created_at: "2026-10-26T10:00:00Z", updated_at: null, capabilities: [] },
   ];
   await mountTask(task, comments);
   const displayed = () => [...page!.container.querySelectorAll("article")].map(item => item.textContent);
@@ -84,7 +84,7 @@ it("comments switch newest/oldest order and retain the unposted Markdown draft a
   await click("Комментарии");expect(editor.value).toBe("Несданный черновик $x^2$ с таблицей");
   const command = vi.spyOn(tasksApi, "comment").mockResolvedValue({ ...comments[0], comment_id: "posted" });
   await submit(editor.closest("form")!);await waitForPage(page!);
-  expect(command).toHaveBeenCalledWith(task.task_id, richText("Несданный черновик $x^2$ с таблицей"), []);expect(editor.value).toBe("");
+  expect(command).toHaveBeenCalledWith(task.task_id, richText("Несданный черновик $x^2$ с таблицей"), [], []);expect(editor.value).toBe("");
 });
 it("renders shared submissions once and leaves accounting hidden from ordinary readers", async () => {
   const task = makeTask({ capabilities: ["read_task"], submissions: [{ submission_id: "shared-result", submitted_at: "2026-10-26T11:00:00Z", submitted_by: people[0], text: richText("Общий результат"), links: [], files: [] }] });
@@ -234,11 +234,11 @@ it("never renders private accounting values in the public history difference com
 
 it("uses edit_comment capability for shared comments without requiring the original author", async () => {
   const task = makeTask({ capabilities: ["read_task", "edit_task_description"] });
-  const comment: Comment = { comment_id: "shared-comment", task_id: task.task_id, author: people[1], content: richText("Общий комментарий"), created_at: "2026-10-27T10:00:00Z", updated_at: null, capabilities: ["edit_comment"] };
+  const comment: Comment = { comment_id: "shared-comment", attachments: [], task_id: task.task_id, author: people[1], content: richText("Общий комментарий"), created_at: "2026-10-27T10:00:00Z", updated_at: null, capabilities: ["edit_comment"] };
   const edit = vi.spyOn(tasksApi, "editComment").mockResolvedValue({ ...comment, content: richText("Правка исполнителя") });
   await mountTask(task, [comment]);const article = page!.container.querySelector("article")!;await click("Редактировать", article);
   await change(article.querySelector<HTMLTextAreaElement>("textarea")!, "Правка исполнителя");await submit(article.querySelector("form")!);await waitForPage(page!);
-  expect(edit).toHaveBeenCalledWith(comment.comment_id, richText("Правка исполнителя"), []);
+  expect(edit).toHaveBeenCalledWith(comment.comment_id, richText("Правка исполнителя"), [], []);
 });
 
 

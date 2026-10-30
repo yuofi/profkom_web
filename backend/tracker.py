@@ -163,8 +163,11 @@ def install_activity_hooks():
                         session.add(TaskRosterORM(task_id=obj.task_id,user_id=obj.assignee_user_id,role="assignee",assignment_id=obj.assignment_id,created_at=None,updated_at=None))
             elif isinstance(obj,CommentORM):
                 task=session.get(TaskORM,obj.task_id)
-                if task:activity(session,task,"comment_added",obj.author_user_id,"Добавлен комментарий",at=obj.created_at,
-                    changes=[dict(field="comment",label="Комментарий",comment_id=obj.comment_id,before=None,after=json.loads(obj.content_json or '{}').get('body',''))])
+                if task:
+                    changes=[dict(field="comment",label="Комментарий",comment_id=obj.comment_id,before=None,after=json.loads(obj.content_json or '{}').get('body',''))]
+                    files=json.loads(obj.files_json or '[]')
+                    if files:changes.append(dict(field="comment_attachments",label="Вложения комментария",comment_id=obj.comment_id,before=[],after=_file_refs(session,files)))
+                    activity(session,task,"comment_added",obj.author_user_id,"Добавлен комментарий",at=obj.created_at,changes=changes)
         for obj in list(session.dirty):
             if isinstance(obj,TaskORM):
                 fields=[name for name in ("title","description_json","deadline_at") if inspect(obj).attrs[name].history.has_changes()]
@@ -179,14 +182,21 @@ def install_activity_hooks():
                             before=json.loads(before or '{}').get('body','');after=json.loads(after or '{}').get('body','')
                         changes.append(dict(field=field,label=label,before=before,after=after))
                     activity(session,obj,"task_updated",actor,"Изменены параметры задачи",changes=changes)
-            elif isinstance(obj,CommentORM) and inspect(obj).attrs.content_json.history.has_changes():
+            elif isinstance(obj,CommentORM) and any(inspect(obj).attrs[name].history.has_changes() for name in ('content_json','files_json')):
                 task=session.get(TaskORM,obj.task_id)
                 if task:
-                    hist=inspect(obj).attrs.content_json.history
-                    before=json.loads(hist.deleted[0] if hist.deleted else '{}').get('body','')
-                    after=json.loads(obj.content_json).get('body','')
-                    activity(session,task,"comment_edited",actor,"Комментарий отредактирован",at=obj.updated_at,
-                        changes=[dict(field="comment",label="Комментарий",comment_id=obj.comment_id,before=before,after=after)])
+                    changes=[]
+                    if inspect(obj).attrs.content_json.history.has_changes():
+                        hist=inspect(obj).attrs.content_json.history
+                        before=json.loads(hist.deleted[0] if hist.deleted else '{}').get('body','')
+                        after=json.loads(obj.content_json).get('body','')
+                        changes.append(dict(field="comment",label="Комментарий",comment_id=obj.comment_id,before=before,after=after))
+                    if inspect(obj).attrs.files_json.history.has_changes():
+                        hist=inspect(obj).attrs.files_json.history
+                        before=json.loads(hist.deleted[0] if hist.deleted else '[]')
+                        after=json.loads(obj.files_json or '[]')
+                        if before!=after:changes.append(dict(field="comment_attachments",label="Вложения комментария",comment_id=obj.comment_id,before=_file_refs(session,before),after=_file_refs(session,after)))
+                    if changes:activity(session,task,"comment_edited",actor,"Комментарий отредактирован",at=obj.updated_at,changes=changes)
             # Assignment outcomes/inputs are private accounting. No raw status is
             # reaggregated into public Task workflow after its migration baseline.
 
@@ -345,11 +355,17 @@ def can_change_status(session,task,uid,status):
 
 def public_changes(session,event,uid):
     from task_queues import task_read,task_queue
-    allowed={"title","description","deadline_at","status","comment","result","attachments","parent_task_id","assignees","watchers","season_id","task_type","priority","starts_at","checklist","links"}
+    allowed={"title","description","deadline_at","status","comment","comment_attachments","result","attachments","parent_task_id","assignees","watchers","season_id","task_type","priority","starts_at","checklist","links"}
     changes=[]
     for raw in json.loads(event.changes_json or "[]"):
         if raw.get("field") not in allowed:continue
         item={k:raw[k] for k in ("field","label","before","after") if k in raw}
+        if item['field']=='comment_attachments':
+            # Public history displays file names like ordinary task attachments;
+            # stable IDs/metadata remain in the comment's own version snapshots.
+            for side in ('before','after'):
+                if isinstance(item.get(side),list):
+                    item[side]=[ref['name'] for ref in item[side]]
         if item['field'] in {'assignees','watchers'}:
             item['label']='Исполнители' if item['field']=='assignees' else 'Наблюдатели'
             for side in ('before','after'):

@@ -1,5 +1,8 @@
 # Public tracker and private accounting
 
+Current comment upload/binding and historical-file ACL details are documented in
+[COMMENT_ATTACHMENTS.md](COMMENT_ATTACHMENTS.md).
+
 > Current contract (approved 2026-10-30): see [ITERATION_20261030.md](ITERATION_20261030.md).
 > Four working statuses replace the earlier eight-status public UI. Readers and
 > assignees change working status, comments and checkmarks, but do not edit metadata.

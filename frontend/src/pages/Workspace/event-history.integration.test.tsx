@@ -162,9 +162,10 @@ it("the home page lists actual participation for every role, including the chair
   for (const [email, listed] of [["chair@example.com", false], [outsider.email, false], [org.email, true]] as const) {
     await mount(email, <Routes><Route path="/" element={<DashboardPage />} /></Routes>, "/");
     await waitForPage(page!, () => text().includes("Рабочее пространство"));
-    const card = Array.from(page!.container.querySelectorAll("section")).find(s => s.querySelector(":scope > h2")?.textContent?.startsWith("Мои мероприятия ·"))!;
+    const card = page!.container.querySelector<HTMLElement>('section[aria-label="Мои мероприятия"]')!;
+    expect(card).not.toBeNull();
     expect(!!card.textContent?.includes(event.title), email).toBe(listed);
-    if (email === "chair@example.com") { const blocks = Array.from(page!.container.querySelectorAll("section")).find(section => section.querySelector(":scope > h2")?.textContent?.startsWith("Мои блоки ·"))!;expect(blocks.textContent).not.toContain("Integration vacant"); }
+    if (email === "chair@example.com") { const blocks = page!.container.querySelector<HTMLElement>('section[aria-label="Мои блоки"]')!;expect(blocks).not.toBeNull();expect(blocks.textContent).not.toContain("Integration vacant"); }
     if (email === org.email) expect(card.textContent).toContain("Организатор");
     await page!.cleanup(); page = undefined;
   }

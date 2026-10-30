@@ -5,9 +5,9 @@ import {
   Page,
   Card,
   QueryState,
-  RouteLink,
   Badge,
   Empty,
+  Glyph,
 } from "../../components/Workspace/WorkspaceUI";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { workspaceApi } from "../../utils/api/workspace.api";
@@ -31,7 +31,10 @@ import { statusNames } from "./trackerStatus";
 import c from "./calendar.module.css";
 import { CalendarMonth, CalendarTimeGrid } from "./CalendarViews";
 import { calendarTitle, calendarView, calendarWindow, shiftCalendarDate, validDay, type CalendarView } from "./calendarLayout";
-import p from "./participation.module.css";
+import d from "./Dashboard.module.css";
+import { ChipAvatar } from "../../components/Workspace/ChipFace";
+import { blockLogo, eventLogo } from "../../utils/teamLogos";
+import { can, useSession } from "../../utils/session";
 import { canRetainData } from "../../utils/api/request";
 import { useDebouncedValue } from "../../utils/hooks/useDebouncedValue";
 import { useConfirmedNavigation } from "../../components/Workspace/unsavedChangesHooks";
@@ -56,54 +59,65 @@ interface PersonalTeam {
   to: string;
   roles: ParticipationRole[];
   detail?: string;
+  logo?: string;
+  kind: "block" | "event";
 }
 function PersonalTeams({ title, teams, empty }: { title: string; teams: PersonalTeam[]; empty: string }) {
   const [selectedPage, setSelectedPage] = useState(0);
   const pages = Math.ceil(teams.length / TEAM_PAGE_SIZE);
   const page = Math.min(selectedPage, Math.max(0, pages - 1));
   return (
-    <Card title={`${title} · ${teams.length}`}>
-      <ul className={p.teams}>
+    <section className={`${s.card} ${d.panel}`} aria-label={title}>
+      <DashboardHeading title={title} count={teams.length} />
+      <ul className={d.teams}>
         {teams.slice(page * TEAM_PAGE_SIZE, (page + 1) * TEAM_PAGE_SIZE).map((team) => (
           <li key={team.id}>
-            <Link to={team.to}>{team.title}</Link>
-            <div className={s.badges}>
-              {team.roles.map((role) => <Badge key={role}>{ROLE_LABELS[role]}</Badge>)}
+            <div className={d.teamRow}>
+              <Link to={team.to} className={d.teamLink}><ChipAvatar src={team.logo} presentation="logo" className={d.teamAvatar} fallback={<Glyph name={team.kind === "block" ? "groups" : "celebration"} />} /><span>{team.title}</span><DashboardArrow small className={d.teamArrow} /></Link>
+              <span className={d.roleSummary}>{team.roles.map(role => ROLE_LABELS[role]).join(" · ")}</span>
             </div>
-            {team.detail && <small className={s.muted}>{team.detail}</small>}
+            {team.detail && <small className={d.teamDetail}>{team.detail}</small>}
           </li>
         ))}
       </ul>
       {!teams.length && <Empty>{empty}</Empty>}
-      {pages > 1 && <nav className={p.paging} aria-label={`${title}: страницы`}>
+      {pages > 1 && <nav className={d.paging} aria-label={`${title}: страницы`}>
         <button className={s.button} disabled={page === 0} onClick={() => setSelectedPage(page - 1)}>Назад</button>
         <span role="status">{page + 1} из {pages}</span>
         <button className={s.button} disabled={page + 1 >= pages} onClick={() => setSelectedPage(page + 1)}>Далее</button>
       </nav>}
-    </Card>
+    </section>
   );
 }
+function DashboardArrow({ small = false, className = "" }: { small?: boolean; className?: string }) {
+  return <svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={small ? "m9 6 6 6-6 6" : "M4 12h16m-6-6 6 6-6 6"} /></svg>;
+}
+function DashboardHeading({ title, count, to, linkLabel }: { title: string; count?: number; to?: string; linkLabel?: string }) {
+  return <div className={d.sectionHeading}><h2>{title}{count !== undefined && <span className={d.count}>{count}</span>}</h2>{to && <Link className={d.sectionLink} to={to}>{linkLabel ?? "Все"}<DashboardArrow /></Link>}</div>;
+}
 export function DashboardPage() {
+  const { session } = useSession();
   const query = useQuery({ queryKey: ["participation"], queryFn: workspaceApi.participation });
   const seasons = useSeasons();
   const [watching, setWatching] = useState(false);
   const day = useQuery({ queryKey: ["dashboard", "home", watching], queryFn: () => workspaceApi.home(watching), refetchInterval: 60_000 });
   const blocks = query.data?.blocks ?? [];
   const events = query.data?.events ?? [];
+  const hasApprovals = !day.error && !day.isLoading && !!day.data?.approvals.length;
+  const workEntry = ["create_volunteer_merit", "create_head_merit", "create_chair_merit"].some(capability => can(session, capability) || !!session?.assignments?.some(assignment => can(assignment, capability)));
   const seasonTitle = (id: string | null) => seasons.data?.items.find(season => season.season_id === id)?.title ?? "Сезон";
-  return <Page title="Рабочее пространство" description="Сегодня, ближайшие задачи и решения, которые ждут вас.">
-    <label className={p.watching}><input type="checkbox" checked={watching} onChange={event => setWatching(event.target.checked)} />Также задачи, за которыми я наблюдаю</label>
-    <QueryState loading={day.isLoading} error={day.error} retry={() => void day.refetch()}>{day.data && <div className={p.todayGrid}>
-      <Card title={`Сегодня · ${day.data.today.split("-").reverse().join(".")}`} icon="calendar_month" tone="mint"><CalendarTimeGrid days={[day.data.today]} items={day.data.agenda} seasonTitle={seasonTitle} today={day.data.today} compact /><RouteLink to={`/calendar?view=day&date=${day.data.today}`}>Весь календарь</RouteLink></Card>
-      <div className={p.taskPanels}>
-        <Card title={`Просроченные · ${day.data.overdue_count}`} tone="rose"><WorkdayTasks tasks={day.data.overdue_tasks} overdue />{!day.data.overdue_count && <p className={s.muted}>Просроченных задач нет.</p>}{!!day.data.overdue_count && <RouteLink to="/tasks?mine=true&unfinished=true&overdue=true">Все просроченные задачи</RouteLink>}</Card>
-        <Card title="Ближайшие задачи" tone="lilac"><WorkdayTasks tasks={day.data.tasks} />{!day.data.tasks.length && <p className={s.muted}>Нет задач с будущим дедлайном.</p>}{!!day.data.undated_count && <p className={s.muted}>Без срока: {day.data.undated_count}</p>}<RouteLink to="/tasks?mine=true&unfinished=true&sort=deadline">Все мои задачи</RouteLink></Card>
+  return <Page className={d.page} headerClassName={d.header} title="Рабочее пространство" description="Сегодня, ближайшие задачи и решения, которые ждут вас." actions={workEntry && <Link className={s.button} to="/merits"><Glyph name="fact_check" />Учёт работы</Link>}>
+    <div className={d.utility}><label className={d.watching}><input type="checkbox" checked={watching} onChange={event => setWatching(event.target.checked)} />Также задачи, за которыми я наблюдаю</label></div>
+    <QueryState loading={day.isLoading} error={day.error} retry={() => void day.refetch()}>{day.data && <div className={d.primary}>
+      <Card className={`${d.panel} ${d.todayPanel}`}><DashboardHeading title="Сегодня" to={`/calendar?view=day&date=${day.data.today}`} linkLabel="Весь календарь" /><div className={d.calendar} role="region" aria-label="Сегодняшний день"><CalendarTimeGrid days={[day.data.today]} items={day.data.agenda} seasonTitle={seasonTitle} today={day.data.today} compact /></div></Card>
+      <div className={d.taskPanels} role="region" aria-label="Задачи по срокам">
+        <Card className={`${d.panel} ${d.overdue}`}><DashboardHeading title="Просроченные" count={day.data.overdue_count} to={day.data.overdue_count ? "/tasks?mine=true&unfinished=true&overdue=true" : undefined} linkLabel="Все просроченные задачи" /><WorkdayTasks tasks={day.data.overdue_tasks} overdue />{!day.data.overdue_count && <p className={d.note}>Просроченных задач нет.</p>}</Card>
+        <Card className={d.panel}><DashboardHeading title="Ближайшие задачи" to="/tasks?mine=true&unfinished=true&sort=deadline" linkLabel="Все мои задачи" /><WorkdayTasks tasks={day.data.tasks} />{!day.data.tasks.length && <p className={d.note}>Нет задач с будущим дедлайном.</p>}{!!day.data.undated_count && <p className={d.undated}>Без срока: {day.data.undated_count}</p>}</Card>
       </div>
-      {!!day.data.approvals.length && <Card title="Требует решения" tone="yellow"><ul className={p.approvals}>{day.data.approvals.map(item => <li key={`${item.kind}-${item.to}`}><Link to={item.to}>{item.title}<Badge>{item.count}</Badge></Link></li>)}</ul></Card>}
     </div>}</QueryState>
-    <section className={p.myTeams}><h2>Мои команды</h2>
-      <QueryState loading={query.isLoading || seasons.isLoading} error={query.error ?? seasons.error} retry={() => { void query.refetch();void seasons.refetch(); }}>{query.data && <div className={p.columns}><PersonalTeams title="Мои блоки" teams={blocks.map(block => ({ id: block.block_id, title: block.name, to: getBlockRoute(block.block_id), roles: block.roles }))} empty="Вы пока не участвуете в блоках." /><PersonalTeams title="Мои мероприятия" teams={events.map(event => ({ id: event.event_id, title: event.title, to: getEventRoute(event.event_id), roles: event.roles, detail: seasonTitle(event.season_id) }))} empty="Вы пока не участвуете в мероприятиях незакрытых сезонов." /></div>}</QueryState>
-    </section>
+    <div className={d.lowerGrid} data-has-approvals={hasApprovals || undefined} role="region" aria-label="Работа и команды"><section className={d.myTeams}><h2 className={s.visuallyHidden}>Мои команды</h2>
+      <QueryState loading={query.isLoading || seasons.isLoading} error={query.error ?? seasons.error} retry={() => { void query.refetch();void seasons.refetch(); }}>{query.data && <div className={d.teamColumns}><PersonalTeams title="Мои блоки" teams={blocks.map(block => ({ id: block.block_id, title: block.name, to: getBlockRoute(block.block_id), roles: block.roles, kind: "block", logo: blockLogo(block.name) }))} empty="Вы пока не участвуете в блоках." /><PersonalTeams title="Мои мероприятия" teams={events.map(event => ({ id: event.event_id, title: event.title, to: getEventRoute(event.event_id), roles: event.roles, detail: seasonTitle(event.season_id), kind: "event", logo: eventLogo(event.title) }))} empty="Вы пока не участвуете в мероприятиях незакрытых сезонов." /></div>}</QueryState>
+    </section>{day.data && !day.error && hasApprovals && <Card className={`${d.panel} ${d.decisions}`}><DashboardHeading title="Требует решения" /><ul className={d.approvals}>{day.data.approvals.map(item => <li key={`${item.kind}-${item.to}`}><Link to={item.to}><span>{item.title}</span><span className={d.count}>{item.count}</span><DashboardArrow small /></Link></li>)}</ul></Card>}</div>
   </Page>;
 }
 export function CalendarPage() {

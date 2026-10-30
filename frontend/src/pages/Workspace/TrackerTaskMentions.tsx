@@ -32,7 +32,7 @@ export function TaskMentionPicker({taskId,value,onChange,onMentionText,onMention
     } else onChange(value.filter(uid=>uid!==user.user_id));
     close();
   };
-  return <span className={p.anchor}><button ref={trigger} type="button" className={p.trigger} aria-haspopup="dialog" aria-expanded={open} onClick={()=>{setSearch('');setActive(0);setOpen(!open);}}><span aria-hidden="true">@</span> Призвать{value.length?` · ${value.length}`:''}</button>
+  return <span className={p.anchor}><button ref={trigger} type="button" data-comment-mention-trigger className={p.trigger} aria-haspopup="dialog" aria-expanded={open} onClick={()=>{setSearch('');setActive(0);setOpen(!open);}}><span aria-hidden="true">@</span> Призвать{value.length?` · ${value.length}`:''}</button>
     <AnchoredPopover open={open} anchorRef={trigger} initialFocusRef={input} label="Призвать человека" onRequestClose={close} className={p.popup} width={440}>
       <div className={p.searchRow}><input ref={input} className={p.search} type="search" role="combobox" aria-label="Поиск участника для призыва" aria-expanded={open} aria-autocomplete="list" aria-controls={listId} aria-activedescendant={options.length?`${listId}-${options[current].user_id}`:undefined} value={search} placeholder="Имя участника" onChange={event=>{setSearch(event.target.value);setActive(0);}} onKeyDown={event=>{
         if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)&&options.length){event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?options.length-1:(current+(event.key==='ArrowDown'?1:-1)+options.length)%options.length;setActive(next);document.getElementById(`${listId}-${options[next].user_id}`)?.scrollIntoView?.({block:'nearest'});}

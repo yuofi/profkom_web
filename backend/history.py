@@ -26,10 +26,10 @@ from participation import dt
 from profile_features import user_ref
 
 TargetKind = Literal["task", "assignment", "merit", "season", "block", "event", "subevent", "leadership"]
-PUBLIC_TASK = {"title", "description", "deadline_at", "status", "comment", "result", "attachments", "parent_task_id", "assignees", "watchers", "season_id", "task_type", "priority", "starts_at", "checklist", "links"}
+PUBLIC_TASK = {"title", "description", "deadline_at", "status", "comment", "comment_attachments", "result", "attachments", "parent_task_id", "assignees", "watchers", "season_id", "task_type", "priority", "starts_at", "checklist", "links"}
 METADATA = {"title", "description", "starts_at", "ends_at", "all_day", "announcement", "state", "is_current", "season_id", "event_id", "name", "community_url", "master_user_id", "chair_user_id", "deputy_user_ids", "organizer_user_ids", "user_id", "role", "active", "hr_user_id", "principal_assignment_id"}
 PRIVATE_INPUTS = {"hours", "evaluation", "effective_completed_at", "assigned_at", "deadline_at", "criteria", "recipients", "status", "review_note", "assignee_user_id", "new_assignment_id", "new_assignee_user_id", "title", "description"}
-TEXT_FIELDS = {"title", "description", "description_json", "content_json", "comment", "result", "body", "text", "review_note", "note", "reason", "announcement", "community_url", "links", "attachments", "checklist"}
+TEXT_FIELDS = {"title", "description", "description_json", "content_json", "comment", "result", "body", "text", "review_note", "note", "reason", "announcement", "community_url", "links", "attachments", "comment_attachments", "checklist"}
 LABELS = {"title": "Название", "description": "Описание", "comment": "Комментарий", "result": "Результат", "hours": "Часы", "evaluation": "Оценка", "effective_completed_at": "Расчётная дата выполнения", "assigned_at": "Дата выдачи", "deadline_at": "Дедлайн", "criteria": "Критерии", "recipients": "Получатели и исходные поля", "status": "Состояние", "review_note": "Замечание", "starts_at": "Начало", "ends_at": "Конец", "state": "Состояние сезона", "master_user_id": "Мастер", "chair_user_id": "Председатель", "deputy_user_ids": "Заместители", "organizer_user_ids": "Организаторы", "user_id": "Участник", "role": "Роль", "active": "Назначение действует", "hr_user_id": "HR", "name": "Название блока", "announcement": "Анонс", "season_id": "Сезон", "all_day": "Весь день"}
 HIDDEN = "[Текст версии скрыт]"
 
@@ -277,7 +277,7 @@ def history_items(session, kind, identifier, actor):
 
 def _comment_subject(session, row):
     changes = _loads(row.changes_json, [])
-    named = next((change.get("comment_id") for change in changes if change.get("field") == "comment" and change.get("comment_id")), None)
+    named = next((change.get("comment_id") for change in changes if change.get("field") in {"comment", "comment_attachments"} and change.get("comment_id")), None)
     if named:
         return named
     candidates = []
@@ -310,7 +310,7 @@ def _redact_activity(session, row):
             continue
         # Only the next version of this exact object/field may contain its predecessor.
         for following in chronological[index + 1:]:
-            if field == "comment" and (not subject or _comment_subject(session, following) != subject):
+            if field in {"comment", "comment_attachments"} and (not subject or _comment_subject(session, following) != subject):
                 continue
             updates = _loads(following.changes_json, [])
             matching = next((item for item in updates if item.get("field") == field), None)
@@ -325,9 +325,13 @@ def _redact_activity(session, row):
             snapshots = _loads(comment.history_json, [])
             # These snapshots are predecessor versions recorded by the following edit.
             for item in snapshots:
-                if item.get("edited_at", "") > row.created_at and any(item.get("content", {}).get("body") == change.get("after") for change in changes if change.get("field") == "comment"):
-                    item["content"] = {"format": "markdown", "body": HIDDEN}
-                    break
+                if item.get("edited_at", "") <= row.created_at:
+                    continue
+                content_match=any(item.get("content", {}).get("body") == change.get("after") for change in changes if change.get("field") == "comment")
+                files_match=any(item.get("attachments") == change.get("after") for change in changes if change.get("field") == "comment_attachments")
+                if content_match:item["content"]={"format":"markdown","body":HIDDEN}
+                if files_match:item["attachments"]=[]
+                if content_match or files_match:break
             comment.history_json = json.dumps(snapshots, ensure_ascii=False)
     row.changes_json = "[]"
     row.description = "Версия скрыта"

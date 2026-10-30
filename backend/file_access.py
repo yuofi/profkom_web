@@ -82,7 +82,7 @@ def validate_metadata(kind, purpose, name, mime, size):
         "material": "material",
         "pgas": "pgas",
     }
-    if (kind == "task" and purpose not in {"attachment", "submission"}) or (kind != "task" and purpose != expected[kind]):
+    if (kind == "task" and purpose not in {"attachment", "submission", "comment"}) or (kind != "task" and purpose != expected[kind]):
         raise InvalidInput("Invalid file purpose")
     limit = 10 if kind in ("avatar", "block") else 20
     if not 0 < size <= limit * 1024 * 1024:
@@ -145,6 +145,18 @@ def permitted(session, fr, uid, write=False):
         if fr.owner_id is None:return fr.purpose=="attachment" and fr.uploaded_by_user_id==uid
         task = session.get(TaskORM,fr.owner_id)
         if not task or not db.can_read_task(uid,task,session):return False
+        if fr.purpose == "comment":
+            # Upload/complete belongs to the uploader, including an ordinary
+            # task reader. Publication is only a CURRENT comment binding; old
+            # history metadata never grants byte/download/preview access.
+            if write or fr.uploaded_by_user_id == uid:
+                return fr.uploaded_by_user_id == uid
+            from database import CommentORM
+            from read_context import cached
+            def published():
+                return frozenset(fid for (raw,) in session.query(CommentORM.files_json).filter_by(task_id=task.task_id)
+                    for fid in json.loads(raw or '[]'))
+            return fr.file_id in cached(session,'task.comment_files',task.task_id,published,copy_result=False)
         meta = metadata(session,task)
         attached = set(json.loads(meta.files_json or "[]"))
         for sub in session.query(TaskSubmissionORM).filter_by(task_id=task.task_id):attached.update(json.loads(sub.files_json or "[]"))
@@ -422,3 +434,19 @@ def check_attachments(session, file_ids, kind, owner_id, uid):
             or not permitted(session, fr, uid, True)
         ):
             raise Forbidden("Forbidden: invalid attachment or context")
+
+
+def check_comment_attachments(session, file_ids, task_id, uid, *, existing=()):
+    """New bindings are own uploads; an authorized edit may retain another author's files."""
+    if not isinstance(file_ids,list) or len(file_ids)>100 or any(not isinstance(fid,str) or not fid for fid in file_ids):
+        raise InvalidInput("Invalid comment attachments")
+    if len(file_ids)!=len(set(file_ids)):
+        raise InvalidInput("Duplicate files", "duplicate_files")
+    preserved=set(existing)
+    for fid in file_ids:
+        record=session.get(FileRecordORM,fid)
+        if (not record or record.state!='completed' or record.owner_kind!='task'
+                or record.owner_id!=task_id or record.purpose!='comment'
+                or (fid not in preserved and record.uploaded_by_user_id!=uid)
+                or not permitted(session,record,uid,write=fid not in preserved)):
+            raise Forbidden("Forbidden: invalid comment attachment or context")

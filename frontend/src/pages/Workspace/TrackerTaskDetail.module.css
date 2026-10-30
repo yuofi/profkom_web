@@ -122,3 +122,5 @@
 .commentAttachment > span:first-child { font-size: 19px; }
 .commentAttachment:hover { color: var(--primary); background: var(--surface-container-high); }
 .commentAttachment:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+.commentDraftFiles { display: grid; gap: 8px; min-width: 0; padding: 10px 12px; border: 1px solid var(--outline-variant); border-radius: 9px; background: var(--surface-container-low); }

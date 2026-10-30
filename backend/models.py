@@ -427,6 +427,7 @@ class Comment:
     updated_at: Optional[str] = None
     history: list[dict] = field(default_factory=list)
     capabilities: list[str] = field(default_factory=list)
+    attachments: list[FileRef] = field(default_factory=list)
 
 
 @dataclass

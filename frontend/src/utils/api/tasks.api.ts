@@ -119,8 +119,8 @@ export const tasksApi = {
       { items, hours, reason },
     ),
   comments: (id: string) => page<Comment>(`/tasks/${idPath(id)}/comments`),
-  comment: (id: string, content: RichText, mentioned_user_ids: number[] = []) =>
-    request<Comment>("post", `/tasks/${idPath(id)}/comments`, { content, mentioned_user_ids }),
-  editComment: (id: string, content: RichText, mentioned_user_ids: number[] = []) =>
-    request<Comment>("patch", `/comments/${idPath(id)}`, { content, mentioned_user_ids }),
+  comment: (id: string, content: RichText, mentioned_user_ids: number[] = [], file_ids?: string[]) =>
+    request<Comment>("post", `/tasks/${idPath(id)}/comments`, { content, mentioned_user_ids, ...(file_ids === undefined ? {} : {file_ids}) }),
+  editComment: (id: string, content: RichText, mentioned_user_ids: number[] = [], file_ids?: string[]) =>
+    request<Comment>("patch", `/comments/${idPath(id)}`, { content, mentioned_user_ids, ...(file_ids === undefined ? {} : {file_ids}) }),
 };

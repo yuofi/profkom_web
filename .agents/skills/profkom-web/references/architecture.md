@@ -151,3 +151,11 @@ The contact directory reads participant categories through bounded `/participant
 Season summary calculation materializes users, public avatars, archive identities, membership/leadership and accounting facts per invocation. The same central batch task policy masks sources in both read and mark-write requests; there is no cross-request or write-unit permission cache. Approved snapshot amounts/ranks remain frozen. See backend/docs/READ_PROJECTIONS.md.
 
 Comment DTO mentioned_users is a safe batch projection for canonical relative profile links. The comment editor uses one Markdown frame with preview and a footer people picker; selected mention intent follows only its explicitly inserted live tokens, so deleting/untagging a draft target does not send a hidden notification. Manually typed or pre-existing links never create notification intent. Archived/unavailable people render inert placeholders. Explicit mention approval/grant rules remain authoritative. Built-in and uploaded block logos use an explicit logo presentation with a light background, without changing user-photo presentation or source images.
+
+Comment attachments use task-owned uploads with purpose `comment`, separate from
+instruction and submission files. Completed uploads remain private drafts until a
+comment publishes their IDs; every byte request still checks current task access.
+Comment PATCH preserves attachments when file_ids is omitted and removes them with
+an explicit empty list. Historical attachment metadata does not publish removed
+bytes. The composer retains files across failed saves and blocks submission during
+upload; the task attachment tab reuses the comments query rather than refetching it.

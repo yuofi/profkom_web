@@ -64,7 +64,7 @@ it("shows current and nearest event overview with mine and archive choices", asy
   vi.useFakeTimers({toFake:["Date"]});vi.setSystemTime(new Date("2026-10-27T12:00:00Z"));mock=installMockTransport("organizer",{delay:0});
   mock.state.events[0].starts_at="2026-10-26T12:00:00Z";mock.state.events[0].ends_at="2026-10-28T12:00:00Z";
   page=await mountWorkspace(<EventsListPage/>,{role:"organizer"});await waitForPage(page);
-  expect([...page.container.querySelectorAll("h2")].map(node=>node.textContent)).toContain("Сейчас идут");expect(page.container.textContent).toContain("С моим участием");expect(page.container.textContent).toContain("Архив");
+  expect(page.container.querySelector('h2[aria-label="Сейчас идут"]')).not.toBeNull();expect(page.container.textContent).toContain("С моим участием");expect(page.container.textContent).toContain("Архив");
   expect(mock.adapter.history.post).toHaveLength(0);
 });
 it("calendar keeps URL filters and repeats a multi-day announcement on each covered day", async () => {

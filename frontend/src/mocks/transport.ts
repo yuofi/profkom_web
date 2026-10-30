@@ -100,8 +100,19 @@ export function installMockTransport(
   const uploads = new MockAdapter(axios);
   const files = new Map<
     string,
-    FileRef & { complete: boolean; uploaded: boolean; owner_kind?: string; owner_id?: string; uploaded_by_user_id?: number }
+    FileRef & { complete: boolean; uploaded: boolean; owner_kind?: string; owner_id?: string; purpose?: string; uploaded_by_user_id?: number }
   >();
+  const commentFiles=(ids:unknown,taskId:string,previous:FileRef[]=[]):FileRef[]|null=>{
+    if(!Array.isArray(ids)||ids.length>100||new Set(ids).size!==ids.length)return null;
+    const result:FileRef[]=[];
+    for(const id of ids){
+      if(typeof id!=="string")return null;
+      const kept=previous.find(file=>file.file_id===id);if(kept){result.push(clone(kept));continue;}
+      const file=files.get(id);if(!file?.complete||file.owner_kind!=="task"||file.owner_id!==taskId||file.purpose!=="comment"||file.uploaded_by_user_id!==state.session.user_id)return null;
+      result.push({file_id:file.file_id,name:file.name,mime_type:file.mime_type,size_bytes:file.size_bytes});
+    }
+    return result;
+  };
   const taskInputs = new Map<string, TaskInputs>([
     [state.inputs.task_id, state.inputs],
   ]);
@@ -1335,7 +1346,10 @@ export function installMockTransport(
           return list(
             clone(state.comments.filter((c) => c.task_id === task.task_id).map(comment => ({...comment,mentioned_users:commentMentions(comment.content.body)}))),
           );
+        const attachments=commentFiles(data.file_ids??[],task.task_id);if(!attachments)return fail(422,"invalid_input","Некорректные файлы комментария");
+        if(!publicSubmission(data.content).body.trim()&&!attachments.length)return fail(422,"invalid_input","Добавьте текст или файл");
         const comment = {
+          attachments,
           comment_id: id("comment"),
           task_id: task.task_id,
           author: state.user,
@@ -1582,7 +1596,11 @@ export function installMockTransport(
       const comment = state.comments.find((c) => c.comment_id === parts[1]);
       const task = comment && state.tasks.find(t => t.task_id === comment.task_id);
       if (!comment || !task || !readsTask(task)) return denied();
+      const attachments=data.file_ids===undefined?comment.attachments:commentFiles(data.file_ids,task.task_id,comment.attachments);
+      if(!attachments)return fail(422,"invalid_input","Некорректные файлы комментария");
+      if(!publicSubmission(data.content).body.trim()&&!attachments.length)return fail(422,"invalid_input","Добавьте текст или файл");
       const before = comment.content.body;
+      comment.attachments=attachments;
       comment.content = publicSubmission(data.content);
       comment.mentioned_users = commentMentions(comment.content.body);
       rememberTask(task, "comment_edited", "Комментарий отредактирован", undefined, undefined, [{ field: "comment", label: "Комментарий", before, after: comment.content.body }]);
@@ -2067,6 +2085,7 @@ export function installMockTransport(
       ];
     }
     if (path === "/files/upload-intents") {
+      if(data.owner_kind==="task"&&data.purpose==="comment") {const task=state.tasks.find(task=>task.task_id===data.owner_id);if(!task||!readsTask(task))return denied();}
       if (data.owner_kind === "block") {
         const block = state.blocks.find(block => block.block_id === data.owner_id);
         if (!block) return fail(404, "not_found", "Блок не найден");
@@ -2083,6 +2102,7 @@ export function installMockTransport(
         uploaded: false,
         owner_kind: typeof data.owner_kind === "string" ? data.owner_kind : undefined,
         owner_id: typeof data.owner_id === "string" ? data.owner_id : undefined,
+        purpose: typeof data.purpose === "string" ? data.purpose : undefined,
         uploaded_by_user_id: state.session.user_id,
       });
       return [
@@ -2099,6 +2119,11 @@ export function installMockTransport(
     if (parts[0] === "files") {
       const file = files.get(parts[1]);
       if (!file) return fail(404, "not_found", "Файл не найден");
+      if(file.owner_kind==="task"&&file.purpose==="comment") {
+        const task=state.tasks.find(task=>task.task_id===file.owner_id);
+        const bound=state.comments.some(comment=>comment.task_id===file.owner_id&&comment.attachments.some(item=>item.file_id===file.file_id));
+        if(!task||!readsTask(task)||(!bound&&file.uploaded_by_user_id!==state.session.user_id))return fail(404,"not_found","Файл не найден");
+      }
       if (file.owner_kind === "block") {
         const block = state.blocks.find(block => block.block_id === file.owner_id);
         const own = file.uploaded_by_user_id === state.session.user_id && block?.capabilities.includes("edit_block");

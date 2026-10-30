@@ -554,12 +554,13 @@ export interface Material extends Versioned {
 }
 export interface Comment {
   comment_id: string;
+  attachments: FileRef[];
   task_id: string;
   author: UserRef;
   content: RichText;
   created_at: string;
   updated_at: string | null;
-  history?: { content: RichText; edited_at: string }[];
+  history?: { content: RichText; edited_at: string; attachments?: FileRef[] }[];
   capabilities: string[];
   /** Safe current identities for canonical local profile links; never an access grant. */
   mentioned_users?: UserRef[];

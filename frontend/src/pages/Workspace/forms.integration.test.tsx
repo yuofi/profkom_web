@@ -44,9 +44,9 @@ async function pickerOptions(container: ParentNode, name: string) {
   await until(() => !!input.getAttribute("aria-controls") && !!document.getElementById(input.getAttribute("aria-controls")!));
   return document.getElementById(input.getAttribute("aria-controls")!)!;
 }
-async function save(editor: HTMLFormElement) {
+async function save(editor: HTMLFormElement, successMessage = "Изменения сохранены") {
   await submit(editor);
-  await until(() => !!editor.textContent?.includes("Изменения сохранены") && !(editor.querySelector('button[type="submit"]') as HTMLButtonElement).disabled);
+  await until(() => !!editor.textContent?.includes(successMessage) && !(editor.querySelector('button[type="submit"]') as HTMLButtonElement).disabled);
 }
 async function mount(path: string, route: string, element: ReactNode, live = false) {
   const routes = <Routes><Route path={route} element={element} /></Routes>;
@@ -280,7 +280,7 @@ it("2.12 A-TSK-6: a comment resets and an explicit child canvas creates once bef
   await taskPage(task.task_id);
   await until(() => !!form("Добавить комментарий"));
   await change(field(form("Добавить комментарий"), "body"), "Один комментарий");
-  await save(form("Добавить комментарий"));
+  await save(form("Добавить комментарий"), "Комментарий добавлен");
   expect(field(form("Добавить комментарий"), "body").value).toBe("");
   await submit(form("Добавить комментарий"));
   await waitForPage(page!);

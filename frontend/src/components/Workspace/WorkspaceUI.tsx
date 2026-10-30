@@ -20,17 +20,21 @@ export function Page({
   description,
   children,
   actions,
+  className,
+  headerClassName,
 }: {
   title: string;
   description?: string;
   children: ReactNode;
   actions?: ReactNode;
+  className?: string;
+  headerClassName?: string;
 }) {
   const section = useContext(SectionContext);
   const nav = useContext(PageNavContext);
   return (
-    <section className={s.page}>
-      <header className={s.header}>
+    <section className={clsx(s.page, className)}>
+      <header className={clsx(s.header, headerClassName)}>
         <div>
           {/* Where the page is; the section's own page says the section in its title. */}
           <SectionHomeLink to={section?.to} label={section?.label} />

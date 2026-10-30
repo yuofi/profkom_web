@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { Page, Card, QueryState, Markdown, RouteLink, Badge, Empty, Glyph, Loading } from "../../components/Workspace/WorkspaceUI";
@@ -10,7 +10,7 @@ import { eventsApi } from "../../utils/api/events.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { reportsApi } from "../../utils/api/reports.api";
 import { workspaceApi } from "../../utils/api/workspace.api";
-import type { Event, Subevent } from "../../utils/api/contract";
+import type { Event, Subevent, ParticipationRole } from "../../utils/api/contract";
 import { can, useSession } from "../../utils/session";
 import { getEventRoute, getEventCreateRoute, getEventEditRoute, getSubeventRoute } from "../../utils/routes";
 import { usePeopleOptions, useWorkspaceActions } from "../../utils/hooks/useWorkspace";
@@ -27,35 +27,65 @@ import { SeasonPlacementEditor } from "../../components/Workspace/SeasonPlacemen
 import { eventPeriod, eventPhase } from "./eventDates";
 import { HistoryDisclosure } from "../../components/Workspace/HistoryPanel";
 import { eventLogo } from "../../utils/teamLogos";
+import { moscowDay } from "../../utils/calendar";
+import { canRetainData } from "../../utils/api/request";
+import c from "./EventCatalogue.module.css";
 
 function useReportsLink(owner_kind: "event" | "subevent", owner_id: string, canCreate: boolean, enabled = true) {
   const readable = useQuery({ queryKey: ["reports", "owner", owner_kind, owner_id], queryFn: () => reportsApi.list({ owner_kind, owner_id }), enabled: enabled && !!owner_id && !canCreate });
   return enabled && (canCreate || !readable.error && !!readable.data?.items.length);
 }
-function EventListWidget({ title, events, empty }: { title: string; events: Event[]; empty: string }) {
-  const phaseNames = { current: "Сейчас идёт", upcoming: "Впереди", past: "Завершено", undated: "Даты уточняются" };
-  return <Card title={title}><div className={e.widgetMeta}>{events.length ? `Мероприятий: ${events.length}` : ""}</div><ul className={e.eventRows} aria-label={title}>
-    {events.map(event => <li key={event.event_id}><Link to={getEventRoute(event.event_id)} className={e.eventRow}>
-      <span className={e.eventName}>{event.title}{eventPhase(event) !== "undated" && <small>{phaseNames[eventPhase(event)]}</small>}</span><span className={e.eventDate}>{eventPeriod(event)}</span><span aria-hidden="true">›</span>
-    </Link></li>)}
-  </ul>{!events.length && <p className={e.listEmpty}>{empty}</p>}</Card>;
+type EventCataloguePhase = "all" | "current" | "upcoming" | "undated";
+const cataloguePhases: {value:EventCataloguePhase;label:string}[]=[{value:"all",label:"Все"},{value:"current",label:"Сейчас идут"},{value:"upcoming",label:"Ближайшие"},{value:"undated",label:"Без даты"}];
+const eventRoleNames:Partial<Record<ParticipationRole,string>>={event_leader:"Главорг",event_deputy:"Зам. главорга",subevent_leader:"Ответственный",subevent_deputy:"Зам. ответственного",organizer:"Организатор",subevent_hr:"HR подмероприятия"};
+const monthLabel=new Intl.DateTimeFormat("ru-RU",{month:"long",year:"numeric",timeZone:"Europe/Moscow"});
+const dateNumber=new Intl.DateTimeFormat("ru-RU",{day:"2-digit",timeZone:"Europe/Moscow"});
+const shortMonth=new Intl.DateTimeFormat("ru-RU",{month:"short",timeZone:"Europe/Moscow"});
+const validEventStart=(event:Event)=>!!event.starts_at&&Number.isFinite(Date.parse(event.starts_at));
+const catalogueMonthTitle=(key:string)=>{const label=monthLabel.format(new Date(key+"-15T12:00:00Z")).replace(/\s*г\.$/,"");return label[0].toLocaleUpperCase("ru")+label.slice(1);};
+const eventOrder=(left:Event,right:Event)=>(validEventStart(left)?Date.parse(left.starts_at!):Infinity)-(validEventStart(right)?Date.parse(right.starts_at!):Infinity)||left.title.localeCompare(right.title,"ru");
+function EventCatalogueFace({event,current=false}:{event:Event;current?:boolean}) {
+  if(current)return <span className={c.liveDot} aria-label="Сейчас идёт"/>;
+  if(validEventStart(event))return <span className={c.dateTile} aria-hidden="true"><b>{dateNumber.format(new Date(event.starts_at!))}</b><small>{shortMonth.format(new Date(event.starts_at!)).replace(".","")}</small></span>;
+  const logo=eventLogo(event.title);
+  return <span className={c.eventFace} aria-hidden="true">{logo?<img src={logo} alt=""/>:event.title.trim().split(/\s+/).slice(0,2).map(word=>[...word][0]).join("").toLocaleUpperCase("ru")||<Glyph name="event"/>}</span>;
+}
+function EventCatalogueGroup({title,items,own,current=false}:{title:string;items:Event[];own:Set<string>;current?:boolean}) {
+  return <section className={`${c.panel} ${current?c.currentPanel:""}`} aria-label={title}><h2 aria-label={title}>{title}<span className={c.count} aria-hidden="true">{items.length}</span></h2><ul className={c.eventList} aria-label={title}>{items.map(event=><li key={event.event_id}><Link className={c.eventRow} to={getEventRoute(event.event_id)}><EventCatalogueFace event={event} current={current}/><span className={c.eventLabel}><strong>{event.title}</strong><small>{eventPeriod(event)}</small></span>{event.is_closed&&<span className={c.rowState}>Закрыто</span>}{own.has(event.event_id)&&<span className={c.rowRole}>Я в команде</span>}<span className={c.chevron} aria-hidden="true">›</span></Link></li>)}</ul></section>;
 }
 export function EventsListPage() {
-  const { session } = useSession(), [params, setParams] = useSearchParams();
-  const events = useQuery({ queryKey: ["events"], queryFn: () => eventsApi.list() });
-  const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
-  const participation = useQuery({ queryKey: ["participation"], queryFn: workspaceApi.participation });
-  const mine = params.get("mine") === "true", archive = params.get("archive") === "true", search = params.get("q") ?? "";
-  const update = (key: string, value: string) => { const next = new URLSearchParams(params);if (value) next.set(key, value);else next.delete(key);setParams(next); };
-  const own = new Set(participation.data?.events.map(event => event.event_id));
-  const visible = events.data?.items.filter(event => (!mine || own.has(event.event_id)) && event.title.toLocaleLowerCase("ru").includes(search.toLocaleLowerCase("ru")) && (seasons.data?.items.find(season => season.season_id === event.season_id)?.state === "closed") === archive) ?? [];
-  const sorted = [...visible].sort((left, right) => (left.starts_at ?? "9999").localeCompare(right.starts_at ?? "9999") || left.title.localeCompare(right.title, "ru"));
-  const current = sorted.filter(event => eventPhase(event) === "current"), upcoming = sorted.filter(event => eventPhase(event) === "upcoming").slice(0, 6);
-  return <Page title="Мероприятия" description="Что происходит сейчас и к чему готовится Профком." actions={can(session, "create_event") && <RouteLink to={getEventCreateRoute()}>Создать мероприятие</RouteLink>}>
-    <div className={s.filters}><label className={s.field}>Поиск мероприятий<input value={search} onChange={event => update("q", event.target.value)} /></label><label className={s.field}>Участие<select value={mine ? "mine" : "all"} onChange={event => update("mine", event.target.value === "mine" ? "true" : "")}><option value="all">Все мероприятия</option><option value="mine">С моим участием</option></select></label><label className={s.field}>Период<select value={archive ? "archive" : "current"} onChange={event => update("archive", event.target.value === "archive" ? "true" : "")}><option value="current">Текущие сезоны</option><option value="archive">Архив</option></select></label></div>
-    <QueryState loading={events.isLoading || seasons.isLoading || mine && participation.isLoading} error={events.error ?? seasons.error ?? (mine ? participation.error : null)} retry={() => { void events.refetch();void seasons.refetch();void participation.refetch(); }}>
-      {!archive && <div className={e.eventOverview}><EventListWidget title="Сейчас идут" events={current} empty="Сейчас нет мероприятий с указанными датами." /><EventListWidget title="Ближайшие" events={upcoming} empty="Ближайших мероприятий с известными датами пока нет." /></div>}
-      <section className={e.catalog}><EventListWidget title={archive ? "Архив мероприятий" : "Все мероприятия"} events={sorted} empty="Мероприятия по выбранным условиям не найдены." /></section>
+  const {session}=useSession(),[params,setParams]=useSearchParams();
+  const [now,setNow]=useState(Date.now);useEffect(()=>{const timer=window.setInterval(()=>setNow(Date.now()),60000);return()=>window.clearInterval(timer);},[]);
+  const events=useQuery({queryKey:["events"],queryFn:()=>eventsApi.list()});
+  const seasons=useQuery({queryKey:["seasons"],queryFn:seasonsApi.list});
+  const participation=useQuery({queryKey:["participation"],queryFn:workspaceApi.participation});
+  const mine=params.get("mine")==="true",archive=params.get("archive")==="true",search=params.get("q")??"",seasonId=params.get("season_id")??"";
+  const phase:EventCataloguePhase=cataloguePhases.some(item=>item.value===params.get("phase"))?params.get("phase") as EventCataloguePhase:"all";
+  const update=(key:string,value:string)=>{const next=new URLSearchParams(params);if(value)next.set(key,value);else next.delete(key);setParams(next);};
+  const updatePeriod=(value:string)=>{const next=new URLSearchParams(params);next.delete("season_id");next.delete("archive");if(value==="archive")next.set("archive","true");else if(value.startsWith("season:")){const id=value.slice(7);next.set("season_id",id);if(seasons.data?.items.find(season=>season.season_id===id)?.state==="closed")next.set("archive","true");}setParams(next);};
+  const errors=[events.error,seasons.error,mine?participation.error:null].filter(error=>!!error),error=errors.find(error=>!canRetainData(error))??errors[0]??null;
+  const mayRetain=errors.every(error=>canRetainData(error));
+  const eventData=mayRetain?events.data:undefined,seasonData=mayRetain?seasons.data:undefined;
+  const ownRows=participation.error&&!canRetainData(participation.error)?[]:participation.data?.events??[];
+  const own=new Set(ownRows.map(event=>event.event_id));
+  const periodEvents=(eventData?.items??[]).filter(event=>(!seasonId||event.season_id===seasonId)&&(seasonData?.items.find(season=>season.season_id===event.season_id)?.state==="closed")===archive);
+  const matching=periodEvents.filter(event=>(!mine||own.has(event.event_id))&&event.title.toLocaleLowerCase("ru").includes(search.toLocaleLowerCase("ru").trim())).sort(eventOrder);
+  const phaseOf=(event:Event)=>validEventStart(event)?eventPhase(event,now):"undated";
+  const shown=matching.filter(event=>phase==="all"||phaseOf(event)===phase),current=shown.filter(event=>phaseOf(event)==="current"),undated=shown.filter(event=>phaseOf(event)==="undated");
+  const months=new Map<string,Event[]>();for(const event of shown){if(["current","undated"].includes(phaseOf(event)))continue;const key=moscowDay(event.starts_at!).slice(0,7);months.set(key,[...(months.get(key)??[]),event]);}
+  const mineInPeriod=periodEvents.filter(event=>own.has(event.event_id)).sort(eventOrder);
+  const next=[...periodEvents].filter(event=>phaseOf(event)==="upcoming"&&!event.is_closed).sort(eventOrder)[0];
+  const nextDay=next?.starts_at?Math.round((Date.parse(moscowDay(next.starts_at)+"T00:00:00Z")-Date.parse(moscowDay(new Date(now).toISOString())+"T00:00:00Z"))/86400000):null;
+  const retry=()=>{void events.refetch();void seasons.refetch();void participation.refetch();};
+  return <Page className={c.page} headerClassName={c.header} title="Мероприятия" description="Что происходит сейчас и к чему готовится Профком." actions={can(session,"create_event")&&<RouteLink to={getEventCreateRoute()}><Glyph name="add"/>Создать мероприятие</RouteLink>}>
+    <div className={c.filters} aria-label="Фильтры мероприятий"><label className={c.search}><svg className={c.searchIcon} viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><span className={c.srOnly}>Поиск мероприятий</span><input type="search" value={search} placeholder="Найти мероприятие" onChange={event=>update("q",event.target.value)}/></label><label className={c.selectField}><span className={c.srOnly}>Участие</span><select value={mine?"mine":"all"} onChange={event=>update("mine",event.target.value==="mine"?"true":"")}><option value="all">Все мероприятия</option><option value="mine">С моим участием</option></select></label><label className={c.selectField}><span className={c.srOnly}>Период</span><select value={seasonId?"season:"+seasonId:archive?"archive":"current"} onChange={event=>updatePeriod(event.target.value)}><option value="current">Текущие сезоны</option><option value="archive">Архив</option><optgroup label="Сезоны">{seasonData?.items.map(season=><option key={season.season_id} value={"season:"+season.season_id}>{season.title}{season.state==="closed"?" · архив":""}</option>)}</optgroup></select></label></div>
+    <div className={c.phaseTabs} role="group" aria-label="Показать мероприятия">{cataloguePhases.map(item=><button type="button" key={item.value} aria-label={item.label} aria-pressed={phase===item.value} onClick={()=>update("phase",item.value==="all"?"":item.value)}>{item.label}<span className={c.count} aria-hidden="true">{item.value==="all"?matching.length:matching.filter(event=>phaseOf(event)===item.value).length}</span></button>)}</div>
+    <QueryState loading={events.isLoading||seasons.isLoading||mine&&participation.isLoading} error={error} keepDataOnError={!!events.data&&!!seasons.data} retry={retry}>
+      <div className={c.catalogue}><section className={c.stream} aria-label="Лента мероприятий">{current.length>0&&<EventCatalogueGroup title="Сейчас идут" items={current} own={own} current/>}{[...months].map(([key,items])=><EventCatalogueGroup key={key} title={catalogueMonthTitle(key)} items={items} own={own}/>)}{undated.length>0&&<EventCatalogueGroup title="Даты уточняются" items={undated} own={own}/>} {!shown.length&&<div className={c.panel}><Empty>Мероприятия по выбранным условиям не найдены.</Empty></div>}</section>
+        <aside className={c.sidebar} aria-label="Ваши мероприятия"><section className={c.panel}><h2 aria-label="С моим участием">С моим участием<span className={c.count} aria-hidden="true">{mineInPeriod.length}</span></h2><QueryState loading={participation.isLoading} error={participation.error} keepDataOnError={!!participation.data} retry={()=>void participation.refetch()}><ul className={c.ownList} aria-label="Моё участие в мероприятиях">{mineInPeriod.slice(0,5).map(event=><li key={event.event_id}><Link to={getEventRoute(event.event_id)}><EventCatalogueFace event={{...event,starts_at:null}}/><span><strong>{event.title}</strong><small>{ownRows.find(item=>item.event_id===event.event_id)?.roles.map(role=>eventRoleNames[role]??"В команде").join(" · ")||"В команде"}</small></span><span className={c.chevron} aria-hidden="true">›</span></Link></li>)}</ul>{mineInPeriod.length>5&&<button type="button" className={c.allMine} onClick={()=>update("mine","true")}>Все мои мероприятия</button>}{!mineInPeriod.length&&<p className={c.empty}>В выбранном периоде нет мероприятий с вашим участием.</p>}<p className={c.note}>Ваши роли в командах мероприятий</p></QueryState></section>
+          <section className={`${c.panel} ${c.nextEvent}`} aria-label="Ближайшее мероприятие"><span className={c.kicker}>Ближайшее мероприятие</span>{next?<><h2>{next.title}</h2><p className={c.countdown}>{nextDay===0?"Сегодня":nextDay===1?"Завтра":`Через ${nextDay} дн.`}</p><p className={c.note}>{eventPeriod(next)}</p><Link className={c.openEvent} to={getEventRoute(next.event_id)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"/></svg>Открыть мероприятие</Link></>:<p className={c.empty}>Ближайших мероприятий с известными датами пока нет.</p>}</section>
+        </aside>
+      </div>
     </QueryState>
   </Page>;
 }

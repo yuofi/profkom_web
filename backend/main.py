@@ -1042,6 +1042,7 @@ class SummaryCorrectionIn(Command):
 class CommentIn(Command):
     content: Union[RichTextSchema, str]
     mentioned_user_ids: list[int] = Field(default_factory=list, max_length=100)
+    file_ids: Optional[list[str]] = Field(default=None, max_length=100)
 
 
 class CommentOut(BaseModel):
@@ -1054,6 +1055,7 @@ class CommentOut(BaseModel):
     history: list[dict] = []
     capabilities: list[str] = []
     mentioned_users: list[UserRefOut] = Field(default_factory=list)
+    attachments: list[FileRefOut] = Field(default_factory=list)
 
 
 class UploadIntentIn(Command):
@@ -2063,6 +2065,7 @@ def _to_comment_out(c, mentioned_users=None) -> CommentOut:
         history=c.history,
         capabilities=c.capabilities,
         mentioned_users=mentioned_users or [],
+        attachments=[_to_file_ref_out(file) for file in c.attachments],
     )
 
 
@@ -3157,6 +3160,7 @@ def create_task_comment(task_id: str, payload: CommentIn, cur: User = Depends(ge
             task_id=task_id,
             content={"format":"markdown","body":_to_rich_text_body(payload.content)},
             author_user_id=cur.user_id,
+            file_ids=payload.file_ids,
         )
         from tracker_collaboration import sync_comment_mentions
         sync_comment_mentions(c.comment_id, cur.user_id, payload.mentioned_user_ids)
@@ -3171,6 +3175,7 @@ def patch_comment(comment_id: str, payload: CommentIn, cur: User = Depends(get_c
             comment_id=comment_id,
             content={"format":"markdown","body":_to_rich_text_body(payload.content)},
             user_id=cur.user_id,
+            file_ids=payload.file_ids,
         )
         from tracker_collaboration import sync_comment_mentions
         sync_comment_mentions(c.comment_id, cur.user_id, payload.mentioned_user_ids)

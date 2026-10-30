@@ -648,6 +648,7 @@ export function createFixtures(role: MockRole = "organizer") {
   const comments: Comment[] = [
     {
       comment_id: "comment-1",
+      attachments: [],
       task_id: "task-1",
       author: people[1],
       content: richText("Если нужна помощь, напишите в комментариях."),

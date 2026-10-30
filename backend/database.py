@@ -481,6 +481,7 @@ class CommentORM(Base):
     task_id = Column(String, ForeignKey("tasks.task_id"), nullable=False, index=True)
     author_user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False, index=True)
     content_json = Column(Text, nullable=False, default='{"format":"markdown","body":""}')
+    files_json = Column(Text, nullable=False, default='[]')
     history_json = Column(Text, nullable=False, default='[]')
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=True)
@@ -746,6 +747,17 @@ def _ensure_sqlite_tracker_closure_column() -> None:
 
 
 _ensure_sqlite_tracker_closure_column()
+
+
+def _ensure_sqlite_comment_files_column() -> None:
+    """Existing comments keep their text/history; none acquire inferred files."""
+    with engine.begin() as connection:
+        names = {row[1] for row in connection.execute(text("PRAGMA table_info(task_comments)"))}
+        if names and "files_json" not in names:
+            connection.execute(text("ALTER TABLE task_comments ADD COLUMN files_json TEXT NOT NULL DEFAULT '[]'"))
+
+
+_ensure_sqlite_comment_files_column()
 
 
 def _ensure_sqlite_event_closure_columns() -> None:
@@ -1739,6 +1751,7 @@ def _comment_orm_to_dc(session: Session, c: CommentORM, current_user_id: Optiona
         updated_at=c.updated_at,
         history=hist,
         capabilities=caps,
+        attachments=[FileRefDC(**ref) for ref in __import__('tracker')._file_refs(session, json.loads(c.files_json or '[]'))],
     )
 
 
@@ -6417,7 +6430,7 @@ class Database:
             rows = session.query(CommentORM).filter(CommentORM.task_id == task_id).order_by(CommentORM.created_at.asc()).all()
             return [_comment_orm_to_dc(session, c, current_user_id) for c in rows]
 
-    def create_comment(self, task_id: str, content: dict, author_user_id: int) -> CommentDC:
+    def create_comment(self, task_id: str, content: dict, author_user_id: int, file_ids: Optional[list[str]] = None) -> CommentDC:
         with self._session() as session:
             t = session.get(TaskORM, task_id)
             if not t:
@@ -6426,7 +6439,10 @@ class Database:
                 raise Forbidden("Forbidden: cannot comment on this task")
 
             body = content.get("body", "") if isinstance(content, dict) else str(content)
-            if not body or not body.strip():
+            file_ids = [] if file_ids is None else file_ids
+            from file_access import check_comment_attachments
+            check_comment_attachments(session,file_ids,task_id,author_user_id)
+            if not body.strip() and not file_ids:
                 raise InvalidInput("Comment body cannot be empty")
 
             c = CommentORM(
@@ -6434,6 +6450,7 @@ class Database:
                 task_id=task_id,
                 author_user_id=author_user_id,
                 content_json=json.dumps({"format": "markdown", "body": body}),
+                files_json=json.dumps(file_ids),
                 history_json="[]",
                 created_at=datetime.now(timezone.utc).isoformat(),
             )
@@ -6443,7 +6460,7 @@ class Database:
             session.commit()
             return _comment_orm_to_dc(session, c, author_user_id)
 
-    def patch_comment(self, comment_id: str, content: dict, user_id: int) -> CommentDC:
+    def patch_comment(self, comment_id: str, content: dict, user_id: int, file_ids: Optional[list[str]] = None) -> CommentDC:
         with self._session() as session:
             c = session.get(CommentORM, comment_id)
             if not c:
@@ -6456,7 +6473,12 @@ class Database:
                 raise Forbidden("Forbidden: cannot edit this comment")
 
             body = content.get("body", "") if isinstance(content, dict) else str(content)
-            if not body or not body.strip():
+            previous_files = json.loads(c.files_json or '[]')
+            selected_files = previous_files if file_ids is None else file_ids
+            if file_ids is not None:
+                from file_access import check_comment_attachments
+                check_comment_attachments(session,selected_files,c.task_id,user_id,existing=previous_files)
+            if not body.strip() and not selected_files:
                 raise InvalidInput("Comment body cannot be empty")
 
             now_str = datetime.now(timezone.utc).isoformat()
@@ -6470,10 +6492,12 @@ class Database:
                 prev_content = json.loads(c.content_json or "{}")
             except Exception:
                 pass
-            hist.append({"content": prev_content, "edited_at": now_str})
+            hist.append({"content": prev_content, "edited_at": now_str,
+                "attachments": __import__('tracker')._file_refs(session,previous_files)})
 
             session.info["tracker_actor"]=user_id
             c.content_json = json.dumps({"format": "markdown", "body": body})
+            c.files_json = json.dumps(selected_files)
             c.history_json = json.dumps(hist)
             c.updated_at = now_str
             session.commit()

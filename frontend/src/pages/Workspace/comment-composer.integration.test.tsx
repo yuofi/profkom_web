@@ -27,7 +27,7 @@ it("posts a real mention chip through the comment footer without bypassing outsi
   page=await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage/>}/></Routes>,{path:`/tasks/${task.task_id}`,session:authorSession});await waitForPage(page);
   const frame=page.container.querySelector('[data-markdown-editor="comment"]')!;
   await change(frame.querySelector('textarea')!,'Проверь, пожалуйста: ');
-  await act(async()=>frame.querySelector<HTMLButtonElement>('[data-editor-footer] [aria-haspopup="dialog"]')!.click());await waitForPage(page);
+  await act(async()=>frame.querySelector<HTMLButtonElement>('[data-editor-footer] [data-comment-mention-trigger]')!.click());await waitForPage(page);
   const option=document.querySelector<HTMLButtonElement>(`[data-anchored-popover] [data-option-value="${target.user_id}"]`)!;expect(option?.querySelector('img')).not.toBeNull();
   await act(async()=>option.click());
   await submit(frame.closest('form')!);await waitForPage(page,()=>!!page!.container.querySelector(`article a[href="/contacts/${target.user_id}"]`));
@@ -39,7 +39,7 @@ it("posts a real mention chip through the comment footer without bypassing outsi
   await liveLogin(author.email);await taskCollaborationApi.decide(task.task_id,pending.request_id,true,{expected_revision:pending.revision});
   const targetSession=await liveLogin(target.email);const readable=await tasksApi.get(task.task_id);expect(readable.capabilities).not.toContain('edit_task_description');
   page=await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage/>}/></Routes>,{path:`/tasks/${task.task_id}`,session:targetSession});await waitForPage(page);
-  expect(page.container.querySelector('[data-editor-footer] [aria-label="Прикрепить файлы к задаче"]')).toBeNull();
+  expect(page.container.querySelector('[data-editor-footer] [aria-label="Прикрепить файлы к комментарию"]')).not.toBeNull();
   const edit=[...page.container.querySelectorAll<HTMLButtonElement>('article button')].find(button=>button.textContent==='Редактировать')!;expect(edit).toBeDefined();
   await act(async()=>edit.click());const editor=page.container.querySelector('article [data-markdown-editor="comment"]')!;await change(editor.querySelector('textarea')!,'Правка читателя без потери доступа');await submit(editor.closest('form')!);await waitForPage(page,()=>page!.container.textContent!.includes('Правка читателя без потери доступа'));
   await page.cleanup();page=undefined;

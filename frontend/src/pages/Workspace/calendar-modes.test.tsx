@@ -83,13 +83,16 @@ it("renders all-day rows, real overlapping intervals and point markers together"
   expect(first.style.width).toBe(second.style.width);expect(first.style.left).not.toBe(second.style.left);
   const point = page.container.querySelector('[data-calendar-item="point"]')!;expect(point.getAttribute("data-point")).toBe("true");expect(point.textContent).toBe("14:00point");
 });
-it("groups event rows in three shared list widgets instead of per-event cards", async () => {
+it("shows each event once in the chronological feed and labels undated entries", async () => {
   const state = seed().state;state.events[0].starts_at = "2026-10-28T12:00:00Z";state.events[0].ends_at = "2026-10-30T12:00:00Z";
   state.events.push({ ...state.events[0], event_id: "undated-widget", title: "Без известного периода", starts_at: null, ends_at: null });
   page = await mountWorkspace(<EventsListPage />);await waitForPage(page);
-  expect(page.container.querySelectorAll('ul[aria-label="Сейчас идут"],ul[aria-label="Ближайшие"],ul[aria-label="Все мероприятия"]')).toHaveLength(3);
-  expect(page.container.querySelector('ul[aria-label="Сейчас идут"] a')?.textContent).toContain(state.events[0].title);
-  expect(page.container.querySelector('ul[aria-label="Все мероприятия"] a')?.textContent).toContain(state.events[0].title);
-  const undated = page.container.querySelector('ul[aria-label="Все мероприятия"] a[href="/events/undated-widget"]')!;
+  const feed = page.container.querySelector('[aria-label="Лента мероприятий"]')!;
+  expect(feed).not.toBeNull();
+  expect(feed.querySelector('ul[aria-label="Сейчас идут"] a')?.textContent).toContain(state.events[0].title);
+  expect(feed.querySelectorAll(`a[href="/events/${state.events[0].event_id}"]`)).toHaveLength(1);
+  expect(feed.querySelector('ul[aria-label="Все мероприятия"]')).toBeNull();
+  const undated = feed.querySelector('ul[aria-label="Даты уточняются"] a[href="/events/undated-widget"]')!;
+  expect(undated).not.toBeNull();
   expect(undated.textContent?.match(/Даты уточняются/g)).toHaveLength(1);
 });

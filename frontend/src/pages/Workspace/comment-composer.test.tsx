@@ -61,19 +61,22 @@ it("rendered mentions use safe identities while code, foreign links and missing 
 it("comment wire accepts only declared public identity fields",()=>{
   const fixture=createFixtures('chair'),comment={...fixture.comments[0],content:richText(`[Имя](/contacts/${people[1].user_id})`),mentioned_users:[people[1]]};
   expect(wireIssues('Comment',comment)).toEqual([]);
+  expect(wireIssues('Comment',{...comment,history:[{content:richText('Раньше'),edited_at:'2026-10-30T12:00:00Z',attachments:[{file_id:'old-file',name:'old.txt',mime_type:'text/plain',size_bytes:3}]}]})).toEqual([]);
+  const {attachments: omitted,...withoutAttachments}=comment;void omitted;expect(wireIssues('Comment',withoutAttachments)).toContain('Comment.attachments: expected array');
+  expect(wireIssues('Comment',{...comment,attachments:[{file_id:'file-comment',name:'notes.txt',mime_type:'text/plain',size_bytes:2,storage_key:'private'}]})).toContain('Comment.attachments[0].storage_key: unexpected field');
   expect(wireIssues('Comment',{...comment,mentioned_users:[{...people[1],phone:'not-public'}]})).toContain('Comment.mentioned_users: expected UserRef[] | undefined');
 });
 
 
-it("the footer retains the task attachment ACL and preserves the comment draft across its dialog",async()=>{
-  const fixture=createFixtures('chair'),task={...fixture.tasks[0],capabilities:['comment_task','attach_task_file'],status:'open' as const};
+it("the comment attachment popover preserves its local draft and never opens task editing",async()=>{
+  const fixture=createFixtures('chair'),task={...fixture.tasks[0],capabilities:['comment_task'],status:'open' as const};
   vi.spyOn(tasksApi,'get').mockResolvedValue(task);vi.spyOn(tasksApi,'comments').mockResolvedValue({items:[],next_cursor:null});vi.spyOn(seasonsApi,'list').mockResolvedValue({items:fixture.seasons,next_cursor:null});vi.spyOn(historyApi,'list').mockResolvedValue({items:[],next_cursor:null});
   page=await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage/>}/></Routes>,{path:`/tasks/${task.task_id}`});await waitForPage(page);
   const frame=page.container.querySelector('[data-markdown-editor="comment"]')!;await change(frame.querySelector('textarea')!,'Не потерять черновик комментария');
-  await act(async()=>frame.querySelector<HTMLButtonElement>('[aria-label="Прикрепить файлы к задаче"]')!.click());await settle();
-  const dialog=page.container.querySelector('dialog')!;expect(dialog.querySelector('input[type="file"]')).not.toBeNull();
+  await act(async()=>frame.querySelector<HTMLButtonElement>('[aria-label="Прикрепить файлы к комментарию"]')!.click());await settle();
+  const dialog=document.querySelector('[data-anchored-popover]')!;expect(dialog.querySelector('input[type="file"]')).not.toBeNull();
   await act(async()=>dialog.querySelector<HTMLButtonElement>('[aria-label="Закрыть окно"]')!.click());await settle();
-  expect(page.container.querySelector('dialog')).toBeNull();expect(frame.querySelector('textarea')!.value).toBe('Не потерять черновик комментария');
+  expect(document.querySelector('[data-anchored-popover]')).toBeNull();expect(page.container.querySelector('dialog')).toBeNull();expect(frame.querySelector('textarea')!.value).toBe('Не потерять черновик комментария');
 });
 
 
@@ -84,7 +87,7 @@ async function mountDraftTask(existing=false) {
   page=await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage/>}/></Routes>,{path:`/tasks/${task.task_id}`});await waitForPage(page);return{task,comment};
 }
 async function chooseDraftPerson(frame:Element,userId:number) {
-  await act(async()=>frame.querySelector<HTMLButtonElement>('[data-editor-footer] [aria-haspopup="dialog"]')!.click());await waitForPage(page!);
+  await act(async()=>frame.querySelector<HTMLButtonElement>('[data-editor-footer] [data-comment-mention-trigger]')!.click());await waitForPage(page!);
   await act(async()=>document.querySelector<HTMLButtonElement>(`[data-anchored-popover] [data-option-value="${userId}"]`)!.click());await settle();
 }
 it('correcting a selected person removes the owned token and sends only the replacement recipient',async()=>{
@@ -93,7 +96,7 @@ it('correcting a selected person removes the owned token and sends only the repl
   await change(input,'Сохранить этот текст');await chooseDraftPerson(frame,people[1].user_id!);expect(input.value).toContain('/contacts/'+people[1].user_id);
   await chooseDraftPerson(frame,people[1].user_id!);expect(input.value).not.toContain('/contacts/'+people[1].user_id);expect(input.value).toContain('Сохранить этот текст');
   await chooseDraftPerson(frame,people[2].user_id!);await submit(frame.closest('form')!);await waitForPage(page!,()=>post.mock.calls.length===1);
-  expect(post).toHaveBeenCalledWith(task.task_id,{format:'markdown',body:expect.stringContaining('/contacts/'+people[2].user_id)},[people[2].user_id]);
+  expect(post).toHaveBeenCalledWith(task.task_id,{format:'markdown',body:expect.stringContaining('/contacts/'+people[2].user_id)},[people[2].user_id],[]);
 });
 it('deleting an inserted link clears pending recipients while manually typed links stay display-only',async()=>{
   const {task,comment}=await mountDraftTask(),post=vi.spyOn(tasksApi,'comment').mockResolvedValue(comment);
@@ -101,11 +104,11 @@ it('deleting an inserted link clears pending recipients while manually typed lin
   await change(input,'Черновик');await chooseDraftPerson(frame,people[1].user_id!);
   const body=`Ручная [ссылка](/contacts/${people[2].user_id}) без призыва`;await change(input,body);
   expect(frame.querySelector('[data-editor-footer]')!.textContent).not.toContain('· 1');await submit(frame.closest('form')!);await waitForPage(page!,()=>post.mock.calls.length===1);
-  expect(post).toHaveBeenCalledWith(task.task_id,richText(body),[]);
+  expect(post).toHaveBeenCalledWith(task.task_id,richText(body),[],[]);
 });
 it('editing an existing mentioned comment never re-sends its previous recipients',async()=>{
   const {comment}=await mountDraftTask(true),save=vi.spyOn(tasksApi,'editComment').mockResolvedValue(comment);
   await act(async()=>[...page!.container.querySelectorAll<HTMLButtonElement>('article button')].find(button=>button.textContent==='Редактировать')!.click());
   const frame=page!.container.querySelector('article [data-markdown-editor="comment"]')!,body=comment.content.body+' Исправление текста';await change(frame.querySelector('textarea')!,body);await submit(frame.closest('form')!);await waitForPage(page!,()=>save.mock.calls.length===1);
-  expect(save).toHaveBeenCalledWith(comment.comment_id,richText(body),[]);
+  expect(save).toHaveBeenCalledWith(comment.comment_id,richText(body),[],[]);
 });

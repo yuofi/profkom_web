@@ -54,7 +54,7 @@ JSON_COLUMNS = {
     "task_tracker": {"public_statuses_json", "public_revisions_json", "files_json"},
     "task_activity": {"changes_json"}, "task_submissions": {"text_json", "links_json", "files_json"},
     "submissions": {"text_json", "links_json", "files_json"},
-    "task_comments": {"content_json", "history_json"},
+    "task_comments": {"content_json", "history_json", "files_json"},
     "merits": {"description_json", "criteria_json", "recipients_json"},
     "master_bonuses": {"basis_json"}, "season_summaries": {"rows_json"},
     "season_decisions": {"decisions_json"}, "reports": {"files_json", "draft_files_json"},
