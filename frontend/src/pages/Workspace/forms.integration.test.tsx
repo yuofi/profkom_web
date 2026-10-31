@@ -19,7 +19,7 @@ import { UserProvider } from "../../utils/ctx";
 import { TaskPage } from "./TaskPages";
 import { BlockPage } from "./MembershipPages";
 import { EventPage, SubeventPage } from "./EventPages";
-import { SummaryPage } from "./SeasonPages";
+import { SeasonPage } from "./SeasonPages";
 import { AccountStatePage, LeadershipPage } from "./SessionPages";
 
 // FIX_PLAN 2.12 against the live local API: forms keep their input through access
@@ -192,7 +192,7 @@ it("2.12 A-FE-2: two rows of one summary save one after another without a confli
   // Decisions are edited while the season is summarized; closed totals are corrected elsewhere.
   const current = (await seasonsApi.list()).items.find(s => s.season_id === season.season_id)!;
   await seasonsApi.command(season.season_id, "begin-summary", { expected_revision: current.revision });
-  await mount(`/seasons/${season.season_id}/summary`, "/seasons/:id/summary", <SummaryPage />);
+  await mount(`/seasons/${season.season_id}`, "/seasons/:id", <SeasonPage />);
   const rows = () => forms().filter(f => f.querySelector('[name="decisions"]'));
   const participantRow = (id: number) => page!.container.querySelector(`tbody a[href="/contacts/${id}"]`)?.closest("tr");
   await until(() => !!participantRow(people[0].user_id) && !!participantRow(people[1].user_id));expect(rows()).toHaveLength(0);

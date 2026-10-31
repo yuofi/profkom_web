@@ -9,7 +9,7 @@ import { EventEditPage } from "./EventPages";
 import { BlockPage } from "./MembershipPages";
 import { AccountStatePage } from "./SessionPages";
 import { MeetingPage } from "./ReportPages";
-import { SeasonPage, SummaryPage } from "./SeasonPages";
+import { SeasonPage } from "./SeasonPages";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { QueryState } from "../../components/Workspace/WorkspaceUI";
 import { ApiError } from "../../utils/api/request";
@@ -39,7 +39,7 @@ it.each(["event", "block", "registration", "meeting", "season", "decisions"] as 
     registration: ["/", "/", <AccountStatePage />, "phone"],
     meeting: ["/meetings/subevent/subevent-1", "/meetings/:kind/:id", <MeetingPage />, "title"],
     season: ["/seasons/season-1", "/seasons/:id", <SeasonPage />, "title"],
-    decisions: ["/seasons/season-1/summary", "/seasons/:id/summary", <SummaryPage />, "reason"],
+    decisions: ["/seasons/season-1", "/seasons/:id", <SeasonPage />, "reason"],
   } as const;
   const [path, route, element, name] = routes[kind];
   page = await mountWorkspace(<Routes><Route path={route} element={element} /></Routes>, { role, path });
