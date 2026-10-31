@@ -108,7 +108,7 @@ export function DashboardPage() {
   const hasApprovals = !day.error && !day.isLoading && !!day.data?.approvals.length;
   const workEntry = ["create_volunteer_merit", "create_head_merit", "create_chair_merit"].some(capability => can(session, capability) || !!session?.assignments?.some(assignment => can(assignment, capability)));
   const seasonTitle = (id: string | null) => seasons.data?.items.find(season => season.season_id === id)?.title ?? "Сезон";
-  return <Page className={d.page} headerClassName={d.header} title="Рабочее пространство" description="Сегодня, ближайшие задачи и решения, которые ждут вас." actions={workEntry && <Link className={s.button} to="/merits"><Glyph name="fact_check" />Учёт работы</Link>}>
+  return <Page className={d.page} headerClassName={d.header} title="Рабочее пространство" description="Сегодня, ближайшие задачи и решения, которые ждут вас." actions={workEntry && <Link className={s.button} to="/merits"><Glyph name="fact_check" />Учёт выполненной работы</Link>}>
     <div className={d.utility}><label className={d.watching}><input type="checkbox" checked={watching} onChange={event => setWatching(event.target.checked)} />Также задачи, за которыми я наблюдаю</label></div>
     <QueryState loading={day.isLoading} error={day.error} retry={() => void day.refetch()}>{day.data && <div className={d.primary}>
       <Card className={`${d.panel} ${d.todayPanel}`}><DashboardHeading title="Сегодня" to={`/calendar?view=day&date=${day.data.today}`} linkLabel="Весь календарь" /><div className={d.calendar} role="region" aria-label="Сегодняшний день"><CalendarTimeGrid days={[day.data.today]} items={day.data.agenda} seasonTitle={seasonTitle} today={day.data.today} compact /></div></Card>

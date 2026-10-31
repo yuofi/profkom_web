@@ -125,6 +125,7 @@ const GreetingPage = lazy(() => import("./pages/Greeting/Greeting").then(m => ({
 import { UserProvider } from "./utils/ctx";
 import { retryTransient, workspaceQueryCache } from "./utils/api/invalidation";
 import { ProtectedRoute } from "./pages/Wrappers/wrappers";
+import { LegacyAdminRedirect } from "./pages/Admin/LegacyAdminRedirect";
 const ProfilePage = lazy(() => import("./pages/ProfilePage/ProfilePage").then(m => ({ default: m.ProfilePage })));
 const ProfileSettingsPage = lazy(() => import("./pages/ProfilePage/ProfileSettingsPage").then(m => ({ default: m.ProfileSettingsPage })));
 const KkrTemplatesPage = lazy(() => import("./pages/Workspace/SeasonPages").then(module => ({ default: module.KkrTemplatesPage })));
@@ -169,7 +170,7 @@ const router = createBrowserRouter(createRoutesFromElements(
                     />
                     <Route
                       path="accounts/archive"
-                      element={<Navigate to="/admin/accounts" replace />}
+                      element={<LegacyAdminRedirect tab="accounts" />}
                     />
                     <Route
                       path="info"
@@ -188,7 +189,7 @@ const router = createBrowserRouter(createRoutesFromElements(
                     <Route path="events/:id/edit" element={<EventEditPage />} />
                     <Route path="events/:id" element={<EventPage />} />
                     <Route path="subevents/:id" element={<SubeventPage />} />
-                    <Route path="leadership" element={<Navigate to="/admin/leadership" replace />} />
+                    <Route path="leadership" element={<LegacyAdminRedirect tab="leadership" fallback="/blocks" />} />
                     <Route path="tasks" element={<TasksListPage />} />
                     <Route
                       path="tasks/unresolved"
@@ -239,7 +240,7 @@ const router = createBrowserRouter(createRoutesFromElements(
                     <Route path="blocks/:id" element={<BlockPage />} />
                     <Route
                       path="registrations"
-                      element={<Navigate to="/admin/registrations" replace />}
+                      element={<LegacyAdminRedirect tab="registrations" />}
                     />
                     {/* Each tab checks its own right (АВ-34). */}
                     <Route path="admin" element={<AdminPanel />} />
