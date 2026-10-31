@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { act, useState } from "react";
-import { Route, Routes, useLocation } from "react-router-dom";
+import { act, useEffect, useState } from "react";
+import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { TrackerListPage } from "./TrackerList";
 import { tasksApi } from "../../utils/api/tasks.api";
@@ -103,4 +103,41 @@ it("keeps the team column on the main list and folds more than three assignees i
   const cell = page!.container.querySelector("td[data-label='Исполнители']")!;
   expect(cell.querySelectorAll('a[href^="/contacts/"]')).toHaveLength(3);
   expect(cell.textContent).toContain("+2");expect(cell.textContent).toContain(people[4].display_name);
+});
+
+it("keeps the current rows and paging in place while the next page loads", async () => {
+  transport = installMockTransport("chair", { delay: 0 });
+  const fixture = createFixtures("chair").tasks[0];let release!: (value: TaskListPageResponse) => void;
+  vi.spyOn(tasksApi, "listPage").mockImplementation(async params => (params as { cursor?: string }).cursor
+    ? new Promise<TaskListPageResponse>(resolve => { release = resolve; })
+    : { items: [{ ...fixture, title: "Первая страница" }], next_cursor: "page-two", total: 21, scopes: [], assignees: [] });
+  page = await mountWorkspace(<TrackerListPage />, { path: "/tasks?mine=false" });await waitForPage(page);
+  const table = page.container.querySelector("table");
+  await act(async () => button("Далее").click());
+  expect(page.container.querySelector("table")).toBe(table);expect(page.container.textContent).not.toContain("Загружаем данные");
+  expect(page.container.querySelector("[aria-busy='true']")?.textContent).toContain("Первая страница");
+  expect(button("Далее").disabled).toBe(true);expect(button("Назад").disabled).toBe(true);expect(page.container.textContent).toContain("Страница 2");
+  await act(async () => release({ items: [{ ...fixture, title: "Вторая страница" }], next_cursor: null, total: 21, scopes: [], assignees: [] }));await waitForPage(page);
+  expect(page.container.textContent).toContain("Вторая страница");expect(page.container.querySelector("[aria-busy='true']")).toBeNull();expect(button("Назад").disabled).toBe(false);
+});
+it("steps back from an opened page link through its saved previous cursor", async () => {
+  const { list } = await mount("/tasks?mine=false&cursor=c3&page=3&prev_cursor=c2", params => ({ items: [], next_cursor: (params as { cursor?: string }).cursor ? "c4" : "c2", total: 80, scopes: [], assignees: [] }));
+  await act(async () => button("Назад").click());await waitForPage(page!);
+  expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: "c2" }), expect.any(AbortSignal));expect(page!.container.textContent).toContain("Страница 2");
+});
+it("walks back through every earlier page saved in the history entry after a reload", async () => {
+  transport = installMockTransport("chair", { delay: 0 });
+  const list = vi.spyOn(tasksApi, "listPage").mockImplementation(async () => ({ items: [], next_cursor: "next", total: 80, scopes: [], assignees: [] }));
+  function Reloaded() {
+    const navigate = useNavigate(), [ready, setReady] = useState(false);
+    useEffect(() => { navigate("/tasks?mine=false&cursor=c4&page=4&prev_cursor=c3", { replace: true, state: { trackerCursors: ["", "c2", "c3"] } });setReady(true); }, [navigate]);
+    return ready ? <><TrackerListPage /><Location /></> : null;
+  }
+  page = await mountWorkspace(<Reloaded />, { path: "/tasks" });await waitForPage(page);
+  await act(async () => button("Назад").click());await waitForPage(page);
+  expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: "c3" }), expect.any(AbortSignal));expect(page.container.textContent).toContain("Страница 3");
+  await act(async () => button("Назад").click());await waitForPage(page);
+  expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: "c2" }), expect.any(AbortSignal));expect(page.container.textContent).toContain("Страница 2");
+  await act(async () => button("Назад").click());await waitForPage(page);
+  expect(list.mock.lastCall?.[0]).not.toHaveProperty("cursor");expect(new URLSearchParams(page.container.querySelector("[data-location]")!.textContent!).has("prev_cursor")).toBe(false);
 });

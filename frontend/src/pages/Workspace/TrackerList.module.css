@@ -22,7 +22,8 @@
 .filterChip button:hover { background: var(--surface-container-highest); }
 .filterChip button > span { font-size: 17px; }
 .clear { color: var(--accent-lilac); background: transparent; border: 0; padding: 8px; font: inherit; font-size: 12px; cursor: pointer; }
-.tableWrap { width: 100%; min-width: 0; }
+.tableWrap { width: 100%; min-width: 0; transition: opacity .15s ease; }
+.tableWrap[aria-busy=true] { opacity: .62; }
 .table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
 .table th { color: var(--on-surface-variant); font-weight: 400; text-align: left; font-size: 12px; padding: 12px 8px; border-bottom: 1px solid color-mix(in srgb, var(--outline-variant) 40%, transparent); }
 /* One width set: content-sized key, status and dates; title, people and team share the rest. */

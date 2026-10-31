@@ -3,8 +3,8 @@ import { TrackerHomeLink } from "../../components/Workspace/TrackerHomeLink";
 import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
 import { EntityPicker } from "../../components/Workspace/EntityPicker";
 import { useEffect, useRef, useState, type MouseEvent, type KeyboardEvent, type ReactNode } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useDebouncedValue } from "../../utils/hooks/useDebouncedValue";
 import { Empty, Glyph, QueryState, RouteLink } from "../../components/Workspace/WorkspaceUI";
 import { taskQueuesApi } from "../../utils/api/taskQueues.api";
@@ -40,8 +40,7 @@ const optionLabels: Record<string, string> = {
 export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?: ReactNode }) {
   const navigate = useNavigate();
   const { session } = useSession();
-  const [params, setParams] = useSearchParams();
-  const previous = useRef(new Map<string, string>());
+  const [params, setParams] = useSearchParams(), location = useLocation();
   const filterMenu = useRef<HTMLDetailsElement>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const search = params.get("q") ?? "", settledSearch = useDebouncedValue(search);
@@ -57,6 +56,12 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
   const range = planningRange(month, view === "calendar" ? "calendar" : "gantt", zoom);
   const cursor = params.get("cursor") ?? "";
   const pageNumber = Math.max(1, Number(params.get("page")) || 1);
+  // Cursors of earlier pages live in this history entry (they survive a reload); the URL
+  // keeps the immediately previous cursor so an opened link can still step back once.
+  const previousCursor = params.get("prev_cursor") ?? "";
+  const savedCursors = (location.state as { trackerCursors?: unknown } | null)?.trackerCursors;
+  const cursorStack = Array.isArray(savedCursors) && savedCursors.every(item => typeof item === "string") && savedCursors.length === pageNumber - 1 && (savedCursors.at(-1) ?? "") === previousCursor
+    ? savedCursors as string[] : pageNumber === 1 ? [] : null;
   const filters = {
     queue_id: queue?.queue_id ?? params.get("queue_id") ?? "",
     mine: params.get("mine") ?? "false",
@@ -78,7 +83,9 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
   };
   const requestFilters = Object.fromEntries(Object.entries({ ...filters, q: settledSearch }).filter(([, value]) => value !== ""));
   const listFilters = view === "list" ? requestFilters : { ...requestFilters, limit: 1 };
-  const query = useQuery({ queryKey: ["tasks", "page", listFilters], queryFn: ({ signal }) => tasksApi.listPage(listFilters, signal), enabled: !searchPending && (view === "list" || filtersOpen) });
+  // The previous page stays on screen while the next selection loads; a refused read still has no data.
+  const query = useQuery({ queryKey: ["tasks", "page", listFilters], queryFn: ({ signal }) => tasksApi.listPage(listFilters, signal), enabled: !searchPending && (view === "list" || filtersOpen), placeholderData: keepPreviousData });
+  const listBusy = searchPending || query.isPlaceholderData;
   const timeline = useQuery({ queryKey: ["tasks", "planning", requestFilters, range.first, range.last], queryFn: ({ signal }) => loadPlanningTasks(requestFilters, range, signal), enabled: view !== "list" && !searchPending });
   const queues = useQuery({ queryKey: ["tasks", "queues", "catalog"], queryFn: taskQueuesApi.catalog, enabled: !queue });
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list, enabled: filtersOpen || !!filters.season_id });
@@ -109,27 +116,28 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
       }
     } else if (value) next.set(key, value);
     else next.delete(key);
-    next.delete("cursor"); next.delete("page");
-    previous.current.clear();
+    next.delete("cursor"); next.delete("page"); next.delete("prev_cursor");
     setParams(next, { replace });
   };
   const turnPage = (nextCursor: string) => {
     const next = new URLSearchParams(params);
-    if (nextCursor) {
-      previous.current.set(nextCursor, cursor); next.set("cursor", nextCursor); next.set("page", String(pageNumber + 1));
-    } else { next.delete("cursor"); next.delete("page"); }
-    setParams(next);
+    next.set("cursor", nextCursor); next.set("page", String(pageNumber + 1));
+    if (cursor) next.set("prev_cursor", cursor); else next.delete("prev_cursor");
+    setParams(next, { state: cursorStack ? { trackerCursors: [...cursorStack, cursor] } : null });
   };
   const goBack = () => {
-    const next = new URLSearchParams(params), before = previous.current.get(cursor) ?? "";
-    if (before) { next.set("cursor", before); next.set("page", String(Math.max(1, pageNumber - 1))); }
-    else { next.delete("cursor"); next.delete("page"); }
-    setParams(next);
+    const next = new URLSearchParams(params), before = cursorStack ? cursorStack.at(-1) ?? "" : previousCursor;
+    const earlier = cursorStack?.slice(0, -1) ?? null;
+    if (before) {
+      next.set("cursor", before); next.set("page", String(Math.max(2, pageNumber - 1)));
+      if (earlier?.at(-1)) next.set("prev_cursor", earlier.at(-1)!); else next.delete("prev_cursor");
+    } else { next.delete("cursor"); next.delete("page"); next.delete("prev_cursor"); }
+    setParams(next, { state: earlier && before ? { trackerCursors: earlier } : null });
   };
   const changeSort = (sort: string) => {
     const next = new URLSearchParams(params);
     next.set("sort", sort); next.set("order", filters.sort === sort && filters.order === "asc" ? "desc" : "asc");
-    next.delete("cursor"); next.delete("page"); previous.current.clear(); setParams(next);
+    next.delete("cursor"); next.delete("page"); next.delete("prev_cursor"); setParams(next);
   };
   const open = (event: MouseEvent<HTMLTableRowElement>, task: Task) => {
     if (interactive(event.target) || window.getSelection()?.toString()) return;
@@ -189,10 +197,10 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
     <div className={s.activeFilters} aria-label="Активные фильтры">
       {active.map((filter) => <span className={s.filterChip} key={filter.key}>{filter.label}<button type="button" aria-label={`Убрать фильтр: ${optionLabels[filter.key]}`} onClick={() => update(filter.key, "")}><Glyph name="close" /></button></span>)}
       {!active.length && <span className={s.filterHint}>Показаны все доступные вам задачи</span>}
-      {active.length > 1 && <button type="button" className={s.clear} onClick={() => { previous.current.clear(); const next = new URLSearchParams();["view", "month", "zoom"].forEach(key => { const value = params.get(key);if (value) next.set(key, value); });setParams(next); }}>Сбросить все</button>}
+      {active.length > 1 && <button type="button" className={s.clear} onClick={() => { const next = new URLSearchParams();["view", "month", "zoom"].forEach(key => { const value = params.get(key);if (value) next.set(key, value); });setParams(next); }}>Сбросить все</button>}
     </div>
-    <QueryState loading={searchPending || (view === "list" ? query.isLoading : timeline.isLoading)} error={error} keepDataOnError={view === "list" ? !!query.data : !!timeline.data} retry={() => { void query.refetch();if (view !== "list") void timeline.refetch(); }}>
-      {view === "calendar" ? <TrackerCalendar tasks={tasks} range={range} month={month} onMonth={value => update("month", value)} /> : view === "gantt" ? <TrackerGantt tasks={tasks} range={range} month={month} onMonth={value => update("month", value)} zoom={zoom} onZoom={value => update("zoom", value)} /> : tasks.length ? <div className={s.tableWrap}>
+    <QueryState loading={view === "list" ? query.isLoading : timeline.isLoading} error={error} keepDataOnError={view === "list" ? !!query.data : !!timeline.data} retry={() => { void query.refetch();if (view !== "list") void timeline.refetch(); }}>
+      {view === "calendar" ? <TrackerCalendar tasks={tasks} range={range} month={month} onMonth={value => update("month", value)} /> : view === "gantt" ? <TrackerGantt tasks={tasks} range={range} month={month} onMonth={value => update("month", value)} zoom={zoom} onZoom={value => update("zoom", value)} /> : tasks.length ? <div className={s.tableWrap} aria-busy={listBusy || undefined}>
         <table className={s.table} aria-label="Список задач">
           <thead><tr><th scope="col" className={s.colKey}>Ключ</th><th scope="col">Задача</th><th scope="col" className={s.colAssignees}>Исполнители</th><th scope="col" className={s.colStatus}>Статус</th><th scope="col" className={s.colDeadline} aria-sort={filters.sort === "deadline" ? filters.order === "desc" ? "descending" : "ascending" : "none"}><button onClick={() => changeSort("deadline")}>Дедлайн {filters.sort === "deadline" && (filters.order === "asc" ? "↑" : "↓")}</button></th>{showScope && <th scope="col" className={s.colScope}>Команда</th>}<th scope="col" className={s.colUpdated} aria-sort={filters.sort === "updated" ? filters.order === "desc" ? "descending" : "ascending" : "none"}><button onClick={() => changeSort("updated")}>Обновлено {filters.sort === "updated" && (filters.order === "asc" ? "↑" : "↓")}</button></th></tr></thead>
           <tbody>{tasks.map((task) => <tr key={task.task_id} tabIndex={0} aria-label={`Открыть задачу ${task.task_key ?? task.title}`} onClick={(event) => open(event, task)} onAuxClick={(event) => open(event, task)} onKeyDown={(event) => openKeyboard(event, task)}>
@@ -206,11 +214,11 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
           </tr>)}</tbody>
         </table>
       </div> : <Empty>Подходящих задач нет. Измените фильтры или создайте задачу на странице своей команды.</Empty>}
-      {view === "list" && <footer className={s.pagination}>
-        <span aria-live="polite">На странице: {tasks.length}{query.data?.total != null && ` · Всего: ${query.data.total}`}</span>
-        {(cursor || query.data?.next_cursor) && <div><button className={w.button} disabled={!cursor} onClick={goBack}>Назад</button><span>Страница {pageNumber}</span><button className={w.button} disabled={!query.data?.next_cursor} onClick={() => query.data?.next_cursor && turnPage(query.data.next_cursor)}>Далее</button></div>}
-      </footer>}
     </QueryState>
+    {view === "list" && query.data && (!error || canRetainData(error)) && <footer className={s.pagination}>
+      <span aria-live="polite">На странице: {tasks.length}{query.data.total != null && ` · Всего: ${query.data.total}`}</span>
+      {(cursor || query.data.next_cursor) && <div><button className={w.button} disabled={!cursor || listBusy} onClick={goBack}>Назад</button><span>Страница {pageNumber}</span><button className={w.button} disabled={!query.data.next_cursor || listBusy} onClick={() => query.data?.next_cursor && turnPage(query.data.next_cursor)}>Далее</button></div>}
+    </footer>}
 
   </section>;
 }
