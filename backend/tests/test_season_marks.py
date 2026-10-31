@@ -1,8 +1,10 @@
 """Season marks (owner, 2026-10-31): an open or summarizing season's mark answers to the
-participant's own previous marks, not to the version of the whole summary (PB-16)."""
+participant's own previous marks, not to the version of the whole summary (PB-16); a planned
+season takes no marks, while its summary, export and coefficients stay (SE-21)."""
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -33,6 +35,7 @@ def test_mark_survives_accounting_elsewhere_and_answers_to_its_own_marks(client,
         begun = client.post(f"/api/seasons/{sid}/begin-summary", headers=superuser.headers, json={"expected_revision": 2})
         assert begun.status_code == 200, begun.text
     seen = summary(client, superuser, sid)
+    assert "edit_decisions" in seen["capabilities"]
     accept(client, work)  # the master accepts the member's work meanwhile: the summary version moves
     moved = summary(client, superuser, sid)["version"]
     assert moved > seen["version"]
@@ -105,3 +108,34 @@ def test_two_clicks_on_the_same_marks_save_exactly_one(client, work, superuser, 
     assert marks(summary(client, superuser, sid), target) == winner
     with db._session() as session:
         assert session.query(SeasonDecisionORM).filter_by(season_id=sid, user_id=target).count() == 1
+
+
+def test_planned_season_takes_no_marks_but_keeps_its_summary_and_coefficients(client, superuser, make_user, make_hr):
+    import access
+    assert access.roles_for("summary.decide", "planned") == frozenset()
+    now = datetime.now(timezone.utc)
+    hr, _ = make_hr(block_name="HR")
+    target = make_user()
+    planned = client.post("/api/seasons", headers=superuser.headers, json={"title": "Следующий", "type": "winter_spring",
+        "starts_at": (now + timedelta(days=60)).isoformat(), "ends_at": (now + timedelta(days=160)).isoformat()})
+    assert planned.status_code == 200 and planned.json()["state"] == "planned", planned.text
+    sid = planned.json()["season_id"]
+    for actor in (superuser, hr):
+        draft = summary(client, actor, sid)
+        assert "view_summary" in draft["capabilities"] and "edit_decisions" not in draft["capabilities"], draft["capabilities"]
+        assert client.get(f"/api/seasons/{sid}/summary.xlsx", headers=actor.headers).status_code == 200
+        for body in ({"expected_version": draft["version"], "expected_decisions": [], "decisions": ["nice"]},
+                     {"expected_version": draft["version"], "decisions": ["nice"]}):
+            refused = put(client, actor, sid, target.user_id, body)
+            assert refused.status_code == 403 and refused.json()["detail"]["code"] == "forbidden", refused.text
+    after = summary(client, superuser, sid)
+    assert marks(after, target.user_id) == [] and after["version"] == draft["version"]
+    # Coefficients and the accounting reads of a planned season keep working.
+    items = client.get(f"/api/seasons/{sid}/coefficients", headers=superuser.headers).json()["items"]
+    chair = next(item for item in items if item["source_kind"] == "chair")
+    assert "edit_coefficient" in chair["capabilities"]
+    changed = client.put(f"/api/seasons/{sid}/coefficients", headers=superuser.headers,
+        json={"source_kind": "chair", "source_id": "chair", "value": 1.5, "expected_revision": chair["revision"]})
+    assert changed.status_code == 200 and changed.json()["value"] == 1.5, changed.text
+    for path in (f"/api/seasons/{sid}/statistics", f"/api/seasons/{sid}/analytics", f"/api/assessments?season_id={sid}"):
+        assert client.get(path, headers=superuser.headers).status_code == 200, path

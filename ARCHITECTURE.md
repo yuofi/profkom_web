@@ -1204,6 +1204,9 @@ else:
   переназначение — по умолчанию TR-05 только у председателя и замов
   (`task.add_assignment`), ответ владельца по TR-05 ещё не получен; неизменяемые
   составы, созвоны, метаданные мероприятий и правила отчётов закрытого сезона.
+- Запланированный сезон отметок не принимает: `summary.decide` в planned пусто,
+  PUT отметок — 403, черновая сводная — без `edit_decisions`. Чтение сводной и
+  xlsx, коэффициенты и подробные начисления остаются (SE-21).
 - Зам мастера HR читает гайд своего блока HR (отдельное отношение
   `HR_BLOCK_DEPUTY` только в `material.read_block_guide`; в карточке блока —
   `read_guide`). Отсутствие чтения было ошибкой. Правка гайда и карточки блока
@@ -1966,7 +1969,7 @@ source_id в строке сводной — block_id, отдельная кол
 | Особые заслуги | `GET/POST /merits`, `GET/PATCH /merits/{id}` | Главорг свою таблицу без расчёта; глобальные роли по матрице; председатель свои заслуги |
 | Волонтёры | Те же `/merits`, source_kind=block_volunteer/subevent_volunteer | Мастер/ответственный/зам своей области; обычная формула постфактум; ни задачи, ни членства, ни доступа волонтёру |
 | Начисления мастерам | `GET /seasons/{id}/master-bonuses` | Только HR/председатель и замы; черновой или утверждённый расчёт, без ручной записи суммы |
-| Сводная | `GET /seasons/{id}/summary`, `GET /seasons/{id}/summary.xlsx`, `PUT /seasons/{id}/summary/decisions/{user_id}`, `POST /seasons/{id}/summary/correct` | Чтение мастер HR/председатель и замы; после close запись председатель, замы и мастер HR (2026-10-31), с причиной |
+| Сводная | `GET /seasons/{id}/summary`, `GET /seasons/{id}/summary.xlsx`, `PUT /seasons/{id}/summary/decisions/{user_id}`, `POST /seasons/{id}/summary/correct` | Чтение мастер HR/председатель и замы; после close запись председатель, замы и мастер HR (2026-10-31), с причиной; в planned отметок нет (SE-21) |
 | Комментарии | `GET/POST /tasks/{id}/comments`, `PATCH /comments/{id}` | Чтение по задаче; собственная правка с историей |
 | Созвоны | `GET/PUT /events/{id}/meeting`, `GET/PUT /subevents/{id}/meeting`, соответствующий `DELETE` | Получатели и редакторы по уровню; без истории |
 | Отчёты | `GET/POST /reports`, `GET/PATCH /reports/{id}`, `POST /reports/{id}/publish`, `GET /reports/{id}/versions` | Владельцы/редакторы области; после close сохранённые редакторы экземпляра; читатели только опубликованное |
@@ -2152,6 +2155,10 @@ ID, даты сервера, расчёт, состояния, роли и capab
   `revision_conflict` только изменение отметок этого участника, а не приёмка работы
   или другая отметка (владелец, 2026-10-31, PB-16). Сравнение и запись идут в одной
   транзакции записи. Запрос без `expected_decisions` проверяет версию сводной, как прежде.
+  Запланированный сезон отметок не принимает: правило `summary.decide` в planned пусто,
+  PUT — 403 любому, черновая сводная planned приходит без `edit_decisions`. Чтение сводной
+  и xlsx, коэффициенты, подробные начисления и источники ККР planned работают, как прежде
+  (владелец, 2026-10-31, SE-21).
 - `POST .../summary/correct`: `{expected_version, reason, changes: [{kind:
   "task_inputs"|"assessment_inputs"|"merit", id, expected_revision, values: object}]}`
   → `SeasonSummary`. Closed — председатель, замы и мастер HR (2026-10-31); `values` валидируются по

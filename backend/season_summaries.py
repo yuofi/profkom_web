@@ -462,6 +462,7 @@ def decisions(season_id, target, values, expected_version, reason, uid, expected
                 raise NotFound("Season not found")
             if not access.allowed(uid, "summary.decide", state=season.state):
                 raise Forbidden("Forbidden: only the chair, deputies and HR master edit closed marks" if season.state == "closed"
+                                 else "Forbidden: a planned season takes no marks" if season.state == "planned"
                                  else "Forbidden: decision editor required")
             if season.state == "closed" and (not reason or not reason.strip()):
                 raise InvalidInput("Reason is required")
