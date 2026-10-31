@@ -158,8 +158,8 @@ it("creates, edits, publishes and deletes a material through available routes", 
   const material = mock.state.materials.find(
     (m) => m.title === "Материал приёмки",
   )!;
-  expect(page.container.querySelector("form")).toBeNull();
-  await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Редактировать материал"]')!.click());await settle();
+  // The new draft opens straight in its editor (GL-17).
+  expect(form(page.container, "Сохранить черновик")).toBeDefined();
   const body = page.container.querySelector<HTMLTextAreaElement>('textarea[name="body"]')!;
   await change(body, "**Текст материала**");
   await submit(form(page.container, "Сохранить черновик"));

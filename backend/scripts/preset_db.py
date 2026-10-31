@@ -35,6 +35,45 @@ def preset_guides():
             s.commit()
 
 
+def preset_blocks():
+    """Startup repairs that GET no longer performs (GL-05): block metadata, memberships of
+    the legacy roster and one guide per block. Untouched duplicate placeholders left by
+    concurrent GETs of older versions are removed. Idempotent."""
+    from database import BlockORM, FileRecordORM
+    from domain_models import MaterialORM
+    from domain_seed import meta_for, seed_members
+    from materials import ensure_block_guide
+
+    with db.atomic():
+        with db._session() as s:
+            for block in s.query(BlockORM).order_by(BlockORM.name).all():
+                meta = meta_for(s, block.name)
+                seed_members(s, block, meta)
+                placeholders = (
+                    s.query(MaterialORM)
+                    .filter_by(owner_block_id=meta.block_id, kind="guide", placeholder=True, deleted=False)
+                    .all()
+                )
+                if len(placeholders) > 1:
+                    def untouched(m):
+                        return (
+                            m.revision == 1
+                            and not m.has_draft
+                            and s.query(FileRecordORM)
+                            .filter_by(owner_kind="material", owner_id=m.material_id)
+                            .first()
+                            is None
+                        )
+
+                    ordered = sorted(placeholders, key=lambda m: (untouched(m), m.created_at, m.material_id))
+                    for extra in ordered[1:]:
+                        if untouched(extra):
+                            s.delete(extra)
+                    s.flush()
+                ensure_block_guide(s, meta.block_id)
+            s.commit()
+
+
 def set_admin(superadmin=True, custom_payload=None):
     if not superadmin:
         raise ValueError("Use explicit-ID migration for domain roles")
@@ -114,6 +153,20 @@ def set_admin(superadmin=True, custom_payload=None):
             print("Created the explicitly configured initial chair.")
 
 
+def preset_support():
+    """Names the author account of anonymous tickets made before it had a name. Idempotent."""
+    from support import name_system_user
+    from support_models import SupportConfigORM
+
+    with db.atomic():
+        with db._session() as s:
+            for config in s.query(SupportConfigORM).filter(SupportConfigORM.system_user_id.is_not(None)):
+                name_system_user(s, config.system_user_id)
+            s.commit()
+
+
 if __name__ == "__main__":
     preset_guides()
+    preset_blocks()
+    preset_support()
     set_admin()

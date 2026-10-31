@@ -36,8 +36,10 @@ export const SECTIONS: Section[] = [
 const inside = (pathname: string, path: string) =>
   pathname === path || pathname.startsWith(path + "/");
 
-export function sectionOf(pathname: string): Section {
-  if (inside(pathname, "/profile")) return { to: "/profile", label: "Мой профиль", icon: "account_circle", tone: "yellow" };
+export function sectionOf(pathname: string, { supportStaff = false }: { supportStaff?: boolean } = {}): Section {
+  // /support is reached from the profile («Мои обращения») and belongs to it (GL-30); for the
+  // support staff it is the work page of the queue, in the workspace.
+  if (inside(pathname, "/profile") || !supportStaff && inside(pathname, "/support")) return { to: "/profile", label: "Мой профиль", icon: "account_circle", tone: "yellow" };
   return (
     SECTIONS.find((s) => s.to !== "/" && [s.to, ...(s.under ?? [])].some((p) => inside(pathname, p))) ??
     SECTIONS[0]

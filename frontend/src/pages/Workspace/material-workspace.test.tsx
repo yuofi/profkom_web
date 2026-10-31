@@ -75,9 +75,17 @@ it("creates a source draft on a separate page and never publishes it implicitly"
   const created = mock.state.materials.find(item => item.title === "Новый исходник")!;
   expect(created.draft_content?.body).toBe("# Черновик\n\n- [ ] Проверить");
   expect(created.published_content).toBeNull();expect(publish).not.toHaveBeenCalled();
+  // The new draft opens in its editor, in the URL, with its publication at hand (GL-17).
   expect(dataPage.router.state.location.pathname).toBe(`/materials/${created.material_id}`);
-  expect(dataPage.container.querySelector("form")).toBeNull();
+  expect(dataPage.router.state.location.search).toBe("?edit=1");
+  expect(form(dataPage.container, "Опубликовать сохранённый черновик")).toBeDefined();
+  expect(dataPage.container.textContent).toContain("Ещё не опубликовано.");
   expect(dataPage.container.querySelector("dialog")).toBeNull();
+  await click(button(dataPage.container, "Готово"));await waitForPage(dataPage);
+  expect(dataPage.router.state.location.search).toBe("");expect(dataPage.container.querySelector("form")).toBeNull();
+  // The created draft replaced the blank form in the history: Back leads to the list.
+  await act(async () => { await dataPage!.router.navigate(-1); });await waitForPage(dataPage);
+  expect(dataPage.router.state.location.pathname).toBe("/materials");
 });
 
 it.each(["edit_material", "publish_material", "edit_audience", "delete_material", "manage_material_editors"])("keeps the editor entry for the independent capability %s", async capability => {
@@ -137,4 +145,18 @@ it("deletes a clean material without an unrelated unsaved confirmation", async (
   await submit(form(dataPage.container, "Удалить материал"));await waitForPage(dataPage);
   expect(remove).toHaveBeenCalledTimes(1);expect(dataPage.router.state.location.pathname).toBe("/materials");
   expect(dataPage.container.querySelector("dialog")).toBeNull();
+});
+
+it("deletes with the read revision and rereads the material after a concurrent change", async () => {
+  mock = installMockTransport("chair", { delay: 0 });dataPage = await mountGuarded();
+  const m = mock.state.materials[0], read = m.revision;
+  await click(button(dataPage.container, "Редактировать материал"));
+  const remove = vi.spyOn(materialsApi, "remove");m.revision += 1;
+  await submit(form(dataPage.container, "Удалить материал"));await waitForPage(dataPage);
+  expect(remove).toHaveBeenCalledWith(m.material_id, { expected_revision: read });
+  expect(mock.state.materials).toContain(m);expect(dataPage.router.state.location.pathname).toBe("/materials/material-1");
+  expect(dataPage.container.textContent).toContain("Запись изменилась");
+  await submit(form(dataPage.container, "Удалить материал"));await waitForPage(dataPage);
+  expect(remove).toHaveBeenLastCalledWith(m.material_id, { expected_revision: read + 1 });
+  expect(dataPage.router.state.location.pathname).toBe("/materials");
 });

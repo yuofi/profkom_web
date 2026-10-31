@@ -129,7 +129,7 @@ def dto(r, uid):
 
 def registration_status(uid):
     with db._session() as s:
-        return ensure_application(s, uid).status
+        return ensure_application(s, uid, persist=False).status
 
 
 def version(r, expected):
@@ -148,8 +148,7 @@ def register_routes(router):
     @router.get("/registrations/me", response_model=ApplicationOut)
     def own(cur: User = Depends(get_current_user)):
         with db._session() as s:
-            r = ensure_application(s, cur.user_id)
-            s.commit()
+            r = ensure_application(s, cur.user_id, persist=False)
             return dto(r, cur.user_id)
 
     @router.patch("/registrations/me", response_model=ApplicationOut)

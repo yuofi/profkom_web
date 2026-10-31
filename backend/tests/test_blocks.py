@@ -56,3 +56,20 @@ def test_block_rename_preserves_id_material_and_member_history(client,superuser,
     assert r.status_code==200,r.text
     assert r.json()['block_id']==card['block_id'] and r.json()['guide_material_id']==card['guide_material_id']
     assert db.get_block(b.name) is None
+
+
+def test_block_page_marks_the_guide_link_only_for_its_readers(client,superuser,make_user,make_block):
+    """GL-10: the guide link of a block page opens only for who may read the guide."""
+    member,outsider=make_user(),make_user()
+    make_block(name='Гайдовый',arr_of_human=[member.user_id])
+    bid=client.get('/api/blocks',headers=superuser.headers).json()[0]['block_id']
+    cards={who:client.get('/api/blocks/'+bid,headers=actor.headers).json() for who,actor in (('member',member),('outsider',outsider),('chair',superuser))}
+    assert {card['guide_material_id'] for card in cards.values()}!={None}
+    assert len({card['guide_material_id'] for card in cards.values()})==1
+    assert 'read_guide' in cards['member']['capabilities'] and 'read_guide' in cards['chair']['capabilities']
+    assert 'read_guide' not in cards['outsider']['capabilities']
+    guide=cards['member']['guide_material_id']
+    assert client.get('/api/materials/'+guide,headers=outsider.headers).status_code==404
+    assert client.get('/api/materials/'+guide,headers=member.headers).status_code==200
+    # The directory of all blocks keeps its per-card cost: no material ACL per card.
+    assert all('read_guide' not in card['capabilities'] for card in client.get('/api/blocks',headers=member.headers).json())

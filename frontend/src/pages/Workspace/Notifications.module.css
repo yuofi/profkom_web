@@ -1,0 +1,69 @@
+/* The page of notifications: compact rows, the unread ones marked (GL-16). */
+.filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.filter button[aria-pressed="true"] {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid color-mix(in srgb, var(--outline-variant) 40%, transparent);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 10px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--outline-variant) 40%, transparent);
+}
+.row:last-child {
+  border-bottom: 0;
+}
+.row[data-unread="true"] {
+  background: color-mix(in srgb, var(--accent-peach) 8%, transparent);
+}
+.body {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+.text {
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+.row[data-unread="true"] .text {
+  font-weight: 600;
+}
+a.text {
+  color: var(--on-surface);
+  text-decoration: none;
+}
+a.text:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+.row form {
+  flex: none;
+}
+.more {
+  margin-top: 14px;
+}
+@media (max-width: 600px) {
+  .row {
+    flex-wrap: wrap;
+    padding: 10px 12px;
+  }
+  .body {
+    flex-basis: 100%;
+  }
+}

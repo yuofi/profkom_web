@@ -82,6 +82,7 @@ class Material(BaseModel):
     deleted_at: str | None = None
     placeholder: bool = False
     community_url: str | None = None
+    published_at: str | None = None
 
 
 class EditorAssignment(BaseModel):

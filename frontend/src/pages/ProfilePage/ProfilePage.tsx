@@ -21,6 +21,7 @@ export const ProfilePage = () => {
           <Card title="Управление профилем">
             <div className={s.row}>
               <RouteLink to="/profile/edit">Редактировать свои данные</RouteLink>
+              <RouteLink to="/support">Мои обращения</RouteLink>
               <button className={s.button} disabled={busy} onClick={() => void logout()}>{busy ? 'Выходим…' : 'Выйти'}</button>
             </div>
             {error && <p role="alert">{error}</p>}

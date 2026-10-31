@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { directoryApi } from '../api/directory.api';
 import { invalidateWorkspace } from '../api/invalidation';
 import { canRetainData } from '../api/request';
@@ -23,17 +23,30 @@ export function useWorkspaceActions() {
   };
   return { perform, refresh };
 }
+type NoticeCache = Page<Notification> | InfiniteData<Page<Notification>> | { count: number };
 /** Read and read-all of the bell and of /notifications: they change only the notices, so
- *  only those are updated at once and reread; a failure restores them (PF-02). */
+ *  only those (the bell page, the /notifications pages and the unread count) are updated
+ *  at once and reread; a failure restores them (PF-02, GL-16). */
 export function useNotificationCommands() {
   const client = useQueryClient();
   const key = ['notifications'] as const;
-  const mark = async (command: () => Promise<void>, matches: (notice: Notification) => boolean) => {
+  const mark = async (command: () => Promise<void>, matches: (notice: Notification) => boolean, all = false) => {
     await client.cancelQueries({ queryKey: key });
-    const previous = client.getQueryData<Page<Notification>>(key), at = new Date().toISOString();
-    if (previous) client.setQueryData<Page<Notification>>(key, { ...previous, items: previous.items.map(notice => !notice.read_at && matches(notice) ? { ...notice, read_at: at } : notice) });
+    const previous = client.getQueriesData<NoticeCache>({ queryKey: key }), at = new Date().toISOString();
+    const marked = new Set<string>();
+    const page = (current: Page<Notification>) => ({ ...current, items: current.items.map(notice => {
+      if (notice.read_at || !matches(notice)) return notice;
+      marked.add(notice.id);return { ...notice, read_at: at };
+    }) });
+    for (const [queryKey, data] of previous) {
+      if (data && 'items' in data) client.setQueryData(queryKey, page(data));
+      else if (data && 'pages' in data) client.setQueryData(queryKey, { ...data, pages: data.pages.map(page) });
+    }
+    for (const [queryKey, data] of previous) {
+      if (data && 'count' in data) client.setQueryData(queryKey, { count: all ? 0 : Math.max(0, data.count - marked.size) });
+    }
     try { await command(); }
-    catch (error) { if (previous) client.setQueryData(key, previous); throw error; }
+    catch (error) { for (const [queryKey, data] of previous) client.setQueryData(queryKey, data); throw error; }
     finally {
       void client.invalidateQueries({ queryKey: key });
       // The home projection carries an unread count too; it rereads when it is shown next.
@@ -42,7 +55,7 @@ export function useNotificationCommands() {
   };
   return {
     read: (id: string) => mark(() => workspaceApi.read(id), notice => notice.id === id),
-    readAll: () => mark(workspaceApi.readAll, () => true),
+    readAll: () => mark(workspaceApi.readAll, () => true, true),
   };
 }
 export function usePeopleOptions({ includeNonMembers = false, enabled = true }: { includeNonMembers?: boolean; enabled?: boolean } = {}) {

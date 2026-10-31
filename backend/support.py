@@ -310,6 +310,7 @@ def _task_for_report(session, report):
             session.add(user)
             session.flush()
             config.system_user_id = user.user_id
+        name_system_user(session, config.system_user_id)
         creator = config.system_user_id
     task_id = "task-" + str(uuid.uuid4())
     task = TaskORM(task_id=task_id, season_id=None, scope_kind="queue", scope_id=queue.queue_id,
@@ -350,6 +351,20 @@ def retry_pending():
 
 
 _RATE_SALT = secrets.token_bytes(32)
+
+
+SYSTEM_USER_NAME = "Обращение без входа"
+
+
+def name_system_user(session, user_id):
+    """The author of anonymous tickets reads as what it is, not «Участник 89» (GL-30). The
+    account stays archived and banned: it never signs in or appears in the directory."""
+    from database import ContactInfoORM
+    if user_id is not None and session.get(ContactInfoORM, user_id) is None:
+        session.add(ContactInfoORM(user_id=user_id, kkr_name=SYSTEM_USER_NAME, group_number="", location="", blocks="",
+                                   phone="", vk="", tg="", email=f"support-anonymous-{user_id}@system.invalid",
+                                   budget=False, in_profcom=False))
+        session.flush()
 
 
 def create_feedback(uid, payload, client_host):

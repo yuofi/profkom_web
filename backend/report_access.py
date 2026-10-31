@@ -62,15 +62,15 @@ def historical_reader(s, series_id, uid, other_than=None):
     if other_than is not None:
         events = events.filter(EventORM.season_id != other_than)
     for ev in events:
+        # The series comparison first: the leadership of an unrelated event is never read,
+        # so a check costs per related event, not per event of the open seasons (GL-16).
         if (
+            series_id in (ev.report_series_id,)
+            or series.parent_series_id == ev.report_series_id
+        ) and (
             db.is_event_leader(uid, ev.event_id)
             or db.is_event_leader_deputy(uid, ev.event_id)
-        ) and series_id in (ev.report_series_id,):
-            return True
-        if (
-            db.is_event_leader(uid, ev.event_id)
-            or db.is_event_leader_deputy(uid, ev.event_id)
-        ) and series.parent_series_id == ev.report_series_id:
+        ):
             return True
     subs = (
         s.query(SubeventORM)

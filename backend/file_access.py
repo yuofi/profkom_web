@@ -208,6 +208,27 @@ def permitted(session, fr, uid, write=False):
     return False
 
 
+def owner_readable(session, kind, owner_id, uid):
+    """Whether the user may read the object an upload targets; an unreadable owner answers
+    like a missing one (GL-24). The upload right itself is checked by permitted()."""
+    if owner_id is None:
+        return True
+    if kind == "task":
+        task = session.get(TaskORM, owner_id)
+        return bool(task and db.can_read_task(uid, task, session))
+    if kind == "assignment":
+        a = session.get(AssignmentORM, owner_id)
+        task = session.get(TaskORM, a.task_id) if a else None
+        return bool(task and db.can_read_task(uid, task, session))
+    if kind == "report":
+        r = session.get(ReportORM, owner_id)
+        return bool(r and (db.is_report_editor(uid, r, session) or db.can_read_report(uid, r, session)))
+    if kind == "material":
+        from materials import can_read
+        return can_read(owner_id, uid)
+    return True
+
+
 def owner_exists(session, kind, owner_id):
     """An upload into a missing assignment, report or material is a 404 (A-SEC-7)."""
     from domain_models import MaterialORM, BlockMetaORM

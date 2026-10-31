@@ -1756,6 +1756,8 @@ export function installMockTransport(
           : denied();
       if (method === "delete") {
         if (!material.capabilities.includes("delete_material")) return denied();
+        if (data.expected_revision === undefined) return fail(422, "invalid_input", "expected_revision is required");
+        if (mismatch(data, material)) return conflict();
         state.materials = state.materials.filter((m) => m !== material);
         material.revision += 1;
         state.deletedMaterials.push(material);  // reversible, as on the server
@@ -1808,7 +1810,8 @@ export function installMockTransport(
     if (parts[0] === "blocks") {
       const block = state.blocks.find((b) => b.block_id === parts[1]);
       if (!block) return fail(404, "not_found", "Блок не найден");
-      if (method === "get") return [200, clone(block)];
+      // Like GET /blocks/{id}: the guide link opens only for a reader of the guide (GL-10).
+      if (method === "get") return [200, { ...clone(block), capabilities: state.materials.some(material => material.material_id === block.guide_material_id) ? [...new Set([...block.capabilities, "read_guide"])] : clone(block.capabilities) }];
       if (parts[2] === "leave") {
         return fail(403, "self_leave_forbidden", "Попросите руководителя блока или HR исключить вас из состава");
       }
@@ -2257,7 +2260,12 @@ export function installMockTransport(
         approvals: state.requests.some(request => requestCapabilities(request).some(cap => cap.endsWith("review_request"))) ? [{ kind: "block_requests", title: "Заявки в блоки", count: state.requests.length, to: "/blocks/requests" }] : [],
         merit_entries: state.blocks.filter(block => block.capabilities.includes("create_volunteer_merit")).map(block => ({ title: block.name, to: `/merits?source_kind=block_volunteer&scope_id=${block.block_id}` })) }];
     }
-    if (path === "/notifications") return list(clone(state.notifications));
+    if (path === "/notifications") {
+      const unread = url.searchParams.get("unread") === "true", limit = Number(url.searchParams.get("limit") ?? 30), start = Number(url.searchParams.get("cursor") ?? 0);
+      const ordered = clone(state.notifications).filter(n => !unread || !n.read_at).sort((a, b) => b.created_at.localeCompare(a.created_at) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+      return [200, { items: ordered.slice(start, start + limit), next_cursor: start + limit < ordered.length ? String(start + limit) : null }];
+    }
+    if (path === "/notifications/unread-count") return [200, { count: state.notifications.filter(n => !n.read_at).length }];
     if (parts[0] === "notifications") {
       state.notifications
         .filter((n) => parts[1] === "read-all" || n.id === parts[1])

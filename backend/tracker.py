@@ -549,7 +549,7 @@ def legacy_command(assignment_id,uid,expected_revision,status,*,required_source_
         row=session.get(AssignmentORM,assignment_id)
         if not row:raise NotFound("Assignment not found")
         task=session.get(TaskORM,row.task_id)
-        if not task or not db.can_read_task(uid,task,session):raise Forbidden("Forbidden: task access ended")
+        if not task or not db.can_read_task(uid,task,session):raise NotFound("Assignment not found")  # GL-24
         if row.assignee_user_id!=uid:raise Forbidden("Forbidden: own assignment required")
         if row.assignment_id not in {r.assignment_id for r in participants(session,row.task_id)}:raise Conflict("Assignment is no longer current")
         if task_state(session,task)=="closed":raise season_closed()

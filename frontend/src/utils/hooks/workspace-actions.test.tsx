@@ -83,3 +83,28 @@ it("PF-02: a failed read-all restores the notices", async () => {
   await act(async () => { await expect(hooks.notices.readAll()).rejects.toThrow("Нет связи"); });
   expect(client!.getQueryData<Page<Notification>>(["notifications"])!.items.every(item => !item.read_at)).toBe(true);
 });
+
+it("GL-16/PF-02: a read marks the bell page, the /notifications pages and the unread count at once", async () => {
+  let answered: (() => void) | undefined;
+  vi.spyOn(workspaceApi, "read").mockImplementation(() => new Promise(resolve => { answered = () => resolve(undefined); }));
+  const hooks = await mount({});
+  client!.setQueryData(["notifications", "latest"], notices());
+  client!.setQueryData(["notifications", "page", false], { pages: [notices()], pageParams: [null] });
+  client!.setQueryData(["notifications", "unread-count"], { count: 2 });
+  let pending: Promise<void> | undefined;
+  await act(async () => { pending = hooks.notices.read("n2");await new Promise(resolve => setTimeout(resolve, 5)); });
+  expect(client!.getQueryData<Page<Notification>>(["notifications", "latest"])!.items.map(item => !!item.read_at)).toEqual([false, true]);
+  expect(client!.getQueryData<{ pages: Page<Notification>[] }>(["notifications", "page", false])!.pages[0].items.map(item => !!item.read_at)).toEqual([false, true]);
+  expect(client!.getQueryData(["notifications", "unread-count"])).toEqual({ count: 1 });
+  await act(async () => { answered!();await pending; });
+});
+
+it("GL-16/PF-02: a failed read restores the unread count", async () => {
+  vi.spyOn(workspaceApi, "read").mockRejectedValue(new Error("Нет связи"));
+  const hooks = await mount({});
+  client!.setQueryData(["notifications", "latest"], notices());
+  client!.setQueryData(["notifications", "unread-count"], { count: 2 });
+  await act(async () => { await expect(hooks.notices.read("n1")).rejects.toThrow("Нет связи"); });
+  expect(client!.getQueryData(["notifications", "unread-count"])).toEqual({ count: 2 });
+  expect(client!.getQueryData<Page<Notification>>(["notifications", "latest"])!.items.every(item => !item.read_at)).toBe(true);
+});

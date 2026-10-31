@@ -124,6 +124,16 @@ def serve():
             original_link=None,
         )
     )
+    # The production entrypoint maps old guides and keeps one guide per block before
+    # serving (scripts/preset_db.py); GET never repairs them (GL-05).
+    from scripts.preset_db import preset_blocks
+    from materials import legacy_mapping
+    with db.atomic():
+        with db._session() as session:
+            for guide in db.list_guides():
+                legacy_mapping(session, guide.guide_id)
+            session.commit()
+    preset_blocks()
     print(f"Disposable integration DB: {database}", flush=True)
     import main
     from live_storage import install

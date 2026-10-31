@@ -255,3 +255,31 @@ def test_task_nullable_migration_preserves_legacy_rows_indexes_and_foreign_keys(
         connection.execute(text("INSERT INTO tasks VALUES ('service',NULL,NULL,'WEBSUPPORT')"))
         assert connection.execute(text("SELECT task_id FROM children")).scalar() == "old-task"
         assert connection.execute(text("SELECT task_id FROM task_creation_log")).scalar() == "service"
+
+
+def test_anonymous_tickets_are_signed_as_such_and_the_startup_names_older_ones(client, superuser, make_user):
+    """«Обращение без входа», not «Участник 89» (GL-30); the account still never signs in."""
+    from database import ContactInfoORM, UserORM
+    from support_models import SupportConfigORM
+    from scripts.preset_db import preset_support
+
+    master, settings = setup_support(client, superuser, make_user)
+    first = ok(report(client)[0])
+    with db._session() as session:
+        uid = session.query(SupportConfigORM).one().system_user_id
+        user = session.get(UserORM, uid)
+        assert user.banned and user.account_state == "archived"
+        task_id = session.get(FeedbackORM, first["report_id"]).task_id
+    names = json.dumps(ok(req(client, master, "get", "/tasks/" + task_id)), ensure_ascii=False)
+    assert "Обращение без входа" in names and f"Участник {uid}" not in names
+    with db.atomic():
+        with db._session() as session:
+            session.query(ContactInfoORM).filter_by(user_id=uid).delete()
+            session.commit()
+    preset_support()
+    preset_support()
+    with db._session() as session:
+        assert session.get(ContactInfoORM, uid).kkr_name == "Обращение без входа"
+    contacts = ok(req(client, master, "get", "/contacts"))
+    contacts = contacts["items"] if isinstance(contacts, dict) else contacts
+    assert all(person.get("user_id") != uid for person in contacts)

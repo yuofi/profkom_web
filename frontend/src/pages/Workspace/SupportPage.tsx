@@ -7,7 +7,8 @@ import { getTaskQueueRoute, getTaskRoute } from "../../utils/routes";
 import { usePeopleOptions, useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { ids, text } from "../../components/Workspace/formValues";
-import { Page, Card, QueryState, Empty } from "../../components/Workspace/WorkspaceUI";
+import { Page, Card, QueryState, Empty, Badge } from "../../components/Workspace/WorkspaceUI";
+import { displayDate } from "../../utils/dates";
 import { MarkdownContent } from "../../components/Workspace/MarkdownContent";
 import s from "../../components/Workspace/Workspace.module.css";
 
@@ -36,6 +37,7 @@ export function SupportPage() {
         <section><h2>Мои обращения</h2><QueryState loading={mine.isLoading} error={mine.error} keepDataOnError={!!ownReports}>
           {!ownReports?.items.length && !mine.isLoading && <Empty>Отправьте обращение кнопкой с жучком на любой странице.</Empty>}
           <div className={s.stack}>{ownReports?.items.map(report => <Card key={report.report_id} title={report.title}>
+            <div className={s.badges}><Badge tone={report.state === "withdrawn" ? "rose" : report.task_id ? "mint" : "yellow"}>{report.state === "withdrawn" ? "Отозвано" : report.task_id ? "Передано в поддержку" : "Ожидает тикета"}</Badge><small className={s.muted}>Отправлено {displayDate(report.created_at)}</small></div>
             {report.task_id ? <Link to={getTaskRoute(report.task_id)}>Открыть {report.task_key}</Link> : report.state === "withdrawn" ? <p>Обращение отозвано.</p> : <>
               <p className={s.muted}>Обращение сохранено и ожидает подключения очереди.</p>
               <ActionForm fields={[{ name: "title", label: "Заголовок обращения", required: true, value: report.title }, { name: "body", label: "Описание обращения", type: "textarea", required: true, value: report.body }]} revision={report.revision} record={`feedback:${report.report_id}`} onConflict={refresh} submitLabel="Дополнить обращение" onSubmit={async (values, revision) => perform(() => supportApi.pending(report.report_id, { expected_revision: revision!, title: text(values, "title"), body: text(values, "body") }))} />

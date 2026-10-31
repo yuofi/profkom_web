@@ -62,7 +62,7 @@ it("ACC-3.4: material kinds follow create_shared_material and the blocks one lea
     const session = await liveLogin(email);
     page = await mountWorkspace(<Routes><Route path="/materials/new" element={<MaterialCreatePage />} /><Route path="/materials/:id" element={<MaterialPage />} /></Routes>, {path: "/materials/new", session});
     await waitForPage(page, () => !!page!.container.querySelector('select[name="kind"]'));
-    const form = page.container.querySelector('input[name="title"]')!.closest("form")!;
+    const form = page.container.querySelector('textarea[name="title"]')!.closest("form")!;
     const kinds = Array.from((field(page.container, "kind") as HTMLSelectElement).options, o => o.value).filter(Boolean);
     return {form, kinds};
   };

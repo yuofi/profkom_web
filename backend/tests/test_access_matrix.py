@@ -251,7 +251,8 @@ class Op:
     def expected(self, role):
         if role in EXPECTED[self.op]:
             return self.ok
-        return {404} if self.readers and role not in EXPECTED[self.readers] else self.deny
+        readers = EXPECTED[self.readers] if isinstance(self.readers, str) else self.readers
+        return {404} if readers and role not in readers else self.deny
 
 
 def _ensure_meeting(kind, key):
@@ -342,23 +343,23 @@ def ops():
            lambda o, r: {"expected_revision": BAD, "review_note": "probe"}, ok=(409,), readers="T3"),
         Op("T8", "POST", lambda o: f"/assignments/{o.ids['asg_blk_org1']}/cancel", lambda o, r: {"expected_revision": BAD, "reason": "probe"}, ok=(409,), readers="T4"),
         Op("T9", "PATCH", lambda o: f"/assignments/{o.ids['asg_sub_org1']}/assessment-inputs",
-           lambda o, r: {"expected_revision": BAD, "reason": "probe", "hours": 2}, ok=(409,), cap=("T3", "edit_assessment_inputs")),
+           lambda o, r: {"expected_revision": BAD, "reason": "probe", "hours": 2}, ok=(409,), cap=("T3", "edit_assessment_inputs"), readers="T3"),
         Op("T10", "GET", lambda o: f"/tasks/{o.ids['task_sub']}/assessment-inputs", cap=("T3", "view_assessment_inputs"), readers="T3"),
         Op("T11", "GET", lambda o: f"/tasks/{o.ids['task_blk']}/assessment-inputs", cap=("T4", "view_assessment_inputs"), readers="T4"),
         Op("T12", "POST", lambda o: f"/assignments/{o.ids['asg_sub_org2']}/reassign",
            lambda o, r: {"expected_revision": BAD, "new_assignee_user_id": o.uid("org1"), "hours": 1, "previous_outcome": "cancelled", "reason": "probe"},
-           ok=(409,)),
+           ok=(409,), readers="T3"),
         Op("T13", "GET", lambda o: "/assignments/unresolved", cap=("S1", "view_unresolved_assignments")),
         Op("T14", "PATCH", lambda o: f"/assignments/{o.ids['asg_blk_org1']}/assessment-inputs",
-           lambda o, r: {"expected_revision": BAD, "reason": "probe", "hours": 2}, ok=(409,), cap=("T4", "edit_assessment_inputs")),
+           lambda o, r: {"expected_revision": BAD, "reason": "probe", "hours": 2}, ok=(409,), cap=("T4", "edit_assessment_inputs"), readers="T4"),
         # Dates of a task, once set, are moved by the chair, deputies and HR master (УВ-5).
         Op("T15", "PATCH", lambda o: f"/tasks/{o.ids['task_sub']}/assessment-inputs",
            lambda o, r: {"expected_revision": BAD, "reason": "probe", "deadline_at": stamp(4.25)}, ok=(409,),
-           cap=("T10", "edit_assessment_dates")),
+           cap=("T10", "edit_assessment_dates"), readers="T3"),
         Op("T16", "GET", lambda o: f"/assignments/{o.ids['asg_sub_org1']}/assessment-inputs", cap=("T3", "view_assessment_inputs"), readers="T3"),
         Op("T17", "PATCH", lambda o: f"/assignments/{o.ids['asg_sub_org1']}/assessment-inputs",
            lambda o, r: {"expected_revision": BAD, "reason": "probe", "effective_completed_at": stamp(-1.25)}, ok=(409,),
-           cap=("T16", "edit_assessment_dates")),
+           cap=("T16", "edit_assessment_dates"), readers="T3"),
         # KKR, merits, summary, seasons
         Op("K1", "GET", lambda o: f"/assessments?season_id={cur(o)}", cap=("S1", "view_kkr")),
         Op("K2", "GET", lambda o: f"/seasons/{cur(o)}/summary", cap=("S1", "view_summary")),
@@ -395,18 +396,20 @@ def ops():
            title=f"probe-erep-{r}", content=rich("x"), file_ids=[]), cap=("E2", "create_report")),
         Op("R3", "GET", lambda o: f"/reports/{o.ids['report_sub']}", deny=(404,)),
         Op("R4", "PATCH", lambda o: f"/reports/{o.ids['report_sub']}", lambda o, r: {"expected_revision": BAD, "title": "x"}, ok=(409,),
-           cap=("R3", "edit_report")),
+           cap=("R3", "edit_report"), readers="R3"),
         Op("R5", "POST", lambda o: f"/reports/{o.ids['report_sub']}/publish", lambda o, r: {"expected_revision": BAD}, ok=(409,),
-           cap=("R3", "publish_report")),
+           cap=("R3", "publish_report"), readers="R3"),
         Op("R6", "GET", lambda o: f"/reports/{o.ids['report_event']}", deny=(404,)),
         Op("R7", "PATCH", lambda o: f"/reports/{o.ids['report_event']}", lambda o, r: {"expected_revision": BAD, "title": "x"}, ok=(409,),
-           cap=("R6", "edit_report")),
+           cap=("R6", "edit_report"), readers="R6"),
         Op("R8", "GET", lambda o: f"/report-history?series_id={o.ids['past_event_series']}", deny=(404,)),
         Op("R9", "GET", lambda o: f"/report-history?series_id={o.ids['past_sub_series']}", deny=(404,)),
         Op("R10", "GET", lambda o: f"/reports/{o.ids['past_event_report']}", deny=(404,)),
         Op("R11", "GET", lambda o: f"/reports/{o.ids['past_sub_report']}", deny=(404,)),
-        Op("R12", "PATCH", lambda o: f"/reports/{o.ids['past_event_report']}", lambda o, r: {"expected_revision": BAD, "title": "x"}, ok=(409,)),
-        Op("R13", "PATCH", lambda o: f"/reports/{o.ids['past_sub_report']}", lambda o, r: {"expected_revision": BAD, "title": "x"}, ok=(409,)),
+        Op("R12", "PATCH", lambda o: f"/reports/{o.ids['past_event_report']}", lambda o, r: {"expected_revision": BAD, "title": "x"}, ok=(409,),
+           readers="R10"),
+        Op("R13", "PATCH", lambda o: f"/reports/{o.ids['past_sub_report']}", lambda o, r: {"expected_revision": BAD, "title": "x"}, ok=(409,),
+           readers="R11"),
         # Meetings
         Op("M1", "GET", lambda o: f"/events/{o.ids['event']}/meeting", prepare=_ensure_meeting("events", "event"),
            cap=("E2", "view_meeting"), deny=(404,)),  # A-EVT-4
@@ -428,13 +431,14 @@ def ops():
         Op("B4", "DELETE", lambda o: f"/blocks/{o.ids['it']}/members/{o.uid('outsider')}", ok=(200, 404), cap=("B1", "remove_member")),
         Op("B5", "DELETE", lambda o: f"/blocks/{o.ids['hr']}/members/{o.uid('outsider')}", ok=(200, 404), cap=("B1h", "remove_member")),
         Op("B6", "POST", lambda o: f"/block-requests/{o.ids['request']['request_id']}/hr-approve",
-           lambda o, r: {"expected_revision": o.ids["request"]["revision"]}, prepare=_request("hr", "pending_hr")),
+           lambda o, r: {"expected_revision": o.ids["request"]["revision"]}, prepare=_request("hr", "pending_hr"), readers=HR_REQUEST_VIEW),
         Op("B7", "POST", lambda o: f"/block-requests/{o.ids['request']['request_id']}/hr-approve",
-           lambda o, r: {"expected_revision": o.ids["request"]["revision"]}, prepare=_request("it", "pending_hr")),
+           lambda o, r: {"expected_revision": o.ids["request"]["revision"]}, prepare=_request("it", "pending_hr"), readers=IT_REQUEST_VIEW),
         Op("B8", "POST", lambda o: f"/block-requests/{o.ids['request']['request_id']}/block-approve",
-           lambda o, r: {"expected_revision": o.ids["request"]["revision"]}, prepare=_request("it", "pending_block")),
+           lambda o, r: {"expected_revision": o.ids["request"]["revision"]}, prepare=_request("it", "pending_block"), readers=IT_REQUEST_VIEW),
         Op("B9", "POST", lambda o: f"/block-requests/{o.ids['request']['request_id']}/reject",
-           lambda o, r: {"expected_revision": o.ids["request"]["revision"], "reason": "probe"}, prepare=_request("hr", "pending_hr")),
+           lambda o, r: {"expected_revision": o.ids["request"]["revision"], "reason": "probe"}, prepare=_request("hr", "pending_hr"),
+           readers=HR_REQUEST_VIEW),
         Op("B12", "PUT", lambda o: f"/blocks/{o.ids['it']}/leader", lambda o, r: {"user_id": o.uid("master"), "expected_revision": BAD}, ok=(409,),
            cap=("B1", "manage_leaders")),
         Op("B13", "PUT", lambda o: f"/role-assignments/{o.ids['ra_master_it']}/deputies",
@@ -461,13 +465,17 @@ def ops():
         # Materials
         Op("MT1", "GET", lambda o: f"/materials/{o.ids['material']}"),
         Op("MT2", "PATCH", lambda o: f"/materials/{o.ids['material']}", same_title("materials", "material"), cap=("MT1", "edit_material")),
-        Op("MT3", "DELETE", lambda o: f"/materials/{o.ids['disposable']}", prepare=_disposable_material, cap=("MT1", "delete_material")),
+        Op("MT3", "DELETE", lambda o: f"/materials/{o.ids['disposable']}", _fresh("disposable", "materials"), prepare=_disposable_material,
+           cap=("MT1", "delete_material"), readers="MT1"),
         Op("MT4", "POST", lambda o: "/materials", lambda o, r: dict(kind="general", title=f"probe-mat-{r}", description="", content=rich("x")),
            cap=("S1", "create_shared_material")),  # A-MAT-13
         Op("MT5", "PUT", lambda o: f"/materials/{o.ids['material']}/editors", lambda o, r: {"user_ids": [o.uid("editor")], "expected_revision": BAD},
            ok=(409,), cap=("MT1", "manage_material_editors")),
-        Op("MT6", "PATCH", lambda o: f"/materials/{o.ids['guide_it']}", _fresh("guide_it", "materials")),
-        Op("MT7", "PATCH", lambda o: f"/materials/{o.ids['guide_hr']}", _fresh("guide_hr", "materials")),
+        Op("MT6", "PATCH", lambda o: f"/materials/{o.ids['guide_it']}", _fresh("guide_it", "materials"), readers="MT8"),
+        Op("MT7", "PATCH", lambda o: f"/materials/{o.ids['guide_hr']}", _fresh("guide_hr", "materials"), readers="MT9"),
+        # Block guides read to their block, its leads and the chair's team (2026-10-25).
+        Op("MT8", "GET", lambda o: f"/materials/{o.ids['guide_it']}", deny=(404,)),
+        Op("MT9", "GET", lambda o: f"/materials/{o.ids['guide_hr']}", deny=(404,)),
         # Contacts
         Op("C1", "GET", lambda o: "/contacts"),
         Op("C2", "GET", lambda o: "/contacts/archive"),
@@ -511,6 +519,9 @@ SUB_TEAM = SUB_LEAD | {"org1"}
 IT_LEAD = {"master", "mdeputy"}
 IT_MEMBERS = {"itmem", "org1"}
 QUEUE = TACHKI | HRM | IT_LEAD | EVENT_LEAD | SUB_LEAD
+# Who sees a block request at all (requests_for); others get 404 on its commands (GL-24).
+HR_REQUEST_VIEW = TACHKI | REQUEST_HR | {"hract"}
+IT_REQUEST_VIEW = HR_REQUEST_VIEW | IT_LEAD
 
 EXPECTED = {
     "S1": ALL, "E1": ALL, "E2": ALL,
@@ -565,6 +576,7 @@ EXPECTED = {
     "P1": ALL, "P2": TACHKI | {"pgas"}, "P3": TACHKI | {"pgas"}, "P4": TACHKI | {"pgas"},  # decision 14
     "MT1": ALL, "MT2": TACHKI | {"editor"}, "MT3": TACHKI | {"editor"}, "MT4": TACHKI, "MT5": TACHKI,
     "MT6": TACHKI | IT_LEAD, "MT7": TACHKI | HRM,
+    "MT8": TACHKI | IT_LEAD | IT_MEMBERS, "MT9": TACHKI | HRM | {"hract"},  # hrdeputy: open owner decision (GL-09)
     "C1": ALL, "C2": ALL, "C3": TACHKI | HRM,
 }
 WORKING_SUBEVENTS = {role: (["sa", "sb"] if role in TACHKI | HRM | EVENT_LEAD else ["sa"] if role in SUB_TEAM else [])

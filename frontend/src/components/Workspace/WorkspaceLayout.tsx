@@ -1,10 +1,12 @@
 import { Suspense, useContext, useEffect, useRef, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loading } from "./WorkspaceUI";
 import { Link, Outlet, UNSAFE_DataRouterContext, useLocation } from "react-router-dom";
 import { prefetchRouteData, preloadRouteCode } from "../../utils/routePrefetch";
 import { useMe } from "../../utils/me";
-import { can, useSession } from "../../utils/session";
+import { can, isActiveSession, useSession } from "../../utils/session";
+import { supportApi } from "../../utils/api/support.api";
+import { canRetainData } from "../../utils/api/request";
 import { DemoRolePicker } from "./DemoRolePicker";
 import { PageErrorBoundary } from "./PageErrorBoundary";
 import { NotificationBell } from "./NotificationBell";
@@ -94,7 +96,11 @@ export function WorkspaceLayout({ children }: { children?: ReactNode } = {}) {
   const { session } = useSession();
   const { pathname } = useLocation();
   const client = useQueryClient();
-  const section = sectionOf(pathname);
+  // The same query as the support page: on /support only, and no extra request.
+  const onSupport = pathname === "/support" || pathname.startsWith("/support/");
+  const support = useQuery({ queryKey: ["supportContext"], queryFn: supportApi.context, enabled: onSupport && isActiveSession(session) && !session?.password_change_required });
+  const supportStaff = onSupport && (!support.error || canRetainData(support.error)) && !!(support.data?.can_triage || support.data?.can_configure);
+  const section = sectionOf(pathname, { supportStaff });
   const menu = useDismissibleMenu();
   const visible = SECTIONS.filter(({ to }) => to !== "/notifications" && (shown[to]?.(session) ?? true));
   useIdleSectionCode(visible.map(({ to }) => to));

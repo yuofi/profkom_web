@@ -1,4 +1,4 @@
-import type { Dashboard, CalendarItem, Notification, Participation, Task } from "./contract";
+import type { Dashboard, CalendarItem, Notification, Page, Participation, Task } from "./contract";
 import { idPath, allPages as page, request } from "./request";
 export interface Workday {
   today: string; agenda: CalendarItem[]; tasks: Task[]; overdue_tasks: Task[]; overdue_count: number; undated_count?: number;
@@ -11,7 +11,10 @@ export const workspaceApi = {
   participation: () => request<Participation>("get", "/participation"),
   calendar: (from: string, to: string, filters: object = {}, signal?: AbortSignal) =>
     page<CalendarItem>("/calendar", { from, to, timezone: "Europe/Moscow", ...filters }, signal),
-  notifications: () => page<Notification>("/notifications"),
+  /** One page, newest first; `cursor` is the previous page's next_cursor (GL-16). */
+  notifications: (params: { cursor?: string | null; limit?: number; unread?: boolean } = {}) =>
+    request<Page<Notification>>("get", "/notifications", undefined, { limit: params.limit, unread: params.unread || undefined, cursor: params.cursor ?? undefined }),
+  unreadCount: () => request<{ count: number }>("get", "/notifications/unread-count"),
   read: (id: string) =>
     request<void>("post", `/notifications/${idPath(id)}/read`, {}),
   readAll: () => request<void>("post", "/notifications/read-all", {}),

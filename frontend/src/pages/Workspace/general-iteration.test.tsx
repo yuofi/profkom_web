@@ -59,6 +59,17 @@ it("keeps all self-leave and active leader removal controls out of block members
   expect(page.container.querySelector('input[type="file"]')).toBeNull();
 });
 
+it("links the block guide only for its readers and names who can read it otherwise", async () => {
+  mock = installMockTransport("chair", { delay: 0 });const block = mock.state.blocks.find(item => item.guide_material_id)!;
+  page = await mountWorkspace(<Routes><Route path="/blocks/:id" element={<BlockPage />} /></Routes>, { path: `/blocks/${block.block_id}` });await waitForPage(page);
+  expect(page.container.querySelector(`a[href="/materials/${block.guide_material_id}"]`)?.textContent).toBe("Гайд блока");
+  await page.cleanup();
+  mock.state.materials = mock.state.materials.filter(material => material.material_id !== block.guide_material_id);
+  page = await mountWorkspace(<Routes><Route path="/blocks/:id" element={<BlockPage />} /></Routes>, { path: `/blocks/${block.block_id}` });await waitForPage(page);
+  expect(page.container.querySelector(`a[href="/materials/${block.guide_material_id}"]`)).toBeNull();
+  expect(page.container.textContent).toContain("Гайд доступен участникам блока");
+});
+
 it("keeps application refresh automatic and links an active request to its block", async () => {
   mock = installMockTransport("chair", { delay: 0 });page = await mountWorkspace(<BlockRequestsPage />);await waitForPage(page);
   expect(button("Обновить")).toBeUndefined();

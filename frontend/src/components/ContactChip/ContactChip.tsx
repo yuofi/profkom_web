@@ -9,6 +9,7 @@ import { CardLabel } from '../CardLabel/CardLabel';
 import { TextField } from '../TextField/TextField';
 import { Button } from '../Button/Button';
 import type { IconName } from '../icons';
+import { isBackdropClick, useModalDialog } from '../Workspace/useModalDialog';
 
 export interface ContactInfo {
   surname: string;
@@ -51,8 +52,10 @@ interface ContactChipProps {
   }) => {
   const [internalOpen, setInternalOpen] = useState(false);
   const isOpen = isExternalOpen !== undefined ? isExternalOpen : internalOpen;
+  const dialog = useModalDialog(isOpen);
 
   const info = useMemo(() => parseContent(initialContent), [initialContent]);
+  const fullName = `${info.surname} ${info.name} ${info.patronymic}`.trim();
   const isMobile = useMediaQuery("(max-width: 768px)");
 
 
@@ -118,9 +121,10 @@ interface ContactChipProps {
         <div className={clsx(styles.chip, mode === 'edit' && styles.editMode)} onClick={handleToggle}>
           <Avatar src={info.photo_url} size={isMobile ? 50 : 80} mode="disable" />
           <div className={styles.chipInfo}>
-          <span className={styles.chipText}>
-            {`${info.surname} ${info.name} ${info.patronymic}`.trim() || 'ФИО'} {info.group ? `(${info.group})` : ''}
-          </span>
+          {/* The keyboard way in (GL-41); a click anywhere on the chip still opens it. */}
+          <button type="button" className={styles.chipText} aria-haspopup="dialog" aria-expanded={isOpen}>
+            {fullName || 'ФИО'} {info.group ? `(${info.group})` : ''}
+          </button>
           <div className={styles.chipTags}>
           {info.blocks.length > 0 && 
           info.blocks.split(",").map((block) => {
@@ -136,8 +140,9 @@ interface ContactChipProps {
       )}
 
       {isOpen && (
-        <div className={styles.modalOverlay} onClick={handleClose}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+        <dialog ref={dialog} className={styles.modalContent} aria-label={fullName ? `Контакт: ${fullName}` : 'Контакт'}
+          onCancel={(event) => { event.preventDefault(); handleClose(); }}
+          onClick={(event) => { event.stopPropagation(); if (isBackdropClick(event)) handleClose(); }}>
             <div className={styles.modalBody}>
               <div className={styles.avatarSection}>
                 <Avatar 
@@ -174,8 +179,7 @@ interface ContactChipProps {
                 </Button>
               </div>
             )}
-          </div>
-        </div>
+        </dialog>
       )}
     </>
   );

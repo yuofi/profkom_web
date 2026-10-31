@@ -79,16 +79,10 @@ def test_block_newcomer_and_global_category_are_independent(
     with db.atomic():
         with db._session() as s:
             interval(s, u, START)
-            s.add(
-                MembershipORM(
-                    membership_id=str(uuid.uuid4()),
-                    participant_id=f"participant-{u.user_id}",
-                    user_id=u.user_id,
-                    block_id=bid,
-                    joined_at=(START + timedelta(days=6)).isoformat(),
-                    category="junior",
-                )
-            )
+            # The roster write itself created the membership (GL-05); it began on day six.
+            member = s.query(MembershipORM).filter_by(user_id=u.user_id, block_id=bid, left_at=None).one()
+            member.joined_at = (START + timedelta(days=6)).isoformat()
+            member.category = "junior"
             s.flush()
             promote(s, S, END.isoformat())
             s.commit()
@@ -159,10 +153,15 @@ def test_unknown_legacy_dates_count_only_after_first_observation(make_user):
     from observed_participation_seed import seed_observed_participation, VERSION
 
     u = make_user(in_profcom=True)
-    db.create_block(Block(name="Observed", master="", arr_of_human=[u.user_id]))
     with db.atomic():
         with db._session() as s:
             s.query(MigrationORM).filter_by(version=VERSION).delete()
+            s.commit()
+    # The legacy roster is written, and its membership seeded, before the observation
+    # migration ran (GL-05: the roster writer seeds, not a later GET).
+    db.create_block(Block(name="Observed", master="", arr_of_human=[u.user_id]))
+    with db.atomic():
+        with db._session() as s:
             b = s.get(BlockORM, "Observed")
             meta = meta_for(s, b.name)
             seed_members(s, b, meta)

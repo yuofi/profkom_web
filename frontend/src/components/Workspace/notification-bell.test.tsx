@@ -60,7 +60,7 @@ it("reads only after confirmed source navigation and preserves a cancelled edito
   await act(async () => source().click());await act(async () => guardButton("Уйти без сохранения").click());await waitForPage(page);expect(router.state.location.pathname).toBe("/tasks/task-1");expect(read).toHaveBeenCalledExactlyOnceWith("notice-1");expect(panel()).toBeNull();expect(trigger().getAttribute("aria-label")).toBe("Уведомления, непрочитанных: 0");
 });
 it("handles an unavailable source honestly and allows explicit marking without navigation", async () => {
-  const transport = seed();transport.state.notifications[0].target = null;const read = vi.spyOn(workspaceApi, "read");page = await mountWorkspace(<NotificationBell />);await waitForPage(page);await open();expect(panel()?.textContent).toContain("Источник больше недоступен");const mark = panel()!.querySelector<HTMLButtonElement>('button[aria-label="Отметить прочитанным: Первая новая работа"]')!;await act(async () => { mark.focus();mark.click(); });await waitForPage(page);expect(read).toHaveBeenCalledExactlyOnceWith("notice-1");expect(trigger().getAttribute("aria-label")).toBe("Уведомления, непрочитанных: 0");expect(document.activeElement).toBe(region());
+  const transport = seed();transport.state.notifications[0] = { ...transport.state.notifications[0], kind: "access_revoked", target: null };const read = vi.spyOn(workspaceApi, "read");page = await mountWorkspace(<NotificationBell />);await waitForPage(page);await open();expect(panel()?.textContent).toContain("Источник больше недоступен");const mark = panel()!.querySelector<HTMLButtonElement>('button[aria-label="Отметить прочитанным: Первая новая работа"]')!;await act(async () => { mark.focus();mark.click(); });await waitForPage(page);expect(read).toHaveBeenCalledExactlyOnceWith("notice-1");expect(trigger().getAttribute("aria-label")).toBe("Уведомления, непрочитанных: 0");expect(document.activeElement).toBe(region());
 });
 
 it.each([
@@ -80,4 +80,37 @@ it.each(["control", "middle"] as const)("preserves %s source navigation and mark
 });
 it("does not mark a notification read for an Alt-click that does not open the source", async () => {
   seed();const read = vi.spyOn(workspaceApi, "read");page = await mountWorkspace(<NotificationBell />);await waitForPage(page);await open();const source = panel()!.querySelector<HTMLAnchorElement>('a[href="/tasks/task-1"]')!;source.addEventListener("click", event => event.preventDefault(), { once: true });await act(async () => source.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, altKey: true })));await waitForPage(page);expect(read).not.toHaveBeenCalled();expect(panel()).not.toBeNull();
+});
+
+it("polls only the unread count until opened and then loads one bounded page", async () => {
+  const transport = seed(), template = transport.state.notifications[0];
+  transport.state.notifications = Array.from({ length: 45 }, (_, index) => ({ ...template, id: `notice-${String(index).padStart(2, "0")}` }));
+  const list = vi.spyOn(workspaceApi, "notifications"), count = vi.spyOn(workspaceApi, "unreadCount");
+  page = await mountWorkspace(<NotificationBell />);await waitForPage(page);
+  expect(count).toHaveBeenCalled();expect(list).not.toHaveBeenCalled();expect(trigger().getAttribute("aria-label")).toBe("Уведомления, непрочитанных: 45");
+  await open();
+  expect(list).toHaveBeenCalledExactlyOnceWith({ limit: 20 });expect(panel()!.querySelectorAll("[data-notification-id]")).toHaveLength(20);
+  expect(panel()!.querySelector('a[href="/notifications"]')).not.toBeNull();
+});
+
+it("names a failed explicit mark and rereads, and only a revoked source is called unavailable", async () => {
+  const transport = seed();
+  transport.state.notifications[0].target = null;
+  transport.state.notifications.push(
+    { id: "notice-3", kind: "registration_submitted", text: "Новая заявка на регистрацию: Заявкин Иван", created_at: "2026-10-27T09:00:00Z", read_at: null, target: { kind: "registrations", id: "105" } },
+    { id: "notice-4", kind: "block_request_pending_hr", text: "Новая заявка в блок «IT»", created_at: "2026-10-27T08:00:00Z", read_at: null, target: { kind: "block_requests", id: "request-1" } },
+    { id: "notice-5", kind: "meeting_changed", text: "Созвон изменён: Планёрка", created_at: "2026-10-27T07:00:00Z", read_at: null, target: { kind: "meeting_event", id: "event-1" } },
+  );
+  vi.spyOn(workspaceApi, "read").mockRejectedValueOnce(new ApiError("Нет связи с сервером", 0, "network_error"));
+  const count = vi.spyOn(workspaceApi, "unreadCount");
+  page = await mountWorkspace(<NotificationBell />);await waitForPage(page);await open();
+  expect(panel()?.textContent).not.toContain("Источник больше недоступен");
+  expect(panel()!.querySelector('a[href="/admin/registrations"]')?.textContent).toContain("Заявкин Иван");
+  expect(panel()!.querySelector('a[href="/blocks/requests"]')).not.toBeNull();
+  expect(panel()!.querySelector('a[href="/meetings/event/event-1"]')).not.toBeNull();
+  const calls = count.mock.calls.length;
+  const mark = panel()!.querySelector<HTMLButtonElement>('button[aria-label="Отметить прочитанным: Первая новая работа"]')!;
+  await act(async () => mark.click());await waitForPage(page);
+  expect(panel()!.querySelector('[role="alert"]')?.textContent).toContain("Нет связи с сервером");
+  expect(count.mock.calls.length).toBeGreaterThan(calls);
 });

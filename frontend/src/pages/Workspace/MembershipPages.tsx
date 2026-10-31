@@ -125,12 +125,14 @@ export function BlockPage() {
                   </RouteLink>
                 )}
                 {can(b, "create_volunteer_merit") && <RouteLink to={`/merits?source_kind=block_volunteer&scope_id=${encodeURIComponent(id)}`}>Учесть волонтёрскую работу</RouteLink>}
-                {b.guide_material_id ? (
+                {b.guide_material_id && can(b, "read_guide") ? (
                   <RouteLink
                     to={`/materials/${encodeURIComponent(b.guide_material_id)}`}
                   >
                     Гайд блока
                   </RouteLink>
+                ) : b.guide_material_id ? (
+                  <span className={s.muted}>Гайд доступен участникам блока</span>
                 ) : (
                   <span className={s.muted}>Гайд ещё готовится</span>
                 )}

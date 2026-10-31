@@ -14,27 +14,27 @@
 
 .chipText {
   composes: cardTitle from "./Card.module.css";
+  /* A button that reads as the chip's name. */
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .chipTags {
   composes: cardTags from "./Card.module.css";
 }
 
-/* Modal Styles */
-.modalOverlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+/* Modal Styles: a native modal <dialog> (GL-41) — Escape, focus and the inert page come from the browser. */
+.modalContent::backdrop {
   background-color: rgba(0, 0, 0, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2000;
 }
 
 .modalContent {
+  padding: 0;
   background-color: var(--surface);
   color: var(--on-surface);
   width: 90%;

@@ -51,7 +51,7 @@ it("shows the compact accounting entry for explicit assignment capabilities and 
   expect(page.container.querySelector('header a[href="/merits"]')).toBeNull();
   await page.cleanup();
   page = await mountWorkspace(<DashboardPage />, { session: { ...plain, assignments: [{ role_assignment_id: "scoped-head", role: "event_leader", scope_kind: "event", scope_id: "event-one", revision: 1, capabilities: ["create_head_merit"] }] } });await waitForPage(page);
-  expect(page.container.querySelector('header a[href="/merits"]')?.textContent).toBe("Учёт работы");
+  expect(page.container.querySelector('header a[href="/merits"]')?.textContent).toBe("Учёт выполненной работы");
 });
 
 it("leaves personal teams readable when the day request fails and offers a retry", async () => {

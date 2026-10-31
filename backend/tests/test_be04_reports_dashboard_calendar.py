@@ -398,7 +398,9 @@ def test_historical_editors_post_close_season(client, test_event_hierarchy, supe
         json={"expected_revision": 4, "title": "Попытка нового лидера"},
         headers=new_leader.headers,
     )
-    assert res_patch_fail.status_code == 403
+    # He cannot read it either, so the command answers like its GET (GL-24).
+    assert client.get(f"{REPORTS_URL}/{reg_id}", headers=new_leader.headers).status_code == 404
+    assert res_patch_fail.status_code == 404
 
 
 # ═════════════════════════════════════════════════════════════

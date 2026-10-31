@@ -18,6 +18,7 @@ import type { ProfileUpdate } from "../../utils/api/types";
 import { useSession } from "../../utils/session";
 import { visibleAdminTabs } from "../Admin/adminTabs";
 import { useGuardedAction, useUnsavedChanges } from "../../components/Workspace/unsavedChangesHooks";
+import { isBackdropClick, useModalDialog } from "../../components/Workspace/useModalDialog";
 
 export const ProfileEditPage = () => {
   const user = useMe();
@@ -42,6 +43,8 @@ export const ProfileEditPage = () => {
   }, []);
 
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const passwordDialog = useModalDialog(isPasswordModalOpen);
+  const passwordTitleId = useId();
   const hasPassword = user?.has_password ?? true;
 
   const updateMutation = useMutation({
@@ -281,11 +284,11 @@ export const ProfileEditPage = () => {
 
       {/* Password Modal */}
       {isPasswordModalOpen && (
-        <div className={styles.modalOverlay}>
-          <div className={styles.modalBackdrop} onClick={handleClosePasswordModal} />
-          <div className={styles.modalContent}>
+        <dialog ref={passwordDialog} className={styles.modalContent} aria-labelledby={passwordTitleId}
+          onCancel={(event) => { event.preventDefault(); handleClosePasswordModal(); }}
+          onClick={(event) => { if (isBackdropClick(event)) handleClosePasswordModal(); }}>
             <div className={styles.modalHeader}>
-              <h3>Изменение пароля</h3>
+              <h3 id={passwordTitleId}>Изменение пароля</h3>
               <button type="button" className={styles.closeBtn} disabled={passwordFormik.isSubmitting} onClick={handleClosePasswordModal} aria-label="Закрыть окно пароля">
                 <Icon name="close" size={24} />
               </button>
@@ -332,8 +335,7 @@ export const ProfileEditPage = () => {
                 </fieldset>
               </form>
             </FormikProvider>
-          </div>
-        </div>
+        </dialog>
       )}
     </Page>
   );

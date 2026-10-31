@@ -31,7 +31,9 @@ it("pages a large personal team list without the removed team filters and duplic
   expect(page.container.querySelector('section[class*="myTeams"] input')).toBeNull();
   expect(page.container.querySelector('section[class*="myTeams"] select')).toBeNull();
   expect(page.container.querySelector('nav[aria-label="Быстрые переходы"]')).toBeNull();
-  expect(page.container.textContent).not.toContain("Учёт выполненной работы");
+  // The removed quick links do not come back: the one header button (GL-37 names it
+  // «Учёт выполненной работы») is the only way to /merits on the dashboard.
+  expect([...page.container.querySelectorAll('a[href="/merits"]')].map(link => link.textContent)).toEqual(["Учёт выполненной работы"]);
 });
 
 it("a global administrator without personal assignments gets honest empty states", async () => {
@@ -61,7 +63,8 @@ it("reads a notification when its source opens", async () => {
     <Route path="/tasks/:id" element={<p>Открытая задача</p>} />
   </Routes>, { role: "organizer", path: "/notifications" });
   await settle(); await settle();
-  const link = Array.from(page.container.querySelectorAll("a")).find((a) => a.textContent === "Перейти к источнику")!;
+  // The compact row's text is the link to its source (GL-16).
+  const link = Array.from(page.container.querySelectorAll("a")).find((a) => a.textContent === "Назначена работа")!;
   await act(async () => link.click());
   await settle(); await settle();
   expect(page.container.textContent).toContain("Открытая задача");

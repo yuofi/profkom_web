@@ -40,7 +40,7 @@ it("0.2: saving and publishing without changes keeps file:<id> and the old link,
   expect(m.published_content?.body).toBe(source.replace(`file:${attached.file_id}`, shown));
   page = await mountWorkspace(<Routes><Route path="/materials/:id" element={<MaterialPage />} /></Routes>, { path: `/materials/${id}`, session });
   await openMaterialEditor(page);
-  expect(page.container.querySelector("textarea")!.value).toBe(source);
+  expect(page.container.querySelector<HTMLTextAreaElement>('textarea[name="body"]')!.value).toBe(source);
   await submit(button("Сохранить черновик").closest("form")!);
   await waitForPage(page, () => button("Опубликовать сохранённый черновик").disabled === false);
   expect((await materialsApi.get(id)).draft_content?.body).toBe(source);

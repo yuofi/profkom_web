@@ -74,7 +74,7 @@ it.each(["keep", "replace"])("LOC-02: two real material editors refetch, compare
   await refetch("materials");
   await submit(editor);
   expect((await other.get(`/materials/${m.material_id}`)).data.revision).toBe(foreign.revision);
-  expect(editor.querySelector("textarea")!.value).toBe("ORIGINAL BODY");
+  expect(editor.querySelector<HTMLTextAreaElement>('textarea[name="body"]')!.value).toBe("ORIGINAL BODY");
   expect(field(editor, "title").value).toBe("MY LOCAL TITLE");
   await click(editor, choice === "keep" ? "Сохранить мой ввод с обновлённой версией" : "Заменить мой ввод сохранёнными значениями");
   await save(editor);
