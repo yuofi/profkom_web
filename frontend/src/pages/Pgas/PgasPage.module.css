@@ -120,6 +120,8 @@
 
 @media (max-width: 768px) {
   .filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* Under the folded «Фильтры» the fields keep the contacts page's spacing (PE-28). */
+  summary + .filters { margin-top: 12px; margin-bottom: 0; }
   .fileLink {
     max-width: 180px;
   }

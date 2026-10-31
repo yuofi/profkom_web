@@ -38,6 +38,8 @@
    too little room and break it mid-word (PE-33). */
 .registrationCard .registrationFields>div { display:block; }
 @media(max-width:768px) {
+  /* «Все блоки» keeps its own width beside the block avatar, not the phone row's stretch (PE-31). */
+  .blockHeaderActions.blockHeaderActions>a { flex-grow:0; }
   /* The status filters are one line that scrolls sideways (PE-32). */
   .statusTabs { flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin; }
   .statusTabs button { flex:none; }

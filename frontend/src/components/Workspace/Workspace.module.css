@@ -1264,6 +1264,14 @@ span.cardIcon {
     border-radius: 12px;
     background: var(--surface-container-low);
   }
+  /* The folded «Фильтры» reads in the middle of its box, its marker beside it (PE-28). */
+  .filterDetails > summary {
+    align-items: center;
+  }
+  .filterDetails > summary::before {
+    align-self: center;
+    margin-block: 0;
+  }
   .filterDetails .filters {
     margin-top: 12px;
     margin-bottom: 0;
@@ -1300,11 +1308,6 @@ span.cardIcon {
 }
 @media (max-width: 768px) {
   .row .iconButton {
-    flex-grow: 0;
-  }
-  /* The header's actions keep their own width beside the block avatar (PE-31). */
-  .header .row .linkButton,
-  .header .row .button {
     flex-grow: 0;
   }
   /* The tabs of a section are one line that scrolls sideways on a phone (PE-32). */

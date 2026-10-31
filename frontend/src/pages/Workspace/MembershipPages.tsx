@@ -111,7 +111,7 @@ export function BlockPage() {
   return (
     <Page
       title={b?.name ?? "Блок"}
-      actions={<div className={s.row}>{b && <BlockAvatarPicker block={b} />}<RouteLink to="/blocks">Все блоки</RouteLink></div>}
+      actions={<div className={`${s.row} ${m.blockHeaderActions}`}>{b && <BlockAvatarPicker block={b} />}<RouteLink to="/blocks">Все блоки</RouteLink></div>}
     >
       <QueryState keepDataOnError={!!query.data}
         loading={query.isLoading} error={query.error}>

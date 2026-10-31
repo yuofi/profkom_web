@@ -49,4 +49,7 @@ it("the block HR pencil is an icon button that a phone row does not stretch (PE-
   page = await mountWorkspace(<Routes><Route path="/blocks/:id" element={<BlockPage />} /></Routes>, { path: "/blocks/block-info" });await waitForPage(page);
   const pencil = page.container.querySelector<HTMLButtonElement>('button[aria-label="Изменить HR блока"]')!;
   expect(pencil.className).toMatch(/iconButton/);
+  // Only the block page's header keeps «Все блоки» unstretched; other headers keep the phone rule.
+  const all = Array.from(page.container.querySelectorAll<HTMLAnchorElement>("a")).find((link) => link.textContent === "Все блоки")!;
+  expect(all.parentElement!.className).toMatch(/blockHeaderActions/);
 });
