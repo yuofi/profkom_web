@@ -4,6 +4,7 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { TrackerListPage } from "./TrackerList";
 import { tasksApi } from "../../utils/api/tasks.api";
+import { eventsApi } from "../../utils/api/events.api";
 import { createFixtures } from "../../mocks/fixtures";
 import { installMockTransport } from "../../mocks/transport";
 import { mountWorkspace, waitForPage, change } from "../../test/workspace";
@@ -71,6 +72,38 @@ it("represents selected filters as independent removable chips and removes only 
   await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Убрать фильтр: Назначение"]')!.click());
   await waitForPage(page!);
   expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ mine: "false", q: "общая" }), expect.any(AbortSignal));
+});
+it("opens a bare list on the current season's unfinished work and keeps a cleared default cleared", async () => {
+  const { list } = await mount("/tasks");
+  const filters = () => page!.container.querySelector('[aria-label="Активные фильтры"]')!.textContent!, url = () => new URLSearchParams(page!.container.querySelector("[data-location]")!.textContent!);
+  expect(list.mock.calls.length).toBeGreaterThan(0);
+  expect(list.mock.calls.every(call => (call[0] as { season_id?: string; unfinished?: string }).season_id === "season-1" && (call[0] as { unfinished?: string }).unfinished === "true")).toBe(true);
+  expect(url().get("season_id")).toBe("season-1");expect(url().get("unfinished")).toBe("true");
+  expect(filters()).toContain("Сезон: Осень и зима 2026");expect(filters()).toContain("Незавершённые");
+  expect(filters()).not.toContain("Показаны все доступные вам задачи");expect(button("Сбросить все")).toBeUndefined();
+  await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Убрать фильтр: Сезон"]')!.click());await waitForPage(page!);
+  await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Убрать фильтр: Незавершённые"]')!.click());await waitForPage(page!);
+  expect(url().get("season_id")).toBe("");expect(url().get("unfinished")).toBe("");
+  expect(list.mock.lastCall?.[0]).not.toHaveProperty("season_id");expect(list.mock.lastCall?.[0]).not.toHaveProperty("unfinished");
+  expect(filters()).toContain("Показаны все доступные вам задачи");
+});
+it("resets every filter back to the current open work", async () => {
+  const { list } = await mount("/tasks?mine=true&status=in_progress&view=list");
+  expect(list.mock.calls.every(call => !("season_id" in (call[0] as object)))).toBe(true);
+  await act(async () => button("Сбросить все").click());await waitForPage(page!);
+  const url = new URLSearchParams(page!.container.querySelector("[data-location]")!.textContent!);
+  expect([...url.keys()].sort()).toEqual(["season_id", "unfinished", "view"]);
+  expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ season_id: "season-1", unfinished: "true" }), expect.any(AbortSignal));
+  expect(list.mock.lastCall?.[0]).not.toHaveProperty("status");
+});
+it("names the chair team filter and lets it be removed without probing team creation", async () => {
+  const subevent = vi.spyOn(eventsApi, "subevent");
+  const { list } = await mount("/tasks?scope_kind=chair&scope_id=chair");
+  const filters = page!.container.querySelector('[aria-label="Активные фильтры"]')!.textContent!;
+  expect(filters).toContain("Команда: Работа председателя");expect(filters).not.toContain("Показаны все доступные вам задачи");
+  expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ scope_kind: "chair", scope_id: "chair" }), expect.any(AbortSignal));
+  await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Убрать фильтр: Команда"]')!.click());await waitForPage(page!);
+  expect(list.mock.lastCall?.[0]).not.toHaveProperty("scope_kind");expect(subevent).not.toHaveBeenCalled();
 });
 it("uses real next cursors and resets pagination when search changes", async () => {
   const { list } = await mount("/tasks", params => ({ items: [], next_cursor: "cursor" in params ? null : "page-two", total: 23, scopes: [], assignees: [] }));

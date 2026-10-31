@@ -75,7 +75,7 @@ it("hides cached task rows immediately when a personal action discovers lost acc
 
 it.each(["calendar", "gantt"] as const)("never lets a background list 500 mask a refused cached %s plan", async view => {
   const source = task(), client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: Infinity } } });let denied = false;
-  await list(`/tasks?view=${view}&month=2026-10`, async filters => {
+  await list(`/tasks?view=${view}&month=2026-10&mine=false`, async filters => {
     if (denied) throw new ApiError(filters.limit === 100 ? "Доступ к плану закрыт" : "Временный сбой списка", filters.limit === 100 ? 403 : 500);
     return { items: [source], next_cursor: null, total: 1, scopes: [], assignees: [] };
   }, client);

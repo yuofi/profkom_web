@@ -36,6 +36,10 @@ const optionLabels: Record<string, string> = {
   mine: "Назначение", status: "Статус", season_id: "Сезон", scope: "Команда",
   assignee_user_id: "Исполнитель", unfinished: "Незавершённые", overdue: "Просроченные", q: "Поиск", queue_id: "Очередь", task_type: "Тип", priority: "Приоритет", favorite: "Избранное",
 };
+// Any of these makes the selection explicit; a bare main list opens on the current season's unfinished work.
+const selectionKeys = ["queue_id", "mine", "status", "season_id", "scope_kind", "scope_id", "assignee_user_id", "q", "task_type", "priority", "favorite", "unfinished", "overdue", "cursor"];
+const defaultKeys = ["season_id", "unfinished"];
+const scopeKindNames: Record<string, string> = { block: "блок", subevent: "подмероприятие", event: "мероприятие", chair: "Работа председателя" };
 
 export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?: ReactNode }) {
   const navigate = useNavigate();
@@ -54,6 +58,7 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
   const view = params.get("view") === "calendar" ? "calendar" : params.get("view") === "gantt" ? "gantt" : "list";
   const month = planningMonth(params.get("month")), zoom = params.get("zoom") === "month" ? "month" : "week";
   const range = planningRange(month, view === "calendar" ? "calendar" : "gantt", zoom);
+  const needsDefaults = !queue && !selectionKeys.some(key => params.has(key));
   const cursor = params.get("cursor") ?? "";
   const pageNumber = Math.max(1, Number(params.get("page")) || 1);
   // Cursors of earlier pages live in this history entry (they survive a reload); the URL
@@ -84,11 +89,20 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
   const requestFilters = Object.fromEntries(Object.entries({ ...filters, q: settledSearch }).filter(([, value]) => value !== ""));
   const listFilters = view === "list" ? requestFilters : { ...requestFilters, limit: 1 };
   // The previous page stays on screen while the next selection loads; a refused read still has no data.
-  const query = useQuery({ queryKey: ["tasks", "page", listFilters], queryFn: ({ signal }) => tasksApi.listPage(listFilters, signal), enabled: !searchPending && (view === "list" || filtersOpen), placeholderData: keepPreviousData });
+  const query = useQuery({ queryKey: ["tasks", "page", listFilters], queryFn: ({ signal }) => tasksApi.listPage(listFilters, signal), enabled: !searchPending && !needsDefaults && (view === "list" || filtersOpen), placeholderData: keepPreviousData });
   const listBusy = searchPending || query.isPlaceholderData;
-  const timeline = useQuery({ queryKey: ["tasks", "planning", requestFilters, range.first, range.last], queryFn: ({ signal }) => loadPlanningTasks(requestFilters, range, signal), enabled: view !== "list" && !searchPending });
+  const timeline = useQuery({ queryKey: ["tasks", "planning", requestFilters, range.first, range.last], queryFn: ({ signal }) => loadPlanningTasks(requestFilters, range, signal), enabled: view !== "list" && !searchPending && !needsDefaults });
   const queues = useQuery({ queryKey: ["tasks", "queues", "catalog"], queryFn: taskQueuesApi.catalog, enabled: !queue });
-  const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list, enabled: filtersOpen || !!filters.season_id });
+  const currentSeason = useQuery({ queryKey: ["seasons", "current"], queryFn: seasonsApi.current, enabled: !queue && (needsDefaults || !!filters.season_id) });
+  const currentSeasonFilter = !!filters.season_id && filters.season_id === currentSeason.data?.season_id;
+  useEffect(() => {
+    if (!needsDefaults || currentSeason.isPending) return;
+    const next = new URLSearchParams(params);
+    if (currentSeason.data) next.set("season_id", currentSeason.data.season_id);
+    next.set("unfinished", "true");
+    setParams(next, { replace: true });
+  }, [needsDefaults, currentSeason.isPending, currentSeason.data, params, setParams]);
+  const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list, enabled: filtersOpen || !!filters.season_id && !currentSeasonFilter && (!!queue || !currentSeason.isPending) });
   const people = useQuery({ queryKey: ["contacts"], queryFn: directoryApi.contacts, enabled: filtersOpen || !!filters.assignee_user_id });
   const peopleOptions = filtersOpen && !people.isFetching && (!people.error || canRetainData(people.error)) ? people.data : undefined;
   const seasonOptions = filtersOpen && !seasons.isFetching && (!seasons.error || canRetainData(seasons.error)) ? seasons.data : undefined;
@@ -103,7 +117,10 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
   const scopedCreation = useQuery({ queryKey: ["tasks", "list-create-capability", scope?.kind, scope?.id], enabled: !!scope && !queue,
     queryFn: async () => scope ? can(await (scope.kind === "block" ? membershipApi.block(scope.id) : eventsApi.subevent(scope.id)), "create_task") : false });
   const canCreateInScope = (!scopedCreation.error || canRetainData(scopedCreation.error)) && scopedCreation.data === true;
-  const scopeValue = scope ? JSON.stringify([scope.kind, scope.id]) : "";
+  // The filter chip names every team kind the server filters by; creation stays limited to block and subevent.
+  const filterScope: ScopeRef | null = !queue && Object.hasOwn(scopeKindNames, filters.scope_kind) && filters.scope_id
+    ? { kind: filters.scope_kind as ScopeRef["kind"], id: filters.scope_id } : null;
+  const scopeValue = filterScope ? JSON.stringify([filterScope.kind, filterScope.id]) : "";
   // Inside a team queue every row has that team; shared queues and the main list keep the column.
   const showScope = !queue?.scope;
   const update = (key: string, value: string, replace = false) => {
@@ -115,6 +132,8 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
         next.set("scope_kind", kind); next.set("scope_id", id);
       }
     } else if (value) next.set(key, value);
+    // Clearing a default keeps an explicit empty key, so the list does not snap back to the default.
+    else if (!queue && defaultKeys.includes(key)) next.set(key, "");
     else next.delete(key);
     next.delete("cursor"); next.delete("page"); next.delete("prev_cursor");
     setParams(next, { replace });
@@ -156,14 +175,15 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
   if (filters.priority) active.push({ key: "priority", label: `Приоритет: ${taskPriorityNames[filters.priority] ?? filters.priority}` });
   if (filters.favorite) active.push({ key: "favorite", label: filters.favorite === "true" ? "Избранные задачи" : "Неизбранные задачи" });
   if (filters.q) active.push({ key: "q", label: `Поиск: ${filters.q}` });
-  if (filters.season_id) active.push({ key: "season_id", label: `Сезон: ${seasons.data?.items.find((item) => item.season_id === filters.season_id)?.title ?? "выбран"}` });
-  if (scope && !queue) active.push({ key: "scope", label: `Команда: ${selectedScope?.title ?? (scope.kind === "block" ? "блок" : "подмероприятие")}` });
+  if (filters.season_id) active.push({ key: "season_id", label: `Сезон: ${seasons.data?.items.find((item) => item.season_id === filters.season_id)?.title ?? (currentSeasonFilter ? currentSeason.data?.title : null) ?? "выбран"}` });
+  if (filterScope) active.push({ key: "scope", label: `Команда: ${filterScope.kind === "chair" ? scopeKindNames.chair : selectedScope?.title ?? scopeKindNames[filterScope.kind]}` });
   if (filters.assignee_user_id) {
     const person = people.data?.find((item) => String(item.user_id) === filters.assignee_user_id);
     active.push({ key: "assignee_user_id", label: `Исполнитель: ${person ? `${person.surname} ${person.name}` : "выбран"}` });
   }
   if (filters.unfinished === "true") active.push({ key: "unfinished", label: "Незавершённые" });
   if (filters.overdue === "true") active.push({ key: "overdue", label: "Просроченные" });
+  const atDefaults = !queue && [...params.keys()].every(key => !selectionKeys.includes(key) || defaultKeys.includes(key)) && filters.unfinished === "true" && (currentSeasonFilter || !currentSeason.data && !filters.season_id);
   return <section className={s.page}>
     {header ?? <BrandedHeader className={s.header}>
       <div><TrackerHomeLink /><h1 className={w.title}>Задачи</h1><p className={w.description}>Одна совместная работа — одна задача и общий статус.</p></div>
@@ -184,7 +204,7 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
           <label className={w.field}>Приоритет<select aria-label="Приоритет" value={filters.priority} onChange={event => update("priority", event.target.value)}><option value="">Все приоритеты</option>{Object.entries(taskPriorityNames).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           <label className={w.field}>Сезон<select aria-label="Сезон" value={filters.season_id} onChange={(event) => update("season_id", event.target.value)}><option value="">Все сезоны</option>{seasonOptions?.items.map((item) => <option key={item.season_id} value={item.season_id}>{item.title}</option>)}</select></label>
           {!queue && <label className={w.field}>Очередь<select aria-label="Очередь" value={filters.queue_id} onChange={event => update("queue_id", event.target.value)}><option value="">Все доступные очереди</option>{queues.data?.items.filter(item => item.access === "granted").map(item => <option key={item.queue_id} value={item.queue_id}>{item.key} · {item.name}</option>)}</select></label>}
-          {!queue && <EntityPicker label="Команда" value={scopeValue} onChange={value => update("scope", value)} placeholder="Все команды" options={[{ value: "", label: "Все команды" }, ...(scope && !selectedScope ? [{ value: scopeValue, label: "Текущая команда", scope: { kind: scope.kind, name: "Текущая команда" } }] : []), ...scopes.map(item => ({ value: JSON.stringify([item.kind, item.id]), label: item.title, scope: { kind: item.kind, name: item.title } }))]} />}
+          {!queue && <EntityPicker label="Команда" value={scopeValue} onChange={value => update("scope", value)} placeholder="Все команды" options={[{ value: "", label: "Все команды" }, ...(filterScope && !selectedScope ? [{ value: scopeValue, label: filterScope.kind === "chair" ? scopeKindNames.chair : "Текущая команда", scope: { kind: filterScope.kind, name: filterScope.kind === "chair" ? scopeKindNames.chair : "Текущая команда" } }] : []), ...scopes.map(item => ({ value: JSON.stringify([item.kind, item.id]), label: item.title, scope: { kind: item.kind, name: item.title } }))]} />}
           <EntityPicker label="Исполнитель" value={filters.assignee_user_id} onChange={value => update("assignee_user_id", value)} placeholder="Все исполнители" options={[{ value: "", label: "Все исполнители" }, ...(peopleOptions?.filter(item => item.in_profcom).map(item => ({ value: String(item.user_id), label: [item.surname, item.name, item.patronymic].filter(Boolean).join(" "), user: { user_id: item.user_id, display_name: [item.surname, item.name, item.patronymic].filter(Boolean).join(" "), avatar_url: item.photo_url ?? null } })) ?? [])]} />
           <label className={w.field}>Сортировать<select aria-label="Сортировать" value={filters.sort} onChange={(event) => update("sort", event.target.value)}><option value="deadline">По дедлайну</option><option value="updated">По обновлению</option><option value="created">По созданию</option><option value="priority">По приоритету</option><option value="starts">По плановому началу</option></select></label>
           <label className={w.field}>Порядок<select aria-label="Порядок" value={filters.order} onChange={(event) => update("order", event.target.value)}><option value="asc">По возрастанию</option><option value="desc">По убыванию</option></select></label>
@@ -196,10 +216,10 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
     </div>
     <div className={s.activeFilters} aria-label="Активные фильтры">
       {active.map((filter) => <span className={s.filterChip} key={filter.key}>{filter.label}<button type="button" aria-label={`Убрать фильтр: ${optionLabels[filter.key]}`} onClick={() => update(filter.key, "")}><Glyph name="close" /></button></span>)}
-      {!active.length && <span className={s.filterHint}>Показаны все доступные вам задачи</span>}
-      {active.length > 1 && <button type="button" className={s.clear} onClick={() => { const next = new URLSearchParams();["view", "month", "zoom"].forEach(key => { const value = params.get(key);if (value) next.set(key, value); });setParams(next); }}>Сбросить все</button>}
+      {!active.length && !needsDefaults && <span className={s.filterHint}>Показаны все доступные вам задачи</span>}
+      {active.length > 1 && !atDefaults && <button type="button" className={s.clear} onClick={() => { const next = new URLSearchParams();["view", "month", "zoom"].forEach(key => { const value = params.get(key);if (value) next.set(key, value); });setParams(next); }}>Сбросить все</button>}
     </div>
-    <QueryState loading={view === "list" ? query.isLoading : timeline.isLoading} error={error} keepDataOnError={view === "list" ? !!query.data : !!timeline.data} retry={() => { void query.refetch();if (view !== "list") void timeline.refetch(); }}>
+    <QueryState loading={needsDefaults || (view === "list" ? query.isLoading : timeline.isLoading)} error={error} keepDataOnError={view === "list" ? !!query.data : !!timeline.data} retry={() => { void query.refetch();if (view !== "list") void timeline.refetch(); }}>
       {view === "calendar" ? <TrackerCalendar tasks={tasks} range={range} month={month} onMonth={value => update("month", value)} /> : view === "gantt" ? <TrackerGantt tasks={tasks} range={range} month={month} onMonth={value => update("month", value)} zoom={zoom} onZoom={value => update("zoom", value)} /> : tasks.length ? <div className={s.tableWrap} aria-busy={listBusy || undefined}>
         <table className={s.table} aria-label="Список задач">
           <thead><tr><th scope="col" className={s.colKey}>Ключ</th><th scope="col">Задача</th><th scope="col" className={s.colAssignees}>Исполнители</th><th scope="col" className={s.colStatus}>Статус</th><th scope="col" className={s.colDeadline} aria-sort={filters.sort === "deadline" ? filters.order === "desc" ? "descending" : "ascending" : "none"}><button onClick={() => changeSort("deadline")}>Дедлайн {filters.sort === "deadline" && (filters.order === "asc" ? "↑" : "↓")}</button></th>{showScope && <th scope="col" className={s.colScope}>Команда</th>}<th scope="col" className={s.colUpdated} aria-sort={filters.sort === "updated" ? filters.order === "desc" ? "descending" : "ascending" : "none"}><button onClick={() => changeSort("updated")}>Обновлено {filters.sort === "updated" && (filters.order === "asc" ? "↑" : "↓")}</button></th></tr></thead>
