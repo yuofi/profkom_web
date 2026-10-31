@@ -5617,6 +5617,16 @@ class Database:
             pairs = query.all()
             results = []
             from tracker import is_control_task
+            # The central batch task ACL for the reader and for every assignee, once
+            # per user, records the same task_read decisions the loop checks below.
+            from task_queues import readable_tasks_many
+            by_user = {}
+            for a, t in pairs:
+                if t.scope_kind != "queue" and a.status in active_statuses:
+                    if current_user_id is not None:
+                        by_user.setdefault(current_user_id, {})[t.task_id] = t
+                    by_user.setdefault(a.assignee_user_id, {})[t.task_id] = t
+            readable_tasks_many(session, {uid: list(tasks.values()) for uid, tasks in by_user.items()})
             for a, t in pairs:
                 if t.scope_kind=="queue" or a.status not in active_statuses or is_control_task(session, t.task_id):continue
                 if current_user_id is not None:
