@@ -319,6 +319,8 @@ function FormerForm({ contact }: { contact?: FormerContact }) {
       revision={contact?.revision}
       record={contact ? `former:${contact.contact_id}` : undefined}
       onConflict={refresh}
+      // A new card starts empty again, so a second click cannot repeat it (PE-06).
+      resetOnSuccess={!contact}
       fields={[
         ...Object.entries({
           surname: "Фамилия",
@@ -328,9 +330,10 @@ function FormerForm({ contact }: { contact?: FormerContact }) {
           email: "Почта",
           tg: "Telegram",
           vk: "VK",
-        }).map(([name, label]) => ({
+        }).map(([name, label]): Field => ({
           name,
           label,
+          type: name === "email" ? "email" : undefined,
           required: ["surname", "name"].includes(name),
           value: (contact?.[name as keyof FormerContact] as string) ?? "",
         })),
@@ -382,6 +385,11 @@ export function FormerContactsPage() {
     queryFn: directoryApi.former,
   });
   const [search, setSearch] = useState("");
+  const shown = query.data?.items.filter((p) =>
+    `${p.surname} ${p.name}`
+      .toLowerCase()
+      .includes(search.toLowerCase()),
+  );
   return (
     <Page
       title="Бывшие участники"
@@ -401,13 +409,7 @@ export function FormerContactsPage() {
           </label>
         </div>
         <QueryState loading={query.isLoading} error={query.error}>
-          {query.data?.items
-            .filter((p) =>
-              `${p.surname} ${p.name}`
-                .toLowerCase()
-                .includes(search.toLowerCase()),
-            )
-            .map((p) => (
+          {shown?.map((p) => (
               <Card
                 key={p.contact_id}
                 title={`${p.surname} ${p.name} ${p.patronymic ?? ""}`}
@@ -426,6 +428,7 @@ export function FormerContactsPage() {
                 )}
               </Card>
             ))}
+          {shown?.length === 0 && <Empty>{search.trim() ? "Ничего не найдено. Измените запрос." : "Карточек бывших участников пока нет."}</Empty>}
         </QueryState>
         {can(session, "edit_former_contacts") && (
           <Card title="Добавить бывшего участника">

@@ -168,3 +168,34 @@ def test_avatar_migration_never_downloads_vk_and_preserves_own(make_user, mock_s
     assert db.get_user(own.user_id).photo_url == "https://own.example.com/photo.jpg"
     assert avatar_url(own.user_id) == db.get_user(own.user_id).photo_url
     assert mock_s3["upload"] == []
+
+
+def test_former_contact_email_is_empty_or_valid_and_old_cards_still_read(client, superuser):
+    """PE-06: a new or edited card refuses a malformed address; stored ones are still listed."""
+    fields = dict(surname="Почтов", name="Иван", email="not-an-email", participation_periods=[dict(from_year=2020, to_year=2021)])
+    refused = client.post("/api/contacts/archive", headers=superuser.headers, json=fields)
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["detail"]["fields"]["errors"][0]["loc"][-1] == "email"
+    made = client.post("/api/contacts/archive", headers=superuser.headers, json={**fields, "email": " former@example.com "})
+    assert made.status_code == 200 and made.json()["email"] == "former@example.com"
+    assert client.post("/api/contacts/archive", headers=superuser.headers, json={**fields, "email": ""}).status_code == 200
+    with db._session() as s:
+        row = s.get(FormerContactORM, made.json()["contact_id"])
+        row.fields_json = json.dumps({**json.loads(row.fields_json), "email": "legacy-bad"}, ensure_ascii=False)
+        s.commit()
+    listed = client.get("/api/contacts/archive", headers=superuser.headers)
+    assert listed.status_code == 200 and "legacy-bad" in {c["email"] for c in listed.json()["items"]}
+
+
+def test_restored_account_leaves_the_former_list_but_keeps_its_card(client, superuser, make_user):
+    """PE-11: the snapshot card is hidden while its account is active again, never deleted."""
+    person = make_user(password=None)
+    def listed():
+        return [c for c in client.get("/api/contacts/archive", headers=superuser.headers).json()["items"]]
+    assert client.post(f"/api/accounts/{person.user_id}/archive", headers=superuser.headers, json={"reason": "Synthetic"}).status_code == 200
+    card = listed()
+    assert len(card) == 1
+    assert client.post(f"/api/accounts/{person.user_id}/restore", headers=superuser.headers, json={"master_conflicts": []}).status_code == 200
+    assert listed() == []
+    assert client.post(f"/api/accounts/{person.user_id}/archive", headers=superuser.headers, json={"reason": "Synthetic again"}).status_code == 200
+    assert [c["contact_id"] for c in listed()] == [card[0]["contact_id"]]
