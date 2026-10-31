@@ -25,7 +25,7 @@ vi.mock("../../components/VKAuth/authButton", () => ({
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let adapter: MockAdapter | undefined;
-afterEach(async () => { await page?.cleanup(); page = undefined; adapter?.restore(); Cookies.remove("access_token"); vi.restoreAllMocks(); });
+afterEach(async () => { await page?.cleanup(); page = undefined; adapter?.restore(); Cookies.remove("access_token"); sessionStorage.clear(); vi.restoreAllMocks(); });
 
 it.each(["pending", "rejected", "active"] as const)("A03: password and VK login use session-first for %s", async (state) => {
   for (const channel of ["password", "vk"]) {
@@ -203,4 +203,8 @@ it("after the temporary password change the login opens on the password form wit
   expect(field(page.container, "email").value).toBe("student@example.org");
   expect(field(page.container, "password").value).toBe("");
   expect(page.container.textContent).not.toContain("VK test");
+  // The note is for this one return to the login: the next login takes it away.
+  await change(field(page.container, "password"), "Own-New-Pass-2026");
+  await submit(page.container.querySelector("form")!); await settle(); await settle();
+  expect(sessionStorage.getItem("profkom-auth-notice")).toBeNull();
 });

@@ -19,6 +19,7 @@ import { membershipApi } from "../../utils/api/membership.api";
 import { sessionApi } from "../../utils/api/session.api";
 import { directoryApi } from "../../utils/api/directory.api";
 import { clearPrivateCache } from "../../utils/api/invalidation";
+import { leaveAuthNotice } from "../../utils/authSession";
 import s from "../../components/Workspace/Workspace.module.css";
 import { RegistrationForm } from "../../components/Workspace/RegistrationForm";
 import { missingFields } from "../../utils/contactFields";
@@ -110,7 +111,8 @@ export function PasswordChangePage() {
               await authApi.changePassword({ old_password: text(v, "old"), new_password: password });
               setChanged(true);
               // The change ended every session, this one too: straight to the login, its address in (PE-21).
-              await logout({ notice: "Пароль изменён. Войдите с новым паролем.", email: loginEmail });
+              leaveAuthNotice({ notice: "Пароль изменён. Войдите с новым паролем.", email: loginEmail });
+              await logout();
             }}
           />
         )}

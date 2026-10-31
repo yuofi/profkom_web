@@ -10,10 +10,9 @@ import { useState } from "react";
 import { authApi } from "../../utils/api/auth.api";
 import { VKAuthButton } from "../../components/VKAuth/authButton";
 import { type TokenResult } from "@vkid/sdk";
-import { completeAuthentication } from "../../utils/authSession";
+import { completeAuthentication, peekAuthNotice } from "../../utils/authSession";
 import { ERROR_TEXTS, userMessage } from "../../utils/api/messages";
-import { useLocation, useNavigate } from "react-router-dom";
-import type { AuthNotice } from "../../utils/hooks/useLogout";
+import { useNavigate } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -32,8 +31,9 @@ const VK_TEXTS = {
 
 export const GreetingPage = () => {
   // After a password change the page opens on the password form with the address (PE-21).
-  const arrival = (useLocation().state ?? null) as AuthNotice | null;
-  const [signUp, setSignUp] = useState(!arrival?.notice);
+  // The note stays until the next login: the redirect may mount this page more than once.
+  const [arrival] = useState(peekAuthNotice);
+  const [signUp, setSignUp] = useState(!arrival);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 

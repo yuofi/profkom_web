@@ -17,6 +17,7 @@ async function discardPrivateData(client: QueryClient) {
 /** The provider loads a profile only after this session is confirmed active. */
 export async function completeAuthentication(client: QueryClient, accessToken: string) {
   beginAuthTransition();
+  clearAuthNotice();
   await discardPrivateData(client);
   Cookies.set("access_token", accessToken, { expires: 1 / 8 });
   return client.fetchQuery({ queryKey: ["session"], queryFn: sessionApi.get, staleTime: 0 });
@@ -44,4 +45,21 @@ export async function endSession(client: QueryClient) {
   beginAuthTransition();
   Cookies.remove("access_token");
   await discardPrivateData(client);
+}
+
+/** A note for the login page after a sign-out on purpose (PE-21): the revoked session
+ *  redirects to /auth on its own, so the note waits in the tab's storage, not in the route. */
+export interface AuthNotice { notice: string; email: string | null }
+const AUTH_NOTICE = "profkom-auth-notice";
+export function leaveAuthNotice(notice: AuthNotice) {
+  try { sessionStorage.setItem(AUTH_NOTICE, JSON.stringify(notice)); } catch { /* no storage: no note */ }
+}
+export function peekAuthNotice(): AuthNotice | null {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(AUTH_NOTICE) ?? "null") as { notice?: unknown; email?: unknown } | null;
+    return typeof value?.notice === "string" ? { notice: value.notice, email: typeof value.email === "string" ? value.email : null } : null;
+  } catch { return null; }
+}
+export function clearAuthNotice() {
+  try { sessionStorage.removeItem(AUTH_NOTICE); } catch { /* no storage */ }
 }

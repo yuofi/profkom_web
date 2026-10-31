@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act } from "react";
-import { Route, Routes, useLocation } from "react-router-dom";
+import { Route, Routes } from "react-router-dom";
 import { afterEach, expect, it } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
 import { createFixtures } from "../../mocks/fixtures";
@@ -11,10 +11,11 @@ import { BlockRequestsPage } from "../Workspace/MembershipPages";
 import { ProtectedRoute } from "../Wrappers/wrappers";
 import { WorkspaceLayout } from "../../components/Workspace/WorkspaceLayout";
 import { UserContext } from "../../utils/me";
+import { peekAuthNotice } from "../../utils/authSession";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let mock: ReturnType<typeof installMockTransport> | undefined;
-afterEach(async () => { await page?.cleanup(); page = undefined; mock?.restore(); mock = undefined; });
+afterEach(async () => { await page?.cleanup(); page = undefined; mock?.restore(); mock = undefined; sessionStorage.clear(); });
 
 const cabinet = (role: Parameters<typeof installMockTransport>[0], path: string) => {
   mock = installMockTransport(role, { delay: 0 });
@@ -149,8 +150,7 @@ it("АВ-52: a temporary password opens only its change", async () => {
   expect(page.container.querySelector("[data-arrival]")?.textContent).toContain("Пароль изменён. Войдите с новым паролем.");
 });
 function AuthArrival() {
-  const state = useLocation().state as { notice?: string } | null;
-  return <p data-arrival="">{state?.notice}</p>;
+  return <p data-arrival="">{peekAuthNotice()?.notice}</p>;
 }
 
 it("АВ-52: a VK-only account is asked to set a password; the cabinet is one menu item", async () => {
