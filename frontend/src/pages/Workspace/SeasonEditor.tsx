@@ -14,11 +14,20 @@ import w from "../../components/Workspace/Workspace.module.css";
 import u from "./SeasonWorkspace.module.css";
 
 const types = { winter_spring: "Зима — весна", summer_autumn: "Лето — осень", autumn_winter: "Осень — зима" };
+/** The type a new season usually has by the month it starts in (МСК): winter and spring, summer, autumn. */
+export function typeForStart(value: string): Season["type"] | null {
+  const month = Number(value.slice(5, 7));
+  if (!month) return null;
+  return month >= 6 && month <= 8 ? "summer_autumn" : month >= 9 && month <= 11 ? "autumn_winter" : "winter_spring";
+}
 export function SeasonEditor({ season, onClose }: { season?: Season; onClose?: () => void }) {
   const navigate = useNavigate(), leave = useGuardedAction(), { perform, refresh } = useWorkspaceActions();
   const [title, setTitle] = useState(season?.title ?? ""), [type, setType] = useState<Season["type"]>(season?.type ?? "autumn_winter");
   const [starts, setStarts] = useState(season ? moscowInput(season.starts_at) : ""), [ends, setEnds] = useState(season ? moscowInput(season.ends_at) : ""), [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false), [preview, setPreview] = useState(false);const previewId = useId();
+  // A new season takes its type from the start month until the type is chosen by hand.
+  const [typeChosen, setTypeChosen] = useState(false);
+  const changeStart = (value: string) => { setStarts(value);const suggested = typeForStart(value);if (!season && !typeChosen && suggested) setType(suggested); };
   const external = { title, type, starts, ends, reason };const [initial] = useState(external);
   const savedState = season ? { title: season.title, type: season.type, starts: moscowInput(season.starts_at), ends: moscowInput(season.ends_at), reason: "" } : initial;
   const replace = () => { setTitle(savedState.title);setType(savedState.type);setStarts(savedState.starts);setEnds(savedState.ends);setReason(savedState.reason); };
@@ -40,11 +49,11 @@ export function SeasonEditor({ season, onClose }: { season?: Season; onClose?: (
       <div className={u.editorCanvas}>
         <div className={u.editorMain}>
           <label className={u.editorTitle}>Название сезона<input name="title" autoFocus value={title} onChange={e => setTitle(e.target.value)} placeholder="Например, Осень — зима 2026" maxLength={200} required disabled={saving} /></label>
-          <section className={u.editorPeriod} aria-label="Период сезона"><label className={u.editorField}>Начало, МСК<input name="start" type="datetime-local" value={starts} onChange={e => setStarts(e.target.value)} required disabled={saving} /></label><span aria-hidden="true">→</span><label className={u.editorField}>Окончание, МСК<input name="end" type="datetime-local" value={ends} onChange={e => setEnds(e.target.value)} required disabled={saving} /></label></section>
+          <section className={u.editorPeriod} aria-label="Период сезона"><label className={u.editorField}>Начало, МСК<input name="start" type="datetime-local" value={starts} onChange={e => changeStart(e.target.value)} required disabled={saving} /></label><span aria-hidden="true">→</span><label className={u.editorField}>Окончание, МСК<input name="end" type="datetime-local" value={ends} onChange={e => setEnds(e.target.value)} required disabled={saving} /></label></section>
           {preview && <section id={previewId} className={u.editorPreview} aria-label="Предпросмотр сезона"><span className={u.eyebrow}>Так сезон увидят участники</span><strong>{title.trim() || "Название сезона"}</strong><p>{starts ? previewDate(starts) : "Дата начала"} — {ends ? previewDate(ends) : "Дата окончания"}</p><span>{types[type]}</span></section>}
           {season && <label className={u.editorField}>Основание изменения<textarea name="reason" value={reason} onChange={e => setReason(e.target.value)} placeholder="Что и почему нужно исправить" required disabled={saving} /></label>}
         </div>
-        <aside className={u.editorAside} aria-label="Параметры сезона"><h2>Параметры</h2><label className={u.editorField}>Тип сезона{season ? <span>{types[type]}</span> : <select aria-label="Тип сезона" name="type" value={type} onChange={e => setType(e.target.value as Season["type"])} disabled={saving}>{Object.entries(types).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>}</label><p className={u.editorFootnote}><Glyph name="calendar_month" /> Даты заданы по московскому времени.</p><p className={u.editorFootnote}>{season ? "Изменение периода не переносит задачи и мероприятия между сезонами." : "Новый сезон появится как запланированный. Текущий сезон продолжит работать до вашего отдельного решения."}</p></aside>
+        <aside className={u.editorAside} aria-label="Параметры сезона"><h2>Параметры</h2><label className={u.editorField}>Тип сезона{season ? <span>{types[type]}</span> : <select aria-label="Тип сезона" name="type" value={type} onChange={e => { setTypeChosen(true);setType(e.target.value as Season["type"]); }} disabled={saving}>{Object.entries(types).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>}</label><p className={u.editorFootnote}><Glyph name="calendar_month" /> Даты заданы по московскому времени.</p><p className={u.editorFootnote}>{season ? "Изменение периода не переносит задачи и мероприятия между сезонами." : "Новый сезон появится как запланированный. Текущий сезон продолжит работать до вашего отдельного решения."}</p></aside>
       </div>
     </ActionForm>
   </section>;

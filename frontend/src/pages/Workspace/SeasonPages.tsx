@@ -42,10 +42,14 @@ const typeNames = { winter_spring: "Зима — весна", summer_autumn: "Л
 const State = ({ season }: { season: Season }) => <span className={u.state} data-state={season.state}>{states[season.state]}</span>;
 const dateRange = (season: Season) => `${displayDate(season.starts_at)} — ${displayDate(season.ends_at)}`;
 
+/** Only one season may wait to open: with one planned, creation leads to it instead of a form that would be refused. */
+function PlannedSeason({ season }: { season: Season }) {
+  return <p className={u.plannedNotice} role="status">Уже есть запланированный сезон: <Link to={getSeasonRoute(season.season_id)}>{season.title}</Link></p>;
+}
 export function SeasonsPage() {
-  const { session } = useSession();const query = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
+  const { session } = useSession();const query = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });const planned = query.data?.items.find(season => season.state === "planned");
   const ordered = [...(query.data?.items ?? [])].sort((a, b) => b.sequence_number - a.sequence_number);const current = ordered.find(season => season.is_current);const other = ordered.filter(season => season.season_id !== current?.season_id);
-  return <section className={u.page}><BrandedHeader className={u.header}><div><SectionHomeLink to="/seasons" /><h1 className={w.title}>Сезоны и ККР</h1><p className={w.description}>Работа участников, начисления и итоги — в контексте выбранного сезона.</p></div><div className={w.row}><Link className={w.button} to={getKkrTemplatesRoute()}><Glyph name="description" />Шаблоны ККР</Link>{can(session, "open_season") && <Link className={`${u.primary} ${w.button}`} to={getSeasonCreateRoute()}><Glyph name="add" />Создать сезон</Link>}</div></BrandedHeader>
+  return <section className={u.page}><BrandedHeader className={u.header}><div><SectionHomeLink to="/seasons" /><h1 className={w.title}>Сезоны и ККР</h1><p className={w.description}>Работа участников, начисления и итоги — в контексте выбранного сезона.</p></div><div className={w.row}><Link className={w.button} to={getKkrTemplatesRoute()}><Glyph name="description" />Шаблоны ККР</Link>{can(session, "open_season") && (planned ? <PlannedSeason season={planned} /> : <Link className={`${u.primary} ${w.button}`} to={getSeasonCreateRoute()}><Glyph name="add" />Создать сезон</Link>)}</div></BrandedHeader>
     <QueryState loading={query.isLoading} error={query.error} retry={() => void query.refetch()}>
       {current && <section className={u.current} aria-label="Текущий сезон"><div><p className={u.eyebrow}>Текущий сезон</p><h2>{current.title}</h2><p>{dateRange(current)}</p><div className={u.statusLine}><State season={current} /><small>{typeNames[current.type]}</small></div></div><Link className={u.primary} to={getSeasonRoute(current.season_id)}>Открыть сезон <span aria-hidden="true">→</span></Link></section>}
       <section className={u.stack}><div className={u.sectionHeading}><h2>{current ? "Другие сезоны" : "Все сезоны"}</h2><small>{other.length} сезонов</small></div><div className={u.seasonList}>{other.map(season => <Link key={season.season_id} className={u.seasonRow} to={getSeasonRoute(season.season_id)}><div><h3>{season.title}</h3><p>{typeNames[season.type]}</p></div><span className={u.seasonDates}>{dateRange(season)}</span><State season={season} /><span aria-hidden="true">↗</span></Link>)}</div>{!other.length && <Empty>{current ? "Других сезонов пока нет." : "Сезонов пока нет. Создайте первый сезон, чтобы начать учёт работы."}</Empty>}</section>
@@ -58,7 +62,12 @@ export function KkrTemplatesPage() {
   </section>;
 }
 export function SeasonCreatePage() {
-  const { session } = useSession();return can(session, "open_season") ? <UnsavedChangesScope><SeasonEditor /></UnsavedChangesScope> : <section className={u.page}><h1>Новый сезон</h1><Empty>Создание сезона доступно председателю.</Empty><Link to="/seasons" className={u.secondary}>Все сезоны</Link></section>;
+  const { session } = useSession();const query = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list, enabled: can(session, "open_season") });
+  const planned = query.data?.items.find(season => season.state === "planned");
+  if (!can(session, "open_season")) return <section className={u.page}><h1>Новый сезон</h1><Empty>Создание сезона доступно председателю.</Empty><Link to="/seasons" className={u.secondary}>Все сезоны</Link></section>;
+  if (query.isLoading) return <QueryState loading error={null}>{null}</QueryState>;
+  if (planned) return <section className={u.page}><h1 className={w.title}>Новый сезон</h1><PlannedSeason season={planned} /><p className={u.note}>Новый сезон можно создать, когда запланированный откроется.</p><Link to="/seasons" className={u.secondary}>Все сезоны</Link></section>;
+  return <UnsavedChangesScope><SeasonEditor /></UnsavedChangesScope>;
 }
 type SeasonAction = "open" | "begin-summary" | "close";
 const commands: { action: SeasonAction; capability: string; label: string; icon: "event" | "pending_actions" | "check" }[] = [

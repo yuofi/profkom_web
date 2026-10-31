@@ -34,16 +34,37 @@ const analytics = (): Analytics => ({
   season_comparison: [{ season_id: "old", title: "Старый сезон", state: "closed", starts_at: "2026-06-01T00:00:00Z", ends_at: "2026-09-01T00:00:00Z", basis: { kind: "approved_snapshot", version: 4, approved_at: "2026-09-01T00:00:00Z" }, totals: { completed_tasks: null, credited_hours: null, kkr: 18 } }], coverage: { accepted_assignments: 1, missing_hours_assignments: 0, undated_accepted_assignments: 0, undated_contributions: 0, notes: ["Исторические часы неизвестны."] },
 });
 it("keeps creation and global season corrections off the catalog with a dedicated create entry", async () => {
-  await mount(<SeasonsPage />);expect(page!.container.querySelectorAll("form")).toHaveLength(0);expect(page!.container.textContent).not.toContain("Исправить ошибочную принадлежность");expect(page!.container.querySelector('section[aria-label="Текущий сезон"]')?.textContent).toContain("Осень и зима 2026");expect(page!.container.querySelector('a[href="/seasons/new"]')?.textContent).toContain("Создать сезон");
+  // Without a planned season the catalog offers creation (SE-20 names the planned one instead).
+  transport = installMockTransport("chair", { delay: 0 });transport.state.seasons.splice(transport.state.seasons.findIndex(season => season.state === "planned"), 1);
+  page = await mountWorkspace(<SeasonsPage />, { path: "/seasons" });await waitForPage(page);expect(page!.container.querySelectorAll("form")).toHaveLength(0);expect(page!.container.textContent).not.toContain("Исправить ошибочную принадлежность");expect(page!.container.querySelector('section[aria-label="Текущий сезон"]')?.textContent).toContain("Осень и зима 2026");expect(page!.container.querySelector('a[href="/seasons/new"]')?.textContent).toContain("Создать сезон");
 });
 it("creates through the visual shell with a preview and exact server dates", async () => {
-  await mount(<Routes><Route path="/seasons/new" element={<SeasonCreatePage />} /><Route path="/seasons/:id" element={<p>Созданный сезон</p>} /></Routes>, "/seasons/new");
-  transport!.state.seasons.splice(transport!.state.seasons.findIndex(season => season.state === "planned"), 1);
+  // The form opens only while no season is planned (SE-20), so the planned one goes first.
+  transport = installMockTransport("chair", { delay: 0 });transport.state.seasons.splice(transport.state.seasons.findIndex(season => season.state === "planned"), 1);
+  page = await mountWorkspace(<Routes><Route path="/seasons/new" element={<SeasonCreatePage />} /><Route path="/seasons/:id" element={<p>Созданный сезон</p>} /></Routes>, { path: "/seasons/new" });await waitForPage(page);
   expect(page!.container.querySelector('[aria-label="Предпросмотр сезона"]')).toBeNull();
   await change(field(page!.container, "title"), "Новый сезон из редактора");await change(field(page!.container, "start"), "2027-02-01T12:00");await change(field(page!.container, "end"), "2027-06-01T12:00");await change(field(page!.container, "type"), "winter_spring");
   await click("Показать предпросмотр сезона");expect(page!.container.querySelector('button[aria-controls][aria-pressed="true"]')).not.toBeNull();expect(page!.container.querySelector('[aria-label="Предпросмотр сезона"]')?.textContent).toContain("Новый сезон из редактора");
   await click("Скрыть предпросмотр сезона");expect(page!.container.querySelector('[aria-label="Предпросмотр сезона"]')).toBeNull();expect(field(page!.container, "title").value).toBe("Новый сезон из редактора");expect(field(page!.container, "start").value).toBe("2027-02-01T12:00");
   await submit(page!.container.querySelector("form")!);await waitForPage(page!, () => page!.container.textContent?.includes("Созданный сезон") ?? false, 3000);const request = transport!.adapter.history.post.find(request => request.url === "/seasons")!;expect(JSON.parse(request.data)).toEqual({ title: "Новый сезон из редактора", starts_at: "2027-02-01T09:00:00.000Z", ends_at: "2027-06-01T09:00:00.000Z", type: "winter_spring" });
+});
+it("leads to the planned season instead of a creation that would be refused", async () => {
+  await mount(<Routes><Route path="/seasons" element={<SeasonsPage />} /><Route path="/seasons/new" element={<SeasonCreatePage />} /></Routes>, "/seasons");
+  expect(page!.container.querySelector('a[href="/seasons/new"]')).toBeNull();
+  expect(page!.container.querySelector('[role="status"]')?.textContent).toBe("Уже есть запланированный сезон: Зима и весна 2027");
+  expect(page!.container.querySelector('[role="status"] a')?.getAttribute("href")).toBe("/seasons/season-next");
+  await page!.cleanup();transport!.restore();
+  await mount(<Routes><Route path="/seasons/new" element={<SeasonCreatePage />} /></Routes>, "/seasons/new");
+  expect(page!.container.querySelector("form")).toBeNull();
+  expect(page!.container.querySelector('[role="status"] a')?.getAttribute("href")).toBe("/seasons/season-next");
+});
+it("suggests the season type from the start month until it is chosen by hand", async () => {
+  transport = installMockTransport("chair", { delay: 0 });transport.state.seasons.splice(transport.state.seasons.findIndex(season => season.state === "planned"), 1);
+  page = await mountWorkspace(<Routes><Route path="/seasons/new" element={<SeasonCreatePage />} /></Routes>, { path: "/seasons/new" });await waitForPage(page);
+  await change(field(page.container, "start"), "2027-02-01T12:00");expect(field(page.container, "type").value).toBe("winter_spring");
+  await change(field(page.container, "start"), "2027-06-01T12:00");expect(field(page.container, "type").value).toBe("summer_autumn");
+  await change(field(page.container, "start"), "2027-10-01T12:00");expect(field(page.container, "type").value).toBe("autumn_winter");
+  await change(field(page.container, "type"), "winter_spring");await change(field(page.container, "start"), "2027-07-01T12:00");expect(field(page.container, "type").value).toBe("winter_spring");
 });
 it("opens period editing by pencil and saves the same season with revision and reason", async () => {
   await mount(<Routes><Route path="/seasons/:id" element={<SeasonPage />} /></Routes>, "/seasons/season-1");expect(page!.container.querySelector('input[name="title"]')).toBeNull();expect(page!.container.textContent).not.toContain("Исправление периода");
@@ -98,9 +119,10 @@ it("preserves chart metric and period when participant filters refetch", async (
   expect([...page!.container.querySelectorAll("button")].find(button => button.textContent === "ККР")?.getAttribute("aria-pressed")).toBe("true");expect([...page!.container.querySelectorAll("button")].find(button => button.textContent === "По сезонам")?.getAttribute("aria-pressed")).toBe("true");
 });
 it("guards unsaved creation and never creates a season through Cancel", async () => {
-  transport = installMockTransport("chair", { delay: 0 });const create = vi.spyOn(seasonsApi, "create");const container = document.createElement("div");document.body.append(container);const root = createRoot(container), client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  transport = installMockTransport("chair", { delay: 0 });transport.state.seasons.splice(transport.state.seasons.findIndex(season => season.state === "planned"), 1);const create = vi.spyOn(seasonsApi, "create");const container = document.createElement("div");document.body.append(container);const root = createRoot(container), client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const router = createMemoryRouter([{ element: <UnsavedChangesProvider><Outlet /></UnsavedChangesProvider>, children: [{ path: "/seasons/new", element: <SeasonCreatePage /> }, { path: "/seasons", element: <p>Каталог сезонов</p> }] }], { initialEntries: ["/seasons/new"] });
   await act(async () => root.render(<QueryClientProvider client={client}><SessionContext.Provider value={{ session: transport!.state.session, loading: false, error: null, refresh: () => {} }}><RouterProvider router={router} /></SessionContext.Provider></QueryClientProvider>));otherCleanup = async () => { await act(async () => root.unmount());router.dispose();client.clear();container.remove(); };
+  await waitForPage({ client, container }, () => !!container.querySelector('input[name="title"]'));
   await change(field(container, "title"), "Несохранённый сезон");const warn = new Event("beforeunload", { cancelable: true });window.dispatchEvent(warn);expect(warn.defaultPrevented).toBe(true);
   await act(async () => [...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Отмена")!.click());expect(container.querySelector("dialog")?.textContent).toContain("Есть несохранённые изменения");expect(create).not.toHaveBeenCalled();
   await act(async () => [...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Остаться")!.click());expect(field(container, "title").value).toBe("Несохранённый сезон");expect(create).not.toHaveBeenCalled();

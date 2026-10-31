@@ -76,3 +76,5 @@
 @media(max-width:768px){.headerActions{justify-content:flex-start;width:100%}.disclosure>summary{padding:15px 16px}.disclosureBody{padding:2px 16px 16px}}
 
 .statisticsTable th:first-child{width:30%}.statisticsTable th:nth-child(n+2){width:calc(70% / 6);text-align:right}.statisticsTable td{padding:14px}.statisticsTable td:nth-child(n+2){text-align:right}.statisticsTable .coefficientField>input{margin-inline-start:auto}
+/* One planned season at a time: the place of «Создать сезон» names it instead. */
+.plannedNotice { margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:13px;line-height:1.5;color:var(--on-surface-variant); }.plannedNotice a { color:var(--accent-lilac);font-weight:500; }
