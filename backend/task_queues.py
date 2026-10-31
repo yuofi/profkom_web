@@ -378,6 +378,28 @@ def get(queue_id,uid,*,include_assignable=True):
         return result
 
 
+def assignment_task_ids(uid, assignment_ids):
+    """assignment_id -> task_id when uid reads that task (GET /tasks/{id}), else None.
+
+    For links from accounting rows: a task in a queue the reader cannot open keeps
+    its id hidden. Two IN reads; decisions use task_read, primed in a clean read UOW.
+    """
+    ids=list(dict.fromkeys(item for item in assignment_ids if item))
+    if not ids:return {}
+    with db._session() as session:
+        pairs={}
+        for index in range(0,len(ids),500):
+            pairs.update(session.query(AssignmentORM.assignment_id,AssignmentORM.task_id).filter(
+                AssignmentORM.assignment_id.in_(ids[index:index+500])))
+        task_ids=list(dict.fromkeys(pairs.values()))
+        tasks={}
+        for index in range(0,len(task_ids),500):
+            tasks.update((task.task_id,task) for task in session.query(TaskORM).filter(TaskORM.task_id.in_(task_ids[index:index+500])))
+        if reusable(session):readable_tasks(session,list(tasks.values()),uid)
+        readable={task_id for task_id,task in tasks.items() if db.can_read_task(uid,task,session)}
+        return {assignment_id:(task_id if task_id in readable else None) for assignment_id,task_id in pairs.items()}
+
+
 def create_access(uid):
     """Whether any catalogue queue carries create_task for the reader (the projection rule)."""
     from support import is_support_queue

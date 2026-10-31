@@ -3046,6 +3046,7 @@ def list_assessments(
     participant_id: Optional[str] = None,
     user_id: Optional[int] = None,
     cursor: Optional[str] = None,
+    include_task_ids: bool = False,
     cur: User = Depends(get_current_user),
 ):
     items = db.list_assessments(
@@ -3057,7 +3058,16 @@ def list_assessments(
         user_id=user_id,
     )
     page = cursor_page(items, lambda c: (c.created_at, c.contribution_id), cursor, descending=True)
-    return {"items": [_to_calculated_contribution_out(c) for c in page.items], "next_cursor": page.next_cursor}
+    out = [_to_calculated_contribution_out(c) for c in page.items]
+    if include_task_ids:
+        # assignment_inputs.task_id: the task when the actor may open it, else null.
+        from task_queues import assignment_task_ids
+        tasks = assignment_task_ids(cur.user_id, [c.assignment_inputs.assignment_id for c in out if c.assignment_inputs])
+        out = [c.model_dump(mode="json", by_alias=True) for c in out]
+        for c in out:
+            if c["assignment_inputs"]:
+                c["assignment_inputs"]["task_id"] = tasks.get(c["assignment_inputs"]["assignment_id"])
+    return {"items": out, "next_cursor": page.next_cursor}
 
 
 # ── Merits & Volunteers ──

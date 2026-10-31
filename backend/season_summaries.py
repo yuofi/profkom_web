@@ -449,7 +449,7 @@ def register_routes(router):
         return preview_event(event_id, cur.user_id)
 
     @router.get("/seasons/{season_id}/readiness")
-    def readiness(season_id: str, cur: User = Depends(get_current_user)):
+    def readiness(season_id: str, include_task_ids: bool = False, cur: User = Depends(get_current_user)):
         if not access.allowed(cur.user_id, "summary.view"):
             raise Forbidden("Forbidden: season readiness requires summary access")
         from season_readiness import blockers
@@ -458,6 +458,11 @@ def register_routes(router):
             if not season:
                 raise NotFound("Season not found")
             items = blockers(session, season, cur.user_id)
+            if include_task_ids:
+                # Assignment blockers gain task_id: the task when the actor may open it.
+                from task_queues import assignment_task_ids
+                tasks = assignment_task_ids(cur.user_id, [b["owner_id"] for b in items if b["owner_kind"] == "assignment"])
+                items = [dict(b, task_id=tasks.get(b["owner_id"])) if b["owner_kind"] == "assignment" else b for b in items]
             return dict(ready=not items and season.state in {"open", "summarizing"}, blockers=items, revision=season.revision)
 
     def require_reader(uid):

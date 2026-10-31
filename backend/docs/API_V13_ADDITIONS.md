@@ -517,3 +517,10 @@ event/subevent/leadership имеет общий контракт. Публичн
   `event_id`, `title`. В каждом элементе `capabilities` — только возможности
   заслуг (`create_volunteer_merit` у блоков и подмероприятий, `create_head_merit`
   у мероприятий), ровно как в соответствующих DTO; порядок элементов прежний.
+- `GET /assessments?include_task_ids=true`: в `assignment_inputs` появляется
+  `task_id` — задача назначения, если актор может открыть её
+  (`GET /tasks/{id}`), иначе `null`. `GET /seasons/{id}/readiness?include_task_ids=true`:
+  у препятствий с `owner_kind: "assignment"` появляется такой же `task_id`;
+  замаскированные препятствия закрытых очередей (`owner_kind: "task_queue"`)
+  не меняются. Без параметра ответы прежние. Это заменяет выгрузку всех задач
+  сезона ради сопоставления `assignment_id → task_id`.
