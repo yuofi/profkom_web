@@ -1,6 +1,7 @@
 import { useContext, type ReactNode } from "react";
 import clsx from "clsx";
 import { Link } from "react-router-dom";
+import { QueryClientContext, type Query } from "@tanstack/react-query";
 import { canRetainData, normalizeApiError } from "../../utils/api/request";
 import { errorDetail, userMessage } from "../../utils/api/messages";
 import type { IconName } from "../icons";
@@ -137,9 +138,13 @@ export function QueryState({
   retry?: () => void;
   keepDataOnError?: boolean;
 }) {
+  // Without an own retry, «Обновить данные» rereads the page's failed queries (GL-38).
+  const client = useContext(QueryClientContext);
+  const failed = { type: "active" as const, predicate: (query: Query) => query.state.status === "error" };
+  const reread = !retry && error && client?.getQueryCache().findAll(failed).length ? () => void client.refetchQueries(failed) : undefined;
   if (loading) return <Loading />;
   return <>
-    {error && <ErrorState error={error} retry={retry} />}
+    {error && <ErrorState error={error} retry={retry ?? reread} />}
     {(!error || (keepDataOnError && canRetainData(error))) ? children : null}
   </>;
 }
