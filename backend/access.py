@@ -538,19 +538,28 @@ ASSIGNMENT_CAPS = {
 }
 
 
+MERIT_VIEW_CAPS = {
+    "event": {"view_merits": "merit.view.head_merit"},
+    "block": {"view_merits": "merit.view.block_volunteer"},
+    "subevent": {"view_merits": "merit.view.subevent_volunteer"},
+}
+
+
 def assignment_caps(uid, kind, scope_id):
-    """Capabilities of one role assignment in `/session`: merits for its own scope."""
+    """Capabilities of one role assignment in `/session`: merits for its own scope.
+    Reading saved merits (`view_merits`) also covers closed seasons."""
     if kind == "global":
         return global_caps(uid)
+    readable = _caps(MERIT_VIEW_CAPS.get(kind, {}), uid, kind, scope_id)
     if _closed_scope(kind, scope_id) and not allowed(uid, "summary.correct"):
-        return []
+        return readable
     result = _caps(ASSIGNMENT_CAPS.get(kind, {}), uid, kind, scope_id)
     if kind in {"event", "subevent"}:
         from merit_rules import can_create
         source = "head_merit" if kind == "event" else "subevent_volunteer"
         if not can_create(uid, source, scope_id if kind == "event" else None, scope_id if kind == "subevent" else None):
             result = [cap for cap in result if cap not in {"create_head_merit", "create_volunteer_merit"}]
-    return result
+    return sorted({*result, *readable})
 
 
 def _closed_scope(kind, scope_id):

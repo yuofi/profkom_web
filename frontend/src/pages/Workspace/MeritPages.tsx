@@ -31,7 +31,8 @@ import {
   type TaskInputs,
   type AssessmentInputs,
 } from "../../utils/api/contract";
-import { canRetainData } from "../../utils/api/request";
+import { canRetainData, normalizeApiError } from "../../utils/api/request";
+import { readsMerits } from "./meritAccess";
 import { can, useSession } from "../../utils/session";
 import { toUtc, displayDate, moscowInput } from "../../utils/dates";
 import {
@@ -97,7 +98,8 @@ export function MeritEntryPage() {
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
   const requested = params.get("source_kind");
   const scopeId = params.get("scope_id");
-  const eligible = seasons.data?.items.filter((season) => allowedMeritKinds(session, contexts.data, season).some(([kind]) => {
+  const reader = readsMerits(session) && !requested && !scopeId;
+  const eligible = seasons.data?.items.filter((season) => reader || allowedMeritKinds(session, contexts.data, season).some(([kind]) => {
     if (requested && requested !== kind) return false;
     if (!scopeId) return true;
     return kind === "block_volunteer" ? contexts.data?.blocks.some((b) => b.block_id === scopeId && can(b, "create_volunteer_merit"))
@@ -107,7 +109,7 @@ export function MeritEntryPage() {
   return <Page title="Учёт выполненной работы" description="Выберите сезон. Доступны только исходные поля разрешённых вам записей.">
     <QueryState loading={contexts.isLoading || seasons.isLoading} error={contexts.error || seasons.error}>
       <div className={s.grid}>{eligible.map((season) => <Card key={season.season_id} title={season.title}>
-        <RouteLink to={`/seasons/${encodeURIComponent(season.season_id)}/merits?${params.toString()}`}>Особые заслуги и волонтёры</RouteLink>
+        <RouteLink to={`/seasons/${encodeURIComponent(season.season_id)}/merits${params.size ? `?${params}` : ""}`}>Особые заслуги и волонтёры</RouteLink>
       </Card>)}</div>
       {!eligible.length && <Empty>Нет доступных сезонов и областей для записи выполненной работы.</Empty>}
     </QueryState>
@@ -476,15 +478,14 @@ export function MeritsPage() {
   const [created, setCreated] = useState<{ count: number; title?: string }>({ count: 0 });
   const season = seasons.data?.items.find((x) => x.season_id === id);
   const allowedKinds = allowedMeritKinds(session, contexts.data, season);
-  const readable = allowedKinds.length > 0 || can(session, "view_summary");
+  // The server filters the list by the reader's scopes, so the page always asks it; only a 403 means no access.
   const query = useQuery({
     queryKey: ["merits", id],
     queryFn: () => seasonsApi.merits({ season_id: id }),
-    enabled: readable,
   });
   if (contexts.isLoading || seasons.isLoading) return <QueryState loading error={null}>{null}</QueryState>;
   if ((contexts.error && (!contexts.data || !canRetainData(contexts.error))) || (seasons.error && (!seasons.data || !canRetainData(seasons.error)))) return <QueryState loading={false} error={contexts.error || seasons.error}>{null}</QueryState>;
-  if (!readable) return <Page title="Особые заслуги"><Empty>Нет доступа к исходным полям.</Empty></Page>;
+  if (query.error && normalizeApiError(query.error).status === 403 && !allowedKinds.length) return <Page title="Особые заслуги"><Empty>Нет доступа к исходным полям.</Empty></Page>;
   return (
     <Page
       title="Особые заслуги и волонтёры"
@@ -495,6 +496,7 @@ export function MeritsPage() {
       <div className={s.stack}>
         {(contexts.error || seasons.error) && <ErrorState error={contexts.error || seasons.error} />}
         <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!query.data}>
+          {query.data?.items.length === 0 && <Empty>Записей пока нет.</Empty>}
           {query.data?.items.map((m) => (
             <Card key={m.merit_id} title={m.title}>
               <p>

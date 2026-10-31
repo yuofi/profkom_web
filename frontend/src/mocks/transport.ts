@@ -2291,6 +2291,11 @@ export function installMockTransport(
           )
         : denied();
     if (path === "/merits" || parts[0] === "merits") {
+      if (!state.manager && method === "get" && !parts[1]) {
+        // Like the server: the list holds what the session's scopes may read (`view_merits`), else it is empty.
+        const reads = (merit: Merit) => !!state.session.assignments?.some((a) => a.capabilities?.includes("view_merits") && (a.scope_kind === "event" ? merit.event_id === a.scope_id : merit.scope?.kind === a.scope_kind && merit.scope.id === a.scope_id));
+        return list(clone(filter(state.merits.filter(reads), url)));
+      }
       if (!state.manager)
         return method === "get" && parts[1] ? fail(404, "not_found", "Запись недоступна") : denied();
       if (method === "get") {
