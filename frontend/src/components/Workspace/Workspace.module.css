@@ -828,6 +828,10 @@ span.cardIcon {
 .page a {
   color: var(--primary);
 }
+/* A link drawn as the main action keeps its dark ink on the yellow fill. */
+.page a.primary {
+  color: var(--on-primary);
+}
 .warning {
   padding: 12px;
   border-radius: 12px;
