@@ -4717,11 +4717,16 @@ class Database:
             session.commit()
             return _meeting_orm_to_dc(row)
 
-    def delete_meeting(self, owner_kind: str, owner_id: str) -> bool:
+    def delete_meeting(self, owner_kind: str, owner_id: str, expected_revision: Optional[int] = None) -> bool:
         with self._session() as session:
             event=session.get(EventORM,owner_id) if owner_kind=="event" else session.get(EventORM,session.get(SubeventORM,owner_id).event_id) if session.get(SubeventORM,owner_id) else None
             if not event:raise NotFound("Meeting owner not found")
             if session.get(SeasonORM,event.season_id).state=="closed":raise season_closed("Conflict: closed meetings are not available")
+            if expected_revision is not None:
+                # The confirmed announcement must still be the current one; an absent one is already removed.
+                row = session.query(MeetingORM).filter(MeetingORM.owner_kind == owner_kind, MeetingORM.owner_id == owner_id).first()
+                if row is not None and row.revision != expected_revision:
+                    raise revision_conflict()
             deleted = session.query(MeetingORM).filter(
                 MeetingORM.owner_kind == owner_kind,
                 MeetingORM.owner_id == owner_id,

@@ -213,6 +213,10 @@ export function LeadershipPage() {
                 },
               ]}
               submitLabel="Передать пост"
+              confirm={{
+                label: "Да, передать пост",
+                text: (v) => `Передать пост председателя: ${choices.find((choice) => choice.value === text(v, "user"))?.label ?? "выбранному участнику"}? Вы потеряете права председателя, а текущие заместители — глобальные права. Вернуть пост сможет только новый председатель.`,
+              }}
               onSubmit={async (v, expectedRevision) => {
                 const userId = number(v, "user");
                 requireEligible([userId]);

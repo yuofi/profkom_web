@@ -59,10 +59,17 @@ export function KkrTemplatesPage() {
 export function SeasonCreatePage() {
   const { session } = useSession();return can(session, "open_season") ? <UnsavedChangesScope><SeasonEditor /></UnsavedChangesScope> : <section className={u.page}><h1>Новый сезон</h1><Empty>Создание сезона доступно председателю.</Empty><Link to="/seasons" className={u.secondary}>Все сезоны</Link></section>;
 }
+/** Season commands have no reverse transition: each one names its consequences before it is sent. */
+const seasonCommandConfirm = (season: Season, action: "open" | "begin-summary" | "close") => action === "open"
+  ? { label: "Да, открыть сезон", text: `Открыть сезон «${season.title}» и сделать его текущим? Текущий сезон перестанет быть текущим, вернуть сезон в запланированные нельзя.` }
+  : action === "begin-summary"
+    ? { label: "Да, начать подведение итогов", text: `Начать подведение итогов сезона «${season.title}»? Вернуть сезон в открытое состояние будет нельзя.` }
+    : { label: "Да, закрыть сезон", text: `Закрыть сезон «${season.title}»? Итоги станут неизменяемыми, бонусы мастеров зафиксируются; исправления возможны только с указанием причины.` };
 function SeasonCommand({ season, action, label }: { season: Season; action: "open" | "begin-summary" | "close"; label: string }) {
-  const { perform, refresh } = useWorkspaceActions();const [failure, setFailure] = useState<ReturnType<typeof normalizeApiError> | null>(null);
-  return <div><ActionForm revision={season.revision} record={`season:${season.season_id}`} onConflict={refresh} fields={[]} submitLabel={label} allowExitSave={false} onSubmit={async (_, expectedRevision) => {
-    setFailure(null);try { const saved = await perform(() => seasonsApi.command(season.season_id, action, { expected_revision: expectedRevision! }));return "season" in saved ? saved.season : saved; } catch (error) { setFailure(normalizeApiError(error));throw error; }
+  const { perform, refresh } = useWorkspaceActions();const [failure, setFailure] = useState<ReturnType<typeof normalizeApiError> | null>(null);const root = useRef<HTMLDivElement>(null);
+  return <div ref={root}><ActionForm revision={season.revision} record={`season:${season.season_id}`} onConflict={refresh} fields={[]} submitLabel={label} allowExitSave={false} confirm={seasonCommandConfirm(season, action)} onSubmit={async (_, expectedRevision) => {
+    // The menu outlives this command (its next state replaces it): close it after a success.
+    setFailure(null);const menu = root.current?.closest("details");try { const saved = await perform(() => seasonsApi.command(season.season_id, action, { expected_revision: expectedRevision! }));menu?.removeAttribute("open");return "season" in saved ? saved.season : saved; } catch (error) { setFailure(normalizeApiError(error));throw error; }
   }} />{failure?.blockers.length ? <ul className={w.list} aria-label="Препятствия закрытию">{failure.blockers.map((blocker, index) => <li key={index}><SeasonBlockerLink blocker={blocker} seasonId={season.season_id} /></li>)}</ul> : null}</div>;
 }
 type Tab = "overview" | "participants" | "analytics" | "history" | "control";

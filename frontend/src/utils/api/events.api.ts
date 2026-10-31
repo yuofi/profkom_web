@@ -84,6 +84,7 @@ export const eventsApi = {
       expected_revision?: number;
     },
   ) => request<Meeting>("put", `/${kind}/${idPath(id)}/meeting`, data),
-  deleteMeeting: (kind: "events" | "subevents", id: string) =>
-    request<void>("delete", `/${kind}/${idPath(id)}/meeting`),
+  /** The revision the user confirmed; a changed announcement is refused with 409. */
+  deleteMeeting: (kind: "events" | "subevents", id: string, version?: Revision) =>
+    request<void>("delete", `/${kind}/${idPath(id)}/meeting`, version),
 };

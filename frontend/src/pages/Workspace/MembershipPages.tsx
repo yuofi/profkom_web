@@ -197,6 +197,10 @@ export function BlockPage() {
                             fields={[]}
                             submitLabel="Убрать из состава"
                             variant="danger"
+                            confirm={{
+                              label: "Да, исключить",
+                              text: `Исключить ${m.user.display_name} из блока «${b.name}»? Вернуться в блок участник сможет только по новой заявке.`,
+                            }}
                             onSubmit={async () => {
                               await perform(() =>
                                 membershipApi.remove(id, m.user.user_id!),

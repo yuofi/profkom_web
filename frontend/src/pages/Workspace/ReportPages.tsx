@@ -473,6 +473,7 @@ export function MeetingPage() {
               <ActionForm
                 key={`${apiKind}/${id}/${removed}`}
                 revision={meeting?.revision ?? 0}
+                record={`meeting:${apiKind}/${id}`}
                 fields={[
                   {
                     name: "title",
@@ -511,11 +512,18 @@ export function MeetingPage() {
               />
               {meeting && can(meeting, "delete_meeting") && (
                 <ActionForm
+                  revision={meeting.revision}
+                  record={`meeting:${apiKind}/${id}`}
+                  onConflict={refresh}
                   fields={[]}
                   submitLabel="Снять объявление"
                   variant="danger"
-                  onSubmit={async () => {
-                    await perform(() => eventsApi.deleteMeeting(apiKind, id));
+                  confirm={{
+                    label: "Да, снять",
+                    text: `Снять объявление «${meeting.title}»? Участники больше не увидят время и ссылку на созвон.`,
+                  }}
+                  onSubmit={async (_v, expectedRevision) => {
+                    await perform(() => eventsApi.deleteMeeting(apiKind, id, { expected_revision: expectedRevision! }));
                     setRemoved((n) => n + 1);
                   }}
                 />

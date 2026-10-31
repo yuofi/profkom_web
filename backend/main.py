@@ -518,6 +518,11 @@ class MeetingIn(Command):
     join_url: str
 
 
+class MeetingDeleteIn(Command):
+    """Optional for older clients; when sent, a changed announcement is refused with 409."""
+    expected_revision: Optional[int] = None
+
+
 class MeetingOut(BaseModel):
     meeting_id: str
     owner_kind: str
@@ -2532,13 +2537,13 @@ def set_event_meeting(event_id: str, payload: MeetingIn, cur: User = Depends(get
 
 
 @router.delete("/events/{event_id}/meeting")
-def delete_event_meeting(event_id: str, cur: User = Depends(get_current_user)):
+def delete_event_meeting(event_id: str, payload: Optional[MeetingDeleteIn] = None, cur: User = Depends(get_current_user)):
     ev = db.get_event(event_id)
     if not ev:
         raise HTTPException(404, "Event not found")
     if not access.allowed(cur.user_id, "event.meeting.edit", "event", event_id):
         raise HTTPException(403, "Forbidden")
-    db.delete_meeting("event", event_id)
+    db.delete_meeting("event", event_id, payload.expected_revision if payload else None)
     return {"status": "deleted"}
 
 
@@ -2568,13 +2573,13 @@ def set_subevent_meeting(subevent_id: str, payload: MeetingIn, cur: User = Depen
 
 
 @router.delete("/subevents/{subevent_id}/meeting")
-def delete_subevent_meeting(subevent_id: str, cur: User = Depends(get_current_user)):
+def delete_subevent_meeting(subevent_id: str, payload: Optional[MeetingDeleteIn] = None, cur: User = Depends(get_current_user)):
     sub = db.get_subevent(subevent_id)
     if not sub:
         raise HTTPException(404, "Subevent not found")
     if not access.allowed(cur.user_id, "subevent.meeting.edit", "subevent", subevent_id):
         raise HTTPException(403, "Forbidden")
-    db.delete_meeting("subevent", subevent_id)
+    db.delete_meeting("subevent", subevent_id, payload.expected_revision if payload else None)
     return {"status": "deleted"}
 
 

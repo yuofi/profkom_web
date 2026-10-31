@@ -97,6 +97,7 @@ export function ActionForm({
   externalBusy = false,
   allowExitSave = true,
   beforeFields,
+  confirm,
 }: {
   title?: string;
   fields: Field[];
@@ -125,6 +126,8 @@ export function ActionForm({
   allowExitSave?: boolean;
   /** Opt-in helpers may copy values into the current draft without replacing dates/recipients. */
   beforeFields?: (form: FormikProps<Values>) => ReactNode;
+  /** An irreversible command asks once more, naming its target and consequences, before it is sent. */
+  confirm?: { text: ReactNode | ((values: Values) => ReactNode); label: string };
 } & Versioning) {
   const formId = useId();
   const submitted = useRef(false);
@@ -139,6 +142,9 @@ export function ActionForm({
   const [refreshing, setRefreshing] = useState(false);
   const confirmedRemoval = useRef<string | null>(null);
   const [pendingRemoval, setPendingRemoval] = useState<string[]>([]);
+  // The exact values an irreversible command awaits confirmation for; another choice withdraws the question.
+  const confirmedCommand = useRef<string | null>(null);
+  const [pendingCommand, setPendingCommand] = useState<string | null>(null);
   const versioned = revision !== undefined || revisionKey !== undefined;
   const [message, setMessage] = useState("");
   const [failure, setFailure] = useState<ReturnType<
@@ -233,6 +239,13 @@ export function ActionForm({
       try {
         if (versioned && (changedRevision || stale))
           throw new ApiError("Сначала обновите данные и подтвердите версию для сохранения.", 409);
+        const command = JSON.stringify(values);
+        if (confirm && confirmedCommand.current !== command) {
+          setPendingCommand(command);
+          return;
+        }
+        confirmedCommand.current = null;
+        setPendingCommand(null);
         const saved = await (revisionKey === undefined
           ? onSubmit(values, expectedRevision)
           : onSubmit(values, expectedRevision, expectedRevisionKey));
@@ -298,6 +311,7 @@ export function ActionForm({
       setExternalBaseline(JSON.stringify(savedExternalState ?? externalState));
     },
   });
+  const awaitingCommand = !!confirm && pendingCommand !== null && pendingCommand === JSON.stringify({ ...initialValues, ...form.values });
   const unchanged = !!changeRequired?.every((name) => JSON.stringify(form.values[name] ?? initialValues[name]) === JSON.stringify(savedValues(fields)[name]));
   const replaceWithSaved = () => {
     form.resetForm({ values: savedValues(fields) });
@@ -427,6 +441,22 @@ export function ActionForm({
             </button>
           </div>
         )}
+        {confirm && awaitingCommand && (
+          <div role="alert" className={s.warning}>
+            <p>{typeof confirm.text === "function" ? confirm.text({ ...initialValues, ...form.values }) : confirm.text}</p>
+            <div className={s.row}>
+              <button type="button" className={s.button} onClick={() => {
+                confirmedCommand.current = pendingCommand;
+                void form.submitForm();
+              }}>
+                {confirm.label}
+              </button>
+              <button type="button" className={s.button} onClick={() => setPendingCommand(null)}>
+                Отмена
+              </button>
+            </div>
+          </div>
+        )}
         {failure && (
           <div className={s.error} role="alert">
             {refused.length ? `Проверьте поля: ${refused.join(", ")}.` : userMessage(failure)}
@@ -465,7 +495,7 @@ export function ActionForm({
           <button
             className={`${s.button} ${variant === "primary" ? s.primary : variant === "danger" ? s.danger : ""}`}
             type="submit"
-            disabled={form.isSubmitting || refreshing || disabled || unchanged || pendingRemoval.length > 0 || (versioned && (changedRevision || stale))}
+            disabled={form.isSubmitting || refreshing || disabled || unchanged || pendingRemoval.length > 0 || awaitingCommand || (versioned && (changedRevision || stale))}
           >
             {form.isSubmitting ? "Сохраняем…" : submitLabel}
           </button>
