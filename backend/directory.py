@@ -54,8 +54,9 @@ class Former(FormerFields):
     def email_or_empty(cls, value):
         """A saved card has no address or a valid one; earlier cards are still read as stored."""
         value = value.strip()
-        if value:
-            validate_email(value)
+        # The bare address only: "Имя <a@b>" also passes validate_email, then links as mailto:Имя <...>.
+        if value and validate_email(value)[1].lower() != value.lower():
+            raise ValueError("Enter a bare email address without a display name")
         return value
 
 

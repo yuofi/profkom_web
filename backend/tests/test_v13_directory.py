@@ -176,6 +176,12 @@ def test_former_contact_email_is_empty_or_valid_and_old_cards_still_read(client,
     refused = client.post("/api/contacts/archive", headers=superuser.headers, json=fields)
     assert refused.status_code == 422, refused.text
     assert refused.json()["detail"]["fields"]["errors"][0]["loc"][-1] == "email"
+    for display_form in ("Ivan <ivan@example.com>", "<ivan@example.com>"):
+        named = client.post("/api/contacts/archive", headers=superuser.headers, json={**fields, "email": display_form})
+        assert named.status_code == 422, named.text
+        assert named.json()["detail"]["fields"]["errors"][0]["loc"][-1] == "email"
+    mixed = client.post("/api/contacts/archive", headers=superuser.headers, json={**fields, "email": "Former@Example.COM"})
+    assert mixed.status_code == 200 and mixed.json()["email"] == "Former@Example.COM"
     made = client.post("/api/contacts/archive", headers=superuser.headers, json={**fields, "email": " former@example.com "})
     assert made.status_code == 200 and made.json()["email"] == "former@example.com"
     assert client.post("/api/contacts/archive", headers=superuser.headers, json={**fields, "email": ""}).status_code == 200
