@@ -35,3 +35,20 @@ it("folds the participant filters under a counted summary that a phone can open"
   await change(field(page.container, "category"), "junior");
   expect(details.querySelector("summary")?.textContent).toBe("Фильтры · 1");
 });
+
+it("opens the folded filters once the window widens past the phone layout", async () => {
+  const { SeasonParticipants } = await import("./SeasonParticipants");
+  // A phone-width start: the filters are folded; the wide layout hides the summary that unfolds them.
+  const listeners = new Set<() => void>(), query = { matches: false, media: "(min-width: 769px)", addEventListener: (_: string, listener: () => void) => listeners.add(listener), removeEventListener: (_: string, listener: () => void) => listeners.delete(listener) };
+  vi.stubGlobal("matchMedia", vi.fn(() => query));
+  try {
+    page = await mountWorkspace(<SeasonParticipants summary={createFixtures("chair").summary} />);
+    const details = page.container.querySelector<HTMLDetailsElement>('[aria-label="Фильтры участников"] details')!;
+    expect(details.open).toBe(false);
+    query.matches = true;
+    await act(async () => listeners.forEach(listener => listener()));
+    expect(details.open).toBe(true);
+    await page.cleanup();page = undefined;
+    expect(listeners.size).toBe(0);
+  } finally { vi.unstubAllGlobals(); }
+});

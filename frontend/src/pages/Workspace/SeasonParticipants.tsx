@@ -1,5 +1,5 @@
 import { EntityPicker } from "../../components/Workspace/EntityPicker";
-import { useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { seasonsApi } from "../../utils/api/seasons.api";
@@ -20,12 +20,19 @@ import { metricValue } from "./seasonAnalyticsView";
 import u from "./SeasonWorkspace.module.css";
 import w from "../../components/Workspace/Workspace.module.css";
 
+const WIDE = "(min-width: 769px)";
 export function SeasonParticipants({ summary, renderDecisions, onFilterApply }: { summary: SeasonSummary; renderDecisions?: (row: SummaryRow) => ReactNode; onFilterApply?: () => void }) {
   const [search, setSearch] = useState(""), [block, setBlock] = useState(""), [sort, setSort] = useState("rank"), [person, setPerson] = useState<SummaryRow | null>(null), [exportError, setExportError] = useState("");
   const [category, setCategory] = useState(""), [master, setMaster] = useState(""), [archived, setArchived] = useState(""), [mark, setMark] = useState<Decision | "" | "any" | "none">("");
   const guardFilter = useGuardedAction();
   // Open on a wide screen (the summary is hidden there); folded on a phone until asked for.
-  const [filtersOpen, setFiltersOpen] = useState(() => typeof window.matchMedia !== "function" || window.matchMedia("(min-width: 769px)").matches);
+  const [filtersOpen, setFiltersOpen] = useState(() => typeof window.matchMedia !== "function" || window.matchMedia(WIDE).matches);
+  // The wide layout has no summary to unfold them, so widening the window (rotation, split screen) opens them.
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia(WIDE);const sync = () => { if (query.matches) setFiltersOpen(true); };
+    query.addEventListener("change", sync);return () => query.removeEventListener("change", sync);
+  }, []);
   const activeFilters = [block, category, master, archived, mark].filter(Boolean).length + (sort === "rank" ? 0 : 1);
   const updateFilter = <T extends string,>(current: T, next: T, update: Dispatch<SetStateAction<T>>) => { if (next !== current) guardFilter(() => { onFilterApply?.();update(next); }); };
   const blocks = [...new Map(summary.rows.flatMap(row => row.blocks.map(item => [item.block_id, item] as const))).values()];
