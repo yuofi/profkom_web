@@ -145,6 +145,21 @@ def test_closed_season_new_assignments_only_by_chair_and_deputies(client, work, 
         assert session.query(AssignmentORM).filter_by(task_id=task['task_id'], assignee_user_id=superuser.user_id).count() == 1
 
 
+def test_closed_season_capabilities_match_the_roster_rule_for_a_former_assignee(client, work):
+    task = current(client, work, work['member'])
+    with db._session() as session:
+        session.get(SeasonORM, work['task']['season_id']).state = 'closed'
+        # A former assignee watching now: the roster row lost its link, the ledger row remains.
+        member = session.query(TaskRosterORM).filter_by(task_id=task['task_id'], user_id=work['member'].user_id).one()
+        member.role, member.assignment_id = 'watcher', None;session.commit()
+    before = private_snapshot()
+    own = current(client, work, work['member'])
+    assert {'join_task', 'take_task'} <= set(own['capabilities'])
+    response = client.post('/api/tasks/' + own['task_id'] + '/join', headers=work['member'].headers, json={'expected_revision': own['revision']})
+    assert response.status_code == 200, response.text
+    assert private_snapshot()[0] == before[0]
+
+
 def test_failure_after_roster_write_rolls_back_join_status_events_and_notifications(client, work, monkeypatch):
     import notifications
     emit = notifications.emit

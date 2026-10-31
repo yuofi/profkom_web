@@ -295,7 +295,9 @@ def enrich_task(session,task,result,uid):
             # A closed season gets new accounting rows only from the chair and deputies.
             import access
             closed_ledger=state=="closed" and not access.allowed(uid,"task.edit",task.scope_kind,task.scope_id,state="closed")
-            new_row=closed_ledger and not (member and member.assignment_id)
+            # The same rule as the roster command: a former assignee who still owns a row may rejoin.
+            from task_roster import creates_closed_assignment
+            new_row=closed_ledger and creates_closed_assignment(session,task,uid,uid)
             if (not member or member.role!="assignee") and not new_row:result.capabilities.append("join_task")
             if can_change_status(session,task,uid,"in_progress") and (not member or member.role!="assignee" or meta.status!="in_progress" or meta.legacy_mixed_statuses) and not new_row:result.capabilities.append("take_task")
             if not member or member.role not in {"assignee","watcher"}:result.capabilities.append("watch_task")
