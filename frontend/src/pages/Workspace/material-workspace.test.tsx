@@ -26,10 +26,15 @@ beforeEach(() => {
 afterEach(async () => { await page?.cleanup();page = undefined;await dataPage?.cleanup();dataPage = undefined;mock?.restore();mock = undefined;vi.restoreAllMocks(); });
 const form = (root: ParentNode, label: string) => Array.from(root.querySelectorAll<HTMLFormElement>("form")).find(item => item.querySelector('button[type="submit"]')?.textContent === label)!;
 const button = (root: ParentNode, label: string) => Array.from(root.querySelectorAll<HTMLButtonElement>("button")).find(item => item.textContent === label || item.getAttribute("aria-label") === label)!;
-async function click(element: HTMLElement) { expect(element).toBeDefined();await act(async () => element.click());await settle(); }
+/** The material reader and editor are lazy modules: a step is done once their fallback is gone. */
+const lazyLoaded = (root: ParentNode) => ![...root.querySelectorAll('[role="status"]')].some(node => node.textContent === "Загружаем…");
+async function click(element: HTMLElement) {
+  expect(element).toBeDefined();await act(async () => element.click());await settle();
+  const current = page ?? dataPage;if (current) await waitForPage(current, () => lazyLoaded(current.container));
+}
 async function open() {
   page = await mountWorkspace(<Routes><Route path="/materials" element={<MaterialsPage />} /><Route path="/materials/new" element={<MaterialCreatePage />} /><Route path="/materials/:id" element={<MaterialPage />} /></Routes>, { path: "/materials/material-1" });
-  await waitForPage(page);return page;
+  await waitForPage(page, () => lazyLoaded(page!.container));return page;
 }
 async function mountGuarded(path = "/materials/material-1") {
   const container = document.createElement("div");document.body.append(container);
@@ -39,7 +44,7 @@ async function mountGuarded(path = "/materials/material-1") {
   ] }], { initialEntries: [path] });
   await act(async () => root.render(<QueryClientProvider client={client}><SessionContext.Provider value={{ session: createFixtures("chair").session, loading: false, error: null, refresh: () => {} }}><RouterProvider router={router} /></SessionContext.Provider></QueryClientProvider>));
   const result = { container, client, router, cleanup: async () => { await act(async () => root.unmount());router.dispose();client.clear();forgetOwnChanges(client);container.remove(); } };
-  await waitForPage(result);return result;
+  await waitForPage(result, () => lazyLoaded(container));return result;
 }
 
 it("opens published content read-only and only the pencil reveals the stored editing source", async () => {
@@ -159,4 +164,13 @@ it("deletes with the read revision and rereads the material after a concurrent c
   await submit(form(dataPage.container, "Удалить материал"));await waitForPage(dataPage);
   expect(remove).toHaveBeenLastCalledWith(m.material_id, { expected_revision: read + 1 });
   expect(dataPage.router.state.location.pathname).toBe("/materials");
+});
+
+it("the catalogue reads deleted materials only when the chair opens that section", async () => {
+  mock = installMockTransport("chair", { delay: 0 });const deleted = vi.spyOn(materialsApi, "deleted");
+  page = await mountWorkspace(<Routes><Route path="/materials" element={<MaterialsPage />} /></Routes>, { path: "/materials" });await waitForPage(page);
+  const section = [...page.container.querySelectorAll("details")].find(item => item.querySelector("summary")?.textContent === "Удалённые материалы")!;
+  expect(section).toBeDefined();expect(deleted).not.toHaveBeenCalled();
+  await act(async () => { section.open = true;section.dispatchEvent(new Event("toggle")); });await waitForPage(page);
+  expect(deleted).toHaveBeenCalledTimes(1);expect(section.textContent).not.toContain("Загружаем");
 });

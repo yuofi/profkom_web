@@ -6,7 +6,7 @@ import { TrackerTaskRelations } from "./TrackerTaskRelations";
 import { TeamChip } from "../../components/Workspace/TeamChip";
 import { TrackerHomeLink } from "../../components/Workspace/TrackerHomeLink";
 import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ActionForm } from "../../components/Workspace/ActionForm";
@@ -25,20 +25,22 @@ import { useGuardedAction } from "../../components/Workspace/unsavedChangesHooks
 import { text } from "../../components/Workspace/formValues";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { TaskSeasonParameter } from "./TaskSeasonParameter";
+import { TaskDeadlineParameter } from "./TaskDeadlineParameter";
 import { userMessage } from "../../utils/api/messages";
-import { recordOwnChange, useOwnRevisions } from "../../components/Workspace/ownRevisions";
-import { richText, type Comment, type FileRef, type Task } from "../../utils/api/contract";
+import { richText, type Comment, type FileRef, type Revision, type Task } from "../../utils/api/contract";
 import { can } from "../../utils/session";
 import { displayDate } from "../../utils/dates";
 import { getSeasonRoute, getTaskRoute, getTaskQueueRoute, getTaskQueuesRoute } from "../../utils/routes";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { requestKey, type RequestKey } from "../../utils/clientId";
+import { markDescription, useTaskCommand } from "./taskCommands";
 import { TaskStatusMenu } from "./TaskStatusMenu";
 import { taskStatus } from "./trackerStatus";
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
 import { TrackerParentSelector } from "./TrackerParentSelector";
 import { UserChip as PersonChip } from "../../components/Workspace/UserChip";
 import { useSession } from "../../utils/session";
+import { copyText } from "../../utils/clipboard";
 import { HistoryPanel } from "../../components/Workspace/HistoryPanel";
 import { SupportTaskPanel } from "../../components/Workspace/SupportTaskPanel";
 import w from "../../components/Workspace/Workspace.module.css";
@@ -57,42 +59,39 @@ export function TrackerTaskPage() {
 }
 function TaskContent({ task, assignmentId, accountingRequested=false, returnSeason }: { task: Task; assignmentId: string | null; accountingRequested?:boolean; returnSeason: string | null }) {
   const [editor, setEditor] = useState<"description" | "files" | "parent" | "planning" | null>(null);
-  const [copied, setCopied] = useState("");
+  const [copied, setCopied] = useState(""), [manualLink, setManualLink] = useState(""), [linking, setLinking] = useState(false), [saved, setSaved] = useState("");
   const [kkrOpen,setKkrOpen]=useState(!!assignmentId||accountingRequested);
-  const [checklistBusy, setChecklistBusy] = useState(false), [checklistError, setChecklistError] = useState("");
-  const checklistSaving = useRef(false);
-  const { perform, refresh } = useWorkspaceActions();const own = useOwnRevisions();
+  const [checklistPending, setChecklistPending] = useState<readonly number[]>([]), [checklistError, setChecklistError] = useState("");
+  const checklistSaving = useRef(new Set<number>()), run = useTaskCommand(task);
+  const { refresh } = useWorkspaceActions();
   const descriptionEditable = can(task, "edit_task_description") || can(task, "edit_task");
-  const updateChecklist = async (body: string) => {
-    if (checklistSaving.current || !can(task,"toggle_task_checklist") || editor === "description") return;
-    checklistSaving.current = true;setChecklistBusy(true);setChecklistError("");
-    try {
-      await perform(async () => {
-        const saved = await tasksApi.descriptionChecklist(task.task_id, { expected_revision: task.revision, body });
-        recordOwnChange(own, `task:${task.task_id}`, task.revision, saved.revision);
-        own.setQueryData(["tasks", task.task_id], saved);return saved;
-      });
-    } catch (failure) { setChecklistError(userMessage(failure));await refresh(); }
-    finally { checklistSaving.current = false;setChecklistBusy(false); }
+  const toggleDescription = async (offset: number, checked: boolean) => {
+    if (checklistSaving.current.has(offset) || !can(task,"toggle_task_checklist") || editor === "description") return;
+    checklistSaving.current.add(offset);setChecklistPending([...checklistSaving.current]);setChecklistError("");
+    try { await run(expected => tasksApi.descriptionChecklist(task.task_id, { expected_revision: expected, offset, checked }), current => markDescription(current, offset, checked)); }
+    catch (failure) { setChecklistError(userMessage(failure)); }
+    finally { checklistSaving.current.delete(offset);setChecklistPending([...checklistSaving.current]); }
   };
   const [parametersOpen, setParametersOpen] = useState(() => typeof window === "undefined" || typeof window.matchMedia !== "function" || window.matchMedia("(min-width: 901px)").matches);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const interval = window.setInterval(() => setNow(Date.now()), 60000);return () => window.clearInterval(interval); }, []);
   const reviewNotes = [...new Set(task.assignments.map(assignment => assignment.review_note?.trim()).filter((note): note is string => !!note))];
   const hasAccounting = taskStatus(task)==="closed" && can(task,"view_assessment_inputs");
+  const savedEditor = () => { setCopied("");setSaved("Изменения сохранены"); };
   return <>
     <BrandedHeader className={s.header}>
       <TrackerHomeLink className={s.brandLabel} />
-      <nav className={s.breadcrumbs} aria-label="Путь задачи"><Link to={task.queue ? getTaskQueueRoute(task.queue.queue_id) : getTaskQueuesRoute()}>{task.queue?.name ?? "Очереди"}</Link><span aria-hidden="true">›</span>{task.parent_task && <><Link to={getTaskRoute(task.parent_task.task_id)}>{task.parent_task.title}</Link><span aria-hidden="true">›</span></>}<span aria-current="page">{task.task_key ?? "Задача"}</span></nav>
+      <nav className={s.breadcrumbs} aria-label="Путь задачи">{task.queue?.readable === false ? task.queue.key === "WEBSUPPORT" ? <Link to="/support">Мои обращения</Link> : <span>{task.queue.name}</span> : <Link to={task.queue ? getTaskQueueRoute(task.queue.queue_id) : getTaskQueuesRoute()}>{task.queue?.name ?? "Очереди"}</Link>}<span aria-hidden="true">›</span>{task.parent_task && <><Link to={getTaskRoute(task.parent_task.task_id)}>{task.parent_task.title}</Link><span aria-hidden="true">›</span></>}<span aria-current="page">{task.task_key ?? "Задача"}</span></nav>
       <div className={s.titleRow}><h1 className={w.title}>{task.title}</h1><div className={s.headerTools}>
         <button type="button" className={s.iconButton} aria-label="Скопировать ссылку на задачу" title="Скопировать ссылку" onClick={async () => {
-          try { await navigator.clipboard.writeText(new URL(getTaskRoute(task.task_id), window.location.origin).href);setCopied("Ссылка скопирована"); }
-          catch { setCopied("Не удалось скопировать ссылку"); }
+          const link = new URL(getTaskRoute(task.task_id), window.location.origin).href;
+          setSaved("");if (await copyText(link)) { setManualLink("");setCopied("Ссылка скопирована"); } else { setCopied("");setManualLink(link); }
         }}><Glyph name="share" /></button>
         <TrackerFavoriteButton task={task} onBrand compact />
       </div></div>
       <div className={s.metadata}><span className={s.taskKey}>{task.task_key ?? "Задача"}</span><span>Создана: {task.created_at ? displayDate(task.created_at) : "дата не указана"}</span><span>Обновлена: {task.updated_at ? displayDate(task.updated_at) : "дата не зафиксирована"}</span></div>
-      {copied && <p className={`${w.muted} ${s.headerNotice}`} role="status">{copied}</p>}
+      {(copied || saved) && <p className={`${w.muted} ${s.headerNotice}`} role="status">{copied || saved}</p>}
+      {manualLink && <label className={s.manualLink}>Скопируйте ссылку вручную<input readOnly value={manualLink} autoFocus onFocus={event => event.currentTarget.select()} onKeyDown={event => { if (event.key === "Escape") setManualLink(""); }} /></label>}
       {returnSeason && <Link className={s.backLink} to={getSeasonRoute(returnSeason)}>← К закрытию сезона</Link>}
       <TaskStatusMenu task={task} variant="actions" onClosed={()=>setKkrOpen(true)} />
     </BrandedHeader>
@@ -101,28 +100,29 @@ function TaskContent({ task, assignmentId, accountingRequested=false, returnSeas
         {reviewNotes.length > 0 && <section className={s.reviewNote} aria-label="Комментарий руководителя"><h2>Комментарий руководителя</h2>{reviewNotes.map(note => <MarkdownContent key={note} body={note} />)}</section>}
         {task.legacy_mixed_statuses && <p className={w.warning}>У этой задачи сохранены разные исторические результаты исполнителей. Они остаются в учёте; общий статус не заменяет прежние решения.</p>}
         <section className={s.description} aria-label="Описание задачи">
-          <div className={s.sectionHeading}><h2>Описание</h2>{descriptionEditable && <button type="button" className={s.subtleButton} onClick={() => setEditor("description")}><Glyph name="edit" />Редактировать</button>}</div>
-          {task.description.body ? <MarkdownContent body={task.description.body} onChecklistChange={can(task,"toggle_task_checklist") ? body => { void updateChecklist(body); } : undefined} checklistDisabled={checklistBusy || editor === "description"} /> : <p className={w.muted}>Описание пока не добавлено.</p>}
-          {checklistBusy && <p role="status" className={w.muted}>Сохраняем отметку…</p>}{checklistError && <p role="alert" className={w.error}>{checklistError} <button type="button" className={s.subtleButton} onClick={() => { void refresh(); }}>Обновить описание</button></p>}
+          <div className={s.sectionHeading}><div className={s.headingTitle}><h2>Описание</h2><span role="status" className={s.savingNote}>{checklistPending.length ? "Сохраняем отметку…" : ""}</span></div>{descriptionEditable && <button type="button" className={s.subtleButton} disabled={!!checklistPending.length} onClick={() => setEditor("description")}><Glyph name="edit" />Редактировать</button>}</div>
+          {task.description.body ? <MarkdownContent body={task.description.body} onChecklistToggle={can(task,"toggle_task_checklist") ? (offset, checked) => { void toggleDescription(offset, checked); } : undefined} checklistDisabled={editor === "description"} checklistPending={checklistPending} /> : <p className={w.muted}>Описание пока не добавлено.</p>}
+          {checklistError && <p role="alert" className={w.error}>{checklistError} <button type="button" className={s.subtleButton} onClick={() => { void refresh(); }}>Обновить описание</button></p>}
           <div className={s.inlineActions}>{can(task, "attach_task_file") && <button type="button" className={s.subtleButton} onClick={() => setEditor("files")}><Glyph name="attach_file" />Прикрепить файлы</button>}
-            <button type="button" className={s.subtleButton} onClick={() => document.getElementById("task-relations")?.scrollIntoView?.({block:"start",behavior:"smooth"})}><Glyph name="add" />Связь с задачей</button></div>
+            {(can(task, "manage_task_links") || can(task, "edit_task")) && <button type="button" className={s.subtleButton} onClick={() => setLinking(true)}><Glyph name="add" />Связь с задачей</button>}</div>
           {(task.attachments?.length ?? 0) > 0 && <div className={s.descriptionFiles}><Attachments files={task.attachments ?? []} /></div>}
         </section>
         <TrackerTaskChecklist task={task} />
-        <TrackerTaskRelations task={task} onEditParent={() => setEditor("parent")} />
+        <TrackerTaskRelations task={task} onEditParent={() => setEditor("parent")} editing={linking} onEditingChange={setLinking} />
         {assignmentId && !task.assignments.some(item => item.assignment_id === assignmentId) && <Empty>Назначение больше недоступно.</Empty>}
+        {assignmentId && !hasAccounting && task.assignments.some(item => item.assignment_id === assignmentId) && <p role="status" className={s.accountingNotice}>{taskStatus(task) === "closed" ? "Учёт работы по этой задаче вам недоступен." : "Оценка исполнителя станет доступна после закрытия задачи."}</p>}
         {hasAccounting && <section className={s.accounting} aria-label="Учёт работы и ККР"><div className={s.sectionHeading}><h2>Учёт работы и ККР</h2><button type="button" onClick={()=>setKkrOpen(true)}>Оценить работу</button></div></section>}
         <TaskMentionApprovals task={task} />
         <TaskActivity task={task} />
         {task.queue?.key === "WEBSUPPORT" && <SupportTaskPanel task={task} />}
       </div>
-      <aside className={s.sidebar} aria-label="Параметры задачи"><details className={s.parameters} open={parametersOpen} onToggle={event => setParametersOpen(event.currentTarget.open)}><summary>Параметры</summary><dl>
+      <aside className={s.sidebar} aria-label="Параметры задачи"><details className={s.parameters} open={parametersOpen} onToggle={event => setParametersOpen(event.currentTarget.open)}><summary>Параметры</summary>{can(task,"edit_task_metadata") && <button type="button" className={`${s.iconButton} ${s.parametersEdit}`} aria-label="Изменить параметры" title="Изменить параметры" onClick={() => setEditor("planning")}><Glyph name="edit" /></button>}<dl>
         <div><dt>Статус</dt><dd><TaskStatusMenu task={task} onClosed={()=>setKkrOpen(true)} /></dd></div>
-        <div><dt>Тип</dt><dd><TaskClassificationMenu task={task} field="task_type" />{can(task,"edit_task_metadata") && <button type="button" className={s.deadlineEdit} onClick={() => setEditor("planning")}>Изменить параметры</button>}</dd></div>
+        <div><dt>Тип</dt><dd><TaskClassificationMenu task={task} field="task_type" /></dd></div>
         <div><dt>Приоритет</dt><dd><TaskClassificationMenu task={task} field="priority" /></dd></div>
         {task.task_type !== "milestone" && <div><dt>Плановое начало, МСК</dt><dd>{displayDate(task.starts_at)}</dd></div>}
-        <div><dt>Дедлайн, МСК</dt><dd>{task.deadline_at ? <time dateTime={task.deadline_at} className={Date.parse(task.deadline_at) < now && taskStatus(task)!=="closed" ? s.overdue : undefined}>{displayDate(task.deadline_at)}</time> : <span>Не задан</span>}</dd></div>
-        <div><dt>Очередь</dt><dd>{task.queue ? <Link to={getTaskQueueRoute(task.queue.queue_id)}>{task.queue.name}</Link> : <Link to={getTaskQueuesRoute()}>Открыть очереди</Link>}</dd></div>
+        <TaskDeadlineParameter task={task} now={now} onSaved={savedEditor} />
+        <div><dt>Очередь</dt><dd>{task.queue?.readable === false ? <span className={s.queueText}>{task.queue.name}{task.queue.key === "WEBSUPPORT" && <Link to="/support">Мои обращения</Link>}</span> : task.queue ? <Link to={getTaskQueueRoute(task.queue.queue_id)}>{task.queue.name}</Link> : <Link to={getTaskQueuesRoute()}>Открыть очереди</Link>}</dd></div>
         {task.scope.kind !== "queue" && <div><dt>Команда</dt><dd><TeamChip scope={task.scope} title={task.scope_title} avatarUrl={task.scope_avatar_url} /></dd></div>}
         <TaskSeasonParameter task={task} />
         <div><dt>Автор</dt><dd>{task.created_by ? <PersonChip user={task.created_by} /> : <span className={w.muted}>Не указан</span>}</dd></div>
@@ -130,58 +130,60 @@ function TaskContent({ task, assignmentId, accountingRequested=false, returnSeas
       </dl></details></aside>
     </div>
     {kkrOpen && hasAccounting && <UnsavedChangesScope><TrackerTaskDialog title="Учёт работы и ККР" onClose={()=>setKkrOpen(false)}><UnifiedKkrEditor task={task} onClose={()=>setKkrOpen(false)} /></TrackerTaskDialog></UnsavedChangesScope>}
-    {editor && (editor === "description" ? descriptionEditable : editor === "parent" ? can(task, "edit_task") : editor === "planning" ? can(task,"edit_task_metadata") : can(task, "attach_task_file")) && <UnsavedChangesScope>{editor === "description" ? <DescriptionEditor task={task} onClose={() => setEditor(null)} /> : editor === "parent" ? <ParentTaskEditor task={task} onClose={() => setEditor(null)} /> : editor === "planning" ? <TaskPlanningEditor task={task} onClose={() => setEditor(null)} /> : <TaskFilesEditor task={task} onClose={() => setEditor(null)} />}</UnsavedChangesScope>}
+    {editor && (editor === "description" ? descriptionEditable : editor === "parent" ? can(task, "edit_task") : editor === "planning" ? can(task,"edit_task_metadata") : can(task, "attach_task_file")) && <UnsavedChangesScope>{editor === "description" ? <DescriptionEditor task={task} onClose={() => setEditor(null)} onSaved={savedEditor} /> : editor === "parent" ? <ParentTaskEditor task={task} onClose={() => setEditor(null)} onSaved={savedEditor} /> : editor === "planning" ? <TaskPlanningEditor task={task} onClose={() => setEditor(null)} onSaved={savedEditor} /> : <TaskFilesEditor task={task} onClose={() => setEditor(null)} onSaved={savedEditor} />}</UnsavedChangesScope>}
   </>;
 }
 
-function DescriptionEditor({ task, onClose }: { task: Task; onClose: () => void }) {
+function DescriptionEditor({ task, onClose, onSaved }: { task: Task; onClose: () => void; onSaved?: () => void }) {
   const [body, setBody] = useState(task.description.body);const [busy, setBusy] = useState(false);const { perform, refresh } = useWorkspaceActions();
   return <TrackerTaskDialog title="Редактировать задачу" onClose={onClose} busy={busy}><ActionForm fields={can(task, "edit_task") ? [{ name: "title", label: "Название задачи", value: task.title, required: true }] : []} revision={task.revision} record={`task:${task.task_id}`} onConflict={refresh}
     externalState={body} savedExternalState={task.description.body} onReplaceWithSaved={() => setBody(task.description.body)}
     savedDetails={<div><p>Сохранённое название: {task.title}</p><MarkdownContent body={task.description.body} /></div>} submitLabel="Сохранить описание"
-    onSubmit={async (values, expectedRevision) => { setBusy(true);try { const saved = await perform(() => tasksApi.update(task.task_id, { expected_revision: expectedRevision!, ...(can(task, "edit_task") ? { title: text(values, "title") } : {}), description: richText(body) }));return saved; } finally { setBusy(false); } }}>
+    onSubmit={async (values, expectedRevision) => { setBusy(true);try { const saved = await perform(() => tasksApi.update(task.task_id, { expected_revision: expectedRevision!, ...(can(task, "edit_task") ? { title: text(values, "title") } : {}), description: richText(body) }));onSaved?.();onClose();return saved; } finally { setBusy(false); } }}>
       <MarkdownEditor value={body} onChange={setBody} label="Описание задачи в Markdown" name="body" rows={12} context="task" disabled={busy} />
     </ActionForm></TrackerTaskDialog>;
 }
-function ParentTaskEditor({ task, onClose }: { task: Task; onClose: () => void }) {
+function ParentTaskEditor({ task, onClose, onSaved }: { task: Task; onClose: () => void; onSaved?: () => void }) {
   const [parentId, setParentId] = useState(task.parent_task?.task_id ?? ""), [busy, setBusy] = useState(false);
   const { perform, refresh } = useWorkspaceActions();
   return <TrackerTaskDialog title="Родительская задача" onClose={onClose} busy={busy}>
     <p className={w.muted}>Можно выбрать доступную задачу из любой очереди этого сезона.</p>
     <ActionForm fields={[]} revision={task.revision} record={`task:${task.task_id}`} onConflict={refresh} externalState={parentId} savedExternalState={task.parent_task?.task_id ?? ""}
       onReplaceWithSaved={() => setParentId(task.parent_task?.task_id ?? "")} savedDetails={<p>Сохранённая родительская задача: {task.parent_task ? `${task.parent_task.task_key} · ${task.parent_task.title}` : task.parent_task_unavailable ? "Недоступна" : "Не выбрана"}</p>} submitLabel="Сохранить родительскую задачу"
-      onSubmit={async (_values, expectedRevision) => { setBusy(true);try { return await perform(() => tasksApi.update(task.task_id, { expected_revision: expectedRevision!, parent_task_id: parentId || null })); } finally { setBusy(false); } }}>
+      onSubmit={async (_values, expectedRevision) => { setBusy(true);try { const saved = await perform(() => tasksApi.update(task.task_id, { expected_revision: expectedRevision!, parent_task_id: parentId || null }));onSaved?.();onClose();return saved; } finally { setBusy(false); } }}>
       <TrackerParentSelector value={parentId} onChange={setParentId} seasonId={task.season_id} taskId={task.task_id} initialParent={task.parent_task} disabled={busy} />
     </ActionForm>
   </TrackerTaskDialog>;
 }
 function TaskPeopleParameters({ task }: { task: Task }) {
-  const { session } = useSession(), { perform, refresh } = useWorkspaceActions(), own = useOwnRevisions();
+  const { session } = useSession(), run = useTaskCommand(task);
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
   const assignees = task.assignees ?? task.assignments.map(assignment => assignment.assignee), watchers = task.watchers ?? [];
   const selfAssigned = assignees.some(user => user.user_id === session?.user_id), selfWatching = watchers.some(user => user.user_id === session?.user_id);
-  const act = async (command: () => Promise<Task>) => {
+  const act = async (command: (revision: Revision) => Promise<Task>) => {
     if (busy) return;setBusy(true);setError("");
-    try { await perform(async () => { const saved = await command();recordOwnChange(own, `task:${task.task_id}`, task.revision, saved.revision);own.setQueryData(["tasks", task.task_id], saved);return saved; }); }
-    catch (failure) { setError(userMessage(failure));await refresh(); } finally { setBusy(false); }
+    try { await run(expected => command({ expected_revision: expected })); }
+    catch (failure) { setError(userMessage(failure)); } finally { setBusy(false); }
   };
-  const [assignOpen,setAssignOpen]=useState(false);
+  const [assignOpen,setAssignOpen]=useState(false),assignHint=useId();
   const candidates=useQuery({queryKey:["taskMentionCandidates",task.task_id],queryFn:()=>taskCollaborationApi.candidates(task.task_id),enabled:assignOpen&&can(task,"assign_task_participants")});
-  const revision = { expected_revision: task.revision };
+  // People who do not read the task yet are shown, but only their access approver may assign them.
+  const assignOptions=(candidates.data?.items??[]).flatMap(user=>user.user_id===null||assignees.some(person=>person.user_id===user.user_id)?[]:[{value:String(user.user_id),label:user.display_name,user,disabled:user.can_assign===false}]).sort((a,b)=>Number(a.disabled)-Number(b.disabled));
+  const assignLocked=assignOptions.some(option=>option.disabled);
   return <>
     <div><dt>Исполнители</dt><dd className={s.people}>{assignees.length ? assignees.map((person, index) => {
       const assignment = task.assignments.find(item => item.assignee.user_id === person.user_id);
-      return <div key={person.user_id ?? `anonymous-${index}`} className={s.rosterPerson}><PersonChip user={person} />{person.user_id !== null && can(task, "remove_task_assignee") && <button type="button" className={s.removePerson} disabled={busy} title="Перевести в наблюдатели" aria-label={`Убрать исполнителя: ${person.display_name}`} onClick={() => { void act(() => tasksApi.removeAssignee(task.task_id, person.user_id!, revision)); }}>×</button>}{assignment?.assignee_unavailable_reason && <small className={s.unavailable}>{assignment.assignee_unavailable_reason === "archived" ? "В архиве" : "Вышел из команды"}</small>}</div>;
-    }) : <span className={w.muted}>Не назначены</span>}{!selfAssigned && can(task, "join_task") && <button type="button" className={s.subtleButton} disabled={busy} onClick={() => { void act(() => tasksApi.join(task.task_id, revision)); }}>Стать исполнителем</button>}{can(task,"assign_task_participants")&&<><button type="button" className={s.subtleButton} disabled={busy} onClick={()=>setAssignOpen(!assignOpen)}>Добавить исполнителя</button>{assignOpen&&<EntityPicker label="Новый исполнитель" entity="person" value="" options={(candidates.data?.items??[]).flatMap(user=>user.user_id===null||assignees.some(person=>person.user_id===user.user_id)?[]:[{value:String(user.user_id),label:user.display_name,user}])} loading={candidates.isLoading} disabled={busy} onChange={id=>{if(id)void act(()=>tasksApi.assign(task.task_id,Number(id),revision));}}/>}</>}</dd></div>
-    <div><dt>Наблюдатели</dt><dd className={s.people}>{watchers.length ? watchers.map((person, index) => <div className={s.rosterPerson} key={person.user_id ?? `anonymous-${index}`}><PersonChip user={person}/>{person.user_id!==null&&can(task,"remove_task_watcher")&&<button type="button" className={s.removePerson} disabled={busy} aria-label={`Убрать наблюдателя: ${person.display_name}`} onClick={()=>void act(()=>tasksApi.removeWatcher(task.task_id,person.user_id!,revision))}>×</button>}</div>) : <span className={w.muted}>Нет наблюдателей</span>}{selfWatching && can(task, "unwatch_task") ? <button type="button" className={s.subtleButton} disabled={busy} onClick={() => { void act(() => tasksApi.unwatch(task.task_id, revision)); }}>Перестать наблюдать</button> : !selfAssigned && can(task, "watch_task") && <button type="button" className={s.subtleButton} disabled={busy} onClick={() => { void act(() => tasksApi.watch(task.task_id, revision)); }}>Наблюдать</button>}{error && <p role="alert" className={w.error}>{error}</p>}</dd></div>
+      return <div key={person.user_id ?? `anonymous-${index}`} className={s.rosterPerson}><PersonChip user={person} />{person.user_id !== null && can(task, "remove_task_assignee") && <button type="button" className={s.removePerson} disabled={busy} title="Перевести в наблюдатели" aria-label={`Убрать исполнителя: ${person.display_name}`} onClick={() => { void act(revision => tasksApi.removeAssignee(task.task_id, person.user_id!, revision)); }}>×</button>}{assignment?.assignee_unavailable_reason && <small className={s.unavailable}>{assignment.assignee_unavailable_reason === "archived" ? "В архиве" : "Вышел из команды"}</small>}</div>;
+    }) : <span className={w.muted}>Не назначены</span>}{!selfAssigned && can(task, "join_task") && <button type="button" className={s.subtleButton} disabled={busy} onClick={() => { void act(revision => tasksApi.join(task.task_id, revision)); }}>Стать исполнителем</button>}{can(task,"assign_task_participants")&&<><button type="button" className={s.subtleButton} disabled={busy} onClick={()=>setAssignOpen(!assignOpen)}>Добавить исполнителя</button>{assignOpen&&<EntityPicker label="Новый исполнитель" entity="person" value="" options={assignOptions} loading={candidates.isLoading} disabled={busy} describedBy={assignLocked?assignHint:undefined} onChange={id=>{if(id)void act(revision=>tasksApi.assign(task.task_id,Number(id),revision));}}/>}{assignOpen&&assignLocked&&<small id={assignHint} className={s.pickerHint}>Неактивные пока не видят задачу. Призовите их в комментарии: доступ согласует автор задачи или владелец очереди.</small>}</>}</dd></div>
+    <div><dt>Наблюдатели</dt><dd className={s.people}>{watchers.length ? watchers.map((person, index) => <div className={s.rosterPerson} key={person.user_id ?? `anonymous-${index}`}><PersonChip user={person}/>{person.user_id!==null&&can(task,"remove_task_watcher")&&<button type="button" className={s.removePerson} disabled={busy} aria-label={`Убрать наблюдателя: ${person.display_name}`} onClick={()=>void act(revision=>tasksApi.removeWatcher(task.task_id,person.user_id!,revision))}>×</button>}</div>) : <span className={w.muted}>Нет наблюдателей</span>}{selfWatching && can(task, "unwatch_task") ? <button type="button" className={s.subtleButton} disabled={busy} onClick={() => { void act(revision => tasksApi.unwatch(task.task_id, revision)); }}>Перестать наблюдать</button> : !selfAssigned && can(task, "watch_task") && <button type="button" className={s.subtleButton} disabled={busy} onClick={() => { void act(revision => tasksApi.watch(task.task_id, revision)); }}>Наблюдать</button>}{error && <p role="alert" className={w.error}>{error}</p>}</dd></div>
   </>;
 }
-function TaskFilesEditor({ task, onClose }: { task: Task; onClose: () => void }) {
+function TaskFilesEditor({ task, onClose, onSaved }: { task: Task; onClose: () => void; onSaved?: () => void }) {
   const [files, setFiles] = useState<FileRef[]>(task.attachments ?? []), [uploading, setUploading] = useState(false), [busy, setBusy] = useState(false);const { perform, refresh } = useWorkspaceActions();
   return <TrackerTaskDialog title="Файлы к постановке задачи" onClose={onClose} busy={busy || uploading}><p className={w.muted}>Эти файлы доступны читателям задачи после сохранения. Результат работы сдаётся отдельно.</p>
     <ActionForm fields={[]} revision={task.revision} record={`task:${task.task_id}`} onConflict={refresh} externalState={files} savedExternalState={task.attachments ?? []} externalBusy={uploading}
       onReplaceWithSaved={() => setFiles(task.attachments ?? [])} savedDetails={<div><p>Сохранённые вложения задачи:</p><Attachments files={task.attachments ?? []} /></div>} submitLabel="Сохранить вложения"
-      onSubmit={async (_values, expectedRevision) => { setBusy(true);try { const saved = await perform(() => tasksApi.update(task.task_id, { expected_revision: expectedRevision!, file_ids: files.map(file => file.file_id) }));return saved; } finally { setBusy(false); } }}>
+      onSubmit={async (_values, expectedRevision) => { setBusy(true);try { const saved = await perform(() => tasksApi.update(task.task_id, { expected_revision: expectedRevision!, file_ids: files.map(file => file.file_id) }));onSaved?.();onClose();return saved; } finally { setBusy(false); } }}>
       <AttachmentPicker owner_kind="task" owner_id={task.task_id} purpose="attachment" files={files} onChange={setFiles} onBusyChange={setUploading} />
     </ActionForm>
   </TrackerTaskDialog>;
@@ -232,7 +234,7 @@ function CommentComposer({ task, comment, onSaved }: { task: Task; comment?: Com
       finally{setSaving(false);}
     }}>
     <MarkdownEditor value={body} onChange={value=>setDraft(draft=>changeCommentMentionBody(draft,value))} label={comment ? "Редактирование комментария" : "Новый комментарий"} name="body" rows={7} context="comment" variant="comment" draft={false} placeholder="Добавьте комментарий…" mentionUsers={mentionedUsers} disabled={saving}
-      footer={<><button ref={attachmentButton} type="button" className={s.commentAttachment} disabled={uploading||saving} onClick={()=>setFilesOpen(!filesOpen)} aria-label="Прикрепить файлы к комментарию" aria-haspopup="dialog" aria-expanded={filesOpen}><Glyph name="attach_file"/><span>Прикрепить файлы{files.length?` · ${files.length}`:""}</span></button><TaskMentionPicker taskId={task.task_id} value={mentions} onChange={ids=>setDraft(draft=>keepCommentMentions(draft,ids))} onMentionUser={user=>setDraft(draft=>addCommentMention(draft,user))} /></>}/>
+      footer={<><button ref={attachmentButton} type="button" className={s.commentAttachment} disabled={uploading||saving} onClick={()=>setFilesOpen(!filesOpen)} aria-label="Прикрепить файлы к комментарию" aria-haspopup="dialog" aria-expanded={filesOpen}><Glyph name="attach_file"/><span>Прикрепить файлы{files.length?` · ${files.length}`:""}</span></button><TaskMentionPicker taskId={task.task_id} value={mentions} readersOnly={task.queue?.key==="WEBSUPPORT"||task.queue?.key==="KKR"} onChange={ids=>setDraft(draft=>keepCommentMentions(draft,ids))} onMentionUser={user=>setDraft(draft=>addCommentMention(draft,user))} /></>}/>
     {files.length>0&&<section className={s.commentDraftFiles} aria-label="Файлы в черновике комментария"><Attachments files={files}/><div className={w.row}>{files.map(file=><button type="button" key={file.file_id} className={s.subtleButton} disabled={uploading||saving} aria-label={`Убрать файл из комментария: ${file.name}`} onClick={()=>setFiles(files=>files.filter(item=>item.file_id!==file.file_id))}>× {file.name}</button>)}</div></section>}
     <AnchoredPopover open={filesOpen} anchorRef={attachmentButton} label="Файлы комментария" onRequestClose={()=>setFilesOpen(false)} busy={uploading||saving} width={440}>
       <p className={w.muted}>Файлы добавятся вместе с комментарием. После загрузки можно закрыть это окно и продолжить писать.</p>

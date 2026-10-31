@@ -99,3 +99,21 @@ it.each(["material", "task", "result", "comment"] as const)("all editors omit pe
   expect(page.container.textContent).not.toMatch(/Справка по Markdown|Как оформить материал|Markdown ·/);
   expect(page.container.querySelector('button[aria-label="Предпросмотр"]')).not.toBeNull();
 });
+it("puts the caption above the toolbar and keeps it the textarea's label", async () => {
+  page = await mountWorkspace(<MarkdownEditor value="" onChange={() => {}} label="Описание задачи" />);
+  const frame = page.container.querySelector("[data-markdown-editor]")!, caption = frame.firstElementChild as HTMLLabelElement, input = frame.querySelector("textarea")!;
+  expect(caption.tagName).toBe("LABEL");expect(caption.textContent).toBe("Описание задачи");expect(caption.htmlFor).toBe(input.id);
+  expect(caption.compareDocumentPosition(frame.querySelector('[role="toolbar"]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(frame.querySelectorAll("label")).toHaveLength(1);
+});
+it("undo and redo are available only when there is something to undo or redo", async () => {
+  page = await mountWorkspace(<Editor />);
+  const tool = (label: string) => page!.container.querySelector<HTMLButtonElement>(`[role="toolbar"] button[aria-label="${label}"]`)!;
+  expect(tool("Отменить").disabled).toBe(true);expect(tool("Повторить").disabled).toBe(true);
+  await act(async () => tool("Жирный").click());await settle();
+  expect(tool("Отменить").disabled).toBe(false);expect(tool("Повторить").disabled).toBe(true);
+  await act(async () => tool("Отменить").click());await settle();
+  expect(tool("Отменить").disabled).toBe(true);expect(tool("Повторить").disabled).toBe(false);
+  await act(async () => tool("Повторить").click());await settle();
+  expect(tool("Отменить").disabled).toBe(false);expect(tool("Повторить").disabled).toBe(true);
+});

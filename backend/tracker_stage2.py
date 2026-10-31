@@ -201,7 +201,10 @@ def enrich(session, task, result, uid):
             result.capabilities += ["edit_task_metadata", "manage_task_links", "change_task_type", "change_task_priority"]
         if can_edit_description(session, task, uid):
             result.capabilities.append("edit_task_checklist")
-        result.capabilities += ["toggle_task_favorite", "toggle_task_checklist"]
+        result.capabilities.append("toggle_task_favorite")
+        # Control epic content is generated; its description marks are refused.
+        if not is_control_task(session, task.task_id):
+            result.capabilities.append("toggle_task_checklist")
     return result
 
 

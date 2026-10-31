@@ -39,7 +39,7 @@ def assign(block_id, uid, payload):
             meta.hr_user_id = payload.user_id
             meta.revision += 1
             audit(session, "block_hr", meta.block_id, uid, "Назначение HR блока",
-                  {"user_id": previous}, {"user_id": payload.user_id})
+                  {"hr_user_id": previous}, {"hr_user_id": payload.user_id})
         session.commit()
     return get_card(block_id, uid)
 

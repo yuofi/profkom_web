@@ -61,3 +61,21 @@ def test_managed_link_cannot_be_deleted_via_business_task_or_added_as_product_ep
         assert session.get(TaskLinkORM,link['link_id']) is not None
         assert session.get(TaskORM,business['task_id']).revision==saved['revision']
         assert session.query(TaskTrackerORM).filter_by(task_id=business['task_id']).one().parent_task_id is None
+
+
+def test_status_menu_receives_only_allowed_transitions_and_control_epics_none(client,work,superuser):
+    business=work['task'];path='/api/tasks/'+business['task_id']
+    reader=client.get(path,headers=work['member'].headers).json()
+    assert reader['allowed_statuses']==['open','in_progress','completed'] and 'change_task_status' in reader['capabilities']
+    author=client.get(path,headers=work['master'].headers).json()
+    assert author['allowed_statuses']==['open','in_progress','completed','closed']
+    listed=client.get('/api/tasks',headers=work['member'].headers).json()['items']
+    assert next(row for row in listed if row['task_id']==business['task_id'])['allowed_statuses']==reader['allowed_statuses']
+    assert client.post(path+'/status',headers=work['member'].headers,json={'expected_revision':reader['revision'],'status':'closed'}).status_code==403
+    tid,_=control_for(work)
+    for actor in (work['master'],superuser):
+        epic=client.get('/api/tasks/'+tid,headers=actor.headers).json()
+        assert epic['allowed_statuses']==[]
+        assert not {'change_task_status','start_task','resume_task','submit_task_result','toggle_task_checklist'}&set(epic['capabilities'])
+        response=client.post('/api/tasks/'+tid+'/status',headers=actor.headers,json={'expected_revision':epic['revision'],'status':'in_progress'})
+        assert response.status_code==409 and response.json()['detail']['code']=='control_epic_managed'

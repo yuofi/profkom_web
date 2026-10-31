@@ -222,3 +222,15 @@ def test_private_review_audit_records_real_completion_before_and_after(client,wo
         assert new==dict(status='accepted',hours=2.0,evaluation=1.5,effective_completed_at=rdate)
         assert audit.changed_by_user_id==w['master'].user_id
     assert read(client,w)==public
+
+
+def test_unresolved_rows_carry_the_public_task_status_for_the_accounting_link(client,work):
+    w=work;tid=w['task']['task_id']
+    def row():
+        items=client.get('/api/assignments/unresolved',headers=w['master'].headers).json()['items']
+        return next(item for item in items if item['task_id']==tid)
+    assert row()['task_status']=='open'
+    t=read(client,w,w['master'])
+    closed=client.post('/api/tasks/'+tid+'/status',headers=w['master'].headers,json={'expected_revision':t['revision'],'status':'closed'})
+    assert closed.status_code==200,closed.text
+    assert row()['task_status']=='closed'

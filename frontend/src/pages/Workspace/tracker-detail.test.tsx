@@ -12,8 +12,11 @@ import { TrackerTaskPage } from "./TrackerTaskDetail";
 import { TaskStatusMenu } from "./TaskStatusMenu";
 import { taskStatus, taskTransitions } from "./trackerStatus";
 import { TrackerTaskHistoryDiff } from "./TrackerTaskHistoryDiff";
+import { TaskDeadlineParameter } from "./TaskDeadlineParameter";
 import { ApiError } from "../../utils/api/request";
 import { historyApi } from "../../utils/api/history.api";
+import { taskCollaborationApi } from "../../utils/api/taskCollaboration.api";
+import { QueryClient } from "@tanstack/react-query";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 afterEach(async () => { await page?.cleanup();page = undefined;vi.restoreAllMocks(); });
@@ -22,18 +25,44 @@ async function click(text: string, root: ParentNode = page!.container) {
   const button = [...root.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent?.trim() === text);
   expect(button, `Missing button ${text}`).toBeDefined();await act(async () => button!.click());await settle();
 }
-async function mountTask(task: Task, comments: Comment[] = []) {
+async function mountTask(task: Task, comments: Comment[] = [], search = "") {
   vi.spyOn(seasonsApi, "list").mockResolvedValue({ items: createFixtures("chair").seasons, next_cursor: null });
   vi.spyOn(tasksApi, "get").mockResolvedValue(task);
   vi.spyOn(tasksApi, "comments").mockResolvedValue({ items: comments, next_cursor: null });
   vi.spyOn(historyApi, "list").mockResolvedValue({ items: [], next_cursor: null });
-  page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage />} /></Routes>, { path: `/tasks/${task.task_id}` });
+  page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage />} /></Routes>, { path: `/tasks/${task.task_id}${search}` });
   await waitForPage(page);return page;
 }
 it("uses the common public status and permits every other target without reading the accounting outcome", () => {
   const task = makeTask({ status: "completed", capabilities: ["change_task_status"] });task.assignments[0].status = "cancelled";
   expect(taskStatus(task)).toBe("completed");expect(taskTransitions(task)).toHaveLength(3);expect(taskTransitions(task)).not.toContain("completed");expect(taskTransitions(task)).toContain("open");
   expect(taskTransitions({ ...task, status: "closed" })).toContain("open");expect(taskTransitions({ ...task, capabilities: [] })).toEqual([]);
+});
+it("offers only the server's allowed transitions and shows a locked status without a menu", async () => {
+  const reader = makeTask({ status: "in_progress", allowed_statuses: ["open", "in_progress", "completed"], capabilities: ["change_task_status"] });
+  expect(taskTransitions(reader)).toEqual(["open", "completed"]);
+  expect(taskTransitions({ ...reader, allowed_statuses: undefined })).toEqual([]);
+  page = await mountWorkspace(<><TaskStatusMenu task={{ ...reader, status: "closed", allowed_statuses: [] }} /><TaskStatusMenu task={{ ...reader, queue: { queue_id: "kkr", name: "Контроль ККР", key: "KKR" }, allowed_statuses: [], capabilities: [] }} /></>);
+  expect(page.container.querySelector('[aria-haspopup="menu"]')).toBeNull();
+  const chips = [...page.container.querySelectorAll<HTMLElement>('[aria-label^="Статус задачи:"]')];
+  expect(chips.map(chip => chip.title)).toEqual(["Переоткрыть задачу может только её автор.", "Статус контрольного эпика меняется автоматически."]);
+});
+it("a refused closure explains that only the author closes the task", async () => {
+  const task = makeTask({ status: "completed", allowed_statuses: ["open", "in_progress", "completed", "closed"], capabilities: ["change_task_status"] });
+  vi.spyOn(tasksApi, "changeStatus").mockRejectedValue(new ApiError("Only the task author may close or reopen this task", 403, "task_close_author_only"));
+  page = await mountWorkspace(<TaskStatusMenu task={task} />);
+  await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());await settle();
+  await act(async () => [...page!.container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(button => button.textContent?.includes("Закрыта"))!.click());await waitForPage(page);
+  expect(page.container.querySelector('[role="alert"]')?.textContent).toBe("Закрыть или переоткрыть задачу может только её автор.");
+});
+it("a status menu near the right edge opens leftwards instead of widening the page", async () => {
+  const task = makeTask({ status: "open", allowed_statuses: ["open", "in_progress"], capabilities: ["change_task_status"] });
+  vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(1024);
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(240);
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ left: 900, right: 990, top: 0, bottom: 32, width: 90, height: 32, x: 900, y: 0, toJSON: () => ({}) });
+  page = await mountWorkspace(<TaskStatusMenu task={task} />);
+  await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());await settle();
+  expect(page.container.querySelector('[role="menu"]')!.className).toMatch(/menuEnd/);
 });
 it("a status chip owns its click and starts the whole task with the task revision", async () => {
   const task = makeTask({ status: "open", revision: 5, capabilities: ["change_task_status"] });
@@ -45,6 +74,19 @@ it("a status chip owns its click and starts the whole task with the task revisio
   expect(options.find(button => button.textContent?.includes("Закрыта"))?.disabled).toBe(false);expect(options.find(button => button.textContent?.includes("Открыта"))?.disabled).toBe(true);
   await act(async () => options.find(button => button.textContent?.trim() === "В работе")!.click());await waitForPage(page);
   expect(command).toHaveBeenCalledWith(task.task_id, { expected_revision: 5, status: "in_progress" });expect(openRow).not.toHaveBeenCalled();
+});
+it("a saved status shows at once in cached task lists, only on its own row", async () => {
+  const task = makeTask({ status: "open", revision: 5, allowed_statuses: ["open", "in_progress"], capabilities: ["change_task_status"] }), other = makeTask({ task_id: "other", status: "open" });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: Infinity } } });
+  client.setQueryData(["tasks", "page", {}], { items: [task, other], next_cursor: null });client.setQueryData(["tasks", "planning", {}, "a", "b"], [task]);
+  vi.spyOn(tasksApi, "changeStatus").mockResolvedValue({ ...task, revision: 6, status: "in_progress", allowed_statuses: ["open", "in_progress", "completed"] });
+  page = await mountWorkspace(<TaskStatusMenu task={task} />, { client });
+  await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());await settle();
+  await act(async () => [...page!.container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(button => button.textContent?.trim() === "В работе")!.click());await waitForPage(page);
+  const rows = client.getQueryData<{ items: Task[] }>(["tasks", "page", {}])!.items;
+  expect(rows.map(row => [row.task_id, row.status, row.revision])).toEqual([[task.task_id, "in_progress", 6], ["other", "open", other.revision]]);
+  expect(rows[0].allowed_statuses).toEqual(["open", "in_progress", "completed"]);
+  expect(client.getQueryData<Task[]>(["tasks", "planning", {}, "a", "b"])![0].status).toBe("in_progress");
 });
 it("status menu supports arrow keys, Home/End and restores focus on Escape", async () => {
   const task = makeTask({ status: "open", capabilities: ["change_task_status", "submit_task_result"] });
@@ -139,13 +181,98 @@ it("an explicit description capability supplies the editor without title rights"
 
 it("saves a checklist mark through the description revision and refreshes its history", async () => {
   let task = makeTask({ description: richText("- [ ] Проверить документы\n- [x] Готовый пункт"), revision: 8, capabilities: ["read_task", "toggle_task_checklist"] });
-  const update = vi.spyOn(tasksApi, "descriptionChecklist").mockImplementation(async (_id, data) => { task = { ...task, revision: 9, description: richText(data.body) };return task; });
+  const update = vi.spyOn(tasksApi, "descriptionChecklist").mockImplementation(async (_id, data) => { const body = task.description.body;task = { ...task, revision: 9, description: richText(body.slice(0, data.offset) + (data.checked ? "x" : " ") + body.slice(data.offset + 1)) };return task; });
   await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async () => task);
   const check = page!.container.querySelector<HTMLInputElement>('section[aria-label="Описание задачи"] input[type="checkbox"]')!;
   expect(check.disabled).toBe(false);
   await act(async () => check.click());await waitForPage(page!, () => page!.container.querySelector<HTMLInputElement>('section[aria-label="Описание задачи"] input[type="checkbox"]')?.checked === true);
-  expect(update).toHaveBeenCalledWith(task.task_id, { expected_revision: 8, body: "- [x] Проверить документы\n- [x] Готовый пункт" });
+  expect(update).toHaveBeenCalledWith(task.task_id, { expected_revision: 8, offset: 3, checked: true });
+  expect(task.description.body).toBe("- [x] Проверить документы\n- [x] Готовый пункт");
   await click("История");await waitForPage(page!);expect(historyApi.list).toHaveBeenCalledWith("task", task.task_id);
+});
+
+it("names a mark after emoji by its UTF-16 offset, the unit the server maps", async () => {
+  const body = "- [ ] A " + "😀".repeat(11) + "\n- [ ] Бета\n- [ ] Гамма\n";
+  let task = makeTask({ description: richText(body), revision: 8, capabilities: ["read_task", "toggle_task_checklist"] });
+  const update = vi.spyOn(tasksApi, "descriptionChecklist").mockImplementation(async (_id, data) => {
+    const text = task.description.body;task = { ...task, revision: 9, description: richText(text.slice(0, data.offset) + (data.checked ? "x" : " ") + text.slice(data.offset + 1)) };return task;
+  });
+  await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async () => task);
+  const boxes = () => [...page!.container.querySelectorAll<HTMLInputElement>('section[aria-label="Описание задачи"] input[type="checkbox"]')];
+  const beta = boxes().find(box => box.getAttribute("aria-label") === "Отметить: Бета")!;
+  await act(async () => beta.click());await waitForPage(page!, () => boxes()[1]?.checked === true);
+  // 34 is a JavaScript index; counted in code points (each emoji once) the mark is at 23.
+  expect(update).toHaveBeenCalledWith(task.task_id, { expected_revision: 8, offset: 34, checked: true });
+  expect([...body.slice(0, 34)].length).toBe(23);
+  expect(task.description.body).toBe(body.replace("- [ ] Бета", "- [x] Бета"));
+  expect(boxes().map(box => box.checked)).toEqual([false, true, false]);
+});
+
+it("rapid marks in the description and the checklist all save in order with own revisions", async () => {
+  let task = makeTask({ description: richText("- [ ] Первый\n- [ ] Второй"), revision: 8, checklist: [{ item_id: "one", text: "Пункт", checked: false }, { item_id: "two", text: "Ещё", checked: false }], capabilities: ["read_task", "toggle_task_checklist"] });
+  const releases: (() => void)[] = [];const later = () => new Promise<void>(resolve => releases.push(resolve));
+  const marks = vi.spyOn(tasksApi, "descriptionChecklist").mockImplementation(async (_id, data) => {
+    await later();if (data.expected_revision !== task.revision) throw new ApiError("Changed", 409, "revision_conflict");
+    const body = task.description.body;task = { ...task, revision: task.revision + 1, description: richText(body.slice(0, data.offset) + (data.checked ? "x" : " ") + body.slice(data.offset + 1)) };return task;
+  });
+  const toggles = vi.spyOn(tasksApi, "toggleChecklist").mockImplementation(async (_id, itemId, data) => {
+    await later();if (data.expected_revision !== task.revision) throw new ApiError("Changed", 409, "revision_conflict");
+    task = { ...task, revision: task.revision + 1, checklist: task.checklist!.map(item => item.item_id === itemId ? { ...item, checked: data.checked } : item) };return task;
+  });
+  await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async () => task);
+  const boxes = () => [...page!.container.querySelectorAll<HTMLInputElement>('main input[type="checkbox"], section input[type="checkbox"]')];
+  const description = () => [...page!.container.querySelectorAll<HTMLInputElement>('section[aria-label="Описание задачи"] input[type="checkbox"]')];
+  const checklist = () => [...page!.container.querySelectorAll<HTMLInputElement>('section[aria-label="Чеклист задачи"] input[type="checkbox"]')];
+  expect(boxes().length).toBeGreaterThanOrEqual(4);
+  await act(async () => description()[0].click());
+  expect(description()[0].checked).toBe(true);expect(description()[0].disabled).toBe(true);expect(description()[1].disabled).toBe(false);expect(checklist()[0].disabled).toBe(false);
+  expect(page!.container.querySelector('section[aria-label="Описание задачи"] [role="status"]')?.textContent).toBe("Сохраняем отметку…");
+  await act(async () => checklist()[0].click());await act(async () => description()[1].click());
+  expect(checklist()[0].checked).toBe(true);expect(description()[1].checked).toBe(true);
+  for (let step = 0; step < 3; step++) { await waitForPage(page!, () => releases.length > 0);await act(async () => releases.shift()!());await settle(); }
+  await waitForPage(page!, () => !page!.container.querySelector('[aria-busy="true"]'));
+  expect([marks.mock.calls[0][1], toggles.mock.calls[0][2], marks.mock.calls[1][1]]).toEqual([{ expected_revision: 8, offset: 3, checked: true }, { expected_revision: 9, checked: true }, { expected_revision: 10, offset: 16, checked: true }]);
+  expect(page!.container.querySelector('section[aria-label="Описание задачи"] [role="alert"], section[aria-label="Чеклист задачи"] [role="alert"]')).toBeNull();
+  expect(task.description.body).toBe("- [x] Первый\n- [x] Второй");expect(task.checklist![0].checked).toBe(true);expect(task.revision).toBe(11);
+  expect(description().map(box => box.checked)).toEqual([true, true]);expect(checklist().map(box => box.checked)).toEqual([true, false]);
+});
+
+it("a link removed right after a checkmark waits for it and sends the next own revision", async () => {
+  const link = { link_id: "link-1", kind: "related" as const, task: { task_id: "other", task_key: "WEB-2", title: "Другая", status: "open" as const, deadline_at: null, starts_at: null, task_type: "task" as const } };
+  let task = makeTask({ description: richText("- [ ] Первый"), revision: 8, links: [link], capabilities: ["read_task", "toggle_task_checklist", "manage_task_links"] });
+  const releases: (() => void)[] = [];const later = () => new Promise<void>(resolve => releases.push(resolve));
+  const marks = vi.spyOn(tasksApi, "descriptionChecklist").mockImplementation(async (_id, data) => {
+    await later();if (data.expected_revision !== task.revision) throw new ApiError("Changed", 409, "revision_conflict");
+    task = { ...task, revision: task.revision + 1, description: richText("- [x] Первый") };return task;
+  });
+  const remove = vi.spyOn(tasksApi, "removeLink").mockImplementation(async (_id, _link, data) => {
+    if (data.expected_revision !== task.revision) throw new ApiError("Changed", 409, "revision_conflict");
+    task = { ...task, revision: task.revision + 1, links: [] };return task;
+  });
+  await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async () => task);
+  await act(async () => page!.container.querySelector<HTMLInputElement>('section[aria-label="Описание задачи"] input[type="checkbox"]')!.click());
+  await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Удалить связь: WEB-2"]')!.click());
+  expect(remove).not.toHaveBeenCalled();
+  await waitForPage(page!, () => releases.length > 0);await act(async () => releases.shift()!());
+  await waitForPage(page!, () => !page!.container.querySelector('[aria-label="Удалить связь: WEB-2"]'));
+  expect([marks.mock.calls[0][1].expected_revision, remove.mock.calls[0][2].expected_revision]).toEqual([8, 9]);
+  expect(page!.container.querySelector('section[aria-label="Связанные задачи"] [role="alert"], section[aria-label="Описание задачи"] [role="alert"]')).toBeNull();expect(task.revision).toBe(10);
+});
+
+it("a refused queued mark rolls back only itself and keeps later own marks", async () => {
+  let task = makeTask({ description: richText("- [ ] Первый"), revision: 8, checklist: [{ item_id: "one", text: "Пункт", checked: false }], capabilities: ["read_task", "toggle_task_checklist"] });
+  const releases: (() => void)[] = [];const later = () => new Promise<void>(resolve => releases.push(resolve));
+  vi.spyOn(tasksApi, "descriptionChecklist").mockImplementation(async () => { await later();throw new ApiError("Changed", 409, "revision_conflict"); });
+  vi.spyOn(tasksApi, "toggleChecklist").mockImplementation(async (_id, itemId, data) => { await later();task = { ...task, revision: data.expected_revision + 1, checklist: task.checklist!.map(item => item.item_id === itemId ? { ...item, checked: data.checked } : item) };return task; });
+  await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async () => task);
+  const description = () => page!.container.querySelector<HTMLInputElement>('section[aria-label="Описание задачи"] input[type="checkbox"]')!;
+  const checklist = () => page!.container.querySelector<HTMLInputElement>('section[aria-label="Чеклист задачи"] input[type="checkbox"]')!;
+  await act(async () => description().click());await act(async () => checklist().click());
+  await waitForPage(page!, () => releases.length > 0);await act(async () => releases.shift()!());await settle();
+  expect(description().checked).toBe(false);expect(checklist().checked).toBe(true);
+  expect(page!.container.querySelector('[role="alert"]')?.textContent).toContain("Запись изменилась");
+  await waitForPage(page!, () => releases.length > 0);await act(async () => releases.shift()!());
+  await waitForPage(page!, () => !page!.container.querySelector('[aria-busy="true"]'));expect(checklist().checked).toBe(true);
 });
 
 it("a rejected checklist save keeps server content, reports the conflict and does not retry a stale patch", async () => {
@@ -192,6 +319,43 @@ it.each([true, false])("without a parent the breadcrumb has only the queue and c
   expect(trail.querySelector('[aria-current="page"]')?.textContent).toBe(task.task_key);
 });
 
+it("a task whose queue the reader cannot open shows the queue as text and support tickets lead to own reports", async () => {
+  await mountTask(makeTask({ queue: { queue_id: "queue-kkr", name: "Контроль заполнения ККР", key: "KKR", readable: false } }));
+  const path = page!.container.querySelector('[aria-label="Путь задачи"]')!, parameters = page!.container.querySelector('[aria-label="Параметры задачи"]')!;
+  expect(path.textContent).toContain("Контроль заполнения ККР");expect(path.querySelector('a[href*="queue-kkr"]')).toBeNull();expect(parameters.querySelector('a[href*="queue-kkr"]')).toBeNull();expect(parameters.textContent).toContain("Контроль заполнения ККР");
+  await page!.cleanup();vi.restoreAllMocks();
+  await mountTask(makeTask({ queue: { queue_id: "queue-support", name: "WEBSUPPORT", key: "WEBSUPPORT", readable: false } }));
+  const supportPath = page!.container.querySelector('[aria-label="Путь задачи"]')!;
+  expect(supportPath.querySelector('a[href="/support"]')?.textContent).toBe("Мои обращения");expect(page!.container.querySelector('a[href*="queue-support"]')).toBeNull();
+  expect(page!.container.querySelector('[aria-label="Параметры задачи"] a[href="/support"]')).not.toBeNull();
+  await page!.cleanup();vi.restoreAllMocks();
+  await mountTask(makeTask({ queue: { queue_id: "queue-open", name: "Открытая", key: "OPEN", readable: true } }));
+  expect(page!.container.querySelector('[aria-label="Путь задачи"] a[href="/tasks/queues/queue-open"]')).not.toBeNull();
+});
+it("without any clipboard the share button offers the link selected for manual copying", async () => {
+  vi.stubGlobal("navigator", {});const execCommand = document.execCommand;document.execCommand = vi.fn(() => false);
+  try {
+    await mountTask(makeTask());
+    await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Скопировать ссылку на задачу"]')!.click());await settle();
+    const field = page!.container.querySelector<HTMLInputElement>("input[readonly]")!;
+    expect(field.value).toBe(`${window.location.origin}/tasks/${makeTask().task_id}`);expect(document.activeElement).toBe(field);
+    expect(page!.container.textContent).not.toContain("Не удалось скопировать");
+  } finally { document.execCommand = execCommand;vi.unstubAllGlobals(); }
+});
+it("an assessment link to an open task explains that the evaluation waits for closure", async () => {
+  const task = makeTask({ status: "in_progress", capabilities: ["read_task", "view_assessment_inputs"] });
+  await mountTask(task, [], `?assignment_id=${task.assignments[0].assignment_id}`);
+  expect(page!.container.textContent).toContain("Оценка исполнителя станет доступна после закрытия задачи.");expect(page!.container.querySelector("dialog")).toBeNull();
+});
+it("the description's link action opens the link editor for link managers and is absent for readers", async () => {
+  await mountTask(makeTask({ capabilities: ["read_task"] }));
+  expect([...page!.container.querySelectorAll("button")].some(button => button.textContent?.includes("Связь с задачей"))).toBe(false);
+  await page!.cleanup();vi.restoreAllMocks();
+  await mountTask(makeTask({ capabilities: ["read_task", "manage_task_links"] }));
+  const action = [...page!.container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim().endsWith("Связь с задачей"))!;
+  await act(async () => action.click());await settle();
+  expect(page!.container.querySelector("dialog")?.textContent).toContain("Тип связи");
+});
 it("selects and clears a cross-queue parent in one combobox with revision protection", async () => {
   let task = makeTask({ capabilities: ["read_task", "edit_task"], queue: { queue_id: "queue-design", name: "Дизайн", key: "DSN" }, parent_task: null });
   const other = makeTask({ task_id: "other-task", task_key: "WEB-12", title: "Задача из другой очереди", queue: { queue_id: "queue-web", name: "Разработка", key: "WEB" } });
@@ -203,11 +367,12 @@ it("selects and clears a cross-queue parent in one combobox with revision protec
   expect(dialog.textContent).toContain(other.title);expect(dialog.textContent).not.toContain("Другой сезон");expect([...dialog.querySelectorAll('[role="option"]')]).toHaveLength(1);
   await change(input, "WEB");await waitForPage(page!);expect(candidates).toHaveBeenLastCalledWith({ season_id: task.season_id, q: "WEB", limit: 100 });
   await act(async () => dialog.querySelector<HTMLElement>('[role="option"]')!.click());await submit(dialog.querySelector("form")!);await waitForPage(page!);
-  expect(update).toHaveBeenLastCalledWith(task.task_id, { expected_revision: task.revision - 1, parent_task_id: other.task_id });expect(page!.container.querySelector('[aria-label="Путь задачи"]')?.textContent).toContain(other.title);
+  expect(update).toHaveBeenLastCalledWith(task.task_id, { expected_revision: task.revision - 1, parent_task_id: other.task_id });expect(dialog.isConnected).toBe(false);expect(page!.container.textContent).toContain("Изменения сохранены");expect(page!.container.querySelector('[aria-label="Путь задачи"]')?.textContent).toContain(other.title);
   const trail = page!.container.querySelector('[aria-label="Путь задачи"]')!;
   expect([...trail.querySelectorAll("a")].map(link => [link.textContent, link.getAttribute("href")])).toEqual([["Дизайн", "/tasks/queues/queue-design"], [other.title, "/tasks/other-task"]]);
   expect(trail.querySelector('[aria-current="page"]')?.textContent).toBe(task.task_key);
-  await act(async () => dialog.querySelector<HTMLButtonElement>('[aria-label="Убрать родительскую задачу"]')!.click());await submit(dialog.querySelector("form")!);await waitForPage(page!);
+  await click("Изменить родительскую задачу");const reopened = page!.container.querySelector("dialog")!;
+  await act(async () => reopened.querySelector<HTMLButtonElement>('[aria-label="Убрать родительскую задачу"]')!.click());await submit(reopened.querySelector("form")!);await waitForPage(page!);
   expect(update).toHaveBeenLastCalledWith(task.task_id, { expected_revision: task.revision - 1, parent_task_id: null });
 });
 
@@ -260,6 +425,22 @@ it("self joining and removing another assignee update the public roster and put 
   const nextRevision = task.revision;await act(async () => parameters.querySelector<HTMLButtonElement>(`[aria-label="Убрать исполнителя: ${other.display_name}"]`)!.click());await waitForPage(page!);
   expect(remove).toHaveBeenCalledWith(task.task_id, other.user_id, { expected_revision: nextRevision });expect(task.watchers?.map(person => person.user_id)).toEqual([other.user_id]);
 });
+it("the assignee picker disables people without task access and explains the mention route", async () => {
+  let task = makeTask({ assignees: [people[0]], watchers: [], capabilities: ["read_task", "assign_task_participants"] });
+  vi.spyOn(taskCollaborationApi, "candidates").mockResolvedValue({ items: [{ ...people[1], can_assign: false }, { ...people[2], can_assign: true }], next_cursor: null });
+  const assign = vi.spyOn(tasksApi, "assign").mockImplementation(async () => { task = { ...task, assignees: [people[0], people[2]], revision: task.revision + 1 };return task; });
+  await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async () => task);const first = task.revision;
+  await click("Добавить исполнителя");await waitForPage(page!);
+  const parameters = page!.container.querySelector('[aria-label="Параметры задачи"]')!;const input = parameters.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  await act(async () => input.focus());await settle();
+  const locked = document.querySelector<HTMLElement>(`[data-option-value="${people[1].user_id}"]`)!, open = document.querySelector<HTMLElement>(`[data-option-value="${people[2].user_id}"]`)!;
+  expect(locked.getAttribute("aria-disabled")).toBe("true");expect(open.hasAttribute("aria-disabled")).toBe(false);
+  expect(open.compareDocumentPosition(locked) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  const hint = document.getElementById(input.getAttribute("aria-describedby")!)!;expect(hint.textContent).toContain("Призовите их в комментарии");
+  await act(async () => locked.click());await settle();expect(assign).not.toHaveBeenCalled();
+  await act(async () => open.click());await waitForPage(page!);
+  expect(assign).toHaveBeenCalledWith(task.task_id, people[2].user_id, { expected_revision: first });
+});
 it("readers can watch and unwatch independently of the accounting controls", async () => {
   const self = people.find(person => person.user_id === createFixtures("chair").session.user_id)!;let task = makeTask({ assignees: [], watchers: [], capabilities: ["read_task", "watch_task", "unwatch_task"] });
   task.assignments = task.assignments.map(assignment => ({ ...assignment, capabilities: [] }));
@@ -267,4 +448,45 @@ it("readers can watch and unwatch independently of the accounting controls", asy
   const unwatch = vi.spyOn(tasksApi, "unwatch").mockImplementation(async () => { task = { ...task, watchers: [], revision: task.revision + 1 };return task; });
   await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async () => task);const first = task.revision;await click("Наблюдать");await waitForPage(page!);expect(watch).toHaveBeenCalledWith(task.task_id, { expected_revision: first });
   const second = task.revision;await click("Перестать наблюдать");await waitForPage(page!);expect(unwatch).toHaveBeenCalledWith(task.task_id, { expected_revision: second });expect(page!.container.textContent).not.toContain("Учёт работы и ККР");
+});
+it("planning and file dialogs close after a successful save and the card confirms it", async () => {
+  const file: FileRef = { file_id: "file-brief", name: "brief.pdf", mime_type: "application/pdf", size_bytes: 12 };
+  let task = makeTask({ capabilities: ["read_task", "edit_task_metadata", "attach_task_file"], priority: "normal", attachments: [file] });
+  const update = vi.spyOn(tasksApi, "update").mockImplementation(async (_id, payload) => (task = { ...task, ...("priority" in payload ? { priority: payload.priority } : {}), ...("file_ids" in payload ? { attachments: [] } : {}), revision: task.revision + 1 }));
+  await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async () => task);
+  const edit = page!.container.querySelector<HTMLButtonElement>('[aria-label="Параметры задачи"] details > button[aria-label="Изменить параметры"]')!;
+  expect(edit.previousElementSibling?.tagName).toBe("SUMMARY");expect(edit.nextElementSibling?.tagName).toBe("DL");expect(edit.querySelector("[aria-hidden], span, svg")).not.toBeNull();
+  await act(async () => edit.click());await settle();let dialog = page!.container.querySelector("dialog")!;
+  await change(dialog.querySelector<HTMLSelectElement>('[name="priority"]')!, "urgent");await submit(dialog.querySelector("form")!);await waitForPage(page!);
+  expect(update).toHaveBeenCalledTimes(1);expect(dialog.isConnected).toBe(false);expect(page!.container.querySelector("dialog")).toBeNull();
+  expect(page!.container.textContent).toContain("Изменения сохранены");
+  await click("Прикрепить файлы");dialog = page!.container.querySelector("dialog")!;
+  await click("Убрать", dialog);await submit(dialog.querySelector("form")!);await waitForPage(page!);
+  expect(update).toHaveBeenLastCalledWith(task.task_id, { expected_revision: task.revision - 1, file_ids: [] });expect(page!.container.querySelector("dialog")).toBeNull();
+});
+it("moves the deadline only through reasoned assessment inputs and tells other managers who moves it", async () => {
+  let task = makeTask({ capabilities: ["read_task", "view_assessment_inputs", "edit_task"], deadline_at: "2026-11-10T15:00:00Z" });
+  const inputs = { task_id: task.task_id, assigned_at: "2026-10-20T09:00:00Z", deadline_at: task.deadline_at, criteria: { unique: false, creative: false, external_communication: false, in_person: false, fixed_time: false }, revision: 3, capabilities: ["edit_assessment_inputs", "edit_assessment_dates"] };
+  const read = vi.spyOn(tasksApi, "inputs").mockResolvedValue(inputs);
+  const update = vi.spyOn(tasksApi, "updateInputs").mockImplementation(async (_id, data) => { task = { ...task, deadline_at: data.deadline_at!, revision: task.revision + 1 };return { ...inputs, deadline_at: data.deadline_at!, revision: 4 }; });
+  const edit = vi.spyOn(tasksApi, "update");
+  await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async () => task);
+  await click("Перенести срок");const dialog = page!.container.querySelector("dialog")!, form = dialog.querySelector("form")!;
+  expect(dialog.querySelector<HTMLInputElement>('[name="deadline_at"]')!.value).toBe("2026-11-10T18:00");
+  expect(dialog.textContent?.replace(/\u00a0/g, " ")).toMatch(/Не раньше 20 окт\. 2026 г\., 12:00 и не позже .+ \(конец сезона\), МСК\./);
+  await change(dialog.querySelector<HTMLInputElement>('[name="deadline_at"]')!, "2026-11-20T18:00");await submit(form);expect(update).not.toHaveBeenCalled();
+  await change(dialog.querySelector<HTMLInputElement>('[name="reason"]')!, "Подрядчик сдвинул поставку");await submit(form);await waitForPage(page!);
+  expect(update).toHaveBeenCalledWith(task.task_id, { expected_revision: 3, deadline_at: "2026-11-20T15:00:00.000Z", reason: "Подрядчик сдвинул поставку" });expect(edit).not.toHaveBeenCalled();
+  expect(dialog.isConnected).toBe(false);expect(page!.container.textContent).toContain("Изменения сохранены");
+  expect(page!.container.querySelector('[aria-label="Параметры задачи"] time')?.getAttribute("datetime")).toBe("2026-11-20T15:00:00.000Z");
+  await page!.cleanup();read.mockResolvedValue({ ...inputs, capabilities: ["edit_assessment_inputs"] });
+  await mountTask(makeTask({ capabilities: ["read_task", "view_assessment_inputs"] }));
+  expect(page!.container.textContent).toContain("Срок переносят председатель, замы, мастер HR и его заместитель");expect(page!.container.textContent).not.toContain("Перенести срок");
+  await page!.cleanup();read.mockClear();
+  await mountTask(makeTask({ capabilities: ["read_task", "comment_task"] }));
+  expect(read).not.toHaveBeenCalled();expect(page!.container.textContent).not.toContain("Срок переносят");
+  // An area lead reads assessment inputs but never moves dates: no inputs request for it.
+  await page!.cleanup();const lead = createFixtures("organizer").session;expect(lead.capabilities).not.toContain("view_summary");
+  page = await mountWorkspace(<TaskDeadlineParameter task={makeTask({ capabilities: ["read_task", "view_assessment_inputs"] })} now={Date.now()} />, { session: lead });
+  expect(read).not.toHaveBeenCalled();expect(page.container.textContent).toContain("Срок переносят председатель");
 });

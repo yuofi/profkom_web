@@ -4,6 +4,8 @@
 .chip:disabled { cursor: progress; opacity: .7; }
 .dot,.menuDot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--tone, var(--primary)); flex: 0 0 auto; }
 .menu { position: absolute; z-index: 30; inset-inline-start: 0; top: calc(100% + 7px); width: 240px; max-width: calc(100vw - 40px); padding: 7px; border: 1px solid var(--outline-variant); border-radius: 12px; background: var(--surface-container-high); box-shadow: 0 12px 35px rgb(0 0 0 / .4); }
+.menuEnd { inset-inline-start: auto; inset-inline-end: 0; }
+.static { cursor: default; }
 .menuNote { margin: 5px 6px 8px; font-size: 12px; color: var(--on-surface); opacity: .65; }
 .option { display: flex; gap: 9px; align-items: center; padding: 9px; width: 100%; border: 0; border-radius: 6px; font: inherit; font-size: 14px; background: none; color: var(--on-surface); text-align: left; cursor: pointer; }
 .option:hover:not(:disabled) { background: var(--surface-container-highest); }

@@ -32,7 +32,7 @@ it.each([false, true])("closing from a list checks the saved task's accounting p
   await act(async () => [...page!.container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(button => button.textContent?.includes("Закрыта"))!.click());
   await waitForPage(page, () => save.mock.calls.length === 1 && (mayViewAccounting
     ? page!.container.querySelector("[data-location]")?.textContent === `/tasks/${task.task_id}?kkr=1`
-    : !!page!.container.querySelector('[aria-label="Статус задачи: Закрыта"]:not(:disabled)')));
+    : !!page!.container.querySelector('[aria-label^="Статус задачи: Закрыта"]:not(:disabled)')));
   expect(save).toHaveBeenCalledWith(task.task_id, { expected_revision: originalRevision, status: "closed" });
   expect(page.container.querySelector("[data-location]")?.textContent).toBe(mayViewAccounting ? `/tasks/${task.task_id}?kkr=1` : "/tasks");
   expect(page.container.querySelector("table") !== null).toBe(!mayViewAccounting);

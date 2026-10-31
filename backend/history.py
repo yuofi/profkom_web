@@ -30,7 +30,7 @@ PUBLIC_TASK = {"title", "description", "deadline_at", "status", "comment", "comm
 METADATA = {"title", "description", "starts_at", "ends_at", "all_day", "announcement", "state", "is_current", "season_id", "event_id", "name", "community_url", "master_user_id", "chair_user_id", "deputy_user_ids", "organizer_user_ids", "user_id", "role", "active", "hr_user_id", "principal_assignment_id"}
 PRIVATE_INPUTS = {"hours", "evaluation", "effective_completed_at", "assigned_at", "deadline_at", "criteria", "recipients", "status", "review_note", "assignee_user_id", "new_assignment_id", "new_assignee_user_id", "title", "description"}
 TEXT_FIELDS = {"title", "description", "description_json", "content_json", "comment", "result", "body", "text", "review_note", "note", "reason", "announcement", "community_url", "links", "attachments", "comment_attachments", "checklist"}
-LABELS = {"title": "Название", "description": "Описание", "comment": "Комментарий", "result": "Результат", "hours": "Часы", "evaluation": "Оценка", "effective_completed_at": "Расчётная дата выполнения", "assigned_at": "Дата выдачи", "deadline_at": "Дедлайн", "criteria": "Критерии", "recipients": "Получатели и исходные поля", "status": "Состояние", "review_note": "Замечание", "starts_at": "Начало", "ends_at": "Конец", "state": "Состояние сезона", "master_user_id": "Мастер", "chair_user_id": "Председатель", "deputy_user_ids": "Заместители", "organizer_user_ids": "Организаторы", "user_id": "Участник", "role": "Роль", "active": "Назначение действует", "hr_user_id": "HR", "name": "Название блока", "announcement": "Анонс", "season_id": "Сезон", "all_day": "Весь день"}
+LABELS = {"title": "Название", "description": "Описание", "comment": "Комментарий", "result": "Результат", "hours": "Часы", "evaluation": "Оценка", "effective_completed_at": "Расчётная дата выполнения", "assigned_at": "Дата выдачи", "deadline_at": "Дедлайн", "criteria": "Критерии", "recipients": "Получатели и исходные поля", "status": "Состояние", "review_note": "Замечание", "starts_at": "Начало", "ends_at": "Конец", "state": "Состояние сезона", "master_user_id": "Мастер", "chair_user_id": "Председатель", "deputy_user_ids": "Заместители", "organizer_user_ids": "Организаторы", "user_id": "Участник", "role": "Роль", "active": "Назначение действует", "hr_user_id": "HR", "name": "Название блока", "announcement": "Анонс", "season_id": "Сезон", "all_day": "Весь день", "is_current": "Текущий сезон", "community_url": "Ссылка на сообщество", "event_id": "Мероприятие"}
 HIDDEN = "[Текст версии скрыт]"
 
 
@@ -180,6 +180,8 @@ def _audit_changes(session, row, private):
     result = []
     for name in sorted(set(old) | set(new)):
         field = {"deputies_json": "deputy_user_ids", "organizer_user_ids_json": "organizer_user_ids", "description_json": "description"}.get(name, name)
+        if row.target_kind == "block_hr" and field == "user_id":
+            field = "hr_user_id"  # Earlier HR rows were written under the member key.
         if field not in allowed or old.get(name) == new.get(name):
             continue
         result.append(dict(field=field, label=LABELS.get(field, field), before=_clean(session, old.get(name), field), after=_clean(session, new.get(name), field)))

@@ -156,6 +156,101 @@ def readable_tasks(session, tasks, uid):
     return result
 
 
+def _json_ids(raw):
+    try:return json.loads(raw) if raw else []
+    except Exception:return []
+
+
+def _role_holders(session, kind, scope_ids, roles):
+    from database import RoleAssignmentORM
+    if not scope_ids:return set()
+    return {row[0] for row in session.query(RoleAssignmentORM.user_id).filter(RoleAssignmentORM.scope_kind==kind,
+        RoleAssignmentORM.scope_id.in_(list(scope_ids)),RoleAssignmentORM.role.in_(list(roles)))}
+
+
+def _global_readers(session, ids):
+    """all_queue_reader for many active users: the chair, deputies, HR master and HR deputies."""
+    from database import LeadershipORM
+    from access import _hr_block_names
+    leadership=session.get(LeadershipORM,1)
+    result={leadership.chair_user_id} if leadership else set()
+    deputies=_json_ids(leadership.deputies_json) if leadership else []
+    result|={uid for uid in ids if uid in deputies}
+    result|={row[0] for row in session.query(BlockORM.master_user_id).filter(BlockORM.is_hr == True)}  # noqa: E712
+    result|=_role_holders(session,"block",_hr_block_names(),{"deputy_master"})
+    return result
+
+
+def _scope_viewers(session, kind, scope_id, ids):
+    """access.allowed(uid, "task.view", kind, scope_id) through scope relations alone
+    (global relations are _global_readers); unknown scope kinds use the exact check."""
+    import access
+    if kind=="block":
+        from domain_models import BlockMetaORM
+        name=access.block_name(scope_id)
+        if not name:return set()
+        block=session.get(BlockORM,name)
+        result=set()
+        if block:
+            result.add(block.master_user_id)
+            members=_json_ids(block.arr_of_human)
+            result|={uid for uid in ids if uid in members}
+        result|=_role_holders(session,"block",[name],{"master"})
+        if name not in access._hr_block_names():result|=_role_holders(session,"block",[name],{"deputy_master"})
+        meta=session.query(BlockMetaORM).filter_by(legacy_name=name).one_or_none()
+        if meta:result.add(getattr(meta,"hr_user_id",None))
+        return result
+    if kind=="subevent":
+        from event_workspace_models import EventWorkspaceMetaORM
+        sub=session.get(SubeventORM,scope_id)
+        if not sub:return set()
+        organizers=_json_ids(sub.organizer_user_ids_json)
+        result={uid for uid in ids if uid in organizers}
+        result|=_role_holders(session,"subevent",[scope_id],{"subevent_leader","deputy_subevent_leader"})
+        result|=_role_holders(session,"event",[sub.event_id],{"event_leader","deputy_event_leader"})
+        meta=session.get(EventWorkspaceMetaORM,("subevent",scope_id))
+        if meta:result.add(meta.hr_user_id)
+        return result
+    if kind=="event":
+        children=session.query(SubeventORM.subevent_id,SubeventORM.organizer_user_ids_json).filter_by(event_id=scope_id).all()
+        organizers=[uid for _child,raw in children for uid in _json_ids(raw)]
+        result={uid for uid in ids if uid in organizers}
+        result|=_role_holders(session,"event",[scope_id],{"event_leader","deputy_event_leader"})
+        result|=_role_holders(session,"subevent",[child for child,_raw in children],{"subevent_leader","deputy_subevent_leader"})
+        return result
+    return {uid for uid in ids if db.can_view_scope(uid,kind,scope_id)}
+
+
+def task_readers(session, task, uids):
+    """The users of `uids` for whom task_read(session, task, uid) holds, decided at once.
+
+    The same policy as _task_read and _can_read, with one query per source (support
+    reporters and staff, queue grants, scope roles and teams, explicit task grants)
+    instead of a dozen ACL queries per user. Nothing is cached across requests.
+    """
+    from support import is_support_queue, _leaders
+    from support_models import FeedbackORM, SupportStaffORM
+    ids={uid for uid in uids if uid and active(session,uid)}
+    if not task or not ids:return set()
+    queue=task_queue(session,task)
+    if not queue:return {uid for uid in ids if task_read(session,task,uid)}
+    readers={row[0] for row in session.query(FeedbackORM.user_id).filter(FeedbackORM.task_id==task.task_id)}
+    if is_support_queue(session,queue):
+        staff={row[0] for row in session.query(SupportStaffORM.user_id).filter(SupportStaffORM.active.is_(True))}
+        return (readers|staff|_leaders(session))&ids
+    readers|=_global_readers(session,ids)
+    if queue.key!="KKR":
+        readers.add(queue.owner_user_id)
+        readers|={row[0] for row in session.query(TaskQueueMemberORM.user_id).filter(TaskQueueMemberORM.queue_id==queue.queue_id,TaskQueueMemberORM.active.is_(True))}
+        if not queue.is_private:
+            readers|=ids if queue.scope_kind=="queue" else _scope_viewers(session,queue.scope_kind,queue.scope_id,ids)
+    from tracker_collaboration_models import TaskAccessGrantORM
+    from tracker_collaboration import has_task_grant
+    granted={row[0] for row in session.query(TaskAccessGrantORM.user_id).filter(TaskAccessGrantORM.task_id==task.task_id,TaskAccessGrantORM.active.is_(True))}
+    readers|={uid for uid in (granted&ids)-readers if has_task_grant(session,task.task_id,uid)}
+    return readers&ids
+
+
 def require_task_read(session, task, uid):
     if not task_read(session,task,uid):raise NotFound('Task not found')
 

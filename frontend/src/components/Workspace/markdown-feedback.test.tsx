@@ -4,7 +4,7 @@ import { fireEvent } from "@testing-library/dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { MarkdownContent } from "./MarkdownContent";
-import { mountWorkspace } from "../../test/workspace";
+import { mountWorkspace, waitForPage } from "../../test/workspace";
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 beforeEach(() => vi.stubGlobal("matchMedia", (media: string) => ({ matches: false, media, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })));
 afterEach(async () => { vi.useRealTimers();await page?.cleanup();page = undefined;vi.unstubAllGlobals(); });
@@ -71,23 +71,60 @@ it("physical shortcuts support heading/list/indent, ignore IME, and preserve pla
   await page.cleanup();page = await mountWorkspace(<Editor />);const plain = page.container.querySelector("textarea")!;plain.focus();plain.setSelectionRange(1, 1);
   expect((await key(plain, "Tab")).defaultPrevented).toBe(false);
 });
-it("checklist changes exact nested/duplicate/quoted/numbered source tokens and preserves literal code", async () => {
-  const source = "```text\n- [ ] одинаково\n```\n\n- [ ] одинаково\n  - [x] одинаково\n\n> - [ ] цитата\n\n1. [X] номер\n";
-  const changed = vi.fn();page = await mountWorkspace(<MarkdownContent body={source} onChecklistChange={changed} />);
-  const boxes = [...page.container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];expect(boxes).toHaveLength(4);expect(boxes.every(box => !box.disabled)).toBe(true);
-  await act(async () => boxes[1].click());expect(changed).toHaveBeenLastCalledWith(source.replace("  - [x] одинаково", "  - [ ] одинаково"));
-  await act(async () => boxes[2].click());expect(changed).toHaveBeenLastCalledWith(source.replace("> - [ ] цитата", "> - [x] цитата"));
-  await act(async () => boxes[3].click());expect(changed).toHaveBeenLastCalledWith(source.replace("1. [X] номер", "1. [ ] номер"));
+it("checklist reports exact nested/duplicate/quoted/numbered marker offsets and preserves literal code", async () => {
+  const source = "```text\n- [ ] одинаково\n```\n\n- [ ] одинаково\n  - [x] одинаково\n    - [ ] четыре пробела\n\t- [ ] таб\n\n> - [ ] цитата\n\n1. [X] номер\n";
+  const changed = vi.fn();page = await mountWorkspace(<MarkdownContent body={source} onChecklistToggle={changed} />);
+  const boxes = [...page.container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];expect(boxes).toHaveLength(6);expect(boxes.every(box => !box.disabled)).toBe(true);
+  const marker = (line: string) => source.indexOf(line) + line.indexOf("[") + 1;
+  await act(async () => boxes[1].click());expect(changed).toHaveBeenLastCalledWith(marker("  - [x] одинаково"), false);
+  await act(async () => boxes[2].click());expect(changed).toHaveBeenLastCalledWith(marker("    - [ ] четыре пробела"), true);
+  await act(async () => boxes[3].click());expect(changed).toHaveBeenLastCalledWith(marker("\t- [ ] таб"), true);
+  await act(async () => boxes[4].click());expect(changed).toHaveBeenLastCalledWith(marker("> - [ ] цитата"), true);
+  await act(async () => boxes[5].click());expect(changed).toHaveBeenLastCalledWith(marker("1. [X] номер"), false);
   expect(page.container.querySelector("pre")!.textContent).toBe("- [ ] одинаково\n");
 });
-it("checklist stays read-only without explicit callback and while its save is pending", async () => {
-  const changed = vi.fn();page = await mountWorkspace(<><MarkdownContent body="- [ ] тест" /><MarkdownContent body="- [x] тест" onChecklistChange={changed} checklistDisabled /></>);
-  const boxes = [...page.container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];expect(boxes.every(box => box.disabled)).toBe(true);
-  await act(async () => boxes.forEach(box => box.click()));expect(changed).not.toHaveBeenCalled();
+it("the editor caption names its textarea and no missing control in preview", async () => {
+  function Described() { const [body, setBody] = useState("текст");return <MarkdownEditor value={body} onChange={setBody} label="Описание задачи" context="task" />; }
+  page = await mountWorkspace(<Described />);
+  const caption = () => [...page!.container.querySelectorAll("label")].find(label => label.textContent === "Описание задачи")!;
+  expect(caption().htmlFor).toBe(page.container.querySelector("textarea")!.id);
+  await click("Предпросмотр");expect(page.container.querySelector("textarea")).toBeNull();expect(caption().hasAttribute("for")).toBe(false);
+  await click("Редактирование");expect(caption().htmlFor).toBe(page.container.querySelector("textarea")!.id);
+});
+it("checklist offsets count UTF-16 code units and skip a marker that is not the item's own", async () => {
+  const source = "- [ ] A 😀😀\n- [ ] Бета\n- [x]: /ссылка\n  [ ] не пункт";
+  const changed = vi.fn();page = await mountWorkspace(<MarkdownContent body={source} onChecklistToggle={changed} />);
+  const boxes = [...page.container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
+  expect(boxes.map(box => box.disabled)).toEqual([false, false, true]);
+  await act(async () => boxes[1].click());expect(changed).toHaveBeenLastCalledWith(source.indexOf("[ ] Бета") + 1, true);
+  expect(source.indexOf("[ ] Бета") + 1).toBe(16);
+});
+it("checklist stays read-only without explicit callback, while disabled and for a pending marker only", async () => {
+  const changed = vi.fn();page = await mountWorkspace(<><MarkdownContent body="- [ ] тест" /><MarkdownContent body="- [x] тест" onChecklistToggle={changed} checklistDisabled /><MarkdownContent body={"- [ ] первый\n- [ ] второй"} onChecklistToggle={changed} checklistPending={[3]} /></>);
+  const boxes = [...page.container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];expect(boxes.map(box => box.disabled)).toEqual([true, true, true, false]);
+  expect(boxes[2].getAttribute("aria-busy")).toBe("true");
+  await act(async () => boxes.slice(0, 3).forEach(box => box.click()));expect(changed).not.toHaveBeenCalled();
+  await act(async () => boxes[3].click());expect(changed).toHaveBeenCalledExactlyOnceWith(16, true);
+});
+it("rapid checklist marks keep the same checkboxes while each mark is pending", async () => {
+  const marked: number[] = [];
+  function Checklist() {
+    const [pending, setPending] = useState<number[]>([]);
+    return <MarkdownContent body={"- [ ] один\n- [ ] два\n- [ ] три"} checklistPending={pending} onChecklistToggle={offset => { marked.push(offset);setPending(current => [...current, offset]); }} />;
+  }
+  page = await mountWorkspace(<Checklist />);
+  const boxes = [...page.container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
+  for (const box of boxes) await act(async () => box.click());
+  // A remounted element would leave the next click on a detached node: every mark must arrive.
+  expect(boxes.every(box => box.isConnected && box.disabled)).toBe(true);
+  expect(marked).toEqual([3, 14, 24]);
 });
 it("declared code languages are locally highlighted, markup escaped, and unknown languages stay plain", async () => {
   const source = '```typescript\nconst count: number = 42;\n```\n\n```python\ndef total(x):\n  return x + 1\n```\n\n```html\n<script>alert("literal")</script>\n```\n\n```unknown-synthetic\nconst plain = 1\n```';
   page = await mountWorkspace(<MarkdownContent body={source} />);
+  // highlight.js loads only for a document with a ```language block; until then the source is plain code.
+  expect(page.container.querySelector("code.language-typescript")?.textContent).toBe("const count: number = 42;\n");
+  await waitForPage(page, () => !!page!.container.querySelector("code.language-typescript .hljs-keyword"));
   expect(page.container.querySelector("code.language-typescript .hljs-keyword")?.textContent).toBe("const");
   expect(page.container.querySelector("code.language-python .hljs-keyword")?.textContent).toBe("def");
   expect(page.container.querySelector("code.language-html")?.textContent).toBe('<script>alert("literal")</script>\n');

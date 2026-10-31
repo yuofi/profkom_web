@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   Page,
@@ -11,7 +11,6 @@ import {
   Glyph,
 } from "../../components/Workspace/WorkspaceUI";
 import { ActionForm } from "../../components/Workspace/ActionForm";
-import { MaterialContent } from "../../components/Workspace/MaterialContent";
 import { materialsApi } from "../../utils/api/materials.api";
 import { can, useSession } from "../../utils/session";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
@@ -22,11 +21,14 @@ import { canRetainData, normalizeApiError } from "../../utils/api/request";
 import type { Material } from "../../utils/api/contract";
 import { displayDate } from "../../utils/dates";
 import { getMaterialCreateRoute } from "../../utils/routes";
-import { MaterialEditor } from "./MaterialEditor";
 import { MaterialAudience } from "../../components/Workspace/MaterialAudience";
 import u from "./MaterialWorkspace.module.css";
 import s from "../../components/Workspace/Workspace.module.css";
 import cards from "./MaterialCards.module.css";
+// The catalogue needs neither the Markdown renderer nor the editor: each loads where it is shown.
+const MaterialContent = lazy(() => import("../../components/Workspace/MaterialContent").then(module => ({ default: module.MaterialContent })));
+const MaterialEditor = lazy(() => import("./MaterialEditor").then(module => ({ default: module.MaterialEditor })));
+const loading = <p className={s.muted} role="status">Загружаем…</p>;
 export function MaterialsPage() {
   const { session } = useSession();
   const [params, setParams] = useSearchParams();
@@ -114,12 +116,14 @@ function MaterialCards({ items }: { items: Material[] }) {
 }
 function DeletedMaterials() {
   const { perform, refresh } = useWorkspaceActions();
+  const [open, setOpen] = useState(false);
   const query = useQuery({
     queryKey: ["materials", "deleted"],
     queryFn: materialsApi.deleted,
+    enabled: open,
   });
   return (
-    <details className={s.details}>
+    <details className={s.details} onToggle={event => setOpen(event.currentTarget.open)}>
       <summary>Удалённые материалы</summary>
       <QueryState keepDataOnError={!!query.data}
         loading={query.isLoading} error={query.error}>
@@ -145,7 +149,7 @@ function DeletedMaterials() {
 export function MaterialCreatePage() {
   const { session } = useSession();
   return can(session, "create_material")
-    ? <section className={`${s.page} ${u.page}`}><UnsavedChangesScope><MaterialEditor /></UnsavedChangesScope></section>
+    ? <section className={`${s.page} ${u.page}`}><UnsavedChangesScope><Suspense fallback={loading}><MaterialEditor /></Suspense></UnsavedChangesScope></section>
     : <Page title="Новый материал"><Empty>Создание материалов недоступно.</Empty><RouteLink to="/materials">Все материалы</RouteLink></Page>;
 }
 export function MaterialPage() {
@@ -164,7 +168,7 @@ export function MaterialPage() {
   const drop = editing && (!!query.error && !canRetainData(query.error) || !!m && !manageable);
   useEffect(() => { if (drop) setEditing(false); });
   // A temporary refetch failure is shown above the editor, which keeps the draft.
-  if (m && editing && manageable) return <section className={`${s.page} ${u.page}`}><QueryState loading={false} error={query.error} keepDataOnError retry={() => { void query.refetch(); }}><UnsavedChangesScope><MaterialEditor key={m.material_id} material={m} onClose={() => setEditing(false)} /></UnsavedChangesScope></QueryState></section>;
+  if (m && editing && manageable) return <section className={`${s.page} ${u.page}`}><QueryState loading={false} error={query.error} keepDataOnError retry={() => { void query.refetch(); }}><UnsavedChangesScope><Suspense fallback={loading}><MaterialEditor key={m.material_id} material={m} onClose={() => setEditing(false)} /></Suspense></UnsavedChangesScope></QueryState></section>;
   return <section className={`${s.page} ${u.page}`}>
     {/* The header and the way back stay when the material cannot be read (GL-28). */}
     <BrandedHeader className={u.header}><div><SectionHomeLink to="/materials" label="Материалы" /><div className={u.titleRow}><h1 className={s.title}>{m?.title ?? (missing ? "Материал недоступен" : "Материал")}</h1>{manageable && <button type="button" className={u.pencil} aria-label="Редактировать материал" title="Редактировать материал" onClick={() => setEditing(true)}><Glyph name="edit" /></button>}</div>{m?.description && <p className={s.description}>{m.description}</p>}{manageable && m && <p className={s.description}>{m.published_content ? m.published_at ? `Опубликовано ${displayDate(m.published_at)}` : "Опубликовано" : "Не опубликовано"}{m.draft_content ? " · есть неопубликованный черновик" : ""}</p>}</div></BrandedHeader>
@@ -172,7 +176,7 @@ export function MaterialPage() {
       {m && <>
         <Card className={u.reading}>
           {m.placeholder && m.community_url && <a className={s.linkButton} href={m.community_url} target="_blank" rel="noopener noreferrer">Сообщество блока</a>}
-          {m.published_content ? <MaterialContent body={m.published_content.body} /> : <Empty>Материал ещё готовится. Опубликованный текст появится здесь.</Empty>}
+          {m.published_content ? <Suspense fallback={loading}><MaterialContent body={m.published_content.body} /></Suspense> : <Empty>Материал ещё готовится. Опубликованный текст появится здесь.</Empty>}
           {m.original_link && <a className={s.linkButton} href={m.original_link} target="_blank" rel="noopener noreferrer">Открыть оригинал</a>}
         </Card>
         {m.audience && <div className={u.audience}><MaterialAudience material={m} /></div>}

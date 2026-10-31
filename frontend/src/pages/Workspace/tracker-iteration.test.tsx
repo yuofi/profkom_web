@@ -17,12 +17,18 @@ it('a reader receives four statuses with close disabled and no accounting reques
  const options=[...page.container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];expect(options).toHaveLength(4);expect(options.find(option=>option.textContent?.includes('Закрыта'))?.disabled).toBe(true);expect(accounting).not.toHaveBeenCalled();
 });
 it('mention search loads lazily and inserts the selected profile link',async()=>{
- const target=people[1];const candidates=vi.spyOn(taskCollaborationApi,'candidates').mockResolvedValue({items:[target],next_cursor:null});const text=vi.fn();
+ const target=people[1];const candidates=vi.spyOn(taskCollaborationApi,'candidates').mockResolvedValue({items:[{...target,can_assign:true}],next_cursor:null});const text=vi.fn();
  function Probe(){const [ids,setIds]=useState<number[]>([]);return <TaskMentionPicker taskId="task-1" value={ids} onChange={setIds} onMentionText={text}/>;}
  page=await mountWorkspace(<Probe/>);expect(candidates).not.toHaveBeenCalled();await act(async()=>page!.container.querySelector<HTMLButtonElement>('button')!.click());await waitForPage(page);
  await act(async()=>document.querySelector<HTMLInputElement>('[role="combobox"]')!.focus());await settle();
  await act(async()=>document.querySelector<HTMLElement>(`[data-option-value="${target.user_id}"]`)!.click());await settle();
  expect(text).toHaveBeenCalledWith(`[${target.display_name}](/contacts/${target.user_id})`);expect(page.container.textContent).toContain('Призвать · 1');
+});
+it('support tickets and control epics promise no access approval in the mention picker',async()=>{
+ vi.spyOn(taskCollaborationApi,'candidates').mockResolvedValue({items:[{...people[1],can_assign:true}],next_cursor:null});
+ page=await mountWorkspace(<><TaskMentionPicker taskId="task-1" value={[]} onChange={()=>undefined} readersOnly/></>);
+ await act(async()=>page!.container.querySelector<HTMLButtonElement>('button')!.click());await waitForPage(page);
+ expect(document.body.textContent).toContain('Призвать можно только тех, кто уже видит эту задачу.');expect(document.body.textContent).not.toContain('согласует автор');
 });
 it('the author approves with request revision and explicitly revokes the task-only access',async()=>{
  const task={...createFixtures('chair').tasks[0],capabilities:['manage_task_access']};let row:TaskMentionRequest={request_id:'request-1',task_id:task.task_id,task_key:'TEST-1',target:people[1],requested_by:people[0],comment_id:'comment-1',status:'pending',created_at:'2026-10-30T00:00:00Z',revision:1,capabilities:['approve_task_mention','reject_task_mention']};

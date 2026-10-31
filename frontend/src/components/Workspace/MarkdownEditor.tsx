@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { MarkdownContent } from "./MarkdownContent";
 import { Glyph } from "./WorkspaceUI";
 import { editorShortcut } from "../../utils/editorShortcuts";
@@ -29,16 +29,18 @@ export function MarkdownEditor({
   value, onChange, label = "Содержимое в Markdown", name, rows = 18,
   context = "material", placeholder, disabled = false, variant = "default", footer, mentionUsers,
 }: MarkdownEditorProps) {
-  const input = useRef<HTMLTextAreaElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null), fieldId = useId(), Field = variant === "comment" ? "label" : "div";
   const selection = useRef<{ start: number; end: number; scrollTop?: number } | null>(null);
   const beforeInput = useRef<Snapshot | null>(null);
   const undo = useRef<Snapshot[]>([]);
   const redo = useRef<Snapshot[]>([]);
-  const [preview, setPreview] = useState(false);
+  const [preview, setPreview] = useState(false), [stacks, setStacks] = useState({ undo: false, redo: false });
+  /** The undo/redo stacks live in refs; their emptiness is what the buttons show. */
+  const track = () => setStacks(current => current.undo === !!undo.current.length && current.redo === !!redo.current.length ? current : { undo: !!undo.current.length, redo: !!redo.current.length });
   const remember = (stack: Snapshot[], item: Snapshot) => { stack.push(item); if (stack.length > 100) stack.shift(); };
   const snapshot = (): Snapshot => ({ value, start: input.current?.selectionStart ?? value.length, end: input.current?.selectionEnd ?? value.length });
   const emit = (next: string, start: number, end = start) => {
-    beforeInput.current = null;
+    beforeInput.current = null;track();
     selection.current = { start, end };
     onChange(next);
   };
@@ -148,12 +150,14 @@ export function MarkdownEditor({
   </EditorTool>;
   return (
     <div className={`${editor.editor} ${variant === "comment" ? editor.comment : ""}`} data-markdown-editor={variant}>
+      {/* In preview there is no textarea for the caption to name. */}
+      {variant !== "comment" && <label htmlFor={preview ? undefined : fieldId} className={editor.caption}>{label}</label>}
       <div className={editor.toolbar} role="toolbar" aria-label="Форматирование Markdown">
         {variant !== "comment" && previewControl}
         {preview ? <span className={editor.mode}>Просмотр Markdown</span> : <>
           <span className={editor.separator} aria-hidden="true" />
-          {<EditorTool label={"Отменить"} disabled={disabled} onClick={() => restore("undo")} hint={"Отменить · Cmd/Ctrl+Z"}><EditorIcon name="undo" /></EditorTool>}
-          {<EditorTool label={"Повторить"} disabled={disabled} onClick={() => restore("redo")} hint={"Повторить · Cmd/Ctrl+Shift+Z"}><EditorIcon name="redo" /></EditorTool>}
+          {<EditorTool label={"Отменить"} disabled={disabled || !stacks.undo} onClick={() => restore("undo")} hint={"Отменить · Cmd/Ctrl+Z"}><EditorIcon name="undo" /></EditorTool>}
+          {<EditorTool label={"Повторить"} disabled={disabled || !stacks.redo} onClick={() => restore("redo")} hint={"Повторить · Cmd/Ctrl+Shift+Z"}><EditorIcon name="redo" /></EditorTool>}
           <span className={editor.separator} aria-hidden="true" />
           {<EditorTool label={"Жирный"} disabled={disabled} onClick={() => insert("**", "**")} hint={"Жирный · Cmd/Ctrl+B"} className={editor.strong}>{"B"}</EditorTool>}
           {<EditorTool label={"Курсив"} disabled={disabled} onClick={() => insert("*", "*")} hint={"Курсив · Cmd/Ctrl+I"} className={editor.italic}>{"I"}</EditorTool>}
@@ -183,11 +187,11 @@ export function MarkdownEditor({
         </>}
         {variant === "comment" && <span className={editor.previewControl}>{previewControl}</span>}
       </div>
-      {!preview && <label className={editor.label}>
-        <span className={variant === "comment" ? editor.srOnly : undefined}>{label}</span>
-        <textarea ref={input} name={name} className={editor.input} value={value} rows={rows} placeholder={placeholder} disabled={disabled}
+      {!preview && <Field className={editor.label}>
+        {variant === "comment" && <span className={editor.srOnly}>{label}</span>}
+        <textarea ref={input} id={fieldId} name={name} className={editor.input} value={value} rows={rows} placeholder={placeholder} disabled={disabled}
           onChange={(event) => {
-            remember(undo.current, beforeInput.current ?? snapshot()); redo.current = [];
+            remember(undo.current, beforeInput.current ?? snapshot()); redo.current = [];track();
             beforeInput.current = null;
             onChange(event.target.value);
           }}
@@ -208,7 +212,7 @@ export function MarkdownEditor({
             if (key === "z") restore(event.shiftKey ? "redo" : "undo");
             if (key === "y") restore("redo");
           }} />
-      </label>}
+      </Field>}
       {preview && <div className={editor.preview} role="region" aria-label={`Просмотр: ${label}`}>
         {value.trim() ? <MarkdownContent body={value} mentionUsers={mentionUsers} /> : <p className={editor.empty}>Здесь появится отформатированный текст.</p>}
       </div>}

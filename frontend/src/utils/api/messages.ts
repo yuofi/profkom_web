@@ -1,5 +1,6 @@
 import { normalizeApiError, type ApiError } from "./request";
 import type { SeasonBlocker } from "./contract";
+import { displayDate } from "../dates";
 
 /**
  * Russian texts of API errors, chosen by the stable `code` and then by status (FIX_PLAN
@@ -10,13 +11,14 @@ export const ERROR_TEXTS: Record<string, string> = {
   accounting_scope_required: "Сначала привяжите очередь к источнику учёта работы.",
   active_block_leader: "Сначала снимите или передайте руководящую роль в блоке.",
   self_leave_forbidden: "Для выхода из блока обратитесь к мастеру, его заместителю или руководителям HR.",
-  checklist_only: "В описании можно только отмечать пункты чеклиста. Для изменения текста нужны права редактора.",
+  checklist_only: "Этот пункт нельзя отметить: обновите описание и попробуйте снова.",
   coefficient_overflow: "Коэффициент слишком велик для расчёта. Укажите меньшее значение.",
   control_epic_managed: "Эпик контроля ККР обновляется автоматически и закрывается вместе с сезоном.",
   control_queue_conflict: "Этот ключ зарезервирован для контроля ККР. Выберите другой ключ или обратитесь к председателю.",
   invalid_coefficient: "Коэффициент должен быть конечным неотрицательным числом.",
   missing_assessment: "Заполните часы и оценку для каждого исполнителя либо исключите его из расчёта.",
   task_access_approval_required: "Сначала запросите доступ к задаче у автора или владельца очереди.",
+  task_close_author_only: "Закрыть или переоткрыть задачу может только её автор.",
   task_not_closed: "Перед заполнением ККР автор должен закрыть задачу.",
   unauthenticated: "Сессия закончилась. Войдите снова.",
   forbidden: "Нет доступа к этому действию. Возможно, роль снята.",
@@ -33,6 +35,9 @@ export const ERROR_TEXTS: Record<string, string> = {
   planned_exists: "Запланированный сезон уже есть.",
   final_report_exists: "Итоговый отчёт этого экземпляра уже есть.",
   invalid_input: "Проверьте введённые данные.",
+  deadline_out_of_range: "Дедлайн должен быть не раньше начала работы и не позже конца сезона.",
+  assigned_out_of_range: "Начало работы должно быть не позже дедлайна и конца сезона.",
+  season_ended: "Сезон уже закончился: дедлайн в нём поставить нельзя. Оставьте дедлайн пустым или выберите другой сезон.",
   validation_error: "Проверьте введённые данные.",
   registration_attempt_limit:
     "Лимит пяти отправок исчерпан. Для повторной подачи нужен сброс счётчика руководством.",
@@ -94,6 +99,12 @@ function withFields(e: ApiError) {
     return "Сервис загрузки временно недоступен. Повторите загрузку позже.";
   if (e.code === "deputy_limit" && typeof e.fields.limit === "number")
     return `Можно назначить не больше ${e.fields.limit} заместителей.`;
+  if (e.code === "deadline_out_of_range" && typeof e.fields.earliest === "string" && typeof e.fields.latest === "string")
+    return `Дедлайн должен быть не раньше ${displayDate(e.fields.earliest)} и не позже ${displayDate(e.fields.latest)} (конец сезона), МСК.`;
+  if (e.code === "assigned_out_of_range" && typeof e.fields.latest === "string")
+    return `Начало работы должно быть не позже ${displayDate(e.fields.latest)}, МСК.`;
+  if (e.code === "season_ended" && typeof e.fields.latest === "string")
+    return `Сезон закончился ${displayDate(e.fields.latest)}, МСК: дедлайн в нём поставить нельзя. Оставьте дедлайн пустым или выберите другой сезон.`;
   return undefined;
 }
 

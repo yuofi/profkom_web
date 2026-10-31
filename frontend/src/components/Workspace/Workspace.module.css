@@ -568,6 +568,23 @@ span.cardIcon {
   font-weight: 600;
   white-space: nowrap;
 }
+/* One table look in every Markdown text (tasks, events, reports): grid lines and a filled
+   head on the existing tokens, and an edge shadow while columns are still off to the side. */
+.markdown th,
+.markdown td {
+  border: 1px solid var(--outline-variant);
+}
+.markdown th {
+  background: var(--surface-container-high);
+}
+.markdown table {
+  background:
+    linear-gradient(to right, var(--surface-container-low) 30%, transparent) left / 40px 100% no-repeat local,
+    linear-gradient(to left, var(--surface-container-low) 30%, transparent) right / 40px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgb(0 0 0 / 55%), transparent) left / 14px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgb(0 0 0 / 55%), transparent) right / 14px 100% no-repeat scroll;
+  background-color: var(--surface-container-low);
+}
 .markdown blockquote {
   margin: 0;
   padding: 2px 0 2px 16px;

@@ -19,6 +19,13 @@ it("links to the exact assessment and only mounts its private query when the pre
   page = await mountWorkspace(<AccountingChip item={row} />);await waitForPage(page);expect(read).not.toHaveBeenCalled();const link = page.container.querySelector("a")!;expect(link.getAttribute("href")).toBe(`/tasks/${row.task_id}?assignment_id=${encodeURIComponent(row.assignment.assignment_id)}`);
   await act(async () => link.focus());await waitForPage(page);expect(read).toHaveBeenCalledWith(row.assignment.assignment_id);const preview = document.querySelector('[role="tooltip"]')!;expect(preview.textContent).toContain("Не выполнено");expect([...preview.querySelectorAll("dd")].slice(0, 2).map(node => node.textContent)).toEqual(["0", "0"]);expect(link.getAttribute("aria-describedby")).toBe(preview.id);
 });
+it("an open task's chip leads to the plain card and says when the assessment becomes available", async () => {
+  const row = { ...item(), task_status: "in_progress" as const };vi.spyOn(tasksApi, "assessment").mockResolvedValue({ ...createFixtures("chair").assessments[0], workflow_status: "assigned" });
+  page = await mountWorkspace(<AccountingChip item={row} />);await waitForPage(page);const link = page.container.querySelector("a")!;
+  expect(link.getAttribute("href")).toBe(`/tasks/${row.task_id}`);
+  await act(async () => link.focus());await waitForPage(page);const preview = document.querySelector('[role="tooltip"]')!;
+  expect(preview.textContent).toContain("Оценка станет доступна после закрытия задачи.");expect(preview.textContent).not.toContain("Нажмите на чип");
+});
 it("read-only accounting preview never requests a private endpoint without the input capability", async () => {
   const row = item();row.assignment.capabilities = [];const read = vi.spyOn(tasksApi, "assessment");page = await mountWorkspace(<AccountingChip item={row} />);await act(async () => page!.container.querySelector("a")!.focus());await waitForPage(page);expect(document.querySelector('[role="tooltip"]')?.textContent).toContain("Нет доступа");expect(read).not.toHaveBeenCalled();
 });

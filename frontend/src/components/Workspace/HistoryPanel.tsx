@@ -5,16 +5,23 @@ import { canRetainData } from "../../utils/api/request";
 import type { UserRef } from "../../utils/api/contract";
 import { displayDate } from "../../utils/dates";
 import { UserChip } from "./UserChip";
+import { historyKeyNames, historyText } from "./historyValues";
 import { Empty, QueryState } from "./WorkspaceUI";
 import s from "./HistoryPanel.module.css";
 import w from "./Workspace.module.css";
 function person(value: unknown): value is UserRef { return !!value && typeof value === "object" && "display_name" in value && "user_id" in value; }
-function Value({ value }: { value: unknown }) {
+const plain = (value: unknown) => value === null || ["string", "number", "boolean"].includes(typeof value) || person(value);
+/** Codes, moments, lists and flat objects in words; only nested data stays JSON. */
+function Value({ value, field }: { value: unknown; field: string }) {
   if (person(value)) return <UserChip user={value} />;
   if (Array.isArray(value) && value.every(person)) return <div className={w.row}>{value.map((user, index) => <UserChip user={user} key={`${user.user_id}/${index}`} />)}</div>;
   if (value === null || value === undefined) return <>Не задано</>;
   if (typeof value === "boolean") return <>{value ? "Да" : "Нет"}</>;
-  return <pre>{typeof value === "object" ? JSON.stringify(value, null, 2) : String(value) || "Пусто"}</pre>;
+  if (typeof value !== "object") return <>{historyText(String(value), field)}</>;
+  if (Array.isArray(value)) return value.length ? <ul className={s.items}>{value.map((item, index) => <li key={index}><Value value={item} field={field} /></li>)}</ul> : <>Пусто</>;
+  const entries = Object.entries(value);
+  if (entries.every(([, item]) => plain(item))) return <ul className={s.items}>{entries.map(([key, item]) => <li key={key}>{key === "user" && person(item) ? <UserChip user={item} /> : <>{historyKeyNames[key] ?? key}: <Value value={item} field={key} /></>}</li>)}</ul>;
+  return <pre>{JSON.stringify(value, null, 2)}</pre>;
 }
 function TextDifference({ before, after }: { before: string; after: string }) {
   const old = before.split(/(\s+)/), next = after.split(/(\s+)/);let start = 0, tail = 0;
@@ -32,7 +39,7 @@ function Change({ change }: { change: HistoryChange }) {
   const textual = ["title", "description", "comment", "result", "review_note", "announcement", "name"].includes(change.field);
   return <section className={s.change}><h4>{change.label}</h4>{textual && (typeof change.before === "string" || change.before === null) && (typeof change.after === "string" || change.after === null)
     ? <TextDifference before={change.before ?? ""} after={change.after ?? ""} />
-    : <dl className={s.values}><div><dt>Было</dt><dd><Value value={change.before_users ?? change.before} /></dd></div><div><dt>Стало</dt><dd><Value value={change.after_users ?? change.after} /></dd></div></dl>}
+    : <dl className={s.values}><div><dt>Было</dt><dd><Value value={change.before_users ?? change.before} field={change.field} /></dd></div><div><dt>Стало</dt><dd><Value value={change.after_users ?? change.after} field={change.field} /></dd></div></dl>}
   </section>;
 }
 export function HistoryPanel({ kind, id, order: controlledOrder, title = "История изменений" }: { kind: HistoryTargetKind; id: string; order?: "newest" | "oldest"; title?: string }) {

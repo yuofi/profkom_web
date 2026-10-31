@@ -122,6 +122,44 @@ def test_take_closed_public_work_keeps_existing_private_outcome(client, work):
     assert result.json()['status'] == 'in_progress' and private_snapshot() == before
 
 
+def test_closed_season_new_assignments_only_by_chair_and_deputies(client, work, superuser):
+    with db._session() as session:
+        session.get(SeasonORM, work['task']['season_id']).state = 'closed';session.commit()
+    task = current(client, work, work['master'])
+    assert not {'join_task', 'take_task', 'assign_task_participants'} & set(task['capabilities'])
+    before = private_snapshot()
+    path = '/api/tasks/' + task['task_id']
+    for command in ('join', 'take'):
+        response = client.post(path + '/' + command, headers=work['master'].headers, json={'expected_revision': task['revision']})
+        assert response.status_code == 409 and response.json()['detail']['code'] == 'season_closed', response.text
+    response = client.post(path + '/assignees/' + str(work['outside'].user_id) + '/add', headers=work['master'].headers, json={'expected_revision': task['revision']})
+    assert response.status_code in (403, 409), response.text
+    assert private_snapshot() == before and current(client, work)['revision'] == task['revision']
+    own = current(client, work, work['member'])
+    assert 'take_task' in own['capabilities'] and take(client, own, work['member']).status_code == 200
+    chair = current(client, work, superuser)
+    assert 'join_task' in chair['capabilities']
+    response = client.post(path + '/join', headers=superuser.headers, json={'expected_revision': chair['revision']})
+    assert response.status_code == 200, response.text
+    with db._session() as session:
+        assert session.query(AssignmentORM).filter_by(task_id=task['task_id'], assignee_user_id=superuser.user_id).count() == 1
+
+
+def test_closed_season_capabilities_match_the_roster_rule_for_a_former_assignee(client, work):
+    task = current(client, work, work['member'])
+    with db._session() as session:
+        session.get(SeasonORM, work['task']['season_id']).state = 'closed'
+        # A former assignee watching now: the roster row lost its link, the ledger row remains.
+        member = session.query(TaskRosterORM).filter_by(task_id=task['task_id'], user_id=work['member'].user_id).one()
+        member.role, member.assignment_id = 'watcher', None;session.commit()
+    before = private_snapshot()
+    own = current(client, work, work['member'])
+    assert {'join_task', 'take_task'} <= set(own['capabilities'])
+    response = client.post('/api/tasks/' + own['task_id'] + '/join', headers=work['member'].headers, json={'expected_revision': own['revision']})
+    assert response.status_code == 200, response.text
+    assert private_snapshot()[0] == before[0]
+
+
 def test_failure_after_roster_write_rolls_back_join_status_events_and_notifications(client, work, monkeypatch):
     import notifications
     emit = notifications.emit

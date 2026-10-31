@@ -47,6 +47,16 @@ describe("userMessage (FIX_PLAN 2.13)", () => {
     expect(userMessage(new ApiError("At most", 422, "deputy_limit"))).toBe(ERROR_TEXTS.deputy_limit);
   });
 
+  it("names the allowed deadline range the server sent, in Moscow time", () => {
+    const text = userMessage(new ApiError("Dates", 422, "deadline_out_of_range", { deadline_at: "out_of_range", earliest: "2026-10-31T09:00:00+00:00", latest: "2026-12-31T20:59:59+00:00" }));
+    expect(text.replace(/\u00a0/g, " ")).toBe("Дедлайн должен быть не раньше 31 окт. 2026 г., 12:00 и не позже 31 дек. 2026 г., 23:59 (конец сезона), МСК.");
+    expect(userMessage(new ApiError("Dates", 422, "deadline_out_of_range"))).toBe(ERROR_TEXTS.deadline_out_of_range);
+    expect(userMessage(new ApiError("Dates", 422, "assigned_out_of_range", { assigned_at: "out_of_range", latest: "2026-11-02T09:00:00+00:00" })).replace(/\u00a0/g, " "))
+      .toBe("Начало работы должно быть не позже 2 нояб. 2026 г., 12:00, МСК.");
+    expect(userMessage(new ApiError("Dates", 422, "season_ended", { deadline_at: "out_of_range", latest: "2026-10-30T20:59:59+00:00" })).replace(/\u00a0/g, " "))
+      .toBe("Сезон закончился 30 окт. 2026 г., 23:59, МСК: дедлайн в нём поставить нельзя. Оставьте дедлайн пустым или выберите другой сезон.");
+  });
+
   it("keeps the client's own Russian text and hides a client defect", () => {
     expect(userMessage(new ApiError("Сначала обновите данные.", 409))).toBe("Сначала обновите данные.");
     expect(userMessage(new Error("Файл не выбран"))).toBe("Файл не выбран");

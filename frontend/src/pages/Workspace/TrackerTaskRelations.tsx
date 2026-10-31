@@ -6,7 +6,7 @@ import { can } from "../../utils/session";
 import { userMessage } from "../../utils/api/messages";
 import { getTaskCreateRoute, getTaskRoute } from "../../utils/routes";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
-import { useOwnRevisions, recordOwnChange } from "../../components/Workspace/ownRevisions";
+import { useTaskCommand } from "./taskCommands";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
@@ -17,14 +17,17 @@ import w from "../../components/Workspace/Workspace.module.css";
 const relationNames: Record<TaskLinkKind,string> = { related:"Связана с", blocks:"Блокирует", blocked_by:"Зависит от", epic:"Входит в эпик", epic_member:"Задачи эпика", milestone:"Входит в вехи", milestone_member:"Задачи вехи" };
 const kindChoices: Record<TaskLinkKind|string,string> = { parent:"Родительская задача", related:"Связана с", blocks:"Блокирует", blocked_by:"Зависит от", epic:"Входит в эпик", epic_member:"Добавить задачу в эпик", milestone:"Входит в веху", milestone_member:"Добавить задачу в веху" };
 function TaskReference({ task }: {task:TrackerTaskRef}) {return <Link className={s.taskLink} to={getTaskRoute(task.task_id)}><strong>{task.task_key}</strong><span>{task.title}</span><small>{statusNames[task.status]}</small></Link>;}
-export function TrackerTaskRelations({task,onEditParent}:{task:Task;onEditParent:()=>void}) {
+/** `editing`/`onEditingChange` let the task card open the link editor from elsewhere. */
+export function TrackerTaskRelations({task,onEditParent,editing:openedOutside,onEditingChange}:{task:Task;onEditParent:()=>void;editing?:boolean;onEditingChange?:(open:boolean)=>void}) {
   const allowed=can(task,"manage_task_links"),parentEditable=can(task,"edit_task"),links=task.links??[];
-  const [editing,setEditing]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState("");
-  const {perform,refresh}=useWorkspaceActions(),own=useOwnRevisions();
+  const [editingHere,setEditingHere]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState("");
+  const editing=openedOutside??editingHere,setEditing=onEditingChange??setEditingHere;
+  const {refresh}=useWorkspaceActions(),run=useTaskCommand(task);
   const blocked=links.filter(link=>link.kind==="blocked_by" && link.task.status!=="closed");
-  const remove=async(id:string)=>{if(busy)return;setBusy(true);setError("");try{await perform(async()=>{const saved=await tasksApi.removeLink(task.task_id,id,{expected_revision:task.revision});recordOwnChange(own,`task:${task.task_id}`,task.revision,saved.revision);own.setQueryData(["tasks",task.task_id],saved);return saved;});}catch(failure){setError(userMessage(failure));await refresh();}finally{setBusy(false);}};
+  // Queued with the card's other commands, so a link removed right after a checkmark is not refused as stale.
+  const remove=async(id:string)=>{if(busy)return;setBusy(true);setError("");try{await run(expected=>tasksApi.removeLink(task.task_id,id,{expected_revision:expected}));}catch(failure){setError(userMessage(failure));await refresh();}finally{setBusy(false);}};
   return <section id="task-relations" className={s.section} aria-label="Связанные задачи">
-    <div className={s.heading}><h2>Связанные задачи</h2><div className={s.headingActions}>{task.queue && can(task,"edit_task") && <Link className={s.subtle} to={getTaskCreateRoute({queueId:task.queue.queue_id,parentTaskId:task.task_id})}>Создать подзадачу</Link>}{(allowed||parentEditable)&&<button type="button" className={s.subtle} disabled={busy} onClick={()=>setEditing(true)} aria-label="Добавить связь">+ Добавить связь</button>}</div></div>
+    <div className={s.heading}><h2>Связанные задачи</h2><div className={s.headingActions}>{task.queue && can(task,"edit_task") && <Link className={s.subtle} to={getTaskCreateRoute({queueId:task.queue.queue_id,parentTaskId:task.task_id})}>+ Создать подзадачу</Link>}{(allowed||parentEditable)&&<button type="button" className={s.subtle} disabled={busy} onClick={()=>setEditing(true)} aria-label="Добавить связь">+ Добавить связь</button>}</div></div>
     {!!blocked.length&&<p className={s.notice}>Есть незавершённые зависимости: {blocked.map(link=>link.task.task_key).join(", ")}. Рабочий статус можно менять независимо.</p>}
     <div className={s.relationGroups}>
       <div className={s.relationGroup}><h3>Родительская задача</h3><div className={s.relationRow}>{task.parent_task ? <Link className={s.taskLink} to={getTaskRoute(task.parent_task.task_id)}><strong>{task.parent_task.task_key}</strong><span>{task.parent_task.title}</span></Link>:<span className={s.hint}>{task.parent_task_unavailable?"Недоступна":"Не выбрана"}</span>}{parentEditable&&<button type="button" className={s.subtle} onClick={onEditParent}>Изменить родительскую задачу</button>}</div></div>

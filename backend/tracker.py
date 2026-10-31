@@ -226,9 +226,10 @@ def _submission_dict(session,row,shared=True):
 def enrich_task(session,task,result,uid):
     meta=metadata(session,task)
     if meta.task_number is None:session.flush()
-    from task_queues import task_queue,queue_ref,task_read
+    from task_queues import task_queue,queue_ref,task_read,can_read
     queue=task_queue(session,task)
-    result.queue=queue_ref(queue) if queue else None
+    # Display only: whether the queue page opens for this reader; the queue itself still answers 403.
+    result.queue=dict(queue_ref(queue),readable=can_read(session,queue,uid)) if queue else None
     result.task_key=queue.key+"-"+str(meta.queue_number) if queue and meta.queue_number else "TASK-"+str(meta.task_number)
     result.legacy_task_key=meta.legacy_task_key
     parent=session.get(TaskORM,meta.parent_task_id) if meta.parent_task_id else None
@@ -291,15 +292,22 @@ def enrich_task(session,task,result,uid):
         if uid in _managers(session,task):result.capabilities.append("manage_task_access")
         if db.can_read_task(uid,task,session):
             member=next((m for m in roster(session,task.task_id) if m.user_id==uid),None)
-            if not member or member.role!="assignee":result.capabilities.append("join_task")
-            if can_change_status(session,task,uid,"in_progress") and (not member or member.role!="assignee" or meta.status!="in_progress" or meta.legacy_mixed_statuses):result.capabilities.append("take_task")
+            # A closed season gets new accounting rows only from the chair and deputies.
+            import access
+            closed_ledger=state=="closed" and not access.allowed(uid,"task.edit",task.scope_kind,task.scope_id,state="closed")
+            # The same rule as the roster command: a former assignee who still owns a row may rejoin.
+            from task_roster import creates_closed_assignment
+            new_row=closed_ledger and creates_closed_assignment(session,task,uid,uid)
+            if (not member or member.role!="assignee") and not new_row:result.capabilities.append("join_task")
+            if can_change_status(session,task,uid,"in_progress") and (not member or member.role!="assignee" or meta.status!="in_progress" or meta.legacy_mixed_statuses) and not new_row:result.capabilities.append("take_task")
             if not member or member.role not in {"assignee","watcher"}:result.capabilities.append("watch_task")
             if member and member.role=="watcher":result.capabilities.append("unwatch_task")
             if can_edit_public(session,task,uid):
-                result.capabilities += ["assign_task_participants","remove_task_watcher"]
+                result.capabilities += ["remove_task_watcher"] if closed_ledger else ["assign_task_participants","remove_task_watcher"]
                 if participants(session,task.task_id):result.capabilities.append("remove_task_assignee")
     if is_control_task(session,task.task_id):
-        result.capabilities=[cap for cap in result.capabilities if cap not in {"view_assessment_inputs","edit_assessment_inputs","edit_task","edit_task_description","attach_task_file","review_task","join_task","take_task","watch_task","unwatch_task","assign_task_participants","remove_task_watcher","remove_task_assignee"}]
+        result.capabilities=[cap for cap in result.capabilities if cap not in {"view_assessment_inputs","edit_assessment_inputs","edit_task","edit_task_description","attach_task_file","review_task","join_task","take_task","watch_task","unwatch_task","assign_task_participants","remove_task_watcher","remove_task_assignee","change_task_status","start_task","resume_task","submit_task_result"}]
+        result.allowed_statuses=[]
         for assignment in result.assignments:
             assignment.capabilities=[cap for cap in assignment.capabilities if cap not in {"view_assessment_inputs","edit_assessment_inputs"}]
     from tracker_stage2 import enrich
@@ -447,7 +455,7 @@ def change_status(task_id,uid,expected_revision,status,*,text="",links=None,file
         task=visible_task(session,task_id,uid);meta=metadata(session,task)
         if task.revision!=expected_revision:raise revision_conflict()
         if is_control_task(session,task_id):raise Conflict("Control epic status is managed automatically","control_epic_managed")
-        if not can_change_status(session,task,uid,status):raise Forbidden("Only the task author may close or reopen this task")
+        if not can_change_status(session,task,uid,status):raise Forbidden("Only the task author may close or reopen this task","task_close_author_only")
         if status=="closed":
             from domain_models import KkrControlEpicORM
             control=session.query(KkrControlEpicORM).filter_by(task_id=task_id).first()

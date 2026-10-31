@@ -18,8 +18,9 @@ export function publicStatus(value?: string): TaskPublicStatus {
   return ({ assigned: "open", submitted: "completed", accepted: "closed", not_completed: "closed", cancelled: "closed", help_required: "in_progress", needs_revision: "in_progress" } as Record<string, TaskPublicStatus>)[value ?? ""] ?? (value && value in publicStatusNames ? value as TaskPublicStatus : "open");
 }
 export function taskStatus(task: Task): TaskPublicStatus { return publicStatus(task.status ?? task.assignments[0]?.status); }
+/** The server's allowed_statuses decide; without them only the current status is known. */
 export function taskTransitions(task: Task): TaskPublicStatus[] {
   if (!can(task, "change_task_status")) return [];
-  const allowed = task.allowed_statuses ?? Object.keys(publicStatusNames) as TaskPublicStatus[];
+  const allowed = task.allowed_statuses ?? [taskStatus(task)];
   return [...new Set(allowed.map(publicStatus))].filter(status => status !== taskStatus(task));
 }
