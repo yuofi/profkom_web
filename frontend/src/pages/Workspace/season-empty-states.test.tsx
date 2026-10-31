@@ -57,3 +57,21 @@ it("leaves out places while every total is zero", async () => {
   page = await mountWorkspace(<SummaryTable summary={summary} />);
   expect(page.container.querySelector("tbody tr td:first-child strong")?.textContent).toBe("1");
 });
+
+it.each(["merits", "sources", "corrections"])("names the season and leads back to it on /%s", async subpage => {
+  await mount(`/seasons/season-1/${subpage}`);
+  expect(page!.container.querySelector("header p")?.textContent).toBe("Сезон «Осень и зима 2026»");
+  expect([...page!.container.querySelectorAll('header a[href="/seasons/season-1"]')].map(link => link.textContent)).toContain("К сезону");
+});
+
+it("lists detailed accruals as compact rows without the calculation version", async () => {
+  await mount("/seasons/season-1/sources");
+  const filters = page!.container.querySelector('[aria-label="Фильтры начислений"]')!;
+  expect(filters.querySelector('select[name="source_kind"]')).not.toBeNull();
+  expect(filters.querySelector('[data-field-name="participant_id"]')).not.toBeNull();
+  const table = page!.container.querySelector('table')!;
+  expect([...table.querySelectorAll("thead th")].map(cell => cell.textContent)).toEqual(["Участник", "Источник", "Часы", "Оценка", "Дата", "ККР"]);
+  expect(table.querySelectorAll("tbody tr").length).toBeGreaterThan(0);
+  expect(page!.container.textContent).not.toContain("Версия расчёта");
+  expect(page!.container.textContent).not.toContain("kkr_v");
+});

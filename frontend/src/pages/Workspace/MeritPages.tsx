@@ -45,7 +45,8 @@ import s from "../../components/Workspace/Workspace.module.css";
 import { KkrTemplateTools } from "../../components/Workspace/KkrTemplateLibrary";
 import type { TemplateSelection } from "../../utils/api/profileFeatures.api";
 import { HistoryDisclosure } from "../../components/Workspace/HistoryPanel";
-import { sourceNames } from "./seasonAnalyticsView";
+import { metricValue, sourceNames } from "./seasonAnalyticsView";
+import u from "./SeasonWorkspace.module.css";
 const kinds: Record<MeritCreate["source_kind"], string> = {
   head_merit: "Особая заслуга на мероприятии",
   chair_merit: "Заслуга председателя",
@@ -512,9 +513,8 @@ export function MeritsPage() {
   return (
     <Page
       title="Особые заслуги и волонтёры"
-      actions={
-        <RouteLink to={`/seasons/${encodeURIComponent(id)}`}>Сезон</RouteLink>
-      }
+      description={season && `Сезон «${season.title}»`}
+      actions={<RouteLink to={`/seasons/${encodeURIComponent(id)}`}>К сезону</RouteLink>}
     >
       <div className={s.stack}>
         {(contexts.error || seasons.error) && <ErrorState error={contexts.error || seasons.error} />}
@@ -576,41 +576,42 @@ export function SourcesPage() {
     enabled: !!season && can(session, "view_kkr"),
   });
   if (missing) return <SeasonMissing />;
+  const back = <RouteLink to={`/seasons/${encodeURIComponent(id)}`}>К сезону</RouteLink>;
   if (!can(session, "view_kkr"))
     return (
-      <Page title="Подробные начисления">
+      <Page title="Подробные начисления" actions={back}>
         <Empty>Нет доступа к расчётным данным.</Empty>
       </Page>
     );
   return (
-    <Page title="Подробные начисления">
-      <div className={s.row} aria-label="Фильтры начислений">
+    <Page title="Подробные начисления" description={season && `Сезон «${season.title}»`} actions={back}>
+      <div className={s.filters} aria-label="Фильтры начислений">
         <label className={s.field}>Вид источника<select name="source_kind" value={sourceKind} onChange={event => setFilter("source_kind", event.target.value)}><option value="">Все источники</option>{Object.entries(sourceNames).filter(([kind]) => kind !== "unallocated").map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}</select></label>
         <EntityPicker name="participant_id" label="Участник" value={participantId} onChange={value => setFilter("participant_id", value)} loading={participants.isLoading} placeholder="Все участники" options={[{ value: "", label: "Все участники" }, ...participantOptions]} />
       </div>
       {participants.error && <ErrorState error={participants.error} />}
       <QueryState loading={seasons.isLoading || query.isLoading} error={query.error ?? seasons.error}>
-        <div className={s.stack}>
-          {query.data?.items.map((c) => (
-            <Card key={c.contribution_id} title={c.source_title}>
-              <p>
-                {c.user.display_name} · ККР:{" "}
-                {c.score?.toFixed(2) ?? "не рассчитан"}
-              </p>
-              <p className={s.muted}>Версия расчёта: {c.calculation_version}</p>
-              {c.assignment_inputs && (
-                <p>
-                  Часы {c.assignment_inputs.hours ?? "—"} · оценка{" "}
-                  {c.assignment_inputs.evaluation ?? "—"} · дата{" "}
-                  {displayDate(c.assignment_inputs.effective_completed_at)}
-                </p>
-              )}
-            </Card>
-          ))}
-          {query.data?.items.length === 0 && (
-            <Empty>Начислений пока нет.</Empty>
-          )}
-        </div>
+        {/* One line per contribution instead of a card each (SE-22). */}
+        {!!query.data?.items.length && (
+          <div className={u.summaryWrap} tabIndex={0} role="region" aria-label="Начисления, горизонтальная прокрутка">
+            <table className={u.sourcesTable}>
+              <thead><tr>{["Участник", "Источник", "Часы", "Оценка", "Дата", "ККР"].map((name) => <th key={name} scope="col">{name}</th>)}</tr></thead>
+              <tbody>
+                {query.data.items.map((c) => (
+                  <tr key={c.contribution_id}>
+                    <td><UserChip user={c.user} /></td>
+                    <td>{c.source_title}<small>{sourceNames[c.source_kind] ?? c.source_kind}</small></td>
+                    <td>{metricValue(c.assignment_inputs?.hours)}</td>
+                    <td>{metricValue(c.assignment_inputs?.evaluation)}</td>
+                    <td>{c.assignment_inputs?.effective_completed_at ? displayDate(c.assignment_inputs.effective_completed_at) : "—"}</td>
+                    <td>{c.score === null ? "не рассчитан" : metricValue(c.score)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {query.data?.items.length === 0 && <Empty>Начислений пока нет.</Empty>}
       </QueryState>
     </Page>
   );
@@ -855,6 +856,7 @@ export function CorrectionsPage() {
   return (
     <Page
       title="Исправление закрытых итогов"
+      description={season && `Сезон «${season.title}»`}
       actions={
         <RouteLink to={`/seasons/${encodeURIComponent(id)}`}>
           К сезону

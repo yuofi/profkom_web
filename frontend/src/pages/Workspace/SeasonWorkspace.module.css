@@ -103,3 +103,9 @@
   .filterDisclosure>summary::-webkit-details-marker { display:none; }
   .filterDisclosure[open]>summary { margin-bottom:12px;color:var(--accent-lilac); }
 }
+/* Detailed accruals (SE-22): one compact line per contribution; the kind of source under its title. */
+.sourcesTable { width:100%;min-width:640px;border-collapse:collapse;font-size:13px; }
+.sourcesTable th { text-align:left;font-size:11px;font-weight:400;color:var(--on-surface-variant);padding:10px 12px;border-bottom:1px solid var(--surface-variant); }
+.sourcesTable td { padding:8px 12px;border-bottom:1px solid color-mix(in srgb,var(--outline-variant) 16%,transparent);vertical-align:middle;overflow-wrap:anywhere; }
+.sourcesTable td small { display:block;font-size:11px;color:var(--on-surface-variant);opacity:.75; }
+.sourcesTable th:nth-child(n+3),.sourcesTable td:nth-child(n+3) { text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums; }
