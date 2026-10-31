@@ -8,7 +8,6 @@ import { seasonsApi } from "../../utils/api/seasons.api";
 import { getEventRoute, getSubeventRoute } from "../../utils/routes";
 import { moscowInput, toUtc } from "../../utils/dates";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
-import { useGuardedAction } from "../../components/Workspace/unsavedChangesHooks";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { MarkdownEditor } from "../../components/Workspace/MarkdownEditor";
 import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
@@ -26,14 +25,15 @@ export function EventEditor({ event }: { event?: Event }) {
     {seasons.data && <EventCanvas event={event} seasons={seasons.data.items} series={series} />}
   </QueryState>;
 }
-export function SubeventEditor({ parent, subevent, onClose }: { parent: Event; subevent?: Subevent; onClose: () => void }) {
+/** The subevent editor has its own address: Back leaves it and a reload keeps it open. */
+export function SubeventEditor({ parent, subevent }: { parent: Event; subevent?: Subevent }) {
   const series = useSeriesField(!subevent, parent);
-  return <EventCanvas parent={parent} subevent={subevent} seasons={[]} series={series} onClose={onClose} />;
+  return <EventCanvas parent={parent} subevent={subevent} seasons={[]} series={series} />;
 }
-function EventCanvas({ event, subevent, parent, seasons, series, onClose }: {
-  event?: Event; subevent?: Subevent; parent?: Event; seasons: Season[]; series: ReturnType<typeof useSeriesField>; onClose?: () => void;
+function EventCanvas({ event, subevent, parent, seasons, series }: {
+  event?: Event; subevent?: Subevent; parent?: Event; seasons: Season[]; series: ReturnType<typeof useSeriesField>;
 }) {
-  const navigate = useNavigate(), { perform, refresh } = useWorkspaceActions(), leave = useGuardedAction();
+  const navigate = useNavigate(), { perform, refresh } = useWorkspaceActions();
   const existing = subevent ?? event, child = !!parent;
   const available = seasons.filter(item => ["planned", "open"].includes(item.state));
   const [title, setTitle] = useState(existing?.title ?? ""), [description, setDescription] = useState(existing?.description.body ?? "");
@@ -52,7 +52,7 @@ function EventCanvas({ event, subevent, parent, seasons, series, onClose }: {
   const heading = existing ? `Редактирование ${child ? "подмероприятия" : "мероприятия"}` : `Новое ${child ? "подмероприятие" : "мероприятие"}`;
   const back = event ? getEventRoute(event.event_id) : subevent ? getSubeventRoute(subevent.subevent_id) : parent ? getEventRoute(parent.event_id) : "/events";
   return <section className={s.page}>
-    <BrandedHeader className={s.canvasHeader}><div><SectionHomeLink to="/events" label="Мероприятия" /><nav aria-label="Навигация мероприятия"><Link to={parent ? getEventRoute(parent.event_id) : "/events"}>{parent?.title ?? "Мероприятия"}</Link><span>›</span><span>{heading}</span></nav><h1 className={w.title}>{heading}</h1></div>{onClose ? <button type="button" className={w.button} onClick={() => leave(onClose)}>Отмена</button> : <Link className={w.button} to={back}>Отмена</Link>}</BrandedHeader>
+    <BrandedHeader className={s.canvasHeader}><div><SectionHomeLink to="/events" label="Мероприятия" /><nav aria-label="Навигация мероприятия"><Link to={parent ? getEventRoute(parent.event_id) : "/events"}>{parent?.title ?? "Мероприятия"}</Link><span>›</span><span>{heading}</span></nav><h1 className={w.title}>{heading}</h1></div><Link className={w.button} to={back}>Отмена</Link></BrandedHeader>
     <ActionForm fields={[]} revision={existing?.revision} record={existing ? `${child ? "subevent" : "event"}:${subevent?.subevent_id ?? event?.event_id}` : undefined} externalState={state} savedExternalState={savedState} onReplaceWithSaved={replace} externalBusy={saving} allowExitSave={false}
       submitLabel={existing ? "Сохранить изменения" : child ? "Создать подмероприятие" : "Создать мероприятие"} onConflict={refresh} onSubmit={async (_, revision) => {
         if (!title.trim()) throw Error("Введите название мероприятия");
@@ -64,8 +64,9 @@ function EventCanvas({ event, subevent, parent, seasons, series, onClose }: {
           if (parent) {
             const body = { ...(subevent ? patch : data), announcement: richText(announcement) };
             const saved = await perform(() => subevent ? eventsApi.updateSubevent(subevent.subevent_id, { ...body, expected_revision: revision! }) : eventsApi.createSubevent(parent.event_id, { ...body, ...chosenSeries(seriesId) }));
-            if (!subevent) navigate(getSubeventRoute(saved.subevent_id));
-            onClose?.();return subevent ? { revision: saved.revision } : undefined;
+            // The editor route is replaced, so Back from the saved subevent does not reopen the form.
+            navigate(getSubeventRoute(saved.subevent_id), { replace: true });
+            return subevent ? { revision: saved.revision } : undefined;
           }
           const saved = await perform(() => event ? eventsApi.update(event.event_id, { ...patch, expected_revision: revision! }) : eventsApi.create({ title: data.title, description: data.description, season_id: seasonId, all_day: allDay, ...(data.starts_at ? { starts_at: data.starts_at } : {}), ...(data.ends_at ? { ends_at: data.ends_at } : {}), ...chosenSeries(seriesId) }));
           if (!event) navigate(getEventRoute(saved.event_id));return event ? { revision: saved.revision } : undefined;

@@ -18,7 +18,7 @@ import { accessFingerprint } from "../../utils/session";
 import { UserProvider } from "../../utils/ctx";
 import { TaskPage } from "./TaskPages";
 import { BlockPage } from "./MembershipPages";
-import { EventPage, SubeventPage } from "./EventPages";
+import { EventPage, SubeventCreatePage, SubeventEditPage, SubeventPage } from "./EventPages";
 import { SummaryPage } from "./SeasonPages";
 import { AccountStatePage, LeadershipPage } from "./SessionPages";
 
@@ -36,6 +36,10 @@ const taskActionsSettled = () => ![...page!.container.querySelectorAll<HTMLButto
 async function click(container: ParentNode, label: string) {
   const b = Array.from(container.querySelectorAll("button")).find(b => b.textContent === label);
   expect(b, label).toBeDefined(); await act(async () => b!.click()); await waitForPage(page!, taskActionsSettled);
+}
+async function follow(container: ParentNode, label: string) {
+  const link = Array.from(container.querySelectorAll("a")).find(a => a.textContent === label);
+  expect(link, label).toBeDefined(); await act(async () => link!.click()); await waitForPage(page!);
 }
 async function pickerOptions(container: ParentNode, name: string) {
   const input = container.querySelector<HTMLInputElement>(`[data-entity-picker][data-field-name="${name}"] [role="combobox"]`)!;
@@ -138,7 +142,7 @@ it("2.12 A-FE-2: a subevent's organizers and then its description save without a
   const season = await openSeason();
   const event = await eventsApi.create({ season_id: season.season_id, title: "Мероприятие соседних форм", description: richText("") });
   const sub = await eventsApi.createSubevent(event.event_id, { title: "Соседние формы", description: richText("") });
-  await mount(`/subevents/${sub.subevent_id}`, "/subevents/:id", <SubeventPage />);
+  page = await mountWorkspace(<Routes><Route path="/subevents/:id" element={<SubeventPage />} /><Route path="/subevents/:id/edit" element={<SubeventEditPage />} /></Routes>, { path: `/subevents/${sub.subevent_id}`, session: await sessionApi.get() });
   await until(() => !!page!.container.querySelector('button[aria-label="Изменить состав организаторов"]'));
   await act(async () => page!.container.querySelector<HTMLButtonElement>('button[aria-label="Изменить состав организаторов"]')!.click());
   await until(() => !!page!.container.querySelector('dialog [data-entity-picker][data-field-name="users"]'));
@@ -147,7 +151,8 @@ it("2.12 A-FE-2: a subevent's organizers and then its description save without a
   expect(organizerOptions.querySelector(`[data-option-value="${org.user_id}"]`)).not.toBeNull();
   await pick(organizers, "users", String(org.user_id));await submit(organizers);
   await until(() => !page!.container.querySelector("dialog"));
-  await click(page!.container, "Редактировать подмероприятие");
+  await follow(page!.container, "Редактировать подмероприятие");
+  await until(() => !!page!.container.querySelector('[name="description"]'));
   const description = field(page!.container, "description").closest("form")!;
   await change(field(description, "description"), "Новое описание команды");
   expect(description.textContent).not.toContain("Запись изменилась на сервере");
@@ -287,10 +292,11 @@ it("2.12 A-TSK-6: a comment resets and an explicit child canvas creates once bef
   expect((await tasksApi.comments(task.task_id)).items.map(c => c.content.body)).toEqual(["Один комментарий"]);
   await page!.cleanup(); page = undefined;
 
-  page = await mountWorkspace(<Routes><Route path="/events/:id" element={<EventPage />} /><Route path="/subevents/:id" element={<SubeventPage />} /></Routes>, { path: `/events/${event.event_id}`, session: await sessionApi.get() });
+  page = await mountWorkspace(<Routes><Route path="/events/:id" element={<EventPage />} /><Route path="/events/:id/subevents/new" element={<SubeventCreatePage />} /><Route path="/subevents/:id" element={<SubeventPage />} /></Routes>, { path: `/events/${event.event_id}`, session: await sessionApi.get() });
   await waitForPage(page!);
   expect(page!.container.querySelector('input[name="title"]')).toBeNull();
-  await click(page!.container, "Добавить подмероприятие");
+  await follow(page!.container, "Добавить подмероприятие");
+  await until(() => !!page!.container.querySelector('input[name="title"]'));
   const create = field(page!.container, "title").closest("form")!;
   const before = (await eventsApi.subevents(event.event_id)).items.length;
   await change(field(create, "title"), "Новое подмероприятие");
