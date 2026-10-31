@@ -124,7 +124,7 @@ const MeetingPage = lazy(() =>
 const LegacyMaterialRedirect = lazy(() => import("./pages/Workspace/LegacyMaterialRedirect").then(m => ({ default: m.LegacyMaterialRedirect })));
 const GreetingPage = lazy(() => import("./pages/Greeting/Greeting").then(m => ({ default: m.GreetingPage })));
 import { UserProvider } from "./utils/ctx";
-import { retryTransient, workspaceQueryCache } from "./utils/api/invalidation";
+import { referenceStaleTime, retryTransient, workspaceQueryCache } from "./utils/api/invalidation";
 import { ProtectedRoute } from "./pages/Wrappers/wrappers";
 const ProfilePage = lazy(() => import("./pages/ProfilePage/ProfilePage").then(m => ({ default: m.ProfilePage })));
 const ProfileSettingsPage = lazy(() => import("./pages/ProfilePage/ProfileSettingsPage").then(m => ({ default: m.ProfileSettingsPage })));
@@ -137,7 +137,7 @@ const NotFoundPage = lazy(() => import("./pages/fallback/NotFoundPage").then(m =
 const SupportPage = lazy(() => import("./pages/Workspace/SupportPage").then(module => ({ default: module.SupportPage })));
 const queryClient = new QueryClient({
   queryCache: workspaceQueryCache(),
-  defaultOptions: { queries: { refetchOnWindowFocus: false, retry: retryTransient } },
+  defaultOptions: { queries: { refetchOnWindowFocus: false, retry: retryTransient, staleTime: referenceStaleTime } },
 });
 function AppShell() {
   return (
