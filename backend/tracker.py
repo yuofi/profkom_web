@@ -568,8 +568,10 @@ def change_status(task_id,uid,expected_revision,status,*,text="",links=None,file
         emit(session,[u for u in recipients if db.can_read_task(u,task,session)],kind,
             dict(task_id=task_id,title=task.title,status=status),"task-status:"+task_id+":"+str(task.revision),uid)
         if task.season_id and status=="closed":
-            from kkr_control import sync_for_season
-            sync_for_season(session,task.season_id,uid,already_changed_task_ids=(task.task_id,))
+            from kkr_control import link_closed, sync_for_season
+            # Reconciled controls only gain this task's link; otherwise the full sync.
+            if not link_closed(session,[task.task_id],uid,touched=(task.task_id,)):
+                sync_for_season(session,task.season_id,uid,already_changed_task_ids=(task.task_id,))
         session.commit()
         return respond(session)
 
