@@ -25,7 +25,7 @@ export function NotificationPreferences() {
     finally { setBusy(false); }
   };
   useUnsavedChanges({ dirty, busy, label: "Настройки уведомлений", save, discard: () => { setDraft(baseline?.preferences ?? null); } });
-  return <Card title="Уведомления вне сайта"><p className={w.warning}>Отправка ещё не подключена. Выбор сохраняется для будущего подключения каналов.</p>
+  return <Card title="Уведомления вне сайта"><p className={w.muted}>Отправка ещё не подключена. Выбор сохраняется для будущего подключения каналов.</p>
     <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!data}>
       {data && draft && <form className={w.form} onSubmit={event => { event.preventDefault();void save(); }}><div className={s.preferences}><table>
         <thead><tr><th scope="col">Событие</th>{channels.map(([key, title]) => <th scope="col" key={key}>{title}</th>)}</tr></thead>

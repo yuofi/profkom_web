@@ -7,6 +7,7 @@ import { mountWorkspace, settle } from "../../test/workspace";
 import { WorkspaceLayout } from "./WorkspaceLayout";
 import { SectionHomeLink } from "./SectionHomeLink";
 import { supportApi } from "../../utils/api/support.api";
+import { UserContext } from "../../utils/me";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let mock: ReturnType<typeof installMockTransport> | undefined;
@@ -48,4 +49,11 @@ it.each([[true, "Рабочее пространство"], [false, "Мой пр
   expect(page.container.querySelector("main a")?.textContent).toBe(`Профком ВМК · ${label}`);
   const home = page.container.querySelector('nav[aria-label="Основная навигация"] a[href="/"]')!;
   expect(home.getAttribute("aria-current")).toBe(staff ? "true" : null);
+});
+it("the menu names the user surname first, like the rest of the site (PE-26)", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const { surname, name } = mock.state.profile;
+  page = await mountWorkspace(<UserContext.Provider value={mock.state.profile}><Routes><Route element={<WorkspaceLayout />}><Route path="/" element={<p>Главная страница</p>} /></Route></Routes></UserContext.Provider>);
+  await settle(); await settle();
+  expect(page.container.querySelector('aside > div[class*="profile"] a')?.textContent).toBe(`${surname} ${name}`);
 });

@@ -15,6 +15,7 @@ import { GreetingPage } from "../Greeting/Greeting";
 import { ProtectedRoute } from "../Wrappers/wrappers";
 import { AccountStatePage } from "./SessionPages";
 import { useSession } from "../../utils/session";
+import { leaveAuthNotice, peekAuthNotice } from "../../utils/authSession";
 
 vi.mock("../../components/VKAuth/authButton", () => ({
   VKAuthButton: ({ onSuccess, onError }: { onSuccess: (data: { access_token: string }) => Promise<void>; onError: () => void }) => <>
@@ -25,7 +26,7 @@ vi.mock("../../components/VKAuth/authButton", () => ({
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let adapter: MockAdapter | undefined;
-afterEach(async () => { await page?.cleanup(); page = undefined; adapter?.restore(); Cookies.remove("access_token"); vi.restoreAllMocks(); });
+afterEach(async () => { await page?.cleanup(); page = undefined; adapter?.restore(); Cookies.remove("access_token"); sessionStorage.clear(); vi.restoreAllMocks(); });
 
 it.each(["pending", "rejected", "active"] as const)("A03: password and VK login use session-first for %s", async (state) => {
   for (const channel of ["password", "vk"]) {
@@ -167,4 +168,53 @@ it("A-FE-4: a session the server ended leaves nothing private in the cache", asy
   } finally {
     refresh.restore();
   }
+});
+
+it("after the temporary password change the login opens on the password form with the address (PE-21)", async () => {
+  const f = createFixtures("organizer");
+  const session = { ...f.session, capabilities: [], password_change_required: true };
+  adapter = new MockAdapter(api);
+  const calls: string[] = [];
+  adapter.onAny().reply((config) => {
+    calls.push(config.url!);
+    if (config.url === "/auth/login") return [200, { access_token: "synthetic-login-token" }];
+    if (config.url === "/auth/change-password") return [200, { detail: "Password updated successfully" }];
+    if (config.url === "/auth/logout") return [200, {}];
+    if (config.url === "/session") return [200, session];
+    return [404, {}];
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+  page = await mountWorkspace(<HelmetProvider><UserProvider><Routes>
+    <Route path="/auth" element={<GreetingPage />} />
+    <Route element={<ProtectedRoute />}><Route path="/" element={<p>ACTIVE_WORKSPACE</p>} /></Route>
+  </Routes></UserProvider></HelmetProvider>, { path: "/auth", client });
+  await settle();
+  await act(async () => page!.container.querySelector<HTMLButtonElement>("button[aria-expanded]")!.click());
+  await change(field(page.container, "email"), "student@example.org");
+  await change(field(page.container, "password"), "temporary-1");
+  await submit(page.container.querySelector("form")!); await settle(); await settle();
+  expect(page.container.querySelector("h1")?.textContent).toBe("Смените временный пароль");
+  const form = page.container.querySelector("form")!;
+  await change(field(form, "old"), "temporary-1");
+  await change(field(form, "password"), "Own-New-Pass-2026");
+  await change(field(form, "again"), "Own-New-Pass-2026");
+  await submit(form); await settle(); await settle();
+  expect(calls).toContain("/auth/change-password");
+  expect(page.container.querySelector('[role="status"]')?.textContent).toBe("Пароль изменён. Войдите с новым паролем.");
+  expect(field(page.container, "email").value).toBe("student@example.org");
+  expect(field(page.container, "password").value).toBe("");
+  expect(page.container.textContent).not.toContain("VK test");
+  // The note is for this one return to the login: the next login takes it away.
+  await change(field(page.container, "password"), "Own-New-Pass-2026");
+  await submit(page.container.querySelector("form")!); await settle(); await settle();
+  expect(sessionStorage.getItem("profkom-auth-notice")).toBeNull();
+});
+
+it("the password-change note is not shown on a visit to the login much later in the tab (PE-21)", () => {
+  leaveAuthNotice({ notice: "Пароль изменён. Войдите с новым паролем.", email: null });
+  expect(peekAuthNotice()?.notice).toBe("Пароль изменён. Войдите с новым паролем.");
+  const now = Date.now();
+  vi.spyOn(Date, "now").mockReturnValue(now + 16 * 60 * 1000);
+  expect(peekAuthNotice()).toBeNull();
+  expect(sessionStorage.getItem("profkom-auth-notice")).toBeNull();
 });

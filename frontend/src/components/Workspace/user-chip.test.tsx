@@ -41,3 +41,11 @@ it("keeps a trailing person action separate from profile navigation and disables
   expect(link.contains(edit)).toBe(false);expect(link.parentElement).toBe(edit.parentElement);await act(async () => link.focus());await waitForPage(page);expect(document.querySelector('[role="tooltip"]')).toBeNull();
   await act(async () => edit.click());await waitForPage(page);expect(action).toHaveBeenCalledTimes(1);expect(page.container.textContent).not.toContain("Профиль открыт");expect(transport.adapter.history.get.some(request => request.url === "/contacts")).toBe(false);
 });
+
+it("one's own chip opens the own profile, other people's chips their public card (PE-17)", async () => {
+  transport = installMockTransport("chair", { delay: 0 });
+  const me = transport.state.people.find(person => person.user_id === transport!.state.session.user_id) ?? { user_id: transport.state.session.user_id, display_name: "Я", avatar_url: null };
+  const other = transport.state.people.find(person => person.user_id !== me.user_id)!;
+  page = await mountWorkspace(<Routes><Route path="/tasks" element={<><UserChip user={me} /><UserChip user={other} /></>} /></Routes>, { path: "/tasks" });await waitForPage(page);
+  expect([...page.container.querySelectorAll<HTMLAnchorElement>("a")].map(link => link.getAttribute("href"))).toEqual(["/profile", `/contacts/${other.user_id}`]);
+});

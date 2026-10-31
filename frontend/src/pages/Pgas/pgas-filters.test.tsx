@@ -7,7 +7,7 @@ import { mountWorkspace, waitForPage, change } from "../../test/workspace";
 import type { PgasEntryOut } from "../../utils/api/types";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
-afterEach(async () => { await page?.cleanup();page = undefined;vi.restoreAllMocks(); });
+afterEach(async () => { await page?.cleanup();page = undefined;vi.restoreAllMocks();vi.unstubAllGlobals(); });
 const entry = (id: number, year: number, half_year: 1 | 2 | null): PgasEntryOut => ({ entry_id: id, title: `Документ ${id}`, year, half_year, revision: 4, file_url: "/api/files/local", file_name: "local.pdf", file_type: "application/pdf", created_at: "2026-10-01T12:00:00Z", uploaded_by: null });
 async function show(role: "chair" | "organizer" = "chair") {
   vi.spyOn(pgasApi, "getAll").mockResolvedValue([entry(1, 2026, 1), entry(2, 2026, 2), entry(3, 2025, 1), entry(4, 2025, null)]);
@@ -58,3 +58,15 @@ it("edits a captured revision and requires rereading after a conflict", async ()
   expect(update).toHaveBeenLastCalledWith(1, 2, 5);
   expect(document.querySelector('[role="dialog"]')).toBeNull();
 });
+
+it("on a phone the filters fold under one summary and long titles keep their full text (PE-28)", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({ matches: false, media: query, addEventListener: () => {}, removeEventListener: () => {} }));
+  const container = await show();
+  const filters = container.querySelector<HTMLDetailsElement>('details[class*="filterDetails"]')!;
+  expect(filters.open).toBe(false);
+  expect(filters.querySelector('[aria-label="Год документов"]')).not.toBeNull();
+  await change(container.querySelector<HTMLSelectElement>('[aria-label="Год документов"]')!, "2026");
+  expect(filters.querySelector("summary")?.textContent).toBe("Фильтры · 1");
+  expect(container.querySelector("tbody td")?.getAttribute("title")).toBe("Документ 1");
+});
+

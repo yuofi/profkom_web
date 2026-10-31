@@ -103,6 +103,8 @@
 
 @media (max-width: 768px) {
   .filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* Under the folded «Фильтры» the fields keep the contacts page's spacing (PE-28). */
+  summary + .filters { margin-top: 12px; margin-bottom: 0; }
   .fileLink {
     max-width: 180px;
   }
@@ -118,3 +120,39 @@
     flex-direction: column-reverse;
   }
 }
+
+/* A phone shows each document as a card: the title in two lines, «год · период» under it,
+   the file and its deletion in one row; nothing hides behind a sideways scroll (PE-28). */
+@media (max-width: 600px) {
+  .tableWrap .table { display: block; min-width: 0; }
+  .tableWrap .table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .tableWrap .table tbody { display: block; }
+  .tableWrap .table tr {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px 10px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--surface-variant);
+  }
+  .tableWrap .table tbody tr:last-child { border-bottom: 0; }
+  .tableWrap .table td { display: block; min-width: 0; padding: 0; border: 0; }
+  .tableWrap .table .titleCell {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    font-weight: 500;
+  }
+  .yearCell { grid-column: 1; grid-row: 2; }
+  .periodTd { grid-column: 2 / -1; grid-row: 2; }
+  .periodTd::before { content: "·"; margin-right: 8px; opacity: 0.6; }
+  .tableWrap .table .periodTd { display: flex; align-items: center; }
+  .fileCell { grid-column: 1 / 3; grid-row: 3; }
+  .fileCell .fileLink { max-width: 100%; }
+  .actionCell { grid-column: 3; grid-row: 3; justify-self: end; }
+}
+

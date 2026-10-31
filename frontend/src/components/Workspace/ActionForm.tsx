@@ -330,6 +330,8 @@ export function ActionForm({
     setExpectedRevision(revision);
     setExpectedRevisionKey(revisionKey);
   }
+  // The success note speaks of the saved input: the first new change takes it away.
+  if (message && form.dirty) setMessage("");
   const saveForNavigation = async () => {
     if (disabled || externalBusy || form.isSubmitting || refreshing) return false;
     submitted.current = false;

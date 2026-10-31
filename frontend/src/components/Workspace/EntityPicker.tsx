@@ -51,6 +51,9 @@ function missingLabel(kind?: EntityKind) {
 export function EntityPicker(props: EntityPickerProps) {
   const generated = useId(), id = props.id ?? generated;
   const root = useRef<HTMLDivElement>(null), input = useRef<HTMLInputElement>(null), popup = useRef<HTMLDivElement>(null);
+  // Focus returned to the input after removing a chip must not open the list over the
+  // controls below it (PE-05): the list opens on typing, a click or ArrowDown.
+  const quietFocus = useRef(false);
   const [portal, setPortal] = useState<HTMLElement | null>(null);
   const [open, setOpen] = useState(false), [search, setSearch] = useState(""), [active, setActive] = useState(0);
   const options = [...new Map(props.options.map(option => [option.value, option])).values()];
@@ -81,8 +84,10 @@ export function EntityPicker(props: EntityPickerProps) {
     if (props.multiple) props.onChange(selected.filter(item => item !== value));
     else props.onChange("");
     // Like a choice, a removal keeps focus in the search but leaves the list closed so it
-    // never covers the dialog's own submit.
-    setSearch("");setActive(0);input.current?.focus();setOpen(false);
+    // never covers the dialog's own submit (EV-02); the quiet focus does not reopen it (PE-05).
+    setSearch("");setActive(0);setOpen(false);
+    quietFocus.current = true;
+    try { input.current?.focus(); } finally { quietFocus.current = false; }
   };
   useEffect(() => {
     if (!expanded) return;
@@ -131,11 +136,11 @@ export function EntityPicker(props: EntityPickerProps) {
     }}
     onKeyDown={event => { if (event.key === "Escape" && expanded) { event.preventDefault();event.stopPropagation();setOpen(false);setSearch(""); } }}>
     {props.label && <label className={s.label} id={`${id}-label`} htmlFor={id}>{props.label}</label>}
-    <div className={s.control} data-invalid={props.invalid || undefined}>
+    <div className={s.control} data-invalid={props.invalid || undefined} data-single={!props.multiple || undefined}>
       {selected.length > 0 && <ul className={s.selected} aria-label="Выбранные значения">{selected.map((value, index) => {
         const option = options.find(option => option.value === value);
         const label = option?.label ?? missingLabel(props.entity);
-        return <li key={value} data-selected-value={value}>
+        return <li key={value} data-selected-value={value} title={props.multiple ? undefined : label}>
           {option ? <OptionChip option={option} /> : <span className={s.missing}>{label}</span>}
           <button type="button" className={s.remove} disabled={props.disabled} aria-label={`Убрать: ${label}${!option && selected.length > 1 ? ` (${index + 1})` : ""}`} onClick={() => remove(value)}><Glyph name="close" /></button>
         </li>;
@@ -147,7 +152,7 @@ export function EntityPicker(props: EntityPickerProps) {
           aria-autocomplete="list" aria-expanded={expanded} aria-controls={expanded ? `${id}-options` : undefined} aria-activedescendant={expanded && activeIndex >= 0 ? `${id}-option-${activeIndex}` : undefined}
           aria-required={props.required || undefined} aria-invalid={props.invalid || undefined} aria-describedby={props.describedBy} disabled={props.disabled}
           placeholder={selected.length ? props.multiple ? "Найти и добавить…" : "Изменить выбор…" : props.placeholder ?? (props.multiple ? "Найти и добавить…" : "Найти и выбрать…")} value={search}
-          onFocus={activate} onClick={activate} onChange={event => { setSearch(event.target.value);setActive(0);activate(); }}
+          onFocus={() => { if (!quietFocus.current) activate(); }} onClick={activate} onChange={event => { setSearch(event.target.value);setActive(0);activate(); }}
           onKeyDown={event => {
             if (event.key === "Enter") { event.preventDefault();event.stopPropagation();if (expanded && activeIndex >= 0) choose(filtered[activeIndex]);else activate(); }
             else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) { event.preventDefault();const already = expanded;activate();if (already || ["Home", "End", "ArrowUp"].includes(event.key)) move(event.key); }

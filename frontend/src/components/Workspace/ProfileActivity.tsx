@@ -6,6 +6,7 @@ import { canRetainData } from "../../utils/api/request";
 import { Card, Empty, Glyph, QueryState } from "./WorkspaceUI";
 import { InteractiveChip } from "./InteractiveChip";
 import s from "./ProfileFeatures.module.css";
+import w from "./Workspace.module.css";
 const roles: Record<string, string> = { chair: "Председатель", deputy_chair: "Заместитель председателя", master: "Мастер", deputy_master: "Заместитель мастера", event_leader: "Главорг", deputy_event_leader: "Заместитель главорга", subevent_leader: "Ответственный", deputy_subevent_leader: "Заместитель ответственного", organizer: "Организатор", member: "Участник блока" };
 function TeamFact({ fact }: { fact: ActivityFact }) {
   return <InteractiveChip kind="display" label={fact.scope.name} icon={<Glyph name={fact.scope.kind === "block" ? "groups" : "event"} />} />;
@@ -22,7 +23,7 @@ export function ProfileActivity({ userId, hideCurrent = false }: { userId: numbe
           {current.filter(fact => kind === "block" ? fact.scope.kind === "block" : fact.scope.kind === "event" || fact.scope.kind === "subevent").map((fact, index) => <div className={s.fact} key={`${fact.scope.id}/${fact.role}/${index}`}><TeamFact fact={fact} /><span>{roles[fact.role] ?? fact.role}</span></div>)}
           {!current.some(fact => kind === "block" ? fact.scope.kind === "block" : ["event", "subevent"].includes(fact.scope.kind)) && <Empty>Текущего участия нет.</Empty>}
         </div></section>)}</div>}
-        <details className={s.activityHistory} open={historyOpen} onToggle={event => setHistoryOpen(event.currentTarget.open)}><summary>История деятельности · {data.items.length}</summary>
+        <details className={`${w.details} ${s.activityHistory}${hideCurrent ? ` ${s.activityOnly}` : ""}`} open={historyOpen} onToggle={event => setHistoryOpen(event.currentTarget.open)}><summary>История деятельности · {data.items.length}</summary>
         {historyOpen && <><p>Роли и периоды участия. Эта история не открывает рабочие данные команды.</p>
         {data.items.length ? <ol className={s.facts}>{data.items.slice(0, historyLimit).map((fact, index) => <li className={s.fact} key={`${fact.scope.kind}/${fact.scope.id}/${fact.role}/${index}`}>
           <strong>{roles[fact.role] ?? fact.role}</strong><TeamFact fact={fact} />

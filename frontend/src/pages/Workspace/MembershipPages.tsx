@@ -1,4 +1,3 @@
-import { BlockChip } from "../../components/Workspace/BlockChip";
 import { UserChip } from "../../components/Workspace/UserChip";
 import { BlockAvatarPicker } from "../../components/Workspace/BlockAvatarPicker";
 import { useState } from "react";
@@ -98,6 +97,10 @@ export function BlockPage() {
   const b = !query.error || canRetainData(query.error) ? query.data : undefined;
   const canViewTracker = can(b, "view_tasks");
   const alreadyInBlock = !!b && !!session && (b.members.some(member => member.user.user_id === session.user_id) || b.master?.user.user_id === session.user_id || !!b.master?.deputy_user_ids.includes(session.user_id));
+  // A member cannot leave on their own (403 self_leave_forbidden): say whom to ask (PE-22).
+  const plainMember = !!b && !!session && b.members.some(member => member.user.user_id === session.user_id) && b.master?.user.user_id !== session.user_id && !b.master?.deputy_user_ids.includes(session.user_id);
+  const leaveContacts = b ? [b.master?.user, ...(b.master?.deputy_user_ids ?? []).map(userId => people.options.find(option => option.value === String(userId))?.user), b.hr]
+    .filter((user, index, all): user is NonNullable<typeof user> => !!user?.user_id && user.user_id !== session?.user_id && all.findIndex(other => other?.user_id === user.user_id) === index) : [];
   const requests = useQuery({
     queryKey: ["blockRequests"],
     queryFn: membershipApi.requests,
@@ -113,15 +116,15 @@ export function BlockPage() {
   return (
     <Page
       title={b?.name ?? "Блок"}
-      actions={<div className={s.row}>{b && <BlockAvatarPicker block={b} />}<RouteLink to="/blocks">Все блоки</RouteLink></div>}
+      actions={<div className={`${s.row} ${m.blockHeaderActions}`}>{b && <BlockAvatarPicker block={b} />}<RouteLink to="/blocks">Все блоки</RouteLink></div>}
     >
       <QueryState keepDataOnError={!!query.data}
         loading={query.isLoading} error={query.error}>
         {b && (
           <div className={s.stack}>
             <Card>
+              {/* The header already shows the block's avatar and name (PE-25). */}
               <div className={s.row}>
-                <BlockChip block={b} interactive={false} />
                 {canViewTracker && (
                   <RouteLink
                     to={`/tasks?scope_kind=block&scope_id=${encodeURIComponent(id)}`}
@@ -197,8 +200,8 @@ export function BlockPage() {
                 {b.members.map((m) => (
                   <li key={m.user.user_id}>
                     <div className={s.between}>
-                      <span>
-                        {m.user.display_name}{" "}
+                      <span className={s.row}>
+                        <UserChip user={m.user} />
                         <Badge tone={m.block_category === "junior" ? "mint" : undefined}>
                           {m.block_category === "junior"
                             ? "Новичок блока"
@@ -230,6 +233,14 @@ export function BlockPage() {
                 Служебное назначение мастера или заместителя отдельно от
                 обычного членства.
               </p>
+              {plainMember && (
+                <div className={s.row}>
+                  <span className={s.muted}>
+                    Чтобы выйти из блока, обратитесь к мастеру, его заместителю или HR блока{leaveContacts.length ? ":" : "."}
+                  </span>
+                  {leaveContacts.map(user => <UserChip key={user.user_id} user={user} />)}
+                </div>
+              )}
               {alreadyInBlock ? null : pending ? (
                 <p>
                   Заявка: {requestStates[pending.state]} ·{" "}
@@ -295,18 +306,21 @@ function RequestCard({
   blockName: string;
 }) {
   const { perform, refresh } = useWorkspaceActions();
+  const [rejecting, setRejecting] = useState(false);
   const open = ["pending_hr", "pending_block"].includes(r.state);
   const review = can(
     r,
     r.state === "pending_hr" ? "hr_review_request" : "block_review_request",
   );
+  const wait = waited(r.stage_entered_at);
   return (
-    <Card title={`${r.user.display_name} → ${blockName}`}>
+    <Card>
+      <h2 className={m.requestTitle}><UserChip user={r.user} /><span>→ {blockName}</span></h2>
       <div className={s.row}><Badge tone={requestTones[r.state]}>{requestStates[r.state]}</Badge>{open && <RouteLink to={`/blocks/${encodeURIComponent(r.block_id)}`}>Открыть блок</RouteLink>}</div>
       {open ? (
         <p>
           Текущий этап с {displayDate(r.stage_entered_at)} ·{" "}
-          <span className={s.nowrap}>ждёт {waited(r.stage_entered_at)}</span>
+          <span className={s.nowrap}>ждёт {wait === "0 ч" ? "меньше часа" : wait}</span>
         </p>
       ) : (
         r.decided_at && <p>Решение: {displayDate(r.decided_at)}</p>
@@ -327,12 +341,12 @@ function RequestCard({
       ) : r.state === "approved" && <p className={s.muted}>Кто одобрил: сведения не сохранены.</p>}
       {r.substitute_available_at && (
         <p className={s.muted}>
-          Срок для подмены руководства: {displayDate(r.substitute_available_at)}{" "}
-          (72 часа текущего этапа). Доступность решения определяет сервер.
+          Если решение не принято до {displayDate(r.substitute_available_at)}, его смогут принять председатель или его заместители.
         </p>
       )}
+      {/* Approving and rejecting side by side; the reason is asked in a dialog (PE-27). */}
       {open && review && (
-        <div className={s.stack}>
+        <div className={m.requestDecisions}>
           <ActionForm
             revision={r.revision}
             record={`block-request:${r.request_id}`}
@@ -353,33 +367,40 @@ function RequestCard({
               );
             }}
           />
-          <details className={s.details}>
-            <summary>Отклонить с причиной</summary>
-            <ActionForm
-              revision={r.revision}
-              record={`block-request:${r.request_id}`}
-              onConflict={refresh}
-              fields={[
-                {
-                  name: "reason",
-                  label: "Причина отказа",
-                  type: "textarea",
-                  required: true,
-                },
-              ]}
-              submitLabel="Отклонить"
-              variant="danger"
-              onSubmit={async (v, expectedRevision) => {
-                return perform(() =>
-                  membershipApi.requestCommand(r.request_id, "reject", {
-                    expected_revision: expectedRevision!,
-                    reason: text(v, "reason"),
-                  }),
-                );
-              }}
-            />
-          </details>
+          <button type="button" className={`${s.button} ${m.reject}`} onClick={() => setRejecting(true)}>
+            Отклонить
+          </button>
         </div>
+      )}
+      {rejecting && open && review && (
+        <UnsavedChangesScope><TrackerTaskDialog title="Отклонить заявку в блок" onClose={() => setRejecting(false)}>
+          <p>{r.user.display_name} → {blockName}</p>
+          <ActionForm
+            revision={r.revision}
+            record={`block-request:${r.request_id}`}
+            onConflict={refresh}
+            fields={[
+              {
+                name: "reason",
+                label: "Причина отказа",
+                type: "textarea",
+                required: true,
+              },
+            ]}
+            submitLabel="Отклонить заявку"
+            variant="danger"
+            onSubmit={async (v, expectedRevision) => {
+              const saved = await perform(() =>
+                membershipApi.requestCommand(r.request_id, "reject", {
+                  expected_revision: expectedRevision!,
+                  reason: text(v, "reason"),
+                }),
+              );
+              setRejecting(false);
+              return saved;
+            }}
+          />
+        </TrackerTaskDialog></UnsavedChangesScope>
       )}
       {open && can(r, "withdraw_request") && (
         <ActionForm
@@ -426,6 +447,7 @@ export function BlockRequestsPage() {
     queryFn: membershipApi.blocks,
   });
   const { session } = useSession();
+  const [historyLimit, setHistoryLimit] = useState(20);
   // Each request in one section: my decisions first, then my own, the rest, history (A-ROL-3).
   const sections: [string, BlockRequest[]][] = [
     ["Этап HR — моё решение", []],
@@ -439,11 +461,12 @@ export function BlockRequestsPage() {
       : r.user.user_id === session?.user_id ? 2 : isOpen(r) ? 3 : 4;
     sections[index][1].push(r);
   }
+  const blockName = (r: BlockRequest) => blocks.data?.find((b) => b.block_id === r.block_id)?.name ?? "Блок";
   const card = (r: BlockRequest) => (
     <RequestCard
       request={r}
       key={r.request_id}
-      blockName={blocks.data?.find((b) => b.block_id === r.block_id)?.name ?? "Блок"}
+      blockName={blockName(r)}
     />
   );
   return (
@@ -457,9 +480,28 @@ export function BlockRequestsPage() {
         <div className={s.stack}>
           {sections.map(([title, items]) =>
             items.length === 0 ? null : title === "История" ? (
+              // History is a compact list of rows, twenty at a time; a row opens its card (PE-27).
               <details key={title} className={s.details}>
                 <summary>История · {items.length}</summary>
-                <div className={s.stack}>{items.map(card)}</div>
+                <ul className={m.history}>
+                  {items.slice(0, historyLimit).map((r) => (
+                    <li key={r.request_id}>
+                      <details className={m.historyRow}>
+                        <summary>
+                          <span>{r.user.display_name} → {blockName(r)}</span>
+                          <Badge tone={requestTones[r.state]}>{requestStates[r.state]}</Badge>
+                          {r.decided_at && <small>{displayDate(r.decided_at)}</small>}
+                        </summary>
+                        {card(r)}
+                      </details>
+                    </li>
+                  ))}
+                </ul>
+                {items.length > historyLimit && (
+                  <button type="button" className={s.button} onClick={() => setHistoryLimit((limit) => limit + 20)}>
+                    Показать ещё · {items.length - historyLimit}
+                  </button>
+                )}
               </details>
             ) : (
               <section key={title} aria-label={title} className={s.stack}>

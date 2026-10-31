@@ -76,6 +76,15 @@ def require_chair(uid, action="account.archive"):
         fail(403, "Only the chair and deputies manage archived accounts")
 
 
+def require_leadership_change(uid):
+    """Deputies share the chair's account rights, but only the chair changes who the
+    deputies are: archiving or restoring a deputy chair is such a change."""
+    import access
+
+    if not access.allowed(uid, "leadership.deputies"):
+        fail(403, "Only the chair archives or restores a chair deputy", "leadership_change_forbidden")
+
+
 def chair_term(s):
     r = s.query(RoleAssignmentORM).filter_by(scope_kind="global", role="chair").first()
     return r.role_assignment_id if r else None
@@ -157,6 +166,8 @@ def _archive(uid, reason, actor):
         fail(422, "Archive reason required")
     if db.is_chair(uid):
         fail(409, "Transfer the chair before archiving this account", "chair_transfer_required")
+    if db.is_deputy_chair(uid):
+        require_leadership_change(actor)
     with db._session() as s:
         u = s.get(UserORM, uid)
         if not u:
@@ -354,6 +365,8 @@ def _restore(uid, payload, actor):
         restore_global = same_term and any(
             r["role"] == "deputy_chair" and r["user_id"] == uid for r in snap["roles"]
         )
+        if restore_global:
+            require_leadership_change(actor)
         if restore_global and len(json.loads(lead.deputies_json or "[]")) >= 3:
             fail(409, "Deputy chair limit; free a position before restore", "restore_deputy_limit")
         u.account_state = "active"

@@ -212,3 +212,11 @@ it("updates an open leave prompt when the label, save availability and busy stat
   await act(async () => refresh({ label: "Текущий редактор", canSave: true, busy: false }));await settle();await click(button(page.container, "Сохранить и перейти"));
   expect(saved).toEqual(["Текущий редактор"]);expect(page.router.state.location.pathname).toBe("/destination");
 });
+
+it("takes the success note away at the first new change (PE-19)", async () => {
+  const page = await mount(<Editor />);
+  await change(field(page.container, "title"), "Первая редакция"); await submit(page.container.querySelector("form")!);
+  expect(page.container.textContent).toContain("Изменения сохранены");
+  await change(field(page.container, "title"), "Вторая редакция");
+  expect(page.container.textContent).not.toContain("Изменения сохранены");
+});

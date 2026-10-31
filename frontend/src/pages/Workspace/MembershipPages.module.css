@@ -1,4 +1,6 @@
 .statusTabs { display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px; }
+.requestTitle { display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0; }
+.requestTitle>span { min-width:0;overflow-wrap:anywhere; }
 .statusTabs button[aria-pressed="true"] { background:var(--primary-container);color:var(--on-primary-container);border-color:var(--primary); }
 .registrationCard { padding:0;overflow:hidden; }
 .registrationDetails>summary { display:flex;align-items:center;justify-content:space-between;gap:16px;cursor:pointer;padding:18px 22px;list-style:none; }
@@ -18,3 +20,35 @@
 .decisions button:first-child { background:var(--primary);color:var(--on-primary); }
 .reject { color:var(--accent-rose); }
 @media(max-width:600px) { .registrationDetails>summary { gap:10px;flex-wrap:wrap;padding:16px; }.registrationBody { padding:0 16px 16px; }.decisions { padding:0 16px 16px; }.decisions button { flex:1; } }
+/* A block request's decisions in one row: the approval's form and the reject button (PE-27). */
+.requestDecisions { display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;min-width:0; }
+.requestDecisions>form { min-width:0; }
+/* The history of block requests: one compact row per request, its card on demand. */
+.history { list-style:none;margin:0;padding:0;display:grid; }
+.history>li { border-bottom:1px solid var(--outline-variant);min-width:0; }
+.historyRow>summary { display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;padding:10px 0;cursor:pointer;list-style:none; }
+.historyRow>summary::-webkit-details-marker { display:none; }
+.historyRow>summary::after { content:"⌄";color:var(--primary);font-size:20px;line-height:1;margin-left:auto; }
+.historyRow[open]>summary::after { transform:rotate(180deg); }
+.historyRow>summary>span:first-child { flex:1 1 220px;min-width:0;overflow-wrap:anywhere; }
+.historyRow>summary>small { color:var(--on-surface-variant);font-size:13px; }
+.historyRow>summary:focus-visible { outline:2px solid var(--primary);outline-offset:2px;border-radius:8px; }
+.historyRow>section { margin-bottom:12px; }
+/* The label above the value: the shared side-by-side .card dl rows leave a long address
+   too little room and break it mid-word (PE-33). */
+.registrationCard .registrationFields>div { display:block; }
+@media(max-width:768px) {
+  /* «Все блоки» keeps its own width beside the block avatar, not the phone row's stretch (PE-31). */
+  .blockHeaderActions.blockHeaderActions>a { flex-grow:0; }
+  /* The status filters are one line that scrolls sideways (PE-32). */
+  .statusTabs { flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin; }
+  .statusTabs button { flex:none; }
+}
+@media(max-width:600px) {
+  /* The registration's badge goes under the name, which keeps the line with the chevron (PE-32). */
+  .registrationDetails>summary { display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start; }
+  .registrationDetails>summary>div { grid-column:1;grid-row:1; }
+  .registrationDetails>summary>:not(div) { grid-column:1;grid-row:2;justify-self:start; }
+  .registrationDetails>summary::after { grid-column:2;grid-row:1; }
+}
+

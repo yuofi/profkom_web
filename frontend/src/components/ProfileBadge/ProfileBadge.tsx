@@ -152,6 +152,8 @@ export const ProfileBadge = ({
               href={parseProfileUrl(user.vk, "vk.com")}
               target="_blank"
               rel="noopener noreferrer"
+              aria-label="VK"
+              title="VK"
               style={{ textDecoration: "none" }}
             >
               <ProfileChip
@@ -165,6 +167,8 @@ export const ProfileBadge = ({
               href={parseProfileUrl(user.tg, "t.me")}
               target="_blank"
               rel="noopener noreferrer"
+              aria-label="Telegram"
+              title="Telegram"
               style={{ textDecoration: "none" }} // чтобы не было стандартного подчеркивания ссылок
             >
               <ProfileChip
@@ -181,14 +185,29 @@ export const ProfileBadge = ({
 
       {/* Контакты */}
       <div className={styles.contacts}>
-        {user.phone && (
+        {user.phone && (/\d/.test(user.phone) ? (
+          <a className={styles.contactLink} href={`tel:${user.phone.replace(/[^+\d]/g, "")}`} aria-label={`Позвонить: ${user.phone}`}>
+            <ProfileChip variant="iconBg" label="телефон" iconName="call">
+              {user.phone}
+            </ProfileChip>
+          </a>
+        ) : (
+          // An old phone without digits has nothing to call: it stays plain text.
           <ProfileChip variant="iconBg" label="телефон" iconName="call">
             {user.phone}
           </ProfileChip>
+        ))}
+        {user.email ? (
+          <a className={styles.contactLink} href={`mailto:${user.email}`} aria-label={`Написать: ${user.email}`}>
+            <ProfileChip variant="iconBg" label="почта" iconName="mail">
+              {user.email}
+            </ProfileChip>
+          </a>
+        ) : (
+          <ProfileChip variant="iconBg" label="почта" iconName="mail">
+            {user.email}
+          </ProfileChip>
         )}
-        <ProfileChip variant="iconBg" label="почта" iconName="mail">
-          {user.email}
-        </ProfileChip>
         {user.location && (
           <ProfileChip variant="iconBg" label="локация" iconName="location_on">
             {user.location}

@@ -39,5 +39,6 @@ it("preserves anonymous and unknown history without guessed people or broken pro
 it("states when a legacy approved request has no saved approver", async () => {
   const group = await show([]);expect(group).toBeNull();
   expect(page!.container.textContent).toContain("Кто одобрил: сведения не сохранены.");
-  expect(page!.container.querySelector('a[href^="/contacts/"]')).toBeNull();
+  // The only profile link is the applicant in the card title (PE-18); no approver is invented.
+  expect(Array.from(page!.container.querySelectorAll('a[href^="/contacts/"]')).map((link) => !!link.closest("h2"))).toEqual([true]);
 });

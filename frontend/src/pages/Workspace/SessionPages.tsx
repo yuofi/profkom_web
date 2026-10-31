@@ -19,6 +19,7 @@ import { membershipApi } from "../../utils/api/membership.api";
 import { sessionApi } from "../../utils/api/session.api";
 import { directoryApi } from "../../utils/api/directory.api";
 import { clearPrivateCache } from "../../utils/api/invalidation";
+import { leaveAuthNotice } from "../../utils/authSession";
 import s from "../../components/Workspace/Workspace.module.css";
 import { RegistrationForm } from "../../components/Workspace/RegistrationForm";
 import { missingFields } from "../../utils/contactFields";
@@ -37,6 +38,7 @@ function AccountLayout({ label, children }: { label: string; children: ReactNode
     <SectionContext.Provider value={{ ...SECTIONS[0], label, to: pathname }}>{children}</SectionContext.Provider>
   </div>;
 }
+import { UserChip } from "../../components/Workspace/UserChip";
 export function AccountStatePage() {
   const { session } = useSession();
   const { logout, busy, error } = useLogout();
@@ -99,6 +101,8 @@ export function AccountStatePage() {
  *  it is changed (АВ-52). The change ends every session, this one too. */
 export function PasswordChangePage() {
   const { logout, busy, error } = useLogout();
+  // The address typed at the login with the temporary password, if this tab came from it.
+  const loginEmail = (useLocation().state as { email?: string } | null)?.email ?? null;
   const [changed, setChanged] = useState(false);
   return (
     <AccountLayout label="Смена пароля">
@@ -124,6 +128,9 @@ export function PasswordChangePage() {
               if (password === text(v, "old")) throw Error("Новый пароль должен отличаться от временного");
               await authApi.changePassword({ old_password: text(v, "old"), new_password: password });
               setChanged(true);
+              // The change ended every session, this one too: straight to the login, its address in (PE-21).
+              leaveAuthNotice({ notice: "Пароль изменён. Войдите с новым паролем.", email: loginEmail });
+              await logout();
             }}
           />
         )}
@@ -206,11 +213,10 @@ export function LeadershipPage() {
       {(leadership.error || contacts.error) && <ErrorState error={leadership.error || contacts.error} />}
       <div className={s.stack}>
         <Card title="Текущий состав">
-          <p>Председатель: {current.chair?.display_name ?? "не назначен"}</p>
-          <p>
+          <p className={s.row}>Председатель: {current.chair ? <UserChip user={current.chair} /> : "не назначен"}</p>
+          <p className={s.row}>
             Заместители:{" "}
-            {current.deputies.map((p) => p.display_name).join(", ") ||
-              "не назначены"}
+            {current.deputies.length ? current.deputies.map((p, index) => <UserChip key={p.user_id ?? `deputy-${index}`} user={p} />) : "не назначены"}
           </p>
         </Card>
         <HistoryDisclosure kind="leadership" id="current" title="История руководства Профкома" />

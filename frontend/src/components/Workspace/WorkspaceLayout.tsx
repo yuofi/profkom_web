@@ -4,6 +4,7 @@ import { Loading } from "./WorkspaceUI";
 import { Link, Outlet, UNSAFE_DataRouterContext, useLocation } from "react-router-dom";
 import { prefetchRouteData, preloadRouteCode } from "../../utils/routePrefetch";
 import { useMe } from "../../utils/me";
+import { personName } from "../../utils/contactFields";
 import { can, isActiveSession, useSession } from "../../utils/session";
 import { supportApi } from "../../utils/api/support.api";
 import { canRetainData } from "../../utils/api/request";
@@ -145,7 +146,7 @@ export function WorkspaceLayout({ children }: { children?: ReactNode } = {}) {
         <div className={s.profile}>
           <Link to="/profile" aria-label="Мой профиль" aria-current={pathname === "/profile" ? "page" : pathname.startsWith("/profile/") ? "true" : undefined}>
             <Glyph name="account_circle" className={s.icon} />
-            <span>{user ? `${user.name} ${user.surname}` : "Мой профиль"}</span>
+            <span>{(user && personName(user)) || "Мой профиль"}</span>
           </Link>
         </div>
         <DemoRolePicker />

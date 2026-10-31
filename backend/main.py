@@ -287,6 +287,17 @@ class ProfileUpdate(BaseModel):
     def validate_group_number(cls, v: Optional[str]) -> Optional[str]:
         return contact_rules.group_number(v)
 
+    @field_validator("surname", "name")
+    @classmethod
+    def require_name_part(cls, value: Optional[str]) -> Optional[str]:
+        # Omitted keeps the saved value; a sent surname or name is never blank (PE-03).
+        if value is None:
+            return value
+        value = value.strip()
+        if not value:
+            raise ValueError("Surname and name cannot be empty")
+        return value
+
 
 class ContactFilter(BaseModel):
     group_number: Optional[str] = None

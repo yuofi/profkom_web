@@ -1299,6 +1299,14 @@ span.cardIcon {
     border-radius: 12px;
     background: var(--surface-container-low);
   }
+  /* The folded «Фильтры» reads in the middle of its box, its marker beside it (PE-28). */
+  .filterDetails > summary {
+    align-items: center;
+  }
+  .filterDetails > summary::before {
+    align-self: center;
+    margin-block: 0;
+  }
   .filterDetails .filters {
     margin-top: 12px;
     margin-bottom: 0;
@@ -1332,3 +1340,24 @@ span.cardIcon {
 
 /* An opt-in toggle button shows when it is on, besides announcing aria-pressed (EV-15). */
 .toggle[aria-pressed="true"] { background: var(--primary-container); color: var(--on-primary-container); border-color: var(--primary); }
+
+/* An icon-only button keeps its square where a phone row stretches its buttons (PE-31). */
+.iconButton {
+  flex: none;
+}
+@media (max-width: 768px) {
+  .row .iconButton {
+    flex-grow: 0;
+  }
+  /* The tabs of a section are one line that scrolls sideways on a phone (PE-32). */
+  .tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    scrollbar-width: thin;
+  }
+  .tabs a {
+    scroll-snap-align: start;
+  }
+}
+

@@ -1,7 +1,8 @@
 import { EntityPicker } from "../../components/Workspace/EntityPicker";
 import { Link } from "react-router-dom";
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { flushSync } from "react-dom";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Page,
   Card,
@@ -10,6 +11,7 @@ import {
   Empty,
   Badge,
   Glyph,
+  ErrorState,
 } from "../../components/Workspace/WorkspaceUI";
 import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
 import { ContactDialog } from "../../components/Workspace/ContactDialog";
@@ -27,6 +29,12 @@ import { displayDate } from "../../utils/dates";
 import { getBlockRoute } from "../../utils/routes";
 import { ParticipantCategoryPanel } from "./ParticipantCategoryPanel";
 import s from "../../components/Workspace/Workspace.module.css";
+const searchable = (value: string) => value.toLocaleLowerCase("ru").replaceAll("ё", "е");
+/** Every word of the query, in any order, case and ё aside (PE-23). */
+const matchesSearch = (parts: (string | number | null | undefined)[], query: string) => {
+  const haystack = searchable(parts.filter((part) => part !== null && part !== undefined).join(" "));
+  return searchable(query).split(/\s+/).filter(Boolean).every((word) => haystack.includes(word));
+};
 function Category({ category, pending }: { category?: ParticipantCategory; pending: boolean }) {
   return category ? (
     <Badge tone={category.category === "junior" ? "mint" : undefined}>{category.category === "junior" ? "Джуниор" : "Активист"}</Badge>
@@ -65,6 +73,7 @@ function ContactLinks({
           target="_blank"
           rel="noopener noreferrer"
         >
+          <span className={d.vkIcon} aria-hidden="true" />
           VK
         </a>
       )}
@@ -73,7 +82,7 @@ function ContactLinks({
 }
 export function DirectoryPage() {
   const { session } = useSession();
-  const { perform } = useWorkspaceActions();
+  const { refresh } = useWorkspaceActions();
   const query = useQuery({
     queryKey: ["contacts"],
     queryFn: directoryApi.contacts,
@@ -85,11 +94,21 @@ export function DirectoryPage() {
   const [category, setCategory] = useState("");
   const [funding, setFunding] = useState("");
   const [course, setCourse] = useState("");
-  const [emails, setEmails] = useState("");
+  const emailExport = useMutation({ mutationFn: directoryApi.emails });
+  const emails = emailExport.data?.emails.join("; ") ?? "";
+  const [copied, setCopied] = useState("");
   const [selected, setSelected] = useState<{ id: number; mode: "manage" } | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(() =>
     typeof window.matchMedia !== "function" || window.matchMedia("(min-width: 769px)").matches,
   );
+  // The desktop hides the summary that toggles the filters: widening the window opens them (PE-09).
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(min-width: 769px)");
+    const sync = (event: MediaQueryListEvent) => { if (event.matches) setFiltersOpen(true); };
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
   const active = query.data?.filter((p) => p.in_profcom) ?? [];
   const participantIds = [...new Set(active.map((p) => p.user_id))].sort((a, b) => a - b);
   const categories = useQuery({
@@ -127,12 +146,13 @@ export function DirectoryPage() {
           .split(",")
           .map((x) => x.trim())
           .includes(block) || blockCards.some(item => item.name === block && item.master?.user.user_id === p.user_id)) &&
-      `${p.surname} ${p.name} ${p.patronymic} ${p.group_number} ${p.email}`
-        .toLowerCase()
-        .includes(search.toLowerCase()),
+      matchesSearch([p.surname, p.name, p.patronymic, p.group_number, p.email], search),
   );
   const selectedPerson = query.data?.find((p) => p.user_id === selected?.id);
-  const mayManage = can(session, "edit_participant_category") || can(session, "archive_account");
+  // Archiving is decided per target by the server (PE-01): never the chair, and a chair
+  // deputy only by the chair; the category read carries that capability.
+  const mayArchive = (userId: number) => can(categoryByUser.get(userId), "archive_account");
+  const mayManage = (userId: number) => can(session, "edit_participant_category") || mayArchive(userId);
   return (
     <Page
       title="Контактная информация"
@@ -215,23 +235,46 @@ export function DirectoryPage() {
         )}
         <details className={s.details}>
           <summary>Почтовая выгрузка</summary>
-          <ActionForm
-            fields={[]}
-            submitLabel="Получить список адресов"
-            onSubmit={async () => {
-              setEmails((await directoryApi.emails()).emails.join("; "));
-            }}
-          />
+          {/* Reading the list saves nothing: a plain button, then the list and its copy (PE-20). */}
+          <button
+            type="button"
+            className={s.button}
+            disabled={emailExport.isPending}
+            onClick={() => { setCopied(""); emailExport.mutate(); }}
+          >
+            {emailExport.isPending ? "Собираем адреса…" : "Получить список адресов"}
+          </button>
+          {emailExport.error && <ErrorState error={emailExport.error} />}
+          {emailExport.isSuccess && (
+            <p className={s.muted} role="status">
+              {emails ? "Список адресов готов." : "Адресов для выгрузки нет."}
+            </p>
+          )}
           {emails && (
-            <label className={s.field}>
-              Адреса для копирования
-              <textarea
-                readOnly
-                value={emails}
-                rows={3}
-                onFocus={(e) => e.target.select()}
-              />
-            </label>
+            <>
+              <label className={s.field}>
+                Адреса для копирования
+                <textarea
+                  readOnly
+                  value={emails}
+                  rows={3}
+                  onFocus={(e) => e.target.select()}
+                />
+              </label>
+              <div className={s.row}>
+                <button
+                  type="button"
+                  className={s.button}
+                  onClick={async () => {
+                    try { await navigator.clipboard.writeText(emails); setCopied("Адреса скопированы."); }
+                    catch { setCopied("Не удалось скопировать. Выделите адреса и скопируйте вручную."); }
+                  }}
+                >
+                  Скопировать
+                </button>
+                {copied && <span className={s.muted} role="status">{copied}</span>}
+              </div>
+            </>
           )}
         </details>
         <QueryState
@@ -266,24 +309,38 @@ export function DirectoryPage() {
                 </div>
                 <div className={d.actions}>
                   <Link className={s.button} to={`/contacts/${p.user_id}`}>Подробнее</Link>
-                  {mayManage && <button className={s.button} type="button" onClick={() => setSelected({ id: p.user_id, mode: "manage" })}>Управление аккаунтом</button>}
+                  {mayManage(p.user_id) && <button className={s.button} type="button" onClick={() => setSelected({ id: p.user_id, mode: "manage" })}>Управление аккаунтом</button>}
                 </div>
               </Card>
             ))}
           </div>
           {selectedPerson && selected && (
             <UnsavedChangesScope><ContactDialog key={selected.id} title="Управление аккаунтом" onClose={() => setSelected(null)}>
-              {mayManage ? <>
+              {mayManage(selectedPerson.user_id) ? <>
                 <p>{selectedPerson.surname} {selectedPerson.name} {selectedPerson.patronymic}</p>
-                <ParticipantCategoryPanel userId={selectedPerson.user_id} />
-                {can(session, "archive_account") && <ActionForm
-                  fields={[{ name: "reason", label: "Причина архивирования аккаунта", required: true, type: "textarea" }]}
-                  submitLabel="Архивировать аккаунт" variant="danger"
-                  onSubmit={async (v) => {
-                    await perform(() => directoryApi.archive(selectedPerson.user_id, text(v, "reason")));
-                    setSelected(null);
-                  }}
-                />}
+                {can(session, "edit_participant_category") && <section className={d.manageSection} aria-labelledby="manage-category">
+                  <h3 id="manage-category">Категория участника</h3>
+                  <ParticipantCategoryPanel userId={selectedPerson.user_id} />
+                </section>}
+                {can(session, "archive_account") && <section className={`${d.manageSection} ${d.dangerZone}`} aria-labelledby="manage-archive">
+                  <h3 id="manage-archive">Архивация аккаунта</h3>
+                  {mayArchive(selectedPerson.user_id) ? <details className={s.details}>
+                    <summary>Архивировать аккаунт…</summary>
+                    <p className={s.muted}>Архивирование отключает вход и снимает назначения. Восстановить аккаунт можно в архиве аккаунтов.</p>
+                    <ActionForm
+                      fields={[{ name: "reason", label: "Причина архивирования аккаунта", required: true, type: "textarea" }]}
+                      submitLabel="Архивировать аккаунт" variant="danger"
+                      onSubmit={async (v) => {
+                        await directoryApi.archive(selectedPerson.user_id, text(v, "reason"));
+                        // Close first: the reread must not ask for the archived person's category (PE-14).
+                        flushSync(() => setSelected(null));
+                        await refresh();
+                      }}
+                    />
+                  </details> : categoryByUser.has(selectedPerson.user_id)
+                    ? <p className={s.muted}>Председателя архивируют только после передачи поста, заместителей председателя — только председатель.</p>
+                    : <p className={s.muted}>{categoriesPending ? "Проверяем, можно ли архивировать этот аккаунт…" : "Не удалось проверить, можно ли архивировать этот аккаунт. Обновите страницу."}</p>}
+                </section>}
               </> : <p>Управление аккаунтом недоступно.</p>}
             </ContactDialog></UnsavedChangesScope>
           )}
@@ -299,10 +356,13 @@ export function DirectoryPage() {
 function FormerForm({ contact }: { contact?: FormerContact }) {
   const { perform, refresh } = useWorkspaceActions();
   return (
-    <ActionForm
+    <div className={d.formerForm}><ActionForm
       revision={contact?.revision}
       record={contact ? `former:${contact.contact_id}` : undefined}
       onConflict={refresh}
+      // A new card starts empty again, so a second click cannot repeat it (PE-06).
+      resetOnSuccess={!contact}
+      successMessage={contact ? undefined : "Карточка добавлена. Можно заполнить следующую."}
       fields={[
         ...Object.entries({
           surname: "Фамилия",
@@ -312,9 +372,10 @@ function FormerForm({ contact }: { contact?: FormerContact }) {
           email: "Почта",
           tg: "Telegram",
           vk: "VK",
-        }).map(([name, label]) => ({
+        }).map(([name, label]): Field => ({
           name,
           label,
+          type: name === "email" ? "email" : undefined,
           required: ["surname", "name"].includes(name),
           value: (contact?.[name as keyof FormerContact] as string) ?? "",
         })),
@@ -356,7 +417,7 @@ function FormerForm({ contact }: { contact?: FormerContact }) {
           ),
         );
       }}
-    />
+    /></div>
   );
 }
 export function FormerContactsPage() {
@@ -366,11 +427,23 @@ export function FormerContactsPage() {
     queryFn: directoryApi.former,
   });
   const [search, setSearch] = useState("");
+  const [adding, setAdding] = useState(false);
+  const shown = query.data?.items.filter((p) => matchesSearch([p.surname, p.name, p.patronymic], search));
   return (
     <Page
       title="Бывшие участники"
       description="Контактные карточки с периодами участия."
-      actions={<RouteLink to="/contacts">Действующие контакты</RouteLink>}
+      actions={
+        <div className={s.row}>
+          <RouteLink to="/contacts">Действующие контакты</RouteLink>
+          {can(session, "edit_former_contacts") && (
+            <button type="button" className={`${s.button} ${s.primary}`} onClick={() => setAdding(true)}>
+              <Glyph name="add" />
+              Добавить бывшего участника
+            </button>
+          )}
+        </div>
+      }
     >
       <div className={s.stack}>
         <div className={s.filters}>
@@ -385,22 +458,20 @@ export function FormerContactsPage() {
           </label>
         </div>
         <QueryState loading={query.isLoading} error={query.error}>
-          {query.data?.items
-            .filter((p) =>
-              `${p.surname} ${p.name}`
-                .toLowerCase()
-                .includes(search.toLowerCase()),
-            )
-            .map((p) => (
+          {shown?.map((p) => (
               <Card
                 key={p.contact_id}
                 title={`${p.surname} ${p.name} ${p.patronymic ?? ""}`}
               >
-                <p>
-                  {p.participation_periods
-                    .map((period) => `${period.from_year}–${period.to_year}`)
-                    .join(", ")}
-                </p>
+                {p.participation_periods.length ? (
+                  <p>
+                    {p.participation_periods
+                      .map((period) => `${period.from_year}–${period.to_year}`)
+                      .join(", ")}
+                  </p>
+                ) : (
+                  <p className={s.muted}>Периоды не указаны</p>
+                )}
                 <ContactLinks {...p} />
                 {can(session, "edit_former_contacts") && (
                   <details className={s.details}>
@@ -410,11 +481,13 @@ export function FormerContactsPage() {
                 )}
               </Card>
             ))}
+          {shown?.length === 0 && <Empty>{search.trim() ? "Ничего не найдено. Измените запрос." : "Карточек бывших участников пока нет."}</Empty>}
         </QueryState>
-        {can(session, "edit_former_contacts") && (
-          <Card title="Добавить бывшего участника">
+        {/* Adding is a header action with its own dialog, not a form always open below (PE-35). */}
+        {adding && can(session, "edit_former_contacts") && (
+          <UnsavedChangesScope><ContactDialog title="Добавить бывшего участника" onClose={() => setAdding(false)}>
             <FormerForm />
-          </Card>
+          </ContactDialog></UnsavedChangesScope>
         )}
       </div>
     </Page>

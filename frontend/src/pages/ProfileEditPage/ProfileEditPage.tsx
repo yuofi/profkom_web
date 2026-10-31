@@ -5,6 +5,8 @@ import { authApi } from "../../utils/api/auth.api";
 import { profileFeaturesApi, type AvatarSelection, type ProfileEditorData } from "../../utils/api/profileFeatures.api";
 import { ProfileAvatarDraft } from "../../components/Workspace/ProfileAvatarDraft";
 import { FormTextField } from "../../components/Form/FormTextFiled";
+import { FormSelectField } from "../../components/Form/FormSelectField";
+import { fundingLabels, personName } from "../../utils/contactFields";
 import { useForm } from "../../components/Form/Form";
 import { FormikProvider } from "formik";
 import { Button } from "../../components/Button/Button";
@@ -15,14 +17,11 @@ import { Avatar } from "../../components/Avatar/Avatar";
 import { ProfileValidationSchema, ChangePasswordValidationSchema } from "../../utils/zod";
 import styles from "./ProfileEditPage.module.css";
 import type { ProfileUpdate } from "../../utils/api/types";
-import { useSession } from "../../utils/session";
-import { visibleAdminTabs } from "../Admin/adminTabs";
 import { useGuardedAction, useUnsavedChanges } from "../../components/Workspace/unsavedChangesHooks";
 import { isBackdropClick, useModalDialog } from "../../components/Workspace/useModalDialog";
 
 export const ProfileEditPage = () => {
   const user = useMe();
-  const { session } = useSession();
   const queryClient = useQueryClient();
   const profileSaved = useRef(false);
   const passwordSaved = useRef(false);
@@ -84,20 +83,19 @@ export const ProfileEditPage = () => {
       if (!user) return;
       const clean = ProfileValidationSchema.parse(values);
       const updateData: ProfileUpdate = {
-        surname: values.surname,
-        name: values.name,
+        surname: clean.surname,
+        name: clean.name,
         patronymic: clean.patronymic,
-        // Empty keeps the stored group: a legacy non-numeric one is shown as empty.
-        group_number: values.group_number || undefined,
+        group_number: clean.group_number,
         location: values.location,
-        phone: values.phone,
+        phone: clean.phone,
         vk: clean.vk,
         tg: clean.tg,
-        email: values.email,
+        email: clean.email,
         budget: values.budget === "Бюджет",
       };
       await updateMutation.mutateAsync(updateData);
-      actions.resetForm({ values: { ...values, patronymic: clean.patronymic, tg: clean.tg ?? "", vk: clean.vk ?? "" } });
+      actions.resetForm({ values: { ...values, surname: clean.surname, name: clean.name, group_number: clean.group_number, phone: clean.phone ?? "", patronymic: clean.patronymic, tg: clean.tg ?? "", vk: clean.vk ?? "" } });
       profileSaved.current = true;
     }
   });
@@ -218,7 +216,7 @@ export const ProfileEditPage = () => {
                 <Card title="Основная информация">
                   <div className={styles.person}>
                     <Avatar src={user.photo_url} size={64} mode="view" />
-                    <p>{user.name} {user.surname}</p>
+                    <p>{personName(user)}</p>
                   </div>
                   <div className={styles.fields}>
                     <FormTextField name="surname" label="Фамилия" color="on-surface" />
@@ -234,23 +232,13 @@ export const ProfileEditPage = () => {
                     if ("file_id" in next) avatarDrafts.current.add(next.file_id);
                     setAvatar(next);
                   }} />
-                <Card title="Безопасность">
-                  <div className={s.row}>
-                    <button type="button" className={s.button} onClick={() => setIsPasswordModalOpen(true)}>
-                      {hasPassword ? "Изменить пароль" : "Задать пароль"}
-                    </button>
-                    {visibleAdminTabs(session).length > 0 && (
-                      <RouteLink to="/admin">Администрирование</RouteLink>
-                    )}
-                  </div>
-                </Card>
               </div>
               <div className={s.stack}>
                 <Card title="Данные об обучении">
                   <div className={styles.fields}>
                     <div className={styles.formGrid}>
                       <FormTextField name="group_number" label="Номер группы" color="on-surface" />
-                      <FormTextField name="budget" label="Форма обучения" color="on-surface" />
+                      <FormSelectField name="budget" label="Форма обучения" options={Object.values(fundingLabels).map(label => ({ value: label, label }))} />
                     </div>
                     <FormTextField name="location" label="Место жительства" color="on-surface" />
                   </div>
@@ -258,9 +246,18 @@ export const ProfileEditPage = () => {
                 <Card title="Контактные данные">
                   <div className={styles.fields}>
                     <FormTextField name="phone" label="Телефон" type="tel" color="on-surface" />
-                    <FormTextField name="tg" label="Телеграмм" color="on-surface" />
+                    <FormTextField name="tg" label="Telegram" color="on-surface" />
                     <FormTextField name="email" label="Почта" type="email" color="on-surface" />
                     <FormTextField name="vk" label="ВК (ссылка)" color="on-surface" />
+                  </div>
+                </Card>
+                {/* The password is apart from the profile data: the last card, also on a phone (PE-25).
+                    Администрирование is in the main menu. */}
+                <Card title="Безопасность">
+                  <div className={s.row}>
+                    <button type="button" className={s.button} onClick={() => setIsPasswordModalOpen(true)}>
+                      {hasPassword ? "Изменить пароль" : "Задать пароль"}
+                    </button>
                   </div>
                 </Card>
               </div>
@@ -274,7 +271,7 @@ export const ProfileEditPage = () => {
               ) : (
                 <p className={s.muted}>{profileFormik.dirty || avatar !== null ? "Есть несохранённые изменения" : "Изменений нет"}</p>
               )}
-              <button type="submit" className={`${s.button} ${s.primary}`} disabled={profileFormik.isSubmitting}>
+              <button type="submit" className={`${s.button} ${s.primary}`} disabled={profileFormik.isSubmitting || (!profileFormik.dirty && avatar === null)}>
                 {profileFormik.isSubmitting ? "Сохраняем…" : "Сохранить"}
               </button>
             </div>

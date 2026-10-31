@@ -516,18 +516,15 @@ def patch_block(id, payload, uid):
             ):
                 fail(422, "Invalid community URL")
             m.community_url = payload.community_url or None
+        avatar_before = m.avatar_file_id
         if "avatar_file_id" in payload.model_fields_set:
             replace_block_avatar(s, m, payload.avatar_file_id, uid)
         m.revision += 1
-        audit(
-            s,
-            "block",
-            m.block_id,
-            uid,
-            "Block settings updated",
-            {},
-            payload.model_dump(mode="json"),
-        )
+        # The flush hook (history.py) records the name, description and community link with
+        # their old values; only the avatar it does not watch gets its own entry (PE-12).
+        if m.avatar_file_id != avatar_before:
+            audit(s, "block", m.block_id, uid, "Block avatar updated",
+                  {"avatar_file_id": avatar_before}, {"avatar_file_id": m.avatar_file_id})
         s.commit()
         return with_guide_access(card(s, b, uid), uid)
 
@@ -714,15 +711,12 @@ def register_routes(router):
             if not u or u.account_state != "active" or u.banned:
                 fail(404, "Participant not found")
             r = s.get(CategoryRevisionORM, user_id)
+            from category_projection import target_capabilities
             return dict(
                 user_id=user_id,
                 category=u.category,
                 revision=r.revision if r else 1,
-                capabilities=(
-                    ["edit_participant_category"]
-                    if access.allowed(cur.user_id, "participant.category")
-                    else []
-                ),
+                capabilities=target_capabilities(s, cur.user_id)(user_id),
             )
 
     @router.patch("/participants/{user_id}/category")

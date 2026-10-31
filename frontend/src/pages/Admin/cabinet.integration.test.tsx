@@ -10,6 +10,7 @@ import { liveLogin, liveParticipant, livePassword } from "../../test/liveApi";
 import { change, field, mountWorkspace, submit, waitForPage } from "../../test/workspace";
 import { authApi } from "../../utils/api/auth.api";
 import { adminApi } from "../../utils/api/admin.api";
+import { peekAuthNotice } from "../../utils/authSession";
 import { membershipApi } from "../../utils/api/membership.api";
 import type { Session } from "../../utils/api/contract";
 import { UserProvider } from "../../utils/ctx";
@@ -21,7 +22,7 @@ import { AdminPanel } from "./AdminPage";
 // registrations first (A-ROL-21), PGAS admins (decision 14), temporary passwords (АВ-52),
 // an ended session (A-FE-4) and the rejection reason (decision 16).
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
-afterEach(async () => { await page?.cleanup(); page = undefined; Cookies.remove("access_token"); });
+afterEach(async () => { await page?.cleanup(); page = undefined; Cookies.remove("access_token"); sessionStorage.clear(); });
 const until = (predicate: () => boolean) => waitForPage(page!, predicate);
 const text = () => page!.container.textContent ?? "";
 async function mount(path: string, routes: ReactNode) {
@@ -96,7 +97,9 @@ it("АВ-52: a temporary password signs in only to its change", async () => {
   await change(field(form, "password"), "Own-Integration-2026");
   await change(field(form, "again"), "Own-Integration-2026");
   await submit(form);
-  await until(() => text().includes("Пароль изменён"));
+  // The change ends every session: the page signs out to the login and leaves it the note (PE-21).
+  await until(() => text().includes("LOGIN"));
+  expect(peekAuthNotice()?.notice).toBe("Пароль изменён. Войдите с новым паролем.");
   await expect(authApi.login({ email: person.email, password: issued.temporary_password })).rejects.toMatchObject({ response: { status: 401 } });
   expect((await authApi.login({ email: person.email, password: "Own-Integration-2026" })).status).toBe(200);
 });
