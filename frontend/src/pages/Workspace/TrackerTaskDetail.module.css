@@ -41,7 +41,8 @@
 .parameters > summary { font-size: 19px; font-weight: 600; list-style: none; cursor: pointer; padding: 0 0 16px; }
 .parameters > summary::-webkit-details-marker { display: none; }
 .parameters dl { display: grid; gap: 23px; margin: 0; }
-.parameters dl > div { display: grid; gap: 8px; min-width: 0; }
+/* In two columns a short cell keeps its value under the label beside a tall neighbour. */
+.parameters dl > div { display: grid; align-content: start; gap: 8px; min-width: 0; }
 .parameters dt { font-size: 12px; color: var(--on-surface); opacity: .58; }
 .parameters dd { text-align: left; margin: 0; font-size: 14px; min-width: 0; overflow-wrap: anywhere; }
 .parameters dd > a:not(.personChip) { color: var(--primary); text-decoration: none; }
