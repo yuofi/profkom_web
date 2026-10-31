@@ -80,15 +80,25 @@ function FeedbackForm({ diagnostics, onClose }: { diagnostics: FeedbackInput["di
   useUnsavedChanges({ scope, dirty: !result && !!(title || body || contact || screenshot), busy, label: "Обращение в поддержку" });
   const close = () => leave(onClose);
   useEffect(() => { restore.current = document.activeElement as HTMLElement;dialog.current?.querySelector<HTMLInputElement>("input[name=feedback-title]")?.focus();return () => { if (restore.current?.isConnected) restore.current.focus(); }; }, []);
+  // A control disabled while focused drops the focus to <body>, where Escape and Tab no longer
+  // reach the dialog: a finished step brings it to its outcome (GL-03).
+  const alert = useRef<HTMLParagraphElement>(null), [settled, setSettled] = useState<{ step: "send" | "screenshot" } | null>(null);
+  useEffect(() => {
+    const root = dialog.current;
+    if (!settled || !root) return;
+    const target = settled.step === "screenshot" ? fileInput.current?.parentElement?.querySelector<HTMLElement>("button")
+      : root.querySelector<HTMLElement>('[aria-invalid="true"]:not(:disabled)') ?? alert.current ?? root.querySelector<HTMLElement>('[role="status"]');
+    (target ?? root.querySelector<HTMLElement>('button[aria-label="Закрыть обращение"]'))?.focus();
+  }, [settled]);
   const clearScreenshot = () => { setScreenshot(null);setScreenshotName("");edited("screenshot");if (fileInput.current) fileInput.current.value = ""; };
   const loadScreenshot = async (file?: File) => {
     if (!file) return;
     setBusy(true);
     const problem = file.type === "image/png" ? await screenshotProblem(file).catch(() => BROKEN_SCREENSHOT) : "Выберите изображение в формате PNG.";
-    if (problem) { setFields(current => ({ ...current, screenshot: problem }));setBusy(false);if (fileInput.current) fileInput.current.value = "";return; }
+    if (problem) { setFields(current => ({ ...current, screenshot: problem }));setBusy(false);setSettled({ step: "screenshot" });if (fileInput.current) fileInput.current.value = "";return; }
     const reader = new FileReader();
-    reader.onload = () => { setScreenshot(String(reader.result));setScreenshotName(file.name);edited("screenshot");setBusy(false); };
-    reader.onerror = () => { setFields(current => ({ ...current, screenshot: "Не удалось прочитать изображение." }));setBusy(false); };
+    reader.onload = () => { setScreenshot(String(reader.result));setScreenshotName(file.name);edited("screenshot");setBusy(false);setSettled({ step: "screenshot" }); };
+    reader.onerror = () => { setFields(current => ({ ...current, screenshot: "Не удалось прочитать изображение." }));setBusy(false);setSettled({ step: "screenshot" }); };
     reader.readAsDataURL(file);
   };
   const send = async () => {
@@ -103,7 +113,7 @@ function FeedbackForm({ diagnostics, onClose }: { diagnostics: FeedbackInput["di
       nonce.current ??= createClientId();
       payload.current ??= { kind, title: title.trim(), body: body.trim(), contact: contact.trim() || null, idempotency_key: nonce.current, diagnostics: include ? diagnostics : null, screenshot };
     }
-    catch (failure) { setError(userMessage(failure));setBusy(false);return; }
+    catch (failure) { setError(userMessage(failure));setBusy(false);setSettled({ step: "send" });return; }
     try { setAttempted(true);setResult(await supportApi.submit(payload.current)); }
     catch (failure) {
       if (canRetainData(failure)) setError(`${userMessage(failure)} Повторная отправка использует тот же номер запроса.`);
@@ -115,7 +125,7 @@ function FeedbackForm({ diagnostics, onClose }: { diagnostics: FeedbackInput["di
         setError(Object.keys(refused).length ? "Исправьте отмеченные поля." : refusalText(failure));
       }
     }
-    finally { setBusy(false); }
+    finally { setBusy(false);setSettled({ step: "send" }); }
   };
   return createPortal(<div className={f.overlay} onClick={event => { if (event.target === event.currentTarget && !busy) close(); }}>
     <div ref={dialog} className={`${f.dialog} ${s.page} ${l.controls}`} role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={event => {
@@ -123,16 +133,16 @@ function FeedbackForm({ diagnostics, onClose }: { diagnostics: FeedbackInput["di
       if (event.key === "Tab") { const nodes = [...dialog.current!.querySelectorAll<HTMLElement>("button:not(:disabled),a[href],input:not(:disabled):not([hidden]),textarea:not(:disabled),select:not(:disabled),summary")];const first = nodes[0], last = nodes.at(-1);if (event.shiftKey && document.activeElement === first) { event.preventDefault();last?.focus(); }else if (!event.shiftKey && document.activeElement === last) { event.preventDefault();first?.focus(); } }
     }}>
       <header className={f.header}><h2 id={titleId}>Обращение в поддержку</h2><button type="button" className={s.button} aria-label="Закрыть обращение" disabled={busy} onClick={close}><Glyph name="close" /></button></header>
-      {result ? <div className={s.stack}><p role="status">{result.task_key ? `Создан тикет ${result.task_key}` : "Обращение сохранено. Тикет появится после подключения очереди поддержки."}</p>{result.task_id && canTrack && <Link to={getTaskRoute(result.task_id)} onClick={onClose}>Открыть тикет</Link>}<p className={s.muted}>Номер обращения: {result.report_id}</p><button className={s.button} onClick={onClose}>Готово</button></div> : <form className={s.stack} noValidate onSubmit={event => { event.preventDefault();void send(); }}>
+      {result ? <div className={s.stack}><p role="status" tabIndex={-1}>{result.task_key ? `Создан тикет ${result.task_key}` : "Обращение сохранено. Тикет появится после подключения очереди поддержки."}</p>{result.task_id && canTrack && <Link to={getTaskRoute(result.task_id)} onClick={onClose}>Открыть тикет</Link>}<p className={s.muted}>Номер обращения: {result.report_id}</p><button className={s.button} onClick={onClose}>Готово</button></div> : <form className={s.stack} noValidate onSubmit={event => { event.preventDefault();void send(); }}>
         <label className={s.field}>Тип обращения<select value={kind} disabled={locked} onChange={event => setKind(event.target.value as typeof kind)}><option value="bug">Ошибка</option><option value="feature">Предложение</option></select></label>
         <label className={s.field}>Кратко о проблеме<input name="feedback-title" value={title} maxLength={240} required disabled={locked} aria-invalid={!!fields.title || undefined} aria-describedby={errorId("title")} onChange={event => { setTitle(event.target.value);edited("title"); }} />{fieldError("title")}</label>
         <label className={s.field}>Описание<textarea value={body} rows={7} maxLength={16000} required disabled={locked} aria-invalid={!!fields.body || undefined} aria-describedby={errorId("body")} onChange={event => { setBody(event.target.value);edited("body"); }} placeholder="Что вы сделали, что ожидали и что произошло?" />{fieldError("body")}</label>
         {!canTrack && <label className={s.field}>Контакт для ответа — необязательно<input value={contact} maxLength={300} disabled={locked} aria-invalid={!!fields.contact || undefined} aria-describedby={errorId("contact")} onChange={event => { setContact(event.target.value);edited("contact"); }} />{fieldError("contact")}</label>}
         <label className={f.option}><input type="checkbox" checked={include} disabled={locked} onChange={event => setInclude(event.target.checked)} />Приложить техническую диагностику</label>
         {include && <details className={s.details}><summary>Что будет приложено</summary><p className={s.muted}>Версия, маршрут, размер окна и последние действия/коды ошибок. Значения полей, пароли и содержимое запросов не собираются. Хранение — 90 дней.</p><pre className={f.diagnostics}>{JSON.stringify(diagnostics, null, 2)}</pre></details>}
-        {window.location.hostname !== "test.profcom-cmc.online" && <div className={s.field}><span>Изображение экрана — по желанию, PNG до 2 МиБ</span><FileButton label="Выбрать изображение" fileName={screenshotName} accept="image/png" disabled={locked} inputRef={fileInput} invalid={!!fields.screenshot} describedBy={errorId("screenshot")} onChange={event => void loadScreenshot(event.currentTarget.files?.[0])} />{fieldError("screenshot")}</div>}
+        {window.location.hostname !== "test.profcom-cmc.online" && <div className={s.field}><span id={`${scope}-screenshot-label`}>Изображение экрана — по желанию, PNG до 2 МиБ</span><FileButton label="Выбрать изображение" labelledBy={`${scope}-screenshot-label`} fileName={screenshotName} accept="image/png" disabled={locked} inputRef={fileInput} invalid={!!fields.screenshot} describedBy={errorId("screenshot")} onChange={event => void loadScreenshot(event.currentTarget.files?.[0])} />{fieldError("screenshot")}</div>}
         {screenshot && <><img className={f.preview} src={screenshot} alt="Предварительный просмотр приложения к обращению" /><button type="button" className={s.button} disabled={locked} onClick={clearScreenshot}>Убрать изображение</button></>}
-        {error && <p role="alert" className={s.error}>{error}</p>}
+        {error && <p ref={alert} role="alert" tabIndex={-1} className={s.error}>{error}</p>}
         <button type="submit" className={`${s.button} ${s.primary}`} disabled={busy}>{busy ? "Отправляем…" : attempted ? "Повторить отправку" : "Отправить обращение"}</button>
         {(context.data?.can_configure || context.data?.can_triage) && <Link to="/support" onClick={event => { event.preventDefault();navigate("/support", onClose); }}>Управление поддержкой сайта</Link>}
         {canTrack && !context.data?.can_configure && !context.data?.can_triage && <Link to="/support" onClick={event => { event.preventDefault();navigate("/support", onClose); }}>Мои обращения</Link>}

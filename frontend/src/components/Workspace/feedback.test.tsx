@@ -126,3 +126,28 @@ it("checks the screenshot locally and shows a refused size at the image, which c
   await submit(dialog.querySelector("form")!);
   expect(save).toHaveBeenCalledTimes(2);expect(save.mock.calls[1][0].screenshot).toBeNull();
 });
+
+it("brings the focus back into the dialog after each attempt, so Escape and Tab keep working", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const save = vi.spyOn(supportApi, "submit").mockRejectedValueOnce(new ApiError("Service Unavailable", 503, "http_503"))
+    .mockRejectedValueOnce(new ApiError("Проверьте заполнение полей", 422, "validation_error", { errors: [{ loc: ["body", "title"], type: "string_too_short", msg: "short" }] }))
+    .mockResolvedValue(receipt);
+  const dialog = await openFeedback(), title = field(dialog, "feedback-title");
+  const choice = [...dialog.querySelectorAll("button")].find(button => button.textContent?.includes("Выбрать изображение"))!;
+  // The visible field label names the file button.
+  expect(choice.getAttribute("aria-labelledby")!.split(" ").map(id => document.getElementById(id)?.textContent)).toEqual(["Изображение экрана — по желанию, PNG до 2 МиБ", "Выбрать изображение"]);
+  choice.focus();await choose(dialog, PNG_HEAD);
+  expect(document.activeElement).toBe(choice);
+  await change(title, "Кнопка не работает");await change(dialog.querySelector("textarea")!, "Шаги");
+  // A 503 may have stored the report: the fields stay locked and the focus goes to the error.
+  await submit(dialog.querySelector("form")!);await settle();
+  expect(save).toHaveBeenCalledTimes(1);expect(title.disabled).toBe(true);
+  expect(document.activeElement).toBe(dialog.querySelector('[role="alert"]'));expect(dialog.contains(document.activeElement)).toBe(true);
+  // A refusal of a field opens the form and focuses the marked field.
+  await submit(dialog.querySelector("form")!);await settle();
+  expect(save).toHaveBeenCalledTimes(2);expect(document.activeElement).toBe(title);
+  await submit(dialog.querySelector("form")!);await settle();
+  expect(save).toHaveBeenCalledTimes(3);expect(document.activeElement).toBe(dialog.querySelector('[role="status"]'));
+  await act(async () => { document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });await settle();
+  expect(document.querySelector('[aria-modal="true"]')).toBeNull();
+});

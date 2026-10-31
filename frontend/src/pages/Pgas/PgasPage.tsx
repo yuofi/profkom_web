@@ -362,7 +362,7 @@ export const PgasPage = () => {
                     {formik.touched.half_year && formik.errors.half_year && <span className={s.fieldError}>{String(formik.errors.half_year)}</span>}
                   </label>
 
-                  <FileButton fileName={selectedFile?.name} accept={fileAccept("pgas")} inputRef={fileInputRef} onChange={handleFileChange} invalid={!!fileError} describedBy={fileError ? "pgas-file-error" : undefined} />
+                  <div className={s.field}><span id="pgas-file-label">Файл документа</span><FileButton labelledBy="pgas-file-label" fileName={selectedFile?.name} accept={fileAccept("pgas")} inputRef={fileInputRef} onChange={handleFileChange} invalid={!!fileError} describedBy={fileError ? "pgas-file-error" : undefined} /></div>
 
                   {fileError && <p id="pgas-file-error" role="alert" className={s.fieldError}>{fileError}</p>}
 

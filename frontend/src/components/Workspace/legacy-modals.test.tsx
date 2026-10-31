@@ -51,6 +51,9 @@ it("the PGAS upload window names every missing field at once and closes on Escap
   expect(create).not.toHaveBeenCalled();
   for (const text of ["Название мероприятия обязательно", "Выберите период документа", "Прикрепите файл"]) expect(dialog.textContent).toContain(text);
   expect(button(dialog, "Выбрать файл").getAttribute("aria-invalid")).toBe("true");
+  // The visible label names the file button too.
+  const named = button(dialog, "Выбрать файл").getAttribute("aria-labelledby")!.split(" ").map(id => document.getElementById(id)?.textContent);
+  expect(named).toEqual(["Файл документа", "Выбрать файл"]);
   await escape(dialog);
   expect(page.container.querySelector("dialog")).toBeNull();
 });
