@@ -1,5 +1,5 @@
 import { Fragment, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import type { Event, Subevent, Season } from "../../utils/api/contract";
 import { richText } from "../../utils/api/contract";
@@ -33,7 +33,7 @@ export function SubeventEditor({ parent, subevent }: { parent: Event; subevent?:
 function EventCanvas({ event, subevent, parent, seasons, series }: {
   event?: Event; subevent?: Subevent; parent?: Event; seasons: Season[]; series: ReturnType<typeof useSeriesField>;
 }) {
-  const navigate = useNavigate(), { perform, refresh } = useWorkspaceActions();
+  const navigate = useNavigate(), location = useLocation(), { perform, refresh } = useWorkspaceActions();
   const existing = subevent ?? event, child = !!parent;
   const available = seasons.filter(item => ["planned", "open"].includes(item.state));
   const [title, setTitle] = useState(existing?.title ?? ""), [description, setDescription] = useState(existing?.description.body ?? "");
@@ -51,13 +51,15 @@ function EventCanvas({ event, subevent, parent, seasons, series }: {
   if (!child && !event && !available.length) return <Empty>Для мероприятия нужен открытый или запланированный сезон.</Empty>;
   const heading = existing ? `Редактирование ${child ? "подмероприятия" : "мероприятия"}` : `Новое ${child ? "подмероприятие" : "мероприятие"}`;
   const back = event ? getEventRoute(event.event_id) : subevent ? getSubeventRoute(subevent.subevent_id) : parent ? getEventRoute(parent.event_id) : "/events";
+  // Opened from the subevent page, the editor returns to that history entry instead of adding another one.
+  const returns = !!subevent && (location.state as { returnTo?: string } | null)?.returnTo === back;
   // The trail names what is edited: the event, and for a subevent its parent first.
   const trail = [parent ? { to: getEventRoute(parent.event_id), title: parent.title } : event ? { to: getEventRoute(event.event_id), title: event.title } : { to: "/events", title: "Мероприятия" },
     ...subevent ? [{ to: getSubeventRoute(subevent.subevent_id), title: subevent.title }] : []];
   const noun = child ? "подмероприятия" : "мероприятия";
   return <section className={s.page}>
     <BrandedHeader className={s.canvasHeader}><div><SectionHomeLink to="/events" label="Мероприятия" /><nav aria-label="Навигация мероприятия">{trail.map(item => <Fragment key={item.to}><Link to={item.to} title={item.title}>{item.title}</Link><span>›</span></Fragment>)}<span>{heading}</span></nav><h1 className={w.title}>{heading}</h1></div></BrandedHeader>
-    <ActionForm fields={[]} actions={<Link className={w.button} to={back}>Отмена</Link>} revision={existing?.revision} record={existing ? `${child ? "subevent" : "event"}:${subevent?.subevent_id ?? event?.event_id}` : undefined} externalState={state} savedExternalState={savedState} onReplaceWithSaved={replace} externalBusy={saving} allowExitSave={false}
+    <ActionForm fields={[]} actions={<Link className={w.button} to={back} onClick={click => { if (returns) { click.preventDefault();navigate(-1); } }}>Отмена</Link>} revision={existing?.revision} record={existing ? `${child ? "subevent" : "event"}:${subevent?.subevent_id ?? event?.event_id}` : undefined} externalState={state} savedExternalState={savedState} onReplaceWithSaved={replace} externalBusy={saving} allowExitSave={false}
       submitLabel={existing ? "Сохранить изменения" : child ? "Создать подмероприятие" : "Создать мероприятие"} onConflict={refresh} onSubmit={async (_, revision) => {
         if (!title.trim()) throw Error(`Введите название ${noun}`);
         if (starts && ends && utc(starts)! > utc(ends)!) throw Error("Окончание раньше начала");
@@ -68,8 +70,9 @@ function EventCanvas({ event, subevent, parent, seasons, series }: {
           if (parent) {
             const body = { ...(subevent ? patch : data), announcement: richText(announcement) };
             const saved = await perform(() => subevent ? eventsApi.updateSubevent(subevent.subevent_id, { ...body, expected_revision: revision! }) : eventsApi.createSubevent(parent.event_id, { ...body, ...chosenSeries(seriesId) }));
-            // The editor route is replaced, so Back from the saved subevent does not reopen the form.
-            navigate(getSubeventRoute(saved.subevent_id), { replace: true });
+            // The editor route is left or replaced, so Back from the saved subevent does not reopen the form.
+            if (returns) navigate(-1);
+            else navigate(getSubeventRoute(saved.subevent_id), { replace: true });
             return subevent ? { revision: saved.revision } : undefined;
           }
           const saved = await perform(() => event ? eventsApi.update(event.event_id, { ...patch, expected_revision: revision! }) : eventsApi.create({ title: data.title, description: data.description, season_id: seasonId, all_day: allDay, ...(data.starts_at ? { starts_at: data.starts_at } : {}), ...(data.ends_at ? { ends_at: data.ends_at } : {}), ...chosenSeries(seriesId) }));

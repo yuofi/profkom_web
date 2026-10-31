@@ -4,13 +4,13 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
-import { change, settle, waitForPage } from "../../test/workspace";
+import { change, field, settle, submit, waitForPage } from "../../test/workspace";
 import { createFixtures } from "../../mocks/fixtures";
 import { installMockTransport } from "../../mocks/transport";
 import { SessionContext } from "../../utils/session";
 import { workspaceQueryCache } from "../../utils/api/invalidation";
 import { workspaceApi } from "../../utils/api/workspace.api";
-import { EventsListPage } from "./EventPages";
+import { EventsListPage, SubeventEditPage, SubeventPage } from "./EventPages";
 import { CalendarPage, DashboardPage } from "./WorkspacePages";
 
 type Mounted = Awaited<ReturnType<typeof mount>>;
@@ -26,6 +26,8 @@ async function mount(path: string) {
     { path: "/previous", element: <p>Предыдущая страница</p> },
     { path: "/events", element: <EventsListPage /> },
     { path: "/calendar", element: <CalendarPage /> },
+    { path: "/subevents/:id", element: <SubeventPage /> },
+    { path: "/subevents/:id/edit", element: <SubeventEditPage /> },
     { path: "/", element: <DashboardPage /> },
   ], { initialEntries: ["/previous", path], initialIndex: 1 });
   await act(async () => root.render(<QueryClientProvider client={client}><SessionContext.Provider value={{ session: createFixtures("chair").session, loading: false, error: null, refresh: () => {} }}><RouterProvider router={router} /></SessionContext.Provider></QueryClientProvider>));
@@ -77,4 +79,32 @@ it("the watched-tasks choice is kept in the URL across returns without a history
   await back();await waitForPage(page);
   expect(page.router.state.location.search).toBe("?watching=1");
   expect(box().checked).toBe(true);
+});
+
+it("the subevent editor returns to the page it was opened from, so Back never repeats it (EV-07)", async () => {
+  mock = installMockTransport("chair", { delay: 0 });const sub = mock.state.subevents[0];
+  const link = (text: string) => [...page!.container.querySelectorAll<HTMLAnchorElement>("a")].find(item => item.textContent === text)!;
+  const edit = async () => { await act(async () => link("Редактировать подмероприятие").click());await waitForPage(page!, () => !!page!.container.querySelector('[name="title"]')); };
+  page = await mount(`/subevents/${sub.subevent_id}`);
+  // Saving goes back to the subevent's own entry instead of adding an identical one.
+  await edit();
+  expect(page.router.state.location.pathname).toBe(`/subevents/${sub.subevent_id}/edit`);
+  await change(field(page.container, "title"), "Лекции и встречи — новое");await submit(page.container.querySelector("form")!);await waitForPage(page);
+  expect(page.router.state.location.pathname).toBe(`/subevents/${sub.subevent_id}`);
+  expect(page.router.state.historyAction).toBe("POP");
+  // Cancel goes back too: Back from the subevent does not reopen the editor.
+  await edit();
+  await act(async () => link("Отмена").click());await waitForPage(page);
+  expect(page.router.state.location.pathname).toBe(`/subevents/${sub.subevent_id}`);
+  expect(page.router.state.historyAction).toBe("POP");
+  await back();
+  expect(page.router.state.location.pathname).toBe("/previous");
+  await page.cleanup();
+  // An editor opened at its own address replaces itself with the saved subevent.
+  page = await mount(`/subevents/${sub.subevent_id}/edit`);await waitForPage(page, () => !!page!.container.querySelector('[name="title"]'));
+  await change(field(page.container, "title"), "Лекции и встречи — ещё");await submit(page.container.querySelector("form")!);await waitForPage(page);
+  expect(page.router.state.location.pathname).toBe(`/subevents/${sub.subevent_id}`);
+  expect(page.router.state.historyAction).toBe("REPLACE");
+  await back();
+  expect(page.router.state.location.pathname).toBe("/previous");
 });

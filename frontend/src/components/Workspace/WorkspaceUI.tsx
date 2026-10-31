@@ -116,11 +116,14 @@ export const ErrorState = ({
 export const RouteLink = ({
   to,
   children,
+  state,
 }: {
   to: string;
   children: ReactNode;
+  /** Router state of the opened entry, such as the page an editor returns to. */
+  state?: unknown;
 }) => (
-  <Link className={s.linkButton} to={to}>
+  <Link className={s.linkButton} to={to} state={state}>
     {children}
   </Link>
 );

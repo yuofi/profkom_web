@@ -160,7 +160,7 @@ export function SubeventPage() {
   const organizers = sub?.organizers ?? sub?.organizer_user_ids.flatMap(uid => { const user = people.options.find(item => item.value === String(uid))?.user;return user ? [user] : []; }) ?? [];
   // Editing and the team's work links form one row under the header text, so the title keeps the full width.
   const actions = [
-    can(sub, "edit_subevent") && <RouteLink key="edit" to={getSubeventEditRoute(id)}><Glyph name="edit" />Редактировать подмероприятие</RouteLink>,
+    can(sub, "edit_subevent") && <RouteLink key="edit" to={getSubeventEditRoute(id)} state={{ returnTo: getSubeventRoute(id) }}><Glyph name="edit" />Редактировать подмероприятие</RouteLink>,
     working && (can(sub, "view_tasks") || can(sub, "create_task")) && <RouteLink key="tasks" to={`/tasks?scope_kind=subevent&scope_id=${encodeURIComponent(id)}`}>Задачи команды</RouteLink>,
     working && reportsLink && <RouteLink key="reports" to={`/reports?owner_kind=subevent&owner_id=${encodeURIComponent(id)}`}>Отчёты</RouteLink>,
     working && can(sub, "view_meeting") && <RouteLink key="meeting" to={`/meetings/subevent/${encodeURIComponent(id)}`}>Созвон</RouteLink>,
