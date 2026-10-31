@@ -26,7 +26,16 @@ it("puts heads in the actual event header and removes the annual-copy action", a
   page=await mountWorkspace(<Routes><Route path="/events/:id" element={<EventPage/>}/></Routes>,{path:`/events/${event.event_id}`});await waitForPage(page);
   const header=page.container.querySelector("header")!;expect(header.textContent).toContain("Главорги");expect(header.querySelector('a[href^="/contacts/"]')).not.toBeNull();
   expect(page.container.textContent).not.toContain("Создать новый ежегодный экземпляр");expect(page.container.querySelector('[name="title"]')).toBeNull();
-  expect(header.querySelector('[role="group"][aria-label="Действия мероприятия"] a[href="/events"]')?.textContent).toBe("Все мероприятия");
+  // GL-36: the way back to the list is the section stamp alone, not a second «Все мероприятия».
+  expect([...header.querySelectorAll('a[href="/events"]')].map(link => link.textContent)).toEqual(["Профком ВМК · Мероприятия"]);
+  expect(header.textContent).not.toContain("Все мероприятия");
+  expect(header.querySelector('[role="group"][aria-label="Действия мероприятия"]')?.textContent).toContain("Изменить мероприятие");
+});
+it("GL-36: a reader without event actions gets no empty action group in the header", async () => {
+  mock=installMockTransport("chair",{delay:0});const event=mock.state.events[0];event.capabilities=event.capabilities.filter(name=>!["edit_event","close_event","reopen_event"].includes(name));
+  page=await mountWorkspace(<Routes><Route path="/events/:id" element={<EventPage/>}/></Routes>,{path:`/events/${event.event_id}`});await waitForPage(page);
+  const header=page.container.querySelector("header")!;expect(header.querySelector('a[href="/events"]')?.textContent).toBe("Профком ВМК · Мероприятия");
+  expect(header.querySelector('[role="group"][aria-label="Действия мероприятия"]')).toBeNull();
 });
 it("presents children as labeled independent entries with real dates and preserved navigation", async () => {
   vi.useFakeTimers({ toFake: ["Date"] });vi.setSystemTime(new Date("2026-10-27T12:00:00Z"));
