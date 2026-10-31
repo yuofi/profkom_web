@@ -1,6 +1,7 @@
 import { EntityPicker } from "../../components/Workspace/EntityPicker";
 import { Link } from "react-router-dom";
 import { useState } from "react";
+import { flushSync } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   Page,
@@ -73,7 +74,7 @@ function ContactLinks({
 }
 export function DirectoryPage() {
   const { session } = useSession();
-  const { perform } = useWorkspaceActions();
+  const { refresh } = useWorkspaceActions();
   const query = useQuery({
     queryKey: ["contacts"],
     queryFn: directoryApi.contacts,
@@ -132,7 +133,10 @@ export function DirectoryPage() {
         .includes(search.toLowerCase()),
   );
   const selectedPerson = query.data?.find((p) => p.user_id === selected?.id);
-  const mayManage = can(session, "edit_participant_category") || can(session, "archive_account");
+  // Archiving is decided per target by the server (PE-01): never the chair, and a chair
+  // deputy only by the chair; the category read carries that capability.
+  const mayArchive = (userId: number) => can(categoryByUser.get(userId), "archive_account");
+  const mayManage = (userId: number) => can(session, "edit_participant_category") || mayArchive(userId);
   return (
     <Page
       title="Контактная информация"
@@ -266,24 +270,36 @@ export function DirectoryPage() {
                 </div>
                 <div className={d.actions}>
                   <Link className={s.button} to={`/contacts/${p.user_id}`}>Подробнее</Link>
-                  {mayManage && <button className={s.button} type="button" onClick={() => setSelected({ id: p.user_id, mode: "manage" })}>Управление аккаунтом</button>}
+                  {mayManage(p.user_id) && <button className={s.button} type="button" onClick={() => setSelected({ id: p.user_id, mode: "manage" })}>Управление аккаунтом</button>}
                 </div>
               </Card>
             ))}
           </div>
           {selectedPerson && selected && (
             <UnsavedChangesScope><ContactDialog key={selected.id} title="Управление аккаунтом" onClose={() => setSelected(null)}>
-              {mayManage ? <>
+              {mayManage(selectedPerson.user_id) ? <>
                 <p>{selectedPerson.surname} {selectedPerson.name} {selectedPerson.patronymic}</p>
-                <ParticipantCategoryPanel userId={selectedPerson.user_id} />
-                {can(session, "archive_account") && <ActionForm
-                  fields={[{ name: "reason", label: "Причина архивирования аккаунта", required: true, type: "textarea" }]}
-                  submitLabel="Архивировать аккаунт" variant="danger"
-                  onSubmit={async (v) => {
-                    await perform(() => directoryApi.archive(selectedPerson.user_id, text(v, "reason")));
-                    setSelected(null);
-                  }}
-                />}
+                {can(session, "edit_participant_category") && <section className={d.manageSection} aria-labelledby="manage-category">
+                  <h3 id="manage-category">Категория участника</h3>
+                  <ParticipantCategoryPanel userId={selectedPerson.user_id} />
+                </section>}
+                {can(session, "archive_account") && <section className={`${d.manageSection} ${d.dangerZone}`} aria-labelledby="manage-archive">
+                  <h3 id="manage-archive">Архивация аккаунта</h3>
+                  {mayArchive(selectedPerson.user_id) ? <details className={s.details}>
+                    <summary>Архивировать аккаунт…</summary>
+                    <p className={s.muted}>Архивирование отключает вход и снимает назначения. Восстановить аккаунт можно в архиве аккаунтов.</p>
+                    <ActionForm
+                      fields={[{ name: "reason", label: "Причина архивирования аккаунта", required: true, type: "textarea" }]}
+                      submitLabel="Архивировать аккаунт" variant="danger"
+                      onSubmit={async (v) => {
+                        await directoryApi.archive(selectedPerson.user_id, text(v, "reason"));
+                        // Close first: the reread must not ask for the archived person's category (PE-14).
+                        flushSync(() => setSelected(null));
+                        await refresh();
+                      }}
+                    />
+                  </details> : <p className={s.muted}>Председателя архивируют только после передачи поста, заместителей председателя — только председатель.</p>}
+                </section>}
               </> : <p>Управление аккаунтом недоступно.</p>}
             </ContactDialog></UnsavedChangesScope>
           )}

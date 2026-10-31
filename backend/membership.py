@@ -684,15 +684,12 @@ def register_routes(router):
             if not u or u.account_state != "active" or u.banned:
                 fail(404, "Participant not found")
             r = s.get(CategoryRevisionORM, user_id)
+            from category_projection import target_capabilities
             return dict(
                 user_id=user_id,
                 category=u.category,
                 revision=r.revision if r else 1,
-                capabilities=(
-                    ["edit_participant_category"]
-                    if access.allowed(cur.user_id, "participant.category")
-                    else []
-                ),
+                capabilities=target_capabilities(s, cur.user_id)(user_id),
             )
 
     @router.patch("/participants/{user_id}/category")

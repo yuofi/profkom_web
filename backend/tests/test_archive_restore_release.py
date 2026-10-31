@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from database import db, RoleAssignmentORM
+from database import db, RoleAssignmentORM, UserORM
 from domain_models import AccountArchiveORM, FormerContactORM, ScopeTenureORM
 from models import Block
 from test_v13_tracker import work
@@ -162,3 +162,47 @@ def test_rename_never_binds_an_unproved_legacy_snapshot_by_name(client, work, su
         assert [(row.tenure_id, row.scope_id, row.started_at, row.ended_at) for row in session.query(ScopeTenureORM)] == tenures_before
     denied = client.post(f"/api/accounts/{uid}/restore", headers=superuser.headers, json={"master_conflicts": []})
     assert denied.status_code == 409 and denied.json()["detail"]["code"] == "archive_scope_mapping_required"
+
+
+def test_only_the_chair_archives_or_restores_a_chair_deputy(client, superuser, make_user):
+    """PE-01: deputies share account archive/restore, but never change who the deputies are."""
+    first, second, member = (make_user(in_profcom=True) for _ in range(3))
+    lead = ok(client.get("/api/leadership", headers=superuser.headers))
+    ok(client.put("/api/leadership/deputies", headers=superuser.headers,
+        json={"user_ids": [first.user_id, second.user_id], "expected_revision": lead["revision"]}))
+    deputies = lambda: [p["user_id"] for p in ok(client.get("/api/leadership", headers=superuser.headers))["deputies"]]
+    for target in (second, first):
+        denied = client.post(f"/api/accounts/{target.user_id}/archive", headers=first.headers, json={"reason": "probe"})
+        assert denied.status_code == 403 and denied.json()["detail"]["code"] == "leadership_change_forbidden", denied.text
+    assert sorted(deputies()) == sorted([first.user_id, second.user_id])
+    assert client.get("/api/session", headers=second.headers).status_code == 200
+    # Ordinary accounts stay within the deputies' archive rights.
+    ok(client.post(f"/api/accounts/{member.user_id}/archive", headers=first.headers, json={"reason": "Synthetic leave"}))
+    ok(client.post(f"/api/accounts/{member.user_id}/restore", headers=first.headers, json={"master_conflicts": []}))
+    ok(client.post(f"/api/accounts/{second.user_id}/archive", headers=superuser.headers, json={"reason": "Synthetic leave"}))
+    assert deputies() == [first.user_id]
+    denied = client.post(f"/api/accounts/{second.user_id}/restore", headers=first.headers, json={"master_conflicts": []})
+    assert denied.status_code == 403 and denied.json()["detail"]["code"] == "leadership_change_forbidden", denied.text
+    assert deputies() == [first.user_id]
+    with db._session() as session:
+        assert session.get(UserORM, second.user_id).account_state == "archived"
+    ok(client.post(f"/api/accounts/{second.user_id}/restore", headers=superuser.headers, json={"master_conflicts": []}))
+    assert sorted(deputies()) == sorted([first.user_id, second.user_id])
+
+
+def test_category_reads_name_the_archive_right_per_target(client, superuser, make_user):
+    """PE-01: the directory hides archiving where the server refuses it, in both read shapes."""
+    deputy, member = make_user(in_profcom=True), make_user(in_profcom=True)
+    lead = ok(client.get("/api/leadership", headers=superuser.headers))
+    ok(client.put("/api/leadership/deputies", headers=superuser.headers,
+        json={"user_ids": [deputy.user_id], "expected_revision": lead["revision"]}))
+    people = [superuser.user_id, deputy.user_id, member.user_id]
+    def archivable(viewer):
+        items = ok(client.get("/api/participants/categories", headers=viewer.headers,
+            params={"user_ids": ",".join(map(str, people))}))["items"]
+        for item in items:
+            assert ok(client.get(f"/api/participants/{item['user_id']}/category", headers=viewer.headers)) == item
+        return {item["user_id"] for item in items if "archive_account" in item["capabilities"]}
+    assert archivable(superuser) == {deputy.user_id, member.user_id}
+    assert archivable(deputy) == {member.user_id}
+    assert archivable(member) == set()

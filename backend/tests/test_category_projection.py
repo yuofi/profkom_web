@@ -43,7 +43,8 @@ def test_batch_matches_exact_single_get_without_creating_missing_revisions(clien
     assert response.status_code == 200
     assert response.json() == {"items": expected}
     assert expected[0]["revision"] == 1 and expected[1]["revision"] == 7
-    assert all(item["capabilities"] == (["edit_participant_category"] if editor else []) for item in expected)
+    # The chair also archives these ordinary targets (PE-01: archive right is per target).
+    assert all(item["capabilities"] == (["edit_participant_category", "archive_account"] if editor else []) for item in expected)
     assert all(set(item) == {"user_id", "category", "revision", "capabilities"} for item in response.json()["items"])
     assert all(q.lstrip().upper().startswith("SELECT") for q in queries)
     with db._session() as s:

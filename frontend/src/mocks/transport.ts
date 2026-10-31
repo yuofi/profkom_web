@@ -163,6 +163,8 @@ export function installMockTransport(
       },
     ]),
   );
+  // The chair archives everybody except the chair (PE-01: a per-target capability).
+  const categoryRead = (item: { user_id: number; capabilities: string[] }) => ({ ...clone(item), capabilities: [...item.capabilities, ...(state.chair && item.user_id !== leadership.chair.user_id ? ["archive_account"] : [])] });
   const queueApplication = {
     ...clone(state.registration),
     user_id: 105,
@@ -1970,7 +1972,7 @@ export function installMockTransport(
       const ids = [...new Set(pieces.map(Number))].sort((a, b) => a - b);
       if (raw.length > 4096 || pieces.some(value => !/^[1-9][0-9]{0,18}$/.test(value)) || ids.length > 200)
         return fail(422, "invalid_input", "Проверьте список участников");
-      return [200, { items: ids.flatMap(id => { const item = categories.get(id);return item ? [clone(item)] : []; }) }];
+      return [200, { items: ids.flatMap(id => { const item = categories.get(id);return item ? [categoryRead(item)] : []; }) }];
     }
     if (parts[0] === "participants" && parts[2] === "participation" && method === "get") {
       const target = Number(parts[1]);
@@ -1987,7 +1989,7 @@ export function installMockTransport(
         category.category = data.category as typeof category.category;
         category.revision++;
       }
-      return [200, clone(category)];
+      return [200, categoryRead(category)];
     }
     if (path === "/contacts/archive") {
       if (method === "get") return list(state.former.map(contact => ({ ...clone(contact), capabilities: state.global ? ["edit_former_contact"] : [] })));

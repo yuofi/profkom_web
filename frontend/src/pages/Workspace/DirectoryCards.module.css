@@ -52,3 +52,10 @@
 .card:hover { border-color:color-mix(in srgb,var(--primary) 40%,var(--outline-variant)); }
 .blocks .blockLink,.actions>a,.actions>button { position:relative;z-index:1; }
 .actions>a { font-size:13px;text-decoration:none; }
+
+/* Account management: the category and the destructive archive are separate sections. */
+.manageSection { display: grid; gap: 12px; min-width: 0; }
+.manageSection > h3 { margin: 0; font-size: 16px; }
+.dangerZone { border-top: 1px solid var(--outline-variant); padding-top: 20px; margin-top: 4px; }
+.dangerZone > details { border-top: 0; padding-top: 0; margin-top: 0; }
+.dangerZone > details > * + * { margin-top: 12px; }

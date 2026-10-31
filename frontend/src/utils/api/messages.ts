@@ -40,6 +40,7 @@ export const ERROR_TEXTS: Record<string, string> = {
   archive_scope_mapping_required: "Для прежних назначений выберите действующие блоки.",
   chair_transfer_required: "Сначала передайте пост председателя.",
   restore_deputy_limit: "Все места заместителей заняты. Освободите место перед восстановлением.",
+  leadership_change_forbidden: "Архивировать и восстанавливать заместителей председателя может только председатель.",
   already_chair: "Этот участник уже председатель.",
   already_member: "Участник уже в блоке.",
   email_taken: "Эта почта уже зарегистрирована.",
