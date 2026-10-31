@@ -7,6 +7,7 @@ import { mountWorkspace, waitForPage, change, field, submit } from "../../test/w
 import { tasksApi } from "../../utils/api/tasks.api";
 import { filesApi } from "../../utils/api/files.api";
 import { richText, type FileRef } from "../../utils/api/contract";
+import { ApiError } from "../../utils/api/request";
 import { TaskCreateForm, TrackerTaskCreatePage } from "./TaskCreateForm";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
@@ -28,6 +29,19 @@ it("opens a blank task-like editor with parameters, permits no assignees and omi
   expect(form.querySelector('[name="hours"]')).toBeNull();expect(form.querySelector('[name="creative"]')).toBeNull();expect(form.querySelector('[aria-label="Параметры новой задачи"]')).not.toBeNull();
   await change(field(page.container, "title"), "Новая свободная задача");await change(field(form, "deadline"), "2026-10-29T18:00");await submit(form);await waitForPage(page, () => !!page!.container.textContent?.includes("Созданная задача") || !!page!.container.querySelector('[role="alert"]'));expect(page!.container.textContent).toContain("Созданная задача");
   expect(create).toHaveBeenCalledWith(expect.objectContaining({ queue_id: queue.queue_id, assignees: [], watcher_user_ids: [], file_ids: [], description: richText("") }));expect(create.mock.calls[0][0]).not.toHaveProperty("scope");
+});
+it("hints the deadline range and shows the server's refusal at the deadline field", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const create = vi.spyOn(tasksApi, "create").mockRejectedValue(new ApiError("Dates", 422, "deadline_out_of_range", { deadline_at: "out_of_range", earliest: "2026-10-31T09:00:00+00:00", latest: "2026-12-31T20:59:59+00:00" }));
+  page = await mountWorkspace(<TaskCreateForm queueId={mock.state.queues[0].queue_id} />);await waitForPage(page, () => !!page!.container.querySelector("form"));
+  const form = page.container.querySelector("form")!, deadline = field(form, "deadline") as HTMLInputElement;
+  expect(deadline.min).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+  await waitForPage(page, () => !!deadline.max);expect(mock.state.seasons.map(season => new Date(Date.parse(season.ends_at) + 3 * 3600_000).toISOString().slice(0, 16))).toContain(deadline.max);
+  await change(field(page.container, "title"), "Задача с поздним дедлайном");await change(deadline, "2027-06-01T12:00");await submit(form);await waitForPage(page);
+  expect(create).toHaveBeenCalledOnce();expect(deadline.getAttribute("aria-invalid")).toBe("true");
+  const message = document.getElementById(deadline.getAttribute("aria-describedby")!)!;expect(message.textContent?.replace(/\u00a0/g, " ")).toContain("не позже 31 дек. 2026 г., 23:59 (конец сезона)");
+  expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("Исправьте дедлайн задачи");
+  await change(deadline, "2026-11-30T12:00");expect(deadline.hasAttribute("aria-invalid")).toBe(false);
 });
 it("keeps typed Markdown when selecting another queue and has one searchable parent selector", async () => {
   mock = installMockTransport("chair", { delay: 0 });mock.state.queues.push({ ...mock.state.queues[0], queue_id: "extra", name: "Другая очередь", key: "EXTRA" });

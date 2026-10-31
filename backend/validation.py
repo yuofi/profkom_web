@@ -13,8 +13,10 @@ def timestamp(value):
 def period(assigned, deadline, season_end):
     a, d, e = map(dt, (assigned, deadline, season_end))
     if not a <= d <= e:
+        # A distinct code with the allowed range, so the form can explain it at the field.
         raise InvalidInput(
-            "Dates must satisfy assigned_at <= deadline_at <= season ends_at"
+            "Dates must satisfy assigned_at <= deadline_at <= season ends_at",
+            "deadline_out_of_range", deadline_at="out_of_range", earliest=a.isoformat(), latest=e.isoformat()
         )
 
 

@@ -1,5 +1,6 @@
 import { normalizeApiError, type ApiError } from "./request";
 import type { SeasonBlocker } from "./contract";
+import { displayDate } from "../dates";
 
 /**
  * Russian texts of API errors, chosen by the stable `code` and then by status (FIX_PLAN
@@ -34,6 +35,7 @@ export const ERROR_TEXTS: Record<string, string> = {
   planned_exists: "Запланированный сезон уже есть.",
   final_report_exists: "Итоговый отчёт этого экземпляра уже есть.",
   invalid_input: "Проверьте введённые данные.",
+  deadline_out_of_range: "Дедлайн должен быть не раньше начала работы и не позже конца сезона.",
   validation_error: "Проверьте введённые данные.",
   registration_attempt_limit:
     "Лимит пяти отправок исчерпан. Для повторной подачи нужен сброс счётчика руководством.",
@@ -93,6 +95,8 @@ function withFields(e: ApiError) {
     return "Сервис загрузки временно недоступен. Повторите загрузку позже.";
   if (e.code === "deputy_limit" && typeof e.fields.limit === "number")
     return `Можно назначить не больше ${e.fields.limit} заместителей.`;
+  if (e.code === "deadline_out_of_range" && typeof e.fields.earliest === "string" && typeof e.fields.latest === "string")
+    return `Дедлайн должен быть не раньше ${displayDate(e.fields.earliest)} и не позже ${displayDate(e.fields.latest)} (конец сезона), МСК.`;
   return undefined;
 }
 

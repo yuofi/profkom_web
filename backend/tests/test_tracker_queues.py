@@ -388,3 +388,17 @@ def test_task_queue_ref_says_whether_its_reader_may_open_the_queue(client,work,s
     assert mine['queue']['key']=='WEBSUPPORT' and mine['queue']['readable'] is False
     assert client.get('/api/task-queues/'+mine['queue']['queue_id'],headers=author.headers).status_code==403
     assert client.get('/api/tasks/'+ticket,headers=support_master.headers).json()['queue']['readable'] is True
+
+
+def test_deadline_outside_the_season_has_its_own_code_and_allowed_range(client,work):
+    from datetime import datetime,timedelta,timezone
+    w=work;season=w['season']
+    late=(datetime.fromisoformat(season['ends_at'])+timedelta(days=30)).isoformat()
+    past=(datetime.now(timezone.utc)-timedelta(days=1)).isoformat()
+    for deadline in (late,past):
+        r=client.post('/api/tasks',headers=w['master'].headers,json={**w['payload'],'deadline_at':deadline})
+        assert r.status_code==422,r.text
+        detail=r.json()['detail'];assert detail['code']=='deadline_out_of_range'
+        assert detail['fields']['deadline_at']=='out_of_range'
+        assert datetime.fromisoformat(detail['fields']['latest'])==datetime.fromisoformat(season['ends_at'])
+        assert datetime.fromisoformat(detail['fields']['earliest'])<=datetime.now(timezone.utc)
