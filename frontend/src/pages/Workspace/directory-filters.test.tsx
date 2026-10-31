@@ -92,6 +92,20 @@ it("account management hides archiving that the server refuses and closes before
   expect(category.mock.calls.length).toBe(reads);
 });
 
+it("account management does not blame the chair rule when the archive check could not be read (PE-01)", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  vi.spyOn(directoryApi, "contacts").mockResolvedValue([person(101, "Обычная", "101", true)]);
+  vi.spyOn(membershipApi, "categories").mockRejectedValue(Object.assign(new Error("offline"), { status: 503 }));
+  page = await mountWorkspace(<DirectoryPage />, { role: "chair" });
+  await settle(); await settle();
+  const manage = Array.from(page.container.querySelectorAll('[class*="contactGrid"] > section')[0].querySelectorAll("button")).find((b) => b.textContent === "Управление аккаунтом")!;
+  await act(async () => manage.click());await settle();
+  const dialog = page.container.querySelector("dialog")!;
+  expect(dialog.textContent).not.toContain("Председателя архивируют");
+  expect(dialog.textContent).not.toContain("Причина архивирования");
+  expect(dialog.textContent).toContain("Не удалось проверить, можно ли архивировать этот аккаунт");
+});
+
 it("links full block names without avatar chips and marks only the explicit master ID", async () => {
   mock = installMockTransport("chair", { delay: 0 });
   const title = "Очень длинное название блока для проверки компактной карточки и полной ссылки";

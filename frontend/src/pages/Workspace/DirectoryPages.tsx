@@ -337,7 +337,9 @@ export function DirectoryPage() {
                         await refresh();
                       }}
                     />
-                  </details> : <p className={s.muted}>Председателя архивируют только после передачи поста, заместителей председателя — только председатель.</p>}
+                  </details> : categoryByUser.has(selectedPerson.user_id)
+                    ? <p className={s.muted}>Председателя архивируют только после передачи поста, заместителей председателя — только председатель.</p>
+                    : <p className={s.muted}>{categoriesPending ? "Проверяем, можно ли архивировать этот аккаунт…" : "Не удалось проверить, можно ли архивировать этот аккаунт. Обновите страницу."}</p>}
                 </section>}
               </> : <p>Управление аккаунтом недоступно.</p>}
             </ContactDialog></UnsavedChangesScope>
