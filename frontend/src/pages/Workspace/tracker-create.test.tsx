@@ -55,3 +55,19 @@ it("clears a chosen parent when the creation season changes", async () => {
   expect(field(page.container, "parent_task_id").value).toBe(parent.task_id);await change(field(page.container, "season"), "another-open");await waitForPage(page);
   expect(field(page.container, "parent_task_id").value).toBe("");
 });
+it("GL-07: a create whose answer was lost is repeated with the same key and makes one task", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const queue = { ...mock.state.queues[0], queue_id: "scoped", name: "Очередь блока", key: "IND", scope: { kind: "block" as const, id: mock.state.blocks[0].block_id }, capabilities: ["create_task"] };mock.state.queues.push(queue);
+  const original = tasksApi.create, before = mock.state.tasks.length;
+  // The server committed the first request, but the answer did not arrive in time.
+  const create = vi.spyOn(tasksApi, "create").mockImplementationOnce(async data => { await original(data);throw Object.assign(new Error("timeout of 60000ms exceeded"), { isAxiosError: true, code: "ECONNABORTED", config: {} }); });
+  page = await mountWorkspace(<Routes><Route path="/tasks/new" element={<TrackerTaskCreatePage />} /><Route path="/tasks/:id" element={<p>Созданная задача</p>} /></Routes>, { path: "/tasks/new?queue_id=scoped" });
+  await waitForPage(page, () => !!page!.container.querySelector("form"));const form = page.container.querySelector("form")!;
+  await change(field(page.container, "title"), "Задача после таймаута");await change(field(form, "deadline"), "2026-10-29T18:00");
+  await submit(form);await waitForPage(page, () => !!page!.container.querySelector('[role="alert"]'));
+  expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("Сервер долго отвечает. Проверьте результат перед повтором.");
+  await submit(form);await waitForPage(page, () => !!page!.container.textContent?.includes("Созданная задача"));
+  expect(create).toHaveBeenCalledTimes(2);
+  expect(create.mock.calls[1][0].idempotency_key).toBe(create.mock.calls[0][0].idempotency_key);
+  expect(mock.state.tasks.filter(task => task.title === "Задача после таймаута")).toHaveLength(1);expect(mock.state.tasks).toHaveLength(before + 1);
+});

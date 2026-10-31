@@ -84,7 +84,7 @@ it("comments switch newest/oldest order and retain the unposted Markdown draft a
   await click("Комментарии");expect(editor.value).toBe("Несданный черновик $x^2$ с таблицей");
   const command = vi.spyOn(tasksApi, "comment").mockResolvedValue({ ...comments[0], comment_id: "posted" });
   await submit(editor.closest("form")!);await waitForPage(page!);
-  expect(command).toHaveBeenCalledWith(task.task_id, richText("Несданный черновик $x^2$ с таблицей"), [], []);expect(editor.value).toBe("");
+  expect(command).toHaveBeenCalledWith(task.task_id, richText("Несданный черновик $x^2$ с таблицей"), [], [], expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/));expect(editor.value).toBe("");
 });
 it("renders shared submissions once and leaves accounting hidden from ordinary readers", async () => {
   const task = makeTask({ capabilities: ["read_task"], submissions: [{ submission_id: "shared-result", submitted_at: "2026-10-26T11:00:00Z", submitted_by: people[0], text: richText("Общий результат"), links: [], files: [] }] });

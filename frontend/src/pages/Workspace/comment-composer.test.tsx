@@ -96,7 +96,7 @@ it('correcting a selected person removes the owned token and sends only the repl
   await change(input,'Сохранить этот текст');await chooseDraftPerson(frame,people[1].user_id!);expect(input.value).toContain('/contacts/'+people[1].user_id);
   await chooseDraftPerson(frame,people[1].user_id!);expect(input.value).not.toContain('/contacts/'+people[1].user_id);expect(input.value).toContain('Сохранить этот текст');
   await chooseDraftPerson(frame,people[2].user_id!);await submit(frame.closest('form')!);await waitForPage(page!,()=>post.mock.calls.length===1);
-  expect(post).toHaveBeenCalledWith(task.task_id,{format:'markdown',body:expect.stringContaining('/contacts/'+people[2].user_id)},[people[2].user_id],[]);
+  expect(post).toHaveBeenCalledWith(task.task_id,{format:'markdown',body:expect.stringContaining('/contacts/'+people[2].user_id)},[people[2].user_id],[],expect.stringMatching(/^[0-9a-f-]{36}$/));
 });
 it('deleting an inserted link clears pending recipients while manually typed links stay display-only',async()=>{
   const {task,comment}=await mountDraftTask(),post=vi.spyOn(tasksApi,'comment').mockResolvedValue(comment);
@@ -104,7 +104,7 @@ it('deleting an inserted link clears pending recipients while manually typed lin
   await change(input,'Черновик');await chooseDraftPerson(frame,people[1].user_id!);
   const body=`Ручная [ссылка](/contacts/${people[2].user_id}) без призыва`;await change(input,body);
   expect(frame.querySelector('[data-editor-footer]')!.textContent).not.toContain('· 1');await submit(frame.closest('form')!);await waitForPage(page!,()=>post.mock.calls.length===1);
-  expect(post).toHaveBeenCalledWith(task.task_id,richText(body),[],[]);
+  expect(post).toHaveBeenCalledWith(task.task_id,richText(body),[],[],expect.stringMatching(/^[0-9a-f-]{36}$/));
 });
 it('editing an existing mentioned comment never re-sends its previous recipients',async()=>{
   const {comment}=await mountDraftTask(true),save=vi.spyOn(tasksApi,'editComment').mockResolvedValue(comment);

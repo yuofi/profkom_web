@@ -13,9 +13,12 @@ interface CustomAxiosRequestConfig extends InternalAxiosRequestConfig {
     _authGeneration?: number;
 }
 
+/** A read gives up after 20 s; a command waits 60 s, because a slow server may still commit
+ *  it and the user must not repeat it blindly (GL-07). */
+export const READ_TIMEOUT_MS = 20_000, WRITE_TIMEOUT_MS = 60_000;
 export const api = axios.create({
     baseURL: prefix,
-    timeout: 10000,
+    timeout: READ_TIMEOUT_MS,
     withCredentials: true,
     headers: {
         'Content-Type': 'application/json'
@@ -37,6 +40,8 @@ api.interceptors.request.use(
         tagged._authGeneration ??= authGeneration;
         if (tagged._authGeneration !== authGeneration)
             throw new axios.CanceledError("Сессия изменилась", config);
+        if (!["get", "head", "options"].includes((config.method ?? "get").toLowerCase()))
+            config.timeout = Math.max(config.timeout ?? 0, WRITE_TIMEOUT_MS);
         const token = Cookies.get("access_token");
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;

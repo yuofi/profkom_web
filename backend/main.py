@@ -607,6 +607,14 @@ class TaskCreateIn(Command):
     priority: Literal["low", "normal", "high", "urgent"] = "normal"
     starts_at: Optional[str] = None
     checklist: list[TaskChecklistIn] = Field(default_factory=list, max_length=200)
+    # GL-07: a UUID; a repeat with the same key returns the first task, other data is 409.
+    idempotency_key: Optional[str] = None
+
+    @field_validator("idempotency_key")
+    @classmethod
+    def request_key(cls, value):
+        from request_keys import uuid_key
+        return uuid_key(value)
 
 
 class TaskRosterIn(Command):
@@ -1043,6 +1051,17 @@ class CommentIn(Command):
     content: Union[RichTextSchema, str]
     mentioned_user_ids: list[int] = Field(default_factory=list, max_length=100)
     file_ids: Optional[list[str]] = Field(default=None, max_length=100)
+
+
+class CommentCreateIn(CommentIn):
+    # GL-07: a UUID; a repeat with the same key returns the first comment, other data is 409.
+    idempotency_key: Optional[str] = None
+
+    @field_validator("idempotency_key")
+    @classmethod
+    def request_key(cls, value):
+        from request_keys import uuid_key
+        return uuid_key(value)
 
 
 class CommentOut(BaseModel):
@@ -2677,6 +2696,13 @@ def create_task(payload: TaskCreateIn, cur: User = Depends(get_current_user)):
         "fixed_time": payload.criteria.fixed_time,
     }
     assignees = [a.model_dump() for a in payload.assignees]
+    import request_keys
+    request_hash = request_keys.digest(payload)
+    with db.atomic(), db._session() as session:
+        first = request_keys.previous(session, database_module.TaskORM, "created_by_user_id", cur.user_id, payload.idempotency_key, request_hash)
+        first_id = first.task_id if first else None
+    if first_id:
+        return get_task(first_id, cur)
     t = db.create_task(
         season_id=payload.season_id,
         scope_kind=scope_kind,
@@ -2691,6 +2717,8 @@ def create_task(payload: TaskCreateIn, cur: User = Depends(get_current_user)):
         planning=dict(task_type=payload.task_type,priority=payload.priority,
             starts_at=payload.starts_at,checklist=[item.model_dump() for item in payload.checklist]),
     )
+    with db.atomic(), db._session() as session:
+        request_keys.remember(session, session.get(database_module.TaskORM, t.task_id), payload.idempotency_key, request_hash)
     return _to_task_public_out(t)
 
 
@@ -3154,16 +3182,28 @@ def list_task_comments(task_id: str, cur: User = Depends(get_current_user)):
 
 
 @router.post("/tasks/{task_id}/comments", response_model=CommentOut)
-def create_task_comment(task_id: str, payload: CommentIn, cur: User = Depends(get_current_user)):
+def create_task_comment(task_id: str, payload: CommentCreateIn, cur: User = Depends(get_current_user)):
+    import request_keys
+    request_hash = request_keys.digest(payload, task_id)
     with db.atomic():
-        c = db.create_comment(
-            task_id=task_id,
-            content={"format":"markdown","body":_to_rich_text_body(payload.content)},
-            author_user_id=cur.user_id,
-            file_ids=payload.file_ids,
-        )
-        from tracker_collaboration import sync_comment_mentions
-        sync_comment_mentions(c.comment_id, cur.user_id, payload.mentioned_user_ids)
+        with db._session() as session:
+            first = request_keys.previous(session, database_module.CommentORM, "author_user_id", cur.user_id, payload.idempotency_key, request_hash)
+            if first:
+                task = session.get(database_module.TaskORM, task_id)
+                if not task or not db.can_read_task(cur.user_id, task, session):
+                    raise HTTPException(404, "Task not found")
+                c = database_module._comment_orm_to_dc(session, first, cur.user_id)
+        if not first:
+            c = db.create_comment(
+                task_id=task_id,
+                content={"format":"markdown","body":_to_rich_text_body(payload.content)},
+                author_user_id=cur.user_id,
+                file_ids=payload.file_ids,
+            )
+            from tracker_collaboration import sync_comment_mentions
+            sync_comment_mentions(c.comment_id, cur.user_id, payload.mentioned_user_ids)
+            with db._session() as session:
+                request_keys.remember(session, session.get(database_module.CommentORM, c.comment_id), payload.idempotency_key, request_hash)
     from tracker_collaboration import comment_mention_refs
     return _to_comment_out(c, comment_mention_refs([c]).get(c.comment_id))
 

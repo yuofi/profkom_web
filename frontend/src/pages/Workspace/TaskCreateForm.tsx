@@ -24,6 +24,7 @@ import { can, useSession } from "../../utils/session";
 import { toUtc } from "../../utils/dates";
 import { getTaskRoute, getTaskQueueRoute, getTaskQueuesRoute, getBlockRoute, getSubeventRoute } from "../../utils/routes";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
+import { requestKey, type RequestKey } from "../../utils/clientId";
 import { TrackerParentSelector } from "./TrackerParentSelector";
 import w from "../../components/Workspace/Workspace.module.css";
 import s from "./TaskCreateForm.module.css";
@@ -82,7 +83,7 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId, fal
   const queueReady = !!selectedQueue && queueDetails.data?.queue_id === selectedQueue.queue_id && queueDetails.data.access === "granted" && can(queueDetails.data, "create_task") && !queueDetails.error;
   const queuePending = !!selectedQueue && queueDetails.isFetching;
   const creationScope = queue?.scope ?? fallback?.scope;
-  const previousSeason = useRef("");
+  const previousSeason = useRef(""), sent = useRef<RequestKey["current"]>(null);
   const context = useQuery({ queryKey: ["tasks", "create-queue-season", queue?.scope?.kind, queue?.scope?.id], enabled: (creationScope?.kind === "subevent" || creationScope?.kind === "event") && !fallback, queryFn: async () => {
     if(queue!.scope!.kind==="event")return (await eventsApi.get(queue!.scope!.id)).season_id;
     const subevent = await eventsApi.subevent(queue!.scope!.id);return (await eventsApi.get(subevent.event_id)).season_id;
@@ -121,7 +122,10 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId, fal
         if (!session) throw Error("Войдите в аккаунт");
         setSaving(true);
         try {
-          const created = await perform(() => tasksApi.create({ ...(queue ? { queue_id: queue.queue_id } : { scope: fallback!.scope }), season_id: seasonId, title: title.trim(), description: richText(body), deadline_at: deadlineAt, ...planned, checklist: checklistPayload(checklist), criteria: emptyCriteria(), assignees: assignees.map(user => ({ user_id: Number(user), hours: 0 })), watcher_user_ids: watch ? [session.user_id] : [], parent_task_id: parentId || null, file_ids: files.map(file => file.file_id) }));
+          const payload = { ...(queue ? { queue_id: queue.queue_id } : { scope: fallback!.scope }), season_id: seasonId, title: title.trim(), description: richText(body), deadline_at: deadlineAt, ...planned, checklist: checklistPayload(checklist), criteria: emptyCriteria(), assignees: assignees.map(user => ({ user_id: Number(user), hours: 0 })), watcher_user_ids: watch ? [session.user_id] : [], parent_task_id: parentId || null, file_ids: files.map(file => file.file_id) };
+          // A repeat after a lost answer returns the same task instead of a second one (GL-07).
+          const created = await perform(() => tasksApi.create({ ...payload, idempotency_key: requestKey(sent, payload) }));
+          sent.current = null;
           navigate(getTaskRoute(created.task_id));
         } finally { setSaving(false); }
       }}>

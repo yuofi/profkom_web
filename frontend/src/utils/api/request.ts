@@ -37,6 +37,9 @@ export function normalizeApiError(error: unknown): ApiError {
       /[А-Яа-яЁё]/.test(error.message ?? "") ? error.message! : "Запрос отменён",
     );
   if (axios.isAxiosError(error)) {
+    // No answer in time is not a lost connection: the server may have done it (GL-07).
+    if (!error.response && (error.code === "ECONNABORTED" || error.code === "ETIMEDOUT"))
+      return new ApiError("Сервер долго отвечает", 0, "timeout");
     if (!error.response) return new ApiError("Нет связи с сервером", 0, "network_error");
     const status = error.response?.status ?? 0;
     const detail: unknown = error.response?.data?.detail;

@@ -32,6 +32,7 @@ import { can } from "../../utils/session";
 import { displayDate } from "../../utils/dates";
 import { getSeasonRoute, getTaskRoute, getTaskQueueRoute, getTaskQueuesRoute } from "../../utils/routes";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
+import { requestKey, type RequestKey } from "../../utils/clientId";
 import { TaskStatusMenu } from "./TaskStatusMenu";
 import { taskStatus } from "./trackerStatus";
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
@@ -220,12 +221,14 @@ function TaskComments({ task, order, query }: { task: Task; order: "newest" | "o
 function CommentComposer({ task, comment, onSaved }: { task: Task; comment?: Comment; onSaved?: () => void }) {
   const [draft,setDraft]=useState(()=>newCommentMentionDraft(comment?.content.body??""));const {body}=draft;const mentions=draft.pending.flatMap(item=>item.user.user_id===null?[]:[item.user.user_id]);const mentionedUsers=commentMentionUsers(draft,comment?.mentioned_users);const { perform } = useWorkspaceActions();
   const [files,setFiles]=useState<FileRef[]>(comment?.attachments??[]),[uploading,setUploading]=useState(false),[saving,setSaving]=useState(false),[filesOpen,setFilesOpen]=useState(false);
-  const attachmentButton=useRef<HTMLButtonElement>(null);
+  const attachmentButton=useRef<HTMLButtonElement>(null),sent=useRef<RequestKey["current"]>(null);
   return <ActionForm fields={[]} externalState={{body,mentions,files}} savedExternalState={{body:comment?.content.body??"",mentions:[],files:comment?.attachments??[]}} externalBusy={uploading} allowExitSave={false} resetOnSuccess={!comment} submitLabel={comment ? "Сохранить комментарий" : "Добавить комментарий"} successMessage={comment?"Комментарий сохранён":"Комментарий добавлен"}
     onSubmit={async () => {
       if(uploading)throw Error("Дождитесь загрузки файлов");if(!body.trim()&&!files.length)throw Error("Напишите комментарий или прикрепите файл");
       setSaving(true);setFilesOpen(false);
-      try{await perform(()=>comment?tasksApi.editComment(comment.comment_id,richText(body),mentions,files.map(file=>file.file_id)):tasksApi.comment(task.task_id,richText(body),mentions,files.map(file=>file.file_id)));if(!comment){setDraft(newCommentMentionDraft());setFiles([]);}onSaved?.();}
+      // A new comment repeated after a lost answer is not added twice (GL-07).
+      const fileIds=files.map(file=>file.file_id);
+      try{await perform(()=>comment?tasksApi.editComment(comment.comment_id,richText(body),mentions,fileIds):tasksApi.comment(task.task_id,richText(body),mentions,fileIds,requestKey(sent,{body,mentions,fileIds})));sent.current=null;if(!comment){setDraft(newCommentMentionDraft());setFiles([]);}onSaved?.();}
       finally{setSaving(false);}
     }}>
     <MarkdownEditor value={body} onChange={value=>setDraft(draft=>changeCommentMentionBody(draft,value))} label={comment ? "Редактирование комментария" : "Новый комментарий"} name="body" rows={7} context="comment" variant="comment" draft={false} placeholder="Добавьте комментарий…" mentionUsers={mentionedUsers} disabled={saving}
