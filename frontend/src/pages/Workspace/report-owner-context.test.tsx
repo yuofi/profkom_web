@@ -63,6 +63,28 @@ it("without access a team meeting and its reports are refused, not reported as m
   expect(text()).not.toContain("Отчётов пока нет.");
 });
 
+it("the team's HR curator in an open season is refused the meeting and the reports, not told the season is closed (EV-14)", async () => {
+  mock = installMockTransport("organizer", { delay: 0 });const sub = mock.state.subevents[0], me = mock.state.session.user_id;
+  // Working access through the HR assignment, with task capabilities but without view_meeting and view_reports;
+  // the server filters the team's published reports out for this reader.
+  sub.organizer_user_ids = [];sub.leaders = [];sub.hr = { user_id: me, display_name: "Куратор", avatar_url: null };
+  sub.capabilities = ["create_task", "view_tasks"];mock.state.reports = [];
+  await open(`/meetings/subevent/${sub.subevent_id}`, "organizer");
+  expect(text()).toContain("Созвон доступен только команде подмероприятия.");
+  expect(text()).not.toContain("Сезон закрыт");
+  expect(mock.adapter.history.get.some(request => request.url?.endsWith("/meeting"))).toBe(false);
+  await page!.cleanup();
+  await open(`/reports?owner_kind=subevent&owner_id=${sub.subevent_id}`, "organizer");
+  expect(text()).toContain("Отчёты подмероприятия доступны только его команде.");
+  expect(text()).not.toContain("Отчётов пока нет.");
+  await page!.cleanup();
+  // A team reader with an empty list is told there are no reports yet.
+  sub.capabilities = ["create_task", "view_tasks", "view_reports"];
+  await open(`/reports?owner_kind=subevent&owner_id=${sub.subevent_id}`, "organizer");
+  expect(text()).toContain("Отчётов пока нет.");
+  expect(text()).not.toContain("доступны только его команде");
+});
+
 it("a closed season explains the missing meetings to the team and to the chair (EV-14)", async () => {
   mock = installMockTransport("organizer", { delay: 0 });
   // The team keeps working access; capabilities are empty in a closed season.

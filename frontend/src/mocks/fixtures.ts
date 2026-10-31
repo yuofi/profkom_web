@@ -289,7 +289,7 @@ export function createFixtures(role: MockRole = "organizer") {
       revision: 1,
       capabilities: [
         ...(eventManager ? [...allManagement, "edit_subevent"] : []),
-        ...(active ? ["view_meeting"] : []),  // the mock's other roles are its organizers
+        ...(active ? ["view_meeting", "view_reports"] : []),  // the mock's other roles are its organizers
       ],
     },
   ];

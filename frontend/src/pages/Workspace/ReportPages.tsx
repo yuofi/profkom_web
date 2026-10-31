@@ -75,8 +75,11 @@ export function ReportsPage() {
       ),
   });
   const filtered = valid && !!ownerId, ownerTitle = filtered ? owner.data?.title : undefined;
-  // The server filters a team's reports to an empty list for outsiders; say so instead of "none yet".
-  const refused = kind === "subevent" && (owner.data as Subevent | undefined)?.working_access === false && query.data?.items.length === 0;
+  // The server filters a team's reports to an empty list for people who may not read them, such as
+  // outsiders or the team's HR curator; say so instead of "none yet". Capabilities are empty only in a
+  // closed season, whose snapshot readers the server decides by itself.
+  const sub = kind === "subevent" ? (owner.data as Subevent | undefined) : undefined;
+  const refused = !!sub && query.data?.items.length === 0 && (sub.working_access === false || (sub.capabilities.length > 0 && !can(sub, "view_reports")));
   return (
     <Page
       title={ownerTitle ? `Отчёты · ${ownerTitle}` : "Отчёты"}
@@ -415,10 +418,11 @@ export function MeetingPage() {
   const meeting = mayViewMeeting && (!query.error || canRetainData(query.error)) ? query.data : undefined;
   // Without view_meeting the page names the reason and never tells whether a meeting exists:
   // a closed season empties everybody's capabilities, a team keeps its working access then.
+  // An open season's HR curator also has working access, but keeps other capabilities.
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list, enabled: kind === "event" && ownerReadable && !mayViewMeeting });
   const seasonClosed = kind === "event"
     ? seasons.data?.items.find((season) => season.season_id === (owner.data as { season_id?: string } | undefined)?.season_id)?.state === "closed"
-    : !!(owner.data as Subevent | undefined)?.working_access;
+    : !!(owner.data as Subevent | undefined)?.working_access && (owner.data as Subevent).capabilities.length === 0;
   const restricted = seasonClosed
     ? "Сезон закрыт: созвоны прошлых сезонов не показываются."
     : kind === "event"
