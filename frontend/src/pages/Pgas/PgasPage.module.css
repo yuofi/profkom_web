@@ -58,27 +58,26 @@
   padding: 4px 8px;
 }
 
-.modalOverlay {
-  position: fixed;
-  inset: 0;
+/* A native modal <dialog> (GL-41): Escape, focus and the inert page come from the browser. */
+.modal::backdrop {
   background-color: rgba(0, 0, 0, 0.7);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
 }
 
 .modal {
   background-color: var(--surface-container-low);
+  color: inherit;
   border-radius: var(--radius-large);
   padding: 28px;
   width: 90%;
   max-width: 500px;
   border: 1px solid color-mix(in srgb, var(--surface-variant) 70%, transparent);
-  display: flex;
   flex-direction: column;
   gap: 20px;
   box-sizing: border-box;
+}
+
+.modal[open] {
+  display: flex;
 }
 
 .modalHeader {

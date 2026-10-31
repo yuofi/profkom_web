@@ -18,6 +18,7 @@ import type { IconName } from "../../components/icons";
 import { userMessage } from "../../utils/api/messages";
 import { AnchoredPopover } from "../../components/Workspace/AnchoredPopover";
 import { FileButton } from "../../components/Workspace/FileButton";
+import { isBackdropClick, useModalDialog } from "../../components/Workspace/useModalDialog";
 
 const CURRENT_YEAR = new Date().getFullYear();
 // Годы для выпадающего списка: следующий год и семь предыдущих
@@ -89,6 +90,7 @@ export const PgasPage = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const modal = useModalDialog(isModalOpen);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [sortType, setSortType] = useState<SortType>("default");
@@ -157,6 +159,7 @@ export const PgasPage = () => {
     validationSchema: PgasValidationSchema,
     protectChanges: { enabled: isModalOpen, scope, label: "Документ ПГАС", externalDirty: !!selectedFile, externalBusy: createMutation.isPending, discard: () => resetFile() },
     onSubmit: async (values) => {
+      if (!selectedFile) return; // reported beside the file button
       await createMutation.mutateAsync(values);
     },
   });
@@ -306,14 +309,9 @@ export const PgasPage = () => {
       )}
 
       {isModalOpen && (
-        <div className={styles.modalOverlay} onClick={requestModalClose}>
-          <div
-            className={styles.modal}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="pgas-upload-title"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <dialog ref={modal} className={styles.modal} aria-labelledby="pgas-upload-title"
+          onCancel={(event) => { event.preventDefault(); requestModalClose(); }}
+          onClick={(event) => { if (isBackdropClick(event)) requestModalClose(); }}>
             <div className={styles.modalHeader}>
               <h3 id="pgas-upload-title">Загрузить файл</h3>
               <button type="button" className={s.button} disabled={isSaving} onClick={requestModalClose} aria-label="Закрыть">
@@ -322,7 +320,8 @@ export const PgasPage = () => {
             </div>
 
             <FormikProvider value={formik}>
-              <form className={s.form} onSubmit={formik.handleSubmit}>
+              {/* All mistakes at once: no native required, Formik touches every field and the file is checked too. */}
+              <form className={s.form} noValidate onSubmit={(event) => { if (!selectedFile && !fileError) setFileError("Прикрепите файл"); formik.handleSubmit(event); }}>
                 <fieldset className={s.formFields} disabled={isSaving}>
                   <label className={s.field}>
                     Название мероприятия
@@ -357,15 +356,15 @@ export const PgasPage = () => {
                   </label>
 
                   <label className={s.field}>Период документа
-                    <select name="half_year" value={formik.values.half_year} onChange={formik.handleChange} onBlur={formik.handleBlur} required>
+                    <select name="half_year" value={formik.values.half_year} onChange={formik.handleChange} onBlur={formik.handleBlur}>
                       <option value="">Выберите период…</option><option value="1">Январь–май</option><option value="2">Июнь–декабрь</option>
                     </select>
                     {formik.touched.half_year && formik.errors.half_year && <span className={s.fieldError}>{String(formik.errors.half_year)}</span>}
                   </label>
 
-                  <FileButton fileName={selectedFile?.name} accept={fileAccept("pgas")} inputRef={fileInputRef} onChange={handleFileChange} />
+                  <FileButton fileName={selectedFile?.name} accept={fileAccept("pgas")} inputRef={fileInputRef} onChange={handleFileChange} invalid={!!fileError} describedBy={fileError ? "pgas-file-error" : undefined} />
 
-                  {fileError && <p role="alert" className={s.fieldError}>{fileError}</p>}
+                  {fileError && <p id="pgas-file-error" role="alert" className={s.fieldError}>{fileError}</p>}
 
                   {globalError && <p role="alert" className={s.fieldError}>{globalError}</p>}
 
@@ -384,8 +383,7 @@ export const PgasPage = () => {
                 </fieldset>
               </form>
             </FormikProvider>
-          </div>
-        </div>
+        </dialog>
       )}
     </Page>
   );
