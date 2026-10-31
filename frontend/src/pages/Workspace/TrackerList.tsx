@@ -191,12 +191,12 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
     </BrandedHeader>}
     <div className={s.topbar}>
       <label className={s.search}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg><input type="search" aria-label="Поиск задач" placeholder="Название или ключ задачи" value={filters.q} onChange={(event) => update("q", event.target.value, true)} /></label>
-      {(queue ? can(queue, "create_task") : canCreateInScope || queues.data?.items.some(item => can(item, "create_task"))) && <RouteLink to={getTaskCreateRoute({ queueId: queue?.queue_id, ...(scope ? { scope } : {}) })}>Создать задачу</RouteLink>}
+      {(queue ? can(queue, "create_task") : canCreateInScope || queues.data?.items.some(item => can(item, "create_task"))) && <RouteLink to={getTaskCreateRoute({ queueId: queue?.queue_id, ...(scope ? { scope } : {}) })}><Glyph name="add" /><span className={s.toolLabel}>Создать задачу</span></RouteLink>}
       <div className={s.views} aria-label="Представление задач">
         {([["list", "Список"], ["calendar", "Календарь"], ["gantt", "Гантт"]] as const).map(([key, label]) => <button key={key} type="button" aria-pressed={view === key} onClick={() => update("view", key === "list" ? "" : key)}>{label}</button>)}
       </div>
       <details ref={filterMenu} className={s.filters} onToggle={event => setFiltersOpen(event.currentTarget.open)}>
-        <summary><Glyph name="filter_list" />Добавить фильтр</summary>
+        <summary><Glyph name="filter_list" /><span className={s.toolLabel}>Добавить фильтр</span></summary>
         <div className={s.filterPanel}>
           <label className={w.field}>Назначение<select aria-label="Назначение" value={params.get("mine") ?? ""} onChange={(event) => update("mine", event.target.value)}><option value="">Без фильтра</option><option value="true">Мои задачи</option><option value="false">Все доступные</option></select></label>
           <label className={w.field}>Статус<select aria-label="Статус" value={filters.status} onChange={(event) => update("status", event.target.value)}><option value="">Любой статус</option>{Object.entries(statusNames).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
