@@ -2,7 +2,7 @@
 import json
 import uuid
 from database import db,TaskORM,TaskRosterORM,AssignmentORM,UserORM
-from errors import Conflict,NotFound,Forbidden,InvalidInput,revision_conflict
+from errors import Conflict,NotFound,Forbidden,InvalidInput,revision_conflict,season_closed
 from tracker import visible_task,metadata,ensure_roster,roster,participants,activity,now,can_edit_public,can_change_status
 
 
@@ -12,6 +12,18 @@ def _member(session,task,uid):
 
 def _current_roles(session,task):
     return {role:[str(m.user_id) for m in roster(session,task.task_id) if m.role==role] for role in ('assignee','watcher')}
+
+
+def creates_closed_assignment(session,task,actor,uid):
+    """Owner decision 2026-10-31: in a closed season only the chair and deputies create
+    new accounting rows. Current and former assignees keep their own row; public status
+    changes and take by them stay allowed."""
+    from tracker import task_state
+    import access
+    if task_state(session,task)!='closed' or access.allowed(actor,'task.edit',task.scope_kind,task.scope_id,state='closed'):return False
+    member=_member(session,task,uid)
+    if member and member.assignment_id and session.get(AssignmentORM,member.assignment_id):return False
+    return session.query(AssignmentORM.assignment_id).filter_by(task_id=task.task_id,assignee_user_id=uid).first() is None
 
 
 def change(task_id,actor,expected_revision,command,target_uid=None):
@@ -27,6 +39,8 @@ def change(task_id,actor,expected_revision,command,target_uid=None):
             raise Forbidden('Only task editors may change other participants')
         if command=='take' and not can_change_status(session,task,actor,'in_progress'):
             raise Forbidden('Only the task author may reopen a closed task')
+        if command in {'join','take','assign'} and creates_closed_assignment(session,task,actor,uid):
+            raise season_closed('Only the chair and deputies add assignees in a closed season')
         if command=='assign':
             from task_queues import active
             if not uid or not active(session,uid):raise InvalidInput('Assignee must be active and approved')

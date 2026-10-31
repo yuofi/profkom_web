@@ -291,12 +291,16 @@ def enrich_task(session,task,result,uid):
         if uid in _managers(session,task):result.capabilities.append("manage_task_access")
         if db.can_read_task(uid,task,session):
             member=next((m for m in roster(session,task.task_id) if m.user_id==uid),None)
-            if not member or member.role!="assignee":result.capabilities.append("join_task")
-            if can_change_status(session,task,uid,"in_progress") and (not member or member.role!="assignee" or meta.status!="in_progress" or meta.legacy_mixed_statuses):result.capabilities.append("take_task")
+            # A closed season gets new accounting rows only from the chair and deputies.
+            import access
+            closed_ledger=state=="closed" and not access.allowed(uid,"task.edit",task.scope_kind,task.scope_id,state="closed")
+            new_row=closed_ledger and not (member and member.assignment_id)
+            if (not member or member.role!="assignee") and not new_row:result.capabilities.append("join_task")
+            if can_change_status(session,task,uid,"in_progress") and (not member or member.role!="assignee" or meta.status!="in_progress" or meta.legacy_mixed_statuses) and not new_row:result.capabilities.append("take_task")
             if not member or member.role not in {"assignee","watcher"}:result.capabilities.append("watch_task")
             if member and member.role=="watcher":result.capabilities.append("unwatch_task")
             if can_edit_public(session,task,uid):
-                result.capabilities += ["assign_task_participants","remove_task_watcher"]
+                result.capabilities += ["remove_task_watcher"] if closed_ledger else ["assign_task_participants","remove_task_watcher"]
                 if participants(session,task.task_id):result.capabilities.append("remove_task_assignee")
     if is_control_task(session,task.task_id):
         result.capabilities=[cap for cap in result.capabilities if cap not in {"view_assessment_inputs","edit_assessment_inputs","edit_task","edit_task_description","attach_task_file","review_task","join_task","take_task","watch_task","unwatch_task","assign_task_participants","remove_task_watcher","remove_task_assignee","change_task_status","start_task","resume_task","submit_task_result"}]
