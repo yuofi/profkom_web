@@ -25,6 +25,24 @@ it('shows closed-season history as supplied and requests the configured last fou
  const fixture=createFixtures('chair');const read=vi.spyOn(kkrApi,'history').mockResolvedValue({seasons:[{season_id:'old',title:'Старый сезон',state:'closed'}],rows:[{participant_id:'p',user:fixture.user,group_number:'301',cells:[{season_id:'old',rank:3,total_score:-2,decisions:['nice'],preliminary:false}]}]});
  page=await mountWorkspace(<SeasonKkrHistory/>);await waitForPage(page);expect(read).toHaveBeenCalledWith({count:4,search:'',block_id:undefined,course:undefined});expect(page.container.querySelector('tbody')?.textContent).toContain('-2');expect(page.container.querySelector('tbody')?.textContent).toContain('место 3');expect(page.container.querySelector('tbody')?.textContent).toContain('Найс');
 });
+it('keeps the seasons count editable and shows an absent season as a dash without repeated empty marks',async()=>{
+ const fixture=createFixtures('chair');const read=vi.spyOn(kkrApi,'history').mockResolvedValue({seasons:[{season_id:'old',title:'Старый сезон',state:'closed'},{season_id:'now',title:'Текущий сезон',state:'open'}],rows:[{participant_id:'p',user:fixture.user,group_number:'301',cells:[{season_id:'old',rank:null,total_score:null,decisions:[],preliminary:false},{season_id:'now',rank:2,total_score:5,decisions:[],preliminary:true}]}]});
+ page=await mountWorkspace(<SeasonKkrHistory/>);await waitForPage(page);
+ const cells=[...page.container.querySelectorAll('tbody td')];expect(cells[1].textContent).toBe('—');expect(cells[2].textContent).toBe('5место 2');expect(page.container.querySelector('tbody')?.textContent).not.toContain('Нет отметок');
+ expect(page.container.querySelector('thead th:last-child small')?.textContent).toBe('Предварительно');
+ const count=page.container.querySelector<HTMLInputElement>('input[type="number"]')!;
+ await change(count,'');expect(count.value).toBe('');expect(read).toHaveBeenCalledTimes(1);
+ await act(async()=>{count.dispatchEvent(new FocusEvent('focusout',{bubbles:true}));});await waitForPage(page);expect(count.value).toBe('4');expect(read).toHaveBeenCalledTimes(1);
+ await change(count,'6');await act(async()=>{count.dispatchEvent(new FocusEvent('focusout',{bubbles:true}));});await waitForPage(page);expect(read).toHaveBeenLastCalledWith(expect.objectContaining({count:6}));
+});
+it('says a closed season finished its control instead of keeping it open',async()=>{
+ const fixture=createFixtures('chair');vi.spyOn(kkrApi,'controls').mockResolvedValue({capabilities:[],items:[{control_id:'c',task_id:'epic',title:'Контроль IT',source_kind:'block',source_id:'block-it',status:'closed',responsibles:[fixture.user],missing_count:0,missing_tasks:[]}]});
+ page=await mountWorkspace(<SeasonKkrControl seasonId="season-1" closed/>);await waitForPage(page);
+ expect(page.container.textContent).toContain('Контроль завершён вместе с сезоном.');expect(page.container.textContent).not.toContain('остаётся открытым');
+ await page.cleanup();vi.mocked(kkrApi.controls).mockResolvedValue({capabilities:[],items:[{control_id:'c',task_id:'epic',title:'Контроль IT',source_kind:'block',source_id:'block-it',status:'open',responsibles:[fixture.user],missing_count:0,missing_tasks:[]}]});
+ page=await mountWorkspace(<SeasonKkrControl seasonId="season-1"/>);await waitForPage(page);
+ expect(page.container.textContent).toContain('Контроль остаётся открытым до конца сезона.');
+});
 it('links missing accounting directly into a task and uses one normal summon command per click',async()=>{
  const fixture=createFixtures('chair');vi.spyOn(kkrApi,'controls').mockResolvedValue({capabilities:['remind_kkr'],items:[{control_id:'c',task_id:'epic',title:'Контроль IT',source_kind:'block',source_id:'block-it',status:'open',responsibles:[fixture.user],missing_count:1,missing_tasks:[{task_id:'work',title:'Работа',task_key:'IT-1',missing_assignees:[fixture.user]}]}]});const remind=vi.spyOn(kkrApi,'remind').mockResolvedValue({comments_created:1});
  page=await mountWorkspace(<><header><SeasonKkrSummon seasonId="season-1"/></header><SeasonKkrControl seasonId="season-1"/></>);await waitForPage(page);expect(page.container.querySelector('a[href="/tasks/work?kkr=1"]')).not.toBeNull();
