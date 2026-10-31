@@ -14,7 +14,12 @@ const normalized = (value: string) => value.toLocaleLowerCase("ru").replaceAll("
 /** The tree's view belongs to its history entry: «Назад» returns to it, a new visit starts
  *  collapsed (PE-36). Blocks are kept by their stable ID. */
 const viewKey = (pathname: string, key: string) => `profkom-organization-tree:${pathname}:${key}`;
-function savedView(storageKey: string): { search: string; expanded: string[] } {
+const keptHere = new Set<string>();
+function savedView(storageKey: string, key: string): { search: string; expanded: string[] } {
+  // The document's first entry has no router key: a typed address or an outside link opens it
+  // afresh, while a reload or «Назад» into the document returns to the kept view.
+  const loadedBy = (performance.getEntriesByType?.("navigation")[0] as PerformanceNavigationTiming | undefined)?.type;
+  if (key === "default" && loadedBy === "navigate" && !keptHere.has(storageKey)) return { search: "", expanded: [] };
   try {
     const value = JSON.parse(sessionStorage.getItem(storageKey) ?? "null") as { search?: unknown; expanded?: unknown } | null;
     return {
@@ -28,9 +33,10 @@ function savedView(storageKey: string): { search: string; expanded: string[] } {
 export function OrganizationTree({ blocks, leadership, people }: OrganizationTreeProps) {
   const id = useId(), searchInput = useRef<HTMLInputElement>(null);
   const location = useLocation(), storageKey = viewKey(location.pathname, location.key);
-  const [search, setSearch] = useState(() => savedView(storageKey).search);
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set(savedView(storageKey).expanded));
+  const [search, setSearch] = useState(() => savedView(storageKey, location.key).search);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set(savedView(storageKey, location.key).expanded));
   useEffect(() => {
+    keptHere.add(storageKey);
     try { sessionStorage.setItem(storageKey, JSON.stringify({ search, expanded: [...expandedIds] })); }
     catch { /* no storage: the view simply is not kept */ }
   }, [storageKey, search, expandedIds]);
