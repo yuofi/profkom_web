@@ -83,6 +83,14 @@ it("checklist reports exact nested/duplicate/quoted/numbered marker offsets and 
   await act(async () => boxes[5].click());expect(changed).toHaveBeenLastCalledWith(marker("1. [X] номер"), false);
   expect(page.container.querySelector("pre")!.textContent).toBe("- [ ] одинаково\n");
 });
+it("the editor caption names its textarea and no missing control in preview", async () => {
+  function Described() { const [body, setBody] = useState("текст");return <MarkdownEditor value={body} onChange={setBody} label="Описание задачи" context="task" />; }
+  page = await mountWorkspace(<Described />);
+  const caption = () => [...page!.container.querySelectorAll("label")].find(label => label.textContent === "Описание задачи")!;
+  expect(caption().htmlFor).toBe(page.container.querySelector("textarea")!.id);
+  await click("Предпросмотр");expect(page.container.querySelector("textarea")).toBeNull();expect(caption().hasAttribute("for")).toBe(false);
+  await click("Редактирование");expect(caption().htmlFor).toBe(page.container.querySelector("textarea")!.id);
+});
 it("checklist offsets count UTF-16 code units and skip a marker that is not the item's own", async () => {
   const source = "- [ ] A 😀😀\n- [ ] Бета\n- [x]: /ссылка\n  [ ] не пункт";
   const changed = vi.fn();page = await mountWorkspace(<MarkdownContent body={source} onChecklistToggle={changed} />);

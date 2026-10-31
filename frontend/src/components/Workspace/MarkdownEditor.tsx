@@ -150,7 +150,8 @@ export function MarkdownEditor({
   </EditorTool>;
   return (
     <div className={`${editor.editor} ${variant === "comment" ? editor.comment : ""}`} data-markdown-editor={variant}>
-      {variant !== "comment" && <label htmlFor={fieldId} className={editor.caption}>{label}</label>}
+      {/* In preview there is no textarea for the caption to name. */}
+      {variant !== "comment" && <label htmlFor={preview ? undefined : fieldId} className={editor.caption}>{label}</label>}
       <div className={editor.toolbar} role="toolbar" aria-label="Форматирование Markdown">
         {variant !== "comment" && previewControl}
         {preview ? <span className={editor.mode}>Просмотр Markdown</span> : <>

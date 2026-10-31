@@ -107,11 +107,10 @@
 .comment .preview { min-height: 210px; }
 .footer { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; padding: 5px 10px 10px; min-width: 0; }
 .srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
-@media (max-width: 1024px) {
-  /* One scrollable row: a wrapped toolbar leaves single tools stranded on a second line. */
-  .editor:not(.comment) > .toolbar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
-  .editor:not(.comment) > .toolbar > * { flex: 0 0 auto; }
-}
+/* One scrollable row at any width, also in a dialog on a wide screen: a wrapped toolbar
+   leaves single tools stranded on a second line. A toolbar that fits does not scroll. */
+.editor:not(.comment) > .toolbar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
+.editor:not(.comment) > .toolbar > * { flex: 0 0 auto; }
 @media (max-width: 600px) {
   .tool { min-width: 34px; padding-inline: 7px; }
   .input, .preview { padding: 10px; }
