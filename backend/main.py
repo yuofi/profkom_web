@@ -3078,6 +3078,13 @@ def list_merits(
     return {"items": [_to_merit_out(m) for m in items], "next_cursor": None}
 
 
+@router.get("/merits/contexts")
+def list_merit_contexts(season_id: Optional[str] = None, cur: User = Depends(get_current_user)):
+    """Blocks, events and subevents with their merit capabilities for the merit forms."""
+    from merit_rules import contexts
+    return contexts(cur.user_id, season_id)
+
+
 @router.post("/merits", response_model=MeritOut)
 def create_merit(payload: MeritCreateIn, cur: User = Depends(get_current_user)):
     data=payload.model_dump()

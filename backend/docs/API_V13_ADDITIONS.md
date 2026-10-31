@@ -510,3 +510,10 @@ event/subevent/leadership имеет общий контракт. Публичн
 - `GET /task-queues/create-access` → `{can_create_task}`: есть ли в каталоге
   очередь с `create_task` для актора (то же правило, что в каталоге), чтобы
   кнопке «Создать задачу» не требовался весь каталог очередей.
+- `GET /merits/contexts[?season_id=]` → `{blocks, events, subevents}` для форм
+  заслуг одним запросом вместо `/blocks`, `/events` и `/events/{id}/subevents`
+  по каждому мероприятию. `blocks`: `block_id`, `name`, `avatar_url`;
+  `events`: `event_id`, `season_id`, `title`; `subevents`: `subevent_id`,
+  `event_id`, `title`. В каждом элементе `capabilities` — только возможности
+  заслуг (`create_volunteer_merit` у блоков и подмероприятий, `create_head_merit`
+  у мероприятий), ровно как в соответствующих DTO; порядок элементов прежний.

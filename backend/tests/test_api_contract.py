@@ -147,6 +147,7 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ('GET', '/api/materials/deleted'),
     ('GET', '/api/materials/{material_id}'),
     ('GET', '/api/merits'),
+    ('GET', '/api/merits/contexts'),
     ('GET', '/api/merits/{merit_id}'),
     ('GET', '/api/notifications'),
     ('GET', '/api/participants/categories'),
