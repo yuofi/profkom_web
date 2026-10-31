@@ -2120,6 +2120,7 @@ export function installMockTransport(
             user_id: person.user_id!,
             display_name: person.display_name,
             archived_at: mockNow,
+            capabilities: ["restore_account"],
           });
       }
       if (

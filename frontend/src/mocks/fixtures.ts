@@ -642,6 +642,7 @@ export function createFixtures(role: MockRole = "organizer") {
       display_name: "Елена Волкова",
       archived_at: "2026-09-01T12:00:00Z",
       master_conflicts: [{ block_id: "block-info", current_master: people[1] }],
+      capabilities: ["restore_account"],
     },
   ];
   const merits: Merit[] = [];

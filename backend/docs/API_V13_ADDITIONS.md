@@ -88,6 +88,13 @@ capability выдаётся ровно тогда, когда сервер вы�
   мастера HR этого блока: 200 вместо прежних 404, `capabilities` пустые; правка
   и публикация — 403, гайды других блоков — 404. Карточка блока HR даёт ему
   `read_guide` (GL-09).
+- `POST /accounts/{id}/archive` и `POST /accounts/{id}/restore` заместителя
+  председателя (в том числе себя) доступны только председателю; заму — 403
+  `leadership_change_forbidden`, при восстановлении раньше 409
+  `archive_scope_mapping_required`/`master_conflicts`. Элементы
+  `GET /accounts/archive` получили `capabilities` (`restore_account`, если
+  читающий вправе восстановить именно этот аккаунт). `POST
+  /accounts/{id}/temporary-password` для председателя и замов — 403 (PE-01).
 
 ## Хранилище, вход через VK и очистка (выпуск 1)
 

@@ -90,6 +90,24 @@ def chair_term(s):
     return r.role_assignment_id if r else None
 
 
+def restores_deputy_chair(s, a):
+    """Restoring this archive gives a deputy chair seat back (same chair term only), so
+    only the chair may do it (PE-01, owner 2026-10-31)."""
+    snap = json.loads(a.snapshot_json)
+    return snap.get("chair_term") == chair_term(s) and any(
+        r["role"] == "deputy_chair" and r["user_id"] == a.user_id for r in snap.get("roles", []))
+
+
+def archive_capabilities(s, a, actor):
+    import access
+
+    if not access.allowed(actor, "account.restore"):
+        return []
+    if restores_deputy_chair(s, a) and not access.allowed(actor, "leadership.deputies"):
+        return []
+    return ["restore_account"]
+
+
 def rename_archived_block_scopes(session, old_name, new_name, block_id):
     """The live rename supplies a trusted stable ID, unlike a guessed old label."""
     # Observe current roles before the label changes. Unknown legacy intervals
@@ -314,6 +332,10 @@ def _restore(uid, payload, actor):
             fail(404, "Archived account not found")
         if a.purged_at:
             fail(409, "Account was permanently cleared")
+        restore_global = restores_deputy_chair(s, a)
+        if restore_global:
+            # Refused before any repair or conflict prompt: a deputy has nothing to resolve.
+            require_leadership_change(actor)
         if not s.get(ContactInfoORM, uid):
             fail(409, "Repair the missing contact profile before restore")
         if u.account_state == "active":
@@ -361,12 +383,6 @@ def _restore(uid, payload, actor):
             )
         snap = json.loads(a.snapshot_json)
         lead = s.get(LeadershipORM, 1)
-        same_term = snap.get("chair_term") == chair_term(s)
-        restore_global = same_term and any(
-            r["role"] == "deputy_chair" and r["user_id"] == uid for r in snap["roles"]
-        )
-        if restore_global:
-            require_leadership_change(actor)
         if restore_global and len(json.loads(lead.deputies_json or "[]")) >= 3:
             fail(409, "Deputy chair limit; free a position before restore", "restore_deputy_limit")
         u.account_state = "active"
@@ -496,6 +512,7 @@ def register_routes(router):
                         display_name=db._get_user_ref(s, a.user_id).display_name,
                         archived_at=a.archived_at,
                         master_conflicts=master_conflicts(s, a),
+                        capabilities=archive_capabilities(s, a, cur.user_id),
                     )
                     for a in s.query(AccountArchiveORM).filter_by(
                         restored_at=None, purged_at=None

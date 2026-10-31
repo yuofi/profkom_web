@@ -693,6 +693,8 @@ export interface ArchivedAccount {
   display_name: string;
   archived_at: string;
   master_conflicts?: { block_id: string; block_name?: string; current_master: UserRef }[];
+  /** restore_account: absent for a deputy chair unless the viewer is the chair (PE-01). */
+  capabilities?: string[];
 }
 export interface TaskCreate {
   task_type?: TaskType;

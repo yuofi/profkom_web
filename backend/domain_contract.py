@@ -108,6 +108,7 @@ class ArchivedAccount(BaseModel):
     display_name: str
     archived_at: str
     master_conflicts: list[dict]
+    capabilities: list[str] = []
 
 
 class AccountState(BaseModel):

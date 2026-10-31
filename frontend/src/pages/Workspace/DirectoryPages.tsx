@@ -583,7 +583,9 @@ export function AccountArchivePage() {
           {query.data?.items.map((a) => (
             <Card key={a.user_id} title={a.display_name}>
               <p>В архиве с {displayDate(a.archived_at)}</p>
-              <RestoreForm account={a} />
+              {can(a, "restore_account")
+                ? <RestoreForm account={a} />
+                : <p className={s.muted}>Заместителя председателя восстанавливает только председатель.</p>}
             </Card>
           ))}
           {query.data?.items.length === 0 && <Empty>Архив пуст.</Empty>}

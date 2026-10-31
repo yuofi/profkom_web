@@ -87,7 +87,10 @@ managed accounting controls and immutable approved snapshots, and the KKR summon
 `test_closed_season_editors.py` checks, role by role, who changes a closed season (the
 chair, deputies and HR master, owner decision 2026-10-31) across marks, corrections,
 coefficients, task fields, assessment inputs/dates, review and merits, with matching
-capabilities, and that new assignment rows there keep the chair-and-deputies default. `test_portal_core_iteration.py`
+capabilities, and that new assignment rows there keep the chair-and-deputies default.
+`test_archive_restore_release.py` also checks, role by role, that only the chair archives
+or restores a chair deputy (the deputy themselves included), that the refusal precedes
+restore conflict prompts and that archive items carry `restore_account` (PE-01). `test_portal_core_iteration.py`
 checks the deadline-free formula and new event/chair work sources. Synthetic legacy
 schema imports are repeated through each supported import order in
 `test_portal_migration_iteration.py`; queue rebinding uses explicit source IDs and
