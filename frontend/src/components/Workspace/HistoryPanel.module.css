@@ -16,7 +16,9 @@
 .values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .values div { min-width: 0; }
 .values dt { color: var(--on-surface-variant); font-size: 12px; margin-bottom: 8px; }
-.values dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.values pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 13px; margin: 0; }
+.values dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.5; }
+.values pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin: 0; }
+.items { margin: 0; padding-inline-start: 18px; display: grid; gap: 4px; white-space: normal; }
+.items .items { margin-top: 4px; }
 .confirm { border: 1px solid var(--error); padding: 12px; border-radius: 12px; margin-top: 12px; }
 @media (max-width: 600px) { .entry { padding: 12px; }.values { grid-template-columns: minmax(0, 1fr); } }

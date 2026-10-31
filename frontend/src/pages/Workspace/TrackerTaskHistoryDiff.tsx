@@ -1,8 +1,6 @@
 import { UserChip } from "../../components/Workspace/UserChip";
 import type { UserRef } from "../../utils/api/contract";
-import { displayDate } from "../../utils/dates";
-import { taskTypeNames, taskPriorityNames } from "./trackerPlanning";
-import { statusNames } from "./trackerStatus";
+import { historyText } from "../../components/Workspace/historyValues";
 import s from "./TrackerTaskDetail.module.css";
 
 type HistoryValue = string | string[] | null;
@@ -12,11 +10,7 @@ const fieldLabels: Record<string, string> = { task_type:"Тип задачи", p
 function readable(value: HistoryValue, field: string) {
   if (value === null) return "Не задано";
   if (Array.isArray(value)) return value.length ? value.join("\n") : "Не задано";
-  if (field === "status" && value in statusNames) return statusNames[value as keyof typeof statusNames];
-  if (field === "task_type") return taskTypeNames[value] ?? value;
-  if (field === "priority") return taskPriorityNames[value] ?? value;
-  if ((field === "deadline_at" || field === "starts_at") && Number.isFinite(Date.parse(value))) return displayDate(value);
-  return value || "Пусто";
+  return historyText(value, field);
 }
 /** Keep line breaks and unchanged edge context; replaced text remains literal, never executable Markdown. */
 function difference(before: string, after: string) {
