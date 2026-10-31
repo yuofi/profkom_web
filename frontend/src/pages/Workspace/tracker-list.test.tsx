@@ -32,6 +32,16 @@ async function mount(path = "/tasks", responder?: (params: object) => TaskListPa
 }
 const button = (text: string) => Array.from(page!.container.querySelectorAll("button")).find(node => node.textContent?.trim() === text)!;
 
+it("PF-04: resting on the task's link or cell starts the task; resting on a person's chip in the row starts nothing", async () => {
+  const { task } = await mount();
+  const get = vi.spyOn(tasksApi, "get"), comments = vi.spyOn(tasksApi, "comments");
+  const row = page!.container.querySelector("tbody tr")!, chip = row.querySelector('a[href^="/contacts/"]')!, title = row.querySelector(`a[href="/tasks/${task.task_id}"]`)!;
+  const rest = (element: Element) => act(async () => { element.dispatchEvent(new MouseEvent("pointerover", { bubbles: true }));await new Promise(resolve => setTimeout(resolve, 200)); });
+  expect(chip).not.toBeNull();
+  await rest(chip);expect(get).not.toHaveBeenCalled();
+  await rest(title);await waitForPage(page!);
+  expect(get).toHaveBeenCalledExactlyOnceWith(task.task_id);expect(comments).not.toHaveBeenCalled();
+});
 it("opens the task from a non-link row cell and supports keyboard row activation", async () => {
   await mount();
   await act(async () => page!.container.querySelector("tbody td")!.dispatchEvent(new MouseEvent("click", { bubbles: true })));

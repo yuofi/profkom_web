@@ -42,12 +42,13 @@ function NavigationProgress() {
   }, [pending, target.pathname, client]);
   return pending ? <div className={s.progress} role="progressbar" aria-label="Открываем страницу" /> : null;
 }
-/** The sections of the menu load their code when the browser is idle; not on a data saver. */
+/** The sections of the menu load their code when the browser is idle; not on a data saver,
+ *  a slow link or a mobile network, where each section loads when it is opened. */
 function useIdleSectionCode(paths: string[]) {
   const key = paths.join(" ");
   useEffect(() => {
-    const connection = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
-    if (connection?.saveData || /2g/.test(connection?.effectiveType ?? "")) return;
+    const connection = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string; type?: string } }).connection;
+    if (connection?.saveData || /[23]g/.test(connection?.effectiveType ?? "") || connection?.type === "cellular") return;
     const load = () => key.split(" ").forEach(preloadRouteCode);
     const idle = window.requestIdleCallback;
     const timer = setTimeout(() => idle ? idle(load, { timeout: 5000 }) : load(), 2500);

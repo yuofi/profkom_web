@@ -130,7 +130,9 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
     next.set("sort", sort); next.set("order", filters.sort === sort && filters.order === "asc" ? "desc" : "asc");
     next.delete("cursor"); next.delete("page"); previous.current.clear(); setParams(next);
   };
-  const prefetchTask = useTaskPrefetch();
+  // Resting on the task's own link counts; on another control of the row (a person's chip,
+  // the star, the status menu) it is meant for that control and starts nothing.
+  const prefetchTask = useTaskPrefetch(target => interactive(target) && !(target instanceof Element && target.closest('a[href^="/tasks/"]')));
   const open = (event: MouseEvent<HTMLTableRowElement>, task: Task) => {
     if (interactive(event.target) || window.getSelection()?.toString()) return;
     const route = getTaskRoute(task.task_id);

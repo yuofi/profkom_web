@@ -64,14 +64,17 @@ export function prefetchRouteData(client: QueryClient, pathname: string) {
   const task = /^\/tasks\/([^/]+)$/.exec(pathname);
   if (task && !["new", "queues", "unresolved"].includes(task[1])) prefetchTask(client, decodeURIComponent(task[1]));
 }
-/** Hover or focus resting on a task row: its code and data start loading before the
- *  click. Passing over rows on the way elsewhere starts nothing. */
-export function useTaskPrefetch() {
+/** Hover or focus resting on a task row: its code and the task start loading before the
+ *  click; the comments start with the click itself (prefetchRouteData). Passing over rows on
+ *  the way elsewhere starts nothing, nor does resting on a control of the row such as a
+ *  person's chip (`ignore`): that hover is meant for the control, not for opening the task. */
+export function useTaskPrefetch(ignore?: (target: EventTarget | null) => boolean) {
   const client = useQueryClient(), timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const cancel = () => { clearTimeout(timer.current);timer.current = undefined; };
-  const start = (taskId: string) => () => {
+  const start = (taskId: string) => (event: { target: EventTarget | null }) => {
     cancel();
-    timer.current = setTimeout(() => { preloadRouteCode("/tasks/task");prefetchTask(client, taskId); }, 120);
+    if (ignore?.(event.target)) return;
+    timer.current = setTimeout(() => { preloadRouteCode("/tasks/task");prefetch(client, ["tasks", taskId], () => tasksApi.get(taskId)); }, 120);
   };
-  return (taskId: string) => ({ onPointerEnter: start(taskId), onPointerLeave: cancel, onFocus: start(taskId), onBlur: cancel });
+  return (taskId: string) => ({ onPointerOver: start(taskId), onPointerLeave: cancel, onFocus: start(taskId), onBlur: cancel });
 }
