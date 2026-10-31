@@ -2,15 +2,18 @@
 
 The chair, the chair's deputies and the HR master edit a closed season: its marks
 (отметки), summary corrections, coefficients, public task fields, assessment inputs and
-dates, reviews and merits. The HR deputy, block leads, members and outsiders do not.
-Creating a NEW assignment row in a closed season keeps the TR-05 default (the chair and
-deputies) and is not widened by this decision. Every capability follows its command.
+dates, reviews and merits, new merits included. The HR deputy, block leads, members and
+outsiders do not. Creating a NEW assignment row in a closed season keeps the TR-05
+default (the chair and deputies) and is not widened by this decision. Every capability
+follows its command.
 """
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from database import AssignmentORM, ContributionORM, SeasonDecisionORM, db
+import access
+from database import AssignmentORM, ContributionORM, MeritORM, SeasonDecisionORM, db
+from merit_rules import CREATE_ACTIONS
 from test_hr_tracker_edit import hr_roles  # noqa: F401
 from test_v13_season_integrity import accept, close
 from test_v13_tracker import work  # noqa: F401
@@ -52,6 +55,21 @@ def ledger():
         return (sorted((a.assignment_id, a.status, a.hours, a.evaluation, a.inputs_revision) for a in session.query(AssignmentORM)),
                 sorted((c.contribution_id, c.score) for c in session.query(ContributionORM)),
                 sorted((d.user_id, d.decisions_json) for d in session.query(SeasonDecisionORM)))
+
+
+def merits():
+    with db._session() as session:
+        return sorted((m.merit_id, m.season_id, m.source_kind) for m in session.query(MeritORM))
+
+
+CLOSED_CREATE = "Forbidden: only the chair, deputies and HR master can create merits in a closed season"
+
+
+def new_merit(client, actor, sid, source, recipient, **target):
+    return client.post("/api/merits", headers=actor.headers, json=dict(
+        season_id=sid, source_kind=source, title=f"Новая заслуга ({source})", description="", criteria={},
+        assigned_at=stamp(-3), deadline_at=stamp(-2), **target,
+        recipients=[{"user_id": recipient, "hours": 1, "evaluation": 1, "completed_at": stamp(-2)}]))
 
 
 def refused(role):
@@ -130,6 +148,29 @@ def test_closed_season_is_edited_by_the_chair_deputies_and_hr_master(client, clo
         assert ledger() == before
 
 
+@pytest.mark.parametrize("role", ROLES)
+def test_closed_season_new_merit_follows_the_season_circle(client, closed, role):
+    """A new merit is a change of the closed season too: the chair, the deputies and the HR
+    master add a chair merit and a block volunteer merit there; the HR deputy and the rest
+    get the closed-season 403 and no row is written."""
+    actor, sid, editor = closed["people"][role], closed["sid"], role in EDITORS
+    outsider = closed["people"]["outsider"].user_id
+    for source, target in [("chair_merit", {}), ("block_volunteer", {"scope": {"kind": "block", "id": closed["block_id"]}})]:
+        before = merits()
+        response = new_merit(client, actor, sid, source, outsider, **target)
+        if editor:
+            assert response.status_code == 200, (source, response.text)
+            assert response.json()["season_id"] == sid and response.json()["source_kind"] == source
+            assert len(merits()) == len(before) + 1
+        else:
+            assert response.status_code == 403, (source, response.text)
+            assert response.json()["detail"]["message"] == CLOSED_CREATE, response.text
+            assert merits() == before
+        # The rule the command checks, as the capability layer reads it for this season.
+        assert access.allowed(actor.user_id, CREATE_ACTIONS[source], "block" if target else None,
+                              closed["block_id"] if target else None, state="closed") is editor
+
+
 @pytest.mark.parametrize("role", ["hr_master", "hr_deputy", "block_master", "member"])
 def test_closed_season_new_assignments_keep_the_tr05_circle(client, closed, role):
     """SE-13 does not widen TR-05: in a closed season only the chair and deputies add an
@@ -156,26 +197,51 @@ def test_chair_and_deputy_keep_closed_reassignment(client, closed):
 
 
 def test_closed_season_merit_of_a_closed_event_follows_the_season_circle(client, work, superuser, make_user, hr_roles):
-    """A closed main event stops its heads; in a closed season the circle edits the merit anyway."""
-    from database import SeasonORM
+    """A closed main event stops its heads; in a closed season the circle edits the merit
+    anyway and adds new head and subevent volunteer merits there, the capability with it."""
     sid, head = work["season"]["season_id"], make_user()
     event = client.post("/api/events", headers=superuser.headers, json={"season_id": sid, "title": "Посвят", "description": ""})
     assert event.status_code == 200, event.text
-    event = client.put(f"/api/events/{event.json()['event_id']}/leaders", headers=superuser.headers,
+    event_id = event.json()["event_id"]
+    event = client.put(f"/api/events/{event_id}/leaders", headers=superuser.headers,
                        json={"user_ids": [head.user_id], "expected_revision": event.json()["revision"]})
     assert event.status_code == 200, event.text
-    event = event.json()
+    sub = client.post(f"/api/events/{event_id}/subevents", headers=superuser.headers, json={"title": "Лекции", "description": ""})
+    assert sub.status_code == 200, sub.text
+    sub_id = sub.json()["subevent_id"]
     merit = client.post("/api/merits", headers=head.headers, json=dict(
-        season_id=sid, source_kind="head_merit", event_id=event["event_id"], title="Заслуга главорга", description="",
+        season_id=sid, source_kind="head_merit", event_id=event_id, title="Заслуга главорга", description="",
         criteria={}, assigned_at=stamp(-3), deadline_at=stamp(-2), reason="Фикстура",
         recipients=[{"user_id": work["member"].user_id, "hours": 1, "evaluation": 1, "completed_at": stamp(-2)}]))
     assert merit.status_code == 200, merit.text
-    closed_event = client.post(f"/api/events/{event['event_id']}/close", headers=superuser.headers,
-                               json={"expected_revision": event["revision"]})
+    revision = client.get(f"/api/events/{event_id}", headers=superuser.headers).json()["revision"]
+    closed_event = client.post(f"/api/events/{event_id}/close", headers=superuser.headers, json={"expected_revision": revision})
     assert closed_event.status_code == 200, closed_event.text
-    with db._session() as session:
-        session.get(SeasonORM, sid).state = "closed";session.commit()
+    from database import EventORM, ReportORM, SubeventORM
+    with db._session() as session:  # published final reports, so the season really closes
+        for kind, row, owner_id in [("event", session.get(EventORM, event_id), event_id), ("subevent", session.get(SubeventORM, sub_id), sub_id)]:
+            session.add(ReportORM(report_id=f"final-{kind}", owner_kind=kind, owner_id=owner_id, season_id=sid, kind="final",
+                                  report_series_id=row.report_series_id, title="Итоги", state="published",
+                                  created_by_user_id=superuser.user_id, created_at=stamp(-1)))
+        session.commit()
+    accept(client, work)
+    close(client, work, superuser)
     for actor, status in [(superuser, 409), (hr_roles["master"], 409), (hr_roles["deputy"], 403), (head, 403)]:
         response = client.patch(f"/api/merits/{merit.json()['merit_id']}", headers=actor.headers,
                                 json={"expected_revision": BAD, "reason": "probe"})
         assert response.status_code == status, (actor.user_id, response.text)
+    targets = [("head_merit", {"event_id": event_id}, "event", event_id, "create_head_merit"),
+               ("subevent_volunteer", {"scope": {"kind": "subevent", "id": sub_id}}, "subevent", sub_id, "create_volunteer_merit")]
+    for actor, editor in [(superuser, True), (hr_roles["master"], True), (hr_roles["deputy"], False), (head, False)]:
+        for source, target, kind, scope_id, cap in targets:
+            before = merits()
+            # A closed season takes recipients from its participant snapshot: the member.
+            response = new_merit(client, actor, sid, source, work["member"].user_id, **target)
+            if editor:
+                assert response.status_code == 200, (actor.user_id, source, response.text)
+            else:
+                assert response.status_code == 403, (actor.user_id, source, response.text)
+                assert response.json()["detail"]["message"] == CLOSED_CREATE, response.text
+                assert merits() == before
+            # A role assignment's merit capability there follows the same command.
+            assert (cap in access.assignment_caps(actor.user_id, kind, scope_id)) is editor, (actor.user_id, source)

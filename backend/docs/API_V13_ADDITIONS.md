@@ -77,7 +77,10 @@ capability выдаётся ровно тогда, когда сервер вы�
   отметки (`PUT …/summary/decisions/{user_id}`, `edit_decisions`), коррекции
   (`POST …/summary/correct`, `correct_summary`), коэффициенты
   (`PUT …/coefficients`, `edit_coefficient`), публичные поля задачи (`edit_task`),
-  исходные поля и даты оценивания, приёмка и заслуги. Заму мастера HR, руководителям
+  исходные поля и даты оценивания, приёмка, правка заслуг (`PATCH /merits/{id}`) и новые
+  заслуги (`POST /merits` с закрытым `season_id`, правила `merit.create.*`; отказ —
+  403 «only the chair, deputies and HR master can create merits in a closed season»,
+  до проверки полей; формы новой заслуги закрытого сезона в UI нет). Заму мастера HR, руководителям
   областей и остальным — 403 (не читающим объект — 404). Страница «Исправление
   закрытых итогов» и пункт «Исправить итоги…» открываются по `correct_summary`
   сводной, без `correct_season`. Новые назначения закрытого сезона (вступление,

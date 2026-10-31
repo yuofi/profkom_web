@@ -6404,8 +6404,11 @@ class Database:
             if not season:
                 raise NotFound("Season not found")
             import access
-            if season.state == "closed" and not access.allowed(created_by_user_id, "summary.correct"):
-                raise Forbidden("Forbidden: a closed season is changed only by the chair, deputies and HR master")
+            from merit_rules import CREATE_ACTIONS, can_create
+            # A closed season gets a new merit only from its circle (CLOSED_SEASON, SE-13): the
+            # same merit.create.* rule as below, refused here before the input checks.
+            if season.state == "closed" and not access.allowed(created_by_user_id, CREATE_ACTIONS[source_kind], state="closed"):
+                raise Forbidden("Forbidden: only the chair, deputies and HR master can create merits in a closed season")
             if season.state == "planned" and source_kind not in ("head_merit", "subevent_volunteer"):
                 raise InvalidInput("Only head_merit and subevent_volunteer are allowed in a planned season")
 
@@ -6414,7 +6417,6 @@ class Database:
             scope_kind = scope.get("kind")
             scope_id = scope.get("id")
 
-            from merit_rules import can_create
             if source_kind == "chair_merit":
                 denied = "Forbidden: only chair and deputies can create chair_merit"
             elif source_kind == "head_merit":
@@ -6433,7 +6435,7 @@ class Database:
                 if not session.get(SubeventORM, scope_id):
                     raise NotFound("Subevent not found")
                 denied = "Forbidden: cannot create volunteer merit for this subevent"
-            if not can_create(created_by_user_id, source_kind, event_id, scope_id):
+            if not can_create(created_by_user_id, source_kind, event_id, scope_id, state=season.state):
                 raise Forbidden(denied)
 
             from merit_rules import validate

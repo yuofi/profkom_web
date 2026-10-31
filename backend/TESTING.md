@@ -86,7 +86,8 @@ managed accounting controls and immutable approved snapshots, and the KKR summon
 (HR master and HR deputy, open/summarizing seasons only) for every role.
 `test_closed_season_editors.py` checks, role by role, who changes a closed season (the
 chair, deputies and HR master, owner decision 2026-10-31) across marks, corrections,
-coefficients, task fields, assessment inputs/dates, review and merits, with matching
+coefficients, task fields, assessment inputs/dates, review, merit edits and new merits of
+every kind (a closed event's too), with matching
 capabilities, and that new assignment rows there keep the chair-and-deputies default.
 `test_archive_restore_release.py` also checks, role by role, that only the chair archives
 or restores a chair deputy (the deputy themselves included), that the refusal precedes

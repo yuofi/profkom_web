@@ -121,10 +121,11 @@ POLICY = {
     # Calling leaders to fill KKR of closed tasks, only while work is accounted: the HR master
     # and the HR deputy, not the chair or the chair's deputies (owner, 2026-10-31, SE-14)
     "kkr.remind": ByState({"*": frozenset(), "open": {HR_MASTER, HR_DEPUTY}, "summarizing": {HR_MASTER, HR_DEPUTY}}),
-    "merit.create.chair": TACHKI,
-    "merit.create.head": TACHKI | EVENT_LEADS,  # decision 12
-    "merit.create.block_volunteer": TACHKI,
-    "merit.create.subevent_volunteer": TACHKI | EVENT_LEADS,  # A-KKR-8 (a)
+    # A new merit in a closed season is a change of that season: its circle only (SE-13)
+    "merit.create.chair": ByState({"*": TACHKI, "closed": CLOSED_SEASON}),
+    "merit.create.head": ByState({"*": TACHKI | EVENT_LEADS, "closed": CLOSED_SEASON}),  # decision 12
+    "merit.create.block_volunteer": ByState({"*": TACHKI, "closed": CLOSED_SEASON}),
+    "merit.create.subevent_volunteer": ByState({"*": TACHKI | EVENT_LEADS, "closed": CLOSED_SEASON}),  # A-KKR-8 (a)
     "merit.view.chair_merit": SUMMARY,
     "merit.view.head_merit": SUMMARY | EVENT_LEADS,
     "merit.view.block_volunteer": SUMMARY | BLOCK_LEADS | {BLOCK_HR},
@@ -725,7 +726,7 @@ def subevent_caps(sub, uid=None):
     result = _caps(table, uid, "subevent", sub.subevent_id, state)
     if "create_volunteer_merit" in result:
         from merit_rules import can_create
-        if not can_create(uid, "subevent_volunteer", None, sub.subevent_id):
+        if not can_create(uid, "subevent_volunteer", None, sub.subevent_id, state=state):
             result.remove("create_volunteer_merit")
     return result
 
@@ -777,13 +778,13 @@ def assignment_caps(uid, kind, scope_id):
     if kind == "global":
         return global_caps(uid)
     readable = _caps(MERIT_VIEW_CAPS.get(kind, {}), uid, kind, scope_id)
-    if _closed_scope(kind, scope_id) and not allowed(uid, "summary.correct"):
-        return readable
-    result = _caps(ASSIGNMENT_CAPS.get(kind, {}), uid, kind, scope_id)
+    # In a closed season's scope merit.create.* narrows to the season's circle (SE-13)
+    state = "closed" if _closed_scope(kind, scope_id) else None
+    result = _caps(ASSIGNMENT_CAPS.get(kind, {}), uid, kind, scope_id, state)
     if kind in {"event", "subevent"}:
         from merit_rules import can_create
         source = "head_merit" if kind == "event" else "subevent_volunteer"
-        if not can_create(uid, source, scope_id if kind == "event" else None, scope_id if kind == "subevent" else None):
+        if not can_create(uid, source, scope_id if kind == "event" else None, scope_id if kind == "subevent" else None, state=state):
             result = [cap for cap in result if cap not in {"create_head_merit", "create_volunteer_merit"}]
     return sorted({*result, *readable})
 
