@@ -398,7 +398,9 @@ it("planning and file dialogs close after a successful save and the card confirm
   let task = makeTask({ capabilities: ["read_task", "edit_task_metadata", "attach_task_file"], priority: "normal", attachments: [file] });
   const update = vi.spyOn(tasksApi, "update").mockImplementation(async (_id, payload) => (task = { ...task, ...("priority" in payload ? { priority: payload.priority } : {}), ...("file_ids" in payload ? { attachments: [] } : {}), revision: task.revision + 1 }));
   await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async () => task);
-  await click("Изменить параметры");let dialog = page!.container.querySelector("dialog")!;
+  const edit = page!.container.querySelector<HTMLButtonElement>('[aria-label="Параметры задачи"] details > button[aria-label="Изменить параметры"]')!;
+  expect(edit.previousElementSibling?.tagName).toBe("SUMMARY");expect(edit.nextElementSibling?.tagName).toBe("DL");expect(edit.querySelector("[aria-hidden], span, svg")).not.toBeNull();
+  await act(async () => edit.click());await settle();let dialog = page!.container.querySelector("dialog")!;
   await change(dialog.querySelector<HTMLSelectElement>('[name="priority"]')!, "urgent");await submit(dialog.querySelector("form")!);await waitForPage(page!);
   expect(update).toHaveBeenCalledTimes(1);expect(dialog.isConnected).toBe(false);expect(page!.container.querySelector("dialog")).toBeNull();
   expect(page!.container.textContent).toContain("Изменения сохранены");

@@ -115,9 +115,9 @@ function TaskContent({ task, assignmentId, accountingRequested=false, returnSeas
         <TaskActivity task={task} />
         {task.queue?.key === "WEBSUPPORT" && <SupportTaskPanel task={task} />}
       </div>
-      <aside className={s.sidebar} aria-label="Параметры задачи"><details className={s.parameters} open={parametersOpen} onToggle={event => setParametersOpen(event.currentTarget.open)}><summary>Параметры</summary><dl>
+      <aside className={s.sidebar} aria-label="Параметры задачи"><details className={s.parameters} open={parametersOpen} onToggle={event => setParametersOpen(event.currentTarget.open)}><summary>Параметры</summary>{can(task,"edit_task_metadata") && <button type="button" className={`${s.iconButton} ${s.parametersEdit}`} aria-label="Изменить параметры" title="Изменить параметры" onClick={() => setEditor("planning")}><Glyph name="edit" /></button>}<dl>
         <div><dt>Статус</dt><dd><TaskStatusMenu task={task} onClosed={()=>setKkrOpen(true)} /></dd></div>
-        <div><dt>Тип</dt><dd><TaskClassificationMenu task={task} field="task_type" />{can(task,"edit_task_metadata") && <button type="button" className={s.deadlineEdit} onClick={() => setEditor("planning")}>Изменить параметры</button>}</dd></div>
+        <div><dt>Тип</dt><dd><TaskClassificationMenu task={task} field="task_type" /></dd></div>
         <div><dt>Приоритет</dt><dd><TaskClassificationMenu task={task} field="priority" /></dd></div>
         {task.task_type !== "milestone" && <div><dt>Плановое начало, МСК</dt><dd>{displayDate(task.starts_at)}</dd></div>}
         <TaskDeadlineParameter task={task} now={now} onSaved={savedEditor} />
