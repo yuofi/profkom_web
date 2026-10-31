@@ -551,6 +551,8 @@ export interface Material extends Versioned {
   source_content?: RichText;
   /** Block guides only: "block" reads to the block and the chair's team, "everyone" to all. */
   audience?: "block" | "everyone";
+  /** When the readers' version was published; null for older publications. */
+  published_at?: string | null;
 }
 export interface Comment {
   comment_id: string;

@@ -75,9 +75,14 @@ it("creates a source draft on a separate page and never publishes it implicitly"
   const created = mock.state.materials.find(item => item.title === "Новый исходник")!;
   expect(created.draft_content?.body).toBe("# Черновик\n\n- [ ] Проверить");
   expect(created.published_content).toBeNull();expect(publish).not.toHaveBeenCalled();
+  // The new draft opens in its editor, in the URL, with its publication at hand (GL-17).
   expect(dataPage.router.state.location.pathname).toBe(`/materials/${created.material_id}`);
-  expect(dataPage.container.querySelector("form")).toBeNull();
+  expect(dataPage.router.state.location.search).toBe("?edit=1");
+  expect(form(dataPage.container, "Опубликовать сохранённый черновик")).toBeDefined();
+  expect(dataPage.container.textContent).toContain("Ещё не опубликовано.");
   expect(dataPage.container.querySelector("dialog")).toBeNull();
+  await click(button(dataPage.container, "Готово"));await waitForPage(dataPage);
+  expect(dataPage.router.state.location.search).toBe("");expect(dataPage.container.querySelector("form")).toBeNull();
 });
 
 it.each(["edit_material", "publish_material", "edit_audience", "delete_material", "manage_material_editors"])("keeps the editor entry for the independent capability %s", async capability => {

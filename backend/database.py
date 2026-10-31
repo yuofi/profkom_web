@@ -670,6 +670,16 @@ def _ensure_sqlite_material_deleted_at():
 _ensure_sqlite_material_deleted_at()
 
 
+def _ensure_sqlite_material_published_at():
+    with engine.begin() as connection:
+        columns = {row[1] for row in connection.execute(text("PRAGMA table_info(materials)"))}
+        if columns and "published_at" not in columns:
+            connection.execute(text("ALTER TABLE materials ADD COLUMN published_at VARCHAR"))
+
+
+_ensure_sqlite_material_published_at()
+
+
 def _ensure_sqlite_block_avatar_column() -> None:
     """Existing block metadata keeps its IDs, membership and nullable avatar unchanged."""
     with engine.begin() as conn:

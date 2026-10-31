@@ -332,3 +332,18 @@ def test_deleted_material_is_listed_and_restored_by_the_chair_and_deputies(clien
     assert client.get(f"/api/materials/{mid}", headers=reader.headers).json()["published_content"]["body"] == "Текст"
     assert client.post(restore, headers=deputy.headers, json=dict(expected_revision=restored.json()["revision"])).status_code == 409
     assert all(x["material_id"] != mid for x in client.get("/api/materials/deleted", headers=superuser.headers).json()["items"])
+
+
+def test_publication_records_its_date_for_readers_and_editors(client, superuser, user):
+    """The editor and the page say when the readers' version appeared (GL-17)."""
+    made = client.post("/api/materials", headers=superuser.headers, json=dict(
+        kind="general", title="Дата публикации", description="Проверка", content=dict(format="markdown", body="Текст")))
+    assert made.status_code == 200, made.text
+    assert made.json()["published_at"] is None
+    published = client.post(f"/api/materials/{made.json()['material_id']}/publish", headers=superuser.headers,
+                            json=dict(expected_revision=made.json()["revision"]))
+    assert published.status_code == 200, published.text
+    stamp = published.json()["published_at"]
+    assert stamp and stamp.startswith("20")
+    read = client.get(f"/api/materials/{made.json()['material_id']}", headers=user.headers).json()
+    assert read["published_at"] == stamp

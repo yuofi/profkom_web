@@ -123,6 +123,7 @@ def dto(s, m, uid):
         ),
         revision=m.revision,
         placeholder=m.placeholder,
+        published_at=m.published_at if m.published_body is not None else None,
         community_url=(s.get(BlockMetaORM, m.owner_block_id).community_url if m.owner_block_id and s.get(BlockMetaORM, m.owner_block_id) else None),
         capabilities=[],
     )
@@ -220,6 +221,8 @@ def publish(s, m, uid):
         m.description = m.draft_description or ""
         m.original_link = m.draft_original_link
         m.published_body = m.draft_body or ""
+        from domain_seed import now as published_now
+        m.published_at = published_now()
         m.has_draft = False
         m.draft_body = None
         m.draft_title = None
