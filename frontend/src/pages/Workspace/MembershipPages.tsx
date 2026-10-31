@@ -3,7 +3,8 @@ import { UserChip } from "../../components/Workspace/UserChip";
 import { BlockAvatarPicker } from "../../components/Workspace/BlockAvatarPicker";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useParams } from "react-router-dom";
+import { Navigate, useParams } from "react-router-dom";
+import { getBlockRoute } from "../../utils/routes";
 import {
   Page,
   Card,
@@ -105,6 +106,8 @@ export function BlockPage() {
       r.user.user_id === session?.user_id &&
       ["pending_hr", "pending_block"].includes(r.state),
   );
+  // An old address by name (/blocks/Медиа) moves to the block's id, so every link and request below uses the id.
+  if (b && id !== b.block_id) return <Navigate replace to={getBlockRoute(b.block_id)} />;
   return (
     <Page
       title={b?.name ?? "Блок"}
