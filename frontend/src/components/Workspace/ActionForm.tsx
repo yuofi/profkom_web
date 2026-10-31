@@ -300,7 +300,8 @@ export function ActionForm({
       setExternalBaseline(JSON.stringify(savedExternalState ?? externalState));
     },
   });
-  const unchanged = !!changeRequired?.every((name) => JSON.stringify(form.values[name] ?? initialValues[name]) === JSON.stringify(savedValues(fields)[name]));
+  // A changed external state (an applied template) is a change too, even when the field values match.
+  const unchanged = !!changeRequired?.every((name) => JSON.stringify(form.values[name] ?? initialValues[name]) === JSON.stringify(savedValues(fields)[name])) && externalValue === externalBaseline;
   const replaceWithSaved = () => {
     form.resetForm({ values: savedValues(fields) });
     setHoldSavedInput(false);

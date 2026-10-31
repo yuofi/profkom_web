@@ -234,3 +234,17 @@ it("A09: initial loading does not claim that the catalogue is empty", async () =
   await act(async () => new Promise((resolve) => setTimeout(resolve, 65)));
   expect(page.container.querySelector("h2")).not.toBeNull();
 });
+
+it("counts an applied template as a change of a form that requires one", async () => {
+  // The merit editor: a template whose values equal the saved ones still changes the record.
+  function TemplateForm() {
+    const [template, setTemplate] = useState<string | null>(null);
+    return <ActionForm fields={[{ name: "title", label: "Название", value: "Сохранённое" }]} changeRequired={["title"]} externalState={template} savedExternalState={null}
+      onReplaceWithSaved={() => setTemplate(null)} beforeFields={() => <button type="button" onClick={() => setTemplate("template-1")}>Применить шаблон</button>} submitLabel="Сохранить" onSubmit={async () => undefined} />;
+  }
+  page = await mountWorkspace(<TemplateForm />);
+  const save = () => [...page!.container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Сохранить")!;
+  expect(save().disabled).toBe(true);
+  await clickButton(page.container, "Применить шаблон");
+  expect(save().disabled).toBe(false);
+});

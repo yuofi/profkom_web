@@ -1177,6 +1177,10 @@ span.cardIcon {
 .compactFields > .compactStart {
   grid-column-start: 1;
 }
+/* A longer label that wraps (a recipient's name) must not push its field below its neighbours. */
+.compactFields > .compactField {
+  align-content: end;
+}
 .eyebrow {
   font-size: 12px;
   opacity: 0.82;
