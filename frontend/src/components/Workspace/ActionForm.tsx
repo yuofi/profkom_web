@@ -1,17 +1,18 @@
 import { editorShortcut } from "../../utils/editorShortcuts";
-import { useId, useRef, useState, type ReactNode } from "react";
+import { Suspense, lazy, useId, useRef, useState, type ReactNode } from "react";
 import { useFormik, type FormikProps } from "formik";
 import { z } from "zod";
 import { ApiError, normalizeApiError } from "../../utils/api/request";
 import { fieldMessage, isStale, userMessage } from "../../utils/api/messages";
 import { ErrorDetail } from "./WorkspaceUI";
-import { MarkdownEditor } from "./MarkdownEditor";
 import s from "./Workspace.module.css";
 import type { Values } from "./formValues";
 import { RecipientPicker } from "./RecipientPicker";
 import { EntityPicker, type EntityKind, type EntityOption } from "./EntityPicker";
 import { advanceOwn, recordOwnChange, useOwnRevisions } from "./ownRevisions";
 import { useUnsavedChanges } from "./unsavedChangesHooks";
+// The editor stays in its own chunk: forms without a markdown field do not load it.
+const MarkdownEditor = lazy(() => import("./MarkdownEditor").then((module) => ({ default: module.MarkdownEditor })));
 export interface Field {
   name: string;
   label: string;
@@ -370,9 +371,11 @@ export function ActionForm({
             // The Markdown editor labels its own source field and keeps its toolbar, preview and frame.
             if (field.type === "markdown") return (
               <div key={field.name}>
-                <MarkdownEditor name={field.name} label={`${field.label}${isRequired(field, form.values) ? " *" : ""}`} rows={field.rows} context="task" draft={false}
-                  value={String(form.values[field.name] ?? initialValues[field.name])} placeholder={field.placeholder} disabled={form.isSubmitting}
-                  onChange={(value) => void form.setFieldValue(field.name, value)} />
+                <Suspense fallback={<p role="status">Загружаем редактор…</p>}>
+                  <MarkdownEditor name={field.name} label={`${field.label}${isRequired(field, form.values) ? " *" : ""}`} rows={field.rows} context="task" draft={false}
+                    value={String(form.values[field.name] ?? initialValues[field.name])} placeholder={field.placeholder} disabled={form.isSubmitting}
+                    onChange={(value) => void form.setFieldValue(field.name, value)} />
+                </Suspense>
                 {field.hint && <small>{field.hint}</small>}
                 {error && <span className={s.fieldError} id={`${id}-error`}>{String(error)}</span>}
               </div>
