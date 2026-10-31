@@ -758,6 +758,7 @@ class TaskPublicOut(BaseModel):
     legacy_mixed_statuses: bool = False
     revision: int = 1
     capabilities: list[str] = []
+    allowed_statuses: list[str] = []
 
 
 class UnresolvedAssignmentOut(BaseModel):
@@ -2023,6 +2024,7 @@ def _to_task_public_out(t) -> TaskPublicOut:
         legacy_mixed_statuses=t.legacy_status_conflict,
         revision=t.revision,
         capabilities=t.capabilities,
+        allowed_statuses=getattr(t,"allowed_statuses",None) or [],
     )
 
 

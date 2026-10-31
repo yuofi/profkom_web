@@ -35,6 +35,32 @@ it("uses the common public status and permits every other target without reading
   expect(taskStatus(task)).toBe("completed");expect(taskTransitions(task)).toHaveLength(3);expect(taskTransitions(task)).not.toContain("completed");expect(taskTransitions(task)).toContain("open");
   expect(taskTransitions({ ...task, status: "closed" })).toContain("open");expect(taskTransitions({ ...task, capabilities: [] })).toEqual([]);
 });
+it("offers only the server's allowed transitions and shows a locked status without a menu", async () => {
+  const reader = makeTask({ status: "in_progress", allowed_statuses: ["open", "in_progress", "completed"], capabilities: ["change_task_status"] });
+  expect(taskTransitions(reader)).toEqual(["open", "completed"]);
+  expect(taskTransitions({ ...reader, allowed_statuses: undefined })).toEqual([]);
+  page = await mountWorkspace(<><TaskStatusMenu task={{ ...reader, status: "closed", allowed_statuses: [] }} /><TaskStatusMenu task={{ ...reader, queue: { queue_id: "kkr", name: "Контроль ККР", key: "KKR" }, allowed_statuses: [], capabilities: [] }} /></>);
+  expect(page.container.querySelector('[aria-haspopup="menu"]')).toBeNull();
+  const chips = [...page.container.querySelectorAll<HTMLElement>('[aria-label^="Статус задачи:"]')];
+  expect(chips.map(chip => chip.title)).toEqual(["Переоткрыть задачу может только её автор.", "Статус контрольного эпика меняется автоматически."]);
+});
+it("a refused closure explains that only the author closes the task", async () => {
+  const task = makeTask({ status: "completed", allowed_statuses: ["open", "in_progress", "completed", "closed"], capabilities: ["change_task_status"] });
+  vi.spyOn(tasksApi, "changeStatus").mockRejectedValue(new ApiError("Only the task author may close or reopen this task", 403, "task_close_author_only"));
+  page = await mountWorkspace(<TaskStatusMenu task={task} />);
+  await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());await settle();
+  await act(async () => [...page!.container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(button => button.textContent?.includes("Закрыта"))!.click());await waitForPage(page);
+  expect(page.container.querySelector('[role="alert"]')?.textContent).toBe("Закрыть или переоткрыть задачу может только её автор.");
+});
+it("a status menu near the right edge opens leftwards instead of widening the page", async () => {
+  const task = makeTask({ status: "open", allowed_statuses: ["open", "in_progress"], capabilities: ["change_task_status"] });
+  vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(1024);
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(240);
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ left: 900, right: 990, top: 0, bottom: 32, width: 90, height: 32, x: 900, y: 0, toJSON: () => ({}) });
+  page = await mountWorkspace(<TaskStatusMenu task={task} />);
+  await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());await settle();
+  expect(page.container.querySelector('[role="menu"]')!.className).toMatch(/menuEnd/);
+});
 it("a status chip owns its click and starts the whole task with the task revision", async () => {
   const task = makeTask({ status: "open", revision: 5, capabilities: ["change_task_status"] });
   const command = vi.spyOn(tasksApi, "changeStatus").mockResolvedValue({ ...task, revision: 6, status: "in_progress" });

@@ -299,7 +299,8 @@ def enrich_task(session,task,result,uid):
                 result.capabilities += ["assign_task_participants","remove_task_watcher"]
                 if participants(session,task.task_id):result.capabilities.append("remove_task_assignee")
     if is_control_task(session,task.task_id):
-        result.capabilities=[cap for cap in result.capabilities if cap not in {"view_assessment_inputs","edit_assessment_inputs","edit_task","edit_task_description","attach_task_file","review_task","join_task","take_task","watch_task","unwatch_task","assign_task_participants","remove_task_watcher","remove_task_assignee"}]
+        result.capabilities=[cap for cap in result.capabilities if cap not in {"view_assessment_inputs","edit_assessment_inputs","edit_task","edit_task_description","attach_task_file","review_task","join_task","take_task","watch_task","unwatch_task","assign_task_participants","remove_task_watcher","remove_task_assignee","change_task_status","start_task","resume_task","submit_task_result"}]
+        result.allowed_statuses=[]
         for assignment in result.assignments:
             assignment.capabilities=[cap for cap in assignment.capabilities if cap not in {"view_assessment_inputs","edit_assessment_inputs"}]
     from tracker_stage2 import enrich
@@ -447,7 +448,7 @@ def change_status(task_id,uid,expected_revision,status,*,text="",links=None,file
         task=visible_task(session,task_id,uid);meta=metadata(session,task)
         if task.revision!=expected_revision:raise revision_conflict()
         if is_control_task(session,task_id):raise Conflict("Control epic status is managed automatically","control_epic_managed")
-        if not can_change_status(session,task,uid,status):raise Forbidden("Only the task author may close or reopen this task")
+        if not can_change_status(session,task,uid,status):raise Forbidden("Only the task author may close or reopen this task","task_close_author_only")
         if status=="closed":
             from domain_models import KkrControlEpicORM
             control=session.query(KkrControlEpicORM).filter_by(task_id=task_id).first()

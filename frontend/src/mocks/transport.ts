@@ -377,6 +377,9 @@ export function installMockTransport(
       const outward = link.source === task.task_id, other = state.tasks.find(item => item.task_id === (outward ? link.target : link.source));
       return other && readsTask(other) ? [{ link_id: link.link_id, kind: outward ? link.kind : inverse[link.kind], task: taskRef(other) }] : [];
     });
+    // As the server: only the author (or the owner of an authorless queue) closes and reopens.
+    const closer = (task.created_by?.user_id ?? state.queues.find(queue => queue.queue_id === task.queue?.queue_id)?.owner?.user_id) === state.session.user_id;
+    result.allowed_statuses ??= !result.capabilities.includes("change_task_status") ? [] : closer ? ["open", "in_progress", "completed", "closed"] : publicStatus(task.status) === "closed" ? [] : ["open", "in_progress", "completed"];
     return result;
   };
   const checklistValue = (raw: unknown, previous: TaskChecklistItem[] = []): { value?: TaskChecklistItem[]; error?: Reply } => {
