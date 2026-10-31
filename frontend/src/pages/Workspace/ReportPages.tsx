@@ -497,7 +497,9 @@ export function MeetingPage() {
               <ActionForm
                 key={`${apiKind}/${id}/${removed}`}
                 revision={meeting?.revision ?? 0}
-                record={`meeting:${apiKind}/${id}`}
+                // One announcement's own saves move its removal's baseline. A removed and newly
+                // announced meeting is another record: its counter starts again (new meeting_id).
+                record={meeting ? `meeting:${meeting.meeting_id}` : undefined}
                 fields={[
                   {
                     name: "title",
@@ -537,7 +539,7 @@ export function MeetingPage() {
               {meeting && can(meeting, "delete_meeting") && (
                 <ActionForm
                   revision={meeting.revision}
-                  record={`meeting:${apiKind}/${id}`}
+                  record={`meeting:${meeting.meeting_id}`}
                   onConflict={refresh}
                   fields={[]}
                   submitLabel="Снять объявление"
