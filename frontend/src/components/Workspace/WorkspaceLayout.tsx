@@ -1,4 +1,4 @@
-import { Suspense, useContext, useEffect, useRef, useSyncExternalStore, type CSSProperties } from "react";
+import { Suspense, useContext, useEffect, useRef, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loading } from "./WorkspaceUI";
 import { Link, Outlet, UNSAFE_DataRouterContext, useLocation } from "react-router-dom";
@@ -87,7 +87,8 @@ export function WorkspaceSkeleton() {
   );
 }
 
-export function WorkspaceLayout() {
+/** The workspace frame; `children` stand in for the route outlet (the 404 page uses it). */
+export function WorkspaceLayout({ children }: { children?: ReactNode } = {}) {
   const user = useMe();
   const { session } = useSession();
   const { pathname } = useLocation();
@@ -155,7 +156,7 @@ export function WorkspaceLayout() {
         <SectionContext.Provider value={section}>
           <PageErrorBoundary resetKey={pathname}>
             <Suspense fallback={<Loading />}>
-              <Outlet />
+              {children ?? <Outlet />}
             </Suspense>
           </PageErrorBoundary>
         </SectionContext.Provider>

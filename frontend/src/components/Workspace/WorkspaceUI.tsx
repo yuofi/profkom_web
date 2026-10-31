@@ -45,6 +45,10 @@ export function Page({
     </section>
   );
 }
+/** A refusal or a missing object still has its page: a title and a way on (GL-21). */
+export function DeniedPage({ title, back, children }: { title: string; back?: { to: string; label: string }; children: ReactNode }) {
+  return <Page title={title} actions={back && <RouteLink to={back.to}>{back.label}</RouteLink>}><Empty>{children}</Empty></Page>;
+}
 export const Card = ({
   title,
   children,

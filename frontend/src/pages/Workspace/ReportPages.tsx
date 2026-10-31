@@ -76,8 +76,9 @@ export function ReportsPage() {
       actions={<RouteLink to="/reports/history">Поиск по истории</RouteLink>}
     >
       <div className={s.stack}>
+        {/* A missing or closed owner is said as such, not as an empty list (GL-21). */}
         <QueryState keepDataOnError={!!query.data}
-        loading={query.isLoading} error={query.error}>
+        loading={query.isLoading || owner.isLoading} error={owner.error ?? query.error}>
           <Card>
             <ReportLinks reports={query.data?.items ?? []} />
             {query.data?.items.length === 0 && <Empty>Отчётов пока нет.</Empty>}

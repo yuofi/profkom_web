@@ -10,7 +10,7 @@ import { ActionForm } from "../../components/Workspace/ActionForm";
 import { AttachmentPicker } from "../../components/Workspace/Attachments";
 import { MarkdownEditor } from "../../components/Workspace/MarkdownEditor";
 import { EntityPicker } from "../../components/Workspace/EntityPicker";
-import { Empty, QueryState } from "../../components/Workspace/WorkspaceUI";
+import { DeniedPage, Empty, QueryState } from "../../components/Workspace/WorkspaceUI";
 import { useScopeMembers } from "../../components/Workspace/ScopeMembers";
 import { authApi } from "../../utils/api/auth.api";
 import { tasksApi } from "../../utils/api/tasks.api";
@@ -64,7 +64,7 @@ export function TaskCreateForm({ scope, queueId, parentTaskId }: { scope?: Scope
   const error = errors.find(item => !canRetainData(item)) ?? errors[0];
   return <section className={s.page}>
     <QueryState loading={catalog.isLoading || seasons.isLoading || fallbackEnabled && fallback.isLoading} error={error} keepDataOnError={!!catalog.data && !!seasons.data} retry={() => { void catalog.refetch();void seasons.refetch();if (fallbackEnabled) void fallback.refetch(); }}>
-      {(initialQueue || fallbackEnabled && fallback.data) && seasons.data ? <TaskCreationEditor queues={queues} initialQueueId={initialQueue?.queue_id} seasons={seasons.data.items} parentTaskId={parentTaskId} fallback={initialQueue ? undefined : fallback.data ?? undefined} /> : <Empty>Нет доступной очереди для создания задачи. <Link to={getTaskQueuesRoute()}>Открыть очереди</Link></Empty>}
+      {(initialQueue || fallbackEnabled && fallback.data) && seasons.data ? <TaskCreationEditor queues={queues} initialQueueId={initialQueue?.queue_id} seasons={seasons.data.items} parentTaskId={parentTaskId} fallback={initialQueue ? undefined : fallback.data ?? undefined} /> : <DeniedPage title="Новая задача" back={{ to: getTaskQueuesRoute(), label: "Очереди" }}>Нет доступной очереди для создания задачи.</DeniedPage>}
     </QueryState>
   </section>;
 }

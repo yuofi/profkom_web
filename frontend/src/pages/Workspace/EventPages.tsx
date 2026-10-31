@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { Page, Card, QueryState, RouteLink, Badge, Empty, Glyph, Loading } from "../../components/Workspace/WorkspaceUI";
+import { Page, Card, QueryState, RouteLink, Badge, Empty, Glyph, Loading, DeniedPage, ErrorState } from "../../components/Workspace/WorkspaceUI";
 import { Markdown } from "../../components/Workspace/WorkspaceMarkdown";
 import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
 import { SectionHomeLink } from "../../components/Workspace/SectionHomeLink";
@@ -90,10 +90,15 @@ export function EventsListPage() {
     </QueryState>
   </Page>;
 }
-export function EventCreatePage() { const { session } = useSession();return can(session, "create_event") ? <Suspense fallback={<Loading />}><EventEditor /></Suspense> : <Empty>Создавать мероприятия могут председатель и его заместители.</Empty>; }
+export function EventCreatePage() { const { session } = useSession();return can(session, "create_event") ? <Suspense fallback={<Loading />}><EventEditor /></Suspense> : <DeniedPage title="Новое мероприятие" back={{ to: "/events", label: "Все мероприятия" }}>Создавать мероприятия могут председатель и его заместители.</DeniedPage>; }
 export function EventEditPage() {
   const { id = "" } = useParams();const query = useQuery({ queryKey: ["events", id], queryFn: () => eventsApi.get(id), enabled: !!id });
-  return <QueryState keepDataOnError={!!query.data} loading={query.isLoading} error={query.error} retry={() => void query.refetch()}>{query.data && (can(query.data, "edit_event") ? <Suspense fallback={<Loading />}><EventEditor event={query.data} /></Suspense> : <Empty>Изменение мероприятия вам недоступно.</Empty>)}</QueryState>;
+  if (query.error && !query.data) return <MissingEvent title="Редактирование мероприятия" error={query.error} retry={() => void query.refetch()} />;
+  return <QueryState keepDataOnError={!!query.data} loading={query.isLoading} error={query.error} retry={() => void query.refetch()}>{query.data && (can(query.data, "edit_event") ? <Suspense fallback={<Loading />}><EventEditor event={query.data} /></Suspense> : <DeniedPage title="Редактирование мероприятия" back={{ to: getEventRoute(id), label: "К мероприятию" }}>Изменение мероприятия вам недоступно.</DeniedPage>)}</QueryState>;
+}
+/** An event that is gone or closed to the reader keeps the page and the way to the list (GL-21). */
+function MissingEvent({ title, error, retry }: { title: string; error: unknown; retry: () => void }) {
+  return <Page title={title} actions={<RouteLink to="/events">Все мероприятия</RouteLink>}><ErrorState error={error} retry={retry} /></Page>;
 }
 function LeadersEditor({ owner, kind, onSaved }: { owner: Event | Subevent; kind: "events" | "subevents"; onSaved: () => void }) {
   const people = usePeopleOptions({ includeNonMembers: true }), { perform, refresh } = useWorkspaceActions();
@@ -124,6 +129,7 @@ export function EventPage() {
     finally { setStatePending(false); }
   };
   const childRows = subs.data?.items ?? [], nearest = childRows.filter(item => ["current", "upcoming"].includes(eventPhase(item))).sort((left, right) => (left.starts_at ?? "").localeCompare(right.starts_at ?? "")).slice(0, 5);
+  if (query.error && !event) return <MissingEvent title="Мероприятие" error={query.error} retry={() => void query.refetch()} />;
   if (editor === "child" && event && can(event, "create_subevent")) return <UnsavedChangesScope><Suspense fallback={<Loading />}><SubeventEditor parent={event} onClose={() => setEditor(null)} /></Suspense></UnsavedChangesScope>;
   return <section className={s.page}><QueryState keepDataOnError={!!query.data} loading={query.isLoading} error={query.error} retry={() => void query.refetch()}>{event && <>
     <BrandedHeader className={e.eventHeader}><div><SectionHomeLink to="/events" label="Мероприятия" /><h1 className={s.title}>{eventLogo(event.title) && <img src={eventLogo(event.title)!} alt="" className={e.titleLogo} />}{event.title}</h1><p className={e.period}>{eventPeriod(event)}</p>{event.is_closed && <Badge>Мероприятие закрыто</Badge>}<div className={e.headerLeaders}><div className={e.sectionHeading}><h2>Главорги</h2>{can(event, "manage_leaders") && <button type="button" className={e.iconButton} aria-label="Изменить главоргов" onClick={() => setEditor("leaders")}><Glyph name="edit" /></button>}</div><Leaders leaders={event.leaders} /></div></div><div className={`${s.row} ${e.headerActions}`} role="group" aria-label="Действия мероприятия">{can(event, "edit_event") && <RouteLink to={getEventEditRoute(id)}><Glyph name="edit" />Изменить мероприятие</RouteLink>}{(can(event, "close_event") || can(event, "reopen_event")) && <button type="button" className={s.button} disabled={statePending} onClick={() => void changeClosed()}>{event.is_closed ? "Открыть мероприятие" : "Закрыть мероприятие"}</button>}<RouteLink to="/events">Все мероприятия</RouteLink></div></BrandedHeader>
@@ -147,6 +153,7 @@ export function SubeventPage() {
   const reportsLink = useReportsLink("subevent", sub ? id : "", can(sub, "create_report"), working);
   const [editor, setEditor] = useState<"leaders" | "organizers" | "description" | "hr" | null>(null);
   if (editor === "description" && sub && parent.data && can(sub, "edit_subevent")) return <UnsavedChangesScope><Suspense fallback={<Loading />}><SubeventEditor subevent={sub} parent={parent.data} onClose={() => setEditor(null)} /></Suspense></UnsavedChangesScope>;
+  if (query.error && !sub) return <MissingEvent title="Подмероприятие" error={query.error} retry={() => void query.refetch()} />;
   const organizers = sub?.organizers ?? sub?.organizer_user_ids.flatMap(uid => { const user = people.options.find(item => item.value === String(uid))?.user;return user ? [user] : []; }) ?? [];
   return <section className={s.page}><QueryState keepDataOnError={!!query.data} loading={query.isLoading} error={query.error} retry={() => void query.refetch()}>{sub && <>
     <BrandedHeader className={e.eventHeader}><div><SectionHomeLink to="/events" label="Мероприятия" /><nav className={e.breadcrumbs}><Link to={getEventRoute(sub.event_id)}>{parent.data?.title ?? "Главное мероприятие"}</Link><span>›</span><span>Подмероприятие</span></nav><h1 className={s.title}>{sub.title}</h1><p className={e.period}>{eventPeriod(sub)}</p><div className={e.headerLeaders}><div className={e.sectionHeading}><h2>Ответственные</h2>{can(sub, "manage_leaders") && <button type="button" className={e.iconButton} aria-label="Изменить ответственных" onClick={() => setEditor("leaders")}><Glyph name="edit" /></button>}</div><Leaders leaders={sub.leaders} /></div></div>{can(sub, "edit_subevent") && <div className={`${s.row} ${e.headerActions}`} role="group" aria-label="Действия подмероприятия"><button type="button" className={s.button} onClick={() => setEditor("description")}><Glyph name="edit" />Редактировать подмероприятие</button></div>}</BrandedHeader>
