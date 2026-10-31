@@ -54,3 +54,10 @@ it("profile edit sends trimmed names and the chosen funding (PE-03)", async () =
   expect(sent.name).toBe("Анна");
   expect(sent.budget).toBe(false);
 });
+
+it("the password card comes last and leaves Администрирование to the menu (PE-25)", async () => {
+  await open();
+  const titles = Array.from(page!.container.querySelectorAll("form section > h2")).map((h) => h.textContent);
+  expect(titles.at(-1)).toBe("Безопасность");
+  expect(page!.container.querySelector('a[href="/admin"]')).toBeNull();
+});

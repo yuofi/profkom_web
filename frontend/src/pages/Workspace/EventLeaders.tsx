@@ -17,7 +17,7 @@ export function Leaders({ leaders }: { leaders: Leader[] }) {
         const person = people.options.find(person => person.value === String(id));
         return person?.user ? <UserChip key={id} user={person.user} /> : <span key={id} className={`${s.muted} ${e.leaderHint}`}>Участник #{id}</span>;
       })}</div>}
-      {can(leader, "manage_deputies") && <details className={e.deputiesEditor}><summary>Заместители</summary><ActionForm revision={leader.revision} fields={[{ name: "users", label: "До двух заместителей", type: "multi", value: leader.deputy_user_ids.map(String), options: people.options.filter(p => p.value !== String(leader.user.user_id)) }]} onSubmit={(values, revision) => perform(() => eventsApi.deputies(leader.role_assignment_id, ids(values, "users"), { expected_revision: revision! }))} onConflict={refresh} /></details>}
+      {can(leader, "manage_deputies") && <details className={`${s.details} ${e.deputiesEditor}`}><summary>Заместители</summary><ActionForm revision={leader.revision} fields={[{ name: "users", label: "До двух заместителей", type: "multi", value: leader.deputy_user_ids.map(String), options: people.options.filter(p => p.value !== String(leader.user.user_id)) }]} onSubmit={(values, revision) => perform(() => eventsApi.deputies(leader.role_assignment_id, ids(values, "users"), { expected_revision: revision! }))} onConflict={refresh} /></details>}
     </div>)}
   </div>;
 }

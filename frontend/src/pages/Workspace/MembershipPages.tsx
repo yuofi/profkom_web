@@ -1,4 +1,3 @@
-import { BlockChip } from "../../components/Workspace/BlockChip";
 import { UserChip } from "../../components/Workspace/UserChip";
 import { BlockAvatarPicker } from "../../components/Workspace/BlockAvatarPicker";
 import { useState } from "react";
@@ -119,8 +118,8 @@ export function BlockPage() {
         {b && (
           <div className={s.stack}>
             <Card>
+              {/* The header already shows the block's avatar and name (PE-25). */}
               <div className={s.row}>
-                <BlockChip block={b} interactive={false} />
                 {canViewTracker && (
                   <RouteLink
                     to={`/tasks?scope_kind=block&scope_id=${encodeURIComponent(id)}`}

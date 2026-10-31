@@ -33,3 +33,10 @@ it("profile contact links have accessible names and open a call or a letter in o
   expect(page.container.querySelector('a[href="tel:+79990000078"]')?.textContent).toContain("+7 (999) 000-00-78");
   expect(page.container.querySelector('a[href="mailto:contact78@example.com"]')?.textContent).toContain("contact78@example.com");
 });
+it("the participant page is titled with the person's full name (PE-25)", async () => {
+  const person = { ...createFixtures("chair").profile, user_id: 79, surname: "Заголовков", name: "Пётр", patronymic: "Ильич", in_profcom: true };
+  vi.spyOn(directoryApi, "contacts").mockResolvedValue([person]);
+  page = await mountWorkspace(<Routes><Route path="/contacts/:id" element={<MemberProfilePage />} /></Routes>, { path: "/contacts/79" });
+  await waitForPage(page);
+  expect(page.container.querySelector("h1")?.textContent).toBe("Заголовков Пётр Ильич");
+});

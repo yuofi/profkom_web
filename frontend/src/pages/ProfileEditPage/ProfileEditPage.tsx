@@ -17,14 +17,11 @@ import { Avatar } from "../../components/Avatar/Avatar";
 import { ProfileValidationSchema, ChangePasswordValidationSchema } from "../../utils/zod";
 import styles from "./ProfileEditPage.module.css";
 import type { ProfileUpdate } from "../../utils/api/types";
-import { useSession } from "../../utils/session";
-import { visibleAdminTabs } from "../Admin/adminTabs";
 import { Helmet } from "react-helmet-async";
 import { useGuardedAction, useUnsavedChanges } from "../../components/Workspace/unsavedChangesHooks";
 
 export const ProfileEditPage = () => {
   const user = useMe();
-  const { session } = useSession();
   const queryClient = useQueryClient();
   const profileSaved = useRef(false);
   const passwordSaved = useRef(false);
@@ -235,16 +232,6 @@ export const ProfileEditPage = () => {
                     if ("file_id" in next) avatarDrafts.current.add(next.file_id);
                     setAvatar(next);
                   }} />
-                <Card title="Безопасность">
-                  <div className={s.row}>
-                    <button type="button" className={s.button} onClick={() => setIsPasswordModalOpen(true)}>
-                      {hasPassword ? "Изменить пароль" : "Задать пароль"}
-                    </button>
-                    {visibleAdminTabs(session).length > 0 && (
-                      <RouteLink to="/admin">Администрирование</RouteLink>
-                    )}
-                  </div>
-                </Card>
               </div>
               <div className={s.stack}>
                 <Card title="Данные об обучении">
@@ -262,6 +249,15 @@ export const ProfileEditPage = () => {
                     <FormTextField name="tg" label="Telegram" color="on-surface" />
                     <FormTextField name="email" label="Почта" type="email" color="on-surface" />
                     <FormTextField name="vk" label="ВК (ссылка)" color="on-surface" />
+                  </div>
+                </Card>
+                {/* The password is apart from the profile data: the last card, also on a phone (PE-25).
+                    Администрирование is in the main menu. */}
+                <Card title="Безопасность">
+                  <div className={s.row}>
+                    <button type="button" className={s.button} onClick={() => setIsPasswordModalOpen(true)}>
+                      {hasPassword ? "Изменить пароль" : "Задать пароль"}
+                    </button>
                   </div>
                 </Card>
               </div>

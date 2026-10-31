@@ -15,7 +15,7 @@ export function MemberProfilePage() {
   const { session } = useSession();
   const query = useQuery({ queryKey: ["contacts"], queryFn: directoryApi.contacts });
   const person = query.data?.find((item) => String(item.user_id) === id && item.in_profcom);
-  return <Page title="Профиль участника" actions={<RouteLink to="/contacts">Все контакты</RouteLink>}>
+  return <Page title={person ? [person.surname, person.name, person.patronymic].filter(Boolean).join(" ") : "Профиль участника"} actions={<RouteLink to="/contacts">Все контакты</RouteLink>}>
     <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!query.data} retry={() => void query.refetch()}>
       <div className={w.stack}>
       {person ? <div className={w.columns}>
