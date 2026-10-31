@@ -391,12 +391,55 @@ def create_feedback(uid, payload, client_host):
         return receipt(session, report)
 
 
-def receipt(session, report):
-    task = session.get(TaskORM, report.task_id) if report.task_id else None
-    meta = session.query(TaskTrackerORM).filter_by(task_id=report.task_id).first() if task else None
+def receipt(session, report, known=None):
+    """``known`` = (tasks, tracker rows) by task_id that _receipts read for a list."""
+    if known is not None:
+        task = known[0].get(report.task_id) if report.task_id else None
+        meta = known[1].get(report.task_id) if task else None
+    else:
+        task = session.get(TaskORM, report.task_id) if report.task_id else None
+        meta = session.query(TaskTrackerORM).filter_by(task_id=report.task_id).first() if task else None
     return dict(report_id=report.report_id, state=report.state, kind=report.kind, revision=report.revision,
                 task_id=report.task_id, task_key=f"WEBSUPPORT-{meta.queue_number}" if meta else None,
                 diagnostics_expires_at=report.diagnostics_expires_at)
+
+
+def _receipts(session, rows):
+    """receipt() of listed reports: their tasks and (unique) tracker rows in two IN reads."""
+    ids = list(dict.fromkeys(row.task_id for row in rows if row.task_id))
+    tasks, trackers = {}, {}
+    for index in range(0, len(ids), 500):
+        batch = ids[index:index + 500]
+        tasks.update((task.task_id, task) for task in session.query(TaskORM).filter(TaskORM.task_id.in_(batch)))
+        trackers.update((meta.task_id, meta) for meta in session.query(TaskTrackerORM).filter(TaskTrackerORM.task_id.in_(batch)))
+    return [receipt(session, row, known=(tasks, trackers)) for row in rows]
+
+
+def _report_page(session, cursor):
+    """GET /support/reports' keyset page in SQL, without screenshots or diagnostics.
+
+    Newest first by (created_at, report_id), as cursor_page sorts them (report_id
+    is unique, text compares by code point in both). A cursor that is not the
+    two strings this list issues keeps the original in-memory path and errors.
+    """
+    from api_contract import PAGE_SIZE, cursor_page
+    from sqlalchemy import and_, or_
+    from sqlalchemy.orm import defer
+    key = lambda row: (row.created_at, row.report_id)
+    last = None
+    if cursor is not None:
+        try:
+            last = json.loads(base64.urlsafe_b64decode(cursor.encode("ascii")))
+        except (ValueError, TypeError, UnicodeError):
+            last = None
+        if not (isinstance(last, list) and len(last) == 2 and all(isinstance(v, str) for v in last)):
+            return cursor_page(session.query(FeedbackORM).all(), key, cursor, descending=True)
+    query = session.query(FeedbackORM).options(defer(FeedbackORM.screenshot), defer(FeedbackORM.diagnostics_json))
+    if last is not None:
+        query = query.filter(or_(FeedbackORM.created_at < last[0],
+                                 and_(FeedbackORM.created_at == last[0], FeedbackORM.report_id < last[1])))
+    rows = query.order_by(FeedbackORM.created_at.desc(), FeedbackORM.report_id.desc()).limit(PAGE_SIZE + 1).all()
+    return cursor_page(rows, key, cursor, descending=True)
 
 
 def _staff_required(session, uid):
@@ -421,8 +464,11 @@ def register_routes(router):
     @router.get("/feedback/mine")
     def my_reports(cur=Depends(get_current_user)):
         with db._session() as session:
-            rows = session.query(FeedbackORM).filter_by(user_id=cur.user_id).order_by(FeedbackORM.created_at.desc()).all()
-            return dict(items=[dict(**receipt(session, row), title=row.title, body=row.body, created_at=row.created_at) for row in rows], next_cursor=None)
+            from sqlalchemy.orm import defer
+            rows = session.query(FeedbackORM).options(defer(FeedbackORM.screenshot), defer(FeedbackORM.diagnostics_json)).filter_by(
+                user_id=cur.user_id).order_by(FeedbackORM.created_at.desc()).all()
+            return dict(items=[dict(**r, title=row.title, body=row.body, created_at=row.created_at)
+                               for row, r in zip(rows, _receipts(session, rows))], next_cursor=None)
 
     @router.patch("/feedback/{report_id}")
     def pending_update(report_id: str, payload: PendingUpdate, cur=Depends(get_current_user)):
@@ -464,11 +510,11 @@ def register_routes(router):
 
     @router.get("/support/reports")
     def reports(cursor: str | None = None, cur=Depends(get_current_user)):
-        from api_contract import cursor_page
         with db._session() as session:
             _staff_required(session, cur.user_id)
-            page = cursor_page(session.query(FeedbackORM).all(), lambda row: (row.created_at, row.report_id), cursor, descending=True)
-            return dict(items=[dict(**receipt(session, row), title=row.title, body=row.body, contact=row.contact, created_at=row.created_at) for row in page.items], next_cursor=page.next_cursor)
+            page = _report_page(session, cursor)
+            return dict(items=[dict(**r, title=row.title, body=row.body, contact=row.contact, created_at=row.created_at)
+                               for row, r in zip(page.items, _receipts(session, page.items))], next_cursor=page.next_cursor)
 
     @router.get("/support/tasks/{task_id}")
     def task_context(task_id: str, cur=Depends(get_current_user)):
