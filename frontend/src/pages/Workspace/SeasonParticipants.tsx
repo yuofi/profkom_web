@@ -1,5 +1,5 @@
 import { EntityPicker } from "../../components/Workspace/EntityPicker";
-import { useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { seasonsApi } from "../../utils/api/seasons.api";
@@ -16,9 +16,11 @@ import { userMessage } from "../../utils/api/messages";
 import { decisionLabels } from "../../utils/decisions";
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
 import { SummaryTable } from "./SummaryTable";
+import { metricValue } from "./seasonAnalyticsView";
 import u from "./SeasonWorkspace.module.css";
 import w from "../../components/Workspace/Workspace.module.css";
 
+const WIDE = "(min-width: 769px)";
 export function SeasonParticipants({ summary, renderDecisions, onFilterApply }: { summary: SeasonSummary; renderDecisions?: (row: SummaryRow) => ReactNode; onFilterApply?: () => void }) {
   // A task opened from a participant's card returns with ?participant= and reopens that card.
   const [params, setParams] = useSearchParams();
@@ -26,6 +28,15 @@ export function SeasonParticipants({ summary, renderDecisions, onFilterApply }: 
   const closePerson = () => { setPerson(null);if (params.has("participant")) { const next = new URLSearchParams(params);next.delete("participant");setParams(next, { replace: true }); } };
   const [category, setCategory] = useState(""), [master, setMaster] = useState(""), [archived, setArchived] = useState(""), [mark, setMark] = useState<Decision | "" | "any" | "none">("");
   const guardFilter = useGuardedAction();
+  // Open on a wide screen (the summary is hidden there); folded on a phone until asked for.
+  const [filtersOpen, setFiltersOpen] = useState(() => typeof window.matchMedia !== "function" || window.matchMedia(WIDE).matches);
+  // The wide layout has no summary to unfold them, so widening the window (rotation, split screen) opens them.
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia(WIDE);const sync = () => { if (query.matches) setFiltersOpen(true); };
+    query.addEventListener("change", sync);return () => query.removeEventListener("change", sync);
+  }, []);
+  const activeFilters = [block, category, master, archived, mark].filter(Boolean).length + (sort === "rank" ? 0 : 1);
   const updateFilter = <T extends string,>(current: T, next: T, update: Dispatch<SetStateAction<T>>) => { if (next !== current) guardFilter(() => { onFilterApply?.();update(next); }); };
   const blocks = [...new Map(summary.rows.flatMap(row => row.blocks.map(item => [item.block_id, item] as const))).values()];
   const rows = summary.rows.filter(row => (!block || row.blocks.some(item => item.block_id === block))
@@ -39,14 +50,15 @@ export function SeasonParticipants({ summary, renderDecisions, onFilterApply }: 
       setExportError("");try { const blob = await seasonsApi.export(summary.season_id);const url = URL.createObjectURL(blob);const link = document.createElement("a");link.href = url;link.download = `kkr-${summary.season_id}.xlsx`;link.click();setTimeout(() => URL.revokeObjectURL(url), 1000); } catch (error) { setExportError(userMessage(error)); }
     }}>Скачать XLSX</button></div>
     {exportError && <p role="alert" className={w.error}>{exportError}</p>}
-    <div className={u.toolbar} aria-label="Фильтры участников"><label>Поиск по имени или группе<input type="search" value={search} onChange={e => updateFilter(search, e.target.value, setSearch)} placeholder="Имя или группа" /></label><div><EntityPicker name="block" label="Блок" value={block} onChange={value => updateFilter(block, value, setBlock)} placeholder="Все блоки" options={[{ value: "", label: "Все блоки" }, ...blocks.map(item => ({ value: item.block_id, label: item.name, block: item }))]} /></div>
+    <div className={u.toolbar} aria-label="Фильтры участников"><label>Поиск по имени или группе<input type="search" value={search} onChange={e => updateFilter(search, e.target.value, setSearch)} placeholder="Имя или группа" /></label>
+      <details className={u.filterDisclosure} open={filtersOpen} onToggle={event => setFiltersOpen(event.currentTarget.open)}><summary>Фильтры{activeFilters > 0 && ` · ${activeFilters}`}</summary><div className={u.toolbar}><div><EntityPicker name="block" label="Блок" value={block} onChange={value => updateFilter(block, value, setBlock)} placeholder="Все блоки" options={[{ value: "", label: "Все блоки" }, ...blocks.map(item => ({ value: item.block_id, label: item.name, block: item }))]} /></div>
       <label>Категория<select name="category" value={category} onChange={e => updateFilter(category, e.target.value, setCategory)}><option value="">Все категории</option><option value="junior">Джуниоры</option><option value="activist">Активисты</option></select></label>
       <label>Мастера<select name="is_master" value={master} onChange={e => updateFilter(master, e.target.value, setMaster)}><option value="">Все участники</option><option value="true">Только мастера</option><option value="false">Кроме мастеров</option></select></label>
       <label>Архив аккаунта<select name="is_archived" value={archived} onChange={e => updateFilter(archived, e.target.value, setArchived)}><option value="">Все участники</option><option value="true">Уже исключён</option><option value="false">Действующие</option></select></label>
       <label>Отметки текущего сезона<select name="marks" value={mark} onChange={e => updateFilter(mark, e.target.value as typeof mark, setMark)}><option value="">Все отметки</option><option value="any">Есть отметки</option><option value="none">Без отметок</option>{Object.entries(decisionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-      <label>Порядок<select aria-label="Порядок" value={sort} onChange={e => setSort(e.target.value)}><option value="rank">По месту в сводной</option><option value="score-asc">ККР по возрастанию</option><option value="name">По имени</option></select></label></div>
+      <label>Порядок<select aria-label="Порядок" value={sort} onChange={e => setSort(e.target.value)}><option value="rank">По месту в сводной</option><option value="score-asc">ККР по возрастанию</option><option value="name">По имени</option></select></label></div></details></div>
     <SummaryTable summary={summary} rows={rows} filter={search} renderDecisions={renderDecisions} onParticipantSelect={setPerson} />
-    <p className={u.note}>Нажмите на участника, чтобы посмотреть его начисления и перейти к учёту работы в задаче.</p>
+    <p className={u.note}>Кнопка «Начисления и работа» рядом с участником показывает его вклад и ведёт к учёту работы в задаче.</p>
     {person && <UnsavedChangesScope><TrackerTaskDialog title="Начисления участника" onClose={closePerson}><ParticipantWork seasonId={summary.season_id} person={person} /></TrackerTaskDialog></UnsavedChangesScope>}
   </section>;
 }
@@ -56,10 +68,10 @@ function ParticipantWork({ seasonId, person }: { seasonId: string; person: Summa
   const tasks = useQuery({ queryKey: ["tasks", "accounting-links", seasonId], queryFn: () => tasksApi.list({ season_id: seasonId, mine: false }), enabled: allowed });
   if (!allowed) return <Empty>Нет доступа к расчётным данным.</Empty>;
   const items = contributions.data?.items.filter(item => item.participant_id === person.participant_id) ?? [];
-  return <section className={u.stack}><div className={u.dialogIdentity}><UserChip user={person.user} /><strong className={u.score}>{person.total_score.toFixed(2)} ККР</strong></div><p className={u.note}>{person.group_number} · {person.blocks.map(item => item.name).join(", ") || "Без блока"}</p>
+  return <section className={u.stack}><div className={u.dialogIdentity}><UserChip user={person.user} /><strong className={u.score}>{metricValue(person.total_score)} ККР</strong></div><p className={u.note}>{person.group_number} · {person.blocks.map(item => item.name).join(", ") || "Без блока"}</p>
     <QueryState loading={contributions.isLoading} error={contributions.error} retry={() => void contributions.refetch()}><ul className={u.detailList}>{items.map(item => {
       const assignmentId = item.assignment_inputs?.assignment_id;const task = tasks.data?.items.find(task => task.assignments.some(a => a.assignment_id === assignmentId));
-      return <li key={item.contribution_id}><div className={u.panelHeader}><h3>{item.source_title}</h3><strong>{item.score?.toFixed(2) ?? "—"} ККР</strong></div>{item.assignment_inputs && <p>Часы: {item.assignment_inputs.hours ?? "—"} · Оценка: {item.assignment_inputs.evaluation ?? "—"} · Выполнено: {displayDate(item.assignment_inputs.effective_completed_at)}</p>}{task && <Link to={`${getTaskRoute(task.task_id)}?assignment_id=${encodeURIComponent(assignmentId!)}&return_season=${encodeURIComponent(seasonId)}&return_to=participant&participant=${encodeURIComponent(person.participant_id)}`}>Открыть задачу и её учёт →</Link>}{item.merit_id && <Link to={`/seasons/${encodeURIComponent(seasonId)}/merits`}>Заслуги и волонтёрство сезона →</Link>}<p className={u.note}>Формула: {item.calculation_version}</p></li>;
+      return <li key={item.contribution_id}><div className={u.panelHeader}><h3>{item.source_title}</h3><strong>{metricValue(item.score)} ККР</strong></div>{item.assignment_inputs && <p>Часы: {item.assignment_inputs.hours ?? "—"} · Оценка: {item.assignment_inputs.evaluation ?? "—"} · Выполнено: {displayDate(item.assignment_inputs.effective_completed_at)}</p>}{task && <Link to={`${getTaskRoute(task.task_id)}?assignment_id=${encodeURIComponent(assignmentId!)}&return_season=${encodeURIComponent(seasonId)}&return_to=participant&participant=${encodeURIComponent(person.participant_id)}`}>Открыть задачу и её учёт →</Link>}{item.merit_id && <Link to={`/seasons/${encodeURIComponent(seasonId)}/merits`}>Заслуги и волонтёрство сезона →</Link>}</li>;
     })}</ul>{!items.length && <Empty>Начислений участника в этом сезоне пока нет.</Empty>}</QueryState>
     {tasks.error && <p className={u.note}>Ссылки на задачи недоступны. Начисления показаны выше.</p>}
   </section>;

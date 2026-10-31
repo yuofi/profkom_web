@@ -176,7 +176,9 @@ it("saves the first draft before switching to the next editor and uses the refre
   await submit(second.form);await waitForPage(page);expect(save).toHaveBeenCalledTimes(2);
   expect(save.mock.calls.map(([, userId, values]) => ({ userId, version: values.expected_version }))).toEqual([{ userId: 9000, version: 1 }, { userId: 9001, version: 2 }]);
   expect(page.summary.version).toBe(3);expect(page.summary.rows[0].decisions).toEqual(["nice"]);expect(page.summary.rows[1].decisions).toEqual(["kick_warning"]);
-  expect(document.querySelectorAll("[data-anchored-popover] form")).toHaveLength(1);
+  // A saved closed-season correction closes its popover, so a second click cannot write a duplicate version.
+  expect(document.querySelectorAll("[data-anchored-popover]")).toHaveLength(0);
+  expect(rowFor(page.container, "Синтетический участник 001").querySelector('button[aria-label^="Изменить отметки:"]')?.getAttribute("aria-expanded")).toBe("false");
 });
 
 it("visits a hundred decision disclosures without accumulating hidden forms", async () => {

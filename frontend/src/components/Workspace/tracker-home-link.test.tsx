@@ -34,13 +34,20 @@ it("GL-36: on the task list itself the stamp is the current page; with a query i
   page = await mountWorkspace(trackerRoutes(), { path: "/tasks?q=Отчёт" });await waitForPage(page);
   expect(currentStamp()).toBeUndefined();expect(stamp().getAttribute("href")).toBe("/tasks");
 });
-it.each(["catalog", "queue", "task", "new", "unresolved"])("the %s tracker page keeps a real home link and opens the general task list", async (surface) => {
+it.each(["list", "catalog", "queue", "task", "new", "unresolved"])("the %s tracker page keeps a real home link and opens the general task list", async (surface) => {
   transport = installMockTransport("chair", { delay: 0 });
-  const paths: Record<string, string> = { catalog: "/tasks/queues", queue: "/tasks/queues/queue-tasks", task: `/tasks/${transport.state.tasks[0].task_id}`, new: "/tasks/new?queue_id=queue-tasks", unresolved: "/tasks/unresolved" };
+  // On the list itself the stamp is a link only while filters are set: it resets them (SE-15).
+  const paths: Record<string, string> = { list: "/tasks?mine=false", catalog: "/tasks/queues", queue: "/tasks/queues/queue-tasks", task: `/tasks/${transport.state.tasks[0].task_id}`, new: "/tasks/new?queue_id=queue-tasks", unresolved: "/tasks/unresolved" };
   page = await mountWorkspace(trackerRoutes(), { path: paths[surface] });await waitForPage(page);
   const link = stamp();expect(link).toBeDefined();expect(link.getAttribute("href")).toBe("/tasks");
   await act(async () => link.click());await waitForPage(page);
   expect(page.container.querySelector("h1")?.textContent).toBe("Задачи");
+});
+it("the unfiltered list names its section without a link to itself", async () => {
+  transport = installMockTransport("chair", { delay: 0 });
+  page = await mountWorkspace(trackerRoutes(), { path: "/tasks" });await waitForPage(page);
+  expect(stamp()).toBeUndefined();
+  expect([...page.container.querySelectorAll("span")].some(node => node.textContent === "Профком ВМК · Трекер")).toBe(true);
 });
 it("the locked queue screen has the same way back without exposing its tasks", async () => {
   transport = installMockTransport("organizer", { delay: 0 });transport.state.queues[0].is_private = true;transport.state.queues[0].owner = transport.state.people[3];

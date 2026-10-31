@@ -9,7 +9,7 @@ import { EventEditPage } from "./EventPages";
 import { BlockPage } from "./MembershipPages";
 import { AccountStatePage } from "./SessionPages";
 import { MeetingPage } from "./ReportPages";
-import { SeasonPage, SummaryPage } from "./SeasonPages";
+import { SeasonPage } from "./SeasonPages";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { eventsApi } from "../../utils/api/events.api";
 import { QueryState } from "../../components/Workspace/WorkspaceUI";
@@ -40,7 +40,7 @@ it.each(["event", "block", "registration", "meeting", "season", "decisions"] as 
     registration: ["/", "/", <AccountStatePage />, "phone"],
     meeting: ["/meetings/subevent/subevent-1", "/meetings/:kind/:id", <MeetingPage />, "title"],
     season: ["/seasons/season-1", "/seasons/:id", <SeasonPage />, "title"],
-    decisions: ["/seasons/season-1/summary", "/seasons/:id/summary", <SummaryPage />, "reason"],
+    decisions: ["/seasons/season-1", "/seasons/:id", <SeasonPage />, "reason"],
   } as const;
   const [path, route, element, name] = routes[kind];
   page = await mountWorkspace(<Routes><Route path={route} element={element} />{kind === "event" && <Route path="/events/:id" element={<p>Страница мероприятия <Link to="/events/event-1/edit">Изменить мероприятие</Link></p>} />}</Routes>, { role, path });
@@ -78,7 +78,9 @@ it.each(["event", "block", "registration", "meeting", "season", "decisions"] as 
     expect(page.container.textContent).not.toContain("Запись изменилась на сервере");
   }
   if (kind === "season") { await act(async () => page!.container.querySelector<HTMLButtonElement>('button[aria-label="Редактировать сезон"]')!.click());await settle(); }
-  const repeatedForm = kind === "season" || kind === "event" ? field(page.container,name).closest("form")! : form;
+  // A saved closed-season correction closes its popover; the next correction opens a fresh one.
+  if (kind === "decisions") { expect(form.isConnected).toBe(false);await act(async()=>page!.container.querySelector<HTMLButtonElement>('button[aria-label^="Изменить отметки:"]')!.click());await waitForPage(page!,()=>!!document.querySelector('[data-mark-menu]'));await act(async()=>document.querySelector<HTMLButtonElement>('[data-mark-menu] [aria-checked="true"]')!.click());await waitForPage(page!,()=>!!document.querySelector('[data-anchored-popover] input[name="reason"]')); }
+  const repeatedForm = kind === "season" || kind === "event" ? field(page.container,name).closest("form")! : kind === "decisions" ? field(document,name).closest("form")! : form;
   await change(field(repeatedForm, name), "ПОВТОРНОЕ СОХРАНЕНИЕ");
   if (kind === "season") await change(field(repeatedForm, "reason"), "Повторное уточнение плановых дат");
   await submit(repeatedForm);
@@ -262,4 +264,18 @@ it("A09: initial loading does not claim that the catalogue is empty", async () =
   expect(page.container.textContent).not.toMatch(/Материалы готовятся|Ничего не найдено/);
   await act(async () => new Promise((resolve) => setTimeout(resolve, 65)));
   expect(page.container.querySelector("h2")).not.toBeNull();
+});
+
+it("counts an applied template as a change of a form that requires one", async () => {
+  // The merit editor: a template whose values equal the saved ones still changes the record.
+  function TemplateForm() {
+    const [template, setTemplate] = useState<string | null>(null);
+    return <ActionForm fields={[{ name: "title", label: "Название", value: "Сохранённое" }]} changeRequired={["title"]} externalState={template} savedExternalState={null}
+      onReplaceWithSaved={() => setTemplate(null)} beforeFields={() => <button type="button" onClick={() => setTemplate("template-1")}>Применить шаблон</button>} submitLabel="Сохранить" onSubmit={async () => undefined} />;
+  }
+  page = await mountWorkspace(<TemplateForm />);
+  const save = () => [...page!.container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Сохранить")!;
+  expect(save().disabled).toBe(true);
+  await clickButton(page.container, "Применить шаблон");
+  expect(save().disabled).toBe(false);
 });

@@ -118,9 +118,10 @@ it("A04: an event head with only object permission can submit head merit", async
     <Route path="/seasons/:id/merits" element={<MeritsPage />} />
   </Routes></SessionContext.Provider>, { role: "leader", path: "/events/event-1" });
   await settle(); await settle();
-  await act(async () => Array.from(page!.container.querySelectorAll("a")).find((a) => a.textContent === "Учесть особую заслугу")!.click());
-  await settle(); await settle();
-  await act(async () => Array.from(page!.container.querySelectorAll("a")).find((a) => a.textContent === "Особые заслуги и волонтёры")!.click());
+  // The event knows its season, so the link opens the season's merits without a season-picking step (SE-16).
+  const entry = Array.from(page!.container.querySelectorAll("a")).find((a) => a.textContent === "Учесть особую заслугу")!;
+  expect(entry.getAttribute("href")).toBe("/seasons/season-1/merits?source_kind=head_merit&scope_id=event-1");
+  await act(async () => entry.click());
   await settle(); await settle();
   expect([...page.container.querySelectorAll("label")].find(label => label.textContent?.trim().startsWith("Вид записи"))?.querySelector("select")?.value).toBe("head_merit");
   expect(field(page.container, "scope").value).toBe("event-1");
@@ -134,7 +135,10 @@ it("A04: readers cannot create merits or select a block in a planned season", as
   page = await mountWorkspace(<Routes><Route path="/seasons/:id/merits" element={<MeritsPage />} /></Routes>, { role: "organizer", path: "/seasons/season-1/merits" });
   await settle(); await settle();
   expect(page.container.querySelector("form")).toBeNull();
-  expect(mock.adapter.history.get.some((r) => r.url === "/merits")).toBe(false);
+  // The server filters the list by the reader's scopes, so the page asks it and shows the empty answer.
+  expect(mock.adapter.history.get.some((r) => r.url === "/merits")).toBe(true);
+  expect(page.container.textContent).toContain("Записей пока нет.");
+  expect(page.container.textContent).not.toContain("Учесть выполненную работу");
   await page.cleanup(); page = undefined; mock.restore();
   const leader = installMockTransport("leader", { delay: 0 }); restore = leader.restore;
   page = await mountWorkspace(<MeritEntryPage />, { role: "leader", path: `/merits?source_kind=block_volunteer&scope_id=${leader.state.blocks[0].block_id}` });
@@ -219,5 +223,6 @@ it("A04: material editorship does not grant merit creation", async () => {
   page = await mountWorkspace(<Routes><Route path="/seasons/:id/merits" element={<MeritsPage />} /></Routes>, { role: "editor", path: "/seasons/season-1/merits" });
   await settle(); await settle();
   expect(page.container.querySelector("form")).toBeNull();
-  expect(page.container.textContent).toContain("Нет доступа к исходным полям");
+  expect(page.container.textContent).not.toContain("Учесть выполненную работу");
+  expect(page.container.textContent).toContain("Записей пока нет.");
 });

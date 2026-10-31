@@ -12,5 +12,7 @@ it.each([["/seasons", <SeasonsPage />], ["/seasons/templates", <KkrTemplatesPage
   mock = installMockTransport("chair", { delay: 0 });
   page = await mountWorkspace(<Routes><Route path={path} element={element} /></Routes>, { path });await waitForPage(page);
   // «Учёт работы» is the /merits section, not the seasons' one (GL-37).
-  expect(page.container.querySelector('header a[href="/seasons"]')?.textContent).toBe("Профком ВМК · Сезоны и ККР");
+  // On /seasons itself the stamp is the current page, not a link to it (GL-36).
+  const stamp = path === "/seasons" ? page.container.querySelector('header [aria-current="page"]') : page.container.querySelector('header a[href="/seasons"]');
+  expect(stamp?.textContent).toBe("Профком ВМК · Сезоны и ККР");
 });

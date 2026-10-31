@@ -34,27 +34,53 @@ const analytics = (): Analytics => ({
   season_comparison: [{ season_id: "old", title: "Старый сезон", state: "closed", starts_at: "2026-06-01T00:00:00Z", ends_at: "2026-09-01T00:00:00Z", basis: { kind: "approved_snapshot", version: 4, approved_at: "2026-09-01T00:00:00Z" }, totals: { completed_tasks: null, credited_hours: null, kkr: 18 } }], coverage: { accepted_assignments: 1, missing_hours_assignments: 0, undated_accepted_assignments: 0, undated_contributions: 0, notes: ["Исторические часы неизвестны."] },
 });
 it("keeps creation and global season corrections off the catalog with a dedicated create entry", async () => {
-  await mount(<SeasonsPage />);expect(page!.container.querySelectorAll("form")).toHaveLength(0);expect(page!.container.textContent).not.toContain("Исправить ошибочную принадлежность");expect(page!.container.querySelector('section[aria-label="Текущий сезон"]')?.textContent).toContain("Осень и зима 2026");expect(page!.container.querySelector('a[href="/seasons/new"]')?.textContent).toContain("Создать сезон");
+  // Without a planned season the catalog offers creation (SE-20 names the planned one instead).
+  transport = installMockTransport("chair", { delay: 0 });transport.state.seasons.splice(transport.state.seasons.findIndex(season => season.state === "planned"), 1);
+  page = await mountWorkspace(<SeasonsPage />, { path: "/seasons" });await waitForPage(page);expect(page!.container.querySelectorAll("form")).toHaveLength(0);expect(page!.container.textContent).not.toContain("Исправить ошибочную принадлежность");expect(page!.container.querySelector('section[aria-label="Текущий сезон"]')?.textContent).toContain("Осень и зима 2026");expect(page!.container.querySelector('a[href="/seasons/new"]')?.textContent).toContain("Создать сезон");
 });
 it("creates through the visual shell with a preview and exact server dates", async () => {
-  await mount(<Routes><Route path="/seasons/new" element={<SeasonCreatePage />} /><Route path="/seasons/:id" element={<p>Созданный сезон</p>} /></Routes>, "/seasons/new");
-  transport!.state.seasons.splice(transport!.state.seasons.findIndex(season => season.state === "planned"), 1);
+  // The form opens only while no season is planned (SE-20), so the planned one goes first.
+  transport = installMockTransport("chair", { delay: 0 });transport.state.seasons.splice(transport.state.seasons.findIndex(season => season.state === "planned"), 1);
+  page = await mountWorkspace(<Routes><Route path="/seasons/new" element={<SeasonCreatePage />} /><Route path="/seasons/:id" element={<p>Созданный сезон</p>} /></Routes>, { path: "/seasons/new" });await waitForPage(page);
   expect(page!.container.querySelector('[aria-label="Предпросмотр сезона"]')).toBeNull();
   await change(field(page!.container, "title"), "Новый сезон из редактора");await change(field(page!.container, "start"), "2027-02-01T12:00");await change(field(page!.container, "end"), "2027-06-01T12:00");await change(field(page!.container, "type"), "winter_spring");
   await click("Показать предпросмотр сезона");expect(page!.container.querySelector('button[aria-controls][aria-pressed="true"]')).not.toBeNull();expect(page!.container.querySelector('[aria-label="Предпросмотр сезона"]')?.textContent).toContain("Новый сезон из редактора");
   await click("Скрыть предпросмотр сезона");expect(page!.container.querySelector('[aria-label="Предпросмотр сезона"]')).toBeNull();expect(field(page!.container, "title").value).toBe("Новый сезон из редактора");expect(field(page!.container, "start").value).toBe("2027-02-01T12:00");
   await submit(page!.container.querySelector("form")!);await waitForPage(page!, () => page!.container.textContent?.includes("Созданный сезон") ?? false, 3000);const request = transport!.adapter.history.post.find(request => request.url === "/seasons")!;expect(JSON.parse(request.data)).toEqual({ title: "Новый сезон из редактора", starts_at: "2027-02-01T09:00:00.000Z", ends_at: "2027-06-01T09:00:00.000Z", type: "winter_spring" });
 });
+it("leads to the planned season instead of a creation that would be refused", async () => {
+  await mount(<Routes><Route path="/seasons" element={<SeasonsPage />} /><Route path="/seasons/new" element={<SeasonCreatePage />} /></Routes>, "/seasons");
+  expect(page!.container.querySelector('a[href="/seasons/new"]')).toBeNull();
+  expect(page!.container.querySelector('[role="status"]')?.textContent).toBe("Уже есть запланированный сезон: Зима и весна 2027");
+  expect(page!.container.querySelector('[role="status"] a')?.getAttribute("href")).toBe("/seasons/season-next");
+  await page!.cleanup();transport!.restore();
+  await mount(<Routes><Route path="/seasons/new" element={<SeasonCreatePage />} /></Routes>, "/seasons/new");
+  expect(page!.container.querySelector("form")).toBeNull();
+  expect(page!.container.querySelector('[role="status"] a')?.getAttribute("href")).toBe("/seasons/season-next");
+});
+it("suggests the season type from the start month until it is chosen by hand", async () => {
+  transport = installMockTransport("chair", { delay: 0 });transport.state.seasons.splice(transport.state.seasons.findIndex(season => season.state === "planned"), 1);
+  page = await mountWorkspace(<Routes><Route path="/seasons/new" element={<SeasonCreatePage />} /></Routes>, { path: "/seasons/new" });await waitForPage(page);
+  await change(field(page.container, "start"), "2027-02-01T12:00");expect(field(page.container, "type").value).toBe("winter_spring");
+  await change(field(page.container, "start"), "2027-06-01T12:00");expect(field(page.container, "type").value).toBe("summer_autumn");
+  await change(field(page.container, "start"), "2027-10-01T12:00");expect(field(page.container, "type").value).toBe("autumn_winter");
+  await change(field(page.container, "type"), "winter_spring");await change(field(page.container, "start"), "2027-07-01T12:00");expect(field(page.container, "type").value).toBe("winter_spring");
+});
 it("opens period editing by pencil and saves the same season with revision and reason", async () => {
   await mount(<Routes><Route path="/seasons/:id" element={<SeasonPage />} /></Routes>, "/seasons/season-1");expect(page!.container.querySelector('input[name="title"]')).toBeNull();expect(page!.container.textContent).not.toContain("Исправление периода");
   await click("Редактировать сезон");expect(field(page!.container, "title").value).toBe("Осень и зима 2026");await change(field(page!.container, "title"), "Уточнённое название");await change(field(page!.container, "reason"), "Исправили название");await submit(page!.container.querySelector("form")!);await waitForPage(page!, () => !page!.container.querySelector('input[name="title"]'));
   const request = transport!.adapter.history.patch.find(request => request.url === "/seasons/season-1")!;expect(JSON.parse(request.data)).toMatchObject({ expected_revision: 1, title: "Уточнённое название", reason: "Исправили название" });expect(page!.container.querySelector("h1")?.textContent).toBe("Уточнённое название");
+  // The minute-precision inputs never resend an untouched period (SE-01).
+  expect(JSON.parse(request.data)).not.toHaveProperty("starts_at");expect(JSON.parse(request.data)).not.toHaveProperty("ends_at");
+  await click("Редактировать сезон");await change(field(page!.container, "end"), "2027-02-15T12:00");await change(field(page!.container, "reason"), "Продлили сезон");await submit(page!.container.querySelector("form")!);await waitForPage(page!, () => !page!.container.querySelector('input[name="title"]'));
+  const extended = transport!.adapter.history.patch.filter(request => request.url === "/seasons/season-1").at(-1)!;expect(JSON.parse(extended.data)).toMatchObject({ ends_at: "2027-02-15T09:00:00.000Z", reason: "Продлили сезон" });expect(JSON.parse(extended.data)).not.toHaveProperty("starts_at");
 });
 it.each(["organizer", "leader"] as const)("never requests global summary or analytics for %s", async role => {
   await mount(<Routes><Route path="/seasons/:id" element={<SeasonPage />} /></Routes>, "/seasons/season-1?tab=analytics", role);expect(transport!.adapter.history.get.some(request => /\/summary|\/analytics/.test(request.url ?? ""))).toBe(false);expect(page!.container.querySelector('nav[aria-label="Разделы сезона"]')).toBeNull();expect(page!.container.querySelector('button[aria-label="Редактировать сезон"]')).toBeNull();
 });
 it("keeps the summary deep link and labels evaluated assignments honestly", async () => {
-  await mount(<Routes><Route path="/seasons/:id/summary" element={<SummaryPage />} /></Routes>, "/seasons/season-1/summary");expect(page!.container.querySelector('a[aria-current="page"]')?.textContent).toBe("Участники и ККР");expect(page!.container.textContent).toContain("ККР блоков");expect(page!.container.textContent).toContain("посмотреть его начисления");expect(page!.container.querySelectorAll('tbody img').length).toBeGreaterThan(0);expect(page!.container.textContent).not.toContain("Исправить закрытые итоги");
+  // The old address now replaces itself with the season's own one; the participants tab is the same page.
+  await mount(<Routes><Route path="/seasons/:id/summary" element={<SummaryPage />} /><Route path="/seasons/:id" element={<SeasonPage />} /></Routes>, "/seasons/season-1/summary");expect(page!.container.querySelector('a[aria-current="page"]')?.textContent).toBe("Участники и ККР");expect(page!.container.textContent).toContain("ККР блоков");expect(page!.container.textContent).toContain("показывает его вклад");expect(page!.container.querySelectorAll('tbody img').length).toBeGreaterThan(0);expect(page!.container.textContent).not.toContain("Исправить закрытые итоги");
 });
 it("retains missing history as gaps and sends participant/source filters", async () => {
   const data = analytics();data.totals = { completed_tasks: null, credited_hours: null, kkr: 18 };data.weekly = [];data.basis = { kind: "approved_snapshot", version: 4, approved_at: data.as_of };
@@ -76,7 +102,7 @@ it("omits empty future weeks from current observation without mutating or hiding
   expect(page!.container.querySelectorAll('svg[role="img"] circle')).toHaveLength(2);expect([...page!.container.querySelectorAll('svg[role="img"] [role="button"]')].some(point => point.getAttribute("aria-label")?.includes("2 нояб"))).toBe(false);expect(data.weekly).toHaveLength(3);
 });
 it.each(["seasons", "summary"] as const)("retains a real decision draft through %s refetch503, then removes it on403", async resource => {
-  await mount(<Routes><Route path="/seasons/:id/summary" element={<SummaryPage />} /></Routes>, "/seasons/season-1/summary");
+  await mount(<Routes><Route path="/seasons/:id/summary" element={<SummaryPage />} /><Route path="/seasons/:id" element={<SeasonPage />} /></Routes>, "/seasons/season-1/summary");
   page!.client.setQueryData(["summary","season-1"], {...page!.client.getQueryData<object>(["summary","season-1"]),state:"approved"});await waitForPage(page!);
   await act(async()=>page!.container.querySelector<HTMLButtonElement>('button[aria-label^="Изменить отметки:"]')!.click());await waitForPage(page!,()=>!!document.querySelector('[data-mark-menu]'));await act(async()=>document.querySelector<HTMLButtonElement>('[data-mark-menu] [aria-checked="true"]')!.click());await waitForPage(page!,()=>!!document.querySelector('[data-anchored-popover] input[name="reason"]'));
   const disclosure=document.querySelector<HTMLElement>('[data-anchored-popover]')!;
@@ -93,9 +119,10 @@ it("preserves chart metric and period when participant filters refetch", async (
   expect([...page!.container.querySelectorAll("button")].find(button => button.textContent === "ККР")?.getAttribute("aria-pressed")).toBe("true");expect([...page!.container.querySelectorAll("button")].find(button => button.textContent === "По сезонам")?.getAttribute("aria-pressed")).toBe("true");
 });
 it("guards unsaved creation and never creates a season through Cancel", async () => {
-  transport = installMockTransport("chair", { delay: 0 });const create = vi.spyOn(seasonsApi, "create");const container = document.createElement("div");document.body.append(container);const root = createRoot(container), client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  transport = installMockTransport("chair", { delay: 0 });transport.state.seasons.splice(transport.state.seasons.findIndex(season => season.state === "planned"), 1);const create = vi.spyOn(seasonsApi, "create");const container = document.createElement("div");document.body.append(container);const root = createRoot(container), client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const router = createMemoryRouter([{ element: <UnsavedChangesProvider><Outlet /></UnsavedChangesProvider>, children: [{ path: "/seasons/new", element: <SeasonCreatePage /> }, { path: "/seasons", element: <p>Каталог сезонов</p> }] }], { initialEntries: ["/seasons/new"] });
   await act(async () => root.render(<QueryClientProvider client={client}><SessionContext.Provider value={{ session: transport!.state.session, loading: false, error: null, refresh: () => {} }}><RouterProvider router={router} /></SessionContext.Provider></QueryClientProvider>));otherCleanup = async () => { await act(async () => root.unmount());router.dispose();client.clear();container.remove(); };
+  await waitForPage({ client, container }, () => !!container.querySelector('input[name="title"]'));
   await change(field(container, "title"), "Несохранённый сезон");const warn = new Event("beforeunload", { cancelable: true });window.dispatchEvent(warn);expect(warn.defaultPrevented).toBe(true);
   await act(async () => [...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Отмена")!.click());expect(container.querySelector("dialog")?.textContent).toContain("Есть несохранённые изменения");expect(create).not.toHaveBeenCalled();
   await act(async () => [...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Остаться")!.click());expect(field(container, "title").value).toBe("Несохранённый сезон");expect(create).not.toHaveBeenCalled();

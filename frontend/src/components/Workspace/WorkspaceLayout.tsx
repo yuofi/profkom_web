@@ -17,13 +17,12 @@ import { visibleAdminTabs } from "../../pages/Admin/adminTabs";
 import { Glyph } from "./WorkspaceUI";
 import { SECTIONS, SectionContext, sectionOf, toneStyle } from "./sections";
 import type { Session } from "../../utils/api/contract";
+import { createsMerits, readsMerits } from "../../pages/Workspace/meritAccess";
 
-const MERIT_CAPS = ["create_volunteer_merit", "create_head_merit", "create_chair_merit"];
 /** Menu items that need a role; the others are for everyone. */
 const shown: Record<string, (session: Session | null) => boolean> = {
   "/seasons": (session) => can(session, "view_summary"),
-  "/merits": (session) =>
-    MERIT_CAPS.some((cap) => can(session, cap) || !!session?.assignments?.some((a) => can(a, cap))),
+  "/merits": (session) => createsMerits(session) || readsMerits(session),
   "/admin": (session) => visibleAdminTabs(session).length > 0,
 };
 

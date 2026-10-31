@@ -326,7 +326,7 @@ export function installMockTransport(
         const status = inputs?.workflow_status ?? assignment.status;
         const kind = !["accepted", "not_completed", "cancelled"].includes(status) ? "unfinished_assignment"
           : ["accepted", "not_completed"].includes(status) && (inputs?.evaluation == null || status === "accepted" && inputs.hours == null) ? "missing_assessment" : null;
-        if (kind) blockers.push({ kind, owner_kind: "assignment", owner_id: assignment.assignment_id, title: task.title, subject: task.title, assignee: assignment.assignee.display_name });
+        if (kind) blockers.push({ kind, owner_kind: "assignment", owner_id: assignment.assignment_id, title: task.title, subject: task.title, assignee: assignment.assignee.display_name, task_id: task.task_id });
       }
     }
     const events = state.events.filter(event => event.season_id === season.season_id);
@@ -2323,6 +2323,11 @@ export function installMockTransport(
           )
         : denied();
     if (path === "/merits" || parts[0] === "merits") {
+      if (!state.manager && method === "get" && !parts[1]) {
+        // Like the server: the list holds what the session's scopes may read (`view_merits`), else it is empty.
+        const reads = (merit: Merit) => !!state.session.assignments?.some((a) => a.capabilities?.includes("view_merits") && (a.scope_kind === "event" ? merit.event_id === a.scope_id : merit.scope?.kind === a.scope_kind && merit.scope.id === a.scope_id));
+        return list(clone(filter(state.merits.filter(reads), url)));
+      }
       if (!state.manager)
         return method === "get" && parts[1] ? fail(404, "not_found", "Запись недоступна") : denied();
       if (method === "get") {

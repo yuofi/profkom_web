@@ -665,10 +665,48 @@ def test_closed_season_offers_no_roster_or_merit_actions(org):
                         {"user_ids": [], "expected_revision": leader["revision"]})
     assert status == 409
     session = org.raw("GET", "/session", who="head1")[1]
+    # Reading saved merits is not a change, so it stays available for the past season (SE-05).
     past = [x for x in session["assignments"] if x["scope_id"] == org.ids["past_event"]]
-    assert past and all(x["capabilities"] == [] for x in past)
+    assert past and all(x["capabilities"] == ["view_merits"] for x in past)
     current = [x for x in session["assignments"] if x["scope_id"] == org.ids["event"]]
-    assert current and all(x["capabilities"] == ["create_head_merit"] for x in current)
+    assert current and all(x["capabilities"] == ["create_head_merit", "view_merits"] for x in current)
+
+
+@pytest.mark.parametrize("role,kind,readable", [("master", "block", True), ("mdeputy", "block", True), ("resp1", "subevent", True),
+                                                 ("head1", "event", True), ("org1", "subevent", False), ("itmem", "block", False)])
+def test_scoped_merit_readers_get_view_capability(org, role, kind, readable):
+    """SE-05: the menu and merits page follow merit.view.*; the server still filters each list."""
+    session = org.raw("GET", "/session", who=role)[1]
+    scoped = [x for x in session["assignments"] if x["scope_kind"] == kind]
+    if readable:
+        assert scoped and any("view_merits" in x["capabilities"] for x in scoped), session["assignments"]
+    else:
+        assert not any("view_merits" in x["capabilities"] for x in session["assignments"])
+
+
+@pytest.mark.parametrize("kind", ["block", "subevent"])
+def test_hr_curator_gets_session_view_merits(org, kind):
+    """SE-05: a block or subevent HR holds no role assignment there, yet reads its merits;
+    `/session` says so with a session-level `view_merits` that ends with the curatorship."""
+    path, merit = (f"/blocks/{org.ids['it']}", "merit_block") if kind == "block" else (f"/subevents/{org.ids['sa']}", "merit_sub")
+
+    def curator(user_id):
+        org.req("PUT", f"{path}/hr", {"user_id": user_id, "expected_revision": org.req("GET", path)["revision"]})
+
+    def reads():
+        session = org.req("GET", "/session", who="org3")
+        listed = {m["merit_id"] for m in org.req("GET", f"/merits?season_id={org.ids['current']}", who="org3")["items"]}
+        return "view_merits" in session["capabilities"], org.ids[merit] in listed
+
+    assert reads() == (False, False)
+    curator(org.uid("org3"))
+    try:
+        session = org.req("GET", "/session", who="org3")
+        assert not any("view_merits" in a["capabilities"] for a in session["assignments"])
+        assert reads() == (True, True)
+    finally:
+        curator(None)
+    assert reads() == (False, False)
 
 
 @pytest.mark.skipif(not os.environ.get("ACCESS_MATRIX_DUMP"), reason="dump mode only")

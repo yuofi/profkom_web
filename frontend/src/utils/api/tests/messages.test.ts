@@ -56,6 +56,11 @@ describe("userMessage (FIX_PLAN 2.13)", () => {
     expect(userMessage(new ApiError("Dates", 422, "season_ended", { deadline_at: "out_of_range", latest: "2026-10-30T20:59:59+00:00" })).replace(/\u00a0/g, " "))
       .toBe("Сезон закончился 30 окт. 2026 г., 23:59, МСК: дедлайн в нём поставить нельзя. Оставьте дедлайн пустым или выберите другой сезон.");
   });
+  it("names the work that keeps a season from ending earlier", () => {
+    expect(userMessage(new ApiError("Cannot shorten season before task deadline", 422, "season_shorter_than_tasks", { subject: "Работа" })))
+      .toBe("Сезон нельзя закончить раньше срока «Работа». Перенесите этот срок или выберите более позднее окончание.");
+    expect(userMessage(new ApiError("Cannot shorten", 422, "season_shorter_than_tasks"))).toBe(ERROR_TEXTS.season_shorter_than_tasks);
+  });
 
   it("keeps the client's own Russian text and hides a client defect", () => {
     expect(userMessage(new ApiError("Сначала обновите данные.", 409))).toBe("Сначала обновите данные.");

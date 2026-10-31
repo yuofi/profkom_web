@@ -20,7 +20,8 @@ def blockers(session, row, actor=None):
     from domain_models import KkrControlEpicORM
     controls = {r.task_id for r in session.query(KkrControlEpicORM).filter_by(season_id=season_id)}
     task_map = {t.task_id: t for t in season_tasks if t.task_id not in controls}
-    # subject and assignee let the client say in Russian what blocks and whose it is (2.13).
+    # subject and assignee let the client say in Russian what blocks and whose it is (2.13);
+    # task_id links a readable assignment without loading every task of the season.
     def assignee(a):
         ref = _user_to_ref_dc(session.get(UserORM, a.assignee_user_id))
         return ref.display_name if ref else None
@@ -38,6 +39,7 @@ def blockers(session, row, actor=None):
                     "title": f"Unfinished assignment on task '{t.title if t else a.task_id}'",
                     "subject": t.title if t else None,
                     "assignee": assignee(a),
+                    "task_id": a.task_id,
                 })
             elif a.status in ("accepted", "not_completed"):
                 if a.evaluation is None or (a.status == "accepted" and a.hours is None):
@@ -48,6 +50,7 @@ def blockers(session, row, actor=None):
                         "title": f"Missing assessment on task '{t.title if t else a.task_id}'",
                         "subject": t.title if t else None,
                         "assignee": assignee(a),
+                        "task_id": a.task_id,
                     })
 
     if actor:

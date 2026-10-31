@@ -109,6 +109,8 @@ POLICY = {
     "summary.view": SUMMARY,
     "summary.decide": ByState({"*": SUMMARY, "closed": {CHAIR}}),
     "summary.correct": TACHKI,  # closed season corrections (АВ-2)
+    # Calling leaders to fill KKR of closed tasks: the current circle, only while work is accounted
+    "kkr.remind": ByState({"*": frozenset(), "open": {HR_MASTER}, "summarizing": {HR_MASTER}}),
     "merit.create.chair": TACHKI,
     "merit.create.head": TACHKI | EVENT_LEADS,  # decision 12
     "merit.create.block_volunteer": TACHKI,
@@ -433,7 +435,21 @@ GLOBAL_CAPS = {
 def global_caps(uid):
     if not uid:
         return []
-    return _caps(GLOBAL_CAPS, uid)
+    return sorted({*_caps(GLOBAL_CAPS, uid), *curated_merit_caps(uid)})
+
+
+def curated_merit_caps(uid):
+    """`view_merits` of an HR curator: a block or subevent HR holds no role assignment there,
+    yet merit.view.* lets them read that area's saved merits (SE-05)."""
+    from domain_models import BlockMetaORM
+    from event_workspace_models import EventWorkspaceMetaORM
+
+    with db._session() as session:
+        blocks = [row[0] for row in session.query(BlockMetaORM.legacy_name).filter_by(hr_user_id=uid)]
+        subevents = [row[0] for row in session.query(EventWorkspaceMetaORM.owner_id).filter_by(owner_kind="subevent", hr_user_id=uid)]
+    readable = any(allowed(uid, "merit.view.block_volunteer", "block", name) for name in blocks) or any(
+        allowed(uid, "merit.view.subevent_volunteer", "subevent", sid) for sid in subevents)
+    return ["view_merits"] if readable else []
 
 
 def season_caps(season, uid=None):
@@ -443,7 +459,7 @@ def season_caps(season, uid=None):
         "open": {"edit_season": "season.edit", "begin_summary": "season.begin_summary", "create_event": "event.create"},
         "summarizing": {"close_season": "season.close"},
     }
-    return _caps({**by_state.get(season.state, {}), "view_summary": "summary.view", "view_readiness": "summary.view"}, uid)
+    return _caps({**by_state.get(season.state, {}), "view_summary": "summary.view", "view_readiness": "summary.view", "remind_kkr": "kkr.remind"}, uid, state=season.state)
 
 
 EVENT_CAPS = {
@@ -550,19 +566,28 @@ ASSIGNMENT_CAPS = {
 }
 
 
+MERIT_VIEW_CAPS = {
+    "event": {"view_merits": "merit.view.head_merit"},
+    "block": {"view_merits": "merit.view.block_volunteer"},
+    "subevent": {"view_merits": "merit.view.subevent_volunteer"},
+}
+
+
 def assignment_caps(uid, kind, scope_id):
-    """Capabilities of one role assignment in `/session`: merits for its own scope."""
+    """Capabilities of one role assignment in `/session`: merits for its own scope.
+    Reading saved merits (`view_merits`) also covers closed seasons."""
     if kind == "global":
         return global_caps(uid)
+    readable = _caps(MERIT_VIEW_CAPS.get(kind, {}), uid, kind, scope_id)
     if _closed_scope(kind, scope_id) and not allowed(uid, "summary.correct"):
-        return []
+        return readable
     result = _caps(ASSIGNMENT_CAPS.get(kind, {}), uid, kind, scope_id)
     if kind in {"event", "subevent"}:
         from merit_rules import can_create
         source = "head_merit" if kind == "event" else "subevent_volunteer"
         if not can_create(uid, source, scope_id if kind == "event" else None, scope_id if kind == "subevent" else None):
             result = [cap for cap in result if cap not in {"create_head_merit", "create_volunteer_merit"}]
-    return result
+    return sorted({*result, *readable})
 
 
 def _closed_scope(kind, scope_id):

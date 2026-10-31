@@ -13,13 +13,14 @@ export function SeasonBlockerLink({
   seasonId: string;
 }) {
   const assignment = blocker.owner_kind === "assignment";
+  // The server names the task of a readable assignment; only an older answer needs the task list.
   const tasks = useQuery({
     queryKey: ["tasks", "season-blockers", seasonId],
     queryFn: () => tasksApi.list({ season_id: seasonId, mine: false }),
-    enabled: assignment,
+    enabled: assignment && !blocker.task_id,
     retry: false,
   });
-  const task = tasks.data?.items.find((t) =>
+  const task = blocker.task_id ? { task_id: blocker.task_id } : tasks.data?.items.find((t) =>
     t.assignments.some((a) => a.assignment_id === blocker.owner_id),
   );
   const params = new URLSearchParams({

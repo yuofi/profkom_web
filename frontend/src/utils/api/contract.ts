@@ -706,6 +706,8 @@ export interface SeasonBlocker {
   title: string;
   subject?: string | null;
   assignee?: string | null;
+  /** The task of a readable assignment blocker. */
+  task_id?: string | null;
 }
 export const richText = (body = ""): RichText => ({ format: "markdown", body });
 export const emptyCriteria = (): Criteria => ({

@@ -1,7 +1,7 @@
 import { EntityPicker, type EntityOption } from "../../components/Workspace/EntityPicker";
 import { useState, type ComponentProps } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useParams, useSearchParams } from "react-router-dom";
+import { Navigate, useParams, useSearchParams } from "react-router-dom";
 import {
   Page,
   Card,
@@ -15,7 +15,7 @@ import { ActionForm, type Field } from "../../components/Workspace/ActionForm";
 import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
 import { useGuardedAction } from "../../components/Workspace/unsavedChangesHooks";
 import { revisionSnapshot, snapshotRevisions } from "../../components/Workspace/revisionSnapshot";
-import { text, number, ids } from "../../components/Workspace/formValues";
+import { text, number, ids, type Values } from "../../components/Workspace/formValues";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { eventsApi } from "../../utils/api/events.api";
@@ -31,7 +31,10 @@ import {
   type TaskInputs,
   type AssessmentInputs,
 } from "../../utils/api/contract";
-import { canRetainData } from "../../utils/api/request";
+import { canRetainData, normalizeApiError } from "../../utils/api/request";
+import { readsMerits } from "./meritAccess";
+import { evaluationOptions } from "../../utils/evaluations";
+import { UserChip } from "../../components/Workspace/UserChip";
 import { can, useSession } from "../../utils/session";
 import { toUtc, displayDate, moscowInput } from "../../utils/dates";
 import {
@@ -42,7 +45,8 @@ import s from "../../components/Workspace/Workspace.module.css";
 import { KkrTemplateTools } from "../../components/Workspace/KkrTemplateLibrary";
 import type { TemplateSelection } from "../../utils/api/profileFeatures.api";
 import { HistoryDisclosure } from "../../components/Workspace/HistoryPanel";
-import { sourceNames } from "./seasonAnalyticsView";
+import { metricValue, sourceNames } from "./seasonAnalyticsView";
+import u from "./SeasonWorkspace.module.css";
 const kinds: Record<MeritCreate["source_kind"], string> = {
   head_merit: "Особая заслуга на мероприятии",
   chair_merit: "Заслуга председателя",
@@ -89,6 +93,17 @@ function allowedMeritKinds(session: Session | null, contexts: ReturnType<typeof 
   });
 }
 
+/** A season subpage whose season is not in the list: say so instead of an empty form. */
+function SeasonMissing() {
+  return <Page title="Сезон не найден" actions={<RouteLink to="/seasons">Все сезоны</RouteLink>}><Empty>Такого сезона нет. Возможно, ссылка устарела.</Empty></Page>;
+}
+/** The season of a subpage from the shared list; `missing` once the list is known and lacks it. */
+function useSubpageSeason(id: string) {
+  const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
+  const season = seasons.data?.items.find((item) => item.season_id === id);
+  return { seasons, season, missing: !!seasons.data && !season };
+}
+
 /** Blocks have no fixed season; pick an eligible one before opening its form. */
 export function MeritEntryPage() {
   const { session } = useSession();
@@ -97,17 +112,23 @@ export function MeritEntryPage() {
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
   const requested = params.get("source_kind");
   const scopeId = params.get("scope_id");
-  const eligible = seasons.data?.items.filter((season) => allowedMeritKinds(session, contexts.data, season).some(([kind]) => {
+  const creatable = seasons.data?.items.filter((season) => allowedMeritKinds(session, contexts.data, season).some(([kind]) => {
     if (requested && requested !== kind) return false;
     if (!scopeId) return true;
     return kind === "block_volunteer" ? contexts.data?.blocks.some((b) => b.block_id === scopeId && can(b, "create_volunteer_merit"))
       : kind === "head_merit" ? contexts.data?.events.some((e) => e.event_id === scopeId && e.season_id === season.season_id && can(e, "create_head_merit"))
       : kind === "subevent_volunteer" && contexts.data?.subs.some((sub) => sub.subevent_id === scopeId && contexts.data?.events.some((e) => e.event_id === sub.event_id && e.season_id === season.season_id) && can(sub, "create_volunteer_merit"));
   })) ?? [];
+  // The seasons where the user records work decide the step (every creator also reads merits);
+  // only a reader who records nowhere chooses among every season, closed ones too.
+  const eligible = creatable.length || requested || scopeId || !readsMerits(session) ? creatable : seasons.data?.items ?? [];
+  const seasonMerits = (seasonId: string) => `/seasons/${encodeURIComponent(seasonId)}/merits${params.size ? `?${params}` : ""}`;
+  // With one season to choose there is nothing to choose: open it in place of this step.
+  if (contexts.data && seasons.data && eligible.length === 1) return <Navigate replace to={seasonMerits(eligible[0].season_id)} />;
   return <Page title="Учёт выполненной работы" description="Выберите сезон. Доступны только исходные поля разрешённых вам записей.">
     <QueryState loading={contexts.isLoading || seasons.isLoading} error={contexts.error || seasons.error}>
       <div className={s.grid}>{eligible.map((season) => <Card key={season.season_id} title={season.title}>
-        <RouteLink to={`/seasons/${encodeURIComponent(season.season_id)}/merits?${params.toString()}`}>Особые заслуги и волонтёры</RouteLink>
+        <RouteLink to={seasonMerits(season.season_id)}>Особые заслуги и волонтёры</RouteLink>
       </Card>)}</div>
       {!eligible.length && <Empty>Нет доступных сезонов и областей для записи выполненной работы.</Empty>}
     </QueryState>
@@ -204,6 +225,7 @@ function MeritEditor({
       label: "Дата выдачи, МСК",
       type: "datetime-local",
       required: true,
+      compact: "period",
       value: existing ? moscowInput(existing.assigned_at) : "",
     },
     {
@@ -211,12 +233,14 @@ function MeritEditor({
       label: "Дедлайн, МСК",
       type: "datetime-local",
       required: true,
+      compact: "period",
       value: existing ? moscowInput(existing.deadline_at) : "",
     },
     ...Object.entries(criteriaLabels).map(([name, label]) => ({
       name,
       label,
       type: "select" as const,
+      compact: "criteria",
       value: String(
         existing?.criteria[name as keyof typeof criteriaLabels] ?? false,
       ),
@@ -243,6 +267,7 @@ function MeritEditor({
         required: true,
         label: `Часы: ${p.label}`,
         type: "number" as const,
+        compact: `recipient_${p.value}`,
         min: 0,
         value: String(
           existing?.recipients.find((r) => r.user_id === Number(p.value))
@@ -255,20 +280,21 @@ function MeritEditor({
         required: true,
         label: `Оценка: ${p.label}`,
         type: "select" as const,
+        compact: `recipient_${p.value}`,
         value: String(
           existing?.recipients.find((r) => r.user_id === Number(p.value))
             ?.evaluation ?? "",
         ),
-        options: [-1, 0, 1, 1.5].map((n) => ({
-          value: String(n),
-          label: String(n),
-        })),
+        options: evaluationOptions,
       },
       {
         name: `completed_${p.value}`,
         whenSelected: { name: "users", value: p.value },
         label: `Дата выполнения, МСК: ${p.label}`,
         type: "datetime-local" as const,
+        compact: `recipient_${p.value}`,
+        // A positive evaluation needs the date of the result; the field says so before the submit does.
+        required: (values: Values) => Number(values[`evaluation_${p.value}`]) > 0,
         value: existing?.recipients.find((r) => r.user_id === Number(p.value))
           ?.completed_at
           ? moscowInput(
@@ -360,6 +386,7 @@ function MeritEditor({
             revision={existing?.revision}
             revisionKey={summaryVersion === undefined ? undefined : String(summaryVersion)}
             fields={fields}
+            changeRequired={existing ? fields.filter(field => field.name !== "reason").map(field => field.name) : undefined}
             externalState={templateSelection} savedExternalState={null} onReplaceWithSaved={() => setTemplateSelection(null)}
             beforeFields={form => <KkrTemplateTools form={form} mode="merit" selection={templateSelection} onSelection={setTemplateSelection} />}
             onConflict={async () => {
@@ -471,34 +498,41 @@ export function MeritsPage() {
   const { session } = useSession();
   const [params] = useSearchParams();
   const contexts = useMeritContexts(true);
-  const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
+  const { seasons, season, missing } = useSubpageSeason(id);
+  const people = usePeopleOptions({ includeNonMembers: true });
   const [created, setCreated] = useState<{ count: number; title?: string }>({ count: 0 });
-  const season = seasons.data?.items.find((x) => x.season_id === id);
   const allowedKinds = allowedMeritKinds(session, contexts.data, season);
-  const readable = allowedKinds.length > 0 || can(session, "view_summary");
+  // The server filters the list by the reader's scopes, so the page always asks it; only a 403 means no access.
   const query = useQuery({
     queryKey: ["merits", id],
     queryFn: () => seasonsApi.merits({ season_id: id }),
-    enabled: readable,
+    enabled: !!season,
   });
+  if (missing) return <SeasonMissing />;
   if (contexts.isLoading || seasons.isLoading) return <QueryState loading error={null}>{null}</QueryState>;
   if ((contexts.error && (!contexts.data || !canRetainData(contexts.error))) || (seasons.error && (!seasons.data || !canRetainData(seasons.error)))) return <QueryState loading={false} error={contexts.error || seasons.error}>{null}</QueryState>;
-  if (!readable) return <Page title="Особые заслуги"><Empty>Нет доступа к исходным полям.</Empty></Page>;
+  if (query.error && normalizeApiError(query.error).status === 403 && !allowedKinds.length) return <Page title="Особые заслуги"><Empty>Нет доступа к исходным полям.</Empty></Page>;
   return (
     <Page
       title="Особые заслуги и волонтёры"
-      actions={
-        <RouteLink to={`/seasons/${encodeURIComponent(id)}`}>Сезон</RouteLink>
-      }
+      description={season && `Сезон «${season.title}»`}
+      actions={<RouteLink to={`/seasons/${encodeURIComponent(id)}`}>К сезону</RouteLink>}
     >
       <div className={s.stack}>
         {(contexts.error || seasons.error) && <ErrorState error={contexts.error || seasons.error} />}
         <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!query.data}>
+          {query.data?.items.length === 0 && <Empty>Записей пока нет.</Empty>}
           {query.data?.items.map((m) => (
             <Card key={m.merit_id} title={m.title}>
               <p>
                 {kinds[m.source_kind]} · {displayDate(m.assigned_at)}
               </p>
+              <ul className={s.list} aria-label="Получатели">
+                {m.recipients.map((r) => {
+                  const person = people.options.find((p) => p.value === String(r.user_id))?.user;
+                  return <li key={r.user_id} className={s.row}>{person ? <UserChip user={person} /> : <span>Участник #{r.user_id}</span>}<span className={s.muted}>{r.hours} ч · оценка {String(r.evaluation).replace(".", ",")}{r.completed_at ? ` · выполнено ${displayDate(r.completed_at)}` : ""}</span></li>;
+                })}
+              </ul>
               <Markdown content={m.description} />
               <HistoryDisclosure kind="merit" id={m.merit_id} />
               {can(m, "edit_assessment_inputs") && (
@@ -535,48 +569,51 @@ export function SourcesPage() {
     if (value) next.set(name, value);else next.delete(name);
     return next;
   });
-  const participants = useQuery({ queryKey: ["summary", id], queryFn: () => seasonsApi.summary(id), enabled: can(session, "view_kkr") && can(session, "view_summary") });
+  const { seasons, season, missing } = useSubpageSeason(id);
+  const participants = useQuery({ queryKey: ["summary", id], queryFn: () => seasonsApi.summary(id), enabled: !!season && can(session, "view_kkr") && can(session, "view_summary") });
   const participantOptions = (!participants.error || canRetainData(participants.error) ? participants.data?.rows : undefined)?.map(row => ({ value: row.participant_id, label: `${row.user.display_name}${row.group_number ? ` · ${row.group_number}` : ""}`, user: row.user })) ?? [];
   const query = useQuery({
     queryKey: ["assessments", "sources", id, sourceKind, participantId],
     queryFn: () => seasonsApi.assessments({ season_id: id, ...(sourceKind ? { source_kind: sourceKind } : {}), ...(participantId ? { participant_id: participantId } : {}) }),
-    enabled: can(session, "view_kkr"),
+    enabled: !!season && can(session, "view_kkr"),
   });
+  if (missing) return <SeasonMissing />;
+  const back = <RouteLink to={`/seasons/${encodeURIComponent(id)}`}>К сезону</RouteLink>;
   if (!can(session, "view_kkr"))
     return (
-      <Page title="Подробные начисления">
+      <Page title="Подробные начисления" actions={back}>
         <Empty>Нет доступа к расчётным данным.</Empty>
       </Page>
     );
   return (
-    <Page title="Подробные начисления">
-      <div className={s.row} aria-label="Фильтры начислений">
+    <Page title="Подробные начисления" description={season && `Сезон «${season.title}»`} actions={back}>
+      <div className={s.filters} aria-label="Фильтры начислений">
         <label className={s.field}>Вид источника<select name="source_kind" value={sourceKind} onChange={event => setFilter("source_kind", event.target.value)}><option value="">Все источники</option>{Object.entries(sourceNames).filter(([kind]) => kind !== "unallocated").map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}</select></label>
         <EntityPicker name="participant_id" label="Участник" value={participantId} onChange={value => setFilter("participant_id", value)} loading={participants.isLoading} placeholder="Все участники" options={[{ value: "", label: "Все участники" }, ...participantOptions]} />
       </div>
       {participants.error && <ErrorState error={participants.error} />}
-      <QueryState loading={query.isLoading} error={query.error}>
-        <div className={s.stack}>
-          {query.data?.items.map((c) => (
-            <Card key={c.contribution_id} title={c.source_title}>
-              <p>
-                {c.user.display_name} · ККР:{" "}
-                {c.score?.toFixed(2) ?? "не рассчитан"}
-              </p>
-              <p className={s.muted}>Версия расчёта: {c.calculation_version}</p>
-              {c.assignment_inputs && (
-                <p>
-                  Часы {c.assignment_inputs.hours ?? "—"} · оценка{" "}
-                  {c.assignment_inputs.evaluation ?? "—"} · дата{" "}
-                  {displayDate(c.assignment_inputs.effective_completed_at)}
-                </p>
-              )}
-            </Card>
-          ))}
-          {query.data?.items.length === 0 && (
-            <Empty>Начислений пока нет.</Empty>
-          )}
-        </div>
+      <QueryState loading={seasons.isLoading || query.isLoading} error={query.error ?? seasons.error}>
+        {/* One line per contribution instead of a card each (SE-22). */}
+        {!!query.data?.items.length && (
+          <div className={u.summaryWrap} tabIndex={0} role="region" aria-label="Начисления, горизонтальная прокрутка">
+            <table className={u.sourcesTable}>
+              <thead><tr>{["Участник", "Источник", "Часы", "Оценка", "Дата", "ККР"].map((name) => <th key={name} scope="col">{name}</th>)}</tr></thead>
+              <tbody>
+                {query.data.items.map((c) => (
+                  <tr key={c.contribution_id}>
+                    <td><UserChip user={c.user} /></td>
+                    <td>{c.source_title}<small>{sourceNames[c.source_kind] ?? c.source_kind}</small></td>
+                    <td>{metricValue(c.assignment_inputs?.hours)}</td>
+                    <td>{metricValue(c.assignment_inputs?.evaluation)}</td>
+                    <td>{c.assignment_inputs?.effective_completed_at ? displayDate(c.assignment_inputs.effective_completed_at) : "—"}</td>
+                    <td>{c.score === null ? "не рассчитан" : metricValue(c.score)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {query.data?.items.length === 0 && <Empty>Начислений пока нет.</Empty>}
       </QueryState>
     </Page>
   );
@@ -716,6 +753,7 @@ function ClosedCorrectionEditor({
               <ActionForm
                 revision={data.record.revision}
                 revisionKey={String(summaryVersion)}
+                changeRequired={fields.map(field => field.name)}
                 fields={[
                   ...fields,
                   {
@@ -774,10 +812,11 @@ export function CorrectionsPage() {
   const [kind, setKind] = useState<CorrectionKind>("assessment_inputs");
   const [objectId, setObjectId] = useState("");
   const chair = can(session, "correct_season");
+  const { seasons, season, missing } = useSubpageSeason(id);
   const summary = useQuery({
     queryKey: ["summary", id],
     queryFn: () => seasonsApi.summary(id),
-    enabled: chair && can(session, "view_summary"),
+    enabled: !!season && chair && can(session, "view_summary"),
   });
   const allowed = chair && can(summary.data, "correct_summary");
   const tasks = useQuery({
@@ -790,20 +829,36 @@ export function CorrectionsPage() {
     queryFn: () => seasonsApi.merits({ season_id: id }),
     enabled: allowed,
   });
-  const options =
-    kind === "merit"
+  // The saved hours and evaluation tell apart two assignments of one person (the sources page reads the same list).
+  const contributions = useQuery({
+    queryKey: ["assessments", "sources", id, "", ""],
+    queryFn: () => seasonsApi.assessments({ season_id: id }),
+    enabled: allowed && kind === "assessment_inputs" && can(session, "view_kkr"),
+  });
+  const inputs = new Map((contributions.data?.items ?? []).flatMap((c) => c.assignment_inputs ? [[c.assignment_inputs.assignment_id, c.assignment_inputs] as const] : []));
+  // Control epics keep no accounting of their own (no view_assessment_inputs), and only accepted or
+  // not completed assignments carry an evaluation to correct.
+  const accountable = tasks.data?.items.filter((t) => can(t, "view_assessment_inputs")) ?? [];
+  const options: EntityOption[] | undefined = !tasks.data && kind !== "merit" ? undefined
+    : kind === "merit"
       ? merits.data?.items.map((m) => ({ value: m.merit_id, label: m.title }))
       : kind === "task_inputs"
-        ? tasks.data?.items.map((t) => ({ value: t.task_id, label: t.title }))
-        : tasks.data?.items.flatMap((t) =>
-            t.assignments.map((a) => ({
-              value: a.assignment_id,
-              label: `${a.assignee.display_name}: ${t.title}`,
-            })),
+        ? accountable.map((t) => ({ value: t.task_id, label: t.title }))
+        : accountable.flatMap((t) =>
+            t.assignments.filter((a) => a.status === "accepted" || a.status === "not_completed").map((a) => {
+              const saved = inputs.get(a.assignment_id);
+              return {
+                value: a.assignment_id,
+                // Plain text, not a person chip: the label must also name the task and the saved values.
+                label: `${a.assignee.display_name} · ${t.title} · ${saved ? `${saved.hours ?? "—"} ч / оценка ${saved.evaluation ?? "—"}` : a.status === "accepted" ? "принято" : "не выполнено"}`,
+              };
+            }),
           );
+  if (missing) return <SeasonMissing />;
   return (
     <Page
       title="Исправление закрытых итогов"
+      description={season && `Сезон «${season.title}»`}
       actions={
         <RouteLink to={`/seasons/${encodeURIComponent(id)}`}>
           К сезону
@@ -814,8 +869,8 @@ export function CorrectionsPage() {
         <Empty>Исправление доступно председателю и его заместителям.</Empty>
       ) : (
         <QueryState
-          loading={summary.isLoading}
-          error={summary.error}
+          loading={seasons.isLoading || summary.isLoading}
+          error={summary.error ?? seasons.error}
           retry={() => void summary.refetch()}
         >
           {allowed ? (
@@ -848,24 +903,15 @@ export function CorrectionsPage() {
                   void (kind === "merit" ? merits.refetch() : tasks.refetch())
                 }
               >
-                <label className={s.field}>
-                  {kind === "assessment_inputs"
-                    ? "Оцениваемое назначение"
-                    : kind === "task_inputs"
-                      ? "Задача"
-                      : "Запись заслуги"}
-                  <select
-                    value={objectId}
-                    onChange={(e) => setObjectId(e.target.value)}
-                  >
-                    <option value="">Выберите…</option>
-                    {options?.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <EntityPicker
+                  name="correction_object"
+                  label={kind === "assessment_inputs" ? "Оцениваемое назначение: исполнитель · задача · часы / оценка" : kind === "task_inputs" ? "Задача" : "Запись заслуги"}
+                  value={objectId}
+                  onChange={setObjectId}
+                  placeholder="Найти запись"
+                  loading={kind === "assessment_inputs" && contributions.isLoading}
+                  options={options ?? []}
+                />
                 {options?.length === 0 && (
                   <Empty>Нет доступных записей этого типа.</Empty>
                 )}

@@ -32,6 +32,7 @@ export const ERROR_TEXTS: Record<string, string> = {
   legacy_task_statuses: "У старых назначений разные исходы. Выберите совместимое действие, чтобы сохранить историю.",
   season_closed: "Сезон закрыт: эти данные больше не меняются.",
   season_not_ready: "Сезон пока нельзя закрыть.",
+  season_shorter_than_tasks: "Сезон нельзя закончить раньше сроков его задач, заслуг и мероприятий.",
   planned_exists: "Запланированный сезон уже есть.",
   final_report_exists: "Итоговый отчёт этого экземпляра уже есть.",
   invalid_input: "Проверьте введённые данные.",
@@ -97,6 +98,8 @@ function withFields(e: ApiError) {
     return "Сервис загрузки отклонил файл. Повторите загрузку; если ошибка сохраняется, сообщите руководству.";
   if (e.code === "upload_transfer_failed" && e.status >= 500)
     return "Сервис загрузки временно недоступен. Повторите загрузку позже.";
+  if (e.code === "season_shorter_than_tasks" && typeof e.fields.subject === "string" && e.fields.subject)
+    return `Сезон нельзя закончить раньше срока «${e.fields.subject}». Перенесите этот срок или выберите более позднее окончание.`;
   if (e.code === "deputy_limit" && typeof e.fields.limit === "number")
     return `Можно назначить не больше ${e.fields.limit} заместителей.`;
   if (e.code === "deadline_out_of_range" && typeof e.fields.earliest === "string" && typeof e.fields.latest === "string")

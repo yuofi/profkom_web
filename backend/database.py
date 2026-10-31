@@ -3676,10 +3676,18 @@ class Database:
             starts_at=timestamp(starts_at) if starts_at is not None else None
             ends_at=timestamp(ends_at) if ends_at is not None else None
             if dt(starts_at or row.starts_at)>=dt(ends_at or row.ends_at):raise InvalidInput("Season must have positive duration")
-            for task in session.query(TaskORM).filter_by(season_id=season_id):
-                if dt(task.deadline_at)>dt(ends_at or row.ends_at):raise InvalidInput("Cannot shorten season before task deadline")
-            for merit in session.query(MeritORM).filter_by(season_id=season_id):
-                if dt(merit.deadline_at)>dt(ends_at or row.ends_at):raise InvalidInput("Cannot shorten season before merit deadline")
+            from domain_models import KkrControlEpicORM
+            controls={r.task_id for r in session.query(KkrControlEpicORM).filter_by(season_id=season_id)}
+            # Only an earlier end can leave saved work outside the season. Undated tasks and
+            # the managed KKR control epics (their deadline follows the season end) never block it.
+            shortened=ends_at is not None and dt(ends_at)<dt(row.ends_at)
+            if shortened:
+                for task in session.query(TaskORM).filter_by(season_id=season_id):
+                    if task.task_id not in controls and task.deadline_at and dt(task.deadline_at)>dt(ends_at):
+                        raise InvalidInput("Cannot shorten season before task deadline","season_shorter_than_tasks",subject=task.title)
+                for merit in session.query(MeritORM).filter_by(season_id=season_id):
+                    if merit.deadline_at and dt(merit.deadline_at)>dt(ends_at):
+                        raise InvalidInput("Cannot shorten season before merit deadline","season_shorter_than_tasks",subject=merit.title)
             if row.revision != expected_revision:
                 raise revision_conflict()
             session.info["history_reason"] = reason
@@ -3688,12 +3696,18 @@ class Database:
             if starts_at is not None:
                 row.starts_at = starts_at
             if ends_at is not None:
-                evs = session.query(EventORM).filter(EventORM.season_id == season_id).all()
+                evs = session.query(EventORM).filter(EventORM.season_id == season_id).all() if shortened else []
                 for ev in evs:
                     if ev.starts_at and dt(ev.starts_at) > dt(ends_at):
-                        raise InvalidInput("Cannot shorten season before event start")
+                        raise InvalidInput("Cannot shorten season before event start", "season_shorter_than_tasks", subject=ev.title)
                     if ev.ends_at and dt(ev.ends_at) > dt(ends_at):
-                        raise InvalidInput(f"Cannot shorten season ends_at before event '{ev.title}' deadline ({ev.ends_at})")
+                        raise InvalidInput(f"Cannot shorten season ends_at before event '{ev.title}' deadline ({ev.ends_at})", "season_shorter_than_tasks", subject=ev.title)
+                if dt(ends_at) != dt(row.ends_at):
+                    # Control epics stay open until the season end; move them in the same unit.
+                    for task in session.query(TaskORM).filter(TaskORM.task_id.in_(controls)) if controls else ():
+                        if task.deadline_at != ends_at:
+                            task.deadline_at = ends_at
+                            task.revision += 1
                 row.ends_at = ends_at
             row.revision += 1
             session.commit()
@@ -6541,7 +6555,8 @@ class Database:
                 raise NotFound("Comment not found")
             task=session.get(TaskORM,c.task_id)
             if not task or not self.can_read_task(user_id,task,session):raise NotFound("Comment not found")  # like its GET (GL-24)
-            self.require_accountable_task(session, task)
+            # Comments are not accounting inputs: control epics accept them like creation does;
+            # their mention restrictions stay in tracker_collaboration._sync.
             from tracker import can_edit_comment
             if not can_edit_comment(session,c,user_id):
                 raise Forbidden("Forbidden: cannot edit this comment")

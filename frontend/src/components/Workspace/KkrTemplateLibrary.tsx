@@ -12,11 +12,20 @@ import { useGuardedAction } from "./unsavedChangesHooks";
 import { EntityPicker } from "./EntityPicker";
 import { text, number, type Values } from "./formValues";
 import { Card, Empty, QueryState } from "./WorkspaceUI";
+import { evaluationOptions } from "../../utils/evaluations";
 import s from "./ProfileFeatures.module.css";
 import w from "./Workspace.module.css";
 const criteriaLabels = { unique: "Уникальная работа", creative: "Творческая", external_communication: "Общение вне вуза", in_person: "Очное присутствие", fixed_time: "В определённое время" };
 const emptyValues = (): TemplateValues => ({ title: "", description: "", hours: 0, evaluation: 1, criteria: emptyCriteria() });
 type EditorChoice = { template?: KkrTemplate; values: TemplateValues };
+const scopeKinds = { block: "Блок", event: "Мероприятие", subevent: "Подмероприятие", global: "Весь Профком" } as const;
+/** Team scopes as searchable picker options, blocks first, then events and their subevents. */
+function scopeOptions(scopes: FeaturesContext["template_scopes"]) {
+  const order = ["block", "event", "subevent", "global"];
+  return scopes.map((scope, index) => ({ scope, index }))
+    .sort((a, b) => order.indexOf(a.scope.kind) - order.indexOf(b.scope.kind) || a.scope.name.localeCompare(b.scope.name, "ru"))
+    .map(({ scope, index }) => ({ value: String(index), label: `${scopeKinds[scope.kind]}: ${scope.name}`, scope: { kind: scope.kind === "global" ? "chair" as const : scope.kind, name: scope.name } }));
+}
 export function KkrTemplateLibrary({ initialValues, embedded = false }: { initialValues?: TemplateValues; embedded?: boolean }) {
   const query = useQuery({ queryKey: ["kkrTemplates"], queryFn: profileFeaturesApi.templates });
   const context = useQuery({ queryKey: ["profileFeaturesContext"], queryFn: profileFeaturesApi.context });
@@ -28,30 +37,23 @@ export function KkrTemplateLibrary({ initialValues, embedded = false }: { initia
   return embedded ? content : <Card title="Шаблоны ККР"><p>Личные и командные заготовки выполненной работы и оценивания. Применение заполняет редактор, сохранение остаётся явным.</p>{content}</Card>;
 }
 function LibraryEditor({ templates, context, initialValues }: { templates: KkrTemplate[]; context: FeaturesContext; initialValues?: TemplateValues }) {
-  const [editing, setEditing] = useState<EditorChoice | null>(null), [generation, setGeneration] = useState(0);
+  const [editing, setEditing] = useState<EditorChoice | null>(null), [generation, setGeneration] = useState(0), [created, setCreated] = useState("");
   const leave = useGuardedAction(), { perform, refresh } = useWorkspaceActions();
   const template = editing?.template;
-  const choose = (next: EditorChoice) => leave(() => { setEditing(next);setGeneration(value => value + 1); });
+  const choose = (next: EditorChoice) => leave(() => { setCreated("");setEditing(next);setGeneration(value => value + 1); });
   const values = editing?.values;
   const fields: Field[] = values ? [
     { name: "title", label: "Название работы / шаблона", value: values.title, required: true },
     { name: "body", label: "Описание работы", value: values.description, type: "textarea" },
-    { name: "hours", label: "Часы", type: "number", min: 0, required: true, value: String(values.hours) },
-    { name: "evaluation", label: "Оценка", type: "select", required: true, value: String(values.evaluation), options: [-1, 0, 1, 1.5].map(value => ({ value: String(value), label: String(value) })) },
-    ...Object.entries(criteriaLabels).map(([name, label]) => ({ name, label, type: "select" as const, value: String(values.criteria[name as keyof typeof criteriaLabels]), options: [{ value: "false", label: "Нет" }, { value: "true", label: "Да" }] })),
+    { name: "hours", label: "Часы", type: "number", min: 0, required: true, compact: "values", value: String(values.hours) },
+    { name: "evaluation", label: "Оценка", type: "select", required: true, compact: "values", value: String(values.evaluation), options: evaluationOptions },
+    ...Object.entries(criteriaLabels).map(([name, label]) => ({ name, label, type: "select" as const, compact: "criteria", value: String(values.criteria[name as keyof typeof criteriaLabels]), options: [{ value: "false", label: "Нет" }, { value: "true", label: "Да" }] })),
     ...(template ? [{ name: "archived", label: "Состояние шаблона", type: "select" as const, value: String(template.archived), options: [{ value: "false", label: "Активен" }, { value: "true", label: "В архиве" }] }] : [{ name: "visibility", label: "Кому доступен шаблон", type: "select" as const, required: true, value: "personal", options: [
       ...(context.can_create_personal_template ? [{ value: "personal", label: "Только мне" }] : []),
-      ...context.template_scopes.map((scope, index) => ({ value: String(index), label: `Команде: ${scope.name}` })),
+      ...scopeOptions(context.template_scopes),
     ] }]),
   ] : [];
-  return <div className={s.library}>
-    {context.can_create_personal_template && <button type="button" className={w.button} onClick={() => choose({ values: initialValues ?? emptyValues() })}>Создать шаблон ККР</button>}
-    {!templates.length && <Empty>Пока нет доступных шаблонов.</Empty>}
-    {templates.map(row => <div className={s.badge} key={row.template_id}><strong>{row.values.title}</strong><span>{row.visibility === "personal" ? "Личный" : row.scope?.name} · {row.archived ? "В архиве" : `${row.values.hours} ч · оценка ${row.values.evaluation}`}</span><div className={w.row}>
-      <button type="button" className={w.button} onClick={() => choose({ template: row, values: row.values })}>Изменить шаблон</button>
-      {context.can_create_personal_template && <button type="button" className={w.button} onClick={() => choose({ values: { ...row.values, title: `${row.values.title} · копия` } })}>Копировать</button>}
-    </div></div>)}
-    {editing && <><ActionForm key={generation} revision={template?.revision} onConflict={refresh} fields={fields} submitLabel="Сохранить шаблон"
+  const editor = editing && <ActionForm key={generation} revision={template?.revision} onConflict={refresh} fields={fields} submitLabel="Сохранить шаблон"
       onSubmit={async (draft, revision) => {
         const data: TemplateValues = { title: text(draft, "title"), description: text(draft, "body"), hours: number(draft, "hours"), evaluation: number(draft, "evaluation") as TemplateValues["evaluation"], criteria: { ...emptyCriteria(), ...Object.fromEntries(Object.keys(criteriaLabels).map(key => [key, text(draft, key) === "true"])) } };
         const selected = text(draft, "visibility"), scope = context.template_scopes[Number(selected)];
@@ -59,8 +61,20 @@ function LibraryEditor({ templates, context, initialValues }: { templates: KkrTe
         const saved = await perform(() => template
           ? profileFeaturesApi.updateTemplate({ ...template, revision: revision! }, data, text(draft, "archived") === "true")
           : profileFeaturesApi.createTemplate({ visibility: selected === "personal" ? "personal" : "team", ...(selected !== "personal" ? { scope_kind: scope.kind, scope_id: scope.id } : {}), values: data }));
+        // A new template closes its editor with a status: the same form must not turn into the edit form of another revision.
+        if (!template) { setEditing(null);setCreated(saved.values.title);return { revision: saved.revision }; }
         setEditing({ template: saved, values: saved.values });return { revision: saved.revision };
-      }} /><button type="button" className={w.button} onClick={() => leave(() => setEditing(null))}>Закрыть редактор шаблона</button></>}
+      }} />;
+  // The editor opens above the list, next to its button; the empty state is for a closed editor only.
+  return <div className={s.library}>
+    {context.can_create_personal_template && <div className={w.row}><button type="button" className={w.button} onClick={() => choose({ values: initialValues ?? emptyValues() })}>Создать шаблон ККР</button></div>}
+    {created && <p role="status" className={w.success}>Шаблон создан: {created}</p>}
+    {editing && <section className={s.templateEditor} aria-label={template ? "Изменение шаблона ККР" : "Новый шаблон ККР"}><div className={s.templateEditorHeader}><h3>{template ? "Изменение шаблона" : "Новый шаблон ККР"}</h3><button type="button" className={w.button} onClick={() => leave(() => setEditing(null))}>Закрыть</button></div>{editor}</section>}
+    {!templates.length && !editing && <Empty>Пока нет доступных шаблонов.</Empty>}
+    {templates.map(row => <div className={s.badge} key={row.template_id}><strong>{row.values.title}</strong><span>{row.visibility === "personal" ? "Личный" : row.scope?.name} · {row.archived ? "В архиве" : `${row.values.hours} ч · оценка ${row.values.evaluation}`}</span><div className={w.row}>
+      <button type="button" className={w.button} onClick={() => choose({ template: row, values: row.values })}>Изменить шаблон</button>
+      {context.can_create_personal_template && <button type="button" className={w.button} onClick={() => choose({ values: { ...row.values, title: `${row.values.title} · копия` } })}>Копировать</button>}
+    </div></div>)}
   </div>;
 }
 

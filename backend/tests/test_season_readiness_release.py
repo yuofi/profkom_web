@@ -13,6 +13,7 @@ def test_readiness_is_read_only_and_matches_actual_close_blockers(client, work, 
     assert response.status_code == 200, response.text
     assert response.json()["ready"] is False
     assert response.json()["blockers"][0]["kind"] == "unfinished_assignment"
+    assert response.json()["blockers"][0]["task_id"] == work["task"]["task_id"]  # links without loading all tasks
     assert client.get(f"/api/seasons/{sid}/readiness", headers=work["member"].headers).status_code == 403
     assert client.get(f"/api/seasons/{sid}/readiness", headers=superuser.headers).json() == response.json()
     with db._session() as session:
@@ -50,6 +51,40 @@ def test_event_start_prevents_shortened_or_moved_season_atomically(client, super
     assert client.get(f"/api/events/{event['event_id']}", headers=superuser.headers).json() == event
 
 
+def _controls(sid):
+    from domain_models import KkrControlEpicORM
+    from database import TaskORM
+    with db._session() as session:
+        ids = [row.task_id for row in session.query(KkrControlEpicORM).filter_by(season_id=sid)]
+        return {task.task_id: (task.deadline_at, task.revision) for task in session.query(TaskORM).filter(TaskORM.task_id.in_(ids))}
+
+
+def test_season_patch_ignores_undated_tasks_and_moves_control_epics(client, work, superuser):
+    sid = work["season"]["season_id"]
+    undated = dict(work["payload"], title="Без срока", deadline_at=None)
+    created = client.post("/api/tasks", headers=work["master"].headers, json=undated)
+    assert created.status_code == 200, created.text
+    season = client.get(f"/api/seasons/{sid}", headers=superuser.headers).json()
+    controls = _controls(sid)
+    assert controls and all(deadline == season["ends_at"] for deadline, _ in controls.values())
+    renamed = client.patch(f"/api/seasons/{sid}", headers=superuser.headers, json={"expected_revision": season["revision"], "title": "Переименованный", "reason": "Только название"})
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["ends_at"] == season["ends_at"] and _controls(sid) == controls
+    later = (datetime.fromisoformat(season["ends_at"]) + timedelta(days=5)).isoformat()
+    extended = client.patch(f"/api/seasons/{sid}", headers=superuser.headers, json={"expected_revision": renamed.json()["revision"], "ends_at": later, "reason": "Продление"})
+    assert extended.status_code == 200, extended.text
+    moved = _controls(sid)
+    assert all(moved[tid] == (extended.json()["ends_at"], revision + 1) for tid, (_, revision) in controls.items())
+    deadline = datetime.fromisoformat(work["payload"]["deadline_at"])
+    too_short = client.patch(f"/api/seasons/{sid}", headers=superuser.headers, json={"expected_revision": extended.json()["revision"], "ends_at": (deadline - timedelta(hours=1)).isoformat(), "reason": "Слишком рано"})
+    assert too_short.status_code == 422 and too_short.json()["detail"]["code"] == "season_shorter_than_tasks", too_short.text
+    assert too_short.json()["detail"]["fields"]["subject"] == "Работа"
+    assert _controls(sid) == moved
+    shorter = client.patch(f"/api/seasons/{sid}", headers=superuser.headers, json={"expected_revision": extended.json()["revision"], "ends_at": (deadline + timedelta(hours=1)).isoformat(), "reason": "Сокращение до последней задачи"})
+    assert shorter.status_code == 200, shorter.text
+    assert all(saved == shorter.json()["ends_at"] for saved, _ in _controls(sid).values())
+
+
 def test_only_chair_can_edit_closed_decisions(client, work, superuser, make_user, make_hr):
     accept(client, work)
     frozen = close(client, work, superuser)
@@ -67,3 +102,33 @@ def test_only_chair_can_edit_closed_decisions(client, work, superuser, make_user
         json={"expected_version": frozen["version"], "decisions": ["nice"], "reason": "Confirmed"})
     assert changed.status_code == 200, changed.text
     assert changed.json()["version"] == frozen["version"] + 1
+
+
+def test_repeated_closed_saves_keep_one_immutable_version(client, work, superuser):
+    from domain_models import SummaryVersionORM
+    aid = accept(client, work)
+    frozen = close(client, work, superuser)
+    sid, target = work["season"]["season_id"], work["member"].user_id
+    path = f"/api/seasons/{sid}/summary/decisions/{target}"
+    first = client.put(path, headers=superuser.headers, json={"expected_version": frozen["version"], "decisions": ["nice"], "reason": "r1"})
+    assert first.status_code == 200, first.text
+    with db._session() as session:
+        stored = session.query(SummaryVersionORM).filter_by(season_id=sid).count()
+        audits = session.query(AuditLogORM).count()
+    again = client.put(path, headers=superuser.headers, json={"expected_version": first.json()["version"], "decisions": ["nice"], "reason": "r1"})
+    assert again.status_code == 200, again.text
+    assert again.json()["version"] == first.json()["version"]
+    inputs = client.get(f"/api/assignments/{aid}/assessment-inputs", headers=superuser.headers).json()
+    body = lambda version, hours: {"expected_version": version, "reason": "Повтор", "changes": [{"kind": "assessment_inputs", "id": aid,
+        "expected_revision": inputs["revision"], "values": {"hours": hours, "evaluation": inputs["evaluation"], "effective_completed_at": inputs["effective_completed_at"]}}]}
+    same = client.post(f"/api/seasons/{sid}/summary/correct", headers=superuser.headers, json=body(again.json()["version"], inputs["hours"]))
+    assert same.status_code == 200, same.text
+    assert same.json()["version"] == first.json()["version"]
+    assert same.json()["applied_revisions"] == [{"kind": "assessment_inputs", "id": aid, "revision": inputs["revision"]}]
+    with db._session() as session:
+        assert session.query(SummaryVersionORM).filter_by(season_id=sid).count() == stored
+        assert session.query(AuditLogORM).count() == audits
+    changed = client.post(f"/api/seasons/{sid}/summary/correct", headers=superuser.headers, json=body(same.json()["version"], inputs["hours"] + 1))
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["version"] == first.json()["version"] + 1
+    assert changed.json()["applied_revisions"][0]["revision"] == inputs["revision"] + 1

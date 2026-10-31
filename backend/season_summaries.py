@@ -273,6 +273,54 @@ def refresh(session, season_id, uid, reason):
     store_snapshot(session, season_id, uid, reason)
 
 
+def _same_instant(left, right):
+    from participation import dt
+    if not left or not right:
+        return not left and not right
+    try:
+        return dt(left) == dt(right)
+    except (ValueError, TypeError):
+        return left == right
+
+
+def _same_criteria(stored_json, value):
+    stored = json.loads(stored_json or "{}")
+    return {k for k, v in stored.items() if v} == {k for k, v in value.items() if v}
+
+
+def _unchanged(kind, obj, value):
+    """Whether one correction only repeats the saved inputs; template use is always a change."""
+    if value.get("template_selection"):
+        return False
+    for key, wanted in value.items():
+        if key == "template_selection":
+            continue
+        if kind in ("task_inputs", "assessment_inputs") and wanted is None:
+            continue  # these patches skip omitted/null inputs
+        if key in ("assigned_at", "deadline_at", "effective_completed_at"):
+            same = _same_instant(getattr(obj, key), wanted)
+        elif key == "criteria":
+            same = _same_criteria(obj.criteria_json, wanted or {})
+        elif key in ("hours", "evaluation"):
+            current = getattr(obj, key)
+            same = current is not None and float(current) == float(wanted)
+        elif key == "title":
+            same = obj.title == wanted
+        elif key == "description":
+            saved = json.loads(obj.description_json or "{}")
+            same = saved == (wanted if isinstance(wanted, dict) else {"format": "markdown", "body": str(wanted)})
+        elif key == "recipients":
+            def norm(items):
+                return sorted((int(r["user_id"]), float(r.get("hours", 0.0)), float(r.get("evaluation", 1.0)), r.get("completed_at")) for r in items or [])
+            saved, asked = norm(json.loads(obj.recipients_json or "[]")), norm(wanted)
+            same = len(saved) == len(asked) and all(a[:3] == b[:3] and _same_instant(a[3], b[3]) for a, b in zip(saved, asked))
+        else:
+            same = False
+        if not same:
+            return False
+    return True
+
+
 def correct(season_id, expected_version, reason, changes, uid):
     if not access.allowed(uid, "summary.correct"):
         raise Forbidden("Forbidden: only chair can correct summary")
@@ -301,7 +349,7 @@ def correct(season_id, expected_version, reason, changes, uid):
                 "assessment_inputs": AssignmentInputsPatchIn,
                 "merit": MeritPatchIn,
             }
-            prepared = []
+            prepared, repeated = [], []
             for c in changes:
                 if c["kind"] not in schemas:
                     raise InvalidInput("Invalid correction kind")
@@ -341,6 +389,10 @@ def correct(season_id, expected_version, reason, changes, uid):
                 value.pop("reason")
                 value.pop("expected_revision")
                 prepared.append((c, value))
+                repeated.append(_unchanged(c["kind"], obj, value))
+            if all(repeated):
+                # A repeated save keeps the immutable history; the route acknowledges current revisions.
+                return db.get_season_summary(season_id, uid)
             marker = _suppress.set(True)
             try:
                 for c, v in prepared:
@@ -397,6 +449,8 @@ def decisions(season_id, target, values, expected_version, reason, uid):
         summary = db.get_season_summary(season_id, uid)
         if not any(r.user.user_id == target for r in summary.rows):
             raise InvalidInput("Participant is outside this summary")
+        if any(r.user.user_id == target and set(r.decisions) == set(values) for r in summary.rows):
+            return summary  # the same marks again: no audit and no new summary version
         d = (
             s.query(SeasonDecisionORM)
             .filter_by(season_id=season_id, user_id=target)
