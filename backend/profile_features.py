@@ -100,21 +100,31 @@ def kkr_manager(actor, kind=None, id=None):
 
 
 def available_scopes(session, actor, manager):
-    result = []
-    if manager(actor, "global", None):
-        result.append(scope_data(session, "global", None))
+    return scopes_for(session, actor, (manager,))[0]
+
+
+def scopes_for(session, actor, managers, *, first=False):
+    """available_scopes of several managers in one pass over blocks, events and
+    subevents (same order and checks each); `first` stops at the first scope."""
+    results = [[] for _ in managers]
+    def visit(kind, id):
+        for manager, result in zip(managers, results):
+            if (kind != "subevent" or manager is kkr_manager) and manager(actor, kind, id):
+                result.append(scope_data(session, kind, id) if not first else True)
+        return first and any(results)
+    if visit("global", None):
+        return results
     for block in session.query(BlockORM).order_by(BlockORM.name):
-        id = _block_id(session, block.name)
-        if manager(actor, "block", id):
-            result.append(scope_data(session, "block", id))
+        if visit("block", _block_id(session, block.name)):
+            return results
     for event in session.query(EventORM).order_by(EventORM.title):
-        if manager(actor, "event", event.event_id):
-            result.append(scope_data(session, "event", event.event_id))
-    if manager is kkr_manager:
+        if visit("event", event.event_id):
+            return results
+    if kkr_manager in managers:
         for sub in session.query(SubeventORM).order_by(SubeventORM.title):
-            if manager(actor, "subevent", sub.subevent_id):
-                result.append(scope_data(session, "subevent", sub.subevent_id))
-    return result
+            if visit("subevent", sub.subevent_id):
+                return results
+    return results
 
 
 class AwardCreate(Command):
@@ -447,10 +457,17 @@ def register_routes(router):
     @router.get("/profile/me/features-context")
     def contexts(cur: User = Depends(get_current_user)):
         with db._session() as s:
-            award_scopes = available_scopes(s, cur.user_id, award_manager)
-            template_scopes = available_scopes(s, cur.user_id, kkr_manager)
+            award_scopes, template_scopes = scopes_for(s, cur.user_id, (award_manager, kkr_manager))
             return dict(award_scopes=award_scopes, template_scopes=template_scopes,
                         can_create_personal_template=bool(template_scopes), award_icons=list(AWARD_ICONS))
+
+    @router.get("/profile/me/features-flags")
+    def flags(cur: User = Depends(get_current_user)):
+        """Whether features-context would list any award / template scope, without the lists."""
+        with db._session() as s:
+            awards = scopes_for(s, cur.user_id, (award_manager,), first=True)[0]
+            templates = scopes_for(s, cur.user_id, (kkr_manager,), first=True)[0]
+            return dict(has_award_scopes=bool(awards), can_create_personal_template=bool(templates))
 
     @router.get("/profiles/{user_id}/activity")
     def get_activity(user_id: int, cur: User = Depends(get_current_user)):

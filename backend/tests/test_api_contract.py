@@ -61,6 +61,7 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ('GET', '/api/workspace/home'),
     ('PUT', '/api/subevents/{subevent_id}/hr'),
     ('GET', '/api/profile/me/features-context'),
+    ('GET', '/api/profile/me/features-flags'),
     ('GET', '/api/profiles/{user_id}/activity'),
     ('GET', '/api/achievements'),
     ('POST', '/api/achievements'),

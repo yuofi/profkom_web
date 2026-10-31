@@ -177,7 +177,7 @@ def contact_data(c):
         }
 
 
-def contacts(q=None, group_number=None, blocks=None, in_profcom=None, budget=None):
+def contacts(q=None, group_number=None, blocks=None, in_profcom=None, budget=None, user_id=None):
     result = []
     from database import BlockORM
 
@@ -190,7 +190,9 @@ def contacts(q=None, group_number=None, blocks=None, in_profcom=None, budget=Non
     wanted = [aliases.get(x, x) for x in wanted]
     if any(x not in names for x in wanted):
         return []
-    for c in db.list_contacts():
+    # user_id narrows the same filtered list to one person without reading the rest.
+    rows = db.list_contacts() if user_id is None else [c for c in [db.get_contact(user_id)] if c]
+    for c in rows:
         u = db.get_user(c.user_id)
         if not u or u.account_state != "active" or u.banned:
             continue

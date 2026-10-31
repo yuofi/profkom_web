@@ -1674,9 +1674,9 @@ def exit_block(block_name: str, cur: User = Depends(get_current_user)):
 # ═══════════════════════════════════════════════════════════
 
 @router.get("/contacts", response_model=List[ContactInfoOut])
-def get_all_contacts(q:Optional[str]=None,group_number:Optional[str]=None,blocks:Optional[str]=None,in_profcom:Optional[bool]=None,budget:Optional[bool]=None,cur:User=Depends(get_current_user)):
+def get_all_contacts(q:Optional[str]=None,group_number:Optional[str]=None,blocks:Optional[str]=None,in_profcom:Optional[bool]=None,budget:Optional[bool]=None,user_id:Optional[int]=None,cur:User=Depends(get_current_user)):
     from directory import contacts
-    return [ContactInfoOut(**c) for c in contacts(q,group_number,blocks,in_profcom,budget)]
+    return [ContactInfoOut(**c) for c in contacts(q,group_number,blocks,in_profcom,budget,user_id=user_id)]
 
 
 # ═══════════════════════════════════════════════════════════
