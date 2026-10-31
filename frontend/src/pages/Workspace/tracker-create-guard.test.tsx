@@ -36,7 +36,7 @@ it("an untouched new editor exits freely; typed Markdown is guarded and never pu
   const clean = new Event("beforeunload", { cancelable: true });window.dispatchEvent(clean);expect(clean.defaultPrevented).toBe(false);
   await change(field(page.container, "description"), "Несохранённый текст $x^2$");const dirty = new Event("beforeunload", { cancelable: true });window.dispatchEvent(dirty);expect(dirty.defaultPrevented).toBe(true);
   await act(async () => [...page.container.querySelectorAll<HTMLAnchorElement>("a")].find(link => link.textContent === "Отмена")!.click());
-  expect(page.container.querySelector("dialog")?.textContent).toContain("Есть несохранённые изменения");expect(button(page.container, "Сохранить и перейти").disabled).toBe(true);
+  expect(page.container.querySelector("dialog")?.textContent).toContain("Есть несохранённые изменения");expect([...page.container.querySelectorAll("dialog button")].map(item => item.textContent)).toEqual(["Остаться", "Уйти без сохранения"]);
   await act(async () => button(page.container, "Остаться").click());expect(field(page.container, "description").value).toBe("Несохранённый текст $x^2$");
   await act(async () => [...page.container.querySelectorAll<HTMLAnchorElement>("a")].find(link => link.textContent === "Отмена")!.click());await act(async () => button(page.container, "Уйти без сохранения").click());
   expect(page.router.state.location.pathname).toBe("/tasks/queues/queue-blank");expect(create).not.toHaveBeenCalled();

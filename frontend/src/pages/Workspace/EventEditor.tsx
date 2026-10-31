@@ -53,7 +53,7 @@ function EventCanvas({ event, subevent, parent, seasons, series, onClose }: {
   const back = event ? getEventRoute(event.event_id) : subevent ? getSubeventRoute(subevent.subevent_id) : parent ? getEventRoute(parent.event_id) : "/events";
   return <section className={s.page}>
     <BrandedHeader className={s.canvasHeader}><div><SectionHomeLink to="/events" label="Мероприятия" /><nav aria-label="Навигация мероприятия"><Link to={parent ? getEventRoute(parent.event_id) : "/events"}>{parent?.title ?? "Мероприятия"}</Link><span>›</span><span>{heading}</span></nav><h1 className={w.title}>{heading}</h1></div>{onClose ? <button type="button" className={w.button} onClick={() => leave(onClose)}>Отмена</button> : <Link className={w.button} to={back}>Отмена</Link>}</BrandedHeader>
-    <ActionForm fields={[]} revision={existing?.revision} record={existing ? `${child ? "subevent" : "event"}:${subevent?.subevent_id ?? event?.event_id}` : undefined} externalState={state} savedExternalState={savedState} onReplaceWithSaved={replace} externalBusy={saving} allowExitSave={false}
+    <ActionForm fields={[]} revision={existing?.revision} record={existing ? `${child ? "subevent" : "event"}:${subevent?.subevent_id ?? event?.event_id}` : undefined} externalState={state} savedExternalState={savedState} onReplaceWithSaved={replace} externalBusy={saving} allowExitSave={!!existing}
       submitLabel={existing ? "Сохранить изменения" : child ? "Создать подмероприятие" : "Создать мероприятие"} onConflict={refresh} onSubmit={async (_, revision) => {
         if (!title.trim()) throw Error("Введите название мероприятия");
         if (starts && ends && utc(starts)! > utc(ends)!) throw Error("Окончание раньше начала");
