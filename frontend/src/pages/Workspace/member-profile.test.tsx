@@ -32,6 +32,17 @@ it("profile contact links have accessible names and open a call or a letter in o
   expect(page.container.querySelector('a[aria-label="Telegram"]')?.getAttribute("href")).toContain("t.me");
   expect(page.container.querySelector('a[href="tel:+79990000078"]')?.textContent).toContain("+7 (999) 000-00-78");
   expect(page.container.querySelector('a[href="mailto:contact78@example.com"]')?.textContent).toContain("contact78@example.com");
+  // The link's name is the action and the value, not the icon's ligature text.
+  expect(page.container.querySelector('a[href="tel:+79990000078"]')?.getAttribute("aria-label")).toBe("Позвонить: +7 (999) 000-00-78");
+  expect(page.container.querySelector('a[href="mailto:contact78@example.com"]')?.getAttribute("aria-label")).toBe("Написать: contact78@example.com");
+});
+it("an old phone without digits stays plain text, not an empty tel: link (PE-16)", async () => {
+  const person = { ...createFixtures("chair").profile, user_id: 80, surname: "Старый", name: "Телефон", in_profcom: true, phone: "abc", email: "old80@example.com" };
+  vi.spyOn(directoryApi, "contacts").mockResolvedValue([person]);
+  page = await mountWorkspace(<Routes><Route path="/contacts/:id" element={<MemberProfilePage />} /></Routes>, { path: "/contacts/80" });
+  await waitForPage(page);
+  expect(page.container.textContent).toContain("abc");
+  expect(page.container.querySelector('a[href^="tel:"]')).toBeNull();
 });
 it("the participant page is titled with the person's full name (PE-25)", async () => {
   const person = { ...createFixtures("chair").profile, user_id: 79, surname: "Заголовков", name: "Пётр", patronymic: "Ильич", in_profcom: true };

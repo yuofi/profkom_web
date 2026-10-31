@@ -185,15 +185,20 @@ export const ProfileBadge = ({
 
       {/* Контакты */}
       <div className={styles.contacts}>
-        {user.phone && (
-          <a className={styles.contactLink} href={`tel:${user.phone.replace(/[^+\d]/g, "")}`}>
+        {user.phone && (/\d/.test(user.phone) ? (
+          <a className={styles.contactLink} href={`tel:${user.phone.replace(/[^+\d]/g, "")}`} aria-label={`Позвонить: ${user.phone}`}>
             <ProfileChip variant="iconBg" label="телефон" iconName="call">
               {user.phone}
             </ProfileChip>
           </a>
-        )}
+        ) : (
+          // An old phone without digits has nothing to call: it stays plain text.
+          <ProfileChip variant="iconBg" label="телефон" iconName="call">
+            {user.phone}
+          </ProfileChip>
+        ))}
         {user.email ? (
-          <a className={styles.contactLink} href={`mailto:${user.email}`}>
+          <a className={styles.contactLink} href={`mailto:${user.email}`} aria-label={`Написать: ${user.email}`}>
             <ProfileChip variant="iconBg" label="почта" iconName="mail">
               {user.email}
             </ProfileChip>
