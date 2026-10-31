@@ -118,7 +118,10 @@ it("2.12 A-FE-1, A-FE-2: the chair's block description draft survives making the
   let block = (await membershipApi.blocks()).find(b => b.name === "Integration IT")!;
   block = await eventsApi.blockLeader(block.block_id, other.user_id, { expected_revision: block.revision });
   await mount(`/blocks/${block.block_id}`, "/blocks/:id", <BlockPage />, true);
-  await until(() => !!page!.container.querySelector('[name="url"]') && !!page!.container.querySelector('[data-entity-picker][data-field-name="user"]'));
+  // The master is assigned in the leadership dialog (EV-11); the description form stays on the page.
+  await until(() => !!page!.container.querySelector('[name="url"]'));
+  await click(page!.container, "Изменить руководство");
+  await until(() => !!page!.container.querySelector('dialog [data-entity-picker][data-field-name="user"]'));
   const masterOptions = await pickerOptions(page!.container, "user");
   expect(masterOptions.querySelector(`[data-option-value="${chair.user_id}"]`)).not.toBeNull();
   const description = field(page!.container, "url").closest("form")!;

@@ -12,6 +12,7 @@ import {
   RouteLink,
   Badge,
   Empty,
+  Glyph,
 } from "../../components/Workspace/WorkspaceUI";
 import type { Tone } from "../../components/Workspace/sections";
 import { ActionForm } from "../../components/Workspace/ActionForm";
@@ -30,7 +31,7 @@ import {
   usePeopleOptions,
   useWorkspaceActions,
 } from "../../utils/hooks/useWorkspace";
-import { Leaders } from "./EventLeaders";
+import { DeputiesForm, Leaders } from "./EventLeaders";
 import { OrganizationTree } from "./OrganizationTree";
 import { BlockHr } from "./BlockHr";
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
@@ -88,6 +89,7 @@ export function BlockPage() {
   const { session } = useSession();
   const people = usePeopleOptions();
   const { perform, refresh } = useWorkspaceActions();
+  const [leadership, setLeadership] = useState(false);
   const query = useQuery({
     queryKey: ["workspaceBlocks", id],
     queryFn: () => membershipApi.block(id),
@@ -148,8 +150,13 @@ export function BlockPage() {
               <Markdown content={b.description} />
             </Card>
             <Card title="Руководство">
-              <Leaders leaders={b.master ? [b.master] : []} />
-              {can(b, "manage_leaders") && (
+              <Leaders leaders={b.master ? [b.master] : []} editable={false} />
+              {(can(b, "manage_leaders") || can(b.master, "manage_deputies")) && (
+                <div className={s.row}><button type="button" className={s.button} onClick={() => setLeadership(true)}><Glyph name="edit" />Изменить руководство</button></div>
+              )}
+              {leadership && <UnsavedChangesScope><TrackerTaskDialog title="Руководство блока" onClose={() => setLeadership(false)}>
+              {/* Two server commands with their own rights and revisions: each section saves on its own. */}
+              {can(b, "manage_leaders") && (<section className={s.stack} aria-label="Мастер блока"><h3>Мастер блока</h3>
                 <ActionForm
                   key={b.block_id}
                   revision={b.revision}
@@ -175,7 +182,9 @@ export function BlockPage() {
                   }}
                   onConflict={refresh}
                 />
-              )}
+              </section>)}
+              {b.master && can(b.master, "manage_deputies") && <section className={s.stack} aria-label="Заместители мастера"><h3>Заместители мастера</h3><DeputiesForm leader={b.master} /></section>}
+              </TrackerTaskDialog></UnsavedChangesScope>}
             </Card>
             <Card title="HR блока"><BlockHr block={b} /></Card>
             <Card title="Состав блока">
