@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { canRetainData } from "../../utils/api/request";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useLogout } from "../../utils/hooks/useLogout";
 import {
   Page,
@@ -83,6 +83,8 @@ export function AccountStatePage() {
  *  it is changed (АВ-52). The change ends every session, this one too. */
 export function PasswordChangePage() {
   const { logout, busy, error } = useLogout();
+  // The address typed at the login with the temporary password, if this tab came from it.
+  const loginEmail = (useLocation().state as { email?: string } | null)?.email ?? null;
   const [changed, setChanged] = useState(false);
   return (
     <Page
@@ -107,6 +109,8 @@ export function PasswordChangePage() {
               if (password === text(v, "old")) throw Error("Новый пароль должен отличаться от временного");
               await authApi.changePassword({ old_password: text(v, "old"), new_password: password });
               setChanged(true);
+              // The change ended every session, this one too: straight to the login, its address in (PE-21).
+              await logout({ notice: "Пароль изменён. Войдите с новым паролем.", email: loginEmail });
             }}
           />
         )}

@@ -168,3 +168,39 @@ it("A-FE-4: a session the server ended leaves nothing private in the cache", asy
     refresh.restore();
   }
 });
+
+it("after the temporary password change the login opens on the password form with the address (PE-21)", async () => {
+  const f = createFixtures("organizer");
+  const session = { ...f.session, capabilities: [], password_change_required: true };
+  adapter = new MockAdapter(api);
+  const calls: string[] = [];
+  adapter.onAny().reply((config) => {
+    calls.push(config.url!);
+    if (config.url === "/auth/login") return [200, { access_token: "synthetic-login-token" }];
+    if (config.url === "/auth/change-password") return [200, { detail: "Password updated successfully" }];
+    if (config.url === "/auth/logout") return [200, {}];
+    if (config.url === "/session") return [200, session];
+    return [404, {}];
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+  page = await mountWorkspace(<HelmetProvider><UserProvider><Routes>
+    <Route path="/auth" element={<GreetingPage />} />
+    <Route element={<ProtectedRoute />}><Route path="/" element={<p>ACTIVE_WORKSPACE</p>} /></Route>
+  </Routes></UserProvider></HelmetProvider>, { path: "/auth", client });
+  await settle();
+  await act(async () => page!.container.querySelector("h5")!.click());
+  await change(field(page.container, "email"), "student@example.org");
+  await change(field(page.container, "password"), "temporary-1");
+  await submit(page.container.querySelector("form")!); await settle(); await settle();
+  expect(page.container.querySelector("h1")?.textContent).toBe("Смените временный пароль");
+  const form = page.container.querySelector("form")!;
+  await change(field(form, "old"), "temporary-1");
+  await change(field(form, "password"), "Own-New-Pass-2026");
+  await change(field(form, "again"), "Own-New-Pass-2026");
+  await submit(form); await settle(); await settle();
+  expect(calls).toContain("/auth/change-password");
+  expect(page.container.querySelector('[role="status"]')?.textContent).toBe("Пароль изменён. Войдите с новым паролем.");
+  expect(field(page.container, "email").value).toBe("student@example.org");
+  expect(field(page.container, "password").value).toBe("");
+  expect(page.container.textContent).not.toContain("VK test");
+});

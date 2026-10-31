@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act } from "react";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, expect, it } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
 import { createFixtures } from "../../mocks/fixtures";
@@ -128,7 +128,7 @@ it("АВ-52: a temporary password opens only its change", async () => {
   mock.adapter.onPost(/\/auth\/change-password$/).reply(200, { detail: "Password updated successfully" });
   const session = { ...createFixtures("organizer").session, capabilities: [], password_change_required: true };
   page = await mountWorkspace(
-    <Routes><Route element={<ProtectedRoute />}><Route path="/" element={<p>Рабочий экран</p>} /></Route></Routes>,
+    <Routes><Route element={<ProtectedRoute />}><Route path="/" element={<p>Рабочий экран</p>} /></Route><Route path="/auth" element={<AuthArrival />} /></Routes>,
     { session },
   );
   expect(heading()).toBe("Смените временный пароль");
@@ -142,9 +142,16 @@ it("АВ-52: a temporary password opens only its change", async () => {
   await change(field(form, "password"), "Own-New-Pass-2026");
   await change(field(form, "again"), "Own-New-Pass-2026");
   await submit(form);
-  expect(JSON.parse(mock.adapter.history.post.at(-1)!.data)).toEqual({ old_password: "temporary-1", new_password: "Own-New-Pass-2026" });
-  expect(page.container.textContent).toContain("Пароль изменён. Войдите с новым паролем.");
+  const sent = mock.adapter.history.post.find((request) => /\/auth\/change-password$/.test(request.url ?? ""))!;
+  expect(JSON.parse(sent.data)).toEqual({ old_password: "temporary-1", new_password: "Own-New-Pass-2026" });
+  // The change ends every session: the login page opens with the note (PE-21).
+  await settle();
+  expect(page.container.querySelector("[data-arrival]")?.textContent).toContain("Пароль изменён. Войдите с новым паролем.");
 });
+function AuthArrival() {
+  const state = useLocation().state as { notice?: string } | null;
+  return <p data-arrival="">{state?.notice}</p>;
+}
 
 it("АВ-52: a VK-only account is asked to set a password; the cabinet is one menu item", async () => {
   mock = installMockTransport("chair", { delay: 0 });

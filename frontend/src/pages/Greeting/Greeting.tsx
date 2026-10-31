@@ -12,7 +12,8 @@ import { VKAuthButton } from "../../components/VKAuth/authButton";
 import { type TokenResult } from "@vkid/sdk";
 import { completeAuthentication } from "../../utils/authSession";
 import { ERROR_TEXTS, userMessage } from "../../utils/api/messages";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import type { AuthNotice } from "../../utils/hooks/useLogout";
 import { Helmet } from "react-helmet-async";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -30,7 +31,9 @@ const VK_TEXTS = {
 };
 
 export const GreetingPage = () => {
-  const [signUp, setSignUp] = useState(true);
+  // After a password change the page opens on the password form with the address (PE-21).
+  const arrival = (useLocation().state ?? null) as AuthNotice | null;
+  const [signUp, setSignUp] = useState(!arrival?.notice);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -39,13 +42,14 @@ export const GreetingPage = () => {
 
   // A new account signs up with VK and fills its application after; the form only logs in.
   const { formik, isSuccess, globalError, setGlobalError } = useForm({
-    initialValues: { email: "", password: "" },
+    initialValues: { email: arrival?.email ?? "", password: "" },
     validationSchema: SignInValidationSchema,
     errorTexts: LOGIN_TEXTS,
     onSubmit: async (data) => {
       const response = await authApi.login({ email: data.email, password: data.password });
       await completeAuthentication(queryClient, response.data.access_token);
-      navigate("/", { replace: true });
+      // A temporary password is changed next: its page hands the address back to this form (PE-21).
+      navigate("/", { replace: true, state: { email: data.email } });
     },
   });
 
@@ -142,6 +146,7 @@ export const GreetingPage = () => {
             >
               {signUp ? "или войти c паролем" : "войти с вк"}
             </h5>
+            {arrival?.notice && <div role="status">{arrival.notice}</div>}
             {isSuccess && <div>Успешно!</div>}
             {globalError && <div role="alert" style={{ color: "var(--error)" }}>{globalError}</div>}
           </form>
