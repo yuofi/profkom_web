@@ -1561,9 +1561,43 @@ def _format_blocks(items: list[str]) -> str:
 
 
 
+# Several people in one clean read UOW: read users, contacts, profile metadata and
+# avatar files once. Fewer people keep their individual PK reads.
+PEOPLE_BATCH_AFTER = 4
+
+
+def _note_user(user_id):
+    from read_context import after_distinct
+    after_distinct(None, "database.people", user_id, PEOPLE_BATCH_AFTER, _prime_people)
+
+
+def _prime_people():
+    """Warm only the read UOW's identity map and absent-PK hints.
+
+    Directory and reference policies still read these rows through their usual
+    lookups, so the projected values and their order are unchanged.
+    """
+    from sqlalchemy.orm import selectinload
+    from domain_models import ProfileMetadataORM
+    from read_context import prime_get
+    with db._session() as session:
+        users = session.query(UserORM).options(selectinload(UserORM.contact)).all()
+        metadata = {row.user_id: row for row in session.query(ProfileMetadataORM)}
+        for user in users:
+            prime_get(session, ProfileMetadataORM, user.user_id, metadata.get(user.user_id))
+        file_ids = sorted({row.avatar_file_id for row in metadata.values() if row.avatar_file_id})
+        files = {}
+        for start in range(0, len(file_ids), 500):
+            files.update((row.file_id, row) for row in session.query(FileRecordORM).filter(
+                FileRecordORM.file_id.in_(file_ids[start:start + 500])))
+        for file_id in file_ids:
+            prime_get(session, FileRecordORM, file_id, files.get(file_id))
+
+
 def _user_to_ref_dc(u: Optional[UserORM]) -> Optional[UserRefDC]:
     if not u:
         return None
+    _note_user(u.user_id)
     return cached_current("database.user_ref", u.user_id, lambda: _user_to_ref_uncached(u))
 
 
@@ -1588,6 +1622,7 @@ def _user_ref_with_avatar(u: UserORM, photo_url) -> UserRefDC:
 
 
 def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: Optional[int] = None) -> AssignmentPublicDC:
+    _note_user(a.assignee_user_id)
     u = session.get(UserORM, a.assignee_user_id)
     assignee_ref = _user_to_ref_dc(u) or UserRefDC(user_id=a.assignee_user_id, display_name=f"Участник {a.assignee_user_id}", avatar_url=None)
 
@@ -2708,6 +2743,7 @@ class Database:
     @memoized("database.user")
     def get_user(self, user_id: int) -> Optional[UserDC]:
         with self._session() as session:
+            _note_user(user_id)
             u = session.get(UserORM, user_id)
             if not u:
                 return None
@@ -3277,6 +3313,8 @@ class Database:
     # --- Leadership and Roles ---
 
     def _get_user_ref(self, session: Session, user_id: Optional[int]) -> Optional[UserRefDC]:
+        if user_id is not None:
+            _note_user(user_id)
         return _user_to_ref_dc(session.get(UserORM,user_id)) if user_id is not None else None
 
     def get_leadership(self) -> LeadershipDC:
@@ -5586,6 +5624,7 @@ class Database:
                                           state=access.season_state(t.season_id)):
                         continue
 
+                _note_user(a.assignee_user_id)
                 u = session.get(UserORM, a.assignee_user_id)
                 unavail = None
                 if not u or u.banned or getattr(u, "account_state", "active") != "active":

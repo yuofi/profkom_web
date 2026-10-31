@@ -5,7 +5,8 @@ import uuid
 from urllib.parse import urlsplit
 from pydantic import Field, model_validator
 from fastapi import Depends
-from database import db, UserORM, FileRecordORM
+from database import db, UserORM, FileRecordORM, _note_user
+from read_context import orm_get
 from domain_models import ProfileMetadataORM, FormerContactORM, MigrationORM
 from auth import get_current_user
 from models import User
@@ -99,11 +100,13 @@ def is_vk_photo(url):
 def avatar_url(uid):
     """No storage call: a list of people costs no request to the bucket (A-MAT-9)."""
     with db._session() as s:
+        _note_user(uid)
         u = s.get(UserORM, uid)
         if not u:
             return "/avatars/default.svg"
-        m = s.get(ProfileMetadataORM, uid)
-        fr = s.get(FileRecordORM, m.avatar_file_id) if m and m.avatar_file_id else None
+        # A clean read UOW also remembers absent metadata/files (orm_get).
+        m = orm_get(s, ProfileMetadataORM, uid)
+        fr = orm_get(s, FileRecordORM, m.avatar_file_id) if m and m.avatar_file_id else None
         return _avatar_from_rows(u, m, fr)
 
 
@@ -163,7 +166,8 @@ def current_avatars(data):
 
 def contact_data(c):
     with db._session() as s:
-        m = s.get(ProfileMetadataORM, c.user_id)
+        _note_user(c.user_id)
+        m = orm_get(s, ProfileMetadataORM, c.user_id)
         return {
             **c.__dict__,
             "photo_url": avatar_url(c.user_id),
