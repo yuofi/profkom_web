@@ -33,4 +33,4 @@ Integration (`npm run test:integration`) and browser checks (`npm run test:e2e`)
 
 ## Production
 
-`Dockerfile` builds the app and serves `dist/` with nginx (`nginx.conf`): TLS on 443, SPA fallback to `index.html`, `/api/` proxied to the backend container. A file is requested from `/api/files/{id}/content`; the backend checks access and answers with `X-Accel-Redirect` to the internal `/_storage`, which fetches the object by a short signed link and hides the storage headers. The certificate files are mounted from `./certs` (see `docker-compose.yml`).
+`Dockerfile` builds the app and serves `dist/` with nginx (`nginx.conf`): TLS on 443, SPA fallback to `index.html`, `/api/` proxied to the backend container. Static files go precompressed and the JSON answers of `/api/` gzipped, except `/api/auth/` (tokens) and `/api/files/` (file bytes). A file is requested from `/api/files/{id}/content`; the backend checks access and answers with `X-Accel-Redirect` to the internal `/_storage`, which fetches the object by a short signed link and hides the storage headers. The certificate files are mounted from `./certs` (see `docker-compose.yml`).

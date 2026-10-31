@@ -58,13 +58,35 @@ it("PF-23: text assets of 1 kB and more get a .gz copy that nginx can send as is
   await expect(readFile(join(dir, "dist/assets/logo-abc.png.gz"))).rejects.toThrow();
 });
 
-it("PF-23: nginx sends the precompressed copies of static files only", async () => {
+/** Every location of nginx.conf: its own directives (nested locations cut out) and its parent. */
+function locations(conf: string) {
+  const found = new Map<string, { own: string; parent?: string }>(), open: { name: string; own: string }[] = [];
+  for (const line of conf.split("\n")) {
+    const start = /^\s*location ([^{]+)\{\s*$/.exec(line);
+    if (start) open.push({ name: start[1].trim(), own: "" });
+    else if (/^\s*\}\s*$/.test(line) && open.length) { const { name, own } = open.pop()!;found.set(name, { own, parent: open.at(-1)?.name }); }
+    else if (open.length) open.at(-1)!.own += line + "\n";
+  }
+  return found;
+}
+
+it("PF-23/PF-12: nginx sends precompressed static files and gzips API JSON, never tokens or file bytes", async () => {
   const conf = await readFile(join(frontend, "nginx.conf"), "utf8");
-  const blocks = [...conf.matchAll(/location ([^{]+)\{([^}]*)\}/g)].map(([, name, body]) => [name.trim(), body] as const);
-  const statics = blocks.filter(([name]) => ["/", "/assets/", "~ ^/assets/.*\\.mjs$"].includes(name));
-  expect(statics).toHaveLength(3);
-  for (const [, body] of statics) expect(body).toMatch(/gzip_static on;/);
-  for (const [, body] of blocks.filter(([name]) => name === "/api/" || name === "= /_storage")) expect(body).not.toMatch(/gzip/);
+  const blocks = locations(conf), own = (name: string) => blocks.get(name)?.own ?? "";
+  for (const name of ["/", "/assets/", "~ ^/assets/.*\\.mjs$"]) expect(own(name)).toMatch(/gzip_static on;/);
+  expect(own("/api/")).toMatch(/^ {8}gzip on;\n {8}gzip_types application\/json;$/m);
+  const nested = [...blocks].filter(([, block]) => block.parent === "/api/").map(([name]) => name);
+  expect(nested).toEqual(["= /api/feedback", "/api/auth/", "/api/files/"]);
+  for (const name of nested) {
+    // proxy_set_header reaches a nested location only if it sets none; proxy_pass never does.
+    expect(own(name)).not.toMatch(/proxy_set_header/);
+    expect(own(name)).toContain(`proxy_pass http://backend:8000${name.replace("= ", "")};`);
+  }
+  for (const name of ["/api/auth/", "/api/files/"]) expect(own(name)).toMatch(/^ {12}gzip off;$/m);
+  expect(own("= /api/feedback")).toMatch(/client_max_body_size 4m;/);
+  // No gzip at the server level: /_storage and the redirects into it inherit none.
+  expect(conf.match(/gzip on;/g)).toHaveLength(4);
+  expect(own("= /_storage")).not.toMatch(/gzip/);
   expect(conf).not.toMatch(/http2/);
 });
 
