@@ -110,6 +110,15 @@ capability выдаётся ровно тогда, когда сервер вы�
   `GET /accounts/archive` получили `capabilities` (`restore_account`, если
   читающий вправе восстановить именно этот аккаунт). `POST
   /accounts/{id}/temporary-password` для председателя и замов — 403 (PE-01).
+- Автор тикета WEBSUPPORT, не входящий в поддержку, больше не получает
+  `manage_task_access` в `GET /tasks/{id}`: делиться доступом к тикету может
+  только поддержка, и прежде любое его применение отклонялось («Support ticket
+  sharing is managed by support staff»). `GET /tasks/{id}/mentions` отвечает ему
+  пустым списком, как раньше; `…/mentions/{request_id}/approve|reject` и
+  `…/access/{user_id}/revoke` — 403 вместо прежних 404 по несуществующим запросам
+  и выдачам. `join_task`, `take_task`, `submit_task_result` и остальные действия
+  автора не менялись; владелец очереди, сотрудники поддержки и авторы обычных
+  задач сохраняют право (GL-22).
 
 ## Хранилище, вход через VK и очистка (выпуск 1)
 

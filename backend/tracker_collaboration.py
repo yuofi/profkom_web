@@ -118,9 +118,14 @@ def approve_assignment_access(session,task,target_uid,actor_uid):
 def _managers(session,task,facts=None):
     from task_queues import task_queue,active
     from tracker import _facts_for
+    from support import is_support_queue,is_staff
     facts=_facts_for(facts,task)
     queue=task_queue(session,task)
-    return {uid for uid in (task.created_by_user_id,queue.owner_user_id if queue else None)
+    author=task.created_by_user_id
+    # A support ticket's access is shared by support staff, not by its author (GL-22).
+    if author and queue and is_support_queue(session,queue) and not cached(
+            session,"support.is_staff",author,lambda:is_staff(session,author),copy_result=False):author=None
+    return {uid for uid in (author,queue.owner_user_id if queue else None)
             if uid and active(session,uid) and (facts.readable(uid) if facts else db.can_read_task(uid,task,session))}
 
 

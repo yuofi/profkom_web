@@ -40,6 +40,14 @@ it('the author approves with request revision and explicitly revokes the task-on
  await click('Разрешить доступ');expect(decide).toHaveBeenCalledWith(task.task_id,'request-1',true,{expected_revision:1});await click('Забрать доступ');expect(revoke).toHaveBeenCalledWith(task.task_id,people[1].user_id);
 });
 
+it('a support ticket author without manage_task_access asks for no mentions and sees no access section',async()=>{
+ // GL-22: the server no longer gives a non-staff ticket author the sharing right; executor actions stay.
+ const task={...createFixtures('organizer').tasks[0],capabilities:['change_task_status','join_task','take_task','submit_task_result']};
+ const mentions=vi.spyOn(taskCollaborationApi,'mentions');
+ page=await mountWorkspace(<TaskMentionApprovals task={task}/>);await settle();
+ expect(mentions).not.toHaveBeenCalled();expect(page.container.querySelector('[aria-label="Призывы и доступ"]')).toBeNull();
+});
+
 it('managed control links stay readable while only ordinary links expose removal',async()=>{
  const task={...createFixtures('chair').tasks[0],capabilities:['manage_task_links','edit_task'],links:[
    {link_id:'managed-link',kind:'related' as const,managed:true,task:{task_id:'control',task_key:'KKR-1',title:'Контроль ККР',status:'open' as const,task_type:'epic' as const,deadline_at:null,starts_at:null}},

@@ -9,6 +9,7 @@ from sqlalchemy import create_engine, text
 from database import db, TaskORM, ContributionORM, AssignmentORM
 from models import Block
 from support_models import FeedbackORM, SupportNoteORM, upgrade_tasks
+from test_v13_tracker import work  # noqa: F401
 
 
 def ok(response):
@@ -76,6 +77,25 @@ def test_reporter_is_full_reader_of_one_ticket_without_queue_or_other_report_acc
     with db._session() as session:
         assert session.query(ContributionORM).count() == 0
 
+
+def test_ticket_author_keeps_executor_actions_without_the_sharing_right(client, superuser, make_user, work):
+    """GL-22 (owner 2026-10-31): the author keeps join/take/submit; sharing a support ticket is
+    support staff's, so a non-staff author gets no manage_task_access (its uses were refused)."""
+    master, settings = setup_support(client, superuser, make_user)
+    author, staff = make_user(), make_user()
+    ok(req(client, master, "put", "/support/staff", {"expected_revision": settings["revision"], "user_ids": [staff.user_id]}))
+    task_id = ok(report(client, author)[0])["task_id"]
+    task = ok(req(client, author, "get", "/tasks/" + task_id))
+    assert "manage_task_access" not in task["capabilities"]
+    assert {"join_task", "take_task", "submit_task_result", "change_task_status"} <= set(task["capabilities"])
+    assert ok(req(client, author, "get", f"/tasks/{task_id}/mentions")) == {"items": [], "next_cursor": None}
+    assert req(client, author, "post", f"/tasks/{task_id}/access/{staff.user_id}/revoke").status_code == 403
+    # The queue owner, support staff writing a ticket and an ordinary task's author keep the right.
+    assert "manage_task_access" in ok(req(client, master, "get", "/tasks/" + task_id))["capabilities"]
+    own = ok(report(client, staff)[0])["task_id"]
+    assert "manage_task_access" in ok(req(client, staff, "get", "/tasks/" + own))["capabilities"]
+    ordinary = ok(req(client, work["master"], "get", "/tasks/" + work["task"]["task_id"]))
+    assert "manage_task_access" in ordinary["capabilities"]
 
 def test_support_staff_assignment_revocation_and_private_notes(client, superuser, make_user):
     master, settings = setup_support(client, superuser, make_user)

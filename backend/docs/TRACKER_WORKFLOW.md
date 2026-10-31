@@ -191,7 +191,10 @@ trusting a user-authored link label. Missing, archived or banned targets become
 non-interactive unavailable-person chips. Code and foreign links remain ordinary
 Markdown. This is presentation only: writing a profile link never notifies anyone
 or grants access. The explicit mention command and author/queue-owner approval
-continue to control notifications and any revocable single-task grant.
+continue to control notifications and any revocable single-task grant. A WEBSUPPORT
+ticket is shared only by support staff: its author, unless staff, is no approver and
+gets no `manage_task_access`, yet keeps the reader's join/take/submit actions (owner
+2026-10-31, GL-22).
 
 The editor tracks notification intent only for targets explicitly chosen in the
 current draft. Removing or untagging their inserted token clears that pending
