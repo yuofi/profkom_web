@@ -147,3 +147,30 @@ it("coalesces parent-task typing into one short read and cancels the superseded 
   expect(oldSignal?.aborted).toBe(true);expect(read).toHaveBeenCalledTimes(3);
   vi.useRealTimers();
 });
+
+it("does not pick a previous search's row with Enter until the typed search has been read", async () => {
+  mock = installMockTransport("chair", { delay: 0 });const base = createFixtures("chair").tasks[0];
+  const stale = { ...base, task_id: "task-stale", task_key: "QH-1", title: "Найти раздаточные материалы" }, match = { ...base, task_id: "task-match", task_key: "QH-2", title: "Согласовать раздаточные материалы" };
+  let release: (() => void) | undefined;
+  vi.spyOn(tasksApi, "listPage").mockImplementation(async params => {
+    if (!(params as { q?: string }).q) return { items: [stale], next_cursor: null, scopes: [], assignees: [] };
+    await new Promise<void>(resolve => { release = resolve; });return { items: [match], next_cursor: null, scopes: [], assignees: [] };
+  });
+  const picked = vi.fn();
+  page = await mountWorkspace(<TrackerParentSelector value="" onChange={picked} seasonId={match.season_id} />);
+  const input = page.container.querySelector<HTMLInputElement>('[role="combobox"]')!, listbox = () => page!.container.querySelector('[role="listbox"]')!;
+  const enter = () => act(async () => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); });
+  await act(async () => input.focus());await waitForPage(page);
+  expect(listbox().textContent).toContain(stale.title);expect(listbox().getAttribute("aria-busy")).toBe("false");
+  await change(input, match.title);await enter();
+  expect(picked).not.toHaveBeenCalled();expect(input.value).toBe(match.title);
+  expect(page.container.querySelector('[role="status"]')?.textContent).toBe("Ищем задачи…");expect(listbox().getAttribute("aria-busy")).toBe("true");
+  for (let wait = 0; !release && wait < 100; wait++) await settle();
+  expect(release).toBeDefined();
+  await enter();
+  expect(picked).not.toHaveBeenCalled();expect(page.container.textContent).not.toContain("Подходящих задач нет.");
+  await act(async () => release!());await waitForPage(page);
+  expect(listbox().getAttribute("aria-busy")).toBe("false");expect(page.container.querySelector('[role="status"]')).toBeNull();expect(listbox().textContent).toContain(match.title);
+  await enter();
+  expect(picked).toHaveBeenCalledExactlyOnceWith(match.task_id);
+});
