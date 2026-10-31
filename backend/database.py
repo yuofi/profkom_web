@@ -1653,7 +1653,7 @@ def _user_ref_with_avatar(u: UserORM, photo_url) -> UserRefDC:
     return UserRefDC(user_id=u.user_id, display_name=display_name, avatar_url=photo_url)
 
 
-def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: Optional[int] = None) -> AssignmentPublicDC:
+def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: Optional[int] = None, facts=None) -> AssignmentPublicDC:
     _note_user(a.assignee_user_id)
     u = session.get(UserORM, a.assignee_user_id)
     assignee_ref = _user_to_ref_dc(u) or UserRefDC(user_id=a.assignee_user_id, display_name=f"Участник {a.assignee_user_id}", avatar_url=None)
@@ -1700,15 +1700,17 @@ def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: O
         )
 
     unavail = None
+    task=session.get(TaskORM,a.task_id)
+    # The caller's one-task DTO facts (tracker.TaskFacts) apply only to that task.
+    facts = facts if facts is not None and task is not None and facts.task is task else None
+    readable = facts.readable if facts is not None else (lambda uid: db.can_read_task(uid,task,session))
     if u and (u.banned or getattr(u, "account_state", "active") != "active"):
         unavail = "archived"
     elif u:
-        task=session.get(TaskORM,a.task_id)
-        if task and not db.can_read_task(u.user_id,task,session):unavail="left_scope"
+        if task and not readable(u.user_id):unavail="left_scope"
 
     caps = []
-    task=session.get(TaskORM,a.task_id)
-    accessible=task and current_user_id and db.can_read_task(current_user_id,task,session)
+    accessible=task and current_user_id and readable(current_user_id)
     if accessible and current_user_id==a.assignee_user_id:
         if a.status=="assigned": caps += ["start_assignment","submit_result","request_help"]
         if a.status in ("in_progress","help_required","needs_revision"): caps += ["submit_result"]
@@ -1720,11 +1722,11 @@ def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: O
             "review_assignment": "task.review",
             "reassign_assignment": "task.review",
             "edit_assessment_inputs": "task.inputs.edit",
-        })
+        }, facts=facts)
 
     if task:
         from tracker import is_control_task
-        if is_control_task(session, task.task_id):
+        if facts.control() if facts is not None else is_control_task(session, task.task_id):
             caps = []
 
     return AssignmentPublicDC(
@@ -1791,23 +1793,33 @@ def _prime_assignment_details(session: Session, assignments) -> None:
         prime_get(session, FileRecordORM, file_id, found.get(file_id))
 
 
-def _task_caps(t: TaskORM, uid: int, table: dict) -> list[str]:
-    """Capabilities of a task or assignment, by the policy actions in `table`."""
+def _task_caps(t: TaskORM, uid: int, table: dict, facts=None) -> list[str]:
+    """Capabilities of a task or assignment, by the policy actions in `table`.
+
+    ``facts`` (tracker.TaskFacts of this task) supplies the same checks computed
+    once for the whole task DTO instead of once per assignment and table.
+    """
     import access
-    if not db.can_read_task(uid,t):return []
-    rel = access.relations(uid, t.scope_kind, t.scope_id)
-    state = access.season_state(t.season_id)
+    if facts is not None and facts.task is not t:
+        facts = None
+    if not (facts.readable(uid) if facts is not None else db.can_read_task(uid,t)):return []
+    rel = facts.relations(uid) if facts is not None else access.relations(uid, t.scope_kind, t.scope_id)
+    state = facts.season_state() if facts is not None else access.season_state(t.season_id)
     from tracker import can_edit_public, is_control_task
     with db._session() as session:
-        administrative = is_control_task(session, t.task_id)
-        return [cap for cap, action in table.items() if not ((t.scope_kind=="queue" or administrative) and action in {"task.inputs.view","task.inputs.edit","task.review"}) and (can_edit_public(session,t,uid) if action=="task.edit" else access.allowed(uid, action, state=state, rel=rel))]
+        administrative = facts.control() if facts is not None else is_control_task(session, t.task_id)
+        return [cap for cap, action in table.items() if not ((t.scope_kind=="queue" or administrative) and action in {"task.inputs.view","task.inputs.edit","task.review"}) and (can_edit_public(session,t,uid,facts=facts) if action=="task.edit" else access.allowed(uid, action, state=state, rel=rel))]
 
 
 def _task_orm_to_dc(session: Session, t: TaskORM, current_user_id: Optional[int] = None) -> TaskPublicDC:
     from read_context import orm_rows
+    from tracker import TaskFacts
+    # One calculation's access facts for this task; commands build it after their
+    # last write. Dropped at any change, never kept after this DTO.
+    facts = TaskFacts(session, t)
     a_orms = orm_rows(session, "tracker.rows", (AssignmentORM, (("task_id", t.task_id),)),
                       lambda:session.query(AssignmentORM).filter(AssignmentORM.task_id == t.task_id).all())
-    assignments = [_assignment_orm_to_dc(session, a, current_user_id) for a in a_orms]
+    assignments = [_assignment_orm_to_dc(session, a, current_user_id, facts=facts) for a in a_orms]
     caps = ["comment_task"]
     if current_user_id:
         caps += _task_caps(t, current_user_id, {
@@ -1815,7 +1827,7 @@ def _task_orm_to_dc(session: Session, t: TaskORM, current_user_id: Optional[int]
             "edit_task": "task.edit",
             "edit_assessment_inputs": "task.inputs.edit",
             "view_unresolved_assignments": "task.review",
-        })
+        }, facts=facts)
     desc_body = ""
     try:
         dj = json.loads(t.description_json or "{}")
@@ -1838,7 +1850,7 @@ def _task_orm_to_dc(session: Session, t: TaskORM, current_user_id: Optional[int]
         capabilities=caps,
     )
     from tracker import enrich_task
-    return enrich_task(session, t, result, current_user_id)
+    return enrich_task(session, t, result, current_user_id, facts=facts)
 
 
 def _comment_orm_to_dc(session: Session, c: CommentORM, current_user_id: Optional[int] = None) -> CommentDC:
@@ -5274,7 +5286,10 @@ class Database:
         user_id: int,
         parent_task_id: Optional[str] = None,
         parent_supplied: bool = False,
-    ) -> TaskPublicDC:
+        build_response: bool = True,
+    ) -> Optional[TaskPublicDC]:
+        """``build_response=False``: a caller that builds its own final DTO (one mixed
+        PATCH) skips this intermediate one; checks and writes are unchanged."""
         with self._session() as session:
             t = session.get(TaskORM, task_id)
             if not t or not self.can_read_task(user_id,t,session):
@@ -5304,7 +5319,7 @@ class Database:
                 t.description_json = json.dumps({"format": "markdown", "body": description})
             t.revision += 1
             session.commit()
-            return _task_orm_to_dc(session, t, user_id)
+            return _task_orm_to_dc(session, t, user_id) if build_response else None
 
     # ─────────────────────────────────────────────────────────────
     #  BE-03: ASSIGNMENT ACTIONS

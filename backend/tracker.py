@@ -209,10 +209,48 @@ def _file_refs(session, ids):
     return result
 
 
-def can_work(session,task,uid):
+class TaskFacts:
+    """Access facts of one task for one DTO calculation, computed at most once.
+
+    Assembling a task DTO asks the same central questions (readability, relations,
+    control epic, public edit and close rights) once per assignment, capability and
+    status. They cannot change while the DTO is assembled, so each is evaluated once
+    by the ordinary checks. Values live only inside this calculation and are dropped
+    at any session change (read_context.Calculation): no permission is kept between
+    commands, write units or requests.
+    """
+    def __init__(self,session,task):
+        from read_context import Calculation
+        self.session,self.task=session,task
+        self._calculation=Calculation(session)
+
+    def value(self,key,load):
+        return self._calculation.value(key,load)
+
+    def readable(self,uid):
+        return self.value(("read",uid),lambda:db.can_read_task(uid,self.task,self.session))
+
+    def control(self):
+        return self.value("control",lambda:is_control_task(self.session,self.task.task_id))
+
+    def relations(self,uid):
+        import access
+        return self.value(("relations",uid),lambda:access.relations(uid,self.task.scope_kind,self.task.scope_id))
+
+    def season_state(self):
+        import access
+        return self.value("season_state",lambda:access.season_state(self.task.season_id))
+
+
+def _facts_for(facts,task):
+    return facts if facts is not None and facts.task is task else None
+
+
+def can_work(session,task,uid,facts=None):
+    facts=_facts_for(facts,task)
     user=session.get(UserORM,uid)
     return bool(user and not user.banned and user.account_state=="active" and
-        db.can_read_task(uid,task,session) and
+        (facts.readable(uid) if facts else db.can_read_task(uid,task,session)) and
         any(a.assignee_user_id==uid for a in participants(session,task.task_id)))
 
 
@@ -223,7 +261,9 @@ def _submission_dict(session,row,shared=True):
         links=json.loads(row.links_json),files=_file_refs(session,json.loads(row.files_json)))
 
 
-def enrich_task(session,task,result,uid):
+def enrich_task(session,task,result,uid,facts=None):
+    facts=_facts_for(facts,task)
+    readable=facts.readable if facts else (lambda reader:db.can_read_task(reader,task,session))
     meta=metadata(session,task)
     if meta.task_number is None:session.flush()
     from task_queues import task_queue,queue_ref,task_read
@@ -240,23 +280,7 @@ def enrich_task(session,task,result,uid):
     result.status=public_status(meta.status)
     result.closed_at=getattr(meta,"closed_at",None)
     result.legacy_status_conflict=meta.legacy_mixed_statuses
-    current_ids={a.assignment_id for a in participants(session,task.task_id)}
-    public_statuses=json.loads(meta.public_statuses_json or "{}")
-    public_revisions=json.loads(meta.public_revisions_json or "{}")
-    season_state=task_state(session,task)
-    worker_caps={"start_assignment","resume_assignment","request_help","submit_result"}
-    for assignment in result.assignments:
-        visible_status=public_status(public_statuses.get(assignment.assignment_id,assignment.status))
-        if assignment.assignment_id in current_ids and not result.legacy_status_conflict:visible_status=result.status
-        # Assignment command responses retain their legacy public vocabulary;
-        # the task's own status is the new four-state contract.
-        assignment.status={"open":"assigned","completed":"submitted","closed":"accepted"}.get(visible_status,visible_status)
-        assignment.revision=public_revisions.get(assignment.assignment_id,1)
-        assignment.review_note=None
-        assignment.capabilities=[c for c in assignment.capabilities if c not in worker_caps]
-        if uid and season_state != "closed" and assignment.assignment_id in current_ids and assignment.assignee.user_id==uid and can_work(session,task,uid):
-            if visible_status=="open":assignment.capabilities += ["start_assignment","submit_result"]
-            if visible_status=="in_progress":assignment.capabilities.append("submit_result")
+    _project_assignments(session,task,meta,result.assignments,uid,facts)
     result.assignees=[_user_to_ref_dc(session.get(UserORM,a.assignee_user_id)) for a in participants(session,task.task_id)]
     result.assignees=[user for user in result.assignees if user is not None]
     result.watchers=[_user_to_ref_dc(session.get(UserORM,m.user_id)) for m in roster(session,task.task_id) if m.role=="watcher"]
@@ -281,29 +305,71 @@ def enrich_task(session,task,result,uid):
         result.submissions=[_submission_dict(session,row,False) for row in old]
     if uid:
         state=task_state(session,task)
-        if db.can_read_task(uid,task,session):
+        if readable(uid):
             result.capabilities += ["change_task_status","start_task","resume_task","submit_task_result"]
-            result.allowed_statuses=[status for status in STATUSES if can_change_status(session,task,uid,status)]
+            result.allowed_statuses=[status for status in STATUSES if can_change_status(session,task,uid,status,facts)]
             if "completed" not in result.allowed_statuses:result.capabilities.remove("submit_task_result")
-        result.capabilities+=_task_caps(task,uid,{"review_task":"task.review","attach_task_file":"task.edit"})
-        if can_edit_description(session,task,uid):result.capabilities.append("edit_task_description")
+        result.capabilities+=_task_caps(task,uid,{"review_task":"task.review","attach_task_file":"task.edit"},facts=facts)
+        if can_edit_description(session,task,uid,facts):result.capabilities.append("edit_task_description")
         from tracker_collaboration import _managers
-        if uid in _managers(session,task):result.capabilities.append("manage_task_access")
-        if db.can_read_task(uid,task,session):
+        if uid in _managers(session,task,facts):result.capabilities.append("manage_task_access")
+        if readable(uid):
             member=next((m for m in roster(session,task.task_id) if m.user_id==uid),None)
             if not member or member.role!="assignee":result.capabilities.append("join_task")
-            if can_change_status(session,task,uid,"in_progress") and (not member or member.role!="assignee" or meta.status!="in_progress" or meta.legacy_mixed_statuses):result.capabilities.append("take_task")
+            if can_change_status(session,task,uid,"in_progress",facts) and (not member or member.role!="assignee" or meta.status!="in_progress" or meta.legacy_mixed_statuses):result.capabilities.append("take_task")
             if not member or member.role not in {"assignee","watcher"}:result.capabilities.append("watch_task")
             if member and member.role=="watcher":result.capabilities.append("unwatch_task")
-            if can_edit_public(session,task,uid):
+            if can_edit_public(session,task,uid,facts):
                 result.capabilities += ["assign_task_participants","remove_task_watcher"]
                 if participants(session,task.task_id):result.capabilities.append("remove_task_assignee")
-    if is_control_task(session,task.task_id):
+    if facts.control() if facts else is_control_task(session,task.task_id):
         result.capabilities=[cap for cap in result.capabilities if cap not in {"view_assessment_inputs","edit_assessment_inputs","edit_task","edit_task_description","attach_task_file","review_task","join_task","take_task","watch_task","unwatch_task","assign_task_participants","remove_task_watcher","remove_task_assignee"}]
         for assignment in result.assignments:
             assignment.capabilities=[cap for cap in assignment.capabilities if cap not in {"view_assessment_inputs","edit_assessment_inputs"}]
     from tracker_stage2 import enrich
-    return enrich(session,task,result,uid)
+    return enrich(session,task,result,uid,facts)
+
+
+def _project_assignments(session,task,meta,assignments,uid,facts=None):
+    """The public projection enrich_task applies to the task's assignment DTOs."""
+    status=public_status(meta.status)
+    conflict=meta.legacy_mixed_statuses
+    current_ids={a.assignment_id for a in participants(session,task.task_id)}
+    public_statuses=json.loads(meta.public_statuses_json or "{}")
+    public_revisions=json.loads(meta.public_revisions_json or "{}")
+    season_state=task_state(session,task)
+    worker_caps={"start_assignment","resume_assignment","request_help","submit_result"}
+    for assignment in assignments:
+        visible_status=public_status(public_statuses.get(assignment.assignment_id,assignment.status))
+        if assignment.assignment_id in current_ids and not conflict:visible_status=status
+        # Assignment command responses retain their legacy public vocabulary;
+        # the task's own status is the new four-state contract.
+        assignment.status={"open":"assigned","completed":"submitted","closed":"accepted"}.get(visible_status,visible_status)
+        assignment.revision=public_revisions.get(assignment.assignment_id,1)
+        assignment.review_note=None
+        assignment.capabilities=[c for c in assignment.capabilities if c not in worker_caps]
+        if uid and season_state != "closed" and assignment.assignment_id in current_ids and assignment.assignee.user_id==uid and can_work(session,task,uid,facts):
+            if visible_status=="open":assignment.capabilities += ["start_assignment","submit_result"]
+            if visible_status=="in_progress":assignment.capabilities.append("submit_result")
+
+
+def assignment_response(session,task_id,assignment_id,uid):
+    """The entry of db.get_task(task_id,uid).assignments for one assignment.
+
+    Legacy assignment commands answer with one assignment; they no longer assemble
+    the whole task DTO (other assignments, links, history, capabilities) to pick it.
+    The same converter, projection and control-epic rules apply, in the same order.
+    """
+    task=session.get(TaskORM,task_id)
+    if uid is not None and not db.can_read_task(uid,task,session):raise NotFound("Task not found")
+    facts=TaskFacts(session,task)
+    assignment=_assignment_orm_to_dc(session,session.get(AssignmentORM,assignment_id),uid,facts=facts)
+    meta=metadata(session,task)
+    if meta.task_number is None:session.flush()
+    _project_assignments(session,task,meta,[assignment],uid,facts)
+    if facts.control():
+        assignment.capabilities=[cap for cap in assignment.capabilities if cap not in {"view_assessment_inputs","edit_assessment_inputs"}]
+    return assignment
 
 
 def is_control_task(session,task_id):
@@ -312,10 +378,16 @@ def is_control_task(session,task_id):
     return task_id in ids
 
 
-def can_edit_public(session,task,uid):
+def can_edit_public(session,task,uid,facts=None):
+    facts=_facts_for(facts,task)
+    if facts:return facts.value(("edit_public",uid),lambda:_can_edit_public(session,task,uid,facts))
+    return _can_edit_public(session,task,uid,None)
+
+
+def _can_edit_public(session,task,uid,facts):
     import access
-    if is_control_task(session,task.task_id):return False
-    if not db.can_read_task(uid,task,session):return False
+    if facts.control() if facts else is_control_task(session,task.task_id):return False
+    if not (facts.readable(uid) if facts else db.can_read_task(uid,task,session)):return False
     from task_queues import task_queue
     from support import is_support_queue,is_staff
     queue=task_queue(session,task)
@@ -326,8 +398,8 @@ def can_edit_public(session,task,uid):
     return task.created_by_user_id==uid or bool(queue and queue.owner_user_id==uid)
 
 
-def can_edit_description(session,task,uid):
-    return can_edit_public(session,task,uid)
+def can_edit_description(session,task,uid,facts=None):
+    return can_edit_public(session,task,uid,facts)
 
 
 def can_edit_comment(session,comment,uid):
@@ -335,21 +407,25 @@ def can_edit_comment(session,comment,uid):
     return bool(task and db.can_read_task(uid,task,session))
 
 
-def can_close(session,task,uid):
+def can_close(session,task,uid,facts=None):
     """An unavailable author's queue owner may finish the task, with normal history."""
-    if not db.can_read_task(uid,task,session):return False
+    facts=_facts_for(facts,task)
+    readable=facts.readable if facts else (lambda reader:db.can_read_task(reader,task,session))
+    if not readable(uid):return False
     from task_queues import task_queue,active
     author=task.created_by_user_id
-    if author and active(session,author) and db.can_read_task(author,task,session):return author==uid
+    if author and active(session,author) and readable(author):return author==uid
     queue=task_queue(session,task)
     return bool(queue and queue.owner_user_id==uid)
 
 
-def can_change_status(session,task,uid,status):
-    if is_control_task(session,task.task_id):return False
-    if not db.can_read_task(uid,task,session):return False
+def can_change_status(session,task,uid,status,facts=None):
+    facts=_facts_for(facts,task)
+    if facts.control() if facts else is_control_task(session,task.task_id):return False
+    if not (facts.readable(uid) if facts else db.can_read_task(uid,task,session)):return False
     meta=metadata(session,task)
-    if status=="closed" or public_status(meta.status)=="closed":return can_close(session,task,uid)
+    if status=="closed" or public_status(meta.status)=="closed":
+        return facts.value(("close",uid),lambda:can_close(session,task,uid,facts)) if facts else can_close(session,task,uid)
     return status in STATUSES
 
 
@@ -416,7 +492,7 @@ def history(task_id,uid):
         return result
 
 
-def patch_files(task_id,uid,expected_revision,file_ids,*,increment_revision=True):
+def patch_files(task_id,uid,expected_revision,file_ids,*,increment_revision=True,build_response=True):
     from file_access import check_attachments
     with db._session() as session:
         task=visible_task(session,task_id,uid);state=task_state(session,task)
@@ -429,11 +505,14 @@ def patch_files(task_id,uid,expected_revision,file_ids,*,increment_revision=True
         if increment_revision:task.revision+=1
         if before!=file_ids:activity(session,task,"attachments_updated",uid,"Изменены вложения задачи",changes=[dict(field="attachments",label="Вложения",before=[x["name"] for x in _file_refs(session,before)],after=[x["name"] for x in _file_refs(session,file_ids)])])
         session.commit()
-        return db.get_task(task_id,uid)
+        return db.get_task(task_id,uid) if build_response else None
 
 
-def change_status(task_id,uid,expected_revision,status,*,text="",links=None,file_ids=None,message=None,evaluation=None,review_note=None,reason=None,evaluations=None,legacy_assignment=None,require_result=False):
-    """Readers change working status; only the author/fallback owner closes/reopens."""
+def change_status(task_id,uid,expected_revision,status,*,text="",links=None,file_ids=None,message=None,evaluation=None,review_note=None,reason=None,evaluations=None,legacy_assignment=None,require_result=False,respond=None):
+    """Readers change working status; only the author/fallback owner closes/reopens.
+
+    ``respond(session)`` replaces the full task DTO answer (legacy assignment commands)."""
+    if respond is None:respond=lambda session:db.get_task(task_id,uid)
     from file_access import check_attachments
     from notifications import emit
     status=public_status(status)
@@ -457,7 +536,7 @@ def change_status(task_id,uid,expected_revision,status,*,text="",links=None,file
             check_attachments(session,file_ids,"assignment" if legacy_assignment else "task",legacy_assignment or task_id,uid)
             if not legacy_assignment and any(session.get(FileRecordORM,fid).purpose!="submission" for fid in file_ids):raise Forbidden("Invalid result file purpose")
         old=public_status(meta.status);stamp=now()
-        if status==old and not meta.legacy_mixed_statuses and not has_result and not message:return db.get_task(task_id,uid)
+        if status==old and not meta.legacy_mixed_statuses and not has_result and not message:return respond(session)
         if has_result:
             session.add(TaskSubmissionORM(submission_id="task-submission-"+str(uuid.uuid4()),task_id=task_id,submitted_at=stamp,
                 created_by_user_id=uid,text_json=json.dumps({"format":"markdown","body":text}),links_json=json.dumps(links),files_json=json.dumps(file_ids)))
@@ -492,7 +571,7 @@ def change_status(task_id,uid,expected_revision,status,*,text="",links=None,file
             from kkr_control import sync_for_season
             sync_for_season(session,task.season_id,uid,already_changed_task_ids=(task.task_id,))
         session.commit()
-        return db.get_task(task_id,uid)
+        return respond(session)
 
 
 def private_review(assignment_id,uid,expected_revision,status,*,evaluation=None,reason=None,review_note=None,**_ignored):
@@ -538,7 +617,7 @@ def private_review(assignment_id,uid,expected_revision,status,*,evaluation=None,
             refresh(session,task.season_id,uid,note or "Accounting decision")
             session.commit()
         finally:session.info.get("manual_inputs_revision",set()).discard(row.assignment_id)
-        return next(a for a in db.get_task(task.task_id,uid).assignments if a.assignment_id==assignment_id)
+        return assignment_response(session,task.task_id,assignment_id,uid)
 
 
 def legacy_command(assignment_id,uid,expected_revision,status,*,required_source_status=None,**kwargs):
@@ -556,8 +635,8 @@ def legacy_command(assignment_id,uid,expected_revision,status,*,required_source_
         meta=metadata(session,task);revision=json.loads(meta.public_revisions_json or "{}").get(row.assignment_id,1)
         if revision!=expected_revision:raise revision_conflict()
         if required_source_status and public_status(meta.status)!=public_status(required_source_status):raise Conflict("Current public status does not permit this legacy command")
-        result=change_status(task.task_id,uid,task.revision,status,legacy_assignment=assignment_id,require_result=status=="submitted",**kwargs)
-        return next(a for a in result.assignments if a.assignment_id==assignment_id)
+        return change_status(task.task_id,uid,task.revision,status,legacy_assignment=assignment_id,require_result=status=="submitted",
+            respond=lambda current:assignment_response(current,task.task_id,assignment_id,uid),**kwargs)
 
 
 def _facets(index,rows):

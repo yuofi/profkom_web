@@ -150,10 +150,13 @@ def patch(task_id, uid, expected_revision, values):
             if extras.get("task_type") == "milestone" and "starts_at" not in extras:
                 extras["starts_at"] = None
             if classic:
+                # The response is built once below; the intermediate DTOs were discarded.
                 db.patch_task(task_id, expected_revision, classic.get("title"), classic.get("description"), uid,
-                    parent_task_id=classic.get("parent_task_id"), parent_supplied="parent_task_id" in classic)
+                    parent_task_id=classic.get("parent_task_id"), parent_supplied="parent_task_id" in classic,
+                    build_response=False)
                 if classic.get("file_ids") is not None:
-                    patch_files(task_id, uid, task.revision, classic["file_ids"], increment_revision=False)
+                    patch_files(task_id, uid, task.revision, classic["file_ids"], increment_revision=False,
+                                build_response=False)
             changed = apply_fields(session, task, extras, uid)
             if changed and not classic:
                 task.revision += 1
@@ -175,8 +178,9 @@ def task_ref(session, task_id, uid):
         deadline_at=task.deadline_at, starts_at=meta.starts_at, task_type=meta.task_type or "task")
 
 
-def enrich(session, task, result, uid):
-    from tracker import metadata, can_edit_public, can_edit_description, is_control_task
+def enrich(session, task, result, uid, facts=None):
+    from tracker import metadata, can_edit_public, can_edit_description, is_control_task, _facts_for
+    facts = _facts_for(facts, task)
     meta = metadata(session, task)
     result.task_type = meta.task_type or "task"
     result.priority = meta.priority or "normal"
@@ -190,16 +194,16 @@ def enrich(session, task, result, uid):
         ref = task_ref(session, other, uid)
         if ref:
             kind = link.kind if outgoing or link.kind == "related" else {"blocks":"blocked_by", "epic":"epic_member", "milestone":"milestone_member"}[link.kind]
-            result.links.append(dict(link_id=link.link_id, kind=kind, task=ref,managed=is_control_task(session,task.task_id) or is_control_task(session,other)))
+            result.links.append(dict(link_id=link.link_id, kind=kind, task=ref,managed=(facts.control() if facts else is_control_task(session,task.task_id)) or is_control_task(session,other)))
     result.children = []
     for child in orm_rows(session,"task.children",task.task_id,lambda:session.query(TaskTrackerORM).filter_by(parent_task_id=task.task_id).order_by(TaskTrackerORM.queue_id, TaskTrackerORM.queue_number).all()):
         ref = task_ref(session, child.task_id, uid)
         if ref:
             result.children.append(ref)
     if uid:
-        if can_edit_public(session, task, uid):
+        if can_edit_public(session, task, uid, facts):
             result.capabilities += ["edit_task_metadata", "manage_task_links", "change_task_type", "change_task_priority"]
-        if can_edit_description(session, task, uid):
+        if can_edit_description(session, task, uid, facts):
             result.capabilities.append("edit_task_checklist")
         result.capabilities += ["toggle_task_favorite", "toggle_task_checklist"]
     return result
