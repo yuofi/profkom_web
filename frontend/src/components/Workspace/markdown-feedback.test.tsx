@@ -90,6 +90,19 @@ it("checklist stays read-only without explicit callback, while disabled and for 
   await act(async () => boxes.slice(0, 3).forEach(box => box.click()));expect(changed).not.toHaveBeenCalled();
   await act(async () => boxes[3].click());expect(changed).toHaveBeenCalledExactlyOnceWith(16, true);
 });
+it("rapid checklist marks keep the same checkboxes while each mark is pending", async () => {
+  const marked: number[] = [];
+  function Checklist() {
+    const [pending, setPending] = useState<number[]>([]);
+    return <MarkdownContent body={"- [ ] один\n- [ ] два\n- [ ] три"} checklistPending={pending} onChecklistToggle={offset => { marked.push(offset);setPending(current => [...current, offset]); }} />;
+  }
+  page = await mountWorkspace(<Checklist />);
+  const boxes = [...page.container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
+  for (const box of boxes) await act(async () => box.click());
+  // A remounted element would leave the next click on a detached node: every mark must arrive.
+  expect(boxes.every(box => box.isConnected && box.disabled)).toBe(true);
+  expect(marked).toEqual([3, 14, 24]);
+});
 it("declared code languages are locally highlighted, markup escaped, and unknown languages stay plain", async () => {
   const source = '```typescript\nconst count: number = 42;\n```\n\n```python\ndef total(x):\n  return x + 1\n```\n\n```html\n<script>alert("literal")</script>\n```\n\n```unknown-synthetic\nconst plain = 1\n```';
   page = await mountWorkspace(<MarkdownContent body={source} />);
