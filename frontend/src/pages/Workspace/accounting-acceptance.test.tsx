@@ -114,6 +114,19 @@ it("shows authoritative readiness blockers before any attempt to close a season"
   const panel = page.container.querySelector('[aria-label="Проверки сезона"]');expect(panel).not.toBeNull();expect(panel?.querySelector("a")?.getAttribute("href")).toBe("/reports?owner_kind=event&owner_id=event-1");expect(panel?.textContent).toContain("Нет итогового отчёта мероприятия");
   expect(adapter.history.get.some(request => request.url?.endsWith("/readiness"))).toBe(true);expect(adapter.history.post).toHaveLength(0);
 });
+it("returns from a blocker's task to the season checks already opened", async () => {
+  adapter = new MockAdapter(api);const fixture = createFixtures("chair");
+  adapter.onGet("/seasons").reply(200, response(fixture.seasons));adapter.onGet("/seasons/season-1/summary").reply(200, fixture.summary);
+  adapter.onGet("/seasons/season-1/readiness").reply(200, { ready: false, revision: 1, blockers: [{ kind: "missing_final_report", owner_kind: "event", owner_id: "event-1", title: "Event has no final report" }] });
+  page = await mountWorkspace(<Routes><Route path="/seasons/:id" element={<SeasonPage />} /></Routes>, { path: "/seasons/season-1?panel=checks" });await waitForPage(page);
+  const overview = [...page.container.querySelectorAll("details")].find(item => item.querySelector("summary")?.textContent === "Работа сезона и управление итогами")!;expect(overview.open).toBe(true);
+  const panel = page.container.querySelector('[aria-label="Проверки сезона"]')!;expect(panel.querySelector("details")?.open).toBe(true);expect(panel.textContent).toContain("Нет итогового отчёта мероприятия");
+});
+it("reopens the participant card a task returns to", async () => {
+  adapter = new MockAdapter(api);adapter.onAny().reply(200, { items: [], next_cursor: null });
+  page = await mountWorkspace(<SeasonParticipants summary={summaryFixture()} />, { path: "/seasons/season-1?participant=participant-4" });await waitForPage(page);
+  expect(page.container.textContent).toContain("Начисления участника");expect(page.container.querySelector("dialog")?.textContent).toContain("Даша Мастер");
+});
 it("does not fetch private summary or readiness for a participant without accounting access", async () => {
   adapter = new MockAdapter(api);const fixture = createFixtures("organizer");adapter.onGet("/seasons").reply(200, response(fixture.seasons));
   page = await mountWorkspace(<Routes><Route path="/seasons/:id" element={<SeasonPage />} /></Routes>, { role: "organizer", path: "/seasons/season-1" });await waitForPage(page);

@@ -22,12 +22,12 @@ async function click(text: string, root: ParentNode = page!.container) {
   const button = [...root.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent?.trim() === text);
   expect(button, `Missing button ${text}`).toBeDefined();await act(async () => button!.click());await settle();
 }
-async function mountTask(task: Task, comments: Comment[] = []) {
+async function mountTask(task: Task, comments: Comment[] = [], search = "") {
   vi.spyOn(seasonsApi, "list").mockResolvedValue({ items: createFixtures("chair").seasons, next_cursor: null });
   vi.spyOn(tasksApi, "get").mockResolvedValue(task);
   vi.spyOn(tasksApi, "comments").mockResolvedValue({ items: comments, next_cursor: null });
   vi.spyOn(historyApi, "list").mockResolvedValue({ items: [], next_cursor: null });
-  page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage />} /></Routes>, { path: `/tasks/${task.task_id}` });
+  page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage />} /></Routes>, { path: `/tasks/${task.task_id}${search}` });
   await waitForPage(page);return page;
 }
 it("uses the common public status and permits every other target without reading the accounting outcome", () => {
@@ -265,4 +265,13 @@ it("readers can watch and unwatch independently of the accounting controls", asy
   const unwatch = vi.spyOn(tasksApi, "unwatch").mockImplementation(async () => { task = { ...task, watchers: [], revision: task.revision + 1 };return task; });
   await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async () => task);const first = task.revision;await click("Наблюдать");await waitForPage(page!);expect(watch).toHaveBeenCalledWith(task.task_id, { expected_revision: first });
   const second = task.revision;await click("Перестать наблюдать");await waitForPage(page!);expect(unwatch).toHaveBeenCalledWith(task.task_id, { expected_revision: second });expect(page!.container.textContent).not.toContain("Учёт работы и ККР");
+});
+it.each([
+  ["?return_season=season-1&return_to=participant&participant=participant-4", "← К участнику", "/seasons/season-1?participant=participant-4"],
+  ["?return_season=season-1&return_to=checks", "← К проверкам сезона", "/seasons/season-1?panel=checks"],
+  ["?return_season=season-1&return_to=%2F%2Fevil.example", "← К сезону", "/seasons/season-1"],
+])("names the season place a task returns to (%s)", async (search, label, href) => {
+  await mountTask(makeTask({ capabilities: ["read_task"] }), [], search);
+  const back = [...page!.container.querySelectorAll("a")].find(node => node.textContent?.startsWith("← К"));
+  expect(back?.textContent).toBe(label);expect(back?.getAttribute("href")).toBe(href);
 });
