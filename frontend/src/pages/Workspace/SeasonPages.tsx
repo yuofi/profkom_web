@@ -86,15 +86,16 @@ function SeasonManage({ season, summary, onEdit, onBlocked }: { season: Season; 
   return <><button ref={anchor} type="button" className={`${u.secondary} ${w.button}`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(value => !value)}>Управление сезоном <Glyph name="expand_more" /></button>
     <AnchoredPopover open={open} anchorRef={anchor} label="Управление сезоном" onRequestClose={close} busy={busy} width={320}><div className={u.manageMenu}>
       {can(season, "edit_season") && <button type="button" className={u.manageItem} onClick={() => { close();onEdit(); }}><Glyph name="edit" />Название и период</button>}
-      {available.map(command => <SeasonCommand key={command.action} season={season} {...command} onBusy={setBusy} onDone={close} onBlocked={blockers => { close();onBlocked(blockers); }} />)}
+      {available.map(command => <SeasonCommand key={command.action} season={season} {...command} onBusy={setBusy} onDone={close} onBlocked={blockers => { if (blockers.length) close();onBlocked(blockers); }} />)}
       {correct && <Link className={u.manageItem} to={`${getSeasonRoute(season.season_id)}/corrections`} onClick={close}><Glyph name="edit_document" />Исправить итоги…</Link>}
     </div></AnchoredPopover></>;
 }
 function SeasonCommand({ season, action, label, icon, onBusy, onDone, onBlocked }: { season: Season; action: SeasonAction; label: string; icon: (typeof commands)[number]["icon"]; onBusy: (busy: boolean) => void; onDone: () => void; onBlocked: (blockers: SeasonBlocker[]) => void }) {
   const { perform, refresh } = useWorkspaceActions();const running = useRef(false);
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
+  // A new attempt clears the previous refusal's blockers, so a success never leaves them on screen.
   const run = async () => {
-    if (running.current) return;running.current = true;setBusy(true);onBusy(true);setError("");
+    if (running.current) return;running.current = true;setBusy(true);onBusy(true);setError("");onBlocked([]);
     try { await perform(() => seasonsApi.command(season.season_id, action, { expected_revision: season.revision }));onDone(); }
     catch (failure) { const blockers = normalizeApiError(failure).blockers;if (blockers.length) onBlocked(blockers);else { setError(userMessage(failure));if (isStale(failure)) await refresh(); } }
     finally { running.current = false;setBusy(false);onBusy(false); }
@@ -124,16 +125,16 @@ function SeasonHub({ initialTab = "participants" }: { initialTab?: Tab }) {
       <BrandedHeader className={u.header}><div><SectionHomeLink to="/seasons" /><nav className={u.breadcrumbs} aria-label="Путь сезона"><Link to="/seasons">Сезоны</Link><span>›</span><span>{typeNames[season.type]}</span></nav><h1 className={w.title}>{season.title}</h1><div className={u.period}><span>{dateRange(season)}</span>{can(season, "edit_season") && <button type="button" className={u.iconButton} aria-label="Редактировать сезон" onClick={() => setEditing(true)}><Glyph name="edit" /></button>}</div><div className={u.statusLine}><State season={season} />{season.is_current && <small>Текущий сезон</small>}{allowed && summary.data && <small>{summary.data.state === "approved" ? "Итоги утверждены" : "Предварительные итоги"} · Версия {summary.data.version}</small>}</div></div>
         <div className={u.headerActions}>{can(season, "remind_kkr") && <SeasonKkrSummon key={id} seasonId={id} />}
         {season.state === "closed" && can(session, "view_kkr") && <Link className={`${u.secondary} ${w.button}`} to={`${getSeasonRoute(id)}/sources`}><Glyph name="fact_check" />Подробные начисления</Link>}
-        <SeasonManage season={season} summary={summary.data} onEdit={() => setEditing(true)} onBlocked={items => setBlocked({ seasonId: id, items })} /></div>
+        <SeasonManage season={season} summary={summary.data} onEdit={() => setEditing(true)} onBlocked={items => setBlocked(items.length ? { seasonId: id, items } : null)} /></div>
       </BrandedHeader>
       {notice && <div role="status" className={u.panel}><p>{notice}</p></div>}
-      {blocked?.seasonId === id && <section className={u.panel} aria-label="Препятствия закрытию"><div className={u.panelHeader}><h2 role="alert">Сезон пока нельзя закрыть: {blocked.items.length} {plural(blocked.items.length, "препятствие", "препятствия", "препятствий")}</h2><button type="button" className={u.secondary} onClick={() => setBlocked(null)}>Скрыть</button></div><SeasonBlockers blockers={blocked.items} seasonId={id} /></section>}
+      {blocked?.seasonId === id && <section className={u.panel} aria-label="Препятствия закрытию"><div className={u.panelHeader}><h2><span role="alert">Сезон пока нельзя закрыть: {blocked.items.length} {plural(blocked.items.length, "препятствие", "препятствия", "препятствий")}</span></h2><button type="button" className={u.secondary} onClick={() => setBlocked(null)}>Скрыть</button></div><SeasonBlockers blockers={blocked.items} seasonId={id} /></section>}
       {allowed && <label className={u.seasonSelect}>Сезон<select aria-label="Выбранный сезон" value={id} onChange={e=>navigate(tabRoute(e.target.value, tab))}>{query.data?.items.map(item=><option key={item.season_id} value={item.season_id}>{item.title}</option>)}</select></label>}
       {allowed && <nav className={u.tabs} aria-label="Разделы сезона">{tabs.map(item => <Link key={item.id} to={tabRoute(id, item.id)} aria-current={tab === item.id ? "page" : undefined}><Glyph name={item.icon} />{item.title}</Link>)}</nav>}
       {tab === "overview" || !allowed ? <SeasonOverview season={season} summary={summary.data} allowed={allowed} /> : tab === "participants" ? season.state === "planned" ? <SeasonNotOpen seasonId={id} /> : <QueryState loading={summary.isLoading} error={summary.error} keepDataOnError={!!summary.data} retry={() => void summary.refetch()}>{summary.data && <UnsavedChangesScope><SeasonDecisionEditors key={summary.data.season_id} summary={summary.data} /></UnsavedChangesScope>}</QueryState> : tab === "analytics" ? <section className={u.stack}><SeasonStatistics seasonId={id} summary={summary.data} /><LazyPanel key={`analytics:${id}`} title="Динамика задач, часов и ККР"><SeasonAnalytics key={id} seasonId={id} /></LazyPanel></section> : tab === "control" ? <SeasonKkrControl seasonId={id} closed={season.state === "closed"} /> : <section className={u.stack}><div className={u.sectionHeading}><h2>История ККР по сезонам</h2></div><SeasonKkrHistory /><LazyPanel key={`versions:${id}`} title="Версии утверждённых итогов"><SummaryHistory key={id} seasonId={id} /></LazyPanel></section>}
       {allowed && <LazyPanel key={`workflow:${id}`} title="Работа сезона и управление итогами"><SeasonOverview season={season} summary={summary.data} allowed={allowed} participants={tab !== "participants"} /></LazyPanel>}
       <HistoryDisclosure kind="season" id={id} title="История названия и периода сезона" />
-    </> : !query.isLoading && <><Empty>Сезон не найден.</Empty><Link to="/seasons" className={u.secondary}>Все сезоны</Link></>}</QueryState>
+    </> : !query.isLoading && <><h1 className={w.title}>Сезон не найден</h1><Empty>Такого сезона нет. Возможно, ссылка устарела.</Empty><Link to="/seasons" className={u.secondary}>Все сезоны</Link></>}</QueryState>
   </section>;
 }
 /** A planned season has no work, totals or marks yet; the analytics still compare the past seasons. */

@@ -64,6 +64,22 @@ it("closes the menu on a refused close and groups the blockers above the tabs wi
   expect(transport!.adapter.history.get.some(request => request.url === "/tasks")).toBe(false);
 });
 
+it("clears the blockers of a refused close once a later close succeeds", async () => {
+  const blockers: SeasonBlocker[] = [{ kind: "missing_final_report", owner_kind: "event", owner_id: "event-1", title: "Missing", subject: "День математика" }];
+  await mount(hub, "/seasons/season-1");
+  transport!.state.seasons.find(season => season.season_id === "season-1")!.capabilities = ["close_season"];
+  page!.client.setQueryData(["seasons"], { items: transport!.state.seasons.map(season => ({ ...season })) });await waitForPage(page!);
+  const panel = () => page!.container.querySelector('section[aria-label="Препятствия закрытию"]');
+  const command = vi.spyOn(seasonsApi, "command").mockRejectedValueOnce(new ApiError("Season is not ready to close", 409, "season_not_ready", { blockers }));
+  await press(trigger());await press(item("Закрыть сезон"));
+  expect(panel()?.querySelector("h2")?.textContent).toBe("Сезон пока нельзя закрыть: 1 препятствие");
+  command.mockResolvedValueOnce({ ...transport!.state.seasons.find(season => season.season_id === "season-1")!, state: "closed" });
+  await press(trigger());await press(item("Закрыть сезон"));
+  expect(command).toHaveBeenCalledTimes(2);
+  expect(panel()).toBeNull();
+  expect(menu()).toBeNull();
+});
+
 it("links a closed season to its detailed accruals and corrections", async () => {
   await mount(hub, "/seasons/season-previous");
   transport!.state.seasons.find(season => season.season_id === "season-previous")!.state = "closed";

@@ -31,9 +31,10 @@ it.each(["merits", "sources", "corrections"])("says an unknown season is not fou
   expect(requested(/season-missing|^\/merits|^\/assessments/)).toBe(false);
 });
 
-it("asks no summary for an unknown season on the hub", async () => {
+it("asks no summary for an unknown season on the hub and names it like the subpages", async () => {
   await mount("/seasons/season-missing");
-  expect(page!.container.textContent).toContain("Сезон не найден.");
+  expect(page!.container.querySelector("h1")?.textContent).toBe("Сезон не найден");
+  expect(page!.container.textContent).toContain("Такого сезона нет.");
   expect(requested(/season-missing/)).toBe(false);
 });
 
