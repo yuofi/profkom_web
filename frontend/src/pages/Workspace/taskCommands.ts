@@ -17,6 +17,14 @@ function queueOf(client: QueryClient, taskId: string) {
   return queue;
 }
 const project = (task: Task | undefined, pending: Pending[]) => task && pending.reduce((value, entry) => entry.patch?.(value) ?? value, task);
+/** A saved task updates its row in cached task lists at once, keeping each row's own fields;
+ * the workspace reread after the queue drains still confirms the lists. */
+function showInLists(client: QueryClient, saved: Task) {
+  const row = (item: Task): Task => ({ ...item, ...Object.fromEntries(Object.keys(item).filter(field => field in saved).map(field => [field, saved[field as keyof Task]])) });
+  const replace = (items: Task[]) => items.some(item => item.task_id === saved.task_id) ? items.map(item => item.task_id === saved.task_id ? row(item) : item) : items;
+  client.setQueriesData<{ items: Task[] }>({ queryKey: ["tasks", "page"] }, data => data && Array.isArray(data.items) ? { ...data, items: replace(data.items) } : data);
+  client.setQueriesData<Task[]>({ queryKey: ["tasks", "planning"] }, data => Array.isArray(data) ? replace(data) : data);
+}
 
 /**
  * Own commands of one task run one at a time, in click order, across every control of the
@@ -42,7 +50,7 @@ export async function runTaskCommand(client: QueryClient, taskId: string, baseRe
   try {
     const saved = await run;
     queue.pending.splice(queue.pending.indexOf(entry), 1);queue.confirmed = saved;
-    client.setQueryData(key, project(saved, queue.pending));
+    client.setQueryData(key, project(saved, queue.pending));showInLists(client, saved);
     return saved;
   } catch (failure) {
     queue.pending.splice(queue.pending.indexOf(entry), 1);

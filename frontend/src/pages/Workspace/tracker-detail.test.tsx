@@ -15,6 +15,7 @@ import { TrackerTaskHistoryDiff } from "./TrackerTaskHistoryDiff";
 import { ApiError } from "../../utils/api/request";
 import { historyApi } from "../../utils/api/history.api";
 import { taskCollaborationApi } from "../../utils/api/taskCollaboration.api";
+import { QueryClient } from "@tanstack/react-query";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 afterEach(async () => { await page?.cleanup();page = undefined;vi.restoreAllMocks(); });
@@ -72,6 +73,19 @@ it("a status chip owns its click and starts the whole task with the task revisio
   expect(options.find(button => button.textContent?.includes("Закрыта"))?.disabled).toBe(false);expect(options.find(button => button.textContent?.includes("Открыта"))?.disabled).toBe(true);
   await act(async () => options.find(button => button.textContent?.trim() === "В работе")!.click());await waitForPage(page);
   expect(command).toHaveBeenCalledWith(task.task_id, { expected_revision: 5, status: "in_progress" });expect(openRow).not.toHaveBeenCalled();
+});
+it("a saved status shows at once in cached task lists, only on its own row", async () => {
+  const task = makeTask({ status: "open", revision: 5, allowed_statuses: ["open", "in_progress"], capabilities: ["change_task_status"] }), other = makeTask({ task_id: "other", status: "open" });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: Infinity } } });
+  client.setQueryData(["tasks", "page", {}], { items: [task, other], next_cursor: null });client.setQueryData(["tasks", "planning", {}, "a", "b"], [task]);
+  vi.spyOn(tasksApi, "changeStatus").mockResolvedValue({ ...task, revision: 6, status: "in_progress", allowed_statuses: ["open", "in_progress", "completed"] });
+  page = await mountWorkspace(<TaskStatusMenu task={task} />, { client });
+  await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());await settle();
+  await act(async () => [...page!.container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(button => button.textContent?.trim() === "В работе")!.click());await waitForPage(page);
+  const rows = client.getQueryData<{ items: Task[] }>(["tasks", "page", {}])!.items;
+  expect(rows.map(row => [row.task_id, row.status, row.revision])).toEqual([[task.task_id, "in_progress", 6], ["other", "open", other.revision]]);
+  expect(rows[0].allowed_statuses).toEqual(["open", "in_progress", "completed"]);
+  expect(client.getQueryData<Task[]>(["tasks", "planning", {}, "a", "b"])![0].status).toBe("in_progress");
 });
 it("status menu supports arrow keys, Home/End and restores focus on Escape", async () => {
   const task = makeTask({ status: "open", capabilities: ["change_task_status", "submit_task_result"] });
@@ -219,6 +233,28 @@ it("rapid marks in the description and the checklist all save in order with own 
   expect(page!.container.querySelector('section[aria-label="Описание задачи"] [role="alert"], section[aria-label="Чеклист задачи"] [role="alert"]')).toBeNull();
   expect(task.description.body).toBe("- [x] Первый\n- [x] Второй");expect(task.checklist![0].checked).toBe(true);expect(task.revision).toBe(11);
   expect(description().map(box => box.checked)).toEqual([true, true]);expect(checklist().map(box => box.checked)).toEqual([true, false]);
+});
+
+it("a link removed right after a checkmark waits for it and sends the next own revision", async () => {
+  const link = { link_id: "link-1", kind: "related" as const, task: { task_id: "other", task_key: "WEB-2", title: "Другая", status: "open" as const, deadline_at: null, starts_at: null, task_type: "task" as const } };
+  let task = makeTask({ description: richText("- [ ] Первый"), revision: 8, links: [link], capabilities: ["read_task", "toggle_task_checklist", "manage_task_links"] });
+  const releases: (() => void)[] = [];const later = () => new Promise<void>(resolve => releases.push(resolve));
+  const marks = vi.spyOn(tasksApi, "descriptionChecklist").mockImplementation(async (_id, data) => {
+    await later();if (data.expected_revision !== task.revision) throw new ApiError("Changed", 409, "revision_conflict");
+    task = { ...task, revision: task.revision + 1, description: richText("- [x] Первый") };return task;
+  });
+  const remove = vi.spyOn(tasksApi, "removeLink").mockImplementation(async (_id, _link, data) => {
+    if (data.expected_revision !== task.revision) throw new ApiError("Changed", 409, "revision_conflict");
+    task = { ...task, revision: task.revision + 1, links: [] };return task;
+  });
+  await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async () => task);
+  await act(async () => page!.container.querySelector<HTMLInputElement>('section[aria-label="Описание задачи"] input[type="checkbox"]')!.click());
+  await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Удалить связь: WEB-2"]')!.click());
+  expect(remove).not.toHaveBeenCalled();
+  await waitForPage(page!, () => releases.length > 0);await act(async () => releases.shift()!());
+  await waitForPage(page!, () => !page!.container.querySelector('[aria-label="Удалить связь: WEB-2"]'));
+  expect([marks.mock.calls[0][1].expected_revision, remove.mock.calls[0][2].expected_revision]).toEqual([8, 9]);
+  expect(page!.container.querySelector('section[aria-label="Связанные задачи"] [role="alert"], section[aria-label="Описание задачи"] [role="alert"]')).toBeNull();expect(task.revision).toBe(10);
 });
 
 it("a refused queued mark rolls back only itself and keeps later own marks", async () => {
