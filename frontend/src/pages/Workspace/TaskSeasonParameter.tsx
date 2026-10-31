@@ -15,7 +15,8 @@ import s from "./TrackerTaskDetail.module.css";
 export function TaskSeasonParameter({ task }: { task: Task }) {
   const { session } = useSession();
   const [editing, setEditing] = useState(false);
-  const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
+  // The task page reads the seasons with the task (PF-14); the parameter joins that entry.
+  const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list, refetchOnMount: false });
   const correctionAllowed = can(session, "correct_season");
   const subevent = useQuery({ queryKey: ["events", "subevent", task.scope.id], queryFn: () => eventsApi.subevent(task.scope.id), enabled: correctionAllowed && task.scope.kind === "subevent" });
   const season = seasons.data?.items.find(item => item.season_id === task.season_id);

@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 import { act } from "react";
+import { QueryClient } from "@tanstack/react-query";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
 import { mountWorkspace, settle, waitForPage } from "../../test/workspace";
+import { workspaceQueryCache } from "../../utils/api/invalidation";
 import { eventsApi } from "../../utils/api/events.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { tasksApi } from "../../utils/api/tasks.api";
@@ -44,7 +46,9 @@ it("a subevent page names its event from the subevent itself", async () => {
 it("a task page asks for its comments and seasons together with the task", async () => {
   mock = installMockTransport("chair", { delay: 0 });const task = mock.state.tasks[0];
   const release = hold(tasksApi as unknown as Record<string, unknown>, "get"), comments = vi.spyOn(tasksApi, "comments"), seasons = vi.spyOn(seasonsApi, "list");
-  page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage />} /></Routes>, { path: `/tasks/${task.task_id}` });await settle();
+  // The application's reads go stale at once (no staleTime): a later reader of a finished read must not ask again.
+  const client = new QueryClient({ queryCache: workspaceQueryCache(), defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } });
+  page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage />} /></Routes>, { path: `/tasks/${task.task_id}`, client });await settle();
   expect(comments).toHaveBeenCalledWith(task.task_id);expect(seasons).toHaveBeenCalled();
   await release();await waitForPage(page);
   // The activity and the season parameter read the same entries instead of asking again.

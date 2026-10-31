@@ -191,7 +191,9 @@ function TaskFilesEditor({ task, onClose }: { task: Task; onClose: () => void })
   </TrackerTaskDialog>;
 }
 type ActivityTab = "comments" | "attachments" | "history";
-function useTaskComments(task:Task) {return useQuery({queryKey:["tasks",task.task_id,"comments"],queryFn:()=>tasksApi.comments(task.task_id)});}
+// The task page starts this read with the task and keeps it fresh (PF-14): the activity joins
+// the page's entry instead of asking again when it mounts; changes still invalidate it.
+function useTaskComments(task:Task) {return useQuery({queryKey:["tasks",task.task_id,"comments"],queryFn:()=>tasksApi.comments(task.task_id),refetchOnMount:false});}
 function TaskActivity({ task }: { task: Task }) { return <UnsavedChangesScope><TaskActivityContent task={task} /></UnsavedChangesScope>; }
 function TaskActivityContent({ task }: { task: Task }) {
   const commentsQuery=useTaskComments(task);
