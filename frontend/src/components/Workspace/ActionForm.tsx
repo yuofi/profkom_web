@@ -126,7 +126,10 @@ export function ActionForm({
   allowExitSave?: boolean;
   /** Opt-in helpers may copy values into the current draft without replacing dates/recipients. */
   beforeFields?: (form: FormikProps<Values>) => ReactNode;
-  /** An irreversible command asks once more, naming its target and consequences, before it is sent. */
+  /**
+   * An irreversible command asks once more, naming its target and consequences, before it is sent.
+   * A text function returns null only for input its onSubmit refuses itself before any request.
+   */
   confirm?: { text: ReactNode | ((values: Values) => ReactNode); label: string };
 } & Versioning) {
   const formId = useId();
@@ -240,7 +243,8 @@ export function ActionForm({
         if (versioned && (changedRevision || stale))
           throw new ApiError("Сначала обновите данные и подтвердите версию для сохранения.", 409);
         const command = JSON.stringify(values);
-        if (confirm && confirmedCommand.current !== command) {
+        const question = confirm && (typeof confirm.text === "function" ? confirm.text(values) : confirm.text);
+        if (confirm && question !== null && confirmedCommand.current !== command) {
           setPendingCommand(command);
           return;
         }
@@ -311,7 +315,9 @@ export function ActionForm({
       setExternalBaseline(JSON.stringify(savedExternalState ?? externalState));
     },
   });
-  const awaitingCommand = !!confirm && pendingCommand !== null && pendingCommand === JSON.stringify({ ...initialValues, ...form.values });
+  const currentValues = { ...initialValues, ...form.values };
+  const question = confirm && (typeof confirm.text === "function" ? confirm.text(currentValues) : confirm.text);
+  const awaitingCommand = !!confirm && question !== null && pendingCommand !== null && pendingCommand === JSON.stringify(currentValues);
   const unchanged = !!changeRequired?.every((name) => JSON.stringify(form.values[name] ?? initialValues[name]) === JSON.stringify(savedValues(fields)[name]));
   const replaceWithSaved = () => {
     form.resetForm({ values: savedValues(fields) });
@@ -443,7 +449,7 @@ export function ActionForm({
         )}
         {confirm && awaitingCommand && (
           <div role="alert" className={s.warning}>
-            <p>{typeof confirm.text === "function" ? confirm.text({ ...initialValues, ...form.values }) : confirm.text}</p>
+            <p>{question}</p>
             <div className={s.row}>
               <button type="button" className={s.button} onClick={() => {
                 confirmedCommand.current = pendingCommand;
