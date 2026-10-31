@@ -51,12 +51,15 @@ export async function endSession(client: QueryClient) {
  *  redirects to /auth on its own, so the note waits in the tab's storage, not in the route. */
 export interface AuthNotice { notice: string; email: string | null }
 const AUTH_NOTICE = "profkom-auth-notice";
+/** The note greets this return to the login, not a visit much later in the same tab. */
+const AUTH_NOTICE_TTL_MS = 15 * 60 * 1000;
 export function leaveAuthNotice(notice: AuthNotice) {
-  try { sessionStorage.setItem(AUTH_NOTICE, JSON.stringify(notice)); } catch { /* no storage: no note */ }
+  try { sessionStorage.setItem(AUTH_NOTICE, JSON.stringify({ ...notice, at: Date.now() })); } catch { /* no storage: no note */ }
 }
 export function peekAuthNotice(): AuthNotice | null {
   try {
-    const value = JSON.parse(sessionStorage.getItem(AUTH_NOTICE) ?? "null") as { notice?: unknown; email?: unknown } | null;
+    const value = JSON.parse(sessionStorage.getItem(AUTH_NOTICE) ?? "null") as { notice?: unknown; email?: unknown; at?: unknown } | null;
+    if (typeof value?.at === "number" && Date.now() - value.at > AUTH_NOTICE_TTL_MS) { clearAuthNotice(); return null; }
     return typeof value?.notice === "string" ? { notice: value.notice, email: typeof value.email === "string" ? value.email : null } : null;
   } catch { return null; }
 }

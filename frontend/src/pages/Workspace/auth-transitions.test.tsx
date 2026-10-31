@@ -15,6 +15,7 @@ import { GreetingPage } from "../Greeting/Greeting";
 import { ProtectedRoute } from "../Wrappers/wrappers";
 import { AccountStatePage } from "./SessionPages";
 import { useSession } from "../../utils/session";
+import { leaveAuthNotice, peekAuthNotice } from "../../utils/authSession";
 
 vi.mock("../../components/VKAuth/authButton", () => ({
   VKAuthButton: ({ onSuccess, onError }: { onSuccess: (data: { access_token: string }) => Promise<void>; onError: () => void }) => <>
@@ -206,5 +207,14 @@ it("after the temporary password change the login opens on the password form wit
   // The note is for this one return to the login: the next login takes it away.
   await change(field(page.container, "password"), "Own-New-Pass-2026");
   await submit(page.container.querySelector("form")!); await settle(); await settle();
+  expect(sessionStorage.getItem("profkom-auth-notice")).toBeNull();
+});
+
+it("the password-change note is not shown on a visit to the login much later in the tab (PE-21)", () => {
+  leaveAuthNotice({ notice: "Пароль изменён. Войдите с новым паролем.", email: null });
+  expect(peekAuthNotice()?.notice).toBe("Пароль изменён. Войдите с новым паролем.");
+  const now = Date.now();
+  vi.spyOn(Date, "now").mockReturnValue(now + 16 * 60 * 1000);
+  expect(peekAuthNotice()).toBeNull();
   expect(sessionStorage.getItem("profkom-auth-notice")).toBeNull();
 });
