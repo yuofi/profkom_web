@@ -141,12 +141,27 @@ it("«Назад» returns to the expanded branches and the search; a new visit 
   for (const toggle of toggles()) expect(toggle.getAttribute("aria-expanded")).toBe("false");
 });
 
+it("the tree keeps only the latest views of its visits in the tab's storage (PE-36)", async () => {
+  const f = fixture();
+  for (let index = 0; index < 25; index += 1) sessionStorage.setItem(`profkom-organization-tree:/blocks:old-${index}`, JSON.stringify({ search: "", expanded: [], at: index + 1 }));
+  sessionStorage.setItem("profkom-auth-notice", "{}");
+  page = await mountWorkspace(<Routes><Route path="/blocks" element={<OrganizationTree blocks={f.blocks} leadership={f.leadership} people={f.people} />} /></Routes>, { path: "/blocks" });
+  await act(async () => toggles()[0].click());
+  const views = Object.keys(sessionStorage).filter(key => key.startsWith("profkom-organization-tree:"));
+  expect(views).toHaveLength(20);
+  expect(views.filter(key => key.includes(":old-"))).toHaveLength(19);
+  expect(views.some(key => key.endsWith(":old-24"))).toBe(true);expect(views.some(key => key.endsWith(":old-5"))).toBe(false);
+  expect(sessionStorage.getItem("profkom-auth-notice")).toBe("{}");
+});
+
 it("a collapsed block names its master beside the count; the open branch lists the leadership (PE-37)", async () => {
   const f = fixture(), block = f.blocks.find(item => item.master)!;
   page = await mountWorkspace(<OrganizationTree blocks={[block]} leadership={f.leadership} people={f.people} />);
   const heading = () => page!.container.querySelector('[aria-label="Блоки Профкома"]>li>div')!;
   expect(heading().querySelector(`a[href="/contacts/${block.master!.user.user_id}"]`)).not.toBeNull();
   expect(heading().textContent).toMatch(/Участников: \d+/);
+  // A screen reader hears the role before the name; the chip itself stays the same.
+  expect(heading().querySelector('[class*="visuallyHidden"]')?.textContent).toBe("Мастер:");
   await act(async () => toggles()[0].click());
   expect(heading().querySelector(`a[href="/contacts/${block.master!.user.user_id}"]`)).toBeNull();
   expect(controlled(toggles()[0]).querySelector(`a[href="/contacts/${block.master!.user.user_id}"]`)).not.toBeNull();

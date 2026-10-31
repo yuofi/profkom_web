@@ -4,6 +4,7 @@ import { BlockChip } from "../../components/Workspace/BlockChip";
 import { UserChip } from "../../components/Workspace/UserChip";
 import type { Block, Leadership, UserRef } from "../../utils/api/contract";
 import s from "./OrganizationTree.module.css";
+import w from "../../components/Workspace/Workspace.module.css";
 
 interface OrganizationTreeProps {
   blocks: Block[];
@@ -13,8 +14,24 @@ interface OrganizationTreeProps {
 const normalized = (value: string) => value.toLocaleLowerCase("ru").replaceAll("ё", "е").trim();
 /** The tree's view belongs to its history entry: «Назад» returns to it, a new visit starts
  *  collapsed (PE-36). Blocks are kept by their stable ID. */
-const viewKey = (pathname: string, key: string) => `profkom-organization-tree:${pathname}:${key}`;
+const VIEW_PREFIX = "profkom-organization-tree:", KEPT_VIEWS = 20;
+const viewKey = (pathname: string, key: string) => `${VIEW_PREFIX}${pathname}:${key}`;
 const keptHere = new Set<string>();
+/** Every visit is a new history entry: only the latest views are kept, the oldest go. */
+function keepView(storageKey: string, view: { search: string; expanded: string[] }) {
+  try {
+    sessionStorage.setItem(storageKey, JSON.stringify({ ...view, at: Date.now() }));
+    const views: { key: string; at: number }[] = [];
+    for (let index = 0; index < sessionStorage.length; index += 1) {
+      const key = sessionStorage.key(index);
+      if (!key?.startsWith(VIEW_PREFIX) || key === storageKey) continue;
+      let at = 0;
+      try { at = Number((JSON.parse(sessionStorage.getItem(key) ?? "null") as { at?: unknown } | null)?.at) || 0; } catch { /* unreadable: oldest */ }
+      views.push({ key, at });
+    }
+    views.sort((a, b) => b.at - a.at).slice(KEPT_VIEWS - 1).forEach(view => sessionStorage.removeItem(view.key));
+  } catch { /* no storage: the view simply is not kept */ }
+}
 function savedView(storageKey: string, key: string): { search: string; expanded: string[] } {
   // The document's first entry has no router key: a typed address or an outside link opens it
   // afresh, while a reload or «Назад» into the document returns to the kept view.
@@ -37,8 +54,7 @@ export function OrganizationTree({ blocks, leadership, people }: OrganizationTre
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set(savedView(storageKey, location.key).expanded));
   useEffect(() => {
     keptHere.add(storageKey);
-    try { sessionStorage.setItem(storageKey, JSON.stringify({ search, expanded: [...expandedIds] })); }
-    catch { /* no storage: the view simply is not kept */ }
+    keepView(storageKey, { search, expanded: [...expandedIds] });
   }, [storageKey, search, expandedIds]);
   const terms = normalized(search).split(/\s+/).filter(Boolean), searching = terms.length > 0;
   const matches = (value: string) => terms.every(term => normalized(value).includes(term));
@@ -88,7 +104,7 @@ export function OrganizationTree({ blocks, leadership, people }: OrganizationTre
           <button type="button" className={s.toggle} aria-label={`${expanded ? "Свернуть" : "Развернуть"} блок ${block.name}`} aria-expanded={expanded} aria-controls={bodyId} disabled={searching} title={searching ? "При поиске найденные блоки раскрыты" : undefined} onClick={() => toggle(block.block_id)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg></button>
           <BlockChip block={block} className={matchClass(block.name)} />
           {/* A collapsed row names its master too; the open branch lists the leadership (PE-37). */}
-          <span className={s.headingMeta}>{!expanded && block.master && <UserChip user={block.master.user} className={matchClass(block.master.user.display_name)} />}<span className={s.count}>Участников: {members.length + (block.master ? 1 : 0) + deputies.length}</span></span>
+          <span className={s.headingMeta}>{!expanded && block.master && <><span className={w.visuallyHidden}>Мастер:</span><UserChip user={block.master.user} className={matchClass(block.master.user.display_name)} /></>}<span className={s.count}>Участников: {members.length + (block.master ? 1 : 0) + deputies.length}</span></span>
         </div>
         <div id={bodyId} className={s.blockBody} hidden={!expanded}>{expanded && <>
           <section className={s.blockLeadership} aria-label={`Руководство блока ${block.name}`}>
