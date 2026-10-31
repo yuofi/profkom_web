@@ -6499,7 +6499,8 @@ class Database:
                         )
                     return res
 
-            bonuses = _calculate_master_bonuses_for_session(session, season_id)
+            # The summary's prepared inputs: the same rows and reference policy, read once.
+            bonuses = _calculate_master_bonuses_for_session(session, season_id, prepared=_SeasonSummaryData(session, season_id))
             if block_id:
                 bonuses = [b for b in bonuses if b.block_id == block_id]
             return bonuses
