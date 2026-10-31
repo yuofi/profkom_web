@@ -299,7 +299,6 @@ def notification_page(uid, cursor=None, limit=NOTIFICATION_PAGE, unread=False):
     """One page, newest first: a keyset on (created_at, notification_id) with LIMIT in SQL, so
     a page costs the same however long the history is (GL-16)."""
     import base64
-    from fastapi import HTTPException
     from sqlalchemy import and_, or_
     from api_contract import Page
 
@@ -308,10 +307,10 @@ def notification_page(uid, cursor=None, limit=NOTIFICATION_PAGE, unread=False):
         if cursor is not None:
             try:
                 created, nid = json.loads(base64.urlsafe_b64decode(cursor.encode("ascii")))
-                if not isinstance(created, str) or not isinstance(nid, str):
-                    raise ValueError(cursor)
             except (ValueError, TypeError, UnicodeError):
-                raise HTTPException(422, "Invalid cursor")
+                created = nid = None
+            if not isinstance(created, str) or not isinstance(nid, str):
+                raise InvalidInput("Invalid cursor")
             query = query.filter(or_(NotificationORM.created_at < created,
                                      and_(NotificationORM.created_at == created, NotificationORM.notification_id < nid)))
         rows = query.order_by(NotificationORM.created_at.desc(), NotificationORM.notification_id.desc()).limit(limit + 1).all()

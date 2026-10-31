@@ -37,7 +37,8 @@ def test_notification_pages_are_a_keyset_with_an_unread_filter_and_an_exact_coun
     assert len(unread["items"]) == 30 and all(item["read_at"] is None for item in unread["items"])
     assert client.get("/api/notifications/unread-count", headers=user.headers).json() == {"count": 30}
     assert client.get("/api/workspace/home", headers=user.headers).status_code == 200
-    assert client.get("/api/notifications", headers=user.headers, params={"cursor": "broken"}).status_code == 422
+    broken = client.get("/api/notifications", headers=user.headers, params={"cursor": "broken"})
+    assert broken.status_code == 422 and broken.json()["detail"]["code"] == "invalid_input"
     assert client.get("/api/notifications", headers=user.headers, params={"limit": 101}).status_code == 422
 
 
