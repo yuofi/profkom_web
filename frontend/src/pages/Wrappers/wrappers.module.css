@@ -9,6 +9,8 @@
   align-items: center;
   gap: 12px;
   box-sizing: border-box;
+  /* Centred by translate, it would shrink to the half of the screen right of its left edge. */
+  width: max-content;
   max-width: calc(100vw - 32px);
   margin: 0;
   padding: 8px 10px 8px 16px;
