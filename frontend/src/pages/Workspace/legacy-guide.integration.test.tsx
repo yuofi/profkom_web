@@ -48,7 +48,7 @@ it.each(["/docs/:id", "/docs/:id/edit", "/guides/:id"])("L2: real old URL %s ope
   expect(page.container.querySelector('[aria-label="Текущий путь"]')?.textContent).toBe(`/materials/${materialId}`);
   expect(page.container.textContent).toContain("Сохраните изменения в черновик");
   expect(page.container.textContent).not.toContain("изменения сразу видны читателям");
-  await change(page.container.querySelector("textarea")!, newBody);
+  await change(page.container.querySelector<HTMLTextAreaElement>('textarea[name="body"]')!, newBody);
   await submit(form("Сохранить черновик"));
   // The publish button is always rendered; it becomes enabled once the saved draft exists.
   await until(() => page!.container.textContent!.includes("Изменения сохранены") && publishButton()?.disabled === false);
@@ -72,7 +72,7 @@ it.each(["/docs/:id", "/docs/:id/edit", "/guides/:id"])("L2: real old URL %s ope
   await page.cleanup(); page = await mount();
   await openMaterialEditor(page);
   expect(page.container.querySelector('[aria-label="Текущий путь"]')?.textContent).toBe(`/materials/${materialId}`);
-  expect(page.container.querySelector("textarea")!.value).toBe(newBody);
+  expect(page.container.querySelector<HTMLTextAreaElement>('textarea[name="body"]')!.value).toBe(newBody);
   expect(page.container.textContent).toContain("Новая публикация L2");
   expect((await materialsApi.resolveLegacyGuide(guide.guide_id)).material_id).toBe(materialId);
 });

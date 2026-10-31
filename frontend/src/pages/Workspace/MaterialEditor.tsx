@@ -67,8 +67,9 @@ export function MaterialEditor({ material: m, onClose }: { material?: Material; 
           setSaving(true);
           try {
             const result = await perform(() => m ? materialsApi.update(m.material_id, { expected_revision: revision!, title: title.trim(), description, original_link: original || null, content: richText(body) }) : materialsApi.create({ title: title.trim(), description, kind, ...(kind === "guide" ? { owner_block_id: block } : {}), ...(original ? { original_link: original } : {}), content: richText(body) }));
-            // A new draft opens in its editor, with publication at hand (GL-17).
-            if (!m) navigate(`${getMaterialRoute(result.material_id)}?edit=1`);
+            // A new draft opens in its editor, with publication at hand (GL-17); it replaces the
+            // blank /materials/new entry, so Back leads to where creation started.
+            if (!m) navigate(`${getMaterialRoute(result.material_id)}?edit=1`, { replace: true });
             return result;
           } finally { setSaving(false); }
         }}>

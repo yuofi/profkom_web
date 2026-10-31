@@ -83,6 +83,9 @@ it("creates a source draft on a separate page and never publishes it implicitly"
   expect(dataPage.container.querySelector("dialog")).toBeNull();
   await click(button(dataPage.container, "Готово"));await waitForPage(dataPage);
   expect(dataPage.router.state.location.search).toBe("");expect(dataPage.container.querySelector("form")).toBeNull();
+  // The created draft replaced the blank form in the history: Back leads to the list.
+  await act(async () => { await dataPage!.router.navigate(-1); });await waitForPage(dataPage);
+  expect(dataPage.router.state.location.pathname).toBe("/materials");
 });
 
 it.each(["edit_material", "publish_material", "edit_audience", "delete_material", "manage_material_editors"])("keeps the editor entry for the independent capability %s", async capability => {

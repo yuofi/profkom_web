@@ -12,10 +12,11 @@ import { richText } from "../../utils/api/contract";
 import { MaterialsPage, MaterialCreatePage, MaterialPage } from "./MaterialPages";
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 afterEach(async () => { await page?.cleanup();page = undefined; });
-function Location() { return <output aria-label="Текущий путь материала">{useLocation().pathname}</output>; }
+function Location() { const location = useLocation();return <output aria-label="Текущий путь материала" data-search={location.search}>{location.pathname}</output>; }
 const routes = <><Location /><Routes><Route path="/materials" element={<MaterialsPage />} /><Route path="/materials/new" element={<MaterialCreatePage />} /><Route path="/materials/:id" element={<MaterialPage />} /></Routes></>;
 const until = (condition: () => boolean) => waitForPage(page!, condition);
 const path = () => page!.container.querySelector('[aria-label="Текущий путь материала"]')?.textContent ?? "";
+const search = () => page!.container.querySelector('[aria-label="Текущий путь материала"]')?.getAttribute("data-search") ?? "";
 function form(label: string) {
   const result = [...page!.container.querySelectorAll<HTMLFormElement>("form")].find(item => item.querySelector('button[type="submit"]')?.textContent === label);
   expect(result, label).toBeDefined();return result!;
@@ -30,7 +31,7 @@ async function readerClient(email: string) {
   const response = await client.post("/auth/login", { email, password: livePassword });expect(response.status).toBe(200);
   client.defaults.headers.common.Authorization = `Bearer ${response.data.access_token}`;return client;
 }
-it("creates from a blank material page, opens readonly, and publishes a saved draft only through the pencil", async () => {
+it("creates from a blank material page, opens the new draft in its editor, and publishes a saved draft only explicitly", async () => {
   const reader = await liveParticipant("canvas-reader"), readonly = await readerClient(reader.email), session = await liveLogin();
   page = await mountWorkspace(routes, { path: "/materials", session });await waitForPage(page);
   expect(page.container.querySelector('input[name="title"],textarea[name="body"]')).toBeNull();
@@ -39,11 +40,15 @@ it("creates from a blank material page, opens readonly, and publishes a saved dr
   expect(path()).toBe("/materials/new");expect(field(page.container, "title").value).toBe("");expect(field(page.container, "description").value).toBe("");expect(field(page.container, "body").value).toBe("");
   const title = `Материал canvas ${crypto.randomUUID()}`, first = "## Частный черновик\n\nПервый текст", next = "## Опубликованный результат\n\n- [x] Проверено";
   await change(field(page.container, "title"), title);await change(field(page.container, "description"), "Описание из правой колонки");await change(field(page.container, "kind"), "general");await change(field(page.container, "body"), first);
-  await submit(form("Создать черновик"));await until(() => path().startsWith("/materials/") && path() !== "/materials/new" && !page!.container.querySelector("textarea"));
+  // The new draft opens in its editor as URL state, with its management at hand (GL-17).
+  await submit(form("Создать черновик"));await until(() => /^\/materials\/[^/]+$/.test(path()) && path() !== "/materials/new" && new URLSearchParams(search()).get("edit") === "1" && !!page!.container.querySelector('textarea[name="body"]'));
   const id = path().split("/").pop()!;expect(document.querySelector("dialog[open]")).toBeNull();
   let material = await command(() => materialsApi.get(id));expect(material.source_content?.body).toBe(first);expect(material.draft_content?.body).toBe(first);expect(material.published_content).toBeNull();
+  expect(field(page.container, "body").value).toBe(first);expect(page.container.textContent).toContain("Редакторы общего материала");expect(page.container.textContent).toContain("Удалить материал");
+  // «Готово» leaves a read-only view without management; the pencil reopens the editor.
+  await click("Готово");await until(() => !page!.container.querySelector("textarea") && !search().includes("edit=1"));
   expect((await readonly.get(`/materials/${id}`)).status).toBe(404);expect(page.container.textContent).not.toContain("Редакторы общего материала");expect(page.container.textContent).not.toContain("Удалить материал");
-  await openMaterialEditor(page);expect(page.container.textContent).toContain("Редакторы общего материала");expect(page.container.textContent).toContain("Удалить материал");
+  await openMaterialEditor(page);expect(search()).toContain("edit=1");expect(page.container.textContent).toContain("Редакторы общего материала");expect(page.container.textContent).toContain("Удалить материал");
   await change(field(page.container, "body"), next);await change(field(page.container, "description"), "Обновлённая правая колонка");
   const save = form("Сохранить черновик");await submit(save);await until(() => !!save.textContent?.includes("Изменения сохранены"));
   material = await command(() => materialsApi.get(id));expect(material.description).toBe("Обновлённая правая колонка");expect(material.source_content?.body).toBe(next);expect((await readonly.get(`/materials/${id}`)).status).toBe(404);

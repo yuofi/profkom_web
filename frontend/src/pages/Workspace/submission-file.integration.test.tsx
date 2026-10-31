@@ -33,7 +33,8 @@ it("an assignee uploads and submits a file without text; foreign and revoked use
   const task = await tasksApi.create({ season_id: season.season_id, scope: { kind: "subevent", id: subevent.subevent_id }, title: "Сдать только файл", description: richText(), deadline_at: new Date(Date.now() + 86400000).toISOString(), criteria: emptyCriteria(), assignees: [{ user_id: worker.user_id, hours: 1 }] });
   const owner = { owner_kind: "task", owner_id: task.task_id, purpose: "submission" };
   await liveLogin(foreign.email);
-  await expect(filesApi.intent({ ...owner, name: "result.txt", mime_type: "text/plain", size_bytes: 12 })).rejects.toMatchObject({ status: 403 });
+  // A task the user cannot read answers like a missing one (GL-24).
+  await expect(filesApi.intent({ ...owner, name: "result.txt", mime_type: "text/plain", size_bytes: 12 })).rejects.toMatchObject({ status: 404 });
   const session = await liveLogin(worker.email);
   page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TaskPage />} /></Routes>, { path: `/tasks/${task.task_id}`, session });
   await waitForPage(page);
@@ -67,6 +68,7 @@ it("an assignee uploads and submits a file without text; foreign and revoked use
   const current = await eventsApi.subevent(subevent.subevent_id);
   await eventsApi.organizers(current.subevent_id, [], { expected_revision: current.revision });
   await liveLogin(worker.email);
-  await expect(filesApi.intent({ ...owner, name: "result.txt", mime_type: "text/plain", size_bytes: 12 })).rejects.toMatchObject({ status: 403 });
+  // The revoked organizer no longer reads the task, so it is not found for them either.
+  await expect(filesApi.intent({ ...owner, name: "result.txt", mime_type: "text/plain", size_bytes: 12 })).rejects.toMatchObject({ status: 404 });
   await expect(filesApi.download(attached.file_id)).rejects.toMatchObject({ status: 404 });
 });
