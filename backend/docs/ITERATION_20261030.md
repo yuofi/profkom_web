@@ -82,6 +82,10 @@ update of the test site after local verification; production is not authorized.
   × criteria × source coefficient, with no urgency premium or late penalty.
   The existing dated-task formula is unchanged.
 - Coefficients are per season, finite nonnegative values including zero, default 1.
+  The server sets no upper limit. The editor saves a value above 10 only after an
+  explicit «Сохранить» under the warning «Коэффициент больше 10 — проверьте, нет ли
+  опечатки», not on blur or Enter; the closed-season reason popover shows the same
+  warning (owner 2026-10-31, SE-26).
   Editors: chair, chair deputies, HR master and actual HR deputies.
 - Each block, main event and subevent has its own work coefficient. Chair-work,
   chair-merit and each main event's head-merit coefficients are separate.
