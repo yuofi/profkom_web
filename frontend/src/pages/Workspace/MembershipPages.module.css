@@ -20,3 +20,18 @@
 .decisions button:first-child { background:var(--primary);color:var(--on-primary); }
 .reject { color:var(--accent-rose); }
 @media(max-width:600px) { .registrationDetails>summary { gap:10px;flex-wrap:wrap;padding:16px; }.registrationBody { padding:0 16px 16px; }.decisions { padding:0 16px 16px; }.decisions button { flex:1; } }
+/* A block request's decisions in one row: the approval's form and the reject button (PE-27). */
+.requestDecisions { display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;min-width:0; }
+.requestDecisions>form { min-width:0; }
+/* The history of block requests: one compact row per request, its card on demand. */
+.history { list-style:none;margin:0;padding:0;display:grid; }
+.history>li { border-bottom:1px solid var(--outline-variant);min-width:0; }
+.historyRow>summary { display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;padding:10px 0;cursor:pointer;list-style:none; }
+.historyRow>summary::-webkit-details-marker { display:none; }
+.historyRow>summary::after { content:"⌄";color:var(--primary);font-size:20px;line-height:1;margin-left:auto; }
+.historyRow[open]>summary::after { transform:rotate(180deg); }
+.historyRow>summary>span:first-child { flex:1 1 220px;min-width:0;overflow-wrap:anywhere; }
+.historyRow>summary>small { color:var(--on-surface-variant);font-size:13px; }
+.historyRow>summary:focus-visible { outline:2px solid var(--primary);outline-offset:2px;border-radius:8px; }
+.historyRow>section { margin-bottom:12px; }
+

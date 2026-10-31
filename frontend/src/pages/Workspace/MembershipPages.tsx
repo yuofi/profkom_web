@@ -288,11 +288,13 @@ function RequestCard({
   blockName: string;
 }) {
   const { perform, refresh } = useWorkspaceActions();
+  const [rejecting, setRejecting] = useState(false);
   const open = ["pending_hr", "pending_block"].includes(r.state);
   const review = can(
     r,
     r.state === "pending_hr" ? "hr_review_request" : "block_review_request",
   );
+  const wait = waited(r.stage_entered_at);
   return (
     <Card>
       <h2 className={m.requestTitle}><UserChip user={r.user} /><span>→ {blockName}</span></h2>
@@ -300,7 +302,7 @@ function RequestCard({
       {open ? (
         <p>
           Текущий этап с {displayDate(r.stage_entered_at)} ·{" "}
-          <span className={s.nowrap}>ждёт {waited(r.stage_entered_at)}</span>
+          <span className={s.nowrap}>ждёт {wait === "0 ч" ? "меньше часа" : wait}</span>
         </p>
       ) : (
         r.decided_at && <p>Решение: {displayDate(r.decided_at)}</p>
@@ -321,12 +323,12 @@ function RequestCard({
       ) : r.state === "approved" && <p className={s.muted}>Кто одобрил: сведения не сохранены.</p>}
       {r.substitute_available_at && (
         <p className={s.muted}>
-          Срок для подмены руководства: {displayDate(r.substitute_available_at)}{" "}
-          (72 часа текущего этапа). Доступность решения определяет сервер.
+          Если решение не принято до {displayDate(r.substitute_available_at)}, его смогут принять председатель или его заместители.
         </p>
       )}
+      {/* Approving and rejecting side by side; the reason is asked in a dialog (PE-27). */}
       {open && review && (
-        <div className={s.stack}>
+        <div className={m.requestDecisions}>
           <ActionForm
             revision={r.revision}
             record={`block-request:${r.request_id}`}
@@ -347,33 +349,40 @@ function RequestCard({
               );
             }}
           />
-          <details className={s.details}>
-            <summary>Отклонить с причиной</summary>
-            <ActionForm
-              revision={r.revision}
-              record={`block-request:${r.request_id}`}
-              onConflict={refresh}
-              fields={[
-                {
-                  name: "reason",
-                  label: "Причина отказа",
-                  type: "textarea",
-                  required: true,
-                },
-              ]}
-              submitLabel="Отклонить"
-              variant="danger"
-              onSubmit={async (v, expectedRevision) => {
-                return perform(() =>
-                  membershipApi.requestCommand(r.request_id, "reject", {
-                    expected_revision: expectedRevision!,
-                    reason: text(v, "reason"),
-                  }),
-                );
-              }}
-            />
-          </details>
+          <button type="button" className={`${s.button} ${m.reject}`} onClick={() => setRejecting(true)}>
+            Отклонить
+          </button>
         </div>
+      )}
+      {rejecting && open && review && (
+        <UnsavedChangesScope><TrackerTaskDialog title="Отклонить заявку в блок" onClose={() => setRejecting(false)}>
+          <p>{r.user.display_name} → {blockName}</p>
+          <ActionForm
+            revision={r.revision}
+            record={`block-request:${r.request_id}`}
+            onConflict={refresh}
+            fields={[
+              {
+                name: "reason",
+                label: "Причина отказа",
+                type: "textarea",
+                required: true,
+              },
+            ]}
+            submitLabel="Отклонить заявку"
+            variant="danger"
+            onSubmit={async (v, expectedRevision) => {
+              const saved = await perform(() =>
+                membershipApi.requestCommand(r.request_id, "reject", {
+                  expected_revision: expectedRevision!,
+                  reason: text(v, "reason"),
+                }),
+              );
+              setRejecting(false);
+              return saved;
+            }}
+          />
+        </TrackerTaskDialog></UnsavedChangesScope>
       )}
       {open && can(r, "withdraw_request") && (
         <ActionForm
@@ -420,6 +429,7 @@ export function BlockRequestsPage() {
     queryFn: membershipApi.blocks,
   });
   const { session } = useSession();
+  const [historyLimit, setHistoryLimit] = useState(20);
   // Each request in one section: my decisions first, then my own, the rest, history (A-ROL-3).
   const sections: [string, BlockRequest[]][] = [
     ["Этап HR — моё решение", []],
@@ -433,11 +443,12 @@ export function BlockRequestsPage() {
       : r.user.user_id === session?.user_id ? 2 : isOpen(r) ? 3 : 4;
     sections[index][1].push(r);
   }
+  const blockName = (r: BlockRequest) => blocks.data?.find((b) => b.block_id === r.block_id)?.name ?? "Блок";
   const card = (r: BlockRequest) => (
     <RequestCard
       request={r}
       key={r.request_id}
-      blockName={blocks.data?.find((b) => b.block_id === r.block_id)?.name ?? "Блок"}
+      blockName={blockName(r)}
     />
   );
   return (
@@ -451,9 +462,28 @@ export function BlockRequestsPage() {
         <div className={s.stack}>
           {sections.map(([title, items]) =>
             items.length === 0 ? null : title === "История" ? (
+              // History is a compact list of rows, twenty at a time; a row opens its card (PE-27).
               <details key={title} className={s.details}>
                 <summary>История · {items.length}</summary>
-                <div className={s.stack}>{items.map(card)}</div>
+                <ul className={m.history}>
+                  {items.slice(0, historyLimit).map((r) => (
+                    <li key={r.request_id}>
+                      <details className={m.historyRow}>
+                        <summary>
+                          <span>{r.user.display_name} → {blockName(r)}</span>
+                          <Badge tone={requestTones[r.state]}>{requestStates[r.state]}</Badge>
+                          {r.decided_at && <small>{displayDate(r.decided_at)}</small>}
+                        </summary>
+                        {card(r)}
+                      </details>
+                    </li>
+                  ))}
+                </ul>
+                {items.length > historyLimit && (
+                  <button type="button" className={s.button} onClick={() => setHistoryLimit((limit) => limit + 20)}>
+                    Показать ещё · {items.length - historyLimit}
+                  </button>
+                )}
               </details>
             ) : (
               <section key={title} aria-label={title} className={s.stack}>
