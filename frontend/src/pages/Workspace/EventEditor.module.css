@@ -25,6 +25,9 @@
 /* Keep action buttons below the backdrop's curved top-right cutout. Menus remain unclipped. */
 .eventHeader .headerActions { align-self:flex-end;justify-content:flex-end;max-width:100%;flex-wrap:wrap; }
 .eventHeader .headerActions a,.eventHeader .headerActions button { max-width:100%;white-space:normal;overflow-wrap:anywhere; }
+/* The heads keep their line: the actions wrap under them instead of squeezing them into a
+   narrow column (the shared header gives its content only a 22rem basis) (GL-36). */
+@media(min-width:769px) { .eventHeader.eventHeader > .headerMain.headerMain { flex:1 1 auto; } }
 .children .childCard { padding:15px 17px;border:1px solid var(--outline-variant);border-radius:12px;background:var(--surface-container);gap:9px; }
 .children .childCard h3 { min-width:0;margin:0;font-size:17px;line-height:1.4; }
 .children .childCard h3 a { font-size:inherit;text-decoration:none;overflow-wrap:anywhere; }
