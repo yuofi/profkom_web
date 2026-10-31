@@ -99,7 +99,10 @@ export function DashboardPage() {
   const { session } = useSession();
   const query = useQuery({ queryKey: ["participation"], queryFn: workspaceApi.participation });
   const seasons = useSeasons();
-  const [watching, setWatching] = useState(false);
+  // The watched-tasks choice survives reloads and returns through the URL, without new history steps.
+  const [params, setParams] = useSearchParams();
+  const watching = params.get("watching") === "1";
+  const setWatching = (checked: boolean) => { const next = new URLSearchParams(params);if (checked) next.set("watching", "1");else next.delete("watching");setParams(next, { replace: true }); };
   const day = useQuery({ queryKey: ["dashboard", "home", watching], queryFn: () => workspaceApi.home(watching), refetchInterval: 60_000 });
   const blocks = query.data?.blocks ?? [];
   const events = query.data?.events ?? [];
@@ -142,7 +145,8 @@ export function CalendarPage() {
   const queueOptions = filtersOpen && !queues.isFetching && (!queues.error || canRetainData(queues.error)) ? queues.data : undefined;
   const range = calendarWindow(view, date);
   const query = useQuery({ queryKey: ["calendar", view, range.from, range.to, requestFilters], queryFn: ({ signal }) => workspaceApi.calendar(range.from, range.to, Object.fromEntries(Object.entries(requestFilters).filter(([, value]) => value !== "")), signal), enabled: !searchPending });
-  const update = (key: string, value: string) => { const next = new URLSearchParams(params);next.set("month", month);next.set("date", date);if (value) next.set(key, value);else next.delete(key);setParams(next); };
+  // Filters and search replace the entry; only period navigation below adds history steps.
+  const update = (key: string, value: string) => { const next = new URLSearchParams(params);next.set("month", month);next.set("date", date);if (value) next.set(key, value);else next.delete(key);setParams(next, { replace: true }); };
   const navigatePeriod = (target: string, mode: CalendarView = view) => { const next = new URLSearchParams(params);next.set("date", target);next.set("month", target.slice(0, 7));next.set("view", mode);setParams(next); };
   const periodName = view === "month" ? "месяц" : view === "week" ? "неделя" : "день";
   const label = (id: string | null) => seasons.data?.items.find(season => season.season_id === id)?.title ?? "Сезон";
@@ -162,7 +166,7 @@ export function CalendarPage() {
       <EntityPicker label="Очередь" value={filters.queue_id} onChange={value => update("queue_id", value)} placeholder="Все очереди" options={queueOptions?.items.filter(queue => queue.access === "granted").map(queue => ({ value: queue.queue_id, label: queue.name })) ?? []} />
       <label className={s.field}>Статус задач<select value={filters.status} onChange={event => update("status", event.target.value)}><option value="">Незавершённые</option>{Object.entries(statusNames).map(([key, title]) => <option key={key} value={key}>{title}</option>)}</select></label>
     </div></details>
-    <div className={c.activeFilters} aria-label="Активные фильтры">{Object.entries(names).filter(([key]) => filters[key as keyof typeof filters]).map(([key, title]) => <button type="button" key={key} className={s.button} aria-label={`Убрать фильтр: ${title}`} onClick={() => update(key, "")}>{title} ×</button>)}<button className={s.button} onClick={() => setParams({ month, date, view })}>Сбросить фильтры</button></div>
+    <div className={c.activeFilters} aria-label="Активные фильтры">{Object.entries(names).filter(([key]) => filters[key as keyof typeof filters]).map(([key, title]) => <button type="button" key={key} className={s.button} aria-label={`Убрать фильтр: ${title}`} onClick={() => update(key, "")}>{title} ×</button>)}<button className={s.button} onClick={() => setParams({ month, date, view }, { replace: true })}>Сбросить фильтры</button></div>
     <QueryState loading={searchPending || query.isLoading || seasons.isLoading} error={query.error ?? seasons.error} retry={() => { void query.refetch();void seasons.refetch(); }}>
       {view === "month" ? <CalendarMonth days={range.days} offset={range.offset} items={items} today={today} seasonTitle={label} openDay={day => navigatePeriod(day, "day")} /> : <CalendarTimeGrid days={range.days} items={items} today={today} seasonTitle={label} />}
       {!items.length && <p className={s.muted}>На этот период нет доступных событий по выбранным условиям.</p>}

@@ -61,8 +61,9 @@ export function EventsListPage() {
   const participation=useQuery({queryKey:["participation"],queryFn:workspaceApi.participation});
   const mine=params.get("mine")==="true",archive=params.get("archive")==="true",search=params.get("q")??"",seasonId=params.get("season_id")??"";
   const phase:EventCataloguePhase=cataloguePhases.some(item=>item.value===params.get("phase"))?params.get("phase") as EventCataloguePhase:"all";
-  const update=(key:string,value:string)=>{const next=new URLSearchParams(params);if(value)next.set(key,value);else next.delete(key);setParams(next);};
-  const updatePeriod=(value:string)=>{const next=new URLSearchParams(params);next.delete("season_id");next.delete("archive");if(value==="archive")next.set("archive","true");else if(value.startsWith("season:")){const id=value.slice(7);next.set("season_id",id);if(seasons.data?.items.find(season=>season.season_id===id)?.state==="closed")next.set("archive","true");}setParams(next);};
+  // Search and filters replace the current history entry: "Back" leaves the catalogue, not one letter.
+  const update=(key:string,value:string)=>{const next=new URLSearchParams(params);if(value)next.set(key,value);else next.delete(key);setParams(next,{replace:true});};
+  const updatePeriod=(value:string)=>{const next=new URLSearchParams(params);next.delete("season_id");next.delete("archive");if(value==="archive")next.set("archive","true");else if(value.startsWith("season:")){const id=value.slice(7);next.set("season_id",id);if(seasons.data?.items.find(season=>season.season_id===id)?.state==="closed")next.set("archive","true");}setParams(next,{replace:true});};
   const errors=[events.error,seasons.error,mine?participation.error:null].filter(error=>!!error),error=errors.find(error=>!canRetainData(error))??errors[0]??null;
   const mayRetain=errors.every(error=>canRetainData(error));
   const eventData=mayRetain?events.data:undefined,seasonData=mayRetain?seasons.data:undefined;
