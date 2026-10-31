@@ -101,7 +101,7 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId, fal
   useEffect(() => { if (previousSeason.current && seasonId && previousSeason.current !== seasonId) setParentId("");if (seasonId) previousSeason.current = seasonId; }, [seasonId]);
   const seasonEnd = seasons.find(item => item.season_id === seasonId)?.ends_at;
   // A season past its end but not closed yet allows no deadline; min above max would only confuse.
-  const seasonEnded = !!seasonEnd && Date.parse(seasonEnd) < Date.now();
+  const [openedAt] = useState(() => Date.now()), seasonEnded = !!seasonEnd && Date.parse(seasonEnd) < openedAt;
   const selfAssigned = !!session && assignees.includes(String(session.user_id));
   const chooseAssignees = (value: string[]) => { setAssignees(value);if (session && value.includes(String(session.user_id))) setWatch(false); };
   const returnRoute = queue ? getTaskQueueRoute(queue.queue_id) : fallback?.scope.kind === "block" ? getBlockRoute(fallback.scope.id) : fallback ? getSubeventRoute(fallback.scope.id) : getTaskQueuesRoute();
