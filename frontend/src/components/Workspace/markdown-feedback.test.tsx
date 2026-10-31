@@ -83,6 +83,14 @@ it("checklist reports exact nested/duplicate/quoted/numbered marker offsets and 
   await act(async () => boxes[5].click());expect(changed).toHaveBeenLastCalledWith(marker("1. [X] номер"), false);
   expect(page.container.querySelector("pre")!.textContent).toBe("- [ ] одинаково\n");
 });
+it("checklist offsets count UTF-16 code units and skip a marker that is not the item's own", async () => {
+  const source = "- [ ] A 😀😀\n- [ ] Бета\n- [x]: /ссылка\n  [ ] не пункт";
+  const changed = vi.fn();page = await mountWorkspace(<MarkdownContent body={source} onChecklistToggle={changed} />);
+  const boxes = [...page.container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
+  expect(boxes.map(box => box.disabled)).toEqual([false, false, true]);
+  await act(async () => boxes[1].click());expect(changed).toHaveBeenLastCalledWith(source.indexOf("[ ] Бета") + 1, true);
+  expect(source.indexOf("[ ] Бета") + 1).toBe(16);
+});
 it("checklist stays read-only without explicit callback, while disabled and for a pending marker only", async () => {
   const changed = vi.fn();page = await mountWorkspace(<><MarkdownContent body="- [ ] тест" /><MarkdownContent body="- [x] тест" onChecklistToggle={changed} checklistDisabled /><MarkdownContent body={"- [ ] первый\n- [ ] второй"} onChecklistToggle={changed} checklistPending={[3]} /></>);
   const boxes = [...page.container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];expect(boxes.map(box => box.disabled)).toEqual([true, true, true, false]);

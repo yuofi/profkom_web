@@ -46,7 +46,8 @@ function remarkChecklistPositions({ source }: { source: string }) {
         const end = item.position?.end.offset;
         if (start !== undefined && end !== undefined) {
           const marker = source.slice(start, end).match(/^([ \t]*(?:[-+*]|\d+[.)])[ \t]+\[)([ xX])\]/);
-          if (marker) item.data = { ...item.data, hProperties: { ...item.data?.hProperties, "data-checklist-offset": start + marker[1].length, "data-checklist-label": item.children[0] ? text(item.children[0]) : "Пункт чеклиста" } };
+          // The marker must be this item's own: a link definition such as `[x]: /url` may come first.
+          if (marker && (marker[2] !== " ") === item.checked) item.data = { ...item.data, hProperties: { ...item.data?.hProperties, "data-checklist-offset": start + marker[1].length, "data-checklist-label": item.children[0] ? text(item.children[0]) : "Пункт чеклиста" } };
         }
       }
       if ("children" in node) node.children.forEach(child => visit(child as RootContent));
@@ -121,7 +122,8 @@ const components: Components = {
       <Suspense fallback={<code className={className}>{String(children)}</code>}><MarkdownCode className={className} source={String(children)} /></Suspense>
     ) : <code className={className}>{String(children)}</code>,
 };
-/** A checklist mark is one source offset: the reader command flips that marker only. */
+/** A checklist mark is one source offset (a string index of `body`, in UTF-16 code units as
+ * micromark counts them): the reader command flips that marker only. */
 export interface MarkdownContentProps { body: string; onChecklistToggle?: (offset: number, checked: boolean) => void; checklistDisabled?: boolean; checklistPending?: readonly number[]; mentionUsers?: UserRef[] }
 export function MarkdownContent({ body, onChecklistToggle, checklistDisabled = false, checklistPending, mentionUsers }: MarkdownContentProps) {
   const needsMath = body.includes("$"), math = useMath(needsMath);

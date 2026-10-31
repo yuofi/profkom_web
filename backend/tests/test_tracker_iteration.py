@@ -116,6 +116,27 @@ def test_markdown_toggle_by_offset_covers_nested_quoted_and_ordered_items(client
     assert task(client,w)['description']['body']==unmarked
 
 
+def test_markdown_toggle_offset_counts_utf16_code_units_like_the_browser(client,work):
+    w=work;t=task(client,w);path='/api/tasks/'+t['task_id']
+    body='- [ ] A '+'😀'*11+'\n- [ ] Бета\n- [ ] Гамма\n'
+    r=client.patch(path,headers=w['master'].headers,json={'expected_revision':t['revision'],'description':body});assert r.status_code==200,r.text
+    version=r.json()['revision']
+    utf16=lambda text:len(text.encode('utf-16-le'))//2
+    beta=utf16(body[:body.index('[ ] Бета')+1])
+    assert beta==34 and body.index('[ ] Гамма')+1==34
+    for offset in (9,beta-1,beta+1,utf16(body)+1):
+        r=client.post(path+'/description-checklist',headers=w['member'].headers,json={'expected_revision':version,'offset':offset,'checked':True})
+        assert r.status_code==403 and r.json()['detail']['code']=='checklist_only',r.text
+    r=client.post(path+'/description-checklist',headers=w['member'].headers,json={'expected_revision':version,'offset':beta,'checked':True})
+    assert r.status_code==200,r.text
+    assert r.json()['description']['body']==body.replace('- [ ] Бета','- [x] Бета') and r.json()['revision']==version+1
+    head='🔥 Срочно 🚀\n\n- [ ] Первый шаг'
+    r=client.patch(path,headers=w['master'].headers,json={'expected_revision':version+1,'description':head});assert r.status_code==200,r.text
+    r=client.post(path+'/description-checklist',headers=w['member'].headers,json={'expected_revision':version+2,'offset':17,'checked':True})
+    assert r.status_code==200,r.text
+    assert task(client,w)['description']['body']=='🔥 Срочно 🚀\n\n- [x] Первый шаг'
+
+
 def test_mention_edit_does_not_revoke_and_invalid_targets_roll_back_comment(client,work):
     w=work;t=task(client,w);path='/api/tasks/'+t['task_id']
     response=client.post(path+'/comments',headers=w['member'].headers,json={'content':'Останется комментарий','mentioned_user_ids':[9999999]})

@@ -39,7 +39,8 @@ export const tasksApi = {
   removeAssignee: (id: string, userId: number, data: Revision) => request<Task>("post", `/tasks/${idPath(id)}/assignees/${idPath(userId)}/remove`, data),
   assign: (id: string, userId: number, data: Revision) => request<Task>("post", `/tasks/${idPath(id)}/assignees/${idPath(userId)}/add`, data),
   removeWatcher: (id: string, userId: number, data: Revision) => request<Task>("post", `/tasks/${idPath(id)}/watchers/${idPath(userId)}/remove`, data),
-  /** Marks one Markdown task marker of the description by its source offset. */
+  /** Marks one Markdown task marker of the description by its source offset: a JavaScript
+   * string index (UTF-16 code units, an emoji counts twice), which the server maps itself. */
   descriptionChecklist: (id: string, data: Revision & { offset: number; checked: boolean }) => request<Task>("post", `/tasks/${idPath(id)}/description-checklist`, data),
   history: (id: string) => request<Page<TaskHistoryEvent>>("get", `/tasks/${idPath(id)}/history`),
   get: (id: string) => request<Task>("get", `/tasks/${idPath(id)}`),

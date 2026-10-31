@@ -86,6 +86,16 @@ describe("API commands through mock transport", () => {
     });
     expect((await tasksApi.assessment(own.assignment_id)).hours).toBe(4);
   });
+  it("counts a description mark after emoji in UTF-16 code units, as the server does", async () => {
+    useMock("chair");
+    const task = await tasksApi.get("task-1");
+    const body = "- [ ] A " + "😀".repeat(11) + "\n- [ ] Бета\n- [ ] Гамма\n";
+    const edited = await tasksApi.update(task.task_id, { expected_revision: task.revision, description: richText(body) });
+    for (const offset of [9, 23, 35])
+      await expect(tasksApi.descriptionChecklist(task.task_id, { expected_revision: edited.revision, offset, checked: true })).rejects.toMatchObject({ status: 403 });
+    const marked = await tasksApi.descriptionChecklist(task.task_id, { expected_revision: edited.revision, offset: 34, checked: true });
+    expect(marked.description.body).toBe(body.replace("- [ ] Бета", "- [x] Бета"));
+  });
   it("lets the HR master read every task as well as the KKR (АВ-3)", async () => {
     useMock("hr");
     expect((await tasksApi.list({ mine: false })).items.map((x) => x.task_id)).toContain("task-1");

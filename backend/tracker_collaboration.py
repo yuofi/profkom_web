@@ -281,7 +281,7 @@ class MentionDecisionIn(Command):
 class DescriptionChecklistIn(Command):
     expected_revision:int=Field(ge=1)
     body:Optional[str]=Field(None,max_length=1000000)
-    offset:Optional[int]=Field(None,ge=0,le=1000000)
+    offset:Optional[int]=Field(None,ge=0,le=2000000,description="Position of the [ ]/[x] mark in the description, in UTF-16 code units (a JavaScript string index).")
     checked:Optional[bool]=Field(None,strict=True)
 
     @model_validator(mode="after")
@@ -342,23 +342,26 @@ def register_routes(router):
 def toggle_description_checklist(task_id,uid,expected_revision,body=None,offset=None,checked=None):
     """Reader command changes only checkbox marker bytes, never description text.
 
-    The client names one marker by its source offset (or, compatibly, sends the
-    whole body); either way only bytes of task markers outside code may change.
+    The client names one marker by its source offset in UTF-16 code units, as a
+    browser indexes the text (or, compatibly, sends the whole body); either way only
+    bytes of task markers outside code may change.
     """
     from tracker import visible_task,activity,is_control_task
-    from markdown_checklist import checklist_marker_offsets
+    from markdown_checklist import checklist_marker_offsets,checklist_marker_utf16_offsets
     with db.atomic():
       with db._session() as session:
         task=visible_task(session,task_id,uid)
         if task.revision!=expected_revision:raise revision_conflict()
         if is_control_task(session,task_id):raise Forbidden('Control epic content is managed automatically')
         content=json.loads(task.description_json or '{}');before=content.get('body','')
-        markers=checklist_marker_offsets(before)
         if offset is not None:
-            if offset not in markers:raise Forbidden('Only checklist marks may be changed','checklist_only')
-            body=before if (before[offset]!=' ')==checked else before[:offset]+('x' if checked else ' ')+before[offset+1:]
-        elif len(body)!=len(before) or any(old!=new and (index not in markers or new not in ' xX') for index,(old,new) in enumerate(zip(before,body))):
-            raise Forbidden('Only checklist marks may be changed','checklist_only')
+            index=checklist_marker_utf16_offsets(before).get(offset)
+            if index is None:raise Forbidden('Only checklist marks may be changed','checklist_only')
+            body=before if (before[index]!=' ')==checked else before[:index]+('x' if checked else ' ')+before[index+1:]
+        else:
+            markers=checklist_marker_offsets(before)
+            if len(body)!=len(before) or any(old!=new and (index not in markers or new not in ' xX') for index,(old,new) in enumerate(zip(before,body))):
+                raise Forbidden('Only checklist marks may be changed','checklist_only')
         if before!=body:
             content['body']=body;task.description_json=json.dumps(content,ensure_ascii=False);task.revision+=1
             activity(session,task,'task_updated',uid,'Изменены отметки чеклиста',changes=[dict(field='description',label='Описание',before=before,after=body)])

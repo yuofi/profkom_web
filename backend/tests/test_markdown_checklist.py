@@ -1,10 +1,10 @@
 """Task markers a reader may toggle in a Markdown description.
 
 Expected offsets come from the frontend parser (react-markdown + remark-gfm + remark-math):
-every checkbox it renders must be accepted, and markers inside code or math are refused.
+every checkbox it renders must be accepted, and markers inside code, math or HTML are refused.
 """
 import pytest
-from markdown_checklist import checklist_marker_offsets
+from markdown_checklist import checklist_marker_offsets, checklist_marker_utf16_offsets
 
 
 CASES = [
@@ -16,6 +16,16 @@ CASES = [
     ("- a\n- - [ ] Вложенный в той же строке\n-     [ ] Код в пункте\n- [ ]\n- [ ]  два пробела", [9, 70]),
     ("- a\r\n    - [ ] CRLF\r\n> - [ ] c", [12, 26]),
     ("$$x$$\n- [ ] После строчной формулы\n* [ ]\nленивое продолжение", [9, 38]),
+    # A setext underline makes a heading, not a task, and ends the paragraph.
+    ("Заголовок\n===\n2. [ ] После заголовка\n- [ ] Пункт\n  ---\n- [ ] Снова", [18, 58]),
+    # A table ends the paragraph without interrupting; a task line as its header is no task.
+    ("| a | b |\n|---|:-:|\n- \n  [ ] Не задача\n2. [ ] После таблицы\n- [ ] Шапка\n  | - |", [43]),
+    # HTML blocks render as nothing: markers inside them stay literal text.
+    ("<div>\n- [ ] В HTML\n\n- [ ] После HTML\n<!-- комментарий\n- [ ] В комментарии\n-->\n- [ ] После комментария", [23, 81]),
+    ("- [ ] Тег\n<span>\n- [ ] Ещё\n<br/>\n  - [ ] В HTML пункта", [3, 20]),
+    # Footnote content is indented by four; indented code that may continue keeps a later
+    # list from starting with 2, unless it began on a line that left a container.
+    ("[^1]: Сноска\n    - [ ] В сноске\n\nТекст\n\n    code\n\n2. [ ] После кода\n>\n    code\n2. [ ] После ленивого кода", [20, 83]),
 ]
 
 
@@ -29,3 +39,17 @@ def test_marker_offsets_match_rendered_checkboxes(body, expected):
 def test_text_that_only_looks_like_a_marker_is_refused():
     for body in ("Пример - [ ] в строке", "    - [ ] код", "```\n- [ ] код\n```", "- [ ]", "a\n2. [ ] продолжение абзаца"):
         assert checklist_marker_offsets(body) == set(), body
+
+
+def test_browser_offsets_count_utf16_code_units():
+    # A browser counts 😀 (outside the Basic Multilingual Plane) as two string positions.
+    body = "- [ ] A " + "😀" * 11 + "\n- [ ] Бета\n- [ ] Гамма\n"
+    markers = checklist_marker_utf16_offsets(body)
+    assert markers == {3: 3, 34: 23, 45: 34}
+    assert body[markers[34] - 1:markers[34] + 6] == "[ ] Бет"
+    assert all(body[index] == " " for index in markers.values())
+    # An offset inside a surrogate pair or between the two counts is no marker.
+    assert not {9, 10, 23, 33, 35} & set(markers)
+    plain = "- [ ] Первый\n- [X] Второй"
+    assert checklist_marker_utf16_offsets(plain) == {offset: offset for offset in checklist_marker_offsets(plain)}
+    assert checklist_marker_utf16_offsets("🔥 Срочно 🚀\n\n- [ ] Первый шаг") == {17: 15}

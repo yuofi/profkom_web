@@ -175,6 +175,23 @@ it("saves a checklist mark through the description revision and refreshes its hi
   await click("История");await waitForPage(page!);expect(historyApi.list).toHaveBeenCalledWith("task", task.task_id);
 });
 
+it("names a mark after emoji by its UTF-16 offset, the unit the server maps", async () => {
+  const body = "- [ ] A " + "😀".repeat(11) + "\n- [ ] Бета\n- [ ] Гамма\n";
+  let task = makeTask({ description: richText(body), revision: 8, capabilities: ["read_task", "toggle_task_checklist"] });
+  const update = vi.spyOn(tasksApi, "descriptionChecklist").mockImplementation(async (_id, data) => {
+    const text = task.description.body;task = { ...task, revision: 9, description: richText(text.slice(0, data.offset) + (data.checked ? "x" : " ") + text.slice(data.offset + 1)) };return task;
+  });
+  await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async () => task);
+  const boxes = () => [...page!.container.querySelectorAll<HTMLInputElement>('section[aria-label="Описание задачи"] input[type="checkbox"]')];
+  const beta = boxes().find(box => box.getAttribute("aria-label") === "Отметить: Бета")!;
+  await act(async () => beta.click());await waitForPage(page!, () => boxes()[1]?.checked === true);
+  // 34 is a JavaScript index; counted in code points (each emoji once) the mark is at 23.
+  expect(update).toHaveBeenCalledWith(task.task_id, { expected_revision: 8, offset: 34, checked: true });
+  expect([...body.slice(0, 34)].length).toBe(23);
+  expect(task.description.body).toBe(body.replace("- [ ] Бета", "- [x] Бета"));
+  expect(boxes().map(box => box.checked)).toEqual([false, true, false]);
+});
+
 it("rapid marks in the description and the checklist all save in order with own revisions", async () => {
   let task = makeTask({ description: richText("- [ ] Первый\n- [ ] Второй"), revision: 8, checklist: [{ item_id: "one", text: "Пункт", checked: false }, { item_id: "two", text: "Ещё", checked: false }], capabilities: ["read_task", "toggle_task_checklist"] });
   const releases: (() => void)[] = [];const later = () => new Promise<void>(resolve => releases.push(resolve));
