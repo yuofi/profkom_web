@@ -21,9 +21,10 @@ export function TrackerGantt({ tasks, range, month, onMonth, zoom, onZoom }: { t
     const y1 = from * ROW + ROW / 2, y2 = to * ROW + ROW / 2, bend = Math.min(length - 2, Math.max(end + 10, start - 12));
     return { id: link.link_id, d: `M ${end} ${y1} H ${bend} V ${y2} H ${start}` };
   }));
+  const lastTitle = dayTitle.format(dayMillis(range.last));
   const style = { "--timeline-width": `${length}px`, "--day-width": `${dayWidth}px`, "--plan-row-height": `${ROW}px` } as CSSProperties;
   return <section className={s.gantt} aria-label="Диаграмма Гантта"><TrackerPlanningNavigation month={month} onMonth={onMonth}><div className={s.zoom} aria-label="Масштаб диаграммы">{(["week", "month"] as const).map(value => <button key={value} type="button" aria-pressed={zoom === value} onClick={() => onZoom(value)}>{value === "week" ? "Недели" : "Месяцы"}</button>)}</div></TrackerPlanningNavigation>
-    <p className={s.caption}>План на {dayTitle.format(firstMs)} — {dayTitle.format(dayMillis(range.last))}. Ромб обозначает веху или дедлайн без заданного начала; линии — зависимости, доступные в этом периоде.</p>
+    <p className={s.caption}>План на {dayTitle.format(firstMs)} — {lastTitle}{lastTitle.endsWith(".") ? "" : "."} Ромб обозначает веху или дедлайн без заданного начала; линии — зависимости, доступные в этом периоде.</p>
     <div className={s.ganttScroll} tabIndex={0} role="region" aria-label="План задач, прокрутка по горизонтали"><div className={s.ganttCanvas} style={style}>
       <div className={s.ganttHeader}><div className={s.ganttTaskHeader}>Задача</div><div className={s.timeHeader}>{range.days.map((day, i) => {
         const tick = zoom === "week" ? true : day.endsWith("-01") || i === 0 || [8, 15, 22].includes(Number(day.slice(-2)));

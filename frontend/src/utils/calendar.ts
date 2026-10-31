@@ -12,6 +12,8 @@ export function shiftMonth(month: string, offset: number) {
 export const monthTitle = (month: string) => new Intl.DateTimeFormat("ru-RU", {
   month: "long", year: "numeric", timeZone: "UTC",
 }).format(new Date(`${normalizeMonth(month)}-15T12:00:00Z`)).replace(/\s*г\.$/, "").trim();
+/** Only the first letter of a date title is upper-case: «Октябрь 2026», «Пн, 26 окт.». */
+export const capitalizeFirst = (text: string) => text ? text[0].toLocaleUpperCase("ru") + text.slice(1) : text;
 export function monthDays(month: string) {
   month = normalizeMonth(month);
   const [year, number] = month.split("-").map(Number);

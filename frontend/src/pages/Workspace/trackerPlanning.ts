@@ -6,7 +6,6 @@ export const taskTypeNames: Record<string, string> = { task: "Задача", mil
 export const taskPriorityNames: Record<string, string> = { low: "Низкий", normal: "Средний", high: "Высокий", urgent: "Срочный" };
 const dayFormat = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Moscow", year: "numeric", month: "2-digit", day: "2-digit" });
 export const dayTitle = new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", day: "numeric", month: "long", year: "numeric" });
-export const monthTitle = new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", month: "long", year: "numeric" });
 export function moscowDay(value: string | number | Date | null = Date.now()): string {
   if (value === null) return "";
   const date = new Date(value);

@@ -5,7 +5,7 @@ import { InteractiveChip } from "../../components/Workspace/InteractiveChip";
 import type { CalendarItem } from "../../utils/api/contract";
 import { getMeetingRoute, getSeasonRoute, targetRoute } from "../../utils/routes";
 import { displayTime } from "../../utils/dates";
-import { moscowDay, occursOnDay } from "../../utils/calendar";
+import { capitalizeFirst, moscowDay, occursOnDay } from "../../utils/calendar";
 import { toneStyle, type Tone } from "../../components/Workspace/sections";
 import { eventPeriod } from "./eventDates";
 import { dayStart, timedCalendarItems, type TimedCalendarItem } from "./calendarLayout";
@@ -61,7 +61,7 @@ export function CalendarTimeGrid({ days, items, seasonTitle, today, compact = fa
   }, [compact, key]);
   const nowDay = moscowDay(new Date(now).toISOString()), nowMinute = (now - dayStart(nowDay)) / 60000;
   const style = { "--calendar-days": days.length, "--calendar-min-width": days.length > 1 ? "780px" : "0px" } as CSSProperties;
-  const dayLabel = (day: string) => new Intl.DateTimeFormat("ru-RU", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/Moscow" }).format(dayStart(day));
+  const dayLabel = (day: string) => capitalizeFirst(new Intl.DateTimeFormat("ru-RU", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/Moscow" }).format(dayStart(day)));
   return <section className={`${c.timelineFrame} ${compact ? c.timelineCompact : ""}`} aria-label={days.length > 1 ? "Календарь недели" : "Календарь дня"} style={style}>
     <div className={c.timelineOverflow}><div className={c.timelineInner}>
       <div className={c.timelineHeader}><span>МСК</span>{days.map(day => <strong key={day} aria-current={day === today ? "date" : undefined} aria-label={day}>{dayLabel(day)}</strong>)}</div>

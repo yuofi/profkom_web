@@ -12,6 +12,7 @@ import { tasksApi } from "../../utils/api/tasks.api";
 import { ApiError } from "../../utils/api/request";
 import { mountWorkspace, waitForPage } from "../../test/workspace";
 import { loadPlanningTasks, moscowDay, planningRange, taskPlanning } from "./trackerPlanning";
+import { calendarTitle } from "./calendarLayout";
 import type { Task, TaskListPageResponse } from "../../utils/api/contract";
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let transport: ReturnType<typeof installMockTransport> | undefined;
@@ -94,4 +95,12 @@ it("requests a half-open period that includes its final millisecond and excludes
   });
   expect((await loadPlanningTasks({}, planningRange("2026-10", "calendar"))).map(item => item.task_id)).toEqual([last.task_id]);
   expect(get).toHaveBeenCalledWith(expect.objectContaining({ date_to: "2026-11-08T21:00:00.000Z" }));
+});
+it("capitalizes only the first letter of plan titles and ends the Gantt period with one dot", async () => {
+  page = await mountWorkspace(<TrackerGantt tasks={[task()]} range={planningRange("2026-10", "gantt")} month="2026-10" onMonth={() => {}} zoom="week" onZoom={() => {}} />);await waitForPage(page);
+  expect(page.container.querySelector("h2")?.textContent).toBe("Октябрь 2026");
+  const caption = [...page.container.querySelectorAll("p")].find(node => node.textContent?.startsWith("План на"))!.textContent!;
+  expect(caption).toMatch(/31 октября 2026\sг\. Ромб/);expect(caption).not.toContain("г..");
+  expect(calendarTitle("month", "2026-11-02")).toBe("Ноябрь 2026");
+  expect(calendarTitle("week", "2026-11-04")).toMatch(/^2.+8 ноября 2026\sг\.$/);expect(calendarTitle("day", "2026-10-31")).toMatch(/^31 октября 2026\sг\.$/);
 });

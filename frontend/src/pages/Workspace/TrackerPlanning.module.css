@@ -1,7 +1,7 @@
 .calendar,.gantt { display:grid;gap:14px;min-width:0; }
 .toolbar { display:flex;align-items:center;gap:12px;flex-wrap:wrap;min-width:0; }
 .monthControls { display:flex;align-items:center;gap:10px;min-width:0; }
-.monthControls h2 { text-transform:capitalize;font-size:21px;font-weight:600;margin:0;min-width:180px;text-align:center; }
+.monthControls h2 { font-size:21px;font-weight:600;margin:0;min-width:180px;text-align:center; }
 .monthControls button,.todayButton,.zoom button { border:1px solid var(--outline-variant);border-radius:9px;background:var(--surface-container-low);color:var(--on-surface);padding:9px 13px;font:inherit;cursor:pointer; }
 .monthControls button { font-size:24px;line-height:1;padding:7px 13px; }
 .monthControls button:hover,.todayButton:hover,.zoom button:hover { background:var(--surface-container-high);color:var(--primary); }

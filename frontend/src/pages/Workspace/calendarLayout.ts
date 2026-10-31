@@ -1,5 +1,5 @@
 import type { CalendarItem } from "../../utils/api/contract";
-import { monthDays, monthTitle, moscowDay, occursOnDay, shiftMonth } from "../../utils/calendar";
+import { capitalizeFirst, monthDays, monthTitle, moscowDay, occursOnDay, shiftMonth } from "../../utils/calendar";
 
 export type CalendarView = "day" | "week" | "month";
 export const calendarView = (value: string | null): CalendarView => value === "day" || value === "week" ? value : "month";
@@ -21,7 +21,7 @@ export function shiftCalendarDate(date: string, view: CalendarView, delta: numbe
   return `${month}-${String(Math.min(Number(date.slice(-2)), monthDays(month).days.length)).padStart(2, "0")}`;
 }
 export function calendarTitle(view: CalendarView, date: string) {
-  if (view === "month") return monthTitle(date.slice(0, 7));
+  if (view === "month") return capitalizeFirst(monthTitle(date.slice(0, 7)));
   const format = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Moscow" });
   const range = calendarWindow(view, date);
   return view === "day" ? format.format(dayStart(date)) : format.formatRange(dayStart(range.days[0]), dayStart(range.days.at(-1)!));

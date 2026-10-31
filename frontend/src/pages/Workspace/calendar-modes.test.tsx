@@ -33,6 +33,8 @@ it.each([
   expect(page.container.querySelector('[class*="timelineBody"]')).not.toBeNull();expect(page.container.querySelector('[class*="timelineScroller"]')).toBeNull();
   expect(page.container.querySelector('[aria-label="Шкала часов"]')?.children).toHaveLength(24);
   expect(page.container.textContent).toContain("00:00");expect(page.container.textContent).toContain("23:00");
+  // Only the weekday is upper-case; the month abbreviation stays lower-case.
+  expect(page.container.querySelector('[aria-label="2026-10-29"]')?.textContent).toBe("Чт, 29 окт.");
   expect(internalScroll).not.toHaveBeenCalled();expect(pageScroll).not.toHaveBeenCalled();
 });
 it("preserves Today hour scrolling through data refresh and only recenters for a new day", async () => {
