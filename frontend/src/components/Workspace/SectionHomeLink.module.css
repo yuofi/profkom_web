@@ -3,3 +3,5 @@
 .link.link:hover,.link.link:focus-visible { border-style:solid;background:color-mix(in srgb,currentColor 8%,transparent);opacity:1;text-decoration:none; }
 .link.link:focus-visible { outline:2px solid currentColor;outline-offset:4px; }
 @media(prefers-reduced-motion:reduce) { .link { transition:none; } }
+/* The current page: the same stamp, without the link's hover. */
+.link.current:hover { border-style:dashed;background:transparent;opacity:.8; }
