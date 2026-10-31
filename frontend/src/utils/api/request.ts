@@ -37,8 +37,9 @@ export function normalizeApiError(error: unknown): ApiError {
       /[А-Яа-яЁё]/.test(error.message ?? "") ? error.message! : "Запрос отменён",
     );
   if (axios.isAxiosError(error)) {
-    // No answer in time is not a lost connection: the server may have done it (GL-07).
-    if (!error.response && (error.code === "ECONNABORTED" || error.code === "ETIMEDOUT"))
+    // No answer in time is not a lost connection: the server may have done it (GL-07). The
+    // XHR adapter gives ECONNABORTED to a request the browser aborted too, without "timeout".
+    if (!error.response && (error.code === "ETIMEDOUT" || (error.code === "ECONNABORTED" && /timeout/i.test(error.message))))
       return new ApiError("Сервер долго отвечает", 0, "timeout");
     if (!error.response) return new ApiError("Нет связи с сервером", 0, "network_error");
     const status = error.response?.status ?? 0;

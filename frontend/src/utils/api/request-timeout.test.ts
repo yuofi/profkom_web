@@ -1,7 +1,9 @@
+import { AxiosError } from "axios";
 import MockAdapter from "axios-mock-adapter";
 import { afterEach, expect, it } from "vitest";
 import { api, READ_TIMEOUT_MS, WRITE_TIMEOUT_MS } from "./index";
 import { userMessage } from "./messages";
+import { normalizeApiError } from "./request";
 import { tasksApi } from "./tasks.api";
 import { requestKey, type RequestKey } from "../clientId";
 
@@ -25,6 +27,10 @@ it("GL-07: no answer in time asks to check the result instead of blaming the con
   const down = await api.post("/down", {}).catch((error: unknown) => error);
   expect(userMessage(slow)).toBe("Сервер долго отвечает. Проверьте результат перед повтором.");
   expect(userMessage(down)).toBe("Нет связи с сервером. Проверьте подключение и повторите.");
+  // The XHR adapter uses ECONNABORTED for a timeout and for a request the browser aborted.
+  expect(normalizeApiError(new AxiosError("timeout of 60000ms exceeded", "ECONNABORTED")).code).toBe("timeout");
+  expect(normalizeApiError(new AxiosError("timeout of 60000ms exceeded", "ETIMEDOUT")).code).toBe("timeout");
+  expect(normalizeApiError(new AxiosError("Request aborted", "ECONNABORTED")).code).toBe("network_error");
 });
 
 it("GL-07: a repeat of the same comment carries the same key, a changed one a new key", async () => {
