@@ -18,7 +18,7 @@ export function TaskPlanningFields({ value, onChange, disabled = false, deadline
     {value.task_type !== "milestone" ? <label className={w.field}>Плановое начало, МСК<input name="starts_at" type="datetime-local" value={value.starts} max={deadline && Number.isFinite(Date.parse(deadline)) ? moscowInput(deadline) : undefined} disabled={disabled} onChange={event => onChange({ ...value, starts: event.target.value })} /></label> : <p className={s.hint}>Веха — контрольная точка по дедлайну. Дата начала ей не нужна.</p>}
   </div>;
 }
-export function TaskPlanningEditor({ task, onClose }: { task: Task; onClose: () => void }) {
+export function TaskPlanningEditor({ task, onClose, onSaved }: { task: Task; onClose: () => void; onSaved?: () => void }) {
   const [draft, setDraft] = useState(() => planningDraft(task)), [busy, setBusy] = useState(false);
   const { perform, refresh } = useWorkspaceActions();
   return <TrackerTaskDialog title="Планирование задачи" onClose={onClose} busy={busy}>
@@ -27,7 +27,7 @@ export function TaskPlanningEditor({ task, onClose }: { task: Task; onClose: () 
       onSubmit={async (_, expectedRevision) => {
         const payload = planningPayload(draft);
         if (payload.starts_at && task.deadline_at && Date.parse(payload.starts_at) > Date.parse(task.deadline_at)) throw Error("Плановое начало не может быть позже дедлайна");
-        setBusy(true);try { return await perform(() => tasksApi.update(task.task_id, { expected_revision: expectedRevision!, ...payload })); } finally { setBusy(false); }
+        setBusy(true);try { const saved = await perform(() => tasksApi.update(task.task_id, { expected_revision: expectedRevision!, ...payload }));onSaved?.();onClose();return saved; } finally { setBusy(false); }
       }}>
       <TaskPlanningFields value={draft} onChange={setDraft} disabled={busy} deadline={task.deadline_at} />
       <p className={s.hint}>Эпик объединяет работу по результату, веха — по сроку. Добавляйте задачи к ним через связи. Плановые даты не меняют учёт ККР.</p>

@@ -311,11 +311,12 @@ it("selects and clears a cross-queue parent in one combobox with revision protec
   expect(dialog.textContent).toContain(other.title);expect(dialog.textContent).not.toContain("Другой сезон");expect([...dialog.querySelectorAll('[role="option"]')]).toHaveLength(1);
   await change(input, "WEB");await waitForPage(page!);expect(candidates).toHaveBeenLastCalledWith({ season_id: task.season_id, q: "WEB", limit: 100 });
   await act(async () => dialog.querySelector<HTMLElement>('[role="option"]')!.click());await submit(dialog.querySelector("form")!);await waitForPage(page!);
-  expect(update).toHaveBeenLastCalledWith(task.task_id, { expected_revision: task.revision - 1, parent_task_id: other.task_id });expect(page!.container.querySelector('[aria-label="Путь задачи"]')?.textContent).toContain(other.title);
+  expect(update).toHaveBeenLastCalledWith(task.task_id, { expected_revision: task.revision - 1, parent_task_id: other.task_id });expect(dialog.isConnected).toBe(false);expect(page!.container.textContent).toContain("Изменения сохранены");expect(page!.container.querySelector('[aria-label="Путь задачи"]')?.textContent).toContain(other.title);
   const trail = page!.container.querySelector('[aria-label="Путь задачи"]')!;
   expect([...trail.querySelectorAll("a")].map(link => [link.textContent, link.getAttribute("href")])).toEqual([["Дизайн", "/tasks/queues/queue-design"], [other.title, "/tasks/other-task"]]);
   expect(trail.querySelector('[aria-current="page"]')?.textContent).toBe(task.task_key);
-  await act(async () => dialog.querySelector<HTMLButtonElement>('[aria-label="Убрать родительскую задачу"]')!.click());await submit(dialog.querySelector("form")!);await waitForPage(page!);
+  await click("Изменить родительскую задачу");const reopened = page!.container.querySelector("dialog")!;
+  await act(async () => reopened.querySelector<HTMLButtonElement>('[aria-label="Убрать родительскую задачу"]')!.click());await submit(reopened.querySelector("form")!);await waitForPage(page!);
   expect(update).toHaveBeenLastCalledWith(task.task_id, { expected_revision: task.revision - 1, parent_task_id: null });
 });
 
@@ -391,4 +392,17 @@ it("readers can watch and unwatch independently of the accounting controls", asy
   const unwatch = vi.spyOn(tasksApi, "unwatch").mockImplementation(async () => { task = { ...task, watchers: [], revision: task.revision + 1 };return task; });
   await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async () => task);const first = task.revision;await click("Наблюдать");await waitForPage(page!);expect(watch).toHaveBeenCalledWith(task.task_id, { expected_revision: first });
   const second = task.revision;await click("Перестать наблюдать");await waitForPage(page!);expect(unwatch).toHaveBeenCalledWith(task.task_id, { expected_revision: second });expect(page!.container.textContent).not.toContain("Учёт работы и ККР");
+});
+it("planning and file dialogs close after a successful save and the card confirms it", async () => {
+  const file: FileRef = { file_id: "file-brief", name: "brief.pdf", mime_type: "application/pdf", size_bytes: 12 };
+  let task = makeTask({ capabilities: ["read_task", "edit_task_metadata", "attach_task_file"], priority: "normal", attachments: [file] });
+  const update = vi.spyOn(tasksApi, "update").mockImplementation(async (_id, payload) => (task = { ...task, ...("priority" in payload ? { priority: payload.priority } : {}), ...("file_ids" in payload ? { attachments: [] } : {}), revision: task.revision + 1 }));
+  await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async () => task);
+  await click("Изменить параметры");let dialog = page!.container.querySelector("dialog")!;
+  await change(dialog.querySelector<HTMLSelectElement>('[name="priority"]')!, "urgent");await submit(dialog.querySelector("form")!);await waitForPage(page!);
+  expect(update).toHaveBeenCalledTimes(1);expect(dialog.isConnected).toBe(false);expect(page!.container.querySelector("dialog")).toBeNull();
+  expect(page!.container.textContent).toContain("Изменения сохранены");
+  await click("Прикрепить файлы");dialog = page!.container.querySelector("dialog")!;
+  await click("Убрать", dialog);await submit(dialog.querySelector("form")!);await waitForPage(page!);
+  expect(update).toHaveBeenLastCalledWith(task.task_id, { expected_revision: task.revision - 1, file_ids: [] });expect(page!.container.querySelector("dialog")).toBeNull();
 });

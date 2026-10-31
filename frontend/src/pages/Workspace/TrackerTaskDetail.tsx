@@ -57,7 +57,7 @@ export function TrackerTaskPage() {
 }
 function TaskContent({ task, assignmentId, accountingRequested=false, returnSeason }: { task: Task; assignmentId: string | null; accountingRequested?:boolean; returnSeason: string | null }) {
   const [editor, setEditor] = useState<"description" | "files" | "parent" | "planning" | null>(null);
-  const [copied, setCopied] = useState(""), [manualLink, setManualLink] = useState(""), [linking, setLinking] = useState(false);
+  const [copied, setCopied] = useState(""), [manualLink, setManualLink] = useState(""), [linking, setLinking] = useState(false), [saved, setSaved] = useState("");
   const [kkrOpen,setKkrOpen]=useState(!!assignmentId||accountingRequested);
   const [checklistPending, setChecklistPending] = useState<readonly number[]>([]), [checklistError, setChecklistError] = useState("");
   const checklistSaving = useRef(new Set<number>()), run = useTaskCommand(task);
@@ -75,6 +75,7 @@ function TaskContent({ task, assignmentId, accountingRequested=false, returnSeas
   useEffect(() => { const interval = window.setInterval(() => setNow(Date.now()), 60000);return () => window.clearInterval(interval); }, []);
   const reviewNotes = [...new Set(task.assignments.map(assignment => assignment.review_note?.trim()).filter((note): note is string => !!note))];
   const hasAccounting = taskStatus(task)==="closed" && can(task,"view_assessment_inputs");
+  const savedEditor = () => { setCopied("");setSaved("Изменения сохранены"); };
   return <>
     <BrandedHeader className={s.header}>
       <TrackerHomeLink className={s.brandLabel} />
@@ -82,12 +83,12 @@ function TaskContent({ task, assignmentId, accountingRequested=false, returnSeas
       <div className={s.titleRow}><h1 className={w.title}>{task.title}</h1><div className={s.headerTools}>
         <button type="button" className={s.iconButton} aria-label="Скопировать ссылку на задачу" title="Скопировать ссылку" onClick={async () => {
           const link = new URL(getTaskRoute(task.task_id), window.location.origin).href;
-          if (await copyText(link)) { setManualLink("");setCopied("Ссылка скопирована"); } else { setCopied("");setManualLink(link); }
+          setSaved("");if (await copyText(link)) { setManualLink("");setCopied("Ссылка скопирована"); } else { setCopied("");setManualLink(link); }
         }}><Glyph name="share" /></button>
         <TrackerFavoriteButton task={task} onBrand compact />
       </div></div>
       <div className={s.metadata}><span className={s.taskKey}>{task.task_key ?? "Задача"}</span><span>Создана: {task.created_at ? displayDate(task.created_at) : "дата не указана"}</span><span>Обновлена: {task.updated_at ? displayDate(task.updated_at) : "дата не зафиксирована"}</span></div>
-      {copied && <p className={`${w.muted} ${s.headerNotice}`} role="status">{copied}</p>}
+      {(copied || saved) && <p className={`${w.muted} ${s.headerNotice}`} role="status">{copied || saved}</p>}
       {manualLink && <label className={s.manualLink}>Скопируйте ссылку вручную<input readOnly value={manualLink} autoFocus onFocus={event => event.currentTarget.select()} onKeyDown={event => { if (event.key === "Escape") setManualLink(""); }} /></label>}
       {returnSeason && <Link className={s.backLink} to={getSeasonRoute(returnSeason)}>← К закрытию сезона</Link>}
       <TaskStatusMenu task={task} variant="actions" onClosed={()=>setKkrOpen(true)} />
@@ -127,27 +128,27 @@ function TaskContent({ task, assignmentId, accountingRequested=false, returnSeas
       </dl></details></aside>
     </div>
     {kkrOpen && hasAccounting && <UnsavedChangesScope><TrackerTaskDialog title="Учёт работы и ККР" onClose={()=>setKkrOpen(false)}><UnifiedKkrEditor task={task} onClose={()=>setKkrOpen(false)} /></TrackerTaskDialog></UnsavedChangesScope>}
-    {editor && (editor === "description" ? descriptionEditable : editor === "parent" ? can(task, "edit_task") : editor === "planning" ? can(task,"edit_task_metadata") : can(task, "attach_task_file")) && <UnsavedChangesScope>{editor === "description" ? <DescriptionEditor task={task} onClose={() => setEditor(null)} /> : editor === "parent" ? <ParentTaskEditor task={task} onClose={() => setEditor(null)} /> : editor === "planning" ? <TaskPlanningEditor task={task} onClose={() => setEditor(null)} /> : <TaskFilesEditor task={task} onClose={() => setEditor(null)} />}</UnsavedChangesScope>}
+    {editor && (editor === "description" ? descriptionEditable : editor === "parent" ? can(task, "edit_task") : editor === "planning" ? can(task,"edit_task_metadata") : can(task, "attach_task_file")) && <UnsavedChangesScope>{editor === "description" ? <DescriptionEditor task={task} onClose={() => setEditor(null)} onSaved={savedEditor} /> : editor === "parent" ? <ParentTaskEditor task={task} onClose={() => setEditor(null)} onSaved={savedEditor} /> : editor === "planning" ? <TaskPlanningEditor task={task} onClose={() => setEditor(null)} onSaved={savedEditor} /> : <TaskFilesEditor task={task} onClose={() => setEditor(null)} onSaved={savedEditor} />}</UnsavedChangesScope>}
   </>;
 }
 
-function DescriptionEditor({ task, onClose }: { task: Task; onClose: () => void }) {
+function DescriptionEditor({ task, onClose, onSaved }: { task: Task; onClose: () => void; onSaved?: () => void }) {
   const [body, setBody] = useState(task.description.body);const [busy, setBusy] = useState(false);const { perform, refresh } = useWorkspaceActions();
   return <TrackerTaskDialog title="Редактировать задачу" onClose={onClose} busy={busy}><ActionForm fields={can(task, "edit_task") ? [{ name: "title", label: "Название задачи", value: task.title, required: true }] : []} revision={task.revision} record={`task:${task.task_id}`} onConflict={refresh}
     externalState={body} savedExternalState={task.description.body} onReplaceWithSaved={() => setBody(task.description.body)}
     savedDetails={<div><p>Сохранённое название: {task.title}</p><MarkdownContent body={task.description.body} /></div>} submitLabel="Сохранить описание"
-    onSubmit={async (values, expectedRevision) => { setBusy(true);try { const saved = await perform(() => tasksApi.update(task.task_id, { expected_revision: expectedRevision!, ...(can(task, "edit_task") ? { title: text(values, "title") } : {}), description: richText(body) }));return saved; } finally { setBusy(false); } }}>
+    onSubmit={async (values, expectedRevision) => { setBusy(true);try { const saved = await perform(() => tasksApi.update(task.task_id, { expected_revision: expectedRevision!, ...(can(task, "edit_task") ? { title: text(values, "title") } : {}), description: richText(body) }));onSaved?.();onClose();return saved; } finally { setBusy(false); } }}>
       <MarkdownEditor value={body} onChange={setBody} label="Описание задачи в Markdown" name="body" rows={12} context="task" disabled={busy} />
     </ActionForm></TrackerTaskDialog>;
 }
-function ParentTaskEditor({ task, onClose }: { task: Task; onClose: () => void }) {
+function ParentTaskEditor({ task, onClose, onSaved }: { task: Task; onClose: () => void; onSaved?: () => void }) {
   const [parentId, setParentId] = useState(task.parent_task?.task_id ?? ""), [busy, setBusy] = useState(false);
   const { perform, refresh } = useWorkspaceActions();
   return <TrackerTaskDialog title="Родительская задача" onClose={onClose} busy={busy}>
     <p className={w.muted}>Можно выбрать доступную задачу из любой очереди этого сезона.</p>
     <ActionForm fields={[]} revision={task.revision} record={`task:${task.task_id}`} onConflict={refresh} externalState={parentId} savedExternalState={task.parent_task?.task_id ?? ""}
       onReplaceWithSaved={() => setParentId(task.parent_task?.task_id ?? "")} savedDetails={<p>Сохранённая родительская задача: {task.parent_task ? `${task.parent_task.task_key} · ${task.parent_task.title}` : task.parent_task_unavailable ? "Недоступна" : "Не выбрана"}</p>} submitLabel="Сохранить родительскую задачу"
-      onSubmit={async (_values, expectedRevision) => { setBusy(true);try { return await perform(() => tasksApi.update(task.task_id, { expected_revision: expectedRevision!, parent_task_id: parentId || null })); } finally { setBusy(false); } }}>
+      onSubmit={async (_values, expectedRevision) => { setBusy(true);try { const saved = await perform(() => tasksApi.update(task.task_id, { expected_revision: expectedRevision!, parent_task_id: parentId || null }));onSaved?.();onClose();return saved; } finally { setBusy(false); } }}>
       <TrackerParentSelector value={parentId} onChange={setParentId} seasonId={task.season_id} taskId={task.task_id} initialParent={task.parent_task} disabled={busy} />
     </ActionForm>
   </TrackerTaskDialog>;
@@ -175,12 +176,12 @@ function TaskPeopleParameters({ task }: { task: Task }) {
     <div><dt>Наблюдатели</dt><dd className={s.people}>{watchers.length ? watchers.map((person, index) => <div className={s.rosterPerson} key={person.user_id ?? `anonymous-${index}`}><PersonChip user={person}/>{person.user_id!==null&&can(task,"remove_task_watcher")&&<button type="button" className={s.removePerson} disabled={busy} aria-label={`Убрать наблюдателя: ${person.display_name}`} onClick={()=>void act(revision=>tasksApi.removeWatcher(task.task_id,person.user_id!,revision))}>×</button>}</div>) : <span className={w.muted}>Нет наблюдателей</span>}{selfWatching && can(task, "unwatch_task") ? <button type="button" className={s.subtleButton} disabled={busy} onClick={() => { void act(revision => tasksApi.unwatch(task.task_id, revision)); }}>Перестать наблюдать</button> : !selfAssigned && can(task, "watch_task") && <button type="button" className={s.subtleButton} disabled={busy} onClick={() => { void act(revision => tasksApi.watch(task.task_id, revision)); }}>Наблюдать</button>}{error && <p role="alert" className={w.error}>{error}</p>}</dd></div>
   </>;
 }
-function TaskFilesEditor({ task, onClose }: { task: Task; onClose: () => void }) {
+function TaskFilesEditor({ task, onClose, onSaved }: { task: Task; onClose: () => void; onSaved?: () => void }) {
   const [files, setFiles] = useState<FileRef[]>(task.attachments ?? []), [uploading, setUploading] = useState(false), [busy, setBusy] = useState(false);const { perform, refresh } = useWorkspaceActions();
   return <TrackerTaskDialog title="Файлы к постановке задачи" onClose={onClose} busy={busy || uploading}><p className={w.muted}>Эти файлы доступны читателям задачи после сохранения. Результат работы сдаётся отдельно.</p>
     <ActionForm fields={[]} revision={task.revision} record={`task:${task.task_id}`} onConflict={refresh} externalState={files} savedExternalState={task.attachments ?? []} externalBusy={uploading}
       onReplaceWithSaved={() => setFiles(task.attachments ?? [])} savedDetails={<div><p>Сохранённые вложения задачи:</p><Attachments files={task.attachments ?? []} /></div>} submitLabel="Сохранить вложения"
-      onSubmit={async (_values, expectedRevision) => { setBusy(true);try { const saved = await perform(() => tasksApi.update(task.task_id, { expected_revision: expectedRevision!, file_ids: files.map(file => file.file_id) }));return saved; } finally { setBusy(false); } }}>
+      onSubmit={async (_values, expectedRevision) => { setBusy(true);try { const saved = await perform(() => tasksApi.update(task.task_id, { expected_revision: expectedRevision!, file_ids: files.map(file => file.file_id) }));onSaved?.();onClose();return saved; } finally { setBusy(false); } }}>
       <AttachmentPicker owner_kind="task" owner_id={task.task_id} purpose="attachment" files={files} onChange={setFiles} onBusyChange={setUploading} />
     </ActionForm>
   </TrackerTaskDialog>;

@@ -40,11 +40,11 @@ it.each(["material", "report", "task"] as const)("holds its baseline through bac
   await settle(); await settle();
   if (kind === "task") await click(page.container, "Редактировать");
   if (kind === "material") { await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Редактировать материал"]')!.click());await settle(); }
-  const form = kind === "bulk" ? forms().find(f => f.querySelector('[data-entity-picker][data-field-name="assignments"]'))!
+  let form = kind === "bulk" ? forms().find(f => f.querySelector('[data-entity-picker][data-field-name="assignments"]'))!
     : kind === "assessment" ? forms().find(f => f.querySelector('[name="evaluation"]'))!
     : field(page.container, kind === "task-inputs" ? "assigned" : "title").closest("form")!;
   const name = kind === "assessment" || kind === "bulk" ? "hours" : kind === "task-inputs" ? "deadline" : "title";
-  const value = name === "hours" ? "7" : name === "deadline" ? "2026-10-26T18:00" : "МОЙ ВВОД";
+  let value = name === "hours" ? "7" : name === "deadline" ? "2026-10-26T18:00" : "МОЙ ВВОД";
   await change(field(form, name), value);
   if (form.querySelector('[name="reason"]')) await change(field(form, "reason"), "Причина исправления");
   if (kind === "bulk") await pick(form, "assignments", mock.state.assessments[0].assignment_id);
@@ -60,6 +60,9 @@ it.each(["material", "report", "task"] as const)("holds its baseline through bac
     : kind === "task" ? vi.spyOn(tasksApi, "update") : kind === "task-inputs" ? vi.spyOn(tasksApi, "updateInputs")
     : kind === "assessment" ? vi.spyOn(tasksApi, "updateAssessment") : vi.spyOn(tasksApi, "bulkHours");
   for (let round = 0; round < 2; round++) {
+    if (kind === "task" && round) { // A saved task editor closes; the next save starts in a new dialog.
+      await click(page.container, "Редактировать");form = field(page.container, "title").closest("form")!;value = "МОЙ ВТОРОЙ ВВОД";await change(field(form, name), value);
+    }
     foreign(); await refetch(key);
     expect(field(form, name).value).toBe(value);
     expect(form.textContent).toContain("Запись изменилась на сервере");
@@ -68,6 +71,7 @@ it.each(["material", "report", "task"] as const)("holds its baseline through bac
     expect(spy.mock.calls).toHaveLength(before);
     await accept(form); await submit(form);
     expect(spy.mock.calls).toHaveLength(before + 1);
+    if (kind === "task") { expect(form.isConnected).toBe(false);expect(page.container.textContent).toContain("Изменения сохранены");continue; }
     expect((form.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBe(false);
     expect(form.textContent).not.toContain("Запись изменилась на сервере");
   }
