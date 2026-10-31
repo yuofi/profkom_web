@@ -788,6 +788,86 @@ def block_caps(uid, name, open_season):
     return _caps(table, uid, "block", name)
 
 
+# Relations holders() can enumerate from their stored sources; any other relation
+# (block membership, PGAS, "leads some queue") makes it decline (None).
+_HOLDER_RELATIONS = TACHKI | {HR_MASTER, HR_DEPUTY, HR_TRACKER_READER, BLOCK_MASTER, BLOCK_DEPUTY, BLOCK_HR,
+                              EVENT_LEADER, EVENT_DEPUTY, EVENT_SUB_LEAD, EVENT_TEAM, SUB_LEADER, SUB_DEPUTY,
+                              SUBEVENT_HR, ORGANIZER}
+
+
+def _rule_relations(action):
+    rule = POLICY[action]
+    return frozenset().union(*rule.values()) if isinstance(rule, ByState) else frozenset(rule)
+
+
+def holders(actions, kind=None, scope_id=None, *, scopes=()):
+    """A superset of the users who may hold a relation granting one of ``actions``
+    on one block, event or subevent (or globally with ``kind=None``), else None.
+
+    Only bounds a recipient scan: every candidate is still decided by the caller's
+    own ACL (allowed(), report or meeting readers). Covers the chair and deputies,
+    HR masters and HR-block roles, the block master and curator, every role on the
+    object, its parent event and child subevents, their organizers and curators;
+    ``scopes`` adds every role holder of further (kind, id) objects.
+    """
+    needed = frozenset().union(*(_rule_relations(action) for action in actions))
+    if needed - _HOLDER_RELATIONS or kind not in (None, "block", "event", "subevent"):
+        return None
+    from database import BlockORM, LeadershipORM, RoleAssignmentORM, SubeventORM
+    from domain_models import BlockMetaORM
+    from event_workspace_models import EventWorkspaceMetaORM
+
+    def listed(raw):
+        try:
+            values = json.loads(raw) if raw else []
+        except Exception:
+            return set()
+        return {value for value in values if isinstance(value, int)} if isinstance(values, list) else set()
+
+    result = set()
+    pairs = set(scopes)
+    with db._session() as session:
+        leadership = session.get(LeadershipORM, 1)
+        if leadership is not None:
+            result.add(leadership.chair_user_id)
+            result |= listed(leadership.deputies_json)
+        hr_blocks = set()
+        for name, master, is_hr in session.query(BlockORM.name, BlockORM.master_user_id, BlockORM.is_hr):
+            if is_hr:
+                hr_blocks.add(name)
+                result.add(master)
+        pairs |= {("block", name) for name in hr_blocks}
+        if kind == "block":
+            name = block_name(scope_id) or scope_id
+            pairs |= {("block", scope_id), ("block", name)}
+            block = session.get(BlockORM, name)
+            if block is not None:
+                result.add(block.master_user_id)
+            # Entity reads: the ACL reads these rows' current (possibly unflushed) fields.
+            result |= {meta.hr_user_id for meta in session.query(BlockMetaORM).filter(
+                (BlockMetaORM.legacy_name == name) | (BlockMetaORM.block_id == scope_id))}
+        elif kind in ("event", "subevent"):
+            sub = session.get(SubeventORM, scope_id) if kind == "subevent" else None
+            event_id = sub.event_id if sub is not None else scope_id if kind == "event" else None
+            children = [sub] if sub is not None else list(session.query(SubeventORM).filter_by(event_id=event_id)) if kind == "event" else []
+            pairs |= {("event", event_id), ("subevent", scope_id)} | {("subevent", child.subevent_id) for child in children}
+            for child in children:
+                result |= listed(child.organizer_user_ids_json)
+            ids = [child.subevent_id for child in children] + ([scope_id] if kind == "subevent" else [])
+            if ids:
+                result |= {meta.hr_user_id for meta in session.query(EventWorkspaceMetaORM).filter(
+                    EventWorkspaceMetaORM.owner_kind == "subevent", EventWorkspaceMetaORM.owner_id.in_(ids))}
+        scope_ids = sorted({scope for _, scope in pairs if scope is not None})
+        for index in range(0, len(scope_ids), 400):
+            for user_id, scope_kind, scope in session.query(
+                    RoleAssignmentORM.user_id, RoleAssignmentORM.scope_kind, RoleAssignmentORM.scope_id).filter(
+                    RoleAssignmentORM.scope_id.in_(scope_ids[index:index + 400])):
+                if (scope_kind, scope) in pairs:
+                    result.add(user_id)
+    result.discard(None)
+    return frozenset(result)
+
+
 def can_review_request(uid, stage, block_id, substitute_ready):
     """A block request's review stage; the chair and deputies substitute after 72 hours."""
     action = "block.review_hr_stage" if stage == "pending_hr" else "block.review_block_stage"

@@ -5,12 +5,51 @@ from database import db, UserORM, NotificationORM, AssignmentORM
 from registration import now
 
 
+def _chunks(values, size=500):
+    return (values[index:index + size] for index in range(0, len(values), size))
+
+
+def recipients_among(session, candidates, decide):
+    """Users passing ``decide``, listed as a scan of every user lists them.
+
+    ``candidates`` (a superset such as access.holders) only bounds the scan; the
+    existing ACL ``decide`` still makes every decision. None scans every user.
+    """
+    if candidates is None:
+        return [u.user_id for u in session.query(UserORM) if decide(u.user_id)]
+    ids = sorted(uid for uid in candidates if isinstance(uid, int))
+    present = set()
+    for batch in _chunks(ids):
+        present.update(u.user_id for u in session.query(UserORM).filter(UserORM.user_id.in_(batch)))
+    return [uid for uid in ids if uid in present and decide(uid)]
+
+
+def _recipient_rows(session, targets, kind, event_key):
+    """The recipients' accounts, existing notifications of this event and delivery
+    preferences in one read each (the per-recipient lookups emit used to make)."""
+    from profile_features import delivery_category
+    from profile_features_models import NotificationPreferenceORM
+    ids = sorted(uid for uid in targets if isinstance(uid, int))
+    users, existing = {}, set()
+    preferences = {} if delivery_category(kind) is not None else None
+    for batch in _chunks(ids):
+        users.update((u.user_id, u) for u in session.query(UserORM).filter(UserORM.user_id.in_(batch)))
+        existing.update(row[0] for row in session.query(NotificationORM.user_id).filter(
+            NotificationORM.event_key == event_key, NotificationORM.user_id.in_(batch)))
+        if preferences is not None:
+            preferences.update((row.user_id, row) for row in session.query(NotificationPreferenceORM).filter(
+                NotificationPreferenceORM.user_id.in_(batch)))
+    return users, existing, preferences
+
+
 def emit(session, recipients, kind, payload, event_key, actor=None):
-    for uid in set(recipients):
-        u = session.get(UserORM, uid)
+    targets = set(recipients)
+    users, existing, preferences = _recipient_rows(session, targets, kind, event_key)
+    for uid in targets:
+        u = users.get(uid) if isinstance(uid, int) else session.get(UserORM, uid)
         if not u or u.account_state != "active" or u.banned or uid == actor:
             continue
-        if (
+        if (uid in existing if isinstance(uid, int) else
             session.query(NotificationORM)
             .filter_by(user_id=uid, event_key=event_key)
             .first()
@@ -28,15 +67,14 @@ def emit(session, recipients, kind, payload, event_key, actor=None):
             )
         )
         from profile_features import collect_delivery_event
-        collect_delivery_event(session, uid, kind, payload, event_key)
+        collect_delivery_event(session, uid, kind, payload, event_key,
+                               preferences=preferences if isinstance(uid, int) else None)
 
 
 def report_published(session, report, actor):
-    recipients = [
-        u.user_id
-        for u in session.query(UserORM)
-        if db.can_read_report(u.user_id, report, session)
-    ]
+    from report_access import reader_candidates
+    recipients = recipients_among(session, reader_candidates(session, report),
+                                  lambda uid: db.can_read_report(uid, report, session))
     emit(
         session,
         recipients,
@@ -49,10 +87,10 @@ def report_published(session, report, actor):
 
 def meeting_changed(session, meeting, actor):
     from workspace import meeting_read
+    import access
 
-    recipients = [
-        u.user_id for u in session.query(UserORM) if meeting_read(u.user_id, meeting)
-    ]
+    candidates = access.holders([f"{meeting.owner_kind}.meeting.view"], meeting.owner_kind, meeting.owner_id)
+    recipients = recipients_among(session, candidates, lambda uid: meeting_read(uid, meeting))
     emit(
         session,
         recipients,
@@ -90,7 +128,8 @@ def comment_added(session, comment, task, actor):
 def registration_submitted(session, application):
     import access
 
-    recipients = [u.user_id for u in session.query(UserORM) if access.allowed(u.user_id, "registration.review")]
+    recipients = recipients_among(session, access.holders(["registration.review"]),
+                                  lambda uid: access.allowed(uid, "registration.review"))
     emit(
         session,
         recipients,

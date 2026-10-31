@@ -702,8 +702,9 @@ def register_routes(router):
                 )
                 s.add(r)
                 from notifications import emit
-                recipients = [person.user_id for person in s.query(UserORM)
-                              if access.can_review_request(person.user_id, "pending_hr", name, False)]
+                from notifications import recipients_among
+                recipients = recipients_among(s, access.holders(["block.review_hr_stage"], "block", name),
+                                              lambda uid: access.can_review_request(uid, "pending_hr", name, False))
                 emit(s, recipients, "block_request_pending_hr", dict(request_id=r.request_id, scope_kind="block", scope_id=name),
                      f"block-request:{r.request_id}:created", cur.user_id)
                 audit(
@@ -774,8 +775,9 @@ def register_routes(router):
             if r.state == "pending_block":
                 r.stage_entered_at = now()
                 from notifications import emit
-                recipients = [person.user_id for person in s.query(UserORM)
-                              if access.can_review_request(person.user_id, "pending_block", name, False)]
+                from notifications import recipients_among
+                recipients = recipients_among(s, access.holders(["block.review_block_stage"], "block", name),
+                                              lambda uid: access.can_review_request(uid, "pending_block", name, False))
                 emit(s, recipients, "block_request_pending_block", dict(request_id=r.request_id, scope_kind="block", scope_id=name),
                      f"block-request:{r.request_id}:pending-block:{r.revision}", cur.user_id)
             if r.state == "approved":

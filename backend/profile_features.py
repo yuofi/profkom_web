@@ -256,12 +256,19 @@ def preferences(session, person):
                 delivery_status="not_connected")
 
 
-def collect_delivery_event(session, recipient, kind, payload, event_key):
-    """Reference-only disabled outbox; actual authorization must be rechecked at send."""
-    category = "tracker" if kind.startswith("task_") else "applications" if kind.startswith(("registration_", "block_application", "block_request")) else "pgas" if kind.startswith("pgas_") else None
+def delivery_category(kind):
+    return "tracker" if kind.startswith("task_") else "applications" if kind.startswith(("registration_", "block_application", "block_request")) else "pgas" if kind.startswith("pgas_") else None
+
+
+def collect_delivery_event(session, recipient, kind, payload, event_key, preferences=None):
+    """Reference-only disabled outbox; actual authorization must be rechecked at send.
+
+    ``preferences``: the recipients' preference rows (absent = no row) the caller
+    read in this session just before, instead of one lookup per recipient."""
+    category = delivery_category(kind)
     if category is None:
         return
-    row = session.get(NotificationPreferenceORM, recipient)
+    row = preferences.get(recipient) if preferences is not None else session.get(NotificationPreferenceORM, recipient)
     if not row:
         return
     channels = json.loads(row.preferences_json).get(category, {})

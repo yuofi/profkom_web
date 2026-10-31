@@ -121,6 +121,26 @@ def reader(s, r, uid):
     ) or historical_reader(s, r.report_series_id, uid, other_than=r.season_id)
 
 
+def reader_candidates(s, r):
+    """A superset of the users reader(s, r, uid) admits, or None (scan everyone).
+
+    The owner's holders (chair and deputies, HR masters, every role on the owner,
+    its parent event and child subevents, organizers), the leads of every
+    instance of the report's series or its parent series, the season's frozen
+    editors and readers, and the author. reader() still decides each one.
+    """
+    series = s.get(ReportSeriesORM, r.report_series_id) if r.report_series_id is not None else None
+    series_ids = {r.report_series_id} | ({series.parent_series_id} if series is not None and series.parent_series_id else set())
+    scopes = {("event", row[0]) for row in s.query(EventORM.event_id).filter(EventORM.report_series_id.in_(series_ids))}
+    scopes |= {("subevent", row[0]) for row in s.query(SubeventORM.subevent_id).filter(SubeventORM.report_series_id.in_(series_ids))}
+    base = access.holders([f"{r.owner_kind}.report.create", f"{r.owner_kind}.report.read", "report.read_all"],
+                          r.owner_kind, r.owner_id, scopes=scopes)
+    if base is None:
+        return None
+    editors = {row[0] for row in s.query(ReportEditorORM.user_id).filter(ReportEditorORM.season_id == r.season_id)}
+    return base | editors | {r.created_by_user_id}
+
+
 def series_reader(s, series_id, uid):
     """May open the history of a series. The same rule lists the series in /report-series
     and lets /report-history answer (A-EVT-6); a current reader of one report, such as
