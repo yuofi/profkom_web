@@ -25,22 +25,31 @@
 .tableWrap { width: 100%; min-width: 0; }
 .table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
 .table th { color: var(--on-surface-variant); font-weight: 400; text-align: left; font-size: 12px; padding: 12px 8px; border-bottom: 1px solid color-mix(in srgb, var(--outline-variant) 40%, transparent); }
-.table th:nth-child(1) { width: 10%; }.table th:nth-child(2) { width: 25%; }.table th:nth-child(3) { width: 17%; }.table th:nth-child(4) { width: 15%; }.table th:nth-child(5) { width: 12%; }.table th:nth-child(6) { width: 11%; }.table th:nth-child(7) { width: 10%; }
+/* One width set: content-sized key, status and dates; title, people and team share the rest. */
+.table .colKey { width: 104px; }.table .colAssignees { width: 18%; }.table .colStatus { width: 118px; }.table .colDeadline { width: 88px; }.table .colScope { width: 10%; }.table .colUpdated { width: 88px; }
 .table th button { color: inherit; font: inherit; text-align: left; background: transparent; border: 0; padding: 0; cursor: pointer; }
 .table tbody tr { cursor: pointer; border-bottom: 1px solid color-mix(in srgb, var(--outline-variant) 15%, transparent); transition: background .12s ease; }
 .table tbody tr:hover, .table tbody tr:focus-within { background: color-mix(in srgb, var(--accent-lilac) 6%, transparent); }
 .table tbody tr:focus-visible { outline: 2px solid var(--accent-lilac); outline-offset: -2px; }
-.table td { padding: 18px 8px; vertical-align: middle; overflow-wrap: anywhere; }
+.table td { padding: 12px 8px; vertical-align: middle; overflow-wrap: anywhere; }
 .key { color: var(--accent-lilac); font-size: 12px; font-variant-numeric: tabular-nums; }
 .taskTitle a { color: var(--on-surface); font-weight: 600; text-decoration: none; line-height: 1.4; display: inline-block; }
 .taskTitle a:hover { text-decoration: underline; text-underline-offset: 4px; }
-.assignees > div { display: flex; flex-wrap: wrap; gap: 5px; }
+.assignees > div { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; }
+/* People chips keep whole names on one line; the hover card shows the full name. */
+.assignees > div > * { min-width: 0; max-width: 100%; }
+.assignees :is(a, [tabindex]) > span > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.morePeople { flex: none; color: var(--on-surface-variant); font-size: 11px; padding: 2px 4px; }
 .person { display: inline-block; box-sizing: border-box; color: var(--on-surface); text-decoration: none; background: var(--surface-container); border-radius: 20px; padding: 5px 9px; font-size: 11px; line-height: 1.3; max-width: 100%; overflow-wrap: anywhere; }
 a.person:hover { background: var(--surface-container-highest); color: var(--primary); }
 .deadline, .updated, .scope { color: var(--on-surface-variant); font-size: 11px; line-height: 1.5; }
+.table td.deadline, .table td.updated { overflow-wrap: normal; }
+.scope > span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .pagination { display: flex; align-items: center; justify-content: space-between; gap: 15px; flex-wrap: wrap; color: var(--on-surface-variant); font-size: 12px; }
 .pagination > div { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
-@media (max-width: 1100px) { .table th:nth-child(6), .table th:nth-child(7), .table td.scope, .table td.updated { display: none; }.table th:nth-child(2) { width: 32%; }.table th:nth-child(3) { width: 22%; }.table th:nth-child(4) { width: 21%; } }
+@media (min-width: 1441px) { .table .colKey { width: 140px; }.table .colDeadline { width: 112px; }.table td.deadline { white-space: nowrap; } }
+@media (max-width: 1240px) { .table .colUpdated, .table td.updated { display: none; }.table .colAssignees { width: 20%; } }
+@media (max-width: 1100px) { .table .colScope, .table td.scope { display: none; }.table .colAssignees { width: 22%; } }
 @media (max-width: 768px) {
   .page { gap: 16px; }.subtitle { font-size: 12px; }
   .topbar { gap: 10px; }.search { flex-basis: 100%; }.views { margin-right: auto; }.views > * { padding: 8px 10px; }.filters summary { font-size: 12px; padding: 10px; }
@@ -58,7 +67,7 @@ a.person:hover { background: var(--surface-container-highest); color: var(--prim
 
 .keyRow { display:flex;align-items:center;gap:4px;flex-wrap:wrap; }.taskTags { display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:7px;font-size:10px;color:var(--on-surface-variant); }.taskTags span { border-radius:4px;padding:2px 5px;background:var(--surface-container); }.taskTags [data-priority=high] { color:var(--accent-peach); }.taskTags [data-priority=urgent] { color:var(--accent-rose);background:color-mix(in srgb,var(--accent-rose) 12%,var(--surface-container)); }.taskTags [data-priority=low] { opacity:.7; }
 
-.table th:nth-child(1) { width:20%; }.table th:nth-child(2) { width:22%; }.table th:nth-child(3) { width:15%; }.table th:nth-child(4) { width:14%; }.table th:nth-child(5) { width:11%; }.table th:nth-child(6) { width:10%; }.table th:nth-child(7) { width:8%; }
 .keyRow { flex-wrap:nowrap;min-width:0;gap:5px; }.classificationControls { display:inline-flex;align-items:center;gap:1px;flex:none; }.keyText { min-width:0;overflow-wrap:anywhere; }
-@media(max-width:1100px) { .table th:nth-child(1) { width:25%; }.table th:nth-child(2) { width:30%; }.table th:nth-child(3) { width:18%; }.table th:nth-child(4) { width:15%; }.table th:nth-child(5) { width:12%; } }
+/* Up to 1440px the key sits above its type, priority and favourite controls. */
+@media(min-width:769px) and (max-width:1440px) { .keyRow { flex-wrap:wrap;row-gap:2px; }.keyText { order:-1;flex:1 0 100%;padding-left:5px; } }
 @media(max-width:768px) { .table tbody tr { grid-template-columns:minmax(0,1fr) auto; }.keyRow { gap:3px; }.status { max-width:140px; } }

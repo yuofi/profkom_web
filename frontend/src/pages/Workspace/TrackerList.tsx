@@ -13,7 +13,7 @@ import { seasonsApi } from "../../utils/api/seasons.api";
 import { membershipApi } from "../../utils/api/membership.api";
 import { eventsApi } from "../../utils/api/events.api";
 import { directoryApi } from "../../utils/api/directory.api";
-import type { ScopeRef, Task, TaskQueue } from "../../utils/api/contract";
+import type { ScopeRef, Task, TaskQueue, UserRef } from "../../utils/api/contract";
 import { can, useSession } from "../../utils/session";
 import { getTaskRoute, getTaskQueuesRoute, getTaskCreateRoute } from "../../utils/routes";
 import { displayDate } from "../../utils/dates";
@@ -97,6 +97,8 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
     queryFn: async () => scope ? can(await (scope.kind === "block" ? membershipApi.block(scope.id) : eventsApi.subevent(scope.id)), "create_task") : false });
   const canCreateInScope = (!scopedCreation.error || canRetainData(scopedCreation.error)) && scopedCreation.data === true;
   const scopeValue = scope ? JSON.stringify([scope.kind, scope.id]) : "";
+  // Inside a team queue every row has that team; shared queues and the main list keep the column.
+  const showScope = !queue?.scope;
   const update = (key: string, value: string, replace = false) => {
     const next = new URLSearchParams(params);
     if (key === "scope") {
@@ -192,23 +194,28 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
     <QueryState loading={searchPending || (view === "list" ? query.isLoading : timeline.isLoading)} error={error} keepDataOnError={view === "list" ? !!query.data : !!timeline.data} retry={() => { void query.refetch();if (view !== "list") void timeline.refetch(); }}>
       {view === "calendar" ? <TrackerCalendar tasks={tasks} range={range} month={month} onMonth={value => update("month", value)} /> : view === "gantt" ? <TrackerGantt tasks={tasks} range={range} month={month} onMonth={value => update("month", value)} zoom={zoom} onZoom={value => update("zoom", value)} /> : tasks.length ? <div className={s.tableWrap}>
         <table className={s.table} aria-label="Список задач">
-          <thead><tr><th scope="col">Ключ</th><th scope="col">Задача</th><th scope="col">Исполнители</th><th scope="col">Статус</th><th scope="col" aria-sort={filters.sort === "deadline" ? filters.order === "desc" ? "descending" : "ascending" : "none"}><button onClick={() => changeSort("deadline")}>Дедлайн {filters.sort === "deadline" && (filters.order === "asc" ? "↑" : "↓")}</button></th><th scope="col">Команда</th><th scope="col" aria-sort={filters.sort === "updated" ? filters.order === "desc" ? "descending" : "ascending" : "none"}><button onClick={() => changeSort("updated")}>Обновлено {filters.sort === "updated" && (filters.order === "asc" ? "↑" : "↓")}</button></th></tr></thead>
+          <thead><tr><th scope="col" className={s.colKey}>Ключ</th><th scope="col">Задача</th><th scope="col" className={s.colAssignees}>Исполнители</th><th scope="col" className={s.colStatus}>Статус</th><th scope="col" className={s.colDeadline} aria-sort={filters.sort === "deadline" ? filters.order === "desc" ? "descending" : "ascending" : "none"}><button onClick={() => changeSort("deadline")}>Дедлайн {filters.sort === "deadline" && (filters.order === "asc" ? "↑" : "↓")}</button></th>{showScope && <th scope="col" className={s.colScope}>Команда</th>}<th scope="col" className={s.colUpdated} aria-sort={filters.sort === "updated" ? filters.order === "desc" ? "descending" : "ascending" : "none"}><button onClick={() => changeSort("updated")}>Обновлено {filters.sort === "updated" && (filters.order === "asc" ? "↑" : "↓")}</button></th></tr></thead>
           <tbody>{tasks.map((task) => <tr key={task.task_id} tabIndex={0} aria-label={`Открыть задачу ${task.task_key ?? task.title}`} onClick={(event) => open(event, task)} onAuxClick={(event) => open(event, task)} onKeyDown={(event) => openKeyboard(event, task)}>
             <td className={s.key} data-label="Ключ"><div className={s.keyRow}><div className={s.classificationControls}><TaskClassificationMenu task={task} field="task_type" iconOnly /><TaskClassificationMenu task={task} field="priority" iconOnly /></div><span className={s.keyText}>{task.task_key ?? "Задача"}</span><TrackerFavoriteButton task={task} compact /></div></td>
             <td className={s.taskTitle}><Link to={getTaskRoute(task.task_id)}>{task.title}</Link></td>
-            <td className={s.assignees} data-label="Исполнители"><div>{(task.assignees ?? task.assignments.map((assignment) => assignment.assignee)).map((person, index) => <UserChip user={person} key={`${person.user_id ?? "historical"}-${index}`} />)}</div></td>
+            <td className={s.assignees} data-label="Исполнители"><Assignees people={task.assignees ?? task.assignments.map((assignment) => assignment.assignee)} /></td>
             <td className={s.status} data-label="Статус"><TaskStatusMenu task={task} variant="chip" onClosed={saved => { if (can(saved, "view_assessment_inputs")) navigate(`${getTaskRoute(saved.task_id)}?kkr=1`); }} /></td>
             <td className={s.deadline} data-label="Дедлайн">{task.deadline_at ? <time dateTime={task.deadline_at}>{displayDate(task.deadline_at)}</time> : <span>Не задан</span>}</td>
-            <td className={s.scope} data-label="Команда">{task.scope_title ?? (task.scope.kind === "block" ? "Блок" : task.scope.kind === "subevent" ? "Подмероприятие" : "Очередь")}</td>
+            {showScope && <td className={s.scope} data-label="Команда"><span title={task.scope_title ?? undefined}>{task.scope_title ?? (task.scope.kind === "block" ? "Блок" : task.scope.kind === "subevent" ? "Подмероприятие" : "Очередь")}</span></td>}
             <td className={s.updated} data-label="Обновлено">{task.updated_at ? <time dateTime={task.updated_at}>{displayDate(task.updated_at)}</time> : "Нет данных"}</td>
           </tr>)}</tbody>
         </table>
       </div> : <Empty>Подходящих задач нет. Измените фильтры или создайте задачу на странице своей команды.</Empty>}
       {view === "list" && <footer className={s.pagination}>
         <span aria-live="polite">На странице: {tasks.length}{query.data?.total != null && ` · Всего: ${query.data.total}`}</span>
-        <div><button className={w.button} disabled={!cursor} onClick={goBack}>Назад</button><span>Страница {pageNumber}</span><button className={w.button} disabled={!query.data?.next_cursor} onClick={() => query.data?.next_cursor && turnPage(query.data.next_cursor)}>Далее</button></div>
+        {(cursor || query.data?.next_cursor) && <div><button className={w.button} disabled={!cursor} onClick={goBack}>Назад</button><span>Страница {pageNumber}</span><button className={w.button} disabled={!query.data?.next_cursor} onClick={() => query.data?.next_cursor && turnPage(query.data.next_cursor)}>Далее</button></div>}
       </footer>}
     </QueryState>
 
   </section>;
+}
+/** Up to three people stay visible; the rest are named in one accessible counter. */
+function Assignees({ people }: { people: UserRef[] }) {
+  const shown = people.slice(0, 3), rest = people.slice(3), names = rest.map(person => person.display_name).join(", ");
+  return <div>{shown.map((person, index) => <UserChip user={person} key={`${person.user_id ?? "historical"}-${index}`} />)}{rest.length > 0 && <span className={s.morePeople} title={`Ещё: ${names}`}>+{rest.length}<span className={w.visuallyHidden}> — ещё исполнители: {names}</span></span>}</div>;
 }

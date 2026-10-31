@@ -95,3 +95,12 @@ it("omits empty optional filters rather than sending an invalid empty numeric or
   expect(list.mock.lastCall?.[0]).not.toHaveProperty("status");
   expect(list.mock.lastCall?.[0]).not.toHaveProperty("scope_id");
 });
+
+it("keeps the team column on the main list and folds more than three assignees into one counter", async () => {
+  const fixture = createFixtures("chair");const people = fixture.people.slice(0, 5).map(person => ({ user_id: person.user_id, display_name: person.display_name, avatar_url: null }));
+  await mount("/tasks?mine=false", () => ({ items: [{ ...fixture.tasks[0], task_key: "TASK-17", assignees: people }], next_cursor: null, total: 1, scopes: [], assignees: [] }));
+  expect([...page!.container.querySelectorAll("thead th")].map(th => th.textContent?.trim())).toContain("Команда");
+  const cell = page!.container.querySelector("td[data-label='Исполнители']")!;
+  expect(cell.querySelectorAll('a[href^="/contacts/"]')).toHaveLength(3);
+  expect(cell.textContent).toContain("+2");expect(cell.textContent).toContain(people[4].display_name);
+});

@@ -55,6 +55,14 @@ it("pins a queue on its page while clearing optional filters", async () => {
   await act(async () => button("Сбросить все").click());await waitForPage(page!);
   const queueCall = list.mock.calls.filter(([params]) => params && "queue_id" in params).at(-1)![0];expect(queueCall).toMatchObject({ queue_id: "queue-tasks" });expect(queueCall).not.toHaveProperty("q");expect(page!.container.querySelectorAll("h1")).toHaveLength(1);expect(page!.container.querySelector('[aria-label="Очередь"]')).toBeNull();
 });
+it("omits the repeated team column inside a team queue and inactive paging on a single page", async () => {
+  transport = installMockTransport("leader", { delay: 0 });
+  vi.spyOn(tasksApi, "listPage").mockImplementation(async () => ({ items: [createFixtures("leader").tasks[0]], next_cursor: null, total: 1, scopes: [], assignees: [] }));
+  await mount("/tasks/queues/queue-tasks");
+  const headers = [...page!.container.querySelectorAll("thead th")].map(th => th.textContent?.trim());
+  expect(headers).not.toContain("Команда");expect(headers).toContain("Исполнители");expect(page!.container.querySelector("td[data-label='Команда']")).toBeNull();
+  expect(page!.container.textContent).toContain("На странице: 1");expect(button("Назад")).toBeUndefined();expect(button("Далее")).toBeUndefined();
+});
 it("sends the owner's exact request revision and hides controls for participants", async () => {
   transport = installMockTransport("leader", { delay: 0 });const fixture = createFixtures("leader");
   const item: TaskQueueAccessRequest = { request_id: "request-local", user: fixture.people[0], message: "Совместная работа", status: "pending", created_at: "2026-10-27T12:00:00Z", revision: 4, capabilities: ["approve_queue_access", "reject_queue_access"] };
