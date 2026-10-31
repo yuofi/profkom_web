@@ -110,7 +110,8 @@ it("INT-03: closed correction keeps old totals immutable and exposes provenance 
   const closed = (await seasonsApi.list()).items.find(s => s.state === "closed")!;
   let summary = await seasonsApi.summary(closed.season_id);
   const old = await seasonsApi.summaryVersion(closed.season_id, summary.version);
-  const row = summary.rows.find(r => r.user.user_id !== null)!;
+  // Not the signed-in chair: their own chip opens /profile, not the contact route (PE-17).
+  const row = summary.rows.find(r => r.user.user_id !== null && r.user.user_id !== session.user_id)!;
   summary = await seasonsApi.decisions(closed.season_id, row.user.user_id!, { expected_version: summary.version, decisions: ["nice"], reason: "INT-03 новая отметка" });
   page = await mountWorkspace(<Routes><Route path="/seasons/:id/summary" element={<SummaryPage />} /><Route path="/seasons/:id" element={<SeasonPage />} /></Routes>, { path: `/seasons/${closed.season_id}/summary`, session });
   await waitForPage(page, () => !!page!.container.querySelector('section[aria-label="Участники и ККР"]'));
