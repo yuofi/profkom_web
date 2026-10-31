@@ -331,8 +331,24 @@ def _task_for_report(session, report):
     session.flush()
 
 
+def _outbox_due(session):
+    """Whether retry_pending has anything to change; a read, no write lock."""
+    from sqlalchemy import or_
+    cutoff = now().isoformat()
+    return bool(
+        session.query(FeedbackORM.report_id).filter(FeedbackORM.diagnostics_expires_at <= cutoff, or_(
+            FeedbackORM.diagnostics_json.isnot(None), FeedbackORM.screenshot.isnot(None), FeedbackORM.contact.isnot(None))).first()
+        or session.query(FeedbackORM.report_id).filter_by(state="pending").first()
+        or session.query(FeedbackRateORM.key).filter(FeedbackRateORM.window < int(now().timestamp()) // 60 - 1440).first())
+
+
 def retry_pending():
     """Bounded internal outbox; no remote service, artificial season or deadline."""
+    # The worker runs this every 30 s: an idle outbox opens no write transaction.
+    with db.atomic(write=False):
+        with db._session() as session:
+            if not _outbox_due(session):
+                return
     with db.atomic():
         with db._session() as session:
             cutoff = now().isoformat()
