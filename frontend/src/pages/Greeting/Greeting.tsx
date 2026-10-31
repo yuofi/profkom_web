@@ -13,7 +13,6 @@ import { type TokenResult } from "@vkid/sdk";
 import { completeAuthentication } from "../../utils/authSession";
 import { ERROR_TEXTS, userMessage } from "../../utils/api/messages";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
-import { Helmet } from "react-helmet-async";
 import { useQueryClient } from "@tanstack/react-query";
 import { isActiveSession, useSession } from "../../utils/session";
 import { returnPath } from "../../utils/returnPath";
@@ -77,11 +76,9 @@ export const GreetingPage = () => {
 
   return (
     <div className={styles.container}>
-      <Helmet>
-        <title>
+      <title>
           {signUp ? "Регистрация | Профком ВМК" : "Вход | Профком ВМК"}
         </title>
-      </Helmet>
       <CurvedRectangle
         theme="dark"
         cutoutPosition="bottom-right"

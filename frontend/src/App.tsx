@@ -1,5 +1,4 @@
 import { createBrowserRouter, createRoutesFromElements, Navigate, Outlet, RouterProvider, Route } from "react-router-dom";
-import { HelmetProvider } from "react-helmet-async";
 import { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "./App.css";
@@ -253,11 +252,9 @@ const router = createBrowserRouter(createRoutesFromElements(
 ));
 function App() {
   return (
-    <HelmetProvider>
-      <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
-      </QueryClientProvider>
-    </HelmetProvider>
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>
   );
 }
 export default App;

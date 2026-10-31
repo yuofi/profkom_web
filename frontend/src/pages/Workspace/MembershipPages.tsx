@@ -8,11 +8,11 @@ import {
   Page,
   Card,
   QueryState,
-  Markdown,
   RouteLink,
   Badge,
   Empty,
 } from "../../components/Workspace/WorkspaceUI";
+import { Markdown } from "../../components/Workspace/WorkspaceMarkdown";
 import type { Tone } from "../../components/Workspace/sections";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { fundingLabels, registrationLabels } from "../../utils/contactFields";

@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { contactsApi } from "../../utils/api/contacts.api";
 import type { ContactInfoOut } from "../../utils/api/types";
 import styles from "./EventsPage.module.css";
-import { Helmet } from "react-helmet-async";
 
 const EVENT_NAMES = [
   "Посвят",
@@ -31,9 +30,7 @@ export const EventsPage = () => {
 
   return (
     <div className={styles.container}>
-      <Helmet>
-        <title>Мероприятия | Профком ВМК</title>
-      </Helmet>
+      <title>Мероприятия | Профком ВМК</title>
       
       <aside className={styles.sidebar}>
         <ul className={styles.navLinks}>

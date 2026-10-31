@@ -2,7 +2,6 @@ import styles from "./PendingApproval.module.css";
 import Cookies from "js-cookie";
 import { Button } from "../../components/Button/Button";
 import { useNavigate } from "react-router-dom";
-import { Helmet } from "react-helmet-async";
 
 export const PendingApprovalPage = () => {
   const navigate = useNavigate()
@@ -14,9 +13,7 @@ export const PendingApprovalPage = () => {
 
   return (
     <div className={styles.globalWrapper}>
-      <Helmet>
-        <title>Ожидание подтверждения | Профком ВМК</title>
-      </Helmet>
+      <title>Ожидание подтверждения | Профком ВМК</title>
       <div className={styles.wrapper}>
 
       <h1 className={styles.heading}>Ожидание подтверждения</h1>

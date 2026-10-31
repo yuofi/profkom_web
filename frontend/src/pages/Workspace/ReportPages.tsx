@@ -6,12 +6,12 @@ import {
   Page,
   Card,
   QueryState,
-  Markdown,
   RouteLink,
   Badge,
   Empty,
   Glyph,
 } from "../../components/Workspace/WorkspaceUI";
+import { Markdown } from "../../components/Workspace/WorkspaceMarkdown";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { text } from "../../components/Workspace/formValues";
 import {

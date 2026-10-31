@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { Page, Card, QueryState, Markdown, RouteLink, Badge, Empty, Glyph, Loading } from "../../components/Workspace/WorkspaceUI";
+import { Page, Card, QueryState, RouteLink, Badge, Empty, Glyph, Loading } from "../../components/Workspace/WorkspaceUI";
+import { Markdown } from "../../components/Workspace/WorkspaceMarkdown";
 import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
 import { SectionHomeLink } from "../../components/Workspace/SectionHomeLink";
 import { ActionForm } from "../../components/Workspace/ActionForm";

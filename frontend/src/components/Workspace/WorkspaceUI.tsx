@@ -1,12 +1,8 @@
 import { useContext, type ReactNode } from "react";
 import clsx from "clsx";
 import { Link } from "react-router-dom";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import remarkBreaks from "remark-breaks";
 import { canRetainData, normalizeApiError } from "../../utils/api/request";
 import { errorDetail, userMessage } from "../../utils/api/messages";
-import type { RichText } from "../../utils/api/contract";
 import type { IconName } from "../icons";
 import { PageNavContext, SectionContext, toneStyle, type Tone } from "./sections";
 import s from "./Workspace.module.css";
@@ -123,20 +119,6 @@ export const RouteLink = ({
   <Link className={s.linkButton} to={to}>
     {children}
   </Link>
-);
-export const Markdown = ({
-  content,
-  preview = false,
-}: {
-  content: RichText | string | null | undefined;
-  /** Only the beginning, for a card in a list. */
-  preview?: boolean;
-}) => (
-  <div className={clsx(s.markdown, preview && s.preview)}>
-    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
-      {typeof content === "string" ? content : (content?.body ?? "")}
-    </ReactMarkdown>
-  </div>
 );
 /** A label; the tone tells its meaning at a glance, the text tells it fully. */
 export const Badge = ({ children, tone }: { children: ReactNode; tone?: Tone }) => (
