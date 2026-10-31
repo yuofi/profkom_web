@@ -2,10 +2,11 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import svgr from "vite-plugin-svgr";
 import { visualizer } from "rollup-plugin-visualizer";
+import { precompress, smallTeamLogos } from "./scripts/buildAssets";
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), svgr(), visualizer({ open: false })],
+  plugins: [react(), svgr(), smallTeamLogos(), visualizer({ open: false }), precompress()],
   css: {
     transformer: "lightningcss",
     lightningcss: {
