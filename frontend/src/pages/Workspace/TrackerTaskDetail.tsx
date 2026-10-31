@@ -24,6 +24,7 @@ import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
 import { useGuardedAction } from "../../components/Workspace/unsavedChangesHooks";
 import { text } from "../../components/Workspace/formValues";
 import { tasksApi } from "../../utils/api/tasks.api";
+import { seasonsApi } from "../../utils/api/seasons.api";
 import { TaskSeasonParameter } from "./TaskSeasonParameter";
 import { userMessage } from "../../utils/api/messages";
 import { recordOwnChange, useOwnRevisions } from "../../components/Workspace/ownRevisions";
@@ -47,6 +48,10 @@ export function TrackerTaskPage() {
   const { id = "" } = useParams();
   const [params] = useSearchParams();
   const query = useQuery({ queryKey: ["tasks", id], queryFn: () => tasksApi.get(id) });
+  // Comments and seasons need only the address: start them with the task, under the keys
+  // the activity and season parameter read, instead of one round trip later.
+  useQuery({ queryKey: ["tasks", id, "comments"], queryFn: () => tasksApi.comments(id), enabled: !!id });
+  useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
   return <section className={s.page}>
     {!query.data && <h1 className={s.loadingTitle}>Задача</h1>}
     <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!query.data} retry={() => { void query.refetch(); }}>

@@ -20,7 +20,7 @@ const announcement = {
 it.each(["no-capability", "forbidden"])("drops cached meeting data and editor after owner access ends (%s)", async (failure) => {
   const event = { ...createFixtures("chair").events[0], event_id: announcement.owner_id, capabilities: ["view_meeting", "edit_meeting"] };
   const get = vi.spyOn(eventsApi, "get").mockResolvedValue(event);
-  vi.spyOn(eventsApi, "subevents").mockResolvedValue({ items: [], next_cursor: null });
+  vi.spyOn(eventsApi, "teamMeetings").mockResolvedValue({ items: [], next_cursor: null });
   const meeting = vi.spyOn(eventsApi, "meeting").mockResolvedValue(announcement);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: Infinity } } });
   const meetingKey = ["events", "meeting", "event", event.event_id];
@@ -42,7 +42,7 @@ it.each(["no-capability", "forbidden"])("drops cached meeting data and editor af
 it("retry recovers the owner before loading its meeting", async () => {
   const event = { ...createFixtures("chair").events[0], event_id: announcement.owner_id, capabilities: ["view_meeting"] };
   const get = vi.spyOn(eventsApi, "get").mockRejectedValueOnce(new ApiError("Unavailable", 503, "unavailable")).mockResolvedValue(event);
-  vi.spyOn(eventsApi, "subevents").mockResolvedValue({ items: [], next_cursor: null });
+  vi.spyOn(eventsApi, "teamMeetings").mockResolvedValue({ items: [], next_cursor: null });
   const meeting = vi.spyOn(eventsApi, "meeting").mockResolvedValue(announcement);
   page = await mountWorkspace(<Routes><Route path="/meetings/:kind/:id" element={<MeetingPage />} /></Routes>, { path: `/meetings/event/${event.event_id}` });
   await waitForPage(page);
@@ -58,7 +58,7 @@ it("retry recovers the owner before loading its meeting", async () => {
 it("mounts an existing meeting editor only after its first announcement response", async () => {
   const event = { ...createFixtures("chair").events[0], event_id: announcement.owner_id, capabilities: ["view_meeting", "edit_meeting"] };
   vi.spyOn(eventsApi, "get").mockResolvedValue(event);
-  vi.spyOn(eventsApi, "subevents").mockResolvedValue({ items: [], next_cursor: null });
+  vi.spyOn(eventsApi, "teamMeetings").mockResolvedValue({ items: [], next_cursor: null });
   let resolve!: (meeting: typeof announcement) => void;
   vi.spyOn(eventsApi, "meeting").mockReturnValue(new Promise((done) => { resolve = done; }));
   page = await mountWorkspace(<Routes><Route path="/meetings/:kind/:id" element={<MeetingPage />} /></Routes>, { path: `/meetings/event/${event.event_id}` });

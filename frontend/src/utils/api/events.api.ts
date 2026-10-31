@@ -4,6 +4,7 @@ import type {
   RichText,
   Leader,
   Meeting,
+  TeamMeeting,
   Revision,
   ReportSeries,
   Block,
@@ -74,6 +75,8 @@ export const eventsApi = {
   series: () => page<ReportSeries>("/report-series"),
   meeting: (kind: "events" | "subevents", id: string) =>
     request<Meeting | null>("get", `/${kind}/${idPath(id)}/meeting`),
+  /** The readable child-team announcements of one event, filtered by the server. */
+  teamMeetings: (id: string) => page<TeamMeeting>(`/events/${idPath(id)}/meetings`),
   saveMeeting: (
     kind: "events" | "subevents",
     id: string,

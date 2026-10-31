@@ -477,6 +477,7 @@ class SubeventPatchIn(Command):
 
 
 class SubeventOut(BaseModel):
+    event_title: str = ""
     starts_at: Optional[str] = None
     ends_at: Optional[str] = None
     all_day: bool = False
@@ -2545,6 +2546,38 @@ def delete_event_meeting(event_id: str, payload: Optional[MeetingDeleteIn] = Non
         raise HTTPException(403, "Forbidden")
     db.delete_meeting("event", event_id, payload.expected_revision if payload else None)
     return {"status": "deleted"}
+
+
+class TeamMeetingOut(BaseModel):
+    subevent_id: str
+    subevent_title: str
+    meeting: MeetingOut
+
+
+@router.get("/events/{event_id}/meetings", response_model=Page[TeamMeetingOut])
+def list_event_team_meetings(event_id: str, cur: User = Depends(get_current_user)):
+    """The event's child-team announcements the actor may read, in one request.
+
+    Each team follows exactly GET /subevents/{id}/meeting: working access and
+    meeting audience; a closed season has no current announcements.
+    """
+    ev = db.get_event(event_id)
+    if not ev:
+        raise HTTPException(404, "Event not found")
+    team = database_module.SubeventORM
+    with db._session() as session:
+        teams = session.query(team.subevent_id, team.title).filter(team.event_id == event_id).all()
+    items = []
+    for subevent_id, title in teams:
+        if not access.allowed(cur.user_id, "subevent.view", "subevent", subevent_id):
+            continue
+        if not access.allowed(cur.user_id, "subevent.meeting.view", "subevent", subevent_id):
+            continue
+        m = db.get_meeting("subevent", subevent_id)
+        if m:
+            items.append(TeamMeetingOut(subevent_id=subevent_id, subevent_title=title, meeting=_to_meeting_out(m)))
+    items.sort(key=lambda item: (item.meeting.starts_at, item.subevent_id))
+    return Page(items=items)
 
 
 @router.get("/subevents/{subevent_id}/meeting", response_model=Optional[MeetingOut])

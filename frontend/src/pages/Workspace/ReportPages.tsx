@@ -383,17 +383,11 @@ export function MeetingPage() {
     queryFn: () => eventsApi.meeting(apiKind, id),
     enabled: valid && mayViewMeeting,
   });
+  // One request, filtered by the server per team; it starts with the owner and stops once the owner is refused.
   const teams = useQuery({
     queryKey: ["events", "meeting-teams", id],
-    enabled: kind === "event" && ownerReadable,
-    queryFn: async () => {
-      const subevents = await eventsApi.subevents(id);
-      const announcements = await Promise.all(subevents.items
-        .filter((sub) => can(sub, "view_meeting"))
-        .map(async (sub) => ({ subevent: sub, meeting: await eventsApi.meeting("subevents", sub.subevent_id) })));
-      return announcements.filter((item) => item.meeting !== null)
-        .sort((a, b) => a.meeting!.starts_at.localeCompare(b.meeting!.starts_at));
-    },
+    enabled: kind === "event" && (!owner.isFetched || ownerReadable),
+    queryFn: async () => (await eventsApi.teamMeetings(id)).items,
   });
   useEffect(() => {
     if (!owner.isFetched) return;
@@ -454,11 +448,11 @@ export function MeetingPage() {
           <Card title="Созвоны команд">
             <QueryState loading={teams.isLoading} error={teams.error} retry={() => { void teams.refetch(); }}>
               <div className={s.stack}>
-                {teams.data?.map(({ subevent, meeting: announcement }) => (
-                  <section key={subevent.subevent_id}>
-                    <h3>{announcement!.title}</h3>
-                    <p className={s.muted}>{subevent.title} · {displayDate(announcement!.starts_at)}</p>
-                    <RouteLink to={getMeetingRoute("subevent", subevent.subevent_id)}>Открыть созвон команды</RouteLink>
+                {teams.data?.map(({ subevent_id, subevent_title, meeting: announcement }) => (
+                  <section key={subevent_id}>
+                    <h3>{announcement.title}</h3>
+                    <p className={s.muted}>{subevent_title} · {displayDate(announcement.starts_at)}</p>
+                    <RouteLink to={getMeetingRoute("subevent", subevent_id)}>Открыть созвон команды</RouteLink>
                   </section>
                 ))}
                 {teams.data?.length === 0 && <Empty>Назначенных созвонов доступных вам команд пока нет.</Empty>}

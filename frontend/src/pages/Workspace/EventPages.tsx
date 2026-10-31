@@ -123,7 +123,8 @@ export function EventPage() {
   const { perform } = useWorkspaceActions();
   const [statePending, setStatePending] = useState(false), [stateError, setStateError] = useState(false);
   const query = useQuery({ queryKey: ["events", id], queryFn: () => eventsApi.get(id) });
-  const subs = useQuery({ queryKey: ["events", id, "subevents"], queryFn: () => eventsApi.subevents(id), enabled: !!query.data });
+  // The list needs only the address; a refused event refuses it too and the page shows the event's error.
+  const subs = useQuery({ queryKey: ["events", id, "subevents"], queryFn: () => eventsApi.subevents(id) });
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
   const [editor, setEditor] = useState<"leaders" | "season" | null>(null);
   const event = query.data, reportsLink = useReportsLink("event", event ? id : "", can(event, "create_report"));
@@ -151,14 +152,13 @@ export function SubeventPage() {
   const { id = "" } = useParams(), { perform, refresh } = useWorkspaceActions();
   const query = useQuery({ queryKey: ["events", "subevent", id], queryFn: () => eventsApi.subevent(id) });
   const sub = query.data;
-  const parent = useQuery({ queryKey: ["events", sub?.event_id], queryFn: () => eventsApi.get(sub!.event_id), enabled: !!sub });
   const people = usePeopleOptions({ includeNonMembers: true });
   const working = sub?.working_access ?? !!sub?.capabilities.length;
   const reportsLink = useReportsLink("subevent", sub ? id : "", can(sub, "create_report"), working);
   const [editor, setEditor] = useState<"leaders" | "organizers" | "hr" | null>(null);
   const organizers = sub?.organizers ?? sub?.organizer_user_ids.flatMap(uid => { const user = people.options.find(item => item.value === String(uid))?.user;return user ? [user] : []; }) ?? [];
   return <section className={s.page}><QueryState keepDataOnError={!!query.data} loading={query.isLoading} error={query.error} retry={() => void query.refetch()}>{sub && <>
-    <BrandedHeader className={e.eventHeader}><div><SectionHomeLink to="/events" label="Мероприятия" /><nav className={e.breadcrumbs}><Link to={getEventRoute(sub.event_id)}>{parent.data?.title ?? "Главное мероприятие"}</Link><span>›</span><span>Подмероприятие</span></nav><h1 className={s.title}>{sub.title}</h1><p className={e.period}>{eventPeriod(sub)}</p><div className={e.headerLeaders}><div className={e.sectionHeading}><h2>Ответственные</h2>{can(sub, "manage_leaders") && <button type="button" className={e.iconButton} aria-label="Изменить ответственных" onClick={() => setEditor("leaders")}><Glyph name="edit" /></button>}</div><Leaders leaders={sub.leaders} /></div></div>{can(sub, "edit_subevent") && <div className={`${s.row} ${e.headerActions}`} role="group" aria-label="Действия подмероприятия"><RouteLink to={getSubeventEditRoute(id)}><Glyph name="edit" />Редактировать подмероприятие</RouteLink></div>}</BrandedHeader>
+    <BrandedHeader className={e.eventHeader}><div><SectionHomeLink to="/events" label="Мероприятия" /><nav className={e.breadcrumbs}><Link to={getEventRoute(sub.event_id)}>{sub.event_title || "Главное мероприятие"}</Link><span>›</span><span>Подмероприятие</span></nav><h1 className={s.title}>{sub.title}</h1><p className={e.period}>{eventPeriod(sub)}</p><div className={e.headerLeaders}><div className={e.sectionHeading}><h2>Ответственные</h2>{can(sub, "manage_leaders") && <button type="button" className={e.iconButton} aria-label="Изменить ответственных" onClick={() => setEditor("leaders")}><Glyph name="edit" /></button>}</div><Leaders leaders={sub.leaders} /></div></div>{can(sub, "edit_subevent") && <div className={`${s.row} ${e.headerActions}`} role="group" aria-label="Действия подмероприятия"><RouteLink to={getSubeventEditRoute(id)}><Glyph name="edit" />Редактировать подмероприятие</RouteLink></div>}</BrandedHeader>
     {sub.outside_parent_dates && <p className={e.warning}>Даты выходят за период главного мероприятия.</p>}
     <Card title="О мероприятии">{sub.announcement?.body ? <Markdown content={sub.announcement} /> : <Empty>Анонс пока не опубликован.</Empty>}</Card>
     {working && <Card title="Рабочая информация"><Markdown content={sub.description} /><div className={s.row}>{can(sub, "create_volunteer_merit") && <RouteLink to={`/merits?source_kind=subevent_volunteer&scope_id=${encodeURIComponent(id)}`}>Учесть волонтёрскую работу</RouteLink>}{can(sub, "view_tasks") || can(sub, "create_task") ? <RouteLink to={`/tasks?scope_kind=subevent&scope_id=${encodeURIComponent(id)}`}>Задачи команды</RouteLink> : null}{reportsLink && <RouteLink to={`/reports?owner_kind=subevent&owner_id=${encodeURIComponent(id)}`}>Отчёты</RouteLink>}{can(sub, "view_meeting") && <RouteLink to={`/meetings/subevent/${encodeURIComponent(id)}`}>Созвон</RouteLink>}</div></Card>}

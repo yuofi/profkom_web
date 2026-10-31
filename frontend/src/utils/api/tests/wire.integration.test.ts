@@ -68,6 +68,9 @@ it("INT-06: actual response shapes, null relations and populated IDs match the p
   const sub = check("Subevent", await eventsApi.createSubevent(event.event_id, { title: "Wire subevent", description: richText() }));
   (await eventsApi.series()).items.forEach(s => check("ReportSeries", s));
   check("Meeting", await eventsApi.saveMeeting("events", event.event_id, { title: "Wire meeting", starts_at: new Date(Date.now() + 86400000).toISOString(), join_url: "https://example.com/meeting" }));
+  await eventsApi.saveMeeting("subevents", sub.subevent_id, { title: "Wire team meeting", starts_at: new Date(Date.now() + 86400000).toISOString(), join_url: "https://example.com/team" });
+  const teams = (await eventsApi.teamMeetings(event.event_id)).items;
+  expect(teams.map(item => item.subevent_id)).toEqual([sub.subevent_id]);teams.forEach(item => check("TeamMeeting", item));
   let report = check("Report", await reportsApi.create({ owner_kind: "event", owner_id: event.event_id, kind: "regular", title: "Wire report", content: richText("Published"), file_ids: [] }));
   report = check("Report", await reportsApi.publish(report.report_id, { expected_revision: report.revision }));
   (await reportsApi.versions(report.report_id)).items.forEach(v => check("ReportVersion", v));
