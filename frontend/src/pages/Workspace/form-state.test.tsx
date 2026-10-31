@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, useState } from "react";
-import { Route, Routes } from "react-router-dom";
+import { Link, Route, Routes } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
 import { mountWorkspace, settle, change, field, pick, submit, waitForPage } from "../../test/workspace";
@@ -42,7 +42,7 @@ it.each(["event", "block", "registration", "meeting", "season", "decisions"] as 
     decisions: ["/seasons/season-1/summary", "/seasons/:id/summary", <SummaryPage />, "reason"],
   } as const;
   const [path, route, element, name] = routes[kind];
-  page = await mountWorkspace(<Routes><Route path={route} element={element} />{kind === "event" && <Route path="/events/:id" element={<p>Страница мероприятия</p>} />}</Routes>, { role, path });
+  page = await mountWorkspace(<Routes><Route path={route} element={element} />{kind === "event" && <Route path="/events/:id" element={<p>Страница мероприятия <Link to="/events/event-1/edit">Изменить мероприятие</Link></p>} />}</Routes>, { role, path });
   await settle(); await settle();
   if (kind === "event") await waitForPage(page!, () => !!page!.container.querySelector('textarea[name="description"]'));
   if (kind === "season") { await act(async () => page!.container.querySelector<HTMLButtonElement>('button[aria-label="Редактировать сезон"]')!.click());await settle(); }
@@ -70,9 +70,14 @@ it.each(["event", "block", "registration", "meeting", "season", "decisions"] as 
   expect(payload.expected_revision ?? payload.expected_version).toBe(latestRevision);
   expect(form.querySelector('[role="alert"]'), page.container.textContent ?? "").toBeNull();
   // GL-32: a saved event opens its page in place of the spent editor; a new edit reads it anew.
-  if (kind === "event") { await waitForPage(page!, () => !!page!.container.textContent?.includes("Страница мероприятия"));expect(form.isConnected).toBe(false);return; }
+  if (kind === "event") {
+    await waitForPage(page!, () => !!page!.container.textContent?.includes("Страница мероприятия"));expect(form.isConnected).toBe(false);
+    await act(async () => page!.container.querySelector<HTMLAnchorElement>('a[href="/events/event-1/edit"]')!.click());
+    await waitForPage(page!, () => !!page!.container.querySelector('textarea[name="description"]'));
+    expect(page.container.textContent).not.toContain("Запись изменилась на сервере");
+  }
   if (kind === "season") { await act(async () => page!.container.querySelector<HTMLButtonElement>('button[aria-label="Редактировать сезон"]')!.click());await settle(); }
-  const repeatedForm = kind === "season" ? field(page.container,name).closest("form")! : form;
+  const repeatedForm = kind === "season" || kind === "event" ? field(page.container,name).closest("form")! : form;
   await change(field(repeatedForm, name), "ПОВТОРНОЕ СОХРАНЕНИЕ");
   if (kind === "season") await change(field(repeatedForm, "reason"), "Повторное уточнение плановых дат");
   await submit(repeatedForm);
