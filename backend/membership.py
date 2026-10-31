@@ -660,8 +660,17 @@ def patch_block(id, payload, uid):
 
 def register_routes(router):
     @router.get("/blocks/{block_id}")
-    def get_block(block_id: str, cur: User = Depends(get_current_user)):
-        return get_card(block_id, cur.user_id)
+    def get_block(block_id: str, include_deputies: bool = False, cur: User = Depends(get_current_user)):
+        result = get_card(block_id, cur.user_id)
+        if include_deputies and result["master"]:
+            # As for event leaders: the master's deputies as UserRefs in deputy_user_ids
+            # order under the reference policy of master.user. Without the flag: unchanged.
+            from models import UserRef
+            with db._session() as s:
+                result["master"]["deputies"] = [asdict(db._get_user_ref(s, uid) or UserRef(
+                    user_id=None, display_name="Обезличенный участник", avatar_url=None))
+                    for uid in result["master"]["deputy_user_ids"]]
+        return result
 
     @router.post("/block-requests", response_model=RequestOut)
     def join(payload: Join, cur: User = Depends(get_current_user)):

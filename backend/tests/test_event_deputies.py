@@ -75,3 +75,37 @@ def test_deputy_refs_follow_the_public_reference_policy(client, deputies):
                           params={'include_deputies': 'true'}))
     assert child['leaders'][0]['deputies'] == [dict(user_id=None, display_name='Обезличенный участник', avatar_url=None)]
     assert client.get('/api/events/missing?include_deputies=true', headers=w['outsider'].headers).status_code == 404
+
+
+def test_block_master_deputies_are_an_opt_in_addition(client, superuser, make_user):
+    """GET /blocks/{id}?include_deputies=true: the block page names the master's deputies
+    without the contacts directory; without the flag, or without a master, nothing changes."""
+    from models import Block
+    master, first, gone, reader = (make_user(surname=name) for name in ('Мастеров', 'Замблоков', 'Стёртый', 'Читатель'))
+    for name in ('Deputies block', 'Masterless block'):
+        db.create_block(Block(name=name, master='', is_hr=False))
+    blocks = {b['name']: b for b in ok(client.get('/api/blocks', headers=superuser.headers))}
+    block = blocks['Deputies block']
+    ok(client.put('/api/blocks/' + block['block_id'] + '/leader', headers=superuser.headers,
+                  json={'user_id': master.user_id, 'expected_revision': block['revision']}))
+    leader = ok(client.get('/api/blocks/' + block['block_id'], headers=superuser.headers))['master']
+    ok(client.put('/api/role-assignments/' + leader['role_assignment_id'] + '/deputies', headers=superuser.headers,
+                  json={'user_ids': [gone.user_id, first.user_id], 'expected_revision': leader['revision']}))
+    with db._session() as s:
+        s.get(UserORM, gone.user_id).account_state = 'purged'
+        s.commit()
+    for actor in (superuser, master, reader):
+        for name in ('Deputies block', 'Masterless block'):
+            path = '/api/blocks/' + blocks[name]['block_id']
+            plain = client.get(path, headers=actor.headers)
+            extended = client.get(path, headers=actor.headers, params={'include_deputies': 'true'})
+            assert plain.status_code == extended.status_code == 200, extended.text
+            body = extended.json()
+            if body['master']:
+                refs = body['master'].pop('deputies')
+                assert refs == reference_refs(body['master']['deputy_user_ids'])
+                assert refs[0] == dict(user_id=None, display_name='Обезличенный участник', avatar_url=None)
+                assert refs[1]['user_id'] == first.user_id and refs[1]['display_name'].startswith('Замблоков')
+            assert body == plain.json()
+    assert ok(client.get('/api/blocks/' + blocks['Masterless block']['block_id'], headers=reader.headers,
+                         params={'include_deputies': 'true'}))['master'] is None
