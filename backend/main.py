@@ -2305,10 +2305,13 @@ def close_season(season_id: str, payload: SeasonRevisionIn, cur: User = Depends(
 # ── Report Series ──
 
 @router.get("/report-series", response_model=Page[ReportSeriesOut])
-def list_report_series(cur: User = Depends(get_current_user)):
+def list_report_series(series_id: Optional[str] = None, cur: User = Depends(get_current_user)):
+    """`series_id` narrows the list to that one series (empty when it is not readable),
+    so a report page can ask about its own history without the whole catalogue."""
     from report_access import series_reader
     with db._session() as session:
-        items=[r for r in db.list_report_series() if series_reader(session,r.series_id,cur.user_id)]
+        items=[r for r in db.list_report_series() if (series_id is None or r.series_id==series_id)
+               and series_reader(session,r.series_id,cur.user_id)]
         return Page(items=[ReportSeriesOut(series_id=r.series_id,owner_kind=r.owner_kind,title=r.title,parent_series_id=r.parent_series_id) for r in items])
 
 

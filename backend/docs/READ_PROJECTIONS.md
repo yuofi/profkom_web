@@ -68,6 +68,25 @@ expire unchanged loaded ORM attributes after execution; primary keys, pending ed
 and the ORM's own flush state are preserved. Rollback never resurrects memoized
 permissions. A copied async context cannot use a scope after its owner has closed.
 
+### Request-scoped facts
+
+`read_context.snapshot` returns one immutable whole-table fact map for a clean read
+unit and `None` everywhere else; callers then run their original per-object query.
+`access` evaluates the same rules over role assignments, legacy blocks, block
+metadata (name↔id), subevents/organizers, subevent HR owners and leadership, so
+`relations`/`scope_relations`, `block_name`, `membership.legacy_name`/`block_id_for`
+and `profile_features` need a constant number of statements per request. A
+missing block metadata row still takes the original read-repair path, which
+disables the scope. `database._role_rows` keeps SQLite's rowid order for leaders and
+deputies. After four distinct people in one request, `_prime_people` loads users,
+contacts, profile metadata and avatar file rows once (absent rows included) for the
+unchanged `_user_to_ref_dc`/`avatar_url`/`contact_data` converters. Task ACL batches
+reuse the TaskIndex rows, prefill refused control grants and the reader's queue
+memberships; `readable_tasks_many` records decisions for several readers (assignee
+and actor) of one selection. `report_access.historical_reader` compares series
+first and memoizes per request. Every value lives only in its unit of work: a dirty
+object, flush, command or transaction boundary discards it.
+
 Never cache a live ORM object with detached-value helpers. Never bypass support,
 private queue, current membership/leadership, KKR or access_revision checks to
 reduce query counts. Refusal and immediate permission revocation remain part of
