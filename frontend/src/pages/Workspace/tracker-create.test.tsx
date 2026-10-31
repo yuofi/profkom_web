@@ -55,3 +55,20 @@ it("clears a chosen parent when the creation season changes", async () => {
   expect(field(page.container, "parent_task_id").value).toBe(parent.task_id);await change(field(page.container, "season"), "another-open");await waitForPage(page);
   expect(field(page.container, "parent_task_id").value).toBe("");
 });
+it("returns an event draft to its event and names each parameter once", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  page = await mountWorkspace(<Routes><Route path="/tasks/new" element={<TrackerTaskCreatePage />} /></Routes>, { path: "/tasks/new?scope_kind=event&scope_id=event-1" });
+  await waitForPage(page, () => !!page!.container.querySelector("form"));
+  const links = [...page.container.querySelectorAll<HTMLAnchorElement>("a")].filter(link => ["День математика", "Отмена"].includes(link.textContent ?? ""));
+  expect(links.map(link => link.textContent)).toEqual(["День математика", "Отмена", "Отмена"]);
+  expect(links.every(link => link.getAttribute("href") === "/events/event-1")).toBe(true);
+  const parameters = page.container.querySelector('[aria-label="Параметры новой задачи"]')!;
+  expect(parameters.textContent).toContain("Определяется мероприятием.");expect(parameters.textContent).toContain("Осень и зима 2026");
+  expect(parameters.textContent).not.toContain("Выбрать исполнителей");expect(parameters.textContent).not.toContain("Выбрать наблюдателей");
+  for (const name of ["Исполнители", "Наблюдатели"]) {
+    const heading = [...parameters.querySelectorAll("h3")].find(node => node.textContent === name)!;
+    expect(parameters.querySelector(`[role="combobox"][aria-labelledby="${heading.id}"]`)).not.toBeNull();
+  }
+  const file = page.container.querySelector<HTMLInputElement>('input[type="file"]')!;
+  expect(file.closest("label")?.textContent).toContain("Прикрепить файлы");
+});
