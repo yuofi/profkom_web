@@ -4,7 +4,7 @@ import json, uuid
 from datetime import datetime, timezone, timedelta
 from dataclasses import asdict
 from typing import Literal
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from database import (
     db,
@@ -169,31 +169,93 @@ def replace_block_avatar(session, meta, file_id, uid):
             session.delete(old)
 
 
-def card(s, b, uid):
-    from block_hr import user_ref
+def _card_facts(s):
+    """Rows every card of GET /blocks reads, loaded once for a clean read UOW.
 
-    m = meta_for(s, b.name)
-    seed_members(s, b, m)
+    Each value is used only while the scope stays clean; a card whose legacy roster,
+    metadata or guide needs the original repair runs it, which disables the scope, so
+    the following cards return to their per-block queries.
+    """
+    from read_context import reusable
+    from database import scalar_rows
+    if not reusable(s):
+        return None
+    metas = {}
+    for meta in s.query(BlockMetaORM):
+        metas.setdefault(meta.legacy_name, meta)
+    members = {}
+    for user_id, block_id, category in scalar_rows(s, MembershipORM, [MembershipORM.user_id, MembershipORM.block_id,
+            MembershipORM.category], MembershipORM.left_at.is_(None)):
+        members.setdefault(block_id, []).append((user_id, category))
+    guides = {}
+    try:
+        from domain_models import MaterialORM
+        candidates = {}
+        for block_id, material_id, unpublished, placeholder, created in scalar_rows(s, MaterialORM, [
+                MaterialORM.owner_block_id, MaterialORM.material_id, MaterialORM.published_body.is_(None),
+                MaterialORM.placeholder, MaterialORM.created_at], MaterialORM.deleted == False,  # noqa: E712
+                MaterialORM.owner_block_id.isnot(None)):
+            # SQLite's ascending order with NULL first, as block_material_id sorts.
+            key = tuple((value is not None, value) for value in (unpublished, placeholder, created))
+            candidates.setdefault(block_id, []).append((key, material_id))
+        for block_id, rows in candidates.items():
+            rows.sort(key=lambda row: row[0])
+            # A tie keeps the original query and SQLite's own tie order.
+            if len(rows) == 1 or rows[0][0] != rows[1][0]:
+                guides[block_id] = rows[0][1]
+    except ImportError:
+        pass
+    return dict(metas=metas, members=members, guides=guides,
+                users={row[0] for row in scalar_rows(s, UserORM, [UserORM.user_id])},
+                open_season=any(x.state == "open" for x in db.get_seasons()))
+
+
+def _roster_seeded(facts, b, m):
+    """True when seed_members would add nothing: every existing legacy user is a member."""
+    try:
+        uids = json.loads(b.arr_of_human or "[]")
+    except (TypeError, ValueError):
+        return False
+    if not isinstance(uids, list) or not all(type(uid) is int for uid in uids):
+        return False
+    active = {user_id for user_id, _ in facts["members"].get(m.block_id, ())}
+    return all(uid not in facts["users"] or uid in active for uid in uids)
+
+
+def card(s, b, uid, facts=None):
+    from block_hr import user_ref
+    from read_context import reusable
+
+    m = facts["metas"].get(b.name) if facts is not None and reusable(s) else None
+    m = m or meta_for(s, b.name)
+    if facts is None or not reusable(s) or not _roster_seeded(facts, b, m):
+        seed_members(s, b, m)
     leaders = _load_leaders(s, "block", b.name, "master")
     master = asdict(leaders[0]) if leaders else None
     if master:
         master["capabilities"] = access.leader_caps(leaders[0], uid)
     members = []
-    for mem in s.query(MembershipORM).filter_by(block_id=m.block_id, left_at=None):
-        u = s.get(UserORM, mem.user_id)
+    if facts is not None and reusable(s):
+        rows = facts["members"].get(m.block_id, [])
+    else:
+        rows = [(mem.user_id, mem.category) for mem in s.query(MembershipORM).filter_by(block_id=m.block_id, left_at=None)]
+    for member_id, category in rows:
+        u = s.get(UserORM, member_id)
         if u and u.account_state == "active" and not u.banned:
             members.append(
                 dict(
                     user=asdict(db._get_user_ref(s, u.user_id)),
-                    block_category=mem.category,
+                    block_category=category,
                 )
             )
-    caps = access.block_caps(uid, b.name, any(x.state == "open" for x in db.get_seasons()))
+    open_season = facts["open_season"] if facts is not None else any(x.state == "open" for x in db.get_seasons())
+    caps = access.block_caps(uid, b.name, open_season)
     guide_id = None
     try:
         from materials import block_material_id
 
-        guide_id = block_material_id(s, m.block_id)
+        guide_id = facts["guides"].get(m.block_id) if facts is not None and reusable(s) else None
+        guide_id = guide_id or block_material_id(s, m.block_id)
     except ImportError:
         pass
     return dict(
@@ -214,7 +276,27 @@ def card(s, b, uid):
 
 def blocks_for(uid):
     with db._session() as s:
-        result = [card(s, b, uid) for b in s.query(BlockORM).order_by(BlockORM.name)]
+        facts = _card_facts(s)
+        result = [card(s, b, uid, facts) for b in s.query(BlockORM).order_by(BlockORM.name)]
+        s.commit()
+        return result
+
+
+def catalog(uid):
+    """Every block's identity for filters and labels: no rosters, guides or seasons.
+
+    The same block order, stable id, name, HR flag, avatar and master UserRef as the
+    GET /blocks cards; blocks themselves are readable by every working account.
+    """
+    from read_context import reusable
+    with db._session() as s:
+        metas = {meta.legacy_name: meta for meta in s.query(BlockMetaORM)} if reusable(s) else {}
+        result = []
+        for b in s.query(BlockORM).order_by(BlockORM.name):
+            m = (metas.get(b.name) if reusable(s) else None) or meta_for(s, b.name)
+            leaders = _load_leaders(s, "block", b.name, "master")
+            result.append(dict(block_id=m.block_id, name=b.name, is_hr=b.is_hr, avatar_url=block_avatar_url(s, m),
+                               master=dict(user=asdict(leaders[0].user)) if leaders else None))
         s.commit()
         return result
 
@@ -316,23 +398,55 @@ def request_dto(s, r, uid):
     )
 
 
-def requests_for(uid):
+def _visible_requests(s, uid, query):
     """The applicant, the chair, deputies and the whole HR block see a request; the block's
     master and deputy see those to their block (decision 16)."""
+    everything = access.allowed(uid, "block_request.view_all") or any(
+        access.allowed(uid, "block_request.view_as_hr", "block", b.name)
+        for b in s.query(BlockORM).filter(BlockORM.is_hr == True)  # noqa: E712
+    )
+    return [
+        r for r in query
+        if everything
+        or r.user_id == uid
+        or access.allowed(uid, "block.review_block_stage", "block", legacy_name(r.block_id))
+    ]
+
+
+def _request_query(s, uid, block_id=None, states=None, mine=False):
+    """Optional narrowing filters; visibility is decided afterwards for each row."""
+    query = s.query(BlockApplicationORM)
+    if block_id is not None:
+        query = query.filter(BlockApplicationORM.block_id == block_id)
+    if states:
+        query = query.filter(BlockApplicationORM.state.in_(list(states)))
+    if mine:
+        query = query.filter(BlockApplicationORM.user_id == uid)
+    return query.order_by(BlockApplicationORM.created_at)
+
+
+def requests_for(uid, block_id=None, states=None, mine=False, cursor=None, limit=None):
+    """Visible requests; with a cursor or limit one keyset page (created_at, request_id).
+
+    Filters only narrow the visible list. Without cursor/limit the whole list keeps
+    its former order and is returned as a list."""
     with db._session() as s:
-        everything = access.allowed(uid, "block_request.view_all") or any(
-            access.allowed(uid, "block_request.view_as_hr", "block", b.name)
-            for b in s.query(BlockORM).filter(BlockORM.is_hr == True)  # noqa: E712
-        )
-        return [
-            request_dto(s, r, uid)
-            for r in s.query(BlockApplicationORM).order_by(
-                BlockApplicationORM.created_at
-            )
-            if everything
-            or r.user_id == uid
-            or access.allowed(uid, "block.review_block_stage", "block", legacy_name(r.block_id))
-        ]
+        rows = _visible_requests(s, uid, _request_query(s, uid, block_id, states, mine))
+        if cursor is None and limit is None:
+            return [request_dto(s, r, uid) for r in rows]
+        from api_contract import cursor_page
+        page = cursor_page(rows, lambda r: (r.created_at, r.request_id), cursor, limit=limit)
+        return Page(items=[request_dto(s, r, uid) for r in page.items], next_cursor=page.next_cursor)
+
+
+def reviewable_request_count(uid):
+    """How many visible pending requests the actor may decide now, without DTOs.
+
+    Equals the requests_for items carrying hr_review_request/block_review_request:
+    the same visibility and can_review (stage and 72-hour substitution) rules."""
+    with db._session() as s:
+        rows = _visible_requests(s, uid, _request_query(s, uid, states=("pending_hr", "pending_block")))
+        return sum(1 for r in rows if can_review(r, uid))
 
 
 def set_membership(s, uid, bid, joined, actor, reason):
@@ -605,8 +719,17 @@ def register_routes(router):
             return request_dto(s, r, cur.user_id)
 
     @router.get("/block-requests", response_model=Page[RequestOut])
-    def requests(cur: User = Depends(get_current_user)):
-        return Page(items=requests_for(cur.user_id))
+    def requests(
+        block_id: str | None = None,
+        state: list[Literal["pending_hr", "pending_block", "approved", "rejected", "withdrawn"]] | None = Query(None),
+        mine: bool = False,
+        cursor: str | None = None,
+        limit: int | None = Query(None, ge=1, le=100),
+        cur: User = Depends(get_current_user),
+    ):
+        # Optional filters and keyset page; without them the whole visible list, as before.
+        result = requests_for(cur.user_id, block_id, state, mine, cursor, limit)
+        return result if isinstance(result, Page) else Page(items=result)
 
     @router.post("/block-requests/{request_id}/{command}", response_model=RequestOut)
     def command(

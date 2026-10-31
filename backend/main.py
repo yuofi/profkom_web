@@ -1631,6 +1631,13 @@ def list_blocks():
     return blocks_for(access.actor_id.get())
 
 
+@router.get("/blocks/catalog")
+def list_block_catalog():
+    """Light block identities (id, name, HR flag, avatar, master) for filters and labels."""
+    from membership import catalog
+    return {"items": catalog(access.actor_id.get()), "next_cursor": None}
+
+
 @router.post("/blocks", response_model=BlockOut)
 def create_block(payload: BlockIn, cur: User = Depends(require_superuser)):
     raise HTTPException(409,"Existing blocks are maintained; creating new blocks is disabled")
@@ -2726,6 +2733,7 @@ def list_tasks(
         overdue=overdue, assignee_user_id=assignee_user_id, sort=sort, order=order,
         task_type=task_type,priority=priority,favorite=favorite,date_from=date_from,date_to=date_to,
         cursor=cursor, limit=limit, converter=_to_task_public_out)
+
 
 
 @router.get("/tasks/{task_id}", response_model=TaskPublicOut)

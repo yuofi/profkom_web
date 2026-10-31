@@ -419,7 +419,7 @@ def home(uid, *, watching=False):
     from datetime import time, timedelta
     from tracker import PUBLIC_ACTIVE
     from task_reads import TaskIndex
-    from membership import requests_for, block_id_for
+    from membership import reviewable_request_count, block_id_for
     from database import TaskQueueRequestORM, TaskQueueORM, BlockORM
     from task_queues import can_read as queue_read
     from domain_models import RegistrationORM
@@ -436,11 +436,11 @@ def home(uid, *, watching=False):
         dated = sorted((task for task in personal if task.deadline_at), key=lambda task: (dt(task.deadline_at), task.task_id))
         overdue = [task for task in dated if dt(task.deadline_at) < current]
         upcoming = [task for task in dated if dt(task.deadline_at) >= current]
-        requests = [item for item in requests_for(uid)
-                    if set(item["capabilities"]) & {"hr_review_request", "block_review_request"}]
+        # The same visible pending requests with a review capability, counted without DTOs.
+        reviewable = reviewable_request_count(uid)
         approvals = []
-        if requests:
-            approvals.append(dict(kind="block_requests", title="Заявки в блоки", count=len(requests), to="/blocks/requests"))
+        if reviewable:
+            approvals.append(dict(kind="block_requests", title="Заявки в блоки", count=reviewable, to="/blocks/requests"))
         if access.allowed(uid, "registration.review"):
             amount = session.query(RegistrationORM).filter_by(status="pending").count()
             if amount:
