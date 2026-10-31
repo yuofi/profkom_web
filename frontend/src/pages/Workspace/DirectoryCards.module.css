@@ -4,8 +4,9 @@
   gap: 14px;
   align-items: stretch;
 }
+/* The card is as tall as its row needs: the grid's rows still line the cards up (PE-30). */
 .grid > .card {
-  height: 240px;
+  height: auto;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -26,8 +27,9 @@
 }
 .identity h2 { font-size: 18px; line-height: 1.3; min-height: 2.6em; }
 .summary { color: var(--on-surface-variant); font-size: 14px; line-height: 1.35; margin-top: 6px; }
-.category { max-width: 95px; font-size: 12px; flex: 0 0 auto; overflow-wrap: anywhere; }
-.category > * { white-space: normal; }
+/* The category badge is one word: it never breaks inside (PE-30). */
+.category { font-size: 12px; flex: 0 0 auto; }
+.category > * { white-space: nowrap; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--outline-variant); padding-top: 12px; margin-top: auto; }
 .actions button { font-size: 13px; }
 .blocks { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; max-height: 2.8em; overflow: hidden; margin-top: 4px; font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
@@ -37,10 +39,7 @@
 .masterBlock { display: inline; }
 .masterBlock .blockLink { color: var(--on-background); font-weight: 500; }
 .masterIcon { width: 14px; height: 14px; margin-right: 4px; vertical-align: -3px; color: var(--accent-mint); }
-@media (max-width: 768px) {
-  .grid > .card { height: 250px; }
-  .category { max-width: 80px; }
-}
+
 
 /* Native stretched profile link keeps the full card clickable while nested
  * block links and management controls retain their own independent actions. */
