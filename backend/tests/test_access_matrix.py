@@ -576,7 +576,8 @@ EXPECTED = {
     "P1": ALL, "P2": TACHKI | {"pgas"}, "P3": TACHKI | {"pgas"}, "P4": TACHKI | {"pgas"},  # decision 14
     "MT1": ALL, "MT2": TACHKI | {"editor"}, "MT3": TACHKI | {"editor"}, "MT4": TACHKI, "MT5": TACHKI,
     "MT6": TACHKI | IT_LEAD, "MT7": TACHKI | HRM,
-    "MT8": TACHKI | IT_LEAD | IT_MEMBERS, "MT9": TACHKI | HRM | {"hract"},  # hrdeputy: open owner decision (GL-09)
+    # The HR deputy reads the guide of their own HR block, nothing more (owner 2026-10-31, GL-09).
+    "MT8": TACHKI | IT_LEAD | IT_MEMBERS, "MT9": TACHKI | HRM | {"hract", "hrdeputy"},
     "C1": ALL, "C2": ALL, "C3": TACHKI | HRM,
 }
 WORKING_SUBEVENTS = {role: (["sa", "sb"] if role in TACHKI | HRM | EVENT_LEAD else ["sa"] if role in SUB_TEAM else [])
@@ -672,6 +673,30 @@ def test_closed_season_offers_no_roster_or_merit_actions(org):
     assert past and all(x["capabilities"] == ["view_merits"] for x in past)
     current = [x for x in session["assignments"] if x["scope_id"] == org.ids["event"]]
     assert current and all(x["capabilities"] == ["create_head_merit", "view_merits"] for x in current)
+
+
+def test_hr_deputy_reads_only_the_guide_of_their_hr_block(org):
+    """GL-09 (owner 2026-10-31): a read relation for the guide, not BLOCK_DEPUTY or membership."""
+    import access
+    uid = org.uid("hrdeputy")
+    assert access.scope_relations(uid, "block", org.ids["hr"]) == {access.HR_BLOCK_DEPUTY}
+    assert access.scope_relations(uid, "block", org.ids["it"]) == set()
+    assert access.HR_BLOCK_DEPUTY not in access.scope_relations(org.uid("mdeputy"), "block", org.ids["it"])
+    guide = org.req("GET", f"/materials/{org.ids['guide_hr']}", who="hrdeputy")
+    assert guide["capabilities"] == []
+    assert org.raw("GET", f"/materials/{org.ids['guide_it']}", who="hrdeputy")[0] == 404
+    status, _ = org.raw("PATCH", f"/materials/{org.ids['guide_hr']}", {"expected_revision": guide["revision"]}, "hrdeputy")
+    assert status == 403
+    assert org.raw("POST", f"/materials/{org.ids['guide_hr']}/publish", {"expected_revision": guide["revision"]}, "hrdeputy")[0] == 403
+    card = org.req("GET", f"/blocks/{org.ids['hr']}", who="hrdeputy")
+    assert "edit_block" not in card["capabilities"] and "manage_leaders" not in card["capabilities"]
+    # The block page opens the guide link by the same read check (GL-10).
+    assert "read_guide" in card["capabilities"]
+    assert "read_guide" not in org.req("GET", f"/blocks/{org.ids['it']}", who="hrdeputy")["capabilities"]
+    # Every other rule naming a block relation stays as before for the HR deputy.
+    for action, rule in access.POLICY.items():
+        if action != "material.read_block_guide":
+            assert access.HR_BLOCK_DEPUTY not in access._rule_relations(action), action
 
 
 @pytest.mark.parametrize("role,kind,readable", [("master", "block", True), ("mdeputy", "block", True), ("resp1", "subevent", True),

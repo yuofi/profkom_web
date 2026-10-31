@@ -29,6 +29,7 @@ QUEUE_HOLDER = "queue_holder"  # leads some block, event or subevent
 # Block
 BLOCK_MASTER = "block_master"
 BLOCK_DEPUTY = "block_deputy"
+HR_BLOCK_DEPUTY = "hr_block_deputy"  # the deputy of an HR block there: only reads its guide (GL-09)
 BLOCK_HR = "block_hr"  # explicit HR curator of this block; never a membership/guide role
 BLOCK_MEMBER = "block_member"
 # Event; a subevent also inherits the relations to its event
@@ -159,9 +160,10 @@ POLICY = {
     "material.create": TACHKI | {BLOCK_LEAD_ANYWHERE},  # general materials or a block guide
     "material.create_general": TACHKI,
     "material.create_guide": TACHKI | BLOCK_LEADS,  # checked against the owning block
-    "material.edit": TACHKI | {MATERIAL_EDITOR},
-    # Checked on the owning block of a guide for its block only (owner, 2026-10-25)
-    "material.read_block_guide": TACHKI | BLOCK_LEADS | {BLOCK_MEMBER},  # also publish and reversible delete (decision 18)
+    "material.edit": TACHKI | {MATERIAL_EDITOR},  # also publish and reversible delete (decision 18)
+    # Checked on the owning block of a guide for its block only (owner, 2026-10-25); reading only.
+    # The HR deputy reads their own HR block's guide (owner, 2026-10-31, GL-09).
+    "material.read_block_guide": TACHKI | BLOCK_LEADS | {BLOCK_MEMBER, HR_BLOCK_DEPUTY},
     "material.manage_editors": TACHKI,
     "material.restore": TACHKI,  # deletion is reversible (decision 18)
     "pgas.manage": TACHKI | {PGAS_ADMIN},  # decision 14
@@ -401,8 +403,10 @@ def _block(uid, block_id):
             curator = bool(metadata and getattr(metadata, "hr_user_id", None) == uid)
     if master or _has_scope_role(uid, "block", name, "master"):
         rel.add(BLOCK_MASTER)
-    if _has_scope_role(uid, "block", name, "deputy_master") and name not in _hr_block_names():
-        rel.add(BLOCK_DEPUTY)
+    if _has_scope_role(uid, "block", name, "deputy_master"):
+        # The HR deputy's grants are defined by POLICY, not BLOCK_DEPUTY: in their own HR
+        # block only the guide read (owner, 2026-10-31, GL-09).
+        rel.add(HR_BLOCK_DEPUTY if name in _hr_block_names() else BLOCK_DEPUTY)
     if member:
         rel.add(BLOCK_MEMBER)
     if curator:
