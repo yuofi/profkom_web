@@ -5,6 +5,7 @@ import { liveLogin, liveParticipant, liveCloseSeasons, CLOSES_SEASONS_TIMEOUT } 
 import { mountWorkspace, waitForPage, change, field, submit } from "../../test/workspace";
 import { eventsApi } from "../../utils/api/events.api";
 import { membershipApi } from "../../utils/api/membership.api";
+import { request } from "../../utils/api/request";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { emptyCriteria, richText } from "../../utils/api/contract";
@@ -44,7 +45,7 @@ it("INT-01: real session opens only the manager's queue and loses access with th
   const task = await tasksApi.create({ season_id: seasons.find(s => s.state === "open")!.season_id,
     scope: { kind: "block", id: block.block_id }, title: "INT-01 оставшаяся работа", description: richText("Real HTTP"),
     deadline_at: new Date(Date.now() + 86400000).toISOString(), criteria: emptyCriteria(), assignees: [{ user_id: member.user_id, hours: 1 }] });
-  await liveLogin(member.email);await expect(membershipApi.leave(block.block_id)).rejects.toMatchObject({status:403});
+  await liveLogin(member.email);await expect(request("post", `/blocks/${block.block_id}/leave`, {})).rejects.toMatchObject({status:403});
   await liveLogin(master.email);await membershipApi.remove(block.block_id,member.user_id);
   const session = await liveLogin(master.email);
   expect(session.capabilities).toContain("view_unresolved_assignments");

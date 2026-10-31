@@ -35,8 +35,6 @@ export const membershipApi = {
       `/block-requests/${idPath(id)}/${command}`,
       data,
     ),
-  leave: (id: string) =>
-    request<void>("post", `/blocks/${idPath(id)}/leave`, {}),
   remove: (id: string, user: number) =>
     request<void>("delete", `/blocks/${idPath(id)}/members/${user}`),
   registration: () =>

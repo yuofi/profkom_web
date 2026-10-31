@@ -95,6 +95,10 @@ export function BlockPage() {
   const b = !query.error || canRetainData(query.error) ? query.data : undefined;
   const canViewTracker = can(b, "view_tasks");
   const alreadyInBlock = !!b && !!session && (b.members.some(member => member.user.user_id === session.user_id) || b.master?.user.user_id === session.user_id || !!b.master?.deputy_user_ids.includes(session.user_id));
+  // A member cannot leave on their own (403 self_leave_forbidden): say whom to ask (PE-22).
+  const plainMember = !!b && !!session && b.members.some(member => member.user.user_id === session.user_id) && b.master?.user.user_id !== session.user_id && !b.master?.deputy_user_ids.includes(session.user_id);
+  const leaveContacts = b ? [b.master?.user, ...(b.master?.deputy_user_ids ?? []).map(userId => people.options.find(option => option.value === String(userId))?.user), b.hr]
+    .filter((user, index, all): user is NonNullable<typeof user> => !!user?.user_id && user.user_id !== session?.user_id && all.findIndex(other => other?.user_id === user.user_id) === index) : [];
   const requests = useQuery({
     queryKey: ["blockRequests"],
     queryFn: membershipApi.requests,
@@ -212,6 +216,14 @@ export function BlockPage() {
                 Служебное назначение мастера или заместителя отдельно от
                 обычного членства.
               </p>
+              {plainMember && (
+                <div className={s.row}>
+                  <span className={s.muted}>
+                    Чтобы выйти из блока, обратитесь к мастеру, его заместителю или HR блока{leaveContacts.length ? ":" : "."}
+                  </span>
+                  {leaveContacts.map(user => <UserChip key={user.user_id} user={user} />)}
+                </div>
+              )}
               {alreadyInBlock ? null : pending ? (
                 <p>
                   Заявка: {requestStates[pending.state]} ·{" "}

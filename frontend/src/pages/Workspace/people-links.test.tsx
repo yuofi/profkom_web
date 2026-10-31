@@ -27,3 +27,19 @@ it("leadership, block members and block requests link people to their profiles (
   const title = Array.from(page.container.querySelectorAll("h2")).find((heading) => heading.textContent?.includes("→"))!;
   expect(title.querySelector("a")?.getAttribute("href")).toBe(`/contacts/${mock.state.requests[0].user.user_id}`);
 });
+
+it("a plain block member is told whom to ask to leave, with links (PE-22)", async () => {
+  mock = installMockTransport("organizer", { delay: 0 });
+  const block = mock.state.blocks.find((item) => item.block_id === "block-info")!;
+  expect(block.members.some((member) => member.user.user_id === 101)).toBe(true);
+  page = await mountWorkspace(<Routes><Route path="/blocks/:id" element={<BlockPage />} /></Routes>, { path: `/blocks/${block.block_id}`, role: "organizer" });await waitForPage(page);
+  const hint = Array.from(card("Состав блока").querySelectorAll("div")).find((row) => row.querySelector(":scope > span")?.textContent?.startsWith("Чтобы выйти из блока"))!;
+  expect(hint).toBeDefined();
+  const expected = [block.master!.user.user_id, ...block.master!.deputy_user_ids, block.hr?.user_id].filter(Boolean).map((userId) => `/contacts/${userId}`);
+  expect(hrefs(hint)).toEqual([...new Set(expected)]);
+  await page.cleanup();
+  mock.restore();
+  mock = installMockTransport("chair", { delay: 0 });
+  page = await mountWorkspace(<Routes><Route path="/blocks/:id" element={<BlockPage />} /></Routes>, { path: "/blocks/block-info" });await waitForPage(page);
+  expect(card("Состав блока").textContent).not.toContain("Чтобы выйти из блока");
+});
