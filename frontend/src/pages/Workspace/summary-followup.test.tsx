@@ -51,6 +51,8 @@ async function openCorrections(kind: string) {
   mock = installMockTransport("chair", { delay: 0 });
   const merit = await seasonsApi.createMerit(meritInput());
   mock.state.seasons.find((s) => s.season_id === "season-1")!.state = "closed";
+  // Only accepted or not completed assignments carry an evaluation to correct (SE-10).
+  for (const assignment of mock.state.tasks[0].assignments) assignment.status = "accepted";
   page = await mountWorkspace(
     <Routes>
       <Route path="/seasons/:id/corrections" element={<CorrectionsPage />} />
@@ -66,7 +68,7 @@ async function openCorrections(kind: string) {
       : kind === "task_inputs"
         ? mock.state.tasks[0].task_id
         : mock.state.assessments[0].assignment_id;
-  await change(page.container.querySelectorAll("select")[1], id);
+  await pick(page.container, "correction_object", id);
   await settle();
   return { id, merit };
 }
@@ -111,6 +113,25 @@ it.each(["assessment_inputs", "task_inputs", "merit"])(
     expect(container.textContent).toContain("Изменения сохранены");
   },
 );
+
+it("offers only accountable tasks and evaluated assignments to correct, with a searchable picker", async () => {
+  await openCorrections("assessment_inputs");
+  const task = mock.state.tasks[0];
+  task.assignments[1].status = "cancelled";
+  mock.state.tasks.push({ ...structuredClone(task), task_id: "control-epic", title: "ККР · Контроль", capabilities: task.capabilities.filter((cap) => cap !== "view_assessment_inputs" && cap !== "edit_assessment_inputs") });
+  await page!.client.invalidateQueries({ queryKey: ["tasks", "closed-correction", "season-1"] });await settle();await settle();
+  const picker = page!.container.querySelector<HTMLElement>('[data-entity-picker][data-field-name="correction_object"]')!;
+  const input = picker.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  await act(async () => { input.focus();input.click(); });await settle();
+  const choices = [...document.querySelectorAll('[role="listbox"] [role="option"]')].map((option) => option.textContent ?? "");
+  expect(choices).toHaveLength(1);
+  expect(choices[0]).toContain(`${task.assignments[0].assignee.display_name} · ${task.title}`);
+  await change(page!.container.querySelector("select")!, "task_inputs");
+  await act(async () => { const box = page!.container.querySelector<HTMLInputElement>('[data-field-name="correction_object"] [role="combobox"]')!;box.focus();box.click(); });await settle();
+  const tasks = [...document.querySelectorAll('[role="listbox"] [role="option"]')].map((option) => option.textContent ?? "");
+  expect(tasks).not.toContain("ККР · Контроль");
+  expect(tasks).toContain(task.title);
+});
 
 it.each(["assessment_inputs", "merit"])(
   "keeps an unchanged %s correction from writing a duplicate summary version",

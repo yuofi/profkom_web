@@ -812,16 +812,30 @@ export function CorrectionsPage() {
     queryFn: () => seasonsApi.merits({ season_id: id }),
     enabled: allowed,
   });
-  const options =
-    kind === "merit"
+  // The saved hours and evaluation tell apart two assignments of one person (the sources page reads the same list).
+  const contributions = useQuery({
+    queryKey: ["assessments", "sources", id, "", ""],
+    queryFn: () => seasonsApi.assessments({ season_id: id }),
+    enabled: allowed && kind === "assessment_inputs" && can(session, "view_kkr"),
+  });
+  const inputs = new Map((contributions.data?.items ?? []).flatMap((c) => c.assignment_inputs ? [[c.assignment_inputs.assignment_id, c.assignment_inputs] as const] : []));
+  // Control epics keep no accounting of their own (no view_assessment_inputs), and only accepted or
+  // not completed assignments carry an evaluation to correct.
+  const accountable = tasks.data?.items.filter((t) => can(t, "view_assessment_inputs")) ?? [];
+  const options: EntityOption[] | undefined = !tasks.data && kind !== "merit" ? undefined
+    : kind === "merit"
       ? merits.data?.items.map((m) => ({ value: m.merit_id, label: m.title }))
       : kind === "task_inputs"
-        ? tasks.data?.items.map((t) => ({ value: t.task_id, label: t.title }))
-        : tasks.data?.items.flatMap((t) =>
-            t.assignments.map((a) => ({
-              value: a.assignment_id,
-              label: `${a.assignee.display_name}: ${t.title}`,
-            })),
+        ? accountable.map((t) => ({ value: t.task_id, label: t.title }))
+        : accountable.flatMap((t) =>
+            t.assignments.filter((a) => a.status === "accepted" || a.status === "not_completed").map((a) => {
+              const saved = inputs.get(a.assignment_id);
+              return {
+                value: a.assignment_id,
+                // Plain text, not a person chip: the label must also name the task and the saved values.
+                label: `${a.assignee.display_name} · ${t.title} · ${saved ? `${saved.hours ?? "—"} ч / оценка ${saved.evaluation ?? "—"}` : a.status === "accepted" ? "принято" : "не выполнено"}`,
+              };
+            }),
           );
   if (missing) return <SeasonMissing />;
   return (
@@ -871,24 +885,15 @@ export function CorrectionsPage() {
                   void (kind === "merit" ? merits.refetch() : tasks.refetch())
                 }
               >
-                <label className={s.field}>
-                  {kind === "assessment_inputs"
-                    ? "Оцениваемое назначение"
-                    : kind === "task_inputs"
-                      ? "Задача"
-                      : "Запись заслуги"}
-                  <select
-                    value={objectId}
-                    onChange={(e) => setObjectId(e.target.value)}
-                  >
-                    <option value="">Выберите…</option>
-                    {options?.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <EntityPicker
+                  name="correction_object"
+                  label={kind === "assessment_inputs" ? "Оцениваемое назначение: исполнитель · задача · часы / оценка" : kind === "task_inputs" ? "Задача" : "Запись заслуги"}
+                  value={objectId}
+                  onChange={setObjectId}
+                  placeholder="Найти запись"
+                  loading={kind === "assessment_inputs" && contributions.isLoading}
+                  options={options ?? []}
+                />
                 {options?.length === 0 && (
                   <Empty>Нет доступных записей этого типа.</Empty>
                 )}
