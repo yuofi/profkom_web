@@ -183,8 +183,8 @@ export function BlockPage() {
                 {b.members.map((m) => (
                   <li key={m.user.user_id}>
                     <div className={s.between}>
-                      <span>
-                        {m.user.display_name}{" "}
+                      <span className={s.row}>
+                        <UserChip user={m.user} />
                         <Badge tone={m.block_category === "junior" ? "mint" : undefined}>
                           {m.block_category === "junior"
                             ? "Новичок блока"
@@ -283,7 +283,8 @@ function RequestCard({
     r.state === "pending_hr" ? "hr_review_request" : "block_review_request",
   );
   return (
-    <Card title={`${r.user.display_name} → ${blockName}`}>
+    <Card>
+      <h2 className={m.requestTitle}><UserChip user={r.user} /><span>→ {blockName}</span></h2>
       <div className={s.row}><Badge tone={requestTones[r.state]}>{requestStates[r.state]}</Badge>{open && <RouteLink to={`/blocks/${encodeURIComponent(r.block_id)}`}>Открыть блок</RouteLink>}</div>
       {open ? (
         <p>

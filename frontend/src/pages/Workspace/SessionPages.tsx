@@ -24,6 +24,7 @@ import { RegistrationForm } from "../../components/Workspace/RegistrationForm";
 import { missingFields } from "../../utils/contactFields";
 import { DemoRolePicker } from "../../components/Workspace/DemoRolePicker";
 import { HistoryDisclosure } from "../../components/Workspace/HistoryPanel";
+import { UserChip } from "../../components/Workspace/UserChip";
 export function AccountStatePage() {
   const { session } = useSession();
   const { logout, busy, error } = useLogout();
@@ -185,11 +186,10 @@ export function LeadershipPage() {
       {(leadership.error || contacts.error) && <ErrorState error={leadership.error || contacts.error} />}
       <div className={s.stack}>
         <Card title="Текущий состав">
-          <p>Председатель: {current.chair?.display_name ?? "не назначен"}</p>
-          <p>
+          <p className={s.row}>Председатель: {current.chair ? <UserChip user={current.chair} /> : "не назначен"}</p>
+          <p className={s.row}>
             Заместители:{" "}
-            {current.deputies.map((p) => p.display_name).join(", ") ||
-              "не назначены"}
+            {current.deputies.length ? current.deputies.map((p, index) => <UserChip key={p.user_id ?? `deputy-${index}`} user={p} />) : "не назначены"}
           </p>
         </Card>
         <HistoryDisclosure kind="leadership" id="current" title="История руководства Профкома" />

@@ -1,4 +1,6 @@
 .statusTabs { display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px; }
+.requestTitle { display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0; }
+.requestTitle>span { min-width:0;overflow-wrap:anywhere; }
 .statusTabs button[aria-pressed="true"] { background:var(--primary-container);color:var(--on-primary-container);border-color:var(--primary); }
 .registrationCard { padding:0;overflow:hidden; }
 .registrationDetails>summary { display:flex;align-items:center;justify-content:space-between;gap:16px;cursor:pointer;padding:18px 22px;list-style:none; }
