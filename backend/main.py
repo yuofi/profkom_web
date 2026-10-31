@@ -2627,6 +2627,13 @@ def create_task_queue(payload: TaskQueueCreateIn,cur: User = Depends(get_current
     return task_queues.create(cur.user_id,**payload.model_dump())
 
 
+@router.get("/task-queues/create-access")
+def task_queue_create_access(cur: User = Depends(get_current_user)):
+    """can_create_task: some catalogue queue offers create_task to the reader."""
+    from task_queues import create_access
+    return create_access(cur.user_id)
+
+
 @router.get("/task-queues/{queue_id}")
 def get_task_queue(queue_id: str,cur: User = Depends(get_current_user)):
     import task_queues
@@ -2725,15 +2732,29 @@ def list_tasks(
     order: Literal["asc", "desc"] = "asc",
     cursor: Optional[str] = None,
     limit: int = Query(20,ge=1,le=100),
+    include_facets: bool = True,
     cur: User = Depends(get_current_user),
 ):
     from tracker import task_page
+    # include_facets=false omits scopes/assignees; GET /tasks/facets returns them alone.
     return task_page(cur.user_id, queue_id=queue_id,season_id=season_id, scope_kind=scope_kind,
         scope_id=scope_id, mine=mine, status=status, q=q, unfinished=unfinished,
         overdue=overdue, assignee_user_id=assignee_user_id, sort=sort, order=order,
         task_type=task_type,priority=priority,favorite=favorite,date_from=date_from,date_to=date_to,
-        cursor=cursor, limit=limit, converter=_to_task_public_out)
+        cursor=cursor, limit=limit, converter=_to_task_public_out, include_facets=include_facets)
 
+
+@router.get("/tasks/facets")
+def list_task_facets(
+    queue_id: Optional[str] = None,
+    season_id: Optional[str] = None,
+    scope_kind: Optional[Literal["block", "subevent", "event", "chair"]] = None,
+    scope_id: Optional[str] = None,
+    cur: User = Depends(get_current_user),
+):
+    """The authorized scopes/assignees of GET /tasks for the same selection filters."""
+    from tracker import task_facets
+    return task_facets(cur.user_id, queue_id=queue_id, season_id=season_id, scope_kind=scope_kind, scope_id=scope_id)
 
 
 @router.get("/tasks/{task_id}", response_model=TaskPublicOut)

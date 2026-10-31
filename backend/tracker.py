@@ -560,25 +560,45 @@ def legacy_command(assignment_id,uid,expected_revision,status,*,required_source_
         return next(a for a in result.assignments if a.assignment_id==assignment_id)
 
 
-def task_page(uid,*,queue_id=None,season_id=None,scope_kind=None,scope_id=None,mine=False,status=None,q="",unfinished=False,overdue=False,assignee_user_id=None,task_type=None,priority=None,favorite=False,date_from=None,date_to=None,sort="deadline",order="asc",cursor=None,limit=20,converter):
-    from api_contract import cursor_page
-    from membership import legacy_name,scope_out
+def _facets(index,rows):
+    """Authorized scope and assignee facets of the selection before personal filters."""
+    from membership import scope_out
+    scopes={};assignees={}
+    for task in rows:
+        scope=scope_out(task.scope)
+        if scope['kind'] in {"block","subevent","event","chair"}:scopes[(scope['kind'],scope['id'])]=dict(**scope,title=index.scope_title(task))
+        for user_id in task.assignee_ids:
+            person=index.user_ref(user_id)
+            if person and person.user_id is not None:assignees[person.user_id]=asdict(person)
+    return dict(scopes=sorted(scopes.values(),key=lambda x:(x['title'],x['id'])),
+        assignees=sorted(assignees.values(),key=lambda x:(x['display_name'],x['user_id'])))
+
+
+def _selection(session,uid,queue_id,season_id,scope_kind,scope_id):
+    from membership import legacy_name
     internal_scope=legacy_name(scope_id) if scope_kind=="block" and scope_id else scope_id
     from task_reads import TaskIndex
+    index=TaskIndex(session,uid,season_id=season_id,scope_kind=scope_kind,scope_id=internal_scope)
+    rows=index.readable()
+    if queue_id:
+        from task_queues import get
+        get(queue_id,uid,include_assignable=False)
+        rows=[t for t in rows if t.queue and t.queue["queue_id"]==queue_id]
+    return index,rows,internal_scope
+
+
+def task_facets(uid,*,queue_id=None,season_id=None,scope_kind=None,scope_id=None):
+    """The facets task_page returns, for a filter panel that needs only them."""
     with db._session() as session:
-        index=TaskIndex(session,uid,season_id=season_id,scope_kind=scope_kind,scope_id=internal_scope)
-        rows=index.readable()
-        if queue_id:
-            from task_queues import get
-            get(queue_id,uid,include_assignable=False)
-            rows=[t for t in rows if t.queue and t.queue["queue_id"]==queue_id]
-        scopes={};assignees={}
-        for task in rows:
-            scope=scope_out(task.scope)
-            if scope['kind'] in {"block","subevent","event","chair"}:scopes[(scope['kind'],scope['id'])]=dict(**scope,title=index.scope_title(task))
-            for user_id in task.assignee_ids:
-                person=index.user_ref(user_id)
-                if person and person.user_id is not None:assignees[person.user_id]=asdict(person)
+        index,rows,_=_selection(session,uid,queue_id,season_id,scope_kind,scope_id)
+        return _facets(index,rows)
+
+
+def task_page(uid,*,queue_id=None,season_id=None,scope_kind=None,scope_id=None,mine=False,status=None,q="",unfinished=False,overdue=False,assignee_user_id=None,task_type=None,priority=None,favorite=False,date_from=None,date_to=None,sort="deadline",order="asc",cursor=None,limit=20,converter,include_facets=True):
+    from api_contract import cursor_page
+    with db._session() as session:
+        index,rows,internal_scope=_selection(session,uid,queue_id,season_id,scope_kind,scope_id)
+        facets=_facets(index,rows) if include_facets else {}
         if mine:rows=[t for t in rows if uid in t.assignee_ids]
         if assignee_user_id is not None:rows=[t for t in rows if assignee_user_id in t.assignee_ids]
         if status:rows=[t for t in rows if t.status==public_status(status)]
@@ -616,5 +636,4 @@ def task_page(uid,*,queue_id=None,season_id=None,scope_kind=None,scope_id=None,m
         following=base64.urlsafe_b64encode(json.dumps(dict(v=1,context=context,key=page.next_cursor)).encode()).decode() if page.next_cursor else None
         index.prepare(page.items)
         return dict(items=[converter(index.project(item)) for item in page.items],next_cursor=following,total=len(rows),
-            scopes=sorted(scopes.values(),key=lambda x:(x['title'],x['id'])),
-            assignees=sorted(assignees.values(),key=lambda x:(x['display_name'],x['user_id'])))
+            **facets)

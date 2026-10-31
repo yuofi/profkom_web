@@ -307,7 +307,30 @@ def migrate():
 
 
 def _self_request(session, queue, uid):
-    return session.query(TaskQueueRequestORM).filter_by(queue_id=queue.queue_id,user_id=uid).order_by(TaskQueueRequestORM.created_at.desc(),TaskQueueRequestORM.request_id.desc()).first()
+    from read_context import orm_rows
+    def load():
+        row=session.query(TaskQueueRequestORM).filter_by(queue_id=queue.queue_id,user_id=uid).order_by(TaskQueueRequestORM.created_at.desc(),TaskQueueRequestORM.request_id.desc()).first()
+        return [row] if row is not None else []
+    rows=orm_rows(session,"queue.self_request",(queue.queue_id,uid),load)
+    return rows[0] if rows else None
+
+
+def _prime_catalog(session, queues, uid):
+    """The reader's own queue grants and latest access requests for a catalogue page.
+
+    One query each, in the same order as the per-queue reads, recorded (including
+    absent rows) only for this clean read UOW. Policies and projections are unchanged.
+    """
+    from read_context import prime_rows
+    if not queues or not uid or not reusable(session):return
+    members={row.queue_id:row for row in session.query(TaskQueueMemberORM).filter(TaskQueueMemberORM.user_id==uid)}
+    latest={}
+    for row in session.query(TaskQueueRequestORM).filter(TaskQueueRequestORM.user_id==uid).order_by(
+            TaskQueueRequestORM.created_at.desc(),TaskQueueRequestORM.request_id.desc()):
+        latest.setdefault(row.queue_id,row)
+    for queue in queues:
+        prime_get(session,TaskQueueMemberORM,(queue.queue_id,uid),members.get(queue.queue_id))
+        prime_rows(session,"queue.self_request",(queue.queue_id,uid),[latest[queue.queue_id]] if queue.queue_id in latest else [])
 
 
 def projection(session, queue, uid, *, include_assignable=True):
@@ -332,6 +355,7 @@ def projection(session, queue, uid, *, include_assignable=True):
     if granted:
         from models import ScopeRef
         from membership import scope_out
+        if queue.owner_user_id:_note_user(queue.owner_user_id)
         owner=_user_to_ref_dc(session.get(UserORM,queue.owner_user_id)) if queue.owner_user_id else None
         if include_assignable and 'assign_task_others' in caps:
             result['assignable_users']=[asdict(_user_to_ref_dc(u)) for u in session.query(UserORM) if active(session,u.user_id) and can_read(session,queue,u.user_id) and db.is_member_or_leader_in_scope(u.user_id,queue.scope_kind,queue.scope_id)]
@@ -354,6 +378,15 @@ def get(queue_id,uid,*,include_assignable=True):
         return result
 
 
+def create_access(uid):
+    """Whether any catalogue queue carries create_task for the reader (the projection rule)."""
+    from support import is_support_queue
+    with db._session() as session:
+        rows=session.query(TaskQueueORM).all() if active(session,uid) else []
+        _prime_catalog(session,rows,uid)
+        return dict(can_create_task=any(queue.key!='KKR' and can_read(session,queue,uid) and not is_support_queue(session,queue) for queue in rows))
+
+
 def catalog(uid,cursor=None):
     import access
     from api_contract import cursor_page
@@ -362,6 +395,7 @@ def catalog(uid,cursor=None):
     with db._session() as session:
         rows=session.query(TaskQueueORM).all() if active(session,uid) else []
         page=cursor_page(rows,lambda q:(q.key,q.queue_id),cursor)
+        _prime_catalog(session,page.items,uid)
         scopes=[]
         if access.allowed(uid,'queue.create','chair','chair'):
             scopes.append(dict(kind='chair',id='chair',title='Председатель'))
