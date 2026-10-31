@@ -67,6 +67,8 @@ it("passes source and stable anonymous participant filters to the server and rep
   adapter = new MockAdapter(api);const summary = summaryFixture();
   const contributions: Contribution[] = summary.rows.slice(0, 3).map((row, index) => ({ contribution_id: `credit-${index}`, season_id: summary.season_id, participant_id: row.participant_id, user: row.user, source_kind: index === 1 ? "chair_merit" : "block_task", source_id: "block-info", source_title: `Источник ${index}`, score: index, calculation_version: "fixture", capabilities: [] }));
   adapter.onGet(`/seasons/${summary.season_id}/summary`).reply(200, summary);
+  // The page shows a season it finds in the list (SE-18).
+  adapter.onGet("/seasons").reply(200, response(createFixtures("chair").seasons));
   adapter.onGet("/assessments").reply(config => [200, response(contributions.filter(item => (!config.params.source_kind || item.source_kind === config.params.source_kind) && (!config.params.participant_id || item.participant_id === config.params.participant_id)))]);
   page = await mountWorkspace(<Routes><Route path="/seasons/:id/sources" element={<SourcesPage />} /></Routes>, { path: `/seasons/${summary.season_id}/sources` });await waitForPage(page);
   expect(page.container.textContent).toContain("Источник 1");

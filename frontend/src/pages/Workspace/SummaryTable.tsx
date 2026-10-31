@@ -19,14 +19,18 @@ export function DecisionBadges({ values }: { values: Decision[] }) {
   return values.length ? <span className={u.decisionIcons}>{values.map(d=><span key={d} role="img" aria-label={decisionLabels[d]} title={decisionTitle(d)} className={u.decisionIcon}><DecisionSymbol value={d}/><span className={u.srOnly}>{decisionLabels[d]}</span></span>)}</span> : <span>Нет отметок</span>;
 }
 
+/** Places mean something once someone has a score; with every total at zero they are all a tie. */
+export const ranked = (summary: SeasonSummary) => summary.rows.some(row => row.total_score !== 0);
+
 export function SummaryTable({ summary, filter = "", rows, renderDecisions, onParticipantSelect }: {
   summary: SeasonSummary; filter?: string; rows?: SummaryRow[]; renderDecisions?: (row: SummaryRow) => ReactNode; onParticipantSelect?: (row: SummaryRow) => void;
 }) {
+  const places = ranked(summary);
   const shown = (rows ?? summary.rows).filter(row => `${row.user.display_name} ${row.group_number}`.toLocaleLowerCase().includes(filter.toLocaleLowerCase()));
   return <div className={u.summaryWrap} tabIndex={0} role="region" aria-label="Сезонная сводная, горизонтальная прокрутка"><table className={u.summaryTable}>
     <thead><tr>{["Место", "Участник", "ККР блоков", "ККР мероприятий", "Всего", "Отметки", "Прошлые отметки"].map(name => <th key={name} scope="col">{name}</th>)}</tr></thead>
     <tbody>{shown.map(row => <tr key={row.participant_id}>
-      <td><div className={u.rank}><strong>{row.rank}</strong><span>Ранее: {row.previous_rank ?? "—"}</span></div></td>
+      <td><div className={u.rank}><strong>{places ? row.rank : "—"}</strong><span>Ранее: {row.previous_rank ?? "—"}</span></div></td>
       <td><UserChip user={row.user} /><p><small>{row.group_number} · {row.category === "junior" ? "Джуниор" : "Активист"}</small></p><div className={s.row}>{row.is_archived && <Badge tone="rose">Уже исключён</Badge>}{row.is_master && <Badge tone="yellow">Мастер</Badge>}</div>{onParticipantSelect ? <button type="button" className={u.tableAction} onClick={() => onParticipantSelect(row)}>Начисления и работа →</button> : <details className={u.sourceDetails}><summary>Источники начислений</summary>{row.source_scores.map((source, i) => <p key={`${source.source_id}-${i}`}>{source.title}: {source.score.toFixed(2)}</p>)}</details>}</td>
       <td>{row.source_scores.filter(source => ['block_task','block_volunteer','master_bonus','chair_task','chair_merit'].includes(source.source_kind)).reduce((sum,source)=>sum+source.score,0).toFixed(2)}</td>
       <td>{row.source_scores.filter(source => ['subevent_task','subevent_volunteer','event_task','head_merit'].includes(source.source_kind)).reduce((sum,source)=>sum+source.score,0).toFixed(2)}</td>

@@ -90,6 +90,17 @@ function allowedMeritKinds(session: Session | null, contexts: ReturnType<typeof 
   });
 }
 
+/** A season subpage whose season is not in the list: say so instead of an empty form. */
+function SeasonMissing() {
+  return <Page title="Сезон не найден" actions={<RouteLink to="/seasons">Все сезоны</RouteLink>}><Empty>Такого сезона нет. Возможно, ссылка устарела.</Empty></Page>;
+}
+/** The season of a subpage from the shared list; `missing` once the list is known and lacks it. */
+function useSubpageSeason(id: string) {
+  const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
+  const season = seasons.data?.items.find((item) => item.season_id === id);
+  return { seasons, season, missing: !!seasons.data && !season };
+}
+
 /** Blocks have no fixed season; pick an eligible one before opening its form. */
 export function MeritEntryPage() {
   const { session } = useSession();
@@ -474,15 +485,16 @@ export function MeritsPage() {
   const { session } = useSession();
   const [params] = useSearchParams();
   const contexts = useMeritContexts(true);
-  const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
+  const { seasons, season, missing } = useSubpageSeason(id);
   const [created, setCreated] = useState<{ count: number; title?: string }>({ count: 0 });
-  const season = seasons.data?.items.find((x) => x.season_id === id);
   const allowedKinds = allowedMeritKinds(session, contexts.data, season);
   // The server filters the list by the reader's scopes, so the page always asks it; only a 403 means no access.
   const query = useQuery({
     queryKey: ["merits", id],
     queryFn: () => seasonsApi.merits({ season_id: id }),
+    enabled: !!season,
   });
+  if (missing) return <SeasonMissing />;
   if (contexts.isLoading || seasons.isLoading) return <QueryState loading error={null}>{null}</QueryState>;
   if ((contexts.error && (!contexts.data || !canRetainData(contexts.error))) || (seasons.error && (!seasons.data || !canRetainData(seasons.error)))) return <QueryState loading={false} error={contexts.error || seasons.error}>{null}</QueryState>;
   if (query.error && normalizeApiError(query.error).status === 403 && !allowedKinds.length) return <Page title="Особые заслуги"><Empty>Нет доступа к исходным полям.</Empty></Page>;
@@ -538,13 +550,15 @@ export function SourcesPage() {
     if (value) next.set(name, value);else next.delete(name);
     return next;
   });
-  const participants = useQuery({ queryKey: ["summary", id], queryFn: () => seasonsApi.summary(id), enabled: can(session, "view_kkr") && can(session, "view_summary") });
+  const { seasons, season, missing } = useSubpageSeason(id);
+  const participants = useQuery({ queryKey: ["summary", id], queryFn: () => seasonsApi.summary(id), enabled: !!season && can(session, "view_kkr") && can(session, "view_summary") });
   const participantOptions = (!participants.error || canRetainData(participants.error) ? participants.data?.rows : undefined)?.map(row => ({ value: row.participant_id, label: `${row.user.display_name}${row.group_number ? ` · ${row.group_number}` : ""}`, user: row.user })) ?? [];
   const query = useQuery({
     queryKey: ["assessments", "sources", id, sourceKind, participantId],
     queryFn: () => seasonsApi.assessments({ season_id: id, ...(sourceKind ? { source_kind: sourceKind } : {}), ...(participantId ? { participant_id: participantId } : {}) }),
-    enabled: can(session, "view_kkr"),
+    enabled: !!season && can(session, "view_kkr"),
   });
+  if (missing) return <SeasonMissing />;
   if (!can(session, "view_kkr"))
     return (
       <Page title="Подробные начисления">
@@ -558,7 +572,7 @@ export function SourcesPage() {
         <EntityPicker name="participant_id" label="Участник" value={participantId} onChange={value => setFilter("participant_id", value)} loading={participants.isLoading} placeholder="Все участники" options={[{ value: "", label: "Все участники" }, ...participantOptions]} />
       </div>
       {participants.error && <ErrorState error={participants.error} />}
-      <QueryState loading={query.isLoading} error={query.error}>
+      <QueryState loading={seasons.isLoading || query.isLoading} error={query.error ?? seasons.error}>
         <div className={s.stack}>
           {query.data?.items.map((c) => (
             <Card key={c.contribution_id} title={c.source_title}>
@@ -778,10 +792,11 @@ export function CorrectionsPage() {
   const [kind, setKind] = useState<CorrectionKind>("assessment_inputs");
   const [objectId, setObjectId] = useState("");
   const chair = can(session, "correct_season");
+  const { seasons, season, missing } = useSubpageSeason(id);
   const summary = useQuery({
     queryKey: ["summary", id],
     queryFn: () => seasonsApi.summary(id),
-    enabled: chair && can(session, "view_summary"),
+    enabled: !!season && chair && can(session, "view_summary"),
   });
   const allowed = chair && can(summary.data, "correct_summary");
   const tasks = useQuery({
@@ -805,6 +820,7 @@ export function CorrectionsPage() {
               label: `${a.assignee.display_name}: ${t.title}`,
             })),
           );
+  if (missing) return <SeasonMissing />;
   return (
     <Page
       title="Исправление закрытых итогов"
@@ -818,8 +834,8 @@ export function CorrectionsPage() {
         <Empty>Исправление доступно председателю и его заместителям.</Empty>
       ) : (
         <QueryState
-          loading={summary.isLoading}
-          error={summary.error}
+          loading={seasons.isLoading || summary.isLoading}
+          error={summary.error ?? seasons.error}
           retry={() => void summary.refetch()}
         >
           {allowed ? (
