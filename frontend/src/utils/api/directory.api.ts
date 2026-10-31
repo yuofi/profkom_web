@@ -3,6 +3,8 @@ import type { ContactInfoOut } from "./types";
 import { idPath, allPages as page, request } from "./request";
 export const directoryApi = {
   contacts: () => request<ContactInfoOut[]>("get", "/contacts"),
+  /** The same filtered directory narrowed to one participant: [] when not listed. */
+  contact: (userId: number) => request<ContactInfoOut[]>("get", "/contacts", undefined, { user_id: userId }),
   former: () => page<FormerContact>("/contacts/archive"),
   saveFormer: (data: Omit<FormerContact, "contact_id" | "revision" | "capabilities"> & { expected_revision?: number }, id?: string) =>
     request<FormerContact>(

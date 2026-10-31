@@ -31,6 +31,8 @@ import { moscowDay } from "../../utils/calendar";
 import { canRetainData } from "../../utils/api/request";
 import c from "./EventCatalogue.module.css";
 
+/** Event and subevent pages show deputies from the response, without the whole directory (PF-13). */
+const withDeputies = { include_deputies: true };
 function useReportsLink(owner_kind: "event" | "subevent", owner_id: string, canCreate: boolean, enabled = true) {
   const readable = useQuery({ queryKey: ["reports", "owner", owner_kind, owner_id], queryFn: () => reportsApi.list({ owner_kind, owner_id }), enabled: enabled && !!owner_id && !canCreate });
   return enabled && (canCreate || !readable.error && !!readable.data?.items.length);
@@ -91,7 +93,7 @@ export function EventsListPage() {
 }
 export function EventCreatePage() { const { session } = useSession();return can(session, "create_event") ? <Suspense fallback={<Loading />}><EventEditor /></Suspense> : <Empty>Создавать мероприятия могут председатель и его заместители.</Empty>; }
 export function EventEditPage() {
-  const { id = "" } = useParams();const query = useQuery({ queryKey: ["events", id], queryFn: () => eventsApi.get(id), enabled: !!id });
+  const { id = "" } = useParams();const query = useQuery({ queryKey: ["events", id], queryFn: () => eventsApi.get(id, withDeputies), enabled: !!id });
   return <QueryState keepDataOnError={!!query.data} loading={query.isLoading} error={query.error} retry={() => void query.refetch()}>{query.data && (can(query.data, "edit_event") ? <Suspense fallback={<Loading />}><EventEditor event={query.data} /></Suspense> : <Empty>Изменение мероприятия вам недоступно.</Empty>)}</QueryState>;
 }
 function LeadersEditor({ owner, kind, onSaved }: { owner: Event | Subevent; kind: "events" | "subevents"; onSaved: () => void }) {
@@ -110,7 +112,7 @@ export function EventPage() {
   const { id = "" } = useParams(), { session } = useSession();
   const { perform } = useWorkspaceActions();
   const [statePending, setStatePending] = useState(false), [stateError, setStateError] = useState(false);
-  const query = useQuery({ queryKey: ["events", id], queryFn: () => eventsApi.get(id) });
+  const query = useQuery({ queryKey: ["events", id], queryFn: () => eventsApi.get(id, withDeputies) });
   const subs = useQuery({ queryKey: ["events", id, "subevents"], queryFn: () => eventsApi.subevents(id), enabled: !!query.data });
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
   const [editor, setEditor] = useState<"leaders" | "season" | "child" | null>(null);
@@ -138,13 +140,14 @@ export function EventPage() {
 }
 export function SubeventPage() {
   const { id = "" } = useParams(), { perform, refresh } = useWorkspaceActions();
-  const query = useQuery({ queryKey: ["events", "subevent", id], queryFn: () => eventsApi.subevent(id) });
+  const query = useQuery({ queryKey: ["events", "subevent", id], queryFn: () => eventsApi.subevent(id, withDeputies) });
   const sub = query.data;
-  const parent = useQuery({ queryKey: ["events", sub?.event_id], queryFn: () => eventsApi.get(sub!.event_id), enabled: !!sub });
-  const people = usePeopleOptions({ includeNonMembers: true });
+  const parent = useQuery({ queryKey: ["events", sub?.event_id], queryFn: () => eventsApi.get(sub!.event_id, withDeputies), enabled: !!sub });
   const working = sub?.working_access ?? !!sub?.capabilities.length;
   const reportsLink = useReportsLink("subevent", sub ? id : "", can(sub, "create_report"), working);
   const [editor, setEditor] = useState<"leaders" | "organizers" | "description" | "hr" | null>(null);
+  // The directory is read for an open organizer/HR editor or a response without organizer references (PF-13).
+  const people = usePeopleOptions({ includeNonMembers: true, enabled: editor === "organizers" || editor === "hr" || (!!sub && !sub.organizers) });
   if (editor === "description" && sub && parent.data && can(sub, "edit_subevent")) return <UnsavedChangesScope><Suspense fallback={<Loading />}><SubeventEditor subevent={sub} parent={parent.data} onClose={() => setEditor(null)} /></Suspense></UnsavedChangesScope>;
   const organizers = sub?.organizers ?? sub?.organizer_user_ids.flatMap(uid => { const user = people.options.find(item => item.value === String(uid))?.user;return user ? [user] : []; }) ?? [];
   return <section className={s.page}><QueryState keepDataOnError={!!query.data} loading={query.isLoading} error={query.error} retry={() => void query.refetch()}>{sub && <>

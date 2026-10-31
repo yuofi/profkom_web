@@ -104,8 +104,9 @@ it("refreshes at each stage boundary without locally granting review or spinning
   await act(async () => {
     await vi.advanceTimersByTimeAsync(990);
   });
+  // The deadline rereads the open list only; the closed lists stay as loaded (PB-22).
   expect(
-    adapter.history.get.filter((r) => r.url === "/block-requests"),
+    adapter.history.get.filter((r) => r.url === "/block-requests" && String(r.params).includes("state=pending_hr")),
   ).toHaveLength(2);
   expect(page.container.textContent).not.toContain("Одобрить этап HR");
   request.state = "pending_block";

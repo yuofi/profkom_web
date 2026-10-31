@@ -99,7 +99,7 @@ function SeasonOverview({ season, summary, allowed }: { season: Season; summary?
   const { session } = useSession();const id = season.season_id;
   const analytics = useQuery({ queryKey: analyticsKey(id), queryFn: () => seasonsApi.analytics(id), enabled: allowed });
   const bonuses = useQuery({ queryKey: ["masterBonuses", id], queryFn: () => seasonsApi.bonuses(id), enabled: allowed });
-  const readiness = useQuery({ queryKey: ["seasons", "readiness", id], queryFn: () => seasonsApi.readiness(id), enabled: allowed && ["open", "summarizing"].includes(season.state) });
+  const readiness = useQuery({ queryKey: ["seasons", "readiness", id], queryFn: () => seasonsApi.readiness(id, { include_task_ids: true }), enabled: allowed && ["open", "summarizing"].includes(season.state) });
   const scores = analytics.data?.source_breakdown ?? [], maximum = Math.max(1, ...scores.map(source => Math.abs(source.kkr ?? 0)));
   return <div className={u.stack}>
     {allowed && ["open", "summarizing"].includes(season.state) && <section className={u.panel} aria-label="Проверки сезона"><h2>Проверки сезона</h2><QueryState loading={readiness.isLoading} error={readiness.error} retry={() => void readiness.refetch()}>{readiness.data && (readiness.data.ready ? <p>Препятствий для закрытия нет.</p> : <details><summary>Препятствий закрытию: {readiness.data.blockers.length}</summary><ul className={w.list}>{readiness.data.blockers.map((blocker, index) => <li key={`${blocker.owner_kind}:${blocker.owner_id}:${index}`}><SeasonBlockerLink blocker={blocker} seasonId={id} /></li>)}</ul></details>)}</QueryState></section>}

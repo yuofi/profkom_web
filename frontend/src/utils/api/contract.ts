@@ -72,6 +72,8 @@ export interface Leader extends Versioned {
   role_assignment_id: string;
   user: UserRef;
   deputy_user_ids: number[];
+  /** With include_deputies=true: the deputies in deputy_user_ids order, under the policy of `user`. */
+  deputies?: UserRef[];
 }
 export type Category = "junior" | "activist";
 export interface ParticipantCategory extends Versioned {
@@ -328,6 +330,15 @@ export interface TaskListPageResponse extends Page<Task> {
   scopes?: (ScopeRef & { title: string })[];
   assignees?: UserRef[];
 }
+/** GET /tasks/facets: the list facets of one selection, for the open filter panel. */
+export interface TaskFacets {
+  scopes: (ScopeRef & { title: string })[];
+  assignees: UserRef[];
+}
+/** GET /task-queues/create-access: some catalogue queue offers create_task. */
+export interface TaskCreateAccess {
+  can_create_task: boolean;
+}
 export interface TaskStatusChange extends Revision {
   status: TaskPublicStatus | AssignmentStatus;
   message?: RichText;
@@ -359,6 +370,8 @@ export interface AssessmentInputs extends Versioned {
   workflow_revision?: number | null;
   workflow_status?: AssignmentStatus | null;
   assignment_id: string;
+  /** With include_task_ids=true on /assessments: the task when the reader may open it. */
+  task_id?: string | null;
   hours: number | null;
   evaluation: -1 | 0 | 1 | 1.5 | null;
   effective_completed_at: string | null;
@@ -409,6 +422,12 @@ export interface MeritCreate {
     completed_at: string | null;
   }[];
   reason?: string;
+}
+/** GET /merits/contexts: the merit forms' scopes with only their merit capabilities. */
+export interface MeritContexts {
+  blocks: (BlockRef & { avatar_url: string | null; capabilities: string[] })[];
+  events: { event_id: string; season_id: string; title: string; capabilities: string[] }[];
+  subevents: { subevent_id: string; event_id: string; title: string; capabilities: string[] }[];
 }
 /** The fields PATCH /merits/{id} accepts: kind, season and scope are fixed at creation. */
 export type MeritPatch = Pick<MeritCreate, "title" | "description" | "assigned_at" | "deadline_at" | "criteria" | "recipients">;
@@ -684,6 +703,13 @@ export interface SeasonBlocker {
   title: string;
   subject?: string | null;
   assignee?: string | null;
+  /** With include_task_ids=true on readiness: an assignment's task when the reader may open it. */
+  task_id?: string | null;
+}
+export interface SeasonReadiness {
+  ready: boolean;
+  blockers: SeasonBlocker[];
+  revision: number;
 }
 export const richText = (body = ""): RichText => ({ format: "markdown", body });
 export const emptyCriteria = (): Criteria => ({

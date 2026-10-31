@@ -19,11 +19,11 @@ import { text, number, ids } from "../../components/Workspace/formValues";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { eventsApi } from "../../utils/api/events.api";
-import { membershipApi } from "../../utils/api/membership.api";
 import {
   emptyCriteria,
   richText,
   type Merit,
+  type MeritContexts,
   type Session,
   type Season,
   type MeritCreate,
@@ -60,25 +60,21 @@ const criteriaLabels = {
 function meritPatch({ title, description, assigned_at, deadline_at, criteria, recipients, template_selection }: MeritCreate & { template_selection?: TemplateSelection }): MeritPatch & { template_selection?: TemplateSelection } {
   return { title, description, assigned_at, deadline_at, criteria, recipients, ...(template_selection ? { template_selection } : {}) };
 }
-function useMeritContexts(enabled: boolean) {
+type MeritScopes = { blocks: MeritContexts["blocks"]; events: MeritContexts["events"]; subs: MeritContexts["subevents"] };
+/** One GET /merits/contexts (PB-11) instead of /blocks, /events and the subevents of every event. */
+function useMeritContexts(seasonId: string | undefined, enabled = true) {
   return useQuery({
-    queryKey: ["merits", "contexts"],
+    queryKey: ["merits", "contexts", seasonId ?? null],
     enabled,
-    queryFn: async () => {
-      const [blocks, events] = await Promise.all([
-        membershipApi.blocks(),
-        eventsApi.list(),
-      ]);
-      const subs = (
-        await Promise.all(
-          events.items.map((e) => eventsApi.subevents(e.event_id)),
-        )
-      ).flatMap((x) => x.items);
-      return { blocks, events: events.items, subs };
+    staleTime: 60_000,
+    queryFn: async (): Promise<MeritScopes> => {
+      const { blocks, events, subevents } = await seasonsApi.meritContexts(seasonId);
+      return { blocks, events, subs: subevents };
     },
   });
 }
-function allowedMeritKinds(session: Session | null, contexts: ReturnType<typeof useMeritContexts>["data"], season?: Season) {
+type MeritContextsQuery = ReturnType<typeof useMeritContexts>;
+function allowedMeritKinds(session: Session | null, contexts: MeritScopes | undefined, season?: Season) {
   if (!season || season.state === "closed") return [];
   const eventIds = new Set(contexts?.events.filter((e) => e.season_id === season.season_id).map((e) => e.event_id));
   return Object.entries(kinds).filter(([kind]) => {
@@ -93,7 +89,7 @@ function allowedMeritKinds(session: Session | null, contexts: ReturnType<typeof 
 export function MeritEntryPage() {
   const { session } = useSession();
   const [params] = useSearchParams();
-  const contexts = useMeritContexts(true);
+  const contexts = useMeritContexts(undefined);
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
   const requested = params.get("source_kind");
   const scopeId = params.get("scope_id");
@@ -122,8 +118,11 @@ function MeritEditor({
   initialScopeId,
   summaryVersion,
   onCreated,
+  contexts: shared,
 }: {
   seasonId: string;
+  /** The page's own contexts query, so an editor never repeats it. */
+  contexts?: MeritContextsQuery;
   existing?: Merit;
   onCreated?: (merit: Merit) => void;
   save?: (data: MeritCreate & { reason: string }, revision: number, summaryVersion: number) => Promise<{revision: number; revisionKey: string}>;
@@ -137,7 +136,8 @@ function MeritEditor({
   const { perform, refresh } = useWorkspaceActions();
   const people = usePeopleOptions({ includeNonMembers: true });
   // An existing record needs the lists only for its scope name, so they never block its form.
-  const contexts = useMeritContexts(true);
+  const own = useMeritContexts(seasonId, !shared);
+  const contexts = shared ?? own;
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list, enabled: !existing });
   const season = seasons.data?.items.find((x) => x.season_id === seasonId);
   const allowedKinds = allowedMeritKinds(session, contexts.data, season);
@@ -470,7 +470,7 @@ export function MeritsPage() {
   const { id = "" } = useParams();
   const { session } = useSession();
   const [params] = useSearchParams();
-  const contexts = useMeritContexts(true);
+  const contexts = useMeritContexts(id);
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
   const [created, setCreated] = useState<{ count: number; title?: string }>({ count: 0 });
   const season = seasons.data?.items.find((x) => x.season_id === id);
@@ -504,7 +504,7 @@ export function MeritsPage() {
               {can(m, "edit_assessment_inputs") && (
                 <details className={s.details}>
                   <summary>Исправить исходные поля</summary>
-                  <MeritForm seasonId={id} existing={m} />
+                  <MeritForm seasonId={id} existing={m} contexts={contexts} />
                 </details>
               )}
             </Card>
@@ -513,7 +513,7 @@ export function MeritsPage() {
         {allowedKinds.length > 0 && (
           <Card title="Учесть выполненную работу">
             {created.title && <p role="status" className={s.success}>Работа записана: {created.title}</p>}
-            <MeritForm key={`${id}/${params.get("source_kind")}/${params.get("scope_id")}/${created.count}`} seasonId={id}
+            <MeritForm key={`${id}/${params.get("source_kind")}/${params.get("scope_id")}/${created.count}`} seasonId={id} contexts={contexts}
               onCreated={(merit) => setCreated((c) => ({ count: c.count + 1, title: merit.title }))}
               initialSource={allowedKinds.find(([kind]) => kind === params.get("source_kind"))?.[0] as MeritCreate["source_kind"] | undefined}
               initialScopeId={params.get("scope_id") ?? undefined} />
@@ -780,10 +780,11 @@ export function CorrectionsPage() {
     enabled: chair && can(session, "view_summary"),
   });
   const allowed = chair && can(summary.data, "correct_summary");
+  // The picker lists every task of the season; pages of 100 and only for task-based kinds (PF-06).
   const tasks = useQuery({
     queryKey: ["tasks", "closed-correction", id],
-    queryFn: () => tasksApi.list({ season_id: id, mine: false }),
-    enabled: allowed,
+    queryFn: () => tasksApi.list({ season_id: id, mine: false, limit: 100 }),
+    enabled: allowed && kind !== "merit",
   });
   const merits = useQuery({
     queryKey: ["merits", id],
@@ -924,7 +925,7 @@ export function SeasonCorrectionForm() {
     queryFn: async () => {
       const [events, tasks, merits] = await Promise.all([
         eventsApi.list(),
-        tasksApi.list({ mine: false }),
+        tasksApi.list({ mine: false, limit: 100 }),
         seasonsApi.merits(),
       ]);
       return [

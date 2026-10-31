@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { membershipApi } from '../../utils/api/membership.api';
@@ -55,11 +55,18 @@ function CoefficientInput({row,seasonId,summary,closed,open,onOpen,onClose}:{row
 
 export function SeasonKkrHistory() {
   const [count,setCount]=useState(4),[search,setSearch]=useState(''),[block,setBlock]=useState(''),[course,setCourse]=useState('');
-  const [appliedSearch,setAppliedSearch]=useState(search);useEffect(()=>{const timer=setTimeout(()=>setAppliedSearch(search),250);return()=>clearTimeout(timer);},[search]);
-  const query=useQuery({queryKey:['kkr-history',count,appliedSearch,block,course],queryFn:()=>kkrApi.history({count,search:appliedSearch,block_id:block||undefined,course:course||undefined})});
+  // One read per season count; name, course and current block filter the loaded rows (PB-29).
+  const query=useQuery({queryKey:['kkr-history',count],queryFn:()=>kkrApi.history({count}),staleTime:60_000});
   const currentBlocks=useQuery({queryKey:['blocks'],queryFn:membershipApi.blocks});
   const blocks=currentBlocks.data??[];
-  return <section className={u.stack}><div className={u.toolbar}><label>Имя или группа<input type="search" value={search} onChange={e=>setSearch(e.target.value)}/></label><EntityPicker name="history-block" label="Текущий блок" value={block} onChange={setBlock} loading={currentBlocks.isLoading} placeholder="Все блоки" options={[{value:'',label:'Все блоки'},...blocks.map(item=>({value:item.block_id,label:item.name,block:item}))]}/><label>Курс<select value={course} onChange={e=>setCourse(e.target.value)}><option value="">Все курсы</option>{[1,2,3,4,5,6].map(v=><option key={v}>{v}</option>)}</select></label><label>Последних сезонов<input type="number" min="1" max="24" value={count} onChange={e=>setCount(Math.max(1,Math.min(24,Number(e.target.value)||4)))}/></label></div><QueryState loading={query.isLoading} error={query.error} retry={()=>void query.refetch()}><div className={u.summaryWrap}><table className={u.summaryTable}><thead><tr><th>Участник</th>{query.data?.seasons.map(season=><th key={season.season_id}>{season.title}{season.state!=='closed'&&<small>Предварительно</small>}</th>)}</tr></thead><tbody>{query.data?.rows.map(row=><tr key={row.participant_id}><td><UserChip user={row.user}/><small>{row.group_number}</small></td>{row.cells.map(cell=><td key={cell.season_id}><strong>{n(cell.total_score)}</strong>{cell.rank!==null&&<small> · место {cell.rank}</small>}<DecisionBadges values={cell.decisions}/></td>)}</tr>)}</tbody></table></div></QueryState><p className={u.note}>Фильтры используют текущий состав. Числа закрытых сезонов сохранены в утверждённых версиях.</p></section>;
+  const rows=useMemo(()=>{
+    const selected=block?currentBlocks.data?.find(item=>item.block_id===block):undefined;
+    const team=selected&&new Set([selected.master?.user.user_id,...selected.master?.deputy_user_ids??[],...selected.members.map(member=>member.user.user_id)].filter(id=>id!=null));
+    const text=search.toLocaleLowerCase('ru');
+    return query.data?.rows.filter(row=>(!search||`${row.user.display_name} ${row.group_number??''}`.toLocaleLowerCase('ru').includes(text))
+      &&(!course||!!row.group_number&&row.group_number.startsWith(course))&&(!block||!!team&&row.user.user_id!==null&&team.has(row.user.user_id)));
+  },[query.data,currentBlocks.data,search,course,block]);
+  return <section className={u.stack}><div className={u.toolbar}><label>Имя или группа<input type="search" value={search} onChange={e=>setSearch(e.target.value)}/></label><EntityPicker name="history-block" label="Текущий блок" value={block} onChange={setBlock} loading={currentBlocks.isLoading} placeholder="Все блоки" options={[{value:'',label:'Все блоки'},...blocks.map(item=>({value:item.block_id,label:item.name,block:item}))]}/><label>Курс<select value={course} onChange={e=>setCourse(e.target.value)}><option value="">Все курсы</option>{[1,2,3,4,5,6].map(v=><option key={v}>{v}</option>)}</select></label><label>Последних сезонов<input type="number" min="1" max="24" value={count} onChange={e=>setCount(Math.max(1,Math.min(24,Number(e.target.value)||4)))}/></label></div><QueryState loading={query.isLoading} error={query.error} retry={()=>void query.refetch()}><div className={u.summaryWrap}><table className={u.summaryTable}><thead><tr><th>Участник</th>{query.data?.seasons.map(season=><th key={season.season_id}>{season.title}{season.state!=='closed'&&<small>Предварительно</small>}</th>)}</tr></thead><tbody>{rows?.map(row=><tr key={row.participant_id}><td><UserChip user={row.user}/><small>{row.group_number}</small></td>{row.cells.map(cell=><td key={cell.season_id}><strong>{n(cell.total_score)}</strong>{cell.rank!==null&&<small> · место {cell.rank}</small>}<DecisionBadges values={cell.decisions}/></td>)}</tr>)}</tbody></table></div></QueryState><p className={u.note}>Фильтры используют текущий состав. Числа закрытых сезонов сохранены в утверждённых версиях.</p></section>;
 }
 
 export function SeasonKkrControl({seasonId}:{seasonId:string}) {

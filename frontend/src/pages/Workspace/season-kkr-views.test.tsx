@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createFixtures } from '../../mocks/fixtures';
-import { mountWorkspace, waitForPage, change } from '../../test/workspace';
+import { mountWorkspace, waitForPage, change, pick } from '../../test/workspace';
 import { membershipApi } from '../../utils/api/membership.api';
 import { kkrApi, type AccountingStatistic } from '../../utils/api/kkr.api';
 import { SeasonStatistics, SeasonKkrControl, SeasonKkrHistory, SeasonKkrSummon } from './SeasonKkrViews';
@@ -20,7 +20,22 @@ it('keeps block and event statistics distinct and saves a zero coefficient with 
 });
 it('shows closed-season history as supplied and requests the configured last four seasons',async()=>{
  const fixture=createFixtures('chair');const read=vi.spyOn(kkrApi,'history').mockResolvedValue({seasons:[{season_id:'old',title:'Старый сезон',state:'closed'}],rows:[{participant_id:'p',user:fixture.user,group_number:'301',cells:[{season_id:'old',rank:3,total_score:-2,decisions:['nice'],preliminary:false}]}]});
- page=await mountWorkspace(<SeasonKkrHistory/>);await waitForPage(page);expect(read).toHaveBeenCalledWith({count:4,search:'',block_id:undefined,course:undefined});expect(page.container.querySelector('tbody')?.textContent).toContain('-2');expect(page.container.querySelector('tbody')?.textContent).toContain('место 3');expect(page.container.querySelector('tbody')?.textContent).toContain('Найс');
+ page=await mountWorkspace(<SeasonKkrHistory/>);await waitForPage(page);expect(read).toHaveBeenCalledWith({count:4});expect(page.container.querySelector('tbody')?.textContent).toContain('-2');expect(page.container.querySelector('tbody')?.textContent).toContain('место 3');expect(page.container.querySelector('tbody')?.textContent).toContain('Найс');
+});
+it('loads the history once per season count and filters name, course and current block locally (PB-29)',async()=>{
+ const fixture=createFixtures('chair'),block=fixture.blocks[0];
+ const person=(user_id:number,display_name:string,group_number:string|null)=>({participant_id:`p-${user_id}`,user:{user_id,display_name,avatar_url:null},group_number,cells:[]});
+ const member=block.members[0].user;
+ const read=vi.spyOn(kkrApi,'history').mockResolvedValue({seasons:[],rows:[person(member.user_id!,'Член Блока','201'),person(9001,'Анна Поиск','301'),person(9002,'Борис Другой',null)]});
+ page=await mountWorkspace(<SeasonKkrHistory/>);await waitForPage(page);
+ const names=()=>[...page!.container.querySelectorAll('tbody tr')].map(row=>row.querySelector('td')?.textContent??'');
+ expect(names()).toHaveLength(3);
+ await change(page.container.querySelector<HTMLInputElement>('input[type="search"]')!,'поиск');expect(names()).toEqual([expect.stringContaining('Анна Поиск')]);
+ await change(page.container.querySelector<HTMLInputElement>('input[type="search"]')!,'');
+ const course=[...page.container.querySelectorAll('label')].find(label=>label.textContent?.startsWith('Курс'))!.querySelector('select')!;
+ await change(course,'2');expect(names()).toEqual([expect.stringContaining('Член Блока')]);await change(course,'');
+ await pick(page.container,'history-block',block.block_id);expect(names()).toEqual([expect.stringContaining('Член Блока')]);
+ expect(read).toHaveBeenCalledOnce();expect(read).toHaveBeenCalledWith({count:4});
 });
 it('links missing accounting directly into a task and uses one normal summon command per click',async()=>{
  const fixture=createFixtures('chair');vi.spyOn(kkrApi,'controls').mockResolvedValue({capabilities:['remind_kkr'],items:[{control_id:'c',task_id:'epic',title:'Контроль IT',source_kind:'block',source_id:'block-it',status:'open',responsibles:[fixture.user],missing_count:1,missing_tasks:[{task_id:'work',title:'Работа',task_key:'IT-1',missing_assignees:[fixture.user]}]}]});const remind=vi.spyOn(kkrApi,'remind').mockResolvedValue({comments_created:1});

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { tasksApi } from "../../utils/api/tasks.api";
+import { seasonsApi } from "../../utils/api/seasons.api";
 import type { SeasonBlocker } from "../../utils/api/contract";
 import { getSeasonRoute, getTaskRoute, targetRoute } from "../../utils/routes";
 import { RouteLink } from "./WorkspaceUI";
@@ -13,15 +13,18 @@ export function SeasonBlockerLink({
   seasonId: string;
 }) {
   const assignment = blocker.owner_kind === "assignment";
-  const tasks = useQuery({
-    queryKey: ["tasks", "season-blockers", seasonId],
-    queryFn: () => tasksApi.list({ season_id: seasonId, mine: false }),
-    enabled: assignment,
+  // Readiness rows name the task the reader may open (PF-06). A blocker from a refused
+  // close carries no task_id, so it is found among the same season's readiness rows.
+  const lookup = assignment && blocker.task_id === undefined;
+  const readiness = useQuery({
+    queryKey: ["seasons", "readiness", seasonId],
+    queryFn: () => seasonsApi.readiness(seasonId, { include_task_ids: true }),
+    enabled: lookup,
     retry: false,
   });
-  const task = tasks.data?.items.find((t) =>
-    t.assignments.some((a) => a.assignment_id === blocker.owner_id),
-  );
+  const taskId = !assignment ? null : lookup
+    ? readiness.data?.blockers.find((b) => b.owner_kind === "assignment" && b.owner_id === blocker.owner_id)?.task_id ?? null
+    : blocker.task_id;
   const params = new URLSearchParams({
     assignment_id: blocker.owner_id,
     return_season: seasonId,
@@ -29,8 +32,8 @@ export function SeasonBlockerLink({
   const link = blocker.kind === "missing_final_report" && ["event", "subevent"].includes(blocker.owner_kind)
     ? `/reports?owner_kind=${encodeURIComponent(blocker.owner_kind)}&owner_id=${encodeURIComponent(blocker.owner_id)}`
     : assignment
-    ? task
-      ? `${getTaskRoute(task.task_id)}?${params}`
+    ? taskId
+      ? `${getTaskRoute(taskId)}?${params}`
       : null
     : targetRoute({ kind: blocker.owner_kind, id: blocker.owner_id });
   return link ? (
@@ -39,12 +42,12 @@ export function SeasonBlockerLink({
     <>
       <span>{blockerText(blocker)}</span>{" "}
       <span>
-        {tasks.isLoading
+        {lookup && readiness.isLoading
           ? "Ищем назначение…"
           : "Объект недоступен. Обновите данные сезона или проверьте доступ."}
       </span>
-      {tasks.isError && (
-        <button type="button" onClick={() => void tasks.refetch()}>
+      {lookup && readiness.isError && (
+        <button type="button" onClick={() => void readiness.refetch()}>
           Повторить поиск
         </button>
       )}

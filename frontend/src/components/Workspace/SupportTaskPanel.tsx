@@ -14,7 +14,8 @@ import s from "./Workspace.module.css";
 
 function Screenshot({ taskId }: { taskId: string }) {
   const [open, setOpen] = useState(false), picture = useRef<HTMLImageElement>(null);
-  const query = useQuery({ queryKey: ["supportTask", taskId, "screenshot"], queryFn: () => supportApi.screenshot(taskId), enabled: open, gcTime: 0, refetchInterval: open ? 30000 : false });
+  // The attached image never changes: it is read once per opening of the ticket, not polled (PF-22).
+  const query = useQuery({ queryKey: ["supportTask", taskId, "screenshot"], queryFn: () => supportApi.screenshot(taskId), enabled: open, gcTime: 0, staleTime: Infinity });
   const blob = !query.error ? query.data : undefined;
   useEffect(() => {
     const element = picture.current;

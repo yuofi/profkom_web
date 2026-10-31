@@ -1,6 +1,7 @@
 import type {
   Task,
   TaskListPageResponse,
+  TaskFacets,
   TaskStatusChange,
   TaskHistoryEvent,
   Page,
@@ -30,6 +31,8 @@ export interface AssignmentCommands {
 export const tasksApi = {
   list: (params?: object) => page<Task>("/tasks", params),
   listPage: (params?: object, signal?: AbortSignal) => request<TaskListPageResponse>("get", "/tasks", undefined, params, signal),
+  /** The scopes/assignees of GET /tasks for the same queue, season and scope selection. */
+  facets: (params: { queue_id?: string; season_id?: string; scope_kind?: string; scope_id?: string }, signal?: AbortSignal) => request<TaskFacets>("get", "/tasks/facets", undefined, params, signal),
   changeStatus: (id: string, data: TaskStatusChange) => request<Task>("post", `/tasks/${idPath(id)}/status`, data),
   submitResult: (id: string, data: Revision & { text: RichText; links?: string[]; file_ids?: string[] }) => request<Task>("post", `/tasks/${idPath(id)}/submit-result`, data),
   take: (id: string, data: Revision) => request<Task>("post", `/tasks/${idPath(id)}/take`, data),
