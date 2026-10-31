@@ -196,13 +196,13 @@ def _listed(raw, uid):
 def _role_facts():
     """user_id -> frozenset((scope_kind, scope_id, role)) of every persisted role."""
     def load():
-        from database import RoleAssignmentORM
+        from database import RoleAssignmentORM, scalar_rows
         by_user = {}
         with db._session() as session:
-            for uid, kind, scope_id, role in session.query(
+            for uid, kind, scope_id, role in scalar_rows(session, RoleAssignmentORM, (
                 RoleAssignmentORM.user_id, RoleAssignmentORM.scope_kind,
                 RoleAssignmentORM.scope_id, RoleAssignmentORM.role,
-            ):
+            )):
                 by_user.setdefault(uid, set()).add((kind, scope_id, role))
         return MappingProxyType({uid: frozenset(rows) for uid, rows in by_user.items()})
     return _facts("roles", load)
@@ -240,12 +240,12 @@ def block_facts():
 def _subevent_facts():
     """(subevent_id -> (event_id, organizer_user_ids_json), event_id -> subevent ids)."""
     def load():
-        from database import SubeventORM
+        from database import SubeventORM, scalar_rows
         rows, children = {}, {}
         with db._session() as session:
-            for sid, event_id, organizers in session.query(
+            for sid, event_id, organizers in scalar_rows(session, SubeventORM, (
                 SubeventORM.subevent_id, SubeventORM.event_id, SubeventORM.organizer_user_ids_json
-            ):
+            )):
                 rows[sid] = (event_id, organizers)
                 children.setdefault(event_id, []).append(sid)
         return MappingProxyType(rows), MappingProxyType({k: tuple(v) for k, v in children.items()})
@@ -255,12 +255,13 @@ def _subevent_facts():
 def _subevent_hr_facts():
     """subevent_id -> hr_user_id of existing subevent workspace metadata rows."""
     def load():
+        from database import scalar_rows
         from event_workspace_models import EventWorkspaceMetaORM
         with db._session() as session:
             return MappingProxyType({
-                owner_id: hr_user_id for owner_id, hr_user_id in session.query(
-                    EventWorkspaceMetaORM.owner_id, EventWorkspaceMetaORM.hr_user_id
-                ).filter(EventWorkspaceMetaORM.owner_kind == "subevent")
+                owner_id: hr_user_id for owner_id, hr_user_id in scalar_rows(
+                    session, EventWorkspaceMetaORM, (EventWorkspaceMetaORM.owner_id, EventWorkspaceMetaORM.hr_user_id),
+                    EventWorkspaceMetaORM.owner_kind == "subevent")
             })
     return _facts("subevent_hr", load)
 

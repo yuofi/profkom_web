@@ -165,7 +165,9 @@ def test_snapshot_projection_matches_per_object_queries(org, record_property):
     record_property("snapshot_sql", len(optimized))
 
 
-def test_relations_for_many_scopes_and_users_use_constant_sql(org):
+def test_relations_for_many_scopes_and_users_use_constant_sql(org, monkeypatch):
+    import database
+    monkeypatch.setattr(database, "PEOPLE_BATCH_AFTER", 1)  # the batch itself, not its tuning
     def evaluate(users):
         for user in users:
             for eid in org["events"]:
@@ -183,7 +185,8 @@ def test_relations_for_many_scopes_and_users_use_constant_sql(org):
                 evaluate(selection)
         counts.append(len(statements))
     # Roles, blocks, block metadata, subevents, subevent HR, leadership and one people
-    # batch: the same statements for six people as for every person and scope.
+    # batch (one-row JSON reads for scalar facts): the same statements for six people
+    # as for every person and scope.
     assert counts[0] == counts[1] <= 16, counts
 
 
@@ -248,8 +251,16 @@ def test_missing_block_metadata_keeps_the_read_repair_path(org, make_block):
         assert s.query(BlockMetaORM).filter_by(legacy_name="Без метаданных").one().block_id == block_id
 
 
-def test_people_batch_reuses_absent_metadata_and_identical_refs(org):
+def test_people_batch_reuses_absent_metadata_and_identical_refs(org, monkeypatch):
+    import database
     users = sorted(org["uid"].values())
+    # Below the threshold a request keeps its individual reads (no whole-table read).
+    with db.atomic(write=False):
+        with db._session() as s:
+            with sql_calls() as few:
+                [avatar_url(user) for user in users[:3]]
+    assert few and not any("JOIN profile_metadata" in q for q in few), few
+    monkeypatch.setattr(database, "PEOPLE_BATCH_AFTER", 4)
     with db._session() as s:
         expected = [(asdict(_user_to_ref_dc(s.get(UserORM, user))), avatar_url(user)) for user in users]
     with db.atomic(write=False):
@@ -276,3 +287,33 @@ def test_report_series_can_be_narrowed_to_one_series(client, org):
             one = client.get("/api/report-series", params={"series_id": series_id}, headers=headers)
             assert one.status_code == 200
             assert [item["series_id"] for item in one.json()["items"]] == ([series_id] if series_id in readable else [])
+
+
+def test_scalar_rows_equal_a_row_fetch_in_rowid_order(org):
+    from sqlalchemy import literal_column
+    from database import scalar_rows
+    columns = (RoleAssignmentORM.role_assignment_id, RoleAssignmentORM.user_id, RoleAssignmentORM.scope_kind,
+               RoleAssignmentORM.scope_id, RoleAssignmentORM.role, RoleAssignmentORM.principal_assignment_id,
+               RoleAssignmentORM.revision)
+    def plain(s):
+        return [tuple(row) for row in s.query(*columns).order_by(literal_column("rowid"))]
+    with db._session() as s:
+        rows = scalar_rows(s, RoleAssignmentORM, columns)
+        assert rows == plain(s) and any(row[5] is None for row in rows) and all(type(row[1]) is int for row in rows)
+        assert scalar_rows(s, RoleAssignmentORM, columns[:2], RoleAssignmentORM.role == "nobody") == []
+    # A value JSON cannot hold (a BLOB written by hand) uses the ordinary row fetch.
+    with engine.begin() as connection:
+        connection.exec_driver_sql("INSERT INTO role_assignments(role_assignment_id,user_id,role,scope_kind,scope_id,revision) "
+                                   "VALUES ('blob-role', ?, 'member', 'block', x'00ff', 1)", (org["uid"]["member"],))
+    try:
+        with db._session() as s:
+            rows = scalar_rows(s, RoleAssignmentORM, columns)
+            assert rows == plain(s) and (b"\x00\xff" in {row[3] for row in rows})
+        expected = access.relations(org["uid"]["member"], "block", org["metas"]["ИТ"])
+        with db.atomic(write=False):
+            # The refused aggregate leaves the read unit and its snapshot usable.
+            assert access.relations(org["uid"]["member"], "block", org["metas"]["ИТ"]) == expected
+            assert access._role_facts() is not None
+    finally:
+        with engine.begin() as connection:
+            connection.exec_driver_sql("DELETE FROM role_assignments WHERE role_assignment_id='blob-role'")

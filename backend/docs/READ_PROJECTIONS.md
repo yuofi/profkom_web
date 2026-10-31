@@ -78,9 +78,15 @@ metadata (name↔id), subevents/organizers, subevent HR owners and leadership, s
 and `profile_features` need a constant number of statements per request. A
 missing block metadata row still takes the original read-repair path, which
 disables the scope. `database._role_rows` keeps SQLite's rowid order for leaders and
-deputies. After four distinct people in one request, `_prime_people` loads users,
-contacts, profile metadata and avatar file rows once (absent rows included) for the
-unchanged `_user_to_ref_dc`/`avatar_url`/`contact_data` converters. Task ACL batches
+deputies. Scalar facts are read by `database.scalar_rows` as one JSON aggregate row:
+the SQLite driver hands the GIL over on every fetched row, so whole-table row
+fetches made parallel requests (for example the merits page's per-event subevent
+reads) several times slower even when one request alone was not. After twelve
+distinct people in one request, `_prime_people` loads users with contacts and
+profile metadata in one row per person, plus avatar file rows (absent rows
+included), for the unchanged `_user_to_ref_dc`/`avatar_url`/`contact_data`
+converters; smaller detail requests keep their individual reads. Measure parallel
+bursts as well as single requests when changing these thresholds. Task ACL batches
 reuse the TaskIndex rows, prefill refused control grants and the reader's queue
 memberships; `readable_tasks_many` records decisions for several readers (assignee
 and actor) of one selection. `report_access.historical_reader` compares series

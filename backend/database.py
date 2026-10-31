@@ -1590,7 +1590,7 @@ def _format_blocks(items: list[str]) -> str:
 
 # Several people in one clean read UOW: read users, contacts, profile metadata and
 # avatar files once. Fewer people keep their individual PK reads.
-PEOPLE_BATCH_AFTER = 4
+PEOPLE_BATCH_AFTER = 12
 
 
 def _note_user(user_id):
@@ -1604,14 +1604,19 @@ def _prime_people():
     Directory and reference policies still read these rows through their usual
     lookups, so the projected values and their order are unchanged.
     """
-    from sqlalchemy.orm import selectinload
+    from sqlalchemy.orm import joinedload
     from domain_models import ProfileMetadataORM
     from read_context import prime_get
     with db._session() as session:
-        users = session.query(UserORM).options(selectinload(UserORM.contact)).all()
-        metadata = {row.user_id: row for row in session.query(ProfileMetadataORM)}
-        for user in users:
-            prime_get(session, ProfileMetadataORM, user.user_id, metadata.get(user.user_id))
+        # One row per person (contact and metadata are one-to-one): the driver's
+        # per-row cost, not the statement count, dominates under concurrency.
+        metadata = {}
+        for user, meta in session.query(UserORM, ProfileMetadataORM).outerjoin(
+                ProfileMetadataORM, ProfileMetadataORM.user_id == UserORM.user_id).options(
+                joinedload(UserORM.contact)):
+            prime_get(session, ProfileMetadataORM, user.user_id, meta)
+            if meta is not None:
+                metadata[user.user_id] = meta
         file_ids = sorted({row.avatar_file_id for row in metadata.values() if row.avatar_file_id})
         files = {}
         for start in range(0, len(file_ids), 500):
@@ -6708,6 +6713,32 @@ def _load_leaders(session: Session, scope_kind: str, scope_id: str, role: str) -
                   lambda: _load_leaders_uncached(session, scope_kind, scope_id, role))
 
 
+def scalar_rows(session: Session, model, columns, *criteria):
+    """Scalar column tuples of a whole table in rowid order, read as ONE result row.
+
+    SQLite's driver releases and re-acquires the GIL for every fetched row, so
+    concurrent requests reading many rows wait on each other. json_group_array
+    builds the rows inside SQLite (TEXT->str, INTEGER->int, REAL->float,
+    NULL->None, exactly as a row fetch). A value JSON cannot hold (BLOB) falls
+    back to the ordinary row query; the select itself never writes.
+    """
+    from sqlalchemy import func, literal_column, select
+    from sqlalchemy.exc import DBAPIError
+    rowid = literal_column(model.__tablename__ + ".rowid")
+    statement = select(func.json_group_array(func.json_array(rowid, *columns))).select_from(model.__table__)
+    if criteria:
+        statement = statement.where(*criteria)
+    try:
+        raw = session.execute(statement).scalar_one()
+    except DBAPIError:
+        query = session.query(rowid, *columns)
+        rows = [tuple(row) for row in (query.filter(*criteria) if criteria else query)]
+    else:
+        rows = [tuple(row) for row in json.loads(raw)]
+    rows.sort(key=lambda row: row[0])
+    return [row[1:] for row in rows]
+
+
 from collections import namedtuple as _namedtuple
 _RoleFact = _namedtuple("_RoleFact", "role_assignment_id user_id revision")
 
@@ -6719,15 +6750,14 @@ def _role_rows(session: Session):
     the same table order, so leader and deputy order is unchanged.
     """
     from types import MappingProxyType
-    from sqlalchemy import literal_column
     from read_context import snapshot
     def load():
         by_scope, by_principal, by_id = {}, {}, {}
-        for rid, user_id, kind, scope_id, role, principal, revision in session.query(
+        for rid, user_id, kind, scope_id, role, principal, revision in scalar_rows(session, RoleAssignmentORM, (
             RoleAssignmentORM.role_assignment_id, RoleAssignmentORM.user_id, RoleAssignmentORM.scope_kind,
             RoleAssignmentORM.scope_id, RoleAssignmentORM.role, RoleAssignmentORM.principal_assignment_id,
             RoleAssignmentORM.revision,
-        ).order_by(literal_column("rowid")):
+        )):
             fact = _RoleFact(rid, user_id, revision)
             by_scope.setdefault((kind, scope_id, role), []).append(fact)
             if principal is not None:
