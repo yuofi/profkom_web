@@ -103,8 +103,11 @@ export function DashboardPage() {
   const seasons = useSeasons();
   // The watched-tasks choice survives reloads and returns through the URL, without new history steps.
   const [params, setParams] = useSearchParams();
-  const watching = params.get("watching") === "1";
-  const setWatching = (checked: boolean) => { const next = new URLSearchParams(params);if (checked) next.set("watching", "1");else next.delete("watching");setParams(next, { replace: true }); };
+  // The box follows the click at once; the address commits it a moment later.
+  const addressed = params.get("watching") === "1", [chosen, setChosen] = useState<boolean | null>(null);
+  if (chosen !== null && chosen === addressed) setChosen(null);
+  const watching = chosen ?? addressed;
+  const setWatching = (checked: boolean) => { setChosen(checked);const next = new URLSearchParams(params);if (checked) next.set("watching", "1");else next.delete("watching");setParams(next, { replace: true }); };
   const day = useQuery({ queryKey: ["dashboard", "home", watching], queryFn: () => workspaceApi.home(watching), refetchInterval: 60_000 });
   const blocks = query.data?.blocks ?? [];
   const events = query.data?.events ?? [];
