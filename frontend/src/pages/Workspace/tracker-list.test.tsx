@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { act, useEffect, useState } from "react";
-import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { act, useState } from "react";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { TrackerListPage } from "./TrackerList";
 import { tasksApi } from "../../utils/api/tasks.api";
@@ -128,12 +128,11 @@ it("steps back from an opened page link through its saved previous cursor", asyn
 it("walks back through every earlier page saved in the history entry after a reload", async () => {
   transport = installMockTransport("chair", { delay: 0 });
   const list = vi.spyOn(tasksApi, "listPage").mockImplementation(async () => ({ items: [], next_cursor: "next", total: 80, scopes: [], assignees: [] }));
-  function Reloaded() {
-    const navigate = useNavigate(), [ready, setReady] = useState(false);
-    useEffect(() => { navigate("/tasks?mine=false&cursor=c4&page=4&prev_cursor=c3", { replace: true, state: { trackerCursors: ["", "c2", "c3"] } });setReady(true); }, [navigate]);
-    return ready ? <><TrackerListPage /><Location /></> : null;
-  }
-  page = await mountWorkspace(<Reloaded />, { path: "/tasks" });await waitForPage(page);
+  // A reloaded history entry keeps its URL and its state.
+  page = await mountWorkspace(<Routes>
+    <Route path="/reload" element={<Navigate to="/tasks?mine=false&cursor=c4&page=4&prev_cursor=c3" replace state={{ trackerCursors: ["", "c2", "c3"] }} />} />
+    <Route path="/tasks" element={<><TrackerListPage /><Location /></>} />
+  </Routes>, { path: "/reload" });await waitForPage(page);
   await act(async () => button("Назад").click());await waitForPage(page);
   expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: "c3" }), expect.any(AbortSignal));expect(page.container.textContent).toContain("Страница 3");
   await act(async () => button("Назад").click());await waitForPage(page);
