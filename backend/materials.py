@@ -532,9 +532,14 @@ def register_routes(router):
                 u = s.get(UserORM, uid)
                 if not u or u.account_state != "active" or u.banned:
                     fail(422, "Editor must be active and approved", "inactive_user")
-            s.query(RoleAssignmentORM).filter_by(
+            # Per-row deletes (flushed before the new rows, which may repeat a pair the
+            # unique index covers): the flush hooks see material editors, not a bulk
+            # role-table command that forces every queue and control to be rechecked.
+            for editor in s.query(RoleAssignmentORM).filter_by(
                 scope_kind="material", scope_id=material_id, role="material_editor"
-            ).delete(synchronize_session=False)
+            ).all():
+                s.delete(editor)
+            s.flush()
             for uid in payload.user_ids:
                 s.add(
                     RoleAssignmentORM(
