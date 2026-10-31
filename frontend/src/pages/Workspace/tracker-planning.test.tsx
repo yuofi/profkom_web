@@ -104,3 +104,18 @@ it("capitalizes only the first letter of plan titles and ends the Gantt period w
   expect(calendarTitle("month", "2026-11-02")).toBe("Ноябрь 2026");
   expect(calendarTitle("week", "2026-11-04")).toMatch(/^2.+8 ноября 2026\sг\.$/);expect(calendarTitle("day", "2026-10-31")).toMatch(/^31 октября 2026\sг\.$/);
 });
+it("opens the Gantt with today a third into the visible timeline and keeps one compact row per task", async () => {
+  vi.setSystemTime(new Date("2026-10-20T09:00:00Z"));
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(950);const scrolled = vi.spyOn(Element.prototype, "scrollLeft", "set");
+  const source = task({ assignees: [{ user_id: 7, display_name: "Исполнитель Плана", avatar_url: null }] });
+  page = await mountWorkspace(<TrackerGantt tasks={[source]} range={planningRange("2026-10", "gantt")} month="2026-10" onMonth={() => {}} zoom="week" onZoom={() => {}} />);await waitForPage(page);
+  expect(scrolled).toHaveBeenLastCalledWith(19.5 * 30 - 950 / 3);
+  const canvas = page.container.querySelector<HTMLElement>('[role="region"] > div')!;expect(canvas.style.getPropertyValue("--plan-row-height")).toBe("52px");
+  const label = page.container.querySelector<HTMLAnchorElement>(`[role="region"] a[title="${source.title}"]`)!;
+  expect(label.textContent).toBe(`${source.task_key}${source.title}`);expect(page.container.querySelector('[role="region"]')!.textContent).not.toContain("Исполнитель Плана");
+});
+it("labels a calendar day's task counter so it does not read as a second date", async () => {
+  page = await mountWorkspace(<TrackerCalendar tasks={[task(), task({ task_id: "second", task_key: "ITWEB-19" })]} month="2026-10" range={planningRange("2026-10", "calendar")} onMonth={() => {}} />);await waitForPage(page);
+  const day = page.container.querySelector('section[aria-label^="9 октября"]')!;
+  expect(day.querySelector('[title="Задач в этот день: 2"]')?.textContent).toBe("2");
+});
