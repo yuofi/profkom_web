@@ -5,6 +5,8 @@ import { authApi } from "../../utils/api/auth.api";
 import { profileFeaturesApi, type AvatarSelection, type ProfileEditorData } from "../../utils/api/profileFeatures.api";
 import { ProfileAvatarDraft } from "../../components/Workspace/ProfileAvatarDraft";
 import { FormTextField } from "../../components/Form/FormTextFiled";
+import { FormSelectField } from "../../components/Form/FormSelectField";
+import { fundingLabels } from "../../utils/contactFields";
 import { useForm } from "../../components/Form/Form";
 import { FormikProvider } from "formik";
 import { Button } from "../../components/Button/Button";
@@ -82,20 +84,19 @@ export const ProfileEditPage = () => {
       if (!user) return;
       const clean = ProfileValidationSchema.parse(values);
       const updateData: ProfileUpdate = {
-        surname: values.surname,
-        name: values.name,
+        surname: clean.surname,
+        name: clean.name,
         patronymic: clean.patronymic,
-        // Empty keeps the stored group: a legacy non-numeric one is shown as empty.
-        group_number: values.group_number || undefined,
+        group_number: clean.group_number,
         location: values.location,
-        phone: values.phone,
+        phone: clean.phone,
         vk: clean.vk,
         tg: clean.tg,
-        email: values.email,
+        email: clean.email,
         budget: values.budget === "Бюджет",
       };
       await updateMutation.mutateAsync(updateData);
-      actions.resetForm({ values: { ...values, patronymic: clean.patronymic, tg: clean.tg ?? "", vk: clean.vk ?? "" } });
+      actions.resetForm({ values: { ...values, surname: clean.surname, name: clean.name, group_number: clean.group_number, phone: clean.phone ?? "", patronymic: clean.patronymic, tg: clean.tg ?? "", vk: clean.vk ?? "" } });
       profileSaved.current = true;
     }
   });
@@ -250,7 +251,7 @@ export const ProfileEditPage = () => {
                   <div className={styles.fields}>
                     <div className={styles.formGrid}>
                       <FormTextField name="group_number" label="Номер группы" color="on-surface" />
-                      <FormTextField name="budget" label="Форма обучения" color="on-surface" />
+                      <FormSelectField name="budget" label="Форма обучения" options={Object.values(fundingLabels).map(label => ({ value: label, label }))} />
                     </div>
                     <FormTextField name="location" label="Место жительства" color="on-surface" />
                   </div>
@@ -258,7 +259,7 @@ export const ProfileEditPage = () => {
                 <Card title="Контактные данные">
                   <div className={styles.fields}>
                     <FormTextField name="phone" label="Телефон" type="tel" color="on-surface" />
-                    <FormTextField name="tg" label="Телеграмм" color="on-surface" />
+                    <FormTextField name="tg" label="Telegram" color="on-surface" />
                     <FormTextField name="email" label="Почта" type="email" color="on-surface" />
                     <FormTextField name="vk" label="ВК (ссылка)" color="on-surface" />
                   </div>
@@ -274,7 +275,7 @@ export const ProfileEditPage = () => {
               ) : (
                 <p className={s.muted}>{profileFormik.dirty || avatar !== null ? "Есть несохранённые изменения" : "Изменений нет"}</p>
               )}
-              <button type="submit" className={`${s.button} ${s.primary}`} disabled={profileFormik.isSubmitting}>
+              <button type="submit" className={`${s.button} ${s.primary}`} disabled={profileFormik.isSubmitting || (!profileFormik.dirty && avatar === null)}>
                 {profileFormik.isSubmitting ? "Сохраняем…" : "Сохранить"}
               </button>
             </div>

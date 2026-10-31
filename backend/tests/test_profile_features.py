@@ -127,6 +127,23 @@ def test_profile_and_avatar_commit_atomically_and_reject_stale_legacy_write(clie
     assert db.get_contact(actor.user_id).name == "Чужая вкладка"
 
 
+def test_profile_editor_refuses_blank_names_and_names_the_invalid_fields(client, make_user):
+    """PE-03: a blank surname/name is not saved; a refusal names the fields for the form."""
+    actor = make_user(name="Имя", surname="Фамилия")
+    saved = ok(request(client, actor, "get", "/profile/me/editor"))
+    base = dict(expected_revision=saved["revision"], expected_fingerprint=saved["fingerprint"])
+    for profile, field in [({"name": "   "}, "name"), ({"surname": ""}, "surname"), ({"email": ""}, "email")]:
+        refused = request(client, actor, "patch", "/profile/me/editor", {**base, "profile": profile})
+        assert refused.status_code == 422, refused.text
+        assert refused.json()["detail"]["code"] == "invalid_input"
+        assert [error["loc"][-1] for error in refused.json()["detail"]["fields"]["errors"]] == [field]
+    contact = db.get_contact(actor.user_id)
+    assert (contact.name, contact.surname) == ("Имя", "Фамилия")
+    result = ok(request(client, actor, "patch", "/profile/me/editor", {**base, "profile": {"name": "  Новое  "}}))
+    assert result["contact"]["name"] == "Новое"
+    assert client.patch(f"/api/profile/{actor.user_id}", headers=actor.headers, json={"surname": " "}).status_code == 422
+
+
 def test_preferences_versioning_and_reference_only_idempotent_disabled_delivery(client, make_user):
     actor = make_user()
     settings = ok(request(client, actor, "get", "/profile/me/notification-preferences"))

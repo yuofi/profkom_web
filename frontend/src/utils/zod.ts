@@ -29,20 +29,20 @@ export const SignInValidationSchema = z.object({
 });
 
 export const ProfileValidationSchema = z.object({
-  surname: z.string().min(1, "Фамилия не может быть пустым"),
-  name: z.string().min(1, "Имя не может быть пустым"),
+  // The server refuses a blank surname or name too (PE-03).
+  surname: z.string().trim().min(1, "Укажите фамилию"),
+  name: z.string().trim().min(1, "Укажите имя"),
   patronymic: patronymicField,
-  group_number: z.string().refine((value) => {
-      if (!value) return true;
-      return isValidGroupNumber(value);
-  }, {
+  // A group cannot be cleared on the server: an empty field is an explicit error, not a no-op.
+  group_number: z.string().trim().min(1, "Укажите номер группы").refine((value) => !value || isValidGroupNumber(value), {
       message: "Номер группы должен быть числом от 100 до 700",
-  }).optional().or(z.literal("")),
+  }),
   budget: z.enum(["Бюджет", "Контракт"], "Выберите Бюджет или Контракт").optional(),
   location: z.string().optional().or(z.literal("")),
-  phone: z.string().optional().or(z.literal("")),
+  phone: z.string().trim().refine((value) => !value || /^\+?[0-9][0-9 ()-]{4,19}$/.test(value),
+      "Укажите телефон цифрами, например +7 999 123-45-67").optional(),
   tg: telegramField.optional(),
-  email: z.string().email("Неправильный формат email").optional().or(z.literal("")),
+  email: z.email("Неправильный формат email"),
   vk: vkField.optional(),
   photo_url: z.string().optional().or(z.literal(""))
 });

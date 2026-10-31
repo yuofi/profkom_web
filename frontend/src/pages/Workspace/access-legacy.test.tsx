@@ -180,13 +180,14 @@ it("A02: the actual profile form awaits its mutation and shows structured field 
   adapter.onPatch("/profile/me/editor").reply(422, { detail: { code: "invalid_input", message: "Invalid phone", fields: { phone: "Неверный телефон" } } });
   page = await mountWorkspace(<HelmetProvider><UserContext.Provider value={f.profile}><ProfileEditPage /></UserContext.Provider></HelmetProvider>);
   await waitForPage(page);
-  for (const [name, value] of Object.entries({ patronymic: "Иванович", group_number: "201", tg: "", vk: "", email: "student@example.org", phone: "Мой ввод" })) await change(field(page.container, name), value);
+  // The phone passes the client pattern (PE-03); the server's refusal is what is shown.
+  for (const [name, value] of Object.entries({ patronymic: "Иванович", group_number: "201", tg: "", vk: "", email: "student@example.org", phone: "+7 999 000-00-00" })) await change(field(page.container, name), value);
   await submit(page.container.querySelector("form")!);
   expect(adapter.history.patch).toHaveLength(1);
   expect(page.container.textContent).toContain("Проверьте введённые данные.");
   expect(page.container.textContent).not.toContain("Invalid phone");
   expect(page.container.textContent).toContain("Неверный телефон");
-  expect(field(page.container, "phone").value).toBe("Мой ввод");
+  expect(field(page.container, "phone").value).toBe("+7 999 000-00-00");
 });
 
 it("A01/FE-04: an approved outsider sees block information without a tracker entry", async () => {

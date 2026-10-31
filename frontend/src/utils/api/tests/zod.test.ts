@@ -66,6 +66,8 @@ describe("ProfileValidationSchema group_number", () => {
     surname: "Иванов",
     name: "Иван",
     patronymic: "Иванович",
+    // The address is required in the profile (PE-03).
+    email: "ivan@example.com",
   };
 
   it("validates group numbers within 100-700", () => {
@@ -76,12 +78,13 @@ describe("ProfileValidationSchema group_number", () => {
     expect(validResult.success).toBe(true);
   });
 
-  it("allows empty group number in profile (optional)", () => {
-    const validResult = ProfileValidationSchema.safeParse({
+  it("requires a group number: the server cannot clear it, so an empty field is no silent no-op (PE-03)", () => {
+    const result = ProfileValidationSchema.safeParse({
       ...baseProfile,
       group_number: "",
     });
-    expect(validResult.success).toBe(true);
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.issues.map((issue) => issue.message)).toEqual(["Укажите номер группы"]);
   });
 
   it("fails for group numbers outside 100-700", () => {

@@ -19,6 +19,7 @@ from domain_models import MembershipORM, ScopeTenureORM, BlockMetaORM, ProfileMe
 from models import User
 from registration import Revision, audit, fail, now, version
 from validation import Command
+from errors import InvalidInput
 from profile_features_models import (AchievementDefinitionORM, AchievementGrantORM,
     AchievementEventORM, NotificationPreferenceORM, NotificationDeliveryEventORM,
     KkrTemplateORM, KkrTemplateUseORM, ProfileEditorVersionORM)
@@ -581,7 +582,9 @@ def register_routes(router):
             profile = main.ProfileUpdate.model_validate(payload.profile)
             avatar = Avatar.model_validate(payload.avatar) if payload.avatar is not None else None
         except ValidationError as error:
-            fail(422, str(error))
+            # The fields the form shows next to its inputs, as for other invalid commands (PE-03).
+            raise InvalidInput(str(error), errors=[dict(type=item["type"], loc=list(item["loc"]), msg=item["msg"])
+                                                   for item in error.errors()])
         with db._session() as s:
             row = s.get(ProfileEditorVersionORM, cur.user_id)
             if (row.revision if row else 1) != payload.expected_revision or profile_fingerprint(s, cur.user_id) != payload.expected_fingerprint:
