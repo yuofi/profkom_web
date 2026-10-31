@@ -126,7 +126,8 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId, fal
           // A repeat after a lost answer returns the same task instead of a second one (GL-07).
           const created = await perform(() => tasksApi.create({ ...payload, idempotency_key: requestKey(sent, payload) }));
           sent.current = null;
-          navigate(getTaskRoute(created.task_id));
+          // «Назад» from the new task skips the spent form (GL-32).
+          navigate(getTaskRoute(created.task_id), { replace: true });
         } finally { setSaving(false); }
       }}>
       <div className={s.workspace}>

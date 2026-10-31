@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act } from "react";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, useNavigate } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
 import { mountWorkspace, waitForPage, change, field, submit } from "../../test/workspace";
@@ -70,4 +70,15 @@ it("GL-07: a create whose answer was lost is repeated with the same key and make
   expect(create).toHaveBeenCalledTimes(2);
   expect(create.mock.calls[1][0].idempotency_key).toBe(create.mock.calls[0][0].idempotency_key);
   expect(mock.state.tasks.filter(task => task.title === "Задача после таймаута")).toHaveLength(1);expect(mock.state.tasks).toHaveLength(before + 1);
+});
+it("GL-32: «Назад» from a created task returns to the list, not to the spent form", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const queue = { ...mock.state.queues[0], queue_id: "scoped", name: "Очередь блока", key: "IND", scope: { kind: "block" as const, id: mock.state.blocks[0].block_id }, capabilities: ["create_task"] };mock.state.queues.push(queue);
+  function Created() { const navigate = useNavigate();return <><p>Созданная задача</p><button type="button" onClick={() => navigate(-1)}>Назад</button></>; }
+  page = await mountWorkspace(<Routes><Route path="/tasks" element={<p>Список задач</p>} /><Route path="/tasks/new" element={<TrackerTaskCreatePage />} /><Route path="/tasks/:id" element={<Created />} /></Routes>, { history: ["/tasks"], path: "/tasks/new?queue_id=scoped" });
+  await waitForPage(page, () => !!page!.container.querySelector("form"));const form = page.container.querySelector("form")!;
+  await change(field(page.container, "title"), "Задача с возвратом");await change(field(form, "deadline"), "2026-10-29T18:00");
+  await submit(form);await waitForPage(page, () => !!page!.container.textContent?.includes("Созданная задача"));
+  await act(async () => [...page!.container.querySelectorAll("button")].find(node => node.textContent === "Назад")!.click());await waitForPage(page);
+  expect(page.container.textContent).toContain("Список задач");expect(page.container.querySelector("form")).toBeNull();
 });

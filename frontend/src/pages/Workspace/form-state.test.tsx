@@ -42,7 +42,7 @@ it.each(["event", "block", "registration", "meeting", "season", "decisions"] as 
     decisions: ["/seasons/season-1/summary", "/seasons/:id/summary", <SummaryPage />, "reason"],
   } as const;
   const [path, route, element, name] = routes[kind];
-  page = await mountWorkspace(<Routes><Route path={route} element={element} /></Routes>, { role, path });
+  page = await mountWorkspace(<Routes><Route path={route} element={element} />{kind === "event" && <Route path="/events/:id" element={<p>Страница мероприятия</p>} />}</Routes>, { role, path });
   await settle(); await settle();
   if (kind === "event") await waitForPage(page!, () => !!page!.container.querySelector('textarea[name="description"]'));
   if (kind === "season") { await act(async () => page!.container.querySelector<HTMLButtonElement>('button[aria-label="Редактировать сезон"]')!.click());await settle(); }
@@ -69,6 +69,8 @@ it.each(["event", "block", "registration", "meeting", "season", "decisions"] as 
   const payload = JSON.parse(mutations().at(-1)!.data);
   expect(payload.expected_revision ?? payload.expected_version).toBe(latestRevision);
   expect(form.querySelector('[role="alert"]'), page.container.textContent ?? "").toBeNull();
+  // GL-32: a saved event opens its page in place of the spent editor; a new edit reads it anew.
+  if (kind === "event") { await waitForPage(page!, () => !!page!.container.textContent?.includes("Страница мероприятия"));expect(form.isConnected).toBe(false);return; }
   if (kind === "season") { await act(async () => page!.container.querySelector<HTMLButtonElement>('button[aria-label="Редактировать сезон"]')!.click());await settle(); }
   const repeatedForm = kind === "season" ? field(page.container,name).closest("form")! : form;
   await change(field(repeatedForm, name), "ПОВТОРНОЕ СОХРАНЕНИЕ");

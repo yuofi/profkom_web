@@ -68,7 +68,9 @@ function EventCanvas({ event, subevent, parent, seasons, series, onClose }: {
             onClose?.();return subevent ? { revision: saved.revision } : undefined;
           }
           const saved = await perform(() => event ? eventsApi.update(event.event_id, { ...patch, expected_revision: revision! }) : eventsApi.create({ title: data.title, description: data.description, season_id: seasonId, all_day: allDay, ...(data.starts_at ? { starts_at: data.starts_at } : {}), ...(data.ends_at ? { ends_at: data.ends_at } : {}), ...chosenSeries(seriesId) }));
-          if (!event) navigate(getEventRoute(saved.event_id));return event ? { revision: saved.revision } : undefined;
+          // A created or saved event opens its page in place of the form: «Назад» skips the
+          // spent editor and nothing is left to cancel (GL-32).
+          navigate(getEventRoute(event?.event_id ?? saved.event_id), { replace: true });return event ? { revision: saved.revision } : undefined;
         } finally { setSaving(false); }
       }}>
       <div className={s.workspace}><section className={s.description} aria-label="Описание мероприятия">
