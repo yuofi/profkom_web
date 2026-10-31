@@ -76,7 +76,9 @@
     border-radius: 4px;
 }
 
-img {
+/* Only the picture of this page: a CSS module merged into the entry chunk must not style
+   every image of the site (PF-03/PF-11). */
+.wrapper img {
     width: 55%;
     max-height: 55%;
     height: auto;
@@ -118,7 +120,7 @@ img {
         margin-bottom: 8px;
     }
 
-    img {
+    .wrapper img {
         width: auto;
         max-width: 75%;
         max-height: 45%;

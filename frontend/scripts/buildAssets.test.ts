@@ -1,9 +1,10 @@
-import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { afterEach, expect, it } from "vitest";
 import type { ResolvedConfig } from "vite";
+import { transform } from "lightningcss";
 import { decodePng, downscale, encodePng, precompress, smallTeamLogos } from "./buildAssets";
 
 const frontend = resolve(__dirname, "..");
@@ -65,4 +66,20 @@ it("PF-23: nginx sends the precompressed copies of static files only", async () 
   for (const [, body] of statics) expect(body).toMatch(/gzip_static on;/);
   for (const [, body] of blocks.filter(([name]) => name === "/api/" || name === "= /_storage")) expect(body).not.toMatch(/gzip/);
   expect(conf).not.toMatch(/http2/);
+});
+
+it("PF-03/PF-11: every rule of a CSS module is scoped by its own class, so a merged chunk styles nothing else", async () => {
+  // Small chunks are merged into the entry (experimentalMinChunkSize): a bare `img { … }` of
+  // the 404 page then reached every image of the site. Lightning CSS "pure" modules refuse a
+  // rule without a local class or id.
+  const modules = (await readdir(join(frontend, "src"), { recursive: true })).filter(file => file.endsWith(".module.css"));
+  expect(modules.length).toBeGreaterThan(50);
+  const unscoped: string[] = [];
+  for (const file of modules) {
+    const filename = join(frontend, "src", file);
+    try { transform({ filename, code: await readFile(filename), cssModules: { pattern: "[name]_[local]_[hash]", pure: true } }); }
+    catch (error) { const { message, loc } = error as { message: string; loc?: { line: number } };unscoped.push(`${file}:${loc?.line ?? "?"} ${message}`); }
+  }
+  expect(unscoped).toEqual([]);
+  expect(() => transform({ filename: "Bare.module.css", code: Buffer.from(".page { color: red; }\nimg { width: 55%; }\n"), cssModules: { pure: true } })).toThrow(/class or ID/);
 });
