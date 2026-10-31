@@ -80,8 +80,11 @@ export function FilePreview({ file, onClose, onDownload, downloading = false, do
     refetchOnWindowFocus: "always", refetchInterval: 15_000,
   });
   const { refetch } = access;
+  // TanStack v5 refetches on focus only for visibilitychange; this covers a return to the
+  // window while the tab stayed visible. It joins a check in flight, so a tab switch (both
+  // events) checks once (GL-42).
   useEffect(() => {
-    const recheck = () => { if (active) void refetch(); };
+    const recheck = () => { if (active) void refetch({ cancelRefetch: false }); };
     window.addEventListener("focus", recheck);
     return () => window.removeEventListener("focus", recheck);
   }, [active, refetch]);
@@ -95,10 +98,9 @@ export function FilePreview({ file, onClose, onDownload, downloading = false, do
   return <dialog ref={dialog} className={s.dialog} aria-labelledby={titleId} onCancel={event => { event.preventDefault();onClose(); }} onClick={event => { event.stopPropagation();if (event.target === event.currentTarget) onClose(); }}>
     <header className={s.header}><div><h2 id={titleId}>{file.name}</h2><span>{Math.ceil(file.size_bytes / 1024)} КБ</span></div><button type="button" aria-label="Закрыть просмотр файла" onClick={onClose}><Glyph name="close" /></button></header>
     <div className={s.body}>
-      {!active ? <p role="alert">Сессия закончилась. Войдите снова.</p> : access.error ? <p role="alert">{userMessage(access.error)}</p> : access.isPending ? <p role="status">Проверяем доступ к файлу…</p> : <>
-        {access.isFetching && <p role="status">Проверяем доступ к файлу…</p>}
-        <div hidden={access.isFetching}><PreviewBytes key={JSON.stringify([file, identity])} file={file} /></div>
-      </>}
+      {/* A background recheck (every 15 s, on focus) keeps the shown file; only a refusal or an error hides it (GL-42). */}
+      {!active ? <p role="alert">Сессия закончилась. Войдите снова.</p> : access.error ? <p role="alert">{userMessage(access.error)}</p> : access.isPending ? <p role="status">Проверяем доступ к файлу…</p> :
+        <div><PreviewBytes key={JSON.stringify([file, identity])} file={file} /></div>}
       {downloadError && <p role="alert">{downloadError}</p>}
     </div>
     <footer className={s.footer}><button type="button" disabled={!allowed || access.isFetching || downloading} onClick={() => { void checkedDownload(); }}>{downloading ? "Скачиваем…" : "Скачать файл"}</button><button type="button" onClick={onClose}>Закрыть</button></footer>
