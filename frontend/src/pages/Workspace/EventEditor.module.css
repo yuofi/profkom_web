@@ -75,3 +75,10 @@
 /* The subevent editor names its parent with a label and a link (EV-18). */
 .parent { margin:0;line-height:1.6;overflow-wrap:anywhere; }
 .parent > span { color:var(--on-surface-variant); }
+.parent a { color:var(--primary); }
+/* The page stack's one column never grows past the page for a long title or crumb (EV-12, EV-13). */
+.pageStack { grid-template-columns:minmax(0,1fr); }
+.page { grid-template-columns:minmax(0,1fr); }
+/* In the phone's column header (one line: no wrap) the text column takes the header's width,
+   so a shortened crumb ellipsises instead of widening the header. */
+@media(max-width:768px) { .eventHeader.eventHeader { flex-wrap:nowrap; }.eventHeader.eventHeader>div:nth-child(2) { align-self:stretch; } }
