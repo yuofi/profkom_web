@@ -74,11 +74,15 @@ def is_staff(session, uid):
     return uid in _leaders(session) or bool(assignment and assignment.active)
 
 
-def is_support_queue(session, queue):
+def support_queue_id(session):
     def load():
         config = _config(session)
         return config.queue_id if config else None
-    target = cached(session,"support.queue_id",None,load,copy_result=False)
+    return cached(session,"support.queue_id",None,load,copy_result=False)
+
+
+def is_support_queue(session, queue):
+    target = support_queue_id(session)
     return bool(target and queue and queue.queue_id == target)
 
 
