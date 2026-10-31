@@ -22,3 +22,16 @@ it("keeps a participant on one line with an icon action and labels every value f
   await act(async () => action.click());
   expect(select).toHaveBeenCalledWith(summary.rows[0]);
 });
+
+it("folds the participant filters under a counted summary that a phone can open", async () => {
+  const { SeasonParticipants } = await import("./SeasonParticipants");
+  const { change, field } = await import("../../test/workspace");
+  page = await mountWorkspace(<SeasonParticipants summary={createFixtures("chair").summary} />);
+  const details = page.container.querySelector<HTMLDetailsElement>('[aria-label="Фильтры участников"] details')!;
+  expect(details.querySelector("summary")?.textContent).toBe("Фильтры");
+  // The search stays outside the fold; the other filters are inside it.
+  expect(details.querySelector('input[type="search"]')).toBeNull();
+  expect(details.querySelector('select[name="category"]')).not.toBeNull();
+  await change(field(page.container, "category"), "junior");
+  expect(details.querySelector("summary")?.textContent).toBe("Фильтры · 1");
+});
