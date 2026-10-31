@@ -325,7 +325,8 @@ def test_existing_read_repair_never_bootstraps_control_on_get(client,work,superu
     with db._session() as session:
         meta=session.query(BlockMetaORM).filter_by(legacy_name='Read repair legacy block').one()
         assert session.query(KkrControlEpicORM).count()==before
-        assert not session.query(KkrControlEpicORM).filter_by(source_kind='block',source_id=meta.block_id).first()
+        # Since GL-05 the block's identity is made by create_block, a write, so its control
+        # may already exist; the GET itself adds nothing.
     person=make_user();db.set_block_leader('Read repair legacy block',person.user_id)
     with db._session() as session:
         assert session.query(KkrControlEpicORM).filter_by(source_kind='block',source_id=meta.block_id).first()

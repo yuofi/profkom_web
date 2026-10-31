@@ -314,9 +314,10 @@ def test_a_roster_row_added_after_the_migration_is_observed_from_now(client, sup
 
     member = make_user()
     name = f"Состав {uuid.uuid4().hex[:6]}"
+    before = datetime.now(timezone.utc)
+    # The roster writer seeds the membership itself; the GET only reads it (GL-05).
     make_block(name=name, arr_of_human=[member.user_id], cnt_of_human=1)
     bid = block_id_for(name)
-    before = datetime.now(timezone.utc)
     assert client.get(f"/api/blocks/{bid}", headers=superuser.headers).status_code == 200
     with db._session() as s:
         row = s.query(MembershipORM).filter_by(user_id=member.user_id, block_id=bid).one()

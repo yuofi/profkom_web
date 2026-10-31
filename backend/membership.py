@@ -135,8 +135,9 @@ def replace_block_avatar(session, meta, file_id, uid):
 def card(s, b, uid):
     from block_hr import user_ref
 
+    # A read: legacy roster rows get their memberships from the roster writers and at
+    # startup, never from GET /blocks (GL-05).
     m = meta_for(s, b.name)
-    seed_members(s, b, m)
     leaders = _load_leaders(s, "block", b.name, "master")
     master = asdict(leaders[0]) if leaders else None
     if master:
@@ -182,11 +183,22 @@ def blocks_for(uid):
         return result
 
 
+def with_guide_access(result, uid):
+    """One block page: whether its guide link opens for this reader (GL-10). The list of
+    all blocks does not pay one material ACL check per card."""
+    from materials import can_read
+
+    guide = result.get("guide_material_id")
+    if guide and can_read(guide, uid):
+        result["capabilities"] = sorted({*result["capabilities"], "read_guide"})
+    return result
+
+
 def get_card(id, uid):
     with db._session() as s:
         result = card(s, s.get(BlockORM, legacy_name(id)), uid)
         s.commit()
-        return result
+        return with_guide_access(result, uid)
 
 
 def can_review(r, uid):
@@ -296,6 +308,19 @@ def requests_for(uid):
             or r.user_id == uid
             or access.allowed(uid, "block.review_block_stage", "block", legacy_name(r.block_id))
         ]
+
+
+def can_view_request(s, r, uid):
+    """The same readers as requests_for: the applicant, the chair's team and HR, and the
+    reviewers of its block."""
+    if r.user_id == uid or access.allowed(uid, "block_request.view_all"):
+        return True
+    if any(
+        access.allowed(uid, "block_request.view_as_hr", "block", b.name)
+        for b in s.query(BlockORM).filter(BlockORM.is_hr == True)  # noqa: E712
+    ):
+        return True
+    return access.allowed(uid, "block.review_block_stage", "block", legacy_name(r.block_id))
 
 
 def set_membership(s, uid, bid, joined, actor, reason):
@@ -504,7 +529,7 @@ def patch_block(id, payload, uid):
             payload.model_dump(mode="json"),
         )
         s.commit()
-        return card(s, b, uid)
+        return with_guide_access(card(s, b, uid), uid)
 
 
 def register_routes(router):
@@ -580,8 +605,12 @@ def register_routes(router):
     ):
         with db._session() as s:
             r = s.get(BlockApplicationORM, request_id)
-            if not r:
+            # A request its reader cannot see answers like a missing one, before the
+            # revision and the command right are compared (GL-24).
+            if not r or not can_view_request(s, r, cur.user_id):
                 fail(404, "Application not found")
+            if command == "withdraw" and r.user_id != cur.user_id:
+                fail(403, "Only applicant can withdraw")
             version(r, payload.expected_revision)
             if r.state not in ("pending_hr", "pending_block"):
                 fail(409, "Application is terminal")

@@ -73,8 +73,9 @@ def test_resolver_keeps_object_editor_rights_and_deleted_ids_unavailable(client,
     guide=make_guide(owner_block=block.name,text='Своя публикация')
     mapped=resolve(client,master,guide.guide_id).json();mid=mapped['material_id']
     assert resolve(client,outsider,guide.guide_id).status_code==404
-    assert client.delete('/api/materials/'+mid,headers=outsider.headers).status_code==403
-    removed=client.delete('/api/materials/'+mid,headers=master.headers)
+    # A command on a guide the outsider cannot read answers like its GET (GL-24).
+    assert client.request('DELETE','/api/materials/'+mid,headers=outsider.headers,json=dict(expected_revision=mapped['revision'])).status_code==404
+    removed=client.request('DELETE','/api/materials/'+mid,headers=master.headers,json=dict(expected_revision=mapped['revision']))
     assert removed.status_code==200,removed.text
     assert resolve(client,master,guide.guide_id).status_code==404
     assert resolve(client,master,999999).status_code==404

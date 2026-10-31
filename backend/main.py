@@ -1684,9 +1684,8 @@ def get_session(cur: User = Depends(get_current_user)):
 
     from registration import can_resubmit, ensure_application
     with db._session() as session:
-        application = ensure_application(session, cur.user_id)
+        application = ensure_application(session, cur.user_id, persist=False)
         reg_status, resubmit = application.status, can_resubmit(application)
-        session.commit()
     if acc_state == "pending":
         return SessionOut(
             user_id=cur.user_id,

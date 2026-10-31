@@ -81,13 +81,15 @@ def test_removed_author_does_not_keep_editing_rights_and_coleader_does(
         ).status_code
         == 200
     )
+    # The removed author no longer reads the draft either: 404 like its GET (GL-24).
+    assert client.get(f"/api/reports/{rid}", headers=r["author"].headers).status_code == 404
     assert (
         client.patch(
             f"/api/reports/{rid}",
             headers=r["author"].headers,
             json=dict(expected_revision=2, title="Wrong"),
         ).status_code
-        == 403
+        == 404
     )
     client.post(
         f"/api/seasons/{sid}/begin-summary",
@@ -107,7 +109,7 @@ def test_removed_author_does_not_keep_editing_rights_and_coleader_does(
             headers=r["author"].headers,
             json=dict(expected_revision=2, title="Still wrong"),
         ).status_code
-        == 403
+        == 404
     )
     result = client.patch(
         f"/api/reports/{rid}",

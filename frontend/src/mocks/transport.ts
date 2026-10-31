@@ -1749,6 +1749,8 @@ export function installMockTransport(
           : denied();
       if (method === "delete") {
         if (!material.capabilities.includes("delete_material")) return denied();
+        if (data.expected_revision === undefined) return fail(422, "invalid_input", "expected_revision is required");
+        if (mismatch(data, material)) return conflict();
         state.materials = state.materials.filter((m) => m !== material);
         material.revision += 1;
         state.deletedMaterials.push(material);  // reversible, as on the server
@@ -1801,7 +1803,8 @@ export function installMockTransport(
     if (parts[0] === "blocks") {
       const block = state.blocks.find((b) => b.block_id === parts[1]);
       if (!block) return fail(404, "not_found", "Блок не найден");
-      if (method === "get") return [200, clone(block)];
+      // Like GET /blocks/{id}: the guide link opens only for a reader of the guide (GL-10).
+      if (method === "get") return [200, { ...clone(block), capabilities: state.materials.some(material => material.material_id === block.guide_material_id) ? [...new Set([...block.capabilities, "read_guide"])] : clone(block.capabilities) }];
       if (parts[2] === "leave") {
         return fail(403, "self_leave_forbidden", "Попросите руководителя блока или HR исключить вас из состава");
       }

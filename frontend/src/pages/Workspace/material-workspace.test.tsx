@@ -138,3 +138,17 @@ it("deletes a clean material without an unrelated unsaved confirmation", async (
   expect(remove).toHaveBeenCalledTimes(1);expect(dataPage.router.state.location.pathname).toBe("/materials");
   expect(dataPage.container.querySelector("dialog")).toBeNull();
 });
+
+it("deletes with the read revision and rereads the material after a concurrent change", async () => {
+  mock = installMockTransport("chair", { delay: 0 });dataPage = await mountGuarded();
+  const m = mock.state.materials[0], read = m.revision;
+  await click(button(dataPage.container, "Редактировать материал"));
+  const remove = vi.spyOn(materialsApi, "remove");m.revision += 1;
+  await submit(form(dataPage.container, "Удалить материал"));await waitForPage(dataPage);
+  expect(remove).toHaveBeenCalledWith(m.material_id, { expected_revision: read });
+  expect(mock.state.materials).toContain(m);expect(dataPage.router.state.location.pathname).toBe("/materials/material-1");
+  expect(dataPage.container.textContent).toContain("Запись изменилась");
+  await submit(form(dataPage.container, "Удалить материал"));await waitForPage(dataPage);
+  expect(remove).toHaveBeenLastCalledWith(m.material_id, { expected_revision: read + 1 });
+  expect(dataPage.router.state.location.pathname).toBe("/materials");
+});

@@ -538,7 +538,7 @@ def make_guide() -> Callable[..., Any]:
         description: str = "",
         original_link: Optional[str] = None,
     ):
-        return db.create_guide(
+        guide = db.create_guide(
             Guide(
                 guide_id=0,
                 title=title,
@@ -548,6 +548,14 @@ def make_guide() -> Callable[..., Any]:
                 original_link=original_link,
             )
         )
+        # An imported old guide is mapped to its material at startup (preset_db), never by
+        # a GET (GL-05); the fixture performs the same mapping right away.
+        from materials import legacy_mapping
+        with db.atomic():
+            with db._session() as session:
+                legacy_mapping(session, guide.guide_id)
+                session.commit()
+        return guide
 
     return _make
 

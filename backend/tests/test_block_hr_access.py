@@ -153,8 +153,10 @@ def test_curator_assignment_never_grants_requests_or_leader_assignment(client, w
     actor = curator['actor'];bid = work['block']['block_id'];applicant = make_user()
     request = require(client.post('/api/block-requests', headers=applicant.headers, json={'block_id': bid}))
     before = private_snapshot();card = require(client.get('/api/blocks/'+bid, headers=actor.headers))
+    # The curator does not see the request at all, so its commands are a 404 (GL-24).
+    assert request['request_id'] not in {item['request_id'] for item in require(client.get('/api/block-requests', headers=actor.headers))['items']}
     for command in ['hr-approve', 'block-approve']:
-        assert client.post('/api/block-requests/'+request['request_id']+'/'+command, headers=actor.headers, json={'expected_revision': request['revision']}).status_code == 403
+        assert client.post('/api/block-requests/'+request['request_id']+'/'+command, headers=actor.headers, json={'expected_revision': request['revision']}).status_code == 404
     assert client.put('/api/blocks/'+bid+'/leader', headers=actor.headers, json={'expected_revision': card['revision'], 'user_id': actor.user_id}).status_code == 403
     assert client.put('/api/blocks/'+bid+'/hr', headers=actor.headers, json={'expected_revision': card['revision'], 'user_id': curator['replacement'].user_id}).status_code == 403
     assert client.get('/api/block-requests/'+request['request_id'], headers=actor.headers).status_code in (403, 404)

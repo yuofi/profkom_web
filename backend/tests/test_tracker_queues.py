@@ -108,7 +108,7 @@ def test_grant_revocation_private_cache_and_underlying_membership(client,work):
     assert client.get('/api/session',headers=w['member'].headers).json()['access_revision']!=after
     assert client.get('/api/tasks/'+t['task_id'],headers=w['member'].headers).status_code==404
     aid=t['assignments'][0]['assignment_id']
-    assert client.post('/api/assignments/'+aid+'/start',headers=w['member'].headers,json={'expected_revision':1}).status_code==403
+    assert client.post('/api/assignments/'+aid+'/start',headers=w['member'].headers,json={'expected_revision':1}).status_code==404  # unreadable, like its GET (GL-24)
     replay='/api/task-queues/'+q['queue_id']+'/access-requests/'+grant['request_id']+'/approve'
     assert client.post(replay,headers=w['master'].headers,json={'expected_revision':r.json()['revision']}).status_code==409
     request_grant(client,q,w['member'],w['master'])

@@ -23,7 +23,8 @@ export const materialsApi = {
   ) => request<Material>("patch", `/materials/${idPath(id)}`, data),
   publish: (id: string, data: Revision) =>
     request<Material>("post", `/materials/${idPath(id)}/publish`, data),
-  remove: (id: string) => request<void>("delete", `/materials/${idPath(id)}`),
+  /** Delete is revision-safe like every other command (GL-27). */
+  remove: (id: string, data: Revision) => request<void>("delete", `/materials/${idPath(id)}`, data),
   deleted: () => page<Material>("/materials/deleted"),
   restore: (id: string, data: Revision) =>
     request<Material>("post", `/materials/${idPath(id)}/restore`, data),

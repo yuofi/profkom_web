@@ -18,9 +18,10 @@ def fail(code, message):
 DERIVED = object()
 
 
-def ensure_application(s, uid, funding=DERIVED):
+def ensure_application(s, uid, funding=DERIVED, persist=True):
     """The account's application; a missing one is created from the contact. `funding`
-    overrides the study basis of a new one: None for a VK account, which chooses it."""
+    overrides the study basis of a new one: None for a VK account, which chooses it.
+    `persist=False` (GET) returns the same default unsaved: a read never writes (GL-05)."""
     r = s.get(RegistrationORM, uid)
     if r:
         return r
@@ -51,6 +52,8 @@ def ensure_application(s, uid, funding=DERIVED):
             [dict(action="initial_submission", at=now(), actor=uid)]
         ),
     )
+    if not persist:
+        return r
     s.add(r)
     s.flush()
     return r

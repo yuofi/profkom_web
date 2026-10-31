@@ -12,6 +12,7 @@ import { Empty, QueryState } from "../../components/Workspace/WorkspaceUI";
 import { ids } from "../../components/Workspace/formValues";
 import { useGuardedAction } from "../../components/Workspace/unsavedChangesHooks";
 import { canRetainData } from "../../utils/api/request";
+import { isStale } from "../../utils/api/messages";
 import { materialsApi } from "../../utils/api/materials.api";
 import { membershipApi } from "../../utils/api/membership.api";
 import { richText, type Material } from "../../utils/api/contract";
@@ -97,8 +98,8 @@ function MaterialDeletion({ material: m, onBusy }: { material: Material; onBusy:
   return <details className={`${w.details} ${s.management}`}><summary>Удалить материал</summary><p>Материал вместе с черновиком скроется у всех читателей. Председатель и замы могут его восстановить.</p>
     <form className={w.form} onSubmit={event => { event.preventDefault();if (busy) return;leave(async () => {
       setBusy(true);onBusy(true);setFailure(null);
-      try { await materialsApi.remove(m.material_id);navigate("/materials", { replace: true });await refresh(); }
-      catch (error) { setFailure(error); }
+      try { await materialsApi.remove(m.material_id, { expected_revision: m.revision });navigate("/materials", { replace: true });await refresh(); }
+      catch (error) { setFailure(error);if (isStale(error)) await refresh(); }
       finally { setBusy(false);onBusy(false); }
     }); }}><button className={`${w.button} ${w.danger}`} type="submit" disabled={busy}>{busy ? "Удаляем…" : "Удалить материал"}</button></form>
     {failure != null && <QueryState loading={false} error={failure}>{null}</QueryState>}

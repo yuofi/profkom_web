@@ -3,7 +3,7 @@
 import json, re, uuid
 from typing import Literal
 from pydantic import Field
-from fastapi import Depends, HTTPException
+from fastapi import Body, Depends, HTTPException
 from database import db, GuideORM, RoleAssignmentORM, UserORM
 from domain_models import MaterialORM, BlockMetaORM
 from models import User
@@ -57,6 +57,15 @@ def can_edit(id, uid):
         if not m or m.deleted:
             return False
     return access.allowed(uid, "material.edit", "material", id)
+
+
+def require_edit(id, uid):
+    """A command on a material the user cannot read is a 404 like its GET; a reader
+    without the editor right gets the 403 (GL-24)."""
+    if not can_edit(id, uid):
+        if not can_read(id, uid):
+            fail(404, "Material not found")
+        fail(403, "Material editor required")
 
 
 def block_only(m):
@@ -157,9 +166,19 @@ def deleted_dto(m):
 
 
 def block_material_id(s, bid):
-    from material_seed import seed_materials
+    """The block's current guide, read-only: GET never creates a placeholder (GL-05).
+    Block creation, startup and deletion of the last guide keep one in place."""
+    m = (
+        s.query(MaterialORM)
+        .filter_by(owner_block_id=bid, deleted=False)
+        .order_by(MaterialORM.published_body.is_(None), MaterialORM.placeholder, MaterialORM.created_at)
+        .first()
+    )
+    return m.material_id if m else None
 
-    # New blocks are not created through HTTP; this also supports isolated fixtures.
+
+def ensure_block_guide(s, bid):
+    """Inside a write transaction: a placeholder guide when the block has no live material."""
     m = (
         s.query(MaterialORM)
         .filter_by(owner_block_id=bid, deleted=False)
@@ -295,10 +314,8 @@ def register_routes(router):
         response_model_exclude_unset=True,
     )
     def listing(cur: User = Depends(get_current_user)):
+        # Old guides are mapped at startup (scripts/preset_db.py); GET only reads (GL-05).
         with db._session() as s:
-            for g in s.query(GuideORM):
-                legacy_mapping(s, g.guide_id)
-            s.commit()
             return Page(
                 items=[
                     dto(s, m, cur.user_id)
@@ -424,8 +441,7 @@ def register_routes(router):
     def patch(material_id: str, payload: Patch, cur: User = Depends(get_current_user)):
         with db._session() as s:
             m = row(s, material_id)
-            if not can_edit(material_id, cur.user_id):
-                fail(403, "Material editor required")
+            require_edit(material_id, cur.user_id)
             version(m, payload.expected_revision)
             if not m.has_draft:
                 m.draft_title = m.title
@@ -472,17 +488,19 @@ def register_routes(router):
     ):
         with db._session() as s:
             m = row(s, material_id)
-            if not can_edit(material_id, cur.user_id):
-                fail(403, "Material editor required")
+            require_edit(material_id, cur.user_id)
             version(m, payload.expected_revision)
             return publish(s, m, cur.user_id)
 
     @router.delete("/materials/{material_id}")
-    def remove(material_id: str, cur: User = Depends(get_current_user)):
+    def remove(material_id: str, payload: Revision | None = Body(None), cur: User = Depends(get_current_user)):
         with db._session() as s:
             m = row(s, material_id)
-            if not can_edit(material_id, cur.user_id):
-                fail(403, "Material editor required")
+            require_edit(material_id, cur.user_id)
+            if payload is None:
+                fail(422, "expected_revision is required", "invalid_input")
+            # Like every other material command: a newer save by someone else is a 409 (GL-27).
+            version(m, payload.expected_revision)
             m.deleted = True
             m.deleted_at = now()
             m.revision += 1
@@ -495,6 +513,11 @@ def register_routes(router):
                 {},
                 dict(deleted=True),
             )
+            if m.owner_block_id:
+                # The block keeps a guide: its placeholder is created here, in the same
+                # write, instead of by the next GET /blocks (GL-05).
+                s.flush()
+                ensure_block_guide(s, m.owner_block_id)
             s.commit()
             return dict(deleted=True)
 
@@ -555,8 +578,7 @@ def register_routes(router):
         """Who reads a block guide; decided by its writers: the block leads and the chair's team."""
         with db._session() as s:
             m = row(s, material_id)
-            if not can_edit(material_id, cur.user_id):
-                fail(403, "Material editor required")
+            require_edit(material_id, cur.user_id)
             if m.kind != "guide" or not m.owner_block_id:
                 fail(422, "Only a block guide has an audience")
             version(m, payload.expected_revision)
@@ -573,8 +595,8 @@ def register_routes(router):
     def mapping(guide_id: int, cur: User = Depends(get_current_user)):
         """Resolve a bookmarked old identifier using current material visibility."""
         with db._session() as s:
-            m = legacy_mapping(s, guide_id)
-            if m.deleted or not can_read(m.material_id, cur.user_id):
+            # The mapping is created at startup; resolving a bookmark never writes (GL-05).
+            m = s.query(MaterialORM).filter_by(legacy_guide_id=guide_id).first()
+            if not m or m.deleted or not can_read(m.material_id, cur.user_id):
                 fail(404, "Guide not found")
-            s.commit()
             return dict(guide_id=guide_id, material_id=m.material_id, revision=m.revision)

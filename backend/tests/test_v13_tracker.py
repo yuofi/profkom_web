@@ -127,13 +127,15 @@ def test_lost_scope_cannot_submit_or_read_private_file(client, work):
         ).status_code
         == 200
     )
+    # The task is no longer readable, so its commands answer like its GET (GL-24).
+    assert client.get(f"/api/tasks/{t['task_id']}", headers=w["member"].headers).status_code == 404
     assert (
         client.post(
             f"/api/assignments/{a['assignment_id']}/start",
             headers=w["member"].headers,
             json={"expected_revision": 1},
         ).status_code
-        == 403
+        == 404
     )
     assert (
         client.post(
@@ -141,7 +143,7 @@ def test_lost_scope_cannot_submit_or_read_private_file(client, work):
             headers=w["member"].headers,
             json={"expected_revision": 1, "text": "Нет", "file_ids": [], "links": []},
         ).status_code
-        == 403
+        == 404
     )
     notices = client.get("/api/notifications", headers=w["member"].headers).json()[
         "items"

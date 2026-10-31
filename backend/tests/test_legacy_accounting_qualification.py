@@ -77,7 +77,7 @@ def test_bulk_hours_saves_each_row_ledger_revision_and_audit_once(client, batch_
     assert replay.status_code == 409 and full_snapshot() == before_replay
 
 
-@pytest.mark.parametrize("failure,status", [("late_stale", 409), ("foreign", 403), ("missing", 404), ("negative_hours", 422), ("blank_reason", 422)])
+@pytest.mark.parametrize("failure,status", [("late_stale", 409), ("foreign", 404), ("missing", 404), ("negative_hours", 422), ("blank_reason", 422)])
 def test_bulk_hours_rejects_late_invalid_item_without_any_partial_mutation(client, batch_work, superuser, make_user, failure, status):
     work = batch_work
     payload = {"items": [dict(item) for item in work["items"]], "hours": 9, "reason": "Must roll back the whole batch"}

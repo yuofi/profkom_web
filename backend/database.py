@@ -2596,7 +2596,20 @@ class Database:
         final_blocks_str = _format_blocks(sorted(list(valid_requested_blocks)))
         if u: u.blocks = final_blocks_str
         if c: c.blocks = final_blocks_str
+        self._seed_block_memberships(session, added)
         return final_blocks_str
+
+    def _seed_block_memberships(self, session: Session, block_names) -> None:
+        """A legacy roster write creates the matching memberships in its own transaction;
+        GET /blocks no longer repairs them (GL-05)."""
+        if not block_names:
+            return
+        from domain_seed import meta_for, seed_members
+        session.flush()
+        for name in sorted(block_names):
+            b = session.get(BlockORM, name)
+            if b:
+                seed_members(session, b, meta_for(session, name))
 
     def _sync_users_for_block(self, session: Session, block_name: str, new_user_ids: list[int]):
         b = session.get(BlockORM, block_name)
@@ -2643,6 +2656,8 @@ class Database:
         # Update block record itself
         b.arr_of_human = json.dumps(list(new_user_ids_set))
         b.cnt_of_human = len(new_user_ids_set)
+        if added:
+            self._seed_block_memberships(session, [block_name])
 
     # --- Users & ContactInfo ---
 
@@ -3042,6 +3057,11 @@ class Database:
                     b.cnt_of_human = 0
 
             self._sync_admin_rights(session, {block.master, block.hr})
+            # A new block gets its stable identity and guide placeholder now, not on the
+            # first GET /blocks (GL-05).
+            from domain_seed import meta_for
+            from materials import ensure_block_guide
+            ensure_block_guide(session, meta_for(session, block.name).block_id)
 
             session.commit()
             session.refresh(b)
@@ -3979,6 +3999,8 @@ class Database:
             if not r:
                 raise NotFound("Report not found")
             if not self.is_report_editor(user_id, r, session):
+                if not self.can_read_report(user_id, r, session):
+                    raise NotFound("Report not found")  # like its GET (GL-24)
                 raise Forbidden("Forbidden: cannot edit this report")
             if r.revision != expected_revision:
                 raise revision_conflict()
@@ -4019,6 +4041,8 @@ class Database:
             if not r:
                 raise NotFound("Report not found")
             if not self.is_report_editor(user_id, r, session):
+                if not self.can_read_report(user_id, r, session):
+                    raise NotFound("Report not found")  # like its GET (GL-24)
                 raise Forbidden("Forbidden: cannot publish this report")
             if r.revision != expected_revision:
                 raise revision_conflict()
@@ -4842,7 +4866,7 @@ class Database:
     def require_task_right(self, user_id: int, action: str, t, state, denied: str, closed_denied: str) -> None:
         """Raises the 403 for `action` on task `t`; a closed season has its own message."""
         import access
-        if not self.can_read_task(user_id,t):raise Forbidden("Forbidden: task queue access ended")
+        if not self.can_read_task(user_id,t):raise NotFound("Task not found")  # like its GET (GL-24)
         if action in {"task.inputs.view", "task.inputs.edit", "task.review", "task.dates.edit"}:
             with self._session() as session:
                 self.require_accountable_task(session, t)
@@ -5190,7 +5214,7 @@ class Database:
             if not a:
                 raise NotFound("Assignment not found")
             task=session.get(TaskORM,a.task_id)
-            if not task or not self.can_read_task(user_id,task,session):raise Forbidden("Forbidden: scope access ended")
+            if not task or not self.can_read_task(user_id,task,session):raise NotFound("Assignment not found")  # like its GET (GL-24)
             self.require_accountable_task(session, task)
             if task.season_id and session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
             if a.assignee_user_id != user_id:
@@ -5214,7 +5238,7 @@ class Database:
             if not a:
                 raise NotFound("Assignment not found")
             task=session.get(TaskORM,a.task_id)
-            if not task or not self.can_read_task(user_id,task,session):raise Forbidden("Forbidden: scope access ended")
+            if not task or not self.can_read_task(user_id,task,session):raise NotFound("Assignment not found")  # like its GET (GL-24)
             self.require_accountable_task(session, task)
             if task.season_id and session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
             if a.assignee_user_id != user_id:
@@ -5270,7 +5294,7 @@ class Database:
             if not a:
                 raise NotFound("Assignment not found")
             task=session.get(TaskORM,a.task_id)
-            if not task or not self.can_read_task(user_id,task,session):raise Forbidden("Forbidden: scope access ended")
+            if not task or not self.can_read_task(user_id,task,session):raise NotFound("Assignment not found")  # like its GET (GL-24)
             self.require_accountable_task(session, task)
             if task.season_id and session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
             if a.assignee_user_id != user_id:
@@ -5300,7 +5324,7 @@ class Database:
             if not a:
                 raise NotFound("Assignment not found")
             task=session.get(TaskORM,a.task_id)
-            if not task or not self.can_read_task(user_id,task,session):raise Forbidden("Forbidden: scope access ended")
+            if not task or not self.can_read_task(user_id,task,session):raise NotFound("Assignment not found")  # like its GET (GL-24)
             self.require_accountable_task(session, task)
             if task.season_id and session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
             if a.assignee_user_id != user_id:
@@ -6436,7 +6460,7 @@ class Database:
             if not t:
                 raise NotFound("Task not found")
             if not (self.can_read_task(author_user_id,t,session)):
-                raise Forbidden("Forbidden: cannot comment on this task")
+                raise NotFound("Task not found")  # like its GET (GL-24)
 
             body = content.get("body", "") if isinstance(content, dict) else str(content)
             file_ids = [] if file_ids is None else file_ids
@@ -6466,7 +6490,7 @@ class Database:
             if not c:
                 raise NotFound("Comment not found")
             task=session.get(TaskORM,c.task_id)
-            if not task or not self.can_read_task(user_id,task,session):raise Forbidden("Forbidden: scope access ended")
+            if not task or not self.can_read_task(user_id,task,session):raise NotFound("Comment not found")  # like its GET (GL-24)
             self.require_accountable_task(session, task)
             from tracker import can_edit_comment
             if not can_edit_comment(session,c,user_id):
@@ -6514,9 +6538,10 @@ class Database:
         user_id: int,
     ) -> FileRecordDC:
         with self._session() as session:
-            from file_access import validate_metadata, permitted, owner_exists
+            from file_access import validate_metadata, permitted, owner_exists, owner_readable
             mime_type = validate_metadata(owner_kind,purpose,name,mime_type,size_bytes)
-            if not owner_exists(session, owner_kind, owner_id):
+            # An owner the user cannot read is the same 404 as a missing one (GL-24).
+            if not owner_exists(session, owner_kind, owner_id) or not owner_readable(session, owner_kind, owner_id, user_id):
                 raise NotFound(f"{owner_kind.capitalize()} not found")
             if owner_kind=="avatar":
                 if owner_id is not None and owner_id!=str(user_id):raise Forbidden("Forbidden: avatar owner mismatch")

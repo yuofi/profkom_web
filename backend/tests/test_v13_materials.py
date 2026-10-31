@@ -83,13 +83,15 @@ def test_material_draft_publish_and_per_object_editors(client, superuser, make_u
             content=dict(format="markdown", body="Other"),
         ),
     ).json()
+    # The unpublished draft of a foreign material is unreadable to this editor: its
+    # command answers 404 like its GET, without confirming that it exists (GL-24).
     assert (
         client.patch(
             "/api/materials/" + other["material_id"],
             headers=editor.headers,
             json=dict(expected_revision=1, title="Wrong"),
         ).status_code
-        == 403
+        == 404
     )
     assert (
         client.put(
@@ -106,6 +108,13 @@ def test_legacy_id_mapping_markup_preservation_and_draft_conflict(
 ):
     source = '<p><strong>Жирный</strong> и <em>курсив</em><br>Строка</p><ul><li><a href="https://example.com">Ссылка</a></li></ul>'
     g = db.create_guide(Guide(guide_id=0, title="Old", owner_block="none", text=source))
+    # The startup preset maps an imported old guide; a GET never does (GL-05).
+    assert client.get(f"/api/materials/legacy-guides/{g.guide_id}", headers=user.headers).status_code == 404
+    from materials import legacy_mapping
+    with db.atomic():
+        with db._session() as s:
+            legacy_mapping(s, g.guide_id)
+            s.commit()
     mapped = client.get(f"/api/materials/legacy-guides/{g.guide_id}", headers=user.headers).json()
     mid = mapped["material_id"]
     assert client.get(f"/api/materials/legacy-guides/{g.guide_id}", headers=user.headers).json()["material_id"] == mid
@@ -139,8 +148,10 @@ def test_legacy_id_mapping_markup_preservation_and_draft_conflict(
         client.get("/api/materials/"+mid, headers=user.headers).json()["published_content"]["body"]
         == "Draft"
     )
+    current = client.get("/api/materials/" + mid, headers=superuser.headers).json()
     assert (
-        client.delete("/api/materials/" + mid, headers=superuser.headers).status_code
+        client.request("DELETE", "/api/materials/" + mid, headers=superuser.headers,
+                       json=dict(expected_revision=current["revision"])).status_code
         == 200
     )
     assert (
@@ -302,7 +313,9 @@ def test_deleted_material_is_listed_and_restored_by_the_chair_and_deputies(clien
     m = client.post(f"/api/materials/{mid}/publish", headers=superuser.headers, json=dict(expected_revision=m["revision"])).json()
     client.put(f"/api/materials/{mid}/editors", headers=superuser.headers,
                json=dict(user_ids=[editor.user_id], expected_revision=m["revision"]))
-    assert client.delete(f"/api/materials/{mid}", headers=editor.headers).status_code == 200
+    current = client.get(f"/api/materials/{mid}", headers=editor.headers).json()
+    assert client.request("DELETE", f"/api/materials/{mid}", headers=editor.headers,
+                          json=dict(expected_revision=current["revision"])).status_code == 200
     assert client.get(f"/api/materials/{mid}", headers=reader.headers).status_code == 404
     restore = f"/api/materials/{mid}/restore"
     for who in (editor, reader):
