@@ -362,7 +362,9 @@ span.icon {
 }
 
 .notifications { position:absolute;top:28px;right:28px;z-index:20; }
-@media(max-width:960px) { .notifications { top:18px;right:16px; }.sidebar { padding-right:52px; }.content { padding-top:8px; } }
+/* In the top bar the bell stands on the line of the brand and «Меню» (GL-19): the line starts
+   at the 18 px padding plus the bar's 24 px offset and is as tall as the brand (54 px). */
+@media(max-width:960px) { .notifications { top:42px;right:16px;height:54px;display:flex;align-items:center; }.sidebar { padding-right:52px; }.content { padding-top:8px; } }
 
 /* A navigation in progress (GL-14): a thin bar in the section's colour along the top edge. */
 .progress {
