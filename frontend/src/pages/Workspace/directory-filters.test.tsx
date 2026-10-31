@@ -10,7 +10,7 @@ import { DirectoryPage } from "./DirectoryPages";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let mock: ReturnType<typeof installMockTransport> | undefined;
-afterEach(async () => { await page?.cleanup(); page = undefined; mock?.restore(); mock = undefined; vi.restoreAllMocks(); });
+afterEach(async () => { await page?.cleanup(); page = undefined; mock?.restore(); mock = undefined; vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 const person = (user_id: number, surname: string, group_number: string, budget: boolean): ContactInfoOut => ({
   user_id, surname, name: "Тест", patronymic: "", kkr_name: surname, group_number, location: "", blocks: "",
@@ -115,4 +115,17 @@ it("links full block names without avatar chips and marks only the explicit mast
   expect(cards[0].textContent).not.toContain("мастер");expect(cards[0].querySelector('[class*="masterBlock"]')).not.toBeNull();
   expect(cards[1].textContent).not.toContain("мастер");expect(cards[1].querySelector('[class*="masterBlock"]')).toBeNull();
   expect(master.blocks).toBe("");
+});
+
+it("widening the window from a phone opens the collapsed filters again (PE-09)", async () => {
+  mock = installMockTransport("organizer", { delay: 0 });
+  let listener: ((event: MediaQueryListEvent) => void) | undefined;
+  vi.stubGlobal("matchMedia", (query: string) => ({ matches: false, media: query, addEventListener: (_: string, handler: (event: MediaQueryListEvent) => void) => { listener = handler; }, removeEventListener: () => { listener = undefined; } }));
+  vi.spyOn(directoryApi, "contacts").mockResolvedValue([person(201, "Первокурсникова", "101", true)]);
+  page = await mountWorkspace(<DirectoryPage />, { role: "organizer" });
+  await settle();
+  const filters = () => page!.container.querySelector<HTMLDetailsElement>('details[class*="filterDetails"]')!;
+  expect(filters().open).toBe(false);
+  await act(async () => listener!({ matches: true } as MediaQueryListEvent));
+  expect(filters().open).toBe(true);
 });

@@ -1,6 +1,6 @@
 import { EntityPicker } from "../../components/Workspace/EntityPicker";
 import { Link } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -91,6 +91,14 @@ export function DirectoryPage() {
   const [filtersOpen, setFiltersOpen] = useState(() =>
     typeof window.matchMedia !== "function" || window.matchMedia("(min-width: 769px)").matches,
   );
+  // The desktop hides the summary that toggles the filters: widening the window opens them (PE-09).
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(min-width: 769px)");
+    const sync = (event: MediaQueryListEvent) => { if (event.matches) setFiltersOpen(true); };
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
   const active = query.data?.filter((p) => p.in_profcom) ?? [];
   const participantIds = [...new Set(active.map((p) => p.user_id))].sort((a, b) => a - b);
   const categories = useQuery({
