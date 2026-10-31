@@ -22,12 +22,17 @@ export interface MarkdownEditorProps {
   variant?: "default" | "comment";
   footer?: ReactNode;
   mentionUsers?: UserRef[];
+  /** Form state of the source field, as for the other fields of a form. */
+  required?: boolean;
+  invalid?: boolean;
+  describedBy?: string;
 }
 
 /** The source stays Markdown: inserting a command never rewrites the rest of a document. */
 export function MarkdownEditor({
   value, onChange, label = "Содержимое в Markdown", name, rows = 18,
   context = "material", placeholder, disabled = false, variant = "default", footer, mentionUsers,
+  required, invalid, describedBy,
 }: MarkdownEditorProps) {
   const input = useRef<HTMLTextAreaElement>(null), fieldId = useId(), Field = variant === "comment" ? "label" : "div";
   const selection = useRef<{ start: number; end: number; scrollTop?: number } | null>(null);
@@ -190,6 +195,7 @@ export function MarkdownEditor({
       {!preview && <Field className={editor.label}>
         {variant === "comment" && <span className={editor.srOnly}>{label}</span>}
         <textarea ref={input} id={fieldId} name={name} className={editor.input} value={value} rows={rows} placeholder={placeholder} disabled={disabled}
+          required={required} aria-invalid={invalid || undefined} aria-describedby={describedBy}
           onChange={(event) => {
             remember(undo.current, beforeInput.current ?? snapshot()); redo.current = [];track();
             beforeInput.current = null;

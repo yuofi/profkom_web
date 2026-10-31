@@ -477,6 +477,7 @@ class SubeventPatchIn(Command):
 
 
 class SubeventOut(BaseModel):
+    event_title: str = ""
     starts_at: Optional[str] = None
     ends_at: Optional[str] = None
     all_day: bool = False
@@ -516,6 +517,11 @@ class MeetingIn(Command):
     title: str
     starts_at: str
     join_url: str
+
+
+class MeetingDeleteIn(Command):
+    """Optional for older clients; when sent, a changed announcement is refused with 409."""
+    expected_revision: Optional[int] = None
 
 
 class MeetingOut(BaseModel):
@@ -1145,6 +1151,8 @@ class ReportOut(BaseModel):
     published_version: Optional[int] = None
     revision: int
     capabilities: list[str] = Field(default_factory=list)
+    # The event or subevent title, so lists and the report page can name and link the owner.
+    owner_title: str = ""
 
 
     @model_serializer(mode="wrap")
@@ -2226,7 +2234,34 @@ def _to_file_ref_out(f) -> FileRefOut:
     )
 
 
-def _to_report_out(r: Report) -> ReportOut:
+def _report_owner_titles(reports) -> dict[tuple[str, str], str]:
+    """Owner titles for a batch of reports: one query per owner kind (audit EV-06).
+
+    Event and subevent titles are public to approved accounts, like the announcements.
+    """
+    wanted: dict[str, set[str]] = {"event": set(), "subevent": set()}
+    for r in reports:
+        if r.owner_kind in wanted:
+            wanted[r.owner_kind].add(r.owner_id)
+    titles: dict[tuple[str, str], str] = {}
+    with db._session() as session:
+        for kind, key, title in (
+            ("event", database_module.EventORM.event_id, database_module.EventORM.title),
+            ("subevent", database_module.SubeventORM.subevent_id, database_module.SubeventORM.title),
+        ):
+            if wanted[kind]:
+                titles.update({(kind, oid): name for oid, name in session.query(key, title).filter(key.in_(wanted[kind])).all()})
+    return titles
+
+
+def _to_report_outs(reports) -> list[ReportOut]:
+    titles = _report_owner_titles(reports)
+    return [_to_report_out(r, titles.get((r.owner_kind, r.owner_id), "")) for r in reports]
+
+
+def _to_report_out(r: Report, owner_title: Optional[str] = None) -> ReportOut:
+    if owner_title is None:
+        owner_title = _report_owner_titles([r]).get((r.owner_kind, r.owner_id), "")
     files = [_to_file_ref_out(f) for f in r.files]
     draft_files = [_to_file_ref_out(f) for f in r.draft_files] if r.draft_files is not None else None
     draft_content = RichTextSchema(format=r.draft_content.format, body=r.draft_content.body) if r.draft_content is not None else None
@@ -2248,6 +2283,7 @@ def _to_report_out(r: Report) -> ReportOut:
         published_version=r.published_version,
         revision=r.revision,
         capabilities=r.capabilities,
+        owner_title=owner_title,
     )
 
 
@@ -2560,14 +2596,46 @@ def set_event_meeting(event_id: str, payload: MeetingIn, cur: User = Depends(get
 
 
 @router.delete("/events/{event_id}/meeting")
-def delete_event_meeting(event_id: str, cur: User = Depends(get_current_user)):
+def delete_event_meeting(event_id: str, payload: Optional[MeetingDeleteIn] = None, cur: User = Depends(get_current_user)):
     ev = db.get_event(event_id)
     if not ev:
         raise HTTPException(404, "Event not found")
     if not access.allowed(cur.user_id, "event.meeting.edit", "event", event_id):
         raise HTTPException(403, "Forbidden")
-    db.delete_meeting("event", event_id)
+    db.delete_meeting("event", event_id, payload.expected_revision if payload else None)
     return {"status": "deleted"}
+
+
+class TeamMeetingOut(BaseModel):
+    subevent_id: str
+    subevent_title: str
+    meeting: MeetingOut
+
+
+@router.get("/events/{event_id}/meetings", response_model=Page[TeamMeetingOut])
+def list_event_team_meetings(event_id: str, cur: User = Depends(get_current_user)):
+    """The event's child-team announcements the actor may read, in one request.
+
+    Each team follows exactly GET /subevents/{id}/meeting: working access and
+    meeting audience; a closed season has no current announcements.
+    """
+    ev = db.get_event(event_id)
+    if not ev:
+        raise HTTPException(404, "Event not found")
+    team = database_module.SubeventORM
+    with db._session() as session:
+        teams = session.query(team.subevent_id, team.title).filter(team.event_id == event_id).all()
+    items = []
+    for subevent_id, title in teams:
+        if not access.allowed(cur.user_id, "subevent.view", "subevent", subevent_id):
+            continue
+        if not access.allowed(cur.user_id, "subevent.meeting.view", "subevent", subevent_id):
+            continue
+        m = db.get_meeting("subevent", subevent_id)
+        if m:
+            items.append(TeamMeetingOut(subevent_id=subevent_id, subevent_title=title, meeting=_to_meeting_out(m)))
+    items.sort(key=lambda item: (item.meeting.starts_at, item.subevent_id))
+    return Page(items=items)
 
 
 @router.get("/subevents/{subevent_id}/meeting", response_model=Optional[MeetingOut])
@@ -2596,13 +2664,13 @@ def set_subevent_meeting(subevent_id: str, payload: MeetingIn, cur: User = Depen
 
 
 @router.delete("/subevents/{subevent_id}/meeting")
-def delete_subevent_meeting(subevent_id: str, cur: User = Depends(get_current_user)):
+def delete_subevent_meeting(subevent_id: str, payload: Optional[MeetingDeleteIn] = None, cur: User = Depends(get_current_user)):
     sub = db.get_subevent(subevent_id)
     if not sub:
         raise HTTPException(404, "Subevent not found")
     if not access.allowed(cur.user_id, "subevent.meeting.edit", "subevent", subevent_id):
         raise HTTPException(403, "Forbidden")
-    db.delete_meeting("subevent", subevent_id)
+    db.delete_meeting("subevent", subevent_id, payload.expected_revision if payload else None)
     return {"status": "deleted"}
 
 
@@ -3315,7 +3383,7 @@ def list_reports(
         state=state,
         current_user_id=cur.user_id,
     )
-    return Page(items=[_to_report_out(r) for r in items])
+    return Page(items=_to_report_outs(items))
 
 
 @router.get("/reports/{report_id}", response_model=ReportOut)
@@ -3366,7 +3434,7 @@ def list_report_history(
 ):
     items = db.list_report_history(series_id, year, cur.user_id)
     page = cursor_page(items, lambda r: (r.published_at or "", r.report_id), cursor, descending=True)
-    return Page(items=[_to_report_out(r) for r in page.items], next_cursor=page.next_cursor)
+    return Page(items=_to_report_outs(page.items), next_cursor=page.next_cursor)
 
 
 # ── Dashboard & Calendar ──

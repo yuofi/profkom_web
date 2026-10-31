@@ -98,6 +98,8 @@ it("PF-02: a removed meeting announcement can be announced again at once", async
   const real = eventsApi.meeting, held: (() => void)[] = [];let holding = true;
   vi.spyOn(eventsApi, "meeting").mockImplementation((kind, id) => holding ? new Promise((resolve, reject) => { held.push(() => { real(kind, id).then(resolve, reject); }); }) : real(kind, id));
   await submit(remove()!.closest("form")!);await settle();
+  // The removal is confirmed first (EV): the answer button sends it.
+  await act(async () => [...page!.container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Да, снять")!.click());await settle();
   expect(remove()).toBeUndefined();
   await act(async () => { holding = false;held.splice(0).forEach(release => release()); });await waitForPage(page!);
   expect(mock.state.meetings.some(item => item.owner_id === "subevent-1")).toBe(false);

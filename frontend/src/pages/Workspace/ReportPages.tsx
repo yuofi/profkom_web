@@ -21,21 +21,25 @@ import {
 import { reportsApi } from "../../utils/api/reports.api";
 import { eventsApi } from "../../utils/api/events.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
-import { richText, type FileRef, type Report } from "../../utils/api/contract";
+import { richText, type FileRef, type Report, type Subevent } from "../../utils/api/contract";
 import { can } from "../../utils/session";
 import { displayDate, moscowInput, toUtc } from "../../utils/dates";
-import { getMeetingRoute, getReportRoute } from "../../utils/routes";
+import { getEventRoute, getMeetingRoute, getReportRoute, getSubeventRoute } from "../../utils/routes";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import s from "../../components/Workspace/Workspace.module.css";
 const template =
   "## Что сделали\n\n\n## Проблемы\n\n\n## Дальнейшие планы\n\n\n## Необходимая помощь\n\n";
-/** `seasons` labels each report with its instance's season, as the history needs (A-EVT-5). */
-function ReportLinks({ reports, seasons }: { reports: Report[]; seasons?: Map<string, string> }) {
+const ownerRoute = (kind: string, id: string) => kind === "event" ? getEventRoute(id) : getSubeventRoute(id);
+const ownerReports = (kind: string, id: string) => `/reports?owner_kind=${encodeURIComponent(kind)}&owner_id=${encodeURIComponent(id)}`;
+/** `seasons` labels each report with its instance's season, as the history needs (A-EVT-5);
+ *  `owners` names the event or subevent in lists that mix them. */
+function ReportLinks({ reports, seasons, owners = false }: { reports: Report[]; seasons?: Map<string, string>; owners?: boolean }) {
   return (
     <ul className={s.list}>
       {reports.map((r) => (
         <li key={r.report_id}>
           <RouteLink to={getReportRoute(r.report_id)}>{r.title}</RouteLink>{" "}
+          {owners && r.owner_title && <><span className={s.muted}>{r.owner_title}</span>{" "}</>}
           <Badge tone={r.kind === "final" ? "mint" : undefined}>{r.kind === "final" ? "Финальный" : "Регулярный"}</Badge>{" "}
           {seasons && <Badge>Сезон: {seasons.get(r.season_id) ?? "недоступен"}</Badge>}{" "}
           <span className={s.muted}>
@@ -70,18 +74,24 @@ export function ReportsPage() {
         valid && ownerId ? { owner_kind: kind, owner_id: ownerId } : {},
       ),
   });
+  const filtered = valid && !!ownerId, ownerTitle = filtered ? owner.data?.title : undefined;
+  // The server filters a team's reports to an empty list for people who may not read them, such as
+  // outsiders or the team's HR curator; say so instead of "none yet". Capabilities are empty only in a
+  // closed season, whose snapshot readers the server decides by itself.
+  const sub = kind === "subevent" ? (owner.data as Subevent | undefined) : undefined;
+  const refused = !!sub && query.data?.items.length === 0 && (sub.working_access === false || (sub.capabilities.length > 0 && !can(sub, "view_reports")));
   return (
     <Page
-      title="Отчёты"
-      actions={<RouteLink to="/reports/history">Поиск по истории</RouteLink>}
+      title={ownerTitle ? `Отчёты · ${ownerTitle}` : "Отчёты"}
+      actions={<>{ownerTitle && <RouteLink to={ownerRoute(kind!, ownerId)}><Glyph name="arrow_back" />{ownerTitle}</RouteLink>}<RouteLink to="/reports/history">Поиск по истории</RouteLink></>}
     >
       <div className={s.stack}>
         {/* A missing or closed owner is said as such, not as an empty list (GL-21). */}
         <QueryState keepDataOnError={!!query.data}
         loading={query.isLoading || owner.isLoading} error={owner.error ?? query.error}>
           <Card>
-            <ReportLinks reports={query.data?.items ?? []} />
-            {query.data?.items.length === 0 && <Empty>Отчётов пока нет.</Empty>}
+            <ReportLinks reports={query.data?.items ?? []} owners={!filtered} />
+            {refused ? <Empty>Отчёты подмероприятия доступны только его команде.</Empty> : query.data?.items.length === 0 && <Empty>Отчётов пока нет.</Empty>}
           </Card>
         </QueryState>
         {can(owner.data, "create_report") && valid && (
@@ -143,14 +153,7 @@ function ReportEditor({ report }: { report: Report }) {
         Опубликованная версия остаётся доступной читателям до новой публикации.
         Сохранённый черновик доступен соавторам.
       </p>
-      <AttachmentPicker
-        owner_kind="report"
-        owner_id={report.report_id}
-        purpose="report"
-        files={files}
-        onChange={setFiles}
-        onBusyChange={setBusy}
-      />
+      {/* Title, text and attachments are one draft; the preview of the saved draft sits beside its save. */}
       <ActionForm
         disabled={busy}
         externalState={files}
@@ -170,7 +173,8 @@ function ReportEditor({ report }: { report: Report }) {
           {
             name: "body",
             label: "Текст в Markdown",
-            type: "textarea",
+            type: "markdown",
+            rows: 12,
             required: true,
             value: draft.body,
           },
@@ -187,14 +191,27 @@ function ReportEditor({ report }: { report: Report }) {
         }}
         onConflict={refresh}
         submitLabel="Сохранить черновик"
-      />
-      <button
-        type="button"
-        className={s.button}
-        onClick={() => setPreview(!preview)}
+        actions={
+          <button
+            type="button"
+            className={`${s.button} ${s.toggle}`}
+            aria-pressed={preview}
+            onClick={() => setPreview(!preview)}
+          >
+            Предпросмотр сохранённого черновика
+          </button>
+        }
       >
-        Предпросмотр сохранённого черновика
-      </button>
+        <AttachmentPicker
+          owner_kind="report"
+          owner_id={report.report_id}
+          purpose="report"
+          files={files}
+          onChange={setFiles}
+          onBusyChange={setBusy}
+          uploadLabel="Прикрепить файлы"
+        />
+      </ActionForm>
       {preview && <Markdown content={draft} />}
       {can(report, "publish_report") && (
         <ActionForm
@@ -234,7 +251,10 @@ export function ReportPage() {
   return (
     <Page
       title={report?.title ?? "Отчёт"}
-      actions={<RouteLink to="/reports">Все отчёты</RouteLink>}
+      actions={report ? <>
+        <RouteLink to={ownerRoute(report.owner_kind, report.owner_id)}><Glyph name="arrow_back" />{report.owner_title || (report.owner_kind === "event" ? "Мероприятие" : "Подмероприятие")}</RouteLink>
+        <RouteLink to={ownerReports(report.owner_kind, report.owner_id)}>Все отчёты</RouteLink>
+      </> : <RouteLink to="/reports">Все отчёты</RouteLink>}
     >
       <QueryState
         keepDataOnError={!!query.data}
@@ -353,8 +373,8 @@ export function ReportHistoryPage() {
           }}
           submitLabel="Показать отчёты"
         />
-        <QueryState loading={query.isFetching} error={query.error}>
-          {seriesId && <ReportLinks reports={query.data?.items ?? []} seasons={seasonTitles} />}
+        <QueryState keepDataOnError={!!query.data} loading={query.isLoading} error={query.error}>
+          {seriesId && <ReportLinks reports={query.data?.items ?? []} seasons={seasonTitles} owners />}
           {seriesId && query.data?.items.length === 0 && (
             <Empty>Нет доступных отчётов за этот период.</Empty>
           )}
@@ -384,17 +404,11 @@ export function MeetingPage() {
     queryFn: () => eventsApi.meeting(apiKind, id),
     enabled: valid && mayViewMeeting,
   });
+  // One request, filtered by the server per team; it starts with the owner and stops once the owner is refused.
   const teams = useQuery({
     queryKey: ["events", "meeting-teams", id],
-    enabled: kind === "event" && ownerReadable,
-    queryFn: async () => {
-      const subevents = await eventsApi.subevents(id);
-      const announcements = await Promise.all(subevents.items
-        .filter((sub) => can(sub, "view_meeting"))
-        .map(async (sub) => ({ subevent: sub, meeting: await eventsApi.meeting("subevents", sub.subevent_id) })));
-      return announcements.filter((item) => item.meeting !== null)
-        .sort((a, b) => a.meeting!.starts_at.localeCompare(b.meeting!.starts_at));
-    },
+    enabled: kind === "event" && (!owner.isFetched || ownerReadable),
+    queryFn: async () => (await eventsApi.teamMeetings(id)).items,
   });
   useEffect(() => {
     if (!owner.isFetched) return;
@@ -403,6 +417,19 @@ export function MeetingPage() {
   }, [client, owner.isFetched, ownerReadable, mayViewMeeting, kind, id]);
   // Cached announcements never override the current owner's permissions.
   const meeting = mayViewMeeting && (!query.error || canRetainData(query.error)) ? query.data : undefined;
+  // Without view_meeting the page names the reason and never tells whether a meeting exists:
+  // a closed season empties everybody's capabilities, a team keeps its working access then.
+  // An open season's HR curator also has working access, but keeps other capabilities.
+  const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list, enabled: kind === "event" && ownerReadable && !mayViewMeeting });
+  const seasonClosed = kind === "event"
+    ? seasons.data?.items.find((season) => season.season_id === (owner.data as { season_id?: string } | undefined)?.season_id)?.state === "closed"
+    : !!(owner.data as Subevent | undefined)?.working_access && (owner.data as Subevent).capabilities.length === 0;
+  const restricted = seasonClosed
+    ? "Сезон закрыт: созвоны прошлых сезонов не показываются."
+    : kind === "event"
+      ? "Главный созвон доступен только его участникам. Доступные вам созвоны команд показаны ниже."
+      : "Созвон доступен только команде подмероприятия.";
+  const ownerTitle = ownerReadable ? owner.data!.title : undefined;
   if (!valid)
     return (
       <Page title="Созвон">
@@ -411,12 +438,13 @@ export function MeetingPage() {
     );
   return (
     <Page
-      title={kind === "event" ? "Созвоны мероприятия" : "Созвон команды"}
+      title={`${kind === "event" ? "Созвоны мероприятия" : "Созвон команды"}${ownerTitle ? ` · ${ownerTitle}` : ""}`}
       description={
         kind === "event"
           ? "Главный созвон и доступные вам созвоны команд подмероприятий."
           : "Объявление для участников подмероприятия."
       }
+      actions={ownerTitle && <RouteLink to={ownerRoute(kind, id)}><Glyph name="arrow_back" />{ownerTitle}</RouteLink>}
     >
       <div className={s.stack}>
         <QueryState
@@ -430,8 +458,8 @@ export function MeetingPage() {
           }}
         >
           <Card title={kind === "event" ? "Главный созвон" : undefined}>
-            {kind === "event" && ownerReadable && !mayViewMeeting ? (
-              <p className={s.muted}>Главный созвон доступен только его участникам. Доступные вам созвоны команд показаны ниже.</p>
+            {ownerReadable && !mayViewMeeting ? (
+              <p className={s.muted}>{restricted}</p>
             ) : meeting ? (
               <>
                 <h2>{meeting.title}</h2>
@@ -455,11 +483,11 @@ export function MeetingPage() {
           <Card title="Созвоны команд">
             <QueryState loading={teams.isLoading} error={teams.error} retry={() => { void teams.refetch(); }}>
               <div className={s.stack}>
-                {teams.data?.map(({ subevent, meeting: announcement }) => (
-                  <section key={subevent.subevent_id}>
-                    <h3>{announcement!.title}</h3>
-                    <p className={s.muted}>{subevent.title} · {displayDate(announcement!.starts_at)}</p>
-                    <RouteLink to={getMeetingRoute("subevent", subevent.subevent_id)}>Открыть созвон команды</RouteLink>
+                {teams.data?.map(({ subevent_id, subevent_title, meeting: announcement }) => (
+                  <section key={subevent_id}>
+                    <h3>{announcement.title}</h3>
+                    <p className={s.muted}>{subevent_title} · {displayDate(announcement.starts_at)}</p>
+                    <RouteLink to={getMeetingRoute("subevent", subevent_id)}>Открыть созвон команды</RouteLink>
                   </section>
                 ))}
                 {teams.data?.length === 0 && <Empty>Назначенных созвонов доступных вам команд пока нет.</Empty>}
@@ -474,6 +502,9 @@ export function MeetingPage() {
               <ActionForm
                 key={`${apiKind}/${id}/${removed}`}
                 revision={meeting?.revision ?? 0}
+                // One announcement's own saves move its removal's baseline. A removed and newly
+                // announced meeting is another record: its counter starts again (new meeting_id).
+                record={meeting ? `meeting:${meeting.meeting_id}` : undefined}
                 fields={[
                   {
                     name: "title",
@@ -512,14 +543,21 @@ export function MeetingPage() {
               />
               {meeting && can(meeting, "delete_meeting") && (
                 <ActionForm
+                  revision={meeting.revision}
+                  record={`meeting:${meeting.meeting_id}`}
+                  onConflict={refresh}
                   fields={[]}
                   submitLabel="Снять объявление"
                   variant="danger"
-                  onSubmit={async () => {
+                  confirm={{
+                    label: "Да, снять",
+                    text: `Снять объявление «${meeting.title}»? Участники больше не увидят время и ссылку на созвон.`,
+                  }}
+                  onSubmit={async (_v, expectedRevision) => {
                     // The answer itself says there is no announcement: the form starts anew from
                     // revision 0 at once, not from the removed one until the reread (PF-02).
                     await perform(async () => {
-                      await eventsApi.deleteMeeting(apiKind, id);
+                      await eventsApi.deleteMeeting(apiKind, id, { expected_revision: expectedRevision! });
                       client.setQueryData(["events", "meeting", kind, id], null);
                     });
                     setRemoved((n) => n + 1);

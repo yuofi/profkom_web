@@ -214,6 +214,7 @@ export function installMockTransport(
   };
   const visibleReport = (report: Report) => {
     const r = clone(report);
+    r.owner_title = (report.owner_kind === "event" ? state.events.find(event => event.event_id === report.owner_id)?.title : state.subevents.find(sub => sub.subevent_id === report.owner_id)?.title) ?? "";
     if (!r.capabilities.includes("edit_report")) {
       delete r.draft_title;
       delete r.draft_content;
@@ -236,7 +237,7 @@ export function installMockTransport(
     );
   const publicSubevent = (sub: Subevent): Subevent => {
     const working = readsSubevent(sub.subevent_id) || sub.hr?.user_id === state.session.user_id;
-    return { ...clone(sub), starts_at: sub.starts_at ?? null, ends_at: sub.ends_at ?? null,
+    return { ...clone(sub), event_title: state.events.find(event => event.event_id === sub.event_id)?.title ?? "", starts_at: sub.starts_at ?? null, ends_at: sub.ends_at ?? null,
       announcement: sub.announcement ?? richText(""), all_day: sub.all_day ?? false, working_access: working,
       organizers: sub.organizer_user_ids.flatMap(uid => { const person = state.people.find(person => person.user_id === uid);return person ? [person] : []; }),
       description: working ? sub.description : richText(""), report_series_id: working ? sub.report_series_id : null,
@@ -950,6 +951,12 @@ export function installMockTransport(
           saved,
         ];
         return [200, clone(saved)];
+      }
+      if (isEvent && parts[2] === "meetings" && method === "get") {
+        // GET /subevents/{id}/meeting per readable team, in one answer.
+        return list(state.subevents.filter((s) => s.event_id === parts[1] && readsSubevent(s.subevent_id) && s.capabilities.includes("view_meeting"))
+          .flatMap((s) => { const meeting = state.meetings.find((m) => m.owner_kind === "subevent" && m.owner_id === s.subevent_id);return meeting ? [{ subevent_id: s.subevent_id, subevent_title: s.title, meeting: clone(meeting) }] : []; })
+          .sort((a, b) => a.meeting.starts_at.localeCompare(b.meeting.starts_at)));
       }
       if (isEvent && parts[2] === "subevents") {
         if (method === "get")

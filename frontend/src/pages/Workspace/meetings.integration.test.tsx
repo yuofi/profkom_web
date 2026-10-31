@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { act } from "react";
 import { afterEach, expect, it } from "vitest";
 import { notifyManager } from "@tanstack/react-query";
 import { Route, Routes } from "react-router-dom";
@@ -82,6 +83,10 @@ it("1.3: a lead announces a meeting, removes it and announces it again", async (
     await announce(`Первый созвон: ${kind}`);
     expect((await eventsApi.meeting(`${kind}s`, id))?.title, kind).toBe(`Первый созвон: ${kind}`);
     await submit(removeButton()!.closest("form")!);
+    // Removal is irreversible: it asks once more with the announcement's title (EV-05).
+    expect(await eventsApi.meeting(`${kind}s`, id), kind).not.toBeNull();
+    expect(alert(), kind).toContain(`Снять объявление «Первый созвон: ${kind}»?`);
+    await act(async () => Array.from(page!.container.querySelectorAll("button")).find(b => b.textContent === "Да, снять")!.click());
     await waitForPage(page!, () => text().includes("Созвон пока не назначен.") || !!alert());
     expect(alert(), kind).toBeUndefined();
     expect(await eventsApi.meeting(`${kind}s`, id), kind).toBeNull();

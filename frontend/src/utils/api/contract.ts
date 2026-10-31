@@ -159,6 +159,8 @@ export interface Event extends Versioned {
   ends_at: string | null;
 }
 export interface Subevent extends Versioned {
+  /** The parent event's title for breadcrumbs, without rereading the event. */
+  event_title?: string;
   starts_at?: string | null;
   ends_at?: string | null;
   all_day?: boolean;
@@ -532,6 +534,8 @@ export interface Report extends Versioned {
   state: "draft" | "published";
   published_at: string | null;
   published_version: number | null;
+  /** The owner event's or subevent's title, to name and link it. */
+  owner_title?: string;
 }
 export interface ReportVersion {
   report_id: string;
@@ -582,6 +586,12 @@ export interface Meeting extends Versioned {
   title: string;
   starts_at: string;
   join_url: string;
+}
+/** A child team's announcement readable by the actor (GET /events/{id}/meetings). */
+export interface TeamMeeting {
+  subevent_id: string;
+  subevent_title: string;
+  meeting: Meeting;
 }
 export interface Target {
   kind: string;

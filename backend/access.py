@@ -484,6 +484,8 @@ SUBEVENT_CAPS = {
     "assign_subevent_hr": "subevent.hr.assign",
     "view_tasks": "task.view",
     "view_meeting": "subevent.meeting.view",
+    # The team's published reports; the subevent's HR curator reads tasks, not reports.
+    "view_reports": "subevent.report.read",
     "manage_leaders": "subevent.manage_leaders",
     "manage_deputies": "subevent.manage_leader_deputies",
     "manage_organizers": "subevent.manage_organizers",

@@ -17,6 +17,8 @@ const EventPage = lazy(() =>
   })));
 const EventCreatePage = lazy(() => import("./pages/Workspace/EventPages").then(m => ({ default: m.EventCreatePage })));
 const EventEditPage = lazy(() => import("./pages/Workspace/EventPages").then(m => ({ default: m.EventEditPage })));
+const SubeventCreatePage = lazy(() => import("./pages/Workspace/EventPages").then(m => ({ default: m.SubeventCreatePage })));
+const SubeventEditPage = lazy(() => import("./pages/Workspace/EventPages").then(m => ({ default: m.SubeventEditPage })));
 const SubeventPage = lazy(() =>
   import("./pages/Workspace/EventPages").then((m) => ({
     default: m.SubeventPage,
@@ -189,7 +191,9 @@ const router = createBrowserRouter(createRoutesFromElements(
                     <Route path="events/new" element={<EventCreatePage />} />
                     <Route path="events/:id/edit" element={<EventEditPage />} />
                     <Route path="events/:id" element={<EventPage />} />
+                    <Route path="events/:id/subevents/new" element={<SubeventCreatePage />} />
                     <Route path="subevents/:id" element={<SubeventPage />} />
+                    <Route path="subevents/:id/edit" element={<SubeventEditPage />} />
                     <Route path="leadership" element={<LegacyAdminRedirect tab="leadership" fallback="/blocks" />} />
                     <Route path="tasks" element={<TasksListPage />} />
                     <Route

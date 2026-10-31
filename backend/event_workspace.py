@@ -120,6 +120,8 @@ def extension(kind, owner):
             ids = owner.organizer_user_ids
             result["organizers"] = [asdict(ref) for uid in ids if (ref := db._get_user_ref(session, uid)) is not None]
             event = session.get(EventORM, owner.event_id)
+            # Approved readers already see the parent's title; pages no longer reread it for crumbs.
+            result["event_title"] = event.title if event else ""
             parent_meta = metadata(session, "event", owner.event_id)
             child_end = datetime.fromisoformat(timestamp(result["ends_at"])) + timedelta(days=int(result["all_day"])) if result["ends_at"] else None
             parent_end = datetime.fromisoformat(timestamp(event.ends_at)) + timedelta(days=int(bool(parent_meta and parent_meta.all_day))) if event and event.ends_at else None

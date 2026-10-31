@@ -4471,6 +4471,9 @@ class Database:
                 RoleAssignmentORM.role == "event_leader",
             ).all()
             existing_by_uid = {r.user_id: r for r in existing}
+            # The same roster is a no-op: no new revision for other open forms.
+            if set(user_ids) == set(existing_by_uid):
+                return _event_orm_to_dc(session, ev)
 
             # Remove leaders not in user_ids and their deputies
             for uid, r in existing_by_uid.items():
@@ -4523,6 +4526,8 @@ class Database:
                 RoleAssignmentORM.role == "subevent_leader",
             ).all()
             existing_by_uid = {r.user_id: r for r in existing}
+            if set(user_ids) == set(existing_by_uid):
+                return _subevent_orm_to_dc(session, sub)
 
             for uid, r in existing_by_uid.items():
                 if uid not in user_ids:
@@ -4567,11 +4572,15 @@ class Database:
             for uid in user_ids:
                 _roster_candidate(session, uid)
 
-            old_ids = set()
+            old_list = []
             try:
-                old_ids = set(json.loads(sub.organizer_user_ids_json or "[]"))
+                old_list = list(json.loads(sub.organizer_user_ids_json or "[]"))
             except Exception:
                 pass
+            # The same ordered roster is a no-op: no new revision for other open forms.
+            if old_list == list(user_ids):
+                return _subevent_orm_to_dc(session, sub)
+            old_ids = set(old_list)
             new_ids = set(user_ids) - old_ids
             for uid in new_ids:
                 session.add(NotificationORM(
@@ -4768,11 +4777,16 @@ class Database:
             session.commit()
             return _meeting_orm_to_dc(row)
 
-    def delete_meeting(self, owner_kind: str, owner_id: str) -> bool:
+    def delete_meeting(self, owner_kind: str, owner_id: str, expected_revision: Optional[int] = None) -> bool:
         with self._session() as session:
             event=session.get(EventORM,owner_id) if owner_kind=="event" else session.get(EventORM,session.get(SubeventORM,owner_id).event_id) if session.get(SubeventORM,owner_id) else None
             if not event:raise NotFound("Meeting owner not found")
             if session.get(SeasonORM,event.season_id).state=="closed":raise season_closed("Conflict: closed meetings are not available")
+            if expected_revision is not None:
+                # The confirmed announcement must still be the current one; an absent one is already removed.
+                row = session.query(MeetingORM).filter(MeetingORM.owner_kind == owner_kind, MeetingORM.owner_id == owner_id).first()
+                if row is not None and row.revision != expected_revision:
+                    raise revision_conflict()
             deleted = session.query(MeetingORM).filter(
                 MeetingORM.owner_kind == owner_kind,
                 MeetingORM.owner_id == owner_id,

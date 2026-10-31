@@ -107,6 +107,10 @@ it("АВ-52: a temporary password is shown once, and not for the chair or deputi
   expect(choices).not.toContain("105");
   await choosePerson(form, "101");
   await submit(form);
+  // Resetting the password ends the person's sessions: it is confirmed first (EV-05).
+  expect(page.container.textContent).not.toContain("synthetic-temporary");
+  expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("Прежний пароль перестанет действовать");
+  await clickButton("Да, выдать пароль");
   expect(page.container.textContent).toContain("Временный пароль: synthetic-temporary");
   expect(page.container.textContent).toContain("Почта для входа: member101@example.com");
   await clickButton("Скрыть");

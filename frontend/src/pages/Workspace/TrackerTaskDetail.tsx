@@ -24,6 +24,7 @@ import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
 import { useGuardedAction } from "../../components/Workspace/unsavedChangesHooks";
 import { text } from "../../components/Workspace/formValues";
 import { tasksApi } from "../../utils/api/tasks.api";
+import { seasonsApi } from "../../utils/api/seasons.api";
 import { TaskSeasonParameter } from "./TaskSeasonParameter";
 import { TaskDeadlineParameter } from "./TaskDeadlineParameter";
 import { userMessage } from "../../utils/api/messages";
@@ -58,6 +59,10 @@ export function TrackerTaskPage() {
   const { id = "" } = useParams();
   const [params] = useSearchParams();
   const query = useQuery({ queryKey: ["tasks", id], queryFn: () => tasksApi.get(id) });
+  // Comments and seasons need only the address: start them with the task, under the keys
+  // the activity and season parameter read, instead of one round trip later.
+  useQuery({ queryKey: ["tasks", id, "comments"], queryFn: () => tasksApi.comments(id), enabled: !!id });
+  useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
   return <section className={s.page}>
     {!query.data && <h1 className={s.loadingTitle}>Задача</h1>}
     <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!query.data} retry={() => { void query.refetch(); }}>
@@ -197,7 +202,9 @@ function TaskFilesEditor({ task, onClose, onSaved }: { task: Task; onClose: () =
   </TrackerTaskDialog>;
 }
 type ActivityTab = "comments" | "attachments" | "history";
-function useTaskComments(task:Task) {return useQuery({queryKey:["tasks",task.task_id,"comments"],queryFn:()=>tasksApi.comments(task.task_id)});}
+// The task page starts this read with the task and keeps it fresh (PF-14): the activity joins
+// the page's entry instead of asking again when it mounts; changes still invalidate it.
+function useTaskComments(task:Task) {return useQuery({queryKey:["tasks",task.task_id,"comments"],queryFn:()=>tasksApi.comments(task.task_id),refetchOnMount:false});}
 function TaskActivity({ task }: { task: Task }) { return <UnsavedChangesScope><TaskActivityContent task={task} /></UnsavedChangesScope>; }
 function TaskActivityContent({ task }: { task: Task }) {
   const commentsQuery=useTaskComments(task);

@@ -8,8 +8,7 @@ import { richText } from "../../utils/api/contract";
 import { eventsApi } from "../../utils/api/events.api";
 import { outsideParentPeriod } from "./eventDates";
 import { occursOnDay, monthDays, validMonth } from "../../utils/calendar";
-import { EventsListPage, EventPage, SubeventPage } from "./EventPages";
-import { SubeventEditor } from "./EventEditor";
+import { EventsListPage, EventPage, SubeventCreatePage, SubeventEditPage, SubeventPage } from "./EventPages";
 import { CalendarPage, DashboardPage } from "./WorkspacePages";
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined, mock: ReturnType<typeof installMockTransport> | undefined;
 afterEach(async () => { await page?.cleanup();page=undefined;mock?.restore();mock=undefined;vi.restoreAllMocks();vi.useRealTimers(); });
@@ -68,13 +67,34 @@ it("offers the team task list to a task reader without the working subevent ACL"
   expect(page.container.textContent).not.toContain("Рабочая информация");
 });
 it("creates a child using explicit public/work text and real all-day date fields", async () => {
-  mock=installMockTransport("chair",{delay:0});const parent=mock.state.events[0];const onClose=vi.fn();
-  page=await mountWorkspace(<SubeventEditor parent={parent} onClose={onClose}/>);await waitForPage(page);
+  mock=installMockTransport("chair",{delay:0});const parent=mock.state.events[0];
+  page=await mountWorkspace(<Routes><Route path="/events/:id/subevents/new" element={<SubeventCreatePage/>}/><Route path="/subevents/:id" element={<p>Страница подмероприятия</p>}/></Routes>,{path:`/events/${parent.event_id}/subevents/new`});await waitForPage(page,()=>!!page!.container.querySelector('[name="title"]'));
   await change(field(page.container,"title"),"Новый анонс");await change(field(page.container,"announcement"),"Для всех");await change(field(page.container,"description"),"Для команды");
   await act(async()=>page!.container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
   await change(field(page.container,"starts"),"2026-10-28");await change(field(page.container,"ends"),"2026-10-29");await submit(page.container.querySelector("form")!);await waitForPage(page);
   const request=mock.adapter.history.post.find(request=>request.url?.endsWith("/subevents"))!;const body=JSON.parse(request.data);
-  expect(body).toMatchObject({announcement:richText("Для всех"),description:richText("Для команды"),all_day:true,starts_at:"2026-10-27T21:00:00.000Z",ends_at:"2026-10-28T21:00:00.000Z"});expect(onClose).toHaveBeenCalledOnce();
+  expect(body).toMatchObject({announcement:richText("Для всех"),description:richText("Для команды"),all_day:true,starts_at:"2026-10-27T21:00:00.000Z",ends_at:"2026-10-28T21:00:00.000Z"});expect(page.container.textContent).toContain("Страница подмероприятия");
+});
+it("opens the subevent editors at their own addresses and keeps the access checks there (EV-07)", async () => {
+  mock=installMockTransport("chair",{delay:0});const parent=mock.state.events[0];const sub=mock.state.subevents.find(item=>item.event_id===parent.event_id)!;
+  const routes=<Routes><Route path="/events/:id" element={<EventPage/>}/><Route path="/events/:id/subevents/new" element={<SubeventCreatePage/>}/><Route path="/subevents/:id" element={<SubeventPage/>}/><Route path="/subevents/:id/edit" element={<SubeventEditPage/>}/></Routes>;
+  page=await mountWorkspace(routes,{path:`/events/${parent.event_id}`});await waitForPage(page);
+  expect([...page.container.querySelectorAll("a")].find(link=>link.textContent==="Добавить подмероприятие")?.getAttribute("href")).toBe(`/events/${parent.event_id}/subevents/new`);
+  await page.cleanup();
+  page=await mountWorkspace(routes,{path:`/subevents/${sub.subevent_id}`});await waitForPage(page);
+  const edit=[...page.container.querySelectorAll("a")].find(link=>link.textContent==="Редактировать подмероприятие")!;
+  expect(edit.getAttribute("href")).toBe(`/subevents/${sub.subevent_id}/edit`);
+  await act(async()=>edit.click());await waitForPage(page,()=>!!page!.container.querySelector('[name="title"]'));
+  expect(field(page.container,"title").value).toBe(sub.title);
+  expect([...page.container.querySelectorAll("a")].find(link=>link.textContent==="Отмена")?.getAttribute("href")).toBe(`/subevents/${sub.subevent_id}`);
+  await page.cleanup();mock.restore();
+  // A direct address does not bypass the subevent's own capabilities.
+  mock=installMockTransport("organizer",{delay:0});const foreign=mock.state.subevents.find(item=>!item.capabilities?.includes("edit_subevent"))??mock.state.subevents[0];
+  page=await mountWorkspace(routes,{path:`/subevents/${foreign.subevent_id}/edit`,role:"organizer"});await waitForPage(page);
+  expect(page.container.querySelector('[name="title"]')).toBeNull();expect(page.container.textContent).toContain("Изменение подмероприятия вам недоступно.");
+  await page.cleanup();
+  page=await mountWorkspace(routes,{path:`/events/${foreign.event_id}/subevents/new`,role:"organizer"});await waitForPage(page);
+  expect(page.container.querySelector('[name="title"]')).toBeNull();expect(page.container.textContent).toContain("Добавление подмероприятия вам недоступно.");
 });
 it("shows current and nearest event overview with mine and archive choices", async () => {
   vi.useFakeTimers({toFake:["Date"]});vi.setSystemTime(new Date("2026-10-27T12:00:00Z"));mock=installMockTransport("organizer",{delay:0});

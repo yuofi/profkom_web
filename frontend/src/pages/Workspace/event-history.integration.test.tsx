@@ -9,7 +9,7 @@ import { reportsApi } from "../../utils/api/reports.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { richText, type Event, type Subevent } from "../../utils/api/contract";
 import { ReportHistoryPage, ReportPage } from "./ReportPages";
-import { EventCreatePage, EventPage, EventsListPage, SubeventPage } from "./EventPages";
+import { EventCreatePage, EventPage, EventsListPage, SubeventCreatePage, SubeventPage } from "./EventPages";
 import { DashboardPage } from "./WorkspacePages";
 
 // Step 5 of release 1: report history (FIX_PLAN 2.2), a series chosen on creation (2.21)
@@ -131,8 +131,8 @@ it("2.21: a new event and its subevent continue chosen series and show their his
   await eventsApi.leaders("events", created.event_id, [newhead.user_id], {expected_revision: created.revision});
 
   // The head of the new instance is offered the child series of its own series only.
-  await mount(newhead.email, <Routes><Route path="/events/:id" element={<EventPage />} /><Route path="/subevents/:id" element={<SubeventPage />} /></Routes>, `/events/${created.event_id}`);
-  await act(async () => [...page!.container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Добавить подмероприятие")!.click());
+  await mount(newhead.email, <Routes><Route path="/events/:id" element={<EventPage />} /><Route path="/events/:id/subevents/new" element={<SubeventCreatePage />} /><Route path="/subevents/:id" element={<SubeventPage />} /></Routes>, `/events/${created.event_id}`);
+  await act(async () => [...page!.container.querySelectorAll<HTMLAnchorElement>("a")].find(link => link.textContent === "Добавить подмероприятие")!.click());
   await waitForPage(page!, () => !!page!.container.querySelector('[name="series"]'));
   const subForm = field(page!.container, "series").closest("form")!;
   await waitForPage(page!, () => options(field(subForm, "series") as HTMLSelectElement).some(([value]) => value === old.sub.report_series_id));

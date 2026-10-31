@@ -131,6 +131,10 @@ function TemporaryPasswords() {
               resetOnSuccess
               fields={[{ name: "user", label: "Участник", type: "select", entity: "person", required: true, options: choices }]}
               submitLabel="Выдать временный пароль"
+              confirm={{
+                label: "Да, выдать пароль",
+                text: (v) => `Выдать временный пароль: ${choices.find((choice) => choice.value === v.user)?.label ?? "выбранному участнику"}? Прежний пароль перестанет действовать, а открытые сессии участника завершатся.`,
+              }}
               onSubmit={async (v) => {
                 setIssued(null);
                 setIssued(await adminApi.temporaryPassword(number(v, "user")));

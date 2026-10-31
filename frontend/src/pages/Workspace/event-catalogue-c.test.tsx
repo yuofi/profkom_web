@@ -42,10 +42,15 @@ it('uses one compact dated stream, Moscow month groups and instant ordering with
  expect(page!.container.querySelector('[aria-label="Ближайшее мероприятие"]')?.textContent).toContain('Ранняя встреча');
 });
 it('a period without own events shows one compact line instead of an empty participation card',async()=>{
- await mount('/events');await change(control('Период'),'archive');await waitForPage(page!);
+ await mount('/events');
+ // The current season holds own events; with them gone the period has none.
+ vi.mocked(workspaceApi.participation).mockResolvedValue({blocks:[],events:[]});await page!.client.invalidateQueries({queryKey:['participation']});await waitForPage(page!);
  const sidebar=page!.container.querySelector('[aria-label="Ваши мероприятия"]')!;
  expect(sidebar.querySelector('[aria-label="Моё участие в мероприятиях"]')).toBeNull();expect(sidebar.querySelector('h2[aria-label="С моим участием"]')).toBeNull();
  expect(sidebar.textContent).toContain('С моим участием: в выбранном периоде мероприятий нет.');
+ // The archive explains instead: roles count only in seasons that are not closed.
+ await change(control('Период'),'archive');await waitForPage(page!);
+ expect(sidebar.textContent).toContain('Для архива участие не показывается');
 });
 it('combines search, mine and phase in the URL while native event links retain navigation',async()=>{
  await mount('/events?mine=true&unknown=keep');await change(control('Поиск мероприятий'),'Даты');
@@ -75,4 +80,11 @@ it('refreshes Moscow-day countdown and phases locally at the minute boundary wit
 it('keeps a large personal sidebar at five entries while the full mine feed stays available',async()=>{
  await mount('/events?unknown=keep',false,false,7);const sidebar=page!.container.querySelector('[aria-label="Ваши мероприятия"]')!;expect(sidebar.querySelectorAll('[aria-label="Моё участие в мероприятиях"] a')).toHaveLength(5);expect(sidebar.querySelector('h2[aria-label="С моим участием"] span')?.textContent).toBe('9');
  await act(async()=>[...sidebar.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Все мои мероприятия')!.click());await waitForPage(page!);const params=new URLSearchParams(page!.container.querySelector('[data-location]')!.textContent!);expect(params.get('mine')).toBe('true');expect(params.get('unknown')).toBe('keep');expect(stream().querySelectorAll('a')).toHaveLength(9);
+});
+it('does not offer an always empty "mine" filter for the archive, whose roles /participation does not cover (EV-04)',async()=>{
+ await mount('/events?archive=true&mine=true');
+ expect(stream().textContent).toContain('Историческое событие');expect(stream().textContent).not.toContain('Мероприятия по выбранным условиям не найдены');
+ expect([...control('Участие').querySelectorAll('option')].map(node=>node.getAttribute('value'))).toEqual(['all']);
+ const own=page!.container.querySelector('[aria-label="Ваши мероприятия"] section')!;
+ expect(own.textContent).toContain('Для архива участие не показывается');expect(own.querySelector('[aria-label="Моё участие в мероприятиях"]')).toBeNull();
 });

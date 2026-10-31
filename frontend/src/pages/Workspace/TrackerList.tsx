@@ -101,7 +101,8 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
     const next = new URLSearchParams(params);
     if (currentSeason.data) next.set("season_id", currentSeason.data.season_id);
     next.set("unfinished", "true");
-    setParams(next, { replace: true });
+    // The bare list with only its defaults is still the section's own page: the stamp stays current (GL-36).
+    setParams(next, { replace: true, state: params.toString() ? null : { sectionDefaults: true } });
   }, [needsDefaults, currentSeason.isPending, currentSeason.data, params, setParams]);
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list, enabled: filtersOpen || !!filters.season_id && !currentSeasonFilter && (!!queue || !currentSeason.isPending) });
   const people = useQuery({ queryKey: ["contacts"], queryFn: directoryApi.contacts, enabled: filtersOpen || !!filters.assignee_user_id });
