@@ -15,12 +15,12 @@ def _current_roles(session,task):
 
 
 def creates_closed_assignment(session,task,actor,uid):
-    """Owner decision 2026-10-31: in a closed season only the chair and deputies create
-    new accounting rows. Current and former assignees keep their own row; public status
-    changes and take by them stay allowed."""
+    """Audit default of TR-05, awaiting the owner's answer: in a closed season only the chair
+    and deputies create new accounting rows (task.add_assignment). Current and former assignees
+    keep their own row; public status changes and take by them stay allowed."""
     from tracker import task_state
     import access
-    if task_state(session,task)!='closed' or access.allowed(actor,'task.edit',task.scope_kind,task.scope_id,state='closed'):return False
+    if task_state(session,task)!='closed' or access.allowed(actor,'task.add_assignment',task.scope_kind,task.scope_id,state='closed'):return False
     member=_member(session,task,uid)
     if member and member.assignment_id and session.get(AssignmentORM,member.assignment_id):return False
     return session.query(AssignmentORM.assignment_id).filter_by(task_id=task.task_id,assignee_user_id=uid).first() is None

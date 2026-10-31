@@ -550,7 +550,7 @@ EXPECTED = {
     "K9": TACHKI,
     "K10": TACHKI | KKR_HR | EVENT_LEAD | SUB_LEAD, "K11": TACHKI | EVENT_LEAD,
     "K12": TACHKI | EVENT_LEAD, "K13": TACHKI,
-    "K14": TACHKI,  # closed season corrections (АВ-2)
+    "K14": TACHKI | HRM,  # closed season corrections: also the HR master, not the HR deputy (owner 2026-10-31, SE-13)
     "K15": {"chair"},  # opening and closing a season (АВ-49)
     "K16": TACHKI, "K17": ALL,
     "C4": ALL, "C5": TACHKI | HRM,
@@ -641,8 +641,10 @@ def test_denied_task_edit_leaves_no_trace(org, task_key, op):
 
 
 def test_closed_season_task_edit(org):
-    """Only the chair and the deputies edit a closed season's task (АВ-2); others keep 403/404."""
-    expected = {"chair": 200, "deputy": 200, "resp1": 403, "head1": 403, "org1": 403, "hrmaster": 403, "outsider": 404}
+    """The chair, the deputies and the HR master edit a closed season's task (owner 2026-10-31,
+    SE-13); the HR deputy and the season's own leads keep 403, non-readers 404."""
+    expected = {"chair": 200, "deputy": 200, "hrmaster": 200, "hrdeputy": 403, "resp1": 403, "head1": 403, "org1": 403,
+                "master": 404, "itmem": 404, "outsider": 404}
     for role, status_wanted in expected.items():
         before, status, _, after = _patch_title(org, "task_closed", role, f"Списки ({role})")
         assert status == status_wanted, (role, status)

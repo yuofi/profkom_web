@@ -44,11 +44,14 @@ def can_create(uid, source_kind, event_id, scope_id):
 
 
 def can_manage(m, uid, write=False):
-    """Viewing a merit; with `write`, editing it (a closed season narrows the rule)."""
-    if write and not _event_open(uid, m.source_kind, m.event_id, m.scope_id):
+    """Viewing a merit; with `write`, editing it (a closed season narrows the rule).
+
+    A closed main event stops its heads; a closed season is edited by its own circle
+    (merit.manage.*, owner 2026-10-31, SE-13) whatever the event's state."""
+    state = db.get_season(m.season_id).state if write else None
+    if write and state != "closed" and not _event_open(uid, m.source_kind, m.event_id, m.scope_id):
         return False
     kind, sid = merit_scope(m.source_kind, m.event_id, m.scope_id)
-    state = db.get_season(m.season_id).state if write else None
     action = "merit.manage" if write else "merit.view"
     return access.allowed(uid, f"{action}.{m.source_kind}", kind, sid, state=state)
 

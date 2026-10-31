@@ -100,16 +100,23 @@ def test_hr_master_public_edit_markdown_checkboxes_outside_scope_and_private_que
 
 
 @pytest.mark.parametrize('kind', ['block', 'subevent', 'queue'])
-def test_closed_foreign_task_keeps_original_edit_freeze_for_hr_master(client, work, superuser, hr_roles, kind):
-    actor = hr_roles['master'];task, _ = private_task(client, work, superuser, kind)
+def test_closed_foreign_task_is_edited_by_hr_master_not_hr_deputy(client, work, superuser, hr_roles, kind):
+    """Owner 2026-10-31 (SE-13): the HR master edits a closed season, the HR deputy does not."""
+    task, _ = private_task(client, work, superuser, kind)
     with db._session() as session:
         session.get(SeasonORM, task['season_id']).state = 'closed';session.commit()
-    task = get(client, task, actor);before = private_snapshot()
-    assert not {'edit_task', 'edit_task_description', 'attach_task_file', 'edit_task_metadata', 'edit_task_checklist', 'manage_task_links'} & set(task['capabilities'])
-    response = patch(client, task, actor, title='Закрытая правка', description='- [x] Нет')
+    public = {'edit_task', 'edit_task_description', 'attach_task_file', 'edit_task_metadata', 'edit_task_checklist', 'manage_task_links'}
+    deputy = hr_roles['deputy'];task = get(client, task, deputy);before = private_snapshot()
+    assert not public & set(task['capabilities'])
+    response = patch(client, task, deputy, title='Закрытая правка', description='- [x] Нет')
     assert response.status_code == 403, response.text
-    current = get(client, task, actor)
+    current = get(client, task, deputy)
     assert current['title'] == task['title'] and current['description'] == task['description'] and current['revision'] == task['revision']
+    master = hr_roles['master'];task = get(client, task, master)
+    assert public <= set(task['capabilities'])
+    response = patch(client, task, master, title='Закрытая правка HR', description='- [x] Проверено')
+    assert response.status_code == 200, response.text
+    assert response.json()['revision'] == task['revision'] + 1 and response.json()['title'] == 'Закрытая правка HR'
     assert private_snapshot() == before
 
 

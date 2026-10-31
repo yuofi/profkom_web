@@ -46,6 +46,9 @@ MATERIAL_EDITOR = "material_editor"
 
 TACHKI = frozenset({CHAIR, CHAIR_DEPUTY})  # the chair and the chair's deputies
 SUMMARY = TACHKI | {HR_MASTER, HR_DEPUTY}
+# Who changes a closed season, its marks included: the chair, the chair's deputies and the
+# HR master; not the HR deputy or area leads (owner, 2026-10-31, SE-13).
+CLOSED_SEASON = TACHKI | {HR_MASTER}
 EVENT_LEADS = frozenset({EVENT_LEADER, EVENT_DEPUTY})
 SUB_LEADS = frozenset({SUB_LEADER, SUB_DEPUTY})
 BLOCK_LEADS = frozenset({BLOCK_MASTER, BLOCK_DEPUTY})
@@ -94,12 +97,16 @@ POLICY = {
     "task.view": TACHKI | {HR_MASTER,HR_DEPUTY,HR_TRACKER_READER,BLOCK_HR,SUBEVENT_HR,EVENT_TEAM} | AREA_TEAM,
     "task.create": TACHKI | {HR_MASTER,HR_TRACKER_READER,BLOCK_HR,SUBEVENT_HR,EVENT_TEAM} | AREA_TEAM,
     "task.assign_others": TACHKI | AREA_LEADS | {BLOCK_HR,SUBEVENT_HR},
-    "task.edit": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY} | AREA_LEADS, "closed": TACHKI}),  # public task editing; closed seasons keep chair-only leadership policy
-    "task.review": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS, "closed": TACHKI}),
+    "task.edit": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY} | AREA_LEADS, "closed": CLOSED_SEASON}),  # public task editing
+    "task.review": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS, "closed": CLOSED_SEASON}),
+    # A new assignment row for someone's work: a reassignment; in a closed season also the
+    # roster's join/take/assign. Closed seasons keep the TR-05 default (the chair and deputies),
+    # which awaits the owner's answer; SE-13 does not widen it.
+    "task.add_assignment": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS, "closed": TACHKI}),
     "task.inputs.view": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS,
-    "task.inputs.edit": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS, "closed": TACHKI}),
+    "task.inputs.edit": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS, "closed": CLOSED_SEASON}),
     # Issue date, deadline and completion date, once set; area leads do not move them (УВ-5)
-    "task.dates.edit": ByState({"*": SUMMARY, "closed": TACHKI}),
+    "task.dates.edit": ByState({"*": SUMMARY, "closed": CLOSED_SEASON}),
     "queue.view": TACHKI | {HR_MASTER, HR_DEPUTY, QUEUE_HOLDER},
     "queue.create": TACHKI | BLOCK_LEADS | EVENT_LEADS | SUB_LEADS,
     "event.close": TACHKI,
@@ -108,8 +115,8 @@ POLICY = {
     # KKR, summary, merits
     "kkr.view": SUMMARY,
     "summary.view": SUMMARY,
-    "summary.decide": ByState({"*": SUMMARY, "closed": {CHAIR}}),
-    "summary.correct": TACHKI,  # closed season corrections (АВ-2)
+    "summary.decide": ByState({"*": SUMMARY, "closed": CLOSED_SEASON}),  # marks (отметки)
+    "summary.correct": CLOSED_SEASON,  # closed season corrections, coefficients included
     # Calling leaders to fill KKR of closed tasks, only while work is accounted: the HR master
     # and the HR deputy, not the chair or the chair's deputies (owner, 2026-10-31, SE-14)
     "kkr.remind": ByState({"*": frozenset(), "open": {HR_MASTER, HR_DEPUTY}, "summarizing": {HR_MASTER, HR_DEPUTY}}),
@@ -121,10 +128,10 @@ POLICY = {
     "merit.view.head_merit": SUMMARY | EVENT_LEADS,
     "merit.view.block_volunteer": SUMMARY | BLOCK_LEADS | {BLOCK_HR},
     "merit.view.subevent_volunteer": SUMMARY | EVENT_LEADS | SUB_LEADS | {SUBEVENT_HR},
-    "merit.manage.chair_merit": ByState({"*": TACHKI, "closed": TACHKI}),
-    "merit.manage.head_merit": ByState({"*": TACHKI | EVENT_LEADS, "closed": TACHKI}),
-    "merit.manage.block_volunteer": ByState({"*": TACHKI, "closed": TACHKI}),
-    "merit.manage.subevent_volunteer": ByState({"*": TACHKI | EVENT_LEADS, "closed": TACHKI}),
+    "merit.manage.chair_merit": ByState({"*": TACHKI, "closed": CLOSED_SEASON}),
+    "merit.manage.head_merit": ByState({"*": TACHKI | EVENT_LEADS, "closed": CLOSED_SEASON}),
+    "merit.manage.block_volunteer": ByState({"*": TACHKI, "closed": CLOSED_SEASON}),
+    "merit.manage.subevent_volunteer": ByState({"*": TACHKI | EVENT_LEADS, "closed": CLOSED_SEASON}),
     "achievement.manage": TACHKI | {HR_MASTER, BLOCK_MASTER, EVENT_LEADER},
     # Blocks and membership
     "block.edit": TACHKI | BLOCK_LEADS,

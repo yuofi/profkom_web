@@ -322,3 +322,21 @@ it("renders all decision names and an explicit empty set", async () => {
   ])
     expect(page.container.textContent).toContain(title);
 });
+
+it.each([
+  ["hr", true],
+  ["hr-deputy", false],
+] as const)("SE-13: the closed-season corrections page follows correct_summary for %s", async (role, allowed) => {
+  mock = installMockTransport(role, { delay: 0 });
+  mock.state.seasons.find((s) => s.season_id === "season-1")!.state = "closed";
+  page = await mountWorkspace(
+    <Routes>
+      <Route path="/seasons/:id/corrections" element={<CorrectionsPage />} />
+    </Routes>,
+    { path: "/seasons/season-1/corrections", role },
+  );
+  await settle();
+  await settle();
+  expect(page.container.textContent?.includes("Тип исправления")).toBe(allowed);
+  expect(page.container.textContent?.includes("Исправление закрытого сезона доступно председателю, его заместителям и мастеру HR.")).toBe(!allowed);
+});
