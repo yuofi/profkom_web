@@ -73,6 +73,7 @@ function ContactLinks({
           target="_blank"
           rel="noopener noreferrer"
         >
+          <span className={d.vkIcon} aria-hidden="true" />
           VK
         </a>
       )}
@@ -353,12 +354,13 @@ export function DirectoryPage() {
 function FormerForm({ contact }: { contact?: FormerContact }) {
   const { perform, refresh } = useWorkspaceActions();
   return (
-    <ActionForm
+    <div className={d.formerForm}><ActionForm
       revision={contact?.revision}
       record={contact ? `former:${contact.contact_id}` : undefined}
       onConflict={refresh}
       // A new card starts empty again, so a second click cannot repeat it (PE-06).
       resetOnSuccess={!contact}
+      successMessage={contact ? undefined : "Карточка добавлена. Можно заполнить следующую."}
       fields={[
         ...Object.entries({
           surname: "Фамилия",
@@ -413,7 +415,7 @@ function FormerForm({ contact }: { contact?: FormerContact }) {
           ),
         );
       }}
-    />
+    /></div>
   );
 }
 export function FormerContactsPage() {
@@ -423,12 +425,23 @@ export function FormerContactsPage() {
     queryFn: directoryApi.former,
   });
   const [search, setSearch] = useState("");
+  const [adding, setAdding] = useState(false);
   const shown = query.data?.items.filter((p) => matchesSearch([p.surname, p.name, p.patronymic], search));
   return (
     <Page
       title="Бывшие участники"
       description="Контактные карточки с периодами участия."
-      actions={<RouteLink to="/contacts">Действующие контакты</RouteLink>}
+      actions={
+        <div className={s.row}>
+          <RouteLink to="/contacts">Действующие контакты</RouteLink>
+          {can(session, "edit_former_contacts") && (
+            <button type="button" className={`${s.button} ${s.primary}`} onClick={() => setAdding(true)}>
+              <Glyph name="add" />
+              Добавить бывшего участника
+            </button>
+          )}
+        </div>
+      }
     >
       <div className={s.stack}>
         <div className={s.filters}>
@@ -448,11 +461,15 @@ export function FormerContactsPage() {
                 key={p.contact_id}
                 title={`${p.surname} ${p.name} ${p.patronymic ?? ""}`}
               >
-                <p>
-                  {p.participation_periods
-                    .map((period) => `${period.from_year}–${period.to_year}`)
-                    .join(", ")}
-                </p>
+                {p.participation_periods.length ? (
+                  <p>
+                    {p.participation_periods
+                      .map((period) => `${period.from_year}–${period.to_year}`)
+                      .join(", ")}
+                  </p>
+                ) : (
+                  <p className={s.muted}>Периоды не указаны</p>
+                )}
                 <ContactLinks {...p} />
                 {can(session, "edit_former_contacts") && (
                   <details className={s.details}>
@@ -464,10 +481,11 @@ export function FormerContactsPage() {
             ))}
           {shown?.length === 0 && <Empty>{search.trim() ? "Ничего не найдено. Измените запрос." : "Карточек бывших участников пока нет."}</Empty>}
         </QueryState>
-        {can(session, "edit_former_contacts") && (
-          <Card title="Добавить бывшего участника">
+        {/* Adding is a header action with its own dialog, not a form always open below (PE-35). */}
+        {adding && can(session, "edit_former_contacts") && (
+          <UnsavedChangesScope><ContactDialog title="Добавить бывшего участника" onClose={() => setAdding(false)}>
             <FormerForm />
-          </Card>
+          </ContactDialog></UnsavedChangesScope>
         )}
       </div>
     </Page>

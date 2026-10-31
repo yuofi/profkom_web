@@ -59,3 +59,13 @@
 .dangerZone { border-top: 1px solid var(--outline-variant); padding-top: 20px; margin-top: 4px; }
 .dangerZone > details { border-top: 0; padding-top: 0; margin-top: 0; }
 .dangerZone > details > * + * { margin-top: 12px; }
+
+/* A former card's form: the name in a row, the contacts in pairs, the periods across (PE-35). */
+.formerForm fieldset { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; }
+.formerForm fieldset > * { grid-column: 1 / -1; }
+.formerForm fieldset > div:has(> input) { grid-column: auto; }
+@media (max-width: 600px) {
+  .formerForm fieldset { grid-template-columns: minmax(0, 1fr); }
+}
+/* The profile's own VK mark, drawn in the colour of the other contact glyphs. */
+.vkIcon { flex: none; width: 17px; height: 17px; background: var(--primary); mask: url("../../assets/vk.svg") center / contain no-repeat; }
