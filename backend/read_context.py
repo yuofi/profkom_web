@@ -32,14 +32,28 @@ class ReadContext:
         self.references.clear()
 
     def usable(self):
-        if self.enabled and (self.session.new or self.session.dirty or self.session.deleted
-                             or not self.session.is_active):
-            self.disable()
+        if self.enabled:
+            session = self.session
+            try:
+                # The same collections behind Session.new/dirty/deleted, without
+                # building three IdentitySets on every memo lookup. A modified
+                # attribute is tracked by the identity map before any flush.
+                changed = bool(session._new or session._deleted or session.identity_map._modified)
+            except AttributeError:
+                changed = bool(session.new or session.dirty or session.deleted)
+            if changed or not session.is_active:
+                self.disable()
         return self.enabled
 
 
 def _context(session):
     return session.info.get(_KEY)
+
+
+def reusable(session):
+    """Whether batch hints may be recorded for this session's clean read UOW."""
+    context = _context(session)
+    return context is not None and context.usable()
 
 
 def invalidate(session=None):
@@ -96,6 +110,42 @@ def cached_current(namespace, key, load, *, copy_result=True):
     return cached(context.session, namespace, key, load, copy_result=copy_result)
 
 
+def snapshot(namespace, load, session=None):
+    """An immutable whole-table fact map for the current clean read UOW, else None.
+
+    Callers keep their original per-object queries when this returns None: outside a
+    read UOW, in commands and after any write/dirty state. ``load`` must return an
+    immutable value (mappings are wrapped read-only by the caller). With ``session``
+    the scope must belong to that session.
+    """
+    context = _context(session) if session is not None else _current.get()
+    if context is None or not context.usable():
+        return None
+    value = cached(context.session, namespace, None, load, copy_result=False)
+    return value if context.usable() else None
+
+
+def after_distinct(session, namespace, key, threshold, load):
+    """Run one bulk read for this clean read UOW once ``threshold`` distinct keys asked.
+
+    It only warms the session's own identity map/orm_get hints; results are still
+    computed by the original code. No-op outside a usable read scope.
+    """
+    context = _context(session) if session is not None else _current.get()
+    if context is None or not context.usable():
+        return
+    marker = ("after_distinct", namespace)
+    seen = context.values.get(marker)
+    if seen is True:
+        return
+    if seen is None:
+        seen = context.values[marker] = set()
+    seen.add(key)
+    if len(seen) >= threshold:
+        context.values[marker] = True
+        load()
+
+
 def prime_rows(session, namespace, key, rows):
     """Retain query identities in a clean read UOW, never mutable DTOs or lists.
 
@@ -145,6 +195,11 @@ def orm_get(session, model, identity):
         return [row] if row is not None else []
     rows = orm_rows(session, "orm.get", (model, identity), load)
     return rows[0] if rows else None
+
+
+def prime_get(session, model, identity, row):
+    """Record a batch-read PK result (including absence) for later orm_get calls."""
+    return prime_rows(session, "orm.get", (model, identity), [row] if row is not None else [])
 
 
 def memoized(namespace, *, copy_result=True):
