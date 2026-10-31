@@ -112,6 +112,8 @@ Material creation has its own /materials/new canvas behind the create action; ex
 
 BlockMeta.hr_user_id is an explicit nullable block curator assignment, independent of the legacy block.hr display string and ordinary membership. Chair/deputies and the HR master assign or clear it through PUT /blocks/{id}/hr with the current block revision. It grants scoped block task/read/assignment, private KKR inputs/review and volunteer accounting, never guide editing, application approval, global analytics or leadership management. Existing private-queue grants, self-rating and closed-season restrictions still apply. Session access revisions and queue ownership recovery observe curator changes; removal does not remove memberships or accounting. Initial schema migration leaves every assignment empty; temporary test-site staffing uses the API separately, never an identity inferred from a name.
 
+Merit reading in `/session`: role assignments carry `view_merits` from merit.view.* for their scope (closed seasons too); a block or subevent HR curator, who holds no role assignment there, gets a session-level `view_merits`. The UI uses them only for the menu and the season chooser; GET /merits filters every record on the server.
+
 A current ordinary member, block master or its actual deputy cannot apply to join the same block (409 already_member). Historical roles do not block a later application; a curator without ordinary membership/leadership remains eligible to apply and cannot decide it. Creation of a completed-work merit no longer requires an extra reason field: the server records a default creation provenance if omitted. Corrections, including closed-season corrections, still require their explicit nonempty reason.
 
 
