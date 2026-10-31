@@ -72,3 +72,6 @@
 /* "Добавить подмероприятие" keeps its words whole; on a phone it takes its own line (EV-29). */
 .childrenHeading>a { flex:none;white-space:nowrap;overflow-wrap:normal; }
 @media(max-width:768px) { .childrenHeading { flex-direction:column;align-items:stretch; }.childrenHeading>a { justify-content:center; } }
+/* The subevent editor names its parent with a label and a link (EV-18). */
+.parent { margin:0;line-height:1.6;overflow-wrap:anywhere; }
+.parent > span { color:var(--on-surface-variant); }

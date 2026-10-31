@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import type { Event, Subevent, Season } from "../../utils/api/contract";
@@ -51,11 +51,15 @@ function EventCanvas({ event, subevent, parent, seasons, series }: {
   if (!child && !event && !available.length) return <Empty>Для мероприятия нужен открытый или запланированный сезон.</Empty>;
   const heading = existing ? `Редактирование ${child ? "подмероприятия" : "мероприятия"}` : `Новое ${child ? "подмероприятие" : "мероприятие"}`;
   const back = event ? getEventRoute(event.event_id) : subevent ? getSubeventRoute(subevent.subevent_id) : parent ? getEventRoute(parent.event_id) : "/events";
+  // The trail names what is edited: the event, and for a subevent its parent first.
+  const trail = [parent ? { to: getEventRoute(parent.event_id), title: parent.title } : event ? { to: getEventRoute(event.event_id), title: event.title } : { to: "/events", title: "Мероприятия" },
+    ...subevent ? [{ to: getSubeventRoute(subevent.subevent_id), title: subevent.title }] : []];
+  const noun = child ? "подмероприятия" : "мероприятия";
   return <section className={s.page}>
-    <BrandedHeader className={s.canvasHeader}><div><SectionHomeLink to="/events" label="Мероприятия" /><nav aria-label="Навигация мероприятия"><Link to={parent ? getEventRoute(parent.event_id) : "/events"}>{parent?.title ?? "Мероприятия"}</Link><span>›</span><span>{heading}</span></nav><h1 className={w.title}>{heading}</h1></div><Link className={w.button} to={back}>Отмена</Link></BrandedHeader>
-    <ActionForm fields={[]} revision={existing?.revision} record={existing ? `${child ? "subevent" : "event"}:${subevent?.subevent_id ?? event?.event_id}` : undefined} externalState={state} savedExternalState={savedState} onReplaceWithSaved={replace} externalBusy={saving} allowExitSave={false}
+    <BrandedHeader className={s.canvasHeader}><div><SectionHomeLink to="/events" label="Мероприятия" /><nav aria-label="Навигация мероприятия">{trail.map(item => <Fragment key={item.to}><Link to={item.to} title={item.title}>{item.title}</Link><span>›</span></Fragment>)}<span>{heading}</span></nav><h1 className={w.title}>{heading}</h1></div></BrandedHeader>
+    <ActionForm fields={[]} actions={<Link className={w.button} to={back}>Отмена</Link>} revision={existing?.revision} record={existing ? `${child ? "subevent" : "event"}:${subevent?.subevent_id ?? event?.event_id}` : undefined} externalState={state} savedExternalState={savedState} onReplaceWithSaved={replace} externalBusy={saving} allowExitSave={false}
       submitLabel={existing ? "Сохранить изменения" : child ? "Создать подмероприятие" : "Создать мероприятие"} onConflict={refresh} onSubmit={async (_, revision) => {
-        if (!title.trim()) throw Error("Введите название мероприятия");
+        if (!title.trim()) throw Error(`Введите название ${noun}`);
         if (starts && ends && utc(starts)! > utc(ends)!) throw Error("Окончание раньше начала");
         setSaving(true);
         try {
@@ -73,11 +77,11 @@ function EventCanvas({ event, subevent, parent, seasons, series }: {
         } finally { setSaving(false); }
       }}>
       <div className={s.workspace}><section className={s.description} aria-label="Описание мероприятия">
-        <label className={`${w.field} ${s.name}`}>Название мероприятия<input name="title" value={title} onChange={e => setTitle(e.target.value)} placeholder="Название мероприятия" required disabled={saving} /></label>
+        <label className={`${w.field} ${s.name}`}>{`Название ${noun}`}<input name="title" value={title} onChange={e => setTitle(e.target.value)} placeholder={`Название ${noun}`} required disabled={saving} /></label>
         {child && <><MarkdownEditor name="announcement" label="Анонс для всех активистов" value={announcement} onChange={setAnnouncement} rows={7} draft={false} context="task" disabled={saving} /><p className={s.note}>Анонс, даты и состав команды видят все одобренные пользователи. Рабочие данные остаются доступны команде.</p></>}
         <MarkdownEditor name="description" label={child ? "Рабочее описание для команды" : "Описание мероприятия"} value={description} onChange={setDescription} rows={child ? 9 : 14} draft={false} context="task" disabled={saving} />
       </section><aside className={s.parameters} aria-label="Параметры мероприятия"><h2>Параметры</h2>
-        {parent ? <p>{parent.title}</p> : <label className={w.field}>Сезон<select name="season" value={seasonId} onChange={e => setSeasonId(e.target.value)} disabled={!!event || saving} required>{(event ? seasons.filter(item => item.season_id === event.season_id) : available).map(item => <option key={item.season_id} value={item.season_id}>{item.title}</option>)}</select></label>}
+        {parent ? <p className={s.parent}><span>Мероприятие:</span> <Link to={getEventRoute(parent.event_id)}>{parent.title}</Link></p> : <label className={w.field}>Сезон<select name="season" value={seasonId} onChange={e => setSeasonId(e.target.value)} disabled={!!event || saving} required>{(event ? seasons.filter(item => item.season_id === event.season_id) : available).map(item => <option key={item.season_id} value={item.season_id}>{item.title}</option>)}</select></label>}
         <label className={s.check}><input type="checkbox" checked={allDay} disabled={saving} onChange={e => { const checked = e.target.checked;setAllDay(checked);setStarts(starts ? checked ? starts.slice(0, 10) : `${starts.slice(0, 10)}T00:00` : "");setEnds(ends ? checked ? ends.slice(0, 10) : `${ends.slice(0, 10)}T00:00` : ""); }} />Целый день</label>
         <div className={s.dates}><label className={w.field}>Начало{!allDay && ", МСК"}<input name="starts" type={allDay ? "date" : "datetime-local"} value={starts} onChange={e => setStarts(e.target.value)} disabled={saving} /></label><span aria-hidden="true">↓</span><label className={w.field}>Окончание{!allDay && ", МСК"}<input name="ends" type={allDay ? "date" : "datetime-local"} value={ends} onChange={e => setEnds(e.target.value)} disabled={saving} /></label></div>
         <p className={s.note}>Даты необязательны. Конечная дата целого дня включена в период.</p>
