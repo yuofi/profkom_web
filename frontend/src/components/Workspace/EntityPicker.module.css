@@ -14,6 +14,15 @@
 .searchIcon { width:17px;height:17px;opacity:.6;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round; }
 .search input { flex:1;min-width:0;width:100%;box-sizing:border-box;background:transparent!important;border:0!important;box-shadow:none!important;outline:none!important;border-radius:0!important;color:var(--on-surface);font:inherit;font-size:13px;min-height:41px;padding:9px 0!important; }
 .search input::placeholder { color:var(--on-surface-variant);opacity:.7; }
+/* One chosen value sits inside the field row like a select, so the field keeps the height of its
+ * neighbours (PE-29); a long name is shortened, its full text stays in the item's title. */
+.control[data-single] { flex-wrap:nowrap; }
+.control[data-single] .selected { flex:0 1 auto;min-width:0;padding:3px 0 3px 6px; }
+.control[data-single] .selected>li { min-width:0;max-width:100%; }
+.control[data-single] .selected>li>:first-child { overflow:hidden; }
+.control[data-single] .selected>li>:first-child>:last-child { white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.control[data-single] .search { flex:1 0 64px; }
+.control[data-single] .selected+.search .searchIcon { display:none; }
 .root[data-disabled] { opacity:.55; }
 .root[data-disabled] .control { cursor:default; }
 .loading { font-size:15px;opacity:.6; }

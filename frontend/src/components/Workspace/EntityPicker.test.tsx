@@ -78,3 +78,18 @@ it("people metadata comes from current directory projection and scoped members s
   function Probe() { const all = usePeopleOptions(), scoped = useScopeMembers({ kind: "block", id: block.block_id });return <><output aria-label="all">{all.options.map(option => `${option.value}:${option.user?.user_id}`).join(",")}</output><output aria-label="scoped">{scoped.options.map(option => `${option.value}:${option.user?.user_id}`).join(",")}</output></>; }
   page = await mountWorkspace(<Probe />);await waitForPage(page);expect(page.container.querySelector('[aria-label="all"]')?.textContent).not.toContain(String(fixture.people[2].user_id));expect(page.container.querySelector('[aria-label="scoped"]')?.textContent).toBe(`${fixture.people[0].user_id}:${fixture.people[0].user_id}`);
 });
+it("removing the chosen chip keeps focus without opening the list over the next controls (PE-05)", async () => {
+  page = await mountWorkspace(<><Single initial="13" /><button type="button">Сохранить</button></>);
+  const control = page.container.querySelector<HTMLElement>("[data-single]");
+  expect(control).not.toBeNull();
+  expect(page.container.querySelector('[data-selected-value="13"]')?.getAttribute("title")).toBe("Мария Соколова");
+  await click(page.container.querySelector<HTMLButtonElement>('[data-selected-value="13"] button')!);
+  expect(page.container.querySelector<HTMLInputElement>('input[type="hidden"][name="person"]')?.value).toBe("");
+  expect(document.activeElement).toBe(input());
+  expect(input().getAttribute("aria-expanded")).toBe("false");
+  expect(choices()).toHaveLength(0);
+  await press("ArrowDown");
+  expect(choices()).toHaveLength(4);
+  await press("Escape");await act(async () => input().click());
+  expect(choices()).toHaveLength(4);
+});
