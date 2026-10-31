@@ -319,17 +319,20 @@ def test_legacy_reserved_queue_collision_refuses_without_hijacking(client,superu
 def test_existing_read_repair_never_bootstraps_control_on_get(client,work,superuser,make_user):
     from domain_models import BlockMetaORM
     db.create_block(Block(name='Read repair legacy block',master=''))
-    with db._session() as session:before=session.query(KkrControlEpicORM).count()
+    with db._session() as session:
+        # Since GL-05 create_block, a write, makes the block identity and with it its control.
+        meta=session.query(BlockMetaORM).filter_by(legacy_name='Read repair legacy block').one()
+        assert session.query(KkrControlEpicORM).filter_by(source_kind='block',source_id=meta.block_id).count()==1
+        before=session.query(KkrControlEpicORM).count()
     response=client.get('/api/blocks',headers=superuser.headers)
     assert response.status_code==200,response.text
     with db._session() as session:
-        meta=session.query(BlockMetaORM).filter_by(legacy_name='Read repair legacy block').one()
+        # The GET adds nothing and keeps the identity.
         assert session.query(KkrControlEpicORM).count()==before
-        # Since GL-05 the block's identity is made by create_block, a write, so its control
-        # may already exist; the GET itself adds nothing.
+        assert session.query(BlockMetaORM).filter_by(legacy_name='Read repair legacy block').one().block_id==meta.block_id
     person=make_user();db.set_block_leader('Read repair legacy block',person.user_id)
     with db._session() as session:
-        assert session.query(KkrControlEpicORM).filter_by(source_kind='block',source_id=meta.block_id).first()
+        assert session.query(KkrControlEpicORM).filter_by(source_kind='block',source_id=meta.block_id).count()==1
 
 
 @pytest.mark.parametrize('second_kind',['block_volunteer','block_task'],ids=['source-sum','participant-total'])

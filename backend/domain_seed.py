@@ -59,7 +59,9 @@ def ensure_application(s, uid, funding=DERIVED, persist=True):
     return r
 
 
-def meta_for(s, name):
+def meta_for(s, name, persist=True):
+    """The block's identity; a missing one is created. `persist=False` (GET) returns the
+    same identity unsaved: a read never writes (GL-05)."""
     m = s.query(BlockMetaORM).filter_by(legacy_name=name).first()
     if not m:
         if not s.get(BlockORM, name):
@@ -74,6 +76,8 @@ def meta_for(s, name):
             description="",
             revision=1,
         )
+        if not persist:
+            return m
         s.add(m)
         s.flush()
     return m

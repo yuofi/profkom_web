@@ -135,9 +135,9 @@ def replace_block_avatar(session, meta, file_id, uid):
 def card(s, b, uid):
     from block_hr import user_ref
 
-    # A read: legacy roster rows get their memberships from the roster writers and at
-    # startup, never from GET /blocks (GL-05).
-    m = meta_for(s, b.name)
+    # A read: legacy roster rows get their memberships, and a legacy block its identity,
+    # from the roster writers and at startup, never from GET /blocks (GL-05).
+    m = meta_for(s, b.name, persist=False)
     leaders = _load_leaders(s, "block", b.name, "master")
     master = asdict(leaders[0]) if leaders else None
     if master:

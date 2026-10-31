@@ -151,3 +151,31 @@ def test_imported_old_guide_is_mapped_by_the_preset_not_by_a_get(client, superus
     mapped = client.get(f"/api/materials/legacy-guides/{guide.guide_id}", headers=superuser.headers)
     assert mapped.status_code == 200
     assert mapped.json()["material_id"] in {m["material_id"] for m in client.get("/api/materials", headers=superuser.headers).json()["items"]}
+
+
+def test_a_legacy_block_without_identity_is_read_without_writing_it(client, superuser):
+    import uuid
+    from scripts.preset_db import preset_blocks
+    from domain_models import BlockMetaORM
+
+    with db.atomic():
+        with db._session() as s:
+            # A block row of an older version, before block identities existed.
+            s.add(BlockORM(name="No identity", master=""))
+            s.commit()
+    derived = str(uuid.uuid5(uuid.NAMESPACE_URL, "profkom:block:No identity"))
+    with writes() as statements:
+        listed = client.get("/api/blocks", headers=superuser.headers)
+        card = client.get("/api/blocks/No identity", headers=superuser.headers)
+    assert statements == []
+    assert listed.status_code == card.status_code == 200, card.text
+    assert [b["block_id"] for b in listed.json() if b["name"] == "No identity"] == [derived]
+    assert card.json()["block_id"] == derived and card.json()["revision"] == 1
+    with db._session() as s:
+        assert s.query(BlockMetaORM).filter_by(legacy_name="No identity").first() is None
+    # The startup preset makes the same identity, once.
+    preset_blocks()
+    preset_blocks()
+    with db._session() as s:
+        assert [m.block_id for m in s.query(BlockMetaORM).filter_by(legacy_name="No identity")] == [derived]
+    assert client.get(f"/api/blocks/{derived}", headers=superuser.headers).json()["block_id"] == derived
