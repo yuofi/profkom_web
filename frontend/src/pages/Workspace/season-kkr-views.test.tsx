@@ -52,10 +52,11 @@ it('keeps approved source A as a flat seven-column table with the parent on a se
  vi.spyOn(kkrApi,'statistics').mockResolvedValue({items:[event,child],preliminary:true});
  page=await mountWorkspace(<SeasonStatistics seasonId="season-1"/>);await waitForPage(page);
  await act(async()=>[...page!.container.querySelectorAll('button')].find(button=>button.textContent==='Мероприятия')!.click());
- expect([...page.container.querySelectorAll('thead th')].map(cell=>cell.textContent)).toEqual(['Источник','Задач','Организаторов','Задач / организатора','Средний ККР','Часов / задачу','Коэффициент']);
+ expect([...page.container.querySelectorAll('thead th')].map(cell=>cell.textContent)).toEqual(['Источник','Коэффициент','Задач','Организаторов','Задач / организатора','Средний ККР','Часов / задачу']);
  const rows=[...page.container.querySelectorAll('tbody tr')];expect(rows).toHaveLength(2);
  const cells=rows[1].querySelectorAll('td');expect(cells).toHaveLength(7);expect(cells[0].firstChild?.textContent).toBe(child.title);expect(cells[0].querySelector('small')?.textContent).toBe(event.title);
- expect([...cells].slice(1).map(cell=>cell.textContent)).toEqual(['3','2','1,5','-2','3','1']);
+ // The editable coefficient is the second column, in view without horizontal scrolling (SE-06).
+ expect([...cells].slice(1).map(cell=>cell.textContent)).toEqual(['1','3','2','1,5','-2','3']);
  expect(page.container.querySelector('tbody input')).toBeNull();expect(page.container.querySelector('tbody details')).toBeNull();
  expect(page.container.querySelector('tbody')?.textContent).not.toContain(child.source_id);expect(page.container.querySelector('tbody')?.textContent).not.toContain(event.source_id);
 });
