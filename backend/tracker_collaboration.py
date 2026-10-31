@@ -9,7 +9,8 @@ import re
 import uuid
 from fastapi import Depends
 from sqlalchemy.orm import selectinload
-from pydantic import Field
+from typing import Optional
+from pydantic import Field, model_validator
 from validation import Command
 from auth import get_current_user
 from models import User
@@ -267,7 +268,15 @@ class MentionDecisionIn(Command):
 
 class DescriptionChecklistIn(Command):
     expected_revision:int=Field(ge=1)
-    body:str=Field(max_length=1000000)
+    body:Optional[str]=Field(None,max_length=1000000)
+    offset:Optional[int]=Field(None,ge=0,le=1000000)
+    checked:Optional[bool]=Field(None,strict=True)
+
+    @model_validator(mode="after")
+    def one_form(self):
+        if (self.body is None)==(self.offset is None) or (self.offset is None)!=(self.checked is None):
+            raise ValueError("Send either the marked body or offset with checked")
+        return self
 
 
 class QueueCancelIn(Command):
@@ -278,7 +287,7 @@ def register_routes(router):
     @router.post("/tasks/{task_id}/description-checklist")
     def description_checklist(task_id:str,payload:DescriptionChecklistIn,cur:User=Depends(get_current_user)):
         from main import _to_task_public_out
-        return _to_task_public_out(toggle_description_checklist(task_id,cur.user_id,payload.expected_revision,payload.body))
+        return _to_task_public_out(toggle_description_checklist(task_id,cur.user_id,payload.expected_revision,payload.body,payload.offset,payload.checked))
 
     @router.post("/tasks/{task_id}/assignees/{user_id}/add")
     def assign_task_person(task_id:str,user_id:int,payload:MentionDecisionIn,cur:User=Depends(get_current_user)):
@@ -318,31 +327,26 @@ def register_routes(router):
         return cancel_request(queue_id,request_id,cur.user_id,payload.expected_revision)
 
 
-def toggle_description_checklist(task_id,uid,expected_revision,body):
-    """Reader command changes only checkbox marker bytes, never description text."""
-    import re
+def toggle_description_checklist(task_id,uid,expected_revision,body=None,offset=None,checked=None):
+    """Reader command changes only checkbox marker bytes, never description text.
+
+    The client names one marker by its source offset (or, compatibly, sends the
+    whole body); either way only bytes of task markers outside code may change.
+    """
     from tracker import visible_task,activity,is_control_task
-    def neutral(value):
-        # Fenced examples are literal code, not interactive checklist content.
-        output=[];fence=None
-        for line in value.splitlines(keepends=True):
-            marker=re.match(r'^ {0,3}(`{3,}|~{3,})',line)
-            if marker:
-                token=marker.group(1)
-                if fence is None:fence=token
-                elif token[0]==fence[0] and len(token)>=len(fence):fence=None
-                output.append(line);continue
-            if fence is None:
-                line=re.sub(r'^( {0,3}(?:[-+*]|\d+[.)])[ \t]+\[)[ xX](\])',r'\1 \2',line,count=1)
-            output.append(line)
-        return ''.join(output)
+    from markdown_checklist import checklist_marker_offsets
     with db.atomic():
       with db._session() as session:
         task=visible_task(session,task_id,uid)
         if task.revision!=expected_revision:raise revision_conflict()
         if is_control_task(session,task_id):raise Forbidden('Control epic content is managed automatically')
         content=json.loads(task.description_json or '{}');before=content.get('body','')
-        if neutral(before)!=neutral(body):raise Forbidden('Only checklist marks may be changed','checklist_only')
+        markers=checklist_marker_offsets(before)
+        if offset is not None:
+            if offset not in markers:raise Forbidden('Only checklist marks may be changed','checklist_only')
+            body=before if (before[offset]!=' ')==checked else before[:offset]+('x' if checked else ' ')+before[offset+1:]
+        elif len(body)!=len(before) or any(old!=new and (index not in markers or new not in ' xX') for index,(old,new) in enumerate(zip(before,body))):
+            raise Forbidden('Only checklist marks may be changed','checklist_only')
         if before!=body:
             content['body']=body;task.description_json=json.dumps(content,ensure_ascii=False);task.revision+=1
             activity(session,task,'task_updated',uid,'Изменены отметки чеклиста',changes=[dict(field='description',label='Описание',before=before,after=body)])

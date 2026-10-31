@@ -79,7 +79,8 @@ def test_approved_queue_access_independent_of_membership_cancel_and_creation_rol
 
 def test_markdown_toggle_conservative_subset_and_atomic_failure(client,work):
     w=work;t=task(client,w);tid=t['task_id'];path='/api/tasks/'+tid
-    before='- [ ] Первый\n- [X] Второй\n\n    - [ ] Код\n\nПример - [ ] в строке\n\n~~~markdown\n- [ ] Кодовый пример\n~~~'
+    # After a paragraph the indented line is code; directly after an item it would be nested.
+    before='- [ ] Первый\n- [X] Второй\n\nАбзац\n\n    - [ ] Код\n\nПример - [ ] в строке\n\n~~~markdown\n- [ ] Кодовый пример\n~~~'
     r=client.patch(path,headers=w['master'].headers,json={'expected_revision':t['revision'],'description':before});assert r.status_code==200
     version=r.json()['revision']
     for invalid in (before.replace('    - [ ] Код','    - [x] Код'),before.replace('Пример - [ ]','Пример - [x]'),before.replace('- [ ] Кодовый пример','- [x] Кодовый пример'),before.replace('Первый','Другой')):
@@ -88,6 +89,31 @@ def test_markdown_toggle_conservative_subset_and_atomic_failure(client,work):
     after=before.replace('- [ ] Первый','- [x] Первый').replace('- [X] Второй','- [ ] Второй')
     r=client.post(path+'/description-checklist',headers=w['member'].headers,json={'expected_revision':version,'body':after});assert r.status_code==200,r.text
     assert r.json()['description']['body']==after and r.json()['revision']==version+1
+
+
+def test_markdown_toggle_by_offset_covers_nested_quoted_and_ordered_items(client,work):
+    w=work;t=task(client,w);path='/api/tasks/'+t['task_id']
+    body='- Список\n    - [ ] Четыре пробела\n\t- [ ] Таб\n> - [ ] Цитата\n10. Пункт\n    - [ ] Под десятым\n\nТекст\n\n    - [ ] Код'
+    r=client.patch(path,headers=w['master'].headers,json={'expected_revision':t['revision'],'description':body});assert r.status_code==200,r.text
+    version=r.json()['revision']
+    marks=[body.index('[ ] '+label)+1 for label in ('Четыре','Таб','Цитата','Под десятым')]
+    for actor,offset in zip((w['member'],w['master'],w['member'],w['master']),marks):
+        r=client.post(path+'/description-checklist',headers=actor.headers,json={'expected_revision':version,'offset':offset,'checked':True})
+        assert r.status_code==200,r.text
+        assert r.json()['description']['body'][offset]=='x' and r.json()['revision']==version+1
+        version+=1
+    saved=r.json()['description']['body'];assert saved.replace('[x]','[ ]')==body
+    same=client.post(path+'/description-checklist',headers=w['member'].headers,json={'expected_revision':version,'offset':marks[0],'checked':True})
+    assert same.status_code==200 and same.json()['revision']==version
+    assert client.post(path+'/description-checklist',headers=w['member'].headers,json={'expected_revision':version-1,'offset':marks[0],'checked':False}).status_code==409
+    for offset in (body.index('[ ] Код')+1,body.index('Текст'),len(body)+5):
+        r=client.post(path+'/description-checklist',headers=w['member'].headers,json={'expected_revision':version,'offset':offset,'checked':True})
+        assert r.status_code==403 and r.json()['detail']['code']=='checklist_only',r.text
+    for invalid in ({'expected_revision':version},{'expected_revision':version,'offset':marks[0]},{'expected_revision':version,'offset':marks[0],'checked':True,'body':saved},{'expected_revision':version,'offset':marks[0],'checked':'true'}):
+        assert client.post(path+'/description-checklist',headers=w['member'].headers,json=invalid).status_code==422
+    unmarked=saved[:marks[1]]+' '+saved[marks[1]+1:]
+    r=client.post(path+'/description-checklist',headers=w['member'].headers,json={'expected_revision':version,'body':unmarked});assert r.status_code==200,r.text
+    assert task(client,w)['description']['body']==unmarked
 
 
 def test_mention_edit_does_not_revoke_and_invalid_targets_roll_back_comment(client,work):
