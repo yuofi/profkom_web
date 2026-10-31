@@ -766,10 +766,14 @@ export function installMockTransport(
         }
         if (method === "put") {
           if (season.state === "closed" && !state.global) return denied();
-          if (data.expected_version !== summary.version) return conflict();
           const row = summary.rows.find(
             (r) => r.user.user_id === Number(parts[4]),
           );
+          // An open season's mark answers to the participant's own marks when they are sent (PB-16).
+          const seen = data.expected_decisions as Decision[] | undefined;
+          const marks = (values: Decision[]) => [...new Set(values)].sort().join();
+          if (season.state !== "closed" && seen) { if (!row || marks(seen) !== marks(row.decisions)) return conflict(); }
+          else if (data.expected_version !== summary.version) return conflict();
           if (row) row.decisions = data.decisions as Decision[];
           summary.version++;
           if (season.state === "closed") rememberSummary(season.season_id, String(data.reason ?? "Изменение отметок"));

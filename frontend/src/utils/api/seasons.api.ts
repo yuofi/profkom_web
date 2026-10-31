@@ -58,7 +58,9 @@ export const seasonsApi = {
   decisions: (
     id: string,
     userId: number,
-    data: { expected_version: number; decisions: Decision[]; reason?: string },
+    /** expected_decisions: the participant's marks the client saw; in an open or summarizing
+     * season they replace the summary version check (PB-16). */
+    data: { expected_version: number; expected_decisions?: Decision[]; decisions: Decision[]; reason?: string },
   ) =>
     request<SeasonSummary>(
       "put",

@@ -188,7 +188,8 @@ function DecisionsForm({ summary, row, open, onToggleEditor, onSaved }: { summar
   const close=()=>onToggleEditor(()=>setPending(null));
   const save=async(values:Decision[],reason?:string,expectedVersion=summary.version)=>{
     if(saving.current)throw Error('Сохранение уже выполняется');saving.current=true;setBusy(true);setError('');
-    try{const result=await seasonsApi.decisions(summary.season_id,row.user.user_id!,{expected_version:expectedVersion,decisions:values,...(reason?{reason}:{})});client.setQueryData(['summary',summary.season_id],result);await client.invalidateQueries({queryKey:['kkr-history']});return result;}
+    // An open season's mark answers to the marks shown for this participant, so accepted work elsewhere does not refuse it (PB-16).
+    try{const result=await seasonsApi.decisions(summary.season_id,row.user.user_id!,{expected_version:expectedVersion,...(summary.state==='approved'?{}:{expected_decisions:row.decisions}),decisions:values,...(reason?{reason}:{})});client.setQueryData(['summary',summary.season_id],result);await client.invalidateQueries({queryKey:['kkr-history']});return result;}
     catch(error){setError(userMessage(error));if(normalizeApiError(error).code==='revision_conflict')await client.invalidateQueries({queryKey:['summary',summary.season_id]});throw error;}
     finally{saving.current=false;setBusy(false);}
   };

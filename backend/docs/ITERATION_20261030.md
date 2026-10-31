@@ -93,6 +93,9 @@ update of the test site after local verification; production is not authorized.
   subtotal, total, current marks, previous-season marks. Use compact icon chips.
 - Marks save immediately per click in one popup, without a Save button or a
   reason in an open/summarizing season. Closed corrections retain their reason.
+  An open/summarizing mark is checked against the participant's previous marks
+  (`expected_decisions`), not the summary version, which every accounting change
+  moves; closed marks keep the strict summary version (owner 2026-10-31, PB-16).
 - Diagnose mark-save latency separately (server transaction/SQL, response/refetch,
   browser commit); prove improvements with bounded comparable measurements.
 - Analytics tabs select blocks/events. Count distinct closed ordinary work tasks,

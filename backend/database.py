@@ -6705,9 +6705,10 @@ class Database:
         expected_version: int,
         reason: Optional[str],
         user_id: int,
+        expected_decisions: Optional[list[str]] = None,
     ) -> SeasonSummaryDC:
         from season_summaries import decisions as update
-        return update(season_id,target_user_id,decisions,expected_version,reason,user_id)
+        return update(season_id,target_user_id,decisions,expected_version,reason,user_id,expected_decisions)
 
     def correct_season_summary(
         self,
