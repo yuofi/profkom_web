@@ -1125,6 +1125,8 @@ class ReportOut(BaseModel):
     published_version: Optional[int] = None
     revision: int
     capabilities: list[str] = Field(default_factory=list)
+    # The event or subevent title, so lists and the report page can name and link the owner.
+    owner_title: str = ""
 
 
     @model_serializer(mode="wrap")
@@ -2204,7 +2206,34 @@ def _to_file_ref_out(f) -> FileRefOut:
     )
 
 
-def _to_report_out(r: Report) -> ReportOut:
+def _report_owner_titles(reports) -> dict[tuple[str, str], str]:
+    """Owner titles for a batch of reports: one query per owner kind (audit EV-06).
+
+    Event and subevent titles are public to approved accounts, like the announcements.
+    """
+    wanted: dict[str, set[str]] = {"event": set(), "subevent": set()}
+    for r in reports:
+        if r.owner_kind in wanted:
+            wanted[r.owner_kind].add(r.owner_id)
+    titles: dict[tuple[str, str], str] = {}
+    with db._session() as session:
+        for kind, key, title in (
+            ("event", database_module.EventORM.event_id, database_module.EventORM.title),
+            ("subevent", database_module.SubeventORM.subevent_id, database_module.SubeventORM.title),
+        ):
+            if wanted[kind]:
+                titles.update({(kind, oid): name for oid, name in session.query(key, title).filter(key.in_(wanted[kind])).all()})
+    return titles
+
+
+def _to_report_outs(reports) -> list[ReportOut]:
+    titles = _report_owner_titles(reports)
+    return [_to_report_out(r, titles.get((r.owner_kind, r.owner_id), "")) for r in reports]
+
+
+def _to_report_out(r: Report, owner_title: Optional[str] = None) -> ReportOut:
+    if owner_title is None:
+        owner_title = _report_owner_titles([r]).get((r.owner_kind, r.owner_id), "")
     files = [_to_file_ref_out(f) for f in r.files]
     draft_files = [_to_file_ref_out(f) for f in r.draft_files] if r.draft_files is not None else None
     draft_content = RichTextSchema(format=r.draft_content.format, body=r.draft_content.body) if r.draft_content is not None else None
@@ -2226,6 +2255,7 @@ def _to_report_out(r: Report) -> ReportOut:
         published_version=r.published_version,
         revision=r.revision,
         capabilities=r.capabilities,
+        owner_title=owner_title,
     )
 
 
@@ -3298,7 +3328,7 @@ def list_reports(
         state=state,
         current_user_id=cur.user_id,
     )
-    return Page(items=[_to_report_out(r) for r in items])
+    return Page(items=_to_report_outs(items))
 
 
 @router.get("/reports/{report_id}", response_model=ReportOut)
@@ -3349,7 +3379,7 @@ def list_report_history(
 ):
     items = db.list_report_history(series_id, year, cur.user_id)
     page = cursor_page(items, lambda r: (r.published_at or "", r.report_id), cursor, descending=True)
-    return Page(items=[_to_report_out(r) for r in page.items], next_cursor=page.next_cursor)
+    return Page(items=_to_report_outs(page.items), next_cursor=page.next_cursor)
 
 
 # ── Dashboard & Calendar ──

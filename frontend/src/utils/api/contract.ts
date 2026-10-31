@@ -526,6 +526,8 @@ export interface Report extends Versioned {
   state: "draft" | "published";
   published_at: string | null;
   published_version: number | null;
+  /** The owner event's or subevent's title, to name and link it. */
+  owner_title?: string;
 }
 export interface ReportVersion {
   report_id: string;

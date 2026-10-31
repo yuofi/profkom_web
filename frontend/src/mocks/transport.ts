@@ -214,6 +214,7 @@ export function installMockTransport(
   };
   const visibleReport = (report: Report) => {
     const r = clone(report);
+    r.owner_title = (report.owner_kind === "event" ? state.events.find(event => event.event_id === report.owner_id)?.title : state.subevents.find(sub => sub.subevent_id === report.owner_id)?.title) ?? "";
     if (!r.capabilities.includes("edit_report")) {
       delete r.draft_title;
       delete r.draft_content;

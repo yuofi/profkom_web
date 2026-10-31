@@ -21,21 +21,25 @@ import {
 import { reportsApi } from "../../utils/api/reports.api";
 import { eventsApi } from "../../utils/api/events.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
-import { richText, type FileRef, type Report } from "../../utils/api/contract";
+import { richText, type FileRef, type Report, type Subevent } from "../../utils/api/contract";
 import { can } from "../../utils/session";
 import { displayDate, moscowInput, toUtc } from "../../utils/dates";
-import { getMeetingRoute, getReportRoute } from "../../utils/routes";
+import { getEventRoute, getMeetingRoute, getReportRoute, getSubeventRoute } from "../../utils/routes";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import s from "../../components/Workspace/Workspace.module.css";
 const template =
   "## Что сделали\n\n\n## Проблемы\n\n\n## Дальнейшие планы\n\n\n## Необходимая помощь\n\n";
-/** `seasons` labels each report with its instance's season, as the history needs (A-EVT-5). */
-function ReportLinks({ reports, seasons }: { reports: Report[]; seasons?: Map<string, string> }) {
+const ownerRoute = (kind: string, id: string) => kind === "event" ? getEventRoute(id) : getSubeventRoute(id);
+const ownerReports = (kind: string, id: string) => `/reports?owner_kind=${encodeURIComponent(kind)}&owner_id=${encodeURIComponent(id)}`;
+/** `seasons` labels each report with its instance's season, as the history needs (A-EVT-5);
+ *  `owners` names the event or subevent in lists that mix them. */
+function ReportLinks({ reports, seasons, owners = false }: { reports: Report[]; seasons?: Map<string, string>; owners?: boolean }) {
   return (
     <ul className={s.list}>
       {reports.map((r) => (
         <li key={r.report_id}>
           <RouteLink to={getReportRoute(r.report_id)}>{r.title}</RouteLink>{" "}
+          {owners && r.owner_title && <><span className={s.muted}>{r.owner_title}</span>{" "}</>}
           <Badge tone={r.kind === "final" ? "mint" : undefined}>{r.kind === "final" ? "Финальный" : "Регулярный"}</Badge>{" "}
           {seasons && <Badge>Сезон: {seasons.get(r.season_id) ?? "недоступен"}</Badge>}{" "}
           <span className={s.muted}>
@@ -70,17 +74,20 @@ export function ReportsPage() {
         valid && ownerId ? { owner_kind: kind, owner_id: ownerId } : {},
       ),
   });
+  const filtered = valid && !!ownerId, ownerTitle = filtered ? owner.data?.title : undefined;
+  // The server filters a team's reports to an empty list for outsiders; say so instead of "none yet".
+  const refused = kind === "subevent" && (owner.data as Subevent | undefined)?.working_access === false && query.data?.items.length === 0;
   return (
     <Page
-      title="Отчёты"
-      actions={<RouteLink to="/reports/history">Поиск по истории</RouteLink>}
+      title={ownerTitle ? `Отчёты · ${ownerTitle}` : "Отчёты"}
+      actions={<>{ownerTitle && <RouteLink to={ownerRoute(kind!, ownerId)}><Glyph name="arrow_back" />{ownerTitle}</RouteLink>}<RouteLink to="/reports/history">Поиск по истории</RouteLink></>}
     >
       <div className={s.stack}>
         <QueryState keepDataOnError={!!query.data}
         loading={query.isLoading} error={query.error}>
           <Card>
-            <ReportLinks reports={query.data?.items ?? []} />
-            {query.data?.items.length === 0 && <Empty>Отчётов пока нет.</Empty>}
+            <ReportLinks reports={query.data?.items ?? []} owners={!filtered} />
+            {refused ? <Empty>Отчёты подмероприятия доступны только его команде.</Empty> : query.data?.items.length === 0 && <Empty>Отчётов пока нет.</Empty>}
           </Card>
         </QueryState>
         {can(owner.data, "create_report") && valid && (
@@ -233,7 +240,10 @@ export function ReportPage() {
   return (
     <Page
       title={report?.title ?? "Отчёт"}
-      actions={<RouteLink to="/reports">Все отчёты</RouteLink>}
+      actions={report ? <>
+        <RouteLink to={ownerRoute(report.owner_kind, report.owner_id)}><Glyph name="arrow_back" />{report.owner_title || (report.owner_kind === "event" ? "Мероприятие" : "Подмероприятие")}</RouteLink>
+        <RouteLink to={ownerReports(report.owner_kind, report.owner_id)}>Все отчёты</RouteLink>
+      </> : <RouteLink to="/reports">Все отчёты</RouteLink>}
     >
       <QueryState
         keepDataOnError={!!query.data}
@@ -352,8 +362,8 @@ export function ReportHistoryPage() {
           }}
           submitLabel="Показать отчёты"
         />
-        <QueryState loading={query.isFetching} error={query.error}>
-          {seriesId && <ReportLinks reports={query.data?.items ?? []} seasons={seasonTitles} />}
+        <QueryState keepDataOnError={!!query.data} loading={query.isLoading} error={query.error}>
+          {seriesId && <ReportLinks reports={query.data?.items ?? []} seasons={seasonTitles} owners />}
           {seriesId && query.data?.items.length === 0 && (
             <Empty>Нет доступных отчётов за этот период.</Empty>
           )}
@@ -396,6 +406,18 @@ export function MeetingPage() {
   }, [client, owner.isFetched, ownerReadable, mayViewMeeting, kind, id]);
   // Cached announcements never override the current owner's permissions.
   const meeting = mayViewMeeting && (!query.error || canRetainData(query.error)) ? query.data : undefined;
+  // Without view_meeting the page names the reason and never tells whether a meeting exists:
+  // a closed season empties everybody's capabilities, a team keeps its working access then.
+  const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list, enabled: kind === "event" && ownerReadable && !mayViewMeeting });
+  const seasonClosed = kind === "event"
+    ? seasons.data?.items.find((season) => season.season_id === (owner.data as { season_id?: string } | undefined)?.season_id)?.state === "closed"
+    : !!(owner.data as Subevent | undefined)?.working_access;
+  const restricted = seasonClosed
+    ? "Сезон закрыт: созвоны прошлых сезонов не показываются."
+    : kind === "event"
+      ? "Главный созвон доступен только его участникам. Доступные вам созвоны команд показаны ниже."
+      : "Созвон доступен только команде подмероприятия.";
+  const ownerTitle = ownerReadable ? owner.data!.title : undefined;
   if (!valid)
     return (
       <Page title="Созвон">
@@ -404,12 +426,13 @@ export function MeetingPage() {
     );
   return (
     <Page
-      title={kind === "event" ? "Созвоны мероприятия" : "Созвон команды"}
+      title={`${kind === "event" ? "Созвоны мероприятия" : "Созвон команды"}${ownerTitle ? ` · ${ownerTitle}` : ""}`}
       description={
         kind === "event"
           ? "Главный созвон и доступные вам созвоны команд подмероприятий."
           : "Объявление для участников подмероприятия."
       }
+      actions={ownerTitle && <RouteLink to={ownerRoute(kind, id)}><Glyph name="arrow_back" />{ownerTitle}</RouteLink>}
     >
       <div className={s.stack}>
         <QueryState
@@ -423,8 +446,8 @@ export function MeetingPage() {
           }}
         >
           <Card title={kind === "event" ? "Главный созвон" : undefined}>
-            {kind === "event" && ownerReadable && !mayViewMeeting ? (
-              <p className={s.muted}>Главный созвон доступен только его участникам. Доступные вам созвоны команд показаны ниже.</p>
+            {ownerReadable && !mayViewMeeting ? (
+              <p className={s.muted}>{restricted}</p>
             ) : meeting ? (
               <>
                 <h2>{meeting.title}</h2>
