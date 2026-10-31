@@ -23,3 +23,13 @@ it.each([true, false])("participant links use only the currently visible directo
     expect(page.container.textContent).not.toContain("Синтетический Участник");
   }
 });
+it("profile contact links have accessible names and open a call or a letter in one tap (PE-16)", async () => {
+  const person = { ...createFixtures("chair").profile, user_id: 78, surname: "Связной", name: "Участник", in_profcom: true, vk: "https://vk.com/id78", tg: "@contact_78", phone: "+7 (999) 000-00-78", email: "contact78@example.com" };
+  vi.spyOn(directoryApi, "contacts").mockResolvedValue([person]);
+  page = await mountWorkspace(<Routes><Route path="/contacts/:id" element={<MemberProfilePage />} /></Routes>, { path: "/contacts/78" });
+  await waitForPage(page);
+  expect(page.container.querySelector('a[aria-label="VK"]')?.getAttribute("href")).toContain("vk.com");
+  expect(page.container.querySelector('a[aria-label="Telegram"]')?.getAttribute("href")).toContain("t.me");
+  expect(page.container.querySelector('a[href="tel:+79990000078"]')?.textContent).toContain("+7 (999) 000-00-78");
+  expect(page.container.querySelector('a[href="mailto:contact78@example.com"]')?.textContent).toContain("contact78@example.com");
+});
