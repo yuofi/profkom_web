@@ -10,6 +10,7 @@ import { useConfirmedNavigation, useGuardedAction, useUnsavedChanges } from "./u
 import { Glyph } from "./WorkspaceUI";
 import { getTaskRoute } from "../../utils/routes";
 import { createClientId } from "../../utils/clientId";
+import { FeedbackDialogContext } from "./feedbackDialog";
 import s from "./Workspace.module.css";
 import f from "./FeedbackButton.module.css";
 
@@ -27,7 +28,7 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener("error", failure);window.addEventListener("unhandledrejection", failure);document.addEventListener("click", click);
     return () => { window.removeEventListener("error", failure);window.removeEventListener("unhandledrejection", failure);document.removeEventListener("click", click); };
   }, []);
-  return <>{children}<button type="button" className={f.trigger} aria-label="Сообщить об ошибке или предложить улучшение" title="Сообщить об ошибке или предложить улучшение" onClick={start}><BugIcon /></button>{open && <FeedbackForm diagnostics={diagnostics} onClose={() => setOpen(false)} />}</>;
+  return <><FeedbackDialogContext.Provider value={start}>{children}</FeedbackDialogContext.Provider><button type="button" className={f.trigger} aria-label="Сообщить об ошибке или предложить улучшение" title="Сообщить об ошибке или предложить улучшение" onClick={start}><BugIcon /></button>{open && <FeedbackForm diagnostics={diagnostics} onClose={() => setOpen(false)} />}</>;
 }
 function FeedbackForm({ diagnostics, onClose }: { diagnostics: FeedbackInput["diagnostics"]; onClose: () => void }) {
   const { session } = useSession(), scope = useId(), leave = useGuardedAction(scope), navigate = useConfirmedNavigation(), dialog = useRef<HTMLDivElement>(null), restore = useRef<HTMLElement | null>(null);

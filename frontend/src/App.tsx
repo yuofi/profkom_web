@@ -7,6 +7,7 @@ import { UnsavedChangesProvider } from "./components/Workspace/UnsavedChanges";
 import { WorkspaceLayout } from "./components/Workspace/WorkspaceLayout";
 import { FeedbackProvider } from "./components/Workspace/FeedbackButton";
 import { Loading } from "./components/Workspace/WorkspaceUI";
+import { AppErrorPage } from "./components/Workspace/PageErrorBoundary";
 const EventsListPage = lazy(() =>
   import("./pages/Workspace/EventPages").then((m) => ({
     default: m.EventsListPage,
@@ -152,7 +153,7 @@ function AppShell() {
   );
 }
 const router = createBrowserRouter(createRoutesFromElements(
-  <Route element={<AppShell />}>
+  <Route element={<AppShell />} errorElement={<AppErrorPage />}>
                 <Route path="/auth" element={<GreetingPage />} />
                 <Route element={<ProtectedRoute />}>
                   <Route path="/" element={<WorkspaceLayout />}>

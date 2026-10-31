@@ -4,6 +4,7 @@ import { Link, Outlet, useLocation } from "react-router-dom";
 import { useMe } from "../../utils/me";
 import { can, useSession } from "../../utils/session";
 import { DemoRolePicker } from "./DemoRolePicker";
+import { PageErrorBoundary } from "./PageErrorBoundary";
 import { NotificationBell } from "./NotificationBell";
 import s from "./WorkspaceLayout.module.css";
 import ws from "./Workspace.module.css";
@@ -80,9 +81,11 @@ export function WorkspaceLayout() {
           </p>
         )}
         <SectionContext.Provider value={section}>
-          <Suspense fallback={<Loading />}>
-            <Outlet />
-          </Suspense>
+          <PageErrorBoundary key={pathname}>
+            <Suspense fallback={<Loading />}>
+              <Outlet />
+            </Suspense>
+          </PageErrorBoundary>
         </SectionContext.Provider>
       </main>
     </div>
