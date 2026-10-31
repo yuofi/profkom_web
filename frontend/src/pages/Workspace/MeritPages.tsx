@@ -15,7 +15,7 @@ import { ActionForm, type Field } from "../../components/Workspace/ActionForm";
 import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
 import { useGuardedAction } from "../../components/Workspace/unsavedChangesHooks";
 import { revisionSnapshot, snapshotRevisions } from "../../components/Workspace/revisionSnapshot";
-import { text, number, ids } from "../../components/Workspace/formValues";
+import { text, number, ids, type Values } from "../../components/Workspace/formValues";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { eventsApi } from "../../utils/api/events.api";
@@ -33,6 +33,8 @@ import {
 } from "../../utils/api/contract";
 import { canRetainData, normalizeApiError } from "../../utils/api/request";
 import { readsMerits } from "./meritAccess";
+import { evaluationOptions } from "../../utils/evaluations";
+import { UserChip } from "../../components/Workspace/UserChip";
 import { can, useSession } from "../../utils/session";
 import { toUtc, displayDate, moscowInput } from "../../utils/dates";
 import {
@@ -220,6 +222,7 @@ function MeritEditor({
       label: "Дата выдачи, МСК",
       type: "datetime-local",
       required: true,
+      compact: "period",
       value: existing ? moscowInput(existing.assigned_at) : "",
     },
     {
@@ -227,12 +230,14 @@ function MeritEditor({
       label: "Дедлайн, МСК",
       type: "datetime-local",
       required: true,
+      compact: "period",
       value: existing ? moscowInput(existing.deadline_at) : "",
     },
     ...Object.entries(criteriaLabels).map(([name, label]) => ({
       name,
       label,
       type: "select" as const,
+      compact: "criteria",
       value: String(
         existing?.criteria[name as keyof typeof criteriaLabels] ?? false,
       ),
@@ -259,6 +264,7 @@ function MeritEditor({
         required: true,
         label: `Часы: ${p.label}`,
         type: "number" as const,
+        compact: `recipient_${p.value}`,
         min: 0,
         value: String(
           existing?.recipients.find((r) => r.user_id === Number(p.value))
@@ -271,20 +277,21 @@ function MeritEditor({
         required: true,
         label: `Оценка: ${p.label}`,
         type: "select" as const,
+        compact: `recipient_${p.value}`,
         value: String(
           existing?.recipients.find((r) => r.user_id === Number(p.value))
             ?.evaluation ?? "",
         ),
-        options: [-1, 0, 1, 1.5].map((n) => ({
-          value: String(n),
-          label: String(n),
-        })),
+        options: evaluationOptions,
       },
       {
         name: `completed_${p.value}`,
         whenSelected: { name: "users", value: p.value },
         label: `Дата выполнения, МСК: ${p.label}`,
         type: "datetime-local" as const,
+        compact: `recipient_${p.value}`,
+        // A positive evaluation needs the date of the result; the field says so before the submit does.
+        required: (values: Values) => Number(values[`evaluation_${p.value}`]) > 0,
         value: existing?.recipients.find((r) => r.user_id === Number(p.value))
           ?.completed_at
           ? moscowInput(
@@ -489,6 +496,7 @@ export function MeritsPage() {
   const [params] = useSearchParams();
   const contexts = useMeritContexts(true);
   const { seasons, season, missing } = useSubpageSeason(id);
+  const people = usePeopleOptions({ includeNonMembers: true });
   const [created, setCreated] = useState<{ count: number; title?: string }>({ count: 0 });
   const allowedKinds = allowedMeritKinds(session, contexts.data, season);
   // The server filters the list by the reader's scopes, so the page always asks it; only a 403 means no access.
@@ -517,6 +525,12 @@ export function MeritsPage() {
               <p>
                 {kinds[m.source_kind]} · {displayDate(m.assigned_at)}
               </p>
+              <ul className={s.list} aria-label="Получатели">
+                {m.recipients.map((r) => {
+                  const person = people.options.find((p) => p.value === String(r.user_id))?.user;
+                  return <li key={r.user_id} className={s.row}>{person ? <UserChip user={person} /> : <span>Участник #{r.user_id}</span>}<span className={s.muted}>{r.hours} ч · оценка {String(r.evaluation).replace(".", ",")}{r.completed_at ? ` · выполнено ${displayDate(r.completed_at)}` : ""}</span></li>;
+                })}
+              </ul>
               <Markdown content={m.description} />
               <HistoryDisclosure kind="merit" id={m.merit_id} />
               {can(m, "edit_assessment_inputs") && (

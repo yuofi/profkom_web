@@ -1167,6 +1167,16 @@ span.cardIcon {
 .formFields > .field {
   min-width: 0;
 }
+/* ActionForm `compact`: short fields of one group share a row; everything else keeps the full width. */
+.compactFields {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr));
+}
+.compactFields > :not(.compactField) {
+  grid-column: 1 / -1;
+}
+.compactFields > .compactStart {
+  grid-column-start: 1;
+}
 .eyebrow {
   font-size: 12px;
   opacity: 0.82;

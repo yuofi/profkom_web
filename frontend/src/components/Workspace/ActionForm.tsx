@@ -39,6 +39,8 @@ export interface Field {
   onSelectionChange?: (values: string[]) => void;
   /** A multiple choice of people asks before removing saved ones; marks need not. */
   confirmRemoval?: boolean;
+  /** Short fields of one group share a row (dates, hours and evaluation, yes/no criteria); a new group starts a new row. */
+  compact?: string;
 }
 type Refresh = () => unknown | Promise<unknown>;
 /**
@@ -314,14 +316,15 @@ export function ActionForm({
       }
     }}>
       <fieldset
-        className={s.formFields}
+        className={`${s.formFields} ${fields.some((field) => field.compact) ? s.compactFields : ""}`}
         disabled={form.isSubmitting || refreshing || disabled || externalBusy}
       >
         {title && <h3>{title}</h3>}
         {beforeFields?.(form)}
         {fields
           .filter((field) => visible(field, form.values))
-          .map((field) => {
+          .map((field, index, shown) => {
+            const compact = field.compact ? `${s.compactField} ${shown[index - 1]?.compact !== field.compact ? s.compactStart : ""}` : "";
             const id = `${formId}-${field.name}`;
             const error = form.touched[field.name] && form.errors[field.name];
             const entityPicker = !!field.entity || !!field.options?.some(option => option.user || option.block || option.scope);
@@ -341,7 +344,7 @@ export function ActionForm({
               disabled: form.isSubmitting,
             };
             return (
-              <div className={s.field} key={field.name}>
+              <div className={`${s.field} ${compact}`} key={field.name}>
                 <label
                   id={`${id}-label`}
                   htmlFor={field.type === "multi" && !entityPicker ? `${id}-search` : id}
