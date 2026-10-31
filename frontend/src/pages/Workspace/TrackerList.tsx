@@ -88,12 +88,17 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
     ...(cursor ? { cursor } : {}),
   };
   const requestFilters = Object.fromEntries(Object.entries({ ...filters, q: settledSearch }).filter(([, value]) => value !== ""));
-  const listFilters = view === "list" ? requestFilters : { ...requestFilters, limit: 1 };
+  // Pages come without facets; the filter panel reads them for its selection only (PF-19).
+  const listFilters = { ...requestFilters, include_facets: false };
   // The previous page stays on screen while the next selection loads; a refused read still has no data.
-  const query = useQuery({ queryKey: ["tasks", "page", listFilters], queryFn: ({ signal }) => tasksApi.listPage(listFilters, signal), enabled: !searchPending && !needsDefaults && (view === "list" || filtersOpen), placeholderData: keepPreviousData });
+  const query = useQuery({ queryKey: ["tasks", "page", listFilters], queryFn: ({ signal }) => tasksApi.listPage(listFilters, signal), enabled: !searchPending && !needsDefaults && view === "list", placeholderData: keepPreviousData });
   const listBusy = searchPending || query.isPlaceholderData;
   const timeline = useQuery({ queryKey: ["tasks", "planning", requestFilters, range.first, range.last], queryFn: ({ signal }) => loadPlanningTasks(requestFilters, range, signal), enabled: view !== "list" && !searchPending && !needsDefaults });
-  const queues = useQuery({ queryKey: ["tasks", "queues", "catalog"], queryFn: taskQueuesApi.catalog, enabled: !queue });
+  const selection = Object.fromEntries(Object.entries({ queue_id: filters.queue_id, season_id: filters.season_id, scope_kind: filters.scope_kind, scope_id: filters.scope_id }).filter(([, value]) => value !== ""));
+  const scopeFiltered = !queue && !!filters.scope_kind && !!filters.scope_id;
+  const facets = useQuery({ queryKey: ["tasks", "facets", selection], queryFn: ({ signal }) => tasksApi.facets(selection, signal), enabled: !needsDefaults && (filtersOpen || scopeFiltered) });
+  const queues = useQuery({ queryKey: ["tasks", "queues", "catalog"], queryFn: taskQueuesApi.catalog, enabled: !queue && (filtersOpen || !!filters.queue_id) });
+  const createAccess = useQuery({ queryKey: ["tasks", "queues", "create-access"], queryFn: taskQueuesApi.createAccess, enabled: !queue });
   const currentSeason = useQuery({ queryKey: ["seasons", "current"], queryFn: seasonsApi.current, enabled: !queue && (needsDefaults || !!filters.season_id) });
   const currentSeasonFilter = !!filters.season_id && filters.season_id === currentSeason.data?.season_id;
   useEffect(() => {
@@ -108,11 +113,11 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
   const people = useQuery({ queryKey: ["contacts"], queryFn: directoryApi.contacts, enabled: filtersOpen || !!filters.assignee_user_id });
   const peopleOptions = filtersOpen && !people.isFetching && (!people.error || canRetainData(people.error)) ? people.data : undefined;
   const seasonOptions = filtersOpen && !seasons.isFetching && (!seasons.error || canRetainData(seasons.error)) ? seasons.data : undefined;
-  const errors = [view === "list" || filtersOpen ? query.error : null, view !== "list" ? timeline.error : null].filter(error => !!error);
+  const errors = [view === "list" ? query.error : null, view !== "list" ? timeline.error : null].filter(error => !!error);
   // A transient companion request cannot mask a current access refusal on the plan.
   const error = errors.find(error => !canRetainData(error)) ?? errors[0] ?? null;
   const tasks = view === "list" ? query.data?.items ?? [] : timeline.data ?? [];
-  const scopes = query.data?.scopes ?? [];
+  const scopes = facets.data?.scopes ?? [];
   const selectedScope = scopes.find((scope) => scope.kind === filters.scope_kind && scope.id === filters.scope_id);
   const scope: ScopeRef | null = queue?.scope ?? (["block", "subevent"].includes(filters.scope_kind) && filters.scope_id
     ? { kind: filters.scope_kind as ScopeRef["kind"], id: filters.scope_id } : null);
@@ -196,7 +201,7 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
     </BrandedHeader>}
     <div className={s.topbar}>
       <label className={s.search}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg><input type="search" aria-label="Поиск задач" placeholder="Название или ключ" value={filters.q} onChange={(event) => update("q", event.target.value, true)} /></label>
-      {(queue ? can(queue, "create_task") : canCreateInScope || queues.data?.items.some(item => can(item, "create_task"))) && <Link className={w.linkButton} to={getTaskCreateRoute({ queueId: queue?.queue_id, ...(scope ? { scope } : {}) })} title="Создать задачу"><Glyph name="add" /><span className={s.toolLabel}>Создать задачу</span></Link>}
+      {(queue ? can(queue, "create_task") : canCreateInScope || ((!createAccess.error || canRetainData(createAccess.error)) && createAccess.data?.can_create_task === true)) && <Link className={w.linkButton} to={getTaskCreateRoute({ queueId: queue?.queue_id, ...(scope ? { scope } : {}) })} title="Создать задачу"><Glyph name="add" /><span className={s.toolLabel}>Создать задачу</span></Link>}
       <div className={s.views} aria-label="Представление задач">
         {([["list", "Список"], ["calendar", "Календарь"], ["gantt", "Гантт"]] as const).map(([key, label]) => <button key={key} type="button" aria-pressed={view === key} onClick={() => update("view", key === "list" ? "" : key)}>{label}</button>)}
       </div>
@@ -225,7 +230,7 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
       {!active.length && !needsDefaults && <span className={s.filterHint}>Показаны все доступные вам задачи</span>}
       {active.length > 1 && !atDefaults && !(filters.season_id && currentSeason.isLoading) && <button type="button" className={s.clear} onClick={() => { const next = new URLSearchParams();["view", "month", "zoom"].forEach(key => { const value = params.get(key);if (value) next.set(key, value); });setParams(next); }}>Сбросить все</button>}
     </div>
-    <QueryState loading={needsDefaults || (view === "list" ? query.isLoading : timeline.isLoading)} error={error} keepDataOnError={view === "list" ? !!query.data : !!timeline.data} retry={() => { void query.refetch();if (view !== "list") void timeline.refetch(); }}>
+    <QueryState loading={needsDefaults || (view === "list" ? query.isLoading : timeline.isLoading)} error={error} keepDataOnError={view === "list" ? !!query.data : !!timeline.data} retry={() => { if (view === "list") void query.refetch();else void timeline.refetch(); }}>
       {view === "calendar" ? <TrackerCalendar tasks={tasks} range={range} month={month} onMonth={value => update("month", value)} /> : view === "gantt" ? <TrackerGantt tasks={tasks} range={range} month={month} onMonth={value => update("month", value)} zoom={zoom} onZoom={value => update("zoom", value)} /> : tasks.length ? <div className={s.tableWrap} aria-busy={listBusy || undefined}>
         <table className={s.table} aria-label="Список задач">
           <thead><tr><th scope="col" className={s.colKey}>Ключ</th><th scope="col">Задача</th><th scope="col" className={s.colAssignees}>Исполнители</th><th scope="col" className={s.colStatus}>Статус</th><th scope="col" className={s.colDeadline} aria-sort={filters.sort === "deadline" ? filters.order === "desc" ? "descending" : "ascending" : "none"}><button onClick={() => changeSort("deadline")}>Дедлайн {filters.sort === "deadline" && (filters.order === "asc" ? "↑" : "↓")}</button></th>{showScope && <th scope="col" className={s.colScope}>Команда</th>}<th scope="col" className={s.colUpdated} aria-sort={filters.sort === "updated" ? filters.order === "desc" ? "descending" : "ascending" : "none"}><button onClick={() => changeSort("updated")}>Обновлено {filters.sort === "updated" && (filters.order === "asc" ? "↑" : "↓")}</button></th></tr></thead>

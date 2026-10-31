@@ -30,8 +30,8 @@ def own_event(uid, event_id):
     """The user leads the event or works in one of its subevents."""
     rel = access.scope_relations(uid, "event", event_id)
     return bool(rel & (access.EVENT_LEADS | {access.EVENT_SUB_LEAD})) or any(
-        bool({access.ORGANIZER, access.SUBEVENT_HR} & access.scope_relations(uid, "subevent", sub.subevent_id))
-        for sub in db.list_subevents(event_id)
+        bool({access.ORGANIZER, access.SUBEVENT_HR} & access.scope_relations(uid, "subevent", subevent_id))
+        for subevent_id in access.subevent_ids(event_id)
     )
 
 
@@ -433,6 +433,7 @@ def calendar(uid, start, end, *, mine=True, watching=False, kind=None, season_id
     from event_workspace import schedule
     from membership import scope_out, legacy_name
     from tracker import PUBLIC_ACTIVE, public_status
+    from read_context import reusable
 
     lower, upper = dt(start), dt(end)
     needle = q.strip().casefold()
@@ -505,7 +506,9 @@ def calendar(uid, start, end, *, mine=True, watching=False, kind=None, season_id
                 accept(dict(id="meeting-" + meeting.meeting_id, season_id=event.season_id, kind="meeting",
                             title=meeting.title, starts_at=meeting.starts_at, ends_at=None, all_day=False,
                             target=dict(kind=meeting.owner_kind, id=meeting.owner_id), event_id=event.event_id))
-            for event in session.query(EventORM):
+            events = session.query(EventORM).all()
+            children = _calendar_children(session, events)
+            for event in events:
                 if not relevant(event.season_id) or event_id and event.event_id != event_id:
                     continue
                 if mine and not own_event(uid, event.event_id):
@@ -513,7 +516,9 @@ def calendar(uid, start, end, *, mine=True, watching=False, kind=None, season_id
                 accept(dict(id="event-" + event.event_id, season_id=event.season_id, kind="event",
                             title=event.title, **schedule(session, "event", event),
                             target=dict(kind="event", id=event.event_id), event_id=event.event_id))
-                for sub in session.query(SubeventORM).filter_by(event_id=event.event_id):
+                rows = children.get(event.event_id, []) if children is not None and reusable(session) else \
+                    session.query(SubeventORM).filter_by(event_id=event.event_id)
+                for sub in rows:
                     if mine and not (access.scope_relations(uid, "subevent", sub.subevent_id) &
                                      (access.EVENT_LEADS | access.SUB_LEADS | {access.ORGANIZER, access.SUBEVENT_HR})):
                         continue
@@ -523,6 +528,25 @@ def calendar(uid, start, end, *, mine=True, watching=False, kind=None, season_id
     return sorted(result, key=lambda item: (dt(item["starts_at"]), item["id"]))
 
 
+def _calendar_children(session, events):
+    """Subevents by event (rowid order, as the per-event index scan) and every
+    schedule metadata row, read once for a clean read UOW; else None."""
+    from read_context import prime_get, reusable
+    from event_workspace_models import EventWorkspaceMetaORM
+    if not reusable(session):
+        return None
+    from sqlalchemy import literal_column
+    children = {}
+    for sub in session.query(SubeventORM).order_by(literal_column("subevents.rowid")):
+        children.setdefault(sub.event_id, []).append(sub)
+    stored = {(row.owner_kind, row.owner_id): row for row in session.query(EventWorkspaceMetaORM)}
+    keys = [("event", event.event_id) for event in events]
+    keys += [("subevent", sub.subevent_id) for rows in children.values() for sub in rows]
+    for key in keys:
+        prime_get(session, EventWorkspaceMetaORM, key, stored.get(key))
+    return children
+
+
 def home(uid, *, watching=False):
     """Select personal deadlines once; hydrate only the ten visible task cards."""
     import main
@@ -530,7 +554,7 @@ def home(uid, *, watching=False):
     from datetime import time, timedelta
     from tracker import PUBLIC_ACTIVE
     from task_reads import TaskIndex
-    from membership import requests_for, block_id_for
+    from membership import reviewable_request_count, block_id_for
     from database import TaskQueueRequestORM, TaskQueueORM, BlockORM
     from task_queues import can_read as queue_read
     from domain_models import RegistrationORM
@@ -547,11 +571,11 @@ def home(uid, *, watching=False):
         dated = sorted((task for task in personal if task.deadline_at), key=lambda task: (dt(task.deadline_at), task.task_id))
         overdue = [task for task in dated if dt(task.deadline_at) < current]
         upcoming = [task for task in dated if dt(task.deadline_at) >= current]
-        requests = [item for item in requests_for(uid)
-                    if set(item["capabilities"]) & {"hr_review_request", "block_review_request"}]
+        # The same visible pending requests with a review capability, counted without DTOs.
+        reviewable = reviewable_request_count(uid)
         approvals = []
-        if requests:
-            approvals.append(dict(kind="block_requests", title="Заявки в блоки", count=len(requests), to="/blocks/requests"))
+        if reviewable:
+            approvals.append(dict(kind="block_requests", title="Заявки в блоки", count=reviewable, to="/blocks/requests"))
         if access.allowed(uid, "registration.review"):
             amount = session.query(RegistrationORM).filter_by(status="pending").count()
             if amount:

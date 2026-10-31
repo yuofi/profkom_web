@@ -168,7 +168,8 @@ class TaskIndex:
     def readable(self, entries=None):
         from task_queues import readable_tasks
         candidates = self.entries if entries is None else entries
-        readable = {task.task_id for task in readable_tasks(self.session, [item.row for item in candidates], self.uid)}
+        readable = {task.task_id for task in readable_tasks(self.session, [item.row for item in candidates], self.uid,
+                                                            known=(self.metas, self.queues))}
         return [item for item in candidates if item.task_id in readable]
 
     def live(self, item):

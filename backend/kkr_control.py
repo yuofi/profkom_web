@@ -22,32 +22,143 @@ def _active(session, uid):
     return bool(uid and active(session, uid))
 
 
-def _roles(session, role, kind, sid):
+def _roles(session, role, kind, sid, reads=None):
+    if reads is not None and reads.batched:
+        return {uid for uid in reads.role_holders(role, kind, sid) if _active(session, uid)}
     return {r.user_id for r in session.query(RoleAssignmentORM).filter_by(role=role, scope_kind=kind, scope_id=sid)
             if _active(session, r.user_id)}
 
 
-def _hr(session):
+def _hr(session, reads=None):
     blocks = session.query(BlockORM).filter_by(is_hr=True).all()
     masters = {b.master_user_id for b in blocks if _active(session, b.master_user_id)}
     deputies = set()
     for block in blocks:
-        deputies |= _roles(session, 'deputy_master', 'block', block.name)
+        deputies |= _roles(session, 'deputy_master', 'block', block.name, reads)
     return masters, deputies
 
 
-def _scopes(session, season_id):
+# Rows a season sync reads per scope. With no modified row of these kinds in the
+# session (reconcile flushes first) they are read once per sync instead.
+_SYNC_ROWS = None
+
+
+class _Reads:
+    """The lookups of one season sync: one query per kind of row, or the original
+    per-scope queries when the session holds modified rows they would not reflect.
+
+    Unflushed new rows are invisible to both (sessions never autoflush). Controls
+    created during the sync keep the original lookups for their roster and grants.
+    """
+    def __init__(self, session, season_id):
+        from tracker_collaboration_models import TaskAccessGrantORM
+        global _SYNC_ROWS
+        if _SYNC_ROWS is None:
+            _SYNC_ROWS = (RoleAssignmentORM, BlockMetaORM, SubeventORM, TaskORM, TaskTrackerORM, TaskLinkORM,
+                          TaskRosterORM, TaskAccessGrantORM, KkrControlEpicORM)
+        self.session, self.season_id, self.fresh = session, season_id, set()
+        self.batched = not any(isinstance(row, _SYNC_ROWS) for row in (*session.dirty, *session.deleted))
+        if not self.batched:
+            return
+        self.roles = defaultdict(set)
+        for user_id, role, kind, sid in session.query(RoleAssignmentORM.user_id, RoleAssignmentORM.role,
+                RoleAssignmentORM.scope_kind, RoleAssignmentORM.scope_id).filter(
+                RoleAssignmentORM.role.in_(['deputy_master', access.EVENT_LEADER, 'subevent_leader'])):
+            self.roles[role, kind, sid].add(user_id)
+        self.metas = {}
+        for meta in session.query(BlockMetaORM):
+            self.metas.setdefault(meta.legacy_name, meta)
+        self.controls = {}
+        for control in session.query(KkrControlEpicORM).filter_by(season_id=season_id):
+            self.controls.setdefault((control.source_kind, control.source_id), control)
+        known = [control.task_id for control in self.controls.values()]
+        self.members, self.grants, self.links = {}, {}, set()
+        for start in range(0, len(known), 400):
+            batch = known[start:start + 400]
+            self.members.update(((row.task_id, row.user_id), row) for row in
+                                session.query(TaskRosterORM).filter(TaskRosterORM.task_id.in_(batch)))
+            self.grants.update(((row.task_id, row.user_id), row) for row in
+                               session.query(TaskAccessGrantORM).filter(TaskAccessGrantORM.task_id.in_(batch)))
+            self.links.update((source, target) for source, target in session.query(
+                TaskLinkORM.source_task_id, TaskLinkORM.target_task_id).filter(
+                TaskLinkORM.source_task_id.in_(batch), TaskLinkORM.kind == 'related'))
+        self.tasks = defaultdict(list)
+        for task in session.query(TaskORM).filter_by(season_id=season_id):
+            self.tasks[task.scope_kind, task.scope_id].append(task)
+        ids = [task.task_id for rows in self.tasks.values() for task in rows]
+        self.trackers = {}
+        for start in range(0, len(ids), 400):
+            for row in session.query(TaskTrackerORM).filter(TaskTrackerORM.task_id.in_(ids[start:start + 400])):
+                self.trackers.setdefault(row.task_id, row)
+        self.events = session.query(EventORM).filter_by(season_id=season_id).all()
+        self.subevents = defaultdict(list)
+        event_ids = [event.event_id for event in self.events]
+        for start in range(0, len(event_ids), 400):
+            for sub in session.query(SubeventORM).filter(SubeventORM.event_id.in_(event_ids[start:start + 400])):
+                self.subevents[sub.event_id].append(sub)
+
+    def role_holders(self, role, kind, sid):
+        return self.roles.get((role, kind, sid), ())
+
+    def block_meta(self, name):
+        if self.batched:
+            return self.metas.get(name)
+        return self.session.query(BlockMetaORM).filter_by(legacy_name=name).first()
+
+    def season_events(self):
+        return self.events if self.batched else self.session.query(EventORM).filter_by(season_id=self.season_id)
+
+    def event_subevents(self, event_id):
+        return self.subevents.get(event_id, []) if self.batched else self.session.query(SubeventORM).filter_by(event_id=event_id)
+
+    def control(self, kind, identity):
+        if self.batched:
+            return self.controls.get((kind, identity))
+        return self.session.query(KkrControlEpicORM).filter_by(season_id=self.season_id, source_kind=kind, source_id=identity).first()
+
+    def created(self, task_id):
+        self.fresh.add(task_id)
+
+    def member(self, task_id, uid):
+        if self.batched and task_id not in self.fresh:
+            return self.members.get((task_id, uid))
+        return self.session.get(TaskRosterORM, (task_id, uid))
+
+    def grant(self, task_id, uid):
+        from tracker_collaboration_models import TaskAccessGrantORM
+        if self.batched and task_id not in self.fresh:
+            return self.grants.get((task_id, uid))
+        return self.session.get(TaskAccessGrantORM, (task_id, uid))
+
+    def candidates(self, kind, scope_id):
+        if self.batched:
+            return list(self.tasks.get((kind, scope_id), ()))
+        return self.session.query(TaskORM).filter_by(season_id=self.season_id, scope_kind=kind, scope_id=scope_id).all()
+
+    def tracker(self, task_id):
+        if self.batched:
+            return self.trackers.get(task_id)
+        return self.session.query(TaskTrackerORM).filter_by(task_id=task_id).first()
+
+    def linked(self, source, target):
+        if self.batched and source not in self.fresh:
+            return (source, target) in self.links
+        return self.session.query(TaskLinkORM).filter_by(source_task_id=source, target_task_id=target, kind='related').first() is not None
+
+
+def _scopes(session, season_id, reads=None):
+    reads = reads if reads is not None else _Reads(session, season_id)
     leadership = session.get(LeadershipORM, 1)
     chair = leadership.chair_user_id if leadership and _active(session, leadership.chair_user_id) else None
     for block in session.query(BlockORM):
-        meta = session.query(BlockMetaORM).filter_by(legacy_name=block.name).first()
+        meta = reads.block_meta(block.name)
         if meta:
             yield 'block', meta.block_id, block.name, block.name, {block.master_user_id} if _active(session, block.master_user_id) else set(), set()
-    for event in session.query(EventORM).filter_by(season_id=season_id):
-        heads = _roles(session, access.EVENT_LEADER, 'event', event.event_id)
+    for event in reads.season_events():
+        heads = _roles(session, access.EVENT_LEADER, 'event', event.event_id, reads)
         yield 'event', event.event_id, event.title, event.event_id, heads, set()
-        for sub in session.query(SubeventORM).filter_by(event_id=event.event_id):
-            leaders = _roles(session, 'subevent_leader', 'subevent', sub.subevent_id)
+        for sub in reads.event_subevents(event.event_id):
+            leaders = _roles(session, 'subevent_leader', 'subevent', sub.subevent_id, reads)
             yield 'subevent', sub.subevent_id, sub.title, sub.subevent_id, leaders, heads
     yield 'chair', 'chair', 'Работа председателя', 'chair', {chair} if chair else set(), set()
 
@@ -68,7 +179,8 @@ def _sync_for_season(session, season_id, actor_uid=None, already_changed_task_id
     season = session.get(SeasonORM, season_id)
     if not season or season.state not in {'open', 'summarizing'}:
         return
-    masters, deputies = _hr(session)
+    reads = _Reads(session, season_id)
+    masters, deputies = _hr(session, reads)
     leadership = session.get(LeadershipORM, 1)
     owner = next(iter(sorted(masters)), None) or (leadership.chair_user_id if leadership and _active(session, leadership.chair_user_id) else None)
     if not owner:
@@ -90,8 +202,8 @@ def _sync_for_season(session, season_id, actor_uid=None, already_changed_task_id
     from tracker_collaboration import grant_task_access
     touched = set(already_changed_task_ids)
     control_ids = {r.task_id for r in session.query(KkrControlEpicORM)}
-    for kind, identity, title, scope_id, assignees, extra_watchers in _scopes(session, season_id):
-        control = session.query(KkrControlEpicORM).filter_by(season_id=season_id, source_kind=kind, source_id=identity).first()
+    for kind, identity, title, scope_id, assignees, extra_watchers in _scopes(session, season_id, reads):
+        control = reads.control(kind, identity)
         if control is None:
             stamp=now(); task_id='task-'+str(uuid.uuid4())
             task=TaskORM(task_id=task_id, season_id=season_id, scope_kind=kind, scope_id=scope_id,
@@ -103,7 +215,7 @@ def _sync_for_season(session, season_id, actor_uid=None, already_changed_task_id
             queue.next_task_number+=1
             control=KkrControlEpicORM(control_id='control-'+str(uuid.uuid4()),season_id=season_id,source_kind=kind,source_id=identity,
                 task_id=task_id,queue_id=queue.queue_id,managed_json='{}',created_at=stamp)
-            session.add(control);session.flush();control_ids.add(task_id)
+            session.add(control);session.flush();control_ids.add(task_id);reads.created(task_id)
             touched.add(task_id)
             activity(session,task,'created',actor,'Создан сезонный контроль ККР')
         task=session.get(TaskORM,control.task_id)
@@ -112,7 +224,7 @@ def _sync_for_season(session, season_id, actor_uid=None, already_changed_task_id
         desired.update({uid:'assignee' for uid in assignees})
         changed=False
         for uid in set(old.get('users',[]))|set(desired):
-            member=session.get(TaskRosterORM,(task.task_id,int(uid)))
+            member=reads.member(task.task_id,int(uid))
             role=desired.get(int(uid),'left')
             if not member and role!='left':
                 member=TaskRosterORM(task_id=task.task_id,user_id=int(uid),created_at=now(),role=role);session.add(member);changed=True
@@ -124,25 +236,94 @@ def _sync_for_season(session, season_id, actor_uid=None, already_changed_task_id
                 session.add(assignment);session.flush();member.assignment_id=assignment.assignment_id;changed=True
             if role!='left':
                 from tracker_collaboration_models import TaskAccessGrantORM
-                existing_grant=session.get(TaskAccessGrantORM,(task.task_id,int(uid)))
+                existing_grant=reads.grant(task.task_id,int(uid))
                 if not existing_grant or not existing_grant.active:
                     grant_task_access(session,task.task_id,int(uid),actor,source='control')
         control.managed_json=json.dumps(dict(users=sorted(desired)))
         if changed:
             if task.task_id not in touched:task.revision+=1;touched.add(task.task_id)
             activity(session,task,'roster_changed',actor,'Обновлены ответственные за заполнение ККР')
-        candidates=session.query(TaskORM).filter_by(season_id=season_id,scope_kind=kind,scope_id=scope_id).all()
+        candidates=reads.candidates(kind,scope_id)
         for work in candidates:
-            meta=session.query(TaskTrackerORM).filter_by(task_id=work.task_id).first()
+            meta=reads.tracker(work.task_id)
             if work.task_id in control_ids or not meta or meta.task_type!='task' or public_status(meta.status)!='closed':continue
-            link=session.query(TaskLinkORM).filter_by(source_task_id=task.task_id,target_task_id=work.task_id,kind='related').first()
-            if link:continue
+            if reads.linked(task.task_id,work.task_id):continue
             session.add(TaskLinkORM(link_id='link-'+str(uuid.uuid4()),source_task_id=task.task_id,target_task_id=work.task_id,
                 kind='related',created_by_user_id=actor,created_at=now()))
             for endpoint in (task,work):
                 if endpoint.task_id not in touched:endpoint.revision+=1;touched.add(endpoint.task_id)
                 activity(session,endpoint,'link_added',actor,'Связана задача контроля заполнения ККР')
     session.flush()
+
+
+def link_closed(session, task_ids, actor_uid=None, touched=()):
+    """Link closed tasks to their scope's control epic, as a season sync would.
+
+    For reconciled controls a task's closing changes nothing else a sync decides
+    (rosters, grants, queue), so only this task's link is made. Returns False,
+    before writing anything, when a full sync is needed instead: no owner queue or
+    control for the scope yet, or a queue that no longer matches the sync's owner
+    and privacy.
+    """
+    from tracker import activity, public_status
+    plan=[]
+    control_ids=None
+    for task_id in dict.fromkeys(task_ids):
+        work=session.get(TaskORM,task_id)
+        if not work or not work.season_id:continue
+        season=session.get(SeasonORM,work.season_id)
+        if not season or season.state not in {'open','summarizing'}:continue
+        masters,_=_hr(session)
+        leadership=session.get(LeadershipORM,1)
+        owner=next(iter(sorted(masters)),None) or (leadership.chair_user_id if leadership and _active(session,leadership.chair_user_id) else None)
+        if not owner:continue  # the sync makes no control without an owner
+        queue=session.query(TaskQueueORM).filter_by(key='KKR').first()
+        if queue is None:return False
+        if not session.query(KkrControlEpicORM).filter_by(queue_id=queue.queue_id).first():
+            raise Conflict('The reserved KKR key belongs to an existing user queue; resolve the collision explicitly','control_queue_conflict')
+        if not queue.is_private or queue.owner_user_id!=owner:return False
+        kind,scope_id=work.scope_kind,work.scope_id
+        if kind=='block':
+            block=session.get(BlockORM,scope_id)
+            meta=session.query(BlockMetaORM).filter_by(legacy_name=block.name).first() if block else None
+            if not meta:continue  # no control for a block without metadata
+            identity=meta.block_id
+        elif kind=='event':
+            event=session.get(EventORM,scope_id)
+            if not event or event.season_id!=work.season_id:continue
+            identity=scope_id
+        elif kind=='subevent':
+            sub=session.get(SubeventORM,scope_id)
+            event=session.get(EventORM,sub.event_id) if sub else None
+            if not event or event.season_id!=work.season_id:continue
+            identity=scope_id
+        elif kind=='chair' and scope_id=='chair':
+            identity='chair'
+        else:
+            continue  # independent ('queue') tasks have no control
+        control=session.query(KkrControlEpicORM).filter_by(season_id=work.season_id,source_kind=kind,source_id=identity).first()
+        task=session.get(TaskORM,control.task_id) if control else None
+        if task is None:return False
+        if control_ids is None:control_ids={r.task_id for r in session.query(KkrControlEpicORM)}
+        meta=session.query(TaskTrackerORM).filter_by(task_id=work.task_id).first()
+        if work.task_id in control_ids or not meta or meta.task_type!='task' or public_status(meta.status)!='closed':continue
+        if session.query(TaskLinkORM).filter_by(source_task_id=task.task_id,target_task_id=work.task_id,kind='related').first():continue
+        plan.append((task,work,actor_uid if _active(session,actor_uid) else owner))
+    marker='kkr_control_reconciling'
+    was_running=session.info.get(marker)
+    session.info[marker]=True
+    try:
+        touched=set(touched)
+        for task,work,actor in plan:
+            session.add(TaskLinkORM(link_id='link-'+str(uuid.uuid4()),source_task_id=task.task_id,target_task_id=work.task_id,
+                kind='related',created_by_user_id=actor,created_at=now()))
+            for endpoint in (task,work):
+                if endpoint.task_id not in touched:endpoint.revision+=1;touched.add(endpoint.task_id)
+                activity(session,endpoint,'link_added',actor,'Связана задача контроля заполнения ККР')
+        session.flush()
+        return True
+    finally:
+        if not was_running:session.info.pop(marker,None)
 
 
 def close_for_season(session, season_id, actor_uid):

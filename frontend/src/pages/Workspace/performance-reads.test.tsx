@@ -45,15 +45,37 @@ it("keeps tracker people and season filter reads behind the filter pane", async 
   expect(people).toHaveBeenCalledOnce();expect(seasons).toHaveBeenCalledOnce();
 });
 
-it("does not build an unused list page in a planning view and gets one-card facets only when asked", async () => {
+it("does not build an unused list page in a planning view and gets the facets only when asked", async () => {
   mock = installMockTransport("chair", { delay: 0 });
-  const read = vi.spyOn(tasksApi, "listPage");
+  const read = vi.spyOn(tasksApi, "listPage"), facets = vi.spyOn(tasksApi, "facets");
   page = await mountWorkspace(<TrackerListPage />, { path: "/tasks?view=calendar&month=2026-10" });await waitForPage(page);
   expect(page.container.querySelector('[aria-label="Календарь задач"]')).not.toBeNull();
   expect(read.mock.calls.every(call => (call[0] as { limit: number }).limit === 100)).toBe(true);
+  expect(facets).not.toHaveBeenCalled();
   await openFilters("Добавить фильтр");
-  expect(read.mock.calls.some(call => (call[0] as { limit: number }).limit === 1)).toBe(true);
-  expect(read.mock.calls.some(call => (call[0] as { limit: number }).limit === 20)).toBe(false);
+  expect(facets).toHaveBeenCalledOnce();
+  expect(read.mock.calls.every(call => (call[0] as { limit: number }).limit === 100)).toBe(true);
+});
+
+it("reads list pages without facets and loads the queue catalogue only for the filter or a chosen queue (PF-19)", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const read = vi.spyOn(tasksApi, "listPage"), facets = vi.spyOn(tasksApi, "facets"), catalog = vi.spyOn(taskQueuesApi, "catalog"), access = vi.spyOn(taskQueuesApi, "createAccess");
+  page = await mountWorkspace(<TrackerListPage />, { path: "/tasks" });await waitForPage(page);
+  expect(read).toHaveBeenCalled();expect(read.mock.calls.every(call => (call[0] as { include_facets?: boolean }).include_facets === false)).toBe(true);
+  expect(mock.adapter.history.get.filter(request => request.url === "/tasks").every(request => request.params?.include_facets === false)).toBe(true);
+  expect(facets).not.toHaveBeenCalled();expect(catalog).not.toHaveBeenCalled();expect(access).toHaveBeenCalledOnce();
+  expect([...page.container.querySelectorAll("a")].some(link => link.textContent === "Создать задачу")).toBe(true);
+  await openFilters("Добавить фильтр");
+  expect(facets).toHaveBeenCalledOnce();expect(catalog).toHaveBeenCalledOnce();
+  const picker = page.container.querySelector<HTMLElement>('[aria-label="Очередь"]')!;expect(picker.querySelectorAll("option").length).toBeGreaterThan(1);
+});
+
+it("names a chosen team from the facets without opening the filter pane", async () => {
+  mock = installMockTransport("chair", { delay: 0 });const task = mock.state.tasks.find(item => ["block", "subevent"].includes(item.scope.kind))!;
+  const facets = vi.spyOn(tasksApi, "facets"), catalog = vi.spyOn(taskQueuesApi, "catalog");
+  page = await mountWorkspace(<TrackerListPage />, { path: `/tasks?scope_kind=${task.scope.kind}&scope_id=${task.scope.id}` });await waitForPage(page);
+  expect(facets).toHaveBeenCalledWith({ scope_kind: task.scope.kind, scope_id: task.scope.id }, expect.anything());expect(catalog).not.toHaveBeenCalled();
+  expect(page.container.querySelector('[aria-label="Активные фильтры"]')?.textContent).toContain(`Команда: ${task.scope_title ?? "Команда"}`);
 });
 
 it("coalesces rapid tracker search input and cancels an older in-flight search without showing its late result", async () => {

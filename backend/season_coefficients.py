@@ -85,11 +85,13 @@ def catalog(session, season_id, uid):
         raise NotFound("Season not found")
     stored = {(r.source_kind, r.source_id): r for r in session.query(SeasonCoefficientORM).filter_by(season_id=season_id)}
     values = []
+    # One reader and one season state for every item of this read-only listing.
+    editable = _can_edit(uid, season)
     def add(kind, identity, title, parent=None):
         row = stored.get((kind, identity))
         values.append(dict(source_kind=kind, source_id=identity, title=title, parent_title=parent,
             value=row.value if row else 1.0, revision=row.revision if row else 1,
-            capabilities=["edit_coefficient"] if _can_edit(uid, season) else []))
+            capabilities=["edit_coefficient"] if editable else []))
     current_blocks = {name for (name,) in session.query(BlockORM.name)}
     for meta in session.query(BlockMetaORM).order_by(BlockMetaORM.legacy_name):
         if meta.legacy_name in current_blocks:

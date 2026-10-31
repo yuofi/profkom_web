@@ -21,7 +21,9 @@ from validation import timestamp
 
 
 def metadata(session, kind, identifier, *, create=False):
-    row = session.get(EventWorkspaceMetaORM, (kind, identifier))
+    from read_context import orm_get
+    # A clean read UOW also remembers absent rows; commands keep Session.get.
+    row = orm_get(session, EventWorkspaceMetaORM, (kind, identifier))
     if row is None:
         row = next((item for item in session.new if isinstance(item, EventWorkspaceMetaORM)
                     and item.owner_kind == kind and item.owner_id == identifier), None)

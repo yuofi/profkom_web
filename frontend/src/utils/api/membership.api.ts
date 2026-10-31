@@ -8,10 +8,27 @@ import type {
   ParticipantCategoryBatch,
   Category,
 } from "./contract";
-import { idPath, allPages as page, request } from "./request";
+import { idPath, allPages as page, page as onePage, request } from "./request";
+/** Optional /block-requests filters; `state` repeats as the server expects (state=a&state=b). */
+export interface BlockRequestFilters {
+  block_id?: string;
+  state?: BlockRequest["state"][];
+  mine?: boolean;
+  limit?: number;
+  cursor?: string;
+  /** With limit/cursor: "desc" pages from the newest request. */
+  order?: "asc" | "desc";
+}
+const requestFilters = ({ state = [], ...rest }: BlockRequestFilters) => {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(rest)) if (value !== undefined) params.set(key, String(value));
+  for (const value of state) params.append("state", value);
+  return params;
+};
 export const membershipApi = {
   blocks: () => request<Block[]>("get", "/blocks"),
-  block: (id: string) => request<Block>("get", `/blocks/${idPath(id)}`),
+  /** include_deputies: the master also carries its deputies as user references. */
+  block: (id: string, params?: { include_deputies?: boolean }) => request<Block>("get", `/blocks/${idPath(id)}`, undefined, params),
   updateBlock: (
     id: string,
     data: Revision & {
@@ -22,7 +39,9 @@ export const membershipApi = {
   ) => request<Block>("patch", `/blocks/${idPath(id)}`, data),
   assignHr: (id: string, data: Revision & { user_id: number | null }) =>
     request<Block>("put", `/blocks/${idPath(id)}/hr`, data),
-  requests: () => page<BlockRequest>("/block-requests"),
+  /** The visible requests narrowed by the filters: all of them at once, or with limit/cursor
+   *  one keyset page by (created_at, request_id). */
+  requests: (filters: BlockRequestFilters = {}) => onePage<BlockRequest>("/block-requests", requestFilters(filters)),
   join: (block_id: string) =>
     request<BlockRequest>("post", "/block-requests", { block_id }),
   requestCommand: (

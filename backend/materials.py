@@ -142,13 +142,30 @@ def dto(s, m, uid):
         )
     if access.allowed(uid, "material.manage_editors"):
         data["capabilities"].append("manage_material_editors")
+        from read_context import orm_rows
         data["editor_user_ids"] = [
             r.user_id
-            for r in s.query(RoleAssignmentORM).filter_by(
+            for r in orm_rows(s, "material.editors", m.material_id, lambda: s.query(RoleAssignmentORM).filter_by(
                 scope_kind="material", scope_id=m.material_id, role="material_editor"
-            )
+            ).all())
         ]
     return data
+
+
+def _prime_editors(s, materials):
+    """The listing's editor rows in one read; several editors keep the original query."""
+    from read_context import prime_rows, reusable
+    from sqlalchemy import literal_column
+    if not reusable(s):
+        return
+    by_material = {}
+    for r in s.query(RoleAssignmentORM).filter_by(scope_kind="material", role="material_editor").order_by(
+            literal_column("role_assignments.rowid")):
+        by_material.setdefault(r.scope_id, []).append(r)
+    for m in materials:
+        rows = by_material.get(m.material_id, [])
+        if len(rows) <= 1:
+            prime_rows(s, "material.editors", m.material_id, rows)
 
 
 def deleted_dto(m):
@@ -319,16 +336,13 @@ def register_routes(router):
     def listing(cur: User = Depends(get_current_user)):
         # Old guides are mapped at startup (scripts/preset_db.py); GET only reads (GL-05).
         with db._session() as s:
-            return Page(
-                items=[
-                    dto(s, m, cur.user_id)
-                    for m in s.query(MaterialORM)
-                    .filter_by(deleted=False)
-                    .order_by(MaterialORM.created_at)
-                    if can_read(m.material_id, cur.user_id)
-                ],
-                next_cursor=None,
-            )
+            readable = [
+                m for m in s.query(MaterialORM).filter_by(deleted=False).order_by(MaterialORM.created_at)
+                if can_read(m.material_id, cur.user_id)
+            ]
+            if access.allowed(cur.user_id, "material.manage_editors"):
+                _prime_editors(s, readable)
+            return Page(items=[dto(s, m, cur.user_id) for m in readable], next_cursor=None)
 
     @router.get("/materials/deleted", response_model=Page[MaterialOut], response_model_exclude_unset=True)
     def deleted(cur: User = Depends(get_current_user)):
@@ -541,9 +555,14 @@ def register_routes(router):
                 u = s.get(UserORM, uid)
                 if not u or u.account_state != "active" or u.banned:
                     fail(422, "Editor must be active and approved", "inactive_user")
-            s.query(RoleAssignmentORM).filter_by(
+            # Per-row deletes (flushed before the new rows, which may repeat a pair the
+            # unique index covers): the flush hooks see material editors, not a bulk
+            # role-table command that forces every queue and control to be rechecked.
+            for editor in s.query(RoleAssignmentORM).filter_by(
                 scope_kind="material", scope_id=material_id, role="material_editor"
-            ).delete(synchronize_session=False)
+            ).all():
+                s.delete(editor)
+            s.flush()
             for uid in payload.user_ids:
                 s.add(
                     RoleAssignmentORM(

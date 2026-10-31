@@ -150,7 +150,7 @@ it.each(["scope_denied", "explicit_queue"])("does not enable an unauthorized or 
 
 it.each([true, false])("exposes first-task creation from an empty scoped tracker only with the resource capability: %s", async allowed => {
   mock = installMockTransport("leader", { delay: 0 });const sub = mock.state.subevents[0];sub.capabilities = allowed ? ["create_task"] : [];
-  vi.spyOn(taskQueuesApi, "catalog").mockResolvedValue({ items: [], next_cursor: null });vi.spyOn(tasksApi, "listPage").mockResolvedValue({ items: [], next_cursor: null, total: 0, scopes: [], assignees: [] });
+  vi.spyOn(taskQueuesApi, "catalog").mockResolvedValue({ items: [], next_cursor: null });vi.spyOn(taskQueuesApi, "createAccess").mockResolvedValue({ can_create_task: false });vi.spyOn(tasksApi, "listPage").mockResolvedValue({ items: [], next_cursor: null, total: 0 });
   page = await mountWorkspace(<TrackerListPage />, { path: `/tasks?scope_kind=subevent&scope_id=${sub.subevent_id}`, role: "leader" });await waitForPage(page);
   const link = [...page.container.querySelectorAll<HTMLAnchorElement>("a")].find(item => item.textContent === "Создать задачу");expect(!!link).toBe(allowed);
   if (allowed) { expect(link!.getAttribute("href")).toContain("scope_kind=subevent");expect(link!.getAttribute("href")).toContain(`scope_id=${sub.subevent_id}`); }

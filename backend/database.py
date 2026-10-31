@@ -4,6 +4,7 @@ from errors import Conflict, Forbidden, InvalidInput, NotFound, revision_conflic
 import json
 import logging
 import asyncio
+import time
 from weakref import WeakKeyDictionary
 from anyio import to_thread
 from contextvars import ContextVar
@@ -60,7 +61,7 @@ from models import (
 )
 from settings import settings
 from identity import participant_id as accounting_participant_id
-from read_context import cached, cached_current, invalidate as invalidate_reads, memoized, read_scope, install_engine
+from read_context import cached, cached_current, invalidate as invalidate_reads, memoized, read_scope, install_engine, hold_identities
 
 DATABASE_URL = "sqlite:///" + settings.DATABASE_PATH
 
@@ -1493,6 +1494,34 @@ def _ensure_contact_email_lower_index() -> None:
 _ensure_contact_email_lower_index()
 
 
+# PB-33: read indexes for hot lookups. Rows and existing indexes are untouched. The
+# direction of each ordered index matches its readers' ORDER BY, so rows with equal
+# timestamps keep the insertion order the former temporary sort produced. The
+# notification feed is a keyset on (created_at DESC, notification_id DESC) and reads
+# ix_notifications_feed (GL-16, _ensure_notification_read_at), so it has no entry here.
+_READ_INDEXES = (
+    ("ix_role_assignments_principal", "role_assignments", ("principal_assignment_id",)),
+    ("ix_block_master_user_id", "block", ("master_user_id",)),
+    ("ix_task_access_grants_user_active", "task_access_grants", ("user_id", "active")),
+    ("ix_task_queue_members_user_id", "task_queue_members", ("user_id",)),
+    ("ix_submissions_assignment_submitted", "submissions", ("assignment_id", "submitted_at")),
+    ("ix_task_comments_task_created", "task_comments", ("task_id", "created_at")),
+    ("ix_task_queue_requests_queue_user_created", "task_queue_requests", ("queue_id", "user_id", "created_at")),
+)
+
+
+def _ensure_sqlite_read_indexes(bind=None) -> None:
+    """Idempotent; a table or column absent from an old schema is skipped."""
+    with (bind or engine).begin() as conn:
+        for name, table, columns in _READ_INDEXES:
+            present = {row[1] for row in conn.execute(text(f'PRAGMA table_info("{table}")'))}
+            if all(column.split()[0] in present for column in columns):
+                conn.execute(text(f'CREATE INDEX IF NOT EXISTS {name} ON "{table}" ({", ".join(columns)})'))
+
+
+_ensure_sqlite_read_indexes()
+
+
 def _user_orm_to_dc(u: UserORM) -> UserDC:
     return UserDC(
         user_id=u.user_id,
@@ -1597,9 +1626,48 @@ def _format_blocks(items: list[str]) -> str:
 
 
 
+# Several people in one clean read UOW: read users, contacts, profile metadata and
+# avatar files once. Fewer people keep their individual PK reads.
+PEOPLE_BATCH_AFTER = 12
+
+
+def _note_user(user_id):
+    from read_context import after_distinct
+    after_distinct(None, "database.people", user_id, PEOPLE_BATCH_AFTER, _prime_people)
+
+
+def _prime_people():
+    """Warm only the read UOW's identity map and absent-PK hints.
+
+    Directory and reference policies still read these rows through their usual
+    lookups, so the projected values and their order are unchanged.
+    """
+    from sqlalchemy.orm import joinedload
+    from domain_models import ProfileMetadataORM
+    from read_context import prime_get
+    with db._session() as session:
+        # One row per person (contact and metadata are one-to-one): the driver's
+        # per-row cost, not the statement count, dominates under concurrency.
+        metadata = {}
+        for user, meta in session.query(UserORM, ProfileMetadataORM).outerjoin(
+                ProfileMetadataORM, ProfileMetadataORM.user_id == UserORM.user_id).options(
+                joinedload(UserORM.contact)):
+            prime_get(session, ProfileMetadataORM, user.user_id, meta)
+            if meta is not None:
+                metadata[user.user_id] = meta
+        file_ids = sorted({row.avatar_file_id for row in metadata.values() if row.avatar_file_id})
+        files = {}
+        for start in range(0, len(file_ids), 500):
+            files.update((row.file_id, row) for row in session.query(FileRecordORM).filter(
+                FileRecordORM.file_id.in_(file_ids[start:start + 500])))
+        for file_id in file_ids:
+            prime_get(session, FileRecordORM, file_id, files.get(file_id))
+
+
 def _user_to_ref_dc(u: Optional[UserORM]) -> Optional[UserRefDC]:
     if not u:
         return None
+    _note_user(u.user_id)
     return cached_current("database.user_ref", u.user_id, lambda: _user_to_ref_uncached(u))
 
 
@@ -1623,7 +1691,8 @@ def _user_ref_with_avatar(u: UserORM, photo_url) -> UserRefDC:
     return UserRefDC(user_id=u.user_id, display_name=display_name, avatar_url=photo_url)
 
 
-def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: Optional[int] = None) -> AssignmentPublicDC:
+def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: Optional[int] = None, facts=None) -> AssignmentPublicDC:
+    _note_user(a.assignee_user_id)
     u = session.get(UserORM, a.assignee_user_id)
     assignee_ref = _user_to_ref_dc(u) or UserRefDC(user_id=a.assignee_user_id, display_name=f"Участник {a.assignee_user_id}", avatar_url=None)
 
@@ -1669,15 +1738,17 @@ def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: O
         )
 
     unavail = None
+    task=session.get(TaskORM,a.task_id)
+    # The caller's one-task DTO facts (tracker.TaskFacts) apply only to that task.
+    facts = facts if facts is not None and task is not None and facts.task is task else None
+    readable = facts.readable if facts is not None else (lambda uid: db.can_read_task(uid,task,session))
     if u and (u.banned or getattr(u, "account_state", "active") != "active"):
         unavail = "archived"
     elif u:
-        task=session.get(TaskORM,a.task_id)
-        if task and not db.can_read_task(u.user_id,task,session):unavail="left_scope"
+        if task and not readable(u.user_id):unavail="left_scope"
 
     caps = []
-    task=session.get(TaskORM,a.task_id)
-    accessible=task and current_user_id and db.can_read_task(current_user_id,task,session)
+    accessible=task and current_user_id and readable(current_user_id)
     if accessible and current_user_id==a.assignee_user_id:
         if a.status=="assigned": caps += ["start_assignment","submit_result","request_help"]
         if a.status in ("in_progress","help_required","needs_revision"): caps += ["submit_result"]
@@ -1689,11 +1760,11 @@ def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: O
             "review_assignment": "task.review",
             "reassign_assignment": "task.review",
             "edit_assessment_inputs": "task.inputs.edit",
-        })
+        }, facts=facts)
 
     if task:
         from tracker import is_control_task
-        if is_control_task(session, task.task_id):
+        if facts.control() if facts is not None else is_control_task(session, task.task_id):
             caps = []
 
     return AssignmentPublicDC(
@@ -1708,23 +1779,85 @@ def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: O
     )
 
 
-def _task_caps(t: TaskORM, uid: int, table: dict) -> list[str]:
-    """Capabilities of a task or assignment, by the policy actions in `table`."""
+class _UnresolvedCandidate:
+    """An authorized unresolved assignment before its DTO is built (sort/page key)."""
+    __slots__ = ("assignment", "task")
+
+    def __init__(self, assignment, task):
+        self.assignment, self.task = assignment, task
+
+    @property
+    def deadline_at(self):
+        return self.task.deadline_at
+
+    @property
+    def assignment_id(self):
+        return self.assignment.assignment_id
+
+
+def _prime_assignment_details(session: Session, assignments) -> None:
+    """Batch the submissions and file records _assignment_orm_to_dc reads per row.
+
+    Only a clean read UOW keeps these hints. An assignment whose submissions share a
+    timestamp keeps its own ordered query, so SQLite's tie order is unchanged; the
+    converter still reads every value and applies its own fallbacks.
+    """
+    from read_context import prime_rows, prime_get, reusable
+    ids = list(dict.fromkeys(a.assignment_id for a in assignments))
+    if not ids or not reusable(session):
+        return
+    by_assignment = {aid: [] for aid in ids}
+    for offset in range(0, len(ids), 500):
+        for row in session.query(SubmissionORM).filter(SubmissionORM.assignment_id.in_(ids[offset:offset+500])).order_by(
+                SubmissionORM.submitted_at.asc()):
+            by_assignment[row.assignment_id].append(row)
+    file_ids = set()
+    for aid, rows in by_assignment.items():
+        if len({row.submitted_at for row in rows}) == len(rows):
+            prime_rows(session, "assignment.submissions", aid, rows)
+        for row in rows:
+            try:
+                values = json.loads(row.files_json or "[]")
+            except Exception:
+                continue
+            if isinstance(values, list):
+                file_ids.update(value for value in values if isinstance(value, str))
+    found = {}
+    ordered = sorted(file_ids)
+    for offset in range(0, len(ordered), 500):
+        for row in session.query(FileRecordORM).filter(FileRecordORM.file_id.in_(ordered[offset:offset+500])):
+            found[row.file_id] = row
+    for file_id in ordered:
+        prime_get(session, FileRecordORM, file_id, found.get(file_id))
+
+
+def _task_caps(t: TaskORM, uid: int, table: dict, facts=None) -> list[str]:
+    """Capabilities of a task or assignment, by the policy actions in `table`.
+
+    ``facts`` (tracker.TaskFacts of this task) supplies the same checks computed
+    once for the whole task DTO instead of once per assignment and table.
+    """
     import access
-    if not db.can_read_task(uid,t):return []
-    rel = access.relations(uid, t.scope_kind, t.scope_id)
-    state = access.season_state(t.season_id)
+    if facts is not None and facts.task is not t:
+        facts = None
+    if not (facts.readable(uid) if facts is not None else db.can_read_task(uid,t)):return []
+    rel = facts.relations(uid) if facts is not None else access.relations(uid, t.scope_kind, t.scope_id)
+    state = facts.season_state() if facts is not None else access.season_state(t.season_id)
     from tracker import can_edit_public, is_control_task
     with db._session() as session:
-        administrative = is_control_task(session, t.task_id)
-        return [cap for cap, action in table.items() if not ((t.scope_kind=="queue" or administrative) and action in {"task.inputs.view","task.inputs.edit","task.review"}) and (can_edit_public(session,t,uid) if action=="task.edit" else access.allowed(uid, action, state=state, rel=rel))]
+        administrative = facts.control() if facts is not None else is_control_task(session, t.task_id)
+        return [cap for cap, action in table.items() if not ((t.scope_kind=="queue" or administrative) and action in {"task.inputs.view","task.inputs.edit","task.review"}) and (can_edit_public(session,t,uid,facts=facts) if action=="task.edit" else access.allowed(uid, action, state=state, rel=rel))]
 
 
 def _task_orm_to_dc(session: Session, t: TaskORM, current_user_id: Optional[int] = None) -> TaskPublicDC:
     from read_context import orm_rows
+    from tracker import TaskFacts
+    # One calculation's access facts for this task; commands build it after their
+    # last write. Dropped at any change, never kept after this DTO.
+    facts = TaskFacts(session, t)
     a_orms = orm_rows(session, "tracker.rows", (AssignmentORM, (("task_id", t.task_id),)),
                       lambda:session.query(AssignmentORM).filter(AssignmentORM.task_id == t.task_id).all())
-    assignments = [_assignment_orm_to_dc(session, a, current_user_id) for a in a_orms]
+    assignments = [_assignment_orm_to_dc(session, a, current_user_id, facts=facts) for a in a_orms]
     caps = ["comment_task"]
     if current_user_id:
         caps += _task_caps(t, current_user_id, {
@@ -1732,7 +1865,7 @@ def _task_orm_to_dc(session: Session, t: TaskORM, current_user_id: Optional[int]
             "edit_task": "task.edit",
             "edit_assessment_inputs": "task.inputs.edit",
             "view_unresolved_assignments": "task.review",
-        })
+        }, facts=facts)
     desc_body = ""
     try:
         dj = json.loads(t.description_json or "{}")
@@ -1755,7 +1888,7 @@ def _task_orm_to_dc(session: Session, t: TaskORM, current_user_id: Optional[int]
         capabilities=caps,
     )
     from tracker import enrich_task
-    return enrich_task(session, t, result, current_user_id)
+    return enrich_task(session, t, result, current_user_id, facts=facts)
 
 
 def _comment_orm_to_dc(session: Session, c: CommentORM, current_user_id: Optional[int] = None) -> CommentDC:
@@ -2510,6 +2643,19 @@ class _SessionLease:
         return getattr(self.session, name)
 
 
+WRITE_LOCK_LOG_MS = 200
+_write_lock_log = logging.getLogger("profkom.write_lock")
+
+
+def _report_write_lock(label, started, acquired, released):
+    """Wait = until BEGIN IMMEDIATE returned; hold = from then until the lock is free."""
+    wait = ((acquired if acquired is not None else released) - started) * 1000
+    hold = (released - acquired) * 1000 if acquired is not None else 0.0
+    if wait > WRITE_LOCK_LOG_MS or hold > WRITE_LOCK_LOG_MS:
+        _write_lock_log.warning("write unit %s waited %.0f ms and held the write lock %.0f ms",
+                                label or "-", wait, hold)
+
+
 class Database:
     """SQLAlchemy-backed database layer."""
 
@@ -2523,11 +2669,13 @@ class Database:
         return _SessionLease(active) if active is not None else self._SessionLocal()
 
     @asynccontextmanager
-    async def async_atomic(self, write=True):
+    async def async_atomic(self, write=True, label=None):
         """Keep the request context, without blocking the loop on SQLite locks.
 
         Waiting HTTP writers yield so the current request can commit. The
         synchronous atomic() remains available for scripts and domain services.
+        A write unit that waits for or holds the write lock longer than
+        WRITE_LOCK_LOG_MS is logged with ``label`` (method and path).
         """
         if _active_session.get() is not None:
             if write:
@@ -2536,6 +2684,8 @@ class Database:
             return
         lock = None
         loop = asyncio.get_running_loop()
+        started = time.perf_counter()
+        acquired = None
         if write:
             lock = self._http_write_locks.setdefault(loop, asyncio.Lock())
             await lock.acquire()
@@ -2544,11 +2694,13 @@ class Database:
                 with self._SessionLocal() as session:
                     if write:
                         await to_thread.run_sync(lambda: session.execute(text("BEGIN IMMEDIATE")))
+                        acquired = time.perf_counter()
                     token = _active_session.set(session)
                     try:
                         if write:
-                            yield
-                            await to_thread.run_sync(session.commit)
+                            with hold_identities(session):
+                                yield
+                                await to_thread.run_sync(session.commit)
                         else:
                             with read_scope(session):
                                 yield
@@ -2561,6 +2713,7 @@ class Database:
         finally:
             if lock is not None:
                 lock.release()
+                _report_write_lock(label, started, acquired, time.perf_counter())
 
     @contextmanager
     def atomic(self, write=True):
@@ -2575,8 +2728,9 @@ class Database:
             token = _active_session.set(session)
             try:
                 if write:
-                    yield
-                    session.commit()
+                    with hold_identities(session):
+                        yield
+                        session.commit()
                 else:
                     with read_scope(session):
                         yield
@@ -2759,6 +2913,7 @@ class Database:
     @memoized("database.user")
     def get_user(self, user_id: int) -> Optional[UserDC]:
         with self._session() as session:
+            _note_user(user_id)
             u = session.get(UserORM, user_id)
             if not u:
                 return None
@@ -3333,6 +3488,8 @@ class Database:
     # --- Leadership and Roles ---
 
     def _get_user_ref(self, session: Session, user_id: Optional[int]) -> Optional[UserRefDC]:
+        if user_id is not None:
+            _note_user(user_id)
         return _user_to_ref_dc(session.get(UserORM,user_id)) if user_id is not None else None
 
     def get_leadership(self) -> LeadershipDC:
@@ -3524,6 +3681,7 @@ class Database:
     def is_tachki(self, user_id: int) -> bool:
         return self.is_chair(user_id) or self.is_deputy_chair(user_id)
 
+    @memoized("database.is_hr_master", copy_result=False)
     def is_hr_master(self, user_id: int) -> bool:
         with self._session() as session:
             count = (
@@ -4879,6 +5037,7 @@ class Database:
             except Exception:
                 return False
 
+    @memoized("database.is_block_master_deputy", copy_result=False)
     def is_block_master_deputy(self, user_id: int, block_name: str) -> bool:
         with self._session() as session:
             count = session.query(RoleAssignmentORM).filter(
@@ -5236,7 +5395,10 @@ class Database:
         user_id: int,
         parent_task_id: Optional[str] = None,
         parent_supplied: bool = False,
-    ) -> TaskPublicDC:
+        build_response: bool = True,
+    ) -> Optional[TaskPublicDC]:
+        """``build_response=False``: a caller that builds its own final DTO (one mixed
+        PATCH) skips this intermediate one; checks and writes are unchanged."""
         with self._session() as session:
             t = session.get(TaskORM, task_id)
             if not t or not self.can_read_task(user_id,t,session):
@@ -5266,7 +5428,7 @@ class Database:
                 t.description_json = json.dumps({"format": "markdown", "body": description})
             t.revision += 1
             session.commit()
-            return _task_orm_to_dc(session, t, user_id)
+            return _task_orm_to_dc(session, t, user_id) if build_response else None
 
     # ─────────────────────────────────────────────────────────────
     #  BE-03: ASSIGNMENT ACTIONS
@@ -5648,7 +5810,17 @@ class Database:
         scope_id: Optional[str] = None,
         orphaned_only: bool = False,
         current_user_id: Optional[int] = None,
+        select=None,
     ) -> list[UnresolvedAssignmentDC]:
+        """Unresolved assignments the reader may review, optionally one selected page.
+
+        The reader's task access and task.review run over every candidate first.
+        ``select`` then receives these lightweight rows (``deadline_at`` and
+        ``assignment_id``) and returns the ones to build, in response order, e.g. a
+        keyset page. Assignment DTOs, submissions and the assignees' own task access
+        are computed only for the selected rows; orphaned_only depends on the
+        assignee's access, so it is evaluated for every candidate before ``select``.
+        """
         with self._session() as session:
             active_statuses = UNRESOLVED_STATUSES
             query = (
@@ -5663,27 +5835,64 @@ class Database:
                 query = query.filter(TaskORM.scope_id == scope_id)
 
             pairs = query.all()
-            results = []
             from tracker import is_control_task
-            for a, t in pairs:
-                if t.scope_kind=="queue" or a.status not in active_statuses or is_control_task(session, t.task_id):continue
+            # The central batch task ACL records the same task_read decisions the
+            # per-row checks below use (a no-op outside a clean read UOW).
+            from task_queues import readable_tasks_many
+            import access
+            candidates = [(a, t) for a, t in pairs
+                          if t.scope_kind != "queue" and a.status in active_statuses and not is_control_task(session, t.task_id)]
+            if current_user_id is not None:
+                readable_tasks_many(session, {current_user_id: list({t.task_id: t for _, t in candidates}.values())})
+            reviewable = {}
+            visible = []
+            for a, t in candidates:
                 if current_user_id is not None:
-                    import access
                     if not self.can_read_task(current_user_id,t,session):continue
-                    if not access.allowed(current_user_id, "task.review", t.scope_kind, t.scope_id,
-                                          state=access.season_state(t.season_id)):
+                    key = (t.scope_kind, t.scope_id, t.season_id)
+                    if key not in reviewable:
+                        reviewable[key] = access.allowed(current_user_id, "task.review", t.scope_kind, t.scope_id,
+                                                         state=access.season_state(t.season_id))
+                    if not reviewable[key]:
                         continue
+                visible.append((a, t))
 
+            def assignee_access(rows):
+                by_user = {}
+                for a, t in rows:
+                    by_user.setdefault(a.assignee_user_id, {})[t.task_id] = t
+                readable_tasks_many(session, {uid: list(tasks.values()) for uid, tasks in by_user.items()})
+
+            def unavailable(a, t):
+                _note_user(a.assignee_user_id)
                 u = session.get(UserORM, a.assignee_user_id)
-                unavail = None
                 if not u or u.banned or getattr(u, "account_state", "active") != "active":
-                    unavail = "archived"
-                elif not self.can_read_task(a.assignee_user_id,t,session):
-                    unavail = "left_scope"
+                    return "archived"
+                if not self.can_read_task(a.assignee_user_id,t,session):
+                    return "left_scope"
+                return None
 
-                if orphaned_only and unavail is None:
-                    continue
-
+            reasons = {}
+            if orphaned_only:
+                assignee_access(visible)
+                for a, t in visible:
+                    reasons[a.assignment_id] = unavailable(a, t)
+                visible = [(a, t) for a, t in visible if reasons[a.assignment_id] is not None]
+            rows = [_UnresolvedCandidate(a, t) for a, t in visible]
+            if select is not None:
+                rows = select(rows)
+            selected = [(row.assignment, row.task) for row in rows]
+            if not orphaned_only:
+                assignee_access(selected)
+            _prime_assignment_details(session, [a for a, _ in selected])
+            from read_context import reusable
+            subevent_ids = sorted({t.scope_id for _, t in selected if t.scope_kind == "subevent" and t.scope_id})
+            if subevent_ids and reusable(session):
+                # The selected rows' scope titles; the read UOW holds these rows.
+                session.query(SubeventORM).filter(SubeventORM.subevent_id.in_(subevent_ids)).all()
+            results = []
+            for a, t in selected:
+                unavail = reasons[a.assignment_id] if orphaned_only else unavailable(a, t)
                 a_dc=_assignment_orm_to_dc(session,a,current_user_id)
                 a_dc.assignee_unavailable_reason = unavail
                 results.append(
@@ -6416,7 +6625,8 @@ class Database:
                         )
                     return res
 
-            bonuses = _calculate_master_bonuses_for_session(session, season_id)
+            # The summary's prepared inputs: the same rows and reference policy, read once.
+            bonuses = _calculate_master_bonuses_for_session(session, season_id, prepared=_SeasonSummaryData(session, season_id))
             if block_id:
                 bonuses = [b for b in bonuses if b.block_id == block_id]
             return bonuses
@@ -6720,18 +6930,91 @@ def _load_leaders(session: Session, scope_kind: str, scope_id: str, role: str) -
                   lambda: _load_leaders_uncached(session, scope_kind, scope_id, role))
 
 
+def scalar_rows(session: Session, model, columns, *criteria):
+    """Scalar column tuples of a whole table in rowid order, read as ONE result row.
+
+    SQLite's driver releases and re-acquires the GIL for every fetched row, so
+    concurrent requests reading many rows wait on each other. json_group_array
+    builds the rows inside SQLite (TEXT->str, INTEGER->int, REAL->float,
+    NULL->None, exactly as a row fetch). A value JSON cannot hold (BLOB) falls
+    back to the ordinary row query; the select itself never writes.
+    """
+    from sqlalchemy import func, literal_column, select
+    from sqlalchemy.exc import DBAPIError
+    rowid = literal_column(model.__tablename__ + ".rowid")
+    statement = select(func.json_group_array(func.json_array(rowid, *columns))).select_from(model.__table__)
+    if criteria:
+        statement = statement.where(*criteria)
+    try:
+        raw = session.execute(statement).scalar_one()
+    except DBAPIError:
+        query = session.query(rowid, *columns)
+        rows = [tuple(row) for row in (query.filter(*criteria) if criteria else query)]
+    else:
+        rows = [tuple(row) for row in json.loads(raw)]
+    rows.sort(key=lambda row: row[0])
+    return [row[1:] for row in rows]
+
+
+from collections import namedtuple as _namedtuple
+_RoleFact = _namedtuple("_RoleFact", "role_assignment_id user_id revision")
+
+
+def _role_rows(session: Session):
+    """Every stored RoleAssignment of a clean read UOW, once, in rowid order; else None.
+
+    Grouped by (scope, role) and by principal. The single-scope queries below scan
+    the same table order, so leader and deputy order is unchanged.
+    """
+    from types import MappingProxyType
+    from read_context import snapshot
+    def load():
+        by_scope, by_principal, by_id = {}, {}, {}
+        for rid, user_id, kind, scope_id, role, principal, revision in scalar_rows(session, RoleAssignmentORM, (
+            RoleAssignmentORM.role_assignment_id, RoleAssignmentORM.user_id, RoleAssignmentORM.scope_kind,
+            RoleAssignmentORM.scope_id, RoleAssignmentORM.role, RoleAssignmentORM.principal_assignment_id,
+            RoleAssignmentORM.revision,
+        )):
+            fact = _RoleFact(rid, user_id, revision)
+            by_scope.setdefault((kind, scope_id, role), []).append(fact)
+            if principal is not None:
+                by_principal.setdefault(principal, []).append(fact)
+            by_id[rid] = (kind, scope_id, user_id)
+        return (MappingProxyType({key: tuple(rows) for key, rows in by_scope.items()}),
+                MappingProxyType({key: tuple(rows) for key, rows in by_principal.items()}),
+                MappingProxyType(by_id))
+    return snapshot("database.role_rows", load, session)
+
+
+def role_assignment_scope(session: Session, role_assignment_id):
+    """(scope_kind, scope_id, user_id) of a stored assignment, or None."""
+    grouped = _role_rows(session) if isinstance(role_assignment_id, str) else None
+    if grouped is not None:
+        return grouped[2].get(role_assignment_id)
+    a = session.get(RoleAssignmentORM, role_assignment_id)
+    return (a.scope_kind, a.scope_id, a.user_id) if a else None
+
+
 def _load_leaders_uncached(session: Session, scope_kind: str, scope_id: str, role: str) -> list[LeaderDC]:
-    rows = session.query(RoleAssignmentORM).filter(
-        RoleAssignmentORM.scope_kind == scope_kind,
-        RoleAssignmentORM.scope_id == scope_id,
-        RoleAssignmentORM.role == role,
-    ).all()
+    grouped = _role_rows(session) if all(isinstance(v, str) for v in (scope_kind, scope_id, role)) else None
+    if grouped is not None:
+        rows = grouped[0].get((scope_kind, scope_id, role), ())
+    else:
+        rows = session.query(RoleAssignmentORM).filter(
+            RoleAssignmentORM.scope_kind == scope_kind,
+            RoleAssignmentORM.scope_id == scope_id,
+            RoleAssignmentORM.role == role,
+        ).all()
     leaders = []
     for r in rows:
-        dep_rows = session.query(RoleAssignmentORM).filter(
-            RoleAssignmentORM.principal_assignment_id == r.role_assignment_id
-        ).all()
+        if grouped is not None:
+            dep_rows = grouped[1].get(r.role_assignment_id, ())
+        else:
+            dep_rows = session.query(RoleAssignmentORM).filter(
+                RoleAssignmentORM.principal_assignment_id == r.role_assignment_id
+            ).all()
         dep_uids = [d.user_id for d in dep_rows]
+        _note_user(r.user_id)
         u = session.get(UserORM, r.user_id)
         display_name = f"Участник {r.user_id}"
         photo_url = None

@@ -162,7 +162,7 @@ function SeasonOverview({ season, summary, allowed, participants = true, focusCh
   const { session } = useSession();const id = season.season_id;
   const analytics = useQuery({ queryKey: analyticsKey(id), queryFn: () => seasonsApi.analytics(id), enabled: allowed });
   const bonuses = useQuery({ queryKey: ["masterBonuses", id], queryFn: () => seasonsApi.bonuses(id), enabled: allowed });
-  const readiness = useQuery({ queryKey: ["seasons", "readiness", id], queryFn: () => seasonsApi.readiness(id), enabled: allowed && ["open", "summarizing"].includes(season.state) });
+  const readiness = useQuery({ queryKey: ["seasons", "readiness", id], queryFn: () => seasonsApi.readiness(id, { include_task_ids: true }), enabled: allowed && ["open", "summarizing"].includes(season.state) });
   // Returning from a blocker's task lands on the checks, opened.
   const checks = useRef<HTMLElement>(null), readinessLoaded = !!readiness.data;
   useEffect(() => { if (focusChecks && readinessLoaded) checks.current?.scrollIntoView?.({ block: "start" }); }, [focusChecks, readinessLoaded]);

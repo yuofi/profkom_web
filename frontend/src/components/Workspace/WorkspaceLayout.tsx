@@ -4,7 +4,7 @@ import { Loading } from "./WorkspaceUI";
 import { Link, Outlet, UNSAFE_DataRouterContext, useLocation } from "react-router-dom";
 import { prefetchRouteData, preloadRouteCode } from "../../utils/routePrefetch";
 import { useMe } from "../../utils/me";
-import { personName } from "../../utils/contactFields";
+import { personName } from "../../utils/personName";
 import { can, isActiveSession, useSession } from "../../utils/session";
 import { supportApi } from "../../utils/api/support.api";
 import { canRetainData } from "../../utils/api/request";

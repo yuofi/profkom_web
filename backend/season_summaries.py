@@ -6,6 +6,7 @@ from collections import defaultdict
 from contextvars import ContextVar
 from dataclasses import asdict
 from fastapi import Depends, HTTPException
+from sqlalchemy import func
 from models import User
 from auth import get_current_user
 from database import (
@@ -228,30 +229,39 @@ def refresh(session, season_id, uid, reason):
     allowed = {r["participant_id"] for r in rows}
     _recalculate_closed_master_bonuses_for_session(session, season_id)
     session.flush()
+    # The season's contributions and evaluated-task counts are read once (nothing is
+    # written until the rows are stored) and grouped as the per-participant queries were.
+    contributions = session.query(ContributionORM).filter_by(season_id=season_id).all()
     if any(
         c.participant_id not in allowed
-        for c in session.query(ContributionORM).filter_by(season_id=season_id)
+        for c in contributions
     ):
         raise InvalidInput("Recipient is outside the closed participant snapshot")
+    by_participant = defaultdict(list)
+    for c in contributions:
+        by_participant[c.participant_id].append(c)
     decisions = {
         d.user_id: json.loads(d.decisions_json)
         for d in session.query(SeasonDecisionORM).filter_by(season_id=season_id)
     }
+    evaluated = dict(
+        session.query(AssignmentORM.assignee_user_id, func.count())
+        .join(TaskORM, TaskORM.task_id == AssignmentORM.task_id)
+        .filter(
+            TaskORM.season_id == season_id,
+            TaskORM.scope_kind.in_(("block","subevent")),
+            AssignmentORM.status.in_(["accepted", "not_completed"]),
+            AssignmentORM.evaluation.isnot(None),
+        )
+        .group_by(AssignmentORM.assignee_user_id)
+    ) if rows else {}
     for r in rows:
-        r["source_scores"] = totals(session, season_id, r["participant_id"])
+        r["source_scores"] = totals(session, season_id, r["participant_id"],
+                                    contributions=by_participant.get(r["participant_id"], []))
         r["total_score"] = math.fsum(x["score"] for x in r["source_scores"])
         uid_row = r["user"]["user_id"]
         r["evaluated_task_count"] = (
-            session.query(AssignmentORM)
-            .join(TaskORM)
-            .filter(
-                TaskORM.season_id == season_id,
-                TaskORM.scope_kind.in_(("block","subevent")),
-                AssignmentORM.assignee_user_id == uid_row,
-                AssignmentORM.status.in_(["accepted", "not_completed"]),
-                AssignmentORM.evaluation.isnot(None),
-            )
-            .count()
+            evaluated.get(uid_row, 0)
             if uid_row is not None
             else r["evaluated_task_count"]
         )
@@ -503,7 +513,7 @@ def register_routes(router):
         return preview_event(event_id, cur.user_id)
 
     @router.get("/seasons/{season_id}/readiness")
-    def readiness(season_id: str, cur: User = Depends(get_current_user)):
+    def readiness(season_id: str, include_task_ids: bool = False, cur: User = Depends(get_current_user)):
         if not access.allowed(cur.user_id, "summary.view"):
             raise Forbidden("Forbidden: season readiness requires summary access")
         from season_readiness import blockers
@@ -512,6 +522,11 @@ def register_routes(router):
             if not season:
                 raise NotFound("Season not found")
             items = blockers(session, season, cur.user_id)
+            if include_task_ids:
+                # Assignment blockers gain task_id: the task when the actor may open it.
+                from task_queues import assignment_task_ids
+                tasks = assignment_task_ids(cur.user_id, [b["owner_id"] for b in items if b["owner_kind"] == "assignment"])
+                items = [dict(b, task_id=tasks.get(b["owner_id"])) if b["owner_kind"] == "assignment" else b for b in items]
             return dict(ready=not items and season.state in {"open", "summarizing"}, blockers=items, revision=season.revision)
 
     def require_reader(uid):

@@ -115,11 +115,13 @@ def approve_assignment_access(session,task,target_uid,actor_uid):
     return grant
 
 
-def _managers(session,task):
+def _managers(session,task,facts=None):
     from task_queues import task_queue,active
+    from tracker import _facts_for
+    facts=_facts_for(facts,task)
     queue=task_queue(session,task)
     return {uid for uid in (task.created_by_user_id,queue.owner_user_id if queue else None)
-            if uid and active(session,uid) and db.can_read_task(uid,task,session)}
+            if uid and active(session,uid) and (facts.readable(uid) if facts else db.can_read_task(uid,task,session))}
 
 
 def _task_key(session,task):

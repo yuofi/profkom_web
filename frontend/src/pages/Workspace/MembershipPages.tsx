@@ -1,7 +1,7 @@
 import { UserChip } from "../../components/Workspace/UserChip";
 import { BlockAvatarPicker } from "../../components/Workspace/BlockAvatarPicker";
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Navigate, useParams } from "react-router-dom";
 import { getBlockRoute } from "../../utils/routes";
 import {
@@ -55,6 +55,9 @@ const requestTones: Record<BlockRequest["state"], Tone | undefined> = {
   withdrawn: undefined,
 };
 const isOpen = (r: BlockRequest) => ["pending_hr", "pending_block"].includes(r.state);
+const openStates: BlockRequest["state"][] = ["pending_hr", "pending_block"];
+const closedStates: BlockRequest["state"][] = ["approved", "rejected", "withdrawn"];
+const historyPage = 20;
 export function BlocksPage() {
   const { session } = useSession();
   const enabled = session?.account_state === "active" && session.registration_status === "approved";
@@ -87,23 +90,27 @@ export function BlocksPage() {
 export function BlockPage() {
   const { id = "" } = useParams();
   const { session } = useSession();
-  const people = usePeopleOptions();
   const { perform, refresh } = useWorkspaceActions();
   const [leadership, setLeadership] = useState(false);
   const query = useQuery({
     queryKey: ["workspaceBlocks", id],
-    queryFn: () => membershipApi.block(id),
+    queryFn: () => membershipApi.block(id, { include_deputies: true }),
   });
   const b = !query.error || canRetainData(query.error) ? query.data : undefined;
+  // The directory serves only the master assignment form (PF-13).
+  const people = usePeopleOptions({ enabled: can(b, "manage_leaders") });
   const canViewTracker = can(b, "view_tasks");
   const alreadyInBlock = !!b && !!session && (b.members.some(member => member.user.user_id === session.user_id) || b.master?.user.user_id === session.user_id || !!b.master?.deputy_user_ids.includes(session.user_id));
   // A member cannot leave on their own (403 self_leave_forbidden): say whom to ask (PE-22).
   const plainMember = !!b && !!session && b.members.some(member => member.user.user_id === session.user_id) && b.master?.user.user_id !== session.user_id && !b.master?.deputy_user_ids.includes(session.user_id);
-  const leaveContacts = b ? [b.master?.user, ...(b.master?.deputy_user_ids ?? []).map(userId => people.options.find(option => option.value === String(userId))?.user), b.hr]
+  // Deputies come as references with include_deputies; the directory is not read for them (PF-13).
+  const deputies = b?.master ? (b.master.deputies?.length === b.master.deputy_user_ids.length ? b.master.deputies : b.master.deputy_user_ids.map(userId => people.options.find(option => option.value === String(userId))?.user)) : [];
+  const leaveContacts = b ? [b.master?.user, ...deputies, b.hr]
     .filter((user, index, all): user is NonNullable<typeof user> => !!user?.user_id && user.user_id !== session?.user_id && all.findIndex(other => other?.user_id === user.user_id) === index) : [];
+  // Only the own requests to this block, not the whole visible history (PB-22, PF-13).
   const requests = useQuery({
-    queryKey: ["blockRequests"],
-    queryFn: membershipApi.requests,
+    queryKey: ["blockRequests", "mine", id],
+    queryFn: () => membershipApi.requests({ block_id: id, mine: true }),
   });
   const pending = requests.data?.items.find(
     (r) =>
@@ -423,9 +430,11 @@ function RequestCard({
   );
 }
 export function BlockRequestsPage() {
+  // Open requests in full (they are decided here), the own closed ones, and the rest of the
+  // history in keyset pages of 20 from the newest (PB-22) instead of every request with a full DTO.
   const query = useQuery({
-    queryKey: ["blockRequests"],
-    queryFn: membershipApi.requests,
+    queryKey: ["blockRequests", "open"],
+    queryFn: () => membershipApi.requests({ state: openStates }),
     refetchOnWindowFocus: "always",
     refetchInterval: (query) =>
       query.state.data?.items.some((r) =>
@@ -433,6 +442,17 @@ export function BlockRequestsPage() {
       )
         ? 60_000
         : false,
+  });
+  const mine = useQuery({
+    queryKey: ["blockRequests", "mine", "closed"],
+    queryFn: () => membershipApi.requests({ mine: true, state: closedStates }),
+    refetchOnWindowFocus: "always",
+  });
+  const history = useInfiniteQuery({
+    queryKey: ["blockRequests", "history"],
+    queryFn: ({ pageParam }) => membershipApi.requests({ state: closedStates, limit: historyPage, order: "desc", ...(pageParam ? { cursor: pageParam } : {}) }),
+    initialPageParam: "",
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
   });
   useDeadlineRefresh(
     query.data?.items
@@ -442,12 +462,20 @@ export function BlockRequestsPage() {
       ) ?? [],
     query.refetch,
   );
+  // A request decided elsewhere leaves the open list: reread the closed lists to show it there.
+  const client = useQueryClient(), openIds = query.data?.items.map(r => r.request_id).join(" "), previousOpen = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const before = previousOpen.current;previousOpen.current = openIds;
+    if (before === undefined || openIds === undefined) return;
+    const now = new Set(openIds.split(" "));
+    if (before.split(" ").some(id => id && !now.has(id)))
+      void client.invalidateQueries({ queryKey: ["blockRequests"], predicate: item => item.queryKey[1] !== "open" });
+  }, [client, openIds]);
   const blocks = useQuery({
     queryKey: ["workspaceBlocks"],
     queryFn: membershipApi.blocks,
   });
   const { session } = useSession();
-  const [historyLimit, setHistoryLimit] = useState(20);
   // Each request in one section: my decisions first, then my own, the rest, history (A-ROL-3).
   const sections: [string, BlockRequest[]][] = [
     ["Этап HR — моё решение", []],
@@ -456,11 +484,18 @@ export function BlockRequestsPage() {
     ["Прочие открытые", []],
     ["История", []],
   ];
-  for (const r of query.data?.items ?? []) {
+  // The open list is the freshest copy of an open request; the list keeps the server order.
+  const byId = new Map<string, BlockRequest>();
+  for (const r of [...history.data?.pages.flatMap(page => page.items) ?? [], ...mine.data?.items ?? [], ...query.data?.items ?? []]) byId.set(r.request_id, r);
+  const loaded = [...byId.values()].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.request_id.localeCompare(b.request_id));
+  const errors = [query.error, mine.error, history.error].filter(Boolean), error = errors.find(item => !canRetainData(item)) ?? errors[0] ?? null;
+  for (const r of loaded) {
     const index = can(r, "hr_review_request") ? 0 : can(r, "block_review_request") ? 1
       : r.user.user_id === session?.user_id ? 2 : isOpen(r) ? 3 : 4;
     sections[index][1].push(r);
   }
+  // The history is paged from its latest end: newest first, "Показать ещё" adds older ones.
+  sections[4][1].reverse();
   const blockName = (r: BlockRequest) => blocks.data?.find((b) => b.block_id === r.block_id)?.name ?? "Блок";
   const card = (r: BlockRequest) => (
     <RequestCard
@@ -475,16 +510,16 @@ export function BlockRequestsPage() {
       description="Обычный блок: HR, затем мастер. В HR-блок вступление завершается после одного решения HR."
 
     >
-      <QueryState keepDataOnError={!!query.data}
-        loading={query.isLoading} error={query.error} retry={() => void query.refetch()}>
+      <QueryState keepDataOnError={!!query.data && !!mine.data && !!history.data}
+        loading={query.isLoading || mine.isLoading || history.isLoading} error={error} retry={() => { void query.refetch();void mine.refetch();void history.refetch(); }}>
         <div className={s.stack}>
           {sections.map(([title, items]) =>
-            items.length === 0 ? null : title === "История" ? (
-              // History is a compact list of rows, twenty at a time; a row opens its card (PE-27).
+            items.length === 0 && !(title === "История" && history.hasNextPage) ? null : title === "История" ? (
+              // History is a compact list of rows, twenty a page; a row opens its card (PE-27).
               <details key={title} className={s.details}>
                 <summary>История · {items.length}</summary>
                 <ul className={m.history}>
-                  {items.slice(0, historyLimit).map((r) => (
+                  {items.map((r) => (
                     <li key={r.request_id}>
                       <details className={m.historyRow}>
                         <summary>
@@ -497,9 +532,9 @@ export function BlockRequestsPage() {
                     </li>
                   ))}
                 </ul>
-                {items.length > historyLimit && (
-                  <button type="button" className={s.button} onClick={() => setHistoryLimit((limit) => limit + 20)}>
-                    Показать ещё · {items.length - historyLimit}
+                {history.hasNextPage && (
+                  <button type="button" className={s.button} disabled={history.isFetchingNextPage} aria-busy={history.isFetchingNextPage} onClick={() => void history.fetchNextPage()}>
+                    Показать ещё
                   </button>
                 )}
               </details>
@@ -510,7 +545,7 @@ export function BlockRequestsPage() {
               </section>
             ),
           )}
-          {query.data?.items.length === 0 && <Empty>Заявок пока нет.</Empty>}
+          {!!query.data && !!mine.data && !!history.data && !loaded.length && !history.hasNextPage && <Empty>Заявок пока нет.</Empty>}
         </div>
       </QueryState>
     </Page>

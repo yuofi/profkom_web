@@ -4,6 +4,7 @@ Keys and per-queue numbers are immutable identities; UUID task URLs stay valid.
 Explicit queue/task grants never confer private accounting or team authority.
 The WEBSUPPORT staff boundary remains a separate mandatory gate.
 """
+from contextvars import ContextVar
 from dataclasses import asdict
 from datetime import datetime, timezone
 import json
@@ -13,15 +14,16 @@ import uuid
 from sqlalchemy import text
 from database import (db, engine, SessionLocal, TaskORM, TaskTrackerORM, TaskActivityORM,
     TaskQueueORM, TaskQueueRequestORM, TaskQueueMemberORM, UserORM, BlockORM,
-    SubeventORM, EventORM, ContributionORM, AssignmentORM, _user_to_ref_dc)
+    SubeventORM, EventORM, ContributionORM, AssignmentORM, _user_to_ref_dc, _note_user)
 from errors import Forbidden, InvalidInput, NotFound, Conflict, revision_conflict
-from read_context import cached
+from read_context import cached, orm_get, prime_get, reusable
 
 
 def now(): return datetime.now(timezone.utc).isoformat()
 
 
 def active(session, uid):
+    _note_user(uid)
     u=session.get(UserORM,uid)
     return bool(u and not u.banned and u.account_state=='active')
 
@@ -36,16 +38,76 @@ def can_read(session, queue, uid):
     return cached(session,"queue.can_read",key,lambda:_can_read(session,queue,uid),copy_result=False)
 
 
+# The ReaderFacts of the batch deciding can_read (module-level can_read stays the seam).
+_reader_facts=ContextVar("task_queues.reader_facts",default=None)
+
+
+def _can_read_with(facts, session, queue, uid):
+    token=_reader_facts.set(facts)
+    try:return can_read(session,queue,uid)
+    finally:_reader_facts.reset(token)
+
+
+class ReaderFacts:
+    """One reader's account, support and global-role facts for one readable_tasks call.
+
+    A read_context.Calculation: each fact is computed at most once while the session
+    is unchanged and dropped at the first change, flush or command, so every decision
+    is the one the per-queue/per-task checks make. Never kept after the call.
+    """
+    def __init__(self, session, uid, calculation=None):
+        """``calculation``: one shared by several readers' facts (keys carry the uid)."""
+        from read_context import Calculation
+        self.session, self.uid = session, uid
+        self.calculation = calculation if calculation is not None else Calculation(session)
+        self.value = lambda key, load: self.calculation.value((uid, key), load)
+
+    def active(self):
+        return self.value("active", lambda: active(self.session, self.uid))
+
+    def support_queue(self, queue):
+        from support import support_queue_id
+        target = self.calculation.value("support.queue_id", lambda: support_queue_id(self.session))
+        return bool(target and queue and queue.queue_id == target)
+
+    def staff(self):
+        from support import is_staff
+        return self.value("support.staff", lambda: is_staff(self.session, self.uid))
+
+    def all_queue_reader(self):
+        from access import all_queue_reader
+        return self.value("all_queue_reader", lambda: all_queue_reader(self.uid))
+
+    def can_view_scope(self, kind, scope_id):
+        """db.can_view_scope: access.relations with its global part computed once."""
+        import access
+        def load():
+            user = self.value("user", lambda: db.get_user(self.uid))
+            if not self.uid or not user or user.account_state != "active" or user.banned:
+                rel = frozenset()
+            else:
+                rel = self.value("global", lambda: access._global_relations(self.uid))
+                if kind in access.SCOPES and scope_id is not None:
+                    rel = rel | access.scope_relations(self.uid, kind, scope_id)
+            return access.allowed(self.uid, "task.view", rel=frozenset(rel))
+        return self.value(("scope", kind, scope_id), load)
+
+
 def _can_read(session, queue, uid):
-    if not queue or not uid or not active(session,uid):return False
+    facts=_reader_facts.get()
+    if facts is not None and (facts.uid != uid or facts.calculation.session is not getattr(session, "session", session)):
+        facts = None
+    if not queue or not uid or not (facts.active() if facts else active(session,uid)):return False
     from support import is_support_queue, is_staff
-    if is_support_queue(session, queue):return is_staff(session, uid)
+    if facts.support_queue(queue) if facts else is_support_queue(session, queue):
+        return facts.staff() if facts else is_staff(session, uid)
     from access import all_queue_reader
-    if all_queue_reader(uid):return True
+    if facts.all_queue_reader() if facts else all_queue_reader(uid):return True
     if getattr(queue,'key',None)=='KKR':return False
-    grant=session.get(TaskQueueMemberORM,(queue.queue_id,uid))
+    grant=orm_get(session,TaskQueueMemberORM,(queue.queue_id,uid))
     if queue.owner_user_id==uid or bool(grant and grant.active):return True
-    return base_read(uid,queue) and not queue.is_private
+    if facts is None:return base_read(uid,queue) and not queue.is_private
+    return (queue.scope_kind=="queue" or facts.can_view_scope(queue.scope_kind,queue.scope_id)) and not queue.is_private
 
 
 def task_queue(session, task):
@@ -75,28 +137,96 @@ def _task_read(session, task, uid):
     return all_queue_reader(uid) or db.can_view_scope(uid,task.scope_kind,task.scope_id)  # pre-migration in-memory fixtures
 
 
-def readable_tasks(session, tasks, uid):
+def readers_of(session, task, uids):
+    """The users of ``uids`` task_read admits for one task (a comment's fan-out).
+
+    The task's tracker row, queue and support target and the readers' feedback
+    ownership, queue grants and task grants are read once for all of them; each
+    reader's own facts come from ReaderFacts. Every value belongs to one
+    read_context.Calculation: after any change (a modified, deleted or newly added
+    row, a flush or command) the remaining readers are decided by task_read itself.
+    The decisions are task_read's.
+    """
+    from read_context import Calculation
+    from support_models import FeedbackORM
+    from tracker_collaboration_models import TaskAccessGrantORM
+    ids = list(dict.fromkeys(uids))
+    plain = [uid for uid in ids if isinstance(uid, int) and uid]
+    # The comment itself is still unflushed; its row is read by none of these checks.
+    calculation = Calculation(session, pending_ok=True)
+    if not task or not plain or not calculation.usable():
+        return {uid for uid in ids if task_read(session, task, uid)}
+    queue = task_queue(session, task)
+    owned = {row[0] for row in session.query(FeedbackORM.user_id).filter(
+        FeedbackORM.task_id == task.task_id, FeedbackORM.user_id.in_(plain))}
+    granted = {row.user_id for row in session.query(TaskAccessGrantORM).filter(
+        TaskAccessGrantORM.task_id == task.task_id, TaskAccessGrantORM.active.is_(True),
+        TaskAccessGrantORM.user_id.in_(plain))}
+    if queue is not None:
+        # Loaded grant rows stay in this unit's identity map for _can_read's lookups.
+        session.query(TaskQueueMemberORM).filter(TaskQueueMemberORM.queue_id == queue.queue_id,
+                                                 TaskQueueMemberORM.user_id.in_(plain)).all()
+    support = queue is not None and ReaderFacts(session, None, calculation).support_queue(queue)
+    result = set()
+    for uid in ids:
+        if uid not in plain or not calculation.usable():
+            if task_read(session, task, uid):
+                result.add(uid)
+            continue
+        facts = ReaderFacts(session, uid, calculation)
+        if uid in owned and facts.active():
+            result.add(uid)  # support.owns_task: an active reporter of this task
+            continue
+        if queue is None:
+            if facts.all_queue_reader() or facts.can_view_scope(task.scope_kind, task.scope_id):
+                result.add(uid)
+            continue
+        if _can_read_with(facts, session, queue, uid):
+            result.add(uid)
+            continue
+        if not calculation.usable():
+            if task_read(session, task, uid):
+                result.add(uid)
+            continue
+        # Without an active grant row among those read above has_task_grant refuses.
+        if not support and uid in granted:
+            from tracker_collaboration import has_task_grant
+            if has_task_grant(session, task.task_id, uid):
+                result.add(uid)
+    return result
+
+
+def readable_tasks(session, tasks, uid, *, known=None, rows=None):
     """Batch materialization of task_read, using the same queue/scope policy.
 
     Decisions may be reused only by the existing clean read UOW; any command or
     dirty state disables all hints. Support reporters bypass only their own linked
     task; can_read still checks the support staff gate before global roles.
+    ``known`` = (tracker rows, queues) the caller already loaded in this clean UOW;
+    ``rows`` = this reader's feedback task ids, active grant rows and queue grants
+    that readable_tasks_many read for several readers at once (same predicates).
     """
     from sqlalchemy import or_
     from support_models import FeedbackORM
-    from access import all_queue_reader
     values=[task for task in tasks if task is not None]
     if not values:return []
+    # Reader facts (account, support queue, global roles) once for the whole call.
+    facts=ReaderFacts(session,uid)
     identifiers=list(dict.fromkeys(task.task_id for task in values))
     chunks=lambda items: (items[index:index+500] for index in range(0,len(items),500))
     owned=set()
-    if active(session,uid):
+    if rows is not None and not reusable(session):rows=None
+    if facts.active() and rows is not None:owned.update(rows["owned"])
+    elif facts.active():
         for batch in chunks(identifiers):
             predicate=FeedbackORM.task_id.in_([item for item in batch if item is not None])
             if None in batch:predicate=or_(predicate,FeedbackORM.task_id.is_(None))
             owned.update(row[0] for row in session.query(FeedbackORM.task_id).filter(FeedbackORM.user_id==uid,predicate))
-    metadata={}
-    for batch in chunks(identifiers):
+    # Rows a TaskIndex already read in this clean UOW are the same session objects
+    # the query below would return; any pending/dirty state ignores them.
+    known_metas,known_queues=known if known is not None and reusable(session) else ({},{})
+    metadata={task_id:known_metas[task_id] for task_id in identifiers if task_id in known_metas}
+    for batch in chunks([task_id for task_id in identifiers if task_id not in metadata]):
         for row in session.query(TaskTrackerORM).filter(TaskTrackerORM.task_id.in_(batch)):
             metadata[row.task_id]=row
     # Match task_queue: a persisted row takes precedence over a pending duplicate.
@@ -109,18 +239,34 @@ def readable_tasks(session, tasks, uid):
     # Prime explicit grants once for the entire selection, including negatives;
     # outsiders must not introduce one SELECT per hidden task.
     granted=set()
-    if active(session,uid):
-        for batch in chunks(identifiers):
-            for grant in session.query(TaskAccessGrantORM).filter(TaskAccessGrantORM.user_id==uid,TaskAccessGrantORM.active.is_(True),TaskAccessGrantORM.task_id.in_(batch)):
-                if grant.source!="control":granted.add(grant.task_id)
+    active_grants=set()
+    if facts.active():
+        found=rows["grants"] if rows is not None else (grant for batch in chunks(identifiers) for grant in session.query(TaskAccessGrantORM).filter(
+            TaskAccessGrantORM.user_id==uid,TaskAccessGrantORM.active.is_(True),TaskAccessGrantORM.task_id.in_(batch)))
+        for grant in found:
+            if grant.task_id not in wanted:continue
+            active_grants.add(grant.task_id)
+            if grant.source!="control":granted.add(grant.task_id)
     from domain_models import KkrControlEpicORM
     controls=cached(session,"kkr.control_task_ids",None,lambda:frozenset(row[0] for row in session.query(KkrControlEpicORM.task_id)),copy_result=False)
     granted.difference_update(controls)
     for task_id in identifiers:
         if task_id not in controls:cached(session,"task.single_grant",(task_id,uid),lambda task_id=task_id:task_id in granted,copy_result=False)
-    queues={}
-    for batch in chunks(queue_ids):
+        # A control without an active grant row is refused by has_task_grant's own
+        # check; one with a row keeps the full source-scope check.
+        elif task_id not in active_grants:cached(session,"task.single_grant",(task_id,uid),lambda:False,copy_result=False)
+    queues={queue_id:known_queues[queue_id] for queue_id in queue_ids if queue_id in known_queues}
+    for batch in chunks([queue_id for queue_id in queue_ids if queue_id not in queues]):
         queues.update((row.queue_id,row) for row in session.query(TaskQueueORM).filter(TaskQueueORM.queue_id.in_(batch)))
+    # The reader's queue grants for the whole selection, including absent rows,
+    # are the same TaskQueueMember PK reads _can_read performs one queue at a time.
+    if queue_ids and reusable(session) and facts.active():
+        members={}
+        for row in (rows["members"] if rows is not None else (row for batch in chunks(queue_ids) for row in session.query(
+                TaskQueueMemberORM).filter(TaskQueueMemberORM.user_id==uid,TaskQueueMemberORM.queue_id.in_(batch)))):
+            members[row.queue_id]=row
+        for queue_id in queue_ids:
+            prime_get(session,TaskQueueMemberORM,(queue_id,uid),members.get(queue_id))
     decisions={}
     scope_decisions={}
     global_reader=None
@@ -134,19 +280,22 @@ def readable_tasks(session, tasks, uid):
         meta=metadata.get(task.task_id)
         queue=queues.get(meta.queue_id) if meta and meta.queue_id else None
         if queue:
-            if queue.queue_id not in decisions:decisions[queue.queue_id]=can_read(session,queue,uid)
+            if queue.queue_id not in decisions:decisions[queue.queue_id]=_can_read_with(facts,session,queue,uid)
             allowed=decisions[queue.queue_id]
-            if not allowed:
-                from support import is_support_queue
-                if not is_support_queue(session,queue):
+            if not allowed and not facts.support_queue(queue):
+                if task.task_id not in active_grants and facts.calculation.usable():
+                    # The grant rows above were read in this unchanged session: no
+                    # active row for this task, which has_task_grant would refuse.
+                    allowed=False
+                else:
                     from tracker_collaboration import has_task_grant
                     allowed=has_task_grant(session,task.task_id,uid)
         else:
-            if global_reader is None:global_reader=all_queue_reader(uid)
+            if global_reader is None:global_reader=facts.all_queue_reader()
             key=(task.scope_kind,task.scope_id)
             if global_reader:allowed=True
             else:
-                if key not in scope_decisions:scope_decisions[key]=db.can_view_scope(uid,*key)
+                if key not in scope_decisions:scope_decisions[key]=facts.can_view_scope(*key)
                 allowed=scope_decisions[key]
         if allowed:result.append(task)
         task_decisions.append((task,allowed))
@@ -251,6 +400,68 @@ def task_readers(session, task, uids):
     return readers&ids
 
 
+def readable_tasks_many(session, tasks_by_user):
+    """readable_tasks for several users in one clean read UOW, sharing tracker rows.
+
+    Each user keeps the ordinary batch policy (support gate, private queues, grants,
+    ownership); only the selection's tracker/queue rows are read once. The
+    decisions are recorded as task_read hints. No-op outside a clean read UOW.
+    """
+    if not reusable(session):
+        return {}
+    tasks = {task.task_id: task for values in tasks_by_user.values() for task in values if task is not None}
+    identifiers = list(tasks)
+    metas, queues = {}, {}
+    for index in range(0, len(identifiers), 500):
+        for row in session.query(TaskTrackerORM).filter(TaskTrackerORM.task_id.in_(identifiers[index:index+500])):
+            metas[row.task_id] = row
+    queue_ids = list(dict.fromkeys(row.queue_id for row in metas.values() if row.queue_id))
+    for index in range(0, len(queue_ids), 500):
+        queues.update((row.queue_id, row) for row in session.query(TaskQueueORM).filter(
+            TaskQueueORM.queue_id.in_(queue_ids[index:index+500])))
+    rows = _reader_rows(session, tasks_by_user, metas)
+    return {uid: {task.task_id for task in readable_tasks(session, list(values), uid, known=(metas, queues),
+                                                         rows=rows.get(uid))}
+            for uid, values in tasks_by_user.items() if uid}
+
+
+def _reader_rows(session, tasks_by_user, metas):
+    """Feedback task ids, active grant rows and queue grants of several active readers.
+
+    The same predicates readable_tasks applies per reader, read once with user_id IN
+    (...); each reader then keeps only rows for its own selection. Readers absent
+    from the result use readable_tasks' own per-reader queries.
+    """
+    from support_models import FeedbackORM
+    from tracker_collaboration_models import TaskAccessGrantORM
+    users = [uid for uid in dict.fromkeys(tasks_by_user) if uid and active(session, uid)]
+    wanted = {uid: [task.task_id for task in tasks_by_user[uid] if task is not None] for uid in users}
+    if len(users) < 2 or any(task_id is None for ids in wanted.values() for task_id in ids):
+        return {}
+    task_ids = list(dict.fromkeys(task_id for ids in wanted.values() for task_id in ids))
+    queue_ids = list(dict.fromkeys(row.queue_id for row in metas.values() if row.queue_id))
+    result = {uid: dict(owned=set(), grants=[], members=[]) for uid in users}
+    for start in range(0, len(users), 400):
+        group = users[start:start + 400]
+        for offset in range(0, len(task_ids), 400):
+            batch = task_ids[offset:offset + 400]
+            for task_id, uid in session.query(FeedbackORM.task_id, FeedbackORM.user_id).filter(
+                    FeedbackORM.user_id.in_(group), FeedbackORM.task_id.in_(batch)):
+                result[uid]["owned"].add(task_id)
+            for grant in session.query(TaskAccessGrantORM).filter(TaskAccessGrantORM.user_id.in_(group),
+                    TaskAccessGrantORM.active.is_(True), TaskAccessGrantORM.task_id.in_(batch)):
+                result[grant.user_id]["grants"].append(grant)
+        for offset in range(0, len(queue_ids), 400):
+            for row in session.query(TaskQueueMemberORM).filter(TaskQueueMemberORM.user_id.in_(group),
+                    TaskQueueMemberORM.queue_id.in_(queue_ids[offset:offset + 400])):
+                result[row.user_id]["members"].append(row)
+    for uid in users:
+        own = set(wanted[uid])
+        result[uid]["owned"] &= own
+        result[uid]["grants"] = [grant for grant in result[uid]["grants"] if grant.task_id in own]
+    return result
+
+
 def require_task_read(session, task, uid):
     if not task_read(session,task,uid):raise NotFound('Task not found')
 
@@ -335,7 +546,30 @@ def migrate():
 
 
 def _self_request(session, queue, uid):
-    return session.query(TaskQueueRequestORM).filter_by(queue_id=queue.queue_id,user_id=uid).order_by(TaskQueueRequestORM.created_at.desc(),TaskQueueRequestORM.request_id.desc()).first()
+    from read_context import orm_rows
+    def load():
+        row=session.query(TaskQueueRequestORM).filter_by(queue_id=queue.queue_id,user_id=uid).order_by(TaskQueueRequestORM.created_at.desc(),TaskQueueRequestORM.request_id.desc()).first()
+        return [row] if row is not None else []
+    rows=orm_rows(session,"queue.self_request",(queue.queue_id,uid),load)
+    return rows[0] if rows else None
+
+
+def _prime_catalog(session, queues, uid):
+    """The reader's own queue grants and latest access requests for a catalogue page.
+
+    One query each, in the same order as the per-queue reads, recorded (including
+    absent rows) only for this clean read UOW. Policies and projections are unchanged.
+    """
+    from read_context import prime_rows
+    if not queues or not uid or not reusable(session):return
+    members={row.queue_id:row for row in session.query(TaskQueueMemberORM).filter(TaskQueueMemberORM.user_id==uid)}
+    latest={}
+    for row in session.query(TaskQueueRequestORM).filter(TaskQueueRequestORM.user_id==uid).order_by(
+            TaskQueueRequestORM.created_at.desc(),TaskQueueRequestORM.request_id.desc()):
+        latest.setdefault(row.queue_id,row)
+    for queue in queues:
+        prime_get(session,TaskQueueMemberORM,(queue.queue_id,uid),members.get(queue.queue_id))
+        prime_rows(session,"queue.self_request",(queue.queue_id,uid),[latest[queue.queue_id]] if queue.queue_id in latest else [])
 
 
 def projection(session, queue, uid, *, include_assignable=True):
@@ -360,6 +594,7 @@ def projection(session, queue, uid, *, include_assignable=True):
     if granted:
         from models import ScopeRef
         from membership import scope_out
+        if queue.owner_user_id:_note_user(queue.owner_user_id)
         owner=_user_to_ref_dc(session.get(UserORM,queue.owner_user_id)) if queue.owner_user_id else None
         if include_assignable and 'assign_task_others' in caps:
             result['assignable_users']=[asdict(_user_to_ref_dc(u)) for u in session.query(UserORM) if active(session,u.user_id) and can_read(session,queue,u.user_id) and db.is_member_or_leader_in_scope(u.user_id,queue.scope_kind,queue.scope_id)]
@@ -382,6 +617,37 @@ def get(queue_id,uid,*,include_assignable=True):
         return result
 
 
+def assignment_task_ids(uid, assignment_ids):
+    """assignment_id -> task_id when uid reads that task (GET /tasks/{id}), else None.
+
+    For links from accounting rows: a task in a queue the reader cannot open keeps
+    its id hidden. Two IN reads; decisions use task_read, primed in a clean read UOW.
+    """
+    ids=list(dict.fromkeys(item for item in assignment_ids if item))
+    if not ids:return {}
+    with db._session() as session:
+        pairs={}
+        for index in range(0,len(ids),500):
+            pairs.update(session.query(AssignmentORM.assignment_id,AssignmentORM.task_id).filter(
+                AssignmentORM.assignment_id.in_(ids[index:index+500])))
+        task_ids=list(dict.fromkeys(pairs.values()))
+        tasks={}
+        for index in range(0,len(task_ids),500):
+            tasks.update((task.task_id,task) for task in session.query(TaskORM).filter(TaskORM.task_id.in_(task_ids[index:index+500])))
+        if reusable(session):readable_tasks(session,list(tasks.values()),uid)
+        readable={task_id for task_id,task in tasks.items() if db.can_read_task(uid,task,session)}
+        return {assignment_id:(task_id if task_id in readable else None) for assignment_id,task_id in pairs.items()}
+
+
+def create_access(uid):
+    """Whether any catalogue queue carries create_task for the reader (the projection rule)."""
+    from support import is_support_queue
+    with db._session() as session:
+        rows=session.query(TaskQueueORM).all() if active(session,uid) else []
+        _prime_catalog(session,rows,uid)
+        return dict(can_create_task=any(queue.key!='KKR' and can_read(session,queue,uid) and not is_support_queue(session,queue) for queue in rows))
+
+
 def catalog(uid,cursor=None):
     import access
     from api_contract import cursor_page
@@ -390,6 +656,7 @@ def catalog(uid,cursor=None):
     with db._session() as session:
         rows=session.query(TaskQueueORM).all() if active(session,uid) else []
         page=cursor_page(rows,lambda q:(q.key,q.queue_id),cursor)
+        _prime_catalog(session,page.items,uid)
         scopes=[]
         if access.allowed(uid,'queue.create','chair','chair'):
             scopes.append(dict(kind='chair',id='chair',title='Председатель'))

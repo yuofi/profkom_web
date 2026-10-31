@@ -19,20 +19,29 @@ def expires_at(value):
     return date.replace(year=target_year, day=min(date.day, calendar.monthrange(target_year, date.month)[1]))
 
 
+def _due(session, current, limit, dry_run):
+    trashed = session.query(MaterialORM).filter_by(deleted=True).order_by(MaterialORM.material_id).all()
+    dated = [(row, expires_at(row.deleted_at)) for row in trashed]
+    selected = [row for row, expiry in dated if expiry is not None and expiry <= current][:limit]
+    return selected, dict(material_ids=[row.material_id for row in selected], unknown_deleted_at=sum(expiry is None for _, expiry in dated), dry_run=dry_run)
+
+
 def purge_expired(as_of=None, *, dry_run=True, limit=25):
     """Commit metadata + durable object cleanup requests together, without S3 calls."""
     current = as_of or datetime.now(timezone.utc)
     if current.tzinfo is None:
         from errors import InvalidInput
         raise InvalidInput("An aware timestamp is required")
+    # The support worker runs this every 30 s: decide in a read unit first and open
+    # the write transaction only when a material is due.
+    with db.atomic(write=False):
+        with db._session() as session:
+            selected, result = _due(session, current, limit, dry_run)
+    if dry_run or not selected:
+        return result
     with db.atomic():
         with db._session() as session:
-            trashed = session.query(MaterialORM).filter_by(deleted=True).order_by(MaterialORM.material_id).all()
-            dated = [(row, expires_at(row.deleted_at)) for row in trashed]
-            selected = [row for row, expiry in dated if expiry is not None and expiry <= current][:limit]
-            result = dict(material_ids=[row.material_id for row in selected], unknown_deleted_at=sum(expiry is None for _, expiry in dated), dry_run=dry_run)
-            if dry_run:
-                return result
+            selected, result = _due(session, current, limit, dry_run)
             from file_access import key, sealed_key
             for row in selected:
                 files = session.query(FileRecordORM).filter_by(owner_kind="material", owner_id=row.material_id).all()

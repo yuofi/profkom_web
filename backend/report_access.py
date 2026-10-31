@@ -12,6 +12,7 @@ from database import (
     ReportORM,
 )
 from registration import now
+from read_context import cached
 import access
 
 # A snapshot row that only reads: head organizers and their deputies keep reading the
@@ -51,6 +52,37 @@ def editor(s, r, uid):
 def historical_reader(s, series_id, uid, other_than=None):
     """Leads a current instance of the series, or of its parent series; `other_than`
     leaves out the instance of that season, whose own rules apply to it (A-EVT-3)."""
+    try:
+        key = (series_id, uid, other_than)
+        hash(key)
+    except TypeError:
+        return _historical_reader(s, series_id, uid, other_than)
+    return cached(s, "report.historical_reader", key,
+                  lambda: _historical_reader(s, series_id, uid, other_than), copy_result=False)
+
+
+def _live_instances(s, other_than):
+    """(event_id, report_series_id) of events and (subevent_id, report_series_id) of
+    subevents in non-closed seasons except `other_than`, once per clean read UOW."""
+    def load():
+        events = s.query(EventORM.event_id, EventORM.report_series_id).join(
+            SeasonORM, SeasonORM.season_id == EventORM.season_id).filter(SeasonORM.state != "closed")
+        subs = s.query(SubeventORM.subevent_id, SubeventORM.report_series_id).join(
+            EventORM, EventORM.event_id == SubeventORM.event_id).join(
+            SeasonORM, SeasonORM.season_id == EventORM.season_id).filter(SeasonORM.state != "closed")
+        if other_than is not None:
+            events = events.filter(EventORM.season_id != other_than)
+            subs = subs.filter(EventORM.season_id != other_than)
+        return (tuple((event_id, series) for event_id, series in events),
+                tuple((subevent_id, series) for subevent_id, series in subs))
+    try:
+        hash(other_than)
+    except TypeError:
+        return load()
+    return cached(s, "report.live_instances", other_than, load, copy_result=False)
+
+
+def _historical_reader(s, series_id, uid, other_than):
     if not active(s, uid):
         return False
     if access.allowed(uid, "report.read_all"):
@@ -58,31 +90,18 @@ def historical_reader(s, series_id, uid, other_than=None):
     series = s.get(ReportSeriesORM, series_id)
     if not series:
         return False
-    events = s.query(EventORM).join(SeasonORM).filter(SeasonORM.state != "closed")
-    if other_than is not None:
-        events = events.filter(EventORM.season_id != other_than)
-    for ev in events:
-        # The series comparison first: the leadership of an unrelated event is never read,
-        # so a check costs per related event, not per event of the open seasons (GL-16).
-        if (
-            series_id in (ev.report_series_id,)
-            or series.parent_series_id == ev.report_series_id
-        ) and (
-            db.is_event_leader(uid, ev.event_id)
-            or db.is_event_leader_deputy(uid, ev.event_id)
+    # Only an instance of this series or of its parent can qualify: compare the
+    # series first, then check that one event's leadership.
+    events, subs = _live_instances(s, other_than)
+    for event_id, event_series_id in events:
+        if (series_id in (event_series_id,) or series.parent_series_id == event_series_id) and (
+            db.is_event_leader(uid, event_id)
+            or db.is_event_leader_deputy(uid, event_id)
         ):
             return True
-    subs = (
-        s.query(SubeventORM)
-        .join(EventORM)
-        .join(SeasonORM)
-        .filter(SeasonORM.state != "closed", SubeventORM.report_series_id == series_id)
-    )
-    if other_than is not None:
-        subs = subs.filter(EventORM.season_id != other_than)
-    for sub in subs:
-        if db.is_subevent_leader(uid, sub.subevent_id) or db.is_subevent_leader_deputy(
-            uid, sub.subevent_id
+    for subevent_id, subevent_series_id in subs:
+        if subevent_series_id == series_id and (
+            db.is_subevent_leader(uid, subevent_id) or db.is_subevent_leader_deputy(uid, subevent_id)
         ):
             return True
     return False
@@ -100,6 +119,26 @@ def reader(s, r, uid):
     return access.allowed(
         uid, f"{r.owner_kind}.report.read", r.owner_kind, r.owner_id
     ) or historical_reader(s, r.report_series_id, uid, other_than=r.season_id)
+
+
+def reader_candidates(s, r):
+    """A superset of the users reader(s, r, uid) admits, or None (scan everyone).
+
+    The owner's holders (chair and deputies, HR masters, every role on the owner,
+    its parent event and child subevents, organizers), the leads of every
+    instance of the report's series or its parent series, the season's frozen
+    editors and readers, and the author. reader() still decides each one.
+    """
+    series = s.get(ReportSeriesORM, r.report_series_id) if r.report_series_id is not None else None
+    series_ids = {r.report_series_id} | ({series.parent_series_id} if series is not None and series.parent_series_id else set())
+    scopes = {("event", row[0]) for row in s.query(EventORM.event_id).filter(EventORM.report_series_id.in_(series_ids))}
+    scopes |= {("subevent", row[0]) for row in s.query(SubeventORM.subevent_id).filter(SubeventORM.report_series_id.in_(series_ids))}
+    base = access.holders([f"{r.owner_kind}.report.create", f"{r.owner_kind}.report.read", "report.read_all"],
+                          r.owner_kind, r.owner_id, scopes=scopes)
+    if base is None:
+        return None
+    editors = {row[0] for row in s.query(ReportEditorORM.user_id).filter(ReportEditorORM.season_id == r.season_id)}
+    return base | editors | {r.created_by_user_id}
 
 
 def series_reader(s, series_id, uid):

@@ -12,7 +12,8 @@ import type {
 import { idPath, allPages as page, request } from "./request";
 export const eventsApi = {
   list: (params?: object) => page<Event>("/events", params),
-  get: (id: string) => request<Event>("get", `/events/${idPath(id)}`),
+  /** include_deputies: every leader also carries its deputies as user references. */
+  get: (id: string, params?: { include_deputies?: boolean }) => request<Event>("get", `/events/${idPath(id)}`, undefined, params),
   setClosed: (id: string, closed: boolean, version: Revision) =>
     request<Event>("post", `/events/${idPath(id)}/${closed ? "close" : "reopen"}`, version),
   create: (data: {
@@ -36,8 +37,8 @@ export const eventsApi = {
       data,
     ),
   subevents: (id: string) => page<Subevent>(`/events/${idPath(id)}/subevents`),
-  subevent: (id: string) =>
-    request<Subevent>("get", `/subevents/${idPath(id)}`),
+  subevent: (id: string, params?: { include_deputies?: boolean }) =>
+    request<Subevent>("get", `/subevents/${idPath(id)}`, undefined, params),
   createSubevent: (
     id: string,
     data: { title: string; description: RichText; report_series_id?: string; announcement?: RichText; starts_at?: string | null; ends_at?: string | null; all_day?: boolean },

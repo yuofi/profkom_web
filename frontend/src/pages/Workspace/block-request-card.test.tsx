@@ -35,17 +35,18 @@ it("approve and reject stand in one row and the reason is asked in a dialog (PE-
   expect(document.querySelector("dialog")).toBeNull();
 });
 
-it("the history is a compact list shown twenty at a time (PE-27)", async () => {
+it("the history is a compact list paged twenty at a time (PE-27, PB-22)", async () => {
   mock = installMockTransport("chair", { delay: 0 });
   const base = mock.state.requests[0];
   for (let index = 0; index < 25; index++)
     mock.state.requests.push({ ...base, request_id: `request-old-${index}`, state: "rejected", capabilities: [], decided_at: "2026-10-15T09:00:00Z", decision_reason: `Причина ${index}`, substitute_available_at: null });
   page = await mountWorkspace(<BlockRequestsPage />, { role: "chair" });await waitForPage(page);
-  const history = Array.from(page.container.querySelectorAll("details")).find((d) => d.querySelector("summary")?.textContent === "История · 25")!;
+  const history = Array.from(page.container.querySelectorAll("details")).find((d) => d.querySelector("summary")?.textContent === "История · 20")!;
   const rows = () => history.querySelectorAll(":scope > ul > li");
   expect(rows()).toHaveLength(20);
   expect(rows()[0].querySelector(":scope > details > summary")?.textContent).toContain("→");
-  await act(async () => button(history, "Показать ещё · 5")!.click());
+  await act(async () => button(history, "Показать ещё")!.click());await waitForPage(page);
   expect(rows()).toHaveLength(25);
-  expect(button(history, "Показать ещё · 5")).toBeUndefined();
+  expect(history.querySelector("summary")?.textContent).toBe("История · 25");
+  expect(button(history, "Показать ещё")).toBeUndefined();
 });
