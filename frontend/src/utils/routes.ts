@@ -63,6 +63,11 @@ export function targetRoute(
     material: getMaterialRoute,
     season: getSeasonRoute,
     pgas: getPgasRoute,
+    // Notifications about requests and meetings open their own pages (GL-08).
+    registrations: () => getAdminTabRoute("registrations"),
+    block_requests: () => "/blocks/requests",
+    meeting_event: id => getMeetingRoute("event", id),
+    meeting_subevent: id => getMeetingRoute("subevent", id),
   };
   return Object.hasOwn(builders, target.kind)
     ? builders[target.kind](target.id)

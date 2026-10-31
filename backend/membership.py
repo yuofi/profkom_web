@@ -681,7 +681,8 @@ def register_routes(router):
                     notification_id=str(uuid.uuid4()),
                     user_id=r.user_id,
                     kind="block_request_" + r.state,
-                    payload_json="{}",
+                    # The applicant's notification opens the request list (GL-08).
+                    payload_json=json.dumps({"request_id": r.request_id}),
                     is_read=False,
                     created_at=now(),
                 )

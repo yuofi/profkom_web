@@ -1035,6 +1035,8 @@ def _ensure_notification_read_at():
         names={r[1] for r in conn.execute(text("PRAGMA table_info(notifications)"))}
         if "event_key" not in names:conn.execute(text("ALTER TABLE notifications ADD COLUMN event_key VARCHAR"))
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_notification_event ON notifications(user_id,event_key) WHERE event_key IS NOT NULL"))
+        # The keyset page and the unread count read this index, not the whole history (GL-16).
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_notifications_feed ON notifications(user_id,created_at,notification_id)"))
         if "read_at" not in names:
             conn.execute(text("ALTER TABLE notifications ADD COLUMN read_at VARCHAR"))
             conn.execute(text("UPDATE notifications SET read_at=created_at WHERE is_read=1"))

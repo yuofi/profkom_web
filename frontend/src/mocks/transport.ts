@@ -2253,7 +2253,12 @@ export function installMockTransport(
         approvals: state.requests.some(request => requestCapabilities(request).some(cap => cap.endsWith("review_request"))) ? [{ kind: "block_requests", title: "Заявки в блоки", count: state.requests.length, to: "/blocks/requests" }] : [],
         merit_entries: state.blocks.filter(block => block.capabilities.includes("create_volunteer_merit")).map(block => ({ title: block.name, to: `/merits?source_kind=block_volunteer&scope_id=${block.block_id}` })) }];
     }
-    if (path === "/notifications") return list(clone(state.notifications));
+    if (path === "/notifications") {
+      const unread = url.searchParams.get("unread") === "true", limit = Number(url.searchParams.get("limit") ?? 30), start = Number(url.searchParams.get("cursor") ?? 0);
+      const ordered = clone(state.notifications).filter(n => !unread || !n.read_at).sort((a, b) => b.created_at.localeCompare(a.created_at) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+      return [200, { items: ordered.slice(start, start + limit), next_cursor: start + limit < ordered.length ? String(start + limit) : null }];
+    }
+    if (path === "/notifications/unread-count") return [200, { count: state.notifications.filter(n => !n.read_at).length }];
     if (parts[0] === "notifications") {
       state.notifications
         .filter((n) => parts[1] === "read-all" || n.id === parts[1])

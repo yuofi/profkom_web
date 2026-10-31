@@ -14,20 +14,29 @@ import { AnchoredPopover } from "./AnchoredPopover";
 import { Glyph, QueryState } from "./WorkspaceUI";
 import s from "./NotificationBell.module.css";
 
+const BELL_PAGE = 20;
+
 export function NotificationBell() {
   const { session, loading, error: sessionError } = useSession(), active = isActiveSession(session) && !session?.password_change_required && !loading && (!sessionError || canRetainData(sessionError));
   const [open, setOpen] = useState(false), [readingAll, setReadingAll] = useState(false), [error, setError] = useState("");
   const anchor = useRef<HTMLButtonElement>(null), list = useRef<HTMLDivElement>(null), pending = useRef(new Map<string, Promise<void>>()), allPending = useRef(false), panelId = `notifications-${useId()}`;
   const navigate = useConfirmedNavigation(), { perform, refresh } = useWorkspaceActions();
-  const query = useQuery({ queryKey: ["notifications"], queryFn: () => workspaceApi.notifications(), enabled: active,
-    refetchOnWindowFocus: true, refetchInterval: value => value.state.error && !canRetainData(value.state.error) ? false : 60_000 });
-  const visible = active && (!query.error || canRetainData(query.error)), known = visible && !!query.data;
-  const items = visible ? [...(query.data?.items ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id)) : [];
-  const unread = items.filter(item => !item.read_at).length, label = known ? `Уведомления, непрочитанных: ${unread}` : "Уведомления";
-  const read = (notification: Notification) => {
+  // The badge polls only the count; the latest page loads while the panel is open (GL-16).
+  const poll = (error: unknown) => error && !canRetainData(error) ? false : 60_000;
+  const count = useQuery({ queryKey: ["notifications", "unread-count"], queryFn: workspaceApi.unreadCount, enabled: active,
+    refetchOnWindowFocus: true, refetchInterval: value => poll(value.state.error) });
+  const query = useQuery({ queryKey: ["notifications", "latest"], queryFn: () => workspaceApi.notifications({ limit: BELL_PAGE }), enabled: active && open,
+    refetchOnWindowFocus: true, refetchInterval: value => poll(value.state.error) });
+  const denied = [count.error, query.error].some(failure => failure && !canRetainData(failure));
+  const visible = active && !denied, known = visible && !!count.data;
+  const items = visible ? query.data?.items ?? [] : [];
+  const unread = count.data?.count ?? 0, label = known ? `Уведомления, непрочитанных: ${unread}` : "Уведомления";
+  const read = (notification: Notification, report = false) => {
     if (notification.read_at) return Promise.resolve();
     const existing = pending.current.get(notification.id);if (existing) return existing;
-    const action = perform(() => workspaceApi.read(notification.id)).then(() => undefined).catch(async () => { await refresh(); }).finally(() => pending.current.delete(notification.id));
+    if (report) setError("");
+    // The explicit mark says why it failed; a followed link stays silent (GL-39).
+    const action = perform(() => workspaceApi.read(notification.id)).then(() => undefined).catch(async failure => { if (report) setError(userMessage(failure));await refresh(); }).finally(() => pending.current.delete(notification.id));
     pending.current.set(notification.id, action);return action;
   };
   const follow = (event: MouseEvent<HTMLAnchorElement>, route: string, notification?: Notification) => {
@@ -58,12 +67,12 @@ export function NotificationBell() {
           const current = entries.indexOf(document.activeElement as HTMLElement), next = event.key === "Home" ? 0 : event.key === "End" ? entries.length - 1 : current < 0 ? event.key === "ArrowUp" ? entries.length - 1 : 0 : (current + (event.key === "ArrowDown" ? 1 : -1) + entries.length) % entries.length;
           entries[next].focus();
         }}>
-          <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!query.data} retry={() => { void query.refetch(); }}>
+          <QueryState loading={query.isLoading} error={query.error ?? (denied ? count.error : null)} keepDataOnError={!!query.data && !denied} retry={() => { void query.refetch();void count.refetch(); }}>
             {items.length ? <ul>{items.map(notification => {
               const route = targetRoute(notification.target), content = <><span className={s.text}>{notification.text}</span><time dateTime={notification.created_at}>{displayDate(notification.created_at)}</time></>;
               return <li key={notification.id} data-notification-id={notification.id} data-unread={!notification.read_at}>
-                {route ? <Link to={route} className={s.notice} data-notification-entry onClick={event => follow(event, route, notification)} onAuxClick={event => { if (event.button === 1) { setOpen(false);void read(notification); } }}>{content}</Link> : <div className={s.notice}>{content}<small>Источник больше недоступен</small></div>}
-                {!notification.read_at && <button type="button" className={s.markRead} data-notification-entry={route ? undefined : true} aria-label={`Отметить прочитанным: ${notification.text}`} title="Отметить прочитанным" onClick={event => { if (document.activeElement === event.currentTarget) list.current?.focus();void read(notification); }}><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg></button>}
+                {route ? <Link to={route} className={s.notice} data-notification-entry onClick={event => follow(event, route, notification)} onAuxClick={event => { if (event.button === 1) { setOpen(false);void read(notification); } }}>{content}</Link> : <div className={s.notice}>{content}{notification.kind === "access_revoked" && <small>Источник больше недоступен</small>}</div>}
+                {!notification.read_at && <button type="button" className={s.markRead} data-notification-entry={route ? undefined : true} aria-label={`Отметить прочитанным: ${notification.text}`} title="Отметить прочитанным" onClick={event => { if (document.activeElement === event.currentTarget) list.current?.focus();void read(notification, true); }}><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg></button>}
               </li>;
             })}</ul> : <p className={s.empty}>Уведомлений пока нет.</p>}
           </QueryState>

@@ -3356,9 +3356,22 @@ def get_calendar(
 # ── Notifications ──
 
 @router.get("/notifications", response_model=Page[NotificationOut])
-def list_notifications(cur: User = Depends(get_current_user)):
-    from workspace import notifications
-    return Page(items=notifications(cur.user_id))
+def list_notifications(cursor: Optional[str] = None, limit: int = Query(30, ge=1, le=100), unread: bool = False,
+                       cur: User = Depends(get_current_user)):
+    """Newest first, one keyset page at a time; `unread` keeps only the unread (GL-16)."""
+    from workspace import notification_page
+    return notification_page(cur.user_id, cursor=cursor, limit=limit, unread=unread)
+
+
+class UnreadCountOut(BaseModel):
+    count: int
+
+
+@router.get("/notifications/unread-count", response_model=UnreadCountOut)
+def notification_unread_count(cur: User = Depends(get_current_user)):
+    """The bell's badge without the list (GL-16)."""
+    from workspace import unread_notifications
+    return UnreadCountOut(count=unread_notifications(cur.user_id))
 
 
 @router.post("/notifications/{notification_id}/read")

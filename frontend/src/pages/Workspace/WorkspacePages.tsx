@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   Page,
@@ -32,6 +32,7 @@ import c from "./calendar.module.css";
 import { CalendarMonth, CalendarTimeGrid } from "./CalendarViews";
 import { calendarTitle, calendarView, calendarWindow, shiftCalendarDate, validDay, type CalendarView } from "./calendarLayout";
 import d from "./Dashboard.module.css";
+import n from "./Notifications.module.css";
 import { ChipAvatar } from "../../components/Workspace/ChipFace";
 import { blockLogo, eventLogo } from "../../utils/teamLogos";
 import { can, useSession } from "../../utils/session";
@@ -100,7 +101,8 @@ export function DashboardPage() {
   const query = useQuery({ queryKey: ["participation"], queryFn: workspaceApi.participation });
   const seasons = useSeasons();
   const [watching, setWatching] = useState(false);
-  const day = useQuery({ queryKey: ["dashboard", "home", watching], queryFn: () => workspaceApi.home(watching), refetchInterval: 60_000 });
+  // Every 5 minutes and on focus: the day changes slowly, each tab polls (GL-16).
+  const day = useQuery({ queryKey: ["dashboard", "home", watching], queryFn: () => workspaceApi.home(watching), refetchInterval: 300_000 });
   const blocks = query.data?.blocks ?? [];
   const events = query.data?.events ?? [];
   const hasApprovals = !day.error && !day.isLoading && !!day.data?.approvals.length;
@@ -169,81 +171,58 @@ export function CalendarPage() {
     </QueryState>
   </Page>;
 }
+const NOTIFICATIONS_PAGE = 30;
+/** Compact rows, a page at a time, all or only the unread (GL-16). */
 export function NotificationsPage() {
   const navigate = useConfirmedNavigation();
   const { perform } = useWorkspaceActions();
-  const query = useQuery({
-    queryKey: ["notifications"],
-    queryFn: workspaceApi.notifications,
+  const [params, setParams] = useSearchParams(), unreadOnly = params.get("show") === "unread";
+  const query = useInfiniteQuery({
+    queryKey: ["notifications", "page", unreadOnly],
+    queryFn: ({ pageParam }) => workspaceApi.notifications({ cursor: pageParam, limit: NOTIFICATIONS_PAGE, unread: unreadOnly }),
+    initialPageParam: null as string | null,
+    getNextPageParam: last => last.next_cursor,
   });
+  const count = useQuery({ queryKey: ["notifications", "unread-count"], queryFn: workspaceApi.unreadCount });
+  const items = query.data?.pages.flatMap(page => page.items) ?? [];
+  const read = (id: string) => perform(() => workspaceApi.read(id)).then(() => undefined);
   return (
     <Page
       title="Уведомления"
-      actions={query.data?.items.some((n) => !n.read_at) && (
-        <ActionForm
-          fields={[]}
-          submitLabel="Прочитать все"
-          onSubmit={async () => {
-            await perform(workspaceApi.readAll);
-          }}
-        />
+      actions={(count.data?.count ?? 0) > 0 && (
+        <ActionForm fields={[]} submitLabel="Прочитать все" onSubmit={async () => { await perform(workspaceApi.readAll); }} />
       )}
     >
-      <div className={s.stack}>
-        <QueryState
-          loading={query.isLoading}
-          error={query.error}
-          retry={() => {
-            void query.refetch();
-          }}
-        >
-          {query.data?.items.map((n) => {
-            const route = targetRoute(n.target);
-            return (
-              <Card key={n.id}>
-                <div className={s.person}>
-                  <div className={s.notice}>
-                    <p className={n.read_at ? undefined : s.unread}>{n.text}</p>
-                    <small className={s.muted}>{displayDate(n.created_at)}</small>
-                  </div>
-                  {!n.read_at && <Badge tone="yellow">Новое</Badge>}
-                </div>
-                <div className={s.row}>
-                  {route ? (
-                    <Link className={s.linkButton} to={route}
-                      onClick={(event) => {
-                        const read = () => n.read_at ? Promise.resolve() : perform(() => workspaceApi.read(n.id)).then(() => undefined).catch(() => undefined);
-                        if (event.altKey) return;
-                        if (event.metaKey || event.ctrlKey || event.shiftKey) { void read(); return; }
-                        event.preventDefault();
-                        navigate(route, read);
-                      }}
-                      onAuxClick={(event) => {
-                        if (event.button === 1 && !n.read_at) void perform(() => workspaceApi.read(n.id)).catch(() => undefined);
-                      }}
-                    >Перейти к источнику</Link>
-                  ) : (
-                    <span className={s.muted}>Источник больше недоступен</span>
-                  )}
-                  {!n.read_at && (
-                    <ActionForm
-                      fields={[]}
-                      submitLabel="Отметить прочитанным"
-                      variant="quiet"
-                      onSubmit={async () => {
-                        await perform(() => workspaceApi.read(n.id));
-                      }}
-                    />
-                  )}
-                </div>
-              </Card>
-            );
-          })}
-          {query.data?.items.length === 0 && (
-            <Empty>Уведомлений пока нет.</Empty>
-          )}
-        </QueryState>
+      <div className={n.filter} role="group" aria-label="Какие уведомления показать">
+        {([[false, "Все"], [true, `Непрочитанные${count.data ? ` · ${count.data.count}` : ""}`]] as const).map(([value, label]) => (
+          <button key={label} type="button" className={s.button} aria-pressed={unreadOnly === value}
+            onClick={() => setParams(current => { const next = new URLSearchParams(current); if (value) next.set("show", "unread"); else next.delete("show"); return next; }, { replace: true })}>{label}</button>
+        ))}
       </div>
+      <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!query.data} retry={() => { void query.refetch(); }}>
+        {items.length > 0 && <ul className={n.list}>{items.map(item => {
+          const route = targetRoute(item.target);
+          return <li key={item.id} className={n.row} data-unread={!item.read_at}>
+            <div className={n.body}>
+              {route ? <Link className={n.text} to={route}
+                onClick={event => {
+                  const done = () => item.read_at ? Promise.resolve() : read(item.id).catch(() => undefined);
+                  if (event.altKey) return;
+                  if (event.metaKey || event.ctrlKey || event.shiftKey) { void done(); return; }
+                  event.preventDefault();
+                  navigate(route, done);
+                }}
+                onAuxClick={event => { if (event.button === 1 && !item.read_at) void read(item.id).catch(() => undefined); }}
+              >{item.text}</Link> : <span className={n.text}>{item.text}</span>}
+              <small className={s.muted}><time dateTime={item.created_at}>{displayDate(item.created_at)}</time>{item.kind === "access_revoked" && " · Источник больше недоступен"}</small>
+            </div>
+            {!item.read_at && <Badge tone="yellow">Новое</Badge>}
+            {!item.read_at && <ActionForm fields={[]} submitLabel="Отметить прочитанным" variant="quiet" onSubmit={async () => { await read(item.id); }} />}
+          </li>;
+        })}</ul>}
+        {query.hasNextPage && <button type="button" className={`${s.button} ${n.more}`} disabled={query.isFetchingNextPage} aria-busy={query.isFetchingNextPage} onClick={() => { void query.fetchNextPage(); }}>{query.isFetchingNextPage ? "Загружаем…" : "Показать ещё"}</button>}
+        {query.data && !items.length && <Empty>{unreadOnly ? "Непрочитанных уведомлений нет." : "Уведомлений пока нет."}</Empty>}
+      </QueryState>
     </Page>
   );
 }
