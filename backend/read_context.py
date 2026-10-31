@@ -15,6 +15,11 @@ from sqlalchemy.orm import Session
 
 _KEY = "profkom_read_context"
 _current = ContextVar(_KEY, default=None)
+# A write unit of work keeps its loaded ORM objects alive (see hold_identities).
+_HELD = "profkom_write_identities"
+_held = ContextVar(_HELD, default=None)
+# Counts flushes, commands and transaction boundaries of a session (see Calculation).
+_GENERATION = "profkom_state_generation"
 
 
 class ReadContext:
@@ -48,6 +53,51 @@ class ReadContext:
 
 def _context(session):
     return session.info.get(_KEY)
+
+
+def _changed(session):
+    try:
+        return bool(session._new or session._deleted or session.identity_map._modified)
+    except AttributeError:
+        return bool(session.new or session.dirty or session.deleted)
+
+
+def _advance(session):
+    session.info[_GENERATION] = session.info.get(_GENERATION, 0) + 1
+
+
+class Calculation:
+    """Values of one explicit calculation (for example one task DTO), never stored.
+
+    The caller materializes facts it would otherwise recompute several times while
+    assembling one result, as season summaries do. Values are kept only while the
+    session state cannot have changed: the session must be clean when the
+    calculation starts and every value is dropped at the first unflushed change,
+    flush, command or transaction boundary. A new calculation starts empty, so this
+    is not a cache between commands, write units or requests.
+    """
+    __slots__ = ("session", "generation", "values")
+
+    def __init__(self, session):
+        session = getattr(session, "session", session)  # Database._session() lease
+        self.session = session
+        self.generation = session.info.get(_GENERATION, 0)
+        self.values = None if _changed(session) else {}
+
+    def usable(self):
+        if self.values is not None and (_changed(self.session) or self.session.info.get(_GENERATION, 0) != self.generation):
+            self.values = None
+        return self.values is not None
+
+    def value(self, key, load):
+        if not self.usable():
+            return load()
+        if key not in self.values:
+            value = load()
+            if not self.usable():
+                return value
+            self.values[key] = value
+        return self.values[key]
 
 
 def reusable(session):
@@ -214,16 +264,52 @@ def memoized(namespace, *, copy_result=True):
     return decorate
 
 
+@contextmanager
+def hold_identities(session):
+    """Keep a write unit's loaded/flushed ORM objects alive until it ends.
+
+    SQLAlchemy's identity map is weak, so a clean object that nobody references is
+    collected and the next Session.get repeats its SELECT. Holding it changes no
+    value: the unit owns SQLite's write lock, and ORM flushes keep held objects
+    consistent with the database. Only Core/driver commands (bulk update/delete with
+    synchronize_session=False, textual SQL) bypass the identity map, so the first one
+    releases every held object, restoring the ordinary weak behaviour. Nothing is
+    memoized: no value, permission or DTO is cached by this hold.
+    """
+    session.info[_HELD] = {}
+    token = _held.set(session)
+    try:
+        yield
+    finally:
+        release_identities(session)
+        _held.reset(token)
+
+
+def release_identities(session):
+    session.info.pop(_HELD, None)
+
+
 @event.listens_for(Session, "loaded_as_persistent")
 def _hold_loaded(session, instance):
     context = _context(session)
     if context is not None and context.usable():
         context.references[id(instance)] = instance
+    held = session.info.get(_HELD)
+    if held is not None:
+        held[id(instance)] = instance
+
+
+@event.listens_for(Session, "pending_to_persistent")
+def _hold_flushed(session, instance):
+    held = session.info.get(_HELD)
+    if held is not None:
+        held[id(instance)] = instance
 
 
 @event.listens_for(Session, "before_flush")
 def _before_flush(session, *_args):
     invalidate(session)
+    _advance(session)
 
 
 @event.listens_for(Session, "do_orm_execute")
@@ -232,17 +318,23 @@ def _before_execute(state):
     # must never survive an unclassified command or bulk update/delete.
     if not state.is_select:
         invalidate(state.session)
+        release_identities(state.session)
+        _advance(state.session)
 
 
 @event.listens_for(Session, "after_commit")
 @event.listens_for(Session, "after_rollback")
 def _transaction_finished(session):
     invalidate(session)
+    release_identities(session)
+    _advance(session)
 
 
 @event.listens_for(Session, "after_soft_rollback")
 def _savepoint_rollback(session, _previous_transaction):
     invalidate(session)
+    release_identities(session)
+    _advance(session)
 
 
 def install_engine(engine):
@@ -251,10 +343,19 @@ def install_engine(engine):
     def _connection_execute(_conn, _cursor, _statement, _params, execution, _many):
         context = _current.get()
         if context is None:
+            held = _held.get()
+            if held is not None and not held._flushing:
+                compiled = execution.compiled
+                if compiled is None or not getattr(compiled.statement, "is_select", False):
+                    # Driver/Core DML bypasses the identity map: back to weak references.
+                    release_identities(held)
+                    _advance(held)
             return
         compiled = execution.compiled
         if compiled is None or not getattr(compiled.statement, "is_select", False):
             context.disable()
+            if not context.session._flushing:
+                _advance(context.session)
             execution._profkom_read_session = context.session
 
     @event.listens_for(engine, "after_cursor_execute")

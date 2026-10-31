@@ -60,7 +60,7 @@ from models import (
 )
 from settings import settings
 from identity import participant_id as accounting_participant_id
-from read_context import cached, cached_current, invalidate as invalidate_reads, memoized, read_scope, install_engine
+from read_context import cached, cached_current, invalidate as invalidate_reads, memoized, read_scope, install_engine, hold_identities
 
 DATABASE_URL = "sqlite:///" + settings.DATABASE_PATH
 
@@ -2630,8 +2630,9 @@ class Database:
                     token = _active_session.set(session)
                     try:
                         if write:
-                            yield
-                            await to_thread.run_sync(session.commit)
+                            with hold_identities(session):
+                                yield
+                                await to_thread.run_sync(session.commit)
                         else:
                             with read_scope(session):
                                 yield
@@ -2658,8 +2659,9 @@ class Database:
             token = _active_session.set(session)
             try:
                 if write:
-                    yield
-                    session.commit()
+                    with hold_identities(session):
+                        yield
+                        session.commit()
                 else:
                     with read_scope(session):
                         yield
