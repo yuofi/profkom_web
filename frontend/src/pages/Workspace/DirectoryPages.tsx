@@ -2,7 +2,7 @@ import { EntityPicker } from "../../components/Workspace/EntityPicker";
 import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Page,
   Card,
@@ -11,6 +11,7 @@ import {
   Empty,
   Badge,
   Glyph,
+  ErrorState,
 } from "../../components/Workspace/WorkspaceUI";
 import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
 import { ContactDialog } from "../../components/Workspace/ContactDialog";
@@ -28,6 +29,12 @@ import { displayDate } from "../../utils/dates";
 import { getBlockRoute } from "../../utils/routes";
 import { ParticipantCategoryPanel } from "./ParticipantCategoryPanel";
 import s from "../../components/Workspace/Workspace.module.css";
+const searchable = (value: string) => value.toLocaleLowerCase("ru").replaceAll("ё", "е");
+/** Every word of the query, in any order, case and ё aside (PE-23). */
+const matchesSearch = (parts: (string | number | null | undefined)[], query: string) => {
+  const haystack = searchable(parts.filter((part) => part !== null && part !== undefined).join(" "));
+  return searchable(query).split(/\s+/).filter(Boolean).every((word) => haystack.includes(word));
+};
 function Category({ category, pending }: { category?: ParticipantCategory; pending: boolean }) {
   return category ? (
     <Badge tone={category.category === "junior" ? "mint" : undefined}>{category.category === "junior" ? "Джуниор" : "Активист"}</Badge>
@@ -86,7 +93,9 @@ export function DirectoryPage() {
   const [category, setCategory] = useState("");
   const [funding, setFunding] = useState("");
   const [course, setCourse] = useState("");
-  const [emails, setEmails] = useState("");
+  const emailExport = useMutation({ mutationFn: directoryApi.emails });
+  const emails = emailExport.data?.emails.join("; ") ?? "";
+  const [copied, setCopied] = useState("");
   const [selected, setSelected] = useState<{ id: number; mode: "manage" } | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(() =>
     typeof window.matchMedia !== "function" || window.matchMedia("(min-width: 769px)").matches,
@@ -136,9 +145,7 @@ export function DirectoryPage() {
           .split(",")
           .map((x) => x.trim())
           .includes(block) || blockCards.some(item => item.name === block && item.master?.user.user_id === p.user_id)) &&
-      `${p.surname} ${p.name} ${p.patronymic} ${p.group_number} ${p.email}`
-        .toLowerCase()
-        .includes(search.toLowerCase()),
+      matchesSearch([p.surname, p.name, p.patronymic, p.group_number, p.email], search),
   );
   const selectedPerson = query.data?.find((p) => p.user_id === selected?.id);
   // Archiving is decided per target by the server (PE-01): never the chair, and a chair
@@ -227,23 +234,46 @@ export function DirectoryPage() {
         )}
         <details className={s.details}>
           <summary>Почтовая выгрузка</summary>
-          <ActionForm
-            fields={[]}
-            submitLabel="Получить список адресов"
-            onSubmit={async () => {
-              setEmails((await directoryApi.emails()).emails.join("; "));
-            }}
-          />
+          {/* Reading the list saves nothing: a plain button, then the list and its copy (PE-20). */}
+          <button
+            type="button"
+            className={s.button}
+            disabled={emailExport.isPending}
+            onClick={() => { setCopied(""); emailExport.mutate(); }}
+          >
+            {emailExport.isPending ? "Собираем адреса…" : "Получить список адресов"}
+          </button>
+          {emailExport.error && <ErrorState error={emailExport.error} />}
+          {emailExport.isSuccess && (
+            <p className={s.muted} role="status">
+              {emails ? "Список адресов готов." : "Адресов для выгрузки нет."}
+            </p>
+          )}
           {emails && (
-            <label className={s.field}>
-              Адреса для копирования
-              <textarea
-                readOnly
-                value={emails}
-                rows={3}
-                onFocus={(e) => e.target.select()}
-              />
-            </label>
+            <>
+              <label className={s.field}>
+                Адреса для копирования
+                <textarea
+                  readOnly
+                  value={emails}
+                  rows={3}
+                  onFocus={(e) => e.target.select()}
+                />
+              </label>
+              <div className={s.row}>
+                <button
+                  type="button"
+                  className={s.button}
+                  onClick={async () => {
+                    try { await navigator.clipboard.writeText(emails); setCopied("Адреса скопированы."); }
+                    catch { setCopied("Не удалось скопировать. Выделите адреса и скопируйте вручную."); }
+                  }}
+                >
+                  Скопировать
+                </button>
+                {copied && <span className={s.muted} role="status">{copied}</span>}
+              </div>
+            </>
           )}
         </details>
         <QueryState
@@ -393,11 +423,7 @@ export function FormerContactsPage() {
     queryFn: directoryApi.former,
   });
   const [search, setSearch] = useState("");
-  const shown = query.data?.items.filter((p) =>
-    `${p.surname} ${p.name}`
-      .toLowerCase()
-      .includes(search.toLowerCase()),
-  );
+  const shown = query.data?.items.filter((p) => matchesSearch([p.surname, p.name, p.patronymic], search));
   return (
     <Page
       title="Бывшие участники"

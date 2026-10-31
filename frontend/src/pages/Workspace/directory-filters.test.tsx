@@ -129,3 +129,38 @@ it("widening the window from a phone opens the collapsed filters again (PE-09)",
   await act(async () => listener!({ matches: true } as MediaQueryListEvent));
   expect(filters().open).toBe(true);
 });
+
+it("the search takes ё as е and the words in any order (PE-23)", async () => {
+  mock = installMockTransport("organizer", { delay: 0 });
+  vi.spyOn(directoryApi, "contacts").mockResolvedValue([
+    { ...person(201, "Фёдоров", "101", true), name: "Пётр" },
+    { ...person(202, "Мастерова", "301", false), name: "Мария" },
+  ]);
+  page = await mountWorkspace(<DirectoryPage />, { role: "organizer" });
+  await settle(); await settle();
+  const search = page.container.querySelector<HTMLInputElement>('input[type="search"]')!;
+  const shown = () => ["Фёдоров", "Мастерова"].filter((n) => page!.container.textContent!.includes(n));
+  await change(search, "федоров");
+  expect(shown()).toEqual(["Фёдоров"]);
+  await change(search, "  мария   МАСТЕРОВА ");
+  expect(shown()).toEqual(["Мастерова"]);
+  await change(search, "петр 101");
+  expect(shown()).toEqual(["Фёдоров"]);
+});
+
+it("the address list is read, not saved, and offers a copy (PE-20)", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const writeText = vi.fn(async () => {});
+  vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+  page = await mountWorkspace(<DirectoryPage />, { role: "chair" });
+  await settle(); await settle();
+  const button = (label: string) => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === label)!;
+  await act(async () => button("Получить список адресов").click()); await settle();
+  const exportBox = page.container.querySelector("textarea")!.closest("details")!;
+  expect(exportBox.textContent).toContain("Список адресов готов.");
+  expect(exportBox.textContent).not.toContain("Изменения сохранены");
+  expect(exportBox.querySelector("form")).toBeNull();
+  await act(async () => button("Скопировать").click()); await settle();
+  expect(writeText).toHaveBeenCalledWith(page.container.querySelector("textarea")!.value);
+  expect(exportBox.textContent).toContain("Адреса скопированы.");
+});
