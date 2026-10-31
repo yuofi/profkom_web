@@ -13,10 +13,10 @@
      ssl_certificate /etc/nginx/ssl/fullchain.pem;
 --- a/frontend/scripts/buildAssets.test.ts
 +++ b/frontend/scripts/buildAssets.test.ts
-@@ -65,7 +65,11 @@
-   expect(statics).toHaveLength(3);
-   for (const [, body] of statics) expect(body).toMatch(/gzip_static on;/);
-   for (const [, body] of blocks.filter(([name]) => name === "/api/" || name === "= /_storage")) expect(body).not.toMatch(/gzip/);
+@@ -87,7 +87,11 @@
+   // No gzip at the server level: /_storage and the redirects into it inherit none.
+   expect(conf.match(/gzip on;/g)).toHaveLength(4);
+   expect(own("= /_storage")).not.toMatch(/gzip/);
 -  expect(conf).not.toMatch(/http2/);
 +  // PF-03: HTTP/2 over TLS with the nginx >= 1.25.1 directive; `listen 443 ssl;` stays as it is
 +  // (the backend nginx test and the test-site script replace that exact line).
@@ -67,10 +67,10 @@
          ("http://backend:8000/api/", f"http://127.0.0.1:{backend_port}/api/"),
          ("/usr/share/nginx/html", str(html)),
          ("/etc/ssl/certs/ca-certificates.crt", ca),
-@@ -253,3 +261,46 @@
-     assert refused.status_code == 413
-     other = httpx.post(f"{site['url']}/api/tasks", content=b"x" * 1_300_000, headers={"content-type": "application/json"})
-     assert other.status_code == 413
+@@ -355,3 +363,46 @@
+     session = httpx.get(f"{site['url']}/api/session", headers={**superuser.headers, "Accept-Encoding": "gzip"})
+     assert session.status_code == 200 and session.headers.get("content-encoding") == "gzip"
+     assert session.json()["user_id"] == superuser.user_id
 +
 +
 +def alpn(port, offered):
