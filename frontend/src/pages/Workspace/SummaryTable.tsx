@@ -34,7 +34,7 @@ export function SummaryTable({ summary, filter = "", rows, renderDecisions, onPa
       <td data-label="ККР мероприятий">{metricValue(row.source_scores.filter(source => ['subevent_task','subevent_volunteer','event_task','head_merit'].includes(source.source_kind)).reduce((sum,source)=>sum+source.score,0))}</td>
       <td data-label="Всего"><span className={u.score} data-negative={row.total_score < 0}>{metricValue(row.total_score)}</span></td>
       <td className={u.decisionCell} data-label="Отметки">{renderDecisions?.(row)??<div aria-label="Решения текущего сезона"><DecisionBadges values={row.decisions} /></div>}</td>
-      <td className={u.decisionCell} data-label="Прошлые отметки"><DecisionBadges values={row.previous_decisions} /></td>
+      <td className={u.decisionCell} data-label="Прошлые отметки" data-empty={!row.previous_decisions.length || undefined}><DecisionBadges values={row.previous_decisions} /></td>
     </tr>)}</tbody>
   </table>{!shown.length && <p className={u.empty}>Участники не найдены.</p>}</div>;
 }

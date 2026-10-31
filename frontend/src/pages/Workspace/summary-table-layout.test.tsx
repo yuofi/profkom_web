@@ -4,6 +4,8 @@ import { afterEach, expect, it, vi } from "vitest";
 import { createFixtures } from "../../mocks/fixtures";
 import { mountWorkspace } from "../../test/workspace";
 import { SummaryTable } from "./SummaryTable";
+import { decisionLabels } from "../../utils/decisions";
+import type { Decision } from "../../utils/api/contract";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 afterEach(async () => { await page?.cleanup();page = undefined; });
@@ -51,4 +53,13 @@ it("opens the folded filters once the window widens past the phone layout", asyn
     await page.cleanup();page = undefined;
     expect(listeners.size).toBe(0);
   } finally { vi.unstubAllGlobals(); }
+});
+
+it("marks an empty past-marks cell so the phone card can leave it out", async () => {
+  const summary = structuredClone(createFixtures("chair").summary);
+  summary.rows = [{ ...summary.rows[0], previous_decisions: [] }, { ...summary.rows[0], participant_id: "with-marks", previous_decisions: [Object.keys(decisionLabels)[0] as Decision] }];
+  page = await mountWorkspace(<SummaryTable summary={summary} />);
+  const past = [...page.container.querySelectorAll('td[data-label="Прошлые отметки"]')];
+  expect(past.map(cell => cell.hasAttribute("data-empty"))).toEqual([true, false]);
+  expect(past[0].textContent).toBe("Нет отметок");
 });
