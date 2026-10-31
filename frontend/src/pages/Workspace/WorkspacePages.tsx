@@ -74,8 +74,9 @@ function PersonalTeams({ title, teams, empty }: { title: string; teams: Personal
         {teams.slice(page * TEAM_PAGE_SIZE, (page + 1) * TEAM_PAGE_SIZE).map((team) => (
           <li key={team.id}>
             <div className={d.teamRow}>
-              <Link to={team.to} className={d.teamLink}><ChipAvatar src={team.logo} presentation="logo" className={d.teamAvatar} fallback={<Glyph name={team.kind === "block" ? "groups" : "celebration"} />} /><span>{team.title}</span><DashboardArrow small className={d.teamArrow} /></Link>
+              <Link to={team.to} className={d.teamLink}><ChipAvatar src={team.logo} presentation="logo" className={d.teamAvatar} fallback={<Glyph name={team.kind === "block" ? "groups" : "celebration"} />} /><span>{team.title}</span></Link>
               <span className={d.roleSummary}>{team.roles.map(role => ROLE_LABELS[role]).join(" · ")}</span>
+              <DashboardArrow small className={d.teamArrow} />
             </div>
             {team.detail && <small className={d.teamDetail}>{team.detail}</small>}
           </li>
@@ -113,7 +114,7 @@ export function DashboardPage() {
   return <Page className={d.page} headerClassName={d.header} title="Рабочее пространство" description="Сегодня, ближайшие задачи и решения, которые ждут вас." actions={workEntry && <Link className={s.button} to="/merits"><Glyph name="fact_check" />Учёт работы</Link>}>
     <div className={d.utility}><label className={d.watching}><input type="checkbox" checked={watching} onChange={event => setWatching(event.target.checked)} />Также задачи, за которыми я наблюдаю</label></div>
     <QueryState loading={day.isLoading} error={day.error} retry={() => void day.refetch()}>{day.data && <div className={d.primary}>
-      <Card className={`${d.panel} ${d.todayPanel}`}><DashboardHeading title="Сегодня" to={`/calendar?view=day&date=${day.data.today}`} linkLabel="Весь календарь" /><div className={d.calendar} role="region" aria-label="Сегодняшний день"><CalendarTimeGrid days={[day.data.today]} items={day.data.agenda} seasonTitle={seasonTitle} today={day.data.today} compact /></div></Card>
+      <Card className={`${d.panel} ${d.todayPanel}`}><DashboardHeading title="Сегодня" to={`/calendar?view=day&date=${day.data.today}`} linkLabel="Весь календарь" /><div className={d.calendar} role="region" aria-label="Сегодняшний день">{day.data.agenda.length ? <CalendarTimeGrid days={[day.data.today]} items={day.data.agenda} seasonTitle={seasonTitle} today={day.data.today} compact /> : <p className={d.todayEmpty}>Сегодня событий нет · <Link to={`/calendar?view=day&date=${day.data.today}`}>открыть календарь</Link></p>}</div></Card>
       <div className={d.taskPanels} role="region" aria-label="Задачи по срокам">
         <Card className={`${d.panel} ${d.overdue}`}><DashboardHeading title="Просроченные" count={day.data.overdue_count} to={day.data.overdue_count ? "/tasks?mine=true&unfinished=true&overdue=true" : undefined} linkLabel="Все просроченные задачи" /><WorkdayTasks tasks={day.data.overdue_tasks} overdue />{!day.data.overdue_count && <p className={d.note}>Просроченных задач нет.</p>}</Card>
         <Card className={d.panel}><DashboardHeading title="Ближайшие задачи" to="/tasks?mine=true&unfinished=true&sort=deadline" linkLabel="Все мои задачи" /><WorkdayTasks tasks={day.data.tasks} />{!day.data.tasks.length && <p className={d.note}>Нет задач с будущим дедлайном.</p>}{!!day.data.undated_count && <p className={d.undated}>Без срока: {day.data.undated_count}</p>}</Card>

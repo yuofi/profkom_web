@@ -1,4 +1,4 @@
-import { displayDate } from "../../utils/dates";
+import { displayDate, displayTime } from "../../utils/dates";
 import { moscowDay } from "../../utils/calendar";
 
 export interface EventPeriod { starts_at?: string | null; ends_at?: string | null; all_day?: boolean }
@@ -8,6 +8,8 @@ export function eventPeriod(value: EventPeriod): string {
   if (!value.starts_at && !value.ends_at) return "Даты уточняются";
   if (!value.starts_at) return `До ${format(value.ends_at!)}`;
   if (!value.ends_at || value.all_day && moscowDay(value.starts_at) === moscowDay(value.ends_at)) return `${format(value.starts_at)}${value.all_day ? " · весь день" : ""}`;
+  // One Moscow day names its date once: "31 окт. 2026 г., 18:00–20:00".
+  if (!value.all_day && moscowDay(value.starts_at) === moscowDay(value.ends_at)) return `${displayDate(value.starts_at)}–${displayTime(value.ends_at)}`;
   return `${format(value.starts_at)} — ${format(value.ends_at)}${value.all_day ? " · целые дни" : ""}`;
 }
 export function eventPhase(value: EventPeriod, now = Date.now()): "current" | "upcoming" | "past" | "undated" {

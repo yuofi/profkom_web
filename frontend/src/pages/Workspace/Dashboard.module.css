@@ -38,7 +38,7 @@
 .teamLink:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
 .teamAvatar.teamAvatar { width: 26px; height: 26px; min-width: 26px; border-radius: 7px; }
 .teamArrow.teamArrow { flex: 0 0 14px; width: 14px; font-size: 14px; margin-left: auto; color: var(--on-surface-variant); opacity: .65; }
-.roleSummary { max-width: 44%; font-size: 10px; line-height: 1.5; color: var(--on-surface-variant); text-align: right; overflow-wrap: anywhere; }
+.roleSummary { max-width: 44%; font-size: 12px; line-height: 1.5; color: var(--on-surface-variant); text-align: right; overflow-wrap: anywhere; }
 .teamDetail { display: block; padding-left: 34px; color: var(--on-surface-variant); font-size: 10px; line-height: 1.5; margin-top: 4px; }
 .paging { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 9px; font-size: 11px; }
 .paging button { padding: 6px 9px; font-size: 11px; }
@@ -78,3 +78,7 @@
 
 .teamLink.teamLink { color:var(--on-surface); }
 .teamLink.teamLink:hover { color:var(--primary);text-decoration:none; }
+
+/* The decorative arrow closes the team row after the role (EV-28). */
+.teamRow > .teamArrow { pointer-events: none; }
+.todayEmpty { margin: 0; font-size: 13px; line-height: 1.6; color: var(--on-surface-variant); }
