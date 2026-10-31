@@ -4,6 +4,7 @@ Keys and per-queue numbers are immutable identities; UUID task URLs stay valid.
 Explicit queue/task grants never confer private accounting or team authority.
 The WEBSUPPORT staff boundary remains a separate mandatory gate.
 """
+from contextvars import ContextVar
 from dataclasses import asdict
 from datetime import datetime, timezone
 import json
@@ -31,10 +32,20 @@ def base_read(uid, queue):
     return queue.scope_kind=="queue" or db.can_view_scope(uid,queue.scope_kind,queue.scope_id)
 
 
-def can_read(session, queue, uid, facts=None):
+def can_read(session, queue, uid):
     if not queue or not uid:return False
     key=tuple(getattr(queue,name,None) for name in ("queue_id","key","scope_kind","scope_id","owner_user_id","is_private"))+(uid,)
-    return cached(session,"queue.can_read",key,lambda:_can_read(session,queue,uid,facts),copy_result=False)
+    return cached(session,"queue.can_read",key,lambda:_can_read(session,queue,uid),copy_result=False)
+
+
+# The ReaderFacts of the batch deciding can_read (module-level can_read stays the seam).
+_reader_facts=ContextVar("task_queues.reader_facts",default=None)
+
+
+def _can_read_with(facts, session, queue, uid):
+    token=_reader_facts.set(facts)
+    try:return can_read(session,queue,uid)
+    finally:_reader_facts.reset(token)
 
 
 class ReaderFacts:
@@ -82,7 +93,8 @@ class ReaderFacts:
         return self.value(("scope", kind, scope_id), load)
 
 
-def _can_read(session, queue, uid, facts=None):
+def _can_read(session, queue, uid):
+    facts=_reader_facts.get()
     if facts is not None and (facts.uid != uid or facts.calculation.session is not getattr(session, "session", session)):
         facts = None
     if not queue or not uid or not (facts.active() if facts else active(session,uid)):return False
@@ -169,7 +181,7 @@ def readers_of(session, task, uids):
             if facts.all_queue_reader() or facts.can_view_scope(task.scope_kind, task.scope_id):
                 result.add(uid)
             continue
-        if can_read(session, queue, uid, facts):
+        if _can_read_with(facts, session, queue, uid):
             result.add(uid)
             continue
         if not calculation.usable():
@@ -268,7 +280,7 @@ def readable_tasks(session, tasks, uid, *, known=None, rows=None):
         meta=metadata.get(task.task_id)
         queue=queues.get(meta.queue_id) if meta and meta.queue_id else None
         if queue:
-            if queue.queue_id not in decisions:decisions[queue.queue_id]=can_read(session,queue,uid,facts)
+            if queue.queue_id not in decisions:decisions[queue.queue_id]=_can_read_with(facts,session,queue,uid)
             allowed=decisions[queue.queue_id]
             if not allowed and not facts.support_queue(queue):
                 if task.task_id not in active_grants and facts.calculation.usable():
