@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { MarkdownContent } from "./MarkdownContent";
 import { Glyph } from "./WorkspaceUI";
 import { editorShortcut } from "../../utils/editorShortcuts";
@@ -29,7 +29,7 @@ export function MarkdownEditor({
   value, onChange, label = "Содержимое в Markdown", name, rows = 18,
   context = "material", placeholder, disabled = false, variant = "default", footer, mentionUsers,
 }: MarkdownEditorProps) {
-  const input = useRef<HTMLTextAreaElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null), fieldId = useId(), Field = variant === "comment" ? "label" : "div";
   const selection = useRef<{ start: number; end: number; scrollTop?: number } | null>(null);
   const beforeInput = useRef<Snapshot | null>(null);
   const undo = useRef<Snapshot[]>([]);
@@ -148,6 +148,7 @@ export function MarkdownEditor({
   </EditorTool>;
   return (
     <div className={`${editor.editor} ${variant === "comment" ? editor.comment : ""}`} data-markdown-editor={variant}>
+      {variant !== "comment" && <label htmlFor={fieldId} className={editor.caption}>{label}</label>}
       <div className={editor.toolbar} role="toolbar" aria-label="Форматирование Markdown">
         {variant !== "comment" && previewControl}
         {preview ? <span className={editor.mode}>Просмотр Markdown</span> : <>
@@ -183,9 +184,9 @@ export function MarkdownEditor({
         </>}
         {variant === "comment" && <span className={editor.previewControl}>{previewControl}</span>}
       </div>
-      {!preview && <label className={editor.label}>
-        <span className={variant === "comment" ? editor.srOnly : undefined}>{label}</span>
-        <textarea ref={input} name={name} className={editor.input} value={value} rows={rows} placeholder={placeholder} disabled={disabled}
+      {!preview && <Field className={editor.label}>
+        {variant === "comment" && <span className={editor.srOnly}>{label}</span>}
+        <textarea ref={input} id={fieldId} name={name} className={editor.input} value={value} rows={rows} placeholder={placeholder} disabled={disabled}
           onChange={(event) => {
             remember(undo.current, beforeInput.current ?? snapshot()); redo.current = [];
             beforeInput.current = null;
@@ -208,7 +209,7 @@ export function MarkdownEditor({
             if (key === "z") restore(event.shiftKey ? "redo" : "undo");
             if (key === "y") restore("redo");
           }} />
-      </label>}
+      </Field>}
       {preview && <div className={editor.preview} role="region" aria-label={`Просмотр: ${label}`}>
         {value.trim() ? <MarkdownContent body={value} mentionUsers={mentionUsers} /> : <p className={editor.empty}>Здесь появится отформатированный текст.</p>}
       </div>}

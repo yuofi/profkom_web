@@ -17,6 +17,7 @@ export function TaskResultDialog({ task, onClose, onChanged }: { task: Task; onC
   return <TrackerTaskDialog title="Сдать результат" onClose={onClose} busy={busy || uploading}>
     <ActionForm fields={[{ name: "links", label: "Ссылки — каждая с новой строки", type: "textarea" }]} revision={task.revision} record={`task:${task.task_id}`} onConflict={refresh} allowExitSave={false} submitLabel="Отправить результат"
       externalState={{ body, files }} savedExternalState={{ body: "", files: [] }} externalBusy={uploading} disabled={busy} onReplaceWithSaved={() => { setBody("");setFiles([]); }}
+      beforeFields={() => <MarkdownEditor value={body} onChange={setBody} label="Результат работы" name="body" rows={8} context="result" draft={false} disabled={busy} />}
       savedDetails={<dl><div><dt>Статус задачи</dt><dd>{statusNames[taskStatus(task)]}</dd></div>{task.submissions?.at(-1) && <div><dt>Последняя общая сдача</dt><dd>{new Date(task.submissions.at(-1)!.submitted_at).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" })}</dd></div>}</dl>}
       onSubmit={async (values, expectedRevision) => {
         const links = text(values, "links").split("\n").map(value => value.trim()).filter(Boolean);
@@ -26,7 +27,6 @@ export function TaskResultDialog({ task, onClose, onChanged }: { task: Task; onC
         try { const saved = await perform(() => tasksApi.submitResult(task.task_id, { expected_revision: expectedRevision!, text: richText(body), links, file_ids: files.map(file => file.file_id) }));onChanged?.();onClose();return saved; }
         finally { setBusy(false); }
       }}>
-      <MarkdownEditor value={body} onChange={setBody} label="Результат работы" name="body" rows={8} context="result" draft={false} disabled={busy} />
       <fieldset className={s.pickerFields} disabled={busy}><AttachmentPicker owner_kind="task" owner_id={task.task_id} purpose="submission" files={files} onChange={setFiles} onBusyChange={setUploading} /></fieldset>
     </ActionForm>
   </TrackerTaskDialog>;

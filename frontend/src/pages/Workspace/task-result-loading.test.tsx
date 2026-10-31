@@ -25,3 +25,12 @@ it("does not load result Markdown/files for a status chip and preserves the expl
   await submit(page.container.querySelector("form")!);await waitForPage(page);
   expect(mock.state.tasks.find(item => item.task_id === task.task_id)?.submissions?.at(-1)?.text.body).toBe("Результат с **форматированием**");
 });
+it("orders the result dialog as the result text first, then links, then files", async () => {
+  mock = installMockTransport("chair", { delay: 0 });const original = createFixtures("chair").tasks[0];
+  page = await mountWorkspace(<TaskStatusMenu task={{ ...original, capabilities: [...original.capabilities, "submit_task_result"] }} variant="actions" />);await waitForPage(page);
+  await act(async () => [...page!.container.querySelectorAll("button")].find(button => button.textContent === "Сдать результат")!.click());await waitForPage(page, () => !!page!.container.querySelector('[name="body"]'));
+  const form = page.container.querySelector("form")!, order = [form.querySelector('[name="body"]')!, form.querySelector('[name="links"]')!, form.querySelector('input[type="file"]')!];
+  expect(order.every(Boolean)).toBe(true);
+  expect(order[0].compareDocumentPosition(order[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(order[1].compareDocumentPosition(order[2]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
