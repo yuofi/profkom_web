@@ -1294,3 +1294,28 @@ span.cardIcon {
     padding-inline: 10px;
   }
 }
+/* An icon-only button keeps its square where a phone row stretches its buttons (PE-31). */
+.iconButton {
+  flex: none;
+}
+@media (max-width: 768px) {
+  .row .iconButton {
+    flex-grow: 0;
+  }
+  /* The header's actions keep their own width beside the block avatar (PE-31). */
+  .header .row .linkButton,
+  .header .row .button {
+    flex-grow: 0;
+  }
+  /* The tabs of a section are one line that scrolls sideways on a phone (PE-32). */
+  .tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    scrollbar-width: thin;
+  }
+  .tabs a {
+    scroll-snap-align: start;
+  }
+}
+

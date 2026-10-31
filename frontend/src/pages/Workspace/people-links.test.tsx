@@ -43,3 +43,10 @@ it("a plain block member is told whom to ask to leave, with links (PE-22)", asyn
   page = await mountWorkspace(<Routes><Route path="/blocks/:id" element={<BlockPage />} /></Routes>, { path: "/blocks/block-info" });await waitForPage(page);
   expect(card("Состав блока").textContent).not.toContain("Чтобы выйти из блока");
 });
+
+it("the block HR pencil is an icon button that a phone row does not stretch (PE-31)", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  page = await mountWorkspace(<Routes><Route path="/blocks/:id" element={<BlockPage />} /></Routes>, { path: "/blocks/block-info" });await waitForPage(page);
+  const pencil = page.container.querySelector<HTMLButtonElement>('button[aria-label="Изменить HR блока"]')!;
+  expect(pencil.className).toMatch(/iconButton/);
+});
