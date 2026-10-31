@@ -9,6 +9,7 @@ import { TrackerGantt } from "./TrackerGantt";
 import { createFixtures } from "../../mocks/fixtures";
 import { installMockTransport } from "../../mocks/transport";
 import { tasksApi } from "../../utils/api/tasks.api";
+import { taskQueuesApi } from "../../utils/api/taskQueues.api";
 import { ApiError } from "../../utils/api/request";
 import { mountWorkspace, settle, waitForPage } from "../../test/workspace";
 import { loadPlanningTasks, moscowDay, planningRange, taskPlanning } from "./trackerPlanning";
@@ -63,12 +64,16 @@ it("PF-02: the star shows the server's answer at once while the list is still re
   const source = task(), answer = (favorite: boolean) => ({ items: [{ ...source, is_favorite: favorite }], next_cursor: null, scopes: [], assignees: [] });
   let calls = 0, release: (() => void) | undefined;
   vi.spyOn(tasksApi, "setFavorite").mockImplementation(async (_id, favorite) => ({ ...source, is_favorite: favorite }));
+  const catalog = vi.spyOn(taskQueuesApi, "catalog");
   await list("/tasks", () => ++calls === 1 ? answer(false) : new Promise<TaskListPageResponse>(resolve => { release = () => resolve(answer(true)); }));
+  const catalogReads = catalog.mock.calls.length;
   const star = () => page!.container.querySelector<HTMLButtonElement>('button[aria-label$=": ITWEB-17"][aria-pressed]')!;
   await act(async () => star().click());await settle();
   expect(release).toBeDefined();expect(star().getAttribute("aria-pressed")).toBe("true");expect(star().getAttribute("aria-label")).toBe("Убрать из избранного: ITWEB-17");expect(star().disabled).toBe(false);
   await act(async () => release!());await waitForPage(page!);
   expect(star().getAttribute("aria-pressed")).toBe("true");
+  // A personal favourite rereads the tracker's lists, not the queues or other sections.
+  expect(calls).toBe(2);expect(catalog).toHaveBeenCalledTimes(catalogReads);
 });
 it("marks Moscow today and shows a task without a start only on its deadline", async () => {
   vi.setSystemTime(new Date("2026-10-06T09:00:00Z"));const source = task({ starts_at: null });transport = installMockTransport("chair", { delay: 0 });page = await mountWorkspace(<Routes><Route path="/" element={<TrackerCalendar tasks={[source]} month="2026-10" range={planningRange("2026-10", "calendar")} onMonth={() => {}} />} /></Routes>);await waitForPage(page);
