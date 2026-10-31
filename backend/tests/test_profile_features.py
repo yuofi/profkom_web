@@ -67,6 +67,26 @@ def test_block_master_awards_only_own_team_including_self_not_deputy(client, sup
     assert request(client, outsider, "post", "/achievements", dict(title="Нельзя самому", scope_kind="global")).status_code == 403
 
 
+def test_global_awards_follow_achievement_manage_not_the_summary_readers(client, superuser, make_user):
+    """PE-10: the HR deputy reads global KKR summaries but does not manage global awards."""
+    from database import BlockORM, RoleAssignmentORM
+    master, deputy, member = make_user(), make_user(), make_user()
+    db.create_block(Block(name="Awards HR", master="", is_hr=True))
+    with db._session() as session:
+        session.get(BlockORM, "Awards HR").master_user_id = master.user_id
+        session.add(RoleAssignmentORM(role_assignment_id="hr-awards", user_id=master.user_id, role="master", scope_kind="block", scope_id="Awards HR", revision=1))
+        session.add(RoleAssignmentORM(role_assignment_id="hr-awards-deputy", user_id=deputy.user_id, role="deputy_master", scope_kind="block", scope_id="Awards HR", principal_assignment_id="hr-awards", revision=1))
+        session.commit()
+    scopes = lambda actor: [scope["kind"] for scope in ok(request(client, actor, "get", "/profile/me/features-context"))["award_scopes"]]
+    assert "global" in scopes(master) and "global" in scopes(superuser)
+    assert "global" not in scopes(deputy)
+    assert request(client, deputy, "post", "/achievements", dict(title="Не глобально", scope_kind="global")).status_code == 403
+    award = definition(client, master)
+    body = dict(expected_revision=award["revision"], user_id=member.user_id)
+    assert request(client, deputy, "post", f"/achievements/{award['achievement_id']}/grant", body).status_code == 403
+    ok(request(client, master, "post", f"/achievements/{award['achievement_id']}/grant", body))
+
+
 def test_role_history_is_public_without_revealing_private_team_work(client, superuser, make_user):
     actor, reader, successor = make_user(), make_user(), make_user()
     db.create_block(Block(name="История", master=""))

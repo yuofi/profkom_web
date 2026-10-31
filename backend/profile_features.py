@@ -75,7 +75,9 @@ def scope_data(session, kind, id):
 
 def award_manager(actor, kind, id):
     if kind == "global":
-        return access.allowed(actor, "kkr.view")
+        # Global relations hold no block/event leadership: the chair, the deputies and the HR
+        # master (PROFILE_FEATURES.md). KKR summary readers such as the HR deputy do not.
+        return access.allowed(actor, "achievement.manage")
     return kind in {"block", "event"} and access.allowed(actor, "achievement.manage", kind, id)
 
 
