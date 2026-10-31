@@ -3,3 +3,8 @@ export const sourceNames: Record<SourceKind | "unallocated", string> = { block_t
 export const analyticsKey = (id: string, participant = "", block = "") => ["summary", "analytics", id, participant, block];
 export const analyticsParams = (participant = "", block = "") => ({ ...(participant ? { participant_id: participant } : {}), ...(block ? { block_id: block } : {}) });
 export const metricValue = (value: number | null | undefined) => value == null ? "—" : new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value);
+/** The Russian form of a noun after a number: plural(2, "сезон", "сезона", "сезонов"). */
+export const plural = (count: number, one: string, few: string, many: string) => {
+  const rule = new Intl.PluralRules("ru-RU").select(count);
+  return rule === "one" ? one : rule === "few" ? few : many;
+};

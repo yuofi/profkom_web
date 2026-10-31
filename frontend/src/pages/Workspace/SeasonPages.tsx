@@ -14,20 +14,20 @@ import { DecisionBadges, DecisionSymbol } from "./SummaryTable";
 import m from "./TaskClassificationMenu.module.css";
 import { AnchoredPopover } from "../../components/Workspace/AnchoredPopover";
 import { UserChip } from "../../components/Workspace/UserChip";
-import { SeasonBlockerLink } from "../../components/Workspace/SeasonBlockerLink";
+import { SeasonBlockers } from "./SeasonBlockers";
 import { seasonsApi } from "../../utils/api/seasons.api";
-import { userMessage } from "../../utils/api/messages";
+import { isStale, userMessage } from "../../utils/api/messages";
 import { normalizeApiError } from "../../utils/api/request";
 import { can, useSession } from "../../utils/session";
 import { displayDate } from "../../utils/dates";
 import { getSeasonRoute, getSeasonCreateRoute, getKkrTemplatesRoute } from "../../utils/routes";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
-import type { Decision, Season, SeasonSummary, SummaryRow } from "../../utils/api/contract";
+import type { Decision, Season, SeasonBlocker, SeasonSummary, SummaryRow } from "../../utils/api/contract";
 import { decisionLabels, decisionTitle } from "../../utils/decisions";
 import { SeasonEditor } from "./SeasonEditor";
 import { SeasonParticipants } from "./SeasonParticipants";
 import { SeasonAnalytics, AnalyticsMetrics } from "./SeasonAnalytics";
-import { analyticsKey, sourceNames, metricValue } from "./seasonAnalyticsView";
+import { analyticsKey, sourceNames, metricValue, plural } from "./seasonAnalyticsView";
 import { SeasonStatistics, SeasonKkrHistory, SeasonKkrControl, SeasonKkrSummon } from "./SeasonKkrViews";
 import { SummaryHistory } from "./SummaryHistory";
 import { HistoryDisclosure } from "../../components/Workspace/HistoryPanel";
@@ -59,11 +59,37 @@ export function KkrTemplatesPage() {
 export function SeasonCreatePage() {
   const { session } = useSession();return can(session, "open_season") ? <UnsavedChangesScope><SeasonEditor /></UnsavedChangesScope> : <section className={u.page}><h1>Новый сезон</h1><Empty>Создание сезона доступно председателю.</Empty><Link to="/seasons" className={u.secondary}>Все сезоны</Link></section>;
 }
-function SeasonCommand({ season, action, label }: { season: Season; action: "open" | "begin-summary" | "close"; label: string }) {
-  const { perform, refresh } = useWorkspaceActions();const [failure, setFailure] = useState<ReturnType<typeof normalizeApiError> | null>(null);
-  return <div><ActionForm revision={season.revision} record={`season:${season.season_id}`} onConflict={refresh} fields={[]} submitLabel={label} allowExitSave={false} onSubmit={async (_, expectedRevision) => {
-    setFailure(null);try { const saved = await perform(() => seasonsApi.command(season.season_id, action, { expected_revision: expectedRevision! }));return "season" in saved ? saved.season : saved; } catch (error) { setFailure(normalizeApiError(error));throw error; }
-  }} />{failure?.blockers.length ? <ul className={w.list} aria-label="Препятствия закрытию">{failure.blockers.map((blocker, index) => <li key={index}><SeasonBlockerLink blocker={blocker} seasonId={season.season_id} /></li>)}</ul> : null}</div>;
+type SeasonAction = "open" | "begin-summary" | "close";
+const commands: { action: SeasonAction; capability: string; label: string; icon: "event" | "pending_actions" | "check" }[] = [
+  { action: "open", capability: "open_season", label: "Открыть и сделать текущим", icon: "event" },
+  { action: "begin-summary", capability: "begin_summary", label: "Начать подведение итогов", icon: "pending_actions" },
+  { action: "close", capability: "close_season", label: "Закрыть сезон", icon: "check" },
+];
+/** One menu of season actions: it stays on screen and closes on Escape or a click outside. */
+function SeasonManage({ season, summary, onEdit, onBlocked }: { season: Season; summary?: SeasonSummary; onEdit: () => void; onBlocked: (blockers: SeasonBlocker[]) => void }) {
+  const { session } = useSession();const anchor = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false), [busy, setBusy] = useState(false);
+  const correct = season.state === "closed" && can(session, "correct_season") && can(summary, "correct_summary");
+  const available = commands.filter(command => can(season, command.capability));
+  if (!can(season, "edit_season") && !available.length && !correct) return null;
+  const close = () => setOpen(false);
+  return <><button ref={anchor} type="button" className={`${u.secondary} ${w.button}`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(value => !value)}>Управление сезоном <Glyph name="expand_more" /></button>
+    <AnchoredPopover open={open} anchorRef={anchor} label="Управление сезоном" onRequestClose={close} busy={busy} width={320}><div className={u.manageMenu}>
+      {can(season, "edit_season") && <button type="button" className={u.manageItem} onClick={() => { close();onEdit(); }}><Glyph name="edit" />Название и период</button>}
+      {available.map(command => <SeasonCommand key={command.action} season={season} {...command} onBusy={setBusy} onDone={close} onBlocked={blockers => { close();onBlocked(blockers); }} />)}
+      {correct && <Link className={u.manageItem} to={`${getSeasonRoute(season.season_id)}/corrections`} onClick={close}><Glyph name="edit_document" />Исправить итоги…</Link>}
+    </div></AnchoredPopover></>;
+}
+function SeasonCommand({ season, action, label, icon, onBusy, onDone, onBlocked }: { season: Season; action: SeasonAction; label: string; icon: (typeof commands)[number]["icon"]; onBusy: (busy: boolean) => void; onDone: () => void; onBlocked: (blockers: SeasonBlocker[]) => void }) {
+  const { perform, refresh } = useWorkspaceActions();const running = useRef(false);
+  const [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const run = async () => {
+    if (running.current) return;running.current = true;setBusy(true);onBusy(true);setError("");
+    try { await perform(() => seasonsApi.command(season.season_id, action, { expected_revision: season.revision }));onDone(); }
+    catch (failure) { const blockers = normalizeApiError(failure).blockers;if (blockers.length) onBlocked(blockers);else { setError(userMessage(failure));if (isStale(failure)) await refresh(); } }
+    finally { running.current = false;setBusy(false);onBusy(false); }
+  };
+  return <><button type="button" className={u.manageItem} disabled={busy} aria-busy={busy} onClick={() => void run()}><Glyph name={icon} />{busy ? "Выполняем…" : label}</button>{error && <p role="alert" className={w.error}>{error}</p>}</>;
 }
 type Tab = "overview" | "participants" | "analytics" | "history" | "control";
 const tabs = [{ id: "participants", title: "Участники и ККР", icon: "groups" }, { id: "analytics", title: "Аналитика", icon: "insights" }, { id: "history", title: "История ККР", icon: "sync" }, { id: "control", title: "Заполнение ККР", icon: "task_alt" }] as const;
@@ -72,6 +98,7 @@ export function SeasonPage() { return <SeasonHub />; }
 export function SummaryPage() { return <SeasonHub initialTab="participants" />; }
 function SeasonHub({ initialTab = "participants" }: { initialTab?: Tab }) {
   const { id = "" } = useParams(), { session } = useSession();const navigate=useNavigate();const [params] = useSearchParams();const [editing, setEditing] = useState(false);
+  const [blocked, setBlocked] = useState<{ seasonId: string; items: SeasonBlocker[] } | null>(null);
   const allowed = can(session, "view_summary");const selected = params.get("tab") ?? initialTab;const tab = tabs.some(tab => tab.id === selected) ? selected as Tab : "participants";
   const query = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });const season = query.data?.items.find(season => season.season_id === id);
   const summary = useQuery({ queryKey: ["summary", id], queryFn: () => seasonsApi.summary(id), enabled: allowed });
@@ -80,8 +107,10 @@ function SeasonHub({ initialTab = "participants" }: { initialTab?: Tab }) {
     <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!query.data} retry={() => void query.refetch()}>{season ? <>
       <BrandedHeader className={u.header}><div><SectionHomeLink to="/seasons" label="Учёт работы" /><nav className={u.breadcrumbs} aria-label="Путь сезона"><Link to="/seasons">Сезоны</Link><span>›</span><span>{typeNames[season.type]}</span></nav><h1 className={w.title}>{season.title}</h1><div className={u.period}><span>{dateRange(season)}</span>{can(season, "edit_season") && <button type="button" className={u.iconButton} aria-label="Редактировать сезон" onClick={() => setEditing(true)}><Glyph name="edit" /></button>}</div><div className={u.statusLine}><State season={season} />{season.is_current && <small>Текущий сезон</small>}{allowed && summary.data && <small>{summary.data.state === "approved" ? "Итоги утверждены" : "Предварительные итоги"} · Версия {summary.data.version}</small>}</div></div>
         <div className={u.headerActions}>{allowed&&<SeasonKkrSummon key={id} seasonId={id}/>}
-        {season.capabilities.some(cap => ["open_season", "begin_summary", "close_season", "edit_season"].includes(cap)) && <details className={u.manage}><summary className={`${u.secondary} ${w.button}`}>Управление сезоном <Glyph name="expand_more" /></summary><div className={u.manageMenu}>{can(season, "edit_season") && <button type="button" className={u.secondary} onClick={() => setEditing(true)}><Glyph name="edit" />Название и период</button>}{can(season, "open_season") && <SeasonCommand season={season} action="open" label="Открыть и сделать текущим" />}{can(season, "begin_summary") && <SeasonCommand season={season} action="begin-summary" label="Начать подведение итогов" />}{can(season, "close_season") && <SeasonCommand season={season} action="close" label="Закрыть сезон" />}</div></details>}</div>
+        {season.state === "closed" && can(session, "view_kkr") && <Link className={`${u.secondary} ${w.button}`} to={`${getSeasonRoute(id)}/sources`}><Glyph name="fact_check" />Подробные начисления</Link>}
+        <SeasonManage season={season} summary={summary.data} onEdit={() => setEditing(true)} onBlocked={items => setBlocked({ seasonId: id, items })} /></div>
       </BrandedHeader>
+      {blocked?.seasonId === id && <section className={u.panel} aria-label="Препятствия закрытию"><div className={u.panelHeader}><h2 role="alert">Сезон пока нельзя закрыть: {blocked.items.length} {plural(blocked.items.length, "препятствие", "препятствия", "препятствий")}</h2><button type="button" className={u.secondary} onClick={() => setBlocked(null)}>Скрыть</button></div><SeasonBlockers blockers={blocked.items} seasonId={id} /></section>}
       {allowed && <label className={u.seasonSelect}>Сезон<select aria-label="Выбранный сезон" value={id} onChange={e=>navigate(`${getSeasonRoute(e.target.value)}?tab=${tab}`)}>{query.data?.items.map(item=><option key={item.season_id} value={item.season_id}>{item.title}</option>)}</select></label>}
       {allowed && <nav className={u.tabs} aria-label="Разделы сезона">{tabs.map(item => <Link key={item.id} to={`${getSeasonRoute(id)}${item.id === "participants" ? "" : `?tab=${item.id}`}`} aria-current={tab === item.id ? "page" : undefined}><Glyph name={item.icon} />{item.title}</Link>)}</nav>}
       {tab === "overview" || !allowed ? <SeasonOverview season={season} summary={summary.data} allowed={allowed} /> : tab === "participants" ? <QueryState loading={summary.isLoading} error={summary.error} keepDataOnError={!!summary.data} retry={() => void summary.refetch()}>{summary.data && <UnsavedChangesScope><SeasonDecisionEditors key={summary.data.season_id} summary={summary.data} /></UnsavedChangesScope>}</QueryState> : tab === "analytics" ? <section className={u.stack}><SeasonStatistics seasonId={id} summary={summary.data} /><LazyPanel key={`analytics:${id}`} title="Динамика задач, часов и ККР"><SeasonAnalytics key={id} seasonId={id} /></LazyPanel></section> : tab === "control" ? <SeasonKkrControl seasonId={id} /> : <section className={u.stack}><div className={u.sectionHeading}><h2>История ККР по сезонам</h2></div><SeasonKkrHistory /><LazyPanel key={`versions:${id}`} title="Версии утверждённых итогов"><SummaryHistory key={id} seasonId={id} /></LazyPanel></section>}
@@ -102,7 +131,7 @@ function SeasonOverview({ season, summary, allowed }: { season: Season; summary?
   const readiness = useQuery({ queryKey: ["seasons", "readiness", id], queryFn: () => seasonsApi.readiness(id), enabled: allowed && ["open", "summarizing"].includes(season.state) });
   const scores = analytics.data?.source_breakdown ?? [], maximum = Math.max(1, ...scores.map(source => Math.abs(source.kkr ?? 0)));
   return <div className={u.stack}>
-    {allowed && ["open", "summarizing"].includes(season.state) && <section className={u.panel} aria-label="Проверки сезона"><h2>Проверки сезона</h2><QueryState loading={readiness.isLoading} error={readiness.error} retry={() => void readiness.refetch()}>{readiness.data && (readiness.data.ready ? <p>Препятствий для закрытия нет.</p> : <details><summary>Препятствий закрытию: {readiness.data.blockers.length}</summary><ul className={w.list}>{readiness.data.blockers.map((blocker, index) => <li key={`${blocker.owner_kind}:${blocker.owner_id}:${index}`}><SeasonBlockerLink blocker={blocker} seasonId={id} /></li>)}</ul></details>)}</QueryState></section>}
+    {allowed && ["open", "summarizing"].includes(season.state) && <section className={u.panel} aria-label="Проверки сезона"><h2>Проверки сезона</h2><QueryState loading={readiness.isLoading} error={readiness.error} retry={() => void readiness.refetch()}>{readiness.data && (readiness.data.ready ? <p>Препятствий для закрытия нет.</p> : <details><summary>Препятствий закрытию: {readiness.data.blockers.length}</summary><SeasonBlockers blockers={readiness.data.blockers} seasonId={id} /></details>)}</QueryState></section>}
     {allowed && <QueryState loading={analytics.isLoading} error={analytics.error} retry={() => void analytics.refetch()}>{analytics.data && <><AnalyticsMetrics totals={analytics.data.totals} />{analytics.data.coverage.notes.length > 0 && <p className={u.coverageLine}>{analytics.data.coverage.notes[0]}</p>}</>}</QueryState>}
     <div className={u.overviewColumns}><section className={u.panel}><div className={u.panelHeader}><h2>Работа сезона</h2></div><p>Задачи, результаты и мероприятия этого периода.</p><div className={u.actions}><Link className={u.secondary} to={`/tasks?season_id=${encodeURIComponent(id)}&mine=false`}>Задачи сезона <span aria-hidden="true">→</span></Link><Link className={u.secondary} to="/events">Мероприятия <span aria-hidden="true">→</span></Link>{["create_volunteer_merit", "create_head_merit", "create_chair_merit", "view_summary"].some(cap => can(session, cap)) && <Link className={u.secondary} to={`/seasons/${encodeURIComponent(id)}/merits`}>Заслуги и волонтёрство <span aria-hidden="true">→</span></Link>}</div><p className={u.note}>{season.state === "closed" ? "Итоги сезона сохранены. Правки исходных полей выполняются у соответствующей задачи; прежние версии остаются в истории." : "Статус задачи отражает ход работы. Начисления ККР появляются после отдельного расчётного решения уполномоченного руководителя."}</p></section>
       {allowed && <section className={u.panel}><div className={u.panelHeader}><h2>Источники ККР</h2><Link to={`/seasons/${encodeURIComponent(id)}/sources`}>Все начисления →</Link></div>{scores.length ? scores.map(source => <div className={u.source} key={source.source_kind}><div><span>{sourceNames[source.source_kind]}</span><strong>{metricValue(source.kkr)}</strong></div><div className={u.track}><span data-negative={(source.kkr ?? 0) < 0} style={{ width: `${Math.abs(source.kkr ?? 0) / maximum * 100}%` }} /></div></div>) : <p className={u.note}>{analytics.isLoading ? "Загружаем начисления…" : "Учтённых начислений пока нет."}</p>}</section>}

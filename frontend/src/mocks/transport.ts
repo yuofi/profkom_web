@@ -321,7 +321,7 @@ export function installMockTransport(
         const status = inputs?.workflow_status ?? assignment.status;
         const kind = !["accepted", "not_completed", "cancelled"].includes(status) ? "unfinished_assignment"
           : ["accepted", "not_completed"].includes(status) && (inputs?.evaluation == null || status === "accepted" && inputs.hours == null) ? "missing_assessment" : null;
-        if (kind) blockers.push({ kind, owner_kind: "assignment", owner_id: assignment.assignment_id, title: task.title, subject: task.title, assignee: assignment.assignee.display_name });
+        if (kind) blockers.push({ kind, owner_kind: "assignment", owner_id: assignment.assignment_id, title: task.title, subject: task.title, assignee: assignment.assignee.display_name, task_id: task.task_id });
       }
     }
     const events = state.events.filter(event => event.season_id === season.season_id);

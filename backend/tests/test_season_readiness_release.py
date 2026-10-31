@@ -13,6 +13,7 @@ def test_readiness_is_read_only_and_matches_actual_close_blockers(client, work, 
     assert response.status_code == 200, response.text
     assert response.json()["ready"] is False
     assert response.json()["blockers"][0]["kind"] == "unfinished_assignment"
+    assert response.json()["blockers"][0]["task_id"] == work["task"]["task_id"]  # links without loading all tasks
     assert client.get(f"/api/seasons/{sid}/readiness", headers=work["member"].headers).status_code == 403
     assert client.get(f"/api/seasons/{sid}/readiness", headers=superuser.headers).json() == response.json()
     with db._session() as session:
