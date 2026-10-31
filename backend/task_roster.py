@@ -15,9 +15,9 @@ def _current_roles(session,task):
 
 
 def creates_closed_assignment(session,task,actor,uid):
-    """Audit default of TR-05, awaiting the owner's answer: in a closed season only the chair
-    and deputies create new accounting rows (task.add_assignment). Current and former assignees
-    keep their own row; public status changes and take by them stay allowed."""
+    """In a closed season only the chair, the deputies and the HR master create new accounting
+    rows (task.add_assignment; owner, 2026-10-31, TR-05). Current and former assignees keep
+    their own row; public status changes and take by them stay allowed."""
     from tracker import task_state
     import access
     if task_state(session,task)!='closed' or access.allowed(actor,'task.add_assignment',task.scope_kind,task.scope_id,state='closed'):return False
@@ -40,7 +40,7 @@ def change(task_id,actor,expected_revision,command,target_uid=None):
         if command=='take' and not can_change_status(session,task,actor,'in_progress'):
             raise Forbidden('Only the task author may reopen a closed task')
         if command in {'join','take','assign'} and creates_closed_assignment(session,task,actor,uid):
-            raise season_closed('Only the chair and deputies add assignees in a closed season')
+            raise season_closed('Only the chair, deputies and HR master add assignees in a closed season')
         if command=='assign':
             from task_queues import active
             if not uid or not active(session,uid):raise InvalidInput('Assignee must be active and approved')

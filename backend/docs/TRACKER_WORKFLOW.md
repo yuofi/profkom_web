@@ -112,8 +112,9 @@ ordinary reader controls, without a new global editing or private-accounting gra
 Closed tasks are edited by the chair, the deputies and the HR master (owner 2026-10-31,
 SE-13), never by the HR deputy. Closed independent tasks also retain the existing
 creator/queue-owner exception. A new assignment row in a closed season (join, take,
-assign, reassignment) still needs the chair or a deputy (`task.add_assignment`, the TR-05
-default awaiting the owner's answer).
+assign, reassignment) is added by the same circle, the chair, the deputies and the HR
+master, never by the HR deputy or area leads (`task.add_assignment`, owner 2026-10-31,
+TR-05).
 
 ## Real roster and watcher subscriptions
 

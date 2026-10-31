@@ -101,9 +101,9 @@ POLICY = {
     "task.edit": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY} | AREA_LEADS, "closed": CLOSED_SEASON}),  # public task editing
     "task.review": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS, "closed": CLOSED_SEASON}),
     # A new assignment row for someone's work: a reassignment; in a closed season also the
-    # roster's join/take/assign. Closed seasons keep the TR-05 default (the chair and deputies),
-    # which awaits the owner's answer; SE-13 does not widen it.
-    "task.add_assignment": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS, "closed": TACHKI}),
+    # roster's join/take/assign. A closed season's rows are added by its circle: the chair,
+    # the deputies and the HR master, not the HR deputy (owner, 2026-10-31, TR-05).
+    "task.add_assignment": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS, "closed": CLOSED_SEASON}),
     "task.inputs.view": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS,
     "task.inputs.edit": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS, "closed": CLOSED_SEASON}),
     # Issue date, deadline and completion date, once set; area leads do not move them (УВ-5)

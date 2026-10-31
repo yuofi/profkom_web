@@ -3,8 +3,8 @@
 The chair, the chair's deputies and the HR master edit a closed season: its marks
 (отметки), summary corrections, coefficients, public task fields, assessment inputs and
 dates, reviews and merits, new merits included. The HR deputy, block leads, members and
-outsiders do not. Creating a NEW assignment row in a closed season keeps the TR-05
-default (the chair and deputies) and is not widened by this decision. Every capability
+outsiders do not. A NEW assignment row in a closed season (join, take, assign,
+reassignment) is added by the same circle (owner 2026-10-31, TR-05). Every capability
 follows its command.
 """
 from datetime import datetime, timedelta, timezone
@@ -171,29 +171,81 @@ def test_closed_season_new_merit_follows_the_season_circle(client, closed, role)
                               closed["block_id"] if target else None, state="closed") is editor
 
 
-@pytest.mark.parametrize("role", ["hr_master", "hr_deputy", "block_master", "member"])
-def test_closed_season_new_assignments_keep_the_tr05_circle(client, closed, role):
-    """SE-13 does not widen TR-05: in a closed season only the chair and deputies add an
-    assignment row, whether by join/take/assign or by a reassignment."""
-    actor = closed["people"][role]
+CLOSED_ASSIGN = "Only the chair, deputies and HR master add assignees in a closed season"
+CLOSED_REASSIGN = "Forbidden: only the chair, deputies and HR master can reassign in a closed season"
+ROSTER_CAPS = {"join": "join_task", "take": "take_task", "assign": "assign_task_participants"}
+
+
+def assignees():
+    with db._session() as session:
+        return sorted((a.task_id, a.assignee_user_id, a.assignment_id) for a in session.query(AssignmentORM))
+
+
+def junior(closed, superuser, make_user):
+    """An ordinary member of the closed task's block who is not its assignee."""
+    import membership
+    person = make_user()
+    with db._session() as session:
+        membership.set_membership(session, person.user_id, closed["block_id"], True, superuser.user_id, "Synthetic membership")
+        session.commit()
+    return person
+
+
+def roster_command(client, closed, actor, command, target):
     task = client.get(f"/api/tasks/{closed['task_id']}", headers=actor.headers).json()
-    if role != "member":  # the member is the current assignee and keeps their own row
-        assert not {"join_task", "take_task", "assign_task_participants"} & set(task["capabilities"])
-        before = ledger()
-        joined = client.post(f"/api/tasks/{closed['task_id']}/join", headers=actor.headers,
-                             json={"expected_revision": task["revision"]})
-        assert joined.status_code == 409 and joined.json()["detail"]["code"] == "season_closed", joined.text
-        assert ledger() == before
+    path = f"/api/tasks/{closed['task_id']}/assignees/{target.user_id}/add" if command == "assign" else \
+        f"/api/tasks/{closed['task_id']}/{command}"
+    return task, client.post(path, headers=actor.headers, json={"expected_revision": task["revision"]})
+
+
+@pytest.mark.parametrize("command", ["join", "take", "assign"])
+def test_hr_master_adds_closed_season_assignees(client, closed, command):
+    """TR-05 (owner 2026-10-31): the closed-season circle, the HR master included, adds an
+    assignee there; each command writes exactly one new accounting row."""
+    actor = closed["people"]["hr_master"]
+    target = closed["people"]["block_master"] if command == "assign" else actor
+    before = assignees()
+    task, response = roster_command(client, closed, actor, command, target)
+    assert ROSTER_CAPS[command] in task["capabilities"], task["capabilities"]
+    assert response.status_code == 200, response.text
+    assert target.user_id in [user["user_id"] for user in response.json()["assignees"]]
+    added = sorted(set(assignees()) - set(before))
+    assert len(assignees()) == len(before) + 1 and [row[:2] for row in added] == [(closed["task_id"], target.user_id)]
+
+
+@pytest.mark.parametrize("role", ["hr_deputy", "block_master", "junior"])
+@pytest.mark.parametrize("command", ["join", "take", "assign"])
+def test_closed_season_new_assignees_are_refused_outside_the_circle(client, closed, superuser, make_user, role, command):
+    """The HR deputy, the block master and an ordinary member add no assignee to a closed
+    season's task; the capability is absent exactly as the command is refused."""
+    actor = junior(closed, superuser, make_user) if role == "junior" else closed["people"][role]
+    target = closed["people"]["outsider"] if role == "block_master" else closed["people"]["block_master"]
+    before = ledger()
+    task, response = roster_command(client, closed, actor, command, actor if command != "assign" else target)
+    assert ROSTER_CAPS[command] not in task["capabilities"], task["capabilities"]
+    if command == "assign":  # changing other people needs the closed task's public editor
+        assert response.status_code == 403, response.text
+    else:
+        detail = response.json()["detail"]
+        assert response.status_code == 409 and (detail["code"], detail["message"]) == ("season_closed", CLOSED_ASSIGN), response.text
+    assert ledger() == before
+
+
+@pytest.mark.parametrize("role", ["chair", "chair_deputy", "hr_master", "hr_deputy", "block_master"])
+def test_closed_season_reassignment_follows_the_circle(client, closed, role):
+    """A reassignment is a new row too: the capability and the command's right check agree."""
+    actor, editor = closed["people"][role], role in EDITORS
+    task = client.get(f"/api/tasks/{closed['task_id']}", headers=actor.headers).json()
     assignment = next(a for a in task["assignments"] if a["assignment_id"] == closed["aid"])
-    assert "reassign_assignment" not in assignment["capabilities"]
-
-
-def test_chair_and_deputy_keep_closed_reassignment(client, closed):
-    for role in ("chair", "chair_deputy"):
-        task = client.get(f"/api/tasks/{closed['task_id']}", headers=closed["people"][role].headers).json()
-        assignment = next(a for a in task["assignments"] if a["assignment_id"] == closed["aid"])
-        assert "reassign_assignment" in assignment["capabilities"], role
-        assert "join_task" in task["capabilities"], role
+    assert ("reassign_assignment" in assignment["capabilities"]) is editor
+    assert ("join_task" in task["capabilities"]) is editor
+    response = client.post(f"/api/assignments/{closed['aid']}/reassign", headers=actor.headers, json={
+        "expected_revision": BAD, "new_assignee_user_id": closed["people"]["block_master"].user_id, "hours": 1,
+        "previous_outcome": "cancelled", "reason": "probe"})
+    if editor:  # the right is checked before the stale revision
+        assert response.status_code == 409, response.text
+    else:
+        assert response.status_code == 403 and response.json()["detail"]["message"] == CLOSED_REASSIGN, response.text
 
 
 def test_closed_season_merit_of_a_closed_event_follows_the_season_circle(client, work, superuser, make_user, hr_roles):
