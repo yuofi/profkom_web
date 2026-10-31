@@ -12,6 +12,7 @@ import { TrackerTaskPage } from "./TrackerTaskDetail";
 import { TaskStatusMenu } from "./TaskStatusMenu";
 import { taskStatus, taskTransitions } from "./trackerStatus";
 import { TrackerTaskHistoryDiff } from "./TrackerTaskHistoryDiff";
+import { TaskDeadlineParameter } from "./TaskDeadlineParameter";
 import { ApiError } from "../../utils/api/request";
 import { historyApi } from "../../utils/api/history.api";
 import { taskCollaborationApi } from "../../utils/api/taskCollaboration.api";
@@ -471,6 +472,7 @@ it("moves the deadline only through reasoned assessment inputs and tells other m
   await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async () => task);
   await click("Перенести срок");const dialog = page!.container.querySelector("dialog")!, form = dialog.querySelector("form")!;
   expect(dialog.querySelector<HTMLInputElement>('[name="deadline_at"]')!.value).toBe("2026-11-10T18:00");
+  expect(dialog.textContent?.replace(/\u00a0/g, " ")).toMatch(/Не раньше 20 окт\. 2026 г\., 12:00 и не позже .+ \(конец сезона\), МСК\./);
   await change(dialog.querySelector<HTMLInputElement>('[name="deadline_at"]')!, "2026-11-20T18:00");await submit(form);expect(update).not.toHaveBeenCalled();
   await change(dialog.querySelector<HTMLInputElement>('[name="reason"]')!, "Подрядчик сдвинул поставку");await submit(form);await waitForPage(page!);
   expect(update).toHaveBeenCalledWith(task.task_id, { expected_revision: 3, deadline_at: "2026-11-20T15:00:00.000Z", reason: "Подрядчик сдвинул поставку" });expect(edit).not.toHaveBeenCalled();
@@ -478,8 +480,12 @@ it("moves the deadline only through reasoned assessment inputs and tells other m
   expect(page!.container.querySelector('[aria-label="Параметры задачи"] time')?.getAttribute("datetime")).toBe("2026-11-20T15:00:00.000Z");
   await page!.cleanup();read.mockResolvedValue({ ...inputs, capabilities: ["edit_assessment_inputs"] });
   await mountTask(makeTask({ capabilities: ["read_task", "view_assessment_inputs"] }));
-  expect(page!.container.textContent).toContain("Срок переносят председатель, замы и мастер HR");expect(page!.container.textContent).not.toContain("Перенести срок");
+  expect(page!.container.textContent).toContain("Срок переносят председатель, замы, мастер HR и его заместитель");expect(page!.container.textContent).not.toContain("Перенести срок");
   await page!.cleanup();read.mockClear();
   await mountTask(makeTask({ capabilities: ["read_task", "comment_task"] }));
   expect(read).not.toHaveBeenCalled();expect(page!.container.textContent).not.toContain("Срок переносят");
+  // An area lead reads assessment inputs but never moves dates: no inputs request for it.
+  await page!.cleanup();const lead = createFixtures("organizer").session;expect(lead.capabilities).not.toContain("view_summary");
+  page = await mountWorkspace(<TaskDeadlineParameter task={makeTask({ capabilities: ["read_task", "view_assessment_inputs"] })} now={Date.now()} />, { session: lead });
+  expect(read).not.toHaveBeenCalled();expect(page.container.textContent).toContain("Срок переносят председатель");
 });
