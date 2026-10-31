@@ -15,7 +15,7 @@ import u from "./SeasonWorkspace.module.css";
 
 const types = { winter_spring: "Зима — весна", summer_autumn: "Лето — осень", autumn_winter: "Осень — зима" };
 /** The type a new season usually has by the month it starts in (МСК): winter and spring, summer, autumn. */
-export function typeForStart(value: string): Season["type"] | null {
+function typeForStart(value: string): Season["type"] | null {
   const month = Number(value.slice(5, 7));
   if (!month) return null;
   return month >= 6 && month <= 8 ? "summer_autumn" : month >= 9 && month <= 11 ? "autumn_winter" : "winter_spring";

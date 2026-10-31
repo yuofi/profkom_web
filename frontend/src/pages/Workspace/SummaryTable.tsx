@@ -3,7 +3,7 @@ import type { Decision, SeasonSummary, SummaryRow } from "../../utils/api/contra
 import { Badge, Glyph } from "../../components/Workspace/WorkspaceUI";
 import { UserChip } from "../../components/Workspace/UserChip";
 import { decisionLabels, decisionTitle } from "../../utils/decisions";
-import { metricValue } from "./seasonAnalyticsView";
+import { metricValue, ranked } from "./seasonAnalyticsView";
 import u from "./SeasonWorkspace.module.css";
 
 const decisionSymbols: Record<Decision, ReactNode> = {
@@ -18,9 +18,6 @@ export function DecisionSymbol({value}:{value:Decision}) {
 export function DecisionBadges({ values }: { values: Decision[] }) {
   return values.length ? <span className={u.decisionIcons}>{values.map(d=><span key={d} role="img" aria-label={decisionLabels[d]} title={decisionTitle(d)} className={u.decisionIcon}><DecisionSymbol value={d}/><span className={u.srOnly}>{decisionLabels[d]}</span></span>)}</span> : <span>Нет отметок</span>;
 }
-
-/** Places mean something once someone has a score; with every total at zero they are all a tie. */
-export const ranked = (summary: SeasonSummary) => summary.rows.some(row => row.total_score !== 0);
 
 export function SummaryTable({ summary, filter = "", rows, renderDecisions, onParticipantSelect }: {
   summary: SeasonSummary; filter?: string; rows?: SummaryRow[]; renderDecisions?: (row: SummaryRow) => ReactNode; onParticipantSelect?: (row: SummaryRow) => void;

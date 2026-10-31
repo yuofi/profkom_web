@@ -10,7 +10,7 @@ import { useGuardedAction } from "../../components/Workspace/unsavedChangesHooks
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { text } from "../../components/Workspace/formValues";
 import { ownedLayerTarget, useAnchoredLayer } from "../../components/Workspace/useAnchoredLayer";
-import { DecisionBadges, DecisionSymbol, ranked } from "./SummaryTable";
+import { DecisionBadges, DecisionSymbol } from "./SummaryTable";
 import m from "./TaskClassificationMenu.module.css";
 import { AnchoredPopover } from "../../components/Workspace/AnchoredPopover";
 import { UserChip } from "../../components/Workspace/UserChip";
@@ -28,7 +28,7 @@ import { decisionLabels, decisionTitle } from "../../utils/decisions";
 import { SeasonEditor } from "./SeasonEditor";
 import { SeasonParticipants } from "./SeasonParticipants";
 import { SeasonAnalytics, AnalyticsMetrics } from "./SeasonAnalytics";
-import { analyticsKey, sourceNames, metricValue, plural } from "./seasonAnalyticsView";
+import { analyticsKey, sourceNames, metricValue, plural, ranked } from "./seasonAnalyticsView";
 import { SeasonStatistics, SeasonKkrHistory, SeasonKkrControl, SeasonKkrSummon } from "./SeasonKkrViews";
 import { SummaryHistory } from "./SummaryHistory";
 import { HistoryDisclosure } from "../../components/Workspace/HistoryPanel";
