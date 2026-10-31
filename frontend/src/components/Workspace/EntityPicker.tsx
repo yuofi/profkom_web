@@ -72,7 +72,9 @@ export function EntityPicker(props: EntityPickerProps) {
     if (blocked() || option.disabled) return;
     if (props.multiple) props.onChange(selected.includes(option.value) ? selected.filter(value => value !== option.value) : [...selected, option.value]);
     else props.onChange(option.value);
-    setSearch("");input.current?.focus();setOpen(!!props.multiple);
+    // The list closes after a choice, so it never covers the form's own submit; typing,
+    // a click or ArrowDown reopens it for the next person.
+    setSearch("");input.current?.focus();setOpen(false);
   };
   const remove = (value: string) => {
     if (blocked()) return;

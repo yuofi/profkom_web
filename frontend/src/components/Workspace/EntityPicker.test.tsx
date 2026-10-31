@@ -78,3 +78,20 @@ it("people metadata comes from current directory projection and scoped members s
   function Probe() { const all = usePeopleOptions(), scoped = useScopeMembers({ kind: "block", id: block.block_id });return <><output aria-label="all">{all.options.map(option => `${option.value}:${option.user?.user_id}`).join(",")}</output><output aria-label="scoped">{scoped.options.map(option => `${option.value}:${option.user?.user_id}`).join(",")}</output></>; }
   page = await mountWorkspace(<Probe />);await waitForPage(page);expect(page.container.querySelector('[aria-label="all"]')?.textContent).not.toContain(String(fixture.people[2].user_id));expect(page.container.querySelector('[aria-label="scoped"]')?.textContent).toBe(`${fixture.people[0].user_id}:${fixture.people[0].user_id}`);
 });
+it("closes the multi-select list after a choice and saves a team roster only after an actual change (EV-02)", async () => {
+  const save = vi.fn(async () => {});
+  page = await mountWorkspace(<ActionForm changeRequired={["people"]} fields={[{ name: "people", label: "Организаторы", type: "multi", entity: "person", value: ["11"], options }]} onSubmit={save} />);
+  const saveButton = () => page!.container.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+  expect(saveButton().disabled).toBe(true);
+  await open();await choose("13");
+  // The list no longer covers the dialog's own submit; focus stays for the next search.
+  expect(choices()).toHaveLength(0);expect(input().getAttribute("aria-expanded")).toBe("false");expect(document.activeElement).toBe(input());
+  expect(saveButton().disabled).toBe(false);
+  await change(input(), "Анна");expect(choices()).toHaveLength(2);await press("Escape");
+  // While the removal question is open, the main submit waits for its answer.
+  await click(page.container.querySelector<HTMLButtonElement>('[data-selected-value="11"] button')!);
+  await submit(page.container.querySelector("form")!);
+  expect(save).not.toHaveBeenCalled();expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("Будут сняты: Анна Иванова");expect(saveButton().disabled).toBe(true);
+  await click([...page.container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Снять и сохранить")!);
+  expect(save).toHaveBeenCalledWith({ people: ["13"] }, undefined);
+});

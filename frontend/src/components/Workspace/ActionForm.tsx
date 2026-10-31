@@ -465,7 +465,7 @@ export function ActionForm({
           <button
             className={`${s.button} ${variant === "primary" ? s.primary : variant === "danger" ? s.danger : ""}`}
             type="submit"
-            disabled={form.isSubmitting || refreshing || disabled || unchanged || (versioned && (changedRevision || stale))}
+            disabled={form.isSubmitting || refreshing || disabled || unchanged || pendingRemoval.length > 0 || (versioned && (changedRevision || stale))}
           >
             {form.isSubmitting ? "Сохраняем…" : submitLabel}
           </button>
