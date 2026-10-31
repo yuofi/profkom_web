@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act } from "react";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { TaskQueuePage, TaskQueuesPage } from "./TaskQueuePages";
 import { TrackerListPage } from "./TrackerList";
@@ -9,6 +9,7 @@ import { installMockTransport } from "../../mocks/transport";
 import { taskQueuesApi } from "../../utils/api/taskQueues.api";
 import { tasksApi } from "../../utils/api/tasks.api";
 import type { TaskQueueAccessRequest } from "../../utils/api/contract";
+import { ApiError } from "../../utils/api/request";
 import { mountWorkspace, waitForPage, change, submit } from "../../test/workspace";
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let transport: ReturnType<typeof installMockTransport> | undefined;
@@ -20,9 +21,24 @@ async function mount(path: string, role: MockRole = "leader") {
 function button(label: string) { return [...page!.container.querySelectorAll("button")].find(p => p.textContent?.trim() === label)!; }
 it("shows a locked queue in the directory without its owner or scope", async () => {
   transport = installMockTransport("organizer", { delay: 0 });transport.state.queues[0].is_private = true;transport.state.queues[0].owner = transport.state.people[3];
-  await mount("/tasks/queues", "organizer");
+  await mount("/tasks/queues?access=all", "organizer");
   const card = page!.container.querySelector<HTMLAnchorElement>('a[href="/tasks/queues/queue-tasks"]')!.closest('tr')!;
   expect(card.textContent).toContain("TASK");expect(card.textContent).toContain("Нет доступа");expect(card.textContent).not.toContain(transport.state.people[3].display_name);expect(card.querySelector("img")).toBeNull();
+});
+it("lists only the user's own queues by default and keeps the access choice in the URL", async () => {
+  transport = installMockTransport("organizer", { delay: 0 });transport.state.queues[0].is_private = true;transport.state.queues[0].owner = transport.state.people[3];
+  function Location() { return <output data-location>{useLocation().search}</output>; }
+  page = await mountWorkspace(<><Routes><Route path="/tasks/queues" element={<TaskQueuesPage />} /></Routes><Location /></>, { path: "/tasks/queues", role: "organizer" });await waitForPage(page);
+  const select = [...page.container.querySelectorAll("select")].find(node => node.closest("label")?.textContent?.startsWith("Доступ"))!;
+  expect(select.value).toBe("granted");expect(page.container.querySelector('a[href="/tasks/queues/queue-tasks"]')).toBeNull();
+  await change(select, "all");
+  expect(page.container.querySelector("[data-location]")?.textContent).toBe("?access=all");expect(page.container.querySelector('a[href="/tasks/queues/queue-tasks"]')).not.toBeNull();
+});
+it("offers a way back from a queue that does not exist", async () => {
+  transport = installMockTransport("organizer", { delay: 0 });vi.spyOn(taskQueuesApi, "get").mockRejectedValue(new ApiError("Объект не найден", 404, "not_found"));
+  await mount("/tasks/queues/queue-missing", "organizer");
+  expect(page!.container.textContent).toContain("Очередь не найдена.");
+  expect([...page!.container.querySelectorAll("a")].find(link => link.textContent === "К очередям")?.getAttribute("href")).toBe("/tasks/queues");
 });
 it("persists an access request from the denied screen without loading tasks", async () => {
   transport = installMockTransport("organizer", { delay: 0 });transport.state.queues[0].is_private = true;transport.state.queues[0].owner = transport.state.people[3];
