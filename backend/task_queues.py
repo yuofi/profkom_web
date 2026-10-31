@@ -170,12 +170,31 @@ def _letters(number):
         if number<0:return out
 
 
+PLACEHOLDER_QUEUE_NAME='Задачи команды Команда'
+
+
+def _scope_title(session, kind, scope_id):
+    """Default queue names follow the scope's own model; an unknown scope keeps the placeholder."""
+    model={'block':BlockORM,'event':EventORM,'subevent':SubeventORM}.get(kind)
+    obj=session.get(model,scope_id) if model else None
+    return (obj.name if kind=='block' else obj.title) if obj else 'Команда'
+
+
+def rename_placeholder_event_queues(session):
+    """Repeatable: only untouched default event queues named before the event title was resolved."""
+    renamed=0
+    for q in session.query(TaskQueueORM).filter_by(scope_kind='event',is_default=True,name=PLACEHOLDER_QUEUE_NAME):
+        title=_scope_title(session,'event',q.scope_id)
+        if title=='Команда':continue
+        q.name='Задачи команды '+title;q.revision=(q.revision or 1)+1;renamed+=1
+    return renamed
+
+
 def default_queue(session, kind, scope_id):
     rows=session.query(TaskQueueORM).filter_by(scope_kind=kind,scope_id=scope_id,is_default=True).all()
     rows += [q for q in session.new if isinstance(q,TaskQueueORM) and q.scope_kind==kind and q.scope_id==scope_id and q.is_default and q not in rows]
     if rows:return rows[0]
-    obj=session.get(BlockORM,scope_id) if kind=='block' else session.get(SubeventORM,scope_id)
-    title=(obj.name if kind=='block' else obj.title) if obj else 'Команда'
+    title=_scope_title(session,kind,scope_id)
     used={q.key for q in session.query(TaskQueueORM)}|{q.key for q in session.new if isinstance(q,TaskQueueORM)}
     n=0
     while 'Q'+_letters(n) in used:n+=1
@@ -216,6 +235,7 @@ def migrate():
         for task in session.query(TaskORM).order_by(TaskORM.created_at,TaskORM.task_id):
             meta=session.query(TaskTrackerORM).filter_by(task_id=task.task_id).one()
             bind_task(session,task,meta)
+        rename_placeholder_event_queues(session)
         session.commit()
 
 
