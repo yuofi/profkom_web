@@ -524,3 +524,9 @@ event/subevent/leadership имеет общий контракт. Публичн
   замаскированные препятствия закрытых очередей (`owner_kind: "task_queue"`)
   не меняются. Без параметра ответы прежние. Это заменяет выгрузку всех задач
   сезона ради сопоставления `assignment_id → task_id`.
+- `GET /events`, `GET /events/{id}`, `GET /events/{id}/subevents` и
+  `GET /subevents/{id}` принимают `include_deputies=true`: у каждого
+  руководителя появляется `deputies: UserRef[]` в порядке `deputy_user_ids` по
+  той же политике ссылок, что и `leader.user` (обезличенный — `user_id: null`).
+  Страницам мероприятия не нужен весь `/contacts` ради имён заместителей. Для
+  страницы блока своя заявка — `GET /block-requests?block_id=…&mine=true`.

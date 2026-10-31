@@ -1957,6 +1957,23 @@ def _to_subevent_out(sub: Subevent) -> SubeventOut:
     )
 
 
+def _include_deputies(out):
+    """The event/subevent DTO (or page) as JSON whose leaders also carry `deputies`:
+    deputy_user_ids as UserRefs under the reference policy of leader.user."""
+    from dataclasses import asdict
+    from fastapi.encoders import jsonable_encoder
+    from fastapi.responses import JSONResponse
+    from database import UserRefDC
+    data = jsonable_encoder(out)
+    items = data["items"] if "leaders" not in data else [data]
+    with db._session() as session:
+        for item in items:
+            for leader in item["leaders"]:
+                leader["deputies"] = [asdict(db._get_user_ref(session, uid) or UserRefDC(
+                    user_id=None, display_name="Обезличенный участник", avatar_url=None)) for uid in leader["deputy_user_ids"]]
+    return JSONResponse(data)
+
+
 def _to_meeting_out(m: Meeting) -> MeetingOut:
     return MeetingOut(
         meeting_id=m.meeting_id,
@@ -2325,8 +2342,9 @@ def list_report_series(series_id: Optional[str] = None, cur: User = Depends(get_
 # ── Events ──
 
 @router.get("/events", response_model=Page[EventOut])
-def list_events(season_id: Optional[str] = None, cur: User = Depends(get_current_user)):
-    return Page(items=[_to_event_out(ev) for ev in db.list_events(season_id=season_id)])
+def list_events(season_id: Optional[str] = None, include_deputies: bool = False, cur: User = Depends(get_current_user)):
+    out = Page(items=[_to_event_out(ev) for ev in db.list_events(season_id=season_id)])
+    return _include_deputies(out) if include_deputies else out
 
 
 @router.post("/events", response_model=EventOut)
@@ -2346,11 +2364,11 @@ def create_event(payload: EventCreateIn, cur: User = Depends(get_current_user)):
 
 
 @router.get("/events/{event_id}", response_model=EventOut)
-def get_event(event_id: str, cur: User = Depends(get_current_user)):
+def get_event(event_id: str, include_deputies: bool = False, cur: User = Depends(get_current_user)):
     ev = db.get_event(event_id)
     if not ev:
         raise HTTPException(404, "Event not found")
-    return _to_event_out(ev)
+    return _include_deputies(_to_event_out(ev)) if include_deputies else _to_event_out(ev)
 
 
 @router.patch("/events/{event_id}", response_model=EventOut)
@@ -2410,19 +2428,20 @@ def create_subevent(event_id: str, payload: SubeventCreateIn, cur: User = Depend
 
 
 @router.get("/events/{event_id}/subevents", response_model=Page[SubeventOut])
-def list_subevents(event_id: str, cur: User = Depends(get_current_user)):
+def list_subevents(event_id: str, include_deputies: bool = False, cur: User = Depends(get_current_user)):
     ev = db.get_event(event_id)
     if not ev:
         raise HTTPException(404, "Event not found")
-    return Page(items=[_to_subevent_out(s) for s in db.list_subevents(event_id)])
+    out = Page(items=[_to_subevent_out(s) for s in db.list_subevents(event_id)])
+    return _include_deputies(out) if include_deputies else out
 
 
 @router.get("/subevents/{subevent_id}", response_model=SubeventOut)
-def get_subevent(subevent_id: str, cur: User = Depends(get_current_user)):
+def get_subevent(subevent_id: str, include_deputies: bool = False, cur: User = Depends(get_current_user)):
     sub = db.get_subevent(subevent_id)
     if not sub:
         raise HTTPException(404, "Subevent not found")
-    return _to_subevent_out(sub)
+    return _include_deputies(_to_subevent_out(sub)) if include_deputies else _to_subevent_out(sub)
 
 
 @router.patch("/subevents/{subevent_id}", response_model=SubeventOut)
