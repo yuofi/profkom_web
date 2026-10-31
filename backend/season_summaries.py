@@ -220,7 +220,7 @@ def refresh(session, season_id, uid, reason):
     if not row:
         raise Conflict("Closed summary snapshot missing")
     if not access.allowed(uid, "summary.correct"):
-        raise Forbidden("Forbidden: only chair can correct closed scoring")
+        raise Forbidden("Forbidden: only the chair, deputies and HR master correct closed scoring")
     # A legacy approved row is preserved after input mutation. Its old analytic
     # facts were never observed, so only the newly approved successor gets them.
     store_snapshot(session, season_id, uid, "Initial preserved snapshot", capture_analytics=False)
@@ -333,7 +333,7 @@ def _unchanged(kind, obj, value):
 
 def correct(season_id, expected_version, reason, changes, uid):
     if not access.allowed(uid, "summary.correct"):
-        raise Forbidden("Forbidden: only chair can correct summary")
+        raise Forbidden("Forbidden: only the chair, deputies and HR master correct a closed summary")
     if not reason or not reason.strip():
         raise InvalidInput("Reason is required")
     with db.atomic():
@@ -449,7 +449,7 @@ def decisions(season_id, target, values, expected_version, reason, uid):
         if not season:
             raise NotFound("Season not found")
         if not access.allowed(uid, "summary.decide", state=season.state):
-            raise Forbidden("Forbidden: only chair can edit closed decisions" if season.state == "closed"
+            raise Forbidden("Forbidden: only the chair, deputies and HR master edit closed marks" if season.state == "closed"
                              else "Forbidden: decision editor required")
         if season.state == "closed" and (not reason or not reason.strip()):
             raise InvalidInput("Reason is required")

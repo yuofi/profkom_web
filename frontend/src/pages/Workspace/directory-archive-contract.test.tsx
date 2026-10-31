@@ -79,6 +79,19 @@ it("restores legacy assignments only through explicit block IDs and retains thei
   expect(JSON.stringify(requests)).not.toContain(block.name);
   expect(userMessage(new ApiError("Map archived scopes", 409, "archive_scope_mapping_required"))).toBe("Для прежних назначений выберите действующие блоки.");
 });
+it("offers restore only for archived accounts that carry restore_account (PE-01)", async () => {
+  adapter = new MockAdapter(api);const fixture = createFixtures("chair");
+  const deputy = { ...fixture.archived[0], user_id: 111, display_name: "Архивный заместитель", master_conflicts: [], capabilities: [] };
+  const ordinary = { ...fixture.archived[0], master_conflicts: [] };
+  adapter.onGet("/accounts/archive").reply(200, { items: [deputy, ordinary], next_cursor: null });adapter.onGet("/blocks").reply(200, fixture.blocks);
+  page = await mountWorkspace(<AccountArchivePage />);await waitForPage(page);
+  const card = (name: string) => Array.from(page!.container.querySelectorAll("section")).find(section => section.querySelector(":scope > h2")?.textContent === name)!;
+  expect(card(ordinary.display_name).querySelector("form")).not.toBeNull();
+  expect(card(deputy.display_name).querySelector("form")).toBeNull();
+  expect(card(deputy.display_name).textContent).toContain("Заместителя председателя восстанавливает только председатель.");
+  expect(card(ordinary.display_name).textContent).not.toContain("восстанавливает только председатель");
+  expect(adapter.history.post).toHaveLength(0);
+});
 it("mock readiness reads the private workflow and matches close blockers without mutating state", async () => {
   mock = installMockTransport("chair", { delay: 0 });const season = mock.state.seasons.find(item => item.season_id === "season-1")!;
   mock.state.tasks[0].assignments[0].status = "accepted";

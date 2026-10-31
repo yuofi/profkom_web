@@ -82,7 +82,16 @@ safe history and atomic parent-link rollback. See `docs/SEASON_ANALYTICS.md` for
 durable metric definitions and closed-season completeness rules.
 
 `test_kkr_iteration.py` covers atomic multi-assignee accounting, season coefficients,
-managed accounting controls and immutable approved snapshots. `test_portal_core_iteration.py`
+managed accounting controls and immutable approved snapshots, and the KKR summon circle
+(HR master and HR deputy, open/summarizing seasons only) for every role.
+`test_closed_season_editors.py` checks, role by role, who changes a closed season (the
+chair, deputies and HR master, owner decision 2026-10-31) across marks, corrections,
+coefficients, task fields, assessment inputs/dates, review, merit edits and new merits of
+every kind (a closed event's too), with matching
+capabilities, and that new assignment rows there keep the chair-and-deputies default.
+`test_archive_restore_release.py` also checks, role by role, that only the chair archives
+or restores a chair deputy (the deputy themselves included), that the refusal precedes
+restore conflict prompts and that archive items carry `restore_account` (PE-01). `test_portal_core_iteration.py`
 checks the deadline-free formula and new event/chair work sources. Synthetic legacy
 schema imports are repeated through each supported import order in
 `test_portal_migration_iteration.py`; queue rebinding uses explicit source IDs and

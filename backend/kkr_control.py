@@ -390,7 +390,7 @@ def remind(season_id, uid):
     state=access.season_state(season_id)
     if state is None:raise NotFound('Season not found')
     if not access.allowed(uid,'kkr.remind',state=state):
-        raise Forbidden('HR master required' if state in {'open','summarizing'} else 'KKR reminders are sent only in an open or summarizing season')
+        raise Forbidden('HR master or HR deputy required' if state in {'open','summarizing'} else 'KKR reminders are sent only in an open or summarizing season')
     with db.atomic():
       with db._session() as session:
         sync_for_season(session,season_id,uid)

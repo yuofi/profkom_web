@@ -1758,7 +1758,7 @@ def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: O
         caps += _task_caps(task, current_user_id, {
             "view_assessment_inputs": "task.inputs.view",
             "review_assignment": "task.review",
-            "reassign_assignment": "task.review",
+            "reassign_assignment": "task.add_assignment",
             "edit_assessment_inputs": "task.inputs.edit",
         }, facts=facts)
 
@@ -1846,7 +1846,7 @@ def _task_caps(t: TaskORM, uid: int, table: dict, facts=None) -> list[str]:
     from tracker import can_edit_public, is_control_task
     with db._session() as session:
         administrative = facts.control() if facts is not None else is_control_task(session, t.task_id)
-        return [cap for cap, action in table.items() if not ((t.scope_kind=="queue" or administrative) and action in {"task.inputs.view","task.inputs.edit","task.review"}) and (can_edit_public(session,t,uid,facts=facts) if action=="task.edit" else access.allowed(uid, action, state=state, rel=rel))]
+        return [cap for cap, action in table.items() if not ((t.scope_kind=="queue" or administrative) and action in {"task.inputs.view","task.inputs.edit","task.review","task.add_assignment"}) and (can_edit_public(session,t,uid,facts=facts) if action=="task.edit" else access.allowed(uid, action, state=state, rel=rel))]
 
 
 def _task_orm_to_dc(session: Session, t: TaskORM, current_user_id: Optional[int] = None) -> TaskPublicDC:
@@ -5090,10 +5090,10 @@ class Database:
         """Raises the 403 for `action` on task `t`; a closed season has its own message."""
         import access
         if not self.can_read_task(user_id,t):raise NotFound("Task not found")  # like its GET (GL-24)
-        if action in {"task.inputs.view", "task.inputs.edit", "task.review", "task.dates.edit"}:
+        if action in {"task.inputs.view", "task.inputs.edit", "task.review", "task.add_assignment", "task.dates.edit"}:
             with self._session() as session:
                 self.require_accountable_task(session, t)
-        if t.scope_kind=="queue" and action in {"task.inputs.view","task.inputs.edit","task.review","task.dates.edit"}:raise InvalidInput("Independent tasks have no accounting source")
+        if t.scope_kind=="queue" and action in {"task.inputs.view","task.inputs.edit","task.review","task.add_assignment","task.dates.edit"}:raise InvalidInput("Independent tasks have no accounting source")
         if action=="task.edit":
             from tracker import can_edit_public
             with self._session() as session:permitted=can_edit_public(session,t,user_id)
@@ -5408,7 +5408,7 @@ class Database:
             if title is not None or parent_supplied or description is None:
                 self.require_task_right(user_id, "task.edit", t, season and season.state,
                                         "Forbidden: cannot edit this task",
-                                        "Forbidden: only the chair and deputies can edit tasks in a closed season")
+                                        "Forbidden: only the chair, deputies and HR master can edit tasks in a closed season")
             elif not can_edit_description(session,t,user_id):raise Forbidden("Cannot edit task description")
             if t.revision != expected_revision:
                 raise revision_conflict()
@@ -5601,7 +5601,7 @@ class Database:
             season = session.get(SeasonORM, t.season_id)
             self.require_task_right(reviewer_user_id, "task.review", t, season and season.state,
                                     "Forbidden: cannot accept assignment for this scope",
-                                    "Forbidden: only the chair and deputies can accept/evaluate in a closed season")
+                                    "Forbidden: only the chair, deputies and HR master can accept/evaluate in a closed season")
 
             if a.revision != expected_revision:
                 raise revision_conflict()
@@ -5656,7 +5656,7 @@ class Database:
             season = session.get(SeasonORM, t.season_id)
             self.require_task_right(reviewer_user_id, "task.review", t, season and season.state,
                                     "Forbidden: cannot review assignment for this scope",
-                                    "Forbidden: only the chair and deputies can request revision in a closed season")
+                                    "Forbidden: only the chair, deputies and HR master can request revision in a closed season")
 
             if a.revision != expected_revision:
                 raise revision_conflict()
@@ -5711,7 +5711,7 @@ class Database:
             season = session.get(SeasonORM, t.season_id)
             self.require_task_right(reviewer_user_id, "task.review", t, season and season.state,
                                     "Forbidden: cannot manage assignment for this scope",
-                                    "Forbidden: only the chair and deputies can mark not completed in a closed season")
+                                    "Forbidden: only the chair, deputies and HR master can mark not completed in a closed season")
 
             if a.revision != expected_revision:
                 raise revision_conflict()
@@ -5767,7 +5767,7 @@ class Database:
             season = session.get(SeasonORM, t.season_id)
             self.require_task_right(reviewer_user_id, "task.review", t, season and season.state,
                                     "Forbidden: cannot cancel assignment for this scope",
-                                    "Forbidden: only the chair and deputies can cancel assignment in a closed season")
+                                    "Forbidden: only the chair, deputies and HR master can cancel assignment in a closed season")
 
             if a.revision != expected_revision:
                 raise revision_conflict()
@@ -5927,7 +5927,7 @@ class Database:
                 raise NotFound("Task not found")
 
             season = session.get(SeasonORM, t.season_id)
-            self.require_task_right(manager_user_id, "task.review", t, season and season.state,
+            self.require_task_right(manager_user_id, "task.add_assignment", t, season and season.state,
                                     "Forbidden: cannot manage assignments for this scope",
                                     "Forbidden: only the chair and deputies can reassign in a closed season")
 
@@ -6082,7 +6082,7 @@ class Database:
         if any(new is not None and (old is None or dt(new) != dt(old)) for new, old in changes):
             self.require_task_right(user_id, "task.dates.edit", t, state,
                                     "Forbidden: only the chair, deputies and HR master change task dates",
-                                    "Forbidden: only the chair and deputies change task dates in a closed season")
+                                    "Forbidden: only the chair, deputies and HR master change task dates in a closed season")
 
     def patch_task_assessment_inputs(
         self,
@@ -6101,7 +6101,7 @@ class Database:
             season = session.get(SeasonORM, t.season_id)
             self.require_task_right(user_id, "task.inputs.edit", t, season and season.state,
                                     "Forbidden: cannot edit task assessment inputs",
-                                    "Forbidden: only the chair and deputies can edit assessment inputs in a closed season")
+                                    "Forbidden: only the chair, deputies and HR master can edit assessment inputs in a closed season")
             from participation import dt
             from validation import period, timestamp
             if assigned_at is not None:assigned_at=timestamp(assigned_at)
@@ -6194,7 +6194,7 @@ class Database:
             season = session.get(SeasonORM, t.season_id)
             self.require_task_right(user_id, "task.inputs.edit", t, season and season.state,
                                     "Forbidden: cannot edit assignment assessment inputs",
-                                    "Forbidden: only the chair and deputies can edit assessment inputs in a closed season")
+                                    "Forbidden: only the chair, deputies and HR master can edit assessment inputs in a closed season")
             from participation import dt
             from validation import assessment, hours as check_hours, timestamp
             if effective_completed_at is not None:effective_completed_at=timestamp(effective_completed_at)
@@ -6285,7 +6285,7 @@ class Database:
                 season = session.get(SeasonORM, t.season_id)
                 self.require_task_right(user_id, "task.inputs.edit", t, season and season.state,
                                         f"Forbidden: cannot edit assessment inputs for assignment {aid}",
-                                        "Forbidden: only the chair and deputies can edit assessment inputs in a closed season")
+                                        "Forbidden: only the chair, deputies and HR master can edit assessment inputs in a closed season")
                 if a.inputs_revision != exp_rev:
                     raise revision_conflict(f"Conflict: revision mismatch for assignment {aid}")
                 loaded_items.append((a, t))
@@ -6404,8 +6404,11 @@ class Database:
             if not season:
                 raise NotFound("Season not found")
             import access
-            if season.state == "closed" and not access.allowed(created_by_user_id, "summary.correct"):
-                raise Forbidden("Forbidden: only the chair and deputies can create merits in a closed season")
+            from merit_rules import CREATE_ACTIONS, can_create
+            # A closed season gets a new merit only from its circle (CLOSED_SEASON, SE-13): the
+            # same merit.create.* rule as below, refused here before the input checks.
+            if season.state == "closed" and not access.allowed(created_by_user_id, CREATE_ACTIONS[source_kind], state="closed"):
+                raise Forbidden("Forbidden: only the chair, deputies and HR master can create merits in a closed season")
             if season.state == "planned" and source_kind not in ("head_merit", "subevent_volunteer"):
                 raise InvalidInput("Only head_merit and subevent_volunteer are allowed in a planned season")
 
@@ -6414,7 +6417,6 @@ class Database:
             scope_kind = scope.get("kind")
             scope_id = scope.get("id")
 
-            from merit_rules import can_create
             if source_kind == "chair_merit":
                 denied = "Forbidden: only chair and deputies can create chair_merit"
             elif source_kind == "head_merit":
@@ -6433,7 +6435,7 @@ class Database:
                 if not session.get(SubeventORM, scope_id):
                     raise NotFound("Subevent not found")
                 denied = "Forbidden: cannot create volunteer merit for this subevent"
-            if not can_create(created_by_user_id, source_kind, event_id, scope_id):
+            if not can_create(created_by_user_id, source_kind, event_id, scope_id, state=season.state):
                 raise Forbidden(denied)
 
             from merit_rules import validate
@@ -6536,7 +6538,7 @@ class Database:
             season = session.get(SeasonORM, m.season_id)
             from merit_rules import can_manage
             if not can_manage(m, user_id, write=True):
-                raise Forbidden("Forbidden: only the chair and deputies can edit merits in a closed season"
+                raise Forbidden("Forbidden: only the chair, deputies and HR master can edit merits in a closed season"
                                  if season and season.state == "closed" else "Forbidden: cannot edit this merit")
 
             if m.revision != expected_revision:

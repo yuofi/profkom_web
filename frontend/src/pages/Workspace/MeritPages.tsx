@@ -812,14 +812,15 @@ export function CorrectionsPage() {
   const { perform } = useWorkspaceActions();
   const [kind, setKind] = useState<CorrectionKind>("assessment_inputs");
   const [objectId, setObjectId] = useState("");
-  const chair = can(session, "correct_season");
+  // Who corrects a closed season is the summary's correct_summary (SE-13): the chair, deputies, HR master.
+  const reader = can(session, "view_summary");
   const { seasons, season, missing } = useSubpageSeason(id);
   const summary = useQuery({
     queryKey: ["summary", id],
     queryFn: () => seasonsApi.summary(id),
-    enabled: !!season && chair && can(session, "view_summary"),
+    enabled: !!season && reader,
   });
-  const allowed = chair && can(summary.data, "correct_summary");
+  const allowed = can(summary.data, "correct_summary");
   // The picker lists every task of the season; pages of 100 and only for task-based kinds (PF-06).
   const tasks = useQuery({
     queryKey: ["tasks", "closed-correction", id],
@@ -867,8 +868,8 @@ export function CorrectionsPage() {
         </RouteLink>
       }
     >
-      {!chair ? (
-        <Empty>Исправление доступно председателю и его заместителям.</Empty>
+      {!reader ? (
+        <Empty>Исправление доступно председателю, его заместителям и мастеру HR.</Empty>
       ) : (
         <QueryState
           loading={seasons.isLoading || summary.isLoading}
@@ -953,7 +954,9 @@ export function CorrectionsPage() {
             </Card>
           ) : (
             <Empty>
-              Исправление доступно председателю после закрытия сезона.
+              {season && season.state !== "closed"
+                ? "Сезон ещё не закрыт: исправления закрытых итогов станут доступны после его закрытия."
+                : "Исправление закрытого сезона доступно председателю, его заместителям и мастеру HR."}
             </Empty>
           )}
         </QueryState>

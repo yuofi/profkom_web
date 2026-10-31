@@ -701,14 +701,15 @@ export function installMockTransport(
           return list(history.map(v => ({ version: v.version, changed_by: v.changed_by, changed_at: v.changed_at,
             reason: v.reason, previous_summary_version: v.previous_summary_version })));
         }
+        // A closed season is changed by the chair, deputies and HR master (SE-13): the mock's global roles.
         summary.capabilities =
           season.state === "closed"
-            ? state.chair
+            ? state.global
               ? ["edit_decisions", "correct_summary"]
               : []
             : ["edit_decisions"];
         if (parts[3] === "correct") {
-          if (!state.chair || season.state !== "closed") return denied();
+          if (!state.global || season.state !== "closed") return denied();
           if (data.expected_version !== summary.version) return conflict();
           const changes = data.changes as {
             kind: "task_inputs" | "assessment_inputs" | "merit";
@@ -764,7 +765,7 @@ export function installMockTransport(
           return [200, {...clone(summary), applied_revisions: changes.map(c => ({kind: c.kind, id: c.id, revision: recordFor(c)!.revision}))}];
         }
         if (method === "put") {
-          if (season.state === "closed" && !state.chair) return denied();
+          if (season.state === "closed" && !state.global) return denied();
           if (data.expected_version !== summary.version) return conflict();
           const row = summary.rows.find(
             (r) => r.user.user_id === Number(parts[4]),
@@ -2119,6 +2120,7 @@ export function installMockTransport(
             user_id: person.user_id!,
             display_name: person.display_name,
             archived_at: mockNow,
+            capabilities: ["restore_account"],
           });
       }
       if (

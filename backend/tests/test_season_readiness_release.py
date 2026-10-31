@@ -85,7 +85,8 @@ def test_season_patch_ignores_undated_tasks_and_moves_control_epics(client, work
     assert all(saved == shorter.json()["ends_at"] for saved, _ in _controls(sid).values())
 
 
-def test_only_chair_can_edit_closed_decisions(client, work, superuser, make_user, make_hr):
+def test_closed_marks_are_edited_by_chair_deputies_and_hr_master(client, work, superuser, make_user, make_hr):
+    """Owner 2026-10-31 (SE-13): closed marks belong to the chair, the deputies and the HR master."""
     accept(client, work)
     frozen = close(client, work, superuser)
     deputy = make_user(password=None)
@@ -94,7 +95,7 @@ def test_only_chair_can_edit_closed_decisions(client, work, superuser, make_user
     assert assigned.status_code == 200, assigned.text
     hr, _ = make_hr(block_name="HR")
     sid = work["season"]["season_id"]
-    for actor, permitted in [(superuser, True), (deputy, False), (hr, False)]:
+    for actor, permitted in [(superuser, True), (deputy, True), (hr, True)]:
         summary = client.get(f"/api/seasons/{sid}/summary", headers=actor.headers)
         assert summary.status_code == 200, summary.text
         assert ("edit_decisions" in summary.json()["capabilities"]) is permitted

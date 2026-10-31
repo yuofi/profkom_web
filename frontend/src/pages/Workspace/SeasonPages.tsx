@@ -83,9 +83,9 @@ const commands: { action: SeasonAction; capability: string; label: string; icon:
 ];
 /** One menu of season actions: it stays on screen and closes on Escape or a click outside. */
 function SeasonManage({ season, summary, onEdit, onBlocked }: { season: Season; summary?: SeasonSummary; onEdit: () => void; onBlocked: (blockers: SeasonBlocker[]) => void }) {
-  const { session } = useSession();const anchor = useRef<HTMLButtonElement>(null);
+  const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false), [busy, setBusy] = useState(false);
-  const correct = season.state === "closed" && can(session, "correct_season") && can(summary, "correct_summary");
+  const correct = season.state === "closed" && can(summary, "correct_summary");
   const available = commands.filter(command => can(season, command.capability));
   if (!can(season, "edit_season") && !available.length && !correct) return null;
   const close = () => setOpen(false);
@@ -179,8 +179,8 @@ function SeasonOverview({ season, summary, allowed, participants = true, focusCh
 }
 function SeasonDecisionEditors({ summary }: { summary: SeasonSummary }) {
   const [active, setActive] = useState<string | null>(null);const guardEditor = useGuardedAction();
-  return <SeasonParticipants summary={summary} onFilterApply={() => setActive(null)} renderDecisions={row => can(summary, "edit_decisions") && row.user.user_id !== null ? <DecisionsForm row={row} summary={summary} open={active === row.participant_id}
-    onToggleEditor={reset => { const next = active === row.participant_id ? null : row.participant_id;guardEditor(() => {setActive(next);reset?.();}); }} onSaved={() => setActive(null)} /> : null} />;
+  return <>{summary.state === "approved" && !can(summary, "edit_decisions") && <p className={u.note}>Отметки закрытого сезона исправляют председатель, его заместители и мастер HR.</p>}<SeasonParticipants summary={summary} onFilterApply={() => setActive(null)} renderDecisions={row => can(summary, "edit_decisions") && row.user.user_id !== null ? <DecisionsForm row={row} summary={summary} open={active === row.participant_id}
+    onToggleEditor={reset => { const next = active === row.participant_id ? null : row.participant_id;guardEditor(() => {setActive(next);reset?.();}); }} onSaved={() => setActive(null)} /> : null} /></>;
 }
 function DecisionsForm({ summary, row, open, onToggleEditor, onSaved }: { summary: SeasonSummary; row: SummaryRow; open: boolean; onToggleEditor: (reset?:()=>void) => void; onSaved: () => void }) {
   const anchorRef=useRef<HTMLButtonElement>(null),saving=useRef(false);const client=useQueryClient();

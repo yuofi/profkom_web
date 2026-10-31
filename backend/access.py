@@ -29,6 +29,7 @@ QUEUE_HOLDER = "queue_holder"  # leads some block, event or subevent
 # Block
 BLOCK_MASTER = "block_master"
 BLOCK_DEPUTY = "block_deputy"
+HR_BLOCK_DEPUTY = "hr_block_deputy"  # the deputy of an HR block there: only reads its guide (GL-09)
 BLOCK_HR = "block_hr"  # explicit HR curator of this block; never a membership/guide role
 BLOCK_MEMBER = "block_member"
 # Event; a subevent also inherits the relations to its event
@@ -46,6 +47,9 @@ MATERIAL_EDITOR = "material_editor"
 
 TACHKI = frozenset({CHAIR, CHAIR_DEPUTY})  # the chair and the chair's deputies
 SUMMARY = TACHKI | {HR_MASTER, HR_DEPUTY}
+# Who changes a closed season, its marks included: the chair, the chair's deputies and the
+# HR master; not the HR deputy or area leads (owner, 2026-10-31, SE-13).
+CLOSED_SEASON = TACHKI | {HR_MASTER}
 EVENT_LEADS = frozenset({EVENT_LEADER, EVENT_DEPUTY})
 SUB_LEADS = frozenset({SUB_LEADER, SUB_DEPUTY})
 BLOCK_LEADS = frozenset({BLOCK_MASTER, BLOCK_DEPUTY})
@@ -94,12 +98,16 @@ POLICY = {
     "task.view": TACHKI | {HR_MASTER,HR_DEPUTY,HR_TRACKER_READER,BLOCK_HR,SUBEVENT_HR,EVENT_TEAM} | AREA_TEAM,
     "task.create": TACHKI | {HR_MASTER,HR_TRACKER_READER,BLOCK_HR,SUBEVENT_HR,EVENT_TEAM} | AREA_TEAM,
     "task.assign_others": TACHKI | AREA_LEADS | {BLOCK_HR,SUBEVENT_HR},
-    "task.edit": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY} | AREA_LEADS, "closed": TACHKI}),  # public task editing; closed seasons keep chair-only leadership policy
-    "task.review": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS, "closed": TACHKI}),
+    "task.edit": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY} | AREA_LEADS, "closed": CLOSED_SEASON}),  # public task editing
+    "task.review": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS, "closed": CLOSED_SEASON}),
+    # A new assignment row for someone's work: a reassignment; in a closed season also the
+    # roster's join/take/assign. Closed seasons keep the TR-05 default (the chair and deputies),
+    # which awaits the owner's answer; SE-13 does not widen it.
+    "task.add_assignment": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS, "closed": TACHKI}),
     "task.inputs.view": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS,
-    "task.inputs.edit": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS, "closed": TACHKI}),
+    "task.inputs.edit": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS, "closed": CLOSED_SEASON}),
     # Issue date, deadline and completion date, once set; area leads do not move them (УВ-5)
-    "task.dates.edit": ByState({"*": SUMMARY, "closed": TACHKI}),
+    "task.dates.edit": ByState({"*": SUMMARY, "closed": CLOSED_SEASON}),
     "queue.view": TACHKI | {HR_MASTER, HR_DEPUTY, QUEUE_HOLDER},
     "queue.create": TACHKI | BLOCK_LEADS | EVENT_LEADS | SUB_LEADS,
     "event.close": TACHKI,
@@ -108,22 +116,24 @@ POLICY = {
     # KKR, summary, merits
     "kkr.view": SUMMARY,
     "summary.view": SUMMARY,
-    "summary.decide": ByState({"*": SUMMARY, "closed": {CHAIR}}),
-    "summary.correct": TACHKI,  # closed season corrections (АВ-2)
-    # Calling leaders to fill KKR of closed tasks: the current circle, only while work is accounted
-    "kkr.remind": ByState({"*": frozenset(), "open": {HR_MASTER}, "summarizing": {HR_MASTER}}),
-    "merit.create.chair": TACHKI,
-    "merit.create.head": TACHKI | EVENT_LEADS,  # decision 12
-    "merit.create.block_volunteer": TACHKI,
-    "merit.create.subevent_volunteer": TACHKI | EVENT_LEADS,  # A-KKR-8 (a)
+    "summary.decide": ByState({"*": SUMMARY, "closed": CLOSED_SEASON}),  # marks (отметки)
+    "summary.correct": CLOSED_SEASON,  # closed season corrections, coefficients included
+    # Calling leaders to fill KKR of closed tasks, only while work is accounted: the HR master
+    # and the HR deputy, not the chair or the chair's deputies (owner, 2026-10-31, SE-14)
+    "kkr.remind": ByState({"*": frozenset(), "open": {HR_MASTER, HR_DEPUTY}, "summarizing": {HR_MASTER, HR_DEPUTY}}),
+    # A new merit in a closed season is a change of that season: its circle only (SE-13)
+    "merit.create.chair": ByState({"*": TACHKI, "closed": CLOSED_SEASON}),
+    "merit.create.head": ByState({"*": TACHKI | EVENT_LEADS, "closed": CLOSED_SEASON}),  # decision 12
+    "merit.create.block_volunteer": ByState({"*": TACHKI, "closed": CLOSED_SEASON}),
+    "merit.create.subevent_volunteer": ByState({"*": TACHKI | EVENT_LEADS, "closed": CLOSED_SEASON}),  # A-KKR-8 (a)
     "merit.view.chair_merit": SUMMARY,
     "merit.view.head_merit": SUMMARY | EVENT_LEADS,
     "merit.view.block_volunteer": SUMMARY | BLOCK_LEADS | {BLOCK_HR},
     "merit.view.subevent_volunteer": SUMMARY | EVENT_LEADS | SUB_LEADS | {SUBEVENT_HR},
-    "merit.manage.chair_merit": ByState({"*": TACHKI, "closed": TACHKI}),
-    "merit.manage.head_merit": ByState({"*": TACHKI | EVENT_LEADS, "closed": TACHKI}),
-    "merit.manage.block_volunteer": ByState({"*": TACHKI, "closed": TACHKI}),
-    "merit.manage.subevent_volunteer": ByState({"*": TACHKI | EVENT_LEADS, "closed": TACHKI}),
+    "merit.manage.chair_merit": ByState({"*": TACHKI, "closed": CLOSED_SEASON}),
+    "merit.manage.head_merit": ByState({"*": TACHKI | EVENT_LEADS, "closed": CLOSED_SEASON}),
+    "merit.manage.block_volunteer": ByState({"*": TACHKI, "closed": CLOSED_SEASON}),
+    "merit.manage.subevent_volunteer": ByState({"*": TACHKI | EVENT_LEADS, "closed": CLOSED_SEASON}),
     "achievement.manage": TACHKI | {HR_MASTER, BLOCK_MASTER, EVENT_LEADER},
     # Blocks and membership
     "block.edit": TACHKI | BLOCK_LEADS,
@@ -151,9 +161,10 @@ POLICY = {
     "material.create": TACHKI | {BLOCK_LEAD_ANYWHERE},  # general materials or a block guide
     "material.create_general": TACHKI,
     "material.create_guide": TACHKI | BLOCK_LEADS,  # checked against the owning block
-    "material.edit": TACHKI | {MATERIAL_EDITOR},
-    # Checked on the owning block of a guide for its block only (owner, 2026-10-25)
-    "material.read_block_guide": TACHKI | BLOCK_LEADS | {BLOCK_MEMBER},  # also publish and reversible delete (decision 18)
+    "material.edit": TACHKI | {MATERIAL_EDITOR},  # also publish and reversible delete (decision 18)
+    # Checked on the owning block of a guide for its block only (owner, 2026-10-25); reading only.
+    # The HR deputy reads their own HR block's guide (owner, 2026-10-31, GL-09).
+    "material.read_block_guide": TACHKI | BLOCK_LEADS | {BLOCK_MEMBER, HR_BLOCK_DEPUTY},
     "material.manage_editors": TACHKI,
     "material.restore": TACHKI,  # deletion is reversible (decision 18)
     "pgas.manage": TACHKI | {PGAS_ADMIN},  # decision 14
@@ -393,8 +404,10 @@ def _block(uid, block_id):
             curator = bool(metadata and getattr(metadata, "hr_user_id", None) == uid)
     if master or _has_scope_role(uid, "block", name, "master"):
         rel.add(BLOCK_MASTER)
-    if _has_scope_role(uid, "block", name, "deputy_master") and name not in _hr_block_names():
-        rel.add(BLOCK_DEPUTY)
+    if _has_scope_role(uid, "block", name, "deputy_master"):
+        # The HR deputy's grants are defined by POLICY, not BLOCK_DEPUTY: in their own HR
+        # block only the guide read (owner, 2026-10-31, GL-09).
+        rel.add(HR_BLOCK_DEPUTY if name in _hr_block_names() else BLOCK_DEPUTY)
     if member:
         rel.add(BLOCK_MEMBER)
     if curator:
@@ -713,7 +726,7 @@ def subevent_caps(sub, uid=None):
     result = _caps(table, uid, "subevent", sub.subevent_id, state)
     if "create_volunteer_merit" in result:
         from merit_rules import can_create
-        if not can_create(uid, "subevent_volunteer", None, sub.subevent_id):
+        if not can_create(uid, "subevent_volunteer", None, sub.subevent_id, state=state):
             result.remove("create_volunteer_merit")
     return result
 
@@ -765,13 +778,13 @@ def assignment_caps(uid, kind, scope_id):
     if kind == "global":
         return global_caps(uid)
     readable = _caps(MERIT_VIEW_CAPS.get(kind, {}), uid, kind, scope_id)
-    if _closed_scope(kind, scope_id) and not allowed(uid, "summary.correct"):
-        return readable
-    result = _caps(ASSIGNMENT_CAPS.get(kind, {}), uid, kind, scope_id)
+    # In a closed season's scope merit.create.* narrows to the season's circle (SE-13)
+    state = "closed" if _closed_scope(kind, scope_id) else None
+    result = _caps(ASSIGNMENT_CAPS.get(kind, {}), uid, kind, scope_id, state)
     if kind in {"event", "subevent"}:
         from merit_rules import can_create
         source = "head_merit" if kind == "event" else "subevent_volunteer"
-        if not can_create(uid, source, scope_id if kind == "event" else None, scope_id if kind == "subevent" else None):
+        if not can_create(uid, source, scope_id if kind == "event" else None, scope_id if kind == "subevent" else None, state=state):
             result = [cap for cap in result if cap not in {"create_head_merit", "create_volunteer_merit"}]
     return sorted({*result, *readable})
 

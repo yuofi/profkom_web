@@ -3,7 +3,7 @@ import { act, type ReactNode } from "react";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
-import type { MockRole } from "../../mocks/fixtures";
+import { createFixtures, type MockRole } from "../../mocks/fixtures";
 import { mountWorkspace, waitForPage } from "../../test/workspace";
 import { ApiError } from "../../utils/api/request";
 import { seasonsApi } from "../../utils/api/seasons.api";
@@ -90,6 +90,29 @@ it("links a closed season to its detailed accruals and corrections", async () =>
   await press(trigger());
   expect(item("Исправить итоги…").getAttribute("href")).toBe("/seasons/season-previous/corrections");
   expect(menu()!.textContent).not.toContain("Название и период");
+});
+
+it("SE-13: the HR master corrects a closed season by the summary capability, without the season-move right", async () => {
+  await mount(hub, "/seasons/season-previous", "hr");
+  expect(createFixtures("hr").session.capabilities).not.toContain("correct_season");
+  transport!.state.seasons.find(season => season.season_id === "season-previous")!.state = "closed";
+  transport!.state.seasons.find(season => season.season_id === "season-previous")!.capabilities = [];
+  page!.client.setQueryData(["seasons"], { items: transport!.state.seasons.map(season => ({ ...season })) });
+  page!.client.setQueryData(["summary", "season-previous"], { ...page!.client.getQueryData<object>(["summary", "season-previous"]), state: "approved", capabilities: ["view_summary", "edit_decisions", "correct_summary"] });await waitForPage(page!);
+  await press(trigger());
+  expect(item("Исправить итоги…").getAttribute("href")).toBe("/seasons/season-previous/corrections");
+  expect(page!.container.textContent).not.toContain("Отметки закрытого сезона исправляют");
+});
+
+it("SE-13: the HR deputy reads closed marks with the reason and gets no correction entry", async () => {
+  await mount(hub, "/seasons/season-previous", "hr-deputy");
+  transport!.state.seasons.find(season => season.season_id === "season-previous")!.state = "closed";
+  transport!.state.seasons.find(season => season.season_id === "season-previous")!.capabilities = [];
+  page!.client.setQueryData(["seasons"], { items: transport!.state.seasons.map(season => ({ ...season })) });
+  page!.client.setQueryData(["summary", "season-previous"], { ...page!.client.getQueryData<object>(["summary", "season-previous"]), state: "approved", capabilities: ["view_summary", "export_xlsx"] });await waitForPage(page!);
+  expect(page!.container.textContent).toContain("Отметки закрытого сезона исправляют председатель, его заместители и мастер HR.");
+  expect(page!.container.querySelector('button[aria-label^="Изменить отметки"]')).toBeNull();
+  expect(trigger()).toBeUndefined();
 });
 
 it("EV-05: a season command is sent only from its question, and «Отмена» withdraws it", async () => {

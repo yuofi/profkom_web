@@ -96,7 +96,8 @@ active readable teammates; the queue exposes those safe assignable UserRefs only
 under that capability. Independent queues do not invent team membership or KKR roles.
 Task creator and queue owner may edit public title/parent/attachments in addition to
 existing scope editors; current assignees may edit description. Scoped closed-season
-public field freeze is retained except for original authorized chair roles. Independent
+public field freeze is retained except for the closed-season editors: the chair, the
+deputies and, since the owner decision of 2026-10-31 (SE-13), the HR master. Independent
 public field editing has no accounting freeze. Comments retain their original author;
 task author/current assignees/original comment author may edit with actual editor
 recorded in public history.
@@ -108,8 +109,11 @@ the corresponding public editor controls; Markdown checkboxes use that same guar
 description PATCH. This does not transfer queue ownership or change any accounting,
 report or analytics permission. The HR deputy retains global tracker reading and
 ordinary reader controls, without a new global editing or private-accounting grant.
-Closed scoped tasks remain editable only by the chair/deputies. Closed independent
-tasks retain the existing creator/queue-owner exception; HR role alone does not bypass it.
+Closed tasks are edited by the chair, the deputies and the HR master (owner 2026-10-31,
+SE-13), never by the HR deputy. Closed independent tasks also retain the existing
+creator/queue-owner exception. A new assignment row in a closed season (join, take,
+assign, reassignment) still needs the chair or a deputy (`task.add_assignment`, the TR-05
+default awaiting the owner's answer).
 
 ## Real roster and watcher subscriptions
 
