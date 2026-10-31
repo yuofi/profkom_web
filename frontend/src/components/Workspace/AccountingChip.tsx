@@ -14,15 +14,17 @@ const names: Record<AssignmentStatus, string> = {
 };
 export function AccountingChip({ item }: { item: UnresolvedAssignment }) {
   const assignment = item.assignment;
-  const to = `${getTaskRoute(item.task_id)}?assignment_id=${encodeURIComponent(assignment.assignment_id)}`;
+  // The task card opens an assessment only for a closed task; an open one is just the card.
+  const to = assessable(item) ? `${getTaskRoute(item.task_id)}?assignment_id=${encodeURIComponent(assignment.assignment_id)}` : getTaskRoute(item.task_id);
   return <HoverCard content={() => <AccountingPreview item={item} />}>{({ describedBy, close }) => <InteractiveChip kind="link" to={to} className={s.chip} label={names[assignment.status]} ariaDescribedBy={describedBy} onClick={close} ariaLabel={`Учёт ККР: ${assignment.assignee.display_name} · ${names[assignment.status]}`} />}</HoverCard>;
 }
+const assessable = (item: UnresolvedAssignment) => !item.task_status || item.task_status === "closed";
 function AccountingPreview({ item }: { item: UnresolvedAssignment }) {
   const assignment = item.assignment, allowed = can(assignment, "view_assessment_inputs");
   const query = useQuery({ queryKey: ["assessments", assignment.assignment_id], queryFn: () => tasksApi.assessment(assignment.assignment_id), enabled: allowed });
   if (!allowed || query.error && !canRetainData(query.error)) return <div className={s.preview}><strong>Учёт ККР недоступен</strong><p>Нет доступа к расчётным данным назначения.</p></div>;
   const data = query.data;
   return <div className={s.preview}><small>Учёт работы · ККР</small><strong>{data?.workflow_status ? names[data.workflow_status] : names[assignment.status]}</strong><p>{assignment.assignee.display_name}</p>
-    {query.isLoading ? <p role="status">Загружаем учёт…</p> : data ? <><dl><div><dt>Часы</dt><dd>{data.hours ?? "Не заданы"}</dd></div><div><dt>Оценка</dt><dd>{data.evaluation ?? "Не выставлена"}</dd></div>{data.effective_completed_at && <div><dt>Дата работы</dt><dd>{displayDate(data.effective_completed_at)}</dd></div>}</dl><p className={s.hint}>Нажмите на чип, чтобы открыть оценку этого исполнителя в задаче.</p></> : <p>Не удалось загрузить расчётные данные.</p>}
+    {query.isLoading ? <p role="status">Загружаем учёт…</p> : data ? <><dl><div><dt>Часы</dt><dd>{data.hours ?? "Не заданы"}</dd></div><div><dt>Оценка</dt><dd>{data.evaluation ?? "Не выставлена"}</dd></div>{data.effective_completed_at && <div><dt>Дата работы</dt><dd>{displayDate(data.effective_completed_at)}</dd></div>}</dl><p className={s.hint}>{assessable(item) ? "Нажмите на чип, чтобы открыть оценку этого исполнителя в задаче." : "Оценка станет доступна после закрытия задачи."}</p></> : <p>Не удалось загрузить расчётные данные.</p>}
   </div>;
 }

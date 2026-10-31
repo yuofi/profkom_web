@@ -770,6 +770,8 @@ class UnresolvedAssignmentOut(BaseModel):
     deadline_at: Optional[str]
     scope_title: str = ""
     scope_avatar_url: Optional[str] = None
+    # The public task status: its accounting dialog opens only once the task is closed.
+    task_status: Optional[str] = None
 
 
 class StartAssignmentIn(Command):
@@ -2900,6 +2902,11 @@ def list_unresolved_assignments(
         current_user_id=cur.user_id,
     )
     page = cursor_page(items, lambda u: (u.deadline_at or "", u.assignment.assignment_id), cursor)
+    from tracker_status import public_status
+    from database import TaskTrackerORM
+    task_ids = list({u.task_id for u in page.items})
+    with db._session() as session:
+        statuses = {task_id: public_status(status) for task_id, status in session.query(TaskTrackerORM.task_id, TaskTrackerORM.status).filter(TaskTrackerORM.task_id.in_(task_ids))} if task_ids else {}
     return {
         "next_cursor": page.next_cursor,
         "items": [
@@ -2910,6 +2917,7 @@ def list_unresolved_assignments(
                 season_id=u.season_id,
                 scope=membership.scope_out(u.scope),
                 deadline_at=u.deadline_at,
+                task_status=statuses.get(u.task_id, "open"),
                 **membership.scope_display(u.scope),
             )
             for u in page.items

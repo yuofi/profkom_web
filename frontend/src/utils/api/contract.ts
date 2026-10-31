@@ -354,6 +354,8 @@ export interface UnresolvedAssignment {
   deadline_at: string | null;
   scope_title?: string;
   scope_avatar_url?: string | null;
+  /** Public task status; the accounting dialog opens only for a closed task. */
+  task_status?: TaskPublicStatus | null;
 }
 export interface TaskInputs extends Versioned {
   task_id: string;

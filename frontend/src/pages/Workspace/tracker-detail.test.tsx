@@ -23,12 +23,12 @@ async function click(text: string, root: ParentNode = page!.container) {
   const button = [...root.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent?.trim() === text);
   expect(button, `Missing button ${text}`).toBeDefined();await act(async () => button!.click());await settle();
 }
-async function mountTask(task: Task, comments: Comment[] = []) {
+async function mountTask(task: Task, comments: Comment[] = [], search = "") {
   vi.spyOn(seasonsApi, "list").mockResolvedValue({ items: createFixtures("chair").seasons, next_cursor: null });
   vi.spyOn(tasksApi, "get").mockResolvedValue(task);
   vi.spyOn(tasksApi, "comments").mockResolvedValue({ items: comments, next_cursor: null });
   vi.spyOn(historyApi, "list").mockResolvedValue({ items: [], next_cursor: null });
-  page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage />} /></Routes>, { path: `/tasks/${task.task_id}` });
+  page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage />} /></Routes>, { path: `/tasks/${task.task_id}${search}` });
   await waitForPage(page);return page;
 }
 it("uses the common public status and permits every other target without reading the accounting outcome", () => {
@@ -285,6 +285,11 @@ it("without any clipboard the share button offers the link selected for manual c
     expect(field.value).toBe(`${window.location.origin}/tasks/${makeTask().task_id}`);expect(document.activeElement).toBe(field);
     expect(page!.container.textContent).not.toContain("Не удалось скопировать");
   } finally { document.execCommand = execCommand;vi.unstubAllGlobals(); }
+});
+it("an assessment link to an open task explains that the evaluation waits for closure", async () => {
+  const task = makeTask({ status: "in_progress", capabilities: ["read_task", "view_assessment_inputs"] });
+  await mountTask(task, [], `?assignment_id=${task.assignments[0].assignment_id}`);
+  expect(page!.container.textContent).toContain("Оценка исполнителя станет доступна после закрытия задачи.");expect(page!.container.querySelector("dialog")).toBeNull();
 });
 it("selects and clears a cross-queue parent in one combobox with revision protection", async () => {
   let task = makeTask({ capabilities: ["read_task", "edit_task"], queue: { queue_id: "queue-design", name: "Дизайн", key: "DSN" }, parent_task: null });

@@ -52,6 +52,7 @@
 .personChip:hover { color: var(--primary); border-color: var(--primary); }
 .unavailable { display: block; margin: 5px 0 0 9px; color: var(--accent-peach); font-size: 11px; }
 .queueText { display: inline-flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; min-width: 0; overflow-wrap: anywhere; }
+.accountingNotice { margin: 16px 0 0; padding: 10px 14px; border-left: 3px solid var(--accent-peach); background: var(--surface-container-low); font-size: 13px; line-height: 1.5; }
 .pickerHint { max-width: 100%; color: var(--on-surface-variant); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
 .overdue { color: var(--accent-rose); }
 .activity { border-top: 1px solid var(--surface-variant); min-width: 0; }

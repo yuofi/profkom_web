@@ -107,6 +107,7 @@ function TaskContent({ task, assignmentId, accountingRequested=false, returnSeas
         <TrackerTaskChecklist task={task} />
         <TrackerTaskRelations task={task} onEditParent={() => setEditor("parent")} />
         {assignmentId && !task.assignments.some(item => item.assignment_id === assignmentId) && <Empty>Назначение больше недоступно.</Empty>}
+        {assignmentId && !hasAccounting && task.assignments.some(item => item.assignment_id === assignmentId) && <p role="status" className={s.accountingNotice}>{taskStatus(task) === "closed" ? "Учёт работы по этой задаче вам недоступен." : "Оценка исполнителя станет доступна после закрытия задачи."}</p>}
         {hasAccounting && <section className={s.accounting} aria-label="Учёт работы и ККР"><div className={s.sectionHeading}><h2>Учёт работы и ККР</h2><button type="button" onClick={()=>setKkrOpen(true)}>Оценить работу</button></div></section>}
         <TaskMentionApprovals task={task} />
         <TaskActivity task={task} />

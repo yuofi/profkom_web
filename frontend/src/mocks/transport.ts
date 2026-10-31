@@ -1449,6 +1449,7 @@ export function installMockTransport(
                   season_id: t.season_id,
                   scope: t.scope,
                   deadline_at: t.deadline_at,
+                  task_status: publicStatus(t.status),
                 })),
             ),
           )
