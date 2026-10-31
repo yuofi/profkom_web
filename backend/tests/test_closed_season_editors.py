@@ -297,3 +297,102 @@ def test_closed_season_merit_of_a_closed_event_follows_the_season_circle(client,
                 assert merits() == before
             # A role assignment's merit capability there follows the same command.
             assert (cap in access.assignment_caps(actor.user_id, kind, scope_id)) is editor, (actor.user_id, source)
+
+
+# ── GL-09 (owner 2026-10-31): the HR deputy is an ordinary deputy of the HR block, yet only
+# reads a closed season, on the HR block's tasks as on any other (SE-13).
+
+TASK_WRITE_CAPS = {"edit_task", "edit_task_description", "attach_task_file", "review_task", "join_task", "take_task",
+                   "assign_task_participants", "remove_task_assignee", "edit_task_metadata", "manage_task_links",
+                   "change_task_type", "change_task_priority", "edit_task_checklist"}
+ASSIGNMENT_WRITE_CAPS = {"review_assignment", "reassign_assignment", "edit_assessment_inputs"}
+
+
+@pytest.fixture
+def closed_hr(client, work, superuser, hr_roles):
+    """A closed season with a task and a volunteer merit of the HR block beside the IT block's task."""
+    sid, master = work["season"]["season_id"], hr_roles["master"]
+    task = client.post("/api/tasks", headers=master.headers, json=dict(
+        season_id=sid, scope={"kind": "block", "id": hr_roles["block_id"]}, title="Работа HR",
+        description={"format": "markdown", "body": "- [ ] Пункт"}, deadline_at=work["payload"]["deadline_at"],
+        criteria={}, assignees=[{"user_id": master.user_id, "hours": 1}]))
+    assert task.status_code == 200, task.text
+    hr_aid = task.json()["assignments"][0]["assignment_id"]
+    private = client.get(f"/api/assignments/{hr_aid}/assessment-inputs", headers=master.headers).json()
+    cancelled = client.post(f"/api/assignments/{hr_aid}/cancel", headers=master.headers,
+                            json={"expected_revision": private["workflow_revision"], "reason": "Фикстура"})
+    assert cancelled.status_code == 200, cancelled.text
+    merit = client.post("/api/merits", headers=superuser.headers, json=dict(
+        season_id=sid, source_kind="block_volunteer", scope={"kind": "block", "id": hr_roles["block_id"]},
+        title="Заслуга HR", description="", criteria={}, assigned_at=stamp(-3), deadline_at=stamp(-2), reason="Фикстура",
+        recipients=[{"user_id": work["outside"].user_id, "hours": 1, "evaluation": 1, "completed_at": stamp(-2)}]))
+    assert merit.status_code == 200, merit.text
+    it_aid = accept(client, work)
+    close(client, work, superuser)
+    return dict(sid=sid, deputy=hr_roles["deputy"], hr=hr_roles, merit_id=merit.json()["merit_id"],
+                tasks=[(task.json()["task_id"], hr_aid, hr_roles["block_id"]), (work["task"]["task_id"], it_aid, work["block"]["block_id"])])
+
+
+def test_hr_deputy_leads_the_hr_block_but_changes_nothing_in_a_closed_season(client, closed_hr, superuser):
+    """Marks, corrections, coefficients, public task fields, assessment inputs and dates,
+    reviews, merits and new assignment rows: all refused, with no capability promising them."""
+    deputy, sid = closed_hr["deputy"], closed_hr["sid"]
+    uid = deputy.user_id
+    hr_name = closed_hr["hr"]["name"]
+    assert access.BLOCK_DEPUTY in access.scope_relations(uid, "block", hr_name)
+    # No closed-season rule names a block or area lead, nor the HR deputy.
+    for action, rule in access.POLICY.items():
+        if isinstance(rule, access.ByState) and "closed" in rule:
+            assert rule["closed"] <= access.CLOSED_SEASON, action
+            for kind, scope in [("block", hr_name), ("block", "IT"), (None, None)]:
+                assert not access.allowed(uid, action, kind, scope, state="closed"), (action, scope)
+    before = (ledger(), merits())
+
+    for task_id, aid, block_id in closed_hr["tasks"]:
+        task = client.get(f"/api/tasks/{task_id}", headers=deputy.headers).json()
+        assert not TASK_WRITE_CAPS & set(task["capabilities"]), (task_id, task["capabilities"])
+        assert all(not ASSIGNMENT_WRITE_CAPS & set(a["capabilities"]) for a in task["assignments"]), task_id
+        inputs = client.get(f"/api/tasks/{task_id}/assessment-inputs", headers=deputy.headers)
+        assert inputs.status_code == 200, inputs.text
+        assert not {"edit_assessment_inputs", "edit_assessment_dates"} & set(inputs.json()["capabilities"])
+        revision = task["revision"]
+        writes = [
+            ("patch", f"/tasks/{task_id}", {"expected_revision": revision, "title": "Правка"}, 403),
+            ("patch", f"/tasks/{task_id}", {"expected_revision": revision, "priority": "urgent"}, 403),
+            ("patch", f"/tasks/{task_id}/assessment-inputs", {"expected_revision": BAD, "reason": "probe", "deadline_at": stamp(1)}, 403),
+            ("patch", f"/assignments/{aid}/assessment-inputs", {"expected_revision": BAD, "reason": "probe", "hours": 3}, 403),
+            ("post", f"/assignments/{aid}/accept", {"expected_revision": BAD, "evaluation": 1}, 403),
+            ("post", f"/assignments/{aid}/request-revision", {"expected_revision": BAD, "review_note": "probe"}, 403),
+            ("post", f"/assignments/{aid}/not-complete", {"expected_revision": BAD, "evaluation": 0, "reason": "probe"}, 403),
+            ("post", f"/assignments/{aid}/cancel", {"expected_revision": BAD, "reason": "probe"}, 403),
+            ("post", f"/assignments/{aid}/reassign", {"expected_revision": BAD, "new_assignee_user_id": superuser.user_id,
+                                                      "hours": 1, "previous_outcome": "cancelled", "reason": "probe"}, 403),
+            ("post", f"/tasks/{task_id}/join", {"expected_revision": revision}, 409),
+            ("post", f"/tasks/{task_id}/take", {"expected_revision": revision}, 409),
+            ("post", f"/tasks/{task_id}/assignees/{superuser.user_id}/add", {"expected_revision": revision}, 403),
+        ]
+        for method, path, body, status in writes:
+            response = getattr(client, method)("/api" + path, headers=deputy.headers, json=body)
+            assert response.status_code == status, (path, body, response.text)
+
+    version = client.get(f"/api/seasons/{sid}/summary", headers=superuser.headers).json()["version"]
+    summary = client.get(f"/api/seasons/{sid}/summary", headers=deputy.headers).json()
+    assert not {"edit_decisions", "correct_summary"} & set(summary["capabilities"])
+    coefficients = client.get(f"/api/seasons/{sid}/coefficients", headers=deputy.headers).json()["items"]
+    assert all("edit_coefficient" not in item["capabilities"] for item in coefficients)
+    hr_block = closed_hr["hr"]["block_id"]
+    writes = [
+        ("put", f"/seasons/{sid}/summary/decisions/{closed_hr['hr']['master'].user_id}",
+         {"expected_version": version, "decisions": ["nice"], "reason": "probe"}),
+        ("post", f"/seasons/{sid}/summary/correct", {"expected_version": BAD, "reason": "probe", "changes": [
+            {"kind": "assessment_inputs", "id": closed_hr["tasks"][0][1], "expected_revision": BAD, "values": {"hours": 3}}]}),
+        ("put", f"/seasons/{sid}/coefficients", {"source_kind": "block", "source_id": hr_block, "value": 1.5,
+                                                 "expected_revision": BAD, "reason": "probe", "expected_summary_version": version}),
+        ("patch", f"/merits/{closed_hr['merit_id']}", {"expected_revision": BAD, "reason": "probe"}),
+    ]
+    for method, path, body in writes:
+        response = getattr(client, method)("/api" + path, headers=deputy.headers, json=body)
+        assert response.status_code == 403, (path, response.text)
+    created = new_merit(client, deputy, sid, "block_volunteer", superuser.user_id, scope={"kind": "block", "id": hr_block})
+    assert created.status_code == 403 and created.json()["detail"]["message"] == CLOSED_CREATE, created.text
+    assert (ledger(), merits()) == before

@@ -21,7 +21,7 @@ actor_id = ContextVar("profkom_actor_id", default=None)
 CHAIR = "chair"
 CHAIR_DEPUTY = "chair_deputy"
 HR_MASTER = "hr_master"
-HR_DEPUTY = "hr_deputy"  # the actual deputy of the configured HR block
+HR_DEPUTY = "hr_deputy"  # the actual deputy of the configured HR block, also BLOCK_DEPUTY there
 HR_TRACKER_READER = "hr_tracker_reader"  # narrowly scoped global tracker read, not KKR/reports
 PGAS_ADMIN = "pgas_admin"
 BLOCK_LEAD_ANYWHERE = "block_lead_anywhere"  # master or deputy of some block
@@ -29,7 +29,6 @@ QUEUE_HOLDER = "queue_holder"  # leads some block, event or subevent
 # Block
 BLOCK_MASTER = "block_master"
 BLOCK_DEPUTY = "block_deputy"
-HR_BLOCK_DEPUTY = "hr_block_deputy"  # the deputy of an HR block there: only reads its guide (GL-09)
 BLOCK_HR = "block_hr"  # explicit HR curator of this block; never a membership/guide role
 BLOCK_MEMBER = "block_member"
 # Event; a subevent also inherits the relations to its event
@@ -163,8 +162,7 @@ POLICY = {
     "material.create_guide": TACHKI | BLOCK_LEADS,  # checked against the owning block
     "material.edit": TACHKI | {MATERIAL_EDITOR},  # also publish and reversible delete (decision 18)
     # Checked on the owning block of a guide for its block only (owner, 2026-10-25); reading only.
-    # The HR deputy reads their own HR block's guide (owner, 2026-10-31, GL-09).
-    "material.read_block_guide": TACHKI | BLOCK_LEADS | {BLOCK_MEMBER, HR_BLOCK_DEPUTY},
+    "material.read_block_guide": TACHKI | BLOCK_LEADS | {BLOCK_MEMBER},
     "material.manage_editors": TACHKI,
     "material.restore": TACHKI,  # deletion is reversible (decision 18)
     "pgas.manage": TACHKI | {PGAS_ADMIN},  # decision 14
@@ -364,8 +362,9 @@ def _global_relations(uid):
     hr_blocks = _hr_block_names()
     for scope_kind, scope_id, role in _assignment_roles(uid):
         if scope_kind == "block" and role == "deputy_master" and scope_id in hr_blocks:
+            # The explicit HR deputy: global HR grants by POLICY; a block lead like any deputy
+            # (owner, 2026-10-31, GL-09). CLOSED_SEASON still leaves them out (SE-13).
             rel.update({HR_TRACKER_READER,HR_DEPUTY})
-            continue  # explicit HR deputy; its grants are defined by POLICY, not legacy names
         if role in QUEUE_ROLES.get(scope_kind, set()):
             rel.add(QUEUE_HOLDER)
         if scope_kind == "block" and role in ("master", "deputy_master"):
@@ -405,9 +404,7 @@ def _block(uid, block_id):
     if master or _has_scope_role(uid, "block", name, "master"):
         rel.add(BLOCK_MASTER)
     if _has_scope_role(uid, "block", name, "deputy_master"):
-        # The HR deputy's grants are defined by POLICY, not BLOCK_DEPUTY: in their own HR
-        # block only the guide read (owner, 2026-10-31, GL-09).
-        rel.add(HR_BLOCK_DEPUTY if name in _hr_block_names() else BLOCK_DEPUTY)
+        rel.add(BLOCK_DEPUTY)  # the HR block's deputy too (owner, 2026-10-31, GL-09)
     if member:
         rel.add(BLOCK_MEMBER)
     if curator:

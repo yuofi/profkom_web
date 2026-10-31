@@ -2216,7 +2216,8 @@ export function installMockTransport(
         blocks: state.blocks.flatMap((block) => {
           const roles: ParticipationRole[] = [];
           if (block.master?.user.user_id === uid) roles.push("master");
-          if (!block.is_hr && block.master?.deputy_user_ids.includes(uid)) roles.push("deputy_master");
+          // The HR block's deputy is an ordinary deputy there (GL-09).
+          if (block.master?.deputy_user_ids.includes(uid)) roles.push("deputy_master");
           if (block.members.some((member) => member.user.user_id === uid)) roles.push("member");
           return roles.length ? [{ block_id: block.block_id, name: block.name, roles }] : [];
         }),

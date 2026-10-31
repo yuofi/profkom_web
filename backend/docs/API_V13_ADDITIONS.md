@@ -93,10 +93,16 @@ capability выдаётся ровно тогда, когда сервер вы�
   deputies and HR master add assignees in a closed season» на вступление и взятие,
   403 на назначение другого человека и 403 «only the chair, deputies and HR master
   can reassign in a closed season» на переназначение (TR-05).
-- `GET /materials/{id}` гайда блока HR (аудитория «блок») открывается заму
-  мастера HR этого блока: 200 вместо прежних 404, `capabilities` пустые; правка
-  и публикация — 403, гайды других блоков — 404. Карточка блока HR даёт ему
-  `read_guide` (GL-09).
+- Зам мастера HR в блоке HR — обычный зам блока (GL-09, ответ 4): `GET /materials/{id}`
+  гайда блока HR — 200 с `edit_material`, `publish_material`, `delete_material`,
+  `PATCH`/`publish`/`DELETE` гайда разрешены; карточка блока HR даёт `edit_block`
+  и `read_guide` (`PATCH /blocks/{id}` с описанием, ссылкой на сообщество и аватаром,
+  загрузка аватара `owner_kind="block"`); `GET /task-queues` предлагает блок HR в
+  `create_scopes`, `POST /task-queues` в нём разрешён; в `/session` появляется
+  `create_material`; `/participation` и `/participants/{id}/participation`
+  показывают у него роль `deputy_master` в блоке HR. Переименование блока — 403
+  (только председатель и замы), гайды и карточки других блоков закрыты, как прежде.
+  Закрытый сезон, в том числе задачи и заслуги блока HR, он не правит (SE-13).
 - `POST /accounts/{id}/archive` и `POST /accounts/{id}/restore` заместителя
   председателя (в том числе себя) доступны только председателю; заму — 403
   `leadership_change_forbidden`, при восстановлении раньше 409
