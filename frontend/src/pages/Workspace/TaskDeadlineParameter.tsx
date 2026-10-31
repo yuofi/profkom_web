@@ -1,0 +1,46 @@
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ActionForm } from "../../components/Workspace/ActionForm";
+import { text } from "../../components/Workspace/formValues";
+import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
+import type { Task, TaskInputs } from "../../utils/api/contract";
+import { tasksApi } from "../../utils/api/tasks.api";
+import { displayDate, moscowInput, toUtc } from "../../utils/dates";
+import { can } from "../../utils/session";
+import { TrackerTaskDialog } from "./TrackerTaskDialog";
+import { taskStatus } from "./trackerStatus";
+import s from "./TrackerTaskDetail.module.css";
+
+/**
+ * The deadline is an assessment input (УВ-5): it moves through the dated, reasoned
+ * assessment-inputs change, never through an ordinary task edit, and only for those whose
+ * inputs carry edit_assessment_dates. Other task managers learn who moves it.
+ */
+export function TaskDeadlineParameter({ task, now, onSaved }: { task: Task; now: number; onSaved?: () => void }) {
+  const accountable = can(task, "view_assessment_inputs") && task.scope.kind !== "queue";
+  const inputs = useQuery({ queryKey: ["assessments", "task", task.task_id], queryFn: () => tasksApi.inputs(task.task_id), enabled: accountable });
+  const [moving, setMoving] = useState(false);
+  const movable = can(inputs.data, "edit_assessment_dates");
+  const manager = accountable || can(task, "edit_task") || can(task, "edit_task_metadata");
+  return <div><dt>Дедлайн, МСК</dt><dd>
+    {task.deadline_at ? <time dateTime={task.deadline_at} className={Date.parse(task.deadline_at) < now && taskStatus(task) !== "closed" ? s.overdue : undefined}>{displayDate(task.deadline_at)}</time> : <span>Не задан</span>}
+    {movable ? <button type="button" className={s.deadlineEdit} onClick={() => setMoving(true)}>Перенести срок</button>
+      : manager && !inputs.isLoading && <p className={s.seasonContext}>Срок переносят председатель, замы и мастер HR</p>}
+    {moving && movable && inputs.data && <UnsavedChangesScope><DeadlineEditor task={task} inputs={inputs.data} refetch={() => void inputs.refetch()} onClose={() => setMoving(false)} onSaved={onSaved} /></UnsavedChangesScope>}
+  </dd></div>;
+}
+
+function DeadlineEditor({ task, inputs, refetch, onClose, onSaved }: { task: Task; inputs: TaskInputs; refetch: () => void; onClose: () => void; onSaved?: () => void }) {
+  const client = useQueryClient();
+  return <TrackerTaskDialog title="Перенести срок" onClose={onClose}>
+    <p>Задача: {task.task_key ? `${task.task_key} · ` : ""}{task.title}</p>
+    <ActionForm revision={inputs.revision} record={`task-inputs:${task.task_id}`} onConflict={refetch} submitLabel="Перенести срок"
+      fields={[{ name: "deadline_at", label: "Новый дедлайн, МСК", type: "datetime-local", required: true, value: inputs.deadline_at ? moscowInput(inputs.deadline_at) : "", hint: "Не раньше выдачи задачи и не позже конца сезона." }, { name: "reason", label: "Причина переноса", required: true }]}
+      onSubmit={async (values, revision) => {
+        const saved = await tasksApi.updateInputs(task.task_id, { expected_revision: revision!, deadline_at: toUtc(text(values, "deadline_at")), reason: text(values, "reason") });
+        client.setQueryData(["assessments", "task", task.task_id], saved);
+        await Promise.all([client.invalidateQueries({ queryKey: ["accounting-batch", task.task_id] }), client.invalidateQueries({ queryKey: ["tasks"] })]);
+        onSaved?.();onClose();return saved;
+      }} />
+  </TrackerTaskDialog>;
+}

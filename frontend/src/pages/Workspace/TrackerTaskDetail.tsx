@@ -25,6 +25,7 @@ import { useGuardedAction } from "../../components/Workspace/unsavedChangesHooks
 import { text } from "../../components/Workspace/formValues";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { TaskSeasonParameter } from "./TaskSeasonParameter";
+import { TaskDeadlineParameter } from "./TaskDeadlineParameter";
 import { userMessage } from "../../utils/api/messages";
 import { richText, type Comment, type FileRef, type Revision, type Task } from "../../utils/api/contract";
 import { can } from "../../utils/session";
@@ -119,7 +120,7 @@ function TaskContent({ task, assignmentId, accountingRequested=false, returnSeas
         <div><dt>Тип</dt><dd><TaskClassificationMenu task={task} field="task_type" />{can(task,"edit_task_metadata") && <button type="button" className={s.deadlineEdit} onClick={() => setEditor("planning")}>Изменить параметры</button>}</dd></div>
         <div><dt>Приоритет</dt><dd><TaskClassificationMenu task={task} field="priority" /></dd></div>
         {task.task_type !== "milestone" && <div><dt>Плановое начало, МСК</dt><dd>{displayDate(task.starts_at)}</dd></div>}
-        <div><dt>Дедлайн, МСК</dt><dd>{task.deadline_at ? <time dateTime={task.deadline_at} className={Date.parse(task.deadline_at) < now && taskStatus(task)!=="closed" ? s.overdue : undefined}>{displayDate(task.deadline_at)}</time> : <span>Не задан</span>}</dd></div>
+        <TaskDeadlineParameter task={task} now={now} onSaved={savedEditor} />
         <div><dt>Очередь</dt><dd>{task.queue?.readable === false ? <span className={s.queueText}>{task.queue.name}{task.queue.key === "WEBSUPPORT" && <Link to="/support">Мои обращения</Link>}</span> : task.queue ? <Link to={getTaskQueueRoute(task.queue.queue_id)}>{task.queue.name}</Link> : <Link to={getTaskQueuesRoute()}>Открыть очереди</Link>}</dd></div>
         {task.scope.kind !== "queue" && <div><dt>Команда</dt><dd><TeamChip scope={task.scope} title={task.scope_title} avatarUrl={task.scope_avatar_url} /></dd></div>}
         <TaskSeasonParameter task={task} />
