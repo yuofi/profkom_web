@@ -70,3 +70,10 @@ it('keeps a large personal sidebar at five entries while the full mine feed stay
  await mount('/events?unknown=keep',false,false,7);const sidebar=page!.container.querySelector('[aria-label="Ваши мероприятия"]')!;expect(sidebar.querySelectorAll('[aria-label="Моё участие в мероприятиях"] a')).toHaveLength(5);expect(sidebar.querySelector('h2[aria-label="С моим участием"] span')?.textContent).toBe('9');
  await act(async()=>[...sidebar.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Все мои мероприятия')!.click());await waitForPage(page!);const params=new URLSearchParams(page!.container.querySelector('[data-location]')!.textContent!);expect(params.get('mine')).toBe('true');expect(params.get('unknown')).toBe('keep');expect(stream().querySelectorAll('a')).toHaveLength(9);
 });
+it('does not offer an always empty "mine" filter for the archive, whose roles /participation does not cover (EV-04)',async()=>{
+ await mount('/events?archive=true&mine=true');
+ expect(stream().textContent).toContain('Историческое событие');expect(stream().textContent).not.toContain('Мероприятия по выбранным условиям не найдены');
+ expect([...control('Участие').querySelectorAll('option')].map(node=>node.getAttribute('value'))).toEqual(['all']);
+ const own=page!.container.querySelector('[aria-label="Ваши мероприятия"] section')!;
+ expect(own.textContent).toContain('Для архива участие не показывается');expect(own.querySelector('[aria-label="Моё участие в мероприятиях"]')).toBeNull();
+});
