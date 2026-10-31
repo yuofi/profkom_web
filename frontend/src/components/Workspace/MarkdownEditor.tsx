@@ -34,11 +34,13 @@ export function MarkdownEditor({
   const beforeInput = useRef<Snapshot | null>(null);
   const undo = useRef<Snapshot[]>([]);
   const redo = useRef<Snapshot[]>([]);
-  const [preview, setPreview] = useState(false);
+  const [preview, setPreview] = useState(false), [stacks, setStacks] = useState({ undo: false, redo: false });
+  /** The undo/redo stacks live in refs; their emptiness is what the buttons show. */
+  const track = () => setStacks(current => current.undo === !!undo.current.length && current.redo === !!redo.current.length ? current : { undo: !!undo.current.length, redo: !!redo.current.length });
   const remember = (stack: Snapshot[], item: Snapshot) => { stack.push(item); if (stack.length > 100) stack.shift(); };
   const snapshot = (): Snapshot => ({ value, start: input.current?.selectionStart ?? value.length, end: input.current?.selectionEnd ?? value.length });
   const emit = (next: string, start: number, end = start) => {
-    beforeInput.current = null;
+    beforeInput.current = null;track();
     selection.current = { start, end };
     onChange(next);
   };
@@ -153,8 +155,8 @@ export function MarkdownEditor({
         {variant !== "comment" && previewControl}
         {preview ? <span className={editor.mode}>Просмотр Markdown</span> : <>
           <span className={editor.separator} aria-hidden="true" />
-          {<EditorTool label={"Отменить"} disabled={disabled} onClick={() => restore("undo")} hint={"Отменить · Cmd/Ctrl+Z"}><EditorIcon name="undo" /></EditorTool>}
-          {<EditorTool label={"Повторить"} disabled={disabled} onClick={() => restore("redo")} hint={"Повторить · Cmd/Ctrl+Shift+Z"}><EditorIcon name="redo" /></EditorTool>}
+          {<EditorTool label={"Отменить"} disabled={disabled || !stacks.undo} onClick={() => restore("undo")} hint={"Отменить · Cmd/Ctrl+Z"}><EditorIcon name="undo" /></EditorTool>}
+          {<EditorTool label={"Повторить"} disabled={disabled || !stacks.redo} onClick={() => restore("redo")} hint={"Повторить · Cmd/Ctrl+Shift+Z"}><EditorIcon name="redo" /></EditorTool>}
           <span className={editor.separator} aria-hidden="true" />
           {<EditorTool label={"Жирный"} disabled={disabled} onClick={() => insert("**", "**")} hint={"Жирный · Cmd/Ctrl+B"} className={editor.strong}>{"B"}</EditorTool>}
           {<EditorTool label={"Курсив"} disabled={disabled} onClick={() => insert("*", "*")} hint={"Курсив · Cmd/Ctrl+I"} className={editor.italic}>{"I"}</EditorTool>}
@@ -188,7 +190,7 @@ export function MarkdownEditor({
         {variant === "comment" && <span className={editor.srOnly}>{label}</span>}
         <textarea ref={input} id={fieldId} name={name} className={editor.input} value={value} rows={rows} placeholder={placeholder} disabled={disabled}
           onChange={(event) => {
-            remember(undo.current, beforeInput.current ?? snapshot()); redo.current = [];
+            remember(undo.current, beforeInput.current ?? snapshot()); redo.current = [];track();
             beforeInput.current = null;
             onChange(event.target.value);
           }}
