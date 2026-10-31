@@ -1,7 +1,8 @@
 /**
  * Build-only asset steps (no dependencies beyond Node's zlib):
  * - precompressed .gz copies next to text assets for nginx `gzip_static` (PF-23);
- * - block logos scaled down from their 1024 px sources at build time (PF-24).
+ * - block logos scaled down from their 1024 px sources at build time (PF-24);
+ * - preload links for the fonts every page draws at once (PF-25).
  * Source files in the repository are never changed.
  */
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
@@ -163,6 +164,28 @@ export function smallTeamLogos(size = 192): Plugin {
       if (small.length >= source.length) return null;
       const reference = this.emitFile({ type: "asset", name: basename(id), source: small });
       return `export default "__VITE_ASSET__${reference}__"`;
+    },
+  };
+}
+
+const PRELOADED_FONTS = /^assets\/(GoogleSans|MaterialSymbolsRounded)-subset-[\w-]+\.woff2$/;
+
+/** The regular GoogleSans and the icon subset are asked for with the HTML, not after the CSS:
+ * icons (font-display: block) are no longer blank for ~200 ms. Their names are hashed, so the
+ * links come from the bundle; the italic face is left to the pages that draw italic text. */
+export function preloadFonts(): Plugin {
+  let base = "/";
+  return {
+    name: "profkom:preload-fonts",
+    apply: "build",
+    configResolved(config) { base = config.base; },
+    transformIndexHtml: {
+      order: "post",
+      handler(_html, { bundle }) {
+        const fonts = Object.keys(bundle ?? {}).filter(file => PRELOADED_FONTS.test(file)).sort();
+        if (fonts.length !== 2) throw new Error(`preloadFonts: expected GoogleSans and Material Symbols subsets, got [${fonts.join(", ")}]`);
+        return fonts.map(file => ({ tag: "link", attrs: { rel: "preload", as: "font", type: "font/woff2", href: base + file, crossorigin: true }, injectTo: "head" as const }));
+      },
     },
   };
 }

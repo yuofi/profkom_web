@@ -1,11 +1,11 @@
-import { mkdtemp, readFile, readdir, rm, writeFile, mkdir } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, realpath, rm, stat, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { afterEach, expect, it } from "vitest";
-import type { ResolvedConfig } from "vite";
+import { build, type IndexHtmlTransformContext, type ResolvedConfig } from "vite";
 import { transform } from "lightningcss";
-import { decodePng, downscale, encodePng, precompress, smallTeamLogos } from "./buildAssets";
+import { decodePng, downscale, encodePng, precompress, preloadFonts, smallTeamLogos } from "./buildAssets";
 
 const frontend = resolve(__dirname, "..");
 let dir: string | undefined;
@@ -104,4 +104,24 @@ it("PF-03/PF-11: every rule of a CSS module is scoped by its own class, so a mer
   }
   expect(unscoped).toEqual([]);
   expect(() => transform({ filename: "Bare.module.css", code: Buffer.from(".page { color: red; }\nimg { width: 55%; }\n"), cssModules: { pure: true } })).toThrow(/class or ID/);
+});
+
+it("PF-25: the build preloads the regular GoogleSans and the icon subset, not the italic face", async () => {
+  // The real path: Vite names the emitted HTML relative to the root (/var → /private/var on macOS).
+  dir = await realpath(await mkdtemp(join(tmpdir(), "profkom-preload-")));
+  await writeFile(join(dir, "index.html"), '<!doctype html><html><head><title>t</title></head><body><script type="module" src="/main.js"></script></body></html>');
+  await writeFile(join(dir, "main.js"), `import ${JSON.stringify(join(frontend, "src/styles/fonts.css"))};\n`);
+  await build({ root: dir, configFile: false, logLevel: "silent", plugins: [preloadFonts()], build: { outDir: "dist" } });
+  const html = await readFile(join(dir, "dist/index.html"), "utf8");
+  const preloads = [...html.matchAll(/<link [^>]*rel="preload"[^>]*>/g)].map(([tag]) => tag);
+  expect(preloads).toHaveLength(2);
+  for (const tag of preloads) expect(tag).toMatch(/^<link rel="preload" as="font" type="font\/woff2" href="\/assets\/[^"]+\.woff2" crossorigin>$/);
+  const hrefs = preloads.map(tag => /href="([^"]+)"/.exec(tag)![1]);
+  expect(hrefs.map(href => href.replace(/-[\w-]{8}\.woff2$/, ""))).toEqual(["/assets/GoogleSans-subset", "/assets/MaterialSymbolsRounded-subset"]);
+  for (const href of hrefs) expect((await stat(join(dir, "dist", href))).size).toBeGreaterThan(10_000);
+  // The italic face is still built for italic text, only not preloaded.
+  expect((await readdir(join(dir, "dist/assets"))).some(file => file.startsWith("GoogleSans-Italic-subset-"))).toBe(true);
+  // A renamed font fails the build instead of silently losing its preload.
+  const { handler } = preloadFonts().transformIndexHtml as { handler: (html: string, context: IndexHtmlTransformContext) => unknown };
+  expect(() => handler("", { bundle: {} } as IndexHtmlTransformContext)).toThrow(/expected GoogleSans and Material Symbols/);
 });
