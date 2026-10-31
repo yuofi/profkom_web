@@ -110,8 +110,9 @@ POLICY = {
     "summary.view": SUMMARY,
     "summary.decide": ByState({"*": SUMMARY, "closed": {CHAIR}}),
     "summary.correct": TACHKI,  # closed season corrections (АВ-2)
-    # Calling leaders to fill KKR of closed tasks: the current circle, only while work is accounted
-    "kkr.remind": ByState({"*": frozenset(), "open": {HR_MASTER}, "summarizing": {HR_MASTER}}),
+    # Calling leaders to fill KKR of closed tasks, only while work is accounted: the HR master
+    # and the HR deputy, not the chair or the chair's deputies (owner, 2026-10-31, SE-14)
+    "kkr.remind": ByState({"*": frozenset(), "open": {HR_MASTER, HR_DEPUTY}, "summarizing": {HR_MASTER, HR_DEPUTY}}),
     "merit.create.chair": TACHKI,
     "merit.create.head": TACHKI | EVENT_LEADS,  # decision 12
     "merit.create.block_volunteer": TACHKI,

@@ -73,6 +73,8 @@ update of the test site after local verification; production is not authorized.
 - Seed/reconcile idempotently for existing open seasons and new sources/seasons.
 - HR's summon button adds normal mentions to the relevant control tickets. No
   separate duplicate notification and no repetition/cooldown limit.
+  Owner decision 2026-10-31 (SE-14): only the HR master and the HR deputy summon
+  (`kkr.remind`), in open or summarizing seasons; the chair and deputies do not.
 
 ## Coefficients, summary and analytics
 
