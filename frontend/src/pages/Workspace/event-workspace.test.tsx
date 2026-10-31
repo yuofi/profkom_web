@@ -51,6 +51,13 @@ it("renders a safe public child announcement and compact roster without private 
   const listing = await eventsApi.subevents(sub.event_id);
   expect(listing.items.find(item => item.subevent_id === sub.subevent_id)).toMatchObject({ announcement: richText("Открытый анонс"), description: richText(""), report_series_id: null, capabilities: [], working_access: false });
 });
+it("offers the team task list to a task reader without the working subevent ACL", async () => {
+  mock=installMockTransport("organizer",{delay:0});const sub=mock.state.subevents[0];sub.announcement=richText("Открытый анонс");
+  vi.spyOn(eventsApi,"subevent").mockResolvedValue({...structuredClone(sub),description:richText(""),report_series_id:null,working_access:false,capabilities:["view_tasks"]});
+  page=await mountWorkspace(<Routes><Route path="/subevents/:id" element={<SubeventPage/>}/></Routes>,{path:`/subevents/${sub.subevent_id}`,role:"organizer"});await waitForPage(page);
+  expect([...page.container.querySelectorAll("a")].find(link => link.textContent === "Задачи команды")?.getAttribute("href")).toBe(`/tasks?scope_kind=subevent&scope_id=${encodeURIComponent(sub.subevent_id)}`);
+  expect(page.container.textContent).not.toContain("Рабочая информация");
+});
 it("creates a child using explicit public/work text and real all-day date fields", async () => {
   mock=installMockTransport("chair",{delay:0});const parent=mock.state.events[0];const onClose=vi.fn();
   page=await mountWorkspace(<SubeventEditor parent={parent} onClose={onClose}/>);await waitForPage(page);

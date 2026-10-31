@@ -514,6 +514,18 @@ def subevent_caps(sub, uid=None):
     return result
 
 
+def subevent_task_caps(sub, uid=None):
+    """Tracker entry for task readers without the subevent working ACL; no working-data capabilities."""
+    uid = uid or actor_id.get()
+    state = season_state(db.get_event(sub.event_id).season_id)
+    if state == "closed":
+        return []
+    table = {"view_tasks": "task.view"}
+    if state in ("planned", "open"):
+        table["create_task"] = "task.create"
+    return _caps(table, uid, "subevent", sub.subevent_id, state)
+
+
 def meeting_caps(owner_kind, owner_id, uid=None):
     """`edit_meeting`/`delete_meeting`: a closed season's meetings are read-only."""
     uid = uid or actor_id.get()
