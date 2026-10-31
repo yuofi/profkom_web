@@ -1,5 +1,5 @@
 import { editorShortcut } from "../../utils/editorShortcuts";
-import { Suspense, lazy, useId, useRef, useState, type ReactNode } from "react";
+import { Suspense, lazy, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useFormik, type FormikProps } from "formik";
 import { z } from "zod";
 import { ApiError, normalizeApiError } from "../../utils/api/request";
@@ -326,6 +326,10 @@ export function ActionForm({
   const currentValues = { ...initialValues, ...form.values };
   const question = confirm && (typeof confirm.text === "function" ? confirm.text(currentValues) : confirm.text);
   const awaitingCommand = !!confirm && question !== null && pendingCommand !== null && pendingCommand === JSON.stringify(currentValues);
+  // The submit is disabled while a question waits, so its answer takes the focus once the form is idle.
+  const answer = useRef<HTMLButtonElement>(null);
+  const asking = pendingRemoval.length > 0 || awaitingCommand;
+  useEffect(() => { if (asking && !form.isSubmitting) answer.current?.focus(); }, [asking, form.isSubmitting]);
   const unchanged = !!changeRequired?.every((name) => JSON.stringify(form.values[name] ?? initialValues[name]) === JSON.stringify(savedValues(fields)[name]));
   const replaceWithSaved = () => {
     form.resetForm({ values: savedValues(fields) });
@@ -374,6 +378,7 @@ export function ActionForm({
                 <Suspense fallback={<p role="status">Загружаем редактор…</p>}>
                   <MarkdownEditor name={field.name} label={`${field.label}${isRequired(field, form.values) ? " *" : ""}`} rows={field.rows} context="task" draft={false}
                     value={String(form.values[field.name] ?? initialValues[field.name])} placeholder={field.placeholder} disabled={form.isSubmitting}
+                    required={props.required} invalid={!!error} describedBy={props["aria-describedby"]}
                     onChange={(value) => void form.setFieldValue(field.name, value)} />
                 </Suspense>
                 {field.hint && <small>{field.hint}</small>}
@@ -459,7 +464,7 @@ export function ActionForm({
         {pendingRemoval.length > 0 && (
           <div role="alert" className={s.warning}>
             <p>Будут сняты: {pendingRemoval.join(", ")}.</p>
-            <button type="button" className={s.button} onClick={() => {
+            <button ref={answer} type="button" className={s.button} onClick={() => {
               confirmedRemoval.current = JSON.stringify(pendingRemoval);
               void form.submitForm();
             }}>
@@ -471,7 +476,7 @@ export function ActionForm({
           <div role="alert" className={s.warning}>
             <p>{question}</p>
             <div className={s.row}>
-              <button type="button" className={s.button} onClick={() => {
+              <button ref={answer} type="button" className={s.button} onClick={() => {
                 confirmedCommand.current = pendingCommand;
                 void form.submitForm();
               }}>

@@ -32,6 +32,8 @@ it("an irreversible command asks once more with its target, can be withdrawn and
   expect(save).not.toHaveBeenCalled();
   expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("Передать пост председателя: Анна Иванова?");
   expect(button("Передать пост")!.disabled).toBe(true);
+  // The disabled submit gives the focus to the answer, so a keyboard user lands on it.
+  expect(document.activeElement).toBe(button("Да, передать пост"));
   // Cancelling withdraws the question; another choice withdraws it too and names the new target.
   await click("Отмена");
   expect(page.container.querySelector('[role="alert"]')).toBeNull();
@@ -72,4 +74,18 @@ it("removing a meeting announcement is confirmed with its title and carries the 
   await waitForPage(page, () => page!.container.textContent!.includes("Созвон пока не назначен."));
   expect(remove).toHaveBeenCalledWith("subevents", sub.subevent_id, { expected_revision: seen.revision });
   expect(mock.state.meetings.some(item => item.owner_id === sub.subevent_id)).toBe(false);
+});
+
+it("a Markdown field states that it is required and links its error to the text (EV-15)", async () => {
+  const save = vi.fn(async () => {});
+  page = await mountWorkspace(<ActionForm fields={[{ name: "body", label: "Текст", type: "markdown", required: true }]} onSubmit={save} />);
+  await waitForPage(page, () => !!page!.container.querySelector('textarea[name="body"]'));
+  const text = () => page!.container.querySelector<HTMLTextAreaElement>('textarea[name="body"]')!;
+  expect(text().required).toBe(true);
+  expect(text().hasAttribute("aria-invalid")).toBe(false);
+  await submit(page.container.querySelector("form")!);
+  expect(save).not.toHaveBeenCalled();
+  expect(text().getAttribute("aria-invalid")).toBe("true");
+  const error = document.getElementById(text().getAttribute("aria-describedby")!);
+  expect(error?.textContent).toBeTruthy();
 });

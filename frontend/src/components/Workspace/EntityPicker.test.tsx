@@ -95,6 +95,9 @@ it("closes the multi-select list after a choice and saves a team roster only aft
   await act(async () => input().click());expect(choices()).toHaveLength(4);await press("Escape");
   await submit(page.container.querySelector("form")!);
   expect(save).not.toHaveBeenCalled();expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("Будут сняты: Анна Иванова");expect(saveButton().disabled).toBe(true);
-  await click([...page.container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Снять и сохранить")!);
+  const answer = [...page.container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Снять и сохранить")!;
+  // The focus moves from the disabled submit to the answer.
+  expect(document.activeElement).toBe(answer);
+  await click(answer);
   expect(save).toHaveBeenCalledWith({ people: ["13"] }, undefined);
 });
