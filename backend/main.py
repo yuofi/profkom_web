@@ -2889,19 +2889,28 @@ def list_unresolved_assignments(
     scope_id: Optional[str] = None,
     orphaned_only: bool = False,
     cursor: Optional[str] = None,
+    limit: Optional[int] = Query(None, ge=1, le=100),
+    include_total: bool = False,
     cur: User = Depends(get_current_user),
 ):
     if not access.allowed(cur.user_id, "queue.view"):
         raise HTTPException(403, "Forbidden: unresolved assignments are for area leaders")
+    # The keyset page is chosen over the authorized lightweight selection; only its
+    # rows are converted (the same key and cursor as before).
+    pages = []
+    def select(rows):
+        pages.append((len(rows), cursor_page(rows, lambda u: (u.deadline_at or "", u.assignment_id), cursor, limit=limit)))
+        return pages[0][1].items
     items = db.list_unresolved_assignments(
         season_id=season_id,
         scope_kind=scope_kind,
         scope_id=scope_id,
         orphaned_only=orphaned_only,
         current_user_id=cur.user_id,
+        select=select,
     )
-    page = cursor_page(items, lambda u: (u.deadline_at or "", u.assignment.assignment_id), cursor)
-    return {
+    total, page = pages[0]
+    result = {
         "next_cursor": page.next_cursor,
         "items": [
             UnresolvedAssignmentOut(
@@ -2913,9 +2922,12 @@ def list_unresolved_assignments(
                 deadline_at=u.deadline_at,
                 **membership.scope_display(u.scope),
             )
-            for u in page.items
+            for u in items
         ]
     }
+    if include_total:
+        result["total"] = total
+    return result
 
 
 @router.post("/assignments/{assignment_id}/reassign", response_model=ReassignAssignmentOut)

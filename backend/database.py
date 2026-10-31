@@ -1739,6 +1739,58 @@ def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: O
     )
 
 
+class _UnresolvedCandidate:
+    """An authorized unresolved assignment before its DTO is built (sort/page key)."""
+    __slots__ = ("assignment", "task")
+
+    def __init__(self, assignment, task):
+        self.assignment, self.task = assignment, task
+
+    @property
+    def deadline_at(self):
+        return self.task.deadline_at
+
+    @property
+    def assignment_id(self):
+        return self.assignment.assignment_id
+
+
+def _prime_assignment_details(session: Session, assignments) -> None:
+    """Batch the submissions and file records _assignment_orm_to_dc reads per row.
+
+    Only a clean read UOW keeps these hints. An assignment whose submissions share a
+    timestamp keeps its own ordered query, so SQLite's tie order is unchanged; the
+    converter still reads every value and applies its own fallbacks.
+    """
+    from read_context import prime_rows, prime_get, reusable
+    ids = list(dict.fromkeys(a.assignment_id for a in assignments))
+    if not ids or not reusable(session):
+        return
+    by_assignment = {aid: [] for aid in ids}
+    for offset in range(0, len(ids), 500):
+        for row in session.query(SubmissionORM).filter(SubmissionORM.assignment_id.in_(ids[offset:offset+500])).order_by(
+                SubmissionORM.submitted_at.asc()):
+            by_assignment[row.assignment_id].append(row)
+    file_ids = set()
+    for aid, rows in by_assignment.items():
+        if len({row.submitted_at for row in rows}) == len(rows):
+            prime_rows(session, "assignment.submissions", aid, rows)
+        for row in rows:
+            try:
+                values = json.loads(row.files_json or "[]")
+            except Exception:
+                continue
+            if isinstance(values, list):
+                file_ids.update(value for value in values if isinstance(value, str))
+    found = {}
+    ordered = sorted(file_ids)
+    for offset in range(0, len(ordered), 500):
+        for row in session.query(FileRecordORM).filter(FileRecordORM.file_id.in_(ordered[offset:offset+500])):
+            found[row.file_id] = row
+    for file_id in ordered:
+        prime_get(session, FileRecordORM, file_id, found.get(file_id))
+
+
 def _task_caps(t: TaskORM, uid: int, table: dict) -> list[str]:
     """Capabilities of a task or assignment, by the policy actions in `table`."""
     import access
@@ -5632,7 +5684,17 @@ class Database:
         scope_id: Optional[str] = None,
         orphaned_only: bool = False,
         current_user_id: Optional[int] = None,
+        select=None,
     ) -> list[UnresolvedAssignmentDC]:
+        """Unresolved assignments the reader may review, optionally one selected page.
+
+        The reader's task access and task.review run over every candidate first.
+        ``select`` then receives these lightweight rows (``deadline_at`` and
+        ``assignment_id``) and returns the ones to build, in response order, e.g. a
+        keyset page. Assignment DTOs, submissions and the assignees' own task access
+        are computed only for the selected rows; orphaned_only depends on the
+        assignee's access, so it is evaluated for every candidate before ``select``.
+        """
         with self._session() as session:
             active_statuses = UNRESOLVED_STATUSES
             query = (
@@ -5647,38 +5709,64 @@ class Database:
                 query = query.filter(TaskORM.scope_id == scope_id)
 
             pairs = query.all()
-            results = []
             from tracker import is_control_task
-            # The central batch task ACL for the reader and for every assignee, once
-            # per user, records the same task_read decisions the loop checks below.
+            # The central batch task ACL records the same task_read decisions the
+            # per-row checks below use (a no-op outside a clean read UOW).
             from task_queues import readable_tasks_many
-            by_user = {}
-            for a, t in pairs:
-                if t.scope_kind != "queue" and a.status in active_statuses:
-                    if current_user_id is not None:
-                        by_user.setdefault(current_user_id, {})[t.task_id] = t
-                    by_user.setdefault(a.assignee_user_id, {})[t.task_id] = t
-            readable_tasks_many(session, {uid: list(tasks.values()) for uid, tasks in by_user.items()})
-            for a, t in pairs:
-                if t.scope_kind=="queue" or a.status not in active_statuses or is_control_task(session, t.task_id):continue
+            import access
+            candidates = [(a, t) for a, t in pairs
+                          if t.scope_kind != "queue" and a.status in active_statuses and not is_control_task(session, t.task_id)]
+            if current_user_id is not None:
+                readable_tasks_many(session, {current_user_id: list({t.task_id: t for _, t in candidates}.values())})
+            reviewable = {}
+            visible = []
+            for a, t in candidates:
                 if current_user_id is not None:
-                    import access
                     if not self.can_read_task(current_user_id,t,session):continue
-                    if not access.allowed(current_user_id, "task.review", t.scope_kind, t.scope_id,
-                                          state=access.season_state(t.season_id)):
+                    key = (t.scope_kind, t.scope_id, t.season_id)
+                    if key not in reviewable:
+                        reviewable[key] = access.allowed(current_user_id, "task.review", t.scope_kind, t.scope_id,
+                                                         state=access.season_state(t.season_id))
+                    if not reviewable[key]:
                         continue
+                visible.append((a, t))
 
+            def assignee_access(rows):
+                by_user = {}
+                for a, t in rows:
+                    by_user.setdefault(a.assignee_user_id, {})[t.task_id] = t
+                readable_tasks_many(session, {uid: list(tasks.values()) for uid, tasks in by_user.items()})
+
+            def unavailable(a, t):
                 _note_user(a.assignee_user_id)
                 u = session.get(UserORM, a.assignee_user_id)
-                unavail = None
                 if not u or u.banned or getattr(u, "account_state", "active") != "active":
-                    unavail = "archived"
-                elif not self.can_read_task(a.assignee_user_id,t,session):
-                    unavail = "left_scope"
+                    return "archived"
+                if not self.can_read_task(a.assignee_user_id,t,session):
+                    return "left_scope"
+                return None
 
-                if orphaned_only and unavail is None:
-                    continue
-
+            reasons = {}
+            if orphaned_only:
+                assignee_access(visible)
+                for a, t in visible:
+                    reasons[a.assignment_id] = unavailable(a, t)
+                visible = [(a, t) for a, t in visible if reasons[a.assignment_id] is not None]
+            rows = [_UnresolvedCandidate(a, t) for a, t in visible]
+            if select is not None:
+                rows = select(rows)
+            selected = [(row.assignment, row.task) for row in rows]
+            if not orphaned_only:
+                assignee_access(selected)
+            _prime_assignment_details(session, [a for a, _ in selected])
+            from read_context import reusable
+            subevent_ids = sorted({t.scope_id for _, t in selected if t.scope_kind == "subevent" and t.scope_id})
+            if subevent_ids and reusable(session):
+                # The selected rows' scope titles; the read UOW holds these rows.
+                session.query(SubeventORM).filter(SubeventORM.subevent_id.in_(subevent_ids)).all()
+            results = []
+            for a, t in selected:
+                unavail = reasons[a.assignment_id] if orphaned_only else unavailable(a, t)
                 a_dc=_assignment_orm_to_dc(session,a,current_user_id)
                 a_dc.assignee_unavailable_reason = unavail
                 results.append(
