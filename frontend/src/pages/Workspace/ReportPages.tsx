@@ -516,7 +516,12 @@ export function MeetingPage() {
                   submitLabel="Снять объявление"
                   variant="danger"
                   onSubmit={async () => {
-                    await perform(() => eventsApi.deleteMeeting(apiKind, id));
+                    // The answer itself says there is no announcement: the form starts anew from
+                    // revision 0 at once, not from the removed one until the reread (PF-02).
+                    await perform(async () => {
+                      await eventsApi.deleteMeeting(apiKind, id);
+                      client.setQueryData(["events", "meeting", kind, id], null);
+                    });
                     setRemoved((n) => n + 1);
                   }}
                 />

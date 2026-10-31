@@ -11,6 +11,7 @@ import { AccountStatePage } from "./SessionPages";
 import { MeetingPage } from "./ReportPages";
 import { SeasonPage, SummaryPage } from "./SeasonPages";
 import { seasonsApi } from "../../utils/api/seasons.api";
+import { eventsApi } from "../../utils/api/events.api";
 import { QueryState } from "../../components/Workspace/WorkspaceUI";
 import { ApiError } from "../../utils/api/request";
 import { MeritForm } from "./MeritPages";
@@ -85,6 +86,27 @@ it.each(["event", "block", "registration", "meeting", "season", "decisions"] as 
   const repeated = JSON.parse(mutations().at(-1)!.data);
   expect(repeated.expected_revision ?? repeated.expected_version).toBe(latestRevision + 1);
   expect(repeatedForm.querySelector('[role="alert"]')).toBeNull();
+});
+
+it("PF-02: a removed meeting announcement can be announced again at once", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  page = await mountWorkspace(<Routes><Route path="/meetings/:kind/:id" element={<MeetingPage />} /></Routes>, { path: "/meetings/subevent/subevent-1" });
+  await waitForPage(page!, () => !!page!.container.querySelector('input[name="title"]'));
+  const remove = () => [...page!.container.querySelectorAll<HTMLButtonElement>('button[type="submit"]')].find(button => button.textContent === "Снять объявление");
+  expect(remove()).toBeDefined();
+  // Over a real network the reread of the meeting lands after the form has restarted.
+  const real = eventsApi.meeting, held: (() => void)[] = [];let holding = true;
+  vi.spyOn(eventsApi, "meeting").mockImplementation((kind, id) => holding ? new Promise((resolve, reject) => { held.push(() => { real(kind, id).then(resolve, reject); }); }) : real(kind, id));
+  await submit(remove()!.closest("form")!);await settle();
+  expect(remove()).toBeUndefined();
+  await act(async () => { holding = false;held.splice(0).forEach(release => release()); });await waitForPage(page!);
+  expect(mock.state.meetings.some(item => item.owner_id === "subevent-1")).toBe(false);
+  const form = field(page.container, "title").closest("form")!;
+  expect(form.textContent).not.toContain("Запись изменилась на сервере");
+  await change(field(form, "title"), "Новый созвон");await change(field(form, "starts"), "2026-11-02T18:00");await change(field(form, "url"), "https://example.com/new");
+  await submit(form);await waitForPage(page!);
+  expect(form.querySelector('[role="alert"]'), page.container.textContent ?? "").toBeNull();
+  expect(mock.state.meetings.find(item => item.owner_id === "subevent-1")?.title).toBe("Новый созвон");
 });
 
 it("A05: background revisions do not silently authorize overwriting a draft", async () => {
