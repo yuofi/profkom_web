@@ -95,22 +95,6 @@
   font-size: 20px;
 }
 
-.fileField {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-
-.chosenFileName {
-  min-width: 0;
-  color: color-mix(in srgb, var(--on-surface) 70%, transparent);
-  font-size: 14px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .modalActions {
   display: flex;
   justify-content: flex-end;
@@ -131,16 +115,6 @@
 
 @media (max-width: 480px) {
   .filters { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .fileField {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-  }
-
-  .chosenFileName {
-    max-width: 100%;
-  }
-
   .modalActions {
     flex-direction: column-reverse;
   }

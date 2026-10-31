@@ -12,6 +12,7 @@ import { UnsavedChangesScope } from "./UnsavedChanges";
 import { TrackerTaskDialog } from "../../pages/Workspace/TrackerTaskDialog";
 import { blockLogo } from "../../utils/teamLogos";
 import { Glyph } from "./WorkspaceUI";
+import { FileButton } from "./FileButton";
 import s from "./Workspace.module.css";
 import a from "./BlockAvatarPicker.module.css";
 
@@ -44,14 +45,14 @@ function AvatarEditor({ block, onSaved }: { block: Block; onSaved: () => void })
       onSaved();return result;
     }} onConflict={refresh} submitLabel="Сохранить аватар" successMessage="Аватар блока сохранён">
     <div className={s.row}><ChipAvatar src={preview ?? blockLogo(block.name)} presentation="logo" large fallback={<ChipInitials name={block.name} />} /><span>{draft === null ? blockLogo(block.name) ? "Будет показан логотип блока" : "Будут показаны инициалы блока" : draft ? `Выбрано: ${draft.name}` : "Текущее изображение блока"}</span></div>
-    <label className={s.field}>Загрузить аватар блока<input type="file" accept={fileAccept("block")} disabled={uploading}
+    <div className={s.field}><span>Загрузить аватар блока</span><FileButton label="Выбрать изображение" showName={false} accept={fileAccept("block")} disabled={uploading}
       onChange={async event => {
         const input = event.currentTarget, file = input.files?.[0];if (!file) return;
         setError("");setUploading(true);setProgress(0);controller.current = new AbortController();
         try { setDraft(await filesApi.upload(file, { owner_kind: "block", owner_id: block.block_id, purpose: "avatar" }, setProgress, controller.current.signal)); }
         catch (failure) { setError(userMessage(failure)); }
         finally { setUploading(false);controller.current = null;input.value = ""; }
-      }} /></label>
+      }} /></div>
     <small>PNG, JPEG или WebP до 10 МиБ. Изменение появится у всех после сохранения.</small>
     {uploading && <p role="status">Загрузка аватара: {progress}%</p>}
     {error && <p role="alert" className={s.error}>{error}</p>}

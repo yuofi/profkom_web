@@ -1,0 +1,24 @@
+.field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.name {
+  min-width: 0;
+  color: color-mix(in srgb, var(--on-surface) 70%, transparent);
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 480px) {
+  .field {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .name {
+    max-width: 100%;
+  }
+}

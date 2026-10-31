@@ -17,6 +17,7 @@ import styles from "./PgasPage.module.css";
 import type { IconName } from "../../components/icons";
 import { userMessage } from "../../utils/api/messages";
 import { AnchoredPopover } from "../../components/Workspace/AnchoredPopover";
+import { FileButton } from "../../components/Workspace/FileButton";
 
 const CURRENT_YEAR = new Date().getFullYear();
 // Годы для выпадающего списка: следующий год и семь предыдущих
@@ -362,26 +363,7 @@ export const PgasPage = () => {
                     {formik.touched.half_year && formik.errors.half_year && <span className={s.fieldError}>{String(formik.errors.half_year)}</span>}
                   </label>
 
-                  <div className={styles.fileField}>
-                    <button
-                      type="button"
-                      className={s.button}
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <Glyph name="attach_file" />
-                      Выбрать файл
-                    </button>
-                    <span className={styles.chosenFileName}>
-                      {selectedFile ? selectedFile.name : "Файл не выбран"}
-                    </span>
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      style={{ display: "none" }}
-                      accept={fileAccept("pgas")}
-                      onChange={handleFileChange}
-                    />
-                  </div>
+                  <FileButton fileName={selectedFile?.name} accept={fileAccept("pgas")} inputRef={fileInputRef} onChange={handleFileChange} />
 
                   {fileError && <p role="alert" className={s.fieldError}>{fileError}</p>}
 

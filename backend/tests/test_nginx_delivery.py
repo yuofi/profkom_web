@@ -242,3 +242,14 @@ def test_nginx_starts_without_server_local_blocks(tmp_path, folder):
         nginx_conf(free_port(), free_port(), tmp_path / "html", certifi.where(), tmp_path / "extra"))
     out = subprocess.run([NGINX, "-t", "-p", str(tmp_path), "-c", "nginx.conf"], capture_output=True, text=True)
     assert out.returncode == 0, out.stderr
+
+
+def test_nginx_lets_a_full_feedback_screenshot_through_and_keeps_the_api_limit(site):
+    """A PNG of 2 MiB is about 2.8 MB of base64 inside the feedback JSON (GL-15)."""
+    screenshot = '{"kind": "bug", "screenshot": "data:image/png;base64,' + "A" * 2_790_000 + '"}'
+    reached = httpx.post(f"{site['url']}/api/feedback", content=screenshot, headers={"content-type": "application/json"})
+    assert reached.status_code == 422  # the backend itself validated it
+    refused = httpx.post(f"{site['url']}/api/feedback", content=b"x" * 4_300_000, headers={"content-type": "application/json"})
+    assert refused.status_code == 413
+    other = httpx.post(f"{site['url']}/api/tasks", content=b"x" * 1_300_000, headers={"content-type": "application/json"})
+    assert other.status_code == 413
