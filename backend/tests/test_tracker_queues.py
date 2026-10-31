@@ -402,3 +402,23 @@ def test_deadline_outside_the_season_has_its_own_code_and_allowed_range(client,w
         assert detail['fields']['deadline_at']=='out_of_range'
         assert datetime.fromisoformat(detail['fields']['latest'])==datetime.fromisoformat(season['ends_at'])
         assert datetime.fromisoformat(detail['fields']['earliest'])<=datetime.now(timezone.utc)
+
+
+def test_dates_refusal_names_a_moved_start_and_an_already_ended_season(client,work,superuser):
+    from datetime import datetime,timedelta,timezone
+    from database import SeasonORM
+    w=work;tid=w['task']['task_id']
+    inputs=client.get('/api/tasks/'+tid+'/assessment-inputs',headers=superuser.headers).json()
+    deadline=datetime.fromisoformat(inputs['deadline_at'])
+    r=client.patch('/api/tasks/'+tid+'/assessment-inputs',headers=superuser.headers,json={'expected_revision':inputs['revision'],'assigned_at':(deadline+timedelta(days=1)).isoformat(),'reason':'Начало после дедлайна'})
+    assert r.status_code==422,r.text
+    detail=r.json()['detail'];assert detail['code']=='assigned_out_of_range' and detail['fields']['assigned_at']=='out_of_range'
+    assert datetime.fromisoformat(detail['fields']['latest'])==deadline and 'deadline_at' not in detail['fields']
+    # The season has ended but is not closed yet: a new task has no allowed deadline.
+    ended=datetime.now(timezone.utc)-timedelta(hours=1)
+    with db._session() as session:
+        session.get(SeasonORM,w['season']['season_id']).ends_at=ended.isoformat();session.commit()
+    r=client.post('/api/tasks',headers=w['master'].headers,json={**w['payload'],'deadline_at':(ended+timedelta(minutes=30)).isoformat()})
+    assert r.status_code==422,r.text
+    detail=r.json()['detail'];assert detail['code']=='season_ended' and detail['fields']['deadline_at']=='out_of_range'
+    assert datetime.fromisoformat(detail['fields']['latest'])==ended and 'earliest' not in detail['fields']

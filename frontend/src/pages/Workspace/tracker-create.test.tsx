@@ -43,6 +43,18 @@ it("hints the deadline range and shows the server's refusal at the deadline fiel
   expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("Исправьте дедлайн задачи");
   await change(deadline, "2026-11-30T12:00");expect(deadline.hasAttribute("aria-invalid")).toBe(false);
 });
+it("a season past its end gives no contradictory deadline range and explains it", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const ended = new Date(Date.now() - 3600_000).toISOString();mock.state.seasons.forEach(season => { season.ends_at = ended; });
+  const create = vi.spyOn(tasksApi, "create").mockRejectedValue(new ApiError("Dates", 422, "season_ended", { deadline_at: "out_of_range", latest: ended }));
+  page = await mountWorkspace(<TaskCreateForm queueId={mock.state.queues[0].queue_id} />);await waitForPage(page, () => !!page!.container.querySelector("form"));
+  const form = page.container.querySelector("form")!, deadline = field(form, "deadline") as HTMLInputElement;
+  await waitForPage(page, () => !!deadline.max);expect(deadline.min).toBe("");
+  expect(deadline.closest("label")!.textContent).toContain("дедлайн в нём поставить нельзя");
+  await change(field(page.container, "title"), "Задача в закончившемся сезоне");await change(deadline, deadline.max);await submit(form);await waitForPage(page);
+  expect(create).toHaveBeenCalledOnce();expect(deadline.getAttribute("aria-invalid")).toBe("true");
+  expect(document.getElementById(deadline.getAttribute("aria-describedby")!)!.textContent).toContain("Оставьте дедлайн пустым");
+});
 it("keeps typed Markdown when selecting another queue and has one searchable parent selector", async () => {
   mock = installMockTransport("chair", { delay: 0 });mock.state.queues.push({ ...mock.state.queues[0], queue_id: "extra", name: "Другая очередь", key: "EXTRA" });
   page = await mountWorkspace(<TaskCreateForm queueId={mock.state.queues[0].queue_id} />);await waitForPage(page, () => !!page!.container.querySelector("form"));

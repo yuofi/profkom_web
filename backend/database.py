@@ -4985,7 +4985,7 @@ class Database:
             from validation import period, timestamp, hours as check_hours
             if deadline_at is not None:
                 deadline_at=timestamp(deadline_at)
-                period(datetime.now(timezone.utc).isoformat(),deadline_at,season.ends_at)
+                period(datetime.now(timezone.utc).isoformat(),deadline_at,season.ends_at,start=None)
             if len({a.get("user_id") for a in assignees})!=len(assignees):raise InvalidInput("Duplicate assignees", "duplicate_users")
             for item in assignees:check_hours(item.get("hours",0))
             import access
@@ -5819,7 +5819,7 @@ class Database:
 
             final_deadline = deadline_at or t.deadline_at
             if final_deadline is not None:
-                period(assigned_at or t.assigned_at, final_deadline, season.ends_at)
+                period(assigned_at or t.assigned_at, final_deadline, season.ends_at, start_moved=assigned_at is not None and deadline_at is None)
             if meta.starts_at and final_deadline is not None and dt(meta.starts_at)>dt(final_deadline):
                 raise InvalidInput("Planned start must not be later than the deadline")
             old_assigned = t.assigned_at

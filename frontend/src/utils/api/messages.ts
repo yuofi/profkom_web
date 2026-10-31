@@ -36,6 +36,8 @@ export const ERROR_TEXTS: Record<string, string> = {
   final_report_exists: "Итоговый отчёт этого экземпляра уже есть.",
   invalid_input: "Проверьте введённые данные.",
   deadline_out_of_range: "Дедлайн должен быть не раньше начала работы и не позже конца сезона.",
+  assigned_out_of_range: "Начало работы должно быть не позже дедлайна и конца сезона.",
+  season_ended: "Сезон уже закончился: дедлайн в нём поставить нельзя. Оставьте дедлайн пустым или выберите другой сезон.",
   validation_error: "Проверьте введённые данные.",
   registration_attempt_limit:
     "Лимит пяти отправок исчерпан. Для повторной подачи нужен сброс счётчика руководством.",
@@ -97,6 +99,10 @@ function withFields(e: ApiError) {
     return `Можно назначить не больше ${e.fields.limit} заместителей.`;
   if (e.code === "deadline_out_of_range" && typeof e.fields.earliest === "string" && typeof e.fields.latest === "string")
     return `Дедлайн должен быть не раньше ${displayDate(e.fields.earliest)} и не позже ${displayDate(e.fields.latest)} (конец сезона), МСК.`;
+  if (e.code === "assigned_out_of_range" && typeof e.fields.latest === "string")
+    return `Начало работы должно быть не позже ${displayDate(e.fields.latest)}, МСК.`;
+  if (e.code === "season_ended" && typeof e.fields.latest === "string")
+    return `Сезон закончился ${displayDate(e.fields.latest)}, МСК: дедлайн в нём поставить нельзя. Оставьте дедлайн пустым или выберите другой сезон.`;
   return undefined;
 }
 
