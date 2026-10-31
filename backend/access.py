@@ -435,7 +435,21 @@ GLOBAL_CAPS = {
 def global_caps(uid):
     if not uid:
         return []
-    return _caps(GLOBAL_CAPS, uid)
+    return sorted({*_caps(GLOBAL_CAPS, uid), *curated_merit_caps(uid)})
+
+
+def curated_merit_caps(uid):
+    """`view_merits` of an HR curator: a block or subevent HR holds no role assignment there,
+    yet merit.view.* lets them read that area's saved merits (SE-05)."""
+    from domain_models import BlockMetaORM
+    from event_workspace_models import EventWorkspaceMetaORM
+
+    with db._session() as session:
+        blocks = [row[0] for row in session.query(BlockMetaORM.legacy_name).filter_by(hr_user_id=uid)]
+        subevents = [row[0] for row in session.query(EventWorkspaceMetaORM.owner_id).filter_by(owner_kind="subevent", hr_user_id=uid)]
+    readable = any(allowed(uid, "merit.view.block_volunteer", "block", name) for name in blocks) or any(
+        allowed(uid, "merit.view.subevent_volunteer", "subevent", sid) for sid in subevents)
+    return ["view_merits"] if readable else []
 
 
 def season_caps(season, uid=None):

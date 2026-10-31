@@ -670,6 +670,31 @@ def test_scoped_merit_readers_get_view_capability(org, role, kind, readable):
         assert not any("view_merits" in x["capabilities"] for x in session["assignments"])
 
 
+@pytest.mark.parametrize("kind", ["block", "subevent"])
+def test_hr_curator_gets_session_view_merits(org, kind):
+    """SE-05: a block or subevent HR holds no role assignment there, yet reads its merits;
+    `/session` says so with a session-level `view_merits` that ends with the curatorship."""
+    path, merit = (f"/blocks/{org.ids['it']}", "merit_block") if kind == "block" else (f"/subevents/{org.ids['sa']}", "merit_sub")
+
+    def curator(user_id):
+        org.req("PUT", f"{path}/hr", {"user_id": user_id, "expected_revision": org.req("GET", path)["revision"]})
+
+    def reads():
+        session = org.req("GET", "/session", who="org3")
+        listed = {m["merit_id"] for m in org.req("GET", f"/merits?season_id={org.ids['current']}", who="org3")["items"]}
+        return "view_merits" in session["capabilities"], org.ids[merit] in listed
+
+    assert reads() == (False, False)
+    curator(org.uid("org3"))
+    try:
+        session = org.req("GET", "/session", who="org3")
+        assert not any("view_merits" in a["capabilities"] for a in session["assignments"])
+        assert reads() == (True, True)
+    finally:
+        curator(None)
+    assert reads() == (False, False)
+
+
 @pytest.mark.skipif(not os.environ.get("ACCESS_MATRIX_DUMP"), reason="dump mode only")
 def test_dump_current_matrix(org):
     out = {}

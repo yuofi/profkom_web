@@ -7,6 +7,7 @@ export const MERIT_CREATE_CAPS = ["create_volunteer_merit", "create_head_merit",
 export const createsMerits = (session: Session | null) =>
   MERIT_CREATE_CAPS.some((cap) => can(session, cap) || !!session?.assignments?.some((a) => can(a, cap)));
 
-/** Whether the session reads saved merits: the summary readers and the scoped `view_merits` (closed seasons too). */
+/** Whether the session reads saved merits: the summary readers, the scoped `view_merits` (closed seasons too)
+ * and the session-level `view_merits` of a block or subevent HR curator, who holds no role assignment there. */
 export const readsMerits = (session: Session | null) =>
-  can(session, "view_summary") || !!session?.assignments?.some((a) => can(a, "view_merits"));
+  can(session, "view_summary") || can(session, "view_merits") || !!session?.assignments?.some((a) => can(a, "view_merits"));

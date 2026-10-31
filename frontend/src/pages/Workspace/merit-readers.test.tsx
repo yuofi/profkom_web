@@ -72,6 +72,27 @@ it("opens the only eligible season at once and keeps the requested scope", async
   expect(page.container.textContent).toContain("Заслуги сезона");
 });
 
+it("opens the season where the chair records work straight from the menu item", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  // One open season, as on a real site: the previous one is closed, the next one planned.
+  mock.state.seasons.find(season => season.season_id === "season-previous")!.state = "closed";
+  const where: string[] = [];
+  function Where() { const location = useLocation();where.push(location.pathname + location.search);return null; }
+  page = await mountWorkspace(<><Routes><Route path="/merits" element={<MeritEntryPage />} /><Route path="/seasons/:id/merits" element={<p>Заслуги сезона</p>} /></Routes><Where /></>, { path: "/merits" });
+  await waitForPage(page);
+  expect(where.at(-1)).toBe("/seasons/season-1/merits");
+  expect(page.container.textContent).toContain("Заслуги сезона");
+});
+
+it("offers the menu item and the seasons to a block HR curator without a role assignment there", async () => {
+  const session = blockReader();
+  await mount("/merits", { ...session, capabilities: [...session.capabilities, "view_merits"], assignments: [] });
+  expect(page!.container.querySelector('nav[aria-label="Основная навигация"] a[href="/merits"]')).not.toBeNull();
+  const links = [...page!.container.querySelectorAll<HTMLAnchorElement>('main a[href^="/seasons/"]')].map(link => link.getAttribute("href"));
+  expect(links).toEqual(expect.arrayContaining(["/seasons/season-1/merits", "/seasons/season-previous/merits"]));
+  expect(page!.container.textContent).not.toContain("Нет доступных сезонов");
+});
+
 it("puts a season's merits under the menu item of merits", () => {
   expect(sectionOf("/seasons/season-1/merits").label).toBe("Учёт выполненной работы");
   expect(sectionOf("/seasons/season-1").label).toBe("Сезоны и ККР");

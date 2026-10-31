@@ -112,14 +112,16 @@ export function MeritEntryPage() {
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
   const requested = params.get("source_kind");
   const scopeId = params.get("scope_id");
-  const reader = readsMerits(session) && !requested && !scopeId;
-  const eligible = seasons.data?.items.filter((season) => reader || allowedMeritKinds(session, contexts.data, season).some(([kind]) => {
+  const creatable = seasons.data?.items.filter((season) => allowedMeritKinds(session, contexts.data, season).some(([kind]) => {
     if (requested && requested !== kind) return false;
     if (!scopeId) return true;
     return kind === "block_volunteer" ? contexts.data?.blocks.some((b) => b.block_id === scopeId && can(b, "create_volunteer_merit"))
       : kind === "head_merit" ? contexts.data?.events.some((e) => e.event_id === scopeId && e.season_id === season.season_id && can(e, "create_head_merit"))
       : kind === "subevent_volunteer" && contexts.data?.subs.some((sub) => sub.subevent_id === scopeId && contexts.data?.events.some((e) => e.event_id === sub.event_id && e.season_id === season.season_id) && can(sub, "create_volunteer_merit"));
   })) ?? [];
+  // The seasons where the user records work decide the step (every creator also reads merits);
+  // only a reader who records nowhere chooses among every season, closed ones too.
+  const eligible = creatable.length || requested || scopeId || !readsMerits(session) ? creatable : seasons.data?.items ?? [];
   const seasonMerits = (seasonId: string) => `/seasons/${encodeURIComponent(seasonId)}/merits${params.size ? `?${params}` : ""}`;
   // With one season to choose there is nothing to choose: open it in place of this step.
   if (contexts.data && seasons.data && eligible.length === 1) return <Navigate replace to={seasonMerits(eligible[0].season_id)} />;
