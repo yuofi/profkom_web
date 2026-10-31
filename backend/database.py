@@ -1457,6 +1457,33 @@ def _ensure_contact_email_lower_index() -> None:
 _ensure_contact_email_lower_index()
 
 
+# PB-33: read indexes for hot lookups. Rows and existing indexes are untouched. The
+# direction of each ordered index matches its readers' ORDER BY, so rows with equal
+# timestamps keep the insertion order the former temporary sort produced.
+_READ_INDEXES = (
+    ("ix_role_assignments_principal", "role_assignments", ("principal_assignment_id",)),
+    ("ix_block_master_user_id", "block", ("master_user_id",)),
+    ("ix_task_access_grants_user_active", "task_access_grants", ("user_id", "active")),
+    ("ix_task_queue_members_user_id", "task_queue_members", ("user_id",)),
+    ("ix_notifications_user_created", "notifications", ("user_id", "created_at DESC")),
+    ("ix_submissions_assignment_submitted", "submissions", ("assignment_id", "submitted_at")),
+    ("ix_task_comments_task_created", "task_comments", ("task_id", "created_at")),
+    ("ix_task_queue_requests_queue_user_created", "task_queue_requests", ("queue_id", "user_id", "created_at")),
+)
+
+
+def _ensure_sqlite_read_indexes(bind=None) -> None:
+    """Idempotent; a table or column absent from an old schema is skipped."""
+    with (bind or engine).begin() as conn:
+        for name, table, columns in _READ_INDEXES:
+            present = {row[1] for row in conn.execute(text(f'PRAGMA table_info("{table}")'))}
+            if all(column.split()[0] in present for column in columns):
+                conn.execute(text(f'CREATE INDEX IF NOT EXISTS {name} ON "{table}" ({", ".join(columns)})'))
+
+
+_ensure_sqlite_read_indexes()
+
+
 def _user_orm_to_dc(u: UserORM) -> UserDC:
     return UserDC(
         user_id=u.user_id,
