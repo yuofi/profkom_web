@@ -111,12 +111,14 @@ def comment_added(session, comment, task, actor):
     recipients = {
         a.assignee_user_id for a in participants(session,task.task_id)
     } | {m.user_id for m in roster(session,task.task_id) if m.role=="watcher"} | {task.created_by_user_id} | set(db.get_scope_leads(task.scope_kind, task.scope_id))
+    from task_queues import readers_of
+    readable = readers_of(session, task, recipients)
     emit(
         session,
         [
             uid
             for uid in recipients
-            if db.can_read_task(uid,task,session)
+            if uid in readable
         ],
         "task_comment",
         dict(task_id=task.task_id, title=task.title),

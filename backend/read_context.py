@@ -76,16 +76,30 @@ class Calculation:
     flush, command or transaction boundary. A new calculation starts empty, so this
     is not a cache between commands, write units or requests.
     """
-    __slots__ = ("session", "generation", "values")
+    __slots__ = ("session", "generation", "values", "pending")
 
-    def __init__(self, session):
+    def __init__(self, session, *, pending_ok=False):
+        """``pending_ok``: for callers whose values come only from queries and PK
+        lookups of persisted rows. Sessions never autoflush here, so unflushed new
+        rows are invisible to both and may exist, as long as none is added meanwhile;
+        modified or deleted rows still disable the calculation."""
         session = getattr(session, "session", session)  # Database._session() lease
         self.session = session
         self.generation = session.info.get(_GENERATION, 0)
-        self.values = None if _changed(session) else {}
+        self.pending = len(session.new) if pending_ok else None
+        self.values = None if self._changed() else {}
+
+    def _changed(self):
+        if self.pending is None:
+            return _changed(self.session)
+        session = self.session
+        try:
+            return bool(session._deleted or session.identity_map._modified) or len(session._new) != self.pending
+        except AttributeError:
+            return bool(session.dirty or session.deleted) or len(session.new) != self.pending
 
     def usable(self):
-        if self.values is not None and (_changed(self.session) or self.session.info.get(_GENERATION, 0) != self.generation):
+        if self.values is not None and (self._changed() or self.session.info.get(_GENERATION, 0) != self.generation):
             self.values = None
         return self.values is not None
 

@@ -44,18 +44,19 @@ class ReaderFacts:
     is unchanged and dropped at the first change, flush or command, so every decision
     is the one the per-queue/per-task checks make. Never kept after the call.
     """
-    def __init__(self, session, uid):
+    def __init__(self, session, uid, calculation=None):
+        """``calculation``: one shared by several readers' facts (keys carry the uid)."""
         from read_context import Calculation
         self.session, self.uid = session, uid
-        self.calculation = Calculation(session)
-        self.value = self.calculation.value
+        self.calculation = calculation if calculation is not None else Calculation(session)
+        self.value = lambda key, load: self.calculation.value((uid, key), load)
 
     def active(self):
         return self.value("active", lambda: active(self.session, self.uid))
 
     def support_queue(self, queue):
         from support import support_queue_id
-        target = self.value("support.queue_id", lambda: support_queue_id(self.session))
+        target = self.calculation.value("support.queue_id", lambda: support_queue_id(self.session))
         return bool(target and queue and queue.queue_id == target)
 
     def staff(self):
@@ -122,6 +123,65 @@ def _task_read(session, task, uid):
         return has_task_grant(session,task.task_id,uid)
     from access import all_queue_reader
     return all_queue_reader(uid) or db.can_view_scope(uid,task.scope_kind,task.scope_id)  # pre-migration in-memory fixtures
+
+
+def readers_of(session, task, uids):
+    """The users of ``uids`` task_read admits for one task (a comment's fan-out).
+
+    The task's tracker row, queue and support target and the readers' feedback
+    ownership, queue grants and task grants are read once for all of them; each
+    reader's own facts come from ReaderFacts. Every value belongs to one
+    read_context.Calculation: after any change (a modified, deleted or newly added
+    row, a flush or command) the remaining readers are decided by task_read itself.
+    The decisions are task_read's.
+    """
+    from read_context import Calculation
+    from support_models import FeedbackORM
+    from tracker_collaboration_models import TaskAccessGrantORM
+    ids = list(dict.fromkeys(uids))
+    plain = [uid for uid in ids if isinstance(uid, int) and uid]
+    # The comment itself is still unflushed; its row is read by none of these checks.
+    calculation = Calculation(session, pending_ok=True)
+    if not task or not plain or not calculation.usable():
+        return {uid for uid in ids if task_read(session, task, uid)}
+    queue = task_queue(session, task)
+    owned = {row[0] for row in session.query(FeedbackORM.user_id).filter(
+        FeedbackORM.task_id == task.task_id, FeedbackORM.user_id.in_(plain))}
+    granted = {row.user_id for row in session.query(TaskAccessGrantORM).filter(
+        TaskAccessGrantORM.task_id == task.task_id, TaskAccessGrantORM.active.is_(True),
+        TaskAccessGrantORM.user_id.in_(plain))}
+    if queue is not None:
+        # Loaded grant rows stay in this unit's identity map for _can_read's lookups.
+        session.query(TaskQueueMemberORM).filter(TaskQueueMemberORM.queue_id == queue.queue_id,
+                                                 TaskQueueMemberORM.user_id.in_(plain)).all()
+    support = queue is not None and ReaderFacts(session, None, calculation).support_queue(queue)
+    result = set()
+    for uid in ids:
+        if uid not in plain or not calculation.usable():
+            if task_read(session, task, uid):
+                result.add(uid)
+            continue
+        facts = ReaderFacts(session, uid, calculation)
+        if uid in owned and facts.active():
+            result.add(uid)  # support.owns_task: an active reporter of this task
+            continue
+        if queue is None:
+            if facts.all_queue_reader() or facts.can_view_scope(task.scope_kind, task.scope_id):
+                result.add(uid)
+            continue
+        if can_read(session, queue, uid, facts):
+            result.add(uid)
+            continue
+        if not calculation.usable():
+            if task_read(session, task, uid):
+                result.add(uid)
+            continue
+        # Without an active grant row among those read above has_task_grant refuses.
+        if not support and uid in granted:
+            from tracker_collaboration import has_task_grant
+            if has_task_grant(session, task.task_id, uid):
+                result.add(uid)
+    return result
 
 
 def readable_tasks(session, tasks, uid, *, known=None, rows=None):

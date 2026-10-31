@@ -119,3 +119,40 @@ def test_reader_facts_follow_unflushed_and_flushed_changes(client, work):
             s.get(UserORM, member).banned = False
             s.flush()
             assert facts.active() and facts.can_view_scope("block", "IT")
+
+
+def test_comment_fan_out_readers_match_task_read(client, work, superuser, make_user):
+    """PB-27: readers_of decides every reader of each task as task_read does."""
+    from support_models import FeedbackORM
+    from task_queues import readers_of
+    from tracker_collaboration_models import TaskAccessGrantORM
+    staff, banned, granted, revoked, reporter = (make_user() for _ in range(5))
+    tasks = _selection(work, superuser, staff)
+    stamp = now()
+    with db._session() as s:
+        s.get(UserORM, banned.user_id).banned = True
+        for task_id in tasks:
+            s.add(TaskAccessGrantORM(task_id=task_id, user_id=granted.user_id, source="mention", active=True, granted_at=stamp))
+            s.add(TaskAccessGrantORM(task_id=task_id, user_id=revoked.user_id, source="mention", active=False,
+                                     granted_at=stamp, revoked_at=stamp))
+        s.add(FeedbackORM(report_id="facts-feedback", user_id=reporter.user_id, task_id="facts-task-1", kind="bug", title="T",
+                          body="B", idempotency_key="facts-nonce", request_hash="facts-hash", created_at=stamp,
+                          diagnostics_expires_at=stamp, state="linked"))
+        s.commit()
+    readers = [work["master"], work["member"], work["outside"], staff, banned, granted, revoked, reporter, superuser]
+    uids = [reader.user_id for reader in readers] + [None, 987654]
+    decided = set()
+    for task_id in tasks:
+        with db.atomic(write=True):
+            with db._session() as s:
+                task = s.get(TaskORM, task_id)
+                expected = {uid for uid in uids if task_read(s, task, uid)}
+        with db.atomic(write=True):
+            with db._session() as s:
+                assert readers_of(s, s.get(TaskORM, task_id), uids) == expected, task_id
+        with db.atomic(write=True):
+            with db._session() as s:
+                s.get(UserORM, work["outside"].user_id).group_number = "dirty"  # every reader decided by task_read
+                assert readers_of(s, s.get(TaskORM, task_id), uids) == expected, task_id
+        decided.add(frozenset(expected))
+    assert len(decided) >= 3
