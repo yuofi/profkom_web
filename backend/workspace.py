@@ -29,8 +29,8 @@ def own_event(uid, event_id):
     """The user leads the event or works in one of its subevents."""
     rel = access.scope_relations(uid, "event", event_id)
     return bool(rel & (access.EVENT_LEADS | {access.EVENT_SUB_LEAD})) or any(
-        bool({access.ORGANIZER, access.SUBEVENT_HR} & access.scope_relations(uid, "subevent", sub.subevent_id))
-        for sub in db.list_subevents(event_id)
+        bool({access.ORGANIZER, access.SUBEVENT_HR} & access.scope_relations(uid, "subevent", subevent_id))
+        for subevent_id in access.subevent_ids(event_id)
     )
 
 

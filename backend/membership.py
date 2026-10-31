@@ -54,8 +54,25 @@ class CategoryPatch(Revision):
     reason: str = Field(min_length=1)
 
 
+def _identities(key):
+    """Block id/name facts of the clean read UOW (access.block_facts), else None."""
+    if not isinstance(key, str):
+        return None
+    metas = access.block_facts()
+    blocks = access._block_facts() if metas is not None else None
+    return (metas, blocks) if blocks is not None else None
+
+
 @memoized("membership.legacy_name", copy_result=False)
 def legacy_name(id):
+    facts = _identities(id)
+    if facts is not None:
+        (by_id, _), blocks = facts
+        if id in by_id:
+            return by_id[id]
+        if id in blocks:
+            return id
+        fail(404, "Block not found")
     with db._session() as s:
         m = s.get(BlockMetaORM, id)
         if m:
@@ -67,6 +84,14 @@ def legacy_name(id):
 
 @memoized("membership.block_id_for", copy_result=False)
 def block_id_for(name):
+    facts = _identities(name)
+    if facts is not None:
+        (by_id, by_name), _ = facts
+        if name in by_id:
+            return name
+        if name in by_name:
+            return by_name[name][0]
+        # A missing metadata row keeps the original read-repair path below.
     with db._session() as s:
         m = (
             s.get(BlockMetaORM, name)
@@ -98,12 +123,24 @@ def block_avatar_url(session, meta):
 
 def scope_display(scope):
     """Only for an already-readable task/assignment; project its current scope identity."""
+    kind, owner_id = (scope.kind, scope.id) if hasattr(scope, "kind") else (scope["kind"], scope["id"])
+    return _scope_display(kind, owner_id)
+
+
+@memoized("membership.scope_display")
+def _scope_display(kind, owner_id):
     from database import SubeventORM
 
-    kind, owner_id = (scope.kind, scope.id) if hasattr(scope, "kind") else (scope["kind"], scope["id"])
     with db._session() as session:
         if kind == "block":
-            meta = session.get(BlockMetaORM, owner_id) or session.query(BlockMetaORM).filter_by(legacy_name=owner_id).first()
+            facts = _identities(owner_id)
+            if facts is not None:
+                (by_id, by_name), _ = facts
+                block_id = owner_id if owner_id in by_id else by_name.get(owner_id, (None,))[0]
+                # The metadata rows are already loaded in this UOW: a PK get reads them.
+                meta = session.get(BlockMetaORM, block_id) if block_id is not None else None
+            else:
+                meta = session.get(BlockMetaORM, owner_id) or session.query(BlockMetaORM).filter_by(legacy_name=owner_id).first()
             block = session.get(BlockORM, meta.legacy_name) if meta else None
             return dict(scope_title=block.name if block else "Блок", scope_avatar_url=block_avatar_url(session, meta) if block else None)
         owner = session.get(SubeventORM, owner_id) if kind == "subevent" else None

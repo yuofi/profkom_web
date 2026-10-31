@@ -3506,6 +3506,7 @@ class Database:
     def is_tachki(self, user_id: int) -> bool:
         return self.is_chair(user_id) or self.is_deputy_chair(user_id)
 
+    @memoized("database.is_hr_master", copy_result=False)
     def is_hr_master(self, user_id: int) -> bool:
         with self._session() as session:
             count = (
@@ -4829,6 +4830,7 @@ class Database:
             except Exception:
                 return False
 
+    @memoized("database.is_block_master_deputy", copy_result=False)
     def is_block_master_deputy(self, user_id: int, block_name: str) -> bool:
         with self._session() as session:
             count = session.query(RoleAssignmentORM).filter(
@@ -6669,18 +6671,66 @@ def _load_leaders(session: Session, scope_kind: str, scope_id: str, role: str) -
                   lambda: _load_leaders_uncached(session, scope_kind, scope_id, role))
 
 
+from collections import namedtuple as _namedtuple
+_RoleFact = _namedtuple("_RoleFact", "role_assignment_id user_id revision")
+
+
+def _role_rows(session: Session):
+    """Every stored RoleAssignment of a clean read UOW, once, in rowid order; else None.
+
+    Grouped by (scope, role) and by principal. The single-scope queries below scan
+    the same table order, so leader and deputy order is unchanged.
+    """
+    from types import MappingProxyType
+    from sqlalchemy import literal_column
+    from read_context import snapshot
+    def load():
+        by_scope, by_principal, by_id = {}, {}, {}
+        for rid, user_id, kind, scope_id, role, principal, revision in session.query(
+            RoleAssignmentORM.role_assignment_id, RoleAssignmentORM.user_id, RoleAssignmentORM.scope_kind,
+            RoleAssignmentORM.scope_id, RoleAssignmentORM.role, RoleAssignmentORM.principal_assignment_id,
+            RoleAssignmentORM.revision,
+        ).order_by(literal_column("rowid")):
+            fact = _RoleFact(rid, user_id, revision)
+            by_scope.setdefault((kind, scope_id, role), []).append(fact)
+            if principal is not None:
+                by_principal.setdefault(principal, []).append(fact)
+            by_id[rid] = (kind, scope_id, user_id)
+        return (MappingProxyType({key: tuple(rows) for key, rows in by_scope.items()}),
+                MappingProxyType({key: tuple(rows) for key, rows in by_principal.items()}),
+                MappingProxyType(by_id))
+    return snapshot("database.role_rows", load, session)
+
+
+def role_assignment_scope(session: Session, role_assignment_id):
+    """(scope_kind, scope_id, user_id) of a stored assignment, or None."""
+    grouped = _role_rows(session) if isinstance(role_assignment_id, str) else None
+    if grouped is not None:
+        return grouped[2].get(role_assignment_id)
+    a = session.get(RoleAssignmentORM, role_assignment_id)
+    return (a.scope_kind, a.scope_id, a.user_id) if a else None
+
+
 def _load_leaders_uncached(session: Session, scope_kind: str, scope_id: str, role: str) -> list[LeaderDC]:
-    rows = session.query(RoleAssignmentORM).filter(
-        RoleAssignmentORM.scope_kind == scope_kind,
-        RoleAssignmentORM.scope_id == scope_id,
-        RoleAssignmentORM.role == role,
-    ).all()
+    grouped = _role_rows(session) if all(isinstance(v, str) for v in (scope_kind, scope_id, role)) else None
+    if grouped is not None:
+        rows = grouped[0].get((scope_kind, scope_id, role), ())
+    else:
+        rows = session.query(RoleAssignmentORM).filter(
+            RoleAssignmentORM.scope_kind == scope_kind,
+            RoleAssignmentORM.scope_id == scope_id,
+            RoleAssignmentORM.role == role,
+        ).all()
     leaders = []
     for r in rows:
-        dep_rows = session.query(RoleAssignmentORM).filter(
-            RoleAssignmentORM.principal_assignment_id == r.role_assignment_id
-        ).all()
+        if grouped is not None:
+            dep_rows = grouped[1].get(r.role_assignment_id, ())
+        else:
+            dep_rows = session.query(RoleAssignmentORM).filter(
+                RoleAssignmentORM.principal_assignment_id == r.role_assignment_id
+            ).all()
         dep_uids = [d.user_id for d in dep_rows]
+        _note_user(r.user_id)
         u = session.get(UserORM, r.user_id)
         display_name = f"Участник {r.user_id}"
         photo_url = None

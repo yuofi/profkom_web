@@ -51,6 +51,15 @@ def profile_target(session, user_id):
     return user
 
 
+def _block_id(session, name):
+    """The stable block id of a stored name, or the name itself without metadata."""
+    facts = access.block_facts() if isinstance(name, str) else None
+    if facts is not None:
+        return facts[1][name][0] if name in facts[1] else name
+    meta = session.query(BlockMetaORM).filter_by(legacy_name=name).first()
+    return meta.block_id if meta else name
+
+
 def scope_data(session, kind, id):
     """A label is not a grant to read the scope's working data."""
     if kind == "global":
@@ -60,8 +69,7 @@ def scope_data(session, kind, id):
         name = legacy_name(id)
         row = session.get(BlockORM, name)
         if row:
-            meta = session.query(BlockMetaORM).filter_by(legacy_name=name).first()
-            return {"kind": kind, "id": meta.block_id if meta else row.name, "name": row.name}
+            return {"kind": kind, "id": _block_id(session, row.name), "name": row.name}
     if kind == "event":
         row = session.get(EventORM, id)
     elif kind == "subevent":
@@ -96,8 +104,7 @@ def available_scopes(session, actor, manager):
     if manager(actor, "global", None):
         result.append(scope_data(session, "global", None))
     for block in session.query(BlockORM).order_by(BlockORM.name):
-        meta = session.query(BlockMetaORM).filter_by(legacy_name=block.name).first()
-        id = meta.block_id if meta else block.name
+        id = _block_id(session, block.name)
         if manager(actor, "block", id):
             result.append(scope_data(session, "block", id))
     for event in session.query(EventORM).order_by(EventORM.title):
