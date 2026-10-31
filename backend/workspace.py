@@ -196,7 +196,7 @@ def notification_views(s, uid, notifications):
     applicant_ids = {p["registration_user_id"] for n, p in records if n.kind == "registration_submitted" and isinstance(p.get("registration_user_id"), int)}
     reviewer = applicant_ids and access.allowed(uid, "registration.review")
     applicants = {u.user_id: u for u in s.query(UserORM).options(joinedload(UserORM.contact)).filter(UserORM.user_id.in_(applicant_ids))} if reviewer else {}
-    viewable = {}
+    viewable, reports = {}, {}
     result = []
     for n, p in records:
         target = None
@@ -209,8 +209,10 @@ def notification_views(s, uid, notifications):
         elif p.get("report_id"):
             from database import ReportORM
 
-            r = s.get(ReportORM, p["report_id"])
-            allowed = bool(r and db.can_read_report(uid, r, s))
+            if p["report_id"] not in reports:
+                r = s.get(ReportORM, p["report_id"])
+                reports[p["report_id"]] = bool(r and db.can_read_report(uid, r, s))
+            allowed = reports[p["report_id"]]
             target = {"kind": "report", "id": p["report_id"]}
         elif p.get("meeting_id"):
             m = s.get(MeetingORM, p["meeting_id"])
