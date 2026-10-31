@@ -80,7 +80,9 @@ export function EntityPicker(props: EntityPickerProps) {
     if (blocked()) return;
     if (props.multiple) props.onChange(selected.filter(item => item !== value));
     else props.onChange("");
-    setSearch("");setActive(0);input.current?.focus();activate();
+    // Like a choice, a removal keeps focus in the search but leaves the list closed so it
+    // never covers the dialog's own submit.
+    setSearch("");setActive(0);input.current?.focus();setOpen(false);
   };
   useEffect(() => {
     if (!expanded) return;

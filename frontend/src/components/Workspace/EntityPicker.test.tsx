@@ -90,6 +90,9 @@ it("closes the multi-select list after a choice and saves a team roster only aft
   await change(input(), "Анна");expect(choices()).toHaveLength(2);await press("Escape");
   // While the removal question is open, the main submit waits for its answer.
   await click(page.container.querySelector<HTMLButtonElement>('[data-selected-value="11"] button')!);
+  // Removing a chip keeps focus in the search but does not reopen the list over «Сохранить».
+  expect(choices()).toHaveLength(0);expect(input().getAttribute("aria-expanded")).toBe("false");expect(document.activeElement).toBe(input());
+  await act(async () => input().click());expect(choices()).toHaveLength(4);await press("Escape");
   await submit(page.container.querySelector("form")!);
   expect(save).not.toHaveBeenCalled();expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("Будут сняты: Анна Иванова");expect(saveButton().disabled).toBe(true);
   await click([...page.container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Снять и сохранить")!);
