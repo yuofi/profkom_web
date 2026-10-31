@@ -2,7 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import type { UserRef } from "../../utils/api/contract";
 import { directoryApi } from "../../utils/api/directory.api";
 import { canRetainData } from "../../utils/api/request";
-import { getContactRoute } from "../../utils/routes";
+import { getContactRoute, getProfilePage } from "../../utils/routes";
+import { useSession } from "../../utils/session";
 import { ChipAvatar } from "./ChipFace";
 import { HoverCard } from "./HoverCard";
 import { InteractiveChip, type ChipTrailingAction } from "./InteractiveChip";
@@ -11,10 +12,13 @@ import s from "./UserChip.module.css";
 /** Selection chips remain display-only: no preview, navigation or data reads. */
 export interface UserChipProps { user: UserRef; className?: string; interactive?: boolean; trailingAction?: ChipTrailingAction; previewDisabled?: boolean }
 export function UserChip({ user, className = "", interactive = true, trailingAction, previewDisabled = false }: UserChipProps) {
+  const { session } = useSession();
+  // Own chip opens one's own profile; /contacts/<me> still shows the public card (PE-17).
+  const own = user.user_id !== null && user.user_id === session?.user_id;
   if (!interactive) return <InteractiveChip kind="display" label={user.display_name} avatarUrl={user.avatar_url} className={className} />;
   return <HoverCard className={className} disabled={previewDisabled} content={() => <UserPreview user={user} />}>{({ describedBy, close }) => user.user_id === null
     ? <InteractiveChip kind="display" focusable label={user.display_name} avatarUrl={user.avatar_url} ariaDescribedBy={describedBy} trailingAction={trailingAction && { ...trailingAction, onClick: event => { close();trailingAction.onClick(event); } }} />
-    : <InteractiveChip kind="link" to={getContactRoute(user.user_id)} label={user.display_name} avatarUrl={user.avatar_url} ariaDescribedBy={describedBy} onClick={close} trailingAction={trailingAction && { ...trailingAction, onClick: event => { close();trailingAction.onClick(event); } }} />}
+    : <InteractiveChip kind="link" to={own ? getProfilePage() : getContactRoute(user.user_id)} label={user.display_name} avatarUrl={user.avatar_url} ariaDescribedBy={describedBy} onClick={close} trailingAction={trailingAction && { ...trailingAction, onClick: event => { close();trailingAction.onClick(event); } }} />}
   </HoverCard>;
 }
 /** Mounted only while open; it uses the existing authorized contact projection. */
