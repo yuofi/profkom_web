@@ -50,6 +50,40 @@ def test_event_start_prevents_shortened_or_moved_season_atomically(client, super
     assert client.get(f"/api/events/{event['event_id']}", headers=superuser.headers).json() == event
 
 
+def _controls(sid):
+    from domain_models import KkrControlEpicORM
+    from database import TaskORM
+    with db._session() as session:
+        ids = [row.task_id for row in session.query(KkrControlEpicORM).filter_by(season_id=sid)]
+        return {task.task_id: (task.deadline_at, task.revision) for task in session.query(TaskORM).filter(TaskORM.task_id.in_(ids))}
+
+
+def test_season_patch_ignores_undated_tasks_and_moves_control_epics(client, work, superuser):
+    sid = work["season"]["season_id"]
+    undated = dict(work["payload"], title="Без срока", deadline_at=None)
+    created = client.post("/api/tasks", headers=work["master"].headers, json=undated)
+    assert created.status_code == 200, created.text
+    season = client.get(f"/api/seasons/{sid}", headers=superuser.headers).json()
+    controls = _controls(sid)
+    assert controls and all(deadline == season["ends_at"] for deadline, _ in controls.values())
+    renamed = client.patch(f"/api/seasons/{sid}", headers=superuser.headers, json={"expected_revision": season["revision"], "title": "Переименованный", "reason": "Только название"})
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["ends_at"] == season["ends_at"] and _controls(sid) == controls
+    later = (datetime.fromisoformat(season["ends_at"]) + timedelta(days=5)).isoformat()
+    extended = client.patch(f"/api/seasons/{sid}", headers=superuser.headers, json={"expected_revision": renamed.json()["revision"], "ends_at": later, "reason": "Продление"})
+    assert extended.status_code == 200, extended.text
+    moved = _controls(sid)
+    assert all(moved[tid] == (extended.json()["ends_at"], revision + 1) for tid, (_, revision) in controls.items())
+    deadline = datetime.fromisoformat(work["payload"]["deadline_at"])
+    too_short = client.patch(f"/api/seasons/{sid}", headers=superuser.headers, json={"expected_revision": extended.json()["revision"], "ends_at": (deadline - timedelta(hours=1)).isoformat(), "reason": "Слишком рано"})
+    assert too_short.status_code == 422 and too_short.json()["detail"]["code"] == "season_shorter_than_tasks", too_short.text
+    assert too_short.json()["detail"]["fields"]["subject"] == "Работа"
+    assert _controls(sid) == moved
+    shorter = client.patch(f"/api/seasons/{sid}", headers=superuser.headers, json={"expected_revision": extended.json()["revision"], "ends_at": (deadline + timedelta(hours=1)).isoformat(), "reason": "Сокращение до последней задачи"})
+    assert shorter.status_code == 200, shorter.text
+    assert all(saved == shorter.json()["ends_at"] for saved, _ in _controls(sid).values())
+
+
 def test_only_chair_can_edit_closed_decisions(client, work, superuser, make_user, make_hr):
     accept(client, work)
     frozen = close(client, work, superuser)

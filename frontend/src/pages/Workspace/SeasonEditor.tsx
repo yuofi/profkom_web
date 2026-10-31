@@ -31,7 +31,9 @@ export function SeasonEditor({ season, onClose }: { season?: Season; onClose?: (
       if (season && !reason.trim()) throw Error("Укажите основание изменения сезона");
       setSaving(true);
       try {
-        const saved = await perform(() => season ? seasonsApi.update(season.season_id, { expected_revision: revision!, title: title.trim(), starts_at: start, ends_at: end, reason: reason.trim() }) : seasonsApi.create({ title: title.trim(), type, starts_at: start, ends_at: end }));
+        // The inputs show minutes only: an untouched period keeps its exact saved instants.
+        const period = season ? { ...(starts !== savedState.starts ? { starts_at: start } : {}), ...(ends !== savedState.ends ? { ends_at: end } : {}) } : {};
+        const saved = await perform(() => season ? seasonsApi.update(season.season_id, { expected_revision: revision!, title: title.trim(), ...period, reason: reason.trim() }) : seasonsApi.create({ title: title.trim(), type, starts_at: start, ends_at: end }));
         if (onClose) onClose();else navigate(getSeasonRoute(saved.season_id));return saved;
       } finally { setSaving(false); }
     }}>

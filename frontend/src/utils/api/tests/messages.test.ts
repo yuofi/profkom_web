@@ -47,6 +47,12 @@ describe("userMessage (FIX_PLAN 2.13)", () => {
     expect(userMessage(new ApiError("At most", 422, "deputy_limit"))).toBe(ERROR_TEXTS.deputy_limit);
   });
 
+  it("names the work that keeps a season from ending earlier", () => {
+    expect(userMessage(new ApiError("Cannot shorten season before task deadline", 422, "season_shorter_than_tasks", { subject: "Работа" })))
+      .toBe("Сезон нельзя закончить раньше срока «Работа». Перенесите этот срок или выберите более позднее окончание.");
+    expect(userMessage(new ApiError("Cannot shorten", 422, "season_shorter_than_tasks"))).toBe(ERROR_TEXTS.season_shorter_than_tasks);
+  });
+
   it("keeps the client's own Russian text and hides a client defect", () => {
     expect(userMessage(new ApiError("Сначала обновите данные.", 409))).toBe("Сначала обновите данные.");
     expect(userMessage(new Error("Файл не выбран"))).toBe("Файл не выбран");
