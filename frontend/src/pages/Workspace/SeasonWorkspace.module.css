@@ -80,8 +80,10 @@
 .plannedNotice { margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:13px;line-height:1.5;color:var(--on-surface-variant); }.plannedNotice a { color:var(--accent-lilac);font-weight:500; }
 /* The participants table (SE-06): one line per participant, the participant column stays in view while the
    table scrolls, and on a phone every row becomes a card with labelled values. */
-.participantLine { display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;min-width:0; }.participantLine>small { white-space:nowrap; }
-.rowAction { margin-inline-start:auto;display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;padding:0;border:0;border-radius:8px;background:transparent;color:var(--accent-lilac);cursor:pointer; }.rowAction:hover { background:var(--surface-container-high); }.rowAction:focus-visible { outline:2px solid var(--primary);outline-offset:2px; }
+.participantLine { display:flex;align-items:center;gap:10px;min-width:0; }.participantInfo { display:flex;flex:1;align-items:center;flex-wrap:wrap;gap:2px 10px;min-width:0; }.summaryTable .participantInfo>small { display:inline;white-space:nowrap; }.participantsTable .rank { gap:2px; }
+/* The participant column holds the chip, the group and the action in one line; the numbers need less room. */
+.participantsTable th:first-child { width:7%; }.participantsTable th:nth-child(2) { width:40%; }.participantsTable th:nth-child(3) { width:9%; }.participantsTable th:nth-child(4) { width:9%; }.participantsTable th:nth-child(5) { width:8%; }.participantsTable th:nth-child(6) { width:14%; }.participantsTable th:last-child { width:13%; }
+.rowAction { display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;padding:0;border:0;border-radius:8px;background:transparent;color:var(--accent-lilac);cursor:pointer; }.rowAction:hover { background:var(--surface-container-high); }.rowAction:focus-visible { outline:2px solid var(--primary);outline-offset:2px; }
 .participantsTable th:nth-child(2),.participantsTable td:nth-child(2) { position:sticky;left:0;z-index:1;background:var(--background); }
 @media(max-width:768px) {
   .participantsTable,.participantsTable tbody,.participantsTable td { display:block;min-width:0;width:auto; }
