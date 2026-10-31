@@ -116,7 +116,7 @@ it("A03: pending logout revokes the server session and clears private caches bef
   Cookies.set("access_token", "synthetic-token");
   page.client.setQueryData(["session"], f.session);
   page.client.setQueryData(["private"], "secret");
-  await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "Ко входу")!.click());
+  await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "Выйти")!.click());
   await settle();
   expect(adapter.history.post.map((r) => r.url)).toEqual(["/auth/logout"]);
   expect(Cookies.get("access_token")).toBeUndefined();
@@ -137,10 +137,10 @@ it("A03: logout network error stays actionable; pending refresh never reads a pr
   await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "Refresh")!.click());
   await settle();
   expect(adapter.history.get.some((r) => r.url === "/profile/me")).toBe(false);
-  await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "Ко входу")!.click());
+  await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "Выйти")!.click());
   await settle();
   expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("Не удалось завершить сессию");
-  expect(page.container.textContent).toContain("Ко входу");
+  expect(page.container.textContent).toContain("Выйти");
 });
 
 it("A-FE-4: a session the server ended leaves nothing private in the cache", async () => {

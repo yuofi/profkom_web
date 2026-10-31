@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { canRetainData } from "../../utils/api/request";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useLogout } from "../../utils/hooks/useLogout";
 import {
   Page,
@@ -24,6 +24,19 @@ import { RegistrationForm } from "../../components/Workspace/RegistrationForm";
 import { missingFields } from "../../utils/contactFields";
 import { DemoRolePicker } from "../../components/Workspace/DemoRolePicker";
 import { HistoryDisclosure } from "../../components/Workspace/HistoryPanel";
+import { SECTIONS, SectionContext } from "../../components/Workspace/sections";
+import ProfkomLogo from "../../components/profkomLogo";
+import a from "./SessionPages.module.css";
+
+/** The frame of a session without the workspace: the site's mark, a centred column, and a
+ *  stamp that names this screen instead of the section in the address (GL-18). */
+function AccountLayout({ label, children }: { label: string; children: ReactNode }) {
+  const { pathname } = useLocation();
+  return <div className={a.layout}>
+    <div className={a.brand}><ProfkomLogo variant="desktop" width={42} strokeWidth={16} aria-hidden="true" /><span>Профком<small>ВМК МГУ</small></span></div>
+    <SectionContext.Provider value={{ ...SECTIONS[0], label, to: pathname }}>{children}</SectionContext.Provider>
+  </div>;
+}
 export function AccountStatePage() {
   const { session } = useSession();
   const { logout, busy, error } = useLogout();
@@ -36,6 +49,7 @@ export function AccountStatePage() {
   const missing = application.data ? missingFields(application.data.fields) : [];
   const reason = application.data?.rejection_reason;
   return (
+    <AccountLayout label="Регистрация">
     <Page
       title={
         session?.account_state === "archived"
@@ -50,7 +64,7 @@ export function AccountStatePage() {
         <DemoRolePicker />
         <QueryState loading={application.isLoading} error={application.error} keepDataOnError={!!application.data}>
           <>
-            {reason && <p>{reason}</p>}
+            {reason && <p className={s.warning}>Причина: {reason}</p>}
             {missing.length > 0 ? (
               <p role="status">
                 Заполните обязательные поля: {missing.join(", ")}.
@@ -66,16 +80,19 @@ export function AccountStatePage() {
               </p>
             )}
             {application.data && application.data.status !== "approved" && (
-              <RegistrationForm application={application.data} />
+              <div className={a.columns}><RegistrationForm application={application.data} /></div>
             )}
           </>
         </QueryState>
-        <button className={s.button} disabled={busy} onClick={() => void logout()}>
-          {busy ? "Выходим…" : "Ко входу"}
-        </button>
+        <div className={a.actions}>
+          <button className={s.button} disabled={busy} onClick={() => void logout()}>
+            {busy ? "Выходим…" : "Выйти"}
+          </button>
+        </div>
         {error && <p role="alert" className={s.error}>{error}</p>}
       </Card>
     </Page>
+    </AccountLayout>
   );
 }
 /** A temporary password from the chair or a deputy: the server opens nothing else until
@@ -84,6 +101,7 @@ export function PasswordChangePage() {
   const { logout, busy, error } = useLogout();
   const [changed, setChanged] = useState(false);
   return (
+    <AccountLayout label="Смена пароля">
     <Page
       title="Смените временный пароль"
       description="Пароль выдали председатель или зам. Пока он не сменён, рабочие разделы закрыты."
@@ -109,12 +127,15 @@ export function PasswordChangePage() {
             }}
           />
         )}
-        <button className={s.button} disabled={busy} onClick={() => void logout()}>
-          {busy ? "Выходим…" : "Ко входу"}
-        </button>
+        <div className={a.actions}>
+          <button className={s.button} disabled={busy} onClick={() => void logout()}>
+            {busy ? "Выходим…" : changed ? "Ко входу" : "Выйти"}
+          </button>
+        </div>
         {error && <p role="alert" className={s.error}>{error}</p>}
       </Card>
     </Page>
+    </AccountLayout>
   );
 }
 export function WorkspaceStartPage() {
