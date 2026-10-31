@@ -1213,7 +1213,8 @@ def register(payload: RegisterIn, response: Response):
     Returns access + refresh tokens immediately.
     """
 
-    # Uniqueness: email, compared without case
+    # Uniqueness: email, compared without case. Checked again in the transaction:
+    # the password is hashed before it, outside the write lock (own transaction).
     if db.email_taken(str(payload.email)):
         raise HTTPException(409, "Email already registered")
 
@@ -1252,17 +1253,20 @@ def register(payload: RegisterIn, response: Response):
         super_user=False,
         admin=False,
     )
-    created = db.create_user_with_contact(contact_model, user_model)
+    with db.atomic():
+        if db.email_taken(str(payload.email)):
+            raise HTTPException(409, "Email already registered")
+        created = db.create_user_with_contact(contact_model, user_model)
 
-    from registration import ensure_application
-    with db._session() as session:
-        application=ensure_application(session, created.user_id)
-        from notifications import registration_submitted
-        registration_submitted(session,application)
-        session.commit()
+        from registration import ensure_application
+        with db._session() as session:
+            application=ensure_application(session, created.user_id)
+            from notifications import registration_submitted
+            registration_submitted(session,application)
+            session.commit()
 
-    # Return tokens so the user is logged-in right away
-    tokens = create_token_pair(created.user_id)
+        # Return tokens so the user is logged-in right away
+        tokens = create_token_pair(created.user_id)
     response.set_cookie(
         key="refresh_token",
         value=tokens["refresh_token"],
@@ -1314,15 +1318,24 @@ def change_password(
     payload: ChangePasswordIn,
     cur: User = Depends(get_current_user),
 ):
-    if cur.hashed_password:
-        if not payload.old_password:
-            raise HTTPException(400, "Old password is required")
-        if not verify_password(payload.old_password, cur.hashed_password):
-            raise HTTPException(400, "Invalid old password")
+    def verify_old(user):
+        if user.hashed_password:
+            if not payload.old_password:
+                raise HTTPException(400, "Old password is required")
+            if not verify_password(payload.old_password, user.hashed_password):
+                raise HTTPException(400, "Invalid old password")
 
+    # Both hashes are computed outside the write lock (own transaction); the short
+    # transaction rechecks the session and a password changed in between.
+    verify_old(cur)
     new_hashed = hash_password(payload.new_password)
-    db.update_user(cur.user_id, hashed_password=new_hashed, must_change_password=False)
-    revoke_all_user_tokens(cur.user_id)
+    from auth import recheck_current_user
+    with db.atomic():
+        user = recheck_current_user(cur)
+        if user.hashed_password != cur.hashed_password:
+            verify_old(user)
+        db.update_user(cur.user_id, hashed_password=new_hashed, must_change_password=False)
+        revoke_all_user_tokens(cur.user_id)
     return {"detail": "Password updated successfully"}
 
 

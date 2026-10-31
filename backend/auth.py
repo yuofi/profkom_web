@@ -300,11 +300,38 @@ async def guard_working_access(request: Request):
 
 # These wait on VK or on a password hash before they write. Holding the shared write lock
 # meanwhile stopped every other writer (A-ROL-15): they open a short transaction after it.
-OWN_TRANSACTION = {"/api/auth/login", "/api/auth/vk", "/api/auth/vk/link"}
+OWN_TRANSACTION = {"/api/auth/login", "/api/auth/vk", "/api/auth/vk/link",
+                   "/api/auth/register", "/api/auth/change-password"}
+OWN_TRANSACTION_PATTERN = re.compile(r"/api/accounts/[^/]+/temporary-password")
+
+
+def own_transaction(path: str) -> bool:
+    return path in OWN_TRANSACTION or OWN_TRANSACTION_PATTERN.fullmatch(path) is not None
+
+
+def recheck_current_user(cur: User, *, working: bool = False) -> User:
+    """In the short transaction of an own-transaction route: the checks the session
+    made before it (get_current_user and, for a working route, guard_working_access),
+    against the current row, so a revoke, ban or archive in between still wins."""
+    user = db.get_user(cur.user_id)
+    if not user:
+        raise HTTPException(401, "User not found")
+    if user.session_version != cur.session_version:
+        raise HTTPException(401, "Session revoked")
+    if user.banned:
+        raise HTTPException(403, "User is banned")
+    if getattr(user, "account_state", "active") == "archived":
+        raise HTTPException(403, "Account is archived")
+    if working:
+        if user.account_state != "active":
+            raise HTTPException(403, "Approved active account required")
+        if user.must_change_password:
+            raise HTTPException(403, PASSWORD_CHANGE_REQUIRED)
+    return user
 
 
 async def unit_of_work(request: Request):
-    if request.url.path in OWN_TRANSACTION:
+    if own_transaction(request.url.path):
         yield
         return
     async with db.async_atomic(write=request.method not in {"GET", "HEAD", "OPTIONS"},

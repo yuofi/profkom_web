@@ -536,15 +536,21 @@ def register_routes(router):
     def temporary_password(user_id: int, cur: User = Depends(get_current_user)):
         """There is no mail: the chair or a deputy hands the password over in person. It is
         shown once, never logged, and must be changed after the login (АВ-52 (а))."""
-        from auth import hash_password
+        from auth import hash_password, recheck_current_user
 
-        require(cur.user_id, "account.reset_password", "Only the chair and deputies reset passwords")
-        if db.is_chair(user_id) or db.is_deputy_chair(user_id):
-            # A deputy must not take over the chair or another deputy.
-            fail(403, "The chair and deputies change their own passwords")
+        def permitted():
+            require(cur.user_id, "account.reset_password", "Only the chair and deputies reset passwords")
+            if db.is_chair(user_id) or db.is_deputy_chair(user_id):
+                # A deputy must not take over the chair or another deputy.
+                fail(403, "The chair and deputies change their own passwords")
+        permitted()
         password = secrets.token_urlsafe(12)
+        # Hashed outside the write lock (own transaction); the short transaction
+        # repeats the session and permission checks against the current rows.
         hashed = hash_password(password)
-        with db._session() as s:
+        with db.atomic(), db._session() as s:
+            recheck_current_user(cur, working=True)
+            permitted()
             u, c = s.get(UserORM, user_id), s.get(ContactInfoORM, user_id)
             if not u or u.account_state == "archived" or not c:
                 fail(404, "Account not found")
@@ -553,6 +559,6 @@ def register_routes(router):
             u.hashed_password, u.must_change_password = hashed, True
             s.commit()
             email = c.email
-        # Sessions signed in before the reset end with it.
-        db.revoke_sessions(user_id)
+            # Sessions signed in before the reset end with it.
+            db.revoke_sessions(user_id)
         return TemporaryPasswordOut(user_id=user_id, email=email, temporary_password=password)
