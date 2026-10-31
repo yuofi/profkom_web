@@ -46,6 +46,7 @@
 .ownList strong { display:block;font-size:12px;font-weight:600;line-height:1.45;overflow-wrap:anywhere; }
 .ownList small { display:block;margin-top:4px;font-size:10px;line-height:1.45;color:var(--on-surface-variant); }
 .note,.empty { margin:9px 0 0;color:var(--on-surface-variant);font-size:11px;line-height:1.6; }
+.ownEmpty { grid-column:1/-1;margin:0;padding:2px 4px;color:var(--on-surface-variant);font-size:12px;line-height:1.5; }
 .nextEvent { background:linear-gradient(135deg,color-mix(in srgb,var(--accent-mint) 12%,var(--surface-container-low)),var(--surface-container-low));border-color:color-mix(in srgb,var(--accent-mint) 28%,var(--surface-container-low)); }
 .kicker { display:block;text-transform:uppercase;letter-spacing:.07em;font-size:9px;color:var(--on-surface-variant); }
 .nextEvent h2 { margin:12px 0 0;font-size:16px; }

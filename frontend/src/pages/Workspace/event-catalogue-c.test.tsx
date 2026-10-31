@@ -41,6 +41,12 @@ it('uses one compact dated stream, Moscow month groups and instant ordering with
  const own=page!.container.querySelector('[aria-label="Моё участие в мероприятиях"]')!;expect(own.querySelectorAll('a')).toHaveLength(2);expect(own.textContent).toContain('Организатор');expect(own.textContent).toContain('HR подмероприятия');expect(own.textContent).not.toContain('Поздняя встреча');
  expect(page!.container.querySelector('[aria-label="Ближайшее мероприятие"]')?.textContent).toContain('Ранняя встреча');
 });
+it('a period without own events shows one compact line instead of an empty participation card',async()=>{
+ await mount('/events');await change(control('Период'),'archive');await waitForPage(page!);
+ const sidebar=page!.container.querySelector('[aria-label="Ваши мероприятия"]')!;
+ expect(sidebar.querySelector('[aria-label="Моё участие в мероприятиях"]')).toBeNull();expect(sidebar.querySelector('h2[aria-label="С моим участием"]')).toBeNull();
+ expect(sidebar.textContent).toContain('С моим участием: в выбранном периоде мероприятий нет.');
+});
 it('combines search, mine and phase in the URL while native event links retain navigation',async()=>{
  await mount('/events?mine=true&unknown=keep');await change(control('Поиск мероприятий'),'Даты');
  await act(async()=>page!.container.querySelector<HTMLButtonElement>('button[aria-label="Без даты"]')!.click());await waitForPage(page!);
