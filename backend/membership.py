@@ -491,18 +491,15 @@ def patch_block(id, payload, uid):
             ):
                 fail(422, "Invalid community URL")
             m.community_url = payload.community_url or None
+        avatar_before = m.avatar_file_id
         if "avatar_file_id" in payload.model_fields_set:
             replace_block_avatar(s, m, payload.avatar_file_id, uid)
         m.revision += 1
-        audit(
-            s,
-            "block",
-            m.block_id,
-            uid,
-            "Block settings updated",
-            {},
-            payload.model_dump(mode="json"),
-        )
+        # The flush hook (history.py) records the name, description and community link with
+        # their old values; only the avatar it does not watch gets its own entry (PE-12).
+        if m.avatar_file_id != avatar_before:
+            audit(s, "block", m.block_id, uid, "Block avatar updated",
+                  {"avatar_file_id": avatar_before}, {"avatar_file_id": m.avatar_file_id})
         s.commit()
         return card(s, b, uid)
 

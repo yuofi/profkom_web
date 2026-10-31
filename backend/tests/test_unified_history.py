@@ -228,3 +228,16 @@ def test_new_block_history_survives_rename_and_never_joins_reused_legacy_label(c
         session.add(ambiguous);session.flush();source_id=str(ambiguous.id);session.commit()
     assert 'AMBIGUOUS_LEGACY_BLOCK_TEXT' not in json.dumps(ok(get(client,work['outsider'],'block',reused['block_id'])))
     assert client.post('/api/history/audit/'+source_id+'/hide',headers=work['outsider'].headers,json=dict(expected_revision=1)).status_code==404
+
+
+def test_one_block_settings_change_is_one_history_entry(client, work, superuser):
+    """PE-12: the explicit audit no longer repeats what the flush hook records."""
+    block = ok(client.get('/api/blocks/'+work['block']['block_id'], headers=superuser.headers))
+    before = ok(get(client, work['reader'], 'block', block['block_id']))['items']
+    ok(client.patch('/api/blocks/'+block['block_id'], headers=superuser.headers,
+                    json=dict(expected_revision=block['revision'], community_url='https://example.com/history-team')))
+    after = ok(get(client, work['reader'], 'block', block['block_id']))['items']
+    added = [item for item in after if item['id'] not in {row['id'] for row in before}]
+    links = [change for item in added for change in item['changes'] if change['field'] == 'community_url']
+    assert len(added) == 1 and len(links) == 1, added
+    assert links[0]['after'] == 'https://example.com/history-team'
