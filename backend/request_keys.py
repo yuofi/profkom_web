@@ -10,13 +10,12 @@ import uuid
 from errors import Conflict
 
 
-def uuid_key(value):
-    if value is None:
-        return None
+def canonical_key(value):
+    """The key in its canonical UUID form, or None when it is not a UUID."""
     try:
         return str(uuid.UUID(str(value)))
     except (ValueError, TypeError, AttributeError):
-        raise ValueError("A UUID idempotency key is required")
+        return None
 
 
 def digest(payload, *context) -> str:

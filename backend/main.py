@@ -613,8 +613,10 @@ class TaskCreateIn(Command):
     @field_validator("idempotency_key")
     @classmethod
     def request_key(cls, value):
-        from request_keys import uuid_key
-        return uuid_key(value)
+        from request_keys import canonical_key
+        if value is not None and canonical_key(value) is None:
+            raise ValueError("A UUID idempotency key is required")
+        return None if value is None else canonical_key(value)
 
 
 class TaskRosterIn(Command):
@@ -1060,8 +1062,10 @@ class CommentCreateIn(CommentIn):
     @field_validator("idempotency_key")
     @classmethod
     def request_key(cls, value):
-        from request_keys import uuid_key
-        return uuid_key(value)
+        from request_keys import canonical_key
+        if value is not None and canonical_key(value) is None:
+            raise ValueError("A UUID idempotency key is required")
+        return None if value is None else canonical_key(value)
 
 
 class CommentOut(BaseModel):
