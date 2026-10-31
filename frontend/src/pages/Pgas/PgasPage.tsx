@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet-async";
 import { z } from "zod";
 import { FormikProvider } from "formik";
@@ -93,6 +93,18 @@ export const PgasPage = () => {
   const [sortType, setSortType] = useState<SortType>("default");
   const [yearFilter, setYearFilter] = useState("all");
   const [periodFilter, setPeriodFilter] = useState("all");
+  // On a phone the filters fold under one summary, as on the contacts page (PE-28).
+  const [filtersOpen, setFiltersOpen] = useState(() =>
+    typeof window.matchMedia !== "function" || window.matchMedia("(min-width: 769px)").matches,
+  );
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(min-width: 769px)");
+    const sync = (event: MediaQueryListEvent) => { if (event.matches) setFiltersOpen(true); };
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
+  const activeFilters = [yearFilter !== "all", periodFilter !== "all", sortType !== "default"].filter(Boolean).length;
 
   const { session } = useSession();
   // The chair, deputies and pgas_admin edit (decision 14); the server decides it.
@@ -224,6 +236,8 @@ export const PgasPage = () => {
       <Helmet>
         <title>ПГАС | Профком ВМК</title>
       </Helmet>
+      <details className={`${s.details} ${s.filterDetails}`} open={filtersOpen} onToggle={(event) => setFiltersOpen(event.currentTarget.open)}>
+      <summary>Фильтры{activeFilters > 0 && ` · ${activeFilters}`}</summary>
       <div className={styles.filters}>
         <label className={s.field}>Год
           <select aria-label="Год документов" value={yearFilter} onChange={event => setYearFilter(event.target.value)}><option value="all">Все годы</option>{filterYears.map(year => <option value={year} key={year}>{year}</option>)}</select>
@@ -242,6 +256,7 @@ export const PgasPage = () => {
           </select>
         </label>
       </div>
+      </details>
 
       {isLoading ? (
         <Loading />
@@ -266,12 +281,12 @@ export const PgasPage = () => {
             <tbody>
               {sortedEntries.map((entry) => (
                 <tr key={entry.entry_id}>
-                  <td>{entry.title}</td>
-                  <td>
+                  <td className={styles.titleCell} title={entry.title}>{entry.title}</td>
+                  <td className={styles.yearCell}>
                     <Badge tone="yellow">{entry.year}</Badge>
                   </td>
-                  <td><span className={styles.periodCell}>{periodLabel(entry.half_year)}{canManage && <PeriodEditor entry={entry} />}</span></td>
-                  <td>
+                  <td className={styles.periodTd}><span className={styles.periodCell}>{periodLabel(entry.half_year)}{canManage && <PeriodEditor entry={entry} />}</span></td>
+                  <td className={styles.fileCell}>
                     <a
                       className={styles.fileLink}
                       href={apiUrl(entry.file_url)}
@@ -286,7 +301,7 @@ export const PgasPage = () => {
                     </a>
                   </td>
                   {canManage && (
-                    <td>
+                    <td className={styles.actionCell}>
                       <button
                         className={`${s.button} ${s.danger} ${styles.deleteButton}`}
                         onClick={() => handleDelete(entry)}
