@@ -1298,3 +1298,6 @@ span.cardIcon {
     padding-inline: 10px;
   }
 }
+
+/* An opt-in toggle button shows when it is on, besides announcing aria-pressed (EV-15). */
+.toggle[aria-pressed="true"] { background: var(--primary-container); color: var(--on-primary-container); border-color: var(--primary); }

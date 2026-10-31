@@ -5,6 +5,7 @@ import { z } from "zod";
 import { ApiError, normalizeApiError } from "../../utils/api/request";
 import { fieldMessage, isStale, userMessage } from "../../utils/api/messages";
 import { ErrorDetail } from "./WorkspaceUI";
+import { MarkdownEditor } from "./MarkdownEditor";
 import s from "./Workspace.module.css";
 import type { Values } from "./formValues";
 import { RecipientPicker } from "./RecipientPicker";
@@ -23,7 +24,8 @@ export interface Field {
     | "datetime-local"
     | "email"
     | "url"
-    | "password";
+    | "password"
+    | "markdown";
   /** A function makes the field required depending on the other values. */
   required?: boolean | ((values: Values) => boolean);
   value?: string | string[];
@@ -33,6 +35,8 @@ export interface Field {
   loading?: boolean;
   placeholder?: string;
   hint?: string;
+  /** The height of a markdown field in lines. */
+  rows?: number;
   min?: number;
   max?: number;
   whenSelected?: { name: string; value: string };
@@ -98,6 +102,7 @@ export function ActionForm({
   allowExitSave = true,
   beforeFields,
   confirm,
+  actions,
 }: {
   title?: string;
   fields: Field[];
@@ -131,6 +136,8 @@ export function ActionForm({
    * A text function returns null only for input its onSubmit refuses itself before any request.
    */
   confirm?: { text: ReactNode | ((values: Values) => ReactNode); label: string };
+  /** Secondary controls in one row after the submit, such as a cancel link or a preview toggle. */
+  actions?: ReactNode;
 } & Versioning) {
   const formId = useId();
   const submitted = useRef(false);
@@ -360,6 +367,16 @@ export function ActionForm({
               required: isRequired(field, form.values),
               disabled: form.isSubmitting,
             };
+            // The Markdown editor labels its own source field and keeps its toolbar, preview and frame.
+            if (field.type === "markdown") return (
+              <div key={field.name}>
+                <MarkdownEditor name={field.name} label={`${field.label}${isRequired(field, form.values) ? " *" : ""}`} rows={field.rows} context="task" draft={false}
+                  value={String(form.values[field.name] ?? initialValues[field.name])} placeholder={field.placeholder} disabled={form.isSubmitting}
+                  onChange={(value) => void form.setFieldValue(field.name, value)} />
+                {field.hint && <small>{field.hint}</small>}
+                {error && <span className={s.fieldError} id={`${id}-error`}>{String(error)}</span>}
+              </div>
+            );
             return (
               <div className={s.field} key={field.name}>
                 <label
@@ -497,7 +514,7 @@ export function ActionForm({
             {message}
           </p>
         )}
-        <div>
+        <div className={actions ? s.row : undefined}>
           <button
             className={`${s.button} ${variant === "primary" ? s.primary : variant === "danger" ? s.danger : ""}`}
             type="submit"
@@ -505,6 +522,7 @@ export function ActionForm({
           >
             {form.isSubmitting ? "Сохраняем…" : submitLabel}
           </button>
+          {actions}
         </div>
       </fieldset>
     </form>

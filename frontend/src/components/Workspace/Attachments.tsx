@@ -47,6 +47,7 @@ export function AttachmentPicker({
   files,
   onChange,
   onBusyChange,
+  uploadLabel,
 }: {
   owner_kind: string;
   owner_id?: string;
@@ -54,6 +55,8 @@ export function AttachmentPicker({
   files: FileRef[];
   onChange: (files: FileRef[]) => void;
   onBusyChange?: (busy: boolean) => void;
+  /** The site's button that opens a hidden system file field; without it the native field is shown. */
+  uploadLabel?: string;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
@@ -64,9 +67,10 @@ export function AttachmentPicker({
   const [error, setError] = useState("");
   return (
     <div className={s.form}>
-      <label className={s.field}>
-        <span>Файлы до {fileLimitMiB(owner_kind)} МиБ</span>
+      <label className={uploadLabel ? s.upload : s.field}>
+        {uploadLabel ? <><span className={s.linkButton}>{uploadLabel}</span><small>Файлы до {fileLimitMiB(owner_kind)} МиБ</small></> : <span>Файлы до {fileLimitMiB(owner_kind)} МиБ</span>}
         <input
+          className={uploadLabel ? s.visuallyHidden : undefined}
           ref={input}
           type="file"
           multiple

@@ -149,14 +149,7 @@ function ReportEditor({ report }: { report: Report }) {
         Опубликованная версия остаётся доступной читателям до новой публикации.
         Сохранённый черновик доступен соавторам.
       </p>
-      <AttachmentPicker
-        owner_kind="report"
-        owner_id={report.report_id}
-        purpose="report"
-        files={files}
-        onChange={setFiles}
-        onBusyChange={setBusy}
-      />
+      {/* Title, text and attachments are one draft; the preview of the saved draft sits beside its save. */}
       <ActionForm
         disabled={busy}
         externalState={files}
@@ -176,7 +169,8 @@ function ReportEditor({ report }: { report: Report }) {
           {
             name: "body",
             label: "Текст в Markdown",
-            type: "textarea",
+            type: "markdown",
+            rows: 12,
             required: true,
             value: draft.body,
           },
@@ -193,14 +187,27 @@ function ReportEditor({ report }: { report: Report }) {
         }}
         onConflict={refresh}
         submitLabel="Сохранить черновик"
-      />
-      <button
-        type="button"
-        className={s.button}
-        onClick={() => setPreview(!preview)}
+        actions={
+          <button
+            type="button"
+            className={`${s.button} ${s.toggle}`}
+            aria-pressed={preview}
+            onClick={() => setPreview(!preview)}
+          >
+            Предпросмотр сохранённого черновика
+          </button>
+        }
       >
-        Предпросмотр сохранённого черновика
-      </button>
+        <AttachmentPicker
+          owner_kind="report"
+          owner_id={report.report_id}
+          purpose="report"
+          files={files}
+          onChange={setFiles}
+          onBusyChange={setBusy}
+          uploadLabel="Прикрепить файлы"
+        />
+      </ActionForm>
       {preview && <Markdown content={draft} />}
       {can(report, "publish_report") && (
         <ActionForm
