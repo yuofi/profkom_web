@@ -114,6 +114,14 @@ it("opens the Gantt with today a third into the visible timeline and keeps one c
   const label = page.container.querySelector<HTMLAnchorElement>(`[role="region"] a[title="${source.title}"]`)!;
   expect(label.textContent).toBe(`${source.task_key}${source.title}`);expect(page.container.querySelector('[role="region"]')!.textContent).not.toContain("Исполнитель Плана");
 });
+it("keeps an empty Gantt period at its start so the empty-state message stays readable", async () => {
+  vi.setSystemTime(new Date("2026-10-20T09:00:00Z"));
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(390);const scrolled = vi.spyOn(Element.prototype, "scrollLeft", "set");
+  const outside = task({ starts_at: "2027-03-01T09:00:00Z", deadline_at: "2027-03-05T12:00:00Z" });
+  page = await mountWorkspace(<TrackerGantt tasks={[outside]} range={planningRange("2026-10", "gantt")} month="2026-10" onMonth={() => {}} zoom="month" onZoom={() => {}} />);await waitForPage(page);
+  expect(scrolled).toHaveBeenCalled();expect(scrolled.mock.calls.every(([value]) => value === 0)).toBe(true);
+  expect(page.container.querySelector('[role="region"]')!.textContent).toContain("В выбранном периоде нет задач. Измените месяц или фильтры.");
+});
 it("labels a calendar day's task counter so it does not read as a second date", async () => {
   page = await mountWorkspace(<TrackerCalendar tasks={[task(), task({ task_id: "second", task_key: "ITWEB-19" })]} month="2026-10" range={planningRange("2026-10", "calendar")} onMonth={() => {}} />);await waitForPage(page);
   const day = page.container.querySelector('section[aria-label^="9 октября"]')!;

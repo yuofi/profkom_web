@@ -23,13 +23,14 @@ export function TrackerGantt({ tasks, range, month, onMonth, zoom, onZoom }: { t
   }));
   const lastTitle = dayTitle.format(dayMillis(range.last));
   const scroller = useRef<HTMLDivElement>(null), labelHeader = useRef<HTMLDivElement>(null);
-  // Open the period with today a third of the way into the visible timeline, not at its far end.
+  // Open the period with today a third of the way into the visible timeline, not at its far end; an empty period stays at its start so its message is readable.
+  const plotted = rows.length > 0;
   useLayoutEffect(() => {
     const node = scroller.current;
     if (!node) return;
     const labelWidth = labelHeader.current?.getBoundingClientRect().width ?? 0;
-    node.scrollLeft = todayIndex < 0 ? 0 : Math.max(0, (todayIndex + .5) * dayWidth - (node.clientWidth - labelWidth) / 3);
-  }, [todayIndex, dayWidth, range.first]);
+    node.scrollLeft = todayIndex < 0 || !plotted ? 0 : Math.max(0, (todayIndex + .5) * dayWidth - (node.clientWidth - labelWidth) / 3);
+  }, [todayIndex, dayWidth, range.first, plotted]);
   const style = { "--timeline-width": `${length}px`, "--day-width": `${dayWidth}px`, "--plan-row-height": `${ROW}px` } as CSSProperties;
   return <section className={s.gantt} aria-label="Диаграмма Гантта"><TrackerPlanningNavigation month={month} onMonth={onMonth}><div className={s.zoom} aria-label="Масштаб диаграммы">{(["week", "month"] as const).map(value => <button key={value} type="button" aria-pressed={zoom === value} onClick={() => onZoom(value)}>{value === "week" ? "Недели" : "Месяцы"}</button>)}</div></TrackerPlanningNavigation>
     <p className={s.caption}>План на {dayTitle.format(firstMs)} — {lastTitle}{lastTitle.endsWith(".") ? "" : "."} Ромб обозначает веху или дедлайн без заданного начала; линии — зависимости, доступные в этом периоде.</p>
