@@ -4,6 +4,7 @@ import { useSession, isActiveSession } from '../../utils/session';
 import { Loading, ErrorState } from '../../components/Workspace/WorkspaceUI';
 import { canRetainData, normalizeApiError } from '../../utils/api/request';
 import { useMe } from '../../utils/me';
+import { WorkspaceSkeleton } from '../../components/Workspace/WorkspaceLayout';
 import s from "./wrappers.module.css";
 
 /** The confirmed session stays while a poll fails for a moment: the page and its drafts too. */
@@ -18,7 +19,7 @@ export const ProtectedRoute = () => {
   const { session, loading, error, profileError, refresh } = useSession();
   const user = useMe();
   const { pathname, search, hash } = useLocation();
-  if (loading) return <Loading />;
+  if (loading) return <WorkspaceSkeleton />;
   // A transient failure of a later poll keeps the confirmed session (GL-02); the end of the
   // session, a refusal or a first check that failed still close the workspace.
   if (error && (!session || !canRetainData(error)))

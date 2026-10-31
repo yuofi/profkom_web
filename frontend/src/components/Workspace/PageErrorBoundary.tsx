@@ -1,5 +1,5 @@
-import { Component, useContext, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Component, useContext, useEffect, type ReactNode } from "react";
+import { Link, useRouteError } from "react-router-dom";
 import { isChunkLoadError, reloadOnceForStaleChunk } from "../../utils/chunkReload";
 import { recordDiagnostic } from "../../utils/diagnostics";
 import { FeedbackDialogContext } from "./feedbackDialog";
@@ -26,10 +26,15 @@ function PageFailure({ error }: { error: unknown }) {
   </section>;
 }
 
+type BoundaryState = { failed: boolean; error: unknown; resetKey: string };
 /** A page that fails to render or to load its code leaves the menu, the bell and the report
- *  button in place (GL-01). The layout keys it by the path, so another page starts clean. */
-export class PageErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean; error: unknown }> {
-  state = { failed: false, error: null as unknown };
+ *  button in place (GL-01). Another path starts clean; the page itself is not remounted by
+ *  that, so the previous page stays on screen while the next one loads. */
+export class PageErrorBoundary extends Component<{ children: ReactNode; resetKey: string }, BoundaryState> {
+  state: BoundaryState = { failed: false, error: null, resetKey: this.props.resetKey };
+  static getDerivedStateFromProps(props: { resetKey: string }, state: BoundaryState) {
+    return props.resetKey === state.resetKey ? null : { failed: false, error: null, resetKey: props.resetKey };
+  }
   static getDerivedStateFromError(error: unknown) {
     return { failed: true, error };
   }
@@ -44,6 +49,8 @@ export class PageErrorBoundary extends Component<{ children: ReactNode }, { fail
 
 /** The last resort of the router: it replaces the providers too, so it uses none of them. */
 export function AppErrorPage() {
+  const error = useRouteError();
+  useEffect(() => { if (isChunkLoadError(error)) reloadOnceForStaleChunk(); }, [error]);
   return <main className={r.app}>
     <div role="alert" className={s.error}>
       <h1 className={r.title}>Не удалось открыть сайт</h1>

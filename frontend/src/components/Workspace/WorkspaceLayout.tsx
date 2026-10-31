@@ -1,6 +1,8 @@
-import { Suspense, type CSSProperties } from "react";
+import { Suspense, useContext, useEffect, useRef, useSyncExternalStore, type CSSProperties } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Loading } from "./WorkspaceUI";
-import { Link, Outlet, useLocation } from "react-router-dom";
+import { Link, Outlet, UNSAFE_DataRouterContext, useLocation } from "react-router-dom";
+import { prefetchRouteData, preloadRouteCode } from "../../utils/routePrefetch";
 import { useMe } from "../../utils/me";
 import { can, useSession } from "../../utils/session";
 import { DemoRolePicker } from "./DemoRolePicker";
@@ -23,11 +25,79 @@ const shown: Record<string, (session: Session | null) => boolean> = {
   "/admin": (session) => visibleAdminTabs(session).length > 0,
 };
 
+const noSubscription = () => () => {};
+/** A route whose code is still loading keeps the previous page on screen (the router renders
+ *  in a transition): a thin bar says at once that the click was taken (GL-14). The router's
+ *  own state already has the new location; the rendered one follows when the page is ready.
+ *  The new route's code and first data start together at this moment (PF-04). */
+function NavigationProgress() {
+  const router = useContext(UNSAFE_DataRouterContext)?.router;
+  const shown = useLocation(), client = useQueryClient();
+  const target = useSyncExternalStore(router ? router.subscribe : noSubscription, () => router?.state.location ?? shown);
+  const pending = target.key !== shown.key;
+  useEffect(() => {
+    if (!pending) return;
+    preloadRouteCode(target.pathname);
+    prefetchRouteData(client, target.pathname);
+  }, [pending, target.pathname, client]);
+  return pending ? <div className={s.progress} role="progressbar" aria-label="Открываем страницу" /> : null;
+}
+/** The sections of the menu load their code when the browser is idle; not on a data saver. */
+function useIdleSectionCode(paths: string[]) {
+  const key = paths.join(" ");
+  useEffect(() => {
+    const connection = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
+    if (connection?.saveData || /2g/.test(connection?.effectiveType ?? "")) return;
+    const load = () => key.split(" ").forEach(preloadRouteCode);
+    const idle = window.requestIdleCallback;
+    const timer = setTimeout(() => idle ? idle(load, { timeout: 5000 }) : load(), 2500);
+    return () => clearTimeout(timer);
+  }, [key]);
+}
+/** The mobile menu closes on Escape and on a tap outside it, the bell included (GL-19). */
+function useDismissibleMenu() {
+  const menu = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || !menu.current?.open) return;
+      menu.current.removeAttribute("open");menu.current.querySelector("summary")?.focus();
+    };
+    const pointer = (event: PointerEvent) => {
+      if (menu.current?.open && !menu.current.contains(event.target as Node)) menu.current.removeAttribute("open");
+    };
+    document.addEventListener("keydown", key);document.addEventListener("pointerdown", pointer);
+    return () => { document.removeEventListener("keydown", key);document.removeEventListener("pointerdown", pointer); };
+  }, []);
+  return menu;
+}
+/** While the session is checked (F5): the frame of the workspace without its menu, which
+ *  depends on the session's rights, and without any user data (GL-34). */
+export function WorkspaceSkeleton() {
+  const { pathname } = useLocation();
+  return (
+    <div className={s.shell} style={{ "--section": `var(--accent-${sectionOf(pathname).tone})` } as CSSProperties}>
+      <aside className={s.sidebar}>
+        <Link className={s.brand} to="/">
+          <ProfkomLogo variant="desktop" width={42} strokeWidth={16} aria-hidden="true" />
+          <span>Профком<small>ВМК МГУ</small></span>
+        </Link>
+      </aside>
+      <main className={s.content}><Loading /></main>
+    </div>
+  );
+}
+
 export function WorkspaceLayout() {
   const user = useMe();
   const { session } = useSession();
   const { pathname } = useLocation();
+  const client = useQueryClient();
   const section = sectionOf(pathname);
+  const menu = useDismissibleMenu();
+  const visible = SECTIONS.filter(({ to }) => to !== "/notifications" && (shown[to]?.(session) ?? true));
+  useIdleSectionCode(visible.map(({ to }) => to));
+  // The first load of a page (F5, a shared link): its data starts beside its code.
+  useEffect(() => { prefetchRouteData(client, pathname); }, [client, pathname]);
   const links = (includeProfile = false) => (
     <nav
       className={s.nav}
@@ -38,8 +108,9 @@ export function WorkspaceLayout() {
       }}
     >
       {/* The item of the page's section is marked on its inner pages too (a subevent is under Мероприятия). */}
-      {SECTIONS.filter(({ to }) => to !== "/notifications" && (shown[to]?.(session) ?? true)).map(({ to, label, icon, tone }) => (
+      {visible.map(({ to, label, icon, tone }) => (
         <Link key={to} to={to} style={toneStyle(tone)}
+          onPointerEnter={() => preloadRouteCode(to)} onFocus={() => preloadRouteCode(to)}
           aria-current={pathname === to ? "page" : section.to === to ? "true" : undefined}>
           <Glyph name={icon} className={s.icon} />
           {label}
@@ -53,13 +124,14 @@ export function WorkspaceLayout() {
   );
   return (
     <div className={s.shell} style={{ "--section": `var(--accent-${section.tone})` } as CSSProperties}>
+      <NavigationProgress />
       <aside className={s.sidebar}>
         <Link className={s.brand} to="/">
           <ProfkomLogo variant="desktop" width={42} strokeWidth={16} aria-hidden="true" />
           <span>Профком<small>ВМК МГУ</small></span>
         </Link>
         {links()}
-        <details className={s.mobile}>
+        <details ref={menu} className={s.mobile}>
           <summary><Glyph name="menu" className={s.icon} />Меню</summary>
           {links(true)}
         </details>
@@ -73,7 +145,7 @@ export function WorkspaceLayout() {
       </aside>
       <div className={s.notifications}><NotificationBell /></div>
       <main className={s.content}>
-        {user?.has_password === false && (
+        {user?.has_password === false && pathname !== "/profile/edit" && (
           // VK is the only way in for this account; a password is the way when VK fails (АВ-52).
           <p role="note" className={ws.warning}>
             Задайте пароль, чтобы входить по почте, если вход через VK недоступен.{" "}
@@ -81,7 +153,7 @@ export function WorkspaceLayout() {
           </p>
         )}
         <SectionContext.Provider value={section}>
-          <PageErrorBoundary key={pathname}>
+          <PageErrorBoundary resetKey={pathname}>
             <Suspense fallback={<Loading />}>
               <Outlet />
             </Suspense>
