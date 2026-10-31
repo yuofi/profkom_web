@@ -3,7 +3,7 @@ import { type ReactNode } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
-import type { MockRole } from "../../mocks/fixtures";
+import { createFixtures, type MockRole } from "../../mocks/fixtures";
 import { change, mountWorkspace, waitForPage } from "../../test/workspace";
 import { SeasonPage, SeasonsPage, SummaryPage } from "./SeasonPages";
 
@@ -60,4 +60,23 @@ it("names the section like the menu and does not link the stamp to the page itse
   expect(stamp.tagName).not.toBe("A");
   await mount(routes, "/seasons/season-1");
   expect(page!.container.querySelector('a[href="/seasons"]')?.textContent).toBe("Профком ВМК · Сезоны и ККР");
+});
+
+it("filters the season's events by the season and shows a closed one in the archive", async () => {
+  await mount(routes, "/seasons/season-1?tab=history");
+  const workflow = () => [...page!.container.querySelectorAll("details")].find(details => details.textContent?.startsWith("Работа сезона"))!;
+  workflow().open = true;workflow().dispatchEvent(new Event("toggle"));await waitForPage(page!);
+  const events = () => [...workflow().querySelectorAll("a")].find(link => link.textContent?.startsWith("Мероприятия"))?.getAttribute("href");
+  expect(events()).toBe("/events?season_id=season-1");
+  transport!.state.seasons.find(season => season.season_id === "season-1")!.state = "closed";
+  await page!.client.invalidateQueries({ queryKey: ["seasons"] });await waitForPage(page!);
+  expect(events()).toBe("/events?season_id=season-1&archive=true");
+});
+
+it("offers an event head the season's merits from the overview", async () => {
+  const session = createFixtures("organizer").session;
+  const head = { ...session, capabilities: session.capabilities.filter(cap => cap !== "view_summary" && !cap.includes("merit")), assignments: [{ role_assignment_id: "role-head", role: "event_leader", scope_kind: "event" as const, scope_id: "event-1", revision: 1, capabilities: ["create_head_merit", "view_merits"] }] };
+  await page?.cleanup();transport?.restore();
+  transport = installMockTransport("organizer", { delay: 0 });page = await mountWorkspace(<>{routes}<Where /></>, { path: "/seasons/season-1", session: head });await waitForPage(page);
+  expect([...page.container.querySelectorAll("a")].find(link => link.textContent?.startsWith("Заслуги и волонтёрство"))?.getAttribute("href")).toBe("/seasons/season-1/merits");
 });

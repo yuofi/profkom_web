@@ -118,9 +118,10 @@ it("A04: an event head with only object permission can submit head merit", async
     <Route path="/seasons/:id/merits" element={<MeritsPage />} />
   </Routes></SessionContext.Provider>, { role: "leader", path: "/events/event-1" });
   await settle(); await settle();
-  await act(async () => Array.from(page!.container.querySelectorAll("a")).find((a) => a.textContent === "Учесть особую заслугу")!.click());
-  await settle(); await settle();
-  await act(async () => Array.from(page!.container.querySelectorAll("a")).find((a) => a.textContent === "Особые заслуги и волонтёры")!.click());
+  // The event knows its season, so the link opens the season's merits without a season-picking step (SE-16).
+  const entry = Array.from(page!.container.querySelectorAll("a")).find((a) => a.textContent === "Учесть особую заслугу")!;
+  expect(entry.getAttribute("href")).toBe("/seasons/season-1/merits?source_kind=head_merit&scope_id=event-1");
+  await act(async () => entry.click());
   await settle(); await settle();
   expect([...page.container.querySelectorAll("label")].find(label => label.textContent?.trim().startsWith("Вид записи"))?.querySelector("select")?.value).toBe("head_merit");
   expect(field(page.container, "scope").value).toBe("event-1");

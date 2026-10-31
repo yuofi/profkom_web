@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
 import { createFixtures } from "../../mocks/fixtures";
 import { mountWorkspace, waitForPage } from "../../test/workspace";
 import { WorkspaceLayout } from "../../components/Workspace/WorkspaceLayout";
+import { sectionOf } from "../../components/Workspace/sections";
 import { emptyCriteria, richText, type Session } from "../../utils/api/contract";
 import { ApiError } from "../../utils/api/request";
 import { seasonsApi } from "../../utils/api/seasons.api";
@@ -59,4 +60,23 @@ it("lists seasons, closed ones too, for a reader without creation rights", async
   const links = [...page!.container.querySelectorAll<HTMLAnchorElement>('main a[href^="/seasons/"]')].map(link => link.getAttribute("href"));
   expect(links).toEqual(expect.arrayContaining(["/seasons/season-1/merits", "/seasons/season-previous/merits"]));
   expect(page!.container.textContent).not.toContain("Нет доступных сезонов");
+});
+
+it("opens the only eligible season at once and keeps the requested scope", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const where: string[] = [];
+  function Where() { const location = useLocation();where.push(location.pathname + location.search);return null; }
+  page = await mountWorkspace(<><Routes><Route path="/merits" element={<MeritEntryPage />} /><Route path="/seasons/:id/merits" element={<p>Заслуги сезона</p>} /></Routes><Where /></>, { path: "/merits?source_kind=head_merit&scope_id=event-1" });
+  await waitForPage(page);
+  expect(where.at(-1)).toBe("/seasons/season-1/merits?source_kind=head_merit&scope_id=event-1");
+  expect(page.container.textContent).toContain("Заслуги сезона");
+});
+
+it("puts a season's merits under the menu item of merits", () => {
+  expect(sectionOf("/seasons/season-1/merits").label).toBe("Учёт выполненной работы");
+  expect(sectionOf("/seasons/season-1").label).toBe("Сезоны и ККР");
+  expect(sectionOf("/seasons/season-1/sources").label).toBe("Сезоны и ККР");
+  expect(sectionOf("/merits").label).toBe("Учёт выполненной работы");
+  expect(sectionOf("/eventsfoo").label).toBe("Рабочее пространство");
+  expect(sectionOf("/subevents/x").label).toBe("Мероприятия");
 });

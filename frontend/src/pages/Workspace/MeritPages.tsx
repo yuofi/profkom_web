@@ -1,7 +1,7 @@
 import { EntityPicker, type EntityOption } from "../../components/Workspace/EntityPicker";
 import { useState, type ComponentProps } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useParams, useSearchParams } from "react-router-dom";
+import { Navigate, useParams, useSearchParams } from "react-router-dom";
 import {
   Page,
   Card,
@@ -117,10 +117,13 @@ export function MeritEntryPage() {
       : kind === "head_merit" ? contexts.data?.events.some((e) => e.event_id === scopeId && e.season_id === season.season_id && can(e, "create_head_merit"))
       : kind === "subevent_volunteer" && contexts.data?.subs.some((sub) => sub.subevent_id === scopeId && contexts.data?.events.some((e) => e.event_id === sub.event_id && e.season_id === season.season_id) && can(sub, "create_volunteer_merit"));
   })) ?? [];
+  const seasonMerits = (seasonId: string) => `/seasons/${encodeURIComponent(seasonId)}/merits${params.size ? `?${params}` : ""}`;
+  // With one season to choose there is nothing to choose: open it in place of this step.
+  if (contexts.data && seasons.data && eligible.length === 1) return <Navigate replace to={seasonMerits(eligible[0].season_id)} />;
   return <Page title="Учёт выполненной работы" description="Выберите сезон. Доступны только исходные поля разрешённых вам записей.">
     <QueryState loading={contexts.isLoading || seasons.isLoading} error={contexts.error || seasons.error}>
       <div className={s.grid}>{eligible.map((season) => <Card key={season.season_id} title={season.title}>
-        <RouteLink to={`/seasons/${encodeURIComponent(season.season_id)}/merits${params.size ? `?${params}` : ""}`}>Особые заслуги и волонтёры</RouteLink>
+        <RouteLink to={seasonMerits(season.season_id)}>Особые заслуги и волонтёры</RouteLink>
       </Card>)}</div>
       {!eligible.length && <Empty>Нет доступных сезонов и областей для записи выполненной работы.</Empty>}
     </QueryState>
