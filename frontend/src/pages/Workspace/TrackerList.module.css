@@ -19,6 +19,8 @@
 .filters[open] summary { color: var(--primary); }
 /* A closed panel takes no layout box (it is anchored to the toolbar, not to its button). */
 .filters:not([open]) .filterPanel { display: none; }
+/* The phone bottom sheet covers the toolbar, so it carries its own close action; the desktop panel closes from its button. */
+.sheetActions { display: none; }
 .filterPanel { position: absolute; z-index: 8; box-sizing: border-box; width: min(540px, 100%); right: 0; top: calc(100% + 10px); padding: 20px; border: 1px solid var(--outline-variant); border-radius: 14px; background: var(--surface-container); box-shadow: var(--elevation-3); display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .activeFilters { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 34px; }
 .filterChip { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; background: color-mix(in srgb, var(--accent-lilac) 16%, var(--surface-container-low)); color: var(--on-surface); font-size: 13px; border-radius: 6px; padding: 5px 6px 5px 11px; overflow-wrap: anywhere; }
@@ -44,6 +46,7 @@
 /* People chips keep whole names on one line; the hover card shows the full name. */
 .assignees > div > * { min-width: 0; max-width: 100%; }
 .assignees :is(a, [tabindex]) > span > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.peopleTail { display: flex; align-items: center; gap: 5px; }.peopleTail > * { min-width: 0; }
 .morePeople { flex: none; color: var(--on-surface-variant); font-size: 11px; padding: 2px 4px; }
 .person { display: inline-block; box-sizing: border-box; color: var(--on-surface); text-decoration: none; background: var(--surface-container); border-radius: 20px; padding: 5px 9px; font-size: 11px; line-height: 1.3; max-width: 100%; overflow-wrap: anywhere; }
 a.person:hover { background: var(--surface-container-highest); color: var(--primary); }
@@ -65,7 +68,8 @@ a.person:hover { background: var(--surface-container-highest); color: var(--prim
   /* Search, filter and create on the first row; the view switch on the second. */
   .topbar { gap: 10px; flex-wrap: wrap; }.search { flex-basis: 0; }.topbar > .views { order: 1; flex: 1 0 100%; box-sizing: border-box; }.views > * { flex: 1; padding: 8px 10px; }.filters summary { font-size: 12px; padding: 10px; }
   /* The filter panel opens as a bottom sheet across the screen, above the feedback button. */
-  .filterPanel { position: fixed; inset: auto 0 0 0; z-index: 45; width: auto; max-height: 80vh; overflow-y: auto; grid-template-columns: 1fr; border-radius: 14px 14px 0 0; padding-bottom: max(20px, env(safe-area-inset-bottom)); }
+  .filterPanel { position: fixed; inset: auto 0 0 0; z-index: 45; width: auto; max-height: 80vh; overflow-y: auto; grid-template-columns: 1fr; border-radius: 14px 14px 0 0; padding-bottom: 0; }
+  .sheetActions { display: grid; position: sticky; bottom: 0; z-index: 1; margin: 0 -20px; padding: 12px 20px max(20px, env(safe-area-inset-bottom)); background: var(--surface-container); }
   .table, .table tbody { display: block; }.table thead { display: none; }
   .table tbody tr { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 16px 4px; }
   .table td { display: block; padding: 0; }.table td.scope, .table td.updated { display: none; }

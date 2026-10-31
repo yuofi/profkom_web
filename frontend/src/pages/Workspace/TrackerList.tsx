@@ -175,7 +175,7 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
   if (filters.priority) active.push({ key: "priority", label: `Приоритет: ${taskPriorityNames[filters.priority] ?? filters.priority}` });
   if (filters.favorite) active.push({ key: "favorite", label: filters.favorite === "true" ? "Избранные задачи" : "Неизбранные задачи" });
   if (filters.q) active.push({ key: "q", label: `Поиск: ${filters.q}` });
-  if (filters.season_id) active.push({ key: "season_id", label: `Сезон: ${seasons.data?.items.find((item) => item.season_id === filters.season_id)?.title ?? (currentSeasonFilter ? currentSeason.data?.title : null) ?? "выбран"}` });
+  if (filters.season_id) active.push({ key: "season_id", label: `Сезон: ${seasons.data?.items.find((item) => item.season_id === filters.season_id)?.title ?? (currentSeasonFilter ? currentSeason.data?.title : null) ?? (currentSeason.isLoading || seasons.isLoading ? "…" : "выбран")}` });
   if (filterScope) active.push({ key: "scope", label: `Команда: ${filterScope.kind === "chair" ? scopeKindNames.chair : selectedScope?.title ?? scopeKindNames[filterScope.kind]}` });
   if (filters.assignee_user_id) {
     const person = people.data?.find((item) => String(item.user_id) === filters.assignee_user_id);
@@ -190,13 +190,13 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
       <div className={s.headerLinks}><RouteLink to={getTaskQueuesRoute()}>Очереди</RouteLink>{can(session, "view_unresolved_assignments") && <RouteLink to="/tasks/unresolved">Оставшаяся работа</RouteLink>}</div>
     </BrandedHeader>}
     <div className={s.topbar}>
-      <label className={s.search}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg><input type="search" aria-label="Поиск задач" placeholder="Название или ключ задачи" value={filters.q} onChange={(event) => update("q", event.target.value, true)} /></label>
-      {(queue ? can(queue, "create_task") : canCreateInScope || queues.data?.items.some(item => can(item, "create_task"))) && <RouteLink to={getTaskCreateRoute({ queueId: queue?.queue_id, ...(scope ? { scope } : {}) })}><Glyph name="add" /><span className={s.toolLabel}>Создать задачу</span></RouteLink>}
+      <label className={s.search}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg><input type="search" aria-label="Поиск задач" placeholder="Название или ключ" value={filters.q} onChange={(event) => update("q", event.target.value, true)} /></label>
+      {(queue ? can(queue, "create_task") : canCreateInScope || queues.data?.items.some(item => can(item, "create_task"))) && <Link className={w.linkButton} to={getTaskCreateRoute({ queueId: queue?.queue_id, ...(scope ? { scope } : {}) })} title="Создать задачу"><Glyph name="add" /><span className={s.toolLabel}>Создать задачу</span></Link>}
       <div className={s.views} aria-label="Представление задач">
         {([["list", "Список"], ["calendar", "Календарь"], ["gantt", "Гантт"]] as const).map(([key, label]) => <button key={key} type="button" aria-pressed={view === key} onClick={() => update("view", key === "list" ? "" : key)}>{label}</button>)}
       </div>
       <details ref={filterMenu} className={s.filters} onToggle={event => setFiltersOpen(event.currentTarget.open)}>
-        <summary><Glyph name="filter_list" /><span className={s.toolLabel}>Добавить фильтр</span></summary>
+        <summary title="Добавить фильтр"><Glyph name="filter_list" /><span className={s.toolLabel}>Добавить фильтр</span></summary>
         <div className={s.filterPanel}>
           <label className={w.field}>Назначение<select aria-label="Назначение" value={params.get("mine") ?? ""} onChange={(event) => update("mine", event.target.value)}><option value="">Без фильтра</option><option value="true">Мои задачи</option><option value="false">Все доступные</option></select></label>
           <label className={w.field}>Статус<select aria-label="Статус" value={filters.status} onChange={(event) => update("status", event.target.value)}><option value="">Любой статус</option>{Object.entries(statusNames).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
@@ -211,13 +211,14 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
           <label className={w.check}><input type="checkbox" checked={filters.favorite === "true"} onChange={event => update("favorite", event.target.checked ? "true" : "")} />Только избранные</label>
           <label className={w.check}><input type="checkbox" checked={filters.unfinished === "true"} onChange={(event) => update("unfinished", event.target.checked ? "true" : "")} />Незавершённые</label>
           <label className={w.check}><input type="checkbox" checked={filters.overdue === "true"} onChange={(event) => update("overdue", event.target.checked ? "true" : "")} />Просроченные</label>
+          <div className={s.sheetActions}><button type="button" className={w.button} onClick={() => { if (filterMenu.current) filterMenu.current.open = false;filterMenu.current?.querySelector("summary")?.focus(); }}>Готово</button></div>
         </div>
       </details>
     </div>
     <div className={s.activeFilters} aria-label="Активные фильтры">
       {active.map((filter) => <span className={s.filterChip} key={filter.key}>{filter.label}<button type="button" aria-label={`Убрать фильтр: ${optionLabels[filter.key]}`} onClick={() => update(filter.key, "")}><Glyph name="close" /></button></span>)}
       {!active.length && !needsDefaults && <span className={s.filterHint}>Показаны все доступные вам задачи</span>}
-      {active.length > 1 && !atDefaults && <button type="button" className={s.clear} onClick={() => { const next = new URLSearchParams();["view", "month", "zoom"].forEach(key => { const value = params.get(key);if (value) next.set(key, value); });setParams(next); }}>Сбросить все</button>}
+      {active.length > 1 && !atDefaults && !(filters.season_id && currentSeason.isLoading) && <button type="button" className={s.clear} onClick={() => { const next = new URLSearchParams();["view", "month", "zoom"].forEach(key => { const value = params.get(key);if (value) next.set(key, value); });setParams(next); }}>Сбросить все</button>}
     </div>
     <QueryState loading={needsDefaults || (view === "list" ? query.isLoading : timeline.isLoading)} error={error} keepDataOnError={view === "list" ? !!query.data : !!timeline.data} retry={() => { void query.refetch();if (view !== "list") void timeline.refetch(); }}>
       {view === "calendar" ? <TrackerCalendar tasks={tasks} range={range} month={month} onMonth={value => update("month", value)} /> : view === "gantt" ? <TrackerGantt tasks={tasks} range={range} month={month} onMonth={value => update("month", value)} zoom={zoom} onZoom={value => update("zoom", value)} /> : tasks.length ? <div className={s.tableWrap} aria-busy={listBusy || undefined}>
@@ -242,8 +243,8 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
 
   </section>;
 }
-/** Up to three people stay visible; the rest are named in one accessible counter. */
+/** Up to two people stay visible; the rest are named in one accessible counter that stays on the second chip's line. */
 function Assignees({ people }: { people: UserRef[] }) {
-  const shown = people.slice(0, 3), rest = people.slice(3), names = rest.map(person => person.display_name).join(", ");
-  return <div>{shown.map((person, index) => <UserChip user={person} key={`${person.user_id ?? "historical"}-${index}`} />)}{rest.length > 0 && <span className={s.morePeople} title={`Ещё: ${names}`}>+{rest.length}<span className={w.visuallyHidden}> — ещё исполнители: {names}</span></span>}</div>;
+  const [first, second] = people, rest = people.slice(2), names = rest.map(person => person.display_name).join(", ");
+  return <div>{first && <UserChip user={first} />}{second && <span className={s.peopleTail}><UserChip user={second} />{rest.length > 0 && <span className={s.morePeople} title={`Ещё: ${names}`}>+{rest.length}<span className={w.visuallyHidden}> — ещё исполнители: {names}</span></span>}</span>}</div>;
 }

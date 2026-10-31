@@ -7,7 +7,8 @@ import { tasksApi } from "../../utils/api/tasks.api";
 import { eventsApi } from "../../utils/api/events.api";
 import { createFixtures } from "../../mocks/fixtures";
 import { installMockTransport } from "../../mocks/transport";
-import { mountWorkspace, waitForPage, change } from "../../test/workspace";
+import { mountWorkspace, waitForPage, change, settle } from "../../test/workspace";
+import { seasonsApi } from "../../utils/api/seasons.api";
 import type { TaskListPageResponse } from "../../utils/api/contract";
 
 vi.mock("./TaskCreateForm", () => ({ TaskCreateForm: () => <p>Создание задачи</p> }));
@@ -87,6 +88,17 @@ it("opens a bare list on the current season's unfinished work and keeps a cleare
   expect(list.mock.lastCall?.[0]).not.toHaveProperty("season_id");expect(list.mock.lastCall?.[0]).not.toHaveProperty("unfinished");
   expect(filters()).toContain("Показаны все доступные вам задачи");
 });
+it("does not name a season «выбран» or offer a reset while the current season is still being read", async () => {
+  let release: (() => void) | undefined;const current = seasonsApi.current;
+  vi.spyOn(seasonsApi, "current").mockImplementation(async () => { await new Promise<void>(resolve => { release = resolve; });return current(); });
+  transport = installMockTransport("chair", { delay: 0 });vi.spyOn(tasksApi, "listPage").mockResolvedValue({ items: [], next_cursor: null, total: 0, scopes: [], assignees: [] });
+  page = await mountWorkspace(<Routes><Route path="/tasks" element={<><TrackerListPage /><Location /></>} /></Routes>, { path: "/tasks?season_id=season-1&unfinished=true" });
+  for (let wait = 0; !release && wait < 100; wait++) await settle();
+  const filters = () => page!.container.querySelector('[aria-label="Активные фильтры"]')!.textContent!;
+  expect(filters()).toContain("Сезон: …");expect(filters()).not.toContain("выбран");expect(button("Сбросить все")).toBeUndefined();
+  await act(async () => release!());await waitForPage(page);
+  expect(filters()).toContain("Сезон: Осень и зима 2026");expect(button("Сбросить все")).toBeUndefined();
+});
 it("resets every filter back to the current open work", async () => {
   const { list } = await mount("/tasks?mine=true&status=in_progress&view=list");
   expect(list.mock.calls.every(call => !("season_id" in (call[0] as object)))).toBe(true);
@@ -129,13 +141,13 @@ it("omits empty optional filters rather than sending an invalid empty numeric or
   expect(list.mock.lastCall?.[0]).not.toHaveProperty("scope_id");
 });
 
-it("keeps the team column on the main list and folds more than three assignees into one counter", async () => {
+it("keeps the team column on the main list and folds assignees after the second into one counter", async () => {
   const fixture = createFixtures("chair");const people = fixture.people.slice(0, 5).map(person => ({ user_id: person.user_id, display_name: person.display_name, avatar_url: null }));
   await mount("/tasks?mine=false", () => ({ items: [{ ...fixture.tasks[0], task_key: "TASK-17", assignees: people }], next_cursor: null, total: 1, scopes: [], assignees: [] }));
   expect([...page!.container.querySelectorAll("thead th")].map(th => th.textContent?.trim())).toContain("Команда");
   const cell = page!.container.querySelector("td[data-label='Исполнители']")!;
-  expect(cell.querySelectorAll('a[href^="/contacts/"]')).toHaveLength(3);
-  expect(cell.textContent).toContain("+2");expect(cell.textContent).toContain(people[4].display_name);
+  expect(cell.querySelectorAll('a[href^="/contacts/"]')).toHaveLength(2);
+  expect(cell.textContent).toContain("+3");expect(cell.textContent).toContain(people[2].display_name);expect(cell.textContent).toContain(people[4].display_name);
 });
 
 it("keeps the current rows and paging in place while the next page loads", async () => {
