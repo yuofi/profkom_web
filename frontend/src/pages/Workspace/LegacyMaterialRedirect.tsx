@@ -17,7 +17,7 @@ export function LegacyMaterialRedirect() {
   if (query.data && !query.error) return <Navigate to={getMaterialRoute(query.data.material_id)} replace />;
   const missing = !id || (!!query.error && [403, 404, 422].includes(normalizeApiError(query.error).status));
   return <Page title="Материал">
-    {missing ? <Empty>Материал не найден или больше недоступен.</Empty> : <QueryState loading={query.isLoading} error={query.error} retry={() => void query.refetch()}>{null}</QueryState>}
+    {missing ? <div role="alert"><Empty>Материал не найден или больше недоступен.</Empty></div> : <QueryState loading={query.isLoading} error={query.error} retry={() => void query.refetch()}>{null}</QueryState>}
     {!query.isLoading && <Link className={s.linkButton} to="/materials">Все материалы</Link>}
   </Page>;
 }

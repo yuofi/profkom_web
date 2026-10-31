@@ -163,11 +163,12 @@ export function MaterialPage() {
   // A refusal or a lost right ends the edit mode; a later recovery opens read-only.
   const drop = editing && (!!query.error && !canRetainData(query.error) || !!m && !manageable);
   useEffect(() => { if (drop) setEditing(false); });
-  if (m && editing && manageable) return <section className={`${s.page} ${u.page}`}><UnsavedChangesScope><MaterialEditor key={m.material_id} material={m} onClose={() => setEditing(false)} /></UnsavedChangesScope></section>;
+  // A temporary refetch failure is shown above the editor, which keeps the draft.
+  if (m && editing && manageable) return <section className={`${s.page} ${u.page}`}><QueryState loading={false} error={query.error} keepDataOnError retry={() => { void query.refetch(); }}><UnsavedChangesScope><MaterialEditor key={m.material_id} material={m} onClose={() => setEditing(false)} /></UnsavedChangesScope></QueryState></section>;
   return <section className={`${s.page} ${u.page}`}>
     {/* The header and the way back stay when the material cannot be read (GL-28). */}
     <BrandedHeader className={u.header}><div><SectionHomeLink to="/materials" label="Материалы" /><div className={u.titleRow}><h1 className={s.title}>{m?.title ?? (missing ? "Материал недоступен" : "Материал")}</h1>{manageable && <button type="button" className={u.pencil} aria-label="Редактировать материал" title="Редактировать материал" onClick={() => setEditing(true)}><Glyph name="edit" /></button>}</div>{m?.description && <p className={s.description}>{m.description}</p>}{manageable && m && <p className={s.description}>{m.published_content ? m.published_at ? `Опубликовано ${displayDate(m.published_at)}` : "Опубликовано" : "Не опубликовано"}{m.draft_content ? " · есть неопубликованный черновик" : ""}</p>}</div></BrandedHeader>
-    {missing ? <Empty>Материал не найден или доступ к нему закрыт.</Empty> : <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!m} retry={() => { void query.refetch(); }}>
+    {missing ? <div role="alert"><Empty>Материал не найден или доступ к нему закрыт.</Empty></div> : <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!m} retry={() => { void query.refetch(); }}>
       {m && <>
         <Card className={u.reading}>
           {m.placeholder && m.community_url && <a className={s.linkButton} href={m.community_url} target="_blank" rel="noopener noreferrer">Сообщество блока</a>}

@@ -80,12 +80,12 @@ it("replacing a material draft also replaces Markdown outside Formik", async () 
   await settle(); await settle();
   await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Редактировать материал"]')!.click());await settle();
   const form = field(page.container, "title").closest("form")!;
-  await change(form.querySelector("textarea")!, "ЛОКАЛЬНЫЙ MARKDOWN");
+  await change(form.querySelector<HTMLTextAreaElement>('textarea[name="body"]')!, "ЛОКАЛЬНЫЙ MARKDOWN");
   m.revision++; m.title = "СЕРВЕРНОЕ НАЗВАНИЕ"; m.draft_content = richText("СЕРВЕРНЫЙ MARKDOWN");
   await refetch("materials");
-  expect(form.querySelector("textarea")!.value).toBe("ЛОКАЛЬНЫЙ MARKDOWN");
+  expect(form.querySelector<HTMLTextAreaElement>('textarea[name="body"]')!.value).toBe("ЛОКАЛЬНЫЙ MARKDOWN");
   await click(form, "Заменить мой ввод сохранёнными значениями");
-  expect(form.querySelector("textarea")!.value).toBe("СЕРВЕРНЫЙ MARKDOWN");
+  expect(form.querySelector<HTMLTextAreaElement>('textarea[name="body"]')!.value).toBe("СЕРВЕРНЫЙ MARKDOWN");
   expect(field(form, "title").value).toBe("СЕРВЕРНОЕ НАЗВАНИЕ");
   await submit(form);
   expect((await materialsApi.get(m.material_id)).draft_content?.body).toBe("СЕРВЕРНЫЙ MARKDOWN");
