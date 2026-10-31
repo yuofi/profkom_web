@@ -6467,7 +6467,8 @@ class Database:
                 raise NotFound("Comment not found")
             task=session.get(TaskORM,c.task_id)
             if not task or not self.can_read_task(user_id,task,session):raise Forbidden("Forbidden: scope access ended")
-            self.require_accountable_task(session, task)
+            # Comments are not accounting inputs: control epics accept them like creation does;
+            # their mention restrictions stay in tracker_collaboration._sync.
             from tracker import can_edit_comment
             if not can_edit_comment(session,c,user_id):
                 raise Forbidden("Forbidden: cannot edit this comment")
