@@ -3,7 +3,7 @@ import Cookies from "js-cookie";
 import { authApi } from "./api/auth.api";
 import { sessionApi } from "./api/session.api";
 import { normalizeApiError } from "./api/request";
-import { beginAuthTransition } from "./api";
+import { beginAuthTransition, rememberSignedIn } from "./api";
 
 const notSession = (q: { queryKey: readonly unknown[] }) => q.queryKey[0] !== "session";
 
@@ -19,6 +19,7 @@ export async function completeAuthentication(client: QueryClient, accessToken: s
   beginAuthTransition();
   await discardPrivateData(client);
   Cookies.set("access_token", accessToken, { expires: 1 / 8 });
+  rememberSignedIn(true);
   return client.fetchQuery({ queryKey: ["session"], queryFn: sessionApi.get, staleTime: 0 });
 }
 
@@ -28,6 +29,7 @@ export async function completeAuthentication(client: QueryClient, accessToken: s
 export async function handleRevokedSession(client: QueryClient) {
   beginAuthTransition();
   Cookies.remove("access_token");
+  rememberSignedIn(false);
   await client.cancelQueries({ predicate: notSession });
   client.setQueryData(["session"], null);
   client.removeQueries({ predicate: notSession });
@@ -43,5 +45,6 @@ export async function endSession(client: QueryClient) {
   }
   beginAuthTransition();
   Cookies.remove("access_token");
+  rememberSignedIn(false);
   await discardPrivateData(client);
 }

@@ -62,8 +62,8 @@ async function team() {
 }
 
 it("2.13: a wrong password is answered in Russian on the login form", async () => {
-  page = await mountWorkspace(<HelmetProvider><GreetingPage /></HelmetProvider>);
-  await act(async () => page!.container.querySelector("h5")!.click());  // «или войти c паролем»
+  page = await mountWorkspace(<HelmetProvider><GreetingPage /></HelmetProvider>, { session: null });
+  await act(async () => page!.container.querySelector<HTMLButtonElement>("button[aria-expanded]")!.click());  // «или войти с паролем»
   await change(field(page.container, "email"), "chair@example.com");
   await change(field(page.container, "password"), "Wrong-Password-2026");
   await submit(page.container.querySelector("form")!);
