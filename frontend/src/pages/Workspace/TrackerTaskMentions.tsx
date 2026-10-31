@@ -14,7 +14,8 @@ import { useWorkspaceActions } from '../../utils/hooks/useWorkspace';
 import { userMessage } from '../../utils/api/messages';
 import w from '../../components/Workspace/Workspace.module.css';
 import s from './TrackerTaskDetail.module.css';
-export function TaskMentionPicker({taskId,value,onChange,onMentionText,onMentionUser}:{taskId:string;value:number[];onChange:(ids:number[])=>void;onMentionText?:(text:string)=>void;onMentionUser?:(user:UserRef)=>void}) {
+/** `readersOnly`: support tickets and control epics never open access by a mention; the server offers only readers. */
+export function TaskMentionPicker({taskId,value,onChange,onMentionText,onMentionUser,readersOnly=false}:{taskId:string;value:number[];onChange:(ids:number[])=>void;onMentionText?:(text:string)=>void;onMentionUser?:(user:UserRef)=>void;readersOnly?:boolean}) {
   const [open,setOpen]=useState(false),[search,setSearch]=useState(''),[active,setActive]=useState(0);
   const trigger=useRef<HTMLButtonElement>(null),input=useRef<HTMLInputElement>(null),listId=useId();
   const {session}=useSession();
@@ -42,7 +43,7 @@ export function TaskMentionPicker({taskId,value,onChange,onMentionText,onMention
         <div id={listId} className={p.options} role="listbox" aria-label="Участники для призыва">{options.map((user,index)=><button id={`${listId}-${user.user_id}`} key={user.user_id} type="button" role="option" aria-selected={value.includes(user.user_id!)} data-active={index===current||undefined} data-option-value={user.user_id} className={p.option} tabIndex={-1} onPointerMove={()=>setActive(index)} onClick={()=>select(user)}><UserChip className={p.choiceIdentity} user={user} interactive={false}/>{value.includes(user.user_id!)&&<span className={p.selected}>Выбран</span>}</button>)}</div>
         {!query.isLoading&&!options.length&&<p className={p.empty}>Участники не найдены</p>}
       </QueryState>
-      <p className={p.note}>Если у человека нет доступа, призыв согласует автор задачи или владелец очереди.</p>
+      <p className={p.note}>{readersOnly?"Призвать можно только тех, кто уже видит эту задачу.":"Если у человека нет доступа, призыв согласует автор задачи или владелец очереди."}</p>
     </AnchoredPopover>
   </span>;
 }

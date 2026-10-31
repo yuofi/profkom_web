@@ -35,7 +35,7 @@ it("comment frame keeps formatting, preview and footer together without help or 
 
 it("mention popup searches locally, supports keyboard selection and restores focus", async () => {
   const targets=people.slice(0,3), selected=vi.fn(),insert=vi.fn();
-  vi.spyOn(taskCollaborationApi,'candidates').mockResolvedValue({items:targets,next_cursor:null});
+  vi.spyOn(taskCollaborationApi,'candidates').mockResolvedValue({items:targets.map(user=>({...user,can_assign:true})),next_cursor:null});
   page=await mountWorkspace(<TaskMentionPicker taskId="test-task" value={[]} onChange={selected} onMentionText={insert}/>);
   const trigger=page.container.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')!;
   await act(async()=>{trigger.focus();trigger.click();});await waitForPage(page);
@@ -83,7 +83,7 @@ it("the comment attachment popover preserves its local draft and never opens tas
 async function mountDraftTask(existing=false) {
   const fixture=createFixtures('chair'),task={...fixture.tasks[0],capabilities:['comment_task'],status:'open' as const};
   const comment={...fixture.comments[0],task_id:task.task_id,content:richText(`Старый [участник](/contacts/${people[1].user_id})`),mentioned_users:[people[1]],capabilities:['edit_comment']};
-  vi.spyOn(tasksApi,'get').mockResolvedValue(task);vi.spyOn(tasksApi,'comments').mockResolvedValue({items:existing?[comment]:[],next_cursor:null});vi.spyOn(seasonsApi,'list').mockResolvedValue({items:fixture.seasons,next_cursor:null});vi.spyOn(historyApi,'list').mockResolvedValue({items:[],next_cursor:null});vi.spyOn(taskCollaborationApi,'candidates').mockResolvedValue({items:people.slice(0,3),next_cursor:null});
+  vi.spyOn(tasksApi,'get').mockResolvedValue(task);vi.spyOn(tasksApi,'comments').mockResolvedValue({items:existing?[comment]:[],next_cursor:null});vi.spyOn(seasonsApi,'list').mockResolvedValue({items:fixture.seasons,next_cursor:null});vi.spyOn(historyApi,'list').mockResolvedValue({items:[],next_cursor:null});vi.spyOn(taskCollaborationApi,'candidates').mockResolvedValue({items:people.slice(0,3).map(user=>({...user,can_assign:true})),next_cursor:null});
   page=await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage/>}/></Routes>,{path:`/tasks/${task.task_id}`});await waitForPage(page);return{task,comment};
 }
 async function chooseDraftPerson(frame:Element,userId:number) {

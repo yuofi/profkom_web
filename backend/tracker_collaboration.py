@@ -254,12 +254,24 @@ def revoke(task_id,target_uid,uid):
 
 
 def candidates(task_id,uid):
-    from tracker import visible_task
-    from task_queues import active
+    """Active people for mentions and assignment. can_assign: the person already reads
+    the task, or the actor approves access (author/queue owner). Support tickets and
+    control epics never share access by a mention, so only their readers are offered."""
+    from tracker import visible_task,is_control_task
+    from task_queues import active,task_readers,task_queue
+    from support import is_support_queue
     with db._session() as session:
-        visible_task(session,task_id,uid)
-        return dict(items=[asdict(ref) for row in session.query(UserORM).options(selectinload(UserORM.contact)).order_by(UserORM.user_id)
-            if active(session,row.user_id) and (ref:=_user_to_ref_dc(row))],next_cursor=None)
+        task=visible_task(session,task_id,uid)
+        rows=[row for row in session.query(UserORM).options(selectinload(UserORM.contact)).order_by(UserORM.user_id) if active(session,row.user_id)]
+        readers=task_readers(session,task,[row.user_id for row in rows])
+        queue=task_queue(session,task)
+        closed=bool(queue and is_support_queue(session,queue)) or is_control_task(session,task.task_id)
+        approver=not closed and uid in _managers(session,task)
+        from database import _user_ref_with_avatar
+        from directory import avatar_urls
+        rows=[row for row in rows if not closed or row.user_id in readers];avatars=avatar_urls(session,rows)
+        return dict(items=[dict(asdict(ref),can_assign=row.user_id in readers or approver) for row in rows
+            if (ref:=_user_ref_with_avatar(row,avatars[row.user_id]))],next_cursor=None)
 
 
 class MentionDecisionIn(Command):

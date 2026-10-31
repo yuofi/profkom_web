@@ -14,6 +14,7 @@ import { taskStatus, taskTransitions } from "./trackerStatus";
 import { TrackerTaskHistoryDiff } from "./TrackerTaskHistoryDiff";
 import { ApiError } from "../../utils/api/request";
 import { historyApi } from "../../utils/api/history.api";
+import { taskCollaborationApi } from "../../utils/api/taskCollaboration.api";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 afterEach(async () => { await page?.cleanup();page = undefined;vi.restoreAllMocks(); });
@@ -329,6 +330,22 @@ it("self joining and removing another assignee update the public roster and put 
   const parameters = page!.container.querySelector('[aria-label="Параметры задачи"]')!;expect(parameters.textContent).not.toContain("Стать исполнителем");
   const nextRevision = task.revision;await act(async () => parameters.querySelector<HTMLButtonElement>(`[aria-label="Убрать исполнителя: ${other.display_name}"]`)!.click());await waitForPage(page!);
   expect(remove).toHaveBeenCalledWith(task.task_id, other.user_id, { expected_revision: nextRevision });expect(task.watchers?.map(person => person.user_id)).toEqual([other.user_id]);
+});
+it("the assignee picker disables people without task access and explains the mention route", async () => {
+  let task = makeTask({ assignees: [people[0]], watchers: [], capabilities: ["read_task", "assign_task_participants"] });
+  vi.spyOn(taskCollaborationApi, "candidates").mockResolvedValue({ items: [{ ...people[1], can_assign: false }, { ...people[2], can_assign: true }], next_cursor: null });
+  const assign = vi.spyOn(tasksApi, "assign").mockImplementation(async () => { task = { ...task, assignees: [people[0], people[2]], revision: task.revision + 1 };return task; });
+  await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async () => task);const first = task.revision;
+  await click("Добавить исполнителя");await waitForPage(page!);
+  const parameters = page!.container.querySelector('[aria-label="Параметры задачи"]')!;const input = parameters.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  await act(async () => input.focus());await settle();
+  const locked = document.querySelector<HTMLElement>(`[data-option-value="${people[1].user_id}"]`)!, open = document.querySelector<HTMLElement>(`[data-option-value="${people[2].user_id}"]`)!;
+  expect(locked.getAttribute("aria-disabled")).toBe("true");expect(open.hasAttribute("aria-disabled")).toBe(false);
+  expect(open.compareDocumentPosition(locked) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  const hint = document.getElementById(input.getAttribute("aria-describedby")!)!;expect(hint.textContent).toContain("Призовите их в комментарии");
+  await act(async () => locked.click());await settle();expect(assign).not.toHaveBeenCalled();
+  await act(async () => open.click());await waitForPage(page!);
+  expect(assign).toHaveBeenCalledWith(task.task_id, people[2].user_id, { expected_revision: first });
 });
 it("readers can watch and unwatch independently of the accounting controls", async () => {
   const self = people.find(person => person.user_id === createFixtures("chair").session.user_id)!;let task = makeTask({ assignees: [], watchers: [], capabilities: ["read_task", "watch_task", "unwatch_task"] });

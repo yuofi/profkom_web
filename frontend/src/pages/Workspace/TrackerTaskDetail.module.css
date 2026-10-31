@@ -49,6 +49,7 @@
 .personChip span { flex: 0 0 auto; font-size: 16px; }
 .personChip:hover { color: var(--primary); border-color: var(--primary); }
 .unavailable { display: block; margin: 5px 0 0 9px; color: var(--accent-peach); font-size: 11px; }
+.pickerHint { max-width: 100%; color: var(--on-surface-variant); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
 .overdue { color: var(--accent-rose); }
 .activity { border-top: 1px solid var(--surface-variant); min-width: 0; }
 .activityHeader { display: flex; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px solid var(--surface-variant); min-width: 0; }

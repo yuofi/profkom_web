@@ -1203,7 +1203,8 @@ export function installMockTransport(
       if (!readsTask(task))
         return method === "get" ? fail(404, "not_found", "Задача недоступна") : denied();
       const managesAccess=task.created_by?.user_id===state.session.user_id||state.queues.find(queue=>queue.queue_id===task.queue?.queue_id)?.owner?.user_id===state.session.user_id;
-      if(parts[2]==="mention-candidates")return list(clone(state.people));
+      const approvesAssignee=(uid:number|null)=>managesAccess||!!uid&&(!!taskGrants.get(task.task_id)?.has(uid)||[...(task.assignees??[]),...(task.watchers??[])].some(person=>person.user_id===uid));
+      if(parts[2]==="mention-candidates")return list(clone(state.people).map(person=>({...person,can_assign:approvesAssignee(person.user_id)})));
       if(parts[2]==="mentions") {
         if(method==="get")return list(clone(managesAccess?mentionRequests.filter(row=>row.task_id===task.task_id):[]));
         if(!managesAccess)return denied();const row=mentionRequests.find(row=>row.request_id===parts[3]&&row.task_id===task.task_id);
@@ -1325,6 +1326,7 @@ export function installMockTransport(
       if(parts[2]==="assignees"&&parts[4]==="add") {
         if(!task.capabilities.includes("assign_task_participants"))return denied();if(mismatch(data,task))return conflict();
         const person=state.people.find(person=>person.user_id===Number(parts[3]));if(!person)return fail(422,"invalid_input","Участник недоступен");
+        if(!approvesAssignee(person.user_id))return fail(403,"task_access_approval_required","Сначала согласуйте доступ через призыв");
         task.assignees??=[];if(task.assignees.some(row=>row.user_id===person.user_id))return [200,visibleTask(task)];task.assignees.push(clone(person));task.watchers=task.watchers?.filter(row=>row.user_id!==person.user_id);
         if(!task.assignments.some(row=>row.assignee.user_id===person.user_id)){const aid=id("assignment");task.assignments.push({assignment_id:aid,assignee:clone(person),status:assignmentStatus(publicStatus(task.status)),revision:1,capabilities:[],submissions:[],assignee_unavailable_reason:null,review_note:null});state.assessments.push({assignment_id:aid,hours:0,evaluation:null,effective_completed_at:null,revision:1,workflow_revision:1,workflow_status:"assigned",capabilities:inputsCaps()});}
         refreshRoster(task);rememberTask(task,"roster_changed","Изменён состав задачи");return changed(task);

@@ -270,6 +270,11 @@ export interface TaskMentionRequest {
   request_id:string;task_id:string;task_key:string|null;target:UserRef|null;requested_by:UserRef|null;
   comment_id:string|null;status:"pending"|"approved"|"rejected";created_at:string;revision:number;capabilities:string[];
 }
+/** A person offered by GET /tasks/{id}/mention-candidates. */
+export interface TaskCandidate extends UserRef {
+  /** Reads the task already, or the actor approves access: assigning is accepted. */
+  can_assign: boolean;
+}
 export type TaskPublicStatus = "open" | "in_progress" | "completed" | "closed";
 export type TaskType = "task" | "milestone" | "epic";
 export type TaskPriority = "low" | "normal" | "high" | "urgent";
