@@ -489,9 +489,12 @@ def _material(uid, material_id):
         if not m or m.deleted:
             return set()
         meta = session.get(BlockMetaORM, m.owner_block_id) if m.owner_block_id else None
-        editor = bool(meta and _block(uid, meta.legacy_name) & BLOCK_LEADS) or session.query(
-            RoleAssignmentORM
-        ).filter_by(user_id=uid, scope_kind="material", scope_id=material_id, role="material_editor").first() is not None
+        # A clean read UOW answers the editor check from the persisted role snapshot.
+        snapshot = _plain_uid(uid) and isinstance(material_id, str) and _role_facts() is not None
+        editor = bool(meta and _block(uid, meta.legacy_name) & BLOCK_LEADS) or (
+            _has_scope_role(uid, "material", material_id, "material_editor") if snapshot else session.query(
+                RoleAssignmentORM
+            ).filter_by(user_id=uid, scope_kind="material", scope_id=material_id, role="material_editor").first() is not None)
         return {MATERIAL_EDITOR} if editor else set()
 
 
