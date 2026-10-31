@@ -38,6 +38,7 @@ from auth import (
     require_pgas_admin,        # права на раздел ПГАС
     REFRESH_TTL_DAYS,
     guard_working_access,
+    precheck_access_token,
     get_file_reader,
     unit_of_work,
 )
@@ -51,7 +52,7 @@ app = FastAPI(
 install_errors(app)
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
-router = APIRouter(prefix="/api", dependencies=[Depends(unit_of_work), Depends(guard_working_access)])
+router = APIRouter(prefix="/api", dependencies=[Depends(precheck_access_token), Depends(unit_of_work), Depends(guard_working_access)])
 origins = [
     FRONTEND_URL,
 ]

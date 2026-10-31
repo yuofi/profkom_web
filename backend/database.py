@@ -4,6 +4,7 @@ from errors import Conflict, Forbidden, InvalidInput, NotFound, revision_conflic
 import json
 import logging
 import asyncio
+import time
 from weakref import WeakKeyDictionary
 from anyio import to_thread
 from contextvars import ContextVar
@@ -2605,6 +2606,19 @@ class _SessionLease:
         return getattr(self.session, name)
 
 
+WRITE_LOCK_LOG_MS = 200
+_write_lock_log = logging.getLogger("profkom.write_lock")
+
+
+def _report_write_lock(label, started, acquired, released):
+    """Wait = until BEGIN IMMEDIATE returned; hold = from then until the lock is free."""
+    wait = ((acquired if acquired is not None else released) - started) * 1000
+    hold = (released - acquired) * 1000 if acquired is not None else 0.0
+    if wait > WRITE_LOCK_LOG_MS or hold > WRITE_LOCK_LOG_MS:
+        _write_lock_log.warning("write unit %s waited %.0f ms and held the write lock %.0f ms",
+                                label or "-", wait, hold)
+
+
 class Database:
     """SQLAlchemy-backed database layer."""
 
@@ -2618,11 +2632,13 @@ class Database:
         return _SessionLease(active) if active is not None else self._SessionLocal()
 
     @asynccontextmanager
-    async def async_atomic(self, write=True):
+    async def async_atomic(self, write=True, label=None):
         """Keep the request context, without blocking the loop on SQLite locks.
 
         Waiting HTTP writers yield so the current request can commit. The
         synchronous atomic() remains available for scripts and domain services.
+        A write unit that waits for or holds the write lock longer than
+        WRITE_LOCK_LOG_MS is logged with ``label`` (method and path).
         """
         if _active_session.get() is not None:
             if write:
@@ -2631,6 +2647,8 @@ class Database:
             return
         lock = None
         loop = asyncio.get_running_loop()
+        started = time.perf_counter()
+        acquired = None
         if write:
             lock = self._http_write_locks.setdefault(loop, asyncio.Lock())
             await lock.acquire()
@@ -2639,6 +2657,7 @@ class Database:
                 with self._SessionLocal() as session:
                     if write:
                         await to_thread.run_sync(lambda: session.execute(text("BEGIN IMMEDIATE")))
+                        acquired = time.perf_counter()
                     token = _active_session.set(session)
                     try:
                         if write:
@@ -2657,6 +2676,7 @@ class Database:
         finally:
             if lock is not None:
                 lock.release()
+                _report_write_lock(label, started, acquired, time.perf_counter())
 
     @contextmanager
     def atomic(self, write=True):

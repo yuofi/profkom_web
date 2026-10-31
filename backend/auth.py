@@ -247,17 +247,42 @@ def revoke_all_user_tokens(user_id: int):
 PASSWORD_CHANGE_REQUIRED = "Password change required"
 
 
-async def guard_working_access(request: Request):
-    token=request_token(request)
-    from access import actor_id
+def _access_rules(request: Request):
     path=request.url.path.removeprefix("/api")
     feedback_intake = path == "/feedback" and request.method == "POST"
     exempt=feedback_intake or path.startswith("/auth/") or path=="/session" or path in {"/registrations/me","/registrations/me/resubmit"}
+    return path, feedback_intake, exempt
+
+
+async def precheck_access_token(request: Request):
+    """Refuse a missing or undecodable access token before a unit of work opens.
+
+    The same exempt rules and 401 answers guard_working_access gives; a request it
+    lets through still gets the full check (account, session version) in the unit.
+    No database read, so a bad token never waits for the write lock.
+    """
+    token=request_token(request)
+    path, feedback_intake, exempt = _access_rules(request)
+    if not exempt:
+        if token is None:
+            raise HTTPException(401,"Not authenticated",headers={"WWW-Authenticate":"Bearer"})
+        _decode_access(token)
+    elif token and not path.startswith("/auth/") and not feedback_intake:
+        _decode_access(token)
+
+
+async def guard_working_access(request: Request):
+    from anyio import to_thread
+    token=request_token(request)
+    from access import actor_id
+    path, feedback_intake, exempt = _access_rules(request)
     uid=None
     if not exempt:
         if token is None:
             raise HTTPException(401,"Not authenticated",headers={"WWW-Authenticate":"Bearer"})
-        cur=get_current_user(token)
+        # The account read runs in a worker thread (with this unit's context), not
+        # on the event loop; the actor is still set here, in the request's context.
+        cur=await to_thread.run_sync(get_current_user, token)
         if cur.account_state!="active":
             raise HTTPException(403,"Approved active account required")
         if cur.must_change_password:
@@ -265,7 +290,7 @@ async def guard_working_access(request: Request):
             raise HTTPException(403,PASSWORD_CHANGE_REQUIRED)
         uid=cur.user_id
     elif token and not path.startswith("/auth/") and not feedback_intake:
-        uid=get_current_user(token).user_id
+        uid=(await to_thread.run_sync(get_current_user, token)).user_id
     marker=actor_id.set(uid)
     try:
         yield
@@ -282,5 +307,6 @@ async def unit_of_work(request: Request):
     if request.url.path in OWN_TRANSACTION:
         yield
         return
-    async with db.async_atomic(write=request.method not in {"GET", "HEAD", "OPTIONS"}):
+    async with db.async_atomic(write=request.method not in {"GET", "HEAD", "OPTIONS"},
+                               label=f"{request.method} {request.url.path}"):
         yield
