@@ -101,6 +101,23 @@ it("GL-06 and GL-13: a refused refresh routes to the login at once and remembers
   expect(client!.getQueryData(["materials"])).toBeUndefined();
 });
 
+it("GL-06: a refresh refused for a banned or archived account closes the page at once", async () => {
+  const { f, container, render } = await mount("/tasks/task-1");
+  let ended = false;
+  adapter!.onGet("/session").reply(() => ended ? [401, {}] : [200, f.session]);
+  adapter!.onGet("/profile/me").reply(200, f.profile);
+  adapter!.onGet("/materials").reply(() => ended ? [401, {}] : [200, { items: [], next_cursor: null }]);
+  global!.onPost(/\/auth\/refresh$/).reply(403, { detail: "Account is archived" });
+  await render();
+  await until(() => container.textContent!.includes("Материалы"));
+  const reads = () => adapter!.history.get.filter(item => item.url === "/session").length, before = reads();
+  ended = true;
+  await act(async () => { await client!.invalidateQueries({ queryKey: ["materials"] }); });
+  await until(() => reads() > before);
+  await until(() => !container.querySelector("textarea"));
+  expect(container.querySelector('[role="alert"]')).not.toBeNull();
+});
+
 it("GL-06: a refused action rereads the session without waiting for the poll", async () => {
   const { f, container, render } = await mount("/tasks/task-1");
   adapter!.onGet("/session").reply(200, f.session);

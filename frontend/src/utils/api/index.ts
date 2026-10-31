@@ -70,7 +70,8 @@ const signedInBefore = () => { try { return localStorage.getItem(SIGNED_IN) === 
 const onLoginPage = () => typeof window !== "undefined" && /^\/auth(\/|$)/.test(window.location.pathname);
 const isSessionRead = (config?: InternalAxiosRequestConfig) => config?.url === "/session";
 /** The provider rereads the session when a request shows that access may have changed: a
- *  refused refresh (401) or a refusal (403/404) of an ordinary request (GL-06). */
+ *  refused refresh (401, or 403 for a banned or archived account) or a refusal (403/404) of
+ *  an ordinary request (GL-06). */
 type AccessListener = () => void;
 let accessListener: AccessListener | null = null;
 export function onAccessChange(listener: AccessListener) {
@@ -146,7 +147,7 @@ api.interceptors.response.use(
             if (refreshError) {
                 if (generation === authGeneration) Cookies.remove("access_token");
                 // The session itself is over: the session read reports it on its own.
-                if (axios.isAxiosError(refreshError) && refreshError.response?.status === 401 && !isSessionRead(originalConfig))
+                if (axios.isAxiosError(refreshError) && [401, 403].includes(refreshError.response?.status ?? 0) && !isSessionRead(originalConfig))
                     accessListener?.();
                 return Promise.reject(refreshError);
             }
