@@ -2,6 +2,7 @@
 import { act } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { TrackerListPage } from "./TrackerList";
+import { TrackerParentSelector } from "./TrackerParentSelector";
 import { CalendarPage } from "./WorkspacePages";
 import { installMockTransport } from "../../mocks/transport";
 import { mountWorkspace, waitForPage, change, settle } from "../../test/workspace";
@@ -123,4 +124,26 @@ it("does not reveal cached calendar directory options while a reopened filter is
   await act(async () => refuse(new ApiError("Нет доступа", 403)));
   await waitForPage(page);
   expect(document.querySelector('[data-entity-picker-popup]')?.textContent ?? "").not.toContain(name);
+});
+
+it("coalesces parent-task typing into one short read and cancels the superseded one", async () => {
+  mock = installMockTransport("chair", { delay: 0 });const fixture = createFixtures("chair").tasks[0];
+  let oldSignal: AbortSignal | undefined;
+  const read = vi.spyOn(tasksApi, "listPage").mockImplementation(async (params, signal) => {
+    if ((params as { q?: string }).q === "Подг") { oldSignal = signal;return new Promise(() => {}); }
+    return { items: [fixture], next_cursor: null, scopes: [], assignees: [] };
+  });
+  page = await mountWorkspace(<TrackerParentSelector value="" onChange={() => {}} seasonId={fixture.season_id} />);
+  const input = page.container.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  await act(async () => input.focus());await waitForPage(page);
+  expect(read).toHaveBeenCalledOnce();expect(read).toHaveBeenLastCalledWith({ season_id: fixture.season_id, limit: 20 }, expect.any(AbortSignal));
+  vi.useFakeTimers();
+  for (const value of ["П", "По", "Под", "Подг"]) { await change(input, value);await act(async () => { vi.advanceTimersByTime(100); }); }
+  expect(read).toHaveBeenCalledOnce();
+  await act(async () => { vi.advanceTimersByTime(250); });
+  expect(read).toHaveBeenCalledTimes(2);expect(read).toHaveBeenLastCalledWith({ season_id: fixture.season_id, q: "Подг", limit: 20 }, expect.any(AbortSignal));
+  expect(page.container.textContent).toContain(fixture.title);
+  await change(input, "Подготовка");await act(async () => { vi.advanceTimersByTime(250); });
+  expect(oldSignal?.aborted).toBe(true);expect(read).toHaveBeenCalledTimes(3);
+  vi.useRealTimers();
 });

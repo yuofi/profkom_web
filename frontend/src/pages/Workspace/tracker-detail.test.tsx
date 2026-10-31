@@ -199,7 +199,7 @@ it("selects and clears a cross-queue parent in one combobox with revision protec
   const dialog = page!.container.querySelector("dialog")!, input = dialog.querySelector<HTMLInputElement>('[role="combobox"]')!;
   expect(dialog.querySelectorAll('[role="combobox"]')).toHaveLength(1);expect(dialog.textContent).not.toContain("Поиск родительской задачи");await act(async () => input.focus());await waitForPage(page!);
   expect(dialog.textContent).toContain(other.title);expect(dialog.textContent).not.toContain("Другой сезон");expect([...dialog.querySelectorAll('[role="option"]')]).toHaveLength(1);
-  await change(input, "WEB");await waitForPage(page!);expect(candidates).toHaveBeenLastCalledWith({ season_id: task.season_id, q: "WEB", limit: 100 });
+  await change(input, "WEB");await waitForPage(page!, () => (candidates.mock.lastCall?.[0] as { q?: string } | undefined)?.q === "WEB");expect(candidates).toHaveBeenLastCalledWith({ season_id: task.season_id, q: "WEB", limit: 20 }, expect.any(AbortSignal));
   await act(async () => dialog.querySelector<HTMLElement>('[role="option"]')!.click());await submit(dialog.querySelector("form")!);await waitForPage(page!);
   expect(update).toHaveBeenLastCalledWith(task.task_id, { expected_revision: task.revision - 1, parent_task_id: other.task_id });expect(page!.container.querySelector('[aria-label="Путь задачи"]')?.textContent).toContain(other.title);
   const trail = page!.container.querySelector('[aria-label="Путь задачи"]')!;

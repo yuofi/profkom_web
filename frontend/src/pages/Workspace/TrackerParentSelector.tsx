@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useDebouncedValue } from "../../utils/hooks/useDebouncedValue";
 import type { TaskType } from "../../utils/api/contract";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { canRetainData } from "../../utils/api/request";
@@ -17,7 +18,9 @@ export function TrackerParentSelector({ value, onChange, seasonId, taskId, initi
   const [picked, setPicked] = useState<ParentRef | null>(null);
   const [open, setOpen] = useState(false), [search, setSearch] = useState(""), [active, setActive] = useState(0);
   const selected = useQuery({ queryKey: ["tasks", value], queryFn: () => tasksApi.get(value), enabled: !!value });
-  const query = useQuery({ queryKey: ["tasks", "parent-combobox", seasonId === null ? "without-season" : seasonId ?? "", taskId ?? "", taskType ?? "", search], queryFn: () => tasksApi.listPage({ ...(seasonId ? { season_id: seasonId } : {}), q: search || undefined, ...(taskType ? { task_type: taskType } : {}), limit: 100 }), enabled: open && !disabled });
+  // Typing settles for 250 ms before one short read; a newer search cancels the older one, and the last list stays meanwhile.
+  const settledSearch = useDebouncedValue(search);
+  const query = useQuery({ queryKey: ["tasks", "parent-combobox", seasonId === null ? "without-season" : seasonId ?? "", taskId ?? "", taskType ?? "", settledSearch], queryFn: ({ signal }) => tasksApi.listPage({ ...(seasonId ? { season_id: seasonId } : {}), q: settledSearch || undefined, ...(taskType ? { task_type: taskType } : {}), limit: 20 }, signal), enabled: open && !disabled, placeholderData: keepPreviousData });
   const options = (query.error && !canRetainData(query.error) ? [] : query.data?.items ?? []).filter(task => task.queue?.key!=="KKR" && task.task_id !== taskId && (seasonId === undefined || task.season_id === seasonId) && (!taskType || task.task_type === taskType));
   const refused = !!selected.error && !canRetainData(selected.error);
   const parent = refused ? null : selected.data?.task_id === value ? selected.data : selected.isLoading && picked?.task_id === value ? picked : initialParent?.task_id === value ? initialParent : null;
