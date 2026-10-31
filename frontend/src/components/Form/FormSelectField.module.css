@@ -1,5 +1,11 @@
 .select { appearance: none; padding-right: 52px; color: var(--on-surface); cursor: pointer; }
+/* The page's own select skin (Workspace.module.css, WorkspaceLayout.module.css) would draw a second
+   box with its arrow over this outlined field and its label: here the outline is the fieldset's. */
+.select.select:not([multiple]) { min-height: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; padding: 0 52px 0 24px; }
+@supports (appearance: base-select) {
+  .select.select:not([multiple])::picker-icon { display: none; }
+}
 .select option { background: var(--surface-container); color: var(--on-surface); }
-.label { top: 0; transform: translateY(-50%) scale(0.9); font-weight: 500; }
+.label { top: 0; transform: translateY(-50%) scale(0.9); font-weight: 500; z-index: 3; }
 .legend { max-width: 100%; }
 .chevron { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); pointer-events: none; z-index: 3; opacity: 0.7; }
