@@ -202,11 +202,14 @@ def projection(season_id, uid):
             result.append(dict(control_id=control.control_id,task_id=task.task_id,title=task.title,source_kind=control.source_kind,
                 source_id=control.source_id,status=public_status(meta.status if meta else None),
                 responsibles=[refs[row.user_id] for row in roster[task.task_id] if row.user_id in refs],missing_tasks=work,missing_count=len(work)))
-        return dict(items=result,capabilities=['remind_kkr'] if access.HR_MASTER in access._global(uid) else [])
+        return dict(items=result,capabilities=['remind_kkr'] if access.allowed(uid,'kkr.remind',state=access.season_state(season_id)) else [])
 
 
 def remind(season_id, uid):
-    if access.HR_MASTER not in access._global(uid):raise Forbidden('HR master required')
+    state=access.season_state(season_id)
+    if state is None:raise NotFound('Season not found')
+    if not access.allowed(uid,'kkr.remind',state=state):
+        raise Forbidden('HR master required' if state in {'open','summarizing'} else 'KKR reminders are sent only in an open or summarizing season')
     with db.atomic():
       with db._session() as session:
         sync_for_season(session,season_id,uid)

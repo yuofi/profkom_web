@@ -67,9 +67,9 @@ export function SeasonKkrControl({seasonId}:{seasonId:string}) {
   return <section className={u.stack}><div className={u.panelHeader}><h2>Заполнение ККР</h2></div><QueryState loading={query.isLoading} error={query.error} retry={()=>void query.refetch()}>{query.data?.items.map(item=><section className={u.panel} key={item.control_id}><div className={u.panelHeader}><Link to={`/tasks/${encodeURIComponent(item.task_id)}`}>{item.title}</Link><strong>{item.missing_count} без ККР</strong></div><div className={w.row}>{item.responsibles.map(user=><UserChip key={user.user_id} user={user}/>)}</div>{item.missing_tasks.length?<ul className={u.detailList}>{item.missing_tasks.map(task=><li key={task.task_id}><Link to={`/tasks/${encodeURIComponent(task.task_id)}?kkr=1`}>{task.task_key} · {task.title}</Link><div className={w.row}>{task.missing_assignees.map(user=><UserChip key={user.user_id} user={user}/>)}</div></li>)}</ul>:<p className={u.note}>Все закрытые задачи заполнены. Контроль остаётся открытым до конца сезона.</p>}</section>)}{query.data?.items.length===0&&<Empty>Контрольные эпики ещё не созданы. Они формируются при настройке открытого сезона и его команд.</Empty>}</QueryState></section>;
 }
 
+/** Rendered by the season's remind_kkr capability; the control list loads only on its own tab. */
 export function SeasonKkrSummon({seasonId}:{seasonId:string}) {
-  const client=useQueryClient(),query=useQuery({queryKey:['kkr-control',seasonId],queryFn:()=>kkrApi.controls(seasonId)});
+  const client=useQueryClient();
   const [busy,setBusy]=useState(false),[message,setMessage]=useState(''),[failed,setFailed]=useState(false);const saving=useRef(false);
-  if(!query.data?.capabilities.includes('remind_kkr'))return null;
   return <div className={u.summon}><button type="button" className={u.primary} disabled={busy} aria-busy={busy} onClick={()=>{if(saving.current)return;saving.current=true;setBusy(true);setMessage('');setFailed(false);void kkrApi.remind(seasonId).then(async result=>{setMessage(`Призывов отправлено: ${result.comments_created}`);await client.invalidateQueries({queryKey:['kkr-control',seasonId]});}).catch(error=>{setFailed(true);setMessage(userMessage(error));}).finally(()=>{saving.current=false;setBusy(false);});}}><Glyph name="notifications"/>Призвать на заполнение</button>{message&&<p role={failed?'alert':'status'}>{message}</p>}</div>;
 }

@@ -429,3 +429,22 @@ def test_actual_mark_command_does_not_query_block_identity_per_credit(client,wor
     source=next(source for source in row['source_scores'] if source['source_kind']=='block_task')
     assert source['source_id']==work['block']['block_id'] and source['score']==120
     assert row['total_score']==120 and row['decisions']==['nice']
+
+
+def test_reminder_right_follows_policy_and_season_state(client,work,superuser,make_hr):
+    import access
+    hr,_=make_hr(block_name='Reminder state HR')
+    sid=work['task']['season_id']
+    assert 'remind_kkr' in client.get('/api/seasons/'+sid,headers=hr.headers).json()['capabilities']
+    assert 'remind_kkr' not in client.get('/api/seasons/'+sid,headers=superuser.headers).json()['capabilities']
+    assert client.get('/api/seasons/'+sid+'/kkr-control',headers=hr.headers).json()['capabilities']==['remind_kkr']
+    assert access.roles_for('kkr.remind','closed')==frozenset() and access.roles_for('kkr.remind','planned')==frozenset()
+    from datetime import datetime,timedelta,timezone
+    moment=datetime.now(timezone.utc)
+    planned=client.post('/api/seasons',headers=superuser.headers,json={'title':'Следующий','type':'winter_spring',
+        'starts_at':(moment+timedelta(days=60)).isoformat(),'ends_at':(moment+timedelta(days=120)).isoformat()})
+    assert planned.status_code==200,planned.text
+    planned=planned.json()
+    assert 'remind_kkr' not in client.get('/api/seasons/'+planned['season_id'],headers=hr.headers).json()['capabilities']
+    assert client.get('/api/seasons/'+planned['season_id']+'/kkr-control',headers=hr.headers).json()['capabilities']==[]
+    assert client.post('/api/seasons/'+planned['season_id']+'/kkr-control/remind',headers=hr.headers).status_code==403

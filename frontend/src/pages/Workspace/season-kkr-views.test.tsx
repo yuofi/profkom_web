@@ -5,7 +5,10 @@ import { createFixtures } from '../../mocks/fixtures';
 import { mountWorkspace, waitForPage, change } from '../../test/workspace';
 import { membershipApi } from '../../utils/api/membership.api';
 import { kkrApi, type AccountingStatistic } from '../../utils/api/kkr.api';
+import { Route, Routes } from 'react-router-dom';
+import { installMockTransport } from '../../mocks/transport';
 import { SeasonStatistics, SeasonKkrControl, SeasonKkrHistory, SeasonKkrSummon } from './SeasonKkrViews';
+import { SeasonPage } from './SeasonPages';
 let page:Awaited<ReturnType<typeof mountWorkspace>>|undefined;
 beforeEach(()=>{vi.spyOn(membershipApi,'blocks').mockResolvedValue(createFixtures('chair').blocks);});
 afterEach(async()=>{await page?.cleanup();page=undefined;vi.restoreAllMocks();});
@@ -27,8 +30,15 @@ it('links missing accounting directly into a task and uses one normal summon com
  page=await mountWorkspace(<><header><SeasonKkrSummon seasonId="season-1"/></header><SeasonKkrControl seasonId="season-1"/></>);await waitForPage(page);expect(page.container.querySelector('a[href="/tasks/work?kkr=1"]')).not.toBeNull();
  for(let i=0;i<2;i++){await act(async()=>[...page!.container.querySelectorAll('button')].find(button=>button.textContent==='Призвать на заполнение')!.click());await waitForPage(page);}expect(remind).toHaveBeenCalledTimes(2);
 });
-it('does not offer the summon action without its server capability',async()=>{
- vi.spyOn(kkrApi,'controls').mockResolvedValue({capabilities:[],items:[]});page=await mountWorkspace(<><header><SeasonKkrSummon seasonId="season-1"/></header><SeasonKkrControl seasonId="season-1"/></>);await waitForPage(page);expect([...page.container.querySelectorAll('button')].some(button=>button.textContent==='Призвать на заполнение')).toBe(false);
+it('offers the summon action only by the season capability, without reading controls on the hub',async()=>{
+ const controls=vi.spyOn(kkrApi,'controls').mockResolvedValue({capabilities:[],items:[]});const transport=installMockTransport('chair',{delay:0});
+ try{
+  page=await mountWorkspace(<Routes><Route path="/seasons/:id" element={<SeasonPage/>}/></Routes>,{path:'/seasons/season-1'});await waitForPage(page);
+  const summon=()=>[...page!.container.querySelectorAll('button')].some(button=>button.textContent==='Призвать на заполнение');
+  expect(summon()).toBe(false);
+  page.client.setQueryData(['seasons'],{items:transport.state.seasons.map(season=>season.season_id==='season-1'?{...season,capabilities:[...season.capabilities,'remind_kkr']}:season)});await waitForPage(page);
+  expect(summon()).toBe(true);expect(controls).not.toHaveBeenCalled();
+ }finally{transport.restore();}
 });
 it('offers current blocks absent from the historical summary snapshot',async()=>{
  const fixture=createFixtures('chair');vi.mocked(membershipApi.blocks).mockResolvedValue([{...fixture.blocks[0],block_id:'new-current-block',name:'Текущий новый блок'}]);vi.spyOn(kkrApi,'history').mockResolvedValue({seasons:[],rows:[]});

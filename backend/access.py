@@ -109,6 +109,8 @@ POLICY = {
     "summary.view": SUMMARY,
     "summary.decide": ByState({"*": SUMMARY, "closed": {CHAIR}}),
     "summary.correct": TACHKI,  # closed season corrections (АВ-2)
+    # Calling leaders to fill KKR of closed tasks: the current circle, only while work is accounted
+    "kkr.remind": ByState({"*": frozenset(), "open": {HR_MASTER}, "summarizing": {HR_MASTER}}),
     "merit.create.chair": TACHKI,
     "merit.create.head": TACHKI | EVENT_LEADS,  # decision 12
     "merit.create.block_volunteer": TACHKI,
@@ -443,7 +445,7 @@ def season_caps(season, uid=None):
         "open": {"edit_season": "season.edit", "begin_summary": "season.begin_summary", "create_event": "event.create"},
         "summarizing": {"close_season": "season.close"},
     }
-    return _caps({**by_state.get(season.state, {}), "view_summary": "summary.view", "view_readiness": "summary.view"}, uid)
+    return _caps({**by_state.get(season.state, {}), "view_summary": "summary.view", "view_readiness": "summary.view", "remind_kkr": "kkr.remind"}, uid, state=season.state)
 
 
 EVENT_CAPS = {

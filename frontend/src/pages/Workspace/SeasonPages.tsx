@@ -106,7 +106,7 @@ function SeasonHub({ initialTab = "participants" }: { initialTab?: Tab }) {
   return <section className={u.page}>
     <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!query.data} retry={() => void query.refetch()}>{season ? <>
       <BrandedHeader className={u.header}><div><SectionHomeLink to="/seasons" label="Учёт работы" /><nav className={u.breadcrumbs} aria-label="Путь сезона"><Link to="/seasons">Сезоны</Link><span>›</span><span>{typeNames[season.type]}</span></nav><h1 className={w.title}>{season.title}</h1><div className={u.period}><span>{dateRange(season)}</span>{can(season, "edit_season") && <button type="button" className={u.iconButton} aria-label="Редактировать сезон" onClick={() => setEditing(true)}><Glyph name="edit" /></button>}</div><div className={u.statusLine}><State season={season} />{season.is_current && <small>Текущий сезон</small>}{allowed && summary.data && <small>{summary.data.state === "approved" ? "Итоги утверждены" : "Предварительные итоги"} · Версия {summary.data.version}</small>}</div></div>
-        <div className={u.headerActions}>{allowed&&<SeasonKkrSummon key={id} seasonId={id}/>}
+        <div className={u.headerActions}>{can(season, "remind_kkr") && <SeasonKkrSummon key={id} seasonId={id} />}
         {season.state === "closed" && can(session, "view_kkr") && <Link className={`${u.secondary} ${w.button}`} to={`${getSeasonRoute(id)}/sources`}><Glyph name="fact_check" />Подробные начисления</Link>}
         <SeasonManage season={season} summary={summary.data} onEdit={() => setEditing(true)} onBlocked={items => setBlocked({ seasonId: id, items })} /></div>
       </BrandedHeader>
