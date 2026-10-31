@@ -2,7 +2,7 @@ import { TrackerHomeLink } from "../../components/Workspace/TrackerHomeLink";
 import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
 import { useState, type MouseEvent, type KeyboardEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useParams, useNavigate } from "react-router-dom";
+import { Link, useParams, useNavigate, useSearchParams } from "react-router-dom";
 import type { EntityOption } from "../../components/Workspace/EntityPicker";
 import { UserChip } from "../../components/Workspace/UserChip";
 import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
@@ -25,7 +25,10 @@ import s from "./TaskQueuePages.module.css";
 
 export function TaskQueuesPage() {
   const catalog = useQuery({ queryKey: ["tasks", "queues", "catalog"], queryFn: taskQueuesApi.catalog });
-  const [search, setSearch] = useState(""), [access, setAccess] = useState("");
+  const [search, setSearch] = useState(""), [params, setParams] = useSearchParams();
+  // Own queues come first: locked ones are one explicit choice away and the choice lives in the URL.
+  const access = ["all", "locked"].includes(params.get("access") ?? "") ? params.get("access")! : "granted";
+  const setAccess = (value: string) => { const next = new URLSearchParams(params);if (value === "granted") next.delete("access");else next.set("access", value);setParams(next, { replace: true }); };
   const [creating, setCreating] = useState(false);const navigate = useNavigate();
   const open = (event: MouseEvent<HTMLTableRowElement>, queue: TaskQueue) => {
     if (event.target instanceof Element && event.target.closest("a,button,input,select,[data-row-action]")) return;
@@ -36,16 +39,16 @@ export function TaskQueuesPage() {
   // A locked queue that cannot be requested (KKR control, support) has no page to open.
   const closed = (queue: TaskQueue) => queue.access === "locked" && !queue.can_request_access;
   const keyboard = (event: KeyboardEvent<HTMLTableRowElement>, queue: TaskQueue) => { if (event.target === event.currentTarget && ["Enter", " "].includes(event.key)) { event.preventDefault();navigate(getTaskQueueRoute(queue.queue_id)); } };
-  const items = (catalog.data?.items ?? []).filter(queue => (!access || queue.access === access) && `${queue.name} ${queue.key}`.toLocaleLowerCase().includes(search.toLocaleLowerCase().trim()));
+  const items = (catalog.data?.items ?? []).filter(queue => (access === "all" || queue.access === access) && `${queue.name} ${queue.key}`.toLocaleLowerCase().includes(search.toLocaleLowerCase().trim()));
   return <section className={s.page}>
     <BrandedHeader className={s.header}><div><TrackerHomeLink /><h1 className={w.title}>Очереди</h1><p className={w.description}>Общие и закрытые очереди задач.</p></div><div className={s.headerActions}><RouteLink to="/tasks">Все задачи</RouteLink>{catalog.data?.can_create_queue && <button className={`${w.button} ${w.primary}`} onClick={() => setCreating(true)}>Создать очередь</button>}</div></BrandedHeader>
-    <div className={s.filters}><label className={w.field}>Поиск очередей<input type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Название или ключ" /></label><label className={w.field}>Доступ<select value={access} onChange={e => setAccess(e.target.value)}><option value="">Все очереди</option><option value="granted">Доступные мне</option><option value="locked">Закрытые для меня</option></select></label></div>
+    <div className={s.filters}><label className={w.field}>Поиск очередей<input type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Название или ключ" /></label><label className={w.field}>Доступ<select value={access} onChange={e => setAccess(e.target.value)}><option value="granted">Доступные мне</option><option value="all">Все очереди</option><option value="locked">Закрытые для меня</option></select></label></div>
     <QueryState loading={catalog.isLoading} error={catalog.error} keepDataOnError={!!catalog.data} retry={() => void catalog.refetch()}>
       <div className={s.tableWrap}><table className={s.table} aria-label="Список очередей"><thead><tr><th scope="col">Имя очереди</th><th scope="col">Ключ очереди</th><th scope="col">Владелец очереди</th></tr></thead><tbody>{items.map(queue => <tr key={queue.queue_id} {...(closed(queue) ? {} : { tabIndex: 0, onClick: (event: MouseEvent<HTMLTableRowElement>) => open(event, queue), onAuxClick: (event: MouseEvent<HTMLTableRowElement>) => open(event, queue), onKeyDown: (event: KeyboardEvent<HTMLTableRowElement>) => keyboard(event, queue), "aria-label": `Открыть очередь ${queue.name}` })}>
         <td>{closed(queue) ? <span className={s.queueName}>{queue.name}</span> : <Link to={getTaskQueueRoute(queue.queue_id)} className={s.queueName}>{queue.name}</Link>}{queue.access === "locked" && <span className={s.tableBadge}><LockIcon />Нет доступа</span>}{queue.access === "granted" && queue.is_private && <span className={s.tableBadge}>Закрытая очередь</span>}</td>
         <td className={s.key}>{queue.key}</td><td>{queue.access === "granted" && queue.owner ? <span><UserChip user={queue.owner} />{queue.owner_unavailable && <small className={w.muted}> · Ожидает передачи</small>}</span> : <span className={w.muted}>{queue.access === "locked" ? "Скрыт" : "Не назначен"}</span>}</td>
       </tr>)}</tbody></table></div>
-      {!items.length && <Empty>Очереди не найдены.</Empty>}
+      {!items.length && <Empty>{access === "granted" && !search.trim() ? "Доступных вам очередей пока нет. Выберите «Все очереди», чтобы запросить доступ." : "Очереди не найдены."}</Empty>}
       {creating && catalog.data && <UnsavedChangesScope><TrackerTaskDialog title="Создать очередь" onClose={() => setCreating(false)}><QueueCreateForm catalog={catalog.data} /></TrackerTaskDialog></UnsavedChangesScope>}
     </QueryState>
   </section>;
@@ -55,6 +58,7 @@ export function TaskQueuePage() {
   const query = useQuery({ queryKey: ["tasks", "queues", id], queryFn: () => taskQueuesApi.get(id), enabled: !!id });
   const error = query.error ? normalizeApiError(query.error) : null;
   if (error?.status === 403 && error.code === "queue_access_required") return <QueueAccessScreen id={id} error={error} refresh={() => query.refetch()} />;
+  if (error?.status === 404) return <section className={s.page}><TrackerHomeLink /><Empty>Очередь не найдена.</Empty><div><RouteLink to={getTaskQueuesRoute()}>К очередям</RouteLink></div></section>;
   return <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!query.data} retry={() => void query.refetch()}>{query.data?.access === "granted" && <>{query.data.key === "WEBSUPPORT" && <RouteLink to="/support">Обращения и настройки поддержки</RouteLink>}<TrackerListPage key={id} queue={query.data} header={<QueueHeader queue={query.data} />} /></>}</QueryState>;
 }
 function LockIcon() { return <svg aria-hidden="true" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="5" y="10" width="14" height="11" rx="2" /><path d="M8 10V6a4 4 0 0 1 8 0v4" /><path d="M12 14v3" /></svg>; }
@@ -69,11 +73,11 @@ function QueueCreateForm({ catalog }: { catalog: TaskQueueCatalog }) {
   const scopes = catalog.create_scopes ?? [];
   return <><p className={w.muted}>Вы станете владельцем очереди своей команды.</p><ActionForm fields={[
     { name: "name", label: "Название очереди", required: true },
-    { name: "key", label: "Ключ очереди", required: true, hint: "От1 до32 заглавных английских букв A–Z. Ключ после создания не меняется." },
+    { name: "key", label: "Ключ очереди", required: true, hint: "От\u00a01 до\u00a032 заглавных английских букв A–Z. Ключ после создания не меняется." },
     { name: "scope", label: "Команда очереди", type: "select", entity: "scope", required: true, value: scopes[0] ? JSON.stringify([scopes[0].kind,scopes[0].id]) : "", options: scopes.map(scope => ({ value: JSON.stringify([scope.kind, scope.id]), label: scope.title, scope: { kind: scope.kind, name: scope.title } })) },
     { name: "visibility", label: "Доступ к очереди", type: "select", required: true, value: "public", options: [{ value: "public", label: "Участники команды" }, { value: "private", label: "По одобрению владельца" }] },
   ]} submitLabel="Создать очередь" resetOnSuccess allowExitSave={false} onSubmit={async values => {
-    const key = text(values, "key");if (!/^[A-Z]{1,32}$/.test(key)) throw Error("Ключ должен содержать только заглавные английские буквы A–Z, не более32");
+    const key = text(values, "key");if (!/^[A-Z]{1,32}$/.test(key)) throw Error("Ключ должен содержать только заглавные английские буквы A–Z, не более\u00a032 букв");
     const chosen = text(values, "scope");const scope = scopes.find(item => JSON.stringify([item.kind, item.id]) === chosen);
     if (!scope) throw Error("Выберите команду, которой вы руководите");
     const result = await perform(() => taskQueuesApi.create({ name: text(values, "name").trim(), key, scope, is_private: text(values, "visibility") === "private" }));navigate(getTaskQueueRoute(result.queue_id));

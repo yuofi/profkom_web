@@ -25,6 +25,7 @@ export function SeasonBlockerLink({
   const params = new URLSearchParams({
     assignment_id: blocker.owner_id,
     return_season: seasonId,
+    return_to: "checks",
   });
   const link = blocker.kind === "missing_final_report" && ["event", "subevent"].includes(blocker.owner_kind)
     ? `/reports?owner_kind=${encodeURIComponent(blocker.owner_kind)}&owner_id=${encodeURIComponent(blocker.owner_id)}`

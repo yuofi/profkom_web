@@ -26,7 +26,7 @@ it.each([false, true])("closing from a list checks the saved task's accounting p
     return task;
   });
   const originalRevision = task.revision;
-  page = await mountWorkspace(<><Routes><Route path="/tasks" element={<TrackerListPage />} /><Route path="/tasks/:id" element={<p>Описание задачи</p>} /></Routes><Location /></>, { path: "/tasks" });
+  page = await mountWorkspace(<><Routes><Route path="/tasks" element={<TrackerListPage />} /><Route path="/tasks/:id" element={<p>Описание задачи</p>} /></Routes><Location /></>, { path: "/tasks?mine=false" });
   await waitForPage(page);
   await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Статус задачи: Выполнена"]')!.click());
   await act(async () => [...page!.container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(button => button.textContent?.includes("Закрыта"))!.click());
@@ -34,6 +34,6 @@ it.each([false, true])("closing from a list checks the saved task's accounting p
     ? page!.container.querySelector("[data-location]")?.textContent === `/tasks/${task.task_id}?kkr=1`
     : !!page!.container.querySelector('[aria-label^="Статус задачи: Закрыта"]:not(:disabled)')));
   expect(save).toHaveBeenCalledWith(task.task_id, { expected_revision: originalRevision, status: "closed" });
-  expect(page.container.querySelector("[data-location]")?.textContent).toBe(mayViewAccounting ? `/tasks/${task.task_id}?kkr=1` : "/tasks");
+  expect(page.container.querySelector("[data-location]")?.textContent).toBe(mayViewAccounting ? `/tasks/${task.task_id}?kkr=1` : "/tasks?mine=false");
   expect(page.container.querySelector("table") !== null).toBe(!mayViewAccounting);
 });

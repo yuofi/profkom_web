@@ -8,6 +8,7 @@ import s from "./Workspace.module.css";
 import { userMessage } from "../../utils/api/messages";
 import { idPath, normalizeApiError } from "../../utils/api/request";
 import { FilePreview } from "./FilePreview";
+import { Glyph } from "./WorkspaceUI";
 function useFileDownload() {
   const client = useQueryClient();
   const [error, setError] = useState(""), [busy, setBusy] = useState<string | null>(null);
@@ -64,10 +65,13 @@ export function AttachmentPicker({
   const [error, setError] = useState("");
   return (
     <div className={s.form}>
-      <label className={s.field}>
-        <span>Файлы до {fileLimitMiB(owner_kind)} МиБ</span>
+      {/* The browser's own file button is replaced by a Russian action; the input stays the real control. */}
+      <label className={s.upload}>
+        <span className={s.linkButton}><Glyph name="attach_file" />Прикрепить файлы</span>
+        <small>Файлы до {fileLimitMiB(owner_kind)} МиБ</small>
         <input
           ref={input}
+          className={s.visuallyHidden}
           type="file"
           multiple
           disabled={busy}

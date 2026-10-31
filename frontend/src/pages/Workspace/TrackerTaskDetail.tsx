@@ -46,6 +46,14 @@ import { SupportTaskPanel } from "../../components/Workspace/SupportTaskPanel";
 import w from "../../components/Workspace/Workspace.module.css";
 import s from "./TrackerTaskDetail.module.css";
 
+/** A task opened from a season names the place it returns to; only known season sections are accepted. */
+function seasonReturn(params: URLSearchParams) {
+  const season = params.get("return_season"), source = params.get("return_to"), participant = params.get("participant");
+  if (!season) return null;
+  if (source === "checks") return { to: `${getSeasonRoute(season)}?panel=checks`, label: "← К проверкам сезона" };
+  if (source === "participant" && participant) return { to: `${getSeasonRoute(season)}?participant=${encodeURIComponent(participant)}`, label: "← К участнику" };
+  return { to: getSeasonRoute(season), label: "← К сезону" };
+}
 export function TrackerTaskPage() {
   const { id = "" } = useParams();
   const [params] = useSearchParams();
@@ -53,11 +61,11 @@ export function TrackerTaskPage() {
   return <section className={s.page}>
     {!query.data && <h1 className={s.loadingTitle}>Задача</h1>}
     <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!query.data} retry={() => { void query.refetch(); }}>
-      {query.data && <TaskContent key={id} task={query.data} assignmentId={params.get("assignment_id")} accountingRequested={params.get("kkr")==="1"} returnSeason={params.get("return_season")} />}
+      {query.data && <TaskContent key={id} task={query.data} assignmentId={params.get("assignment_id")} accountingRequested={params.get("kkr")==="1"} back={seasonReturn(params)} />}
     </QueryState>
   </section>;
 }
-function TaskContent({ task, assignmentId, accountingRequested=false, returnSeason }: { task: Task; assignmentId: string | null; accountingRequested?:boolean; returnSeason: string | null }) {
+function TaskContent({ task, assignmentId, accountingRequested=false, back }: { task: Task; assignmentId: string | null; accountingRequested?:boolean; back: { to: string; label: string } | null }) {
   const [editor, setEditor] = useState<"description" | "files" | "parent" | "planning" | null>(null);
   const [copied, setCopied] = useState(""), [manualLink, setManualLink] = useState(""), [linking, setLinking] = useState(false), [saved, setSaved] = useState("");
   const [kkrOpen,setKkrOpen]=useState(!!assignmentId||accountingRequested);
@@ -92,7 +100,7 @@ function TaskContent({ task, assignmentId, accountingRequested=false, returnSeas
       <div className={s.metadata}><span className={s.taskKey}>{task.task_key ?? "Задача"}</span><span>Создана: {task.created_at ? displayDate(task.created_at) : "дата не указана"}</span><span>Обновлена: {task.updated_at ? displayDate(task.updated_at) : "дата не зафиксирована"}</span></div>
       {(copied || saved) && <p className={`${w.muted} ${s.headerNotice}`} role="status">{copied || saved}</p>}
       {manualLink && <label className={s.manualLink}>Скопируйте ссылку вручную<input readOnly value={manualLink} autoFocus onFocus={event => event.currentTarget.select()} onKeyDown={event => { if (event.key === "Escape") setManualLink(""); }} /></label>}
-      {returnSeason && <Link className={s.backLink} to={getSeasonRoute(returnSeason)}>← К закрытию сезона</Link>}
+      {back && <Link className={s.backLink} to={back.to}>{back.label}</Link>}
       <TaskStatusMenu task={task} variant="actions" onClosed={()=>setKkrOpen(true)} />
     </BrandedHeader>
     <div className={s.workspace}>

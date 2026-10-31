@@ -1971,7 +1971,9 @@ def _to_subevent_out(sub: Subevent) -> SubeventOut:
         organizer_user_ids=sub.organizer_user_ids,
         report_series_id=sub.report_series_id if working else None,
         revision=sub.revision,
-        capabilities=access.subevent_caps(sub) if working else [],
+        # Tracker rights are independent of the working ACL: a task reader without
+        # subevent.view still gets the team-task entry, never working-data capabilities.
+        capabilities=access.subevent_caps(sub) if working else access.subevent_task_caps(sub),
     )
 
 

@@ -160,7 +160,8 @@ it.each(["accepted", "in_progress"] as const)(
     expect(link.getAttribute("href")).not.toContain("unresolved");
     await act(async () => link.click());
     await settle();
-    expect(page.container.textContent).toContain("К закрытию сезона");
+    const back = [...page.container.querySelectorAll("a")].find(node => node.textContent === "← К проверкам сезона");
+    expect(back?.getAttribute("href")).toBe("/seasons/season-1?panel=checks");
     expect(page.container.textContent).toContain("Оценить работу");
   },
 );

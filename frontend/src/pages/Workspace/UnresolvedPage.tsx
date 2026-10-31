@@ -74,7 +74,7 @@ export function UnresolvedPage() {
   const items = query.data?.items.filter(item => (!seasonId || item.season_id === seasonId) && (!onlyUnavailable || item.assignment.assignee_unavailable_reason));
   return <section className={s.page}>
     <BrandedHeader className={s.header}><div><TrackerHomeLink /><h1 className={w.title}>Оставшаяся работа</h1><p className={w.description}>Незавершённые назначения и решения по ККР. Прежняя история сохраняется; новое назначение создаётся отдельно.</p></div><div className={s.headerActions}><Link to="/tasks" className={w.button}>Все задачи</Link>{seasonId && <Link to="/tasks/unresolved" className={w.button}>Все сезоны</Link>}</div></BrandedHeader>
-    {!allowed ? <Empty>Нет доступа к очереди.</Empty> : <>
+    {!allowed ? <Empty>Нет доступа к разделу «Оставшаяся работа».</Empty> : <>
       <div className={s.toolbar}><label className={w.check}><input type="checkbox" checked={onlyUnavailable} onChange={event => { const checked = event.target.checked;changeFilter(() => setOnlyUnavailable(checked)); }} />Только без доступного исполнителя</label>{seasonId && <span className={s.seasonFilter}>Выбранный сезон</span>}<span className={s.count} aria-live="polite">Назначений: {items?.length ?? 0}</span></div>
       {saved && <p role="status" className={w.success}>{saved}</p>}
       <QueryState keepDataOnError={!!query.data} loading={query.isLoading} error={query.error} retry={() => { void query.refetch(); }}>

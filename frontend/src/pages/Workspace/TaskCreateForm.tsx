@@ -3,14 +3,14 @@ import { planningDraft, planningPayload, checklistPayload, type ChecklistDraft }
 import { ChecklistDraftFields } from "./TrackerTaskChecklist";
 import { TrackerHomeLink } from "../../components/Workspace/TrackerHomeLink";
 import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { AttachmentPicker } from "../../components/Workspace/Attachments";
 import { MarkdownEditor } from "../../components/Workspace/MarkdownEditor";
 import { EntityPicker } from "../../components/Workspace/EntityPicker";
-import { DeniedPage, Empty, QueryState } from "../../components/Workspace/WorkspaceUI";
+import { DeniedPage, Empty, Glyph, QueryState } from "../../components/Workspace/WorkspaceUI";
 import { useScopeMembers } from "../../components/Workspace/ScopeMembers";
 import { authApi } from "../../utils/api/auth.api";
 import { tasksApi } from "../../utils/api/tasks.api";
@@ -23,7 +23,7 @@ import { can, useSession } from "../../utils/session";
 import { displayDate, moscowInput, toUtc } from "../../utils/dates";
 import { userMessage } from "../../utils/api/messages";
 import { canRetainData, normalizeApiError } from "../../utils/api/request";
-import { getTaskRoute, getTaskQueueRoute, getTaskQueuesRoute, getBlockRoute, getSubeventRoute } from "../../utils/routes";
+import { getTaskRoute, getTaskQueueRoute, getTaskQueuesRoute, getBlockRoute, getEventRoute, getSubeventRoute } from "../../utils/routes";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { requestKey, type RequestKey } from "../../utils/clientId";
 import { TrackerParentSelector } from "./TrackerParentSelector";
@@ -37,6 +37,9 @@ export function TrackerTaskCreatePage() {
   return <TaskCreateForm scope={scope} queueId={params.get("queue_id") ?? undefined} parentTaskId={params.get("parent_task_id") ?? undefined} />;
 }
 type ScopedCreation = { scope: ScopeRef; title: string; canAssignOthers: boolean; seasonId?: string };
+/** Where a team's own page is; a new task without a queue returns there. */
+const scopeRoute = (scope: ScopeRef) => scope.kind === "block" ? getBlockRoute(scope.id) : scope.kind === "event" ? getEventRoute(scope.id)
+  : scope.kind === "chair" ? "/tasks?scope_kind=chair&scope_id=chair" : getSubeventRoute(scope.id);
 
 export function TaskCreateForm({ scope, queueId, parentTaskId }: { scope?: ScopeRef; queueId?: string; parentTaskId?: string }) {
   const { session } = useSession();
@@ -105,11 +108,12 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId, fal
   const [openedAt] = useState(() => Date.now()), seasonEnded = !!seasonEnd && Date.parse(seasonEnd) < openedAt;
   const selfAssigned = !!session && assignees.includes(String(session.user_id));
   const chooseAssignees = (value: string[]) => { setAssignees(value);if (session && value.includes(String(session.user_id))) setWatch(false); };
-  const returnRoute = queue ? getTaskQueueRoute(queue.queue_id) : fallback?.scope.kind === "block" ? getBlockRoute(fallback.scope.id) : fallback ? getSubeventRoute(fallback.scope.id) : getTaskQueuesRoute();
+  const returnRoute = queue ? getTaskQueueRoute(queue.queue_id) : fallback ? scopeRoute(fallback.scope) : getTaskQueuesRoute();
+  const assigneesLabel = useId(), watchersLabel = useId();
   const external = { queueId, title, body, deadline, season, assignees, watch, parentId, files, planning, checklist: checklistPayload(checklist) };
   const [initial] = useState(external);
   return <>
-    <BrandedHeader className={s.header}><TrackerHomeLink className={s.brandLabel} /><nav aria-label="Путь новой задачи"><Link to={returnRoute}>{queue?.name ?? fallback?.title ?? "Очереди"}</Link><span>›</span><span>Новая задача</span></nav><div className={s.titleRow}><h1 className={`${w.title} ${s.headerTitle}`}><input name="title" aria-label="Название задачи" value={title} onChange={event => setTitle(event.target.value)} placeholder="Название задачи" aria-invalid={attempted && !title.trim()} disabled={saving} /></h1><Link className={w.button} to={returnRoute}>Отмена</Link></div></BrandedHeader>
+    <BrandedHeader className={s.header}><TrackerHomeLink className={s.brandLabel} /><nav aria-label="Путь новой задачи"><Link to={returnRoute}>{queue?.name ?? fallback?.title ?? "Очереди"}</Link><span>›</span><span>Новая задача</span></nav><div className={s.titleRow}><h1 className={`${w.title} ${s.headerTitle}`}><input name="title" aria-label="Название задачи" value={title} onChange={event => setTitle(event.target.value)} placeholder="Название задачи" aria-invalid={attempted && !title.trim()} disabled={saving} /></h1><Link className={`${w.button} ${s.headerCancel}`} to={returnRoute}>Отмена</Link></div></BrandedHeader>
     <ActionForm fields={[]} submitLabel="Создать задачу" externalState={external} savedExternalState={initial} externalBusy={uploading || saving || queuePending || eventScope && !fallback && context.isFetching}
       disabled={!queue && !fallback || !!selectedQueue && !queueReady || saving} allowExitSave={false}
       onSubmit={async () => {
@@ -148,20 +152,23 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId, fal
         <aside className={s.parameters} aria-label="Параметры новой задачи"><h2>Параметры</h2>
           <TaskPlanningFields value={planning} onChange={setPlanning} disabled={saving} deadline={deadline ? toUtc(deadline) : undefined} />
           {queue ? <label className={`${w.field} ${s.field}`}>Очередь<select name="queue" value={queue?.queue_id ?? queueId} disabled={saving} onChange={event => { setQueueId(event.target.value);setAssignees([]); }}>{queues.map(item => <option key={item.queue_id} value={item.queue_id}>{item.key} · {item.name}</option>)}</select></label> : <div className={s.field}><span>Очередь</span><strong>Очередь команды по умолчанию</strong><small className={w.muted}>Задача появится в очереди этой команды.</small></div>}
-          {eventScope ? <div className={s.field}><span>Сезон</span><span>{!fallback && context.isLoading ? "Загрузка…" : seasons.find(item => item.season_id === seasonId)?.title ?? "Не определён"}</span>{context.error && <QueryState loading={false} error={context.error}>{null}</QueryState>}</div> : <label className={`${w.field} ${s.field}`}>Сезон<select name="season" value={season} onChange={event => setSeason(event.target.value)} disabled={saving} required>{seasons.filter(item => creationScope?.kind === "block" ? item.state === "open" : ["open", "planned"].includes(item.state)).map(item => <option key={item.season_id} value={item.season_id}>{item.title}</option>)}</select></label>}
+          {eventScope ? <div className={s.field}><span>Сезон</span><span className={s.fixedValue}><Glyph name="calendar_month" />{!fallback && context.isLoading ? "Загрузка…" : seasons.find(item => item.season_id === seasonId)?.title ?? "Не определён"}</span><small className={w.muted}>Определяется мероприятием.</small>{context.error && <QueryState loading={false} error={context.error}>{null}</QueryState>}</div> : <label className={`${w.field} ${s.field}`}>Сезон<select name="season" value={season} onChange={event => setSeason(event.target.value)} disabled={saving} required>{seasons.filter(item => creationScope?.kind === "block" ? item.state === "open" : ["open", "planned"].includes(item.state)).map(item => <option key={item.season_id} value={item.season_id}>{item.title}</option>)}</select></label>}
           <label className={`${w.field} ${s.field}`}>Дедлайн, МСК<input name="deadline" type="datetime-local" value={deadline} min={seasonEnded ? undefined : moscowInput(new Date().toISOString())} max={seasonEnd ? moscowInput(seasonEnd) : undefined} aria-invalid={!!deadlineError || undefined} aria-describedby={deadlineError ? "task-deadline-error" : undefined} onChange={event => { setDeadline(event.target.value);setDeadlineError(""); }}  disabled={saving} />{deadlineError ? <small id="task-deadline-error" className={w.fieldError}>{deadlineError}</small> : seasonEnded && <small className={w.muted}>Сезон закончился {displayDate(seasonEnd)}, МСК: дедлайн в нём поставить нельзя.</small>}</label>
-          <section className={s.people}><h3>Исполнители</h3>{selectedQueue ? <QueryState loading={queuePending} error={queueDetails.error} retry={() => void queueDetails.refetch()}>{queueReady ? <PeopleChoices people={queue?.scope && can(queue, "assign_task_others") ? queue.assignable_users ?? [] : [self]} value={assignees} onChange={chooseAssignees} name="users" disabled={saving} /> : !queueDetails.error && !queuePending ? <Empty>Создание задачи в этой очереди недоступно.</Empty> : null}</QueryState> : fallback?.canAssignOthers ? <LegacyScopedAssignees scope={fallback.scope} value={assignees} onChange={chooseAssignees} disabled={saving} /> : <PeopleChoices people={[self]} value={assignees} onChange={chooseAssignees} name="users" disabled={saving} />}</section>
-          <section className={s.people}><h3>Наблюдатели</h3><PeopleChoices people={[self]} value={watch && session ? [String(session.user_id)] : []} onChange={value => setWatch(value.length > 0)} name="watchers" disabled={saving || selfAssigned} />{selfAssigned && <small className={w.muted}>Исполнитель уже получает уведомления.</small>}</section>
+          <section className={s.people}><h3 id={assigneesLabel}>Исполнители</h3>{selectedQueue ? <QueryState loading={queuePending} error={queueDetails.error} retry={() => void queueDetails.refetch()}>{queueReady ? <PeopleChoices people={queue?.scope && can(queue, "assign_task_others") ? queue.assignable_users ?? [] : [self]} value={assignees} onChange={chooseAssignees} name="users" labelledBy={assigneesLabel} disabled={saving} /> : !queueDetails.error && !queuePending ? <Empty>Создание задачи в этой очереди недоступно.</Empty> : null}</QueryState> : fallback?.canAssignOthers ? <LegacyScopedAssignees scope={fallback.scope} value={assignees} onChange={chooseAssignees} labelledBy={assigneesLabel} disabled={saving} /> : <PeopleChoices people={[self]} value={assignees} onChange={chooseAssignees} name="users" labelledBy={assigneesLabel} disabled={saving} />}</section>
+          <section className={s.people}><h3 id={watchersLabel}>Наблюдатели</h3><PeopleChoices people={[self]} value={watch && session ? [String(session.user_id)] : []} onChange={value => setWatch(value.length > 0)} name="watchers" labelledBy={watchersLabel} disabled={saving || selfAssigned} />{selfAssigned && <small className={w.muted}>Исполнитель уже получает уведомления.</small>}</section>
           <TrackerParentSelector value={parentId} onChange={setParentId} seasonId={seasonId} disabled={!seasonId || saving} />
         </aside>
       </div>
     </ActionForm>
+    {/* On phones the title gets the whole header row; leaving moves next to the form's own action. */}
+    <div className={s.bottomCancel}><Link className={w.button} to={returnRoute}>Отмена</Link></div>
   </>;
 }
-function LegacyScopedAssignees({ scope, value, onChange, disabled }: { scope: ScopeRef; value: string[]; onChange: (value: string[]) => void; disabled: boolean }) {
+function LegacyScopedAssignees({ scope, value, onChange, labelledBy, disabled }: { scope: ScopeRef; value: string[]; onChange: (value: string[]) => void; labelledBy: string; disabled: boolean }) {
   const members = useScopeMembers(scope);
-  return <QueryState loading={members.loading} error={members.error}><PeopleChoices people={members.options.map(person => person.user ?? ({ user_id: Number(person.value), display_name: person.label, avatar_url: null }))} value={value} onChange={onChange} name="users" disabled={disabled} /></QueryState>;
+  return <QueryState loading={members.loading} error={members.error}><PeopleChoices people={members.options.map(person => person.user ?? ({ user_id: Number(person.value), display_name: person.label, avatar_url: null }))} value={value} onChange={onChange} name="users" labelledBy={labelledBy} disabled={disabled} /></QueryState>;
 }
-function PeopleChoices({ people, value, onChange, name, disabled }: { people: UserRef[]; value: string[]; onChange: (value: string[]) => void; name: string; disabled: boolean }) {
-  return <div className={s.peopleChoices}><EntityPicker multiple name={name} label={name === "users" ? "Выбрать исполнителей" : "Выбрать наблюдателей"} value={value} onChange={onChange} options={people.map(person => ({ value: String(person.user_id), label: person.display_name, user: person }))} disabled={disabled} placeholder="Введите имя" emptyMessage="Нет доступных участников" /></div>;
+/** The section heading names the picker; it carries no second visible label. */
+function PeopleChoices({ people, value, onChange, name, labelledBy, disabled }: { people: UserRef[]; value: string[]; onChange: (value: string[]) => void; name: string; labelledBy: string; disabled: boolean }) {
+  return <div className={s.peopleChoices}><EntityPicker multiple name={name} labelledBy={labelledBy} value={value} onChange={onChange} options={people.map(person => ({ value: String(person.user_id), label: person.display_name, user: person }))} disabled={disabled} placeholder="Введите имя" emptyMessage="Нет доступных участников" /></div>;
 }

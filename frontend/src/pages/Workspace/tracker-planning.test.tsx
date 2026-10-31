@@ -13,6 +13,7 @@ import { taskQueuesApi } from "../../utils/api/taskQueues.api";
 import { ApiError } from "../../utils/api/request";
 import { mountWorkspace, settle, waitForPage } from "../../test/workspace";
 import { loadPlanningTasks, moscowDay, planningRange, taskPlanning } from "./trackerPlanning";
+import { calendarTitle } from "./calendarLayout";
 import type { Task, TaskListPageResponse } from "../../utils/api/contract";
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let transport: ReturnType<typeof installMockTransport> | undefined;
@@ -91,7 +92,7 @@ it("hides cached task rows immediately when a personal action discovers lost acc
 
 it.each(["calendar", "gantt"] as const)("never lets a background list 500 mask a refused cached %s plan", async view => {
   const source = task(), client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: Infinity } } });let denied = false;
-  await list(`/tasks?view=${view}&month=2026-10`, async filters => {
+  await list(`/tasks?view=${view}&month=2026-10&mine=false`, async filters => {
     if (denied) throw new ApiError(filters.limit === 100 ? "Доступ к плану закрыт" : "Временный сбой списка", filters.limit === 100 ? 403 : 500);
     return { items: [source], next_cursor: null, total: 1, scopes: [], assignees: [] };
   }, client);
@@ -110,4 +111,35 @@ it("requests a half-open period that includes its final millisecond and excludes
   });
   expect((await loadPlanningTasks({}, planningRange("2026-10", "calendar"))).map(item => item.task_id)).toEqual([last.task_id]);
   expect(get).toHaveBeenCalledWith(expect.objectContaining({ date_to: "2026-11-08T21:00:00.000Z" }));
+});
+it("capitalizes only the first letter of plan titles and ends the Gantt period with one dot", async () => {
+  page = await mountWorkspace(<TrackerGantt tasks={[task()]} range={planningRange("2026-10", "gantt")} month="2026-10" onMonth={() => {}} zoom="week" onZoom={() => {}} />);await waitForPage(page);
+  expect(page.container.querySelector("h2")?.textContent).toBe("Октябрь 2026");
+  const caption = [...page.container.querySelectorAll("p")].find(node => node.textContent?.startsWith("План на"))!.textContent!;
+  expect(caption).toMatch(/31 октября 2026\sг\. Ромб/);expect(caption).not.toContain("г..");
+  expect(calendarTitle("month", "2026-11-02")).toBe("Ноябрь 2026");
+  expect(calendarTitle("week", "2026-11-04")).toMatch(/^2.+8 ноября 2026\sг\.$/);expect(calendarTitle("day", "2026-10-31")).toMatch(/^31 октября 2026\sг\.$/);
+});
+it("opens the Gantt with today a third into the visible timeline and keeps one compact row per task", async () => {
+  vi.setSystemTime(new Date("2026-10-20T09:00:00Z"));
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(950);const scrolled = vi.spyOn(Element.prototype, "scrollLeft", "set");
+  const source = task({ assignees: [{ user_id: 7, display_name: "Исполнитель Плана", avatar_url: null }] });
+  page = await mountWorkspace(<TrackerGantt tasks={[source]} range={planningRange("2026-10", "gantt")} month="2026-10" onMonth={() => {}} zoom="week" onZoom={() => {}} />);await waitForPage(page);
+  expect(scrolled).toHaveBeenLastCalledWith(19.5 * 30 - 950 / 3);
+  const canvas = page.container.querySelector<HTMLElement>('[role="region"] > div')!;expect(canvas.style.getPropertyValue("--plan-row-height")).toBe("52px");
+  const label = page.container.querySelector<HTMLAnchorElement>(`[role="region"] a[title="${source.title}"]`)!;
+  expect(label.textContent).toBe(`${source.task_key}${source.title}`);expect(page.container.querySelector('[role="region"]')!.textContent).not.toContain("Исполнитель Плана");
+});
+it("keeps an empty Gantt period at its start so the empty-state message stays readable", async () => {
+  vi.setSystemTime(new Date("2026-10-20T09:00:00Z"));
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(390);const scrolled = vi.spyOn(Element.prototype, "scrollLeft", "set");
+  const outside = task({ starts_at: "2027-03-01T09:00:00Z", deadline_at: "2027-03-05T12:00:00Z" });
+  page = await mountWorkspace(<TrackerGantt tasks={[outside]} range={planningRange("2026-10", "gantt")} month="2026-10" onMonth={() => {}} zoom="month" onZoom={() => {}} />);await waitForPage(page);
+  expect(scrolled).toHaveBeenCalled();expect(scrolled.mock.calls.every(([value]) => value === 0)).toBe(true);
+  expect(page.container.querySelector('[role="region"]')!.textContent).toContain("В выбранном периоде нет задач. Измените месяц или фильтры.");
+});
+it("labels a calendar day's task counter so it does not read as a second date", async () => {
+  page = await mountWorkspace(<TrackerCalendar tasks={[task(), task({ task_id: "second", task_key: "ITWEB-19" })]} month="2026-10" range={planningRange("2026-10", "calendar")} onMonth={() => {}} />);await waitForPage(page);
+  const day = page.container.querySelector('section[aria-label^="9 октября"]')!;
+  expect(day.querySelector('[title="Задач в этот день: 2"]')?.textContent).toBe("2");
 });

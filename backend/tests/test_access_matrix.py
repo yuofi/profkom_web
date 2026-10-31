@@ -610,7 +610,9 @@ def test_role_matrix(org, role):
         assert child["working_access"] == working, (role, key)
         if not working:
             assert child["description"] == rich("") and child["report_series_id"] is None, (role, key)
-            assert child["capabilities"] == [], (role, key)
+            # A task reader without the working ACL keeps only the team-task entry (TR-25).
+            assert set(child["capabilities"]) <= {"view_tasks", "create_task"}, (role, key, child["capabilities"])
+            assert ("view_tasks" in child["capabilities"]) == (role in TRACKER_HR), (role, key, child["capabilities"])
         else:
             assert child["description"]["body"] and child["report_series_id"], (role, key)
     assert not problems, f"{role}:\n  " + "\n  ".join(problems)

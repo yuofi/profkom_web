@@ -46,7 +46,7 @@ it("preserves the URL season filter and limits unavailable-only rows without los
 });
 it("hides all cached private rows and never queries the endpoint for a role without queue access", async () => {
   const client = new QueryClient({ queryCache: workspaceQueryCache(), defaultOptions: { queries: { retry: false, staleTime: Infinity } } });client.setQueryData(["tasks", "unresolved"], { items: [item()], next_cursor: null });const read = vi.spyOn(tasksApi, "unresolved");
-  page = await mountWorkspace(<UnresolvedPage />, { role: "organizer", client });await waitForPage(page);expect(page.container.textContent).toContain("Нет доступа к очереди");expect(page.container.textContent).not.toContain(item().task_title);expect(page.container.querySelector("table,form,[data-anchored-popover]")).toBeNull();expect(read).not.toHaveBeenCalled();
+  page = await mountWorkspace(<UnresolvedPage />, { role: "organizer", client });await waitForPage(page);expect(page.container.textContent).toContain("Нет доступа к разделу «Оставшаяся работа».");expect(page.container.textContent).not.toContain("Нет доступа к очереди");expect(page.container.textContent).not.toContain(item().task_title);expect(page.container.querySelector("table,form,[data-anchored-popover]")).toBeNull();expect(read).not.toHaveBeenCalled();
 });
 it("provides truthful empty/error states and a refused refresh drops both table and private editor", async () => {
   await mount([]);expect(page!.container.textContent).toContain("Оставшейся работы нет.");expect(page!.container.querySelector("table")).toBeNull();await page!.cleanup();page = undefined;vi.restoreAllMocks();

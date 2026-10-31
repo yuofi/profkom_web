@@ -365,7 +365,7 @@ it("selects and clears a cross-queue parent in one combobox with revision protec
   const dialog = page!.container.querySelector("dialog")!, input = dialog.querySelector<HTMLInputElement>('[role="combobox"]')!;
   expect(dialog.querySelectorAll('[role="combobox"]')).toHaveLength(1);expect(dialog.textContent).not.toContain("Поиск родительской задачи");await act(async () => input.focus());await waitForPage(page!);
   expect(dialog.textContent).toContain(other.title);expect(dialog.textContent).not.toContain("Другой сезон");expect([...dialog.querySelectorAll('[role="option"]')]).toHaveLength(1);
-  await change(input, "WEB");await waitForPage(page!);expect(candidates).toHaveBeenLastCalledWith({ season_id: task.season_id, q: "WEB", limit: 100 });
+  await change(input, "WEB");await waitForPage(page!, () => (candidates.mock.lastCall?.[0] as { q?: string } | undefined)?.q === "WEB");expect(candidates).toHaveBeenLastCalledWith({ season_id: task.season_id, q: "WEB", limit: 20 }, expect.any(AbortSignal));
   await act(async () => dialog.querySelector<HTMLElement>('[role="option"]')!.click());await submit(dialog.querySelector("form")!);await waitForPage(page!);
   expect(update).toHaveBeenLastCalledWith(task.task_id, { expected_revision: task.revision - 1, parent_task_id: other.task_id });expect(dialog.isConnected).toBe(false);expect(page!.container.textContent).toContain("Изменения сохранены");expect(page!.container.querySelector('[aria-label="Путь задачи"]')?.textContent).toContain(other.title);
   const trail = page!.container.querySelector('[aria-label="Путь задачи"]')!;
@@ -489,4 +489,13 @@ it("moves the deadline only through reasoned assessment inputs and tells other m
   await page!.cleanup();const lead = createFixtures("organizer").session;expect(lead.capabilities).not.toContain("view_summary");
   page = await mountWorkspace(<TaskDeadlineParameter task={makeTask({ capabilities: ["read_task", "view_assessment_inputs"] })} now={Date.now()} />, { session: lead });
   expect(read).not.toHaveBeenCalled();expect(page.container.textContent).toContain("Срок переносят председатель");
+});
+it.each([
+  ["?return_season=season-1&return_to=participant&participant=participant-4", "← К участнику", "/seasons/season-1?participant=participant-4"],
+  ["?return_season=season-1&return_to=checks", "← К проверкам сезона", "/seasons/season-1?panel=checks"],
+  ["?return_season=season-1&return_to=%2F%2Fevil.example", "← К сезону", "/seasons/season-1"],
+])("names the season place a task returns to (%s)", async (search, label, href) => {
+  await mountTask(makeTask({ capabilities: ["read_task"] }), [], search);
+  const back = [...page!.container.querySelectorAll("a")].find(node => node.textContent?.startsWith("← К"));
+  expect(back?.textContent).toBe(label);expect(back?.getAttribute("href")).toBe(href);
 });

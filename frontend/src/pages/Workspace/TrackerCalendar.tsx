@@ -16,7 +16,7 @@ export function TrackerCalendar({ tasks, range, month, onMonth }: { tasks: Task[
       <div className={s.calendarGrid}>{range.days.map(day => {
         const items = plans.filter(plan => plan.first && plan.first <= day && plan.last >= day), label = dayTitle.format(dayMillis(day));
         return <section key={day} className={`${s.day} ${day.slice(0, 7) === month ? "" : s.outside} ${day === today ? s.today : ""}`} aria-label={label}>
-          <h3><time dateTime={day} aria-current={day === today ? "date" : undefined}>{Number(day.slice(-2))}</time><span className={s.dayCount}>{items.length ? items.length : ""}</span></h3>
+          <h3><time dateTime={day} aria-current={day === today ? "date" : undefined}>{Number(day.slice(-2))}</time><span className={s.dayCount} title={items.length ? `Задач в этот день: ${items.length}` : undefined}>{items.length ? items.length : ""}</span></h3>
           <div className={s.dayTasks}>{items.slice(0, 3).map(plan => <CalendarTask key={plan.task.task_id} task={plan.task} kind={!plan.hasStart ? "Дедлайн" : day === plan.first ? "Начало" : day === plan.last ? "Дедлайн" : "В работе по плану"} />)}
             {items.length > 3 && <details className={s.more}><summary>Ещё {items.length - 3}</summary>{items.slice(3).map(plan => <CalendarTask key={plan.task.task_id} task={plan.task} kind={!plan.hasStart || day === plan.last ? "Дедлайн" : day === plan.first ? "Начало" : "В работе по плану"} />)}</details>}
           </div>
