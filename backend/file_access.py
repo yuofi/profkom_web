@@ -173,7 +173,15 @@ def permitted(session, fr, uid, write=False):
         a = session.get(AssignmentORM, fr.owner_id)
         if not a or (write and a.assignee_user_id != uid):return False
         task = session.get(TaskORM, a.task_id)
-        return bool(task and db.can_read_task(uid,task,session))
+        if not task or not db.can_read_task(uid,task,session):return False
+        # An unsubmitted draft belongs to its assignee; the task's other readers see a
+        # file only once it is in a submission of this assignment or of the task.
+        if write:return fr.uploaded_by_user_id == uid
+        if uid in (a.assignee_user_id, fr.uploaded_by_user_id):return True
+        from database import SubmissionORM, TaskSubmissionORM
+        submitted = [raw for (raw,) in session.query(SubmissionORM.files_json).filter_by(assignment_id=a.assignment_id)]
+        submitted += [raw for (raw,) in session.query(TaskSubmissionORM.files_json).filter_by(task_id=task.task_id)]
+        return any(fr.file_id in json.loads(raw or "[]") for raw in submitted)
     if fr.owner_kind == "report":
         r = session.get(ReportORM, fr.owner_id)
         if not r:
