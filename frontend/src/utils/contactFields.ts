@@ -56,3 +56,6 @@ export function missingFields(fields: RegistrationApplication["fields"]) {
     .filter(([name]) => failed.has(name))
     .map(([, label]) => label);
 }
+/** A person's name as the site writes it everywhere: the surname first (PE-26). */
+export const personName = (person: { surname?: string | null; name?: string | null }) =>
+  [person.surname, person.name].map((part) => part?.trim()).filter(Boolean).join(" ");

@@ -6,7 +6,7 @@ import { profileFeaturesApi, type AvatarSelection, type ProfileEditorData } from
 import { ProfileAvatarDraft } from "../../components/Workspace/ProfileAvatarDraft";
 import { FormTextField } from "../../components/Form/FormTextFiled";
 import { FormSelectField } from "../../components/Form/FormSelectField";
-import { fundingLabels } from "../../utils/contactFields";
+import { fundingLabels, personName } from "../../utils/contactFields";
 import { useForm } from "../../components/Form/Form";
 import { FormikProvider } from "formik";
 import { Button } from "../../components/Button/Button";
@@ -219,7 +219,7 @@ export const ProfileEditPage = () => {
                 <Card title="Основная информация">
                   <div className={styles.person}>
                     <Avatar src={user.photo_url} size={64} mode="view" />
-                    <p>{user.name} {user.surname}</p>
+                    <p>{personName(user)}</p>
                   </div>
                   <div className={styles.fields}>
                     <FormTextField name="surname" label="Фамилия" color="on-surface" />

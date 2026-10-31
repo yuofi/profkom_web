@@ -5,6 +5,7 @@ import { Route, Routes } from "react-router-dom";
 import { installMockTransport } from "../../mocks/transport";
 import { mountWorkspace, settle } from "../../test/workspace";
 import { WorkspaceLayout } from "./WorkspaceLayout";
+import { UserContext } from "../../utils/me";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let mock: ReturnType<typeof installMockTransport> | undefined;
@@ -36,4 +37,12 @@ it("both desktop and mobile navigation name the task section Трекер", asyn
   expect(links).toHaveLength(2);
   for (const link of links) { expect(link.textContent).toContain("Трекер");expect(link.textContent).not.toContain("Задачи");expect(link.getAttribute("aria-current")).toBe("true"); }
   expect(page.container.querySelector("h1")?.textContent).toBe("Очереди");
+});
+
+it("the menu names the user surname first, like the rest of the site (PE-26)", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const { surname, name } = mock.state.profile;
+  page = await mountWorkspace(<UserContext.Provider value={mock.state.profile}><Routes><Route element={<WorkspaceLayout />}><Route path="/" element={<p>Главная страница</p>} /></Route></Routes></UserContext.Provider>);
+  await settle(); await settle();
+  expect(page.container.querySelector('aside > div[class*="profile"] a')?.textContent).toBe(`${surname} ${name}`);
 });

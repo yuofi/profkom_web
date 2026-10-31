@@ -2,6 +2,7 @@ import { Suspense, type CSSProperties } from "react";
 import { Loading } from "./WorkspaceUI";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { useMe } from "../../utils/me";
+import { personName } from "../../utils/contactFields";
 import { can, useSession } from "../../utils/session";
 import { DemoRolePicker } from "./DemoRolePicker";
 import { NotificationBell } from "./NotificationBell";
@@ -65,7 +66,7 @@ export function WorkspaceLayout() {
         <div className={s.profile}>
           <Link to="/profile" aria-label="Мой профиль" aria-current={pathname === "/profile" ? "page" : pathname.startsWith("/profile/") ? "true" : undefined}>
             <Glyph name="account_circle" className={s.icon} />
-            <span>{user ? `${user.name} ${user.surname}` : "Мой профиль"}</span>
+            <span>{(user && personName(user)) || "Мой профиль"}</span>
           </Link>
         </div>
         <DemoRolePicker />
