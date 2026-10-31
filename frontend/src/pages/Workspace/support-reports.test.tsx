@@ -15,9 +15,11 @@ const report = (report_id: string, state: string, task_key: string | null) => ({
   diagnostics_expires_at: "2026-11-30T00:00:00", title: `Обращение ${report_id}`, body: "Текст", created_at: "2026-10-20T10:00:00",
 });
 
-it("keeps /support inside the profile section", () => {
+it("keeps /support inside the profile section, except for the support staff who work there", () => {
   expect(sectionOf("/support").label).toBe("Мой профиль");
   expect(sectionOf("/profile").label).toBe("Мой профиль");
+  expect(sectionOf("/support", { supportStaff: true }).label).toBe("Рабочее пространство");
+  expect(sectionOf("/profile", { supportStaff: true }).label).toBe("Мой профиль");
 });
 
 it("shows the status and sending date of each own report", async () => {

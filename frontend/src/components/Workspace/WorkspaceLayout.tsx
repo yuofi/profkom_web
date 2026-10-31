@@ -1,8 +1,11 @@
 import { Suspense, type CSSProperties } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Loading } from "./WorkspaceUI";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { useMe } from "../../utils/me";
-import { can, useSession } from "../../utils/session";
+import { can, isActiveSession, useSession } from "../../utils/session";
+import { supportApi } from "../../utils/api/support.api";
+import { canRetainData } from "../../utils/api/request";
 import { DemoRolePicker } from "./DemoRolePicker";
 import { NotificationBell } from "./NotificationBell";
 import s from "./WorkspaceLayout.module.css";
@@ -26,7 +29,11 @@ export function WorkspaceLayout() {
   const user = useMe();
   const { session } = useSession();
   const { pathname } = useLocation();
-  const section = sectionOf(pathname);
+  // The same query as the support page: on /support only, and no extra request.
+  const onSupport = pathname === "/support" || pathname.startsWith("/support/");
+  const support = useQuery({ queryKey: ["supportContext"], queryFn: supportApi.context, enabled: onSupport && isActiveSession(session) && !session?.password_change_required });
+  const supportStaff = onSupport && (!support.error || canRetainData(support.error)) && !!(support.data?.can_triage || support.data?.can_configure);
+  const section = sectionOf(pathname, { supportStaff });
   const links = (includeProfile = false) => (
     <nav
       className={s.nav}
