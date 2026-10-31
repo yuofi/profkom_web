@@ -38,6 +38,7 @@ import { TrackerTaskDialog } from "./TrackerTaskDialog";
 import { TrackerParentSelector } from "./TrackerParentSelector";
 import { UserChip as PersonChip } from "../../components/Workspace/UserChip";
 import { useSession } from "../../utils/session";
+import { copyText } from "../../utils/clipboard";
 import { HistoryPanel } from "../../components/Workspace/HistoryPanel";
 import { SupportTaskPanel } from "../../components/Workspace/SupportTaskPanel";
 import w from "../../components/Workspace/Workspace.module.css";
@@ -56,7 +57,7 @@ export function TrackerTaskPage() {
 }
 function TaskContent({ task, assignmentId, accountingRequested=false, returnSeason }: { task: Task; assignmentId: string | null; accountingRequested?:boolean; returnSeason: string | null }) {
   const [editor, setEditor] = useState<"description" | "files" | "parent" | "planning" | null>(null);
-  const [copied, setCopied] = useState("");
+  const [copied, setCopied] = useState(""), [manualLink, setManualLink] = useState("");
   const [kkrOpen,setKkrOpen]=useState(!!assignmentId||accountingRequested);
   const [checklistPending, setChecklistPending] = useState<readonly number[]>([]), [checklistError, setChecklistError] = useState("");
   const checklistSaving = useRef(new Set<number>()), run = useTaskCommand(task);
@@ -80,13 +81,14 @@ function TaskContent({ task, assignmentId, accountingRequested=false, returnSeas
       <nav className={s.breadcrumbs} aria-label="Путь задачи">{task.queue?.readable === false ? task.queue.key === "WEBSUPPORT" ? <Link to="/support">Мои обращения</Link> : <span>{task.queue.name}</span> : <Link to={task.queue ? getTaskQueueRoute(task.queue.queue_id) : getTaskQueuesRoute()}>{task.queue?.name ?? "Очереди"}</Link>}<span aria-hidden="true">›</span>{task.parent_task && <><Link to={getTaskRoute(task.parent_task.task_id)}>{task.parent_task.title}</Link><span aria-hidden="true">›</span></>}<span aria-current="page">{task.task_key ?? "Задача"}</span></nav>
       <div className={s.titleRow}><h1 className={w.title}>{task.title}</h1><div className={s.headerTools}>
         <button type="button" className={s.iconButton} aria-label="Скопировать ссылку на задачу" title="Скопировать ссылку" onClick={async () => {
-          try { await navigator.clipboard.writeText(new URL(getTaskRoute(task.task_id), window.location.origin).href);setCopied("Ссылка скопирована"); }
-          catch { setCopied("Не удалось скопировать ссылку"); }
+          const link = new URL(getTaskRoute(task.task_id), window.location.origin).href;
+          if (await copyText(link)) { setManualLink("");setCopied("Ссылка скопирована"); } else { setCopied("");setManualLink(link); }
         }}><Glyph name="share" /></button>
         <TrackerFavoriteButton task={task} onBrand compact />
       </div></div>
       <div className={s.metadata}><span className={s.taskKey}>{task.task_key ?? "Задача"}</span><span>Создана: {task.created_at ? displayDate(task.created_at) : "дата не указана"}</span><span>Обновлена: {task.updated_at ? displayDate(task.updated_at) : "дата не зафиксирована"}</span></div>
       {copied && <p className={`${w.muted} ${s.headerNotice}`} role="status">{copied}</p>}
+      {manualLink && <label className={s.manualLink}>Скопируйте ссылку вручную<input readOnly value={manualLink} autoFocus onFocus={event => event.currentTarget.select()} onKeyDown={event => { if (event.key === "Escape") setManualLink(""); }} /></label>}
       {returnSeason && <Link className={s.backLink} to={getSeasonRoute(returnSeason)}>← К закрытию сезона</Link>}
       <TaskStatusMenu task={task} variant="actions" onClosed={()=>setKkrOpen(true)} />
     </BrandedHeader>

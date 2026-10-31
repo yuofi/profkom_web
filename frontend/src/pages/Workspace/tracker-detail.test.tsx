@@ -276,6 +276,16 @@ it("a task whose queue the reader cannot open shows the queue as text and suppor
   await mountTask(makeTask({ queue: { queue_id: "queue-open", name: "Открытая", key: "OPEN", readable: true } }));
   expect(page!.container.querySelector('[aria-label="Путь задачи"] a[href="/tasks/queues/queue-open"]')).not.toBeNull();
 });
+it("without any clipboard the share button offers the link selected for manual copying", async () => {
+  vi.stubGlobal("navigator", {});const execCommand = document.execCommand;document.execCommand = vi.fn(() => false);
+  try {
+    await mountTask(makeTask());
+    await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Скопировать ссылку на задачу"]')!.click());await settle();
+    const field = page!.container.querySelector<HTMLInputElement>("input[readonly]")!;
+    expect(field.value).toBe(`${window.location.origin}/tasks/${makeTask().task_id}`);expect(document.activeElement).toBe(field);
+    expect(page!.container.textContent).not.toContain("Не удалось скопировать");
+  } finally { document.execCommand = execCommand;vi.unstubAllGlobals(); }
+});
 it("selects and clears a cross-queue parent in one combobox with revision protection", async () => {
   let task = makeTask({ capabilities: ["read_task", "edit_task"], queue: { queue_id: "queue-design", name: "Дизайн", key: "DSN" }, parent_task: null });
   const other = makeTask({ task_id: "other-task", task_key: "WEB-12", title: "Задача из другой очереди", queue: { queue_id: "queue-web", name: "Разработка", key: "WEB" } });
