@@ -757,29 +757,30 @@ def test_patch_явный_kkr_name_побеждает_пересчёт(client, u
     assert db.get_contact(user.user_id).kkr_name == "Аня Смирнова", "и лечь в базу"
 
 
-def test_patch_пробельные_имя_и_фамилия_обнуляют_kkr_name(client, user):
-    """Части ФИО из одних пробелов выбрасываются — kkr_name становится пустым."""
+def test_patch_пробельные_имя_и_фамилия_отклоняются(client, user):
+    """PE-03: части ФИО из одних пробелов не сохраняются — пользователь не теряет ключ прав."""
+    before = db.get_contact(user.user_id)
     resp = client.patch(
         f"{API}/{user.user_id}", headers=user.headers, json={"name": "   ", "surname": "\t"}
     )
 
-    assert resp.status_code == 200, "запрос принимается"
-    assert resp.json()["kkr_name"] == "", "из пробельных частей собирается пустой kkr_name"
-    assert db.get_contact(user.user_id).kkr_name == "", (
-        "пустой kkr_name записывается в NOT NULL-колонку — пользователь теряет ключ прав"
+    assert resp.status_code == 422, "пустые имя и фамилия отбиваются"
+    after = db.get_contact(user.user_id)
+    assert (after.name, after.surname, after.kkr_name) == (before.name, before.surname, before.kkr_name), (
+        "сохранённые ФИО и kkr_name остаются прежними"
     )
 
 
-def test_patch_имя_и_фамилия_обрезаются_только_по_краям_итоговой_строки(client, user):
-    """Внутренние пробелы частей ФИО сохраняются в contact_info, но не в kkr_name."""
+def test_patch_имя_и_фамилия_обрезаются_по_краям(client, user):
+    """PE-03: края частей ФИО обрезаются и в contact_info, и в kkr_name."""
     resp = client.patch(
         f"{API}/{user.user_id}", headers=user.headers, json={"name": "  Анна ", "surname": " Смирнова  "}
     )
 
-    assert resp.json()["kkr_name"] == "Анна Смирнова", "kkr_name склеивается из strip'нутых частей"
+    assert resp.json()["kkr_name"] == "Анна Смирнова", "kkr_name склеивается из обрезанных частей"
     contact = db.get_contact(user.user_id)
-    assert contact.name == "  Анна ", "в contact_info имя сохраняется как прислали, без strip"
-    assert contact.surname == " Смирнова  ", "в contact_info фамилия сохраняется как прислали"
+    assert contact.name == "Анна", "в contact_info имя сохраняется без краевых пробелов"
+    assert contact.surname == "Смирнова", "в contact_info фамилия сохраняется без краевых пробелов"
 
 
 def test_patch_частичное_обновление_не_трогает_остальные_поля(client, make_user):
