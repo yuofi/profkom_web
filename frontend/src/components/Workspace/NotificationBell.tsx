@@ -8,7 +8,7 @@ import { userMessage } from "../../utils/api/messages";
 import { targetRoute } from "../../utils/routes";
 import { displayDate } from "../../utils/dates";
 import { isActiveSession, useSession } from "../../utils/session";
-import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
+import { useNotificationCommands } from "../../utils/hooks/useWorkspace";
 import { useConfirmedNavigation } from "./unsavedChangesHooks";
 import { AnchoredPopover } from "./AnchoredPopover";
 import { Glyph, QueryState } from "./WorkspaceUI";
@@ -18,7 +18,7 @@ export function NotificationBell() {
   const { session, loading, error: sessionError } = useSession(), active = isActiveSession(session) && !session?.password_change_required && !loading && (!sessionError || canRetainData(sessionError));
   const [open, setOpen] = useState(false), [readingAll, setReadingAll] = useState(false), [error, setError] = useState("");
   const anchor = useRef<HTMLButtonElement>(null), list = useRef<HTMLDivElement>(null), pending = useRef(new Map<string, Promise<void>>()), allPending = useRef(false), panelId = `notifications-${useId()}`;
-  const navigate = useConfirmedNavigation(), { perform, refresh } = useWorkspaceActions();
+  const navigate = useConfirmedNavigation(), commands = useNotificationCommands();
   const query = useQuery({ queryKey: ["notifications"], queryFn: () => workspaceApi.notifications(), enabled: active,
     refetchOnWindowFocus: true, refetchInterval: value => value.state.error && !canRetainData(value.state.error) ? false : 60_000 });
   const visible = active && (!query.error || canRetainData(query.error)), known = visible && !!query.data;
@@ -27,7 +27,7 @@ export function NotificationBell() {
   const read = (notification: Notification) => {
     if (notification.read_at) return Promise.resolve();
     const existing = pending.current.get(notification.id);if (existing) return existing;
-    const action = perform(() => workspaceApi.read(notification.id)).then(() => undefined).catch(async () => { await refresh(); }).finally(() => pending.current.delete(notification.id));
+    const action = commands.read(notification.id).catch(() => undefined).finally(() => pending.current.delete(notification.id));
     pending.current.set(notification.id, action);return action;
   };
   const follow = (event: MouseEvent<HTMLAnchorElement>, route: string, notification?: Notification) => {
@@ -38,8 +38,8 @@ export function NotificationBell() {
   };
   const readAll = async () => {
     if (allPending.current || !unread) return;allPending.current = true;setReadingAll(true);setError("");
-    try { await perform(workspaceApi.readAll); }
-    catch (failure) { setError(userMessage(failure));await refresh(); }
+    try { await commands.readAll(); }
+    catch (failure) { setError(userMessage(failure)); }
     finally { allPending.current = false;setReadingAll(false); }
   };
   if (!active) return null;

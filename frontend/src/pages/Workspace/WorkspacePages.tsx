@@ -19,7 +19,7 @@ import {
 } from "../../utils/routes";
 import { displayDate } from "../../utils/dates";
 import { moscowDay, normalizeMonth } from "../../utils/calendar";
-import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
+import { useNotificationCommands } from "../../utils/hooks/useWorkspace";
 import type { ParticipationRole } from "../../utils/api/contract";
 import s from "../../components/Workspace/Workspace.module.css";
 import { EntityPicker } from "../../components/Workspace/EntityPicker";
@@ -171,7 +171,7 @@ export function CalendarPage() {
 }
 export function NotificationsPage() {
   const navigate = useConfirmedNavigation();
-  const { perform } = useWorkspaceActions();
+  const notices = useNotificationCommands();
   const query = useQuery({
     queryKey: ["notifications"],
     queryFn: workspaceApi.notifications,
@@ -184,7 +184,7 @@ export function NotificationsPage() {
           fields={[]}
           submitLabel="Прочитать все"
           onSubmit={async () => {
-            await perform(workspaceApi.readAll);
+            await notices.readAll();
           }}
         />
       )}
@@ -212,14 +212,14 @@ export function NotificationsPage() {
                   {route ? (
                     <Link className={s.linkButton} to={route}
                       onClick={(event) => {
-                        const read = () => n.read_at ? Promise.resolve() : perform(() => workspaceApi.read(n.id)).then(() => undefined).catch(() => undefined);
+                        const read = () => n.read_at ? Promise.resolve() : notices.read(n.id).catch(() => undefined);
                         if (event.altKey) return;
                         if (event.metaKey || event.ctrlKey || event.shiftKey) { void read(); return; }
                         event.preventDefault();
                         navigate(route, read);
                       }}
                       onAuxClick={(event) => {
-                        if (event.button === 1 && !n.read_at) void perform(() => workspaceApi.read(n.id)).catch(() => undefined);
+                        if (event.button === 1 && !n.read_at) void notices.read(n.id).catch(() => undefined);
                       }}
                     >Перейти к источнику</Link>
                   ) : (
@@ -231,7 +231,7 @@ export function NotificationsPage() {
                       submitLabel="Отметить прочитанным"
                       variant="quiet"
                       onSubmit={async () => {
-                        await perform(() => workspaceApi.read(n.id));
+                        await notices.read(n.id);
                       }}
                     />
                   )}

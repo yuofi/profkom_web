@@ -2,10 +2,13 @@ import { QueryCache, type Query, type QueryClient } from "@tanstack/react-query"
 import { workspaceKeys } from "./queryKeys";
 import { canRetainData } from "./request";
 
-/** Mutations can affect dashboard, calendars, summaries and sibling scopes. */
-export async function invalidateWorkspace(client: QueryClient): Promise<void> {
+/** Mutations can affect dashboard, calendars, summaries and sibling scopes. `current` names
+ *  queries (by hash) that the command's own answer has just filled: they are not reread,
+ *  unless an older read of them is still in flight and would overwrite that answer. */
+export async function invalidateWorkspace(client: QueryClient, current: ReadonlySet<string> = new Set()): Promise<void> {
+  const predicate = (query: Query) => !current.has(query.queryHash) || query.state.fetchStatus !== "idle";
   await Promise.all(
-    workspaceKeys.map((queryKey) => client.invalidateQueries({ queryKey })),
+    workspaceKeys.map((queryKey) => client.invalidateQueries({ queryKey, predicate })),
   );
 }
 /** The own chair transfer and deputies change access: cached private data is removed, not
