@@ -3,7 +3,7 @@ import type { Decision, SeasonSummary, SummaryRow } from "../../utils/api/contra
 import { Badge, Glyph } from "../../components/Workspace/WorkspaceUI";
 import { UserChip } from "../../components/Workspace/UserChip";
 import { decisionLabels, decisionTitle } from "../../utils/decisions";
-import s from "../../components/Workspace/Workspace.module.css";
+import { metricValue } from "./seasonAnalyticsView";
 import u from "./SeasonWorkspace.module.css";
 
 const decisionSymbols: Record<Decision, ReactNode> = {
@@ -32,10 +32,10 @@ export function SummaryTable({ summary, filter = "", rows, renderDecisions, onPa
     <thead><tr>{["Место", "Участник", "ККР блоков", "ККР мероприятий", "Всего", "Отметки", "Прошлые отметки"].map(name => <th key={name} scope="col">{name}</th>)}</tr></thead>
     <tbody>{shown.map(row => <tr key={row.participant_id}>
       <td data-label="Место"><div className={u.rank}><strong>{places ? row.rank : "—"}</strong><span>Ранее: {row.previous_rank ?? "—"}</span></div></td>
-      <td><div className={u.participantLine}><UserChip user={row.user} /><small>{row.group_number ? `${row.group_number} · ` : ""}{row.category === "junior" ? "Джуниор" : "Активист"}</small>{row.is_archived && <Badge tone="rose">Уже исключён</Badge>}{row.is_master && <Badge tone="yellow">Мастер</Badge>}{onParticipantSelect && <button type="button" className={u.rowAction} aria-label={`Начисления и работа: ${row.user.display_name}`} title="Начисления и работа" onClick={() => onParticipantSelect(row)}><Glyph name="fact_check" /></button>}</div>{!onParticipantSelect && <details className={u.sourceDetails}><summary>Источники начислений</summary>{row.source_scores.map((source, i) => <p key={`${source.source_id}-${i}`}>{source.title}: {source.score.toFixed(2)}</p>)}</details>}</td>
-      <td data-label="ККР блоков">{row.source_scores.filter(source => ['block_task','block_volunteer','master_bonus','chair_task','chair_merit'].includes(source.source_kind)).reduce((sum,source)=>sum+source.score,0).toFixed(2)}</td>
-      <td data-label="ККР мероприятий">{row.source_scores.filter(source => ['subevent_task','subevent_volunteer','event_task','head_merit'].includes(source.source_kind)).reduce((sum,source)=>sum+source.score,0).toFixed(2)}</td>
-      <td data-label="Всего"><span className={u.score} data-negative={row.total_score < 0}>{row.total_score.toFixed(2)}</span></td>
+      <td><div className={u.participantLine}><UserChip user={row.user} /><small>{row.group_number ? `${row.group_number} · ` : ""}{row.category === "junior" ? "Джуниор" : "Активист"}</small>{row.is_archived && <Badge tone="rose">Уже исключён</Badge>}{row.is_master && <Badge tone="yellow">Мастер</Badge>}{onParticipantSelect && <button type="button" className={u.rowAction} aria-label={`Начисления и работа: ${row.user.display_name}`} title="Начисления и работа" onClick={() => onParticipantSelect(row)}><Glyph name="fact_check" /></button>}</div>{!onParticipantSelect && <details className={u.sourceDetails}><summary>Источники начислений</summary>{row.source_scores.map((source, i) => <p key={`${source.source_id}-${i}`}>{source.title}: {metricValue(source.score)}</p>)}</details>}</td>
+      <td data-label="ККР блоков">{metricValue(row.source_scores.filter(source => ['block_task','block_volunteer','master_bonus','chair_task','chair_merit'].includes(source.source_kind)).reduce((sum,source)=>sum+source.score,0))}</td>
+      <td data-label="ККР мероприятий">{metricValue(row.source_scores.filter(source => ['subevent_task','subevent_volunteer','event_task','head_merit'].includes(source.source_kind)).reduce((sum,source)=>sum+source.score,0))}</td>
+      <td data-label="Всего"><span className={u.score} data-negative={row.total_score < 0}>{metricValue(row.total_score)}</span></td>
       <td className={u.decisionCell} data-label="Отметки">{renderDecisions?.(row)??<div aria-label="Решения текущего сезона"><DecisionBadges values={row.decisions} /></div>}</td>
       <td className={u.decisionCell} data-label="Прошлые отметки"><DecisionBadges values={row.previous_decisions} /></td>
     </tr>)}</tbody>

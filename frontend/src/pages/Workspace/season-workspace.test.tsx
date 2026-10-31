@@ -80,7 +80,7 @@ it.each(["organizer", "leader"] as const)("never requests global summary or anal
 });
 it("keeps the summary deep link and labels evaluated assignments honestly", async () => {
   // The old address now replaces itself with the season's own one; the participants tab is the same page.
-  await mount(<Routes><Route path="/seasons/:id/summary" element={<SummaryPage />} /><Route path="/seasons/:id" element={<SeasonPage />} /></Routes>, "/seasons/season-1/summary");expect(page!.container.querySelector('a[aria-current="page"]')?.textContent).toBe("Участники и ККР");expect(page!.container.textContent).toContain("ККР блоков");expect(page!.container.textContent).toContain("посмотреть его начисления");expect(page!.container.querySelectorAll('tbody img').length).toBeGreaterThan(0);expect(page!.container.textContent).not.toContain("Исправить закрытые итоги");
+  await mount(<Routes><Route path="/seasons/:id/summary" element={<SummaryPage />} /><Route path="/seasons/:id" element={<SeasonPage />} /></Routes>, "/seasons/season-1/summary");expect(page!.container.querySelector('a[aria-current="page"]')?.textContent).toBe("Участники и ККР");expect(page!.container.textContent).toContain("ККР блоков");expect(page!.container.textContent).toContain("показывает его вклад");expect(page!.container.querySelectorAll('tbody img').length).toBeGreaterThan(0);expect(page!.container.textContent).not.toContain("Исправить закрытые итоги");
 });
 it("retains missing history as gaps and sends participant/source filters", async () => {
   const data = analytics();data.totals = { completed_tasks: null, credited_hours: null, kkr: 18 };data.weekly = [];data.basis = { kind: "approved_snapshot", version: 4, approved_at: data.as_of };

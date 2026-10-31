@@ -16,6 +16,7 @@ import { userMessage } from "../../utils/api/messages";
 import { decisionLabels } from "../../utils/decisions";
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
 import { SummaryTable } from "./SummaryTable";
+import { metricValue } from "./seasonAnalyticsView";
 import u from "./SeasonWorkspace.module.css";
 import w from "../../components/Workspace/Workspace.module.css";
 
@@ -43,7 +44,7 @@ export function SeasonParticipants({ summary, renderDecisions, onFilterApply }: 
       <label>Отметки текущего сезона<select name="marks" value={mark} onChange={e => updateFilter(mark, e.target.value as typeof mark, setMark)}><option value="">Все отметки</option><option value="any">Есть отметки</option><option value="none">Без отметок</option>{Object.entries(decisionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       <label>Порядок<select aria-label="Порядок" value={sort} onChange={e => setSort(e.target.value)}><option value="rank">По месту в сводной</option><option value="score-asc">ККР по возрастанию</option><option value="name">По имени</option></select></label></div>
     <SummaryTable summary={summary} rows={rows} filter={search} renderDecisions={renderDecisions} onParticipantSelect={setPerson} />
-    <p className={u.note}>Нажмите на участника, чтобы посмотреть его начисления и перейти к учёту работы в задаче.</p>
+    <p className={u.note}>Кнопка «Начисления и работа» рядом с участником показывает его вклад и ведёт к учёту работы в задаче.</p>
     {person && <UnsavedChangesScope><TrackerTaskDialog title="Начисления участника" onClose={() => setPerson(null)}><ParticipantWork seasonId={summary.season_id} person={person} /></TrackerTaskDialog></UnsavedChangesScope>}
   </section>;
 }
@@ -53,10 +54,10 @@ function ParticipantWork({ seasonId, person }: { seasonId: string; person: Summa
   const tasks = useQuery({ queryKey: ["tasks", "accounting-links", seasonId], queryFn: () => tasksApi.list({ season_id: seasonId, mine: false }), enabled: allowed });
   if (!allowed) return <Empty>Нет доступа к расчётным данным.</Empty>;
   const items = contributions.data?.items.filter(item => item.participant_id === person.participant_id) ?? [];
-  return <section className={u.stack}><div className={u.dialogIdentity}><UserChip user={person.user} /><strong className={u.score}>{person.total_score.toFixed(2)} ККР</strong></div><p className={u.note}>{person.group_number} · {person.blocks.map(item => item.name).join(", ") || "Без блока"}</p>
+  return <section className={u.stack}><div className={u.dialogIdentity}><UserChip user={person.user} /><strong className={u.score}>{metricValue(person.total_score)} ККР</strong></div><p className={u.note}>{person.group_number} · {person.blocks.map(item => item.name).join(", ") || "Без блока"}</p>
     <QueryState loading={contributions.isLoading} error={contributions.error} retry={() => void contributions.refetch()}><ul className={u.detailList}>{items.map(item => {
       const assignmentId = item.assignment_inputs?.assignment_id;const task = tasks.data?.items.find(task => task.assignments.some(a => a.assignment_id === assignmentId));
-      return <li key={item.contribution_id}><div className={u.panelHeader}><h3>{item.source_title}</h3><strong>{item.score?.toFixed(2) ?? "—"} ККР</strong></div>{item.assignment_inputs && <p>Часы: {item.assignment_inputs.hours ?? "—"} · Оценка: {item.assignment_inputs.evaluation ?? "—"} · Выполнено: {displayDate(item.assignment_inputs.effective_completed_at)}</p>}{task && <Link to={`${getTaskRoute(task.task_id)}?assignment_id=${encodeURIComponent(assignmentId!)}&return_season=${encodeURIComponent(seasonId)}`}>Открыть задачу и её учёт →</Link>}{item.merit_id && <Link to={`/seasons/${encodeURIComponent(seasonId)}/merits`}>Заслуги и волонтёрство сезона →</Link>}<p className={u.note}>Формула: {item.calculation_version}</p></li>;
+      return <li key={item.contribution_id}><div className={u.panelHeader}><h3>{item.source_title}</h3><strong>{metricValue(item.score)} ККР</strong></div>{item.assignment_inputs && <p>Часы: {item.assignment_inputs.hours ?? "—"} · Оценка: {item.assignment_inputs.evaluation ?? "—"} · Выполнено: {displayDate(item.assignment_inputs.effective_completed_at)}</p>}{task && <Link to={`${getTaskRoute(task.task_id)}?assignment_id=${encodeURIComponent(assignmentId!)}&return_season=${encodeURIComponent(seasonId)}`}>Открыть задачу и её учёт →</Link>}{item.merit_id && <Link to={`/seasons/${encodeURIComponent(seasonId)}/merits`}>Заслуги и волонтёрство сезона →</Link>}</li>;
     })}</ul>{!items.length && <Empty>Начислений участника в этом сезоне пока нет.</Empty>}</QueryState>
     {tasks.error && <p className={u.note}>Ссылки на задачи недоступны. Начисления показаны выше.</p>}
   </section>;
