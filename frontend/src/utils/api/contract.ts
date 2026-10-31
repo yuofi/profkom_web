@@ -312,7 +312,8 @@ export interface Task extends Versioned {
   watchers?: UserRef[];
   allowed_statuses?: TaskPublicStatus[];
   task_key?: string;
-  queue?: TaskQueueRef;
+  /** readable: the queue page opens for this user; a reader of one task may not read its queue. */
+  queue?: TaskQueueRef & { readable?: boolean };
   parent_task?: { task_id: string; task_key: string; title: string } | null;
   parent_task_id?: string | null;
   parent_task_unavailable?: boolean;

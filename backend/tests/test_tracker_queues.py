@@ -372,3 +372,19 @@ def test_close_private_complete_work_masks_return_without_rewriting_saved_summar
         saved=raw.rows_json
     assert client.get('/api/seasons/'+sid+'/summary/versions',headers=superuser.headers).status_code==200
     with db._session() as s:assert s.query(SeasonSummaryORM).filter_by(season_id=sid).one().rows_json==saved
+
+
+def test_task_queue_ref_says_whether_its_reader_may_open_the_queue(client,work,superuser,make_user):
+    from test_tracker_control_guards import control_for
+    from test_website_support import setup_support,report,ok
+    w=work;tid,qid=control_for(w)
+    control=client.get('/api/tasks/'+tid,headers=w['master'].headers).json()
+    assert control['queue']['readable'] is False and client.get('/api/task-queues/'+qid,headers=w['master'].headers).status_code==403
+    assert client.get('/api/tasks/'+tid,headers=superuser.headers).json()['queue']['readable'] is True
+    assert get(client,w)['queue']['readable'] is True
+    support_master,_=setup_support(client,superuser,make_user);author=make_user()
+    ticket=ok(report(client,author)[0])['task_id']
+    mine=client.get('/api/tasks/'+ticket,headers=author.headers).json()
+    assert mine['queue']['key']=='WEBSUPPORT' and mine['queue']['readable'] is False
+    assert client.get('/api/task-queues/'+mine['queue']['queue_id'],headers=author.headers).status_code==403
+    assert client.get('/api/tasks/'+ticket,headers=support_master.headers).json()['queue']['readable'] is True

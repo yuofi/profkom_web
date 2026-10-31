@@ -226,9 +226,10 @@ def _submission_dict(session,row,shared=True):
 def enrich_task(session,task,result,uid):
     meta=metadata(session,task)
     if meta.task_number is None:session.flush()
-    from task_queues import task_queue,queue_ref,task_read
+    from task_queues import task_queue,queue_ref,task_read,can_read
     queue=task_queue(session,task)
-    result.queue=queue_ref(queue) if queue else None
+    # Display only: whether the queue page opens for this reader; the queue itself still answers 403.
+    result.queue=dict(queue_ref(queue),readable=can_read(session,queue,uid)) if queue else None
     result.task_key=queue.key+"-"+str(meta.queue_number) if queue and meta.queue_number else "TASK-"+str(meta.task_number)
     result.legacy_task_key=meta.legacy_task_key
     parent=session.get(TaskORM,meta.parent_task_id) if meta.parent_task_id else None

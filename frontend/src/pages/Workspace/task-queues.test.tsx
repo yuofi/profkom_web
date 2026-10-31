@@ -10,6 +10,7 @@ import { taskQueuesApi } from "../../utils/api/taskQueues.api";
 import { tasksApi } from "../../utils/api/tasks.api";
 import type { TaskQueueAccessRequest } from "../../utils/api/contract";
 import { mountWorkspace, waitForPage, change, submit } from "../../test/workspace";
+import { ApiError } from "../../utils/api/request";
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let transport: ReturnType<typeof installMockTransport> | undefined;
 afterEach(async () => { await page?.cleanup();page = undefined;transport?.restore();transport = undefined;vi.restoreAllMocks(); });
@@ -23,6 +24,24 @@ it("shows a locked queue in the directory without its owner or scope", async () 
   await mount("/tasks/queues", "organizer");
   const card = page!.container.querySelector<HTMLAnchorElement>('a[href="/tasks/queues/queue-tasks"]')!.closest('tr')!;
   expect(card.textContent).toContain("TASK");expect(card.textContent).toContain("Нет доступа");expect(card.textContent).not.toContain(transport.state.people[3].display_name);expect(card.querySelector("img")).toBeNull();
+});
+it("a locked service queue without an access request is plain text in the directory and explains itself", async () => {
+  transport = installMockTransport("organizer", { delay: 0 });transport.state.queues[0].is_private = true;
+  const catalog = await taskQueuesApi.catalog();const queue = catalog.items[0];
+  vi.spyOn(taskQueuesApi, "catalog").mockResolvedValue({ ...catalog, items: [{ ...queue, key: "KKR", name: "Контроль заполнения ККР", access: "locked", can_request_access: false, capabilities: [] }] });
+  await mount("/tasks/queues", "organizer");
+  const row = page!.container.querySelector('table[aria-label="Список очередей"] tbody tr')!;
+  expect(row.textContent).toContain("Контроль заполнения ККР");expect(row.querySelector("a")).toBeNull();expect(row.hasAttribute("tabindex")).toBe(false);
+  await act(async () => (row as HTMLElement).click());expect(page!.container.querySelector("h1")?.textContent).toBe("Очереди");
+  await page!.cleanup();
+  for (const [key, text] of [["KKR", "служебная очередь контроля ККР"], ["WEBSUPPORT", "очередь поддержки сайта"]] as const) {
+    vi.spyOn(taskQueuesApi, "get").mockRejectedValue(new ApiError("Нет доступа к очереди", 403, "queue_access_required", { queue: { queue_id: queue.queue_id, name: key, key }, can_request_access: false }));
+    await mount(`/tasks/queues/${queue.queue_id}`, "organizer");
+    expect(page!.container.textContent).toContain(text);expect(page!.container.textContent).not.toContain("Доступ подтверждает её владелец");expect(page!.container.textContent).not.toContain("Запрос доступа сейчас недоступен");
+    expect(!!page!.container.querySelector('a[href="/support"]')).toBe(key === "WEBSUPPORT");
+    await page!.cleanup();
+  }
+  page = undefined;
 });
 it("persists an access request from the denied screen without loading tasks", async () => {
   transport = installMockTransport("organizer", { delay: 0 });transport.state.queues[0].is_private = true;transport.state.queues[0].owner = transport.state.people[3];

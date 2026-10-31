@@ -263,6 +263,19 @@ it.each([true, false])("without a parent the breadcrumb has only the queue and c
   expect(trail.querySelector('[aria-current="page"]')?.textContent).toBe(task.task_key);
 });
 
+it("a task whose queue the reader cannot open shows the queue as text and support tickets lead to own reports", async () => {
+  await mountTask(makeTask({ queue: { queue_id: "queue-kkr", name: "Контроль заполнения ККР", key: "KKR", readable: false } }));
+  const path = page!.container.querySelector('[aria-label="Путь задачи"]')!, parameters = page!.container.querySelector('[aria-label="Параметры задачи"]')!;
+  expect(path.textContent).toContain("Контроль заполнения ККР");expect(path.querySelector('a[href*="queue-kkr"]')).toBeNull();expect(parameters.querySelector('a[href*="queue-kkr"]')).toBeNull();expect(parameters.textContent).toContain("Контроль заполнения ККР");
+  await page!.cleanup();vi.restoreAllMocks();
+  await mountTask(makeTask({ queue: { queue_id: "queue-support", name: "WEBSUPPORT", key: "WEBSUPPORT", readable: false } }));
+  const supportPath = page!.container.querySelector('[aria-label="Путь задачи"]')!;
+  expect(supportPath.querySelector('a[href="/support"]')?.textContent).toBe("Мои обращения");expect(page!.container.querySelector('a[href*="queue-support"]')).toBeNull();
+  expect(page!.container.querySelector('[aria-label="Параметры задачи"] a[href="/support"]')).not.toBeNull();
+  await page!.cleanup();vi.restoreAllMocks();
+  await mountTask(makeTask({ queue: { queue_id: "queue-open", name: "Открытая", key: "OPEN", readable: true } }));
+  expect(page!.container.querySelector('[aria-label="Путь задачи"] a[href="/tasks/queues/queue-open"]')).not.toBeNull();
+});
 it("selects and clears a cross-queue parent in one combobox with revision protection", async () => {
   let task = makeTask({ capabilities: ["read_task", "edit_task"], queue: { queue_id: "queue-design", name: "Дизайн", key: "DSN" }, parent_task: null });
   const other = makeTask({ task_id: "other-task", task_key: "WEB-12", title: "Задача из другой очереди", queue: { queue_id: "queue-web", name: "Разработка", key: "WEB" } });
