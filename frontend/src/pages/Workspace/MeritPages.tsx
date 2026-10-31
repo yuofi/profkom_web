@@ -7,10 +7,10 @@ import {
   Card,
   QueryState,
   ErrorState,
-  Markdown,
   Empty,
   RouteLink,
 } from "../../components/Workspace/WorkspaceUI";
+import { Markdown } from "../../components/Workspace/WorkspaceMarkdown";
 import { ActionForm, type Field } from "../../components/Workspace/ActionForm";
 import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
 import { useGuardedAction } from "../../components/Workspace/unsavedChangesHooks";

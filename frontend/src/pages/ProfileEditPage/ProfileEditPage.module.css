@@ -47,7 +47,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px 16px;
-  padding: 12px 12px 12px 20px;
+  /* The feedback button (48 px at 22 px from the edge) never covers «Сохранить» (GL-20). */
+  padding: 12px 84px 12px 20px;
   background: var(--surface-container-low);
   border: 1px solid color-mix(in srgb, var(--surface-variant) 70%, transparent);
   border-radius: var(--radius-large);

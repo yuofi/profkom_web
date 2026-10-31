@@ -1,5 +1,4 @@
 import { createBrowserRouter, createRoutesFromElements, Navigate, Outlet, RouterProvider, Route } from "react-router-dom";
-import { HelmetProvider } from "react-helmet-async";
 import { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "./App.css";
@@ -7,6 +6,7 @@ import { UnsavedChangesProvider } from "./components/Workspace/UnsavedChanges";
 import { WorkspaceLayout } from "./components/Workspace/WorkspaceLayout";
 import { FeedbackProvider } from "./components/Workspace/FeedbackButton";
 import { Loading } from "./components/Workspace/WorkspaceUI";
+import { AppErrorPage } from "./components/Workspace/PageErrorBoundary";
 const EventsListPage = lazy(() =>
   import("./pages/Workspace/EventPages").then((m) => ({
     default: m.EventsListPage,
@@ -124,6 +124,7 @@ const LegacyMaterialRedirect = lazy(() => import("./pages/Workspace/LegacyMateri
 const GreetingPage = lazy(() => import("./pages/Greeting/Greeting").then(m => ({ default: m.GreetingPage })));
 import { UserProvider } from "./utils/ctx";
 import { retryTransient, workspaceQueryCache } from "./utils/api/invalidation";
+import { workspaceStaleTime } from "./utils/routePrefetch";
 import { ProtectedRoute } from "./pages/Wrappers/wrappers";
 const ProfilePage = lazy(() => import("./pages/ProfilePage/ProfilePage").then(m => ({ default: m.ProfilePage })));
 const ProfileSettingsPage = lazy(() => import("./pages/ProfilePage/ProfileSettingsPage").then(m => ({ default: m.ProfileSettingsPage })));
@@ -136,7 +137,7 @@ const NotFoundPage = lazy(() => import("./pages/fallback/NotFoundPage").then(m =
 const SupportPage = lazy(() => import("./pages/Workspace/SupportPage").then(module => ({ default: module.SupportPage })));
 const queryClient = new QueryClient({
   queryCache: workspaceQueryCache(),
-  defaultOptions: { queries: { refetchOnWindowFocus: false, retry: retryTransient } },
+  defaultOptions: { queries: { refetchOnWindowFocus: false, retry: retryTransient, staleTime: workspaceStaleTime } },
 });
 function AppShell() {
   return (
@@ -152,7 +153,7 @@ function AppShell() {
   );
 }
 const router = createBrowserRouter(createRoutesFromElements(
-  <Route element={<AppShell />}>
+  <Route element={<AppShell />} errorElement={<AppErrorPage />}>
                 <Route path="/auth" element={<GreetingPage />} />
                 <Route element={<ProtectedRoute />}>
                   <Route path="/" element={<WorkspaceLayout />}>
@@ -251,11 +252,9 @@ const router = createBrowserRouter(createRoutesFromElements(
 ));
 function App() {
   return (
-    <HelmetProvider>
-      <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
-      </QueryClientProvider>
-    </HelmetProvider>
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>
   );
 }
 export default App;

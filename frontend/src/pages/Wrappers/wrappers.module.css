@@ -1,0 +1,39 @@
+/* Over the page, not in its flow: the page and the input in it stay where they are. */
+.offline {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  z-index: 60;
+  translate: -50% 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-sizing: border-box;
+  /* Centred by translate, it would shrink to the half of the screen right of its left edge. */
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  margin: 0;
+  padding: 8px 10px 8px 16px;
+  border: 1px solid var(--outline-variant);
+  border-radius: 12px;
+  background: var(--surface-container-high);
+  color: var(--on-surface);
+  box-shadow: var(--elevation-3);
+  font-size: 14px;
+  line-height: 1.4;
+}
+.offline button {
+  flex: none;
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--primary);
+  font: inherit;
+  cursor: pointer;
+}
+.offline button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}

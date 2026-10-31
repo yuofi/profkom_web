@@ -1,6 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useId, useMemo, useRef, useState } from "react";
-import { Helmet } from "react-helmet-async";
 import { z } from "zod";
 import { FormikProvider } from "formik";
 import { useGuardedAction } from "../../components/Workspace/unsavedChangesHooks";
@@ -221,9 +220,7 @@ export const PgasPage = () => {
         )
       }
     >
-      <Helmet>
-        <title>ПГАС | Профком ВМК</title>
-      </Helmet>
+      <title>ПГАС | Профком ВМК</title>
       <div className={styles.filters}>
         <label className={s.field}>Год
           <select aria-label="Год документов" value={yearFilter} onChange={event => setYearFilter(event.target.value)}><option value="all">Все годы</option>{filterYears.map(year => <option value={year} key={year}>{year}</option>)}</select>

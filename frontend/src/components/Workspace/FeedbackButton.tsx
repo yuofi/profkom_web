@@ -10,10 +10,35 @@ import { useConfirmedNavigation, useGuardedAction, useUnsavedChanges } from "./u
 import { Glyph } from "./WorkspaceUI";
 import { getTaskRoute } from "../../utils/routes";
 import { createClientId } from "../../utils/clientId";
+import { FeedbackDialogContext } from "./feedbackDialog";
 import s from "./Workspace.module.css";
 import f from "./FeedbackButton.module.css";
 
 function BugIcon() { return <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="7" y="7" width="10" height="14" rx="5" /><path d="M9 7V5a3 3 0 0 1 6 0v2M3 10h4m10 0h4M3 15h4m10 0h4M5 21l3-3m8 0 3 3M12 8v12" /></svg>; }
+/** On a phone or a narrow tablet the button steps aside while the page scrolls down, so it
+ *  does not sit on the status chips, deadlines and «×» buttons being read; it returns on any
+ *  scroll up (GL-20). Up to 960 px the right column of a table still reaches under it. It
+ *  also steps aside while a text field has focus: the field at the bottom of a phone screen
+ *  (the phone number of a registration) is being filled in under it. */
+const TEXT_FIELD = "input:not([type=checkbox],[type=radio],[type=button],[type=submit],[type=reset],[type=file],[type=range],[type=color]),textarea,select,[contenteditable=true]";
+function useTuckedOnScroll() {
+  const [tucked, setTucked] = useState(false);
+  useEffect(() => {
+    const phone = window.matchMedia?.("(max-width: 960px)");
+    const field = (target: EventTarget | null) => target instanceof Element && target.matches(TEXT_FIELD);
+    let last = window.scrollY, typing = false;
+    const scroll = () => {
+      const y = window.scrollY;
+      if (Math.abs(y - last) < 8) return;
+      setTucked(typing || (!!phone?.matches && y > last && y > 80));last = y;
+    };
+    const focusin = (event: FocusEvent) => { typing = !!phone?.matches && field(event.target);if (typing) setTucked(true); };
+    const focusout = (event: FocusEvent) => { if (typing && !field(event.relatedTarget)) { typing = false;setTucked(false); } };
+    window.addEventListener("scroll", scroll, { passive: true });document.addEventListener("focusin", focusin);document.addEventListener("focusout", focusout);
+    return () => { window.removeEventListener("scroll", scroll);document.removeEventListener("focusin", focusin);document.removeEventListener("focusout", focusout); };
+  }, []);
+  return tucked;
+}
 export function FeedbackProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false), [diagnostics, setDiagnostics] = useState<FeedbackInput["diagnostics"]>(null);
   const location = useLocation();
@@ -27,7 +52,8 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener("error", failure);window.addEventListener("unhandledrejection", failure);document.addEventListener("click", click);
     return () => { window.removeEventListener("error", failure);window.removeEventListener("unhandledrejection", failure);document.removeEventListener("click", click); };
   }, []);
-  return <>{children}<button type="button" className={f.trigger} aria-label="Сообщить об ошибке или предложить улучшение" title="Сообщить об ошибке или предложить улучшение" onClick={start}><BugIcon /></button>{open && <FeedbackForm diagnostics={diagnostics} onClose={() => setOpen(false)} />}</>;
+  const tucked = useTuckedOnScroll();
+  return <><FeedbackDialogContext.Provider value={start}>{children}</FeedbackDialogContext.Provider><button type="button" className={`${f.trigger} ${tucked ? f.tucked : ""}`} aria-label="Сообщить об ошибке или предложить улучшение" title="Сообщить об ошибке или предложить улучшение" onClick={start}><BugIcon /></button>{open && <FeedbackForm diagnostics={diagnostics} onClose={() => setOpen(false)} />}</>;
 }
 function FeedbackForm({ diagnostics, onClose }: { diagnostics: FeedbackInput["diagnostics"]; onClose: () => void }) {
   const { session } = useSession(), scope = useId(), leave = useGuardedAction(scope), navigate = useConfirmedNavigation(), dialog = useRef<HTMLDivElement>(null), restore = useRef<HTMLElement | null>(null);

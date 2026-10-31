@@ -6,12 +6,12 @@ import {
   Page,
   Card,
   QueryState,
-  Markdown,
   RouteLink,
   Badge,
   Empty,
   Glyph,
 } from "../../components/Workspace/WorkspaceUI";
+import { Markdown } from "../../components/Workspace/WorkspaceMarkdown";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { text } from "../../components/Workspace/formValues";
 import {
@@ -76,8 +76,9 @@ export function ReportsPage() {
       actions={<RouteLink to="/reports/history">Поиск по истории</RouteLink>}
     >
       <div className={s.stack}>
+        {/* A missing or closed owner is said as such, not as an empty list (GL-21). */}
         <QueryState keepDataOnError={!!query.data}
-        loading={query.isLoading} error={query.error}>
+        loading={query.isLoading || owner.isLoading} error={owner.error ?? query.error}>
           <Card>
             <ReportLinks reports={query.data?.items ?? []} />
             {query.data?.items.length === 0 && <Empty>Отчётов пока нет.</Empty>}
@@ -515,7 +516,12 @@ export function MeetingPage() {
                   submitLabel="Снять объявление"
                   variant="danger"
                   onSubmit={async () => {
-                    await perform(() => eventsApi.deleteMeeting(apiKind, id));
+                    // The answer itself says there is no announcement: the form starts anew from
+                    // revision 0 at once, not from the removed one until the reread (PF-02).
+                    await perform(async () => {
+                      await eventsApi.deleteMeeting(apiKind, id);
+                      client.setQueryData(["events", "meeting", kind, id], null);
+                    });
                     setRemoved((n) => n + 1);
                   }}
                 />

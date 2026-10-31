@@ -49,7 +49,7 @@ it.each(["pending", "rejected", "active"] as const)("A03: password and VK login 
       <Route element={<ProtectedRoute />}><Route path="/" element={<p>ACTIVE_WORKSPACE</p>} /></Route>
     </Routes></UserProvider></HelmetProvider>, { path: "/auth", client });
     if (channel === "password") {
-      await act(async () => page!.container.querySelector("h5")!.click());
+      await act(async () => page!.container.querySelector<HTMLButtonElement>("button[aria-expanded]")!.click());
       await change(field(page.container, "email"), "student@example.org");
       await change(field(page.container, "password"), "synthetic-password");
       await submit(page.container.querySelector("form")!);
@@ -76,7 +76,7 @@ it("A03: VK SDK and API failures are visible", async () => {
   adapter = new MockAdapter(api);
   // As backend/vk_auth.py answers when VK ID does not respond: a legacy string detail.
   adapter.onPost("/auth/vk").reply(503, { detail: "VK ID is unavailable" });
-  page = await mountWorkspace(<HelmetProvider><GreetingPage /></HelmetProvider>);
+  page = await mountWorkspace(<HelmetProvider><GreetingPage /></HelmetProvider>, { session: null });
   await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "VK error")!.click());
   expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("Не удалось войти через VK");
   await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "VK test")!.click());
@@ -86,10 +86,10 @@ it("A03: VK SDK and API failures are visible", async () => {
 });
 
 it("A03: a VK error does not stay over the password form", async () => {
-  page = await mountWorkspace(<HelmetProvider><GreetingPage /></HelmetProvider>);
+  page = await mountWorkspace(<HelmetProvider><GreetingPage /></HelmetProvider>, { session: null });
   await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "VK error")!.click());
   expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("Не удалось войти через VK");
-  await act(async () => page!.container.querySelector("h5")!.click());
+  await act(async () => page!.container.querySelector<HTMLButtonElement>("button[aria-expanded]")!.click());
   expect(field(page.container, "password")).toBeTruthy();
   expect(page.container.querySelector('[role="alert"]')).toBeNull();
 });
@@ -98,7 +98,7 @@ it("2.18 MIGRATION-08: the VK of an old account that is not linked yet is named,
   adapter = new MockAdapter(api);
   // As backend/vk_auth.py answers for an account of the old site without a VK identity.
   adapter.onPost("/auth/vk").reply(409, { detail: "This VK is named by an existing account; it must be linked first" });
-  page = await mountWorkspace(<HelmetProvider><GreetingPage /></HelmetProvider>);
+  page = await mountWorkspace(<HelmetProvider><GreetingPage /></HelmetProvider>, { session: null });
   await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "VK test")!.click());
   await settle();
   const alert = page.container.querySelector('[role="alert"]')?.textContent;
@@ -116,7 +116,7 @@ it("A03: pending logout revokes the server session and clears private caches bef
   Cookies.set("access_token", "synthetic-token");
   page.client.setQueryData(["session"], f.session);
   page.client.setQueryData(["private"], "secret");
-  await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "Ко входу")!.click());
+  await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "Выйти")!.click());
   await settle();
   expect(adapter.history.post.map((r) => r.url)).toEqual(["/auth/logout"]);
   expect(Cookies.get("access_token")).toBeUndefined();
@@ -137,10 +137,10 @@ it("A03: logout network error stays actionable; pending refresh never reads a pr
   await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "Refresh")!.click());
   await settle();
   expect(adapter.history.get.some((r) => r.url === "/profile/me")).toBe(false);
-  await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "Ко входу")!.click());
+  await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "Выйти")!.click());
   await settle();
   expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("Не удалось завершить сессию");
-  expect(page.container.textContent).toContain("Ко входу");
+  expect(page.container.textContent).toContain("Выйти");
 });
 
 it("A-FE-4: a session the server ended leaves nothing private in the cache", async () => {

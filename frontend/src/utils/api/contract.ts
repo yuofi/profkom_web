@@ -671,6 +671,8 @@ export interface TaskCreate {
   assignees?: { user_id: number; hours?: number }[];
   watcher_user_ids?: number[];
   file_ids?: string[];
+  /** A UUID: a repeat with the same key returns the task created by the first request. */
+  idempotency_key?: string;
 }
 export interface SeasonBlocker {
   kind:

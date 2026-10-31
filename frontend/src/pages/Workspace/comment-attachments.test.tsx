@@ -39,7 +39,7 @@ it('upload stays in the comment draft, POST binds it, reread renders it and shar
  await change(frame.querySelector('textarea')!,'Комментарий с файлом');save.mockRejectedValueOnce(new ApiError('Попробуйте снова',503,'server_error'));
  await submit(frame.closest('form')!);await waitForPage(page!);expect(frame.querySelector('textarea')!.value).toBe('Комментарий с файлом');expect(page!.container.querySelector('[aria-label="Файлы в черновике комментария"]')?.textContent).toContain(file.name);
  await submit(frame.closest('form')!);await waitForPage(page!,()=>!!page!.container.querySelector('article [aria-label="Вложения комментария"]'));
- expect(save).toHaveBeenLastCalledWith(task.task_id,richText('Комментарий с файлом'),[],[file.file_id]);expect(page!.container.querySelector('[aria-label="Файлы в черновике комментария"]')).toBeNull();
+ expect(save).toHaveBeenLastCalledWith(task.task_id,richText('Комментарий с файлом'),[],[file.file_id],expect.stringMatching(/^[0-9a-f-]{36}$/));expect(page!.container.querySelector('[aria-label="Файлы в черновике комментария"]')).toBeNull();
  await page!.cleanup();page=undefined;await mount();
  let article=page!.container.querySelector('article')!;expect(article.querySelector('[aria-label="Вложения комментария"]')?.textContent).toContain(file.name);
  const reads=read.mock.calls.length;await act(async()=>[...page!.container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(button=>button.textContent==='Вложения')!.click());await waitForPage(page!);
@@ -57,5 +57,5 @@ it('a file-only comment is allowed and cannot be sent before the upload finishes
  const {frame}=await upload();const button=[...page!.container.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Добавить комментарий')!;
  expect(button.matches(':disabled')).toBe(true);expect(save).not.toHaveBeenCalled();await act(async()=>complete(file));await waitForPage(page!);expect(button.matches(':disabled')).toBe(false);
  await submit(frame.closest('form')!);await waitForPage(page!,()=>!!page!.container.querySelector('article [aria-label="Вложения комментария"]'));
- expect(save).toHaveBeenCalledWith(task.task_id,richText(''),[],[file.file_id]);
+ expect(save).toHaveBeenCalledWith(task.task_id,richText(''),[],[file.file_id],expect.stringMatching(/^[0-9a-f-]{36}$/));
 });

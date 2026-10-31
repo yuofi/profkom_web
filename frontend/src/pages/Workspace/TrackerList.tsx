@@ -16,6 +16,7 @@ import { directoryApi } from "../../utils/api/directory.api";
 import type { ScopeRef, Task, TaskQueue } from "../../utils/api/contract";
 import { can, useSession } from "../../utils/session";
 import { getTaskRoute, getTaskQueuesRoute, getTaskCreateRoute } from "../../utils/routes";
+import { useTaskPrefetch } from "../../utils/routePrefetch";
 import { displayDate } from "../../utils/dates";
 import { canRetainData } from "../../utils/api/request";
 import { TaskStatusMenu } from "./TaskStatusMenu";
@@ -129,6 +130,9 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
     next.set("sort", sort); next.set("order", filters.sort === sort && filters.order === "asc" ? "desc" : "asc");
     next.delete("cursor"); next.delete("page"); previous.current.clear(); setParams(next);
   };
+  // Resting on the task's own link counts; on another control of the row (a person's chip,
+  // the star, the status menu) it is meant for that control and starts nothing.
+  const prefetchTask = useTaskPrefetch(target => interactive(target) && !(target instanceof Element && target.closest('a[href^="/tasks/"]')));
   const open = (event: MouseEvent<HTMLTableRowElement>, task: Task) => {
     if (interactive(event.target) || window.getSelection()?.toString()) return;
     const route = getTaskRoute(task.task_id);
@@ -193,7 +197,7 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
       {view === "calendar" ? <TrackerCalendar tasks={tasks} range={range} month={month} onMonth={value => update("month", value)} /> : view === "gantt" ? <TrackerGantt tasks={tasks} range={range} month={month} onMonth={value => update("month", value)} zoom={zoom} onZoom={value => update("zoom", value)} /> : tasks.length ? <div className={s.tableWrap}>
         <table className={s.table} aria-label="Список задач">
           <thead><tr><th scope="col">Ключ</th><th scope="col">Задача</th><th scope="col">Исполнители</th><th scope="col">Статус</th><th scope="col" aria-sort={filters.sort === "deadline" ? filters.order === "desc" ? "descending" : "ascending" : "none"}><button onClick={() => changeSort("deadline")}>Дедлайн {filters.sort === "deadline" && (filters.order === "asc" ? "↑" : "↓")}</button></th><th scope="col">Команда</th><th scope="col" aria-sort={filters.sort === "updated" ? filters.order === "desc" ? "descending" : "ascending" : "none"}><button onClick={() => changeSort("updated")}>Обновлено {filters.sort === "updated" && (filters.order === "asc" ? "↑" : "↓")}</button></th></tr></thead>
-          <tbody>{tasks.map((task) => <tr key={task.task_id} tabIndex={0} aria-label={`Открыть задачу ${task.task_key ?? task.title}`} onClick={(event) => open(event, task)} onAuxClick={(event) => open(event, task)} onKeyDown={(event) => openKeyboard(event, task)}>
+          <tbody>{tasks.map((task) => <tr key={task.task_id} tabIndex={0} aria-label={`Открыть задачу ${task.task_key ?? task.title}`} {...prefetchTask(task.task_id)} onClick={(event) => open(event, task)} onAuxClick={(event) => open(event, task)} onKeyDown={(event) => openKeyboard(event, task)}>
             <td className={s.key} data-label="Ключ"><div className={s.keyRow}><div className={s.classificationControls}><TaskClassificationMenu task={task} field="task_type" iconOnly /><TaskClassificationMenu task={task} field="priority" iconOnly /></div><span className={s.keyText}>{task.task_key ?? "Задача"}</span><TrackerFavoriteButton task={task} compact /></div></td>
             <td className={s.taskTitle}><Link to={getTaskRoute(task.task_id)}>{task.title}</Link></td>
             <td className={s.assignees} data-label="Исполнители"><div>{(task.assignees ?? task.assignments.map((assignment) => assignment.assignee)).map((person, index) => <UserChip user={person} key={`${person.user_id ?? "historical"}-${index}`} />)}</div></td>

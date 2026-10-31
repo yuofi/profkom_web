@@ -32,7 +32,7 @@ export function SeasonEditor({ season, onClose }: { season?: Season; onClose?: (
       setSaving(true);
       try {
         const saved = await perform(() => season ? seasonsApi.update(season.season_id, { expected_revision: revision!, title: title.trim(), starts_at: start, ends_at: end, reason: reason.trim() }) : seasonsApi.create({ title: title.trim(), type, starts_at: start, ends_at: end }));
-        if (onClose) onClose();else navigate(getSeasonRoute(saved.season_id));return saved;
+        if (onClose) onClose();else navigate(getSeasonRoute(saved.season_id), { replace: true });return saved;
       } finally { setSaving(false); }
     }}>
       <div className={u.editorCanvas}>

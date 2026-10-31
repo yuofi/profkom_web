@@ -63,6 +63,17 @@ const visible = (field: Field, values: Values) =>
 const savedValues = (fields: Field[]): Values =>
   Object.fromEntries(fields.map((f) => [f.name, f.value ?? (f.type === "multi" ? [] : "")]));
 
+/** Where a chain of own saves (from → to) leads from `from`. */
+const follow = <K,>(chain: [K, K][], from: K) => {
+  let current = from;
+  for (let steps = 0; steps < chain.length; steps++) {
+    const next = chain.find(([at]) => at === current);
+    if (!next) break;
+    current = next[1];
+  }
+  return current;
+};
+
 /** People a multiple choice with saved members would remove, by label. */
 const removals = (fields: Field[], values: Values) =>
   fields
@@ -137,6 +148,9 @@ export function ActionForm({
   const [expectedRevision, setExpectedRevision] = useState(revision);
   const [expectedRevisionKey, setExpectedRevisionKey] = useState(revisionKey);
   const [refreshing, setRefreshing] = useState(false);
+  // Own saves of this form (from → to). Their reread runs in the background (PF-02), so the
+  // props may still carry what a save has just replaced: that is not someone else's change.
+  const [ownSaves, setOwnSaves] = useState<{ revisions: [number, number][]; keys: [string, string][] }>({ revisions: [], keys: [] });
   const confirmedRemoval = useRef<string | null>(null);
   const [pendingRemoval, setPendingRemoval] = useState<string[]>([]);
   const versioned = revision !== undefined || revisionKey !== undefined;
@@ -162,7 +176,13 @@ export function ActionForm({
     const rebased = rebaseKey(expectedRevisionKey);
     if (rebased !== expectedRevisionKey) setExpectedRevisionKey(rebased);
   }
-  const changedRevision = revision !== expectedRevision || revisionKey !== expectedRevisionKey;
+  const changed = revision !== expectedRevision || revisionKey !== expectedRevisionKey;
+  // The props are behind only by own saves (of this form or, through `record`, of another
+  // form of the record): they are being reread. A foreign revision is never on that chain.
+  const catchingUp = changed &&
+    (revision === undefined ? undefined : follow(ownSaves.revisions, record ? advanceOwn(client, record, revision) : revision)) === expectedRevision &&
+    (revisionKey === undefined ? undefined : follow(ownSaves.keys, rebaseKey ? rebaseKey(revisionKey) : revisionKey)) === expectedRevisionKey;
+  const changedRevision = changed && !catchingUp;
   const schema = (values: Values) =>
     z.object(
       Object.fromEntries(
@@ -238,6 +258,9 @@ export function ActionForm({
           : onSubmit(values, expectedRevision, expectedRevisionKey));
         if (saved) {
           const next = "revision" in saved ? saved.revision : "version" in saved ? saved.version : undefined;
+          const ownRevision = revision !== undefined && next !== undefined && expectedRevision !== undefined && next !== expectedRevision ? [expectedRevision, next] as [number, number] : undefined;
+          const ownKey = revisionKey !== undefined && "revisionKey" in saved && expectedRevisionKey !== undefined && saved.revisionKey !== expectedRevisionKey ? [expectedRevisionKey, saved.revisionKey] as [string, string] : undefined;
+          if (ownRevision || ownKey) setOwnSaves((own) => ({ revisions: ownRevision ? [...own.revisions, ownRevision] : own.revisions, keys: ownKey ? [...own.keys, ownKey] : own.keys }));
           if (revision !== undefined && next !== undefined) {
             setExpectedRevision(next);
             if (record) recordOwnChange(client, record, expectedRevision!, next);

@@ -54,7 +54,7 @@ export function MaterialEditor({ material: m, onClose }: { material?: Material; 
           setSaving(true);
           try {
             const result = await perform(() => m ? materialsApi.update(m.material_id, { expected_revision: revision!, title: title.trim(), description, original_link: original || null, content: richText(body) }) : materialsApi.create({ title: title.trim(), description, kind, ...(kind === "guide" ? { owner_block_id: block } : {}), ...(original ? { original_link: original } : {}), content: richText(body) }));
-            if (!m) navigate(getMaterialRoute(result.material_id));
+            if (!m) navigate(getMaterialRoute(result.material_id), { replace: true });
             return result;
           } finally { setSaving(false); }
         }}>

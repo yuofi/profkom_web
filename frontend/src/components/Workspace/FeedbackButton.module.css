@@ -6,4 +6,8 @@
 .header h2 { margin: 0; font-size: 22px; }
 .preview { display: block; max-width: 100%; max-height: 240px; object-fit: contain; border-radius: 10px; }
 .diagnostics { max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
-@media(max-width:768px) { .trigger { right: 14px; bottom: 14px; }.dialog { padding: 18px; }.overlay { padding: 10px; } }
+@media(max-width:768px) { .trigger { right: 14px; bottom: 14px; width: 40px; height: 40px; }.dialog { padding: 18px; }.overlay { padding: 10px; } }
+/* GL-20: on a phone it steps below the screen edge while the page scrolls down; keyboard focus brings it back. */
+.trigger { transition: transform .2s, opacity .2s; }
+.tucked:not(:focus-visible) { transform: translateY(calc(100% + 24px)); opacity: 0; pointer-events: none; }
+@media(prefers-reduced-motion:reduce) { .trigger { transition: none; } }

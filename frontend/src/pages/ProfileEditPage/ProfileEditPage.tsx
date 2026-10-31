@@ -17,7 +17,6 @@ import styles from "./ProfileEditPage.module.css";
 import type { ProfileUpdate } from "../../utils/api/types";
 import { useSession } from "../../utils/session";
 import { visibleAdminTabs } from "../Admin/adminTabs";
-import { Helmet } from "react-helmet-async";
 import { useGuardedAction, useUnsavedChanges } from "../../components/Workspace/unsavedChangesHooks";
 
 export const ProfileEditPage = () => {
@@ -204,9 +203,7 @@ export const ProfileEditPage = () => {
       description="Ваши данные видят участники Профкома в контактах."
       actions={<RouteLink to="/profile">К профилю</RouteLink>}
     >
-      <Helmet>
-        <title>Редактирование профиля | Профком ВМК</title>
-      </Helmet>
+      <title>Редактирование профиля | Профком ВМК</title>
       <QueryState loading={editorQuery.isLoading} error={editorQuery.error}>
         {editorQuery.error && <button type="button" className={s.button} onClick={() => { baseline.current = null;void editorQuery.refetch(); }}>Перечитать профиль</button>}
       </QueryState>

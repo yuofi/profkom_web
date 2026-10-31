@@ -260,6 +260,10 @@ export function installMockTransport(
               b.master?.deputy_user_ids.includes(state.session.user_id)),
         );
   const queueRequests: (TaskQueueAccessRequest & { queue_id: string })[] = [];
+  // As on the server (GL-07): a create repeated with its key returns the first result.
+  const requestKeys=new Map<string,{body:string;owner:number;result:()=>unknown}>();
+  const repeated=(data:Body,context:string):Reply|undefined=>{const key=data.idempotency_key;if(key===undefined)return undefined;if(typeof key!=="string"||!/^[0-9a-f-]{36}$/i.test(key))return fail(422,"invalid_input","Проверьте поля формы");const known=requestKeys.get(key);if(!known)return undefined;const {idempotency_key:_key,...body}=data;void _key;return known.owner===state.session.user_id&&known.body===context+JSON.stringify(body)?[200,clone(known.result())]:fail(409,"duplicate_request_key","Idempotency key has already been used");};
+  const rememberKey=(data:Body,context:string,result:()=>unknown)=>{if(typeof data.idempotency_key!=="string")return;const {idempotency_key:_key,...body}=data;void _key;requestKeys.set(data.idempotency_key,{body:context+JSON.stringify(body),owner:state.session.user_id,result});};
   const mentionRequests:TaskMentionRequest[]=[];const taskGrants=new Map<string,Set<number>>();
   const trackerAdmin = ["chair", "chair-deputy", "hr", "hr-deputy"].includes(role);
   const queueCreateScopes = (): NonNullable<TaskQueueCatalog["create_scopes"]> => {
@@ -1129,7 +1133,8 @@ export function installMockTransport(
         const scopes = [...new Map(state.tasks.filter(readsTask).map(task => [`${task.scope.kind}:${task.scope.id}`, { ...task.scope, title: task.scope_title ?? "Команда" }])).values()];
         return [200, { items: tasks.slice(offset, offset + limit).map(visibleTask), total: tasks.length, scopes, assignees: clone(state.people), next_cursor: offset + limit < tasks.length ? `mock:${offset + limit}` : null }];
       }
-      const extraTask = extraInputs(data, ["queue_id", "scope", "season_id", "title", "description", "deadline_at", "assignees", "watcher_user_ids", "file_ids", "parent_task_id", "criteria", "task_type", "priority", "starts_at", "checklist"]);if (extraTask) return extraTask;
+      const extraTask = extraInputs(data, ["queue_id", "scope", "season_id", "title", "description", "deadline_at", "assignees", "watcher_user_ids", "file_ids", "parent_task_id", "criteria", "task_type", "priority", "starts_at", "checklist", "idempotency_key"]);if (extraTask) return extraTask;
+      const repeatedTask = repeated(data, "task");if (repeatedTask) return repeatedTask;
       const stage2 = stage2Patch(data);if (stage2.error) return stage2.error;
       const selectedQueue = state.queues.find(q => q.queue_id === data.queue_id);
       if (selectedQueue ? !readsQueue(selectedQueue) : !data.scope || !(trackerAdmin || readsScopeTask({ scope: data.scope } as Task))) return denied();
@@ -1192,6 +1197,7 @@ export function installMockTransport(
       if (typeof data.parent_task_id === "string") { const parent = state.tasks.find(t => t.task_id === data.parent_task_id);if (parent) { task.parent_task_id = parent.task_id;task.parent_task = { task_id: parent.task_id, task_key: parent.task_key!, title: parent.title }; } }
       task.assignees = task.assignments.map(a => a.assignee);task.watchers = ((data.watcher_user_ids ?? []) as number[]).map(uid => state.people.find(p => p.user_id === uid)!).filter(Boolean);task.attachments = taskFiles(data.file_ids);refreshRoster(task);
       state.tasks.push(task);rememberTask(task, "task_created", "Создана задача");
+      rememberKey(data, "task", () => visibleTask(state.tasks.find(item => item.task_id === task.task_id) ?? task));
       return [201, visibleTask(task)];
     }
     if (parts[0] === "tasks") {
@@ -1346,6 +1352,7 @@ export function installMockTransport(
           return list(
             clone(state.comments.filter((c) => c.task_id === task.task_id).map(comment => ({...comment,mentioned_users:commentMentions(comment.content.body)}))),
           );
+        const repeatedComment=repeated(data,task.task_id);if(repeatedComment)return repeatedComment;
         const attachments=commentFiles(data.file_ids??[],task.task_id);if(!attachments)return fail(422,"invalid_input","Некорректные файлы комментария");
         if(!publicSubmission(data.content).body.trim()&&!attachments.length)return fail(422,"invalid_input","Добавьте текст или файл");
         const comment = {
@@ -1362,7 +1369,7 @@ export function installMockTransport(
         const mentions=(data.mentioned_user_ids??[]) as number[];
         if(!Array.isArray(mentions)||mentions.some(uid=>!state.people.some(person=>person.user_id===uid)))return fail(422,"invalid_input","Участник недоступен");
         for(const uid of new Set(mentions)){if(!mentionRequests.some(row=>row.task_id===task.task_id&&row.target?.user_id===uid&&row.status==="pending"))mentionRequests.push({request_id:id("mention"),task_id:task.task_id,task_key:task.task_key??null,target:clone(state.people.find(person=>person.user_id===uid)!),requested_by:clone(state.user),comment_id:comment.comment_id,status:"pending",created_at:mockNow,revision:1,capabilities:["approve_task_mention","reject_task_mention"]});}
-        state.comments.push(comment);rememberTask(task, "comment_added", "Добавлен комментарий");
+        state.comments.push(comment);rememberTask(task, "comment_added", "Добавлен комментарий");rememberKey(data,task.task_id,()=>comment);
         return [201, clone(comment)];
       }
       if (parts[2] === "assessment-inputs") {

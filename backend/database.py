@@ -295,6 +295,10 @@ class TaskORM(Base):
     created_by_user_id = Column(Integer, nullable=False)
     created_at = Column(String, nullable=False)
     revision = Column(Integer, default=1, nullable=False)
+    # A repeated create with the same key returns this task (GL-07); NULL for older rows.
+    idempotency_key = Column(String, nullable=True)
+    request_hash = Column(String, nullable=True)
+    __table_args__ = (Index("ux_tasks_idempotency_key", "idempotency_key", unique=True),)
 
 
 class TaskQueueORM(Base):
@@ -485,6 +489,10 @@ class CommentORM(Base):
     history_json = Column(Text, nullable=False, default='[]')
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=True)
+    # A repeated comment with the same key returns this one (GL-07); NULL for older rows.
+    idempotency_key = Column(String, nullable=True)
+    request_hash = Column(String, nullable=True)
+    __table_args__ = (Index("ux_task_comments_idempotency_key", "idempotency_key", unique=True),)
 
 
 class FileRecordORM(Base):
@@ -758,6 +766,22 @@ def _ensure_sqlite_comment_files_column() -> None:
 
 
 _ensure_sqlite_comment_files_column()
+
+
+def _ensure_sqlite_request_key_columns() -> None:
+    """GL-07: existing tasks and comments get no key (NULL); only new creates carry one."""
+    with engine.begin() as connection:
+        for table in ("tasks", "task_comments"):
+            names = {row[1] for row in connection.execute(text(f"PRAGMA table_info({table})"))}
+            if not names:
+                continue
+            for name in ("idempotency_key", "request_hash"):
+                if name not in names:
+                    connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} VARCHAR"))
+            connection.execute(text(f"CREATE UNIQUE INDEX IF NOT EXISTS ux_{table}_idempotency_key ON {table} (idempotency_key)"))
+
+
+_ensure_sqlite_request_key_columns()
 
 
 def _ensure_sqlite_event_closure_columns() -> None:
