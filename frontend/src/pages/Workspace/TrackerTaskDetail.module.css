@@ -23,6 +23,8 @@
 .description { display: grid; gap: 15px; min-width: 0; }
 .sectionHeading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .sectionHeading h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.headingTitle { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.savingNote { color: var(--on-surface-variant); font-size: 12px; white-space: nowrap; }
 .inlineActions { display: flex; gap: 5px 12px; flex-wrap: wrap; align-items: center; }
 .subtleButton { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--primary); padding: 7px 8px; font: inherit; font-size: 13px; line-height: 1.3; cursor: pointer; text-align: left; }
 .subtleButton:hover:not(:disabled) { background: var(--surface-container); border-color: var(--surface-variant); }

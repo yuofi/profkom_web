@@ -2,11 +2,10 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { TaskPublicStatus, Task } from "../../utils/api/contract";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { userMessage } from "../../utils/api/messages";
-import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { Glyph, Loading } from "../../components/Workspace/WorkspaceUI";
 import { toneStyle } from "../../components/Workspace/sections";
 import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
-import { recordOwnChange, useOwnRevisions } from "../../components/Workspace/ownRevisions";
+import { useTaskCommand } from "./taskCommands";
 import w from "../../components/Workspace/Workspace.module.css";
 import s from "./TaskStatusMenu.module.css";
 import { publicStatusNames as statusNames, statusTones, taskStatus, taskTransitions } from "./trackerStatus";
@@ -18,7 +17,7 @@ export function TaskStatusMenu({ task, variant = "chip", onChanged, onClosed }: 
   const [open, setOpen] = useState(false), [resultOpen, setResultOpen] = useState(false);
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
   const ref = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null);
-  const { perform, refresh } = useWorkspaceActions(), own = useOwnRevisions();
+  const run = useTaskCommand(task);
   const state = taskStatus(task), transitions = taskTransitions(task);
   useEffect(() => {
     if (!open) return;
@@ -31,18 +30,18 @@ export function TaskStatusMenu({ task, variant = "chip", onChanged, onClosed }: 
     if (busy || !transitions.includes(next)) return;
     setOpen(false);trigger.current?.focus();setError("");setBusy(true);
     try {
-      const saved = await perform(async () => { const saved = await tasksApi.changeStatus(task.task_id, { expected_revision: task.revision, status: next });recordOwnChange(own, `task:${task.task_id}`, task.revision, saved.revision);own.setQueryData(["tasks", task.task_id], saved);return saved; });
+      const saved = await run(expected => tasksApi.changeStatus(task.task_id, { expected_revision: expected, status: next }));
       onChanged?.();
       if (next === "closed") onClosed?.(saved);
-    } catch (failure) { setError(userMessage(failure));await refresh(); } finally { setBusy(false); }
+    } catch (failure) { setError(userMessage(failure)); } finally { setBusy(false); }
   };
   const take = async () => {
     if (busy || !task.capabilities.includes("take_task")) return;
     setError("");setBusy(true);
     try {
-      await perform(async () => { const saved = await tasksApi.take(task.task_id, { expected_revision: task.revision });recordOwnChange(own, `task:${task.task_id}`, task.revision, saved.revision);own.setQueryData(["tasks", task.task_id], saved);return saved; });
+      await run(expected => tasksApi.take(task.task_id, { expected_revision: expected }));
       onChanged?.();
-    } catch (failure) { setError(userMessage(failure));await refresh(); } finally { setBusy(false); }
+    } catch (failure) { setError(userMessage(failure)); } finally { setBusy(false); }
   };
   return <div ref={ref} className={s.root} onClick={event => event.stopPropagation()} onKeyDown={event => {
     event.stopPropagation();if (!open) return;

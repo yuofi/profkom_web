@@ -36,14 +36,16 @@ function remarkChecklistPositions({ source }: { source: string }) {
     visit(tree);
   };
 }
-function ChecklistCheckbox({ body, onChangeBody, busy, ...props }: InputHTMLAttributes<HTMLInputElement> & { body: string; onChangeBody?: (next: string) => void; busy?: boolean }) {
+function ChecklistCheckbox({ body, onMark, busy, pending, ...props }: InputHTMLAttributes<HTMLInputElement> & { body: string; onMark?: (offset: number, checked: boolean) => void; busy?: boolean; pending?: readonly number[] }) {
   const position = useContext(ChecklistContext);
-  const enabled = !!position && !!onChangeBody && !busy;
-  return <input {...props} disabled={!enabled} aria-label={position ? `${props.checked ? "Снять отметку" : "Отметить"}: ${position.label}` : "Пункт чеклиста"}
-    onChange={() => { if (enabled && position && /[ xX]/.test(body[position.offset] ?? "")) onChangeBody?.(body.slice(0, position.offset) + (props.checked ? " " : "x") + body.slice(position.offset + 1)); }} />;
+  const saving = !!position && !!pending?.includes(position.offset);
+  const enabled = !!position && !!onMark && !busy && !saving;
+  return <input {...props} disabled={!enabled} aria-busy={saving || undefined} aria-label={position ? `${props.checked ? "Снять отметку" : "Отметить"}: ${position.label}` : "Пункт чеклиста"}
+    onChange={() => { if (enabled && position && /[ xX]/.test(body[position.offset] ?? "")) onMark?.(position.offset, !props.checked); }} />;
 }
-export interface MarkdownContentProps { body: string; onChecklistChange?: (nextBody: string) => void; checklistDisabled?: boolean; mentionUsers?: UserRef[] }
-export function MarkdownContent({ body, onChecklistChange, checklistDisabled = false, mentionUsers }: MarkdownContentProps) {
+/** A checklist mark is one source offset: the reader command flips that marker only. */
+export interface MarkdownContentProps { body: string; onChecklistToggle?: (offset: number, checked: boolean) => void; checklistDisabled?: boolean; checklistPending?: readonly number[]; mentionUsers?: UserRef[] }
+export function MarkdownContent({ body, onChecklistToggle, checklistDisabled = false, checklistPending, mentionUsers }: MarkdownContentProps) {
   return (
     <div className={`${s.markdown} ${md.content}`}>
       <ReactMarkdown
@@ -67,7 +69,7 @@ export function MarkdownContent({ body, onChecklistChange, checklistDisabled = f
             const position = typeof offset === "number" ? { offset, label: String(label ?? "Пункт чеклиста") } : null;
             return <li {...props}><ChecklistContext.Provider value={position}>{children}</ChecklistContext.Provider></li>;
           },
-          input: ({ node, ...props }) => { void node;return <ChecklistCheckbox {...props} body={body} onChangeBody={onChecklistChange} busy={checklistDisabled} />; },
+          input: ({ node, ...props }) => { void node;return <ChecklistCheckbox {...props} body={body} onMark={onChecklistToggle} busy={checklistDisabled} pending={checklistPending} />; },
           table: ({ children }) => <div className={md.tableWrap} tabIndex={0} role="region" aria-label="Таблица Markdown"><table>{children}</table></div>,
           pre: ({ children, node }) => {
             const extension = node?.children.some(

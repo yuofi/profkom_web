@@ -26,12 +26,12 @@ import { text } from "../../components/Workspace/formValues";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { TaskSeasonParameter } from "./TaskSeasonParameter";
 import { userMessage } from "../../utils/api/messages";
-import { recordOwnChange, useOwnRevisions } from "../../components/Workspace/ownRevisions";
-import { richText, type Comment, type FileRef, type Task } from "../../utils/api/contract";
+import { richText, type Comment, type FileRef, type Revision, type Task } from "../../utils/api/contract";
 import { can } from "../../utils/session";
 import { displayDate } from "../../utils/dates";
 import { getSeasonRoute, getTaskRoute, getTaskQueueRoute, getTaskQueuesRoute } from "../../utils/routes";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
+import { markDescription, useTaskCommand } from "./taskCommands";
 import { TaskStatusMenu } from "./TaskStatusMenu";
 import { taskStatus } from "./trackerStatus";
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
@@ -58,21 +58,16 @@ function TaskContent({ task, assignmentId, accountingRequested=false, returnSeas
   const [editor, setEditor] = useState<"description" | "files" | "parent" | "planning" | null>(null);
   const [copied, setCopied] = useState("");
   const [kkrOpen,setKkrOpen]=useState(!!assignmentId||accountingRequested);
-  const [checklistBusy, setChecklistBusy] = useState(false), [checklistError, setChecklistError] = useState("");
-  const checklistSaving = useRef(false);
-  const { perform, refresh } = useWorkspaceActions();const own = useOwnRevisions();
+  const [checklistPending, setChecklistPending] = useState<readonly number[]>([]), [checklistError, setChecklistError] = useState("");
+  const checklistSaving = useRef(new Set<number>()), run = useTaskCommand(task);
+  const { refresh } = useWorkspaceActions();
   const descriptionEditable = can(task, "edit_task_description") || can(task, "edit_task");
-  const updateChecklist = async (body: string) => {
-    if (checklistSaving.current || !can(task,"toggle_task_checklist") || editor === "description") return;
-    checklistSaving.current = true;setChecklistBusy(true);setChecklistError("");
-    try {
-      await perform(async () => {
-        const saved = await tasksApi.descriptionChecklist(task.task_id, { expected_revision: task.revision, body });
-        recordOwnChange(own, `task:${task.task_id}`, task.revision, saved.revision);
-        own.setQueryData(["tasks", task.task_id], saved);return saved;
-      });
-    } catch (failure) { setChecklistError(userMessage(failure));await refresh(); }
-    finally { checklistSaving.current = false;setChecklistBusy(false); }
+  const toggleDescription = async (offset: number, checked: boolean) => {
+    if (checklistSaving.current.has(offset) || !can(task,"toggle_task_checklist") || editor === "description") return;
+    checklistSaving.current.add(offset);setChecklistPending([...checklistSaving.current]);setChecklistError("");
+    try { await run(expected => tasksApi.descriptionChecklist(task.task_id, { expected_revision: expected, offset, checked }), current => markDescription(current, offset, checked)); }
+    catch (failure) { setChecklistError(userMessage(failure)); }
+    finally { checklistSaving.current.delete(offset);setChecklistPending([...checklistSaving.current]); }
   };
   const [parametersOpen, setParametersOpen] = useState(() => typeof window === "undefined" || typeof window.matchMedia !== "function" || window.matchMedia("(min-width: 901px)").matches);
   const [now, setNow] = useState(() => Date.now());
@@ -100,9 +95,9 @@ function TaskContent({ task, assignmentId, accountingRequested=false, returnSeas
         {reviewNotes.length > 0 && <section className={s.reviewNote} aria-label="Комментарий руководителя"><h2>Комментарий руководителя</h2>{reviewNotes.map(note => <MarkdownContent key={note} body={note} />)}</section>}
         {task.legacy_mixed_statuses && <p className={w.warning}>У этой задачи сохранены разные исторические результаты исполнителей. Они остаются в учёте; общий статус не заменяет прежние решения.</p>}
         <section className={s.description} aria-label="Описание задачи">
-          <div className={s.sectionHeading}><h2>Описание</h2>{descriptionEditable && <button type="button" className={s.subtleButton} onClick={() => setEditor("description")}><Glyph name="edit" />Редактировать</button>}</div>
-          {task.description.body ? <MarkdownContent body={task.description.body} onChecklistChange={can(task,"toggle_task_checklist") ? body => { void updateChecklist(body); } : undefined} checklistDisabled={checklistBusy || editor === "description"} /> : <p className={w.muted}>Описание пока не добавлено.</p>}
-          {checklistBusy && <p role="status" className={w.muted}>Сохраняем отметку…</p>}{checklistError && <p role="alert" className={w.error}>{checklistError} <button type="button" className={s.subtleButton} onClick={() => { void refresh(); }}>Обновить описание</button></p>}
+          <div className={s.sectionHeading}><div className={s.headingTitle}><h2>Описание</h2><span role="status" className={s.savingNote}>{checklistPending.length ? "Сохраняем отметку…" : ""}</span></div>{descriptionEditable && <button type="button" className={s.subtleButton} disabled={!!checklistPending.length} onClick={() => setEditor("description")}><Glyph name="edit" />Редактировать</button>}</div>
+          {task.description.body ? <MarkdownContent body={task.description.body} onChecklistToggle={can(task,"toggle_task_checklist") ? (offset, checked) => { void toggleDescription(offset, checked); } : undefined} checklistDisabled={editor === "description"} checklistPending={checklistPending} /> : <p className={w.muted}>Описание пока не добавлено.</p>}
+          {checklistError && <p role="alert" className={w.error}>{checklistError} <button type="button" className={s.subtleButton} onClick={() => { void refresh(); }}>Обновить описание</button></p>}
           <div className={s.inlineActions}>{can(task, "attach_task_file") && <button type="button" className={s.subtleButton} onClick={() => setEditor("files")}><Glyph name="attach_file" />Прикрепить файлы</button>}
             <button type="button" className={s.subtleButton} onClick={() => document.getElementById("task-relations")?.scrollIntoView?.({block:"start",behavior:"smooth"})}><Glyph name="add" />Связь с задачей</button></div>
           {(task.attachments?.length ?? 0) > 0 && <div className={s.descriptionFiles}><Attachments files={task.attachments ?? []} /></div>}
@@ -155,24 +150,23 @@ function ParentTaskEditor({ task, onClose }: { task: Task; onClose: () => void }
   </TrackerTaskDialog>;
 }
 function TaskPeopleParameters({ task }: { task: Task }) {
-  const { session } = useSession(), { perform, refresh } = useWorkspaceActions(), own = useOwnRevisions();
+  const { session } = useSession(), run = useTaskCommand(task);
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
   const assignees = task.assignees ?? task.assignments.map(assignment => assignment.assignee), watchers = task.watchers ?? [];
   const selfAssigned = assignees.some(user => user.user_id === session?.user_id), selfWatching = watchers.some(user => user.user_id === session?.user_id);
-  const act = async (command: () => Promise<Task>) => {
+  const act = async (command: (revision: Revision) => Promise<Task>) => {
     if (busy) return;setBusy(true);setError("");
-    try { await perform(async () => { const saved = await command();recordOwnChange(own, `task:${task.task_id}`, task.revision, saved.revision);own.setQueryData(["tasks", task.task_id], saved);return saved; }); }
-    catch (failure) { setError(userMessage(failure));await refresh(); } finally { setBusy(false); }
+    try { await run(expected => command({ expected_revision: expected })); }
+    catch (failure) { setError(userMessage(failure)); } finally { setBusy(false); }
   };
   const [assignOpen,setAssignOpen]=useState(false);
   const candidates=useQuery({queryKey:["taskMentionCandidates",task.task_id],queryFn:()=>taskCollaborationApi.candidates(task.task_id),enabled:assignOpen&&can(task,"assign_task_participants")});
-  const revision = { expected_revision: task.revision };
   return <>
     <div><dt>Исполнители</dt><dd className={s.people}>{assignees.length ? assignees.map((person, index) => {
       const assignment = task.assignments.find(item => item.assignee.user_id === person.user_id);
-      return <div key={person.user_id ?? `anonymous-${index}`} className={s.rosterPerson}><PersonChip user={person} />{person.user_id !== null && can(task, "remove_task_assignee") && <button type="button" className={s.removePerson} disabled={busy} title="Перевести в наблюдатели" aria-label={`Убрать исполнителя: ${person.display_name}`} onClick={() => { void act(() => tasksApi.removeAssignee(task.task_id, person.user_id!, revision)); }}>×</button>}{assignment?.assignee_unavailable_reason && <small className={s.unavailable}>{assignment.assignee_unavailable_reason === "archived" ? "В архиве" : "Вышел из команды"}</small>}</div>;
-    }) : <span className={w.muted}>Не назначены</span>}{!selfAssigned && can(task, "join_task") && <button type="button" className={s.subtleButton} disabled={busy} onClick={() => { void act(() => tasksApi.join(task.task_id, revision)); }}>Стать исполнителем</button>}{can(task,"assign_task_participants")&&<><button type="button" className={s.subtleButton} disabled={busy} onClick={()=>setAssignOpen(!assignOpen)}>Добавить исполнителя</button>{assignOpen&&<EntityPicker label="Новый исполнитель" entity="person" value="" options={(candidates.data?.items??[]).flatMap(user=>user.user_id===null||assignees.some(person=>person.user_id===user.user_id)?[]:[{value:String(user.user_id),label:user.display_name,user}])} loading={candidates.isLoading} disabled={busy} onChange={id=>{if(id)void act(()=>tasksApi.assign(task.task_id,Number(id),revision));}}/>}</>}</dd></div>
-    <div><dt>Наблюдатели</dt><dd className={s.people}>{watchers.length ? watchers.map((person, index) => <div className={s.rosterPerson} key={person.user_id ?? `anonymous-${index}`}><PersonChip user={person}/>{person.user_id!==null&&can(task,"remove_task_watcher")&&<button type="button" className={s.removePerson} disabled={busy} aria-label={`Убрать наблюдателя: ${person.display_name}`} onClick={()=>void act(()=>tasksApi.removeWatcher(task.task_id,person.user_id!,revision))}>×</button>}</div>) : <span className={w.muted}>Нет наблюдателей</span>}{selfWatching && can(task, "unwatch_task") ? <button type="button" className={s.subtleButton} disabled={busy} onClick={() => { void act(() => tasksApi.unwatch(task.task_id, revision)); }}>Перестать наблюдать</button> : !selfAssigned && can(task, "watch_task") && <button type="button" className={s.subtleButton} disabled={busy} onClick={() => { void act(() => tasksApi.watch(task.task_id, revision)); }}>Наблюдать</button>}{error && <p role="alert" className={w.error}>{error}</p>}</dd></div>
+      return <div key={person.user_id ?? `anonymous-${index}`} className={s.rosterPerson}><PersonChip user={person} />{person.user_id !== null && can(task, "remove_task_assignee") && <button type="button" className={s.removePerson} disabled={busy} title="Перевести в наблюдатели" aria-label={`Убрать исполнителя: ${person.display_name}`} onClick={() => { void act(revision => tasksApi.removeAssignee(task.task_id, person.user_id!, revision)); }}>×</button>}{assignment?.assignee_unavailable_reason && <small className={s.unavailable}>{assignment.assignee_unavailable_reason === "archived" ? "В архиве" : "Вышел из команды"}</small>}</div>;
+    }) : <span className={w.muted}>Не назначены</span>}{!selfAssigned && can(task, "join_task") && <button type="button" className={s.subtleButton} disabled={busy} onClick={() => { void act(revision => tasksApi.join(task.task_id, revision)); }}>Стать исполнителем</button>}{can(task,"assign_task_participants")&&<><button type="button" className={s.subtleButton} disabled={busy} onClick={()=>setAssignOpen(!assignOpen)}>Добавить исполнителя</button>{assignOpen&&<EntityPicker label="Новый исполнитель" entity="person" value="" options={(candidates.data?.items??[]).flatMap(user=>user.user_id===null||assignees.some(person=>person.user_id===user.user_id)?[]:[{value:String(user.user_id),label:user.display_name,user}])} loading={candidates.isLoading} disabled={busy} onChange={id=>{if(id)void act(revision=>tasksApi.assign(task.task_id,Number(id),revision));}}/>}</>}</dd></div>
+    <div><dt>Наблюдатели</dt><dd className={s.people}>{watchers.length ? watchers.map((person, index) => <div className={s.rosterPerson} key={person.user_id ?? `anonymous-${index}`}><PersonChip user={person}/>{person.user_id!==null&&can(task,"remove_task_watcher")&&<button type="button" className={s.removePerson} disabled={busy} aria-label={`Убрать наблюдателя: ${person.display_name}`} onClick={()=>void act(revision=>tasksApi.removeWatcher(task.task_id,person.user_id!,revision))}>×</button>}</div>) : <span className={w.muted}>Нет наблюдателей</span>}{selfWatching && can(task, "unwatch_task") ? <button type="button" className={s.subtleButton} disabled={busy} onClick={() => { void act(revision => tasksApi.unwatch(task.task_id, revision)); }}>Перестать наблюдать</button> : !selfAssigned && can(task, "watch_task") && <button type="button" className={s.subtleButton} disabled={busy} onClick={() => { void act(revision => tasksApi.watch(task.task_id, revision)); }}>Наблюдать</button>}{error && <p role="alert" className={w.error}>{error}</p>}</dd></div>
   </>;
 }
 function TaskFilesEditor({ task, onClose }: { task: Task; onClose: () => void }) {

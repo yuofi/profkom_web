@@ -1210,9 +1210,12 @@ export function installMockTransport(
       }
       if(parts[2]==="access") {if(!managesAccess)return denied();const uid=Number(parts[3]);taskGrants.get(task.task_id)?.delete(uid);mentionRequests.filter(row=>row.task_id===task.task_id&&row.target?.user_id===uid).forEach(row=>row.capabilities=[]);return [200,{revoked:true}];}
       if(parts[2]==="description-checklist") {
-        if(mismatch(data,task))return conflict();const neutral=(body:string)=>body.replace(/^( {0,3}(?:[-+*]|\d+[.)])[ \t]+\[)[ xX](\])/gm,"$1 $2");
-        if(typeof data.body!=="string"||neutral(task.description.body)!==neutral(data.body))return denied();
-        const before=task.description.body;task.description=richText(data.body);task.revision++;rememberTask(task,"task_updated","Изменены отметки чеклиста",undefined,undefined,[{field:"description",before,after:data.body}]);return [200,visibleTask(task)];
+        if(mismatch(data,task))return conflict();const before=task.description.body,offset=data.offset;
+        if(typeof offset!=="number"||typeof data.checked!=="boolean")return fail(422,"invalid_input","Укажите отметку");
+        const prefix=before.slice(before.lastIndexOf("\n",offset-1)+1,offset);
+        if(!/^(?:[ \t]*>[ \t]?)*[ \t]*(?:(?:[-+*]|\d{1,9}[.)])[ \t]+)+\[$/.test(prefix)||!/[ xX]/.test(before[offset]??"")||before[offset+1]!=="]")return fail(403,"checklist_only","Только отметки чеклиста");
+        const body=before.slice(0,offset)+(data.checked?"x":" ")+before.slice(offset+1);if(body.toLowerCase()===before.toLowerCase())return [200,visibleTask(task)];
+        task.description=richText(body);task.revision++;rememberTask(task,"task_updated","Изменены отметки чеклиста",undefined,undefined,[{field:"description",before,after:body}]);return [200,visibleTask(task)];
       }
       if (parts[2] === "accounting-batch") {
         if (!task.capabilities.includes("view_assessment_inputs")) return denied();

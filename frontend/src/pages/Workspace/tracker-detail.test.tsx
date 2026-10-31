@@ -137,13 +137,59 @@ it("an explicit description capability supplies the editor without title rights"
 
 it("saves a checklist mark through the description revision and refreshes its history", async () => {
   let task = makeTask({ description: richText("- [ ] Проверить документы\n- [x] Готовый пункт"), revision: 8, capabilities: ["read_task", "toggle_task_checklist"] });
-  const update = vi.spyOn(tasksApi, "descriptionChecklist").mockImplementation(async (_id, data) => { task = { ...task, revision: 9, description: richText(data.body) };return task; });
+  const update = vi.spyOn(tasksApi, "descriptionChecklist").mockImplementation(async (_id, data) => { const body = task.description.body;task = { ...task, revision: 9, description: richText(body.slice(0, data.offset) + (data.checked ? "x" : " ") + body.slice(data.offset + 1)) };return task; });
   await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async () => task);
   const check = page!.container.querySelector<HTMLInputElement>('section[aria-label="Описание задачи"] input[type="checkbox"]')!;
   expect(check.disabled).toBe(false);
   await act(async () => check.click());await waitForPage(page!, () => page!.container.querySelector<HTMLInputElement>('section[aria-label="Описание задачи"] input[type="checkbox"]')?.checked === true);
-  expect(update).toHaveBeenCalledWith(task.task_id, { expected_revision: 8, body: "- [x] Проверить документы\n- [x] Готовый пункт" });
+  expect(update).toHaveBeenCalledWith(task.task_id, { expected_revision: 8, offset: 3, checked: true });
+  expect(task.description.body).toBe("- [x] Проверить документы\n- [x] Готовый пункт");
   await click("История");await waitForPage(page!);expect(historyApi.list).toHaveBeenCalledWith("task", task.task_id);
+});
+
+it("rapid marks in the description and the checklist all save in order with own revisions", async () => {
+  let task = makeTask({ description: richText("- [ ] Первый\n- [ ] Второй"), revision: 8, checklist: [{ item_id: "one", text: "Пункт", checked: false }, { item_id: "two", text: "Ещё", checked: false }], capabilities: ["read_task", "toggle_task_checklist"] });
+  const releases: (() => void)[] = [];const later = () => new Promise<void>(resolve => releases.push(resolve));
+  const marks = vi.spyOn(tasksApi, "descriptionChecklist").mockImplementation(async (_id, data) => {
+    await later();if (data.expected_revision !== task.revision) throw new ApiError("Changed", 409, "revision_conflict");
+    const body = task.description.body;task = { ...task, revision: task.revision + 1, description: richText(body.slice(0, data.offset) + (data.checked ? "x" : " ") + body.slice(data.offset + 1)) };return task;
+  });
+  const toggles = vi.spyOn(tasksApi, "toggleChecklist").mockImplementation(async (_id, itemId, data) => {
+    await later();if (data.expected_revision !== task.revision) throw new ApiError("Changed", 409, "revision_conflict");
+    task = { ...task, revision: task.revision + 1, checklist: task.checklist!.map(item => item.item_id === itemId ? { ...item, checked: data.checked } : item) };return task;
+  });
+  await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async () => task);
+  const boxes = () => [...page!.container.querySelectorAll<HTMLInputElement>('main input[type="checkbox"], section input[type="checkbox"]')];
+  const description = () => [...page!.container.querySelectorAll<HTMLInputElement>('section[aria-label="Описание задачи"] input[type="checkbox"]')];
+  const checklist = () => [...page!.container.querySelectorAll<HTMLInputElement>('section[aria-label="Чеклист задачи"] input[type="checkbox"]')];
+  expect(boxes().length).toBeGreaterThanOrEqual(4);
+  await act(async () => description()[0].click());
+  expect(description()[0].checked).toBe(true);expect(description()[0].disabled).toBe(true);expect(description()[1].disabled).toBe(false);expect(checklist()[0].disabled).toBe(false);
+  expect(page!.container.querySelector('section[aria-label="Описание задачи"] [role="status"]')?.textContent).toBe("Сохраняем отметку…");
+  await act(async () => checklist()[0].click());await act(async () => description()[1].click());
+  expect(checklist()[0].checked).toBe(true);expect(description()[1].checked).toBe(true);
+  for (let step = 0; step < 3; step++) { await waitForPage(page!, () => releases.length > 0);await act(async () => releases.shift()!());await settle(); }
+  await waitForPage(page!, () => !page!.container.querySelector('[aria-busy="true"]'));
+  expect([marks.mock.calls[0][1], toggles.mock.calls[0][2], marks.mock.calls[1][1]]).toEqual([{ expected_revision: 8, offset: 3, checked: true }, { expected_revision: 9, checked: true }, { expected_revision: 10, offset: 16, checked: true }]);
+  expect(page!.container.querySelector('section[aria-label="Описание задачи"] [role="alert"], section[aria-label="Чеклист задачи"] [role="alert"]')).toBeNull();
+  expect(task.description.body).toBe("- [x] Первый\n- [x] Второй");expect(task.checklist![0].checked).toBe(true);expect(task.revision).toBe(11);
+  expect(description().map(box => box.checked)).toEqual([true, true]);expect(checklist().map(box => box.checked)).toEqual([true, false]);
+});
+
+it("a refused queued mark rolls back only itself and keeps later own marks", async () => {
+  let task = makeTask({ description: richText("- [ ] Первый"), revision: 8, checklist: [{ item_id: "one", text: "Пункт", checked: false }], capabilities: ["read_task", "toggle_task_checklist"] });
+  const releases: (() => void)[] = [];const later = () => new Promise<void>(resolve => releases.push(resolve));
+  vi.spyOn(tasksApi, "descriptionChecklist").mockImplementation(async () => { await later();throw new ApiError("Changed", 409, "revision_conflict"); });
+  vi.spyOn(tasksApi, "toggleChecklist").mockImplementation(async (_id, itemId, data) => { await later();task = { ...task, revision: data.expected_revision + 1, checklist: task.checklist!.map(item => item.item_id === itemId ? { ...item, checked: data.checked } : item) };return task; });
+  await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async () => task);
+  const description = () => page!.container.querySelector<HTMLInputElement>('section[aria-label="Описание задачи"] input[type="checkbox"]')!;
+  const checklist = () => page!.container.querySelector<HTMLInputElement>('section[aria-label="Чеклист задачи"] input[type="checkbox"]')!;
+  await act(async () => description().click());await act(async () => checklist().click());
+  await waitForPage(page!, () => releases.length > 0);await act(async () => releases.shift()!());await settle();
+  expect(description().checked).toBe(false);expect(checklist().checked).toBe(true);
+  expect(page!.container.querySelector('[role="alert"]')?.textContent).toContain("Запись изменилась");
+  await waitForPage(page!, () => releases.length > 0);await act(async () => releases.shift()!());
+  await waitForPage(page!, () => !page!.container.querySelector('[aria-busy="true"]'));expect(checklist().checked).toBe(true);
 });
 
 it("a rejected checklist save keeps server content, reports the conflict and does not retry a stale patch", async () => {

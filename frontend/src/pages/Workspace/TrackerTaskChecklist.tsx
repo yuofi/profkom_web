@@ -1,12 +1,12 @@
 import { createClientId } from "../../utils/clientId";
 import { checklistDraft, checklistPayload, type ChecklistDraft } from "./trackerStage2Drafts";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Task } from "../../utils/api/contract";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { can } from "../../utils/session";
 import { userMessage } from "../../utils/api/messages";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
-import { useOwnRevisions, recordOwnChange } from "../../components/Workspace/ownRevisions";
+import { useTaskCommand } from "./taskCommands";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
@@ -25,18 +25,19 @@ export function ChecklistDraftFields({ items, onChange, disabled = false }: { it
 }
 export function TrackerTaskChecklist({ task }: { task: Task }) {
   const items = task.checklist ?? [], allowed = can(task,"edit_task_checklist"), toggleAllowed = can(task,"toggle_task_checklist"), done = items.filter(item => item.checked).length;
-  const [editing,setEditing] = useState(false),[busy,setBusy] = useState(false),[error,setError] = useState("");
-  const { perform, refresh } = useWorkspaceActions(), own = useOwnRevisions();
+  const [editing,setEditing] = useState(false),[pending,setPending] = useState<readonly string[]>([]),[error,setError] = useState("");
+  const saving = useRef(new Set<string>()), run = useTaskCommand(task);
   if (!items.length && !allowed) return null;
   const toggle = async (itemId: string, checked: boolean) => {
-    if (busy) return;setBusy(true);setError("");
-    try { await perform(async () => { const saved = await tasksApi.toggleChecklist(task.task_id,itemId,{ expected_revision: task.revision, checked });recordOwnChange(own,`task:${task.task_id}`,task.revision,saved.revision);own.setQueryData(["tasks",task.task_id],saved);return saved; }); }
-    catch(failure) { setError(userMessage(failure));await refresh(); } finally { setBusy(false); }
+    if (saving.current.has(itemId)) return;
+    saving.current.add(itemId);setPending([...saving.current]);setError("");
+    try { await run(expected => tasksApi.toggleChecklist(task.task_id,itemId,{ expected_revision: expected, checked }), current => ({ ...current, checklist: current.checklist?.map(item => item.item_id === itemId ? { ...item, checked } : item) })); }
+    catch(failure) { setError(userMessage(failure)); } finally { saving.current.delete(itemId);setPending([...saving.current]); }
   };
   return <section className={s.section} aria-label="Чеклист задачи">
-    <div className={s.heading}><h2>Чеклист</h2><div className={s.headingActions}>{!!items.length && <span className={s.count}>{done} из {items.length}</span>}{allowed && <button type="button" className={s.subtle} disabled={busy} onClick={() => setEditing(true)}>{items.length ? "Изменить пункты" : "+ Добавить чеклист"}</button>}</div></div>
-    {!!items.length && <><div className={s.progress} role="progressbar" aria-label="Выполнение чеклиста" aria-valuemin={0} aria-valuemax={items.length} aria-valuenow={done}><span style={{ width: `${done/items.length*100}%` }} /></div><ul className={s.checklist}>{items.map(item => <li key={item.item_id}><label className={s.check} data-checked={item.checked}><input type="checkbox" checked={item.checked} disabled={!toggleAllowed || busy || editing} onChange={event => { void toggle(item.item_id,event.target.checked); }} /><span>{item.text}</span></label></li>)}</ul></>}
-    {busy && <p role="status" className={s.hint}>Сохраняем отметку…</p>}{error && <p role="alert" className={w.error}>{error}</p>}
+    <div className={s.heading}><div className={s.headingTitle}><h2>Чеклист</h2><span role="status" className={s.saving}>{pending.length ? "Сохраняем…" : ""}</span></div><div className={s.headingActions}>{!!items.length && <span className={s.count}>{done} из {items.length}</span>}{allowed && <button type="button" className={s.subtle} disabled={!!pending.length} onClick={() => setEditing(true)}>{items.length ? "Изменить пункты" : "+ Добавить чеклист"}</button>}</div></div>
+    {!!items.length && <><div className={s.progress} role="progressbar" aria-label="Выполнение чеклиста" aria-valuemin={0} aria-valuemax={items.length} aria-valuenow={done}><span style={{ width: `${done/items.length*100}%` }} /></div><ul className={s.checklist}>{items.map(item => <li key={item.item_id}><label className={s.check} data-checked={item.checked}><input type="checkbox" checked={item.checked} disabled={!toggleAllowed || editing || pending.includes(item.item_id)} aria-busy={pending.includes(item.item_id) || undefined} onChange={event => { void toggle(item.item_id,event.target.checked); }} /><span>{item.text}</span></label></li>)}</ul></>}
+    {error && <p role="alert" className={w.error}>{error}</p>}
     {editing && allowed && <UnsavedChangesScope><ChecklistEditor task={task} onClose={() => setEditing(false)} /></UnsavedChangesScope>}
   </section>;
 }
