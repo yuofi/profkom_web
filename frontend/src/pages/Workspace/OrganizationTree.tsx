@@ -1,4 +1,5 @@
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { BlockChip } from "../../components/Workspace/BlockChip";
 import { UserChip } from "../../components/Workspace/UserChip";
 import type { Block, Leadership, UserRef } from "../../utils/api/contract";
@@ -10,12 +11,29 @@ interface OrganizationTreeProps {
   people: UserRef[];
 }
 const normalized = (value: string) => value.toLocaleLowerCase("ru").replaceAll("ё", "е").trim();
+/** The tree's view belongs to its history entry: «Назад» returns to it, a new visit starts
+ *  collapsed (PE-36). Blocks are kept by their stable ID. */
+const viewKey = (pathname: string, key: string) => `profkom-organization-tree:${pathname}:${key}`;
+function savedView(storageKey: string): { search: string; expanded: string[] } {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(storageKey) ?? "null") as { search?: unknown; expanded?: unknown } | null;
+    return {
+      search: typeof value?.search === "string" ? value.search : "",
+      expanded: Array.isArray(value?.expanded) ? value.expanded.filter((item): item is string => typeof item === "string") : [],
+    };
+  } catch { return { search: "", expanded: [] }; }
+}
 
 /** A readable hierarchy of ordinary lists, with the same profile/block chips as the workspace. */
 export function OrganizationTree({ blocks, leadership, people }: OrganizationTreeProps) {
   const id = useId(), searchInput = useRef<HTMLInputElement>(null);
-  const [search, setSearch] = useState("");
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  const location = useLocation(), storageKey = viewKey(location.pathname, location.key);
+  const [search, setSearch] = useState(() => savedView(storageKey).search);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set(savedView(storageKey).expanded));
+  useEffect(() => {
+    try { sessionStorage.setItem(storageKey, JSON.stringify({ search, expanded: [...expandedIds] })); }
+    catch { /* no storage: the view simply is not kept */ }
+  }, [storageKey, search, expandedIds]);
   const terms = normalized(search).split(/\s+/).filter(Boolean), searching = terms.length > 0;
   const matches = (value: string) => terms.every(term => normalized(value).includes(term));
   const matchClass = (value: string) => searching && matches(value) ? s.searchMatch : "";
@@ -62,7 +80,9 @@ export function OrganizationTree({ blocks, leadership, people }: OrganizationTre
       return <li key={block.block_id} className={s.block}>
         <div className={s.blockHeading}>
           <button type="button" className={s.toggle} aria-label={`${expanded ? "Свернуть" : "Развернуть"} блок ${block.name}`} aria-expanded={expanded} aria-controls={bodyId} disabled={searching} title={searching ? "При поиске найденные блоки раскрыты" : undefined} onClick={() => toggle(block.block_id)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg></button>
-          <BlockChip block={block} className={matchClass(block.name)} /><span className={s.count}>Участников: {members.length + (block.master ? 1 : 0) + deputies.length}</span>
+          <BlockChip block={block} className={matchClass(block.name)} />
+          {/* A collapsed row names its master too; the open branch lists the leadership (PE-37). */}
+          <span className={s.headingMeta}>{!expanded && block.master && <UserChip user={block.master.user} className={matchClass(block.master.user.display_name)} />}<span className={s.count}>Участников: {members.length + (block.master ? 1 : 0) + deputies.length}</span></span>
         </div>
         <div id={bodyId} className={s.blockBody} hidden={!expanded}>{expanded && <>
           <section className={s.blockLeadership} aria-label={`Руководство блока ${block.name}`}>

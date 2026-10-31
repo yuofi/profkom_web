@@ -26,7 +26,8 @@
 .branches>li::before { content:"";position:absolute;left:0;top:35px;width:19px;border-top:1px solid var(--branch);pointer-events:none; }
 .branches>li:last-child { border-left-color:transparent; }
 .branches>li:last-child::after { content:"";position:absolute;left:-1px;top:0;height:35px;border-left:1px solid var(--branch);pointer-events:none; }
-.blockHeading { display:grid;grid-template-columns:32px minmax(0,max-content) auto;align-items:center;gap:10px;min-width:0; }
+.blockHeading { display:grid;grid-template-columns:32px minmax(0,max-content) minmax(0,auto);align-items:center;gap:10px;min-width:0; }
+.headingMeta { display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0; }
 .blockHeading>span { max-width:100%;min-width:0; }
 .toggle { display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;box-sizing:border-box;padding:6px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--on-surface);cursor:pointer;align-self:start; }
 .toggle svg { width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;transition:transform .15s; }
@@ -52,7 +53,7 @@
   .leadership { padding:16px;gap:17px; }.leaderGroup { width:100%; }
   .branches { padding-left:10px; }.branches>li { padding-left:16px;padding-top:17px; }.branches>li::before { width:10px;top:34px; }.branches>li:last-child::after { height:34px; }
   .blockBody { padding-left:5px; }.leaderRow { gap:6px; }.leaderRow>h3 { flex-basis:100%; }
-  .blockHeading { grid-template-columns:40px minmax(0,1fr);gap:5px; }.blockHeading>.count { grid-column:2;padding-left:3px; }.toggle { width:40px;height:40px; }
+  .blockHeading { grid-template-columns:40px minmax(0,1fr);gap:5px; }.blockHeading>.headingMeta { grid-column:2;padding-left:3px;gap:8px; }.toggle { width:40px;height:40px; }
   .members>.branches>.member { padding-left:16px;gap:5px; }.members>.branches>.member::before { width:10px; }
 }
 @media(prefers-reduced-motion:reduce) { .toggle svg { transition:none; } }
