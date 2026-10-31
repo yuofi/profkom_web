@@ -32,4 +32,5 @@
 .missing { padding:6px 9px;font-size:12px;opacity:.65;overflow-wrap:anywhere; }
 .check { width:16px;color:var(--primary);flex-shrink:0;font-size:16px;text-align:center; }
 .message { margin:0;padding:12px 10px;font-size:12px;line-height:1.5;color:var(--on-surface-variant); }
-@media(max-width:520px) { .search input { font-size:14px;min-height:43px; }.popup li { min-height:42px; } }
+/* The control stays 44px with its border, like the selects next to it. */
+@media(max-width:520px) { .search input { font-size:14px;min-height:42px; }.popup li { min-height:42px; } }
