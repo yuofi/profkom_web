@@ -98,6 +98,52 @@ private queue, current membership/leadership, KKR or access_revision checks to
 reduce query counts. Refusal and immediate permission revocation remain part of
 the contract.
 
+## Write units
+
+Write units stay uncached: permissions and relations are evaluated as before. The
+unit only holds strong references to the rows it loaded or flushed until it ends
+(`read_context.hold_identities`), so repeated `session.get` calls of one command
+use the identity map instead of reloading weakly referenced rows.
+
+Before a unit of work opens, `auth.precheck_access_token` refuses a missing,
+malformed, expired or wrongly signed access token with the same 401 the session
+guard gives, without SQL; the guard itself reads the session account in a worker
+thread (`anyio.to_thread`) and sets `actor_id` in the request's own context.
+Register, change-password and temporary-password (`auth.OWN_TRANSACTION`) hash
+the password outside the shared write lock and repeat their checks in a short
+`db.atomic()` afterwards. A write unit that waited for or held the write lock for
+more than `database.WRITE_LOCK_LOG_MS` (200 ms) logs both durations on the
+`profkom.write_lock` logger. An idle support-worker or material-retention tick
+reads in a read unit and opens no write transaction.
+
+`read_context.Calculation` keeps values for one calculation while its session is
+clean and its generation is unchanged; any change, flush or Core/driver command
+drops them. `pending_ok=True` (comment fan-out) also tolerates pending new rows
+while their count is unchanged, never modified or deleted rows. On top of it:
+
+- `tracker.TaskFacts` materializes one task's rights for one command response, so a
+  PATCH or assignment command builds its DTO once.
+- `task_queues.ReaderFacts` computes a reader's account state, support queue id,
+  staff gate, global-reader flag and global relations once per `readable_tasks`
+  call. The facts reach `can_read` through a context variable; module-level
+  `can_read(session, queue, uid)` stays the decision seam. `readers_of` decides
+  every candidate reader of one task (comment fan-out) with one shared
+  calculation and falls back to `task_read` at any change.
+
+Notification fan-out scans `access.holders(actions, kind, scope_id)`: a superset of
+the users any rule of those actions can relate (leadership, HR masters, block
+masters and role holders, event/subevent parent and child roles, organizers, HR
+owners, report series and parent series instances, frozen report editors). The
+existing ACL still decides each candidate, in users-table order; a relation the
+superset cannot enumerate (block members, "leads some queue") returns `None` and
+the original full scan runs.
+
+KKR control reconciliation (`kkr_control_hooks`) reads its inputs in batches
+unless rows of those types are dirty, links a closed task directly to its scope's
+control epic (falling back to the full season sync whenever that is not provably
+the same), resets only the title cache for title-only event/subevent changes and
+skips accounts without roles, mastership or chairmanship and material-editor roles.
+
 ## Season summaries
 
 A calculation-local materialization batches participant/contact/avatar/archive,
@@ -106,6 +152,13 @@ materialization is built for each calculation, including commands; it is not a
 write-unit permission cache and is never shared across requests or subsequent
 mutations. The avatar batch uses the same public avatar policy as individual
 directory reads.
+
+The coefficient catalog decides its reader's edit capability once per listing.
+A closed summary's correction reads the season's contributions once (grouped per
+participant in the per-participant order) and the evaluated-task counts in one
+grouped query; rows, ranks and the version step are unchanged. Season-close
+blockers read assignees, the actor's task readability (`readable_tasks`) and final
+reports in batches with unchanged blockers and private-queue masking.
 
 Summary source masking passes the complete lightweight task selection to the
 central batch task ACL once. Support, private queues, managed controls, individual
@@ -123,6 +176,11 @@ purged participant masking, unchanged private accounting and hidden legacy repai
 same-request revoke/dirty state/Core and driver writes, rollback, copied contexts,
 lazy repair and SQL count reduction. Queue batch ACL parity includes private grants,
 support ownership/staff restrictions, unavailable users and pending metadata.
+Write-path parity: `tests/test_write_identities.py`, `test_command_responses.py`,
+`test_reader_facts.py` (batch vs per-task policy, comment fan-out),
+`test_notification_holders.py` (holders contain every full-scan reader over several
+unclosed seasons), `test_reconcile_scope.py` (scoped vs full queue and KKR
+reconciliation), `test_readiness_batch.py` and `test_summary_recompute_batch.py`.
 
 Performance comparisons must reuse one synthetic database snapshot, actor, request
 and source manifests. Measure uninstrumented wall time separately from SQL/profile
