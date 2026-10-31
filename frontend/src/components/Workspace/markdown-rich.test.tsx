@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { MarkdownContent } from "./MarkdownContent";
 import { ActionForm } from "./ActionForm";
-import { mountWorkspace } from "../../test/workspace";
+import { mountWorkspace, waitForPage } from "../../test/workspace";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 beforeEach(() => vi.stubGlobal("matchMedia", (media: string) => ({ matches: false, media, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })));
@@ -33,6 +33,7 @@ it("the eye is the first toolbar action; preview renders tables and math without
   await click("Предпросмотр");
   expect(page.container.querySelector("textarea")).toBeNull();
   expect(page.container.querySelectorAll("table")).toHaveLength(1);
+  await waitForPage(page, () => page!.container.querySelectorAll(".katex").length > 0); // KaTeX loads for text with $.
   expect(page.container.querySelectorAll(".katex")).toHaveLength(2);
   expect(page.container.querySelectorAll("math")).toHaveLength(2);
   await click("Редактирование");

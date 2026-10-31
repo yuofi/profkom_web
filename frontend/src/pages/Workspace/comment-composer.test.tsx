@@ -27,7 +27,7 @@ it("comment frame keeps formatting, preview and footer together without help or 
   const controls=[...frame.querySelectorAll<HTMLButtonElement>('[role="toolbar"] button')];expect(controls.at(-1)?.getAttribute('aria-label')).toBe('Предпросмотр');
   expect(frame.querySelector('[data-editor-footer]')?.textContent).toContain('Прикрепить файлы');
   const input=frame.querySelector('textarea')!;input.focus();input.setSelectionRange(2,5);
-  await act(async()=>controls.at(-1)!.click());
+  await act(async()=>controls.at(-1)!.click());await waitForPage(page,()=>!!frame.querySelector('.katex'));
   expect(frame.querySelector('table')).not.toBeNull();expect(frame.querySelector('.katex')).not.toBeNull();expect(frame.querySelector(`a[href="/contacts/${user.user_id}"]`)?.textContent).toBe(user.display_name);
   await act(async()=>frame.querySelector<HTMLButtonElement>('[aria-label="Редактирование"]')!.click());expect(frame.querySelector('textarea')!.value).toBe(source);expect([frame.querySelector('textarea')!.selectionStart,frame.querySelector('textarea')!.selectionEnd]).toEqual([2,5]);
   expect(attach).not.toHaveBeenCalled();expect(frame.textContent).not.toContain('Шаблоны');expect(frame.textContent).not.toContain('Справка');

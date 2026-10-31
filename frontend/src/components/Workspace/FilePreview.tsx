@@ -4,11 +4,11 @@ import type { FileRef } from "../../utils/api/contract";
 import { filesApi } from "../../utils/api/files.api";
 import { accessFingerprint, isActiveSession, useSession } from "../../utils/session";
 import { userMessage } from "../../utils/api/messages";
-import { MarkdownCode, MarkdownCodeBlock } from "./MarkdownCode";
 import { Glyph } from "./WorkspaceUI";
 import s from "./FilePreview.module.css";
 
 const PdfPreview = lazy(() => import("./FilePdfPreview").then(module => ({ default: module.FilePdfPreview })));
+const TextPreview = lazy(() => import("./MarkdownCode").then(({ MarkdownCode, MarkdownCodeBlock }) => ({ default: ({ language, source }: { language: string; source: string }) => <MarkdownCodeBlock language={language}><MarkdownCode className={`language-${language}`} source={source} /></MarkdownCodeBlock> })));
 const TEXT_LIMIT = 1024 * 1024, BINARY_LIMIT = 20 * 1024 * 1024;
 const codeLanguages: Record<string, string> = {
   js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript", ts: "typescript", tsx: "typescript",
@@ -59,7 +59,7 @@ function PreviewBytes({ file }: { file: FileRef }) {
   if (error) return <p role="alert">{error}</p>;
   if (!loaded) return <p role="status">Открываем файл…</p>;
   return <>
-    {mode.kind === "text" && <MarkdownCodeBlock language={mode.language}><MarkdownCode className={`language-${mode.language}`} source={loaded.text ?? ""} /></MarkdownCodeBlock>}
+    {mode.kind === "text" && <Suspense fallback={<p role="status">Открываем файл…</p>}><TextPreview language={mode.language} source={loaded.text ?? ""} /></Suspense>}
     {mode.kind === "image" && <img className={s.image} src={loaded.url} alt={file.name} onError={() => setError("Не удалось показать изображение. Файл можно скачать.")} />}
     {mode.kind === "pdf" && <Suspense fallback={<p role="status">Открываем PDF…</p>}><PdfPreview blob={loaded.blob} /></Suspense>}
   </>;

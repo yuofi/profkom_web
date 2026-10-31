@@ -90,6 +90,7 @@ it("one shared file-only result targets the task rather than an individual assig
   const upload = vi.spyOn(filesApi, "upload").mockResolvedValue(file);
   const command = vi.spyOn(tasksApi, "submitResult").mockResolvedValue({ ...task, status: "completed", revision: task.revision + 1 });
   page = await mountWorkspace(<TaskStatusMenu task={task} variant="actions" />);await click("Сдать результат");
+  await waitForPage(page, () => !!page!.container.querySelector('input[type="file"]')); // The result dialog is a lazy module.
   const input = page.container.querySelector<HTMLInputElement>('input[type="file"]')!;
   const blob = new File(["shared result"], "result.txt", { type: "text/plain" });
   await act(async () => { Object.defineProperty(input, "files", { configurable: true, value: [blob] });input.dispatchEvent(new Event("change", { bubbles: true })); });await waitForPage(page);

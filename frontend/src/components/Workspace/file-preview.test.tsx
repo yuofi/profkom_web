@@ -29,6 +29,7 @@ it("opens code in a dialog through checked API bytes rather than triggering a do
   await open(ref("script.js", "text/javascript"));
   expect(page!.container.querySelector("dialog[open]")).not.toBeNull();
   expect(get).toHaveBeenCalledWith("file-preview-1", expect.any(AbortSignal));
+  await waitForPage(page!, () => !!page!.container.querySelector("pre code .hljs-keyword")); // Highlighting loads with the first code preview.
   expect(page!.container.querySelector("pre code .hljs-keyword")?.textContent).toBe("const");
   expect(page!.container.querySelector("figcaption")?.textContent).toBe("JavaScript");
   expect(click).not.toHaveBeenCalled();

@@ -1,19 +1,37 @@
-import { createContext, useContext, type InputHTMLAttributes } from "react";
+import { createContext, lazy, Suspense, useContext, useEffect, useState, type InputHTMLAttributes, type ReactNode } from "react";
 import type { Root, RootContent, ListItem } from "mdast";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
-import remarkMath from "remark-math";
-import rehypeKatex from "rehype-katex";
-import "katex/dist/katex.min.css";
-import { MarkdownCode, MarkdownCodeBlock } from "./MarkdownCode";
-import { Gallery } from "../Gallery/Gallery";
 import { ContactChip } from "../ContactChip/ContactChip";
 import { UserChip } from "./UserChip";
 import type { UserRef } from "../../utils/api/contract";
 import { apiUrl } from "../../utils/api";
 import s from "./Workspace.module.css";
 import md from "./MarkdownContent.module.css";
+// Formulas, highlighting and galleries load only for a document that uses them.
+const MarkdownCode = lazy(() => import("./MarkdownCode").then(module => ({ default: module.MarkdownCode })));
+const MarkdownCodeBlock = lazy(() => import("./MarkdownCode").then(module => ({ default: module.MarkdownCodeBlock })));
+const Gallery = lazy(() => import("../Gallery/Gallery").then(module => ({ default: module.Gallery })));
+type MathPlugins = typeof import("./markdownMath");
+let mathPlugins: MathPlugins | undefined, mathLoading: Promise<MathPlugins> | undefined;
+const loadMath = () => mathLoading ??= import("./markdownMath").then(module => (mathPlugins = module), failure => { mathLoading = undefined;throw failure; });
+/** remark-math changes the parse only where `$` occurs, so other documents parse exactly as before. */
+function useMath(needed: boolean) {
+  const [loaded, setLoaded] = useState(mathPlugins);
+  useEffect(() => {
+    if (!needed || loaded) return;
+    let live = true;
+    loadMath().then(module => { if (live) setLoaded(module); }, () => { /* The source stays readable as text. */ });
+    return () => { live = false; };
+  }, [needed, loaded]);
+  return needed ? loaded ?? mathPlugins : undefined;
+}
+const plainLabel = (language?: string) => !language || ["text", "txt", "plaintext"].includes(language.toLowerCase()) ? "Текст" : language;
+function PlainCodeBlock({ language, children }: { language?: string; children: ReactNode }) {
+  const label = plainLabel(language);
+  return <figure className={md.codeBlock} aria-label={`Блок кода: ${label}`}><figcaption className={md.codeLanguage}>{label}</figcaption><pre>{children}</pre></figure>;
+}
 interface ChecklistPosition { offset: number; label: string }
 const ChecklistContext = createContext<ChecklistPosition | null>(null);
 
@@ -46,11 +64,14 @@ function ChecklistCheckbox({ body, onMark, busy, pending, ...props }: InputHTMLA
 /** A checklist mark is one source offset: the reader command flips that marker only. */
 export interface MarkdownContentProps { body: string; onChecklistToggle?: (offset: number, checked: boolean) => void; checklistDisabled?: boolean; checklistPending?: readonly number[]; mentionUsers?: UserRef[] }
 export function MarkdownContent({ body, onChecklistToggle, checklistDisabled = false, checklistPending, mentionUsers }: MarkdownContentProps) {
+  const needsMath = body.includes("$"), math = useMath(needsMath);
+  // Until formulas load, a marker inside $$…$$ would look like a task: no marks meanwhile.
+  const marksBusy = checklistDisabled || (needsMath && !math);
   return (
     <div className={`${s.markdown} ${md.content}`}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkBreaks, remarkMath, [remarkChecklistPositions, { source: body }]]}
-        rehypePlugins={[[rehypeKatex, { trust: false, strict: "error", maxExpand: 1000, maxSize: 20, macros: {} }]]}
+        remarkPlugins={[remarkGfm, remarkBreaks, ...(math ? [math.remarkMath] : []), [remarkChecklistPositions, { source: body }]]}
+        rehypePlugins={math ? [[math.rehypeKatex, { trust: false, strict: "error", maxExpand: 1000, maxSize: 20, macros: {} }]] : []}
         skipHtml
         // Files of a material are API addresses, checked on every request (decision 23).
         urlTransform={(url) => defaultUrlTransform(apiUrl(url))}
@@ -69,7 +90,7 @@ export function MarkdownContent({ body, onChecklistToggle, checklistDisabled = f
             const position = typeof offset === "number" ? { offset, label: String(label ?? "Пункт чеклиста") } : null;
             return <li {...props}><ChecklistContext.Provider value={position}>{children}</ChecklistContext.Provider></li>;
           },
-          input: ({ node, ...props }) => { void node;return <ChecklistCheckbox {...props} body={body} onMark={onChecklistToggle} busy={checklistDisabled} pending={checklistPending} />; },
+          input: ({ node, ...props }) => { void node;return <ChecklistCheckbox {...props} body={body} onMark={onChecklistToggle} busy={marksBusy} pending={checklistPending} />; },
           table: ({ children }) => <div className={md.tableWrap} tabIndex={0} role="region" aria-label="Таблица Markdown"><table>{children}</table></div>,
           pre: ({ children, node }) => {
             const extension = node?.children.some(
@@ -84,22 +105,24 @@ export function MarkdownContent({ body, onChecklistToggle, checklistDisabled = f
             const codeNode = node?.children.find(child => child.type === "element" && child.tagName === "code");
             const names = codeNode?.type === "element" && Array.isArray(codeNode.properties.className) ? codeNode.properties.className : [];
             const language = names.find(name => typeof name === "string" && name.startsWith("language-"));
-            return extension ? <div>{children}</div> : <MarkdownCodeBlock language={typeof language === "string" ? language.slice("language-".length) : undefined}>{children}</MarkdownCodeBlock>;
+            const name = typeof language === "string" ? language.slice("language-".length) : undefined;
+            return extension ? <div>{children}</div> : plainLabel(name) === "Текст" ? <PlainCodeBlock>{children}</PlainCodeBlock>
+              : <Suspense fallback={<PlainCodeBlock language={name}>{children}</PlainCodeBlock>}><MarkdownCodeBlock language={name}>{children}</MarkdownCodeBlock></Suspense>;
           },
           code: ({ className, children }) =>
             className === "language-gallery" ? (
-              <Gallery
+              <Suspense fallback={null}><Gallery
                 initialContent={String(children).replace(/\n$/, "")}
                 mode="view"
-              />
+              /></Suspense>
             ) : className === "language-chip" ? (
               <ContactChip
                 initialContent={String(children).replace(/\n$/, "")}
                 mode="view"
               />
-            ) : (
-              <MarkdownCode className={className} source={String(children)} />
-            ),
+            ) : className?.startsWith("language-") ? (
+              <Suspense fallback={<code className={className}>{String(children)}</code>}><MarkdownCode className={className} source={String(children)} /></Suspense>
+            ) : <code className={className}>{String(children)}</code>,
         }}
       >
         {body}

@@ -4,7 +4,7 @@ import { fireEvent } from "@testing-library/dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { MarkdownContent } from "./MarkdownContent";
-import { mountWorkspace } from "../../test/workspace";
+import { mountWorkspace, waitForPage } from "../../test/workspace";
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 beforeEach(() => vi.stubGlobal("matchMedia", (media: string) => ({ matches: false, media, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })));
 afterEach(async () => { vi.useRealTimers();await page?.cleanup();page = undefined;vi.unstubAllGlobals(); });
@@ -93,6 +93,9 @@ it("checklist stays read-only without explicit callback, while disabled and for 
 it("declared code languages are locally highlighted, markup escaped, and unknown languages stay plain", async () => {
   const source = '```typescript\nconst count: number = 42;\n```\n\n```python\ndef total(x):\n  return x + 1\n```\n\n```html\n<script>alert("literal")</script>\n```\n\n```unknown-synthetic\nconst plain = 1\n```';
   page = await mountWorkspace(<MarkdownContent body={source} />);
+  // highlight.js loads only for a document with a ```language block; until then the source is plain code.
+  expect(page.container.querySelector("code.language-typescript")?.textContent).toBe("const count: number = 42;\n");
+  await waitForPage(page, () => !!page!.container.querySelector("code.language-typescript .hljs-keyword"));
   expect(page.container.querySelector("code.language-typescript .hljs-keyword")?.textContent).toBe("const");
   expect(page.container.querySelector("code.language-python .hljs-keyword")?.textContent).toBe("def");
   expect(page.container.querySelector("code.language-html")?.textContent).toBe('<script>alert("literal")</script>\n');
