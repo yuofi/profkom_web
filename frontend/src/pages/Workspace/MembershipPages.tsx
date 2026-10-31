@@ -390,7 +390,7 @@ function RequestCard({
 }
 export function BlockRequestsPage() {
   // Open requests in full (they are decided here), the own closed ones, and the rest of the
-  // history in keyset pages of 20 (PB-22) instead of every request with a full DTO.
+  // history in keyset pages of 20 from the newest (PB-22) instead of every request with a full DTO.
   const query = useQuery({
     queryKey: ["blockRequests", "open"],
     queryFn: () => membershipApi.requests({ state: openStates }),
@@ -409,7 +409,7 @@ export function BlockRequestsPage() {
   });
   const history = useInfiniteQuery({
     queryKey: ["blockRequests", "history"],
-    queryFn: ({ pageParam }) => membershipApi.requests({ state: closedStates, limit: historyPage, ...(pageParam ? { cursor: pageParam } : {}) }),
+    queryFn: ({ pageParam }) => membershipApi.requests({ state: closedStates, limit: historyPage, order: "desc", ...(pageParam ? { cursor: pageParam } : {}) }),
     initialPageParam: "",
     getNextPageParam: (last) => last.next_cursor ?? undefined,
   });
@@ -453,6 +453,8 @@ export function BlockRequestsPage() {
       : r.user.user_id === session?.user_id ? 2 : isOpen(r) ? 3 : 4;
     sections[index][1].push(r);
   }
+  // The history is paged from its latest end: newest first, "Показать ещё" adds older ones.
+  sections[4][1].reverse();
   const card = (r: BlockRequest) => (
     <RequestCard
       request={r}

@@ -16,6 +16,8 @@ export interface BlockRequestFilters {
   mine?: boolean;
   limit?: number;
   cursor?: string;
+  /** With limit/cursor: "desc" pages from the newest request. */
+  order?: "asc" | "desc";
 }
 const requestFilters = ({ state = [], ...rest }: BlockRequestFilters) => {
   const params = new URLSearchParams();

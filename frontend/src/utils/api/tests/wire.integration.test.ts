@@ -130,7 +130,7 @@ it("INT-06: actual response shapes, null relations and populated IDs match the p
   linked.items.forEach(c => check("Contribution", c));
   expect(linked.items.some(c => c.assignment_inputs?.task_id === task.task_id)).toBe(true);
   (await directoryApi.contact(person.user_id)).forEach(p => check("ContactInfoOut", p));
-  const ownRequests = await membershipApi.requests({ mine: true, state: ["approved", "rejected", "withdrawn"], limit: 5 });
+  const ownRequests = await membershipApi.requests({ mine: true, state: ["approved", "rejected", "withdrawn"], limit: 5, order: "desc" });
   ownRequests.items.forEach(r => check("BlockRequest", r));
   check("Dashboard", await workspaceApi.dashboard());
   (await workspaceApi.calendar(new Date(Date.now() - 86400000).toISOString(), new Date(Date.now() + 3 * 86400000).toISOString())).items.forEach(c => check("CalendarItem", c));

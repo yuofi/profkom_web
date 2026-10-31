@@ -425,8 +425,9 @@ def _request_query(s, uid, block_id=None, states=None, mine=False):
     return query.order_by(BlockApplicationORM.created_at)
 
 
-def requests_for(uid, block_id=None, states=None, mine=False, cursor=None, limit=None):
-    """Visible requests; with a cursor or limit one keyset page (created_at, request_id).
+def requests_for(uid, block_id=None, states=None, mine=False, cursor=None, limit=None, order="asc"):
+    """Visible requests; with a cursor or limit one keyset page (created_at, request_id),
+    newest first for order="desc" (a history read from its latest end).
 
     Filters only narrow the visible list. Without cursor/limit the whole list keeps
     its former order and is returned as a list."""
@@ -435,7 +436,7 @@ def requests_for(uid, block_id=None, states=None, mine=False, cursor=None, limit
         if cursor is None and limit is None:
             return [request_dto(s, r, uid) for r in rows]
         from api_contract import cursor_page
-        page = cursor_page(rows, lambda r: (r.created_at, r.request_id), cursor, limit=limit)
+        page = cursor_page(rows, lambda r: (r.created_at, r.request_id), cursor, descending=order == "desc", limit=limit)
         return Page(items=[request_dto(s, r, uid) for r in page.items], next_cursor=page.next_cursor)
 
 
@@ -735,10 +736,11 @@ def register_routes(router):
         mine: bool = False,
         cursor: str | None = None,
         limit: int | None = Query(None, ge=1, le=100),
+        order: Literal["asc", "desc"] = "asc",
         cur: User = Depends(get_current_user),
     ):
         # Optional filters and keyset page; without them the whole visible list, as before.
-        result = requests_for(cur.user_id, block_id, state, mine, cursor, limit)
+        result = requests_for(cur.user_id, block_id, state, mine, cursor, limit, order)
         return result if isinstance(result, Page) else Page(items=result)
 
     @router.post("/block-requests/{request_id}/{command}", response_model=RequestOut)

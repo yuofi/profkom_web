@@ -134,9 +134,21 @@ def test_request_filters_and_pages_narrow_the_visible_list(client, org, monkeypa
             cursor = page["next_cursor"]
             if not cursor:
                 break
+        newest, cursor = [], None
+        while True:
+            params = {"limit": 2, "order": "desc", **({"cursor": cursor} if cursor else {})}
+            page = client.get("/api/block-requests", headers=actor.headers, params=params).json()
+            newest += page["items"]
+            cursor = page["next_cursor"]
+            if not cursor:
+                break
         monkeypatch.setattr(api_contract, "PAGE_SIZE", 100)
         assert pages == sorted(items, key=lambda r: (r["created_at"], r["request_id"]))
+        assert newest == pages[::-1]
+        # Without limit/cursor the order parameter leaves the whole list as it was.
+        assert client.get("/api/block-requests", headers=actor.headers, params={"order": "desc"}).json() == full
     assert client.get("/api/block-requests", headers=w["superuser"].headers, params={"state": "unknown"}).status_code == 422
+    assert client.get("/api/block-requests", headers=w["superuser"].headers, params={"order": "newest"}).status_code == 422
 
 
 def test_home_counts_the_same_reviewable_requests(client, org):

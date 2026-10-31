@@ -77,19 +77,23 @@ it("reads only the own requests to a block and no directory without the master f
 it("decides from the open list, keeps own closed requests and pages the rest of the history (PB-22)", async () => {
   mock = installMockTransport("chair", { delay: 0 });
   const others = mock.state.people.filter(person => person.user_id !== mock!.state.session.user_id);
-  const closed = (index: number, user = others[index % others.length]): BlockRequest => ({ ...structuredClone(mock!.state.requests[0]), request_id: `closed-${String(index).padStart(2, "0")}`, user, state: "rejected", created_at: `2026-09-${String(index + 1).padStart(2, "0")}T10:00:00Z`, substitute_available_at: null, capabilities: [] });
+  const closed = (index: number, user = { ...others[index % others.length], display_name: `Заявитель ${index}` }): BlockRequest => ({ ...structuredClone(mock!.state.requests[0]), request_id: `closed-${String(index).padStart(2, "0")}`, user, state: "rejected", created_at: `2026-09-${String(index + 1).padStart(2, "0")}T10:00:00Z`, substitute_available_at: null, capabilities: [] });
   mock.state.requests.push(...Array.from({ length: 24 }, (_, index) => closed(index)), { ...closed(25), request_id: "own-closed", user: { user_id: mock.state.session.user_id, display_name: "Я сам", avatar_url: null } });
   page = await mountWorkspace(<BlockRequestsPage />);
   await waitForPage(page);
   const params = gets("/block-requests").map(request => String(request.params));
-  expect(params).toEqual(expect.arrayContaining(["state=pending_hr&state=pending_block", "mine=true&state=approved&state=rejected&state=withdrawn", "limit=20&state=approved&state=rejected&state=withdrawn"]));
+  expect(params).toEqual(expect.arrayContaining(["state=pending_hr&state=pending_block", "mine=true&state=approved&state=rejected&state=withdrawn", "limit=20&order=desc&state=approved&state=rejected&state=withdrawn"]));
   expect(page.container.querySelector('[aria-label="Этап мастера — моё решение"]')?.textContent).toContain(mock.state.people[4].display_name);
   expect(page.container.querySelector('[aria-label="Мои заявки"]')?.textContent).toContain("Я сам");
   const history = [...page.container.querySelectorAll("details")].find(item => item.querySelector("summary")?.textContent?.startsWith("История"))!;
-  expect(history.querySelector("summary")?.textContent).toBe("История · 20");
+  // The newest page comes first; the own closed request in it stays under "Мои заявки".
+  const historyIds = () => history.textContent!.match(/Заявитель \d+/g) ?? [];
+  expect(history.querySelector("summary")?.textContent).toBe("История · 19");
+  expect(historyIds().slice(0, 2)).toEqual(["Заявитель 23", "Заявитель 22"]);
   await act(async () => button("Показать ещё")!.click());await waitForPage(page);
-  expect(String(gets("/block-requests").at(-1)!.params)).toBe("limit=20&cursor=mock%3A20&state=approved&state=rejected&state=withdrawn");
+  expect(String(gets("/block-requests").at(-1)!.params)).toBe("limit=20&order=desc&cursor=mock%3A20&state=approved&state=rejected&state=withdrawn");
   expect(history.querySelector("summary")?.textContent).toBe("История · 24");
+  expect(historyIds().at(-1)).toBe("Заявитель 0");
   expect(button("Показать ещё")).toBeUndefined();
 });
 

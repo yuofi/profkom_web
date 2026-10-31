@@ -1873,7 +1873,9 @@ export function installMockTransport(
               && (url.searchParams.get("mine") !== "true" || r.user.user_id === state.session.user_id));
         if (!url.searchParams.has("limit") && !url.searchParams.has("cursor")) return list(visible);
         const offset = Number((url.searchParams.get("cursor") ?? "mock:0").split(":")[1]), limit = Number(url.searchParams.get("limit")) || 100;
-        return [200, { items: visible.slice(offset, offset + limit), next_cursor: offset + limit < visible.length ? `mock:${offset + limit}` : null }];
+        const ordered = [...visible].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.request_id.localeCompare(b.request_id));
+        if (url.searchParams.get("order") === "desc") ordered.reverse();
+        return [200, { items: ordered.slice(offset, offset + limit), next_cursor: offset + limit < ordered.length ? `mock:${offset + limit}` : null }];
       }
       if (parts.length === 1) {
         if (
