@@ -57,7 +57,7 @@ export function TrackerTaskPage() {
 }
 function TaskContent({ task, assignmentId, accountingRequested=false, returnSeason }: { task: Task; assignmentId: string | null; accountingRequested?:boolean; returnSeason: string | null }) {
   const [editor, setEditor] = useState<"description" | "files" | "parent" | "planning" | null>(null);
-  const [copied, setCopied] = useState(""), [manualLink, setManualLink] = useState("");
+  const [copied, setCopied] = useState(""), [manualLink, setManualLink] = useState(""), [linking, setLinking] = useState(false);
   const [kkrOpen,setKkrOpen]=useState(!!assignmentId||accountingRequested);
   const [checklistPending, setChecklistPending] = useState<readonly number[]>([]), [checklistError, setChecklistError] = useState("");
   const checklistSaving = useRef(new Set<number>()), run = useTaskCommand(task);
@@ -101,11 +101,11 @@ function TaskContent({ task, assignmentId, accountingRequested=false, returnSeas
           {task.description.body ? <MarkdownContent body={task.description.body} onChecklistToggle={can(task,"toggle_task_checklist") ? (offset, checked) => { void toggleDescription(offset, checked); } : undefined} checklistDisabled={editor === "description"} checklistPending={checklistPending} /> : <p className={w.muted}>Описание пока не добавлено.</p>}
           {checklistError && <p role="alert" className={w.error}>{checklistError} <button type="button" className={s.subtleButton} onClick={() => { void refresh(); }}>Обновить описание</button></p>}
           <div className={s.inlineActions}>{can(task, "attach_task_file") && <button type="button" className={s.subtleButton} onClick={() => setEditor("files")}><Glyph name="attach_file" />Прикрепить файлы</button>}
-            <button type="button" className={s.subtleButton} onClick={() => document.getElementById("task-relations")?.scrollIntoView?.({block:"start",behavior:"smooth"})}><Glyph name="add" />Связь с задачей</button></div>
+            {(can(task, "manage_task_links") || can(task, "edit_task")) && <button type="button" className={s.subtleButton} onClick={() => setLinking(true)}><Glyph name="add" />Связь с задачей</button>}</div>
           {(task.attachments?.length ?? 0) > 0 && <div className={s.descriptionFiles}><Attachments files={task.attachments ?? []} /></div>}
         </section>
         <TrackerTaskChecklist task={task} />
-        <TrackerTaskRelations task={task} onEditParent={() => setEditor("parent")} />
+        <TrackerTaskRelations task={task} onEditParent={() => setEditor("parent")} editing={linking} onEditingChange={setLinking} />
         {assignmentId && !task.assignments.some(item => item.assignment_id === assignmentId) && <Empty>Назначение больше недоступно.</Empty>}
         {assignmentId && !hasAccounting && task.assignments.some(item => item.assignment_id === assignmentId) && <p role="status" className={s.accountingNotice}>{taskStatus(task) === "closed" ? "Учёт работы по этой задаче вам недоступен." : "Оценка исполнителя станет доступна после закрытия задачи."}</p>}
         {hasAccounting && <section className={s.accounting} aria-label="Учёт работы и ККР"><div className={s.sectionHeading}><h2>Учёт работы и ККР</h2><button type="button" onClick={()=>setKkrOpen(true)}>Оценить работу</button></div></section>}

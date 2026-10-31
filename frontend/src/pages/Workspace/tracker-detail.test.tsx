@@ -291,6 +291,15 @@ it("an assessment link to an open task explains that the evaluation waits for cl
   await mountTask(task, [], `?assignment_id=${task.assignments[0].assignment_id}`);
   expect(page!.container.textContent).toContain("Оценка исполнителя станет доступна после закрытия задачи.");expect(page!.container.querySelector("dialog")).toBeNull();
 });
+it("the description's link action opens the link editor for link managers and is absent for readers", async () => {
+  await mountTask(makeTask({ capabilities: ["read_task"] }));
+  expect([...page!.container.querySelectorAll("button")].some(button => button.textContent?.includes("Связь с задачей"))).toBe(false);
+  await page!.cleanup();vi.restoreAllMocks();
+  await mountTask(makeTask({ capabilities: ["read_task", "manage_task_links"] }));
+  const action = [...page!.container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim().endsWith("Связь с задачей"))!;
+  await act(async () => action.click());await settle();
+  expect(page!.container.querySelector("dialog")?.textContent).toContain("Тип связи");
+});
 it("selects and clears a cross-queue parent in one combobox with revision protection", async () => {
   let task = makeTask({ capabilities: ["read_task", "edit_task"], queue: { queue_id: "queue-design", name: "Дизайн", key: "DSN" }, parent_task: null });
   const other = makeTask({ task_id: "other-task", task_key: "WEB-12", title: "Задача из другой очереди", queue: { queue_id: "queue-web", name: "Разработка", key: "WEB" } });
