@@ -16,7 +16,7 @@
 .seasonLabel { display:flex;align-items:center;gap:4px;max-width:100%;min-width:0;overflow:hidden; }
 .seasonPrefix { flex:0 0 auto;color:var(--on-surface-variant); }
 .seasonName { display:block;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis; }
-.moreEntries { padding:4px 0;border:0;background:transparent;color:var(--accent-sky);font:inherit;font-size:10px;cursor:pointer; }
+.moreEntries { display:inline-flex;align-items:center;min-height:32px;padding:4px 2px;border:0;background:transparent;color:var(--accent-sky);font:inherit;font-size:12px;cursor:pointer; }
 .moreEntries:hover { text-decoration:underline; }
 .moreEntries:focus-visible { outline:2px solid currentColor;outline-offset:1px; }
 /* Shared compact month overview and the workspace/day/week time grid. */
@@ -92,5 +92,23 @@
 .point .entryTitle { white-space:nowrap;max-height:none; }
 .nowLine { position:absolute;left:0;right:0;border-top:1px solid var(--accent-peach);z-index:2;pointer-events:none; }
 .nowLine::before { content:"";position:absolute;left:-3px;top:-3px;width:5px;height:5px;border-radius:50%;background:var(--accent-peach); }
+/* Grid entries: the time on its own row and up to two lines of the title; a deadline or a short
+   item stays one ellipsised line. Continuing spans keep their label in view in the Today widget. */
+.entryLabel { display:contents; }
+.timedItem:not(.point):not(.short) .timedLink { display:grid;grid-auto-rows:min-content;align-content:start;gap:1px; }
+.timedItem:not(.point):not(.short) .timedLink .entryTitle { display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden;white-space:normal;overflow-wrap:anywhere;max-height:none; }
+.short .timedLink,.point .timedLink { flex-wrap:nowrap;align-items:center; }
+.short .timedLink .entryTitle,.point .timedLink .entryTitle { flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-height:none; }
+.timelineCompact .continues .timedLink { overflow:visible; }
+.timelineCompact .continues .entryLabel { display:grid;gap:1px;position:sticky;top:0;padding-bottom:2px; }
+.overflow { position:absolute;z-index:2;min-width:0; }
+.overflow[open] { z-index:4; }
+.overflow>summary { display:flex;align-items:center;justify-content:center;height:26px;box-sizing:border-box;border-radius:7px;background:var(--surface-container-high);color:var(--on-surface);font-size:12px;font-weight:600;cursor:pointer;list-style:none; }
+.overflow>summary::-webkit-details-marker { display:none; }
+.overflow>summary:focus-visible { outline:2px solid var(--accent-sky);outline-offset:2px; }
+.overflowList { position:absolute;top:30px;right:0;display:grid;gap:4px;width:max-content;min-width:100%;max-width:min(260px,80vw);max-height:280px;overflow-y:auto;margin:0;padding:8px;list-style:none;border:1px solid var(--outline-variant);border-radius:10px;background:var(--surface-container-low);box-shadow:0 8px 24px color-mix(in srgb,var(--shadow) 28%,transparent);box-sizing:border-box; }
+.overflow[data-align=start] .overflowList { right:auto;left:0; }
+.overflowList .compactLink { white-space:nowrap; }
+.overflowList .entryTitle { max-width:200px; }
 @media(max-width:1200px) { .calendar { display:block; }.filterGrid { grid-template-columns:repeat(2,minmax(0,1fr)); }.calendarToolbar { align-items:flex-start; }.monthTitle { font-size:15px; }.monthNav { flex:1 1 100%; } }
 @media(max-width:600px) { .topFilters,.filterGrid { grid-template-columns:minmax(0,1fr);gap:15px; }.monthNav { display:grid;grid-template-columns:36px minmax(0,1fr) 36px;gap:8px; }.monthNav>button:last-child { grid-column:1/-1;justify-self:start; }.monthTitle { min-width:0;font-size:14px; }.viewSwitch { width:100%; }.viewSwitch>button { flex:1; }.day,.empty { min-height:105px;padding:4px 2px; }.dayNumber { width:25px;height:25px;font-size:11px; }.week { font-size:10px; }.compactLink { font-size:10px;gap:2px 3px; }.monthEntry .compactLink { display:grid;grid-template-columns:5px minmax(0,1fr); }.monthEntry .entryTitle { grid-column:1/-1; }.monthEntry .entryTime { font-size:9px; }.monthEntry { margin-top:5px; }.timelineCompact .timelineScroller { height:var(--calendar-compact-height,360px);max-height:55vh; }.timelineHeader>strong { font-size:11px; } }

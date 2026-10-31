@@ -27,9 +27,10 @@ import { membershipApi } from "../../utils/api/membership.api";
 import { eventsApi } from "../../utils/api/events.api";
 import { taskQueuesApi } from "../../utils/api/taskQueues.api";
 import { WorkdayTasks } from "./WorkdayTasks";
-import { statusNames } from "./trackerStatus";
+import { publicStatusNames } from "./trackerStatus";
 import c from "./calendar.module.css";
 import { CalendarMonth, CalendarTimeGrid } from "./CalendarViews";
+import { useNarrowScreen } from "./useNarrowScreen";
 import { calendarTitle, calendarView, calendarWindow, shiftCalendarDate, validDay, type CalendarView } from "./calendarLayout";
 import d from "./Dashboard.module.css";
 import { ChipAvatar } from "../../components/Workspace/ChipFace";
@@ -128,7 +129,8 @@ export function CalendarPage() {
   const [today, setToday] = useState(() => moscowDay(new Date().toISOString()));
   useEffect(() => { const update = () => setToday(moscowDay(new Date().toISOString()));const timer = window.setInterval(update, 60_000);window.addEventListener("focus", update);return () => { window.clearInterval(timer);window.removeEventListener("focus", update); }; }, []);
   const [params, setParams] = useSearchParams();
-  const view = calendarView(params.get("view"));
+  // A phone opens the day by default; a view chosen in the address always wins.
+  const narrow = useNarrowScreen(), view = params.get("view") ? calendarView(params.get("view")) : narrow ? "day" : "month";
   const requestedDate = params.get("date");
   const month = normalizeMonth(params.get("month") ?? (validDay(requestedDate) ? requestedDate.slice(0, 7) : today.slice(0, 7)));
   const date = validDay(requestedDate) && requestedDate.startsWith(month) ? requestedDate : month === today.slice(0, 7) ? today : `${month}-01`;
@@ -152,6 +154,10 @@ export function CalendarPage() {
   const label = (id: string | null) => seasons.data?.items.find(season => season.season_id === id)?.title ?? "Сезон";
   const items = query.data?.items.filter(item => !filters.season_id || item.season_id === filters.season_id) ?? [];
   const names: Record<string, string> = { kind: "Вид записи", season_id: "Сезон", block_id: "Блок", event_id: "Мероприятие", queue_id: "Очередь", status: "Статус", q: "Поиск" };
+  const filtered = Object.keys(names).some(key => filters[key as keyof typeof filters]) || params.get("mine") === "false";
+  // Past seasons stay selectable as an archive; events are offered from the chosen or the live seasons.
+  const liveSeasons = new Set(seasons.data?.items.filter(season => season.state !== "closed").map(season => season.season_id));
+  const archive = seasons.data?.items.find(season => season.season_id === filters.season_id && season.state === "closed");
   return <Page title="Календарь" description="Дедлайны, мероприятия и доступные созвоны. Время указано по МСК.">
     <div className={c.calendarToolbar}>
       <div className={c.monthNav} role="group" aria-label="Выбор периода"><button className={s.button} aria-label={view === "week" ? "Предыдущая неделя" : `Предыдущий ${periodName}`} onClick={() => navigatePeriod(shiftCalendarDate(date, view, -1))}>←</button><strong className={c.monthTitle} aria-live="polite">{calendarTitle(view, date)}</strong><button className={s.button} aria-label={view === "week" ? "Следующая неделя" : `Следующий ${periodName}`} onClick={() => navigatePeriod(shiftCalendarDate(date, view, 1))}>→</button><button className={s.button} onClick={() => navigatePeriod(today)}>Сегодня</button></div>
@@ -160,13 +166,14 @@ export function CalendarPage() {
     <div className={c.topFilters}><label className={s.field}>Показывать<select value={filters.mine ? "mine" : "all"} onChange={event => update("mine", event.target.value === "all" ? "false" : "")}><option value="mine">Мои записи</option><option value="all">Все доступные</option></select></label><label className={s.field}>Поиск<input value={filters.q} placeholder="Название или ключ задачи" onChange={event => update("q", event.target.value)} /></label></div>
     <details className={c.filterPanel} onToggle={event => setFiltersOpen(event.currentTarget.open)}><summary>Фильтры календаря</summary><div className={c.filterGrid}>
       <label className={s.field}>Вид записи<select value={filters.kind} onChange={event => update("kind", event.target.value)}><option value="">Все виды</option><option value="event">Мероприятия</option><option value="meeting">Созвоны</option><option value="task_deadline">Дедлайны</option></select></label>
-      <label className={s.field}>Сезон<select value={filters.season_id} onChange={event => update("season_id", event.target.value)}><option value="">Все незакрытые</option>{seasons.data?.items.map(season => <option value={season.season_id} key={season.season_id}>{season.title}</option>)}</select></label>
+      <label className={s.field}>Сезон<select value={filters.season_id} onChange={event => update("season_id", event.target.value)}><option value="">Все незакрытые</option>{seasons.data?.items.map(season => <option value={season.season_id} key={season.season_id}>{season.title}{season.state === "closed" ? " · архив" : ""}</option>)}</select></label>
       <EntityPicker label="Блок" entity="block" value={filters.block_id} onChange={value => update("block_id", value)} placeholder="Все блоки" options={blockOptions?.map(block => ({ value: block.block_id, label: block.name, block: { block_id: block.block_id, name: block.name, avatar_url: block.avatar_url } })) ?? []} />
-      <EntityPicker label="Мероприятие" value={filters.event_id} onChange={value => update("event_id", value)} placeholder="Все мероприятия" options={eventOptions?.items.map(event => ({ value: event.event_id, label: event.title })) ?? []} />
+      <EntityPicker label="Мероприятие" value={filters.event_id} onChange={value => update("event_id", value)} placeholder="Все мероприятия" options={eventOptions?.items.filter(event => filters.season_id ? event.season_id === filters.season_id : liveSeasons.has(event.season_id)).map(event => ({ value: event.event_id, label: event.title })) ?? []} />
       <EntityPicker label="Очередь" value={filters.queue_id} onChange={value => update("queue_id", value)} placeholder="Все очереди" options={queueOptions?.items.filter(queue => queue.access === "granted").map(queue => ({ value: queue.queue_id, label: queue.name })) ?? []} />
-      <label className={s.field}>Статус задач<select value={filters.status} onChange={event => update("status", event.target.value)}><option value="">Незавершённые</option>{Object.entries(statusNames).map(([key, title]) => <option key={key} value={key}>{title}</option>)}</select></label>
+      <label className={s.field}>Статус задач<select value={filters.status} onChange={event => update("status", event.target.value)}><option value="">Незавершённые</option>{Object.entries(publicStatusNames).map(([key, title]) => <option key={key} value={key}>{title}</option>)}</select></label>
     </div></details>
-    <div className={c.activeFilters} aria-label="Активные фильтры">{Object.entries(names).filter(([key]) => filters[key as keyof typeof filters]).map(([key, title]) => <button type="button" key={key} className={s.button} aria-label={`Убрать фильтр: ${title}`} onClick={() => update(key, "")}>{title} ×</button>)}<button className={s.button} onClick={() => setParams({ month, date, view }, { replace: true })}>Сбросить фильтры</button></div>
+    <div className={c.activeFilters} aria-label="Активные фильтры">{Object.entries(names).filter(([key]) => filters[key as keyof typeof filters]).map(([key, title]) => <button type="button" key={key} className={s.button} aria-label={`Убрать фильтр: ${title}`} onClick={() => update(key, "")}>{title} ×</button>)}{filtered && <button className={s.button} onClick={() => setParams({ month, date, view }, { replace: true })}>Сбросить фильтры</button>}</div>
+    {archive && !filters.status && <p className={s.muted} role="status">Сезон «{archive.title}» закрыт, его задачи завершены. Чтобы увидеть их дедлайны, выберите статус «Выполнена» или «Закрыта».</p>}
     <QueryState loading={searchPending || query.isLoading || seasons.isLoading} error={query.error ?? seasons.error} retry={() => { void query.refetch();void seasons.refetch(); }}>
       {view === "month" ? <CalendarMonth days={range.days} offset={range.offset} items={items} today={today} seasonTitle={label} openDay={day => navigatePeriod(day, "day")} /> : <CalendarTimeGrid days={range.days} items={items} today={today} seasonTitle={label} />}
       {!items.length && <p className={s.muted}>На этот период нет доступных событий по выбранным условиям.</p>}
