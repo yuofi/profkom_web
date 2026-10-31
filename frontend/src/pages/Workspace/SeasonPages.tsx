@@ -143,9 +143,9 @@ function SeasonOverview({ season, summary, allowed }: { season: Season; summary?
 function SeasonDecisionEditors({ summary }: { summary: SeasonSummary }) {
   const [active, setActive] = useState<string | null>(null);const guardEditor = useGuardedAction();
   return <SeasonParticipants summary={summary} onFilterApply={() => setActive(null)} renderDecisions={row => can(summary, "edit_decisions") && row.user.user_id !== null ? <DecisionsForm row={row} summary={summary} open={active === row.participant_id}
-    onToggleEditor={reset => { const next = active === row.participant_id ? null : row.participant_id;guardEditor(() => {setActive(next);reset?.();}); }} /> : null} />;
+    onToggleEditor={reset => { const next = active === row.participant_id ? null : row.participant_id;guardEditor(() => {setActive(next);reset?.();}); }} onSaved={() => setActive(null)} /> : null} />;
 }
-function DecisionsForm({ summary, row, open, onToggleEditor }: { summary: SeasonSummary; row: SummaryRow; open: boolean; onToggleEditor: (reset?:()=>void) => void }) {
+function DecisionsForm({ summary, row, open, onToggleEditor, onSaved }: { summary: SeasonSummary; row: SummaryRow; open: boolean; onToggleEditor: (reset?:()=>void) => void; onSaved: () => void }) {
   const anchorRef=useRef<HTMLButtonElement>(null),saving=useRef(false);const client=useQueryClient();
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[pending,setPending]=useState<Decision[]|null>(null);
   const close=()=>onToggleEditor(()=>setPending(null));
@@ -159,7 +159,7 @@ function DecisionsForm({ summary, row, open, onToggleEditor }: { summary: Season
   return <><button ref={anchorRef} type="button" className={m.trigger} aria-label={`Изменить отметки: ${row.user.display_name}`} aria-expanded={open} aria-haspopup={pending?'dialog':'menu'} aria-busy={busy} disabled={busy} onClick={()=>onToggleEditor(()=>setPending(null))} onKeyDown={event=>{if(!open&&['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();onToggleEditor(()=>setPending(null));}}}><span aria-label="Решения текущего сезона">{row.decisions.length?<DecisionBadges values={row.decisions}/>:<span>Без отметки</span>}</span><svg className={m.caret} width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></button>
     <MarkChoiceMenu open={open&&pending===null} anchorRef={anchorRef} label={`Отметки: ${row.user.display_name}`} values={row.decisions} preserveSelected={summary.state==='approved'} busy={busy} error={error} onClose={close} onChoose={choose}/>
     <AnchoredPopover open={open&&pending!==null} anchorRef={anchorRef} label={`Отметки: ${row.user.display_name}`} onRequestClose={close} busy={busy} width={340}>
-      <ActionForm revision={summary.version} record={`summary:${summary.season_id}`} adoptWhenUntouched onConflict={()=>void client.invalidateQueries({queryKey:['summary',summary.season_id]})} fields={[{name:'decisions',label:'Отметки',type:'multi',confirmRemoval:false,value:pending??row.decisions,options:Object.entries(decisionLabels).map(([value,label])=>({value,label}))},{name:'reason',label:'Причина исправления',required:true}]} onSubmit={async(values,revision)=>{const result=await save(values.decisions as Decision[],text(values,'reason'),revision);return {revision:result.version};}}/>
+      <ActionForm revision={summary.version} record={`summary:${summary.season_id}`} adoptWhenUntouched onConflict={()=>void client.invalidateQueries({queryKey:['summary',summary.season_id]})} fields={[{name:'decisions',label:'Отметки',type:'multi',confirmRemoval:false,value:pending??row.decisions,options:Object.entries(decisionLabels).map(([value,label])=>({value,label}))},{name:'reason',label:'Причина исправления',required:true}]} onSubmit={async(values,revision)=>{const result=await save(values.decisions as Decision[],text(values,'reason'),revision);/* A saved correction closes so a second click cannot repeat it. */setPending(null);onSaved();return {revision:result.version};}}/>
       {error&&<p role="alert" className={w.error}>{error}</p>}
     </AnchoredPopover></>;
 }

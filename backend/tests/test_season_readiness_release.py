@@ -102,3 +102,33 @@ def test_only_chair_can_edit_closed_decisions(client, work, superuser, make_user
         json={"expected_version": frozen["version"], "decisions": ["nice"], "reason": "Confirmed"})
     assert changed.status_code == 200, changed.text
     assert changed.json()["version"] == frozen["version"] + 1
+
+
+def test_repeated_closed_saves_keep_one_immutable_version(client, work, superuser):
+    from domain_models import SummaryVersionORM
+    aid = accept(client, work)
+    frozen = close(client, work, superuser)
+    sid, target = work["season"]["season_id"], work["member"].user_id
+    path = f"/api/seasons/{sid}/summary/decisions/{target}"
+    first = client.put(path, headers=superuser.headers, json={"expected_version": frozen["version"], "decisions": ["nice"], "reason": "r1"})
+    assert first.status_code == 200, first.text
+    with db._session() as session:
+        stored = session.query(SummaryVersionORM).filter_by(season_id=sid).count()
+        audits = session.query(AuditLogORM).count()
+    again = client.put(path, headers=superuser.headers, json={"expected_version": first.json()["version"], "decisions": ["nice"], "reason": "r1"})
+    assert again.status_code == 200, again.text
+    assert again.json()["version"] == first.json()["version"]
+    inputs = client.get(f"/api/assignments/{aid}/assessment-inputs", headers=superuser.headers).json()
+    body = lambda version, hours: {"expected_version": version, "reason": "Повтор", "changes": [{"kind": "assessment_inputs", "id": aid,
+        "expected_revision": inputs["revision"], "values": {"hours": hours, "evaluation": inputs["evaluation"], "effective_completed_at": inputs["effective_completed_at"]}}]}
+    same = client.post(f"/api/seasons/{sid}/summary/correct", headers=superuser.headers, json=body(again.json()["version"], inputs["hours"]))
+    assert same.status_code == 200, same.text
+    assert same.json()["version"] == first.json()["version"]
+    assert same.json()["applied_revisions"] == [{"kind": "assessment_inputs", "id": aid, "revision": inputs["revision"]}]
+    with db._session() as session:
+        assert session.query(SummaryVersionORM).filter_by(season_id=sid).count() == stored
+        assert session.query(AuditLogORM).count() == audits
+    changed = client.post(f"/api/seasons/{sid}/summary/correct", headers=superuser.headers, json=body(same.json()["version"], inputs["hours"] + 1))
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["version"] == first.json()["version"] + 1
+    assert changed.json()["applied_revisions"][0]["revision"] == inputs["revision"] + 1

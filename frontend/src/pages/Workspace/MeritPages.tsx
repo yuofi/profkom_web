@@ -360,6 +360,7 @@ function MeritEditor({
             revision={existing?.revision}
             revisionKey={summaryVersion === undefined ? undefined : String(summaryVersion)}
             fields={fields}
+            changeRequired={existing ? fields.filter(field => field.name !== "reason").map(field => field.name) : undefined}
             externalState={templateSelection} savedExternalState={null} onReplaceWithSaved={() => setTemplateSelection(null)}
             beforeFields={form => <KkrTemplateTools form={form} mode="merit" selection={templateSelection} onSelection={setTemplateSelection} />}
             onConflict={async () => {
@@ -716,6 +717,7 @@ function ClosedCorrectionEditor({
               <ActionForm
                 revision={data.record.revision}
                 revisionKey={String(summaryVersion)}
+                changeRequired={fields.map(field => field.name)}
                 fields={[
                   ...fields,
                   {

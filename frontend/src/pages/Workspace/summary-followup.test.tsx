@@ -112,6 +112,27 @@ it.each(["assessment_inputs", "task_inputs", "merit"])(
   },
 );
 
+it.each(["assessment_inputs", "merit"])(
+  "keeps an unchanged %s correction from writing a duplicate summary version",
+  async (kind) => {
+    await openCorrections(kind);
+    const container = page!.container;
+    const button = () => container.querySelector<HTMLButtonElement>('form button[type="submit"]')!;
+    await change(field(container, "reason"), "Повтор без изменений");
+    expect(button().disabled).toBe(true);
+    if (kind === "merit") await change(field(container, "title"), "Исправленная заслуга");
+    else { await change(field(container, "hours"), "7");await change(field(container, "evaluation"), "0"); }
+    expect(button().disabled).toBe(false);
+    await submit(container.querySelector("form")!);
+    expect(container.textContent).toContain("Изменения сохранены");
+    const saved = (await seasonsApi.summary("season-1")).version;
+    await change(field(container, "reason"), "Повтор без изменений");
+    expect(button().disabled).toBe(true);
+    expect(mock.adapter.history.post.filter((r) => r.url?.endsWith("/summary/correct"))).toHaveLength(1);
+    expect((await seasonsApi.summary("season-1")).version).toBe(saved);
+  },
+);
+
 it("preserves a correction draft through 409 and an explicit version refresh before retry", async () => {
   await openCorrections("assessment_inputs");
   const container = page!.container;
@@ -161,6 +182,9 @@ it.each(["assessment_inputs", "task_inputs", "merit"])("holds record and summary
   await submit(form);
   expect(posts()).toHaveLength(count + 1);
   expect(JSON.parse(posts().at(-1)!.data)).toMatchObject({expected_version: foreign.version, changes: [{expected_revision: foreign.applied_revisions[0].revision}]});
+  // After the save the form equals the stored record, so it waits for a real change before another version.
+  expect((form.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBe(true);
+  await change(field(form, name), kind === "assessment_inputs" ? "6" : kind === "task_inputs" ? "false" : "ЕЩЁ ОДНА ПРАВКА");
   expect((form.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBe(false);
 });
 
