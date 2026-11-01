@@ -161,14 +161,20 @@ function SeasonTabs({ seasonId, tab }: { seasonId: string; tab: Tab }) {
     // The links change their width once the font loads, the line its own with the window.
     const observer = typeof ResizeObserver === "function" ? new ResizeObserver(sync) : null;
     observer?.observe(nav);nav.querySelectorAll("a").forEach(link => observer?.observe(link));
-    sync();nav.addEventListener("scroll", sync, { passive: true });window.addEventListener("resize", sync);
+    // The observer reports the first sizes after the next layout: reading them here would lay the fresh page out before its requests start.
+    if (!observer) sync();
+    nav.addEventListener("scroll", sync, { passive: true });window.addEventListener("resize", sync);
     return () => { observer?.disconnect();nav.removeEventListener("scroll", sync);window.removeEventListener("resize", sync); };
   }, []);
   useLayoutEffect(() => {
-    const nav = line.current, current = nav?.querySelector<HTMLElement>('[aria-current="page"]');if (!nav || !current) return;
-    const box = nav.getBoundingClientRect(), link = current.getBoundingClientRect();
-    if (link.right > box.right - TABS_FADE) nav.scrollLeft += link.right - box.right + TABS_FADE;
-    else if (nav.scrollLeft > 0 && link.left < box.left + TABS_FADE) nav.scrollLeft = Math.max(0, nav.scrollLeft - (box.left + TABS_FADE - link.left));
+    // Measured in the next frame, before its paint: a read during the commit would lay the whole fresh page out synchronously.
+    const frame = requestAnimationFrame(() => {
+      const nav = line.current, current = nav?.querySelector<HTMLElement>('[aria-current="page"]');if (!nav || !current) return;
+      const box = nav.getBoundingClientRect(), link = current.getBoundingClientRect();
+      if (link.right > box.right - TABS_FADE) nav.scrollLeft += link.right - box.right + TABS_FADE;
+      else if (nav.scrollLeft > 0 && link.left < box.left + TABS_FADE) nav.scrollLeft = Math.max(0, nav.scrollLeft - (box.left + TABS_FADE - link.left));
+    });
+    return () => cancelAnimationFrame(frame);
   }, [tab]);
   return <nav ref={line} className={u.tabs} aria-label="Разделы сезона" data-more={more || undefined} data-before={before || undefined}>{tabs.map(item => <Link key={item.id} to={tabRoute(seasonId, item.id)} aria-current={tab === item.id ? "page" : undefined}><Glyph name={item.icon} />{item.title}</Link>)}</nav>;
 }

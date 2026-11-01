@@ -134,3 +134,23 @@ it("brings the current tab out of the faded edge of a phone's tab line (D-07)", 
   // Past the right edge by 130 px, plus the 36 px of the fade.
   expect(left).toBe(166);
 });
+
+it("reads the tab line only after the browser's own layout, so the fresh season page starts its requests first (D-07)", async () => {
+  const reports: (() => void)[] = [], frames: FrameRequestCallback[] = [];
+  vi.stubGlobal("ResizeObserver", class { constructor(report: () => void) { reports.push(report); } observe() {} disconnect() {} });
+  vi.stubGlobal("requestAnimationFrame", (frame: FrameRequestCallback) => frames.push(frame));
+  vi.stubGlobal("cancelAnimationFrame", () => {});
+  const boxes = vi.spyOn(Element.prototype, "getBoundingClientRect"), widths = vi.spyOn(Element.prototype, "scrollWidth", "get");
+  try {
+    await mount(routes, "/seasons/season-1");
+    const nav = page!.container.querySelector<HTMLElement>('nav[aria-label="Разделы сезона"]')!;
+    const inLine = (calls: unknown[]) => calls.filter(item => item instanceof Node && nav.contains(item)).length;
+    expect(inLine(boxes.mock.contexts)).toBe(0);expect(inLine(widths.mock.contexts)).toBe(0);
+    Object.defineProperties(nav, { scrollWidth: { configurable: true, get: () => 520 }, clientWidth: { configurable: true, get: () => 340 } });
+    // The observer's first report sets the fade; the current tab is measured in the next frame.
+    await act(async () => reports.forEach(report => report()));
+    expect(nav.getAttribute("data-more")).toBe("true");
+    await act(async () => frames.splice(0).forEach(frame => frame(0)));
+    expect(inLine(boxes.mock.contexts)).toBeGreaterThan(0);
+  } finally { vi.unstubAllGlobals(); }
+});
