@@ -86,3 +86,20 @@ it("a contact chip's avatar is decorative beside the name; the dialog's zoomable
   const unnamed = await open(page.container.querySelector<HTMLButtonElement>("button[aria-haspopup='dialog']")!);
   expect(unnamed.querySelector<HTMLImageElement>('img[role="button"]')?.alt).toBe("Фото профиля");
 });
+it("the contact dialog's avatar zooms inside the dialog, and Escape closes only the zoom (smoke FV-3)", async () => {
+  vi.stubGlobal("matchMedia", (media: string) => ({ matches: false, media, addEventListener() {}, removeEventListener() {} }));
+  page = await mountWorkspace(<ContactChip initialContent={"Фамилия: Иванова\nИмя: Анна\nГруппа: 301"} />);
+  const dialog = await open(page.container.querySelector<HTMLButtonElement>("button[aria-haspopup='dialog']")!);
+  const avatar = dialog.querySelector<HTMLImageElement>('img[role="button"]')!;
+  const key = async (target: Element, name: string) => { let unhandled = true; await act(async () => { unhandled = target.dispatchEvent(new KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true })); }); return unhandled; };
+  avatar.focus();await key(avatar, "Enter");
+  // The modal dialog is in the top layer and makes the rest of the page inert: a zoom in <body>
+  // would sit under it, unfocusable and unclickable.
+  const zoom = document.querySelector('[role="dialog"][aria-label="Просмотр изображения"]')!;
+  expect(dialog.contains(zoom)).toBe(true);
+  expect(document.activeElement?.getAttribute("aria-label")).toBe("Закрыть изображение");
+  // The zoom takes Escape: a handled keydown sends the contact dialog no cancel.
+  expect(await key(document.activeElement!, "Escape")).toBe(false);
+  expect(document.querySelector('[aria-label="Просмотр изображения"]')).toBeNull();
+  expect(dialog.isConnected && dialog.open).toBe(true);expect(document.activeElement).toBe(avatar);
+});

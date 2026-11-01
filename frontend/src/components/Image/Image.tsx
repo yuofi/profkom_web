@@ -10,8 +10,12 @@ interface ImageProps extends React.ImgHTMLAttributes<HTMLImageElement> {
 
 export const Image: React.FC<ImageProps> = ({ className, disableModal, onClick, src, ...rest }) => {
   const props = { ...rest, src: apiUrl(src) };
-  const [isOpen, setIsOpen] = useState(false);
+  // The zoom window opens in <body>, or inside the modal <dialog> the image is in: that dialog
+  // sits in the top layer over <body> and makes the rest of the page inert.
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  const isOpen = host !== null;
   const close = useRef<HTMLButtonElement>(null);
+  const open = (image: HTMLImageElement) => setHost(image.closest('dialog') ?? document.body);
   
   useEffect(() => {
     if (!isOpen) return;
@@ -20,7 +24,9 @@ export const Image: React.FC<ImageProps> = ({ className, disableModal, onClick, 
     close.current?.focus();
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
-        setIsOpen(false);
+        // Handled: the dialog around the image would close on the same Escape too.
+        e.preventDefault();
+        setHost(null);
       }
       if (e.key === 'Tab') { e.preventDefault(); close.current?.focus(); }
     };
@@ -42,13 +48,13 @@ export const Image: React.FC<ImageProps> = ({ className, disableModal, onClick, 
       onClick(e);
     }
     if (!disableModal) {
-      setIsOpen(true);
+      open(e.currentTarget);
     }
   };
 
   const handleClose = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setIsOpen(false);
+    setHost(null);
   };
 
   return (
@@ -58,10 +64,10 @@ export const Image: React.FC<ImageProps> = ({ className, disableModal, onClick, 
         onClick={handleClick} 
         role={!disableModal ? 'button' : undefined}
         tabIndex={!disableModal ? 0 : undefined}
-        onKeyDown={e => { if (!disableModal && ['Enter', ' '].includes(e.key)) { e.preventDefault(); setIsOpen(true); } }}
+        onKeyDown={e => { if (!disableModal && ['Enter', ' '].includes(e.key)) { e.preventDefault(); open(e.currentTarget); } }}
         {...props} 
       />
-      {isOpen && createPortal(
+      {host && createPortal(
         <div className={styles.modalOverlay} onClick={handleClose}>
           <div className={styles.modalContent} role="dialog" aria-modal="true" aria-label="Просмотр изображения" onClick={(e) => e.stopPropagation()}>
             <img className={styles.modalImage} {...props} />
@@ -73,7 +79,7 @@ export const Image: React.FC<ImageProps> = ({ className, disableModal, onClick, 
             </button>
           </div>
         </div>,
-        document.body
+        host
       )}
     </>
   );
