@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useLocation, Link } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -9,9 +9,9 @@ import { canRetainData, normalizeApiError } from "../../utils/api/request";
 import { clearDiagnostics, recordDiagnostic, snapshotDiagnostics } from "../../utils/diagnostics";
 import { useConfirmedNavigation, useGuardedAction, useUnsavedChanges } from "./unsavedChangesHooks";
 import { Glyph } from "./WorkspaceUI";
-import { getTaskRoute } from "../../utils/routes";
+import { getTaskRoute, isTaskPagePath } from "../../utils/routes";
 import { createClientId } from "../../utils/clientId";
-import { FeedbackDialogContext } from "./feedbackDialog";
+import { FeedbackDialogContext, FeedbackSideMenuContext } from "./feedbackDialog";
 import { FileButton } from "./FileButton";
 import s from "./Workspace.module.css";
 import l from "./WorkspaceLayout.module.css";
@@ -42,6 +42,29 @@ function useTuckedOnScroll() {
   }, []);
   return tucked;
 }
+/** On a task page the «Параметры» panel runs down the right edge and its «×» buttons came under the
+ *  button on the first screen (D-03), so there the button stands in the bottom-left corner, below the
+ *  side menu, with the same 22 px offsets. Only while the menu is a column (from 961 px) and ends at
+ *  least 8 px above the button: a short window or a long menu (the chair's, a long name) keeps it
+ *  bottom-right. The sticky menu starts 24–28 px from the top; the check assumes 28. */
+const MENU_TOP = 28, MENU_CLEARANCE = 8, BUTTON_ROOM = 22 + 48;
+function useStartCorner(enabled: boolean, menu: HTMLElement | null) {
+  const [fits, setFits] = useState(false);
+  // Measured before paint, so a task page does not show the button in the other corner for a frame.
+  useLayoutEffect(() => {
+    if (!enabled || !menu) return;
+    const column = window.matchMedia?.("(min-width: 961px)");
+    const check = () => {
+      const box = menu.getBoundingClientRect();
+      setFits(!!column?.matches && box.height > 0 && Math.max(box.top, MENU_TOP) + box.height + MENU_CLEARANCE <= window.innerHeight - BUTTON_ROOM);
+    };
+    check();
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(check) : null;observer?.observe(menu);
+    window.addEventListener("resize", check);column?.addEventListener?.("change", check);
+    return () => { observer?.disconnect();window.removeEventListener("resize", check);column?.removeEventListener?.("change", check); };
+  }, [enabled, menu]);
+  return enabled && !!menu && fits;
+}
 export function FeedbackProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false), [diagnostics, setDiagnostics] = useState<FeedbackInput["diagnostics"]>(null);
   const location = useLocation();
@@ -56,7 +79,8 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
     return () => { window.removeEventListener("error", failure);window.removeEventListener("unhandledrejection", failure);document.removeEventListener("click", click); };
   }, []);
   const tucked = useTuckedOnScroll();
-  return <><FeedbackDialogContext.Provider value={start}>{children}</FeedbackDialogContext.Provider><button type="button" className={`${f.trigger} ${tucked ? f.tucked : ""}`} aria-label="Сообщить об ошибке или предложить улучшение" title="Сообщить об ошибке или предложить улучшение" onClick={start}><BugIcon /></button>{open && <FeedbackForm diagnostics={diagnostics} onClose={() => setOpen(false)} />}</>;
+  const [sideMenu, setSideMenu] = useState<HTMLElement | null>(null), atStart = useStartCorner(isTaskPagePath(location.pathname), sideMenu);
+  return <><FeedbackSideMenuContext.Provider value={setSideMenu}><FeedbackDialogContext.Provider value={start}>{children}</FeedbackDialogContext.Provider></FeedbackSideMenuContext.Provider><button type="button" className={`${f.trigger} ${tucked ? f.tucked : ""} ${atStart ? f.start : ""}`} aria-label="Сообщить об ошибке или предложить улучшение" title="Сообщить об ошибке или предложить улучшение" onClick={start}><BugIcon /></button>{open && <FeedbackForm diagnostics={diagnostics} onClose={() => setOpen(false)} />}</>;
 }
 type FieldErrors = Partial<Record<"title" | "body" | "contact" | "screenshot", string>>;
 const SCREENSHOT_LIMIT = 2 * 1024 * 1024;
