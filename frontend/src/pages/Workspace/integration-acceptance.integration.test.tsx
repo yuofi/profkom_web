@@ -112,7 +112,8 @@ it("INT-03: closed correction keeps old totals immutable and exposes provenance 
   const old = await seasonsApi.summaryVersion(closed.season_id, summary.version);
   // Not the signed-in chair: their own chip opens /profile, not the contact route (PE-17).
   const row = summary.rows.find(r => r.user.user_id !== null && r.user.user_id !== session.user_id)!;
-  summary = await seasonsApi.decisions(closed.season_id, row.user.user_id!, { expected_version: summary.version, decisions: ["nice"], reason: "INT-03 новая отметка" });
+  // The same marks again write no version (SE-04), and an earlier file may have marked this row.
+  summary = await seasonsApi.decisions(closed.season_id, row.user.user_id!, { expected_version: summary.version, decisions: row.decisions.includes("nice") ? ["kick_warning"] : ["nice"], reason: "INT-03 новая отметка" });
   page = await mountWorkspace(<Routes><Route path="/seasons/:id/summary" element={<SummaryPage />} /><Route path="/seasons/:id" element={<SeasonPage />} /></Routes>, { path: `/seasons/${closed.season_id}/summary`, session });
   await waitForPage(page, () => !!page!.container.querySelector('section[aria-label="Участники и ККР"]'));
   const expectDecisionColumns = (root: ParentNode, version: typeof summary) => {
