@@ -7,7 +7,6 @@ avatars in snapshots), A-MAT-3, A-MAT-4, A-MAT-8, A-MAT-14 (old guides) and АВ
 old public uploads adopted as files).
 """
 
-import hashlib
 import json
 import subprocess
 import sys
@@ -21,6 +20,7 @@ from botocore.exceptions import EndpointConnectionError
 from database import db, BlockORM, FileRecordORM, SeasonSummaryORM, UserORM
 from domain_models import MaterialORM, ObjectDeletionORM, ProfileMetadataORM, SummaryVersionORM
 from settings import settings
+from sqlite_files import database_digest
 from test_v13_season_integrity import accept, close
 from test_v13_tracker import work  # noqa: F401  (fixture)
 
@@ -369,10 +369,10 @@ def test_old_uploads_are_adopted_in_place(client, superuser, user, make_user, ma
         "guides/plan.pdf": (PDF, "text/html"),  # whatever an old upload claimed
     })
     path = Path(settings.DATABASE_PATH)
-    before = hashlib.sha256(path.read_bytes()).hexdigest()
+    before = database_digest(path)
     out, report = run_adopt()
     assert report["mode"] == "dry_run" and report["external_calls"] is False
-    assert hashlib.sha256(path.read_bytes()).hexdigest() == before
+    assert database_digest(path) == before
     for secret in (BUCKET, "old.png", "Заявление", "plan", "file-someone-else", mid, "Подпись"):
         assert secret not in out
     assert report["avatars"] == dict(adopted=1, kept_sealed=1, superseded=1)

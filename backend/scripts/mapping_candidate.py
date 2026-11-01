@@ -17,10 +17,10 @@ saved, not a proof of ownership of the VK account.
 """
 
 import argparse
-import hashlib
 import json
 import sqlite3
 import sys
+from contextlib import closing
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -77,9 +77,10 @@ def main():
         parser.error("Use an existing absolute database path")
     if args.database.resolve() in (args.out.resolve(), args.review.resolve()):
         parser.error("Write the files next to the database, not over it")
-    with sqlite3.connect(args.database.as_uri() + "?mode=ro", uri=True) as c:
+    source = migration_report.source(args.database)  # before the script opens the database
+    with closing(sqlite3.connect(args.database.as_uri() + "?mode=ro", uri=True)) as c:
         mapping, notes = candidate(c)
-    notes["source_sha256"] = hashlib.sha256(args.database.read_bytes()).hexdigest()
+    notes.update(source)
     args.out.write_text(json.dumps(mapping, ensure_ascii=False, indent=2) + "\n")
     args.review.write_text(json.dumps(notes, ensure_ascii=False, indent=2) + "\n")
     print(json.dumps(dict(mapping_fields=sorted(mapping), vk_identities=len(mapping.get("vk_identities", [])))))

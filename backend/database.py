@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from errors import Conflict, Forbidden, InvalidInput, NotFound, revision_conflict, season_closed
+import atexit
 import json
 import logging
 import asyncio
+import sqlite3
 import time
 from weakref import WeakKeyDictionary
 from anyio import to_thread
@@ -73,6 +75,38 @@ install_engine(engine)
 # holders need to commit and give theirs back. Two connections stay for work outside them.
 HTTP_UNITS = POOL_SIZE + POOL_OVERFLOW - 2
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+
+
+@event.listens_for(engine, "connect")
+def _sqlite_journal(dbapi_connection, _record):
+    """SQLITE_JOURNAL_MODE=WAL with synchronous=FULL (PB-31): readers and the writer no
+    longer wait for each other, and every acknowledged commit survives a crash or power
+    loss, as with the rollback journal. WAL is opt-in: on a server backend/.env names it in
+    a separately approved step (DEPLOY.md, section 7). The first connection converts an
+    existing database, the mode is stored in the file; without the setting it keeps or
+    returns to the rollback journal once no other connection is open. Through the DBAPI
+    cursor: a driver statement would end read_context's memo. Writes keep BEGIN IMMEDIATE
+    (Database.atomic)."""
+    cursor = dbapi_connection.cursor()
+    try:
+        try:
+            mode = cursor.execute(f"PRAGMA journal_mode={settings.SQLITE_JOURNAL_MODE}").fetchone()[0]
+        except sqlite3.OperationalError as error:
+            # Another connection holds the database: this one works in the stored mode
+            # and the next new connection tries again.
+            mode = f"unchanged ({error})"
+        cursor.execute("PRAGMA synchronous=FULL")
+    finally:
+        cursor.close()
+    if mode != settings.SQLITE_JOURNAL_MODE.lower():
+        logging.getLogger("profkom.database").warning("SQLite journal mode is not %s: %s", settings.SQLITE_JOURNAL_MODE, mode)
+
+
+# A script that ends leaves a self-contained database (PB-31): the last connection to close
+# copies -wal into the file and removes -wal/-shm. Without it the interpreter exits with pooled
+# connections open and SQLite keeps -wal for the next start. The server: main.py, on shutdown.
+atexit.register(engine.dispose)
+
 
 Base = declarative_base()
 

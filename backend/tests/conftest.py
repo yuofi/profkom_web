@@ -38,6 +38,9 @@ os.environ.setdefault("S3_TENANT_ID", "test-tenant")
 os.environ.setdefault("S3_REGION_NAME", "ru-central-1")
 # VK ID application of the test site; urlopen is always mocked (mock_vk)
 os.environ.setdefault("VK_CLIENT_ID", "test-vk-app")
+# PB-31: набор идёт в WAL — в журнале, который включают на сервере отдельным шагом.
+# Журнал по умолчанию (DELETE) проверяет test_sqlite_wal.
+os.environ["SQLITE_JOURNAL_MODE"] = "WAL"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

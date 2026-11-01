@@ -9,6 +9,7 @@ Use a server-side backup before applying to the explicitly authorized test DB.
 import argparse
 import json
 import os
+from contextlib import closing
 from pathlib import Path
 import sqlite3
 import sys
@@ -21,7 +22,7 @@ def main():
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
     path = args.database.resolve(strict=True)
-    with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as connection:
+    with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as connection:
         queues = [dict(queue_id=row[0], revision=row[1], task_count=row[2]) for row in connection.execute(
             "SELECT q.queue_id, q.revision, COUNT(t.task_id) FROM task_queues q "
             "LEFT JOIN tasks t ON t.scope_kind='queue' AND t.scope_id=q.queue_id "

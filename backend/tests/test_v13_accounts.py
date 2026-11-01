@@ -325,13 +325,13 @@ def test_cleanup_object_queue_retries_without_repeating_database_purge(
 
 def test_cleanup_cli_dry_run_is_read_only_and_apply_only_enqueues_without_storage_io(superuser, make_user):
     """Only this disposable conftest database; object deletion requires another command."""
-    import hashlib
     import subprocess
     import sys
     from pathlib import Path
     from accounts import archive
     from domain_models import ObjectDeletionORM
     from settings import settings
+    from sqlite_files import database_digest
 
     member = make_user()
     archive(member.user_id, "Leave", superuser.user_id)
@@ -341,7 +341,7 @@ def test_cleanup_cli_dry_run_is_read_only_and_apply_only_enqueues_without_storag
         s.commit()
     root = Path(__file__).resolve().parents[1]
     path = Path(settings.DATABASE_PATH).resolve()
-    before = hashlib.sha256(path.read_bytes()).hexdigest()
+    before = database_digest(path)
 
     def run(*flags):
         return subprocess.run(
@@ -351,7 +351,7 @@ def test_cleanup_cli_dry_run_is_read_only_and_apply_only_enqueues_without_storag
 
     dry = run()
     assert dry.returncode == 0 and json.loads(dry.stdout)["eligible_user_ids"] == [member.user_id]
-    assert hashlib.sha256(path.read_bytes()).hexdigest() == before
+    assert database_digest(path) == before
     applied = run("--apply")
     assert applied.returncode == 0, applied.stderr
     assert json.loads(applied.stdout) == dict(eligible_user_ids=[member.user_id], purged_count=1, dry_run=False)
