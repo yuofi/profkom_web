@@ -89,13 +89,22 @@ def test_ticket_author_keeps_executor_actions_without_the_sharing_right(client, 
     assert "manage_task_access" not in task["capabilities"]
     assert {"join_task", "take_task", "submit_task_result", "change_task_status"} <= set(task["capabilities"])
     assert ok(req(client, author, "get", f"/tasks/{task_id}/mentions")) == {"items": [], "next_cursor": None}
-    assert req(client, author, "post", f"/tasks/{task_id}/access/{staff.user_id}/revoke").status_code == 403
-    # The queue owner, support staff writing a ticket and an ordinary task's author keep the right.
+    # The author is refused as a support ticket's author, not as someone who wrote no task.
+    for path, data in [(f"/tasks/{task_id}/mentions/none/approve", {"expected_revision": 1}),
+                       (f"/tasks/{task_id}/mentions/none/reject", {"expected_revision": 1}),
+                       (f"/tasks/{task_id}/access/{staff.user_id}/revoke", None)]:
+        refused = req(client, author, "post", path, data)
+        assert refused.status_code == 403, refused.text
+        assert refused.json()["detail"]["message"] == "Support ticket sharing is managed by support staff", refused.text
+    # The queue owner, support staff writing a ticket and an ordinary task's author keep the right;
+    # a staff member reading someone else's ticket never had it.
     assert "manage_task_access" in ok(req(client, master, "get", "/tasks/" + task_id))["capabilities"]
+    assert "manage_task_access" not in ok(req(client, staff, "get", "/tasks/" + task_id))["capabilities"]
     own = ok(report(client, staff)[0])["task_id"]
     assert "manage_task_access" in ok(req(client, staff, "get", "/tasks/" + own))["capabilities"]
     ordinary = ok(req(client, work["master"], "get", "/tasks/" + work["task"]["task_id"]))
     assert "manage_task_access" in ordinary["capabilities"]
+
 
 def test_support_staff_assignment_revocation_and_private_notes(client, superuser, make_user):
     master, settings = setup_support(client, superuser, make_user)
