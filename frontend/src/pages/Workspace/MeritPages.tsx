@@ -851,21 +851,39 @@ export function CorrectionsPage() {
   // Control epics keep no accounting of their own (no view_assessment_inputs), and only accepted or
   // not completed assignments carry an evaluation to correct.
   const accountable = tasks.data?.items.filter((t) => can(t, "view_assessment_inputs")) ?? [];
+  const savedValues = (saved: AssessmentInputs) => `${saved.hours ?? "—"} ч / оценка ${saved.evaluation ?? "—"}`;
+  const taskAssignments: EntityOption[] = accountable.flatMap((t) =>
+    t.assignments.filter((a) => a.status === "accepted" || a.status === "not_completed").map((a) => {
+      const saved = inputs.get(a.assignment_id);
+      return {
+        value: a.assignment_id,
+        // Plain text, not a person chip: the label must also name the task and the saved values.
+        label: `${a.assignee.display_name} · ${t.title} · ${saved ? savedValues(saved) : a.status === "accepted" ? "принято" : "не выполнено"}`,
+      };
+    }),
+  );
+  // The server searches task names and keys only. A person is found in the season's assessments that
+  // this page already reads for the labels: every typed word in the person's name or the task title.
+  // A hidden source carries no assignment_inputs and is never offered; a saved evaluation marks an
+  // accepted or not completed assignment. Server matches come first, one row per assignment.
+  const words = settledSearch.trim().toLocaleLowerCase("ru").split(/\s+/).filter(Boolean);
+  const personAssignments: EntityOption[] = !words.length ? [] : (contributions.data?.items ?? []).flatMap((c) => {
+    const saved = c.assignment_inputs;
+    if (!saved || saved.evaluation === null) return [];
+    const text = `${c.user.display_name} ${c.source_title}`.toLocaleLowerCase("ru");
+    return words.every((word) => text.includes(word))
+      ? [{ value: saved.assignment_id, label: `${c.user.display_name} · ${c.source_title} · ${savedValues(saved)}` }]
+      : [];
+  });
+  const assessmentOptions: EntityOption[] = [];
+  for (const option of [...taskAssignments, ...personAssignments])
+    if (!assessmentOptions.some((known) => known.value === option.value)) assessmentOptions.push(option);
   const options: EntityOption[] | undefined = !tasks.data && kind !== "merit" ? undefined
     : kind === "merit"
       ? merits.data?.items.map((m) => ({ value: m.merit_id, label: m.title }))
       : kind === "task_inputs"
         ? accountable.map((t) => ({ value: t.task_id, label: t.title }))
-        : accountable.flatMap((t) =>
-            t.assignments.filter((a) => a.status === "accepted" || a.status === "not_completed").map((a) => {
-              const saved = inputs.get(a.assignment_id);
-              return {
-                value: a.assignment_id,
-                // Plain text, not a person chip: the label must also name the task and the saved values.
-                label: `${a.assignee.display_name} · ${t.title} · ${saved ? `${saved.hours ?? "—"} ч / оценка ${saved.evaluation ?? "—"}` : a.status === "accepted" ? "принято" : "не выполнено"}`,
-              };
-            }),
-          );
+        : assessmentOptions;
   if (missing) return <SeasonMissing />;
   return (
     <Page
@@ -921,12 +939,12 @@ export function CorrectionsPage() {
                   label={kind === "assessment_inputs" ? "Оцениваемое назначение: исполнитель · задача · часы / оценка" : kind === "task_inputs" ? "Задача" : "Запись заслуги"}
                   value={objectId}
                   onChange={setObjectId}
-                  placeholder={kind === "merit" ? "Найти запись" : "Название или ключ задачи"}
+                  placeholder={kind === "merit" ? "Найти запись" : kind === "assessment_inputs" ? "Исполнитель, название или ключ задачи" : "Название или ключ задачи"}
                   loading={searching || (kind === "assessment_inputs" && contributions.isLoading)}
                   options={options ?? []}
                   {...(kind === "merit" ? {} : {
                     onSearch: setSearch,
-                    note: partial ? "Показана часть задач сезона. Уточните название или ключ." : undefined,
+                    note: partial ? `Показана часть задач сезона. Уточните ${kind === "assessment_inputs" ? "исполнителя, " : ""}название или ключ.` : undefined,
                   })}
                 />
                 {options?.length === 0 && (kind === "merit" || (!settledSearch && !partial)) && (
