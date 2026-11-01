@@ -1,0 +1,18 @@
+{
+  "logo_source": "frontend/public/logo-2.svg",
+  "logo_sha256": "d16bb290fa095e98ede5dac681dd938e9f7c7795359004d64968b2bf442ccc82",
+  "palette_source": "frontend/src/styles/vars.css",
+  "logo_geometry": "Original circles, lines and paths preserved; only stroke color, stroke width, uniform scale and position adjusted.",
+  "primary": "#f2f69e",
+  "background": "#14140c",
+  "tertiary": "#ccfae8",
+  "size": [
+    1024,
+    1024
+  ],
+  "rendering": "Local SVG composition and PyMuPDF rasterization; no external image generation.",
+  "variants": [
+    "profkom-web-chat",
+    "profkom-web-chat-minimal"
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "source": "profkom-round-03-open-arcs.svg",
+  "source_sha256": "3c618f252d800f63f8607ac414255436319bd80a3ad2494d3e92a4a1efd30b4a",
+  "size": [
+    1024,
+    1024
+  ],
+  "invariants": "Original logo geometry, position, scale, outer arcs and browser dots preserved. Bottom code icon replaced with website UI details.",
+  "rendering": "Local SVG composition and PyMuPDF rasterization.",
+  "variants": [
+    {
+      "file": "profkom-round-03c-website-action",
+      "label": "A / Адресная строка и клик"
+    },
+    {
+      "file": "profkom-round-03d-website-page",
+      "label": "B / Страница сайта"
+    }
+  ]
+}

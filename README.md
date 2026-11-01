@@ -1,7 +1,12 @@
 # Сайт профкома ВМК (profkom_web)
 
-> Актуальные изменения объединённого выпуска: [памятка пользователю](docs/USER_GUIDE_20261028.md) и [контракты API](backend/docs/API_V13_ADDITIONS.md). Старые разделы ниже сохраняют контекст предыдущих этапов; актуальные интерфейсы профиля, материалов и истории описаны по этим ссылкам.
+**[Документация и навигация](docs/README.md)** ·
+[Архитектура и требования](ARCHITECTURE.md) · [Памятка пользователя](docs/USER_GUIDE.md) ·
+[Архив записок](docs/archive/README.md)
 
+Текущие тематические контракты собраны в [backend/docs](backend/docs/README.md).
+Датированные планы и отчёты перенесены в архив. Устаревшие CODEX-задания удалены
+по решению владельца; действующие требования описаны в архитектуре и тематических контрактах.
 
 Рабочее пространство профкома: аккаунты и заявки, блоки и составы, сезоны, мероприятия и подмероприятия, задачи и проверка результатов, отчёты, сводная и баллы, материалы и гайды, ПГАС. Версия API — 1.3.
 
@@ -10,13 +15,16 @@
 | `backend/` | FastAPI, SQLAlchemy 2, SQLite. Описание — [backend/README.md](backend/README.md), проверки — [backend/TESTING.md](backend/TESTING.md) |
 | `frontend/` | React 19, TypeScript, Vite. Описание — [frontend/README.md](frontend/README.md) |
 | `docker-compose.yml` | Два контейнера: `backend` (uvicorn, база в `./data`) и `frontend` (nginx со сборкой, TLS и прокси `/api/`) |
-| [DEPLOY.md](DEPLOY.md) | Выкладка на сервер и откат |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Задание и спецификация v1.3 |
+| [DEPLOY.md](docs/archive/operations/DEPLOY_20261025.md) | Выкладка на сервер и откат |
+| [ARCHITECTURE.md](docs/archive/specifications/ARCHITECTURE_V13.md) | Задание и спецификация v1.3 |
 | [AGENTS.md](AGENTS.md) | Правила работы с проектом |
 
 ## Локальный запуск
 
-Нужны Python 3.12 и Node 24, зависимости ставятся в отдельные окружения.
+В существующем локальном checkout используйте [изолированную среду](.local/README.md)
+и `.local/bin/profkom frontend`, `build`, `backend`, `integration`. Она не входит
+в свежий клон. Для нового окружения нужны Python 3.12 и Node 24; зависимости
+ставятся отдельно от системных.
 
 ```sh
 cd backend

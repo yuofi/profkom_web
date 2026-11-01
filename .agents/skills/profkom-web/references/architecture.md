@@ -56,7 +56,7 @@ Frontend uses shared CSS Modules/tokens, TanStack Query, Axios single-flight ref
 
 Versioned ActionForm holds the editing baseline across refetch, including a lossless revisionKey vector for bulk/closed commands. Own sibling commands may advance only a matching from->to baseline. Markdown and attachment replacement must reset external state together with Formik. Closed summary correction returns applied_revisions from its write transaction; never silently accept a newer GET revision as the command acknowledgement.
 
-The current tracker contract is backend/docs/ITERATION_20261030.md. Four public
+The current tracker contract is backend/docs/TRACKER_WORKFLOW.md. Documentation starts at docs/README.md; ARCHITECTURE.md contains the current product requirements and architecture, while dated reports live in docs/archive/. Four public
 statuses (open/in_progress/completed/closed) remain separate from private Assignment
 accounting. Readers/assignees may change working status, edit any comment, toggle
 checkmarks and self-join/watch; metadata/classification belongs to authors/existing

@@ -1,7 +1,8 @@
 # Tracker planning and grouping
 
-Stage 2 adds public planning metadata, explicit checklist items, task relations and
-personal favorites. None of these operations reads or mutates private hours,
+This contract covers public planning metadata, explicit checklist items, task relations
+and personal favorites. Current public permissions are described in
+[TRACKER_WORKFLOW.md](TRACKER_WORKFLOW.md). None of these operations reads or mutates private hours,
 evaluations, effective work dates, contributions or approved accounting snapshots.
 
 ## Planning
@@ -19,9 +20,9 @@ status/dates/scores do not automatically change the epic or its private accounti
 Creation accepts the planning fields and checklist. The normal versioned task PATCH
 accepts planning and checklist fields alongside title/description/parent/attachments.
 A mixed update commits atomically with one public revision. Public editors retain
-planned-start editing; description editors (including current assignees under the
-existing seasonal rules) retain full-checklist editing. Reader classification and
-checkmark controls are described below; the other closed scoped-task freezes remain.
+planned-start and full-checklist editing under the existing seasonal rules. Reader
+or assignee status alone grants neither permission. Reader checkmark controls are
+described below; the other closed scoped-task freezes remain.
 Changes appear in public history; private assessment counters remain unchanged.
 
 ## Structured checklist
@@ -58,7 +59,8 @@ still readable. Adding/removing a relation advances both public task revisions/h
 in one transaction; the supplied expected revision checks the endpoint receiving the
 command. Duplicate canonical edges are idempotent. Self-links and dependency cycles
 are rejected. Dependencies form a separate graph from parent hierarchy and never
-restrict the eight freely editable public statuses or create accounting completion.
+add status permissions or create accounting completion. Four public statuses and
+author-only closure/reopening are defined in the workflow contract.
 
 Task DTOs include readable `links` and reverse traditional `children`. References carry
 ID/key/title/type/status/planned dates. Unreadable targets are omitted. History stores

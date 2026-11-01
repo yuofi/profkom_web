@@ -1,0 +1,30 @@
+{
+  "source": "frontend/public/logo-2.svg",
+  "source_sha256": "d16bb290fa095e98ede5dac681dd938e9f7c7795359004d64968b2bf442ccc82",
+  "size": [
+    1024,
+    1024
+  ],
+  "palette": {
+    "primary": "#f2f69e",
+    "background": "#14140c",
+    "surface": "#202018",
+    "tertiary": "#ccfae8"
+  },
+  "logo_geometry": "Preserved; only stroke width/color, uniform scaling and position changed.",
+  "rendering": "Local vector composition and PyMuPDF rasterization.",
+  "variants": [
+    {
+      "file": "profkom-round-01-full-browser",
+      "label": "01 / Браузер на весь круг"
+    },
+    {
+      "file": "profkom-round-02-arc-browser",
+      "label": "02 / Панель по дуге"
+    },
+    {
+      "file": "profkom-round-03-open-arcs",
+      "label": "03 / Открытая рамка"
+    }
+  ]
+}
