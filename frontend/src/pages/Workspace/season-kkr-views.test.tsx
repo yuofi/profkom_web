@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createFixtures } from '../../mocks/fixtures';
 import { mountWorkspace, waitForPage, change, pick } from '../../test/workspace';
 import { membershipApi } from '../../utils/api/membership.api';
-import { kkrApi, type AccountingStatistic } from '../../utils/api/kkr.api';
+import { kkrApi, type AccountingStatistic, type KkrControl } from '../../utils/api/kkr.api';
 import { Route, Routes } from 'react-router-dom';
 import { installMockTransport } from '../../mocks/transport';
 import { SeasonStatistics, SeasonKkrControl, SeasonKkrHistory, SeasonKkrSummon } from './SeasonKkrViews';
@@ -92,4 +92,47 @@ it('keeps approved source A as a flat seven-column table with the parent on a se
  expect([...cells].slice(1).map(cell=>cell.textContent)).toEqual(['1','3','2','1,5','-2','3']);
  expect(page.container.querySelector('tbody input')).toBeNull();expect(page.container.querySelector('tbody details')).toBeNull();
  expect(page.container.querySelector('tbody')?.textContent).not.toContain(child.source_id);expect(page.container.querySelector('tbody')?.textContent).not.toContain(event.source_id);
+});
+const control=(over:Partial<KkrControl>):KkrControl=>({control_id:'c',task_id:'epic',title:'Контроль',source_kind:'block',source_id:'block-it',status:'open',responsibles:[],missing_count:0,missing_tasks:[],...over});
+const unfold=async(details:HTMLDetailsElement)=>{await act(async()=>{details.open=true;details.dispatchEvent(new Event('toggle'));});await waitForPage(page!);};
+it('puts the queues with gaps first, most gaps on top, and folds the filled ones into rows (D-06)',async()=>{
+ const fixture=createFixtures('chair'),work=(id:string)=>({task_id:id,title:`Работа ${id}`,task_key:id.toUpperCase(),missing_assignees:[fixture.user]});
+ vi.spyOn(kkrApi,'controls').mockResolvedValue({capabilities:[],items:[control({control_id:'a',task_id:'epic-a',title:'Заполнено А',responsibles:[fixture.user]}),control({control_id:'one',task_id:'epic-one',title:'Один пропуск',missing_count:1,missing_tasks:[work('w1')]}),control({control_id:'b',task_id:'epic-b',title:'Заполнено Б'}),control({control_id:'two',task_id:'epic-two',title:'Два пропуска',missing_count:2,missing_tasks:[work('w2'),work('w3')]})]});
+ page=await mountWorkspace(<SeasonKkrControl seasonId="season-1"/>);await waitForPage(page);
+ expect(page.container.querySelector('p')?.textContent).toBe('4 очереди · без ККР: 3 задачи · с пропусками: 2');
+ // The tab names the view: no «Заполнение ККР» heading repeats it.
+ expect([...page.container.querySelectorAll('h2,h3')].map(heading=>heading.textContent)).toEqual(['С пропусками']);
+ const gaps=page.container.querySelector('section[aria-label="С пропусками"]')!;
+ expect([...gaps.querySelectorAll(':scope>ul>li>div:first-child>a')].map(link=>link.textContent)).toEqual(['Два пропуска','Один пропуск']);
+ expect(gaps.querySelector('a[href="/tasks/w2?kkr=1"]')).not.toBeNull();expect(gaps.textContent).not.toContain('Заполнено А');
+ const filled=page.container.querySelector<HTMLDetailsElement>('details')!;
+ expect(filled.querySelector('summary')?.textContent).toBe('Заполнено · 2');expect(filled.open).toBe(false);expect(filled.querySelector('table')).toBeNull();
+ await unfold(filled);
+ expect([...filled.querySelectorAll('thead th')].map(cell=>cell.textContent)).toEqual(['Очередь','Ответственные','Без ККР']);
+ const rows=[...filled.querySelectorAll('tbody tr')];
+ expect(rows.map(row=>row.querySelector('a')?.getAttribute('href'))).toEqual(['/tasks/epic-a','/tasks/epic-b']);
+ expect(rows[0].children[1].textContent).toContain(fixture.user.display_name);expect(rows[1].children[1].textContent).toBe('—');expect(rows[1].children[2].textContent).toBe('0 без ККР');
+ // With gaps above, the filled queues keep their phrase at the top of the folded list.
+ expect(filled.querySelector('p')?.textContent).toBe('Все закрытые задачи заполнены. Контроль остаётся открытым до конца сезона.');
+});
+it('says the control phrase by status: once when the queues agree, in its own row when one differs (D-06)',async()=>{
+ vi.spyOn(kkrApi,'controls').mockResolvedValue({capabilities:[],items:[control({control_id:'open',title:'Открытый'}),control({control_id:'done',task_id:'epic-done',title:'Завершённый',status:'closed'})]});
+ page=await mountWorkspace(<SeasonKkrControl seasonId="season-1"/>);await waitForPage(page);
+ expect(page.container.querySelector('section[aria-label="С пропусками"]')?.textContent).toContain('Контроль остаётся открытым до конца сезона.');
+ let filled=page.container.querySelector<HTMLDetailsElement>('details')!;await unfold(filled);
+ let rows=[...filled.querySelectorAll('tbody tr')];
+ expect(rows[0].querySelector('small')).toBeNull();expect(rows[1].querySelector('small')?.textContent).toBe('Контроль завершён вместе с сезоном.');
+ expect(filled.querySelector('p')).toBeNull();
+ // A closed season finishes every control: the phrase is said once, no row repeats it.
+ await page.cleanup();page=await mountWorkspace(<SeasonKkrControl seasonId="season-1" closed/>);await waitForPage(page);
+ expect(page.container.querySelector('section[aria-label="С пропусками"]')?.textContent).toContain('Контроль завершён вместе с сезоном.');
+ filled=page.container.querySelector<HTMLDetailsElement>('details')!;await unfold(filled);rows=[...filled.querySelectorAll('tbody tr')];
+ expect(rows.map(row=>row.querySelector('small'))).toEqual([null,null]);expect(page.container.textContent).not.toContain('остаётся открытым');
+});
+it('leaves out the folded list when every queue has gaps (D-06)',async()=>{
+ const fixture=createFixtures('chair');
+ vi.spyOn(kkrApi,'controls').mockResolvedValue({capabilities:[],items:[control({missing_count:1,missing_tasks:[{task_id:'work',title:'Работа',task_key:'IT-1',missing_assignees:[fixture.user]}]})]});
+ page=await mountWorkspace(<SeasonKkrControl seasonId="season-1"/>);await waitForPage(page);
+ expect(page.container.querySelector('p')?.textContent).toBe('1 очередь · без ККР: 1 задача · с пропусками: 1');
+ expect(page.container.querySelector('details')).toBeNull();expect(page.container.textContent).not.toContain('Все закрытые задачи заполнены');
 });

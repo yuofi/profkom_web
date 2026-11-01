@@ -116,3 +116,25 @@
 .sourcesTable th:nth-child(n+3),.sourcesTable td:nth-child(n+3) { text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums; }
 /* The question of an irreversible season command, inside the management menu (EV-05). */
 .manageConfirm { display:grid;gap:8px;padding:2px 12px 10px; }.manageConfirm>p { margin:0;font-size:13px;line-height:1.4; }.manageConfirm>div { display:flex;flex-wrap:wrap;gap:8px; }
+/* «Заполнение ККР» (D-06): a summary line, the queues with gaps, the filled ones folded into rows. */
+.kkrControl { gap:16px; }
+.kkrSummary { font-size:13px; }.kkrSummary strong { color:var(--on-surface);font-weight:600; }
+.kkrGaps { gap:12px;padding:20px 25px; }
+.kkrGapList { display:grid;margin:0;padding:0;list-style:none; }
+.kkrGapList>li { display:grid;gap:12px;min-width:0;padding:16px 0;border-top:1px solid color-mix(in srgb,var(--outline-variant) 16%,transparent); }
+.kkrGapList>li:last-child { padding-bottom:0; }
+/* The queue's own rule separates it from the next one: its last missing task draws none. */
+.kkrGapList .detailList>li:last-child { padding-bottom:0;border-bottom:0; }
+.kkrTable.kkrTable { min-width:0;table-layout:fixed; }
+.kkrTable th:nth-child(1) { width:46%; }.kkrTable th:nth-child(2) { width:40%; }.kkrTable th:nth-child(3) { width:14%; }
+.kkrTable td { padding:6px 12px; }.kkrTable td>div { gap:6px; }
+.kkrTable a { color:var(--accent-lilac);font-size:13px;text-decoration:none; }.kkrTable a:hover { text-decoration:underline; }
+@media(max-width:768px) {
+  .kkrGaps { padding:16px 19px; }
+  /* A filled queue becomes a two-level row: the name and the count, the responsibles under them. */
+  .kkrTable.kkrTable,.kkrTable tbody { display:block;width:auto; }
+  .kkrTable thead { position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap; }
+  .kkrTable tr { display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;padding:10px 0;border-bottom:1px solid color-mix(in srgb,var(--outline-variant) 16%,transparent); }
+  .kkrTable td { display:block;padding:0;border:0; }
+  .kkrTable td:nth-child(2) { grid-column:1 / -1;grid-row:2; }
+}

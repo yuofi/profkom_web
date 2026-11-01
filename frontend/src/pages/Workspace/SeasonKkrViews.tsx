@@ -2,7 +2,7 @@ import { useState, useRef, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { membershipApi } from '../../utils/api/membership.api';
-import { kkrApi, type AccountingStatistic } from '../../utils/api/kkr.api';
+import { kkrApi, type AccountingStatistic, type KkrControl } from '../../utils/api/kkr.api';
 import type { SeasonSummary } from '../../utils/api/contract';
 import { userMessage } from '../../utils/api/messages';
 import { normalizeApiError } from '../../utils/api/request';
@@ -12,6 +12,7 @@ import { EntityPicker } from '../../components/Workspace/EntityPicker';
 import { UserChip } from '../../components/Workspace/UserChip';
 import { QueryState, Empty, Glyph } from '../../components/Workspace/WorkspaceUI';
 import { DecisionBadges } from './SummaryTable';
+import { plural } from './seasonAnalyticsView';
 import u from './SeasonWorkspace.module.css';
 import w from '../../components/Workspace/Workspace.module.css';
 const n=(value:number|null)=>value===null?'—':new Intl.NumberFormat('ru-RU',{maximumFractionDigits:2}).format(value);
@@ -78,10 +79,28 @@ export function SeasonKkrHistory() {
   return <section className={u.stack}><div className={u.toolbar}><label>Имя или группа<input type="search" value={search} onChange={e=>setSearch(e.target.value)}/></label><EntityPicker name="history-block" label="Текущий блок" value={block} onChange={setBlock} loading={currentBlocks.isLoading} placeholder="Все блоки" options={[{value:'',label:'Все блоки'},...blocks.map(item=>({value:item.block_id,label:item.name,block:item}))]}/><label>Курс<select value={course} onChange={e=>setCourse(e.target.value)}><option value="">Все курсы</option>{[1,2,3,4,5,6].map(v=><option key={v}>{v}</option>)}</select></label><label>Последних сезонов<input type="number" min="1" max="24" value={countText} onChange={e=>setCountText(e.target.value)} onBlur={applyCount} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();applyCount();}}}/></label></div><QueryState loading={query.isLoading} error={query.error} retry={()=>void query.refetch()}><div className={u.summaryWrap}><table className={u.summaryTable}><thead><tr><th>Участник</th>{query.data?.seasons.map(season=><th key={season.season_id}>{season.title}{season.state!=='closed'&&<small>Предварительно</small>}</th>)}</tr></thead><tbody>{rows?.map(row=><tr key={row.participant_id}><td><UserChip user={row.user}/><small>{row.group_number}</small></td>{row.cells.map(cell=><td key={cell.season_id}>{cell.total_score===null?<span aria-label="Не участвовал в сезоне">—</span>:<><strong>{n(cell.total_score)}</strong>{cell.rank!==null&&<small>место {cell.rank}</small>}{cell.decisions.length>0&&<DecisionBadges values={cell.decisions}/>}</>}</td>)}</tr>)}</tbody></table></div></QueryState><p className={u.note}>Фильтры используют текущий состав. Числа закрытых сезонов сохранены в утверждённых версиях.</p></section>;
 }
 
-/** `closed`: the season is closed, so its control epics are finished rather than waiting for the end. */
+const controlOpen='Все закрытые задачи заполнены. Контроль остаётся открытым до конца сезона.',controlFinished='Контроль завершён вместе с сезоном.';
+/** The queues with gaps come first, most gaps on top; the filled ones fold into one table (D-06).
+ *  `closed`: the season is closed, so its control epics are finished rather than waiting for the end. */
 export function SeasonKkrControl({seasonId,closed=false}:{seasonId:string;closed?:boolean}) {
   const query=useQuery({queryKey:['kkr-control',seasonId],queryFn:()=>kkrApi.controls(seasonId)});
-  return <section className={u.stack}><div className={u.panelHeader}><h2>Заполнение ККР</h2></div><QueryState loading={query.isLoading} error={query.error} retry={()=>void query.refetch()}>{query.data?.items.map(item=><section className={u.panel} key={item.control_id}><div className={u.panelHeader}><Link to={`/tasks/${encodeURIComponent(item.task_id)}`}>{item.title}</Link><strong>{item.missing_count} без ККР</strong></div><div className={w.row}>{item.responsibles.map(user=><UserChip key={user.user_id} user={user}/>)}</div>{item.missing_tasks.length?<ul className={u.detailList}>{item.missing_tasks.map(task=><li key={task.task_id}><Link to={`/tasks/${encodeURIComponent(task.task_id)}?kkr=1`}>{task.task_key} · {task.title}</Link><div className={w.row}>{task.missing_assignees.map(user=><UserChip key={user.user_id} user={user}/>)}</div></li>)}</ul>:<p className={u.note}>{closed||item.status==='closed'?'Контроль завершён вместе с сезоном.':'Все закрытые задачи заполнены. Контроль остаётся открытым до конца сезона.'}</p>}</section>)}{query.data?.items.length===0&&<Empty>Контрольные эпики ещё не созданы. Они формируются при настройке открытого сезона и его команд.</Empty>}</QueryState></section>;
+  const items=query.data?.items??[],finished=(item:KkrControl)=>closed||item.status==='closed';
+  const gaps=items.filter(item=>item.missing_count>0||item.missing_tasks.length>0).sort((a,b)=>b.missing_count-a.missing_count),filled=items.filter(item=>!gaps.includes(item));
+  // The phrase follows the controls' status: one for all when they agree, the odd ones say theirs in their row.
+  const allFinished=items.every(finished),phrase=allFinished?controlFinished:controlOpen,missing=items.reduce((sum,item)=>sum+item.missing_count,0);
+  return <section className={`${u.stack} ${u.kkrControl}`} aria-label="Заполнение ККР"><QueryState loading={query.isLoading} error={query.error} retry={()=>void query.refetch()}>{items.length>0&&<>
+    <div className={`${u.summaryMeta} ${u.kkrSummary}`}><p><strong>{items.length}</strong> {plural(items.length,'очередь','очереди','очередей')} · без ККР: <strong>{missing}</strong> {plural(missing,'задача','задачи','задач')} · с пропусками: <strong>{gaps.length}</strong></p></div>
+    <section className={`${u.panel} ${u.kkrGaps}`} aria-label="С пропусками"><div className={u.panelHeader}><h2>С пропусками</h2></div>{gaps.length?<ul className={u.kkrGapList}>{gaps.map(item=><li key={item.control_id}><div className={u.panelHeader}><Link to={`/tasks/${encodeURIComponent(item.task_id)}`}>{item.title}</Link><strong>{item.missing_count} без ККР</strong></div><Responsibles users={item.responsibles}/>{item.missing_tasks.length>0&&<ul className={u.detailList}>{item.missing_tasks.map(task=><li key={task.task_id}><Link to={`/tasks/${encodeURIComponent(task.task_id)}?kkr=1`}>{task.task_key} · {task.title}</Link><div className={w.row}>{task.missing_assignees.map(user=><UserChip key={user.user_id} user={user}/>)}</div></li>)}</ul>}</li>)}</ul>:<p className={u.note}>{phrase}</p>}</section>
+    {filled.length>0&&<FilledControls items={filled} note={gaps.length?phrase:''} finished={item=>!allFinished&&finished(item)}/>}
+  </>}{query.data?.items.length===0&&<Empty>Контрольные эпики ещё не созданы. Они формируются при настройке открытого сезона и его команд.</Empty>}</QueryState></section>;
+}
+function Responsibles({users}:{users:KkrControl['responsibles']}) {
+  return users.length?<div className={w.row}>{users.map(user=><UserChip key={user.user_id} user={user}/>)}</div>:<span className={w.muted}>—</span>;
+}
+/** Folded until asked for: a row per filled queue, its responsibles one click away. `finished`: a row whose control ended apart from the others. */
+function FilledControls({items,note,finished}:{items:KkrControl[];note:string;finished:(item:KkrControl)=>boolean}) {
+  const [open,setOpen]=useState(false);
+  return <details className={u.disclosure} onToggle={event=>setOpen(event.currentTarget.open)}><summary><span>Заполнено · {items.length}</span><Glyph name="expand_more"/></summary>{open&&<div className={u.disclosureBody}>{note&&<p className={u.note}>{note}</p>}<table className={`${u.sourcesTable} ${u.kkrTable}`}><thead><tr><th>Очередь</th><th>Ответственные</th><th>Без ККР</th></tr></thead><tbody>{items.map(item=><tr key={item.control_id}><td><Link to={`/tasks/${encodeURIComponent(item.task_id)}`}>{item.title}</Link>{finished(item)&&<small>{controlFinished}</small>}</td><td><Responsibles users={item.responsibles}/></td><td>{item.missing_count} без ККР</td></tr>)}</tbody></table></div>}</details>;
 }
 
 /** Rendered by the season's remind_kkr capability; the control list loads only on its own tab. */
