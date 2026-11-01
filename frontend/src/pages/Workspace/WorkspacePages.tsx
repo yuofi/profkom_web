@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import {
@@ -199,8 +199,19 @@ export function NotificationsPage() {
     getNextPageParam: last => last.next_cursor,
   });
   const count = useQuery({ queryKey: ["notifications", "unread-count"], queryFn: workspaceApi.unreadCount });
-  const items = query.data?.pages.flatMap(page => page.items) ?? [];
+  const items = query.data?.pages.flatMap(page => page.items) ?? [], shown = items.length;
   const read = (id: string) => notices.read(id);
+  // «Показать ещё» keeps the keyboard focus while its page loads: aria-disabled, as `disabled`
+  // on the focused button drops the focus to <body>. The last page removes the button, so its
+  // focus moves to the first notification that page added.
+  const list = useRef<HTMLUListElement>(null), more = useRef<HTMLButtonElement>(null), firstAdded = useRef<number | null>(null);
+  const loadingMore = query.isFetchingNextPage;
+  useEffect(() => {
+    const index = firstAdded.current;
+    if (index === null || loadingMore) return;
+    firstAdded.current = null;
+    if (shown > index && !more.current && (!document.activeElement || document.activeElement === document.body)) list.current?.children[index]?.querySelector<HTMLElement>("a, [tabindex]")?.focus();
+  }, [shown, loadingMore]);
   return (
     <Page
       title="Уведомления"
@@ -215,7 +226,7 @@ export function NotificationsPage() {
         ))}
       </div>
       <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!query.data} retry={() => { void query.refetch(); }}>
-        {items.length > 0 && <ul className={n.list}>{items.map(item => {
+        {items.length > 0 && <ul ref={list} className={n.list}>{items.map(item => {
           const route = targetRoute(item.target);
           return <li key={item.id} className={n.row} data-unread={!item.read_at}>
             <div className={n.body}>
@@ -228,14 +239,14 @@ export function NotificationsPage() {
                   navigate(route, done);
                 }}
                 onAuxClick={event => { if (event.button === 1 && !item.read_at) void read(item.id).catch(() => undefined); }}
-              >{item.text}</Link> : <span className={n.text}>{item.text}</span>}
+              >{item.text}</Link> : <span className={n.text} tabIndex={-1}>{item.text}</span>}
               <small className={s.muted}><time dateTime={item.created_at}>{displayDate(item.created_at)}</time>{item.kind === "access_revoked" && " · Источник больше недоступен"}</small>
             </div>
             {!item.read_at && <Badge tone="yellow">Новое</Badge>}
             {!item.read_at && <ActionForm fields={[]} submitLabel="Отметить прочитанным" variant="quiet" onSubmit={async () => { await read(item.id); }} />}
           </li>;
         })}</ul>}
-        {query.hasNextPage && <button type="button" className={`${s.button} ${n.more}`} disabled={query.isFetchingNextPage} aria-busy={query.isFetchingNextPage} onClick={() => { void query.fetchNextPage(); }}>{query.isFetchingNextPage ? "Загружаем…" : "Показать ещё"}</button>}
+        {query.hasNextPage && <button ref={more} type="button" className={`${s.button} ${n.more}`} aria-disabled={loadingMore || undefined} aria-busy={loadingMore || undefined} onClick={() => { if (loadingMore) return;firstAdded.current = shown;void query.fetchNextPage(); }}>{loadingMore ? "Загружаем…" : "Показать ещё"}</button>}
         {query.data && !items.length && <Empty>{unreadOnly ? "Непрочитанных уведомлений нет." : "Уведомлений пока нет."}</Empty>}
       </QueryState>
     </Page>

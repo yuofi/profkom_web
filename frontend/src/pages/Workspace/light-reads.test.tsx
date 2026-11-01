@@ -4,9 +4,10 @@ import { QueryClient } from "@tanstack/react-query";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
-import { mountWorkspace, waitForPage } from "../../test/workspace";
+import { mountWorkspace, waitForPage, settle } from "../../test/workspace";
 import { workspaceQueryCache } from "../../utils/api/invalidation";
 import { seasonsApi } from "../../utils/api/seasons.api";
+import { membershipApi } from "../../utils/api/membership.api";
 import { supportApi } from "../../utils/api/support.api";
 import type { BlockRequest, Contribution } from "../../utils/api/contract";
 import { SeasonBlockerLink } from "../../components/Workspace/SeasonBlockerLink";
@@ -90,11 +91,22 @@ it("decides from the open list, keeps own closed requests and pages the rest of 
   const historyIds = () => [...history.querySelectorAll(":scope > ul > li > details > summary")].map(row => row.textContent!.match(/Заявитель \d+/)?.[0]);
   expect(history.querySelector("summary")?.textContent).toBe("История · 19");
   expect(historyIds().slice(0, 2)).toEqual(["Заявитель 23", "Заявитель 22"]);
-  await act(async () => button("Показать ещё")!.click());await waitForPage(page);
+  // «Показать ещё» keeps the keyboard focus while its page loads (smoke FV-2): it reads as
+  // unavailable and ignores clicks, but stays enabled, as `disabled` drops the focus to <body>.
+  const original = membershipApi.requests;let release: () => void = () => {};
+  const pages = vi.spyOn(membershipApi, "requests").mockImplementation(async filters => { if (filters?.cursor) await new Promise<void>(resolve => { release = resolve; });return original(filters); });
+  const nextPages = () => pages.mock.calls.filter(([filters]) => filters?.cursor).length;
+  await open(history);
+  const more = button("Показать ещё")!;more.focus();await act(async () => more.click());await settle();
+  expect(nextPages()).toBe(1);expect(more.getAttribute("aria-disabled")).toBe("true");expect(more.disabled).toBe(false);expect(document.activeElement).toBe(more);
+  await act(async () => more.click());await settle();expect(nextPages()).toBe(1);
+  await act(async () => release());await waitForPage(page, () => !button("Показать ещё"));
   expect(String(gets("/block-requests").at(-1)!.params)).toBe("limit=20&order=desc&cursor=mock%3A20&state=approved&state=rejected&state=withdrawn");
   expect(history.querySelector("summary")?.textContent).toBe("История · 24");
   expect(historyIds().at(-1)).toBe("Заявитель 0");
   expect(button("Показать ещё")).toBeUndefined();
+  // The last page removes the button: its focus goes to the first older request it added.
+  expect(document.activeElement).toBe(history.querySelectorAll(":scope > ul > li > details > summary")[19]);expect(historyIds()[19]).toBe("Заявитель 4");
 });
 
 it("links participant work and readiness blockers by the server task_id without paging tasks (PF-06)", async () => {
