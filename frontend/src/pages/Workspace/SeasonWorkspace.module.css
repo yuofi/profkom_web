@@ -50,7 +50,7 @@
 .personRank { display:grid;grid-template-columns:25px minmax(0,1fr) auto;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid color-mix(in srgb,var(--outline-variant) 15%,transparent); }.personRank:last-child { border:0; }.personRank>span { color:var(--on-surface-variant);font-size:12px; }.personRank strong { font-size:15px;font-weight:500;font-variant-numeric:tabular-nums; }
 .source { display:grid;gap:9px; }.source>div:first-child { display:flex;justify-content:space-between;gap:14px;font-size:12px; }.track { height:7px;background:var(--surface-container-high);border-radius:10px;overflow:hidden; }.track>span { display:block;height:100%;background:var(--accent-lilac);border-radius:10px; }.track>span[data-negative="true"] { background:var(--accent-rose); }
 .note { font-size:12px!important;line-height:1.65;color:var(--on-surface-variant);opacity:.7; }.empty { text-align:center;padding:40px 20px;color:var(--on-surface-variant);font-size:14px; }
-.toolbar { display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap; }.toolbar>:first-child { flex:1 1 240px; }.toolbar>label,.toolbar>div { min-width:0;flex:1 1 190px; }.toolbar label { display:grid;gap:7px;font-size:12px;color:var(--on-surface-variant); }.toolbar>label>input,.toolbar>label>select,.seasonSelect select { background:var(--surface-container-low);border:1px solid color-mix(in srgb,var(--outline-variant) 45%,transparent);border-radius:12px;color:var(--on-surface);padding:10px 14px;font:inherit;font-size:14px;min-height:44px;max-width:100%;box-sizing:border-box;transition:border-color .15s,box-shadow .15s; }.toolbar>label>input:hover,.toolbar>label>select:hover,.seasonSelect select:hover { border-color:var(--outline-variant); }.toolbar>label>input:focus,.toolbar>label>select:focus,.seasonSelect select:focus { outline:none;border-color:var(--primary);box-shadow:0 0 0 1px var(--primary); }
+.toolbar { display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap; }.toolbar>:first-child { flex:1 1 240px; }.toolbar>label,.toolbar>div { min-width:0;flex:1 1 190px; }.toolbar label { display:grid;gap:7px;font-size:12px;color:var(--on-surface-variant); }.toolbar>label>input,.toolbar>label>select { background:var(--surface-container-low);border:1px solid color-mix(in srgb,var(--outline-variant) 45%,transparent);border-radius:12px;color:var(--on-surface);padding:10px 14px;font:inherit;font-size:14px;min-height:44px;max-width:100%;box-sizing:border-box;transition:border-color .15s,box-shadow .15s; }.toolbar>label>input:hover,.toolbar>label>select:hover { border-color:var(--outline-variant); }.toolbar>label>input:focus,.toolbar>label>select:focus { outline:none;border-color:var(--primary);box-shadow:0 0 0 1px var(--primary); }
 .summaryMeta { display:flex;align-items:center;gap:12px;justify-content:space-between;flex-wrap:wrap;color:var(--on-surface-variant);font-size:12px; }.summaryMeta p { margin:0; }
 .summaryWrap { overflow-x:auto;min-width:0; }.summaryTable { border-collapse:collapse;table-layout:fixed;width:100%;min-width:900px;font-size:13px; }.summaryTable th { text-align:left;font-size:11px;color:var(--on-surface-variant);font-weight:400;padding:14px 12px;border-bottom:1px solid var(--surface-variant); }.summaryTable td { padding:10px 12px;border-bottom:1px solid color-mix(in srgb,var(--outline-variant) 16%,transparent);vertical-align:middle;overflow-wrap:anywhere; }.summaryTable th:first-child { width:7%; }.summaryTable th:nth-child(2) { width:22%; }.summaryTable th:nth-child(3) { width:15%; }.summaryTable th:nth-child(4) { width:10%; }.summaryTable th:nth-child(5) { width:12%; }.summaryTable th:nth-child(6) { width:19%; }.summaryTable th:last-child { width:15%; }.summaryTable p { margin:6px 0 0; }.summaryTable small { font-size:11px;color:var(--on-surface-variant);opacity:.65; }.score { font-variant-numeric:tabular-nums;font-size:17px;font-weight:500; }.score[data-negative="true"] { color:var(--accent-rose); }
 .tableAction { color:var(--accent-lilac);background:transparent;border:0;padding:5px 0;font:inherit;font-size:12px;cursor:pointer;text-align:left; }.tableAction:hover { text-decoration:underline; }.tableAction:focus-visible { outline:2px solid var(--primary);outline-offset:3px; }.rank { display:grid;gap:5px; }.rank>span { color:var(--on-surface-variant);font-size:11px;opacity:.65; }.sourceDetails { font-size:11px; }.sourceDetails>summary { color:var(--accent-lilac);cursor:pointer; }.sourceDetails p { font-size:11px;line-height:1.5; }.decisionCell details { margin-top:7px; }.decisionCell details>summary { font-size:11px;cursor:pointer;color:var(--accent-lilac); }.decisionCell form { min-width:0;width:100%; }
@@ -67,7 +67,6 @@
 .chartTooltip strong { font-size:16px;font-weight:500;line-height:1.4;font-variant-numeric:tabular-nums; }
 .chartBar[data-active="true"] { stroke:var(--on-surface);stroke-width:1; }
 .statisticsParent{display:block;font-size:.78rem;opacity:.65;margin-top:.25rem}.immediateMarks{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.5rem}.immediateMarks button{padding:.3rem .5rem;border-radius:.6rem;font-size:.8rem}.immediateMarks button[aria-pressed=true]{background:var(--accent-color,#f2f69e);color:#17180c}.summaryTable td small,.summaryTable th small{display:block}.compactReadiness{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
-.seasonSelect{display:grid;gap:7px;max-width:22rem;font-size:12px;color:var(--on-surface-variant)}.seasonSelect select{width:100%;min-width:0}
 .srOnly{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.decisionIcons{display:flex;flex-wrap:wrap;gap:.35rem;align-items:center}.decisionIcon{display:inline-flex;align-items:center;justify-content:center;width:1.85rem;height:1.85rem}.decisionIcon svg{width:24px;height:24px}.markTrigger{display:inline-flex;align-items:center;justify-content:center;padding:.3rem!important;min-width:1.9rem;width:1.9rem;height:1.9rem;margin-top:.35rem;border-radius:.6rem}.markMenu{display:grid;gap:.35rem}.markMenu button{display:flex;justify-content:space-between;align-items:center;text-align:left;padding:.65rem .8rem;border-radius:.6rem}.markMenu button[aria-pressed=true]{background:var(--accent-color,#f2f69e);color:#17180c}
 /* Absolute screen-reader labels in offscreen cells must share the scroll
    container's containing block instead of escaping to the outer page shell. */
@@ -116,3 +115,55 @@
 .sourcesTable th:nth-child(n+3),.sourcesTable td:nth-child(n+3) { text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums; }
 /* The question of an irreversible season command, inside the management menu (EV-05). */
 .manageConfirm { display:grid;gap:8px;padding:2px 12px 10px; }.manageConfirm>p { margin:0;font-size:13px;line-height:1.4; }.manageConfirm>div { display:flex;flex-wrap:wrap;gap:8px; }
+/* «Заполнение ККР» (D-06): a summary line, the queues with gaps, the filled ones folded into rows. */
+.kkrControl { gap:16px; }
+.kkrSummary { font-size:13px; }.kkrSummary strong { color:var(--on-surface);font-weight:600; }
+.kkrGaps { gap:12px;padding:20px 25px; }
+.kkrGapList { display:grid;margin:0;padding:0;list-style:none; }
+.kkrGapList>li { display:grid;gap:12px;min-width:0;padding:16px 0;border-top:1px solid color-mix(in srgb,var(--outline-variant) 16%,transparent); }
+.kkrGapList>li:last-child { padding-bottom:0; }
+/* The queue's own rule separates it from the next one: its last missing task draws none. */
+.kkrGapList .detailList>li:last-child { padding-bottom:0;border-bottom:0; }
+.kkrTable.kkrTable { min-width:0;table-layout:fixed; }
+.kkrTable th:nth-child(1) { width:46%; }.kkrTable th:nth-child(2) { width:40%; }.kkrTable th:nth-child(3) { width:14%; }
+.kkrTable td { padding:6px 12px; }.kkrTable td>div { gap:6px; }
+.kkrTable a { color:var(--accent-lilac);font-size:13px;text-decoration:none; }.kkrTable a:hover { text-decoration:underline; }
+@media(max-width:768px) {
+  .kkrGaps { padding:16px 19px; }
+  /* A filled queue becomes a two-level row: the name and the count, the responsibles under them. */
+  .kkrTable.kkrTable,.kkrTable tbody { display:block;width:auto; }
+  .kkrTable thead { position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap; }
+  .kkrTable tr { display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;padding:10px 0;border-bottom:1px solid color-mix(in srgb,var(--outline-variant) 16%,transparent); }
+  .kkrTable td { display:block;padding:0;border:0; }
+  .kkrTable td:nth-child(2) { grid-column:1 / -1;grid-row:2; }
+}
+/* The season switcher on the crumbs line of the header, dressed like the header's own buttons;
+   it serves every tab (D-07). Half its 32 px height rounds one line into a pill and keeps a long,
+   wrapped title inside the corners. */
+.crumbRow { display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;min-width:0;margin-bottom:10px; }
+.header .crumbRow .breadcrumbs { margin-bottom:0; }
+.seasonSelect { display:inline-flex;align-items:center;gap:8px;min-width:0;max-width:100%;font-size:12px;color:inherit; }
+.seasonSelect select:not([multiple]) { box-sizing:border-box;width:auto;min-width:0;max-width:100%;min-height:32px;padding:5px 12px;gap:10px;border:1px solid var(--background);border-radius:16px;background:var(--background);color:var(--primary);font:inherit;font-size:12px;text-align:left;cursor:pointer;transition:background .15s,box-shadow .15s; }
+.seasonSelect select:hover { background:var(--surface-container-low); }
+.seasonSelect select:focus { outline:none;border-color:var(--primary);box-shadow:0 0 0 1px var(--primary); }
+/* Over the participants table (D-07): search (about 40 %), order, then the version and «Скачать XLSX» at the
+   right edge; the filters fill the second row. A phone puts the version line first and folds the order. */
+.participantsBar { align-items:flex-end;gap:14px 12px; }
+.participantsBar>.barSearch { flex:0 1 40%; }
+.participantsBar>.barOrder { flex:0 1 260px; }
+.participantsBar>.barMeta { flex:1 1 auto;flex-wrap:nowrap;justify-content:flex-end; }
+.barMeta p { white-space:nowrap; }
+@media(max-width:768px) {
+  /* One line of tabs that scrolls sideways; an edge fades while more tabs lie beyond it (D-07).
+     The focus ring stays inside the line, which clips what is outside it. */
+  .tabs { flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;scroll-padding-inline:36px; }
+  .tabs::-webkit-scrollbar { display:none; }
+  .tabs[data-more] { -webkit-mask-image:linear-gradient(to right,#000 calc(100% - 36px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 36px),transparent); }
+  .tabs[data-before] { -webkit-mask-image:linear-gradient(to right,transparent,#000 36px);mask-image:linear-gradient(to right,transparent,#000 36px); }
+  .tabs[data-before][data-more] { -webkit-mask-image:linear-gradient(to right,transparent,#000 36px,#000 calc(100% - 36px),transparent);mask-image:linear-gradient(to right,transparent,#000 36px,#000 calc(100% - 36px),transparent); }
+  .tabs a { flex:0 0 auto;white-space:nowrap; }
+  .tabs a:focus-visible { outline-offset:-2px; }
+  .participantsBar>.barMeta { order:-1;flex:1 1 100%;justify-content:space-between; }
+  .participantsBar>.barSearch { flex:1 1 100%; }
+  .barMeta p { white-space:normal; }
+}
