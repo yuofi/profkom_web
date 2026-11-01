@@ -386,6 +386,11 @@ def ops():
         Op("K16", "POST", lambda o: "/season-corrections", lambda o, r: {"object_kind": "event", "object_id": o.ids["event"],
            "expected_revision": BAD, "target_season_id": o.ids["planned"], "reason": "probe"}, ok=(409,), cap=("S1", "correct_season")),
         Op("K17", "GET", lambda o: f"/merits?season_id={cur(o)}"),
+        # A planned season's summary is read, never marked (owner 2026-10-31, SE-21).
+        Op("K18", "GET", lambda o: f"/seasons/{o.ids['planned']}/summary", cap=("S1", "view_summary")),
+        Op("K19", "PUT", lambda o: f"/seasons/{o.ids['planned']}/summary/decisions/{o.uid('org1')}",
+           lambda o, r: {"expected_version": BAD, "expected_decisions": [], "decisions": [], "reason": "probe"}, ok=(409,),
+           cap=("K18", "edit_decisions")),
         Op("C4", "GET", lambda o: f"/participants/{o.uid('itmem')}/category"),
         Op("C5", "PATCH", lambda o: f"/participants/{o.uid('itmem')}/category",
            lambda o, r: {**_fresh_category(o), "reason": "probe"}, cap=("C4", "edit_participant_category")),
@@ -554,6 +559,7 @@ EXPECTED = {
     "K14": TACHKI | HRM,  # closed season corrections: also the HR master, not the HR deputy (owner 2026-10-31, SE-13)
     "K15": {"chair"},  # opening and closing a season (АВ-49)
     "K16": TACHKI, "K17": ALL,
+    "K18": TACHKI | KKR_HR, "K19": set(),  # SE-21: no marks in a planned season
     "C4": ALL, "C5": TACHKI | HRM,
     "R1": SUB_LEAD, "R2": EVENT_LEAD,  # АВ-27
     "R3": TACHKI | HRM | EVENT_LEAD | SUB_TEAM, "R4": SUB_LEAD, "R5": SUB_LEAD,

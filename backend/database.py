@@ -2508,7 +2508,7 @@ def _recalculate_closed_master_bonuses_for_session(session: Session, season_id: 
                     c.updated_at = datetime.now(timezone.utc).isoformat()
 
 
-def _calculate_season_summary_for_session(session: Session, season_id: str, is_approved: bool = False) -> SeasonSummaryDC:
+def _calculate_season_summary_for_session(session: Session, season_id: str, is_approved: bool = False, current_user_id: Optional[int] = None) -> SeasonSummaryDC:
     prepared = _SeasonSummaryData(session,season_id)
     all_users = prepared.users
     included_users = []
@@ -2604,12 +2604,13 @@ def _calculate_season_summary_for_session(session: Session, season_id: str, is_a
 
     summary_state = "approved" if is_approved else "draft"
     caps = ["view_summary", "export_xlsx"]
+    import access
     if summary_state == "approved":
         caps.append("correct_summary")
-        import access
         if access.allowed(access.actor_id.get(), "summary.decide", state="closed"):
             caps.append("edit_decisions")
-    else:
+    elif access.allowed(current_user_id or access.actor_id.get(), "summary.decide", state=season_orm.state if season_orm else None):
+        # A planned season's draft is read, not marked (SE-21); open and summarizing follow the rule too.
         caps.append("edit_decisions")
 
     summary_orm = session.query(SeasonSummaryORM).filter(SeasonSummaryORM.season_id == season_id).first()
@@ -6695,7 +6696,7 @@ class Database:
                         capabilities=caps,
                     ),current_user_id)
             from task_queues import mask_summary
-            return mask_summary(session,_calculate_season_summary_for_session(session, season_id),current_user_id)
+            return mask_summary(session,_calculate_season_summary_for_session(session, season_id, current_user_id=current_user_id),current_user_id)
 
     def update_summary_decisions(
         self,
@@ -6705,9 +6706,10 @@ class Database:
         expected_version: int,
         reason: Optional[str],
         user_id: int,
+        expected_decisions: Optional[list[str]] = None,
     ) -> SeasonSummaryDC:
         from season_summaries import decisions as update
-        return update(season_id,target_user_id,decisions,expected_version,reason,user_id)
+        return update(season_id,target_user_id,decisions,expected_version,reason,user_id,expected_decisions)
 
     def correct_season_summary(
         self,

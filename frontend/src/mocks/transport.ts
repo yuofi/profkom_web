@@ -702,12 +702,13 @@ export function installMockTransport(
             reason: v.reason, previous_summary_version: v.previous_summary_version })));
         }
         // A closed season is changed by the chair, deputies and HR master (SE-13): the mock's global roles.
+        // A planned season takes no marks (SE-21).
         summary.capabilities =
           season.state === "closed"
             ? state.global
               ? ["edit_decisions", "correct_summary"]
               : []
-            : ["edit_decisions"];
+            : season.state === "planned" ? [] : ["edit_decisions"];
         if (parts[3] === "correct") {
           if (!state.global || season.state !== "closed") return denied();
           if (data.expected_version !== summary.version) return conflict();
@@ -765,11 +766,15 @@ export function installMockTransport(
           return [200, {...clone(summary), applied_revisions: changes.map(c => ({kind: c.kind, id: c.id, revision: recordFor(c)!.revision}))}];
         }
         if (method === "put") {
-          if (season.state === "closed" && !state.global) return denied();
-          if (data.expected_version !== summary.version) return conflict();
+          if (season.state === "closed" && !state.global || season.state === "planned") return denied();
           const row = summary.rows.find(
             (r) => r.user.user_id === Number(parts[4]),
           );
+          // An open season's mark answers to the participant's own marks when they are sent (PB-16).
+          const seen = data.expected_decisions as Decision[] | undefined;
+          const marks = (values: Decision[]) => [...new Set(values)].sort().join();
+          if (season.state !== "closed" && seen) { if (!row || marks(seen) !== marks(row.decisions)) return conflict(); }
+          else if (data.expected_version !== summary.version) return conflict();
           if (row) row.decisions = data.decisions as Decision[];
           summary.version++;
           if (season.state === "closed") rememberSummary(season.season_id, String(data.reason ?? "Изменение отметок"));

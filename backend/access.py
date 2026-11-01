@@ -115,7 +115,8 @@ POLICY = {
     # KKR, summary, merits
     "kkr.view": SUMMARY,
     "summary.view": SUMMARY,
-    "summary.decide": ByState({"*": SUMMARY, "closed": CLOSED_SEASON}),  # marks (отметки)
+    # Marks (отметки); a planned season takes none, its summary stays readable (owner, 2026-10-31, SE-21)
+    "summary.decide": ByState({"*": SUMMARY, "planned": frozenset(), "closed": CLOSED_SEASON}),
     "summary.correct": CLOSED_SEASON,  # closed season corrections, coefficients included
     # Calling leaders to fill KKR of closed tasks, only while work is accounted: the HR master
     # and the HR deputy, not the chair or the chair's deputies (owner, 2026-10-31, SE-14)

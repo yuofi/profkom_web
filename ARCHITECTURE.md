@@ -1220,6 +1220,9 @@ else:
   комментирует (capabilities `change_task_status`, `submit_task_result`,
   `toggle_task_checklist`, `comment_task`); строки учёта, итоги и заслуги от этого
   не меняются.
+- Запланированный сезон отметок не принимает: `summary.decide` в planned пусто,
+  PUT отметок — 403, черновая сводная — без `edit_decisions`. Чтение сводной и
+  xlsx, коэффициенты и подробные начисления остаются (SE-21).
 - Зам мастера HR в своём блоке HR — обычный зам блока (`BLOCK_DEPUTY`, как у зама
   любого блока; прежнее исключение и отдельное отношение `HR_BLOCK_DEPUTY` убраны):
   создание очередей в блоке, чтение, правка, публикация и удаление гайда, правка
@@ -1997,7 +2000,7 @@ source_id в строке сводной — block_id, отдельная кол
 | Особые заслуги | `GET/POST /merits`, `GET/PATCH /merits/{id}` | Главорг свою таблицу без расчёта; глобальные роли по матрице; председатель свои заслуги |
 | Волонтёры | Те же `/merits`, source_kind=block_volunteer/subevent_volunteer | Мастер/ответственный/зам своей области; обычная формула постфактум; ни задачи, ни членства, ни доступа волонтёру |
 | Начисления мастерам | `GET /seasons/{id}/master-bonuses` | Только HR/председатель и замы; черновой или утверждённый расчёт, без ручной записи суммы |
-| Сводная | `GET /seasons/{id}/summary`, `GET /seasons/{id}/summary.xlsx`, `PUT /seasons/{id}/summary/decisions/{user_id}`, `POST /seasons/{id}/summary/correct` | Чтение мастер HR/председатель и замы; после close запись председатель, замы и мастер HR (2026-10-31), с причиной |
+| Сводная | `GET /seasons/{id}/summary`, `GET /seasons/{id}/summary.xlsx`, `PUT /seasons/{id}/summary/decisions/{user_id}`, `POST /seasons/{id}/summary/correct` | Чтение мастер HR/председатель и замы; после close запись председатель, замы и мастер HR (2026-10-31), с причиной; в planned отметок нет (SE-21) |
 | Комментарии | `GET/POST /tasks/{id}/comments`, `PATCH /comments/{id}` | Чтение по задаче; собственная правка с историей |
 | Созвоны | `GET/PUT /events/{id}/meeting`, `GET/PUT /subevents/{id}/meeting`, соответствующий `DELETE` | Получатели и редакторы по уровню; без истории |
 | Отчёты | `GET/POST /reports`, `GET/PATCH /reports/{id}`, `POST /reports/{id}/publish`, `GET /reports/{id}/versions` | Владельцы/редакторы области; после close сохранённые редакторы экземпляра; читатели только опубликованное |
@@ -2174,9 +2177,19 @@ ID, даты сервера, расчёт, состояния, роли и capab
   блока/получателей бонуса; повтор close не создаёт новых начислений.
   Плановая дата сама не закрывает сезон; дописать отчёт можно, пока сезон
   ещё открыт/подводит итоги. После close допустимы версии исторического отчёта.
-- `PUT .../summary/decisions/{user_id}`: `{expected_version, decisions: string[],
-  reason?}` → `SeasonSummary`; closed — председатель, замы и мастер HR с обязательной причиной.
-  В открытом сезоне разрешённые HR/председатель и замы заполняют решения в черновой сводной.
+- `PUT .../summary/decisions/{user_id}`: `{expected_version, expected_decisions?: string[],
+  decisions: string[], reason?}` → свежая `SeasonSummary` с новой версией; closed — председатель,
+  замы и мастер HR с обязательной причиной и строгой проверкой `expected_version`.
+  В открытом сезоне и при подведении итогов разрешённые HR/председатель и замы заполняют
+  решения в черновой сводной. Там `expected_decisions` — отметки участника, которые видел
+  клиент (порядок не важен), — заменяет проверку версии сводной: отметку отклоняет 409
+  `revision_conflict` только изменение отметок этого участника, а не приёмка работы
+  или другая отметка (владелец, 2026-10-31, PB-16). Сравнение и запись идут в одной
+  транзакции записи. Запрос без `expected_decisions` проверяет версию сводной, как прежде.
+  Запланированный сезон отметок не принимает: правило `summary.decide` в planned пусто,
+  PUT — 403 любому, черновая сводная planned приходит без `edit_decisions`. Чтение сводной
+  и xlsx, коэффициенты, подробные начисления и источники ККР planned работают, как прежде
+  (владелец, 2026-10-31, SE-21).
 - `POST .../summary/correct`: `{expected_version, reason, changes: [{kind:
   "task_inputs"|"assessment_inputs"|"merit", id, expected_revision, values: object}]}`
   → `SeasonSummary`. Closed — председатель, замы и мастер HR (2026-10-31); `values` валидируются по

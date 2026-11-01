@@ -8,6 +8,7 @@ import { installMockTransport } from "../../mocks/transport";
 import { createFixtures } from "../../mocks/fixtures";
 import { SessionContext } from "../../utils/session";
 import { seasonsApi } from "../../utils/api/seasons.api";
+import { ApiError } from "../../utils/api/request";
 import type { SeasonSummary, SummaryRow } from "../../utils/api/contract";
 import { UnsavedChangesProvider } from "../../components/Workspace/UnsavedChanges";
 import { ActionForm } from "../../components/Workspace/ActionForm";
@@ -221,7 +222,18 @@ it("open-season mark clicks save immediately without allocating editors or refet
  expect(popup().querySelector('[role="menuitemcheckbox"][aria-label="Найс"]')?.getAttribute('title')).toBe('Найс — Добровольный уход из Профкома по личным причинам.');
  expect(popup().querySelector('[role="menuitemcheckbox"][aria-label="Кик"]')?.getAttribute('title')).toBe('Кик — Принудительное исключение из Профкома за недостаточную работу.');
  await act(async()=>[...popup().querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Найс')!.click());await waitForPage(page);
- expect(save).toHaveBeenCalledExactlyOnceWith('season-1',9000,{expected_version:1,decisions:['nice']});
+ expect(save).toHaveBeenCalledExactlyOnceWith('season-1',9000,{expected_version:1,expected_decisions:[],decisions:['nice']});
  expect(page.container.querySelectorAll('tbody form')).toHaveLength(0);expect(page.read).toHaveBeenCalledTimes(1);expect(page.commits()).toBeLessThan(200);
  expect(row.querySelector('[role="img"][aria-label="Найс"]')).not.toBeNull();expect(popup()).toBeNull();
+});
+
+it("an open-season mark sends the marks shown for that participant and refetches the summary on a conflict (PB-16)", async () => {
+ const page=await mountParticipants(false,200,false);page.summary.rows[0].decisions=['kick_warning'];
+ await act(async()=>{await page.client.invalidateQueries({queryKey:['summary','season-1']});});await waitForPage(page);expect(page.read).toHaveBeenCalledTimes(2);
+ const save=vi.spyOn(seasonsApi,"decisions").mockRejectedValueOnce(new ApiError('Конфликт',409,'revision_conflict'));
+ const row=rowFor(page.container,"Синтетический участник 000");
+ await act(async()=>row.querySelector<HTMLButtonElement>('button[aria-label^="Изменить отметки:"]')!.click());await waitForPage(page,()=>!!popup());
+ await act(async()=>[...popup().querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Найс')!.click());await waitForPage(page);
+ expect(save).toHaveBeenCalledExactlyOnceWith('season-1',9000,{expected_version:1,expected_decisions:['kick_warning'],decisions:['kick_warning','nice']});
+ expect(page.read).toHaveBeenCalledTimes(3);
 });
