@@ -164,6 +164,7 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ('GET', '/api/registrations/me'),
     ('GET', '/api/report-history'),
     ('GET', '/api/report-series'),
+    ('GET', '/api/report-series/continuable'),
     ('GET', '/api/reports'),
     ('GET', '/api/reports/{report_id}'),
     ('GET', '/api/reports/{report_id}/versions'),

@@ -426,6 +426,16 @@ class ReportSeriesOut(BaseModel):
     parent_series_id: Optional[str] = None
 
 
+class SeriesInstanceOut(BaseModel):
+    title: str
+    season_id: str
+    season_title: Optional[str] = None
+
+
+class ContinuableSeriesOut(ReportSeriesOut):
+    latest: Optional[SeriesInstanceOut] = None
+
+
 class EventCreateIn(Command):
     season_id: str
     title: str
@@ -2429,6 +2439,18 @@ def list_report_series(series_id: Optional[str] = None, cur: User = Depends(get_
         items=[r for r in db.list_report_series() if (series_id is None or r.series_id==series_id)
                and series_reader(session,r.series_id,cur.user_id)]
         return Page(items=[ReportSeriesOut(series_id=r.series_id,owner_kind=r.owner_kind,title=r.title,parent_series_id=r.parent_series_id) for r in items])
+
+
+@router.get("/report-series/continuable", response_model=Page[ContinuableSeriesOut])
+def list_continuable_series(parent_event_id: Optional[str] = None, cur: User = Depends(get_current_user)):
+    """The series a new event (or a new subevent of `parent_event_id`) may continue,
+    each with its latest instance, in one read instead of /report-series, /events,
+    /seasons and /events/{id}/subevents of every earlier instance (PB-11)."""
+    from report_access import continuable
+    items = continuable(cur.user_id, parent_event_id)
+    if items is None:
+        raise HTTPException(404, "Event not found")
+    return Page(items=items)
 
 
 # ── Events ──

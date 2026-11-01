@@ -67,6 +67,9 @@ it("INT-06: actual response shapes, null relations and populated IDs match the p
   await eventsApi.leaders("events", event.event_id, [chair.user_id], { expected_revision: event.revision });
   const sub = check("Subevent", await eventsApi.createSubevent(event.event_id, { title: "Wire subevent", description: richText() }));
   (await eventsApi.series()).items.forEach(s => check("ReportSeries", s));
+  // The series field of a new event and of a new subevent in one read each (PB-11).
+  expect((await eventsApi.continuableSeries()).items.map(s => check("ContinuableSeries", s).series_id)).toContain(event.report_series_id);
+  (await eventsApi.continuableSeries(event.event_id)).items.forEach(s => check("ContinuableSeries", s));
   check("Meeting", await eventsApi.saveMeeting("events", event.event_id, { title: "Wire meeting", starts_at: new Date(Date.now() + 86400000).toISOString(), join_url: "https://example.com/meeting" }));
   await eventsApi.saveMeeting("subevents", sub.subevent_id, { title: "Wire team meeting", starts_at: new Date(Date.now() + 86400000).toISOString(), join_url: "https://example.com/team" });
   const teams = (await eventsApi.teamMeetings(event.event_id)).items;

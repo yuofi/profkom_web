@@ -339,30 +339,35 @@ def series(client, superuser, make_user):
 
 def test_a_history_reader_check_reads_only_the_leadership_of_related_events(client, superuser, series):
     """GL-16: deciding whether a lead of another instance reads a report never asks about the
-    leadership of an unrelated event of the open seasons, so it does not grow with them."""
+    leadership of an unrelated event of the open seasons, so it does not grow with them.
+    Leadership comes from the reader's stored roles, read once, not one COUNT per event (PB-11)."""
     from sqlalchemy import event as sql_event
     from database import db, engine, ReportORM
     from report_access import reader
 
     x = series
+
+    def role_reads():
+        statements = []
+
+        def record(_c, _cursor, statement, *_rest):
+            if "FROM role_assignments" in statement:
+                statements.append(statement)
+        with db._session() as s:
+            report = s.get(ReportORM, x["ev_report"])
+            sql_event.listen(engine, "before_cursor_execute", record)
+            try:
+                assert reader(s, report, x["newhead"].user_id)
+                assert not reader(s, report, x["neworg"].user_id)
+            finally:
+                sql_event.remove(engine, "before_cursor_execute", record)
+        assert not [q for q in statements if q.startswith("SELECT count(*)")]
+        return len(statements)
+
+    before = role_reads()
     for index in range(8):
         _call(client, "POST", superuser, "/events", season_id=x["next"], title=f"Другое {index}", description="")
-    statements = []
-
-    def record(_c, _cursor, statement, *_rest):
-        # One leadership check of one event (database.is_event_leader and its deputy twin).
-        if statement.startswith("SELECT count(*)") and "FROM role_assignments" in statement:
-            statements.append(statement)
-    with db._session() as s:
-        report = s.get(ReportORM, x["ev_report"])
-        sql_event.listen(engine, "before_cursor_execute", record)
-        try:
-            assert reader(s, report, x["newhead"].user_id)
-            assert not reader(s, report, x["neworg"].user_id)
-        finally:
-            sql_event.remove(engine, "before_cursor_execute", record)
-    # The copy of the event only: its leader for one, its leader and deputy for the other.
-    assert len(statements) == 3
+    assert role_reads() == before
 
 
 @pytest.mark.parametrize("phase", ["next planned, past open", "next open, past summarizing"])

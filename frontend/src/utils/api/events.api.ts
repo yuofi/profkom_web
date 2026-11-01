@@ -7,6 +7,7 @@ import type {
   TeamMeeting,
   Revision,
   ReportSeries,
+  ContinuableSeries,
   Block,
 } from "./contract";
 import { idPath, allPages as page, request } from "./request";
@@ -74,6 +75,9 @@ export const eventsApi = {
       ...version,
     }),
   series: () => page<ReportSeries>("/report-series"),
+  /** One read for the series field of a new event, or of a new subevent of `parentEventId` (PB-11). */
+  continuableSeries: (parentEventId?: string, signal?: AbortSignal) =>
+    page<ContinuableSeries>("/report-series/continuable", parentEventId ? { parent_event_id: parentEventId } : undefined, signal),
   meeting: (kind: "events" | "subevents", id: string) =>
     request<Meeting | null>("get", `/${kind}/${idPath(id)}/meeting`),
   /** The readable child-team announcements of one event, filtered by the server. */

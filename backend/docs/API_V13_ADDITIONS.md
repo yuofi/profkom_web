@@ -606,6 +606,16 @@ event/subevent/leadership имеет общий контракт. Публичн
   `event_id`, `title`. В каждом элементе `capabilities` — только возможности
   заслуг (`create_volunteer_merit` у блоков и подмероприятий, `create_head_merit`
   у мероприятий), ровно как в соответствующих DTO; порядок элементов прежний.
+- `GET /report-series/continuable[?parent_event_id=]` → `{items, next_cursor: null}`
+  для поля «Серия отчётов» новой записи одним запросом вместо `/report-series`,
+  `/events`, `/seasons` и `/events/{id}/subevents` родителя и каждого прошлого
+  экземпляра его серии. Без параметра — серии мероприятий; с ним — дочерние
+  серии серии родителя, ещё не занятые его подмероприятиями (неизвестный
+  родитель — 404). Элемент — `ReportSeriesOut` и `latest: {title, season_id,
+  season_title}` | `null`: экземпляр сезона с наибольшим номером (при равенстве —
+  первый в порядке `/events` и подмероприятий). Права те же: серию решает
+  `series_reader`, как в `/report-series`; подмероприятие без `subevent.view`
+  (там его `report_series_id` скрыт) не называет экземпляр и не занимает серию.
 - `GET /assessments?include_task_ids=true`: в `assignment_inputs` появляется
   `task_id` — задача назначения, если актор может открыть её
   (`GET /tasks/{id}`), иначе `null`. `GET /seasons/{id}/readiness?include_task_ids=true`:

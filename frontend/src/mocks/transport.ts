@@ -23,6 +23,7 @@ import {
   type TrackerTaskRef,
   type TaskMentionRequest,
   type Report,
+  type ReportSeries,
   type ReportVersion,
   type Material,
   type FileRef,
@@ -46,6 +47,10 @@ const fail = (
   fields?: object,
 ): Reply => [status, { detail: { code, message, fields } }];
 const list = <T>(items: T[]): Reply => [200, { items, next_cursor: null }];
+const mockReportSeries: ReportSeries[] = [
+  { series_id: "series-event-1", owner_kind: "event", title: "День математика", parent_series_id: null },
+  { series_id: "series-sub-1", owner_kind: "subevent", title: "Лекции и встречи", parent_series_id: "series-event-1" },
+];
 const dataOf = (config: AxiosRequestConfig): Body =>
   typeof config.data === "string"
     ? (JSON.parse(config.data) as Body)
@@ -1059,21 +1064,28 @@ export function installMockTransport(
       leader.deputy_user_ids = data.user_ids as number[];
       return changed(leader);
     }
+    if (path === "/report-series/continuable" && method === "get") {
+      // Like the server (PB-11): the series a new event or a new subevent of the parent may
+      // continue, with the latest instance whose series link the reader may see.
+      const parentId = url.searchParams.get("parent_event_id");
+      const parent = parentId ? state.events.find((event) => event.event_id === parentId) : undefined;
+      if (parentId && !parent) return fail(404, "not_found", "Event not found");
+      const children = (eventId: string) => state.subevents.filter((sub) => sub.event_id === eventId).map(publicSubevent);
+      const used = new Set(parent ? children(parent.event_id).flatMap((sub) => sub.report_series_id ? [sub.report_series_id] : []) : []);
+      const instances = parent
+        ? state.events.filter((event) => event.report_series_id === parent.report_series_id && event.event_id !== parent.event_id)
+          .flatMap((event) => children(event.event_id).map((sub) => ({ series: sub.report_series_id, title: sub.title, season_id: event.season_id })))
+        : state.events.map((event) => ({ series: event.report_series_id, title: event.title, season_id: event.season_id }));
+      const rank = (seasonId: string) => state.seasons.find((season) => season.season_id === seasonId)?.sequence_number ?? 0;
+      return list(mockReportSeries
+        .filter((x) => (parent ? x.owner_kind === "subevent" && x.parent_series_id === parent.report_series_id : x.owner_kind === "event") && !used.has(x.series_id))
+        .map((x) => {
+          const latest = instances.filter((i) => i.series === x.series_id).sort((a, b) => rank(b.season_id) - rank(a.season_id))[0];
+          return { ...x, latest: latest ? { title: latest.title, season_id: latest.season_id, season_title: state.seasons.find((season) => season.season_id === latest.season_id)?.title ?? null } : null };
+        }));
+    }
     if (path === "/report-series")
-      return list([
-        {
-          series_id: "series-event-1",
-          owner_kind: "event",
-          title: "День математика",
-          parent_series_id: null,
-        },
-        {
-          series_id: "series-sub-1",
-          owner_kind: "subevent",
-          title: "Лекции и встречи",
-          parent_series_id: "series-event-1",
-        },
-      ]);
+      return list(clone(mockReportSeries));
     if (path === "/task-queues/create-access" && method === "get")
       return [200, { can_create_task: state.queues.some(queue => visibleQueue(queue, false).capabilities.includes("create_task")) }];
     if (parts[0] === "task-queues") {

@@ -23,6 +23,13 @@ On an access revision, inactive cache eviction includes queries with disabled
 observers, not just queries with zero observers. Opening a previously closed
 filter must never briefly render options from before the permission change.
 
+Form pickers whose options the server filters read them in one request under one
+query key instead of rebuilding them from per-object lists: the merit scopes from
+`GET /merits/contexts` (`["merits", "contexts", seasonId]`) and the report series a
+new event or subevent may continue from `GET /report-series/continuable`
+(`["reports", "series", "continuable", parentEventId]`, reread with `["reports"]`
+after every workspace command).
+
 Directory-card avatars use native lazy loading so off-screen protected images do
 not all start together. The shared Avatar leaves its loading behavior unchanged
 unless explicitly selected; primary profile images and editing previews retain
