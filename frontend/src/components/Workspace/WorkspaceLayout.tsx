@@ -11,6 +11,7 @@ import { canRetainData } from "../../utils/api/request";
 import { DemoRolePicker } from "./DemoRolePicker";
 import { PageErrorBoundary } from "./PageErrorBoundary";
 import { NotificationBell } from "./NotificationBell";
+import { FeedbackSideMenuContext } from "./feedbackDialog";
 import s from "./WorkspaceLayout.module.css";
 import ws from "./Workspace.module.css";
 import ProfkomLogo from "../profkomLogo";
@@ -74,12 +75,14 @@ function useDismissibleMenu() {
   return menu;
 }
 /** While the session is checked (F5): the frame of the workspace without its menu, which
- *  depends on the session's rights, and without any user data (GL-34). */
+ *  depends on the session's rights, and without any user data (GL-34). Its menu (the brand only)
+ *  registers too: on a task page the report button is bottom-left from the first frame (D-03). */
 export function WorkspaceSkeleton() {
   const { pathname } = useLocation();
+  const registerSideMenu = useContext(FeedbackSideMenuContext);
   return (
     <div className={s.shell} style={{ "--section": `var(--accent-${sectionOf(pathname).tone})` } as CSSProperties}>
-      <aside className={s.sidebar}>
+      <aside ref={registerSideMenu ?? undefined} className={s.sidebar}>
         <Link className={s.brand} to="/">
           <ProfkomLogo variant="desktop" width={42} strokeWidth={16} aria-hidden="true" />
           <span>Профком<small>ВМК МГУ</small></span>
@@ -102,6 +105,7 @@ export function WorkspaceLayout({ children }: { children?: ReactNode } = {}) {
   const supportStaff = onSupport && (!support.error || canRetainData(support.error)) && !!(support.data?.can_triage || support.data?.can_configure);
   const section = sectionOf(pathname, { supportStaff });
   const menu = useDismissibleMenu();
+  const registerSideMenu = useContext(FeedbackSideMenuContext);
   const visible = SECTIONS.filter(({ to }) => to !== "/notifications" && (shown[to]?.(session) ?? true));
   useIdleSectionCode(visible.map(({ to }) => to));
   // The first load of a page (F5, a shared link): its data starts beside its code.
@@ -133,7 +137,7 @@ export function WorkspaceLayout({ children }: { children?: ReactNode } = {}) {
   return (
     <div className={s.shell} style={{ "--section": `var(--accent-${section.tone})` } as CSSProperties}>
       <NavigationProgress />
-      <aside className={s.sidebar}>
+      <aside ref={registerSideMenu ?? undefined} className={s.sidebar}>
         <Link className={s.brand} to="/">
           <ProfkomLogo variant="desktop" width={42} strokeWidth={16} aria-hidden="true" />
           <span>Профком<small>ВМК МГУ</small></span>

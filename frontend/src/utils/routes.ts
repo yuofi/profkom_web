@@ -31,6 +31,8 @@ export const getSubeventRoute = (id: string) =>
 export const getSubeventCreateRoute = (eventId: string) => `/events/${encodeURIComponent(eventId)}/subevents/new`;
 export const getSubeventEditRoute = (id: string) => `/subevents/${encodeURIComponent(id)}/edit`;
 export const getTaskRoute = (id: string) => `/tasks/${encodeURIComponent(id)}`;
+/** A task page (`/tasks/:id`), not the list pages that share the prefix. */
+export const isTaskPagePath = (pathname: string) => /^\/tasks\/(?!(?:new|unresolved|queues)\/?$)[^/]+\/?$/.test(pathname);
 export const getTaskCreateRoute = ({ queueId, scope, parentTaskId }: { queueId?: string; scope?: { kind: "block" | "subevent" | "event" | "chair"; id: string }; parentTaskId?: string } = {}) => {
   const query = new URLSearchParams();
   if (queueId) query.set("queue_id", queueId);
