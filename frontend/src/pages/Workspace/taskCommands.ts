@@ -1,4 +1,4 @@
-import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { hashKey, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { Task } from "../../utils/api/contract";
 import { invalidateWorkspace } from "../../utils/api/invalidation";
 import { advanceOwn, recordOwnChange } from "../../components/Workspace/ownRevisions";
@@ -33,7 +33,9 @@ function showInLists(client: QueryClient, saved: Task) {
  * revision the user acted on, advanced at its turn only through this tab's acknowledged own
  * changes: a foreign change still answers 409 and is never retried. The answer replaces the
  * cached task; an optional patch shows the result at once and is rolled back if the command
- * fails; the workspace reread starts once the queue drains, without holding any control.
+ * fails; the workspace reread starts once the queue drains, without holding any control. It
+ * skips the task itself when the last command's answer filled it (as perform() skips what its
+ * command filled); after a refusal the task is read again too.
  */
 export async function runTaskCommand(client: QueryClient, taskId: string, baseRevision: number, command: (expectedRevision: number) => Promise<Task>, patch?: TaskPatch): Promise<Task> {
   const key = ["tasks", taskId], record = `task:${taskId}`, queue = queueOf(client, taskId), entry: Pending = { patch };
@@ -48,17 +50,18 @@ export async function runTaskCommand(client: QueryClient, taskId: string, baseRe
     return saved;
   });
   queue.tail = run.catch(() => undefined);
+  let answered = false;
   try {
     const saved = await run;
     queue.pending.splice(queue.pending.indexOf(entry), 1);queue.confirmed = saved;
-    client.setQueryData(key, project(saved, queue.pending));showInLists(client, saved);
+    client.setQueryData(key, project(saved, queue.pending));showInLists(client, saved);answered = true;
     return saved;
   } catch (failure) {
     queue.pending.splice(queue.pending.indexOf(entry), 1);
     if (queue.confirmed) client.setQueryData(key, project(queue.confirmed, queue.pending));
     throw failure;
   } finally {
-    if (!--queue.size) { queues.get(client)?.delete(taskId);void invalidateWorkspace(client); }
+    if (!--queue.size) { queues.get(client)?.delete(taskId);void invalidateWorkspace(client, answered ? new Set([hashKey(key)]) : undefined); }
   }
 }
 

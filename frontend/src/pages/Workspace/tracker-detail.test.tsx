@@ -358,6 +358,22 @@ it("a planning save of type and priority right after a checkmark also waits for 
   expect(update.mock.calls.map(call => call[1].expected_revision)).toEqual([9]);expect(server.task).toMatchObject({ revision: 10, priority: "urgent" });
 });
 
+it("a dialog save does not read the task again after its answer filled it; the rest of the workspace still rereads, and a refusal rereads the task too (TR-01 review)", async () => {
+  const server = { task: makeTask({ title: "Старое название", description: richText("Старое описание"), revision: 8, capabilities: ["read_task", "edit_task"] }) };
+  const update = vi.spyOn(tasksApi, "update").mockImplementation(async (_id, data) => (server.task = { ...server.task, revision: server.task.revision + 1, title: data.title ?? server.task.title, description: data.description ?? server.task.description }));
+  await mountTask(server.task);vi.mocked(tasksApi.get).mockImplementation(async () => server.task);
+  const reads = () => vi.mocked(tasksApi.get).mock.calls.length, comments = () => vi.mocked(tasksApi.comments).mock.calls.length;
+  const [taskReads, commentReads] = [reads(), comments()];
+  let dialog = await openTaskEditor("Новое название", "Новое описание");
+  await submit(dialog.querySelector("form")!);await waitForPage(page!, () => !page!.container.querySelector("dialog"));await settle();
+  expect(update).toHaveBeenCalledTimes(1);expect(page!.container.querySelector("h1")?.textContent).toBe("Новое название");
+  expect(reads()).toBe(taskReads);expect(comments()).toBeGreaterThan(commentReads);
+  update.mockRejectedValueOnce(new ApiError("Changed", 409, "revision_conflict"));
+  dialog = await openTaskEditor("Ещё название", "Ещё описание");
+  await submit(dialog.querySelector("form")!);await waitForPage(page!, () => !!dialog.querySelector('[role="alert"]'));await settle();
+  expect(reads()).toBe(taskReads + 1);
+});
+
 it("a refused queued mark rolls back only itself and keeps later own marks", async () => {
   let task = makeTask({ description: richText("- [ ] Первый"), revision: 8, checklist: [{ item_id: "one", text: "Пункт", checked: false }], capabilities: ["read_task", "toggle_task_checklist"] });
   const releases: (() => void)[] = [];const later = () => new Promise<void>(resolve => releases.push(resolve));
