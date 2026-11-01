@@ -1,16 +1,18 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
-import { afterEach, expect, it } from "vitest";
+import { act } from "react";
+import { afterEach, expect, it, vi } from "vitest";
 import { createFixtures } from "../../mocks/fixtures";
 import { installMockTransport } from "../../mocks/transport";
-import { mountWorkspace } from "../../test/workspace";
+import { mountWorkspace, waitForPage } from "../../test/workspace";
+import { tasksApi } from "../../utils/api/tasks.api";
 import type { Task, TaskPublicStatus } from "../../utils/api/contract";
 import { TaskStatusMenu } from "./TaskStatusMenu";
 import { publicStatusNames } from "./trackerStatus";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let transport: ReturnType<typeof installMockTransport> | undefined;
-afterEach(async () => { await page?.cleanup();page = undefined;transport?.restore();transport = undefined; });
+afterEach(async () => { await page?.cleanup();page = undefined;transport?.restore();transport = undefined;vi.restoreAllMocks(); });
 const statuses = Object.keys(publicStatusNames) as TaskPublicStatus[];
 const task = (status: TaskPublicStatus, capabilities: string[]): Task => ({ ...createFixtures("chair").tasks[0], status, allowed_statuses: statuses, capabilities });
 const rule = (css: string, selector: string) => css.match(new RegExp(`(?:^|[\\n}])\\s*${selector.replace(/[.*+?^${}()|[\]\\>]/g, "\\$&")}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
@@ -38,4 +40,28 @@ it("the phone status sheet opens above the feedback button", () => {
   const sheet = menu.match(/@media\(max-width: 768px\)[^\n]*\.menu \{([^}]*)\}/)?.[1] ?? "";
   const above = Number(sheet.match(/z-index:\s*(\d+)/)?.[1]), button = Number(rule(fab, ".trigger").match(/z-index:\s*(\d+)/)?.[1]);
   expect(sheet).toMatch(/position:\s*fixed/);expect(above).toBeGreaterThan(button);
+});
+it("keeps the keyboard focus on the chip while the chosen status saves and after it", async () => {
+  transport = installMockTransport("chair", { delay: 0 });
+  const open = task("open", ["change_task_status"]);let saved: (value: Task) => void = () => {};
+  vi.spyOn(tasksApi, "changeStatus").mockImplementation(() => new Promise<Task>(resolve => { saved = resolve; }));
+  page = await mountWorkspace(<TaskStatusMenu task={open} />);
+  const chip = page.container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
+  await act(async () => { chip.focus();chip.click(); });
+  const item = [...page.container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(button => button.textContent === publicStatusNames.in_progress)!;
+  // Enter on a focused menu item presses it.
+  await act(async () => { item.focus();item.click(); });
+  expect(page.container.querySelector('[role="menu"]')).toBeNull();
+  expect(document.activeElement).toBe(chip);
+  expect(chip.disabled).toBe(false);expect(chip.getAttribute("aria-disabled")).toBe("true");expect(chip.getAttribute("aria-busy")).toBe("true");
+  // A second press while saving neither opens the menu nor sends another change.
+  await act(async () => chip.click());
+  expect(page.container.querySelector('[role="menu"]')).toBeNull();expect(tasksApi.changeStatus).toHaveBeenCalledTimes(1);
+  await act(async () => saved({ ...open, revision: open.revision + 1, status: "in_progress" }));
+  await waitForPage(page, () => !chip.hasAttribute("aria-disabled"));
+  expect(document.activeElement).toBe(chip);expect(chip.hasAttribute("aria-busy")).toBe(false);
+});
+it("draws the saving chip as before, without `disabled`", () => {
+  const css = readFileSync(`${__dirname}/TaskStatusMenu.module.css`, "utf8");
+  expect(rule(css, '.chip[aria-disabled="true"]')).toMatch(/cursor:\s*progress;\s*opacity:\s*\.7/);
 });
