@@ -344,8 +344,7 @@ def _scope_viewers(session, kind, scope_id, ids):
             result.add(block.master_user_id)
             members=_json_ids(block.arr_of_human)
             result|={uid for uid in ids if uid in members}
-        result|=_role_holders(session,"block",[name],{"master"})
-        if name not in access._hr_block_names():result|=_role_holders(session,"block",[name],{"deputy_master"})
+        result|=_role_holders(session,"block",[name],{"master","deputy_master"})
         meta=session.query(BlockMetaORM).filter_by(legacy_name=name).one_or_none()
         if meta:result.add(getattr(meta,"hr_user_id",None))
         return result

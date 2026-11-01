@@ -1,11 +1,11 @@
-import { mkdtemp, readFile, readdir, rm, writeFile, mkdir } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, realpath, rm, stat, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { afterEach, expect, it } from "vitest";
-import type { ResolvedConfig } from "vite";
+import { build, type IndexHtmlTransformContext, type ResolvedConfig } from "vite";
 import { transform } from "lightningcss";
-import { decodePng, downscale, encodePng, precompress, smallTeamLogos } from "./buildAssets";
+import { decodePng, downscale, encodePng, precompress, preloadFonts, smallTeamLogos } from "./buildAssets";
 
 const frontend = resolve(__dirname, "..");
 let dir: string | undefined;
@@ -58,13 +58,35 @@ it("PF-23: text assets of 1 kB and more get a .gz copy that nginx can send as is
   await expect(readFile(join(dir, "dist/assets/logo-abc.png.gz"))).rejects.toThrow();
 });
 
-it("PF-23: nginx sends the precompressed copies of static files only", async () => {
+/** Every location of nginx.conf: its own directives (nested locations cut out) and its parent. */
+function locations(conf: string) {
+  const found = new Map<string, { own: string; parent?: string }>(), open: { name: string; own: string }[] = [];
+  for (const line of conf.split("\n")) {
+    const start = /^\s*location ([^{]+)\{\s*$/.exec(line);
+    if (start) open.push({ name: start[1].trim(), own: "" });
+    else if (/^\s*\}\s*$/.test(line) && open.length) { const { name, own } = open.pop()!;found.set(name, { own, parent: open.at(-1)?.name }); }
+    else if (open.length) open.at(-1)!.own += line + "\n";
+  }
+  return found;
+}
+
+it("PF-23/PF-12: nginx sends precompressed static files and gzips API JSON, never tokens or file bytes", async () => {
   const conf = await readFile(join(frontend, "nginx.conf"), "utf8");
-  const blocks = [...conf.matchAll(/location ([^{]+)\{([^}]*)\}/g)].map(([, name, body]) => [name.trim(), body] as const);
-  const statics = blocks.filter(([name]) => ["/", "/assets/", "~ ^/assets/.*\\.mjs$"].includes(name));
-  expect(statics).toHaveLength(3);
-  for (const [, body] of statics) expect(body).toMatch(/gzip_static on;/);
-  for (const [, body] of blocks.filter(([name]) => name === "/api/" || name === "= /_storage")) expect(body).not.toMatch(/gzip/);
+  const blocks = locations(conf), own = (name: string) => blocks.get(name)?.own ?? "";
+  for (const name of ["/", "/assets/", "~ ^/assets/.*\\.mjs$"]) expect(own(name)).toMatch(/gzip_static on;/);
+  expect(own("/api/")).toMatch(/^ {8}gzip on;\n {8}gzip_types application\/json;$/m);
+  const nested = [...blocks].filter(([, block]) => block.parent === "/api/").map(([name]) => name);
+  expect(nested).toEqual(["= /api/feedback", "/api/auth/", "/api/files/"]);
+  for (const name of nested) {
+    // proxy_set_header reaches a nested location only if it sets none; proxy_pass never does.
+    expect(own(name)).not.toMatch(/proxy_set_header/);
+    expect(own(name)).toContain(`proxy_pass http://backend:8000${name.replace("= ", "")};`);
+  }
+  for (const name of ["/api/auth/", "/api/files/"]) expect(own(name)).toMatch(/^ {12}gzip off;$/m);
+  expect(own("= /api/feedback")).toMatch(/client_max_body_size 4m;/);
+  // No gzip at the server level: /_storage and the redirects into it inherit none.
+  expect(conf.match(/gzip on;/g)).toHaveLength(4);
+  expect(own("= /_storage")).not.toMatch(/gzip/);
   expect(conf).not.toMatch(/http2/);
 });
 
@@ -82,4 +104,24 @@ it("PF-03/PF-11: every rule of a CSS module is scoped by its own class, so a mer
   }
   expect(unscoped).toEqual([]);
   expect(() => transform({ filename: "Bare.module.css", code: Buffer.from(".page { color: red; }\nimg { width: 55%; }\n"), cssModules: { pure: true } })).toThrow(/class or ID/);
+});
+
+it("PF-25: the build preloads the regular GoogleSans and the icon subset, not the italic face", async () => {
+  // The real path: Vite names the emitted HTML relative to the root (/var → /private/var on macOS).
+  dir = await realpath(await mkdtemp(join(tmpdir(), "profkom-preload-")));
+  await writeFile(join(dir, "index.html"), '<!doctype html><html><head><title>t</title></head><body><script type="module" src="/main.js"></script></body></html>');
+  await writeFile(join(dir, "main.js"), `import ${JSON.stringify(join(frontend, "src/styles/fonts.css"))};\n`);
+  await build({ root: dir, configFile: false, logLevel: "silent", plugins: [preloadFonts()], build: { outDir: "dist" } });
+  const html = await readFile(join(dir, "dist/index.html"), "utf8");
+  const preloads = [...html.matchAll(/<link [^>]*rel="preload"[^>]*>/g)].map(([tag]) => tag);
+  expect(preloads).toHaveLength(2);
+  for (const tag of preloads) expect(tag).toMatch(/^<link rel="preload" as="font" type="font\/woff2" href="\/assets\/[^"]+\.woff2" crossorigin>$/);
+  const hrefs = preloads.map(tag => /href="([^"]+)"/.exec(tag)![1]);
+  expect(hrefs.map(href => href.replace(/-[\w-]{8}\.woff2$/, ""))).toEqual(["/assets/GoogleSans-subset", "/assets/MaterialSymbolsRounded-subset"]);
+  for (const href of hrefs) expect((await stat(join(dir, "dist", href))).size).toBeGreaterThan(10_000);
+  // The italic face is still built for italic text, only not preloaded.
+  expect((await readdir(join(dir, "dist/assets"))).some(file => file.startsWith("GoogleSans-Italic-subset-"))).toBe(true);
+  // A renamed font fails the build instead of silently losing its preload.
+  const { handler } = preloadFonts().transformIndexHtml as { handler: (html: string, context: IndexHtmlTransformContext) => unknown };
+  expect(() => handler("", { bundle: {} } as IndexHtmlTransformContext)).toThrow(/expected GoogleSans and Material Symbols/);
 });

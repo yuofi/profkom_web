@@ -6,11 +6,11 @@ site opens (MIGRATION_V13.md). After --apply it is the current state of the data
 """
 
 import argparse
-import hashlib
 import json
 import os
 import sqlite3
 import sys
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,7 +21,7 @@ CATEGORIES = ("junior", "activist")
 
 
 def inspect_database(path):
-    with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as c:
+    with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as c:
         tables = {
             r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
@@ -37,7 +37,7 @@ def inspect_database(path):
 
 def review(path):
     """The operator's sections, read without changing the database."""
-    with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as c:
+    with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as c:
         return dict(
             unresolved=migration_report.unresolved(c),
             guides=migration_report.guides(c),
@@ -50,7 +50,7 @@ def schema_gaps(path):
     import database
     from integrity_migration import INDEXES
 
-    with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as c:
+    with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as c:
         missing_columns = {}
         for table in database.Base.metadata.sorted_tables:
             have = migration_report.columns(c, table.name)
@@ -338,10 +338,11 @@ def main():
     args = parser.parse_args()
     if not args.database.is_absolute() or not args.database.is_file():
         parser.error("Use an existing absolute database path")
+    source = migration_report.source(args.database)  # before the script opens the database
     report = dict(
         mode="apply" if args.apply else "dry_run",
         before=inspect_database(args.database),
-        source_sha256=hashlib.sha256(args.database.read_bytes()).hexdigest(),
+        **source,
     )
     mapping = json.loads(args.mapping.read_text()) if args.mapping else {}
     if args.apply:

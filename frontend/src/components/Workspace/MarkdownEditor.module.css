@@ -43,7 +43,9 @@
   cursor: default;
 }
 .strong { font-weight: 800; }
-.italic { font-style: italic; }
+/* The regular letter slanted at the angle of GoogleSans Italic (-10°): the toolbar does not
+   download the italic face for one letter (PF-25). */
+.italic { display: inline-block; font-style: normal; transform: skewX(-10deg); }
 .strike { text-decoration: line-through; }
 .code { font-family: ui-monospace, SFMono-Regular, monospace; }
 .separator {

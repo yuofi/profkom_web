@@ -122,7 +122,7 @@ def test_take_closed_public_work_keeps_existing_private_outcome(client, work):
     assert result.json()['status'] == 'in_progress' and private_snapshot() == before
 
 
-def test_closed_season_new_assignments_only_by_chair_and_deputies(client, work, superuser):
+def test_closed_season_new_assignments_only_by_the_season_circle(client, work, superuser):
     with db._session() as session:
         session.get(SeasonORM, work['task']['season_id']).state = 'closed';session.commit()
     task = current(client, work, work['master'])

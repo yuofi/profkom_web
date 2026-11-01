@@ -23,19 +23,23 @@ export function SeasonStatistics({seasonId,summary}:{seasonId:string;summary?:Se
   return <section className={u.stack}><div className={u.chartModes}><button type="button" aria-pressed={tab==='block'} onClick={()=>guard(()=>{setActive(null);setTab('block');})}>Блоки</button><button type="button" aria-pressed={tab==='event'} onClick={()=>guard(()=>{setActive(null);setTab('event');})}>Мероприятия</button></div><QueryState loading={query.isLoading} error={query.error} retry={()=>void query.refetch()}><div className={u.summaryWrap}><table className={`${u.summaryTable} ${u.statisticsTable}`}><thead><tr>{['Источник','Коэффициент','Задач','Организаторов','Задач / организатора','Средний ККР','Часов / задачу'].map(label=><th key={label}>{label}</th>)}</tr></thead><tbody>{rows.map(row=>{const key=row.source_kind+':'+row.source_id;return <tr key={key}><td>{row.title}{row.parent_title&&<small className={u.statisticsParent}>{row.parent_title}</small>}</td><td>{row.capabilities.includes('edit_coefficient')?<CoefficientInput row={row} seasonId={seasonId} summary={summary} closed={query.data?.preliminary===false} open={active===key} onOpen={()=>active&&active!==key?guard(()=>setActive(key)):setActive(key)} onClose={()=>setActive(null)}/>:n(row.value)}</td><td>{n(row.task_count)}</td><td>{n(row.people_count)}</td><td>{n(row.tasks_per_person)}</td><td>{n(row.mean_kkr)}</td><td>{n(row.mean_person_hours)}</td></tr>;})}</tbody></table></div></QueryState></section>;
 }
 type CoefficientDraft={value:string;revision:number;baseline:number;summaryVersion?:number};
+/** Above this a coefficient is more often a typo than a weight: it is saved only after an explicit answer (owner 2026-10-31, SE-26). */
+const LARGE_COEFFICIENT=10,largeWarning=`Коэффициент больше ${LARGE_COEFFICIENT} — проверьте, нет ли опечатки`;
 function CoefficientInput({row,seasonId,summary,closed,open,onOpen,onClose}:{row:AccountingStatistic;seasonId:string;summary?:SeasonSummary;closed:boolean;open:boolean;onOpen:()=>void;onClose:()=>void}) {
-  const client=useQueryClient(),leave=useGuardedAction(),anchor=useRef<HTMLInputElement>(null),saving=useRef(false),skipBlur=useRef(false);
+  const client=useQueryClient(),leave=useGuardedAction(),anchor=useRef<HTMLInputElement>(null),saving=useRef(false),skipBlur=useRef(false),adopted=useRef(false);
   const [draft,setDraft]=useState<CoefficientDraft|null>(null),[reason,setReason]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false),[conflict,setConflict]=useState(false);
   const stale=!!draft&&(draft.revision!==row.revision||(closed&&draft.summaryVersion!==summary?.version));
   const dirty=!!draft&&(draft.value!==String(draft.baseline)||!!reason);
   const refresh=()=>Promise.all([client.invalidateQueries({queryKey:['summary',seasonId]}),client.invalidateQueries({queryKey:['season-statistics',seasonId]})]);
   const discard=()=>{setDraft(null);setReason('');setError('');setConflict(false);onClose();};
-  const save=async(selected=draft,adopt=false):Promise<boolean>=>{
+  const save=async(selected=draft,adopt=false,confirmed=false):Promise<boolean>=>{
     if(saving.current||!selected)return false;
     if(!selected.value.trim()||!Number.isFinite(Number(selected.value))||Number(selected.value)<0){setError('Введите конечный неотрицательный коэффициент');return false;}
     if(Number(selected.value)===selected.baseline&&!reason){setDraft(null);setError('');return true;}
     if(!adopt&&(stale||conflict)){setConflict(true);setError('Коэффициент или итоги изменились. Проверьте актуальное значение перед повторным сохранением.');return false;}
     if(closed&&!summary){setError('Дождитесь загрузки версии итогов');return false;}
+    // Blur and Enter save an open season's value at once; a large one waits in the popover for «Сохранить».
+    if(!closed&&!confirmed&&Number(selected.value)>LARGE_COEFFICIENT){adopted.current=adopt;if(!open)onOpen();return false;}
     if(closed&&!reason.trim()){onOpen();return false;}
     saving.current=true;setBusy(true);setError('');
     try {
@@ -47,9 +51,11 @@ function CoefficientInput({row,seasonId,summary,closed,open,onOpen,onClose}:{row
     finally{saving.current=false;setBusy(false);}
   };
   useUnsavedChanges({dirty,busy,label:`Коэффициент: ${row.title}`,save,discard});
-  const conflictActions=(conflict||stale)&&<div className={u.coefficientConflict}><span>Актуальное значение: {n(row.value)}</span><button type="button" disabled={busy} onClick={()=>void refresh()}>Обновить данные</button><button type="button" disabled={busy} onClick={()=>void save(draft,true)}>Сохранить мой ввод с обновлённой версией</button></div>;
+  const large=!!draft&&Number(draft.value)>LARGE_COEFFICIENT,cancel=closed?()=>leave(discard):discard;
+  const conflictActions=(conflict||stale)&&<div className={u.coefficientConflict}><span>Актуальное значение: {n(row.value)}</span><button type="button" disabled={busy} onClick={()=>void refresh()}>Обновить данные</button><button type="button" disabled={busy} onClick={()=>void save(draft,true,open)}>Сохранить мой ввод с обновлённой версией</button></div>;
   return <div className={u.coefficientField}><input ref={anchor} type="number" min="0" step="any" inputMode="decimal" aria-label={`Коэффициент: ${row.title}`} aria-invalid={!!error} aria-busy={busy} value={draft?.value??String(row.value)} disabled={busy} onChange={event=>{setError('');setDraft(previous=>({...previous??{revision:row.revision,baseline:row.value,summaryVersion:summary?.version},value:event.target.value}));}} onBlur={()=>{if(skipBlur.current){skipBlur.current=false;return;}if(!open)void save();}} onKeyDown={event=>{if(event.key==='Enter'){event.preventDefault();void save();}if(event.key==='Escape'){event.preventDefault();skipBlur.current=true;discard();anchor.current?.blur();}}}/>{!open&&error&&<p role="alert" className={w.error}>{error}</p>}{!open&&conflictActions}
-    <AnchoredPopover open={open} anchorRef={anchor} label={`Коэффициент: ${row.title}`} busy={busy} width={340} onRequestClose={()=>leave(discard)}><form className={u.coefficientCorrection} onSubmit={event=>{event.preventDefault();void save();}}><p>Новое значение: <strong>{draft?.value}</strong></p><label>Причина исправления<input required value={reason} disabled={busy} onChange={event=>setReason(event.target.value)}/></label>{error&&<p role="alert" className={w.error}>{error}</p>}{conflictActions}<div className={w.row}><button disabled={busy} type="submit">Сохранить коэффициент</button><button disabled={busy} type="button" onClick={()=>leave(discard)}>Отмена</button></div></form></AnchoredPopover>
+    {/* A closed season asks for the reason; an open one only confirms a large value, focused on the dialog so a held Enter does not answer. */}
+    <AnchoredPopover open={open} anchorRef={anchor} label={`Коэффициент: ${row.title}`} busy={busy} width={340} focusRoot={!closed} onRequestClose={cancel}><form className={u.coefficientCorrection} onSubmit={event=>{event.preventDefault();void save(draft,!closed&&adopted.current,true);}}><p>Новое значение: <strong>{draft?.value}</strong></p>{large&&<p role="alert" className={w.warning}>{largeWarning}</p>}{closed&&<label>Причина исправления<input required value={reason} disabled={busy} onChange={event=>setReason(event.target.value)}/></label>}{error&&<p role="alert" className={w.error}>{error}</p>}{conflictActions}<div className={w.row}><button className={`${w.button} ${w.primary}`} disabled={busy} type="submit">{closed?'Сохранить коэффициент':'Сохранить'}</button><button className={w.button} disabled={busy} type="button" onClick={cancel}>Отмена</button></div></form></AnchoredPopover>
   </div>;
 }
 

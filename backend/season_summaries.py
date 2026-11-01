@@ -441,63 +441,79 @@ def correct(season_id, expected_version, reason, changes, uid):
             return db.get_season_summary(season_id, uid)
 
 
-def decisions(season_id, target, values, expected_version, reason, uid):
+def decisions(season_id, target, values, expected_version, reason, uid, expected_decisions=None):
+    """Replace one participant's marks.
+
+    A closed season answers to its summary version. In an open or summarizing season the
+    marks the client saw for this participant (`expected_decisions`, any order) replace that
+    check, so accepted work elsewhere does not refuse the mark (owner, 2026-10-31, PB-16);
+    a request without them keeps the version check.
+    """
     if len(set(values)) != len(values) or not set(values) <= DECISIONS:
         raise InvalidInput("Invalid decisions")
-    with db._session() as s:
-        season = s.get(SeasonORM, season_id)
-        if not season:
-            raise NotFound("Season not found")
-        if not access.allowed(uid, "summary.decide", state=season.state):
-            raise Forbidden("Forbidden: only the chair, deputies and HR master edit closed marks" if season.state == "closed"
-                             else "Forbidden: decision editor required")
-        if season.state == "closed" and (not reason or not reason.strip()):
-            raise InvalidInput("Reason is required")
-        row = current(s, season_id)
-        if (row.version if row else 1) != expected_version:
-            raise revision_conflict("Conflict: summary version mismatch")
-        summary = db.get_season_summary(season_id, uid)
-        if not any(r.user.user_id == target for r in summary.rows):
-            raise InvalidInput("Participant is outside this summary")
-        if any(r.user.user_id == target and set(r.decisions) == set(values) for r in summary.rows):
-            return summary  # the same marks again: no audit and no new summary version
-        d = (
-            s.query(SeasonDecisionORM)
-            .filter_by(season_id=season_id, user_id=target)
-            .first()
-        )
-        old = json.loads(d.decisions_json) if d else []
-        if not d:
-            d = SeasonDecisionORM(
-                season_id=season_id,
-                user_id=target,
-                changed_by_user_id=uid,
-                decisions_json="[]",
-                updated_at=now(),
+    if expected_decisions is not None and not set(expected_decisions) <= DECISIONS:
+        raise InvalidInput("Invalid decisions")
+    # One write transaction compares and replaces: of two clicks on the same marks, the
+    # second sees the first one's marks and is refused.
+    with db.atomic():
+        with db._session() as s:
+            season = s.get(SeasonORM, season_id)
+            if not season:
+                raise NotFound("Season not found")
+            if not access.allowed(uid, "summary.decide", state=season.state):
+                raise Forbidden("Forbidden: only the chair, deputies and HR master edit closed marks" if season.state == "closed"
+                                 else "Forbidden: a planned season takes no marks" if season.state == "planned"
+                                 else "Forbidden: decision editor required")
+            if season.state == "closed" and (not reason or not reason.strip()):
+                raise InvalidInput("Reason is required")
+            d = (
+                s.query(SeasonDecisionORM)
+                .filter_by(season_id=season_id, user_id=target)
+                .first()
             )
-            s.add(d)
-        d.decisions_json = json.dumps(values)
-        d.changed_by_user_id = uid
-        d.reason = reason
-        d.updated_at = now()
-        audit(
-            s,
-            "summary_decisions",
-            season_id + ":" + str(target),
-            uid,
-            reason,
-            dict(decisions=old),
-            dict(decisions=values),
-        )
-        refresh(s, season_id, uid, reason or "Summary decisions updated")
-        s.commit()
-        if season.state == "closed":
-            return db.get_season_summary(season_id, uid)
-        summary.version = current(s, season_id).version
-        for person in summary.rows:
-            if person.user.user_id == target:
-                person.decisions = list(values)
-        return summary
+            old = json.loads(d.decisions_json) if d else []
+            if season.state == "closed" or expected_decisions is None:
+                row = current(s, season_id)
+                if (row.version if row else 1) != expected_version:
+                    raise revision_conflict("Conflict: summary version mismatch")
+            elif set(old) != set(expected_decisions):
+                raise revision_conflict("Conflict: participant marks changed")
+            summary = db.get_season_summary(season_id, uid)
+            if not any(r.user.user_id == target for r in summary.rows):
+                raise InvalidInput("Participant is outside this summary")
+            if any(r.user.user_id == target and set(r.decisions) == set(values) for r in summary.rows):
+                return summary  # the same marks again: no audit and no new summary version
+            if not d:
+                d = SeasonDecisionORM(
+                    season_id=season_id,
+                    user_id=target,
+                    changed_by_user_id=uid,
+                    decisions_json="[]",
+                    updated_at=now(),
+                )
+                s.add(d)
+            d.decisions_json = json.dumps(values)
+            d.changed_by_user_id = uid
+            d.reason = reason
+            d.updated_at = now()
+            audit(
+                s,
+                "summary_decisions",
+                season_id + ":" + str(target),
+                uid,
+                reason,
+                dict(decisions=old),
+                dict(decisions=values),
+            )
+            refresh(s, season_id, uid, reason or "Summary decisions updated")
+            s.commit()
+            if season.state == "closed":
+                return db.get_season_summary(season_id, uid)
+            summary.version = current(s, season_id).version
+            for person in summary.rows:
+                if person.user.user_id == target:
+                    person.decisions = list(values)
+            return summary
 
 
 def register_routes(router):

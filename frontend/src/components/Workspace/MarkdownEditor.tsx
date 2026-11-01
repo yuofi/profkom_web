@@ -165,7 +165,7 @@ export function MarkdownEditor({
           {<EditorTool label={"Повторить"} disabled={disabled || !stacks.redo} onClick={() => restore("redo")} hint={"Повторить · Cmd/Ctrl+Shift+Z"}><EditorIcon name="redo" /></EditorTool>}
           <span className={editor.separator} aria-hidden="true" />
           {<EditorTool label={"Жирный"} disabled={disabled} onClick={() => insert("**", "**")} hint={"Жирный · Cmd/Ctrl+B"} className={editor.strong}>{"B"}</EditorTool>}
-          {<EditorTool label={"Курсив"} disabled={disabled} onClick={() => insert("*", "*")} hint={"Курсив · Cmd/Ctrl+I"} className={editor.italic}>{"I"}</EditorTool>}
+          {<EditorTool label={"Курсив"} disabled={disabled} onClick={() => insert("*", "*")} hint={"Курсив · Cmd/Ctrl+I"}><span className={editor.italic}>{"I"}</span></EditorTool>}
           {<EditorTool label={"Зачёркнутый"} disabled={disabled} onClick={() => insert("~~", "~~")} hint={"Зачёркнутый"} className={editor.strike}>{"S"}</EditorTool>}
           <FormattingMenu label="Заголовок" disabled={disabled} items={Array.from({ length: 7 }, (_, level) => ({ label: level ? `Заголовок ${level}` : "Текст", icon: level ? `H${level}` : "T", shortcut: `⌥⌘${level}`, action: () => heading(level) }))}><span>H</span></FormattingMenu>
           <span className={editor.separator} aria-hidden="true" />

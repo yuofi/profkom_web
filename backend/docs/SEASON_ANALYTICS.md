@@ -98,6 +98,8 @@ merits and each event's head merits have independent factors. Raw ledger values
 are preserved; weighted source totals and master bonuses apply a factor once.
 New approved snapshots freeze applicable statistics, factors and values. Older
 unknown facts are not backfilled; closed corrections retain reason/version checks.
+The server sets no upper limit; the editor saves a factor above 10 only after an
+explicit confirmation of its typo warning (owner 2026-10-31, SE-26).
 
 `/kkr/history` filters current names, blocks and course while keeping each season's
 frozen rank, total and decisions. New statistics/history/control queries share the

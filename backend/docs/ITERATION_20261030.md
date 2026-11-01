@@ -35,7 +35,10 @@ update of the test site after local verification; production is not authorized.
 
 ## Queue creation and accounting source
 
-- Block masters/deputies create queues in their own blocks.
+- Block masters/deputies create queues in their own blocks. Owner decision 2026-10-31
+  (GL-09): the actual HR deputy is an ordinary deputy of the HR block here too (queues,
+  guide, block card, task/roster/assessment rights), but makes none of the SE-13
+  closed-season changes; a task reader's controls stay with them as with every reader.
 - Main-event heads/deputies create queues in their event (default) or a child.
 - Subevent responsible/deputies create queues in their own subevent.
 - Chair/deputies may select any source or the stable chair-work source `chair`.
@@ -82,6 +85,10 @@ update of the test site after local verification; production is not authorized.
   × criteria × source coefficient, with no urgency premium or late penalty.
   The existing dated-task formula is unchanged.
 - Coefficients are per season, finite nonnegative values including zero, default 1.
+  The server sets no upper limit. The editor saves a value above 10 only after an
+  explicit «Сохранить» under the warning «Коэффициент больше 10 — проверьте, нет ли
+  опечатки», not on blur or Enter; the closed-season reason popover shows the same
+  warning (owner 2026-10-31, SE-26).
   Editors: chair, chair deputies, HR master and actual HR deputies.
 - Each block, main event and subevent has its own work coefficient. Chair-work,
   chair-merit and each main event's head-merit coefficients are separate.
@@ -93,6 +100,9 @@ update of the test site after local verification; production is not authorized.
   subtotal, total, current marks, previous-season marks. Use compact icon chips.
 - Marks save immediately per click in one popup, without a Save button or a
   reason in an open/summarizing season. Closed corrections retain their reason.
+  An open/summarizing mark is checked against the participant's previous marks
+  (`expected_decisions`), not the summary version, which every accounting change
+  moves; closed marks keep the strict summary version (owner 2026-10-31, PB-16).
 - Diagnose mark-save latency separately (server transaction/SQL, response/refetch,
   browser commit); prove improvements with bounded comparable measurements.
 - Analytics tabs select blocks/events. Count distinct closed ordinary work tasks,

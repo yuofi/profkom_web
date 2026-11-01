@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from errors import Conflict, Forbidden, InvalidInput, NotFound, revision_conflict, season_closed
+import atexit
 import json
 import logging
 import asyncio
+import sqlite3
 import time
 from weakref import WeakKeyDictionary
 from anyio import to_thread
@@ -73,6 +75,38 @@ install_engine(engine)
 # holders need to commit and give theirs back. Two connections stay for work outside them.
 HTTP_UNITS = POOL_SIZE + POOL_OVERFLOW - 2
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+
+
+@event.listens_for(engine, "connect")
+def _sqlite_journal(dbapi_connection, _record):
+    """SQLITE_JOURNAL_MODE=WAL with synchronous=FULL (PB-31): readers and the writer no
+    longer wait for each other, and every acknowledged commit survives a crash or power
+    loss, as with the rollback journal. WAL is opt-in: on a server backend/.env names it in
+    a separately approved step (DEPLOY.md, section 7). The first connection converts an
+    existing database, the mode is stored in the file; without the setting it keeps or
+    returns to the rollback journal once no other connection is open. Through the DBAPI
+    cursor: a driver statement would end read_context's memo. Writes keep BEGIN IMMEDIATE
+    (Database.atomic)."""
+    cursor = dbapi_connection.cursor()
+    try:
+        try:
+            mode = cursor.execute(f"PRAGMA journal_mode={settings.SQLITE_JOURNAL_MODE}").fetchone()[0]
+        except sqlite3.OperationalError as error:
+            # Another connection holds the database: this one works in the stored mode
+            # and the next new connection tries again.
+            mode = f"unchanged ({error})"
+        cursor.execute("PRAGMA synchronous=FULL")
+    finally:
+        cursor.close()
+    if mode != settings.SQLITE_JOURNAL_MODE.lower():
+        logging.getLogger("profkom.database").warning("SQLite journal mode is not %s: %s", settings.SQLITE_JOURNAL_MODE, mode)
+
+
+# A script that ends leaves a self-contained database (PB-31): the last connection to close
+# copies -wal into the file and removes -wal/-shm. Without it the interpreter exits with pooled
+# connections open and SQLite keeps -wal for the next start. The server: main.py, on shutdown.
+atexit.register(engine.dispose)
+
 
 Base = declarative_base()
 
@@ -2508,7 +2542,7 @@ def _recalculate_closed_master_bonuses_for_session(session: Session, season_id: 
                     c.updated_at = datetime.now(timezone.utc).isoformat()
 
 
-def _calculate_season_summary_for_session(session: Session, season_id: str, is_approved: bool = False) -> SeasonSummaryDC:
+def _calculate_season_summary_for_session(session: Session, season_id: str, is_approved: bool = False, current_user_id: Optional[int] = None) -> SeasonSummaryDC:
     prepared = _SeasonSummaryData(session,season_id)
     all_users = prepared.users
     included_users = []
@@ -2604,12 +2638,13 @@ def _calculate_season_summary_for_session(session: Session, season_id: str, is_a
 
     summary_state = "approved" if is_approved else "draft"
     caps = ["view_summary", "export_xlsx"]
+    import access
     if summary_state == "approved":
         caps.append("correct_summary")
-        import access
         if access.allowed(access.actor_id.get(), "summary.decide", state="closed"):
             caps.append("edit_decisions")
-    else:
+    elif access.allowed(current_user_id or access.actor_id.get(), "summary.decide", state=season_orm.state if season_orm else None):
+        # A planned season's draft is read, not marked (SE-21); open and summarizing follow the rule too.
         caps.append("edit_decisions")
 
     summary_orm = session.query(SeasonSummaryORM).filter(SeasonSummaryORM.season_id == season_id).first()
@@ -5929,7 +5964,7 @@ class Database:
             season = session.get(SeasonORM, t.season_id)
             self.require_task_right(manager_user_id, "task.add_assignment", t, season and season.state,
                                     "Forbidden: cannot manage assignments for this scope",
-                                    "Forbidden: only the chair and deputies can reassign in a closed season")
+                                    "Forbidden: only the chair, deputies and HR master can reassign in a closed season")
 
             if a.inputs_revision != expected_revision:
                 raise revision_conflict()
@@ -6695,7 +6730,7 @@ class Database:
                         capabilities=caps,
                     ),current_user_id)
             from task_queues import mask_summary
-            return mask_summary(session,_calculate_season_summary_for_session(session, season_id),current_user_id)
+            return mask_summary(session,_calculate_season_summary_for_session(session, season_id, current_user_id=current_user_id),current_user_id)
 
     def update_summary_decisions(
         self,
@@ -6705,9 +6740,10 @@ class Database:
         expected_version: int,
         reason: Optional[str],
         user_id: int,
+        expected_decisions: Optional[list[str]] = None,
     ) -> SeasonSummaryDC:
         from season_summaries import decisions as update
-        return update(season_id,target_user_id,decisions,expected_version,reason,user_id)
+        return update(season_id,target_user_id,decisions,expected_version,reason,user_id,expected_decisions)
 
     def correct_season_summary(
         self,

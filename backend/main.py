@@ -1054,6 +1054,9 @@ class SummaryCorrectionOut(SeasonSummaryOut):
 class SummaryDecisionsIn(Command):
     expected_version: int
     decisions: list[str]
+    # The participant's marks the client saw: in an open or summarizing season they replace
+    # the summary version check (owner, 2026-10-31, PB-16); a closed season keeps the version.
+    expected_decisions: Optional[list[str]] = None
     reason: Optional[str] = None
 
 
@@ -3334,6 +3337,7 @@ def update_summary_decisions(
         expected_version=payload.expected_version,
         reason=payload.reason,
         user_id=cur.user_id,
+        expected_decisions=payload.expected_decisions,
     )
     return _to_season_summary_out(s)
 
@@ -3644,6 +3648,9 @@ register_account_routes(router)
 from support import register_routes as register_support_routes, register_worker as register_support_worker
 register_support_routes(router)
 register_support_worker(app)
+# After the support worker stops: the last connection copies -wal into the database file and
+# removes -wal/-shm (PB-31). uvicorn re-raises SIGTERM after shutdown, so atexit hooks never run.
+app.add_event_handler("shutdown", database_module.engine.dispose)
 
 from tracker_collaboration import register_routes as register_tracker_collaboration_routes
 register_tracker_collaboration_routes(router)

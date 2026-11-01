@@ -7,7 +7,6 @@ as written. Old public uploads become `file:<id>` by scripts/adopt_legacy_files.
 new link into the bucket.
 """
 
-import hashlib
 import json
 import sqlite3
 import subprocess
@@ -19,6 +18,7 @@ import pytest
 from database import db, GuideORM
 from domain_models import MaterialORM
 from settings import settings
+from sqlite_files import database_digest
 
 BUCKET = settings.S3_BUCKET_NAME
 HOSTS = ("https://global.s3.cloud.ru", settings.S3_ENDPOINT.rstrip("/"))
@@ -234,9 +234,9 @@ def test_repair_restores_damaged_texts_and_prints_only_numbers(client, superuser
     repaired = f"[своё](file:{own})\n[старое]({OLD})\n[чужое]({HOSTS[0]}/{BUCKET}/sealed/{fid}{sign})"
     store(mid, published_body=damaged, draft_body=damaged, has_draft=True)
     path = Path(settings.DATABASE_PATH)
-    before = hashlib.sha256(path.read_bytes()).hexdigest()
+    before = database_digest(path)
     out, report = run_repair(path)
-    assert report["mode"] == "dry_run" and hashlib.sha256(path.read_bytes()).hexdigest() == before
+    assert report["mode"] == "dry_run" and database_digest(path) == before
     for secret in (own, fid, mid, "deadbeef", BUCKET, "старое"):
         assert secret not in out
     assert report["texts"]["materials.published_body"] == dict(rows_changed=1, attachment_fixed=1, legacy_fixed=1, other_kept=1)
@@ -268,9 +268,9 @@ def test_repair_counts_on_a_database_before_v13(tmp_path):
         )
         c.execute("INSERT INTO guides VALUES (1, ?)", (f"[a]({OLD}?X-Amz-Signature=x) [b](https://global.s3.cloud.ru/{BUCKET}/private/file-x)",))
         c.executemany("INSERT INTO users VALUES (?, ?)", [(1, f"https://global.s3.cloud.ru/{BUCKET}/avatars/a.png"), (2, f"https://global.s3.cloud.ru/{BUCKET}/sealed/file-y"), (3, "https://vk.com/photo")])
-    before = hashlib.sha256(path.read_bytes()).hexdigest()
+    before = database_digest(path)
     _, report = run_repair(path)
-    assert hashlib.sha256(path.read_bytes()).hexdigest() == before
+    assert database_digest(path) == before
     assert report["texts"] == {"guides.text": dict(rows_changed=1, legacy_fixed=1, other_kept=1)}
     assert report["outside_allowed"] == {"guides.text": dict(private=1)}
     assert report["photo_url"] == dict(legacy=1, sealed=1)
