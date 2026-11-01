@@ -1,7 +1,7 @@
 .root { position: relative; display: inline-block; min-width: 0; max-width: 100%; vertical-align: middle; }
 .chip { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 32px; max-width: 100%; box-sizing: border-box; padding: 5px 7px; border: 1px solid color-mix(in srgb, var(--tone, var(--primary)) 35%, transparent); border-radius: 9px; background: color-mix(in srgb, var(--tone, var(--primary)) 14%, var(--surface-container-low)); color: var(--tone, var(--on-surface)); font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
 .chip:focus-visible,.option:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
-.chip:disabled { cursor: progress; opacity: .7; }
+.chip[aria-disabled="true"] { cursor: progress; opacity: .7; }
 .dot,.menuDot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--tone, var(--primary)); flex: 0 0 auto; }
 .menu { position: absolute; z-index: 30; inset-inline-start: 0; top: calc(100% + 7px); width: 240px; max-width: calc(100vw - 40px); padding: 7px; border: 1px solid var(--outline-variant); border-radius: 12px; background: var(--surface-container-high); box-shadow: 0 12px 35px rgb(0 0 0 / .4); }
 .menuEnd { inset-inline-start: auto; inset-inline-end: 0; }
@@ -13,8 +13,15 @@
 .option[aria-current] { opacity: .8; }
 .option span:last-child:not(:first-child) { margin-left: auto; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
-@media(max-width: 768px) { .actions { gap: 7px; }.actions button { flex-grow: 1; }.menu { position: fixed; inset: auto 14px 20px; width: auto; max-width: none; max-height: calc(100dvh - 100px); overflow-y: auto; } }
+/* On a phone the menu is a sheet at the bottom of the screen, above the feedback button (as the filter sheet). */
+@media(max-width: 768px) { .actions { gap: 7px; }.actions button { flex-grow: 1; }.menu { position: fixed; z-index: 45; inset: auto 14px 20px; width: auto; max-width: none; max-height: calc(100dvh - 100px); overflow-y: auto; } }
 
-.chipLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: left; }.chip > span:last-child { flex: 0 0 auto; font-size: 16px; }
+/* One chip width for every status (owner 2026-11-01): the hidden sizer lists all status names, so the label box is as wide
+   as the longest one and the current name sits in its centre. A locked chip keeps the arrow's place empty. */
+.chipLabel { display: inline-flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.chipLabel > span { overflow: hidden; text-overflow: ellipsis; text-align: center; }
+.chipLabel::after { content: attr(data-sizer); height: 0; overflow: hidden; visibility: hidden; white-space: pre; }
+.chip > [data-icon], .static::after { flex: 0 0 auto; font-size: 16px; }
+.static::after { content: ""; width: 1em; }
 
 .pickerFields { border: 0; padding: 0; margin: 0; min-width: 0; }

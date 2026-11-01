@@ -30,11 +30,16 @@ export function TaskDeadlineParameter({ task, now, onSaved }: { task: Task; now:
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list, refetchOnMount: false, enabled: manager });
   const closed = seasons.data?.items.find(item => item.season_id === task.season_id)?.state === "closed";
   return <div><dt>Дедлайн, МСК</dt><dd>
-    {task.deadline_at ? <time dateTime={task.deadline_at} className={Date.parse(task.deadline_at) < now && taskStatus(task) !== "closed" ? s.overdue : undefined}>{displayDate(task.deadline_at)}</time> : <span>Не задан</span>}
+    <TaskDeadlineValue task={task} now={now} />
     {movable ? <button type="button" className={s.deadlineEdit} onClick={() => setMoving(true)}>Перенести срок</button>
       : manager && !inputs.isLoading && !seasons.isLoading && <p className={s.seasonContext}>{closed ? "Срок закрытого сезона переносят председатель, замы и мастер HR" : "Срок переносят председатель, замы, мастер HR и его заместитель"}</p>}
     {moving && movable && inputs.data && <UnsavedChangesScope><DeadlineEditor task={task} inputs={inputs.data} refetch={() => void inputs.refetch()} onClose={() => setMoving(false)} onSaved={onSaved} /></UnsavedChangesScope>}
   </dd></div>;
+}
+
+/** The parameter and the phone summary (D-03) show one value: an overdue open deadline is marked. */
+export function TaskDeadlineValue({ task, now }: { task: Task; now: number }) {
+  return task.deadline_at ? <time dateTime={task.deadline_at} className={Date.parse(task.deadline_at) < now && taskStatus(task) !== "closed" ? s.overdue : undefined}>{displayDate(task.deadline_at)}</time> : <span>Не задан</span>;
 }
 
 function DeadlineEditor({ task, inputs, refetch, onClose, onSaved }: { task: Task; inputs: TaskInputs; refetch: () => void; onClose: () => void; onSaved?: () => void }) {

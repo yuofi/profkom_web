@@ -10,6 +10,11 @@ import w from "../../components/Workspace/Workspace.module.css";
 import s from "./TaskStatusMenu.module.css";
 import { publicStatusNames as statusNames, statusTones, taskStatus, taskTransitions } from "./trackerStatus";
 
+/** Every status chip is as wide as the longest status name (owner 2026-11-01): the label box measures all of them. */
+const chipSizer = Object.values(statusNames).join("\n");
+function ChipLabel({ state }: { state: TaskPublicStatus }) {
+  return <span className={s.chipLabel} data-sizer={chipSizer}><span>{statusNames[state]}</span></span>;
+}
 const ResultDialog = lazy(() => import("./TaskResultDialog").then(module => ({ default: module.TaskResultDialog })));
 
 /** Public workflow only. Hours, evaluations and accounting dates use their own protected forms. */
@@ -34,6 +39,8 @@ export function TaskStatusMenu({ task, variant = "chip", onChanged, onClosed }: 
     (menu?.querySelector<HTMLButtonElement>('button:not(:disabled)') ?? menu)?.focus();
     document.addEventListener("pointerdown", close);return () => document.removeEventListener("pointerdown", close);
   }, [open]);
+  // While the status saves the chip is aria-disabled, not `disabled`: a disabled button drops the
+  // keyboard focus it just got back from the menu to <body>.
   const choose = async (next: TaskPublicStatus) => {
     if (busy || !transitions.includes(next)) return;
     setOpen(false);trigger.current?.focus();setError("");setBusy(true);
@@ -61,8 +68,8 @@ export function TaskStatusMenu({ task, variant = "chip", onChanged, onClosed }: 
     const index = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
     items[index].focus();
   }}>
-    {variant === "chip" ? !transitions.length && !busy ? <span className={`${s.chip} ${s.static}`} style={toneStyle(statusTones[state])} role="img" aria-label={`Статус задачи: ${statusNames[state]}. ${lockedHint}`} title={lockedHint}><span className={s.dot} /><span className={s.chipLabel}>{statusNames[state]}</span></span> : <>
-      <button ref={trigger} type="button" className={s.chip} style={toneStyle(statusTones[state])} aria-label={`Статус задачи: ${statusNames[state]}`} aria-haspopup="menu" aria-expanded={open} disabled={busy} onClick={() => setOpen(!open)}><span className={s.dot} /><span className={s.chipLabel}>{statusNames[state]}</span><Glyph name="expand_more" /></button>
+    {variant === "chip" ? !transitions.length && !busy ? <span className={`${s.chip} ${s.static}`} style={toneStyle(statusTones[state])} role="img" aria-label={`Статус задачи: ${statusNames[state]}. ${lockedHint}`} title={lockedHint}><span className={s.dot} /><ChipLabel state={state} /></span> : <>
+      <button ref={trigger} type="button" className={s.chip} style={toneStyle(statusTones[state])} aria-label={`Статус задачи: ${statusNames[state]}`} aria-haspopup="menu" aria-expanded={open} aria-disabled={busy || undefined} aria-busy={busy || undefined} onClick={() => { if (!busy) setOpen(!open); }}><span className={s.dot} /><ChipLabel state={state} /><Glyph name="expand_more" /></button>
       {open && <div ref={menu} role="menu" tabIndex={-1} aria-label="Выбор статуса задачи" className={`${s.menu} ${alignEnd ? s.menuEnd : ""}`}><p className={s.menuNote}>Общий статус задачи</p>{Object.entries(statusNames).map(([key, label]) => <button type="button" role="menuitem" className={s.option} key={key} disabled={!transitions.includes(key as TaskPublicStatus)} aria-current={key === state ? "true" : undefined} onClick={() => { void choose(key as TaskPublicStatus); }}><span className={s.menuDot} style={toneStyle(statusTones[key as TaskPublicStatus])} />{label}{key === state && <Glyph name="check" />}</button>)}</div>}
     </> : <div className={s.actions} aria-label="Действия с задачей">
       {task.capabilities.includes("take_task") && <button type="button" className={w.button} disabled={busy} onClick={() => { void take(); }}>Взять в работу</button>}

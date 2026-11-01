@@ -65,15 +65,62 @@ it("contacts use compact cards and separate account management", async () => {
   expect(avatar.hasAttribute("tabindex")).toBe(false);
   await act(async () => avatar.click());
   expect(document.querySelector('[aria-label="Просмотр изображения"]')).toBeNull();
-  const details = Array.from(cards[0].querySelectorAll("a")).find((link) => link.textContent === "Подробнее")!;
-  expect(details.getAttribute("href")).toBe("/contacts/101");
+  // The whole card is the profile link: no «Подробнее» row (D-08).
+  expect(cards[0].textContent).not.toContain("Подробнее");
+  expect(Array.from(cards[0].querySelectorAll("a")).map((link) => link.getAttribute("href"))).toEqual(["/contacts/101"]);
   expect(page.container.querySelector("dialog")).toBeNull();
   const manage = Array.from(cards[0].querySelectorAll("button")).find((b) => b.textContent === "Управление аккаунтом")!;
+  // A separate control in the card's right column, never inside the stretched link.
+  expect(manage.closest("a")).toBeNull();expect(manage.className).toMatch(/manage/);
+  expect(manage.parentElement?.className).toMatch(/side/);expect(manage.parentElement?.querySelector('[class*="category"]')).not.toBeNull();
   await act(async () => manage.click());
   expect(page.container.querySelector("dialog")?.textContent).toContain("Причина архивирования");
   expect(Array.from(page.container.querySelectorAll("dialog h3")).map((h) => h.textContent)).toEqual(["Категория участника", "Архивация аккаунта"]);
   expect(page.container.querySelector('dialog section[class*="dangerZone"] details > summary')?.textContent).toBe("Архивировать аккаунт…");
   expect(page.container.querySelectorAll('[class*="contactGrid"] > section')).toHaveLength(2);
+});
+
+it("D-08: the profile, block links and account management stay separate controls in a sensible order", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const member = { ...person(101, "Первокурсникова", "101", true), blocks: mock.state.blocks[0].name };
+  vi.spyOn(directoryApi, "contacts").mockResolvedValue([member]);
+  page = await mountWorkspace(<DirectoryPage />, { role: "chair" });
+  await settle(); await settle();
+  const card = page.container.querySelector('[class*="contactGrid"] > section')!;
+  const controls = Array.from(card.querySelectorAll<HTMLElement>("a, button"));
+  // The tab order: the name (the whole card), then its blocks, then the management in the corner.
+  expect(controls.map((control) => control.tagName === "A" ? control.getAttribute("href") : control.textContent)).toEqual(["/contacts/101", `/blocks/${mock.state.blocks[0].block_id}`, "Управление аккаунтом"]);
+  // Nothing interactive inside another link or button.
+  for (const control of controls) expect(control.parentElement!.closest("a, button")).toBeNull();
+  expect(card.querySelector('[class*="actions"]')).toBeNull();
+});
+
+it("D-08: only who may manage an account sees the management in the card", async () => {
+  mock = installMockTransport("organizer", { delay: 0 });
+  vi.spyOn(directoryApi, "contacts").mockResolvedValue([person(101, "Первокурсникова", "101", true), person(102, "Контрактов", "301", false)]);
+  page = await mountWorkspace(<DirectoryPage />, { role: "organizer" });
+  await settle(); await settle();
+  const cards = () => Array.from(page!.container.querySelectorAll('[class*="contactGrid"] > section'));
+  expect(cards()).toHaveLength(2);
+  for (const card of cards()) {
+    expect(card.querySelector("button")).toBeNull();
+    expect(card.querySelector('[class*="side"] [class*="category"]')?.textContent).toBe("Джуниор");
+  }
+  await page.cleanup(); mock.restore();
+  mock = installMockTransport("chair", { delay: 0 });
+  page = await mountWorkspace(<DirectoryPage />, { role: "chair" });
+  await settle(); await settle();
+  for (const card of cards()) expect(Array.from(card.querySelectorAll("button")).map((b) => b.textContent)).toEqual(["Управление аккаунтом"]);
+});
+
+it.each([[true, "40px"], [false, "48px"]])("D-08: a phone (%s) shows each contact as a list row with a %s avatar", async (phone, size) => {
+  mock = installMockTransport("organizer", { delay: 0 });
+  vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(max-width: 768px)" ? phone : !phone, media: query, addEventListener() {}, removeEventListener() {} }));
+  vi.spyOn(directoryApi, "contacts").mockResolvedValue([person(201, "Первокурсникова", "101", true)]);
+  page = await mountWorkspace(<DirectoryPage />, { role: "organizer" });
+  await settle(); await settle();
+  const avatar = page.container.querySelector<HTMLElement>('[class*="contactGrid"] > section [class*="header"] > :first-child')!;
+  expect(avatar.style.width).toBe(size);expect(avatar.querySelector("img")?.getAttribute("alt")).toBe("");
 });
 
 it("account management hides archiving that the server refuses and closes before its reread", async () => {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   Page,
@@ -112,25 +112,35 @@ export function DashboardPage() {
   if (chosen !== null && chosen === addressed) setChosen(null);
   const watching = chosen ?? addressed;
   const setWatching = (checked: boolean) => { setChosen(checked);const next = new URLSearchParams(params);if (checked) next.set("watching", "1");else next.delete("watching");setParams(next, { replace: true }); };
-  // Every 5 minutes and on focus: the day changes slowly, each tab polls (GL-16).
-  const day = useQuery({ queryKey: ["dashboard", "home", watching], queryFn: () => workspaceApi.home(watching), refetchInterval: 300_000 });
+  // Every 5 minutes and on focus: the day changes slowly, each tab polls (GL-16). The other choice
+  // of the watched-tasks box keeps the previous day on screen while it loads, so the box under the
+  // pointer and its keyboard focus stay put (D-01).
+  const day = useQuery({ queryKey: ["dashboard", "home", watching], queryFn: () => workspaceApi.home(watching), refetchInterval: 300_000, placeholderData: keepPreviousData });
   const blocks = query.data?.blocks ?? [];
   const events = query.data?.events ?? [];
-  const hasApprovals = !day.error && !day.isLoading && !!day.data?.approvals.length;
+  const shown = day.error ? undefined : day.data;
   const workEntry = ["create_volunteer_merit", "create_head_merit", "create_chair_merit"].some(capability => can(session, capability) || !!session?.assignments?.some(assignment => can(assignment, capability)));
   const seasonTitle = (id: string | null) => seasons.data?.items.find(season => season.season_id === id)?.title ?? "Сезон";
+  // D-01: tasks lead the main column; the day, the decisions and the teams stand beside them and
+  // follow the tasks on a narrow screen. Zero overdue tasks are one line, not a card.
   return <Page className={d.page} headerClassName={d.header} title="Рабочее пространство" description="Сегодня, ближайшие задачи и решения, которые ждут вас." actions={workEntry && <Link className={s.button} to="/merits"><Glyph name="fact_check" />Учёт выполненной работы</Link>}>
-    <div className={d.utility}><label className={d.watching}><input type="checkbox" checked={watching} onChange={event => setWatching(event.target.checked)} />Также задачи, за которыми я наблюдаю</label></div>
-    <QueryState loading={day.isLoading} error={day.error} retry={() => void day.refetch()}>{day.data && <div className={d.primary}>
-      <Card className={`${d.panel} ${d.todayPanel}`}><DashboardHeading title="Сегодня" to={`/calendar?view=day&date=${day.data.today}`} linkLabel="Весь календарь" /><div className={d.calendar} role="region" aria-label="Сегодняшний день">{day.data.agenda.length ? <CalendarTimeGrid days={[day.data.today]} items={day.data.agenda} seasonTitle={seasonTitle} today={day.data.today} compact /> : <p className={d.todayEmpty}>Сегодня событий нет · <Link to={`/calendar?view=day&date=${day.data.today}`}>открыть календарь</Link></p>}</div></Card>
-      <div className={d.taskPanels} role="region" aria-label="Задачи по срокам">
-        <Card className={`${d.panel} ${d.overdue}`}><DashboardHeading title="Просроченные" count={day.data.overdue_count} to={day.data.overdue_count ? "/tasks?mine=true&unfinished=true&overdue=true" : undefined} linkLabel="Все просроченные задачи" /><WorkdayTasks tasks={day.data.overdue_tasks} overdue />{!day.data.overdue_count && <p className={d.note}>Просроченных задач нет.</p>}</Card>
-        <Card className={d.panel}><DashboardHeading title="Ближайшие задачи" to="/tasks?mine=true&unfinished=true&sort=deadline" linkLabel="Все мои задачи" /><WorkdayTasks tasks={day.data.tasks} />{!day.data.tasks.length && <p className={d.note}>Нет задач с будущим дедлайном.</p>}{!!day.data.undated_count && <p className={d.undated}>Без срока: {day.data.undated_count}</p>}</Card>
+    <div className={d.board}>
+      <div className={d.taskPanels} role="region" aria-label="Задачи по срокам" aria-busy={day.isPlaceholderData || undefined}>
+        {!!shown?.overdue_count && <Card className={`${d.panel} ${d.overdue}`}><DashboardHeading title="Просроченные" count={shown.overdue_count} to="/tasks?mine=true&unfinished=true&overdue=true" linkLabel="Все просроченные задачи" /><WorkdayTasks tasks={shown.overdue_tasks} overdue /></Card>}
+        {/* The box filters both lists and stays here while the day loads or fails, so it can always be turned back. */}
+        <Card className={d.panel}><DashboardHeading title="Ближайшие задачи" to="/tasks?mine=true&unfinished=true&sort=deadline" linkLabel="Все мои задачи" />
+          <div className={d.taskMeta}>{shown && !shown.overdue_count && <span className={d.note}>Просроченных задач нет</span>}<label className={d.watching}><input type="checkbox" checked={watching} onChange={event => setWatching(event.target.checked)} />Также задачи, за которыми я наблюдаю</label></div>
+          <QueryState loading={day.isLoading} error={day.error} retry={() => void day.refetch()}>{day.data && <><WorkdayTasks tasks={day.data.tasks} />{!day.data.tasks.length && <p className={d.note}>Нет задач с будущим дедлайном.</p>}{!!day.data.undated_count && <p className={d.undated}>Без срока: {day.data.undated_count}</p>}</>}</QueryState>
+        </Card>
       </div>
-    </div>}</QueryState>
-    <div className={d.lowerGrid} data-has-approvals={hasApprovals || undefined} role="region" aria-label="Работа и команды"><section className={d.myTeams}><h2 className={s.visuallyHidden}>Мои команды</h2>
-      <QueryState loading={query.isLoading || seasons.isLoading} error={query.error ?? seasons.error} retry={() => { void query.refetch();void seasons.refetch(); }}>{query.data && <div className={d.teamColumns}><PersonalTeams title="Мои блоки" teams={blocks.map(block => ({ id: block.block_id, title: block.name, to: getBlockRoute(block.block_id), roles: block.roles, kind: "block", logo: blockLogo(block.name) }))} empty="Вы пока не участвуете в блоках." /><PersonalTeams title="Мои мероприятия" teams={events.map(event => ({ id: event.event_id, title: event.title, to: getEventRoute(event.event_id), roles: event.roles, detail: seasonTitle(event.season_id), kind: "event", logo: eventLogo(event.title) }))} empty="Вы пока не участвуете в мероприятиях незакрытых сезонов." /></div>}</QueryState>
-    </section>{day.data && !day.error && hasApprovals && <Card className={`${d.panel} ${d.decisions}`}><DashboardHeading title="Требует решения" /><ul className={d.approvals}>{day.data.approvals.map(item => <li key={`${item.kind}-${item.to}`}><Link to={item.to}><span>{item.title}</span><span className={d.count}>{item.count}</span><DashboardArrow small /></Link></li>)}</ul></Card>}</div>
+      <div className={d.side} role="region" aria-label="Сегодня, решения и команды">
+        {shown && <Card className={`${d.panel} ${d.todayPanel}`}><DashboardHeading title="Сегодня" to={`/calendar?view=day&date=${shown.today}`} linkLabel="Весь календарь" /><div className={d.calendar} role="region" aria-label="Сегодняшний день">{shown.agenda.length ? <CalendarTimeGrid days={[shown.today]} items={shown.agenda} seasonTitle={seasonTitle} today={shown.today} compact /> : <p className={d.todayEmpty}>Сегодня событий нет · <Link to={`/calendar?view=day&date=${shown.today}`}>открыть календарь</Link></p>}</div></Card>}
+        {!!shown?.approvals.length && <Card className={`${d.panel} ${d.decisions}`}><DashboardHeading title="Требует решения" /><ul className={d.approvals}>{shown.approvals.map(item => <li key={`${item.kind}-${item.to}`}><Link to={item.to}><span>{item.title}</span><span className={d.count}>{item.count}</span><DashboardArrow small /></Link></li>)}</ul></Card>}
+        <section className={d.myTeams}><h2 className={s.visuallyHidden}>Мои команды</h2>
+          <QueryState loading={query.isLoading || seasons.isLoading} error={query.error ?? seasons.error} retry={() => { void query.refetch();void seasons.refetch(); }}>{query.data && <div className={d.teamColumns}><PersonalTeams title="Мои блоки" teams={blocks.map(block => ({ id: block.block_id, title: block.name, to: getBlockRoute(block.block_id), roles: block.roles, kind: "block", logo: blockLogo(block.name) }))} empty="Вы пока не участвуете в блоках." /><PersonalTeams title="Мои мероприятия" teams={events.map(event => ({ id: event.event_id, title: event.title, to: getEventRoute(event.event_id), roles: event.roles, detail: seasonTitle(event.season_id), kind: "event", logo: eventLogo(event.title) }))} empty="Вы пока не участвуете в мероприятиях незакрытых сезонов." /></div>}</QueryState>
+        </section>
+      </div>
+    </div>
   </Page>;
 }
 export function CalendarPage() {

@@ -15,7 +15,7 @@ import { userMessage } from "../../utils/api/messages";
 import { decisionLabels } from "../../utils/decisions";
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
 import { SummaryTable } from "./SummaryTable";
-import { metricValue } from "./seasonAnalyticsView";
+import { metricValue, plural } from "./seasonAnalyticsView";
 import u from "./SeasonWorkspace.module.css";
 import w from "../../components/Workspace/Workspace.module.css";
 
@@ -29,10 +29,12 @@ export function SeasonParticipants({ summary, renderDecisions, onFilterApply }: 
   const guardFilter = useGuardedAction();
   // Open on a wide screen (the summary is hidden there); folded on a phone until asked for.
   const [filtersOpen, setFiltersOpen] = useState(() => typeof window.matchMedia !== "function" || window.matchMedia(WIDE).matches);
+  // «Порядок» is one element: in the first row of a wide screen, among the folded filters on a phone (D-07).
+  const [wide, setWide] = useState(() => typeof window.matchMedia !== "function" || window.matchMedia(WIDE).matches);
   // The wide layout has no summary to unfold them, so widening the window (rotation, split screen) opens them.
   useEffect(() => {
     if (typeof window.matchMedia !== "function") return;
-    const query = window.matchMedia(WIDE);const sync = () => { if (query.matches) setFiltersOpen(true); };
+    const query = window.matchMedia(WIDE);const sync = () => { setWide(query.matches);if (query.matches) setFiltersOpen(true); };
     query.addEventListener("change", sync);return () => query.removeEventListener("change", sync);
   }, []);
   const activeFilters = [block, category, master, archived, mark].filter(Boolean).length + (sort === "rank" ? 0 : 1);
@@ -44,18 +46,24 @@ export function SeasonParticipants({ summary, renderDecisions, onFilterApply }: 
     && (!archived || row.is_archived === (archived === "true"))
     && (!mark || (mark === "any" ? row.decisions.length > 0 : mark === "none" ? row.decisions.length === 0 : row.decisions.includes(mark))))
     .sort((a, b) => sort === "name" ? a.user.display_name.localeCompare(b.user.display_name, "ru") : sort === "score-asc" ? a.total_score - b.total_score || a.rank - b.rank : a.rank - b.rank);
-  return <section className={u.stack} aria-label="Участники и ККР">
-    <div className={u.summaryMeta}><p>{summary.state === "approved" ? `Утверждено ${displayDate(summary.approved_at)}` : "Предварительные итоги"} · Версия {summary.version} · Участников {summary.rows.length}</p><button type="button" className={u.secondary} onClick={async () => {
+  const order = <label className={wide ? u.barOrder : undefined}>Порядок<select aria-label="Порядок" value={sort} onChange={e => setSort(e.target.value)}><option value="rank">По месту в сводной</option><option value="score-asc">ККР по возрастанию</option><option value="name">По имени</option></select></label>;
+  // «Предварительные итоги» are in the header; an approved summary keeps its date here.
+  const meta = <div className={`${u.summaryMeta} ${u.barMeta}`}><p>{summary.state === "approved" && `Утверждено ${displayDate(summary.approved_at)} · `}Версия {summary.version} · {summary.rows.length} {plural(summary.rows.length, "участник", "участника", "участников")}</p><button type="button" className={u.secondary} onClick={async () => {
       setExportError("");try { const blob = await seasonsApi.export(summary.season_id);const url = URL.createObjectURL(blob);const link = document.createElement("a");link.href = url;link.download = `kkr-${summary.season_id}.xlsx`;link.click();setTimeout(() => URL.revokeObjectURL(url), 1000); } catch (error) { setExportError(userMessage(error)); }
-    }}>Скачать XLSX</button></div>
-    {exportError && <p role="alert" className={w.error}>{exportError}</p>}
-    <div className={u.toolbar} aria-label="Фильтры участников"><label>Поиск по имени или группе<input type="search" value={search} onChange={e => updateFilter(search, e.target.value, setSearch)} placeholder="Имя или группа" /></label>
+    }}>Скачать XLSX</button></div>;
+  return <section className={u.stack} aria-label="Участники и ККР">
+    {/* Two rows over the table: search, order, version and XLSX; then the filters. A phone puts the version line first
+        (D-07), in the page order as well, so the keyboard meets it where it is seen. */}
+    <div className={`${u.toolbar} ${u.participantsBar}`} aria-label="Фильтры участников">{!wide && meta}<label className={u.barSearch}>Поиск по имени или группе<input type="search" value={search} onChange={e => updateFilter(search, e.target.value, setSearch)} placeholder="Имя или группа" /></label>
+      {wide && order}
+      {wide && meta}
       <details className={u.filterDisclosure} open={filtersOpen} onToggle={event => setFiltersOpen(event.currentTarget.open)}><summary>Фильтры{activeFilters > 0 && ` · ${activeFilters}`}</summary><div className={u.toolbar}><div><EntityPicker name="block" label="Блок" value={block} onChange={value => updateFilter(block, value, setBlock)} placeholder="Все блоки" options={[{ value: "", label: "Все блоки" }, ...blocks.map(item => ({ value: item.block_id, label: item.name, block: item }))]} /></div>
       <label>Категория<select name="category" value={category} onChange={e => updateFilter(category, e.target.value, setCategory)}><option value="">Все категории</option><option value="junior">Джуниоры</option><option value="activist">Активисты</option></select></label>
       <label>Мастера<select name="is_master" value={master} onChange={e => updateFilter(master, e.target.value, setMaster)}><option value="">Все участники</option><option value="true">Только мастера</option><option value="false">Кроме мастеров</option></select></label>
       <label>Архив аккаунта<select name="is_archived" value={archived} onChange={e => updateFilter(archived, e.target.value, setArchived)}><option value="">Все участники</option><option value="true">Уже исключён</option><option value="false">Действующие</option></select></label>
       <label>Отметки текущего сезона<select name="marks" value={mark} onChange={e => updateFilter(mark, e.target.value as typeof mark, setMark)}><option value="">Все отметки</option><option value="any">Есть отметки</option><option value="none">Без отметок</option>{Object.entries(decisionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-      <label>Порядок<select aria-label="Порядок" value={sort} onChange={e => setSort(e.target.value)}><option value="rank">По месту в сводной</option><option value="score-asc">ККР по возрастанию</option><option value="name">По имени</option></select></label></div></details></div>
+      {!wide && order}</div></details></div>
+    {exportError && <p role="alert" className={w.error}>{exportError}</p>}
     <SummaryTable summary={summary} rows={rows} filter={search} renderDecisions={renderDecisions} onParticipantSelect={setPerson} />
     <p className={u.note}>Кнопка «Начисления и работа» рядом с участником показывает его вклад и ведёт к учёту работы в задаче.</p>
     {person && <UnsavedChangesScope><TrackerTaskDialog title="Начисления участника" onClose={closePerson}><ParticipantWork seasonId={summary.season_id} person={person} /></TrackerTaskDialog></UnsavedChangesScope>}

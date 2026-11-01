@@ -4,10 +4,10 @@
 .header p { margin-top: 6px; font-size: 13px; line-height: 1.45; }
 .header > div > a { margin-bottom: 10px; font-size: 9px; }
 .header > a { min-height: 36px; padding: 8px 12px; font-size: 12px; }
-.utility { display: flex; align-items: center; margin: 0 0 15px; min-width: 0; }
 .watching.watching { display: flex; flex-direction: row; align-items: center; gap: 8px; color: var(--on-surface-variant); font-size: 12px; line-height: 1.5; }
 .watching input { flex: 0 0 16px; width: 16px; height: 16px; min-height: 0; margin: 0; accent-color: var(--primary); }
-.primary { display: grid; grid-template-columns: minmax(260px, .95fr) minmax(0, 1.75fr); gap: 14px; align-items: start; }
+/* D-01: the tasks in the main column, the day, the decisions and the teams beside them. */
+.board { display: grid; grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); gap: 14px; align-items: start; }
 .panel.panel { padding: 15px 16px; gap: 9px; border-color: color-mix(in srgb, var(--outline-variant) 22%, transparent); border-radius: 12px; }
 .sectionHeading { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 6px 10px; min-width: 0; }
 .sectionHeading h2 { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 16px; line-height: 1.35; margin: 0; }
@@ -20,13 +20,14 @@
 .calendar { --calendar-compact-height: 320px; min-width: 0; }
 .todayPanel { align-self: start; }
 .calendar > section { margin: 0; border-color: color-mix(in srgb, var(--outline-variant) 20%, transparent); border-radius: 8px; }
-.taskPanels { display: grid; gap: 12px; min-width: 0; }
+.taskPanels, .side { display: grid; align-content: start; gap: 12px; min-width: 0; }
+/* Under the heading of the nearest tasks: «no overdue tasks» and the watched-tasks box. */
+.taskMeta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; min-width: 0; margin-top: -3px; }
+.taskMeta > .note { margin: 0; }
 .note, .undated { font-size: 12px; line-height: 1.5; color: var(--on-surface-variant); }
 .undated { border-top: 1px solid color-mix(in srgb, var(--outline-variant) 22%, transparent); padding-top: 9px; }
-.lowerGrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; margin-top: 14px; }
-.lowerGrid[data-has-approvals] { grid-template-columns: minmax(0, 2fr) minmax(210px, 1fr); }
 .myTeams { position: relative; min-width: 0; }
-.teamColumns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.teamColumns { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
 .teams { list-style: none; padding: 0; margin: 0; min-width: 0; }
 .teams li { min-width: 0; padding: 10px 0; }
 .teams li + li { border-top: 1px solid color-mix(in srgb, var(--outline-variant) 22%, transparent); }
@@ -51,10 +52,9 @@
 .approvals a:hover { color: var(--primary); }
 .approvals a:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
 @media (max-width: 1100px) {
-  .lowerGrid[data-has-approvals] { grid-template-columns: minmax(0, 1fr); }
+  .board { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 900px) {
-  .primary { grid-template-columns: minmax(0, 1fr); }
   .calendar { --calendar-compact-height: 280px; }
 }
 @media (max-width: 600px) {
@@ -68,7 +68,7 @@
   .sectionHeading { gap: 5px 8px; }
   .sectionHeading h2 { font-size: 16px; }
   .sectionLink { font-size: 10px; }
-  .teamColumns { grid-template-columns: minmax(0, 1fr); }
+  .taskMeta { gap: 2px 12px; }
   .teamLink { font-size: 13px; }
   .teamRow { gap: 10px; }
 }

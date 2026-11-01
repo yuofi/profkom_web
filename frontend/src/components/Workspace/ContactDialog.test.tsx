@@ -20,7 +20,7 @@ async function mount() {
   function Example() {
     const [open, setOpen] = useState(false);
     return <><ActionForm fields={[{ name: "outside", label: "Другая форма", value: "Внешнее сохранено" }]} onSubmit={async () => {}} />
-      <button onClick={() => setOpen(true)}>Подробнее</button>
+      <button onClick={() => setOpen(true)}>Управление аккаунтом</button>
       {open && <UnsavedChangesScope><ContactDialog title="Сведения участника" onClose={() => { closed();setOpen(false); }}>
         <p>Текст внутри диалога</p><ActionForm fields={[{ name: "inside", label: "Внутренняя форма", value: "Сохранено" }]} onSubmit={async () => {}} />
       </ContactDialog></UnsavedChangesScope>}</>;
@@ -30,7 +30,7 @@ async function mount() {
   const router = createMemoryRouter([{ path: "/", element: <UnsavedChangesProvider><Example /></UnsavedChangesProvider> }]);
   await act(async () => root.render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>));
   cleanup = async () => { await act(async () => root.unmount());client.clear();router.dispose();container.remove(); };
-  const opener = [...container.querySelectorAll("button")].find(button => button.textContent === "Подробнее")!;
+  const opener = [...container.querySelectorAll("button")].find(button => button.textContent === "Управление аккаунтом")!;
   opener.focus();await act(async () => opener.click());
   const dialog = container.querySelector("dialog")!;
   vi.spyOn(dialog, "getBoundingClientRect").mockReturnValue({ left: 100, right: 500, top: 100, bottom: 400, x: 100, y: 100, width: 400, height: 300, toJSON: () => ({}) });

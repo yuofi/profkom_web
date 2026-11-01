@@ -120,55 +120,132 @@ export function BlockPage() {
   );
   // An old address by name (/blocks/Медиа) moves to the block's id, so every link and request below uses the id.
   if (b && id !== b.block_id) return <Navigate replace to={getBlockRoute(b.block_id)} />;
+  const member = !!b && b.members.some(item => item.user.user_id === session?.user_id);
+  const described = !!b?.description.body.trim();
+  // The block's own actions stand in one row under its name, as on a subevent page (D-05).
+  const nav = b && (
+    <div className={`${s.row} ${m.blockNav}`} role="group" aria-label="Действия блока">
+      {canViewTracker && (
+        <RouteLink
+          to={`/tasks?scope_kind=block&scope_id=${encodeURIComponent(id)}`}
+        >
+          Задачи блока
+        </RouteLink>
+      )}
+      {can(b, "create_volunteer_merit") && <RouteLink to={`/merits?source_kind=block_volunteer&scope_id=${encodeURIComponent(id)}`}>Учесть волонтёрскую работу</RouteLink>}
+      {b.guide_material_id && can(b, "read_guide") ? (
+        <RouteLink
+          to={`/materials/${encodeURIComponent(b.guide_material_id)}`}
+        >
+          Гайд блока
+        </RouteLink>
+      ) : b.guide_material_id ? (
+        <span className={`${s.muted} ${m.navNote}`}>Гайд доступен участникам блока</span>
+      ) : (
+        <span className={`${s.muted} ${m.navNote}`}>Гайд ещё готовится</span>
+      )}
+      {b.community_url && (
+        <a
+          className={s.linkButton}
+          href={b.community_url}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Сообщество блока
+        </a>
+      )}
+      {alreadyInBlock ? null : pending ? (
+        <p>
+          Заявка: {requestStates[pending.state]} ·{" "}
+          <RouteLink to="/blocks/requests">Открыть</RouteLink>
+        </p>
+      ) : (
+        !member && (
+          <ActionForm
+            fields={[]}
+            submitLabel="Подать заявку в блок"
+            onSubmit={async () => {
+              await perform(() => membershipApi.join(id));
+            }}
+          />
+        )
+      )}
+    </div>
+  );
   return (
     <Page
       title={b?.name ?? "Блок"}
+      headerNav={nav}
       actions={<div className={`${s.row} ${m.blockHeaderActions}`}>{b && <BlockAvatarPicker block={b} />}<RouteLink to="/blocks">Все блоки</RouteLink></div>}
     >
       <QueryState keepDataOnError={!!query.data}
         loading={query.isLoading} error={query.error}>
         {b && (
           <div className={s.stack}>
+            {/* The description, with its form a click away; a block without one and without the
+                right to write it has no card at all (D-05). */}
+            {(described || can(b, "edit_block")) && (
+              <Card title="О блоке" className={m.about}>
+                {described && <Markdown content={b.description} />}
+                {can(b, "edit_block") && (
+                  // A closed disclosure keeps the form and its draft; leaving the page still asks about it.
+                  <details className={s.details}>
+                    <summary>Изменить описание</summary>
+                    <ActionForm
+                      key={b.block_id}
+                      revision={b.revision}
+                      record={`block:${b.block_id}`}
+                      fields={[
+                        {
+                          name: "body",
+                          label: "Описание",
+                          type: "textarea",
+                          value: b.description.body,
+                        },
+                        {
+                          name: "url",
+                          label: "Сообщество",
+                          type: "url",
+                          value: b.community_url ?? "",
+                        },
+                      ]}
+                      onSubmit={async (v, expectedRevision) => {
+                        return perform(() =>
+                          membershipApi.updateBlock(id, {
+                            expected_revision: expectedRevision!,
+                            description: richText(text(v, "body")),
+                            community_url: text(v, "url"),
+                          }),
+                        );
+                      }}
+                      onConflict={refresh}
+                    />
+                  </details>
+                )}
+              </Card>
+            )}
+            {/* The master with the deputies and the block's HR read together (D-05). */}
             <Card>
-              {/* The header already shows the block's avatar and name (PE-25). */}
-              <div className={s.row}>
-                {canViewTracker && (
-                  <RouteLink
-                    to={`/tasks?scope_kind=block&scope_id=${encodeURIComponent(id)}`}
-                  >
-                    Задачи блока
-                  </RouteLink>
-                )}
-                {can(b, "create_volunteer_merit") && <RouteLink to={`/merits?source_kind=block_volunteer&scope_id=${encodeURIComponent(id)}`}>Учесть волонтёрскую работу</RouteLink>}
-                {b.guide_material_id && can(b, "read_guide") ? (
-                  <RouteLink
-                    to={`/materials/${encodeURIComponent(b.guide_material_id)}`}
-                  >
-                    Гайд блока
-                  </RouteLink>
-                ) : b.guide_material_id ? (
-                  <span className={s.muted}>Гайд доступен участникам блока</span>
-                ) : (
-                  <span className={s.muted}>Гайд ещё готовится</span>
-                )}
-                {b.community_url && (
-                  <a
-                    className={s.linkButton}
-                    href={b.community_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Сообщество блока
-                  </a>
+              <div className={s.between}>
+                <h2>Руководство</h2>
+                {(can(b, "manage_leaders") || can(b.master, "manage_deputies")) && (
+                  <button type="button" className={s.button} onClick={() => setLeadership(true)}><Glyph name="edit" />Изменить руководство</button>
                 )}
               </div>
-              <Markdown content={b.description} />
-            </Card>
-            <Card title="Руководство">
-              <Leaders leaders={b.master ? [b.master] : []} editable={false} />
-              {(can(b, "manage_leaders") || can(b.master, "manage_deputies")) && (
-                <div className={s.row}><button type="button" className={s.button} onClick={() => setLeadership(true)}><Glyph name="edit" />Изменить руководство</button></div>
-              )}
+              <div className={m.leadership}>
+                <div className={m.leadershipPart}>
+                  <h3>Мастер блока</h3>
+                  <Leaders leaders={b.master ? [b.master] : []} editable={false} />
+                </div>
+                <div className={`${m.leadershipPart} ${m.hrPart}`}>
+                  <h3>HR блока</h3>
+                  <BlockHr block={b} />
+                </div>
+              </div>
+              <p className={`${s.muted} ${m.note}`}>
+                Служебное назначение мастера или заместителя отдельно от
+                обычного членства.
+              </p>
               {leadership && <UnsavedChangesScope><TrackerTaskDialog title="Руководство блока" onClose={() => setLeadership(false)}>
               {/* Two server commands with their own rights and revisions: each section saves on its own. */}
               {can(b, "manage_leaders") && (<section className={s.stack} aria-label="Мастер блока"><h3>Мастер блока</h3>
@@ -201,33 +278,34 @@ export function BlockPage() {
               {b.master && can(b.master, "manage_deputies") && <section className={s.stack} aria-label="Заместители мастера"><h3>Заместители мастера</h3><DeputiesForm leader={b.master} /></section>}
               </TrackerTaskDialog></UnsavedChangesScope>}
             </Card>
-            <Card title="HR блока"><BlockHr block={b} /></Card>
-            <Card title="Состав блока">
+            <Card title="Состав блока" className={m.members}>
               <ul className={s.list}>
-                {b.members.map((m) => (
-                  <li key={m.user.user_id}>
-                    <div className={s.between}>
-                      <span className={s.row}>
-                        <UserChip user={m.user} />
-                        <Badge tone={m.block_category === "junior" ? "mint" : undefined}>
-                          {m.block_category === "junior"
+                {b.members.map((item) => (
+                  <li key={item.user.user_id}>
+                    <div className={`${s.between} ${m.member}`}>
+                      <span className={`${s.row} ${m.memberName}`}>
+                        <UserChip user={item.user} />
+                        <Badge tone={item.block_category === "junior" ? "mint" : undefined}>
+                          {item.block_category === "junior"
                             ? "Новичок блока"
                             : "Участник"}
                         </Badge>
                       </span>
                       {can(b, "remove_member") &&
-                        m.user.user_id !== session?.user_id && m.user.user_id !== b.master?.user.user_id && !b.master?.deputy_user_ids.includes(m.user.user_id!) && (
+                        item.user.user_id !== session?.user_id && item.user.user_id !== b.master?.user.user_id && !b.master?.deputy_user_ids.includes(item.user.user_id!) && (
                           <ActionForm
                             fields={[]}
-                            submitLabel="Убрать из состава"
+                            // A short word in the row; its full name says whom it removes (D-05).
+                            submitLabel="Убрать"
+                            submitTitle={`Убрать из состава: ${item.user.display_name}`}
                             variant="danger"
                             confirm={{
                               label: "Да, исключить",
-                              text: `Исключить ${m.user.display_name} из блока «${b.name}»? Вернуться в блок участник сможет только по новой заявке.`,
+                              text: `Исключить ${item.user.display_name} из блока «${b.name}»? Вернуться в блок участник сможет только по новой заявке.`,
                             }}
                             onSubmit={async () => {
                               await perform(() =>
-                                membershipApi.remove(id, m.user.user_id!),
+                                membershipApi.remove(id, item.user.user_id!),
                               );
                             }}
                           />
@@ -236,10 +314,6 @@ export function BlockPage() {
                   </li>
                 ))}
               </ul>
-              <p className={s.muted}>
-                Служебное назначение мастера или заместителя отдельно от
-                обычного членства.
-              </p>
               {plainMember && (
                 <div className={s.row}>
                   <span className={s.muted}>
@@ -248,56 +322,7 @@ export function BlockPage() {
                   {leaveContacts.map(user => <UserChip key={user.user_id} user={user} />)}
                 </div>
               )}
-              {alreadyInBlock ? null : pending ? (
-                <p>
-                  Заявка: {requestStates[pending.state]} ·{" "}
-                  <RouteLink to="/blocks/requests">Открыть</RouteLink>
-                </p>
-              ) : (
-                !b.members.some((m) => m.user.user_id === session?.user_id) && (
-                  <ActionForm
-                    fields={[]}
-                    submitLabel="Подать заявку в блок"
-                    onSubmit={async () => {
-                      await perform(() => membershipApi.join(id));
-                    }}
-                  />
-                )
-              )}
             </Card>
-            {can(b, "edit_block") && (
-              <Card title="Изменить описание">
-                <ActionForm
-                  key={b.block_id}
-                  revision={b.revision}
-                  record={`block:${b.block_id}`}
-                  fields={[
-                    {
-                      name: "body",
-                      label: "Описание",
-                      type: "textarea",
-                      value: b.description.body,
-                    },
-                    {
-                      name: "url",
-                      label: "Сообщество",
-                      type: "url",
-                      value: b.community_url ?? "",
-                    },
-                  ]}
-                  onSubmit={async (v, expectedRevision) => {
-                    return perform(() =>
-                      membershipApi.updateBlock(id, {
-                        expected_revision: expectedRevision!,
-                        description: richText(text(v, "body")),
-                        community_url: text(v, "url"),
-                      }),
-                    );
-                  }}
-                  onConflict={refresh}
-                />
-              </Card>
-            )}
             <HistoryDisclosure kind="block" id={id} />
           </div>
         )}

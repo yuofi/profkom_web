@@ -17,6 +17,7 @@ export function Page({
   description,
   children,
   actions,
+  headerNav,
   className,
   headerClassName,
 }: {
@@ -24,6 +25,8 @@ export function Page({
   description?: string;
   children: ReactNode;
   actions?: ReactNode;
+  /** The page's own actions in one row under the title, as on a subevent page (D-05). */
+  headerNav?: ReactNode;
   className?: string;
   headerClassName?: string;
 }) {
@@ -37,6 +40,7 @@ export function Page({
           <SectionHomeLink to={section?.to} label={section?.label} />
           <h1 className={s.title}>{title}</h1>
           {description && <p className={s.description}>{description}</p>}
+          {headerNav}
         </div>
         {actions}
       </header>

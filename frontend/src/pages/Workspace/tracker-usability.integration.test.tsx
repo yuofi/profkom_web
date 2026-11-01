@@ -18,7 +18,7 @@ import { TrackerTaskPage } from "./TrackerTaskDetail";
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 afterEach(async () => { await page?.cleanup();page = undefined;vi.restoreAllMocks(); });
 const accounting = (inputs: AssessmentInputs) => [inputs.revision, inputs.workflow_revision, inputs.workflow_status, inputs.hours, inputs.evaluation, inputs.effective_completed_at];
-const taskActionsSettled = () => ![...page!.container.querySelectorAll<HTMLButtonElement>("button")].some(button => button.disabled && (button.matches('[aria-haspopup="menu"][aria-label^="Статус задачи:"],[aria-label^="Убрать исполнителя:"]') || ["Стать исполнителем", "Наблюдать", "Перестать наблюдать", "Взять в работу", "Нужна помощь", "Сдать результат"].includes(button.textContent?.trim() ?? "")));
+const taskActionsSettled = () => ![...page!.container.querySelectorAll<HTMLButtonElement>("button")].some(button => (button.disabled || button.getAttribute("aria-disabled") === "true") && (button.matches('[aria-haspopup="menu"][aria-label^="Статус задачи:"],[aria-label^="Убрать исполнителя:"]') || ["Стать исполнителем", "Наблюдать", "Перестать наблюдать", "Взять в работу", "Нужна помощь", "Сдать результат"].includes(button.textContent?.trim() ?? "")));
 async function click(title: string, root: ParentNode = page!.container) {
   const button = [...root.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent?.trim() === title)!;expect(button).toBeDefined();await act(async () => button.click());await waitForPage(page!, taskActionsSettled);
 }
