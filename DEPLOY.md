@@ -18,8 +18,9 @@
   - backend работает на `a104a0c10f21` (это `profkom_web-backend:latest`);
   - образ, из которого создан frontend, удалён. Блоки Marzban внесены прямо в контейнер. Образ `78e8aa854a3e` (`profkom_web-frontend:latest`) совпадает с ним по конфигурации nginx и всем 32 файлам сайта, nginx новее на патч-версию.
 - **Порт backend 8000 сейчас открыт наружу:** Docker обходит ufw. За 72 часа напрямую пришло около 1500 запросов из 131 источника — только сканеры (`CONNECT`, `/metrics`, `/v1/models`), все получили 404. Сайт ходит к backend через nginx. Новая версия слушает этот порт только на 127.0.0.1.
-- **База:** `<db>` = `profcom.db` в `/home/yulov/profkom_web/data`, около 250 КБ, без WAL. `DATABASE_PATH=./data/profcom.db` в `backend/.env` считается от `/app`.
-  - Папка `data` — 777. База принадлежит 999:999: под этим uid работает пользователь `admin` контейнера, и в новом образе тоже.
+- **База:** `<db>` = `profcom.db` в `/home/yulov/profkom_web/data`, около 250 КБ. `DATABASE_PATH=./data/profcom.db` в `backend/.env` считается от `/app`.
+  - На 6eb9dea журнал DELETE. `release-1` переводит базу в WAL при первом подключении: рядом появляются `<db>-wal` и `<db>-shm` (раздел 7).
+  - Папка `data` — 777. База принадлежит 999:999: под этим uid работает пользователь `admin` контейнера, и в новом образе тоже. В WAL контейнер создаёт файлы рядом с базой, поэтому папка должна оставаться доступной uid 999 на запись.
   - Копия базы для проверок получает тех же владельца и права, иначе контейнер не сможет в неё писать.
 - **Настройки backend:**
   - старый образ содержит `backend/.env` внутри (`COPY . .`, `.env` не исключён);
@@ -66,7 +67,7 @@ git clone --branch release-1 $BUNDLE $H          # или из origin
 mkdir -p $H/data $H/nginx-extra
 # Копия через backup API SQLite из соединения только для чтения: сайт продолжает работать.
 python3 -c "import sqlite3, sys; s = sqlite3.connect('file:' + sys.argv[1] + '?mode=ro', uri=True); s.backup(sqlite3.connect(sys.argv[2]))" $D/data/<db> $H/data/site.db
-chmod --reference=$D/data $H/data; chown --reference=$D/data/<db> $H/data/site.db   # контейнер пишет под uid 999
+chmod --reference=$D/data $H/data; chown --reference=$D/data/<db> $H/data/site.db   # контейнер пишет под uid 999, в том числе site.db-wal и site.db-shm
 sha256sum $H/data/site.db
 ```
 
@@ -95,6 +96,7 @@ $RUN scripts/seal_completed_files.py --database /app/data/site.db --apply     # 
 $P run -d --rm --no-deps --name profkom-rehearsal-api -p 127.0.0.1:18850:8000 backend   # обычный старт: preset_db + uvicorn
 until curl -fs -o /dev/null http://127.0.0.1:18850/openapi.json; do sleep 1; done
 python3 backend/check_live.py --url http://127.0.0.1:18850 --read-only
+docker exec profkom-rehearsal-api python -c "import sqlite3; c = sqlite3.connect('/app/data/site.db'); print(c.execute('pragma journal_mode').fetchone()[0], c.execute('pragma integrity_check').fetchone()[0])"   # wal ok (раздел 7)
 docker stop profkom-rehearsal-api
 ```
 
@@ -103,7 +105,7 @@ docker stop profkom-rehearsal-api
 - повторный apply дал тот же `unresolved`;
 - `schema` пустой;
 - в `unresolved` осталось только принятое (раздел 4);
-- `nginx -t` и `check_live` прошли;
+- `nginx -t` и `check_live` прошли, копия в WAL и `integrity_check` — `ok` (раздел 7);
 - новый nginx содержит все location рабочего (раздел 3, шаг 2).
 
 Время шагов записать: из него складывается окно простоя. Если репетиция не прошла, выкладка переносится (УВ-7). После неё удалить `$H` вместе с копией базы и образы `profkom-rehearsal-*`.
@@ -160,7 +162,7 @@ diff <(docker exec profkom_web-frontend-1 nginx -T 2>/dev/null | grep -E '^\s*lo
 docker compose stop backend frontend                        # не down: сеть с шлюзом 172.19.0.1 нужна Marzban
 python3 -c "import sqlite3, sys; s = sqlite3.connect('file:' + sys.argv[1] + '?mode=ro', uri=True); s.backup(sqlite3.connect(sys.argv[2]))" data/<db> $B/backup-6eb9dea.db
 sha256sum data/<db> $B/backup-6eb9dea.db
-# 6. Миграция.
+# 6. Миграция. Первый --apply переводит базу в WAL, если в backend/.env нет SQLITE_JOURNAL_MODE=DELETE (раздел 7): рядом появятся <db>-wal и <db>-shm, их не удалять.
 RUN="docker compose run --rm --no-deps -T --entrypoint python backend"
 $RUN scripts/migrate_v13.py --database /app/data/<db> --report /app/data/dry.json
 $RUN scripts/mapping_candidate.py --database /app/data/<db> --out /app/data/mapping.json --review /app/data/review.json
@@ -172,6 +174,9 @@ $RUN scripts/seal_completed_files.py --database /app/data/<db> --apply
 # 7. Запуск и проверка.
 docker compose up -d --no-build
 python3 backend/check_live.py --url https://profcom-cmc.ru --read-only
+# Журнал и владельцы файлов базы (раздел 7): wal ok (delete ok при SQLITE_JOURNAL_MODE=DELETE), все файлы 999:999.
+docker exec profkom_web-backend-1 python -c "import sqlite3; c = sqlite3.connect('/app/data/<db>'); print(c.execute('pragma journal_mode').fetchone()[0], c.execute('pragma integrity_check').fetchone()[0])"
+stat -c '%u:%g %n' data/<db>*
 ```
 
 Проверку после запуска делают председатель и владелец:
@@ -203,7 +208,10 @@ python3 backend/check_live.py --url https://profcom-cmc.ru --read-only
 ```sh
 D=/home/yulov/profkom_web; B=/home/yulov/profkom-backups; cd $D
 docker compose stop backend frontend                         # не down: сеть с шлюзом 172.19.0.1 нужна Marzban
-rm -f data/<db>-journal data/<db>-wal data/<db>-shm          # чужой журнал не должен лечь на восстановленную базу
+# По желанию сохранить то, что записала новая версия, — тоже только через backup API (раздел 7).
+python3 -c "import sqlite3, sys; s = sqlite3.connect('file:' + sys.argv[1] + '?mode=ro', uri=True); s.backup(sqlite3.connect(sys.argv[2]))" data/<db> $B/after-release-1.db
+# Только после остановки backend и сразу перед заменой базы копией: -wal новой версии не должен лечь на восстановленную базу.
+rm -f data/<db>-journal data/<db>-wal data/<db>-shm
 cp $B/backup-6eb9dea.db data/<db>                             # сверить sha256 с записанным
 git -c safe.directory='*' checkout main                       # main = 6eb9dea
 cp $B/6eb9dea-local/nginx.conf frontend/nginx.conf
@@ -227,3 +235,49 @@ docker compose up -d --no-build
 - Ключи рабочего бакета выданы по решению владельца от 2026-10-24. Удалять объекты код не умеет, но загрузки с теста добавляют объекты в рабочий бакет.
 - Тестовые аккаунты на все роли (с 2026-10-25) есть только в копии. Это 18 аккаунтов `test-<роль>@example.com` с общим паролем, «Тестовый сезон» и «Тестовое мероприятие». Блоки создавать нельзя, поэтому тестовый мастер назначен на один из блоков без мастера. Председатель — настоящий аккаунт копии. База лежит на диске, контейнеры с `restart: unless-stopped`, поэтому аккаунты переживают перезапуски. Пропадают они только вместе с копией.
 - Удалить: `docker compose -p profkom-test down`, затем удалить `/root/profkom-test` и образы `profkom-test-*`.
+
+## 7. База в режиме WAL
+
+С `release-1` (PB-31, решение владельца 2026-10-31) backend при каждом подключении включает `journal_mode=WAL` и `synchronous=FULL`; `SQLITE_JOURNAL_MODE=DELETE` в `backend/.env` оставляет прежний журнал. Режим хранится в самом файле: первое подключение переводит базу, дальше она остаётся в WAL. Надёжность прежняя: каждая подтверждённая запись до ответа сброшена на диск. Чтения больше не ждут запись, запись не ждёт чтений; писатель по-прежнему один (`BEGIN IMMEDIATE`).
+
+- **Файлы рядом с базой:**
+  - `<db>-wal` — подтверждённые транзакции, ещё не перенесённые в `<db>`. Перенос (checkpoint) идёт сам. Последнее соединение при штатном закрытии переносит всё и удаляет файл. После `kill -9`, OOM или сбоя питания файл остаётся с данными, следующий старт их подхватывает.
+  - `<db>-shm` — индекс `<db>-wal` в общей памяти, данных в нём нет.
+  - Пока есть `<db>-wal`, в самом `<db>` может не быть последних записей. `sha256sum data/<db>` описывает только этот файл.
+- **Копии — только через backup API.** Команда `s.backup(...)` из разделов 2 и 3 читает `<db>` вместе с `<db>-wal` и даёт целую копию на границе транзакции, в том числе пока backend пишет. `cp`, `rsync`, `tar`, `scp` и `docker cp` рабочей `<db>` запрещены: даже после остановки backend последние записи могут лежать в `<db>-wal`. Готовую копию, которую никто не открыл, можно копировать обычным `cp`, как в разделе 5. Копия базы в WAL тоже в режиме WAL.
+- **`<db>-wal` и `<db>-shm` рабочей базы не удаляются:** в них подтверждённые записи. Удаляются они только при откате (раздел 5): после остановки backend и сразу перед заменой `<db>` резервной копией.
+- **Права.** SQLite создаёт `<db>-wal` и `<db>-shm` рядом с базой, поэтому папка `data` должна быть доступна на запись uid 999. Сейчас она 777, база 999:999 (раздел 0), так и оставить. Команды этого документа на сервере выполняются от root (`sudo`), и файлы, которые SQLite создаёт от root, получают владельца базы. Если базу прочитает другой пользователь (например, `yulov`) при остановленном backend, `<db>-wal` и `<db>-shm` могут остаться его файлами, и backend не сможет записывать: `attempt to write a readonly database`. Тогда при остановленном backend вернуть им владельца, не удаляя: `chown --reference=data/<db> data/<db>-wal data/<db>-shm`.
+- **Backup API при остановленном backend** создаёт пустые `<db>-wal` и `<db>-shm`, если их нет, и оставляет их. Это нормально, от root они получают владельца 999:999. Если тот, кто снимает копию, не может писать в папку базы, команда завершится ошибкой `attempt to write a readonly database` и оставит пустой файл копии.
+
+**Включение на сервере** — отдельное действие, только с отдельного разрешения владельца (AGENTS.md). Без такого разрешения до шага 6 выкладки (раздел 3) записать в `backend/.env` строку `SQLITE_JOURNAL_MODE=DELETE`: `release-1` останется на прежнем журнале. С разрешением при первой выкладке отдельный шаг не нужен: первый `--apply` шага 6 переводит базу, проверка — в шаге 7. Для тестового сайта (раздел 6) всё то же в `/root/profkom-test`: проект `profkom-test`, контейнер `profkom-test-backend-1`, база `site.db`; его обновление кодом с WAL тоже включает WAL. Включение на работающем `release-1`:
+
+```sh
+D=/home/yulov/profkom_web; B=/home/yulov/profkom-backups; cd $D
+stat -c '%a %u:%g %n' data data/<db>*                      # data 777, база 999:999; иначе не продолжать
+python3 -c "import sqlite3, sys; s = sqlite3.connect('file:' + sys.argv[1] + '?mode=ro', uri=True); s.backup(sqlite3.connect(sys.argv[2]))" data/<db> $B/before-wal-$(date +%Y%m%d-%H%M%S).db
+docker compose stop backend
+sed -i '/^SQLITE_JOURNAL_MODE=/d' backend/.env              # по умолчанию WAL
+docker compose up -d --no-build backend                    # первое подключение переводит базу в WAL
+docker exec profkom_web-backend-1 python -c "import sqlite3; c = sqlite3.connect('/app/data/<db>'); print(c.execute('pragma journal_mode').fetchone()[0], c.execute('pragma integrity_check').fetchone()[0])"   # wal ok
+stat -c '%u:%g %n' data/<db>*                               # все файлы 999:999
+python3 backend/check_live.py --url https://profcom-cmc.ru --read-only
+```
+
+Если проверка не прошла — откат ниже.
+
+**Откат WAL без отката версии** — тоже с отдельного разрешения. Данные сохраняются: перевод в DELETE переносит `<db>-wal` в базу и сам удаляет `<db>-wal` и `<db>-shm`. Выполняется только при остановленном backend.
+
+```sh
+D=/home/yulov/profkom_web; B=/home/yulov/profkom-backups; cd $D
+python3 -c "import sqlite3, sys; s = sqlite3.connect('file:' + sys.argv[1] + '?mode=ro', uri=True); s.backup(sqlite3.connect(sys.argv[2]))" data/<db> $B/before-delete-$(date +%Y%m%d-%H%M%S).db
+docker compose stop backend
+sed -i '/^SQLITE_JOURNAL_MODE=/d' backend/.env && echo "SQLITE_JOURNAL_MODE=DELETE" >> backend/.env   # иначе backend при старте снова включит WAL
+docker compose run --rm --no-deps -T --entrypoint python backend -c "import sqlite3; c = sqlite3.connect('/app/data/<db>'); print(c.execute('pragma journal_mode=DELETE').fetchone()[0], c.execute('pragma integrity_check').fetchone()[0])"   # delete ok
+ls data/<db>*                                               # только <db>
+docker compose up -d --no-build backend
+python3 backend/check_live.py --url https://profcom-cmc.ru --read-only
+```
+
+Если команда напечатала `wal` или `database is locked`, базу ещё держит другой процесс: найти и остановить его, файлы не удалять. Без `SQLITE_JOURNAL_MODE=DELETE` код `release-1` при следующем старте снова включит WAL. Откат всей версии (раздел 5) возвращает копию 6eb9dea, она в журнале DELETE.
+
+Скрипты тестового сайта вне git (`server-stage.sh`, `deploy-test.py`, `checkpoint-test.py`) копируют базу только через backup API, а `-wal` и `-shm` удаляют только при восстановлении: после остановки backend и перед заменой базы копией. С WAL они работают без изменений.

@@ -1,4 +1,5 @@
 import pathlib
+from typing import Literal
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -12,6 +13,8 @@ class Settings(BaseSettings):
     ADMIN_NAME: str = ""
     ADMIN_PASSWORD: str = ""
     DATABASE_PATH: str = ""
+    # WAL by default (PB-31); DELETE is the rollback of DEPLOY.md.
+    SQLITE_JOURNAL_MODE: Literal["WAL", "DELETE"] = "WAL"
 
     model_config = SettingsConfigDict(
         env_file=".env",
