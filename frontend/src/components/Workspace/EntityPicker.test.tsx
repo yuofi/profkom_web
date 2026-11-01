@@ -116,3 +116,32 @@ it("removing the chosen chip keeps focus without opening the list over the next 
   await press("Escape");await act(async () => input().click());
   expect(choices()).toHaveLength(4);
 });
+it("server search reports typed text, keeps server matches unfiltered and the chosen label after the results change (PF-06)", async () => {
+  const typed: string[] = [];
+  const all: EntityOption[] = [{ value: "t-1", label: "Подготовить сценарий" }, { value: "t-2", label: "Закупить призы" }];
+  function Server() {
+    const [value, setValue] = useState(""), [search, setSearch] = useState("");
+    // The "server" matched the key EX-2 to a title that does not contain it.
+    // "медленно" is still being answered: the previous list stays meanwhile.
+    const available = search === "EX-2" ? [all[1]] : search === "медленно" ? [all[0]] : search ? [] : [all[0]];
+    return <EntityPicker name="task" label="Задача" value={value} onChange={setValue} options={available} loading={search === "медленно"}
+      note={search ? undefined : "Показана часть задач"} onSearch={text => { typed.push(text);setSearch(text); }} />;
+  }
+  page = await mountWorkspace(<Server />);await open();
+  expect(choices().map(option => option.dataset.optionValue)).toEqual(["t-1"]);
+  expect(document.querySelector("[data-entity-picker-popup]")?.textContent).toContain("Показана часть задач");
+  await change(input(), "EX-2");
+  expect(typed.at(-1)).toBe("EX-2");expect(choices().map(option => option.dataset.optionValue)).toEqual(["t-2"]);
+  await choose("t-2");
+  // The cleared search is reported, and the chip keeps the chosen name although "" returns only t-1.
+  expect(typed.at(-1)).toBe("");expect(page.container.querySelector<HTMLInputElement>('input[type="hidden"][name="task"]')?.value).toBe("t-2");
+  expect(page.container.querySelector('[data-selected-value="t-2"]')?.textContent).toContain("Закупить призы");
+  await open();await change(input(), "нет такой");
+  expect(page.container.querySelector('[data-selected-value="t-2"]')?.textContent).toContain("Закупить призы");
+  expect(page.container.textContent).not.toContain("Выбранное значение недоступно");
+  // While the server is still answering, Enter does not take a row of the previous list; a click still can.
+  await change(input(), "медленно");expect(choices().map(option => option.dataset.optionValue)).toEqual(["t-1"]);
+  expect(document.querySelector('[data-entity-picker-popup] [role="status"]')?.textContent).toContain("Загружаем");
+  await press("Enter");expect(page.container.querySelector<HTMLInputElement>('input[type="hidden"][name="task"]')?.value).toBe("t-2");
+  await choose("t-1");expect(page.container.querySelector<HTMLInputElement>('input[type="hidden"][name="task"]')?.value).toBe("t-1");
+});

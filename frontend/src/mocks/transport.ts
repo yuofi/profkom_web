@@ -1131,6 +1131,8 @@ export function installMockTransport(
       if (method === "get") {
         let tasks = filter(state.tasks, url).filter(readsTask);
         if (url.searchParams.get("queue_id")) tasks = tasks.filter(t => t.queue?.queue_id === url.searchParams.get("queue_id"));
+        // The mock's KKR control epics are the tasks of a queue keyed KKR.
+        if (url.searchParams.get("exclude_kkr_control") === "true") tasks = tasks.filter(t => t.queue?.key !== "KKR");
         if (url.searchParams.get("scope_id"))
           tasks = tasks.filter(
             (t) => t.scope.id === url.searchParams.get("scope_id"),

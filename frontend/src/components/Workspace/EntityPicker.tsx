@@ -29,6 +29,12 @@ interface CommonProps {
   describedBy?: string;
   placeholder?: string;
   emptyMessage?: string;
+  /** A short line under the options, e.g. that the server returned only part of the matches. */
+  note?: string;
+  /** Server-side search (PF-06): receives the typed text, and "" when it is cleared. The options are
+   * then the server's matches for that text and are not filtered again; a chosen option keeps its
+   * label after a later search no longer returns it, and Enter does not choose while loading. */
+  onSearch?: (text: string) => void;
   onBlur?: () => void;
 }
 export type EntityPickerProps = CommonProps & (
@@ -47,7 +53,8 @@ function missingLabel(kind?: EntityKind) {
   return kind === "person" ? "Выбранный участник недоступен" : kind === "block" ? "Выбранный блок недоступен" : "Выбранное значение недоступно";
 }
 
-/** Search operates only on the supplied authorized options; typed text never becomes a saved ID. */
+/** Search operates only on the supplied authorized options (with onSearch, on the server's authorized
+ * matches); typed text never becomes a saved ID. */
 export function EntityPicker(props: EntityPickerProps) {
   const generated = useId(), id = props.id ?? generated;
   const root = useRef<HTMLDivElement>(null), input = useRef<HTMLInputElement>(null), popup = useRef<HTMLDivElement>(null);
@@ -55,10 +62,14 @@ export function EntityPicker(props: EntityPickerProps) {
   // controls below it (PE-05): the list opens on typing, a click or ArrowDown.
   const quietFocus = useRef(false);
   const [portal, setPortal] = useState<HTMLElement | null>(null);
-  const [open, setOpen] = useState(false), [search, setSearch] = useState(""), [active, setActive] = useState(0);
+  const [open, setOpen] = useState(false), [search, setSearchText] = useState(""), [active, setActive] = useState(0);
+  const { onSearch } = props, server = !!onSearch;
+  const setSearch = (text: string) => { setSearchText(text);onSearch?.(text); };
+  // Server results change with every search, so the chips keep the options they were chosen from.
+  const [chosen, setChosen] = useState<ReadonlyMap<string, EntityOption>>(new Map());
   const options = [...new Map(props.options.map(option => [option.value, option])).values()];
   const selected = props.multiple ? props.value : props.value ? [props.value] : [];
-  const tokens = search.trim().toLocaleLowerCase("ru").split(/\s+/).filter(Boolean);
+  const tokens = server ? [] : search.trim().toLocaleLowerCase("ru").split(/\s+/).filter(Boolean);
   const filtered = options.filter(option => {
     const words = [option.label, option.user?.display_name, option.block?.name, option.scope?.name].filter(Boolean).join(" ").toLocaleLowerCase("ru");
     return tokens.every(token => words.includes(token));
@@ -73,6 +84,7 @@ export function EntityPicker(props: EntityPickerProps) {
   };
   const choose = (option: EntityOption) => {
     if (blocked() || option.disabled) return;
+    if (server) setChosen(previous => new Map(previous).set(option.value, option));
     if (props.multiple) props.onChange(selected.includes(option.value) ? selected.filter(value => value !== option.value) : [...selected, option.value]);
     else props.onChange(option.value);
     // The list closes after a choice, so it never covers the form's own submit; typing,
@@ -92,7 +104,7 @@ export function EntityPicker(props: EntityPickerProps) {
   useEffect(() => {
     if (!expanded) return;
     const outside = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node) && !popup.current?.contains(event.target as Node)) { setOpen(false);setSearch(""); }
+      if (!root.current?.contains(event.target as Node) && !popup.current?.contains(event.target as Node)) { setOpen(false);setSearchText("");onSearch?.(""); }
     };
     document.addEventListener("pointerdown", outside);
     // A popup portalled out of a disabled fieldset must never remain interactive.
@@ -100,7 +112,7 @@ export function EntityPicker(props: EntityPickerProps) {
     let ancestor = root.current?.parentElement;
     while (ancestor) { if (ancestor instanceof HTMLFieldSetElement) observer.observe(ancestor, { attributes: true, attributeFilter: ["disabled"] });ancestor = ancestor.parentElement; }
     return () => { document.removeEventListener("pointerdown", outside);observer.disconnect(); };
-  }, [expanded]);
+  }, [expanded, onSearch]);
   useLayoutEffect(() => {
     if (!expanded) return;
     const position = () => {
@@ -138,7 +150,7 @@ export function EntityPicker(props: EntityPickerProps) {
     {props.label && <label className={s.label} id={`${id}-label`} htmlFor={id}>{props.label}</label>}
     <div className={s.control} data-invalid={props.invalid || undefined} data-single={!props.multiple || undefined}>
       {selected.length > 0 && <ul className={s.selected} aria-label="Выбранные значения">{selected.map((value, index) => {
-        const option = options.find(option => option.value === value);
+        const option = options.find(option => option.value === value) ?? (server ? chosen.get(value) : undefined);
         const label = option?.label ?? missingLabel(props.entity);
         return <li key={value} data-selected-value={value} title={props.multiple ? undefined : label}>
           {option ? <OptionChip option={option} /> : <span className={s.missing}>{label}</span>}
@@ -154,7 +166,7 @@ export function EntityPicker(props: EntityPickerProps) {
           placeholder={selected.length ? props.multiple ? "Найти и добавить…" : "Изменить выбор…" : props.placeholder ?? (props.multiple ? "Найти и добавить…" : "Найти и выбрать…")} value={search}
           onFocus={() => { if (!quietFocus.current) activate(); }} onClick={activate} onChange={event => { setSearch(event.target.value);setActive(0);activate(); }}
           onKeyDown={event => {
-            if (event.key === "Enter") { event.preventDefault();event.stopPropagation();if (expanded && activeIndex >= 0) choose(filtered[activeIndex]);else activate(); }
+            if (event.key === "Enter") { event.preventDefault();event.stopPropagation();if (expanded && activeIndex >= 0) { if (!(server && props.loading)) choose(filtered[activeIndex]); } else activate(); }
             else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) { event.preventDefault();const already = expanded;activate();if (already || ["Home", "End", "ArrowUp"].includes(event.key)) move(event.key); }
           }} />
         {props.loading && <span className={s.loading} aria-hidden="true">…</span>}
@@ -170,6 +182,7 @@ export function EntityPicker(props: EntityPickerProps) {
         </li>)}
       </ul>
       {!props.loading && !filtered.length && <p className={s.message}>{props.emptyMessage ?? "Подходящих вариантов нет."}</p>}
+      {props.note && <p className={s.message}>{props.note}</p>}
     </div>, portal)}
   </div>;
 }

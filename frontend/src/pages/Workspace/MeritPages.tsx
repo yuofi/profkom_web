@@ -1,6 +1,6 @@
 import { EntityPicker, type EntityOption } from "../../components/Workspace/EntityPicker";
 import { useState, type ComponentProps } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Navigate, useParams, useSearchParams } from "react-router-dom";
 import {
   Page,
@@ -41,6 +41,7 @@ import {
   usePeopleOptions,
   useWorkspaceActions,
 } from "../../utils/hooks/useWorkspace";
+import { useDebouncedValue } from "../../utils/hooks/useDebouncedValue";
 import s from "../../components/Workspace/Workspace.module.css";
 import { KkrTemplateTools } from "../../components/Workspace/KkrTemplateLibrary";
 import type { TemplateSelection } from "../../utils/api/profileFeatures.api";
@@ -812,6 +813,7 @@ export function CorrectionsPage() {
   const { perform } = useWorkspaceActions();
   const [kind, setKind] = useState<CorrectionKind>("assessment_inputs");
   const [objectId, setObjectId] = useState("");
+  const [search, setSearch] = useState("");
   // Who corrects a closed season is the summary's correct_summary (SE-13): the chair, deputies, HR master.
   const reader = can(session, "view_summary");
   const { seasons, season, missing } = useSubpageSeason(id);
@@ -821,12 +823,19 @@ export function CorrectionsPage() {
     enabled: !!season && reader,
   });
   const allowed = can(summary.data, "correct_summary");
-  // The picker lists every task of the season; pages of 100 and only for task-based kinds (PF-06).
+  // Task-based kinds search the season's readable tasks on the server by name or key, 20 at a time and
+  // without the KKR control epics, instead of listing the whole season (PF-06). Typing settles for
+  // 250 ms; the last list stays meanwhile.
+  const settledSearch = useDebouncedValue(search);
   const tasks = useQuery({
-    queryKey: ["tasks", "closed-correction", id],
-    queryFn: () => tasksApi.list({ season_id: id, mine: false, limit: 100 }),
+    queryKey: ["tasks", "closed-correction", id, settledSearch],
+    queryFn: ({ signal }) => tasksApi.listPage({ season_id: id, ...(settledSearch ? { q: settledSearch } : {}), limit: 20, include_facets: false, exclude_kkr_control: true }, signal),
     enabled: allowed && kind !== "merit",
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
   });
+  const searching = kind !== "merit" && (search !== settledSearch || tasks.isPlaceholderData);
+  const partial = kind !== "merit" && !searching && !!tasks.data?.next_cursor;
   const merits = useQuery({
     queryKey: ["merits", id],
     queryFn: () => seasonsApi.merits({ season_id: id }),
@@ -902,6 +911,7 @@ export function CorrectionsPage() {
               <QueryState
                 loading={kind === "merit" ? merits.isLoading : tasks.isLoading}
                 error={kind === "merit" ? merits.error : tasks.error}
+                keepDataOnError={kind !== "merit" && !!tasks.data}
                 retry={() =>
                   void (kind === "merit" ? merits.refetch() : tasks.refetch())
                 }
@@ -911,11 +921,15 @@ export function CorrectionsPage() {
                   label={kind === "assessment_inputs" ? "Оцениваемое назначение: исполнитель · задача · часы / оценка" : kind === "task_inputs" ? "Задача" : "Запись заслуги"}
                   value={objectId}
                   onChange={setObjectId}
-                  placeholder="Найти запись"
-                  loading={kind === "assessment_inputs" && contributions.isLoading}
+                  placeholder={kind === "merit" ? "Найти запись" : "Название или ключ задачи"}
+                  loading={searching || (kind === "assessment_inputs" && contributions.isLoading)}
                   options={options ?? []}
+                  {...(kind === "merit" ? {} : {
+                    onSearch: setSearch,
+                    note: partial ? "Показана часть задач сезона. Уточните название или ключ." : undefined,
+                  })}
                 />
-                {options?.length === 0 && (
+                {options?.length === 0 && (kind === "merit" || (!settledSearch && !partial)) && (
                   <Empty>Нет доступных записей этого типа.</Empty>
                 )}
                 {objectId && (
