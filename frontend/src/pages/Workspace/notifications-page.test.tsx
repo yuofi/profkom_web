@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
 import { act } from "react";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
@@ -61,4 +62,7 @@ it("keeps the keyboard focus on «Показать ещё» while it loads and t
 it("moves the focus to the text of a new row that has no link and no action (smoke FV-2)", async () => {
   await loadLastPage({ target: null, read_at: "2026-10-02T00:00:00Z" });
   expect(document.activeElement?.tagName).toBe("SPAN");expect(document.activeElement?.textContent).toBe("Работа 1");expect(document.activeElement?.closest("li")).toBe(rows()[30]);
+  // Its keyboard ring is the site's, as on the links beside it, not the browser's default one.
+  const css = readFileSync(`${__dirname}/Notifications.module.css`, "utf8");
+  expect(css.match(/(?:^|\n)([^{}]*\.text:focus-visible[^{}]*)\{([^}]*)\}/)?.[2]).toMatch(/outline:\s*2px solid var\(--primary\);[\s\S]*outline-offset:\s*2px/);
 });
