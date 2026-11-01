@@ -5,6 +5,7 @@ import type { Task, TaskPriority, TaskType } from "../../utils/api/contract";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { displayDate, moscowInput } from "../../utils/dates";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
+import { useTaskFormCommand } from "./taskCommands";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
 import { taskTypeNames, taskPriorityNames } from "./trackerPlanning";
@@ -20,14 +21,14 @@ export function TaskPlanningFields({ value, onChange, disabled = false, deadline
 }
 export function TaskPlanningEditor({ task, onClose, onSaved }: { task: Task; onClose: () => void; onSaved?: () => void }) {
   const [draft, setDraft] = useState(() => planningDraft(task)), [busy, setBusy] = useState(false);
-  const { perform, refresh } = useWorkspaceActions();
+  const { refresh } = useWorkspaceActions(), save = useTaskFormCommand(task.task_id);
   return <TrackerTaskDialog title="Планирование задачи" onClose={onClose} busy={busy}>
     <ActionForm fields={[]} revision={task.revision} record={`task:${task.task_id}`} externalState={draft} savedExternalState={planningDraft(task)}
       onReplaceWithSaved={() => setDraft(planningDraft(task))} onConflict={refresh} submitLabel="Сохранить параметры" savedDetails={<p>{taskTypeNames[task.task_type ?? "task"]} · {taskPriorityNames[task.priority ?? "normal"]} · Начало: {displayDate(task.starts_at)}</p>}
       onSubmit={async (_, expectedRevision) => {
         const payload = planningPayload(draft);
         if (payload.starts_at && task.deadline_at && Date.parse(payload.starts_at) > Date.parse(task.deadline_at)) throw Error("Плановое начало не может быть позже дедлайна");
-        setBusy(true);try { const saved = await perform(() => tasksApi.update(task.task_id, { expected_revision: expectedRevision!, ...payload }));onSaved?.();onClose();return saved; } finally { setBusy(false); }
+        setBusy(true);try { const saved = await save(expectedRevision!, expected => tasksApi.update(task.task_id, { expected_revision: expected, ...payload }));onSaved?.();onClose();return saved; } finally { setBusy(false); }
       }}>
       <TaskPlanningFields value={draft} onChange={setDraft} disabled={busy} deadline={task.deadline_at} />
       <p className={s.hint}>Эпик объединяет работу по результату, веха — по сроку. Добавляйте задачи к ним через связи. Плановые даты не меняют учёт ККР.</p>

@@ -6,7 +6,7 @@ import { can } from "../../utils/session";
 import { userMessage } from "../../utils/api/messages";
 import { getTaskCreateRoute, getTaskRoute } from "../../utils/routes";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
-import { useTaskCommand } from "./taskCommands";
+import { useTaskCommand, useTaskFormCommand } from "./taskCommands";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
@@ -39,12 +39,12 @@ export function TrackerTaskRelations({task,onEditParent,editing:openedOutside,on
   </section>;
 }
 function LinkEditor({task,onClose}:{task:Task;onClose:()=>void}) {
-  const [kind,setKind]=useState<TaskLinkKind|"parent">("related"),[target,setTarget]=useState(""),[busy,setBusy]=useState(false);const {perform,refresh}=useWorkspaceActions();
+  const [kind,setKind]=useState<TaskLinkKind|"parent">("related"),[target,setTarget]=useState(""),[busy,setBusy]=useState(false);const {refresh}=useWorkspaceActions(),save=useTaskFormCommand(task.task_id);
   const type=task.task_type??"task",allowed=can(task,"manage_task_links"),hasEpic=task.links?.some(link=>link.kind==="epic");
   const choices=(Object.keys(kindChoices)as (TaskLinkKind|"parent")[]).filter(key=>key==="parent"?can(task,"edit_task"):allowed&&(key==="epic"||key==="milestone"?type==="task":key==="epic_member"?type==="epic":key==="milestone_member"?type==="milestone":true));
   const actualKind=choices.includes(kind)?kind:choices[0],targetType:TaskType|undefined=actualKind==="epic"?"epic":actualKind==="milestone"?"milestone":["epic_member","milestone_member"].includes(actualKind)?"task":undefined;
   return <TrackerTaskDialog title="Добавить связь" onClose={onClose} busy={busy}><ActionForm fields={[]} revision={task.revision} record={`task:${task.task_id}`} externalState={{kind:actualKind,target}} savedExternalState={{kind:choices.includes("related")?"related":choices[0],target:""}} onReplaceWithSaved={()=>{setKind(choices.includes("related")?"related":choices[0]);setTarget("");}} onConflict={refresh} submitLabel="Добавить связь"
-    onSubmit={async(_,expectedRevision)=>{if(!target)throw Error("Выберите доступную задачу для связи");setBusy(true);try{const saved=await perform(()=>actualKind==="parent"?tasksApi.update(task.task_id,{expected_revision:expectedRevision!,parent_task_id:target}):tasksApi.addLink(task.task_id,{expected_revision:expectedRevision!,target_task_id:target,kind:actualKind}));onClose();return saved;}finally{setBusy(false);}}}>
+    onSubmit={async(_,expectedRevision)=>{if(!target)throw Error("Выберите доступную задачу для связи");setBusy(true);try{const saved=await save(expectedRevision!,expected=>actualKind==="parent"?tasksApi.update(task.task_id,{expected_revision:expected,parent_task_id:target}):tasksApi.addLink(task.task_id,{expected_revision:expected,target_task_id:target,kind:actualKind}));onClose();return saved;}finally{setBusy(false);}}}>
     <label className={w.field}>Тип связи<select name="relation_kind" value={actualKind} disabled={busy} onChange={event=>{setKind(event.target.value as TaskLinkKind|"parent");setTarget("");}}>{choices.map(key=><option value={key} key={key} disabled={key==="epic"&&hasEpic}>{kindChoices[key]}</option>)}</select></label>
     <TrackerParentSelector key={`${actualKind}:${targetType??"any"}`} value={target} onChange={setTarget} taskId={task.task_id} seasonId={task.season_id} taskType={targetType} label="Связанная задача" disabled={busy}/>
     {hasEpic&&type==="task"&&<p className={s.hint}>У задачи уже выбран эпик. Чтобы заменить его, сначала удалите прежнюю связь.</p>}

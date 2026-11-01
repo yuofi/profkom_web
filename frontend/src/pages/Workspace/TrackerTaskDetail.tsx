@@ -34,7 +34,7 @@ import { displayDate } from "../../utils/dates";
 import { getSeasonRoute, getTaskRoute, getTaskQueueRoute, getTaskQueuesRoute } from "../../utils/routes";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { requestKey, type RequestKey } from "../../utils/clientId";
-import { markDescription, useTaskCommand } from "./taskCommands";
+import { markDescription, useTaskCommand, useTaskFormCommand } from "./taskCommands";
 import { TaskStatusMenu } from "./TaskStatusMenu";
 import { taskStatus } from "./trackerStatus";
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
@@ -157,22 +157,24 @@ function TaskContent({ task, assignmentId, accountingRequested=false, back }: { 
 }
 
 function DescriptionEditor({ task, onClose, onSaved }: { task: Task; onClose: () => void; onSaved?: () => void }) {
-  const [body, setBody] = useState(task.description.body);const [busy, setBusy] = useState(false);const { perform, refresh } = useWorkspaceActions();
+  const [body, setBody] = useState(task.description.body);const [busy, setBusy] = useState(false);const { refresh } = useWorkspaceActions();const save = useTaskFormCommand(task.task_id);
+  // The save waits in the card's command queue (TR-01): right after a checkmark it sends the
+  // next own revision; a foreign change still answers 409 here and keeps the draft.
   return <TrackerTaskDialog title="Редактировать задачу" onClose={onClose} busy={busy}><ActionForm fields={can(task, "edit_task") ? [{ name: "title", label: "Название задачи", value: task.title, required: true }] : []} revision={task.revision} record={`task:${task.task_id}`} onConflict={refresh}
     externalState={body} savedExternalState={task.description.body} onReplaceWithSaved={() => setBody(task.description.body)}
     savedDetails={<div><p>Сохранённое название: {task.title}</p><MarkdownContent body={task.description.body} /></div>} submitLabel="Сохранить описание"
-    onSubmit={async (values, expectedRevision) => { setBusy(true);try { const saved = await perform(() => tasksApi.update(task.task_id, { expected_revision: expectedRevision!, ...(can(task, "edit_task") ? { title: text(values, "title") } : {}), description: richText(body) }));onSaved?.();onClose();return saved; } finally { setBusy(false); } }}>
+    onSubmit={async (values, expectedRevision) => { setBusy(true);try { const saved = await save(expectedRevision!, expected => tasksApi.update(task.task_id, { expected_revision: expected, ...(can(task, "edit_task") ? { title: text(values, "title") } : {}), description: richText(body) }));onSaved?.();onClose();return saved; } finally { setBusy(false); } }}>
       <MarkdownEditor value={body} onChange={setBody} label="Описание задачи в Markdown" name="body" rows={12} context="task" disabled={busy} />
     </ActionForm></TrackerTaskDialog>;
 }
 function ParentTaskEditor({ task, onClose, onSaved }: { task: Task; onClose: () => void; onSaved?: () => void }) {
   const [parentId, setParentId] = useState(task.parent_task?.task_id ?? ""), [busy, setBusy] = useState(false);
-  const { perform, refresh } = useWorkspaceActions();
+  const { refresh } = useWorkspaceActions(), save = useTaskFormCommand(task.task_id);
   return <TrackerTaskDialog title="Родительская задача" onClose={onClose} busy={busy}>
     <p className={w.muted}>Можно выбрать доступную задачу из любой очереди этого сезона.</p>
     <ActionForm fields={[]} revision={task.revision} record={`task:${task.task_id}`} onConflict={refresh} externalState={parentId} savedExternalState={task.parent_task?.task_id ?? ""}
       onReplaceWithSaved={() => setParentId(task.parent_task?.task_id ?? "")} savedDetails={<p>Сохранённая родительская задача: {task.parent_task ? `${task.parent_task.task_key} · ${task.parent_task.title}` : task.parent_task_unavailable ? "Недоступна" : "Не выбрана"}</p>} submitLabel="Сохранить родительскую задачу"
-      onSubmit={async (_values, expectedRevision) => { setBusy(true);try { const saved = await perform(() => tasksApi.update(task.task_id, { expected_revision: expectedRevision!, parent_task_id: parentId || null }));onSaved?.();onClose();return saved; } finally { setBusy(false); } }}>
+      onSubmit={async (_values, expectedRevision) => { setBusy(true);try { const saved = await save(expectedRevision!, expected => tasksApi.update(task.task_id, { expected_revision: expected, parent_task_id: parentId || null }));onSaved?.();onClose();return saved; } finally { setBusy(false); } }}>
       <TrackerParentSelector value={parentId} onChange={setParentId} seasonId={task.season_id} taskId={task.task_id} initialParent={task.parent_task} disabled={busy} />
     </ActionForm>
   </TrackerTaskDialog>;
@@ -232,11 +234,11 @@ function TaskPeopleParameters({ task }: { task: Task }) {
   </>;
 }
 function TaskFilesEditor({ task, onClose, onSaved }: { task: Task; onClose: () => void; onSaved?: () => void }) {
-  const [files, setFiles] = useState<FileRef[]>(task.attachments ?? []), [uploading, setUploading] = useState(false), [busy, setBusy] = useState(false);const { perform, refresh } = useWorkspaceActions();
+  const [files, setFiles] = useState<FileRef[]>(task.attachments ?? []), [uploading, setUploading] = useState(false), [busy, setBusy] = useState(false);const { refresh } = useWorkspaceActions(), save = useTaskFormCommand(task.task_id);
   return <TrackerTaskDialog title="Файлы к постановке задачи" onClose={onClose} busy={busy || uploading}><p className={w.muted}>Эти файлы доступны читателям задачи после сохранения. Результат работы сдаётся отдельно.</p>
     <ActionForm fields={[]} revision={task.revision} record={`task:${task.task_id}`} onConflict={refresh} externalState={files} savedExternalState={task.attachments ?? []} externalBusy={uploading}
       onReplaceWithSaved={() => setFiles(task.attachments ?? [])} savedDetails={<div><p>Сохранённые вложения задачи:</p><Attachments files={task.attachments ?? []} /></div>} submitLabel="Сохранить вложения"
-      onSubmit={async (_values, expectedRevision) => { setBusy(true);try { const saved = await perform(() => tasksApi.update(task.task_id, { expected_revision: expectedRevision!, file_ids: files.map(file => file.file_id) }));onSaved?.();onClose();return saved; } finally { setBusy(false); } }}>
+      onSubmit={async (_values, expectedRevision) => { setBusy(true);try { const saved = await save(expectedRevision!, expected => tasksApi.update(task.task_id, { expected_revision: expected, file_ids: files.map(file => file.file_id) }));onSaved?.();onClose();return saved; } finally { setBusy(false); } }}>
       <AttachmentPicker owner_kind="task" owner_id={task.task_id} purpose="attachment" files={files} onChange={setFiles} onBusyChange={setUploading} />
     </ActionForm>
   </TrackerTaskDialog>;

@@ -260,6 +260,104 @@ it("a link removed right after a checkmark waits for it and sends the next own r
   expect(page!.container.querySelector('section[aria-label="Связанные задачи"] [role="alert"], section[aria-label="Описание задачи"] [role="alert"]')).toBeNull();expect(task.revision).toBe(10);
 });
 
+/** A task with one checklist item whose title and description the reader edits, and its server (TR-01).
+ *  `foreignTitle`: someone else renames the task right after the checkmark is saved. */
+function editableWithChecklist(foreignTitle?: string) {
+  const server = { task: makeTask({ title: "Старое название", description: richText("Старое описание"), revision: 8, checklist: [{ item_id: "one", text: "Пункт", checked: false }], capabilities: ["read_task", "toggle_task_checklist", "edit_task"] }) };
+  const releases: (() => void)[] = [];
+  const toggles = vi.spyOn(tasksApi, "toggleChecklist").mockImplementation(async (_id, itemId, data) => {
+    await new Promise<void>(resolve => releases.push(resolve));
+    if (data.expected_revision !== server.task.revision) throw new ApiError("Changed", 409, "revision_conflict");
+    const own = server.task = { ...server.task, revision: server.task.revision + 1, checklist: server.task.checklist!.map(item => item.item_id === itemId ? { ...item, checked: data.checked } : item) };
+    if (foreignTitle) server.task = { ...server.task, revision: server.task.revision + 1, title: foreignTitle };
+    return own;
+  });
+  return { server, releases, toggles };
+}
+async function openTaskEditor(title: string, body: string) {
+  await click("Редактировать");
+  const dialog = page!.container.querySelector("dialog")!;
+  await change(dialog.querySelector<HTMLInputElement>('input[name="title"]')!, title);
+  await change(dialog.querySelector<HTMLTextAreaElement>('textarea[name="body"]')!, body);
+  return dialog;
+}
+const saveButton = (dialog: HTMLElement) => dialog.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+const tickChecklist = () => act(async () => page!.container.querySelector<HTMLInputElement>('section[aria-label="Чеклист задачи"] input[type="checkbox"]')!.click());
+
+it("a title and description save right after a checkmark waits for it and sends the next own revision (TR-01)", async () => {
+  const { server, releases, toggles } = editableWithChecklist();
+  const update = vi.spyOn(tasksApi, "update").mockImplementation(async (_id, data) => {
+    if (data.expected_revision !== server.task.revision) throw new ApiError("Changed", 409, "revision_conflict");
+    server.task = { ...server.task, revision: server.task.revision + 1, title: data.title ?? server.task.title, description: data.description ?? server.task.description };return server.task;
+  });
+  await mountTask(server.task);vi.mocked(tasksApi.get).mockImplementation(async () => server.task);
+  await tickChecklist();
+  const dialog = await openTaskEditor("Новое название", "Новое описание");
+  await submit(dialog.querySelector("form")!);
+  // The save waits in the card's queue behind the checkmark, which is still unanswered.
+  expect(saveButton(dialog).textContent).toBe("Сохраняем…");expect(update).not.toHaveBeenCalled();
+  expect(releases).toHaveLength(1);await act(async () => releases.shift()!());
+  await waitForPage(page!, () => !page!.container.querySelector("dialog"));
+  expect(toggles.mock.calls.map(call => call[2].expected_revision)).toEqual([8]);
+  expect(update.mock.calls.map(call => call[1])).toEqual([{ expected_revision: 9, title: "Новое название", description: richText("Новое описание") }]);
+  expect(server.task.revision).toBe(10);expect(page!.container.querySelector('section[aria-label="Описание задачи"] [role="alert"], section[aria-label="Чеклист задачи"] [role="alert"]')).toBeNull();
+  expect(page!.container.querySelector("h1")?.textContent).toBe("Новое название");
+  expect(page!.container.querySelector('section[aria-label="Описание задачи"]')?.textContent).toContain("Новое описание");
+  expect(page!.container.querySelector<HTMLInputElement>('section[aria-label="Чеклист задачи"] input[type="checkbox"]')?.checked).toBe(true);
+  expect(page!.container.textContent).toContain("Изменения сохранены");
+});
+
+it("a refused title save keeps the typed title and description in the open dialog (TR-01)", async () => {
+  const task = makeTask({ title: "Старое название", description: richText("Старое описание"), revision: 8, capabilities: ["read_task", "edit_task"] });
+  const update = vi.spyOn(tasksApi, "update").mockRejectedValue(new ApiError("Invalid input", 422, "validation_error", { title: "String should have at most 300 characters" }));
+  await mountTask(task);
+  const dialog = await openTaskEditor("Слишком длинное название", "Новое описание");
+  await submit(dialog.querySelector("form")!);await waitForPage(page!, () => !!dialog.querySelector('[role="alert"]'));
+  expect(update).toHaveBeenCalledTimes(1);expect(update).toHaveBeenCalledWith(task.task_id, { expected_revision: 8, title: "Слишком длинное название", description: richText("Новое описание") });
+  expect(dialog.isConnected).toBe(true);expect(dialog.querySelector('[role="alert"]')?.textContent).toContain("Название задачи");
+  expect(dialog.querySelector<HTMLInputElement>('input[name="title"]')?.value).toBe("Слишком длинное название");
+  expect(dialog.querySelector<HTMLTextAreaElement>('textarea[name="body"]')?.value).toBe("Новое описание");
+  expect(saveButton(dialog).disabled).toBe(false);expect(page!.container.querySelector("h1")?.textContent).toBe("Старое название");
+});
+
+it("someone else's change answers the queued save with 409 in the dialog, once, keeping the draft and the own checkmark (TR-01)", async () => {
+  const { server, releases } = editableWithChecklist("Чужое название");
+  const update = vi.spyOn(tasksApi, "update").mockImplementation(async (_id, data) => {
+    if (data.expected_revision !== server.task.revision) throw new ApiError("Changed", 409, "revision_conflict");
+    server.task = { ...server.task, revision: server.task.revision + 1 };return server.task;
+  });
+  await mountTask(server.task);vi.mocked(tasksApi.get).mockImplementation(async () => server.task);
+  await tickChecklist();
+  const dialog = await openTaskEditor("Моё название", "Моё описание");
+  await submit(dialog.querySelector("form")!);
+  await act(async () => releases.shift()!());
+  await waitForPage(page!, () => !!dialog.querySelector('[role="alert"]'));
+  expect(update.mock.calls.map(call => call[1].expected_revision)).toEqual([9]);expect(server.task.revision).toBe(10);
+  expect(dialog.querySelector('[role="alert"]')?.textContent).toContain("Запись изменилась");
+  expect([...dialog.querySelectorAll("button")].some(button => button.textContent === "Обновить данные")).toBe(true);
+  expect(dialog.querySelector<HTMLInputElement>('input[name="title"]')?.value).toBe("Моё название");
+  expect(dialog.querySelector<HTMLTextAreaElement>('textarea[name="body"]')?.value).toBe("Моё описание");
+  expect(page!.container.querySelector<HTMLInputElement>('section[aria-label="Чеклист задачи"] input[type="checkbox"]')?.checked).toBe(true);
+  await settle();await settle();expect(update).toHaveBeenCalledTimes(1);
+});
+
+it("a planning save of type and priority right after a checkmark also waits for it (TR-01)", async () => {
+  const { server, releases } = editableWithChecklist();
+  server.task = { ...server.task, priority: "normal", capabilities: [...server.task.capabilities, "edit_task_metadata"] };
+  const update = vi.spyOn(tasksApi, "update").mockImplementation(async (_id, data) => {
+    if (data.expected_revision !== server.task.revision) throw new ApiError("Changed", 409, "revision_conflict");
+    server.task = { ...server.task, revision: server.task.revision + 1, ...("priority" in data ? { priority: data.priority } : {}) };return server.task;
+  });
+  await mountTask(server.task);vi.mocked(tasksApi.get).mockImplementation(async () => server.task);
+  await tickChecklist();
+  await act(async () => page!.container.querySelector<HTMLButtonElement>('button[aria-label="Изменить параметры"]')!.click());await settle();
+  const dialog = page!.container.querySelector("dialog")!;
+  await change(dialog.querySelector<HTMLSelectElement>('[name="priority"]')!, "urgent");await submit(dialog.querySelector("form")!);
+  expect(update).not.toHaveBeenCalled();await act(async () => releases.shift()!());
+  await waitForPage(page!, () => !page!.container.querySelector("dialog"));
+  expect(update.mock.calls.map(call => call[1].expected_revision)).toEqual([9]);expect(server.task).toMatchObject({ revision: 10, priority: "urgent" });
+});
+
 it("a refused queued mark rolls back only itself and keeps later own marks", async () => {
   let task = makeTask({ description: richText("- [ ] Первый"), revision: 8, checklist: [{ item_id: "one", text: "Пункт", checked: false }], capabilities: ["read_task", "toggle_task_checklist"] });
   const releases: (() => void)[] = [];const later = () => new Promise<void>(resolve => releases.push(resolve));
