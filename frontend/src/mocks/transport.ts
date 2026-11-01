@@ -1526,6 +1526,12 @@ export function installMockTransport(
       );
       if (!task || !assignment)
         return fail(404, "not_found", "Назначение недоступно");
+      // SE-12, as tracker.require_closed_task: hours, an evaluation, an acceptance or «не выполнено»
+      // are KKR and wait until the author closes the task; a closed season's correction is not
+      // refused. Checked after the right and before the revision; a return for revision and an
+      // exclusion stay available on an open task.
+      const awaitsClosure = () => publicStatus(task.status) !== "closed" && state.seasons.find(season => season.season_id === task.season_id)?.state !== "closed";
+      const notClosed = () => fail(409, "task_not_closed", "Close the task before filling accounting", {});
       if (parts[2] === "assessment-inputs") {
         if (!assignment.capabilities.includes("view_assessment_inputs"))
           return denied();
@@ -1547,6 +1553,7 @@ export function installMockTransport(
         if (method === "patch") {
           if (data.effective_completed_at && !assessment.capabilities.includes("edit_assessment_dates"))
             return denied();
+          if (awaitsClosure()) return notClosed();
           if (mismatch(data, assessment)) return conflict();
           let observedDate = assessment.effective_completed_at;
           if (Number(data.evaluation) > 0 && !data.effective_completed_at && !observedDate) {
@@ -1564,6 +1571,10 @@ export function installMockTransport(
       }
       const privateReview = ["accept", "request-revision", "not-complete", "cancel"].includes(parts[2]);
       const privateInputs = state.assessments.find(a => a.assignment_id === assignment.assignment_id);
+      const allowed: Record<string, string[]> = { start: [], resume: [], "request-help": ["message"], submit: ["text", "links", "file_ids"], accept: ["evaluation", "review_note"], "request-revision": ["review_note"], "not-complete": ["evaluation", "reason"], cancel: ["reason"] };
+      // A foreign field is refused by the request schema first (422); the review right is checked
+      // below, after the revision, and a caller without it keeps that answer.
+      if (["accept", "not-complete"].includes(parts[2]) && assignment.capabilities.includes("review_assignment") && awaitsClosure()) return extraInputs(data, allowed[parts[2]]) ?? notClosed();
       if (mismatch(data, privateReview && privateInputs ? { revision: privateInputs.workflow_revision ?? privateInputs.revision } : assignment)) return conflict();
       const own = assignment.assignee.user_id === state.session.user_id;
       if (
@@ -1621,7 +1632,6 @@ export function installMockTransport(
       const statuses: Record<string, AssignmentStatus> = { start: "in_progress", resume: "in_progress", "request-help": "help_required", submit: "submitted", accept: "accepted", "request-revision": "needs_revision", "not-complete": "not_completed", cancel: "cancelled" };
       const next = statuses[parts[2]];
       if (!next) return fail(404, "not_found", "Команда не найдена");
-      const allowed: Record<string, string[]> = { start: [], resume: [], "request-help": ["message"], submit: ["text", "links", "file_ids"], accept: ["evaluation", "review_note"], "request-revision": ["review_note"], "not-complete": ["evaluation", "reason"], cancel: ["reason"] };
       const extra = extraInputs(data, allowed[parts[2]]);if (extra) return extra;
       if (privateReview) {
         const observedDate = privateInputs?.effective_completed_at ?? [...(task.submissions ?? []), ...task.assignments.flatMap(a => a.submissions)].map(s => s.submitted_at).sort().at(-1) ?? null;

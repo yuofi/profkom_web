@@ -79,6 +79,8 @@ describe("API commands through mock transport", () => {
       text: richText("Сделано"),
     });
     expect(submitted.capabilities).toContain("review_assignment");
+    // SE-12: the author closes the task before its KKR is filled.
+    await tasksApi.changeStatus(task.task_id, { expected_revision: (await tasksApi.get(task.task_id)).revision, status: "closed" });
     const ownInputs = await tasksApi.assessment(own.assignment_id);
     await tasksApi.command(own.assignment_id, "accept", {
       expected_revision: ownInputs.workflow_revision!,
@@ -420,6 +422,9 @@ describe("API commands through mock transport", () => {
     task.assignments.forEach(assignment => { assignment.status = "submitted"; });
     const revisedInputs = await tasksApi.assessment(a.assignment_id);
     expect(revisedInputs.workflow_status).toBe("needs_revision");
+    // A return for revision works on an open task; the acceptance waits until the author closes it (SE-12).
+    await expect(tasksApi.command(a.assignment_id, "accept", { expected_revision: revisedInputs.workflow_revision!, evaluation: 1.5 })).rejects.toMatchObject({ status: 409, code: "task_not_closed" });
+    task.status = "closed";
     await tasksApi.command(a.assignment_id, "accept", {
       expected_revision: revisedInputs.workflow_revision!,
       evaluation: 1.5,
@@ -447,11 +452,46 @@ describe("API commands through mock transport", () => {
     expect(task.status).toBe("completed");expect(task.revision).toBe(publicRevision);
     // Revision may be requested again after acceptance (database.request_revision_assignment).
     expect(await tasksApi.assessment(a.assignment_id)).toMatchObject({ revision: initial.revision, workflow_revision: initial.workflow_revision, evaluation: initial.evaluation });
+    // The acceptance itself waits until the author closes the task (SE-12); the private
+    // decisions below still leave the public status as it is.
+    task.status = "closed";
     await tasksApi.command(a.assignment_id, "accept", { expected_revision: initial.workflow_revision!, evaluation: 1 });
     const acceptedInputs = await tasksApi.assessment(a.assignment_id);
     await tasksApi.command(a.assignment_id, "request-revision", { expected_revision: acceptedInputs.workflow_revision!, review_note: "Вернуть" });
     expect((await tasksApi.assessment(a.assignment_id)).workflow_status).toBe("needs_revision");
-    expect((await tasksApi.get(task.task_id)).status).toBe("completed");
+    expect((await tasksApi.get(task.task_id)).status).toBe("closed");
+  });
+  it("fills a task's KKR only after its author closed it, unless its season is closed, as the server does (SE-12)", async () => {
+    const fixture = useMock("leader");
+    const task = fixture.state.tasks[0], a = task.assignments[0];
+    task.status = "completed";
+    task.submissions = [{ submission_id: "s1", submitted_at: "2026-10-17T09:00:00Z", submitted_by: a.assignee, text: richText("Результат"), links: [], files: [] }];
+    const inputs = await tasksApi.assessment(a.assignment_id), refused = { status: 409, code: "task_not_closed" };
+    // Hours, an evaluation, an acceptance and «не выполнено» wait for the closure; the closure is
+    // checked before the revision, and a foreign field is still the schema's 422.
+    await expect(tasksApi.updateAssessment(a.assignment_id, { expected_revision: inputs.revision, hours: 5, reason: "Часы" })).rejects.toMatchObject(refused);
+    await expect(tasksApi.updateAssessment(a.assignment_id, { expected_revision: inputs.revision + 7, evaluation: 1, reason: "Оценка" })).rejects.toMatchObject(refused);
+    await expect(tasksApi.command(a.assignment_id, "accept", { expected_revision: inputs.workflow_revision!, evaluation: 1 })).rejects.toMatchObject(refused);
+    await expect(tasksApi.command(a.assignment_id, "not-complete", { expected_revision: inputs.workflow_revision!, evaluation: 0, reason: "Не сделано" })).rejects.toMatchObject(refused);
+    await expect(tasksApi.command(a.assignment_id, "accept", { expected_revision: inputs.workflow_revision!, evaluation: 1, reason: "Лишнее" } as never)).rejects.toMatchObject({ status: 422 });
+    expect(await tasksApi.assessment(a.assignment_id)).toMatchObject({ revision: inputs.revision, hours: inputs.hours, evaluation: inputs.evaluation });
+    // A return for revision and an exclusion are not KKR assessment: an open task allows them.
+    await tasksApi.command(a.assignment_id, "request-revision", { expected_revision: inputs.workflow_revision!, review_note: "Уточнить" });
+    const returned = await tasksApi.assessment(a.assignment_id);expect(returned.workflow_status).toBe("needs_revision");
+    await tasksApi.command(a.assignment_id, "cancel", { expected_revision: returned.workflow_revision!, reason: "Исключить" });
+    expect((await tasksApi.assessment(a.assignment_id)).workflow_status).toBe("cancelled");
+    // A reader without the right keeps the refusal of the right, not the closure.
+    mock!.restore();const reader = useMock("organizer"), readerTask = reader.state.tasks[0];readerTask.status = "completed";
+    await expect(tasksApi.command(readerTask.assignments[1].assignment_id, "accept", { expected_revision: 1, evaluation: 1 })).rejects.toMatchObject({ status: 403 });
+    await expect(tasksApi.updateAssessment(readerTask.assignments[1].assignment_id, { expected_revision: 1, hours: 5, reason: "Часы" })).rejects.toMatchObject({ status: 403 });
+    // A closed season's correction is not refused, nor is the KKR of a closed task.
+    mock!.restore();const corrector = useMock("leader"), open = corrector.state.tasks[0];open.status = "completed";
+    corrector.state.seasons.find(season => season.season_id === open.season_id)!.state = "closed";
+    const before = await tasksApi.assessment(open.assignments[0].assignment_id);
+    expect(await tasksApi.updateAssessment(open.assignments[0].assignment_id, { expected_revision: before.revision, hours: 5, reason: "Исправление" })).toMatchObject({ hours: 5 });
+    corrector.state.seasons.find(season => season.season_id === open.season_id)!.state = "open";open.status = "closed";
+    const closed = await tasksApi.assessment(open.assignments[1].assignment_id);
+    expect(await tasksApi.updateAssessment(open.assignments[1].assignment_id, { expected_revision: closed.revision, hours: 6, reason: "Часы" })).toMatchObject({ hours: 6 });
   });
   it("refuses a merit correction with fields fixed at creation, as the server does (A-KKR-1)", async () => {
     useMock("chair");
