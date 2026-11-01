@@ -97,10 +97,10 @@ export function SeasonKkrControl({seasonId,closed=false}:{seasonId:string;closed
 function Responsibles({users}:{users:KkrControl['responsibles']}) {
   return users.length?<div className={w.row}>{users.map(user=><UserChip key={user.user_id} user={user}/>)}</div>:<span className={w.muted}>—</span>;
 }
-/** Folded until asked for: a row per filled queue, its responsibles one click away. `finished`: a row whose control ended apart from the others. */
+/** Folded until asked for: a row per filled queue, its responsibles one click away. The rows stay in the page while
+ *  folded, so the browser's find opens the list on a queue name. `finished`: a row whose control ended apart from the others. */
 function FilledControls({items,note,finished}:{items:KkrControl[];note:string;finished:(item:KkrControl)=>boolean}) {
-  const [open,setOpen]=useState(false);
-  return <details className={u.disclosure} onToggle={event=>setOpen(event.currentTarget.open)}><summary><span>Заполнено · {items.length}</span><Glyph name="expand_more"/></summary>{open&&<div className={u.disclosureBody}>{note&&<p className={u.note}>{note}</p>}<table className={`${u.sourcesTable} ${u.kkrTable}`}><thead><tr><th>Очередь</th><th>Ответственные</th><th>Без ККР</th></tr></thead><tbody>{items.map(item=><tr key={item.control_id}><td><Link to={`/tasks/${encodeURIComponent(item.task_id)}`}>{item.title}</Link>{finished(item)&&<small>{controlFinished}</small>}</td><td><Responsibles users={item.responsibles}/></td><td>{item.missing_count} без ККР</td></tr>)}</tbody></table></div>}</details>;
+  return <details className={u.disclosure}><summary><span>Заполнено · {items.length}</span><Glyph name="expand_more"/></summary><div className={u.disclosureBody}>{note&&<p className={u.note}>{note}</p>}<table className={`${u.sourcesTable} ${u.kkrTable}`}><thead><tr><th>Очередь</th><th>Ответственные</th><th>Без ККР</th></tr></thead><tbody>{items.map(item=><tr key={item.control_id}><td><Link to={`/tasks/${encodeURIComponent(item.task_id)}`}>{item.title}</Link>{finished(item)&&<small>{controlFinished}</small>}</td><td><Responsibles users={item.responsibles}/></td><td>{item.missing_count} без ККР</td></tr>)}</tbody></table></div></details>;
 }
 
 /** Rendered by the season's remind_kkr capability; the control list loads only on its own tab. */

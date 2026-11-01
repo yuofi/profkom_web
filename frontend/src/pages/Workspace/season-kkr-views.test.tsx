@@ -106,7 +106,9 @@ it('puts the queues with gaps first, most gaps on top, and folds the filled ones
  expect([...gaps.querySelectorAll(':scope>ul>li>div:first-child>a')].map(link=>link.textContent)).toEqual(['Два пропуска','Один пропуск']);
  expect(gaps.querySelector('a[href="/tasks/w2?kkr=1"]')).not.toBeNull();expect(gaps.textContent).not.toContain('Заполнено А');
  const filled=page.container.querySelector<HTMLDetailsElement>('details')!;
- expect(filled.querySelector('summary')?.textContent).toBe('Заполнено · 2');expect(filled.open).toBe(false);expect(filled.querySelector('table')).toBeNull();
+ expect(filled.querySelector('summary')?.textContent).toBe('Заполнено · 2');expect(filled.open).toBe(false);
+ // Folded rows stay in the page, so the browser's find reaches a queue name.
+ expect(filled.querySelector('tbody')?.textContent).toContain('Заполнено А');
  await unfold(filled);
  expect([...filled.querySelectorAll('thead th')].map(cell=>cell.textContent)).toEqual(['Очередь','Ответственные','Без ККР']);
  const rows=[...filled.querySelectorAll('tbody tr')];
