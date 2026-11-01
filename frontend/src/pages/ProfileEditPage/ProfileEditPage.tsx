@@ -215,7 +215,7 @@ export const ProfileEditPage = () => {
               <div className={s.stack}>
                 <Card title="Основная информация">
                   <div className={styles.person}>
-                    <Avatar src={user.photo_url} size={64} mode="view" />
+                    <Avatar src={user.photo_url} size={64} mode="view" name={personName(user)} />
                     <p>{personName(user)}</p>
                   </div>
                   <div className={styles.fields}>

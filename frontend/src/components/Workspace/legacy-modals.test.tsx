@@ -72,3 +72,17 @@ it("a contact chip opens from a keyboard button into a modal dialog", async () =
   expect(page.container.querySelector("dialog")).toBeNull();
   expect(document.activeElement).toBe(trigger);
 });
+it("a contact chip's avatar is decorative beside the name; the dialog's zoomable one is named in Russian (smoke FV-3)", async () => {
+  vi.stubGlobal("matchMedia", (media: string) => ({ matches: false, media, addEventListener() {}, removeEventListener() {} }));
+  page = await mountWorkspace(<ContactChip initialContent={"Фамилия: Иванова\nИмя: Анна\nГруппа: 301"} />);
+  const chipAvatar = page.container.querySelector("img")!;
+  expect(chipAvatar.getAttribute("alt")).toBe("");expect(chipAvatar.getAttribute("role")).toBeNull();
+  const dialog = await open(page.container.querySelector<HTMLButtonElement>("button[aria-haspopup='dialog']")!);
+  expect(dialog.querySelector<HTMLImageElement>('img[role="button"]')?.alt).toBe("Фото: Иванова Анна");
+  // Field icons are font ligatures («person», «groups»): hidden, the Russian labels name the fields.
+  expect(dialog.querySelectorAll(".material-symbols-rounded").length).toBeGreaterThan(0);expect(dialog.querySelectorAll('.material-symbols-rounded:not([aria-hidden="true"])')).toHaveLength(0);
+  await escape(dialog);await page.cleanup();
+  page = await mountWorkspace(<ContactChip initialContent={"Группа: 301"} />);
+  const unnamed = await open(page.container.querySelector<HTMLButtonElement>("button[aria-haspopup='dialog']")!);
+  expect(unnamed.querySelector<HTMLImageElement>('img[role="button"]')?.alt).toBe("Фото профиля");
+});

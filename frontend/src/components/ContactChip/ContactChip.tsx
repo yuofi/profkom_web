@@ -10,6 +10,7 @@ import { TextField } from '../TextField/TextField';
 import { Button } from '../Button/Button';
 import type { IconName } from '../icons';
 import { isBackdropClick, useModalDialog } from '../Workspace/useModalDialog';
+import { personName } from '../../utils/personName';
 
 export interface ContactInfo {
   surname: string;
@@ -106,7 +107,7 @@ interface ContactChipProps {
     }
     return value ? (
       <div className={styles.fieldView}>
-        {iconName && <Icon name={iconName} size={20} className={styles.fieldIcon} />}
+        {iconName && <Icon name={iconName} size={20} className={styles.fieldIcon} aria-hidden="true" />}
         <div className={styles.fieldContent}>
           <span className={styles.label}>{label}</span>
           <span className={styles.value}>{value}</span>
@@ -119,7 +120,8 @@ interface ContactChipProps {
     <>
       {!hideChip && (
         <div className={clsx(styles.chip, mode === 'edit' && styles.editMode)} onClick={handleToggle}>
-          <Avatar src={info.photo_url} size={isMobile ? 50 : 80} mode="disable" />
+          {/* Decorative: the name button beside it names the contact; the dialog's avatar zooms. */}
+          <Avatar src={info.photo_url} size={isMobile ? 50 : 80} mode="disable" alt="" />
           <div className={styles.chipInfo}>
           {/* The keyboard way in (GL-41); a click anywhere on the chip still opens it. */}
           <button type="button" className={styles.chipText} aria-haspopup="dialog" aria-expanded={isOpen}>
@@ -149,6 +151,7 @@ interface ContactChipProps {
                   src={info.photo_url} 
                   size={100} 
                   mode={mode} 
+                  name={personName(info)}
                   onUpload={(url) => handleInputChange('photo_url', url)} 
                 />
               </div>

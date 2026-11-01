@@ -68,3 +68,20 @@ it("shows a participant from an already loaded directory at once and refuses a m
   page = await mountWorkspace(<Routes><Route path="/contacts/:id" element={<MemberProfilePage />} /></Routes>, { path: "/contacts/abc" });await waitForPage(page);
   expect(one).not.toHaveBeenCalled();expect(page.container.textContent).toContain("Профиль участника недоступен");
 });
+it("the zoomable profile avatar, its zoom window and close button are named in Russian (smoke FV-3)", async () => {
+  const person = { ...createFixtures("chair").profile, user_id: 81, surname: "Фотогенов", name: "Пётр", patronymic: "Ильич", in_profcom: true, location: "Общежитие", phone: "abc" };
+  vi.spyOn(directoryApi, "contact").mockResolvedValue([person]);
+  page = await mountWorkspace(<Routes><Route path="/contacts/:id" element={<MemberProfilePage />} /></Routes>, { path: "/contacts/81" });
+  await waitForPage(page);
+  const avatar = page.container.querySelector<HTMLImageElement>('img[role="button"]')!;
+  expect(avatar.alt).toBe("Фото: Фотогенов Пётр");expect(page.container.querySelector('img[alt="Avatar"]')).toBeNull();
+  // Icons are font ligatures: their English names («location_on», «call») stay out of the card's accessible text.
+  const card = avatar.parentElement!.parentElement!;
+  expect(card.textContent).toContain("Общежитие");expect(card.querySelectorAll(".material-symbols-rounded").length).toBeGreaterThan(0);
+  expect(card.querySelectorAll('.material-symbols-rounded:not([aria-hidden="true"])')).toHaveLength(0);
+  avatar.focus();await act(async () => avatar.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  const zoom = document.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]')!, close = zoom.querySelector("button")!;
+  expect(zoom.getAttribute("aria-label")).toBe("Просмотр изображения");expect(zoom.querySelector("img")?.alt).toBe("Фото: Фотогенов Пётр");
+  expect(close.getAttribute("aria-label")).toBe("Закрыть изображение");expect(document.activeElement).toBe(close);
+  await act(async () => close.click());expect(document.querySelector('[role="dialog"][aria-modal="true"]')).toBeNull();expect(document.activeElement).toBe(avatar);
+});

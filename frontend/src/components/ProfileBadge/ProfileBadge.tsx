@@ -15,6 +15,7 @@ import { parseProfileUrl } from "../../utils/parsing";
 import { logger } from "../../utils/logger";
 import { useNavigate } from "react-router-dom";
 import { useLogout } from "../../utils/hooks/useLogout";
+import { personName } from "../../utils/personName";
 interface ProfileBadgeProps {
   user: ContactInfoOut | null;
   readOnly?: boolean;
@@ -128,6 +129,7 @@ export const ProfileBadge = ({
         src={user.photo_url}
         size={compact ? 96 : 140}
         mode={isEditing ? "edit" : "view"}
+        name={personName(user)}
         onUpload={handlePhotoUpload}
         className={styles.avatarOverride}
       />
@@ -221,7 +223,7 @@ export const ProfileBadge = ({
             disabled={loggingOut}
             onClick={() => void handleLogout()}
           >
-            <Icon name="move_item" size={20} />
+            <Icon name="move_item" size={20} aria-hidden="true" />
             выйти
           </Button>
           {logoutError && <p role="alert">{logoutError}</p>}
@@ -230,7 +232,7 @@ export const ProfileBadge = ({
             disabled={false}
             onClick={() => navigate("/profile/edit")}
           >
-            <Icon name="edit" size={20} />
+            <Icon name="edit" size={20} aria-hidden="true" />
             редактировать
           </Button>
         </div>

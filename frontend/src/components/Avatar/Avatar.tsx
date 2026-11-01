@@ -14,7 +14,10 @@ interface AvatarProps {
   onUpload?: (url: string) => void;
   className?: string;
   loading?: "lazy" | "eager";
-  /** "" where the avatar only accompanies a name shown next to it. */
+  /** The person shown: the photo is named «Фото: <имя>», without it «Фото профиля». */
+  name?: string;
+  /** "" where the avatar only accompanies a name shown next to it and opens nothing:
+   *  a zoomable avatar is a button and needs its name. */
   alt?: string;
 }
 
@@ -25,7 +28,8 @@ export const Avatar: React.FC<AvatarProps> = ({
   onUpload,
   className,
   loading,
-  alt = "Avatar",
+  name,
+  alt,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -62,7 +66,7 @@ export const Avatar: React.FC<AvatarProps> = ({
       return (
         <Image
           src={imageSrc}
-          alt={alt}
+          alt={alt ?? (name ? `Фото: ${name}` : "Фото профиля")}
           className={styles.image}
           disableModal={mode === "edit" || mode === "disable"}
           loading={loading}
@@ -74,7 +78,7 @@ export const Avatar: React.FC<AvatarProps> = ({
       );
     }
 
-    return <Icon name="account_circle" size={size} filled={true} />;
+    return <Icon name="account_circle" size={size} filled={true} aria-hidden="true" />;
   };
 
   return (
@@ -106,7 +110,7 @@ export const Avatar: React.FC<AvatarProps> = ({
 
       {mode === "edit" && !isUploading && (
         <div className={styles.overlay}>
-          <Icon name="add_a_photo" size={size * 0.4} />
+          <Icon name="add_a_photo" size={size * 0.4} aria-hidden="true" />
         </div>
       )}
 

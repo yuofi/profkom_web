@@ -23,7 +23,8 @@ it("an avatar remains a draft until the common profile save and refreshes withou
   mock = installMockTransport("organizer", { delay: 0 });
   page = await mountWorkspace(<UserProvider><ProfileEditPage /></UserProvider>, { role: "organizer", path: "/profile/edit" });
   await waitForPage(page, () => Array.from(page!.container.querySelectorAll("button")).some((button) => button.querySelector("img") && button.textContent));
-  const avatar = () => page!.container.querySelector<HTMLImageElement>('img[alt="Avatar"]')!.getAttribute("src");
+  // The zoomable avatar beside the name is named «Фото: <имя>» (smoke FV-3).
+  const avatar = () => page!.container.querySelector<HTMLImageElement>('img[role="button"][alt^="Фото: "]')!.getAttribute("src");
   const preset = Array.from(page.container.querySelectorAll("button")).find((b) => b.querySelector("img") && b.textContent);
   expect(preset).toBeTruthy();
   const chosen = preset!.querySelector("img")!.getAttribute("src");
