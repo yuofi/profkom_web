@@ -67,7 +67,7 @@ git clone --branch release-1 $BUNDLE $H          # или из origin
 mkdir -p $H/data $H/nginx-extra
 # Копия через backup API SQLite из соединения только для чтения: сайт продолжает работать.
 python3 -c "import sqlite3, sys; s = sqlite3.connect('file:' + sys.argv[1] + '?mode=ro', uri=True); s.backup(sqlite3.connect(sys.argv[2]))" $D/data/<db> $H/data/site.db
-chmod --reference=$D/data $H/data; chown --reference=$D/data/<db> $H/data/site.db   # контейнер пишет под uid 999, в том числе site.db-wal и site.db-shm
+chmod --reference=$D/data $H/data; chown --reference=$D/data/<db> $H/data/site.db   # контейнер пишет под uid 999, в WAL — и site.db-wal, site.db-shm
 sha256sum $H/data/site.db
 ```
 
@@ -76,7 +76,8 @@ sha256sum $H/data/site.db
 - новый случайный `JWT_SECRET_KEY`;
 - `VK_CLIENT_ID` рабочего сайта;
 - `DATABASE_PATH=/app/data/site.db`;
-- `S3_ENDPOINT` и `S3_BUCKET_NAME` рабочего бакета, без ключей доступа: скрипты распознают старые ссылки, но в хранилище не ходят.
+- `S3_ENDPOINT` и `S3_BUCKET_NAME` рабочего бакета, без ключей доступа: скрипты распознают старые ссылки, но в хранилище не ходят;
+- `SQLITE_JOURNAL_MODE=WAL` — только если владелец отдельно разрешил включить WAL при выкладке (раздел 7), иначе строки нет. Репетиция проверяет тот журнал, в котором пойдёт выкладка.
 
 Блоки Marzban из локальной правки `nginx.conf` переносятся в `$H/nginx-extra/marzban.conf` (раздел 3, шаг 2).
 
@@ -96,7 +97,7 @@ $RUN scripts/seal_completed_files.py --database /app/data/site.db --apply     # 
 $P run -d --rm --no-deps --name profkom-rehearsal-api -p 127.0.0.1:18850:8000 backend   # обычный старт: preset_db + uvicorn
 until curl -fs -o /dev/null http://127.0.0.1:18850/openapi.json; do sleep 1; done
 python3 backend/check_live.py --url http://127.0.0.1:18850 --read-only
-docker exec profkom-rehearsal-api python -c "import sqlite3; c = sqlite3.connect('/app/data/site.db'); print(c.execute('pragma journal_mode').fetchone()[0], c.execute('pragma integrity_check').fetchone()[0])"   # wal ok (раздел 7)
+docker exec profkom-rehearsal-api python -c "import sqlite3; c = sqlite3.connect('/app/data/site.db'); print(c.execute('pragma journal_mode').fetchone()[0], c.execute('pragma integrity_check').fetchone()[0])"   # delete ok; wal ok — со строкой SQLITE_JOURNAL_MODE=WAL (раздел 7)
 docker stop profkom-rehearsal-api
 ```
 
@@ -105,7 +106,8 @@ docker stop profkom-rehearsal-api
 - повторный apply дал тот же `unresolved`;
 - `schema` пустой;
 - в `unresolved` осталось только принятое (раздел 4);
-- `nginx -t` и `check_live` прошли, копия в WAL и `integrity_check` — `ok` (раздел 7);
+- `nginx -t` и `check_live` прошли;
+- журнал копии тот же, что будет на сервере: `delete` без строки `SQLITE_JOURNAL_MODE=WAL`, `wal` с ней; `integrity_check` — `ok` (раздел 7);
 - новый nginx содержит все location рабочего (раздел 3, шаг 2).
 
 Время шагов записать: из него складывается окно простоя. Если репетиция не прошла, выкладка переносится (УВ-7). После неё удалить `$H` вместе с копией базы и образы `profkom-rehearsal-*`.
