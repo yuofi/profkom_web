@@ -6111,12 +6111,13 @@ class Database:
             )
 
     def require_dates_right(self, user_id: int, t, state, changes) -> None:
-        """Only the chair, deputies and HR master move a task's dates once set (УВ-5).
+        """Only the chair, deputies, HR master and HR deputy move a task's dates once set (УВ-5);
+        in a closed season the HR deputy does not (SE-13).
         `changes` holds (new, old) pairs; a new value naming the same instant is no move."""
         from participation import dt
         if any(new is not None and (old is None or dt(new) != dt(old)) for new, old in changes):
             self.require_task_right(user_id, "task.dates.edit", t, state,
-                                    "Forbidden: only the chair, deputies and HR master change task dates",
+                                    "Forbidden: only the chair, deputies, HR master and HR deputy change task dates",
                                     "Forbidden: only the chair, deputies and HR master change task dates in a closed season")
 
     def patch_task_assessment_inputs(
@@ -6364,7 +6365,7 @@ class Database:
     ) -> list[CalculatedContributionDC]:
         import access
         if not access.allowed(current_user_id, "kkr.view"):
-            raise Forbidden("Forbidden: only HR master, the chair and deputies can view assessments")
+            raise Forbidden("Forbidden: only the chair, deputies, HR master and HR deputy can view assessments")
 
         with self._session() as session:
             q = session.query(ContributionORM)
@@ -6618,7 +6619,7 @@ class Database:
     def list_master_bonuses(self, season_id: str, current_user_id: int, block_id: Optional[str] = None) -> list[MasterBonusDC]:
         import access
         if not access.allowed(current_user_id, "kkr.view"):
-            raise Forbidden("Forbidden: only HR master, the chair and deputies can view master bonuses")
+            raise Forbidden("Forbidden: only the chair, deputies, HR master and HR deputy can view master bonuses")
         with self._session() as session:
             season = session.get(SeasonORM, season_id)
             if season and season.state == "closed":
@@ -6671,7 +6672,7 @@ class Database:
     def get_season_summary(self, season_id: str, current_user_id: int) -> SeasonSummaryDC:
         import access
         if not access.allowed(current_user_id, "summary.view"):
-            raise Forbidden("Forbidden: only HR master, the chair and deputies can view season summary")
+            raise Forbidden("Forbidden: only the chair, deputies, HR master and HR deputy can view season summary")
         with self._session() as session:
             season = session.get(SeasonORM, season_id)
             if not season:

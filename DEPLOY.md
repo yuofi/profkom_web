@@ -79,11 +79,11 @@ sha256sum $H/data/site.db
 - `S3_ENDPOINT` и `S3_BUCKET_NAME` рабочего бакета, без ключей доступа: скрипты распознают старые ссылки, но в хранилище не ходят;
 - `SQLITE_JOURNAL_MODE=WAL` — только если владелец отдельно разрешил включить WAL при выкладке (раздел 7), иначе строки нет. Репетиция проверяет тот журнал, в котором пойдёт выкладка.
 
-Блоки Marzban из локальной правки `nginx.conf` переносятся в `$H/nginx-extra/marzban.conf` (раздел 3, шаг 2).
+Блоки Marzban из локальной правки `nginx.conf` переносятся в `$H/nginx-extra/marzban.conf` (раздел 3, шаг 2). Сжатие JSON-ответов `/api/` (PF-12) — как в выкладке: если разрешение не называет PF-12 явно, до сборки образа frontend в `$H` выполняется правка `frontend/nginx.conf` из шага 4 раздела 3 (раздел 8).
 
 ```sh
 cd $H && $P build backend
-tar xzf $DIST -C frontend && docker build -q -f frontend/Dockerfile.prebuilt -t profkom-rehearsal-frontend frontend
+tar xzf $DIST -C frontend && docker build -q -f frontend/Dockerfile.prebuilt -t profkom-rehearsal-frontend frontend   # без явного разрешения PF-12 между tar и docker build — правка шага 4 раздела 3
 docker run --rm --add-host backend:127.0.0.1 -v /home/yulov/certs:/etc/nginx/ssl:ro -v $H/nginx-extra:/etc/nginx/extra:ro profkom-rehearsal-frontend nginx -t
 RUN="$P run --rm --no-deps -T --entrypoint python backend"
 $RUN scripts/migrate_v13.py --database /app/data/site.db --report /app/data/dry.json
@@ -127,6 +127,8 @@ docker stop profkom-rehearsal-api
 
 Шаги 1–4 идут, пока старая версия работает. Сайт стоит только на шагах 5–7.
 
+Сжатие JSON-ответов `/api/` (PF-12) есть в `frontend/nginx.conf` ветки `release-1`, но на сервер приходит только с отдельного разрешения владельца: разрешение на выкладку включает его, только если называет PF-12 явно. Иначе шаг 4 убирает сжатие из `location /api/` до сборки образа, и API отвечает без сжатия, как 6eb9dea. Включение позже и откат — раздел 8.
+
 ```sh
 D=/home/yulov/profkom_web; B=/home/yulov/profkom-backups; cd $D
 BUNDLE=/home/<пользователь>/release-1.bundle; DIST=/home/<пользователь>/dist.tgz
@@ -157,9 +159,16 @@ sed -i "s/^JWT_SECRET_KEY=.*/JWT_SECRET_KEY=$(head -c 48 /dev/urandom | base64 |
 # echo "SQLITE_JOURNAL_MODE=WAL" >> backend/.env
 # 4. Образы.
 tar xzf $DIST -C frontend
+# Сжатие JSON-ответов /api/ (PF-12, раздел 8). Если разрешение на выкладку называет PF-12 явно, эту команду пропустить. Иначе она убирает его из location /api/ до сборки образа. При повторе шага, если `git diff --numstat -- frontend/nginx.conf` уже печатает `0 4`, правка сделана — команду пропустить:
+python3 - <<'PY'
+p = "frontend/nginx.conf"
+s = open(p, "rb").read()
+pf12 = b"        # JSON only (PF-12): any other answer of the API goes as the backend made it.\n        gzip on;\n        gzip_types application/json;\n\n"
+assert s.count(pf12) == 1, "в location /api/ нет строк PF-12 release-1: не продолжать"
+open(p, "wb").write(s.replace(pf12, b""))
+PY
 docker compose build backend
 docker build -q -f frontend/Dockerfile.prebuilt -t profkom_web-frontend frontend
-# С этим образом на сервер приходит gzip JSON-ответов /api/ (PF-12, frontend/nginx.conf): выкладка — отдельный шаг, только с разрешения владельца.
 # Все location рабочего nginx есть в новом: строк «<» быть не должно, «>» — только новые после 6eb9dea: /assets/, *.mjs, /api/feedback, /api/auth/, /api/files/, /_storage и @storage_failed.
 diff <(docker exec profkom_web-frontend-1 nginx -T 2>/dev/null | grep -E '^\s*location' | sort -u) \
      <(docker run --rm --add-host backend:127.0.0.1 -v /home/yulov/certs:/etc/nginx/ssl:ro -v $D/nginx-extra:/etc/nginx/extra:ro profkom_web-frontend nginx -T 2>/dev/null | grep -E '^\s*location' | sort -u)
@@ -182,13 +191,16 @@ python3 backend/check_live.py --url https://profcom-cmc.ru --read-only
 # Журнал и владельцы файлов базы (раздел 7): delete ok (wal ok, только если WAL включён с разрешения владельца), все файлы 999:999.
 docker exec profkom_web-backend-1 python -c "import sqlite3; c = sqlite3.connect('/app/data/<db>'); print(c.execute('pragma journal_mode').fetchone()[0], c.execute('pragma integrity_check').fetchone()[0])"
 stat -c '%u:%g %n' data/<db>*
+# Сжатие /api/ (раздел 8): 1 — с PF-12, 0 — без него; должно совпасть с разрешением.
+docker exec profkom_web-frontend-1 nginx -T 2>/dev/null | grep -c '^ *gzip_types application/json;$'
 ```
 
 Проверку после запуска делают председатель и владелец:
 - вход по паролю и через VK;
 - справочник, блоки, материалы и КМБ, ПГАС;
 - аватары и файлы открываются;
-- VPN работает: подписки Marzban открываются.
+- VPN работает: подписки Marzban открываются;
+- сжатие `/api/` (раздел 8) — в инструментах разработчика браузера, вкладка «Сеть»: с PF-12 у ответа `/api/session` заголовок `Content-Encoding: gzip`, а у ответов `/api/auth/` (вход, `refresh` после перезагрузки страницы) и у открытого файла `/api/files/<id>/content` его нет. Без PF-12 его нет ни у одного ответа `/api/`.
 
 Отчёты миграции остаются в `data/`, резервная копия и прежние файлы — в `/home/yulov/profkom-backups`.
 
@@ -219,6 +231,7 @@ python3 -c "import sqlite3, sys; s = sqlite3.connect('file:' + sys.argv[1] + '?m
 # Только после остановки backend и сразу перед заменой базы копией: -wal новой версии не должен лечь на восстановленную базу.
 rm -f data/<db>-journal data/<db>-wal data/<db>-shm
 cp $B/backup-6eb9dea.db data/<db>                             # сверить sha256 с записанным
+git -c safe.directory='*' checkout -- frontend/nginx.conf     # снять правку PF-12 шага 4 (раздел 8), если она есть: с ней checkout main откажет
 git -c safe.directory='*' checkout main                       # main = 6eb9dea
 cp $B/6eb9dea-local/nginx.conf frontend/nginx.conf
 cp $B/6eb9dea-local/docker-compose.yml docker-compose.yml
@@ -287,3 +300,48 @@ python3 backend/check_live.py --url https://profcom-cmc.ru --read-only
 Если команда напечатала `wal` или `database is locked`, базу ещё держит другой процесс: найти и остановить его, файлы не удалять. Без строки `SQLITE_JOURNAL_MODE=WAL` backend вернул бы базу в DELETE и сам при старте, но отдельная команда при остановленном backend показывает результат и `integrity_check` до запуска. Откат всей версии (раздел 5) возвращает копию 6eb9dea, она в журнале DELETE.
 
 Скрипты тестового сайта вне git (`server-stage.sh`, `deploy-test.py`, `checkpoint-test.py`) копируют базу только через backup API, а `-wal` и `-shm` удаляют только при восстановлении: после остановки backend и перед заменой базы копией. С WAL они работают без изменений. `SQLITE_JOURNAL_MODE` они не задают: тестовый сайт остаётся в DELETE, пока строку не добавят по отдельному разрешению.
+
+## 8. Сжатие JSON-ответов `/api/` (PF-12)
+
+С `release-1` (PF-12, решение владельца 2026-10-31) `frontend/nginx.conf` сжимает gzip JSON-ответы `/api/` (`application/json`, от 512 байт): API страницы приходит в несколько раз меньше, 28 типичных запросов председателя — 109 кБ вместо 784 кБ (измерено локально). Не сжимаются ответы `/api/auth/` (токены рядом с текстом, который может выбрать атакующий, BREACH), `/api/files/` и `/_storage` (байты файла сохраняют длину и диапазоны) и всё, что не JSON. Конфигурация nginx входит в образ frontend (`COPY nginx.conf` в `frontend/Dockerfile.prebuilt`) и не монтируется, поэтому сжатие включает и выключает только новый образ frontend и перезапуск одного frontend: backend, база и `nginx-extra` не меняются, frontend стоит несколько секунд.
+
+- **Без разрешения сжатия нет.** Если разрешение на выкладку не называет PF-12 явно, шаг 4 раздела 3 убирает из `location /api/` четыре строки PF-12: комментарий, `gzip on;`, `gzip_types application/json;` и пустую строку после них. Правка остаётся в рабочей копии (`git diff frontend/nginx.conf`), поэтому и следующий образ из неё собирается без сжатия. Перед переходом рабочей копии на другой коммит правку снимают (`git checkout -- frontend/nginx.conf`) и, пока PF-12 не разрешён, после перехода делают снова; откат всей версии (раздел 5) снимает её перед `checkout main`.
+- **Проверка.** Команда шага 7 раздела 3 считает строку PF-12 в `nginx -T` работающего контейнера: `1` со сжатием, `0` без него. Вывод `nginx -T` целиком не печатать: в нём пути Marzban. Ответы проверяют председатель и владелец в браузере (раздел 3, после шага 7).
+- **Тестовый сайт** (раздел 6) получает `frontend/nginx.conf` своей копии только при новом `test-up` скрипта `server-stage.sh` (вне git): с `release-1` такой `test-up` включит и сжатие. Для этого нужно то же разрешение; без него перед `test-up` в копии теста выполняется та же правка.
+
+**Включение на работающем `release-1`** — отдельное действие, только с отдельного разрешения владельца (AGENTS.md). Образ собирается из того же `frontend/dist`, который работает:
+
+```sh
+D=/home/yulov/profkom_web; cd $D; G="git -c safe.directory=*"
+$G diff --numstat -- frontend/nginx.conf                       # 0 4 frontend/nginx.conf — правка шага 4; иначе не продолжать
+[ "$(docker exec profkom_web-frontend-1 sha256sum /usr/share/nginx/html/index.html | cut -d' ' -f1)" = "$(sha256sum frontend/dist/index.html | cut -d' ' -f1)" ] && echo match   # тот же dist; иначе не продолжать
+$G checkout -- frontend/nginx.conf                             # строки PF-12 вернулись
+docker build -q -f frontend/Dockerfile.prebuilt -t profkom_web-frontend frontend
+docker run --rm --add-host backend:127.0.0.1 -v /home/yulov/certs:/etc/nginx/ssl:ro -v $D/nginx-extra:/etc/nginx/extra:ro profkom_web-frontend nginx -t   # successful; иначе откат ниже
+docker compose up -d --no-build --no-deps --force-recreate frontend   # только frontend; не down
+docker exec profkom_web-frontend-1 nginx -T 2>/dev/null | grep -c '^ *gzip_types application/json;$'   # 1
+python3 backend/check_live.py --url https://profcom-cmc.ru --read-only
+```
+
+Затем председатель и владелец проверяют ответы в браузере, как после шага 7 раздела 3: у `/api/session` есть `Content-Encoding: gzip`, у ответов `/api/auth/` и `/api/files/<id>/content` его нет. Если проверка не прошла — откат ниже.
+
+**Откат сжатия без отката версии** — тоже с отдельного разрешения: та же правка, что в шаге 4 раздела 3, новый образ и перезапуск одного frontend.
+
+```sh
+D=/home/yulov/profkom_web; cd $D
+[ "$(docker exec profkom_web-frontend-1 sha256sum /usr/share/nginx/html/index.html | cut -d' ' -f1)" = "$(sha256sum frontend/dist/index.html | cut -d' ' -f1)" ] && echo match   # тот же dist; иначе не продолжать
+python3 - <<'PY'
+p = "frontend/nginx.conf"
+s = open(p, "rb").read()
+pf12 = b"        # JSON only (PF-12): any other answer of the API goes as the backend made it.\n        gzip on;\n        gzip_types application/json;\n\n"
+assert s.count(pf12) == 1, "в location /api/ нет строк PF-12 release-1: не продолжать"
+open(p, "wb").write(s.replace(pf12, b""))
+PY
+docker build -q -f frontend/Dockerfile.prebuilt -t profkom_web-frontend frontend
+docker run --rm --add-host backend:127.0.0.1 -v /home/yulov/certs:/etc/nginx/ssl:ro -v $D/nginx-extra:/etc/nginx/extra:ro profkom_web-frontend nginx -t   # successful
+docker compose up -d --no-build --no-deps --force-recreate frontend   # только frontend; не down
+docker exec profkom_web-frontend-1 nginx -T 2>/dev/null | grep -c '^ *gzip_types application/json;$'   # 0
+python3 backend/check_live.py --url https://profcom-cmc.ru --read-only
+```
+
+В браузере у ответов `/api/` больше нет `Content-Encoding: gzip`. Откат всей версии (раздел 5) возвращает 6eb9dea, у которой API тоже без сжатия.

@@ -487,8 +487,19 @@ it("moves the deadline only through reasoned assessment inputs and tells other m
   expect(read).not.toHaveBeenCalled();expect(page!.container.textContent).not.toContain("Срок переносят");
   // An area lead reads assessment inputs but never moves dates: no inputs request for it.
   await page!.cleanup();const lead = createFixtures("organizer").session;expect(lead.capabilities).not.toContain("view_summary");
-  page = await mountWorkspace(<TaskDeadlineParameter task={makeTask({ capabilities: ["read_task", "view_assessment_inputs"] })} now={Date.now()} />, { session: lead });
+  page = await mountWorkspace(<TaskDeadlineParameter task={makeTask({ capabilities: ["read_task", "view_assessment_inputs"] })} now={Date.now()} />, { session: lead });await waitForPage(page);
   expect(read).not.toHaveBeenCalled();expect(page.container.textContent).toContain("Срок переносят председатель");
+});
+it("in a closed season the deadline hint names only the chair, the deputies and the HR master (F2-01, SE-13)", async () => {
+  // The HR deputy reads the inputs of a closed season's task but moves no dates there.
+  const hr = createFixtures("hr-deputy"), task = makeTask({ season_id: "season-previous", capabilities: ["read_task", "view_assessment_inputs"] });
+  const seasons = hr.seasons.map(season => season.season_id === "season-previous" ? { ...season, state: "closed" as const } : season);
+  vi.spyOn(seasonsApi, "list").mockResolvedValue({ items: seasons, next_cursor: null });vi.spyOn(tasksApi, "get").mockResolvedValue(task);
+  vi.spyOn(tasksApi, "comments").mockResolvedValue({ items: [], next_cursor: null });vi.spyOn(historyApi, "list").mockResolvedValue({ items: [], next_cursor: null });
+  vi.spyOn(tasksApi, "inputs").mockResolvedValue({ task_id: task.task_id, assigned_at: "2026-07-01T09:00:00Z", deadline_at: task.deadline_at, criteria: { unique: false, creative: false, external_communication: false, in_person: false, fixed_time: false }, revision: 2, capabilities: [] });
+  page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage />} /></Routes>, { path: `/tasks/${task.task_id}`, session: hr.session });await waitForPage(page);
+  const text = page.container.textContent!;
+  expect(text).toContain("Срок закрытого сезона переносят председатель, замы и мастер HR");expect(text).not.toContain("его заместитель");expect(text).not.toContain("Перенести срок");
 });
 it.each([
   ["?return_season=season-1&return_to=participant&participant=participant-4", "← К участнику", "/seasons/season-1?participant=participant-4"],

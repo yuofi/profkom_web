@@ -53,7 +53,7 @@ AGENTS.md:5-19: вне локальной машины ничего не дел�
 - Не трогать backend, базу и `data/`.
 - Не читать и не выводить `.env` и `backend/.env`.
 - Не запускать `docker compose config` без `--images`: эта команда печатает значения из `.env` и `env_file`.
-- Не править файлы рабочей копии на сервере, в том числе `frontend/nginx.conf`. В состоянии S-A шаг 2 выкладки v1.3 (DEPLOY.md:138-148) переносит все добавленные в этот файл строки в `nginx-extra/marzban.conf`. Строка `http2 on;` оказалась бы там второй, и nginx новой версии не запустился бы.
+- Не править файлы рабочей копии на сервере, в том числе `frontend/nginx.conf`. В состоянии S-A шаг 2 выкладки v1.3 (DEPLOY.md:140-150) переносит все добавленные в этот файл строки в `nginx-extra/marzban.conf`. Строка `http2 on;` оказалась бы там второй, и nginx новой версии не запустился бы.
 - Не выполнять `docker compose down`, `docker pull`, `git pull` и `git fetch`.
 - Ничего не удалять: образы, файлы, бэкапы.
 
@@ -107,7 +107,7 @@ AGENTS.md:5-19: вне локальной машины ничего не дел�
 ### 2.1 Где завершается TLS
 - **TLS завершает nginx внутри контейнера frontend.** `frontend/nginx.conf:7`: `listen  443 ssl;`. Сертификаты (`:10-11`) берутся из `/etc/nginx/ssl`.
 - **Compose.** `docker-compose.yml:18` публикует `"${FRONTEND_PORT}:443"`. Строка `:21` монтирует сертификаты из `${CERTS_DIR:-./certs}`, строка `:23` — `./nginx-extra` только для чтения.
-- **Имя образа.** У сервиса frontend нет ключа `image:`, только `build: ./frontend` (`docker-compose.yml:15`). Compose берёт образ `profkom_web-frontend:latest`; выкладка v1.3 собирает его под этим именем (DEPLOY.md:161).
+- **Имя образа.** У сервиса frontend нет ключа `image:`, только `build: ./frontend` (`docker-compose.yml:15`). Compose берёт образ `profkom_web-frontend:latest`; выкладка v1.3 собирает его под этим именем (DEPLOY.md:171).
 - **Конфигурация запечена в образ, а не смонтирована:** `frontend/Dockerfile.prebuilt:6` (`COPY nginx.conf /etc/nginx/conf.d/default.conf`). Правка `frontend/nginx.conf` на сервере сама по себе ничего не меняет. Нужен один из трёх вариантов: новый образ, правка внутри контейнера или файл в nginx-extra.
 - **nginx-extra подключается внутри server-блока** (`frontend/nginx.conf:15`). Значит, там допустимы директивы уровня server, в том числе `http2 on;` (проверено локально). Отдельный `server {}` там объявить нельзя.
 - **Хостового nginx или прокси в репозитории нет.** Marzban — это VPN на том же сервере в сети host. Его блоки в nginx проксируют на шлюз 172.19.0.1 (DEPLOY.md:7, 9). Получается, что nginx контейнера стоит впереди сайта и тех путей Marzban, которые идут через него.
@@ -146,7 +146,7 @@ AGENTS.md:5-19: вне локальной машины ничего не дел�
 - **Выигрыш на старом проде, скорее всего, мал.** В старой сборке всего 32 файла сайта (DEPLOY.md:19). Основной выигрыш ожидается на сборке v1.3 с правками аудита. Там страница задачи и после склейки чанков грузит 21 скрипт на F5 (`T/results/impl_result.json`, PF-03).
 
 ### 2.4 Тестовый сайт test.profcom-cmc.online
-- **Работает по чистому HTTP на порту 80**, без TLS (DEPLOY.md:236, 239). Контейнер `profkom-test-web-1` публикует `80:80` (`server-stage.sh:196`).
+- **Работает по чистому HTTP на порту 80**, без TLS (DEPLOY.md:249, 252). Контейнер `profkom-test-web-1` публикует `80:80` (`server-stage.sh:196`).
 - **Серверная часть PF-03 тестовому сайту ничего не даёт.** Браузеры используют HTTP/2 только поверх TLS, h2c они не поддерживают. Там помогают только склейка чанков из ветки аудита и ускорение backend.
   - Склейка на тест ещё не выложена: тест стоит на 12dede0 (`REPORT.md:3`).
   - Проверка аудита пришла к тому же выводу: `audit_raw.json`, perf-frontend, verify, nginx-no-http2, вердикт `partially`.
@@ -644,7 +644,7 @@ docker build -q -t profkom_web-frontend:pf03 $P/build      # без --pull
 Если сборка пытается что-то скачать (`pull access denied`, `failed to resolve source metadata`), это STOP. Pull не делать.
 
 ### 7.3 Проверка нового образа до переключения
-Проверка идёт с теми же mounts, без публикации портов, как в DEPLOY.md:165:
+Проверка идёт с теми же mounts, без публикации портов, как в DEPLOY.md:174:
 ```sh
 CERTS=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/etc/nginx/ssl"}}{{.Source}}{{end}}{{end}}' $C)
 EXTRA=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/etc/nginx/extra"}}{{.Source}}{{end}}{{end}}' $C)
@@ -699,10 +699,10 @@ docker exec $C nginx -s reload
 - **Шаг 2** (`nginx-extra/marzban.conf` из правок рабочей копии):
   - сразу после него `grep -c http2 nginx-extra/marzban.conf` должен дать 0, иначе STOP (будет дубль);
   - рабочую копию `frontend/nginx.conf` до этого шага не править.
-- **Шаг 4** (сборка по `Dockerfile.prebuilt` на `nginx:alpine` из кеша): проверка DEPLOY.md:165 с `nginx -T` должна пройти.
+- **Шаг 4** (сборка по `Dockerfile.prebuilt` на `nginx:alpine` из кеша): проверка DEPLOY.md:174 с `nginx -T` должна пройти.
   - На `nginx:alpine` < 1.25.1 будет `unknown directive "http2"` → STOP; pull только с отдельного разрешения.
   - Дополнительно: `docker run --rm --add-host backend:127.0.0.1 -v /home/yulov/certs:/etc/nginx/ssl:ro -v $D/nginx-extra:/etc/nginx/extra:ro profkom_web-frontend nginx -T 2>/dev/null | grep -cE '^\s*http2 on;'` → 1.
-- **После шага 7** — проверки раздела 11. Владелец проверяет VPN; DEPLOY.md:191 и так это требует.
+- **После шага 7** — проверки раздела 11. Владелец проверяет VPN; DEPLOY.md:202 и так это требует.
 - **Откат только HTTP/2 после v1.3** — как в разделе 10, но в режиме `remove`: `docker cp` файла из контейнера в `$P`, `add_http2.py remove`, `docker cp` обратно, `nginx -t`, `nginx -s reload`. Строку `http2 off;` добавлять нельзя: рядом с `http2 on;` это дубль. Полный откат v1.3 — по DEPLOY.md раздела 5.
 
 ---
