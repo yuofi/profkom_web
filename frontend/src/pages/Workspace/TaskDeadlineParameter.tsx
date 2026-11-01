@@ -15,7 +15,8 @@ import s from "./TrackerTaskDetail.module.css";
 /**
  * The deadline is an assessment input (УВ-5): it moves through the dated, reasoned
  * assessment-inputs change, never through an ordinary task edit, and only for those whose
- * inputs carry edit_assessment_dates. Other task managers learn who moves it.
+ * inputs carry edit_assessment_dates. Other task managers learn who moves it: in a closed
+ * season the chair, the deputies and the HR master only, not the HR deputy (SE-13).
  */
 export function TaskDeadlineParameter({ task, now, onSaved }: { task: Task; now: number; onSaved?: () => void }) {
   const { session } = useSession();
@@ -25,10 +26,13 @@ export function TaskDeadlineParameter({ task, now, onSaved }: { task: Task; now:
   const [moving, setMoving] = useState(false);
   const movable = can(inputs.data, "edit_assessment_dates");
   const manager = accountable || can(task, "edit_task") || can(task, "edit_task_metadata");
+  // The task page reads the seasons with the task (PF-14); the hint joins that entry.
+  const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list, refetchOnMount: false, enabled: manager });
+  const closed = seasons.data?.items.find(item => item.season_id === task.season_id)?.state === "closed";
   return <div><dt>Дедлайн, МСК</dt><dd>
     {task.deadline_at ? <time dateTime={task.deadline_at} className={Date.parse(task.deadline_at) < now && taskStatus(task) !== "closed" ? s.overdue : undefined}>{displayDate(task.deadline_at)}</time> : <span>Не задан</span>}
     {movable ? <button type="button" className={s.deadlineEdit} onClick={() => setMoving(true)}>Перенести срок</button>
-      : manager && !inputs.isLoading && <p className={s.seasonContext}>Срок переносят председатель, замы, мастер HR и его заместитель</p>}
+      : manager && !inputs.isLoading && !seasons.isLoading && <p className={s.seasonContext}>{closed ? "Срок закрытого сезона переносят председатель, замы и мастер HR" : "Срок переносят председатель, замы, мастер HR и его заместитель"}</p>}
     {moving && movable && inputs.data && <UnsavedChangesScope><DeadlineEditor task={task} inputs={inputs.data} refetch={() => void inputs.refetch()} onClose={() => setMoving(false)} onSaved={onSaved} /></UnsavedChangesScope>}
   </dd></div>;
 }
