@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
 import { act } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { createFixtures } from "../../mocks/fixtures";
@@ -111,4 +112,25 @@ it("moves the one order select among the folded filters on a phone and back to t
     expect(details.contains(orders()[0])).toBe(false);
     expect(orders()[0].value).toBe("name");
   } finally { vi.unstubAllGlobals(); }
+});
+
+it("puts the version line and XLSX first on a phone in the page order too, not by CSS order (D-07)", async () => {
+  const { SeasonParticipants } = await import("./SeasonParticipants");
+  const listeners = new Set<() => void>(), query = { matches: false, media: "(min-width: 769px)", addEventListener: (_: string, listener: () => void) => listeners.add(listener), removeEventListener: (_: string, listener: () => void) => listeners.delete(listener) };
+  vi.stubGlobal("matchMedia", vi.fn(() => query));
+  try {
+    page = await mountWorkspace(<SeasonParticipants summary={createFixtures("chair").summary} />);
+    const bar = page.container.querySelector('[aria-label="Фильтры участников"]')!;
+    // The keyboard goes XLSX → search → «Фильтры», as the eye does.
+    const focusable = () => [...bar.querySelectorAll<HTMLElement>("button, input, summary")].map(item => item.textContent || item.getAttribute("type"));
+    expect(bar.children[0].querySelector("button")?.textContent).toBe("Скачать XLSX");
+    expect(bar.children[1].querySelector('input[type="search"]')).not.toBeNull();
+    expect(focusable().slice(0, 3)).toEqual(["Скачать XLSX", "search", "Фильтры"]);
+    query.matches = true;
+    await act(async () => listeners.forEach(listener => listener()));
+    expect(focusable().slice(0, 3)).toEqual(["search", "Скачать XLSX", "Фильтры"]);
+    expect([...bar.querySelectorAll("button")].filter(item => item.textContent === "Скачать XLSX")).toHaveLength(1);
+  } finally { vi.unstubAllGlobals(); }
+  const css = readFileSync(`${__dirname}/SeasonWorkspace.module.css`, "utf8");
+  expect(css).not.toMatch(/\.participantsBar>\.barMeta \{[^}]*order:/);
 });

@@ -163,7 +163,7 @@
   .tabs[data-before][data-more] { -webkit-mask-image:linear-gradient(to right,transparent,#000 36px,#000 calc(100% - 36px),transparent);mask-image:linear-gradient(to right,transparent,#000 36px,#000 calc(100% - 36px),transparent); }
   .tabs a { flex:0 0 auto;white-space:nowrap; }
   .tabs a:focus-visible { outline-offset:-2px; }
-  .participantsBar>.barMeta { order:-1;flex:1 1 100%;justify-content:space-between; }
+  .participantsBar>.barMeta { flex:1 1 100%;justify-content:space-between; }
   .participantsBar>.barSearch { flex:1 1 100%; }
   .barMeta p { white-space:normal; }
 }

@@ -47,14 +47,16 @@ export function SeasonParticipants({ summary, renderDecisions, onFilterApply }: 
     && (!mark || (mark === "any" ? row.decisions.length > 0 : mark === "none" ? row.decisions.length === 0 : row.decisions.includes(mark))))
     .sort((a, b) => sort === "name" ? a.user.display_name.localeCompare(b.user.display_name, "ru") : sort === "score-asc" ? a.total_score - b.total_score || a.rank - b.rank : a.rank - b.rank);
   const order = <label className={wide ? u.barOrder : undefined}>Порядок<select aria-label="Порядок" value={sort} onChange={e => setSort(e.target.value)}><option value="rank">По месту в сводной</option><option value="score-asc">ККР по возрастанию</option><option value="name">По имени</option></select></label>;
+  // «Предварительные итоги» are in the header; an approved summary keeps its date here.
+  const meta = <div className={`${u.summaryMeta} ${u.barMeta}`}><p>{summary.state === "approved" && `Утверждено ${displayDate(summary.approved_at)} · `}Версия {summary.version} · {summary.rows.length} {plural(summary.rows.length, "участник", "участника", "участников")}</p><button type="button" className={u.secondary} onClick={async () => {
+      setExportError("");try { const blob = await seasonsApi.export(summary.season_id);const url = URL.createObjectURL(blob);const link = document.createElement("a");link.href = url;link.download = `kkr-${summary.season_id}.xlsx`;link.click();setTimeout(() => URL.revokeObjectURL(url), 1000); } catch (error) { setExportError(userMessage(error)); }
+    }}>Скачать XLSX</button></div>;
   return <section className={u.stack} aria-label="Участники и ККР">
-    {/* Two rows over the table: search, order, version and XLSX; then the filters. A phone puts the version line first (D-07). */}
-    <div className={`${u.toolbar} ${u.participantsBar}`} aria-label="Фильтры участников"><label className={u.barSearch}>Поиск по имени или группе<input type="search" value={search} onChange={e => updateFilter(search, e.target.value, setSearch)} placeholder="Имя или группа" /></label>
+    {/* Two rows over the table: search, order, version and XLSX; then the filters. A phone puts the version line first
+        (D-07), in the page order as well, so the keyboard meets it where it is seen. */}
+    <div className={`${u.toolbar} ${u.participantsBar}`} aria-label="Фильтры участников">{!wide && meta}<label className={u.barSearch}>Поиск по имени или группе<input type="search" value={search} onChange={e => updateFilter(search, e.target.value, setSearch)} placeholder="Имя или группа" /></label>
       {wide && order}
-      {/* «Предварительные итоги» are in the header; an approved summary keeps its date here. */}
-      <div className={`${u.summaryMeta} ${u.barMeta}`}><p>{summary.state === "approved" && `Утверждено ${displayDate(summary.approved_at)} · `}Версия {summary.version} · {summary.rows.length} {plural(summary.rows.length, "участник", "участника", "участников")}</p><button type="button" className={u.secondary} onClick={async () => {
-        setExportError("");try { const blob = await seasonsApi.export(summary.season_id);const url = URL.createObjectURL(blob);const link = document.createElement("a");link.href = url;link.download = `kkr-${summary.season_id}.xlsx`;link.click();setTimeout(() => URL.revokeObjectURL(url), 1000); } catch (error) { setExportError(userMessage(error)); }
-      }}>Скачать XLSX</button></div>
+      {wide && meta}
       <details className={u.filterDisclosure} open={filtersOpen} onToggle={event => setFiltersOpen(event.currentTarget.open)}><summary>Фильтры{activeFilters > 0 && ` · ${activeFilters}`}</summary><div className={u.toolbar}><div><EntityPicker name="block" label="Блок" value={block} onChange={value => updateFilter(block, value, setBlock)} placeholder="Все блоки" options={[{ value: "", label: "Все блоки" }, ...blocks.map(item => ({ value: item.block_id, label: item.name, block: item }))]} /></div>
       <label>Категория<select name="category" value={category} onChange={e => updateFilter(category, e.target.value, setCategory)}><option value="">Все категории</option><option value="junior">Джуниоры</option><option value="activist">Активисты</option></select></label>
       <label>Мастера<select name="is_master" value={master} onChange={e => updateFilter(master, e.target.value, setMaster)}><option value="">Все участники</option><option value="true">Только мастера</option><option value="false">Кроме мастеров</option></select></label>
