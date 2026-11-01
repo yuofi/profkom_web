@@ -171,7 +171,7 @@ interface ContactChipProps {
               {renderField('Телефон', info.phone, 'phone', 'call')}
               <div className={styles.row}>
                 {renderField('ВК', info.vk, 'vk', 'share')}
-                {renderField('Телеграмм', info.tg, 'tg', 'send')}
+                {renderField('Telegram', info.tg, 'tg', 'send')}
               </div>
               {renderField('Почта', info.email, 'email', 'mail')}
             </div>

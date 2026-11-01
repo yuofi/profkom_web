@@ -103,3 +103,11 @@ it("the contact dialog's avatar zooms inside the dialog, and Escape closes only 
   expect(document.querySelector('[aria-label="Просмотр изображения"]')).toBeNull();
   expect(dialog.isConnected && dialog.open).toBe(true);expect(document.activeElement).toBe(avatar);
 });
+it("a contact chip labels the Telegram field «Telegram», as the profile editor does (smoke FV-3 follow-up)", async () => {
+  vi.stubGlobal("matchMedia", (media: string) => ({ matches: false, media, addEventListener() {}, removeEventListener() {} }));
+  // Chips already written with the «Телеграмм» key still read it.
+  page = await mountWorkspace(<ContactChip initialContent={"Фамилия: Иванова\nИмя: Анна\nТелеграмм: @ivanova_anna"} />);
+  const dialog = await open(page.container.querySelector<HTMLButtonElement>("button[aria-haspopup='dialog']")!);
+  const field = [...dialog.querySelectorAll("span")].find(span => span.textContent === "@ivanova_anna")!;
+  expect(field.previousElementSibling?.textContent).toBe("Telegram");expect(dialog.textContent).not.toContain("Телеграмм");
+});
