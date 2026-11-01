@@ -36,7 +36,7 @@ AGENTS.md:5-19: вне локальной машины ничего не дел�
 - любое обращение к рабочему сайту с локальной машины: curl, openssl, браузер, а также DNS-запросы о нём (dig).
 
 В разрешении должны быть названы:
-1. **Сервер:** `profcom-cmc.ru`, SSH-порт 2006 (DEPLOY.md:48), пользователь. В выкладке 2026-10-30 это, судя по пути `/home/aleksmozz/…`, был `aleksmozz` (`.local/logs/attachment-layout-deploy-20261030/remote-operation.json:3`). Проект — `/home/yulov/profkom_web`, контейнер — `profkom_web-frontend-1`.
+1. **Сервер:** `profcom-cmc.ru`, SSH-порт 2006 (DEPLOY.md:49), пользователь. В выкладке 2026-10-30 это, судя по пути `/home/aleksmozz/…`, был `aleksmozz` (`.local/logs/attachment-layout-deploy-20261030/remote-operation.json:3`). Проект — `/home/yulov/profkom_web`, контейнер — `profkom_web-frontend-1`.
 2. **Действия** — по пунктам запроса ниже.
 3. **Окно времени.**
    - Путь 1 даёт простой в несколько секунд. На эти секунды пропадают сайт и всё, что nginx проксирует в Marzban: подписки и VPN-подключения через nginx. Открытые соединения рвутся.
@@ -53,7 +53,7 @@ AGENTS.md:5-19: вне локальной машины ничего не дел�
 - Не трогать backend, базу и `data/`.
 - Не читать и не выводить `.env` и `backend/.env`.
 - Не запускать `docker compose config` без `--images`: эта команда печатает значения из `.env` и `env_file`.
-- Не править файлы рабочей копии на сервере, в том числе `frontend/nginx.conf`. В состоянии S-A шаг 2 выкладки v1.3 (DEPLOY.md:134-144) переносит все добавленные в этот файл строки в `nginx-extra/marzban.conf`. Строка `http2 on;` оказалась бы там второй, и nginx новой версии не запустился бы.
+- Не править файлы рабочей копии на сервере, в том числе `frontend/nginx.conf`. В состоянии S-A шаг 2 выкладки v1.3 (DEPLOY.md:138-148) переносит все добавленные в этот файл строки в `nginx-extra/marzban.conf`. Строка `http2 on;` оказалась бы там второй, и nginx новой версии не запустился бы.
 - Не выполнять `docker compose down`, `docker pull`, `git pull` и `git fetch`.
 - Ничего не удалять: образы, файлы, бэкапы.
 
@@ -107,11 +107,11 @@ AGENTS.md:5-19: вне локальной машины ничего не дел�
 ### 2.1 Где завершается TLS
 - **TLS завершает nginx внутри контейнера frontend.** `frontend/nginx.conf:7`: `listen  443 ssl;`. Сертификаты (`:10-11`) берутся из `/etc/nginx/ssl`.
 - **Compose.** `docker-compose.yml:18` публикует `"${FRONTEND_PORT}:443"`. Строка `:21` монтирует сертификаты из `${CERTS_DIR:-./certs}`, строка `:23` — `./nginx-extra` только для чтения.
-- **Имя образа.** У сервиса frontend нет ключа `image:`, только `build: ./frontend` (`docker-compose.yml:15`). Compose берёт образ `profkom_web-frontend:latest`; выкладка v1.3 собирает его под этим именем (DEPLOY.md:155).
+- **Имя образа.** У сервиса frontend нет ключа `image:`, только `build: ./frontend` (`docker-compose.yml:15`). Compose берёт образ `profkom_web-frontend:latest`; выкладка v1.3 собирает его под этим именем (DEPLOY.md:161).
 - **Конфигурация запечена в образ, а не смонтирована:** `frontend/Dockerfile.prebuilt:6` (`COPY nginx.conf /etc/nginx/conf.d/default.conf`). Правка `frontend/nginx.conf` на сервере сама по себе ничего не меняет. Нужен один из трёх вариантов: новый образ, правка внутри контейнера или файл в nginx-extra.
 - **nginx-extra подключается внутри server-блока** (`frontend/nginx.conf:15`). Значит, там допустимы директивы уровня server, в том числе `http2 on;` (проверено локально). Отдельный `server {}` там объявить нельзя.
 - **Хостового nginx или прокси в репозитории нет.** Marzban — это VPN на том же сервере в сети host. Его блоки в nginx проксируют на шлюз 172.19.0.1 (DEPLOY.md:7, 9). Получается, что nginx контейнера стоит впереди сайта и тех путей Marzban, которые идут через него.
-- **DNS.** Записи заведены в Cloudflare (DEPLOY.md:30). Проверка DEPLOY.md:51-56 ждёт, что имя указывает на собственные адреса сервера, — значит, проксирования через Cloudflare нет. Из репозитория это не доказать, проверить в 4.3. Есть известная проблема: 2026-10-24 IPv4-адрес сменился, а запись A осталась прежней (DEPLOY.md:30).
+- **DNS.** Записи заведены в Cloudflare (DEPLOY.md:31). Проверка DEPLOY.md:52-57 ждёт, что имя указывает на собственные адреса сервера, — значит, проксирования через Cloudflare нет. Из репозитория это не доказать, проверить в 4.3. Есть известная проблема: 2026-10-24 IPv4-адрес сменился, а запись A осталась прежней (DEPLOY.md:31).
 - **`FRONTEND_PORT`** записан в `.env`. Этот файл не читать, порт узнать через `docker port` (4.3).
 
 ### 2.2 Версия nginx и синтаксис
@@ -146,7 +146,7 @@ AGENTS.md:5-19: вне локальной машины ничего не дел�
 - **Выигрыш на старом проде, скорее всего, мал.** В старой сборке всего 32 файла сайта (DEPLOY.md:19). Основной выигрыш ожидается на сборке v1.3 с правками аудита. Там страница задачи и после склейки чанков грузит 21 скрипт на F5 (`T/results/impl_result.json`, PF-03).
 
 ### 2.4 Тестовый сайт test.profcom-cmc.online
-- **Работает по чистому HTTP на порту 80**, без TLS (DEPLOY.md:223, 226). Контейнер `profkom-test-web-1` публикует `80:80` (`server-stage.sh:196`).
+- **Работает по чистому HTTP на порту 80**, без TLS (DEPLOY.md:236, 239). Контейнер `profkom-test-web-1` публикует `80:80` (`server-stage.sh:196`).
 - **Серверная часть PF-03 тестовому сайту ничего не даёт.** Браузеры используют HTTP/2 только поверх TLS, h2c они не поддерживают. Там помогают только склейка чанков из ветки аудита и ускорение backend.
   - Склейка на тест ещё не выложена: тест стоит на 12dede0 (`REPORT.md:3`).
   - Проверка аудита пришла к тому же выводу: `audit_raw.json`, perf-frontend, verify, nginx-no-http2, вердикт `partially`.
@@ -474,7 +474,7 @@ ss -ltnpH '( sport = :80 )'                      # здесь тестовый �
 curl -V | grep -qw HTTP2 && echo 'curl умеет h2' || echo 'curl без h2: проверять через openssl'
 curl -sS -o /dev/null -w '%{http_version} %{http_code}\n' --http2 --resolve profcom-cmc.ru:$HP:127.0.0.1 https://profcom-cmc.ru:$HP/   # до: 1.1 200
 openssl s_client -connect 127.0.0.1:$HP -servername profcom-cmc.ru -alpn h2,http/1.1 </dev/null 2>/dev/null | grep -E '^(ALPN protocol|No ALPN negotiated|New,)'   # до: http/1.1
-# DNS указывает на этот сервер (DEPLOY.md:51-56): обе строки должны напечатать match
+# DNS указывает на этот сервер (DEPLOY.md:52-57): обе строки должны напечатать match
 [ "$(getent ahostsv4 profcom-cmc.ru | awk '{print $1; exit}')" = "$(ip -4 -o addr show ens3 | awk '{print $4}' | cut -d/ -f1)" ] && echo match
 ip -6 -o addr show ens3 scope global | awk '{print $4}' | cut -d/ -f1 | grep -qxF "$(getent ahostsv6 profcom-cmc.ru | awk '{print $1; exit}')" && echo match
 ```
@@ -538,7 +538,7 @@ done
 | Путь | 3 (по умолчанию) или 4 | 1 (по умолчанию) или 2 |
 
 - Признаки противоречат друг другу → STOP и доклад владельцу.
-- `/etc/nginx/conf.d/default.conf` смонтирован с хоста (виден в списке mounts из 4.1) → STOP на любом пути. Монтирование перекрывает файл образа, поэтому путь 1 ничего не изменит. Путь 4 по DEPLOY.md:31 потребовал бы перезапуска.
+- `/etc/nginx/conf.d/default.conf` смонтирован с хоста (виден в списке mounts из 4.1) → STOP на любом пути. Монтирование перекрывает файл образа, поэтому путь 1 ничего не изменит. Путь 4 по DEPLOY.md:32 потребовал бы перезапуска.
 - S-B, но `docker diff` показывает изменённый `default.conf` → STOP: путь 1 при пересоздании потеряет правки, сделанные внутри контейнера.
 - S-A: путь 1 запрещён. Пересоздание контейнера в S-A теряет правки внутри него и запускает compose 6eb9dea — это работа выкладки v1.3. Путь 2 в S-A невозможен: нет ни include, ни монтирования.
 
@@ -549,7 +549,7 @@ done
 | `docker port` показывает 443; на :443 docker-proxy или пусто; DNS — match по обоим адресам; `Server: nginx/<та же версия, что nginx -v>` | T-1: TLS в контейнере | Продолжать |
 | :443 держит другой процесс хоста, контейнер опубликован на другом порту | T-2: TLS снаружи контейнера | STOP. HTTP/2 включается там, где завершается TLS, а это вне репозитория. Доложить, что слушает 443, не печатая чужие конфиги |
 | `dig` даёт адреса Cloudflare, есть `cf-ray` или `server: cloudflare` | T-3: прокси Cloudflare | STOP. Браузер говорит с Cloudflare, и протокол на этом участке задаёт Cloudflare (HTTP/2 у него включён по умолчанию). `http2 on;` в nginx повлияет только на участок Cloudflare → сервер. Доложить |
-| Признаков Cloudflare нет, но DNS по IPv4 или IPv6 не match | Неверная запись DNS | STOP. Известно с 2026-10-24: запись A осталась на прежнем IPv4 (DEPLOY.md:30). Внешние проверки ушли бы на чужой адрес. Доложить; владелец исправляет DNS или разрешает проверки только по совпадающему семейству адресов |
+| Признаков Cloudflare нет, но DNS по IPv4 или IPv6 не match | Неверная запись DNS | STOP. Известно с 2026-10-24: запись A осталась на прежнем IPv4 (DEPLOY.md:31). Внешние проверки ушли бы на чужой адрес. Доложить; владелец исправляет DNS или разрешает проверки только по совпадающему семейству адресов |
 
 ### 5.3 Выбор пути
 Путь называет владелец в разрешении. Если названный путь не подходит к состоянию из 5.1, STOP.
@@ -644,7 +644,7 @@ docker build -q -t profkom_web-frontend:pf03 $P/build      # без --pull
 Если сборка пытается что-то скачать (`pull access denied`, `failed to resolve source metadata`), это STOP. Pull не делать.
 
 ### 7.3 Проверка нового образа до переключения
-Проверка идёт с теми же mounts, без публикации портов, как в DEPLOY.md:159:
+Проверка идёт с теми же mounts, без публикации портов, как в DEPLOY.md:165:
 ```sh
 CERTS=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/etc/nginx/ssl"}}{{.Source}}{{end}}{{end}}' $C)
 EXTRA=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/etc/nginx/extra"}}{{.Source}}{{end}}{{end}}' $C)
@@ -689,7 +689,7 @@ docker exec $C nginx -t 2>&1 | tail -2             # ok; при ошибке: mv
 date -u +%FT%TZ                                    # S = время переключения
 docker exec $C nginx -s reload
 ```
-Новые файлы в папке nginx-extra видны сразу, поэтому достаточно reload (DEPLOY.md:31). Дальше — раздел 11. Ловушку из 5.3 записать в отчёт и в DEPLOY.md (3.3).
+Новые файлы в папке nginx-extra видны сразу, поэтому достаточно reload (DEPLOY.md:32). Дальше — раздел 11. Ловушку из 5.3 записать в отчёт и в DEPLOY.md (3.3).
 
 ---
 
@@ -699,10 +699,10 @@ docker exec $C nginx -s reload
 - **Шаг 2** (`nginx-extra/marzban.conf` из правок рабочей копии):
   - сразу после него `grep -c http2 nginx-extra/marzban.conf` должен дать 0, иначе STOP (будет дубль);
   - рабочую копию `frontend/nginx.conf` до этого шага не править.
-- **Шаг 4** (сборка по `Dockerfile.prebuilt` на `nginx:alpine` из кеша): проверка DEPLOY.md:159 с `nginx -T` должна пройти.
+- **Шаг 4** (сборка по `Dockerfile.prebuilt` на `nginx:alpine` из кеша): проверка DEPLOY.md:165 с `nginx -T` должна пройти.
   - На `nginx:alpine` < 1.25.1 будет `unknown directive "http2"` → STOP; pull только с отдельного разрешения.
   - Дополнительно: `docker run --rm --add-host backend:127.0.0.1 -v /home/yulov/certs:/etc/nginx/ssl:ro -v $D/nginx-extra:/etc/nginx/extra:ro profkom_web-frontend nginx -T 2>/dev/null | grep -cE '^\s*http2 on;'` → 1.
-- **После шага 7** — проверки раздела 11. Владелец проверяет VPN; DEPLOY.md:182 и так это требует.
+- **После шага 7** — проверки раздела 11. Владелец проверяет VPN; DEPLOY.md:191 и так это требует.
 - **Откат только HTTP/2 после v1.3** — как в разделе 10, но в режиме `remove`: `docker cp` файла из контейнера в `$P`, `add_http2.py remove`, `docker cp` обратно, `nginx -t`, `nginx -s reload`. Строку `http2 off;` добавлять нельзя: рядом с `http2 on;` это дубль. Полный откат v1.3 — по DEPLOY.md раздела 5.
 
 ---
