@@ -6,6 +6,7 @@ storage. --apply performs storage I/O and needs explicit environment approval.
 import argparse
 import json
 import os
+from contextlib import closing
 from pathlib import Path
 import sqlite3
 import sys
@@ -35,7 +36,7 @@ def main():
     path = args.database.resolve()
     if not path.is_file():
         parser.error("Database must be an existing file")
-    with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as connection:
+    with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as connection:
         if connection.execute("PRAGMA quick_check").fetchone()[0] != "ok":
             parser.error("Database quick_check failed")
         exists = connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='file_records'").fetchone()

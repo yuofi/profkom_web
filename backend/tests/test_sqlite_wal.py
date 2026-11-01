@@ -6,8 +6,10 @@ its rows and indexes, and without the setting it keeps or returns to the rollbac
 journal. Acknowledged commits survive a killed writer, the backup of DEPLOY.md is
 consistent while writes run and after a stop, units that read before they write never
 fail with SQLITE_BUSY while other writers commit, and a stopped backend or script leaves
-only the database file.
+only the database file. The migration scripts hash the file before they open it.
 """
+import hashlib
+import json
 import os
 import random
 import re
@@ -31,6 +33,7 @@ from settings import Settings
 
 BACKEND = Path(__file__).resolve().parents[1]
 ROOT = BACKEND.parent
+SCRIPTS = BACKEND / "scripts"
 
 
 def pragmas(connection):
@@ -204,6 +207,89 @@ def test_units_that_read_before_they_write_never_fail_while_others_commit(tmp_pa
         assert connection.exec_driver_sql("SELECT count(*) FROM units").scalar() == 8 * rounds
     other.dispose()
     assert errors == []
+
+
+def test_the_migration_scripts_hash_the_file_before_they_open_it(tmp_path, monkeypatch):
+    """source_sha256 is the database file as sha256sum prints it, read before the script
+    opens the database: closing a descriptor of the file drops the POSIX locks that an
+    open connection of the process keeps in WAL (tests/sqlite_files.py). source_wal_bytes
+    is the size of -wal at that moment: committed transactions may still be outside the file."""
+    import legacy_6eb9dea
+
+    path = tmp_path / "copy.db"
+    legacy_6eb9dea.build(path)
+    connect, read = sqlite3.connect, Path.read_bytes
+    with closing(connect(path)) as killed:  # an API killed with its last commit still in -wal
+        killed.setconfig(sqlite3.SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, True)
+        killed.execute("PRAGMA journal_mode=WAL")
+        killed.execute("UPDATE contact_info SET tg='@moved' WHERE user_id=10")
+        killed.commit()
+    wal = Path(f"{path}-wal").stat().st_size
+    assert wal > 0
+    opened, hashed = [], []
+
+    def tracked(database, *args, **kwargs):
+        opened.append(database)
+        return connect(database, *args, **kwargs)
+
+    def reading(self):
+        if self == path:
+            hashed.append(len(opened))
+        return read(self)
+
+    monkeypatch.setattr(sqlite3, "connect", tracked)
+    monkeypatch.setattr(Path, "read_bytes", reading)
+    monkeypatch.syspath_prepend(str(SCRIPTS))
+    import mapping_candidate
+    import migrate_v13
+
+    def run(script, *args):
+        opened.clear()
+        hashed.clear()
+        monkeypatch.setattr(sys, "argv", [script.__file__, "--database", str(path), *map(str, args)])
+        script.main()
+        assert hashed == [0]  # one read of the file, before any connection
+
+    run(migrate_v13, "--report", tmp_path / "dry.json")
+    run(mapping_candidate, "--out", tmp_path / "candidate.json", "--review", tmp_path / "review.json")
+    dry, review = (json.loads((tmp_path / name).read_text()) for name in ("dry.json", "review.json"))
+    file = hashlib.sha256(read(path)).hexdigest()
+    assert (dry["source_sha256"], dry["source_wal_bytes"]) == (review["source_sha256"], review["source_wal_bytes"]) == (file, wal)
+    # The same content after a checkpoint: in the file alone, which now has another hash.
+    with closing(connect(path)) as last:
+        last.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    assert not Path(f"{path}-wal").exists()
+    run(migrate_v13, "--report", tmp_path / "again.json")
+    again = json.loads((tmp_path / "again.json").read_text())
+    assert again["source_wal_bytes"] == 0 and again["source_sha256"] == hashlib.sha256(read(path)).hexdigest() != file
+    assert (again["before"], again["unresolved"]) == (dry["before"], dry["unresolved"])
+
+
+def test_scripts_that_apply_leave_only_the_database_file(tmp_path):
+    """A script closes its read-only connections itself (PB-31): an sqlite3 connection sits
+    in a reference cycle with its statement cache, so the `with` block leaves it open until
+    a garbage collection, and at the exit of the script the last connection of the app
+    could not fold -wal into the file."""
+    import legacy_6eb9dea
+
+    path = tmp_path / "copy.db"
+    legacy_6eb9dea.build(path)
+    env = {**os.environ, "S3_BUCKET_NAME": "synthetic"}  # the bucket of legacy_6eb9dea
+
+    def run(script, *args):
+        result = subprocess.run([sys.executable, str(SCRIPTS / script), "--database", str(path), *map(str, args)],
+                                cwd=BACKEND, env=env, capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr[-3000:]
+        assert sorted(p.name for p in tmp_path.iterdir() if p.name.startswith(path.name)) == [path.name], script
+
+    run("migrate_v13.py", "--apply", "--report", tmp_path / "apply.json")
+    run("migrate_v13.py", "--apply", "--report", tmp_path / "again.json")
+    assert json.loads((tmp_path / "again.json").read_text())["source_wal_bytes"] == 0
+    run("seal_completed_files.py", "--apply")
+    run("cleanup_accounts.py", "--apply")
+    with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as copy:
+        assert copy.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+        assert copy.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
 
 
 WRITER = r"""

@@ -6,6 +6,7 @@ import sys
 import json
 import sqlite3
 import calendar
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,7 +30,7 @@ if not args.apply and not args.delete_pending:
     )
     if stamp.tzinfo is None:
         parser.error("--as-of requires a timezone")
-    with sqlite3.connect(args.database.as_uri() + "?mode=ro", uri=True) as c:
+    with closing(sqlite3.connect(args.database.as_uri() + "?mode=ro", uri=True)) as c:
         if not c.execute(
             "SELECT 1 FROM sqlite_master WHERE name='account_archives'"
         ).fetchone():
