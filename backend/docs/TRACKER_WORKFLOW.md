@@ -107,14 +107,16 @@ in non-closed seasons, including other blocks, subevents and independent/private
 queues. The central `task.edit` policy grants title/Markdown-description editing and
 the corresponding public editor controls; Markdown checkboxes use that same guarded
 description PATCH. This does not transfer queue ownership or change any accounting,
-report or analytics permission. The HR deputy retains global tracker reading and
-ordinary reader controls, without a new global editing or private-accounting grant.
-Closed tasks are edited by the chair, the deputies and the HR master (owner 2026-10-31,
-SE-13), never by the HR deputy. Closed independent tasks also retain the existing
-creator/queue-owner exception. A new assignment row in a closed season (join, take,
-assign, reassignment) is added by the same circle, the chair, the deputies and the HR
-master, never by the HR deputy or area leads (`task.add_assignment`, owner 2026-10-31,
-TR-05).
+report or analytics permission. The actual HR deputy reads every queue and task and
+shares this global public editing in non-closed seasons, with the global review,
+assessment inputs and dates of the same `access.POLICY` rules and the global KKR,
+summary and analytics (owner 2026-10-30); in the HR block they are also an ordinary
+block deputy (owner 2026-10-31, GL-09). Closed tasks are edited by the chair, the
+deputies and the HR master (owner 2026-10-31, SE-13), never by the HR deputy. Closed
+independent tasks also retain the existing creator/queue-owner exception. A new
+assignment row in a closed season (join, take, assign, reassignment) is added by the
+same circle, the chair, the deputies and the HR master, never by the HR deputy or area
+leads (`task.add_assignment`, owner 2026-10-31, TR-05).
 
 ## Real roster and watcher subscriptions
 
