@@ -32,7 +32,7 @@ const until = (predicate: () => boolean) => waitForPage(page!, predicate);
 const forms = () => Array.from(page!.container.querySelectorAll("form"));
 const form = (label: string) => forms().find(f => f.querySelector('button[type="submit"]')?.textContent === label)!;
 const session = () => page!.client.getQueryData<Session>(["session"])!;
-const taskActionsSettled = () => ![...page!.container.querySelectorAll<HTMLButtonElement>("button")].some(button => button.disabled && (button.matches('[aria-haspopup="menu"][aria-label^="Статус задачи:"],[aria-label^="Убрать исполнителя:"]') || ["Стать исполнителем", "Наблюдать", "Перестать наблюдать", "Взять в работу", "Нужна помощь", "Сдать результат"].includes(button.textContent?.trim() ?? "")));
+const taskActionsSettled = () => ![...page!.container.querySelectorAll<HTMLButtonElement>("button")].some(button => (button.disabled || button.getAttribute("aria-disabled") === "true") && (button.matches('[aria-haspopup="menu"][aria-label^="Статус задачи:"],[aria-label^="Убрать исполнителя:"]') || ["Стать исполнителем", "Наблюдать", "Перестать наблюдать", "Взять в работу", "Нужна помощь", "Сдать результат"].includes(button.textContent?.trim() ?? "")));
 async function click(container: ParentNode, label: string) {
   const b = Array.from(container.querySelectorAll("button")).find(b => b.textContent === label);
   expect(b, label).toBeDefined(); await act(async () => b!.click()); await waitForPage(page!, taskActionsSettled);

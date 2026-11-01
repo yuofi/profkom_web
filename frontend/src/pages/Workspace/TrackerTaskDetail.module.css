@@ -20,7 +20,8 @@
 .manualLink { display: grid; gap: 4px; max-width: min(100%, 560px); font-size: 12px; }
 .manualLink input { min-width: 0; padding: 6px 10px; border: 1px solid var(--outline-variant); border-radius: 8px; background: var(--surface-container-lowest); color: var(--on-surface); font: inherit; font-size: 13px; }
 .backLink { color: inherit; font-size: 13px; text-decoration: none; }
-.workspace { display: grid; grid-template-columns: minmax(0, 1fr) 270px; align-items: start; min-width: 0; }
+/* The parameters column fits a label beside a person chip (D-03). */
+.workspace { display: grid; grid-template-columns: minmax(0, 1fr) 344px; align-items: start; min-width: 0; }
 .main { display: grid; min-width: 0; padding: 24px 26px 0 0; gap: 26px; }
 .description { display: grid; gap: 15px; min-width: 0; }
 .sectionHeading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -40,19 +41,27 @@
 .sidebar { min-width: 0; border-left: 1px solid var(--surface-variant); padding: 24px 0 22px 24px; position: static; align-self: start; }
 .parameters > summary { font-size: 19px; font-weight: 600; list-style: none; cursor: pointer; padding: 0 0 16px; }
 .parameters > summary::-webkit-details-marker { display: none; }
-.parameters dl { display: grid; gap: 23px; margin: 0; }
-/* In two columns a short cell keeps its value under the label beside a tall neighbour. */
-.parameters dl > div { display: grid; align-content: start; gap: 8px; min-width: 0; }
+/* Three titled groups (status and dates, place, people), each a grid of a label beside its value (D-03). */
+.groups { display: grid; gap: 16px; }
+.group { display: grid; gap: 10px; min-width: 0; }
+.group + .group { padding-top: 16px; border-top: 1px solid var(--surface-variant); }
+.groupTitle { margin: 0; color: var(--on-surface); opacity: .8; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.chipRow { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-width: 0; }
+.chipRow [data-row-action] > button { gap: 4px; padding-inline: 4px; } /* Type and priority triggers sit close to the status chip. */
+.parameters dl { display: grid; gap: 10px; margin: 0; }
+.parameters dl > div { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: start; gap: 10px; min-width: 0; }
 .parameters dt { font-size: 12px; color: var(--on-surface); opacity: .58; }
-.parameters dd { text-align: left; margin: 0; font-size: 14px; min-width: 0; overflow-wrap: anywhere; }
+.parameters .chipPair > dt { padding-top: 7px; }
+.parameters dd { display: grid; justify-items: start; gap: 4px; text-align: left; margin: 0; font-size: 14px; min-width: 0; overflow-wrap: anywhere; }
 .parameters dd > a:not(.personChip) { color: var(--primary); text-decoration: none; }
 .parameters dd > a:hover { text-decoration: underline; }
-/* Borderless triggers keep their text in the column of the plain values; only here, not in tables or the header. */
-.parameters dd > [data-row-action], .parameters .people > .subtleButton { margin-inline-start: -8px; }
 .parameters { position: relative; }
+.peopleActions { display: flex; flex-wrap: wrap; align-items: center; gap: 0 2px; margin-inline-start: -8px; }
+.peopleActions > .subtleButton { padding: 4px 8px; font-size: 12px; }
+.summary { display: none; }
 .rosterPerson > .removePerson { margin-inline-start: auto; } /* One column of removal buttons whatever the name length. */
 .parametersEdit { position: absolute; top: -7px; right: 0; color: var(--primary); }
-.people { display: grid; justify-items: start; gap: 9px; }
+.people { display: grid; justify-items: start; gap: 6px; }
 .personChip { display: inline-flex; max-width: 100%; align-items: center; gap: 6px; min-height: 29px; padding: 5px 9px; border: 1px solid var(--surface-variant); border-radius: 18px; background: var(--surface-container); color: var(--on-surface); font-size: 12px; text-decoration: none; box-sizing: border-box; overflow-wrap: anywhere; }
 .personChip span { flex: 0 0 auto; font-size: 16px; }
 .personChip:hover { color: var(--primary); border-color: var(--primary); }
@@ -106,8 +115,11 @@ dialog.dialog { margin: auto; }
 .srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .loadingTitle { margin: 0 0 20px; font-size: 28px; }
 @media(max-width: 1100px) { .workspace { grid-template-columns: minmax(0, 1fr) 235px; }.sidebar { padding-left: 18px; }.main { padding-right: 18px; }.activityHeader { flex-wrap: wrap; gap: 0; }.sort { margin: 9px 0 9px auto; } }
-@media(max-width: 900px) { .workspace { grid-template-columns: minmax(0, 1fr); }.sidebar { order: -1; position: static; border-left: 0; border-bottom: 1px solid var(--surface-variant); padding: 18px 0; }.parameters > summary { font-size: 16px; padding-bottom: 0; }.parameters > summary::after { content: "⌄"; margin-left: 10px; }.parameters[open] > summary { padding-bottom: 18px; }.parameters dl { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }.main { padding-right: 0; padding-top: 21px; }.metadata { gap: 7px 12px; } }
-@media(max-width: 520px) { .titleRow { gap: 8px; }.headerTools { gap: 0; }.headerTools .deferred button,.iconButton { width: 31px; height: 33px; }.breadcrumbs { font-size: 12px; gap: 6px; }.metadata { font-size: 11px; }.parameters dl { gap: 19px 10px; }.sidebar .personChip { font-size: 11px; }.tabs { gap: 17px; }.tabs button { font-size: 13px; }.sort { width: 100%; margin: 0 0 10px; justify-content: flex-end; }.activityHeader { justify-content: flex-start; }.sectionHeading h2 { font-size: 17px; }.dialog { padding: 17px; }.dialogHeader h2 { font-size: 20px; }.comment header button { margin-left: 0; }.submission { padding: 12px; }.personChip { max-width: 100%; } }
+/* Beside the navigation a 235 px column keeps the label above its value, as before D-03. */
+@media(min-width: 901px) and (max-width: 1100px) { .parameters dl > div { grid-template-columns: minmax(0, 1fr); gap: 6px; }.parameters .chipPair > dt { padding-top: 0; } }
+@media(max-width: 900px) { .workspace { grid-template-columns: minmax(0, 1fr); }.sidebar { order: -1; position: static; border-left: 0; border-bottom: 1px solid var(--surface-variant); padding: 18px 0; }.parameters > summary { font-size: 16px; padding-bottom: 0; }.parameters > summary::after { content: "⌄"; margin-left: 10px; }.parameters[open] > summary { padding-bottom: 18px; }.parameters > .groups { margin-top: 2px; }.main { padding-right: 0; padding-top: 21px; }.metadata { gap: 7px 12px; }
+  .summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding-bottom: 14px; }.summaryDeadline { font-size: 13px; }.summaryDeadline > span:first-child { opacity: .58; margin-right: 6px; }.summaryPeople { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 1 1 100%; min-width: 0; }.summaryMore { padding: 4px 8px; font-size: 12px; } }
+@media(max-width: 520px) { .titleRow { gap: 8px; }.headerTools { gap: 0; }.headerTools .deferred button,.iconButton { width: 31px; height: 33px; }.breadcrumbs { font-size: 12px; gap: 6px; }.metadata { font-size: 11px; }.sidebar .personChip { font-size: 11px; }.tabs { gap: 17px; }.tabs button { font-size: 13px; }.sort { width: 100%; margin: 0 0 10px; justify-content: flex-end; }.activityHeader { justify-content: flex-start; }.sectionHeading h2 { font-size: 17px; }.dialog { padding: 17px; }.dialogHeader h2 { font-size: 20px; }.comment header button { margin-left: 0; }.submission { padding: 12px; }.personChip { max-width: 100%; } }
 
 .deadlineEdit { display: block; margin-top: 7px; padding: 0; border: 0; background: transparent; color: var(--primary); font: inherit; font-size: 12px; text-align: left; cursor: pointer; }.deadlineEdit:hover { text-decoration: underline; }.deadlineEdit:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; }
 
@@ -131,7 +143,7 @@ dialog.dialog { margin: auto; }
 .rosterDiff { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; padding: 8px 12px 13px; }.rosterDiff > section { display: grid; align-content: start; gap: 8px; min-width: 0; }.rosterDiff h4 { margin: 0; font-size: 11px; font-weight: 400; opacity: .6; }
 @media(max-width:520px) { .rosterDiff { grid-template-columns: minmax(0,1fr); } }
 
-.seasonEdit { display: flex; align-items: center; gap: 5px; margin-top: 7px; padding: 0; border: 0; background: transparent; color: var(--primary); font: inherit; font-size: 12px; cursor: pointer; text-align: left; }.seasonEdit > span { font-size: 15px; }.seasonEdit:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; }.seasonEdit:hover { text-decoration: underline; }.seasonContext { margin: 8px 0 0; font-size: 11px; line-height: 1.6; opacity: .7; }.seasonContext p { margin: 0 0 6px; }.seasonContext a { color: var(--primary); text-decoration: none; }.seasonContext a:hover { text-decoration: underline; }
+.seasonEdit { display: flex; align-items: center; gap: 5px; margin-top: 7px; padding: 0; border: 0; background: transparent; color: var(--primary); font: inherit; font-size: 12px; cursor: pointer; text-align: left; }.seasonEdit > span { font-size: 15px; }.seasonEdit:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; }.seasonEdit:hover { text-decoration: underline; }.seasonContext { margin: 0; font-size: 11px; line-height: 1.6; opacity: .7; }.seasonContext p { margin: 0 0 6px; }.seasonContext a { color: var(--primary); text-decoration: none; }.seasonContext a:hover { text-decoration: underline; }
 
 .commentAttachment { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 7px 8px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--on-surface-variant); font: inherit; font-size: 13px; cursor: pointer; }
 .commentAttachment > span:first-child { font-size: 19px; }
@@ -139,3 +151,7 @@ dialog.dialog { margin: auto; }
 .commentAttachment:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
 .commentDraftFiles { display: grid; gap: 8px; min-width: 0; padding: 10px 12px; border: 1px solid var(--outline-variant); border-radius: 9px; background: var(--surface-container-low); }
+
+/* The subevent season hint is the links' tooltip (D-03); a screen without hover keeps it on the card. */
+.seasonContext .seasonHint { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+@media(hover: none),(pointer: coarse) { .seasonContext .seasonHint { position: static; width: auto; height: auto; margin: 0 0 6px; overflow: visible; clip: auto; white-space: normal; } }

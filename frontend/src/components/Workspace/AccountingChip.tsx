@@ -12,11 +12,13 @@ const names: Record<AssignmentStatus, string> = {
   assigned: "Ожидает оценки", in_progress: "В работе", help_required: "Нужны уточнения", submitted: "Ожидает проверки",
   needs_revision: "На доработке", accepted: "Зачтено", not_completed: "Не выполнено", cancelled: "Исключено из ККР",
 };
+/** Every «Учёт ККР» chip is as wide as the longest state name, as the task status chips (owner 2026-11-01). */
+const sizer = Object.values(names).join("\n");
 export function AccountingChip({ item }: { item: UnresolvedAssignment }) {
   const assignment = item.assignment;
   // The task card opens an assessment only for a closed task; an open one is just the card.
   const to = assessable(item) ? `${getTaskRoute(item.task_id)}?assignment_id=${encodeURIComponent(assignment.assignment_id)}` : getTaskRoute(item.task_id);
-  return <HoverCard content={() => <AccountingPreview item={item} />}>{({ describedBy, close }) => <InteractiveChip kind="link" to={to} className={s.chip} label={names[assignment.status]} ariaDescribedBy={describedBy} onClick={close} ariaLabel={`Учёт ККР: ${assignment.assignee.display_name} · ${names[assignment.status]}`} />}</HoverCard>;
+  return <HoverCard content={() => <AccountingPreview item={item} />}>{({ describedBy, close }) => <InteractiveChip kind="link" to={to} className={s.chip} label={<span className={s.label} data-sizer={sizer}><span>{names[assignment.status]}</span></span>} ariaDescribedBy={describedBy} onClick={close} ariaLabel={`Учёт ККР: ${assignment.assignee.display_name} · ${names[assignment.status]}`} />}</HoverCard>;
 }
 const assessable = (item: UnresolvedAssignment) => !item.task_status || item.task_status === "closed";
 function AccountingPreview({ item }: { item: UnresolvedAssignment }) {

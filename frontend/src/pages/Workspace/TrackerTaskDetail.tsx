@@ -6,7 +6,7 @@ import { TrackerTaskRelations } from "./TrackerTaskRelations";
 import { TeamChip } from "../../components/Workspace/TeamChip";
 import { TrackerHomeLink } from "../../components/Workspace/TrackerHomeLink";
 import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ActionForm } from "../../components/Workspace/ActionForm";
@@ -26,7 +26,7 @@ import { text } from "../../components/Workspace/formValues";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { TaskSeasonParameter } from "./TaskSeasonParameter";
-import { TaskDeadlineParameter } from "./TaskDeadlineParameter";
+import { TaskDeadlineParameter, TaskDeadlineValue } from "./TaskDeadlineParameter";
 import { userMessage } from "../../utils/api/messages";
 import { richText, type Comment, type FileRef, type Revision, type Task } from "../../utils/api/contract";
 import { can } from "../../utils/session";
@@ -86,6 +86,9 @@ function TaskContent({ task, assignmentId, accountingRequested=false, back }: { 
     finally { checklistSaving.current.delete(offset);setChecklistPending([...checklistSaving.current]); }
   };
   const [parametersOpen, setParametersOpen] = useState(() => typeof window === "undefined" || typeof window.matchMedia !== "function" || window.matchMedia("(min-width: 901px)").matches);
+  // «+N» of the phone summary opens the parameters and hands its focus to «Параметры»: the summary goes away.
+  const parametersSummary = useRef<HTMLElement>(null), focusParameters = useRef(false);
+  useEffect(() => { if (parametersOpen && focusParameters.current) { focusParameters.current = false;parametersSummary.current?.focus(); } }, [parametersOpen]);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const interval = window.setInterval(() => setNow(Date.now()), 60000);return () => window.clearInterval(interval); }, []);
   const reviewNotes = [...new Set(task.assignments.map(assignment => assignment.review_note?.trim()).filter((note): note is string => !!note))];
@@ -129,18 +132,24 @@ function TaskContent({ task, assignmentId, accountingRequested=false, back }: { 
         <TaskActivity task={task} />
         {task.queue?.key === "WEBSUPPORT" && <SupportTaskPanel task={task} />}
       </div>
-      <aside className={s.sidebar} aria-label="Параметры задачи"><details className={s.parameters} open={parametersOpen} onToggle={event => setParametersOpen(event.currentTarget.open)}><summary>Параметры</summary>{can(task,"edit_task_metadata") && <button type="button" className={`${s.iconButton} ${s.parametersEdit}`} aria-label="Изменить параметры" title="Изменить параметры" onClick={() => setEditor("planning")}><Glyph name="edit" /></button>}<dl>
-        <div><dt>Статус</dt><dd><TaskStatusMenu task={task} onClosed={()=>setKkrOpen(true)} /></dd></div>
-        <div><dt>Тип</dt><dd><TaskClassificationMenu task={task} field="task_type" /></dd></div>
-        <div><dt>Приоритет</dt><dd><TaskClassificationMenu task={task} field="priority" /></dd></div>
-        {task.task_type !== "milestone" && <div><dt>Плановое начало, МСК</dt><dd>{displayDate(task.starts_at)}</dd></div>}
-        <TaskDeadlineParameter task={task} now={now} onSaved={savedEditor} />
-        <div><dt>Очередь</dt><dd>{task.queue?.readable === false ? <span className={s.queueText}>{task.queue.name}{task.queue.key === "WEBSUPPORT" && <Link to="/support">Мои обращения</Link>}</span> : task.queue ? <Link to={getTaskQueueRoute(task.queue.queue_id)}>{task.queue.name}</Link> : <Link to={getTaskQueuesRoute()}>Открыть очереди</Link>}</dd></div>
-        {task.scope.kind !== "queue" && <div><dt>Команда</dt><dd><TeamChip scope={task.scope} title={task.scope_title} avatarUrl={task.scope_avatar_url} /></dd></div>}
-        <TaskSeasonParameter task={task} />
-        <div><dt>Автор</dt><dd>{task.created_by ? <PersonChip user={task.created_by} /> : <span className={w.muted}>Не указан</span>}</dd></div>
-        <TaskPeopleParameters task={task} />
-      </dl></details></aside>
+      <aside className={s.sidebar} aria-label="Параметры задачи">
+        {!parametersOpen && <TaskSummary task={task} now={now} onClosed={()=>setKkrOpen(true)} onShowPeople={() => { focusParameters.current = true;setParametersOpen(true); }} />}
+        <details className={s.parameters} open={parametersOpen} onToggle={event => setParametersOpen(event.currentTarget.open)}><summary ref={parametersSummary}>Параметры</summary>{can(task,"edit_task_metadata") && <button type="button" className={`${s.iconButton} ${s.parametersEdit}`} aria-label="Изменить параметры" title="Изменить параметры" onClick={() => setEditor("planning")}><Glyph name="edit" /></button>}<div className={s.groups}>
+          <ParameterGroup title="Статус и сроки">
+            <div className={s.chipRow} role="group" aria-label="Статус, тип и приоритет"><TaskStatusMenu task={task} onClosed={()=>setKkrOpen(true)} /><TaskClassificationMenu task={task} field="task_type" /><TaskClassificationMenu task={task} field="priority" /></div>
+            <dl>
+              {task.task_type !== "milestone" && <div><dt>Начало, МСК</dt><dd>{displayDate(task.starts_at)}</dd></div>}
+              <TaskDeadlineParameter task={task} now={now} onSaved={savedEditor} />
+            </dl>
+          </ParameterGroup>
+          <ParameterGroup title="Где"><dl>
+            <div><dt>Очередь</dt><dd>{task.queue?.readable === false ? <span className={s.queueText}>{task.queue.name}{task.queue.key === "WEBSUPPORT" && <Link to="/support">Мои обращения</Link>}</span> : task.queue ? <Link to={getTaskQueueRoute(task.queue.queue_id)}>{task.queue.name}</Link> : <Link to={getTaskQueuesRoute()}>Открыть очереди</Link>}</dd></div>
+            {task.scope.kind !== "queue" && <div className={s.chipPair}><dt>Команда</dt><dd><TeamChip scope={task.scope} title={task.scope_title} avatarUrl={task.scope_avatar_url} /></dd></div>}
+            <TaskSeasonParameter task={task} />
+          </dl></ParameterGroup>
+          <ParameterGroup title="Люди"><TaskPeopleParameters task={task} /></ParameterGroup>
+        </div></details>
+      </aside>
     </div>
     {kkrOpen && hasAccounting && <UnsavedChangesScope><TrackerTaskDialog title="Учёт работы и ККР" onClose={()=>setKkrOpen(false)}><UnifiedKkrEditor task={task} onClose={()=>setKkrOpen(false)} /></TrackerTaskDialog></UnsavedChangesScope>}
     {editor && (editor === "description" ? descriptionEditable : editor === "parent" ? can(task, "edit_task") : editor === "planning" ? can(task,"edit_task_metadata") : can(task, "attach_task_file")) && <UnsavedChangesScope>{editor === "description" ? <DescriptionEditor task={task} onClose={() => setEditor(null)} onSaved={savedEditor} /> : editor === "parent" ? <ParentTaskEditor task={task} onClose={() => setEditor(null)} onSaved={savedEditor} /> : editor === "planning" ? <TaskPlanningEditor task={task} onClose={() => setEditor(null)} onSaved={savedEditor} /> : <TaskFilesEditor task={task} onClose={() => setEditor(null)} onSaved={savedEditor} />}</UnsavedChangesScope>}
@@ -168,10 +177,27 @@ function ParentTaskEditor({ task, onClose, onSaved }: { task: Task; onClose: () 
     </ActionForm>
   </TrackerTaskDialog>;
 }
+/** One titled group of the parameters panel: status and dates, place, people (D-03). */
+function ParameterGroup({ title, children }: { title: string; children: ReactNode }) {
+  const id = useId();
+  return <section className={s.group} aria-labelledby={id}><h3 id={id} className={s.groupTitle}>{title}</h3>{children}</section>;
+}
+const taskAssignees = (task: Task) => task.assignees ?? task.assignments.map(assignment => assignment.assignee);
+const SUMMARY_PEOPLE = 3;
+/** A phone keeps the status, the deadline and the assignees above the folded parameters (D-03). */
+function TaskSummary({ task, now, onClosed, onShowPeople }: { task: Task; now: number; onClosed: () => void; onShowPeople: () => void }) {
+  const assignees = taskAssignees(task), hidden = assignees.length - SUMMARY_PEOPLE;
+  return <div className={s.summary} role="group" aria-label="Кратко о задаче">
+    <TaskStatusMenu task={task} onClosed={onClosed} />
+    <span className={s.summaryDeadline}><span>Дедлайн</span><TaskDeadlineValue task={task} now={now} /></span>
+    <div className={s.summaryPeople}>{assignees.length ? assignees.slice(0, SUMMARY_PEOPLE).map((person, index) => <PersonChip key={person.user_id ?? `anonymous-${index}`} user={person} />) : <span className={w.muted}>Исполнители не назначены</span>}
+      {hidden > 0 && <button type="button" className={`${s.subtleButton} ${s.summaryMore}`} aria-label={`+${hidden}: все исполнители в параметрах`} onClick={onShowPeople}>+{hidden}</button>}</div>
+  </div>;
+}
 function TaskPeopleParameters({ task }: { task: Task }) {
   const { session } = useSession(), run = useTaskCommand(task);
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
-  const assignees = task.assignees ?? task.assignments.map(assignment => assignment.assignee), watchers = task.watchers ?? [];
+  const assignees = taskAssignees(task), watchers = task.watchers ?? [];
   const selfAssigned = assignees.some(user => user.user_id === session?.user_id), selfWatching = watchers.some(user => user.user_id === session?.user_id);
   const act = async (command: (revision: Revision) => Promise<Task>) => {
     if (busy) return;setBusy(true);setError("");
@@ -183,12 +209,26 @@ function TaskPeopleParameters({ task }: { task: Task }) {
   // People who do not read the task yet are shown, but only their access approver may assign them.
   const assignOptions=(candidates.data?.items??[]).flatMap(user=>user.user_id===null||assignees.some(person=>person.user_id===user.user_id)?[]:[{value:String(user.user_id),label:user.display_name,user,disabled:user.can_assign===false}]).sort((a,b)=>Number(a.disabled)-Number(b.disabled));
   const assignLocked=assignOptions.some(option=>option.disabled);
+  const joinable = !selfAssigned && can(task, "join_task"), assignable = can(task, "assign_task_participants");
+  const unwatchable = selfWatching && can(task, "unwatch_task"), watchable = !unwatchable && !selfAssigned && can(task, "watch_task");
+  // A row beginning with a chip puts its label on the chip's centre line.
   return <>
-    <div><dt>Исполнители</dt><dd className={s.people}>{assignees.length ? assignees.map((person, index) => {
-      const assignment = task.assignments.find(item => item.assignee.user_id === person.user_id);
-      return <div key={person.user_id ?? `anonymous-${index}`} className={s.rosterPerson}><PersonChip user={person} />{person.user_id !== null && can(task, "remove_task_assignee") && <button type="button" className={s.removePerson} disabled={busy} title="Перевести в наблюдатели" aria-label={`Убрать исполнителя: ${person.display_name}`} onClick={() => { void act(revision => tasksApi.removeAssignee(task.task_id, person.user_id!, revision)); }}>×</button>}{assignment?.assignee_unavailable_reason && <small className={s.unavailable}>{assignment.assignee_unavailable_reason === "archived" ? "В архиве" : "Вышел из команды"}</small>}</div>;
-    }) : <span className={w.muted}>Не назначены</span>}{!selfAssigned && can(task, "join_task") && <button type="button" className={s.subtleButton} disabled={busy} onClick={() => { void act(revision => tasksApi.join(task.task_id, revision)); }}>Стать исполнителем</button>}{can(task,"assign_task_participants")&&<><button type="button" className={s.subtleButton} disabled={busy} onClick={()=>setAssignOpen(!assignOpen)}>Добавить исполнителя</button>{assignOpen&&<EntityPicker label="Новый исполнитель" entity="person" value="" options={assignOptions} loading={candidates.isLoading} disabled={busy} describedBy={assignLocked?assignHint:undefined} onChange={id=>{if(id)void act(revision=>tasksApi.assign(task.task_id,Number(id),revision));}}/>}{assignOpen&&assignLocked&&<small id={assignHint} className={s.pickerHint}>Неактивные пока не видят задачу. Призовите их в комментарии: доступ согласует автор задачи или владелец очереди.</small>}</>}</dd></div>
-    <div><dt>Наблюдатели</dt><dd className={s.people}>{watchers.length ? watchers.map((person, index) => <div className={s.rosterPerson} key={person.user_id ?? `anonymous-${index}`}><PersonChip user={person}/>{person.user_id!==null&&can(task,"remove_task_watcher")&&<button type="button" className={s.removePerson} disabled={busy} aria-label={`Убрать наблюдателя: ${person.display_name}`} onClick={()=>void act(revision=>tasksApi.removeWatcher(task.task_id,person.user_id!,revision))}>×</button>}</div>) : <span className={w.muted}>Нет наблюдателей</span>}{selfWatching && can(task, "unwatch_task") ? <button type="button" className={s.subtleButton} disabled={busy} onClick={() => { void act(revision => tasksApi.unwatch(task.task_id, revision)); }}>Перестать наблюдать</button> : !selfAssigned && can(task, "watch_task") && <button type="button" className={s.subtleButton} disabled={busy} onClick={() => { void act(revision => tasksApi.watch(task.task_id, revision)); }}>Наблюдать</button>}{error && <p role="alert" className={w.error}>{error}</p>}</dd></div>
+    <dl>
+      <div className={task.created_by ? s.chipPair : undefined}><dt>Автор</dt><dd>{task.created_by ? <PersonChip user={task.created_by} /> : <span className={w.muted}>Не указан</span>}</dd></div>
+      <div className={assignees.length ? s.chipPair : undefined}><dt>Исполнители</dt><dd className={s.people}>{assignees.length ? assignees.map((person, index) => {
+        const assignment = task.assignments.find(item => item.assignee.user_id === person.user_id);
+        return <div key={person.user_id ?? `anonymous-${index}`} className={s.rosterPerson}><PersonChip user={person} />{person.user_id !== null && can(task, "remove_task_assignee") && <button type="button" className={s.removePerson} disabled={busy} title="Перевести в наблюдатели" aria-label={`Убрать исполнителя: ${person.display_name}`} onClick={() => { void act(revision => tasksApi.removeAssignee(task.task_id, person.user_id!, revision)); }}>×</button>}{assignment?.assignee_unavailable_reason && <small className={s.unavailable}>{assignment.assignee_unavailable_reason === "archived" ? "В архиве" : "Вышел из команды"}</small>}</div>;
+      }) : <span className={w.muted}>Не назначены</span>}</dd></div>
+      <div className={watchers.length ? s.chipPair : undefined}><dt>Наблюдатели</dt><dd className={s.people}>{watchers.length ? watchers.map((person, index) => <div className={s.rosterPerson} key={person.user_id ?? `anonymous-${index}`}><PersonChip user={person}/>{person.user_id!==null&&can(task,"remove_task_watcher")&&<button type="button" className={s.removePerson} disabled={busy} aria-label={`Убрать наблюдателя: ${person.display_name}`} onClick={()=>void act(revision=>tasksApi.removeWatcher(task.task_id,person.user_id!,revision))}>×</button>}</div>) : <span className={w.muted}>Нет наблюдателей</span>}</dd></div>
+    </dl>
+    {(joinable || assignable || unwatchable || watchable) && <div className={s.peopleActions} role="group" aria-label="Действия с людьми задачи">
+      {joinable && <button type="button" className={s.subtleButton} disabled={busy} onClick={() => { void act(revision => tasksApi.join(task.task_id, revision)); }}>Стать исполнителем</button>}
+      {assignable && <button type="button" className={s.subtleButton} disabled={busy} aria-expanded={assignOpen} onClick={()=>setAssignOpen(!assignOpen)}>Добавить исполнителя</button>}
+      {unwatchable ? <button type="button" className={s.subtleButton} disabled={busy} onClick={() => { void act(revision => tasksApi.unwatch(task.task_id, revision)); }}>Перестать наблюдать</button> : watchable && <button type="button" className={s.subtleButton} disabled={busy} onClick={() => { void act(revision => tasksApi.watch(task.task_id, revision)); }}>Наблюдать</button>}
+    </div>}
+    {assignable&&assignOpen&&<EntityPicker label="Новый исполнитель" entity="person" value="" options={assignOptions} loading={candidates.isLoading} disabled={busy} describedBy={assignLocked?assignHint:undefined} onChange={id=>{if(id)void act(revision=>tasksApi.assign(task.task_id,Number(id),revision));}}/>}
+    {assignable&&assignOpen&&assignLocked&&<small id={assignHint} className={s.pickerHint}>Неактивные пока не видят задачу. Призовите их в комментарии: доступ согласует автор задачи или владелец очереди.</small>}
+    {error && <p role="alert" className={w.error}>{error}</p>}
   </>;
 }
 function TaskFilesEditor({ task, onClose, onSaved }: { task: Task; onClose: () => void; onSaved?: () => void }) {

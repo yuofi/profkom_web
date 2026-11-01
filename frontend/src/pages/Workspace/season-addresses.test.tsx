@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import { type ReactNode } from "react";
+import { act, type ReactNode } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
 import { createFixtures, type MockRole } from "../../mocks/fixtures";
 import { change, mountWorkspace, waitForPage } from "../../test/workspace";
+import { kkrApi } from "../../utils/api/kkr.api";
 import { SeasonPage, SeasonsPage, SummaryPage } from "./SeasonPages";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
@@ -79,4 +80,77 @@ it("offers an event head the season's merits from the overview", async () => {
   await page?.cleanup();transport?.restore();
   transport = installMockTransport("organizer", { delay: 0 });page = await mountWorkspace(<>{routes}<Where /></>, { path: "/seasons/season-1", session: head });await waitForPage(page);
   expect([...page.container.querySelectorAll("a")].find(link => link.textContent?.startsWith("Заслуги и волонтёрство"))?.getAttribute("href")).toBe("/seasons/season-1/merits");
+});
+
+it.each(["chair", "chair-deputy", "hr", "hr-deputy"] as const)("puts the one season switcher on the header's crumbs line of every tab for %s (D-07)", async role => {
+  vi.spyOn(kkrApi, "controls").mockResolvedValue({ capabilities: [], items: [] });vi.spyOn(kkrApi, "statistics").mockResolvedValue({ items: [], preliminary: true });
+  for (const tab of ["", "?tab=analytics", "?tab=history", "?tab=control"]) {
+    await mount(routes, `/seasons/season-1${tab}`, role);
+    const select = page!.container.querySelector<HTMLSelectElement>('header select[aria-label="Выбранный сезон"]')!;
+    expect(select.value).toBe("season-1");
+    // Right after the crumbs, above the title, and nowhere else on the page.
+    const label = select.closest("label")!;
+    expect(label.firstChild?.textContent).toBe("Сезон");
+    expect(label.previousElementSibling?.getAttribute("aria-label")).toBe("Путь сезона");
+    expect(label.parentElement?.nextElementSibling?.tagName).toBe("H1");
+    expect(page!.container.querySelectorAll('select[aria-label="Выбранный сезон"]')).toHaveLength(1);
+    expect(page!.container.querySelector('nav[aria-label="Разделы сезона"]')).not.toBeNull();
+  }
+});
+
+it("shows an ordinary member the season's path without the switcher and the tabs (D-07)", async () => {
+  await mount(routes, "/seasons/season-1", "organizer");
+  expect(page!.container.querySelector('nav[aria-label="Путь сезона"]')).not.toBeNull();
+  expect(page!.container.querySelector('select[aria-label="Выбранный сезон"]')).toBeNull();
+  expect(page!.container.querySelector('nav[aria-label="Разделы сезона"]')).toBeNull();
+});
+
+it("fades an edge of the tabs only while more of them lie beyond it (D-07)", async () => {
+  await mount(routes, "/seasons/season-1");
+  const nav = page!.container.querySelector<HTMLElement>('nav[aria-label="Разделы сезона"]')!;
+  // jsdom lays nothing out: a line that fits has no fade.
+  expect(nav.hasAttribute("data-more")).toBe(false);
+  let left = 0;
+  Object.defineProperties(nav, { scrollWidth: { configurable: true, get: () => 520 }, clientWidth: { configurable: true, get: () => 340 }, scrollLeft: { configurable: true, get: () => left, set: (value: number) => { left = value; } } });
+  await act(async () => { nav.dispatchEvent(new Event("scroll")); });
+  expect(nav.getAttribute("data-more")).toBe("true");expect(nav.hasAttribute("data-before")).toBe(false);
+  left = 90;await act(async () => { nav.dispatchEvent(new Event("scroll")); });
+  expect(nav.getAttribute("data-more")).toBe("true");expect(nav.getAttribute("data-before")).toBe("true");
+  left = 180;await act(async () => { nav.dispatchEvent(new Event("scroll")); });
+  expect(nav.hasAttribute("data-more")).toBe(false);expect(nav.getAttribute("data-before")).toBe("true");
+});
+
+it("brings the current tab out of the faded edge of a phone's tab line (D-07)", async () => {
+  vi.spyOn(kkrApi, "controls").mockResolvedValue({ capabilities: [], items: [] });
+  await mount(routes, "/seasons/season-1");
+  const nav = page!.container.querySelector<HTMLElement>('nav[aria-label="Разделы сезона"]')!;
+  let left = 0;
+  Object.defineProperty(nav, "scrollLeft", { configurable: true, get: () => left, set: (value: number) => { left = value; } });
+  nav.getBoundingClientRect = () => ({ left: 0, right: 340 }) as DOMRect;
+  const control = [...nav.querySelectorAll("a")].find(link => link.textContent === "Заполнение ККР")!;
+  control.getBoundingClientRect = () => ({ left: 330, right: 470 }) as DOMRect;
+  await act(async () => control.click());await waitForPage(page!);
+  expect(where()).toBe("/seasons/season-1?tab=control");
+  // Past the right edge by 130 px, plus the 36 px of the fade.
+  expect(left).toBe(166);
+});
+
+it("reads the tab line only after the browser's own layout, so the fresh season page starts its requests first (D-07)", async () => {
+  const reports: (() => void)[] = [], frames: FrameRequestCallback[] = [];
+  vi.stubGlobal("ResizeObserver", class { constructor(report: () => void) { reports.push(report); } observe() {} disconnect() {} });
+  vi.stubGlobal("requestAnimationFrame", (frame: FrameRequestCallback) => frames.push(frame));
+  vi.stubGlobal("cancelAnimationFrame", () => {});
+  const boxes = vi.spyOn(Element.prototype, "getBoundingClientRect"), widths = vi.spyOn(Element.prototype, "scrollWidth", "get");
+  try {
+    await mount(routes, "/seasons/season-1");
+    const nav = page!.container.querySelector<HTMLElement>('nav[aria-label="Разделы сезона"]')!;
+    const inLine = (calls: unknown[]) => calls.filter(item => item instanceof Node && nav.contains(item)).length;
+    expect(inLine(boxes.mock.contexts)).toBe(0);expect(inLine(widths.mock.contexts)).toBe(0);
+    Object.defineProperties(nav, { scrollWidth: { configurable: true, get: () => 520 }, clientWidth: { configurable: true, get: () => 340 } });
+    // The observer's first report sets the fade; the current tab is measured in the next frame.
+    await act(async () => reports.forEach(report => report()));
+    expect(nav.getAttribute("data-more")).toBe("true");
+    await act(async () => frames.splice(0).forEach(frame => frame(0)));
+    expect(inLine(boxes.mock.contexts)).toBeGreaterThan(0);
+  } finally { vi.unstubAllGlobals(); }
 });

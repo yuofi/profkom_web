@@ -20,10 +20,12 @@ it("uses exact Moscow half-open intervals and an inclusive final all-day date", 
   expect(occursOnDay({ starts_at:"2026-10-31T21:00:00Z",ends_at:"2026-10-31T21:00:00Z",all_day:true },"2026-11-02")).toBe(false);
   expect(monthDays("2026-11").to).toBe("2026-11-30T21:00:00.000Z");expect(validMonth("2026-13")).toBe(false);
 });
-it("puts heads in the actual event header and removes the annual-copy action", async () => {
+it("puts heads in the event's team card, not the header, and removes the annual-copy action (D-04)", async () => {
   mock=installMockTransport("chair",{delay:0});const event=mock.state.events[0];
   page=await mountWorkspace(<Routes><Route path="/events/:id" element={<EventPage/>}/></Routes>,{path:`/events/${event.event_id}`});await waitForPage(page);
-  const header=page.container.querySelector("header")!;expect(header.textContent).toContain("Главорги");expect(header.querySelector('a[href^="/contacts/"]')).not.toBeNull();
+  const header=page.container.querySelector("header")!;expect(header.textContent).not.toContain("Главорги");expect(header.querySelector('a[href^="/contacts/"]')).toBeNull();
+  const team=[...page.container.querySelectorAll("section")].find(section=>section.querySelector(":scope > h2")?.textContent==="Команда")!;
+  expect(team.querySelector("h3")?.textContent).toBe("Главорги");expect(team.querySelector('a[href^="/contacts/"]')).not.toBeNull();
   expect(page.container.textContent).not.toContain("Создать новый ежегодный экземпляр");expect(page.container.querySelector('[name="title"]')).toBeNull();
   // GL-36: the way back to the list is the section stamp alone, not a second «Все мероприятия».
   expect([...header.querySelectorAll('a[href="/events"]')].map(link => link.textContent)).toEqual(["Профком ВМК · Мероприятия"]);
@@ -111,7 +113,9 @@ it("calendar keeps URL filters and repeats a multi-day announcement on each cove
 });
 it("home shows real sections and keeps already implemented personal teams", async () => {
   mock=installMockTransport("chair",{delay:0});page=await mountWorkspace(<DashboardPage/>);await waitForPage(page);
-  expect(page.container.textContent).toContain("Ближайшие задачи");expect(page.container.textContent).toContain("Мои команды");expect(page.container.textContent).toContain("Мои блоки");expect(page.container.textContent).toContain("Также задачи, за которыми я наблюдаю");
+  expect(page.container.textContent).toContain("Ближайшие задачи");expect(page.container.textContent).toContain("Мои команды");expect(page.container.textContent).toContain("Мои блоки");
+  // D-01: the watched-tasks box moved from its own row above the cards into the card of the nearest tasks.
+  expect(page.container.querySelector('[aria-label="Задачи по срокам"] [class*="taskMeta"] input[type="checkbox"]')?.parentElement?.textContent).toBe("Также задачи, за которыми я наблюдаю");
   const calls=mock.adapter.history.get.filter(request=>request.url?.includes("/workspace/home"));expect(calls).toHaveLength(1);expect(calls[0].params).toMatchObject({watching:false});
 });
 

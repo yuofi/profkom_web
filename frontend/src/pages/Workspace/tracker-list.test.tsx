@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
 import { act, useState } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
@@ -10,6 +11,7 @@ import { installMockTransport } from "../../mocks/transport";
 import { mountWorkspace, waitForPage, change, settle } from "../../test/workspace";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import type { TaskListPageResponse } from "../../utils/api/contract";
+import { displayDate } from "../../utils/dates";
 
 vi.mock("./TaskCreateForm", () => ({ TaskCreateForm: () => <p>Создание задачи</p> }));
 vi.mock("./TaskStatusMenu", () => ({ TaskStatusMenu: function Menu() {
@@ -151,13 +153,67 @@ it("omits empty optional filters rather than sending an invalid empty numeric or
   expect(list.mock.lastCall?.[0]).not.toHaveProperty("scope_id");
 });
 
-it("keeps the team column on the main list and folds assignees after the second into one counter", async () => {
+it("D-02: keeps the team column on the main list and folds every assignee after the first into one counter", async () => {
   const fixture = createFixtures("chair");const people = fixture.people.slice(0, 5).map(person => ({ user_id: person.user_id, display_name: person.display_name, avatar_url: null }));
   await mount("/tasks?mine=false", () => ({ items: [{ ...fixture.tasks[0], task_key: "TASK-17", assignees: people }], next_cursor: null, total: 1, scopes: [], assignees: [] }));
   expect([...page!.container.querySelectorAll("thead th")].map(th => th.textContent?.trim())).toContain("Команда");
   const cell = page!.container.querySelector("td[data-label='Исполнители']")!;
-  expect(cell.querySelectorAll('a[href^="/contacts/"]')).toHaveLength(2);
-  expect(cell.textContent).toContain("+3");expect(cell.textContent).toContain(people[2].display_name);expect(cell.textContent).toContain(people[4].display_name);
+  expect(cell.querySelectorAll('a[href^="/contacts/"]')).toHaveLength(1);
+  const counter = cell.querySelector<HTMLElement>('[class*="morePeople"]')!;
+  // The rest stay named for a screen reader and in the tooltip; the task page lists everyone.
+  expect(counter.textContent).toMatch(/^\+4/);expect(counter.title).toBe(`Ещё: ${people.slice(1).map(person => person.display_name).join(", ")}`);
+  for (const person of people.slice(1)) expect(counter.textContent).toContain(person.display_name);
+  // The counter is not a control: a click on it opens the task, as the rest of the row does.
+  await act(async () => counter.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  expect(page!.container.textContent).toContain("Открытая задача");
+});
+it("D-02: a single assignee has no counter", async () => {
+  const fixture = createFixtures("chair");const person = fixture.people[0];
+  await mount("/tasks?mine=false", () => ({ items: [{ ...fixture.tasks[0], assignees: [{ user_id: person.user_id, display_name: person.display_name, avatar_url: null }] }], next_cursor: null, total: 1, scopes: [], assignees: [] }));
+  const cell = page!.container.querySelector("td[data-label='Исполнители']")!;
+  expect(cell.querySelectorAll('a[href^="/contacts/"]')).toHaveLength(1);expect(cell.querySelector('[class*="morePeople"]')).toBeNull();
+});
+it("D-02: list dates drop the current year, keep another year's, and name the date in the tooltip", async () => {
+  const year = Number(new Intl.DateTimeFormat("en", { timeZone: "Europe/Moscow", year: "numeric" }).format(Date.now()));
+  const thisYear = `${year}-06-15T09:00:00Z`, nextYear = `${year + 1}-02-03T09:00:00Z`, fixture = createFixtures("chair").tasks[0];
+  await mount("/tasks?mine=false", () => ({ items: [
+    { ...fixture, task_id: "task-a", task_key: "QB-1", deadline_at: thisYear, updated_at: thisYear },
+    { ...fixture, task_id: "task-b", task_key: "QB-2", deadline_at: nextYear, updated_at: thisYear },
+    { ...fixture, task_id: "task-c", task_key: "QB-3", deadline_at: null },
+  ], next_cursor: null, total: 3, scopes: [], assignees: [] }));
+  const [current, later, none] = [...page!.container.querySelectorAll("tbody tr")].map(row => row.querySelector("td[data-label='Дедлайн']")!);
+  const short = current.querySelector("time")!;
+  expect(short.textContent).not.toContain(String(year));expect(short.textContent).toMatch(/^15\u00a0\S+, 12:00$/);
+  expect(short.title).toBe(`Дедлайн: ${displayDate(thisYear)}`);expect(short.dateTime).toBe(thisYear);expect(short.hasAttribute("data-full")).toBe(false);
+  const full = later.querySelector("time")!;
+  expect(full.textContent).toBe(displayDate(nextYear));expect(full.textContent).toContain(String(year + 1));expect(full.hasAttribute("data-full")).toBe(true);
+  // A phone row has no column header: the deadline's name is there for a screen reader, not before «Без дедлайна».
+  expect(current.querySelector('[class*="cellLabel"]')?.textContent).toBe("Дедлайн: ");
+  expect(none.textContent).toBe("Без дедлайна");expect(none.querySelector('[class*="cellLabel"]')).toBeNull();
+  const updated = page!.container.querySelector<HTMLTimeElement>("tbody td[data-label='Обновлено'] time")!;
+  expect(updated.title).toBe(`Обновлено: ${displayDate(thisYear)}`);expect(updated.textContent).not.toContain(String(year));
+});
+it("D-02: the key cell is one row of type, priority, key and star, the key and its star wrapping together", async () => {
+  await mount();
+  const row = page!.container.querySelector("td[data-label='Ключ'] [class*='keyRow']")!;
+  expect([...row.children].map(child => child.className.match(/(classificationControls|keyName)/)?.[1])).toEqual(["classificationControls", "keyName"]);
+  const name = row.querySelector("[class*='keyName']")!;
+  expect(name.querySelector("[class*='keyText']")?.textContent).toBe("TASK-17");expect(name.querySelector('button[aria-label^="Добавить в избранное"], button[aria-label^="Убрать из избранного"]')).not.toBeNull();
+});
+it("D-02: on a phone the deadline closes the people row, and joins the key row from 480 px", () => {
+  const css = readFileSync(`${__dirname}/TrackerList.module.css`, "utf8");
+  const phone = css.slice(css.indexOf("@media (max-width: 768px)"));
+  expect(phone).toMatch(/\.table tbody tr \{[^}]*grid-template-columns: minmax\(0, 1fr\) auto auto;/);
+  expect(phone).toMatch(/\.status \{ grid-column: 2 \/ 4; grid-row: 1; justify-self: end;/);
+  expect(phone).toMatch(/\.assignees \{ grid-column: 1 \/ 3; grid-row: 3; \}/);
+  expect(phone).toMatch(/\.deadline \{ grid-column: 3; grid-row: 3; align-self: center; justify-self: end;/);
+  expect(phone).not.toMatch(/content: "Дедлайн · "/);
+  const wide = css.match(/@media\(min-width:480px\) and \(max-width:768px\) \{([^\n]*)\}/)?.[1] ?? "";
+  expect(wide).toMatch(/\.deadline \{ grid-column:2;grid-row:1; \}/);expect(wide).toMatch(/\.status \{ grid-column:3; \}/);expect(wide).toMatch(/\.assignees \{ grid-column:1 \/ -1; \}/);
+  // Desktop: one key line at every width, short dates on one line, one width set.
+  expect(css).not.toMatch(/order:-1;flex:1 0 100%/);expect(css).not.toMatch(/min-width: 1441px/);
+  expect(css).toMatch(/@media \(min-width: 769px\) \{ \.table :is\(td\.deadline, td\.updated\) time:not\(\[data-full\]\) \{ white-space: nowrap; \} \}/);
+  expect(css).toMatch(/\.table \.colKey \{ width: 150px; \}.*\.table \.colDeadline \{ width: 84px; \}.*\.table \.colUpdated \{ width: 84px; \}/);
 });
 
 it("keeps the current rows and paging in place while the next page loads", async () => {

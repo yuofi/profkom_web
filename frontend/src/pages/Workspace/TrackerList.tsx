@@ -17,7 +17,7 @@ import type { ScopeRef, Task, TaskQueue, UserRef } from "../../utils/api/contrac
 import { can, useSession } from "../../utils/session";
 import { getTaskRoute, getTaskQueuesRoute, getTaskCreateRoute } from "../../utils/routes";
 import { useTaskPrefetch } from "../../utils/routePrefetch";
-import { displayDate } from "../../utils/dates";
+import { displayDate, shortDate } from "../../utils/dates";
 import { canRetainData } from "../../utils/api/request";
 import { TaskStatusMenu } from "./TaskStatusMenu";
 import { TrackerFavoriteButton } from "./TrackerFavoriteButton";
@@ -235,13 +235,13 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
         <table className={s.table} aria-label="Список задач">
           <thead><tr><th scope="col" className={s.colKey}>Ключ</th><th scope="col">Задача</th><th scope="col" className={s.colAssignees}>Исполнители</th><th scope="col" className={s.colStatus}>Статус</th><th scope="col" className={s.colDeadline} aria-sort={filters.sort === "deadline" ? filters.order === "desc" ? "descending" : "ascending" : "none"}><button onClick={() => changeSort("deadline")}>Дедлайн {filters.sort === "deadline" && (filters.order === "asc" ? "↑" : "↓")}</button></th>{showScope && <th scope="col" className={s.colScope}>Команда</th>}<th scope="col" className={s.colUpdated} aria-sort={filters.sort === "updated" ? filters.order === "desc" ? "descending" : "ascending" : "none"}><button onClick={() => changeSort("updated")}>Обновлено {filters.sort === "updated" && (filters.order === "asc" ? "↑" : "↓")}</button></th></tr></thead>
           <tbody>{tasks.map((task) => <tr key={task.task_id} tabIndex={0} aria-label={`Открыть задачу ${task.task_key ?? task.title}`} {...prefetchTask(task.task_id)} onClick={(event) => open(event, task)} onAuxClick={(event) => open(event, task)} onKeyDown={(event) => openKeyboard(event, task)}>
-            <td className={s.key} data-label="Ключ"><div className={s.keyRow}><div className={s.classificationControls}><TaskClassificationMenu task={task} field="task_type" iconOnly /><TaskClassificationMenu task={task} field="priority" iconOnly /></div><span className={s.keyText}>{task.task_key ?? "Задача"}</span><TrackerFavoriteButton task={task} compact /></div></td>
+            <td className={s.key} data-label="Ключ"><div className={s.keyRow}><div className={s.classificationControls}><TaskClassificationMenu task={task} field="task_type" iconOnly /><TaskClassificationMenu task={task} field="priority" iconOnly /></div><span className={s.keyName}><span className={s.keyText}>{task.task_key ?? "Задача"}</span><TrackerFavoriteButton task={task} compact /></span></div></td>
             <td className={s.taskTitle}><Link to={getTaskRoute(task.task_id)}>{task.title}</Link></td>
             <td className={s.assignees} data-label="Исполнители"><Assignees people={task.assignees ?? task.assignments.map((assignment) => assignment.assignee)} /></td>
             <td className={s.status} data-label="Статус"><TaskStatusMenu task={task} variant="chip" onClosed={saved => { if (can(saved, "view_assessment_inputs")) navigate(`${getTaskRoute(saved.task_id)}?kkr=1`); }} /></td>
-            <td className={s.deadline} data-label="Дедлайн">{task.deadline_at ? <time dateTime={task.deadline_at}>{displayDate(task.deadline_at)}</time> : <span>Не задан</span>}</td>
+            <td className={s.deadline} data-label="Дедлайн">{task.deadline_at ? <><span className={s.cellLabel}>Дедлайн: </span><ListDate value={task.deadline_at} label="Дедлайн" /></> : <span>Без дедлайна</span>}</td>
             {showScope && <td className={s.scope} data-label="Команда"><span title={task.scope_title ?? undefined}>{task.scope_title ?? (task.scope.kind === "block" ? "Блок" : task.scope.kind === "subevent" ? "Подмероприятие" : "Очередь")}</span></td>}
-            <td className={s.updated} data-label="Обновлено">{task.updated_at ? <time dateTime={task.updated_at}>{displayDate(task.updated_at)}</time> : "Нет данных"}</td>
+            <td className={s.updated} data-label="Обновлено">{task.updated_at ? <ListDate value={task.updated_at} label="Обновлено" /> : "Нет данных"}</td>
           </tr>)}</tbody>
         </table>
       </div> : <Empty>Подходящих задач нет. Измените фильтры или создайте задачу на странице своей команды.</Empty>}
@@ -253,8 +253,14 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
 
   </section>;
 }
-/** Up to two people stay visible; the rest are named in one accessible counter that stays on the second chip's line. */
+/** One line per row (D-02): the first person stays visible, the rest are named in one accessible counter beside them;
+ *  the task page lists everyone, and a tap on the counter opens it as the rest of the row does. */
 function Assignees({ people }: { people: UserRef[] }) {
-  const [first, second] = people, rest = people.slice(2), names = rest.map(person => person.display_name).join(", ");
-  return <div>{first && <UserChip user={first} />}{second && <span className={s.peopleTail}><UserChip user={second} />{rest.length > 0 && <span className={s.morePeople} title={`Ещё: ${names}`}>+{rest.length}<span className={w.visuallyHidden}> — ещё исполнители: {names}</span></span>}</span>}</div>;
+  const [first] = people, rest = people.slice(1), names = rest.map(person => person.display_name).join(", ");
+  return <div>{first && <UserChip user={first} />}{rest.length > 0 && <span className={s.morePeople} title={`Ещё: ${names}`}>+{rest.length}<span className={w.visuallyHidden}> — ещё исполнители: {names}</span></span>}</div>;
+}
+/** A list date without the current year (D-02); the tooltip keeps the full date and what it is. */
+function ListDate({ value, label }: { value: string; label: string }) {
+  const full = displayDate(value), text = shortDate(value);
+  return <time dateTime={value} title={`${label}: ${full}`} data-full={text === full || undefined}>{text}</time>;
 }

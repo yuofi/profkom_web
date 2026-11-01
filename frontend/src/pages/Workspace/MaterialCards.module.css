@@ -1,7 +1,23 @@
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 16px; align-items: stretch; }
+/* auto-fill: a section of one or two cards keeps the column width instead of stretching (D-09). */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 16px; align-items: stretch; }
+/* A section's title is the page's group heading («.stack > h2») with its count beside it. */
+.groupTitle { display: flex; align-items: baseline; gap: 8px; }
 /* A card is as tall as its text, and all of it opens the material (GL-29). */
 .card { position: relative; min-width: 0; box-sizing: border-box; }
-.card h2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3; }
-.description { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.5; margin: 0; }
-.card > a:last-child { margin-top: auto; align-self: flex-start; }
-.card > a:last-child::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.grid > .card { gap: 10px; }
+.card:hover { border-color: color-mix(in srgb,var(--primary) 40%,var(--outline-variant)); }
+.card .title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 20px; line-height: 1.3; }
+/* The title is the card's only link, stretched over the whole card (the contact cards' pattern). */
+.card .link { color: inherit; text-decoration: none; }
+.link::after { content: ""; position: absolute; inset: 0; border-radius: var(--radius-large); }
+.card .link:focus-visible { outline: none; }
+.link:focus-visible::after { outline: 2px solid var(--primary); outline-offset: 3px; }
+/* The badges and one line of the description; the description drops below when the badges are wide. */
+.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+.meta > :first-child { flex: 0 1 auto; min-width: 0; }
+.description { flex: 1 1 140px; min-width: 0; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Phone: the cards are the rows of a list. */
+@media (max-width: 768px) {
+  .grid { gap: 8px; }
+  .grid > .card { padding: 14px 16px; gap: 6px; }
+}

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
 import { act } from "react";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
@@ -455,7 +456,7 @@ it("planning and file dialogs close after a successful save and the card confirm
   const update = vi.spyOn(tasksApi, "update").mockImplementation(async (_id, payload) => (task = { ...task, ...("priority" in payload ? { priority: payload.priority } : {}), ...("file_ids" in payload ? { attachments: [] } : {}), revision: task.revision + 1 }));
   await mountTask(task);vi.mocked(tasksApi.get).mockImplementation(async () => task);
   const edit = page!.container.querySelector<HTMLButtonElement>('[aria-label="Параметры задачи"] details > button[aria-label="Изменить параметры"]')!;
-  expect(edit.previousElementSibling?.tagName).toBe("SUMMARY");expect(edit.nextElementSibling?.tagName).toBe("DL");expect(edit.querySelector("[aria-hidden], span, svg")).not.toBeNull();
+  expect(edit.previousElementSibling?.tagName).toBe("SUMMARY");expect([...edit.nextElementSibling!.children].map(group => group.tagName)).toEqual(["SECTION", "SECTION", "SECTION"]);expect(edit.querySelector("[aria-hidden], span, svg")).not.toBeNull();
   await act(async () => edit.click());await settle();let dialog = page!.container.querySelector("dialog")!;
   await change(dialog.querySelector<HTMLSelectElement>('[name="priority"]')!, "urgent");await submit(dialog.querySelector("form")!);await waitForPage(page!);
   expect(update).toHaveBeenCalledTimes(1);expect(dialog.isConnected).toBe(false);expect(page!.container.querySelector("dialog")).toBeNull();
@@ -509,4 +510,89 @@ it.each([
   await mountTask(makeTask({ capabilities: ["read_task"] }), [], search);
   const back = [...page!.container.querySelectorAll("a")].find(node => node.textContent?.startsWith("← К"));
   expect(back?.textContent).toBe(label);expect(back?.getAttribute("href")).toBe(href);
+});
+
+// D-03 (owner 2026-11-01): the parameters form three titled groups; a phone keeps a summary above them.
+const parameterGroups = () => [...page!.container.querySelectorAll<HTMLElement>('[aria-label="Параметры задачи"] details section')];
+const taskSummary = () => page!.container.querySelector<HTMLElement>('[aria-label="Параметры задачи"] [role="group"][aria-label="Кратко о задаче"]');
+const phone = () => vi.stubGlobal("matchMedia", (media: string) => ({ matches: false, media, addEventListener() {}, removeEventListener() {} }));
+it("groups the parameters under status and dates, place and people, each label beside its value (D-03)", async () => {
+  await mountTask(makeTask({ capabilities: ["read_task", "change_task_status", "change_task_type", "change_task_priority"] }));
+  const groups = parameterGroups();
+  expect(groups.map(group => group.querySelector("h3")?.textContent)).toEqual(["Статус и сроки", "Где", "Люди"]);
+  expect(groups.every(group => group.getAttribute("aria-labelledby") === group.querySelector("h3")?.id)).toBe(true);
+  expect(groups.map(group => [...group.querySelectorAll("dt")].map(label => label.textContent))).toEqual([["Начало, МСК", "Дедлайн, МСК"], ["Очередь", "Команда", "Сезон"], ["Автор", "Исполнители", "Наблюдатели"]]);
+  // Status, type and priority are one row of chips above the dates, outside the label grid.
+  const chips = groups[0].querySelector('[role="group"][aria-label="Статус, тип и приоритет"]')!;
+  expect([...chips.querySelectorAll("button")].map(button => button.getAttribute("aria-label")?.split(":")[0])).toEqual(["Статус задачи", "Тип задачи", "Приоритет"]);
+  expect(chips.closest("dl")).toBeNull();expect(chips.nextElementSibling?.tagName).toBe("DL");
+  expect(page!.container.textContent).not.toContain("Плановое начало");
+  // A wide screen opens the panel and has no summary: the status chip is not rendered twice.
+  expect(page!.container.querySelector<HTMLDetailsElement>('[aria-label="Параметры задачи"] details')!.open).toBe(true);
+  expect(taskSummary()).toBeNull();expect(page!.container.querySelectorAll('[aria-label^="Статус задачи:"]')).toHaveLength(1);
+  await page!.cleanup();vi.restoreAllMocks();
+  await mountTask(makeTask({ task_type: "milestone", scope: { kind: "queue", id: "queue-design" } }));
+  expect(parameterGroups().map(group => [...group.querySelectorAll("dt")].map(label => label.textContent))).toEqual([["Дедлайн, МСК"], ["Очередь", "Сезон"], ["Автор", "Исполнители", "Наблюдатели"]]);
+});
+it("people actions stand in one row under the people group and follow the reader's rights (D-03)", async () => {
+  const self = people.find(person => person.user_id === createFixtures("chair").session.user_id)!;
+  vi.spyOn(taskCollaborationApi, "candidates").mockResolvedValue({ items: [], next_cursor: null });
+  await mountTask(makeTask({ assignees: [people[1]], watchers: [], capabilities: ["read_task", "join_task", "assign_task_participants", "watch_task"] }));
+  let group = parameterGroups()[2];
+  const row = group.querySelector<HTMLElement>('[role="group"][aria-label="Действия с людьми задачи"]')!;
+  expect([...row.querySelectorAll("button")].map(button => button.textContent)).toEqual(["Стать исполнителем", "Добавить исполнителя", "Наблюдать"]);
+  expect(row.previousElementSibling?.tagName).toBe("DL");expect([...group.querySelectorAll("dd button")].some(button => /исполнител|Наблюдать/.test(button.textContent ?? ""))).toBe(false);
+  const add = [...row.querySelectorAll("button")].find(button => button.textContent === "Добавить исполнителя")!;expect(add.getAttribute("aria-expanded")).toBe("false");
+  await act(async () => add.click());await waitForPage(page!);
+  const picker = group.querySelector('[role="combobox"]')!;expect(add.getAttribute("aria-expanded")).toBe("true");expect(row.compareDocumentPosition(picker) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  await page!.cleanup();vi.restoreAllMocks();
+  // An assignee without people rights gets no empty action row.
+  await mountTask(makeTask({ assignees: [self], watchers: [], capabilities: ["read_task", "join_task", "watch_task"] }));
+  group = parameterGroups()[2];
+  expect(group.querySelector('[role="group"]')).toBeNull();expect([...group.querySelectorAll("button")].some(button => /исполнител|Наблюдать/.test(button.textContent ?? ""))).toBe(false);
+  await page!.cleanup();vi.restoreAllMocks();
+  await mountTask(makeTask({ assignees: [], watchers: [self], capabilities: ["read_task", "unwatch_task", "watch_task"] }));
+  expect([...parameterGroups()[2].querySelectorAll('[aria-label="Действия с людьми задачи"] button')].map(button => button.textContent)).toEqual(["Перестать наблюдать"]);
+});
+it("on a phone the folded parameters keep the status, the deadline and three assignees in sight (D-03)", async () => {
+  phone();
+  try {
+    await mountTask(makeTask({ status: "open", deadline_at: "2026-01-10T09:00:00Z", assignees: people, capabilities: ["read_task", "change_task_status"] }));
+    const details = page!.container.querySelector<HTMLDetailsElement>('[aria-label="Параметры задачи"] details')!, summary = taskSummary()!;
+    expect(details.open).toBe(false);expect(summary.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(summary.querySelector('button[aria-label^="Статус задачи:"]')).not.toBeNull();
+    // The same deadline value as the parameter, overdue colour included.
+    const time = summary.querySelector("time")!;expect(summary.textContent).toContain("Дедлайн");expect(time.getAttribute("datetime")).toBe("2026-01-10T09:00:00Z");
+    expect(time.className).toMatch(/overdue/);expect(time.className).toBe(details.querySelector("time")!.className);
+    const names = people.map(person => person.display_name);
+    expect(names.filter(name => summary.textContent!.includes(name))).toEqual(names.slice(0, 3));
+    const more = [...summary.querySelectorAll("button")].find(button => button.textContent === "+2")!;expect(more.getAttribute("aria-label")).toBe("+2: все исполнители в параметрах");
+    await act(async () => more.click());await settle();
+    expect(details.open).toBe(true);expect(taskSummary()).toBeNull();expect(document.activeElement).toBe(details.querySelector("summary"));
+    for (const name of names) expect(details.textContent).toContain(name);
+    await act(async () => { details.open = false;details.dispatchEvent(new Event("toggle")); });await settle();
+    expect(taskSummary()).not.toBeNull();
+    await page!.cleanup();vi.restoreAllMocks();
+    await mountTask(makeTask({ deadline_at: null, assignees: [] }));
+    expect(taskSummary()!.textContent).toContain("Не задан");expect(taskSummary()!.textContent).toContain("Исполнители не назначены");expect(taskSummary()!.querySelector("button[aria-label*='все исполнители']")).toBeNull();
+  } finally { vi.unstubAllGlobals(); }
+});
+it("keeps the D-03 widths: a 344 px column, labels above values beside the navigation, the summary on a phone only", () => {
+  const css = readFileSync(`${__dirname}/TrackerTaskDetail.module.css`, "utf8");
+  const media = (query: string) => {
+    const start = css.indexOf(`@media(${query})`);expect(start, query).toBeGreaterThanOrEqual(0);
+    const open = css.indexOf("{", start);let depth = 0;
+    for (let at = open; at < css.length; at++) { if (css[at] === "{") depth++;if (css[at] === "}" && --depth === 0) return css.slice(open + 1, at); }
+    return "";
+  };
+  expect(css).toMatch(/\.workspace \{[^}]*grid-template-columns: minmax\(0, 1fr\) 344px/);
+  expect(css).toMatch(/\.parameters dl > div \{[^}]*grid-template-columns: 96px minmax\(0, 1fr\)/);
+  expect(css).toMatch(/(^|\n)\.summary \{ display: none; \}/);
+  // 901-1100 px: the old 235 px column, so each label stands above its value.
+  expect(media("max-width: 1100px")).toMatch(/grid-template-columns: minmax\(0, 1fr\) 235px/);
+  expect(media("min-width: 901px) and (max-width: 1100px")).toMatch(/\.parameters dl > div \{ grid-template-columns: minmax\(0, 1fr\)/);
+  const phoneRules = media("max-width: 900px");
+  expect(phoneRules).toMatch(/\.summary \{ display: flex/);expect(phoneRules).not.toMatch(/repeat\(2/);
+  // Without hover the subevent season hint stays on the card instead of the tooltip.
+  expect(media("hover: none),(pointer: coarse")).toMatch(/\.seasonHint \{ position: static/);
 });

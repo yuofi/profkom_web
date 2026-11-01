@@ -44,12 +44,63 @@ it("puts finished materials first, folds guides in preparation and keeps the sea
   await change(page.container.querySelector<HTMLInputElement>("input")!, "");
   const folded = [...page.container.querySelectorAll("details")].find(item => item.querySelector("summary")?.textContent?.startsWith("Гайды блоков в подготовке"))!;
   expect(folded.open).toBe(false);
-  const first = page.container.querySelector("h2")!;expect(first.closest("details")).toBeNull();expect(first.textContent).not.toContain("заготовка");
+  // The first section's title, then its first card: titled one level below (D-09).
+  const first = page.container.querySelector("h3")!;expect(first.closest("details")).toBeNull();expect(first.textContent).not.toContain("заготовка");
+  expect(page.container.querySelector("h2")?.textContent).toBe("КМБ · 1");expect(first.textContent).toBe("КМБ");
+});
+
+const sections = () => [...page!.container.querySelectorAll("h2")].filter(heading => !heading.closest('[class*="grid"] > section')).map(heading => heading.textContent);
+const cardsOf = (root: ParentNode) => [...root.querySelectorAll<HTMLElement>('[class*="grid"] > section')];
+
+it("D-09: «Все материалы» groups the cards under section titles with counts; a chosen section has none", async () => {
+  mock = installMockTransport("organizer", { delay: 0 });
+  const template = mock.state.materials.find(m => m.kind === "kmb")!;
+  mock.state.materials.push(
+    { ...template, material_id: "general-b", kind: "general", title: "Б: шаблоны", description: "" },
+    { ...template, material_id: "general-a", kind: "general", title: "А: регламент", description: "Очень длинное описание документа ".repeat(8).trim() },
+    // A kind the list does not know reads as a document, as its badge does: it is not lost.
+    { ...template, material_id: "other-kind", kind: "other", title: "В: другое", description: "Описание" },
+  );
+  page = await mountWorkspace(routes, { path: "/materials" });await waitForPage(page);
+  expect(sections()).toEqual(["КМБ · 1", "Общие документы · 3", "Гайды блоков · 1"]);
+  // Each section's cards are a group named by its title; the order and the sort by title stay.
+  const groups = [...page.container.querySelectorAll<HTMLElement>('[role="group"]')];
+  expect(groups.map(group => document.getElementById(group.getAttribute("aria-labelledby")!)?.textContent)).toEqual(["КМБ · 1", "Общие документы · 3", "Гайды блоков · 1"]);
+  expect(cardsOf(groups[1]).map(card => card.querySelector("h3")?.textContent)).toEqual(["А: регламент", "Б: шаблоны", "В: другое"]);
+  expect(cardsOf(groups[1]).map(card => card.querySelector('[class*="badges"]')?.textContent)).toEqual(["Документ", "Документ", "Документ"]);
+  // The guide keeps its audience badge beside the kind.
+  expect(cardsOf(groups[2])[0].querySelector('[class*="badges"]')?.textContent).toBe("ГайдДля участников блока");
+  await change(page.container.querySelector("select")!, "general");
+  expect(sections()).toEqual([]);expect(page.container.querySelector('[role="group"]')).toBeNull();
+  expect(cardsOf(page.container).map(card => card.querySelector("h2")?.textContent)).toEqual(["А: регламент", "Б: шаблоны"]);
+});
+
+it("D-09: the title is the card's only link, without «Открыть», and it opens the material", async () => {
+  mock = installMockTransport("organizer", { delay: 0 });
+  const long = "Очень длинное описание документа, которое на карточке обрезается одной строкой ".repeat(4).trim();
+  mock.state.materials.push({ ...mock.state.materials.find(m => m.kind === "kmb")!, material_id: "general-long", kind: "general", title: "Регламент", description: long });
+  mock.state.materials.push({ ...mock.state.materials.find(m => m.kind === "kmb")!, material_id: "general-empty", kind: "general", title: "Шаблоны", description: "" });
+  page = await mountWorkspace(routes, { path: "/materials" });await waitForPage(page);
+  expect(page.container.textContent).not.toContain("Открыть");
+  for (const card of cardsOf(page.container)) {
+    const links = [...card.querySelectorAll("a, button")];
+    expect(links).toHaveLength(1);expect(links[0].parentElement?.tagName).toBe("H3");expect(links[0].getAttribute("href")).toMatch(/^\/materials\//);
+  }
+  const card = cardsOf(page.container).find(item => item.querySelector("h3")?.textContent === "Регламент")!;
+  // The description keeps its full text for assistive technology; the card clips it to a line.
+  const link = card.querySelector<HTMLAnchorElement>("h3 a")!, meta = document.getElementById(link.getAttribute("aria-describedby")!)!;
+  expect(card.contains(meta)).toBe(true);expect(meta.querySelector("p")?.textContent).toBe(long);expect(meta.querySelector("p")?.className).toMatch(/description/);
+  // An empty description leaves no empty line.
+  expect(cardsOf(page.container).find(item => item.querySelector("h3")?.textContent === "Шаблоны")!.querySelector("p")).toBeNull();
+  await act(async () => link.click());await waitForPage(page);
+  expect(page.container.querySelector("h1")?.textContent).toBe("Регламент");
+  expect(page.container.textContent).toContain(long);
 });
 
 it("asks for every missing field at once in the main form and clears each mark on its edit", async () => {
   mock = installMockTransport("chair", { delay: 0 });const create = vi.spyOn(materialsApi, "create");
-  page = await mountWorkspace(routes, { path: "/materials/new" });await waitForPage(page);
+  // The editor is a lazy module: wait for its form, not only for a quiet cache.
+  page = await mountWorkspace(routes, { path: "/materials/new" });await waitForPage(page, () => !!page!.container.querySelector('form button[type="submit"]'));
   const form = [...page.container.querySelectorAll("form")].find(item => item.querySelector('button[type="submit"]')?.textContent === "Создать черновик")!;
   // Description and link stand in the main form, before its button (GL-43).
   const description = field(form, "description"), button = form.querySelector('button[type="submit"]')!;
