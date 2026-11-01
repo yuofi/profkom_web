@@ -1,6 +1,6 @@
 import { EntityPicker, type EntityOption } from "../../components/Workspace/EntityPicker";
 import { useState, type ComponentProps } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Navigate, useParams, useSearchParams } from "react-router-dom";
 import {
   Page,
@@ -41,6 +41,7 @@ import {
   usePeopleOptions,
   useWorkspaceActions,
 } from "../../utils/hooks/useWorkspace";
+import { useDebouncedValue } from "../../utils/hooks/useDebouncedValue";
 import s from "../../components/Workspace/Workspace.module.css";
 import { KkrTemplateTools } from "../../components/Workspace/KkrTemplateLibrary";
 import type { TemplateSelection } from "../../utils/api/profileFeatures.api";
@@ -812,6 +813,7 @@ export function CorrectionsPage() {
   const { perform } = useWorkspaceActions();
   const [kind, setKind] = useState<CorrectionKind>("assessment_inputs");
   const [objectId, setObjectId] = useState("");
+  const [search, setSearch] = useState("");
   // Who corrects a closed season is the summary's correct_summary (SE-13): the chair, deputies, HR master.
   const reader = can(session, "view_summary");
   const { seasons, season, missing } = useSubpageSeason(id);
@@ -821,12 +823,19 @@ export function CorrectionsPage() {
     enabled: !!season && reader,
   });
   const allowed = can(summary.data, "correct_summary");
-  // The picker lists every task of the season; pages of 100 and only for task-based kinds (PF-06).
+  // Task-based kinds search the season's readable tasks on the server by name or key, 20 at a time and
+  // without the KKR control epics, instead of listing the whole season (PF-06). Typing settles for
+  // 250 ms; the last list stays meanwhile.
+  const settledSearch = useDebouncedValue(search);
   const tasks = useQuery({
-    queryKey: ["tasks", "closed-correction", id],
-    queryFn: () => tasksApi.list({ season_id: id, mine: false, limit: 100 }),
+    queryKey: ["tasks", "closed-correction", id, settledSearch],
+    queryFn: ({ signal }) => tasksApi.listPage({ season_id: id, ...(settledSearch ? { q: settledSearch } : {}), limit: 20, include_facets: false, exclude_kkr_control: true }, signal),
     enabled: allowed && kind !== "merit",
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
   });
+  const searching = kind !== "merit" && (search !== settledSearch || tasks.isPlaceholderData);
+  const partial = kind !== "merit" && !searching && !!tasks.data?.next_cursor;
   const merits = useQuery({
     queryKey: ["merits", id],
     queryFn: () => seasonsApi.merits({ season_id: id }),
@@ -842,21 +851,39 @@ export function CorrectionsPage() {
   // Control epics keep no accounting of their own (no view_assessment_inputs), and only accepted or
   // not completed assignments carry an evaluation to correct.
   const accountable = tasks.data?.items.filter((t) => can(t, "view_assessment_inputs")) ?? [];
+  const savedValues = (saved: AssessmentInputs) => `${saved.hours ?? "—"} ч / оценка ${saved.evaluation ?? "—"}`;
+  const taskAssignments: EntityOption[] = accountable.flatMap((t) =>
+    t.assignments.filter((a) => a.status === "accepted" || a.status === "not_completed").map((a) => {
+      const saved = inputs.get(a.assignment_id);
+      return {
+        value: a.assignment_id,
+        // Plain text, not a person chip: the label must also name the task and the saved values.
+        label: `${a.assignee.display_name} · ${t.title} · ${saved ? savedValues(saved) : a.status === "accepted" ? "принято" : "не выполнено"}`,
+      };
+    }),
+  );
+  // The server searches task names and keys only. A person is found in the season's assessments that
+  // this page already reads for the labels: every typed word in the person's name or the task title.
+  // A hidden source carries no assignment_inputs and is never offered; a saved evaluation marks an
+  // accepted or not completed assignment. Server matches come first, one row per assignment.
+  const words = settledSearch.trim().toLocaleLowerCase("ru").split(/\s+/).filter(Boolean);
+  const personAssignments: EntityOption[] = !words.length ? [] : (contributions.data?.items ?? []).flatMap((c) => {
+    const saved = c.assignment_inputs;
+    if (!saved || saved.evaluation === null) return [];
+    const text = `${c.user.display_name} ${c.source_title}`.toLocaleLowerCase("ru");
+    return words.every((word) => text.includes(word))
+      ? [{ value: saved.assignment_id, label: `${c.user.display_name} · ${c.source_title} · ${savedValues(saved)}` }]
+      : [];
+  });
+  const assessmentOptions: EntityOption[] = [];
+  for (const option of [...taskAssignments, ...personAssignments])
+    if (!assessmentOptions.some((known) => known.value === option.value)) assessmentOptions.push(option);
   const options: EntityOption[] | undefined = !tasks.data && kind !== "merit" ? undefined
     : kind === "merit"
       ? merits.data?.items.map((m) => ({ value: m.merit_id, label: m.title }))
       : kind === "task_inputs"
         ? accountable.map((t) => ({ value: t.task_id, label: t.title }))
-        : accountable.flatMap((t) =>
-            t.assignments.filter((a) => a.status === "accepted" || a.status === "not_completed").map((a) => {
-              const saved = inputs.get(a.assignment_id);
-              return {
-                value: a.assignment_id,
-                // Plain text, not a person chip: the label must also name the task and the saved values.
-                label: `${a.assignee.display_name} · ${t.title} · ${saved ? `${saved.hours ?? "—"} ч / оценка ${saved.evaluation ?? "—"}` : a.status === "accepted" ? "принято" : "не выполнено"}`,
-              };
-            }),
-          );
+        : assessmentOptions;
   if (missing) return <SeasonMissing />;
   return (
     <Page
@@ -902,6 +929,7 @@ export function CorrectionsPage() {
               <QueryState
                 loading={kind === "merit" ? merits.isLoading : tasks.isLoading}
                 error={kind === "merit" ? merits.error : tasks.error}
+                keepDataOnError={kind !== "merit" && !!tasks.data}
                 retry={() =>
                   void (kind === "merit" ? merits.refetch() : tasks.refetch())
                 }
@@ -911,11 +939,15 @@ export function CorrectionsPage() {
                   label={kind === "assessment_inputs" ? "Оцениваемое назначение: исполнитель · задача · часы / оценка" : kind === "task_inputs" ? "Задача" : "Запись заслуги"}
                   value={objectId}
                   onChange={setObjectId}
-                  placeholder="Найти запись"
-                  loading={kind === "assessment_inputs" && contributions.isLoading}
+                  placeholder={kind === "merit" ? "Найти запись" : kind === "assessment_inputs" ? "Исполнитель, название или ключ задачи" : "Название или ключ задачи"}
+                  loading={searching || (kind === "assessment_inputs" && contributions.isLoading)}
                   options={options ?? []}
+                  {...(kind === "merit" ? {} : {
+                    onSearch: setSearch,
+                    note: partial ? `Показана часть задач сезона. Уточните ${kind === "assessment_inputs" ? "исполнителя, " : ""}название или ключ.` : undefined,
+                  })}
                 />
-                {options?.length === 0 && (
+                {options?.length === 0 && (kind === "merit" || (!settledSearch && !partial)) && (
                   <Empty>Нет доступных записей этого типа.</Empty>
                 )}
                 {objectId && (

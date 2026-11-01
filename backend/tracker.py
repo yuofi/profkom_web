@@ -694,11 +694,13 @@ def task_facets(uid,*,queue_id=None,season_id=None,scope_kind=None,scope_id=None
         return _facets(index,rows)
 
 
-def task_page(uid,*,queue_id=None,season_id=None,scope_kind=None,scope_id=None,mine=False,status=None,q="",unfinished=False,overdue=False,assignee_user_id=None,task_type=None,priority=None,favorite=False,date_from=None,date_to=None,sort="deadline",order="asc",cursor=None,limit=20,converter,include_facets=True):
+def task_page(uid,*,queue_id=None,season_id=None,scope_kind=None,scope_id=None,mine=False,status=None,q="",unfinished=False,overdue=False,assignee_user_id=None,task_type=None,priority=None,favorite=False,date_from=None,date_to=None,sort="deadline",order="asc",cursor=None,limit=20,converter,include_facets=True,exclude_kkr_control=False):
     from api_contract import cursor_page
     with db._session() as session:
         index,rows,internal_scope=_selection(session,uid,queue_id,season_id,scope_kind,scope_id)
         facets=_facets(index,rows) if include_facets else {}
+        # Only narrows the reader's own list: the correction picker skips managed control epics (PF-06).
+        if exclude_kkr_control:rows=[t for t in rows if not is_control_task(session,t.task_id)]
         if mine:rows=[t for t in rows if uid in t.assignee_ids]
         if assignee_user_id is not None:rows=[t for t in rows if assignee_user_id in t.assignee_ids]
         if status:rows=[t for t in rows if t.status==public_status(status)]
@@ -724,7 +726,7 @@ def task_page(uid,*,queue_id=None,season_id=None,scope_kind=None,scope_id=None,m
             else:value=getattr(item,field) or item.created_at or ""
             return value,item.task_id
         import base64,hashlib,binascii
-        context=hashlib.sha256(json.dumps(dict(uid=uid,queue_id=queue_id,season_id=season_id,scope_kind=scope_kind,scope_id=internal_scope,mine=mine,status=status,q=needle,unfinished=unfinished,overdue=overdue,assignee_user_id=assignee_user_id,task_type=task_type,priority=priority,favorite=favorite,date_from=date_from,date_to=date_to,sort=sort,order=order,limit=limit),sort_keys=True).encode()).hexdigest()
+        context=hashlib.sha256(json.dumps(dict(uid=uid,queue_id=queue_id,season_id=season_id,scope_kind=scope_kind,scope_id=internal_scope,mine=mine,status=status,q=needle,unfinished=unfinished,overdue=overdue,assignee_user_id=assignee_user_id,task_type=task_type,priority=priority,favorite=favorite,date_from=date_from,date_to=date_to,sort=sort,order=order,limit=limit,**({'exclude_kkr_control':True} if exclude_kkr_control else {})),sort_keys=True).encode()).hexdigest()
         inner=None
         if cursor:
             try:

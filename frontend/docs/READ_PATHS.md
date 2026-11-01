@@ -41,6 +41,18 @@ TanStack Query's AbortSignal through the API helpers and every pagination reques
 so obsolete reads can be cancelled. Do not let a late response replace the current
 filter result or turn cancellation into access to stale private data.
 
+Pickers over a large readable set search on the server instead of listing it. The
+closed-summary corrections page finds its task (or the task of an assignment) with
+one `GET /tasks` page: `season_id`, the settled typed `q`, `limit=20`,
+`include_facets=false` and `exclude_kkr_control=true`; it never follows cursors and
+says when only part of the matches is shown. For assignments it also matches the
+typed words against the person and task title of the season's assessments it already
+reads for the labels (rows without `assignment_inputs` or an evaluation are never
+offered), after the server's matches and once per assignment. EntityPicker's
+`onSearch` mode does not filter those matches again, keeps the chosen option's label
+when a later search no longer returns it, and Enter does not choose while the search
+is still loading.
+
 The season participant summary mounts at most one decision editor. Closed row
 disclosures contain no ActionForm or Formik subscriptions. Switching participant,
 closing the editor or changing a participant filter uses the participant panel's

@@ -133,6 +133,112 @@ it("offers only accountable tasks and evaluated assignments to correct, with a s
   expect(tasks).toContain(task.title);
 });
 
+it("finds the task to correct with a server search of 20 instead of listing the season, and keeps the chosen task's name (PF-06)", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  mock.state.seasons.find((s) => s.season_id === "season-1")!.state = "closed";
+  const base = mock.state.tasks[0];
+  for (const assignment of base.assignments) assignment.status = "accepted";
+  // 45 more accountable tasks: listing the whole season would take three pages of 20.
+  for (let n = 1; n <= 45; n++) mock.state.tasks.push({ ...structuredClone(base), task_id: `task-extra-${n}`, task_key: `EX-${n}`, title: `Дополнительная задача ${n}` });
+  // A KKR control epic keeps no accounting of its own: the server search leaves it out.
+  mock.state.tasks.push({ ...structuredClone(base), task_id: "control-epic", task_key: "KKR-1", title: "ККР · EX-4 контроль", queue: { queue_id: "queue-kkr", name: "ККР", key: "KKR" } });
+  page = await mountWorkspace(
+    <Routes>
+      <Route path="/seasons/:id/corrections" element={<CorrectionsPage />} />
+    </Routes>,
+    { path: "/seasons/season-1/corrections" },
+  );
+  await settle();
+  await settle();
+  const container = page.container;
+  const reads = () => mock.adapter.history.get.filter((r) => r.url === "/tasks");
+  // Opening the form reads one page of 20 without facets and never pages through the season.
+  expect(reads().map((r) => r.params)).toEqual([{ season_id: "season-1", limit: 20, include_facets: false, exclude_kkr_control: true }]);
+  await change(container.querySelector("select")!, "task_inputs");
+  const box = () => container.querySelector<HTMLInputElement>('[data-field-name="correction_object"] [role="combobox"]')!;
+  const choices = () => [...document.querySelectorAll('[role="listbox"] [role="option"]')].map((option) => option.textContent ?? "");
+  const search = async (text: string) => {
+    await act(async () => { box().focus();box().click(); });
+    await change(box(), text);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 300)); });
+    await settle();
+    await settle();
+  };
+  await search("EX-4");
+  expect(reads().at(-1)!.params).toEqual({ season_id: "season-1", q: "EX-4", limit: 20, include_facets: false, exclude_kkr_control: true });
+  // The server matched the keys; the picker shows its matches without filtering the titles again.
+  expect(choices()).toHaveLength(7);
+  expect(choices()).toContain("Дополнительная задача 4");
+  expect(choices()).not.toContain("ККР · EX-4 контроль");
+  await pick(container, "correction_object", "task-extra-4");
+  await settle();
+  const chip = () => container.querySelector('[data-field-name="correction_object"] [data-selected-value="task-extra-4"]')?.textContent;
+  expect(field(container, "assigned").value).not.toBe("");
+  await search("задача 1");
+  expect(choices()).not.toContain("Дополнительная задача 4");
+  expect(chip()).toContain("Дополнительная задача 4");
+  // Saving a correction rereads the search; the open correction still names its task.
+  await change(field(container, "creative"), "true");
+  await change(field(container, "reason"), "Исправлены критерии");
+  await submit(container.querySelector("form")!);
+  await settle();
+  expect(container.textContent).toContain("Изменения сохранены");
+  expect(chip()).toContain("Дополнительная задача 4");
+  expect(container.textContent).not.toContain("Выбранное значение недоступно");
+  expect(reads().every((r) => r.params?.limit === 20 && !r.params?.cursor && r.params?.season_id === "season-1" && r.params?.exclude_kkr_control === true)).toBe(true);
+});
+
+it("finds an assignment to correct by the person's name in the season's assessments the page already holds (PF-06)", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  mock.state.seasons.find((s) => s.season_id === "season-1")!.state = "closed";
+  const task = mock.state.tasks[0];
+  for (const assignment of task.assignments) assignment.status = "accepted";
+  // Only the first assignment has a saved evaluation (an accounted assessment); the second has none.
+  Object.assign(mock.state.assessments[0], { evaluation: 1, effective_completed_at: "2026-10-02T10:00:00Z" });
+  // Another person's accepted work whose assessment row the reader does not get (a hidden source).
+  mock.state.tasks.push({ ...structuredClone(task), task_id: "task-hidden-inputs", task_key: "HID-1", title: "Скрытые исходные данные",
+    assignments: [{ ...structuredClone(task.assignments[0]), assignment_id: "assignment-hidden", assignee: { user_id: 103, display_name: "Мария Орлова", avatar_url: null } }] });
+  page = await mountWorkspace(
+    <Routes>
+      <Route path="/seasons/:id/corrections" element={<CorrectionsPage />} />
+    </Routes>,
+    { path: "/seasons/season-1/corrections" },
+  );
+  await settle();
+  await settle();
+  const container = page.container;
+  const person = task.assignments[0].assignee.display_name;
+  const box = () => container.querySelector<HTMLInputElement>('[data-field-name="correction_object"] [role="combobox"]')!;
+  const options = () => [...document.querySelectorAll<HTMLElement>('[role="listbox"] [role="option"]')];
+  const search = async (text: string) => {
+    await act(async () => { box().focus();box().click(); });
+    await change(box(), text);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 300)); });
+    await settle();
+    await settle();
+  };
+  const assessmentReads = () => mock.adapter.history.get.filter((r) => r.url === "/assessments").length;
+  const before = assessmentReads();
+  await search(person.split(" ")[1].toLowerCase());
+  // The task search on the server knows no person; the page's own assessments do.
+  expect(mock.adapter.history.get.filter((r) => r.url === "/tasks").at(-1)!.params).toMatchObject({ q: person.split(" ")[1].toLowerCase(), limit: 20 });
+  expect(options().map((option) => option.textContent)).toEqual([`${person} · ${task.title} · 2 ч / оценка 1`]);
+  expect(assessmentReads()).toBe(before);
+  await search("Орлова");
+  expect(options()).toHaveLength(0);
+  // A title word also finds the task on the server: its rows come first and the assessment's row only once.
+  await search("материалы");
+  expect(options().map((option) => option.dataset.optionValue)).toEqual(["assignment-1", "assignment-2"]);
+  // Words may combine the person and the task, as in the label.
+  await search("материалы смирнова");
+  expect(options().map((option) => option.dataset.optionValue)).toEqual(["assignment-1"]);
+  await search(person.split(" ")[1]);
+  await pick(container, "correction_object", "assignment-1");
+  await settle();
+  expect(field(container, "hours").value).toBe("2");
+  expect(container.querySelector('[data-field-name="correction_object"] [data-selected-value="assignment-1"]')?.textContent).toContain(person);
+});
+
 it.each(["assessment_inputs", "merit"])(
   "keeps an unchanged %s correction from writing a duplicate summary version",
   async (kind) => {

@@ -86,3 +86,37 @@ def test_facets_are_the_list_facets_of_the_same_selection(client, queues, select
         bare = client.get("/api/tasks", headers=actor.headers, params={**params, "mine": "true", "limit": 5,
                                                                        "include_facets": "false"}).json()
         assert bare == {k: v for k, v in body.items() if k not in ("scopes", "assignees")}
+
+
+def test_exclude_kkr_control_only_narrows_the_readers_own_list(client, queues):
+    """The closed-correction picker's search (PF-06): exclude_kkr_control=true leaves out the managed
+    control epics and nothing else; access, q, limit and the cursor keep their meaning."""
+    from domain_models import KkrControlEpicORM
+    w = queues
+    with db._session() as s:
+        controls = {row.task_id for row in s.query(KkrControlEpicORM)}
+    base = {"season_id": w["season"]["season_id"], "limit": 100, "include_facets": "false"}
+    seen_control = False
+    for actor in readers(w):
+        full = client.get("/api/tasks", headers=actor.headers, params=base)
+        narrowed = client.get("/api/tasks", headers=actor.headers, params={**base, "exclude_kkr_control": "true"})
+        assert full.status_code == narrowed.status_code == 200
+        expected = [row for row in full.json()["items"] if row["task_id"] not in controls]
+        seen_control |= len(expected) < len(full.json()["items"])
+        # The same DTOs of the same readable selection minus control epics: no task appears that the
+        # ordinary list hides (private queues, grants and masking stay those of GET /tasks).
+        assert narrowed.json() == {"items": expected, "next_cursor": None, "total": len(expected)}
+    assert seen_control
+    actor = w["superuser"]
+    titled = client.get("/api/tasks", headers=actor.headers, params={**base, "q": "ККР"}).json()["items"]
+    assert titled and {row["task_id"] for row in titled} <= controls
+    assert client.get("/api/tasks", headers=actor.headers, params={**base, "q": "ККР", "exclude_kkr_control": "true"}).json()["items"] == []
+    found = client.get("/api/tasks", headers=actor.headers, params={**base, "q": "открыт", "exclude_kkr_control": "true"}).json()["items"]
+    assert [row["title"] for row in found] == ["Открытая"]
+    first = client.get("/api/tasks", headers=actor.headers, params={**base, "limit": 1, "exclude_kkr_control": "true"}).json()
+    assert len(first["items"]) == 1 and first["next_cursor"] and first["items"][0]["task_id"] not in controls
+    # A cursor belongs to its filters: the unfiltered list refuses it, the filtered one continues.
+    refused = client.get("/api/tasks", headers=actor.headers, params={**base, "limit": 1, "cursor": first["next_cursor"]})
+    assert refused.status_code == 422
+    following = client.get("/api/tasks", headers=actor.headers, params={**base, "limit": 1, "exclude_kkr_control": "true", "cursor": first["next_cursor"]})
+    assert following.status_code == 200 and following.json()["items"][0]["task_id"] not in controls | {first["items"][0]["task_id"]}
