@@ -111,7 +111,9 @@ it("calendar keeps URL filters and repeats a multi-day announcement on each cove
 });
 it("home shows real sections and keeps already implemented personal teams", async () => {
   mock=installMockTransport("chair",{delay:0});page=await mountWorkspace(<DashboardPage/>);await waitForPage(page);
-  expect(page.container.textContent).toContain("Ближайшие задачи");expect(page.container.textContent).toContain("Мои команды");expect(page.container.textContent).toContain("Мои блоки");expect(page.container.textContent).toContain("Также задачи, за которыми я наблюдаю");
+  expect(page.container.textContent).toContain("Ближайшие задачи");expect(page.container.textContent).toContain("Мои команды");expect(page.container.textContent).toContain("Мои блоки");
+  // D-01: the watched-tasks box moved from its own row above the cards into the card of the nearest tasks.
+  expect(page.container.querySelector('[aria-label="Задачи по срокам"] [class*="taskMeta"] input[type="checkbox"]')?.parentElement?.textContent).toBe("Также задачи, за которыми я наблюдаю");
   const calls=mock.adapter.history.get.filter(request=>request.url?.includes("/workspace/home"));expect(calls).toHaveLength(1);expect(calls[0].params).toMatchObject({watching:false});
 });
 
