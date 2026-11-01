@@ -42,6 +42,11 @@ active participant identity. Successful saves retain the existing summary-versio
 checks; opening or filtering the table never writes a decision. Exercise repeated
 row visits as well as the initial form count when checking responsiveness.
 
+Do not read layout while a fresh page commits. The season tabs take their first
+sizes from ResizeObserver and bring the current tab out of the fade in the next
+animation frame, so mounting a season page does not lay it out before its summary
+request starts.
+
 ## Measuring changes
 
 Compare one frozen synthetic database and source manifest, with the same roles,
