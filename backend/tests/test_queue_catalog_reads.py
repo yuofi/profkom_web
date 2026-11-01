@@ -106,3 +106,24 @@ def test_catalogue_sql_comparison_excludes_only_candidate_materialization(client
     assert current_sql<legacy_sql
     record_property('catalogue_current_sql',current_sql)
     record_property('catalogue_legacy_candidate_control_sql',legacy_sql)
+
+
+def test_queue_task_list_refuses_like_the_queue_before_reading_tasks(client,work):
+    """The queue page reads the queue and its task list together (PF-14): for a missing or
+    closed queue the list answers exactly what the queue read answers, without building the
+    reader's task index; an open queue still lists its own tasks."""
+    import task_reads
+    q=make_queue(client,work,key='PARALLELPRIVATE',private=True)
+    hidden=create_in(client,work,q,title='Hidden parallel task',assignees=[])
+    outside=work['outside'].headers
+    with patch.object(task_reads,'TaskIndex',side_effect=AssertionError('a refused queue must not read tasks')):
+        for queue_id,status in [(q['queue_id'],403),('queue-missing',404)]:
+            queue=client.get('/api/task-queues/'+queue_id,headers=outside)
+            for path in ['/api/tasks?include_facets=false&limit=20&queue_id=','/api/tasks/facets?queue_id=']:
+                tasks=client.get(path+queue_id,headers=outside)
+                assert (queue.status_code,tasks.status_code)==(status,status)
+                assert tasks.json()==queue.json()
+                assert 'Hidden parallel task' not in tasks.text
+    assert queue.json()['detail']['code']=='not_found'
+    listed=ok(client.get('/api/tasks?include_facets=false&queue_id='+q['queue_id'],headers=work['master'].headers))
+    assert [item['task_id'] for item in listed['items']]==[hidden['task_id']]

@@ -1,7 +1,7 @@
 import { TrackerHomeLink } from "../../components/Workspace/TrackerHomeLink";
 import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
-import { useState, type MouseEvent, type KeyboardEvent } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState, type MouseEvent, type KeyboardEvent } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams, useNavigate, useSearchParams } from "react-router-dom";
 import type { EntityOption } from "../../components/Workspace/EntityPicker";
 import { UserChip } from "../../components/Workspace/UserChip";
@@ -20,6 +20,8 @@ import { can } from "../../utils/session";
 import { getTaskQueueRoute, getTaskQueuesRoute } from "../../utils/routes";
 import { displayDate } from "../../utils/dates";
 import { TrackerListPage } from "./TrackerList";
+import { trackerTaskRead } from "./trackerTaskRead";
+import { prefetchRead } from "../../utils/routePrefetch";
 import w from "../../components/Workspace/Workspace.module.css";
 import s from "./TaskQueuePages.module.css";
 
@@ -54,8 +56,18 @@ export function TaskQueuesPage() {
   </section>;
 }
 export function TaskQueuePage() {
-  const { id = "" } = useParams();
+  const { id = "" } = useParams(), [params] = useSearchParams(), client = useQueryClient();
   const query = useQuery({ queryKey: ["tasks", "queues", id], queryFn: () => taskQueuesApi.get(id), enabled: !!id });
+  // The queue's tasks need only the address: while the queue has not answered, their read
+  // starts beside it under the list's key, and the list joins it (PF-14). The server refuses
+  // that read with the queue's own 404/403 (the same body), so a queue the reader may not
+  // open still shows only the queue's answer.
+  const waiting = !!id && query.data === undefined && !query.error, address = params.toString();
+  useEffect(() => {
+    if (!waiting) return;
+    const read = trackerTaskRead(new URLSearchParams(address), id), part = read.view === "list" ? read.list : read.planning;
+    prefetchRead(client, part.queryKey, part.queryFn);
+  }, [client, id, address, waiting]);
   const error = query.error ? normalizeApiError(query.error) : null;
   if (error?.status === 403 && error.code === "queue_access_required") return <QueueAccessScreen id={id} error={error} refresh={() => query.refetch()} />;
   if (error?.status === 404) return <section className={s.page}><TrackerHomeLink /><Empty>Очередь не найдена.</Empty><div><RouteLink to={getTaskQueuesRoute()}>К очередям</RouteLink></div></section>;

@@ -300,6 +300,8 @@ export function installMockTransport(
     if (!includeAssignable) delete result.assignable_users;
     return result;
   };
+  /** The refusal of a queue the reader may not open: its read and its task list say the same. */
+  const queueRefusal = (queue: TaskQueue): Reply => { const locked = visibleQueue(queue);return fail(403, "queue_access_required", "Нет доступа к очереди", { queue: { queue_id: queue.queue_id, name: queue.name, key: queue.key }, can_request_access: locked.can_request_access, access_request_status: locked.access_request_status, access_request_id: locked.access_request_id, access_request_revision: locked.access_request_revision }); };
   let sequence = 10;
   let leadership = {
     chair: state.people[3],
@@ -1117,7 +1119,7 @@ export function installMockTransport(
         if (mismatch(data, item)) return conflict();
         item.status = "revoked";return changed(item);
       }
-      if (!readsQueue(queue)) return fail(403, "queue_access_required", "Нет доступа к очереди", { queue: { queue_id: queue.queue_id, name: queue.name, key: queue.key }, can_request_access: visibleQueue(queue).can_request_access, access_request_status: visibleQueue(queue).access_request_status, access_request_id: visibleQueue(queue).access_request_id, access_request_revision: visibleQueue(queue).access_request_revision });
+      if (!readsQueue(queue)) return queueRefusal(queue);
       if (method === "get") return [200, visibleQueue(queue)];
       if (!owns) return denied();
       if (mismatch(data, { revision: queue.revision! })) return conflict();
@@ -1129,6 +1131,10 @@ export function installMockTransport(
     if (path === "/tasks/facets" && method === "get") return [200, taskFacets()];
     if (path === "/tasks") {
       if (method === "get") {
+        // Like the server: a queue filter first runs the queue's own check (404, 403 with its body).
+        const listedQueue = url.searchParams.get("queue_id") ? state.queues.find(q => q.queue_id === url.searchParams.get("queue_id")) : undefined;
+        if (url.searchParams.get("queue_id") && !listedQueue) return fail(404, "not_found", "Очередь недоступна");
+        if (listedQueue && !readsQueue(listedQueue)) return queueRefusal(listedQueue);
         let tasks = filter(state.tasks, url).filter(readsTask);
         if (url.searchParams.get("queue_id")) tasks = tasks.filter(t => t.queue?.queue_id === url.searchParams.get("queue_id"));
         if (url.searchParams.get("scope_id"))

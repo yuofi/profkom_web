@@ -666,12 +666,19 @@ def _facets(index,rows):
 def _selection(session,uid,queue_id,season_id,scope_kind,scope_id):
     from membership import legacy_name
     internal_scope=legacy_name(scope_id) if scope_kind=="block" and scope_id else scope_id
+    if queue_id:
+        # The queue's own check first: a missing or closed queue refuses its task list exactly
+        # like GET /task-queues/{id}, before the reader's task index is built. The queue page
+        # starts both reads together (PF-14). get() refuses exactly when can_read() is false.
+        from database import TaskQueueORM
+        from task_queues import can_read, get
+        queue=session.get(TaskQueueORM,queue_id)
+        if not can_read(session,queue,uid):
+            get(queue_id,uid,include_assignable=False)
     from task_reads import TaskIndex
     index=TaskIndex(session,uid,season_id=season_id,scope_kind=scope_kind,scope_id=internal_scope)
     rows=index.readable()
     if queue_id:
-        from task_queues import get
-        get(queue_id,uid,include_assignable=False)
         rows=[t for t in rows if t.queue and t.queue["queue_id"]==queue_id]
     return index,rows,internal_scope
 
