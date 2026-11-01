@@ -196,6 +196,7 @@ it("2.12 A-FE-2: two rows of one summary save one after another without a confli
   await tasksApi.submitResult(task.task_id, { expected_revision: task.revision, text: richText("Общий результат"), links: [], file_ids: [] });
   await liveLogin();
   const submitted = await tasksApi.get(task.task_id);
+  await tasksApi.changeStatus(task.task_id, { expected_revision: submitted.revision, status: "closed" });  // KKR after the author's closure (SE-12)
   for (const assignment of submitted.assignments) { const inputs = await tasksApi.assessment(assignment.assignment_id);await tasksApi.updateAssessment(assignment.assignment_id, { expected_revision: inputs.revision, evaluation: 1, reason: "Подготовка реального приватного учёта" }); }
   // Decisions are edited while the season is summarized; closed totals are corrected elsewhere.
   const current = (await seasonsApi.list()).items.find(s => s.season_id === season.season_id)!;
@@ -273,7 +274,8 @@ it("2.12 EDITORS-05 (decision 32): hours changed by the lead do not stop the ass
   await until(() => !!result());
   await change(field(result()!, "body"), "Результат после смены часов");
   const inputs = (await chair.get(`/assignments/${own.assignment_id}/assessment-inputs`)).data;
-  await chair.patch(`/assignments/${own.assignment_id}/assessment-inputs`, { expected_revision: inputs.revision, hours: 5, reason: "Больше работы" });
+  // The single-assignment PATCH waits for the task's closure (SE-12); bulk hours move the same inputs revision.
+  await chair.post("/assessment-inputs/bulk-hours", { items: [{ assignment_id: own.assignment_id, expected_revision: inputs.revision }], hours: 5, reason: "Больше работы" });
   await act(async () => { await page!.client.invalidateQueries(); });
   await waitForPage(page!);
   expect(result()!.textContent).not.toContain("Запись изменилась на сервере");

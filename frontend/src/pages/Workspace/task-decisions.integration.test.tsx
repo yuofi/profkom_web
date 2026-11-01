@@ -59,7 +59,12 @@ it("1.1: public decisions change the joint task without changing private hours, 
 });
 it("1.1: public closure preserves formal acceptance and private hours remain separately editable",async()=>{
  const {tasks:[task],session}=await submittedTasks(1),assignment=task.assignments[0];
- const initial=await tasksApi.assessment(assignment.assignment_id);await tasksApi.updateAssessment(assignment.assignment_id,{expected_revision:initial.revision,evaluation:1,reason:"Явная формальная приёмка"});
+ // KKR waits for the author's closure (SE-12, owner 2026-11-01): accept after it, then reopen.
+ const initial=await tasksApi.assessment(assignment.assignment_id);
+ await expect(tasksApi.updateAssessment(assignment.assignment_id,{expected_revision:initial.revision,evaluation:1,reason:"Явная формальная приёмка"})).rejects.toMatchObject({status:409,code:"task_not_closed"});
+ const closed=await tasksApi.changeStatus(task.task_id,{expected_revision:task.revision,status:"closed"});
+ await tasksApi.updateAssessment(assignment.assignment_id,{expected_revision:(await tasksApi.assessment(assignment.assignment_id)).revision,evaluation:1,reason:"Явная формальная приёмка"});
+ await tasksApi.changeStatus(task.task_id,{expected_revision:closed.revision,status:"in_progress"});
  const accepted=await tasksApi.assessment(assignment.assignment_id);expect(accepted.workflow_status).toBe("accepted");
  page=await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TaskPage/>}/></Routes>,{path:`/tasks/${task.task_id}`,session});await waitForPage(page);await choosePublic("closed");
  expect(await tasksApi.assessment(assignment.assignment_id)).toEqual(accepted);
