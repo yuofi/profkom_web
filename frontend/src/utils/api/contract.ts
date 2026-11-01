@@ -72,6 +72,8 @@ export interface Leader extends Versioned {
   role_assignment_id: string;
   user: UserRef;
   deputy_user_ids: number[];
+  /** With include_deputies=true: the deputies in deputy_user_ids order, under the policy of `user`. */
+  deputies?: UserRef[];
 }
 export type Category = "junior" | "activist";
 export interface ParticipantCategory extends Versioned {
@@ -159,6 +161,8 @@ export interface Event extends Versioned {
   ends_at: string | null;
 }
 export interface Subevent extends Versioned {
+  /** The parent event's title for breadcrumbs, without rereading the event. */
+  event_title?: string;
   starts_at?: string | null;
   ends_at?: string | null;
   all_day?: boolean;
@@ -270,6 +274,11 @@ export interface TaskMentionRequest {
   request_id:string;task_id:string;task_key:string|null;target:UserRef|null;requested_by:UserRef|null;
   comment_id:string|null;status:"pending"|"approved"|"rejected";created_at:string;revision:number;capabilities:string[];
 }
+/** A person offered by GET /tasks/{id}/mention-candidates. */
+export interface TaskCandidate extends UserRef {
+  /** Reads the task already, or the actor approves access: assigning is accepted. */
+  can_assign: boolean;
+}
 export type TaskPublicStatus = "open" | "in_progress" | "completed" | "closed";
 export type TaskType = "task" | "milestone" | "epic";
 export type TaskPriority = "low" | "normal" | "high" | "urgent";
@@ -307,7 +316,8 @@ export interface Task extends Versioned {
   watchers?: UserRef[];
   allowed_statuses?: TaskPublicStatus[];
   task_key?: string;
-  queue?: TaskQueueRef;
+  /** readable: the queue page opens for this user; a reader of one task may not read its queue. */
+  queue?: TaskQueueRef & { readable?: boolean };
   parent_task?: { task_id: string; task_key: string; title: string } | null;
   parent_task_id?: string | null;
   parent_task_unavailable?: boolean;
@@ -327,6 +337,15 @@ export interface TaskListPageResponse extends Page<Task> {
   total?: number;
   scopes?: (ScopeRef & { title: string })[];
   assignees?: UserRef[];
+}
+/** GET /tasks/facets: the list facets of one selection, for the open filter panel. */
+export interface TaskFacets {
+  scopes: (ScopeRef & { title: string })[];
+  assignees: UserRef[];
+}
+/** GET /task-queues/create-access: some catalogue queue offers create_task. */
+export interface TaskCreateAccess {
+  can_create_task: boolean;
 }
 export interface TaskStatusChange extends Revision {
   status: TaskPublicStatus | AssignmentStatus;
@@ -348,6 +367,12 @@ export interface UnresolvedAssignment {
   deadline_at: string | null;
   scope_title?: string;
   scope_avatar_url?: string | null;
+  /** Public task status; the accounting dialog opens only for a closed task. */
+  task_status?: TaskPublicStatus | null;
+}
+/** GET /assignments/unresolved: one keyset page; `total` (all matching rows) with include_total. */
+export interface UnresolvedAssignmentPage extends Page<UnresolvedAssignment> {
+  total?: number;
 }
 export interface TaskInputs extends Versioned {
   task_id: string;
@@ -359,6 +384,8 @@ export interface AssessmentInputs extends Versioned {
   workflow_revision?: number | null;
   workflow_status?: AssignmentStatus | null;
   assignment_id: string;
+  /** With include_task_ids=true on /assessments: the task when the reader may open it. */
+  task_id?: string | null;
   hours: number | null;
   evaluation: -1 | 0 | 1 | 1.5 | null;
   effective_completed_at: string | null;
@@ -409,6 +436,12 @@ export interface MeritCreate {
     completed_at: string | null;
   }[];
   reason?: string;
+}
+/** GET /merits/contexts: the merit forms' scopes with only their merit capabilities. */
+export interface MeritContexts {
+  blocks: (BlockRef & { avatar_url: string | null; capabilities: string[] })[];
+  events: { event_id: string; season_id: string; title: string; capabilities: string[] }[];
+  subevents: { subevent_id: string; event_id: string; title: string; capabilities: string[] }[];
 }
 /** The fields PATCH /merits/{id} accepts: kind, season and scope are fixed at creation. */
 export type MeritPatch = Pick<MeritCreate, "title" | "description" | "assigned_at" | "deadline_at" | "criteria" | "recipients">;
@@ -524,6 +557,8 @@ export interface Report extends Versioned {
   state: "draft" | "published";
   published_at: string | null;
   published_version: number | null;
+  /** The owner event's or subevent's title, to name and link it. */
+  owner_title?: string;
 }
 export interface ReportVersion {
   report_id: string;
@@ -551,6 +586,8 @@ export interface Material extends Versioned {
   source_content?: RichText;
   /** Block guides only: "block" reads to the block and the chair's team, "everyone" to all. */
   audience?: "block" | "everyone";
+  /** When the readers' version was published; null for older publications. */
+  published_at?: string | null;
 }
 export interface Comment {
   comment_id: string;
@@ -572,6 +609,12 @@ export interface Meeting extends Versioned {
   title: string;
   starts_at: string;
   join_url: string;
+}
+/** A child team's announcement readable by the actor (GET /events/{id}/meetings). */
+export interface TeamMeeting {
+  subevent_id: string;
+  subevent_title: string;
+  meeting: Meeting;
 }
 export interface Target {
   kind: string;
@@ -654,6 +697,8 @@ export interface ArchivedAccount {
   display_name: string;
   archived_at: string;
   master_conflicts?: { block_id: string; block_name?: string; current_master: UserRef }[];
+  /** restore_account: absent for a deputy chair unless the viewer is the chair (PE-01). */
+  capabilities?: string[];
 }
 export interface TaskCreate {
   task_type?: TaskType;
@@ -671,6 +716,8 @@ export interface TaskCreate {
   assignees?: { user_id: number; hours?: number }[];
   watcher_user_ids?: number[];
   file_ids?: string[];
+  /** A UUID: a repeat with the same key returns the task created by the first request. */
+  idempotency_key?: string;
 }
 export interface SeasonBlocker {
   kind:
@@ -684,6 +731,13 @@ export interface SeasonBlocker {
   title: string;
   subject?: string | null;
   assignee?: string | null;
+  /** The task of a readable assignment blocker (readiness with include_task_ids=true). */
+  task_id?: string | null;
+}
+export interface SeasonReadiness {
+  ready: boolean;
+  blockers: SeasonBlocker[];
+  revision: number;
 }
 export const richText = (body = ""): RichText => ({ format: "markdown", body });
 export const emptyCriteria = (): Criteria => ({

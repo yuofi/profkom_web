@@ -1,5 +1,5 @@
 import { editorShortcut } from "../../utils/editorShortcuts";
-import { useId, useRef, useState, type ReactNode } from "react";
+import { Suspense, lazy, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useFormik, type FormikProps } from "formik";
 import { z } from "zod";
 import { ApiError, normalizeApiError } from "../../utils/api/request";
@@ -11,6 +11,8 @@ import { RecipientPicker } from "./RecipientPicker";
 import { EntityPicker, type EntityKind, type EntityOption } from "./EntityPicker";
 import { advanceOwn, recordOwnChange, useOwnRevisions } from "./ownRevisions";
 import { useUnsavedChanges } from "./unsavedChangesHooks";
+// The editor stays in its own chunk: forms without a markdown field do not load it.
+const MarkdownEditor = lazy(() => import("./MarkdownEditor").then((module) => ({ default: module.MarkdownEditor })));
 export interface Field {
   name: string;
   label: string;
@@ -23,7 +25,8 @@ export interface Field {
     | "datetime-local"
     | "email"
     | "url"
-    | "password";
+    | "password"
+    | "markdown";
   /** A function makes the field required depending on the other values. */
   required?: boolean | ((values: Values) => boolean);
   value?: string | string[];
@@ -33,12 +36,16 @@ export interface Field {
   loading?: boolean;
   placeholder?: string;
   hint?: string;
+  /** The height of a markdown field in lines. */
+  rows?: number;
   min?: number;
   max?: number;
   whenSelected?: { name: string; value: string };
   onSelectionChange?: (values: string[]) => void;
   /** A multiple choice of people asks before removing saved ones; marks need not. */
   confirmRemoval?: boolean;
+  /** Short fields of one group share a row (dates, hours and evaluation, yes/no criteria); a new group starts a new row. */
+  compact?: string;
 }
 type Refresh = () => unknown | Promise<unknown>;
 /**
@@ -62,6 +69,17 @@ const visible = (field: Field, values: Values) =>
 
 const savedValues = (fields: Field[]): Values =>
   Object.fromEntries(fields.map((f) => [f.name, f.value ?? (f.type === "multi" ? [] : "")]));
+
+/** Where a chain of own saves (from → to) leads from `from`. */
+const follow = <K,>(chain: [K, K][], from: K) => {
+  let current = from;
+  for (let steps = 0; steps < chain.length; steps++) {
+    const next = chain.find(([at]) => at === current);
+    if (!next) break;
+    current = next[1];
+  }
+  return current;
+};
 
 /** People a multiple choice with saved members would remove, by label. */
 const removals = (fields: Field[], values: Values) =>
@@ -97,6 +115,8 @@ export function ActionForm({
   externalBusy = false,
   allowExitSave = true,
   beforeFields,
+  confirm,
+  actions,
 }: {
   title?: string;
   fields: Field[];
@@ -125,6 +145,13 @@ export function ActionForm({
   allowExitSave?: boolean;
   /** Opt-in helpers may copy values into the current draft without replacing dates/recipients. */
   beforeFields?: (form: FormikProps<Values>) => ReactNode;
+  /**
+   * An irreversible command asks once more, naming its target and consequences, before it is sent.
+   * A text function returns null only for input its onSubmit refuses itself before any request.
+   */
+  confirm?: { text: ReactNode | ((values: Values) => ReactNode); label: string };
+  /** Secondary controls in one row after the submit, such as a cancel link or a preview toggle. */
+  actions?: ReactNode;
 } & Versioning) {
   const formId = useId();
   const submitted = useRef(false);
@@ -137,8 +164,14 @@ export function ActionForm({
   const [expectedRevision, setExpectedRevision] = useState(revision);
   const [expectedRevisionKey, setExpectedRevisionKey] = useState(revisionKey);
   const [refreshing, setRefreshing] = useState(false);
+  // Own saves of this form (from → to). Their reread runs in the background (PF-02), so the
+  // props may still carry what a save has just replaced: that is not someone else's change.
+  const [ownSaves, setOwnSaves] = useState<{ revisions: [number, number][]; keys: [string, string][] }>({ revisions: [], keys: [] });
   const confirmedRemoval = useRef<string | null>(null);
   const [pendingRemoval, setPendingRemoval] = useState<string[]>([]);
+  // The exact values an irreversible command awaits confirmation for; another choice withdraws the question.
+  const confirmedCommand = useRef<string | null>(null);
+  const [pendingCommand, setPendingCommand] = useState<string | null>(null);
   const versioned = revision !== undefined || revisionKey !== undefined;
   const [message, setMessage] = useState("");
   const [failure, setFailure] = useState<ReturnType<
@@ -162,7 +195,13 @@ export function ActionForm({
     const rebased = rebaseKey(expectedRevisionKey);
     if (rebased !== expectedRevisionKey) setExpectedRevisionKey(rebased);
   }
-  const changedRevision = revision !== expectedRevision || revisionKey !== expectedRevisionKey;
+  const changed = revision !== expectedRevision || revisionKey !== expectedRevisionKey;
+  // The props are behind only by own saves (of this form or, through `record`, of another
+  // form of the record): they are being reread. A foreign revision is never on that chain.
+  const catchingUp = changed &&
+    (revision === undefined ? undefined : follow(ownSaves.revisions, record ? advanceOwn(client, record, revision) : revision)) === expectedRevision &&
+    (revisionKey === undefined ? undefined : follow(ownSaves.keys, rebaseKey ? rebaseKey(revisionKey) : revisionKey)) === expectedRevisionKey;
+  const changedRevision = changed && !catchingUp;
   const schema = (values: Values) =>
     z.object(
       Object.fromEntries(
@@ -233,11 +272,22 @@ export function ActionForm({
       try {
         if (versioned && (changedRevision || stale))
           throw new ApiError("Сначала обновите данные и подтвердите версию для сохранения.", 409);
+        const command = JSON.stringify(values);
+        const question = confirm && (typeof confirm.text === "function" ? confirm.text(values) : confirm.text);
+        if (confirm && question !== null && confirmedCommand.current !== command) {
+          setPendingCommand(command);
+          return;
+        }
+        confirmedCommand.current = null;
+        setPendingCommand(null);
         const saved = await (revisionKey === undefined
           ? onSubmit(values, expectedRevision)
           : onSubmit(values, expectedRevision, expectedRevisionKey));
         if (saved) {
           const next = "revision" in saved ? saved.revision : "version" in saved ? saved.version : undefined;
+          const ownRevision = revision !== undefined && next !== undefined && expectedRevision !== undefined && next !== expectedRevision ? [expectedRevision, next] as [number, number] : undefined;
+          const ownKey = revisionKey !== undefined && "revisionKey" in saved && expectedRevisionKey !== undefined && saved.revisionKey !== expectedRevisionKey ? [expectedRevisionKey, saved.revisionKey] as [string, string] : undefined;
+          if (ownRevision || ownKey) setOwnSaves((own) => ({ revisions: ownRevision ? [...own.revisions, ownRevision] : own.revisions, keys: ownKey ? [...own.keys, ownKey] : own.keys }));
           if (revision !== undefined && next !== undefined) {
             setExpectedRevision(next);
             if (record) recordOwnChange(client, record, expectedRevision!, next);
@@ -280,6 +330,8 @@ export function ActionForm({
     setExpectedRevision(revision);
     setExpectedRevisionKey(revisionKey);
   }
+  // The success note speaks of the saved input: the first new change takes it away.
+  if (message && form.dirty) setMessage("");
   const saveForNavigation = async () => {
     if (disabled || externalBusy || form.isSubmitting || refreshing) return false;
     submitted.current = false;
@@ -298,7 +350,15 @@ export function ActionForm({
       setExternalBaseline(JSON.stringify(savedExternalState ?? externalState));
     },
   });
-  const unchanged = !!changeRequired?.every((name) => JSON.stringify(form.values[name] ?? initialValues[name]) === JSON.stringify(savedValues(fields)[name]));
+  const currentValues = { ...initialValues, ...form.values };
+  const question = confirm && (typeof confirm.text === "function" ? confirm.text(currentValues) : confirm.text);
+  const awaitingCommand = !!confirm && question !== null && pendingCommand !== null && pendingCommand === JSON.stringify(currentValues);
+  // The submit is disabled while a question waits, so its answer takes the focus once the form is idle.
+  const answer = useRef<HTMLButtonElement>(null);
+  const asking = pendingRemoval.length > 0 || awaitingCommand;
+  useEffect(() => { if (asking && !form.isSubmitting) answer.current?.focus(); }, [asking, form.isSubmitting]);
+  // A changed external state (an applied template) is a change too, even when the field values match.
+  const unchanged = !!changeRequired?.every((name) => JSON.stringify(form.values[name] ?? initialValues[name]) === JSON.stringify(savedValues(fields)[name])) && externalValue === externalBaseline;
   const replaceWithSaved = () => {
     form.resetForm({ values: savedValues(fields) });
     setHoldSavedInput(false);
@@ -314,14 +374,15 @@ export function ActionForm({
       }
     }}>
       <fieldset
-        className={s.formFields}
+        className={`${s.formFields} ${fields.some((field) => field.compact) ? s.compactFields : ""}`}
         disabled={form.isSubmitting || refreshing || disabled || externalBusy}
       >
         {title && <h3>{title}</h3>}
         {beforeFields?.(form)}
         {fields
           .filter((field) => visible(field, form.values))
-          .map((field) => {
+          .map((field, index, shown) => {
+            const compact = field.compact ? `${s.compactField} ${shown[index - 1]?.compact !== field.compact ? s.compactStart : ""}` : "";
             const id = `${formId}-${field.name}`;
             const error = form.touched[field.name] && form.errors[field.name];
             const entityPicker = !!field.entity || !!field.options?.some(option => option.user || option.block || option.scope);
@@ -340,8 +401,21 @@ export function ActionForm({
               required: isRequired(field, form.values),
               disabled: form.isSubmitting,
             };
+            // The Markdown editor labels its own source field and keeps its toolbar, preview and frame.
+            if (field.type === "markdown") return (
+              <div key={field.name}>
+                <Suspense fallback={<p role="status">Загружаем редактор…</p>}>
+                  <MarkdownEditor name={field.name} label={`${field.label}${isRequired(field, form.values) ? " *" : ""}`} rows={field.rows} context="task" draft={false}
+                    value={String(form.values[field.name] ?? initialValues[field.name])} placeholder={field.placeholder} disabled={form.isSubmitting}
+                    required={props.required} invalid={!!error} describedBy={props["aria-describedby"]}
+                    onChange={(value) => void form.setFieldValue(field.name, value)} />
+                </Suspense>
+                {field.hint && <small>{field.hint}</small>}
+                {error && <span className={s.fieldError} id={`${id}-error`}>{String(error)}</span>}
+              </div>
+            );
             return (
-              <div className={s.field} key={field.name}>
+              <div className={`${s.field} ${compact}`} key={field.name}>
                 <label
                   id={`${id}-label`}
                   htmlFor={field.type === "multi" && !entityPicker ? `${id}-search` : id}
@@ -419,12 +493,28 @@ export function ActionForm({
         {pendingRemoval.length > 0 && (
           <div role="alert" className={s.warning}>
             <p>Будут сняты: {pendingRemoval.join(", ")}.</p>
-            <button type="button" className={s.button} onClick={() => {
+            <button ref={answer} type="button" className={s.button} onClick={() => {
               confirmedRemoval.current = JSON.stringify(pendingRemoval);
               void form.submitForm();
             }}>
               Снять и сохранить
             </button>
+          </div>
+        )}
+        {confirm && awaitingCommand && (
+          <div role="alert" className={s.warning}>
+            <p>{question}</p>
+            <div className={s.row}>
+              <button ref={answer} type="button" className={s.button} onClick={() => {
+                confirmedCommand.current = pendingCommand;
+                void form.submitForm();
+              }}>
+                {confirm.label}
+              </button>
+              <button type="button" className={s.button} onClick={() => setPendingCommand(null)}>
+                Отмена
+              </button>
+            </div>
           </div>
         )}
         {failure && (
@@ -461,14 +551,15 @@ export function ActionForm({
             {message}
           </p>
         )}
-        <div>
+        <div className={actions ? s.row : undefined}>
           <button
             className={`${s.button} ${variant === "primary" ? s.primary : variant === "danger" ? s.danger : ""}`}
             type="submit"
-            disabled={form.isSubmitting || refreshing || disabled || unchanged || (versioned && (changedRevision || stale))}
+            disabled={form.isSubmitting || refreshing || disabled || unchanged || pendingRemoval.length > 0 || awaitingCommand || (versioned && (changedRevision || stale))}
           >
             {form.isSubmitting ? "Сохраняем…" : submitLabel}
           </button>
+          {actions}
         </div>
       </fieldset>
     </form>

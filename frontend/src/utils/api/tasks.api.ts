@@ -1,6 +1,7 @@
 import type {
   Task,
   TaskListPageResponse,
+  TaskFacets,
   TaskStatusChange,
   TaskHistoryEvent,
   Page,
@@ -12,10 +13,11 @@ import type {
   AssessmentInputs,
   Comment,
   UnresolvedAssignment,
+  UnresolvedAssignmentPage,
   TaskPublicPatch,
   TaskLinkKind,
 } from "./contract";
-import { idPath, allPages as page, request } from "./request";
+import { idPath, allPages as page, page as onePage, request } from "./request";
 /** Body of each assignment command, exactly as the server accepts it: extra keys are 422. */
 export interface AssignmentCommands {
   start: Revision;
@@ -30,6 +32,8 @@ export interface AssignmentCommands {
 export const tasksApi = {
   list: (params?: object) => page<Task>("/tasks", params),
   listPage: (params?: object, signal?: AbortSignal) => request<TaskListPageResponse>("get", "/tasks", undefined, params, signal),
+  /** The scopes/assignees of GET /tasks for the same queue, season and scope selection. */
+  facets: (params: { queue_id?: string; season_id?: string; scope_kind?: string; scope_id?: string }, signal?: AbortSignal) => request<TaskFacets>("get", "/tasks/facets", undefined, params, signal),
   changeStatus: (id: string, data: TaskStatusChange) => request<Task>("post", `/tasks/${idPath(id)}/status`, data),
   submitResult: (id: string, data: Revision & { text: RichText; links?: string[]; file_ids?: string[] }) => request<Task>("post", `/tasks/${idPath(id)}/submit-result`, data),
   take: (id: string, data: Revision) => request<Task>("post", `/tasks/${idPath(id)}/take`, data),
@@ -39,7 +43,9 @@ export const tasksApi = {
   removeAssignee: (id: string, userId: number, data: Revision) => request<Task>("post", `/tasks/${idPath(id)}/assignees/${idPath(userId)}/remove`, data),
   assign: (id: string, userId: number, data: Revision) => request<Task>("post", `/tasks/${idPath(id)}/assignees/${idPath(userId)}/add`, data),
   removeWatcher: (id: string, userId: number, data: Revision) => request<Task>("post", `/tasks/${idPath(id)}/watchers/${idPath(userId)}/remove`, data),
-  descriptionChecklist: (id: string, data: Revision & {body: string}) => request<Task>("post", `/tasks/${idPath(id)}/description-checklist`, data),
+  /** Marks one Markdown task marker of the description by its source offset: a JavaScript
+   * string index (UTF-16 code units, an emoji counts twice), which the server maps itself. */
+  descriptionChecklist: (id: string, data: Revision & { offset: number; checked: boolean }) => request<Task>("post", `/tasks/${idPath(id)}/description-checklist`, data),
   history: (id: string) => request<Page<TaskHistoryEvent>>("get", `/tasks/${idPath(id)}/history`),
   get: (id: string) => request<Task>("get", `/tasks/${idPath(id)}`),
   create: (data: TaskCreate) => request<Task>("post", "/tasks", data),
@@ -57,8 +63,9 @@ export const tasksApi = {
     data: AssignmentCommands[C],
   ) =>
     request<Assignment>("post", `/assignments/${idPath(id)}/${command}`, data),
-  unresolved: (params?: object) =>
-    page<UnresolvedAssignment>("/assignments/unresolved", params),
+  /** One page (filters, cursor, include_total): the screen reads further pages on demand. */
+  unresolved: (params?: object, signal?: AbortSignal): Promise<UnresolvedAssignmentPage> =>
+    onePage<UnresolvedAssignment>("/assignments/unresolved", params, signal),
   reassign: (
     id: string,
     data: Revision & {
@@ -119,8 +126,8 @@ export const tasksApi = {
       { items, hours, reason },
     ),
   comments: (id: string) => page<Comment>(`/tasks/${idPath(id)}/comments`),
-  comment: (id: string, content: RichText, mentioned_user_ids: number[] = [], file_ids?: string[]) =>
-    request<Comment>("post", `/tasks/${idPath(id)}/comments`, { content, mentioned_user_ids, ...(file_ids === undefined ? {} : {file_ids}) }),
+  comment: (id: string, content: RichText, mentioned_user_ids: number[] = [], file_ids?: string[], idempotency_key?: string) =>
+    request<Comment>("post", `/tasks/${idPath(id)}/comments`, { content, mentioned_user_ids, ...(file_ids === undefined ? {} : {file_ids}), ...(idempotency_key ? { idempotency_key } : {}) }),
   editComment: (id: string, content: RichText, mentioned_user_ids: number[] = [], file_ids?: string[]) =>
     request<Comment>("patch", `/comments/${idPath(id)}`, { content, mentioned_user_ids, ...(file_ids === undefined ? {} : {file_ids}) }),
 };

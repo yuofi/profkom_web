@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
 import { act, useState } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { MarkdownContent } from "./MarkdownContent";
 import { ActionForm } from "./ActionForm";
-import { mountWorkspace } from "../../test/workspace";
+import { mountWorkspace, waitForPage } from "../../test/workspace";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 beforeEach(() => vi.stubGlobal("matchMedia", (media: string) => ({ matches: false, media, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })));
@@ -33,6 +34,7 @@ it("the eye is the first toolbar action; preview renders tables and math without
   await click("Предпросмотр");
   expect(page.container.querySelector("textarea")).toBeNull();
   expect(page.container.querySelectorAll("table")).toHaveLength(1);
+  await waitForPage(page, () => page!.container.querySelectorAll(".katex").length > 0); // KaTeX loads for text with $.
   expect(page.container.querySelectorAll(".katex")).toHaveLength(2);
   expect(page.container.querySelectorAll("math")).toHaveLength(2);
   await click("Редактирование");
@@ -43,6 +45,15 @@ it("the eye is the first toolbar action; preview renders tables and math without
   expect(page.container.textContent).not.toContain("публикация");
 });
 
+it("a Markdown table scrolls in its one labelled frame and is not a second clipping box", async () => {
+  page = await mountWorkspace(<MarkdownContent body={"| A | B |\n|---|---|\n| 1 | 2 |"} />);
+  const table = page.container.querySelector("table")!;
+  expect(table.parentElement!.getAttribute("aria-label")).toBe("Таблица Markdown");
+  const markdownCss = readFileSync(`${__dirname}/MarkdownContent.module.css`, "utf8");
+  const rule = (selector: string) => markdownCss.match(new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
+  expect(rule(".tableWrap")).toMatch(/overflow-x:\s*auto/);
+  expect(rule(".content .tableWrap > table")).toMatch(/display:\s*table;[\s\S]*overflow:\s*visible/);
+});
 it("inserts an editable table and formulas, and undo restores the original custom source", async () => {
   const custom = "```gallery\n/avatars/sun.svg | Подпись\n```\n";
   page = await mountWorkspace(<Editor initial={custom} />);

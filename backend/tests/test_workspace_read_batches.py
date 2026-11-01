@@ -65,7 +65,8 @@ def test_notifications_preserve_priority_redaction_order_and_read_flags(client, 
     assert [row['id'] for row in rows] == [f'notice-{user.user_id}-{n}' for n in reversed(range(8))]
     by_id = {row['id']: row for row in rows}
     first = by_id[f'notice-{user.user_id}-0']
-    assert first['text'] == 'Visible update' and first['target'] == {'kind': 'task', 'id': visible}
+    # What happened comes before the task's title (GL-08).
+    assert first['text'] == 'Изменён статус задачи: Visible update' and first['target'] == {'kind': 'task', 'id': visible}
     assert first['read_at'] is None
     last = by_id[f'notice-{user.user_id}-7']
     assert last['text'] == 'Изменён статус задачи' and last['read_at'] == '2026-10-01T00:00:00+00:00'

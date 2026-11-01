@@ -104,8 +104,9 @@ it("refreshes at each stage boundary without locally granting review or spinning
   await act(async () => {
     await vi.advanceTimersByTimeAsync(990);
   });
+  // The deadline rereads the open list only; the closed lists stay as loaded (PB-22).
   expect(
-    adapter.history.get.filter((r) => r.url === "/block-requests"),
+    adapter.history.get.filter((r) => r.url === "/block-requests" && String(r.params).includes("state=pending_hr")),
   ).toHaveLength(2);
   expect(page.container.textContent).not.toContain("Одобрить этап HR");
   request.state = "pending_block";
@@ -160,7 +161,8 @@ it.each(["accepted", "in_progress"] as const)(
     expect(link.getAttribute("href")).not.toContain("unresolved");
     await act(async () => link.click());
     await settle();
-    expect(page.container.textContent).toContain("К закрытию сезона");
+    const back = [...page.container.querySelectorAll("a")].find(node => node.textContent === "← К проверкам сезона");
+    expect(back?.getAttribute("href")).toBe("/seasons/season-1?panel=checks");
     expect(page.container.textContent).toContain("Оценить работу");
   },
 );

@@ -136,18 +136,19 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
       {children}
       {open && <dialog ref={dialog} className={s.dialog} aria-labelledby="unsaved-title" onCancel={(event) => { event.preventDefault(); stay(); }}>
         <h2 id="unsaved-title">Есть несохранённые изменения</h2>
-        <p>Сохранить изменения перед выходом?</p>
+        <p>{canSave ? "Сохранить изменения перед выходом?" : "Эти изменения сохраняет только кнопка в самой форме: вернитесь к ней или уйдите без сохранения."}</p>
         {dirty.some((entry) => entry.label) && <ul>{[...new Set(dirty.map((entry) => entry.label).filter(Boolean))].map((label) => <li key={label}>{label}</li>)}</ul>}
         {busy && <p role="status">Дождитесь окончания сохранения или загрузки файлов.</p>}
-        {!canSave && !busy && <p>Для этой операции используйте кнопку в самой форме или выйдите без сохранения.</p>}
         {error && <p role="alert">{error}</p>}
         <div className={s.actions}>
-          <button type="button" disabled={busy || !canSave} onClick={() => void saveAndLeave()}>Сохранить и перейти</button>
+          {/* The first action is the primary one: saving when navigation may save, otherwise staying. */}
+          {canSave ? <button type="button" disabled={busy} onClick={() => void saveAndLeave()}>Сохранить и перейти</button>
+            : <button type="button" disabled={saving} autoFocus onClick={stay}>Остаться</button>}
           <button type="button" disabled={busy} onClick={() => {
             for (const entry of dirtyEntries(modalScope)) entry.discard?.();
             void proceed();
           }}>Уйти без сохранения</button>
-          <button type="button" disabled={saving} autoFocus onClick={stay}>Остаться</button>
+          {canSave && <button type="button" disabled={saving} autoFocus onClick={stay}>Остаться</button>}
         </div>
       </dialog>}
     </UnsavedChangesContext.Provider>

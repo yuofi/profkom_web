@@ -1,0 +1,116 @@
+--- a/frontend/nginx.conf
++++ b/frontend/nginx.conf
+@@ -5,6 +5,10 @@
+ 
+ server {
+     listen  443 ssl;
++    # HTTP/2 (ALPN h2) multiplexes the route's chunks and API calls in one connection
++    # instead of six at a time (PF-03). nginx >= 1.25.1 syntax; clients that offer only
++    # http/1.1 (WebSocket transports of server-local blocks) keep HTTP/1.1.
++    http2 on;
+     server_name  profcom-cmc.ru;
+ 
+     ssl_certificate /etc/nginx/ssl/fullchain.pem;
+--- a/frontend/scripts/buildAssets.test.ts
++++ b/frontend/scripts/buildAssets.test.ts
+@@ -87,7 +87,11 @@
+   // No gzip at the server level: /_storage and the redirects into it inherit none.
+   expect(conf.match(/gzip on;/g)).toHaveLength(4);
+   expect(own("= /_storage")).not.toMatch(/gzip/);
+-  expect(conf).not.toMatch(/http2/);
++  // PF-03: HTTP/2 over TLS with the nginx >= 1.25.1 directive; `listen 443 ssl;` stays as it is
++  // (the backend nginx test and the test-site script replace that exact line).
++  expect(conf).toMatch(/^ {4}http2 on;$/m);
++  expect(conf).toMatch(/^ {4}listen {2}443 ssl;$/m);
++  expect(conf).not.toMatch(/listen[^;]*\bhttp2\b/);
+ });
+ 
+ it("PF-03/PF-11: every rule of a CSS module is scoped by its own class, so a merged chunk styles nothing else", async () => {
+--- a/backend/tests/test_nginx_delivery.py
++++ b/backend/tests/test_nginx_delivery.py
+@@ -11,6 +11,7 @@
+ import re
+ import shutil
+ import socket
++import ssl
+ import subprocess
+ import threading
+ import time
+@@ -25,6 +26,7 @@
+ from file_access import disposition
+ 
+ NGINX = os.environ.get("NGINX_BIN") or shutil.which("nginx")
++OPENSSL = shutil.which("openssl")
+ pytestmark = pytest.mark.skipif(not NGINX, reason="nginx is not installed")
+ CONF = Path(__file__).resolve().parents[2] / "frontend/nginx.conf"
+ PDF = b"%PDF-1.7 synthetic bytes"
+@@ -104,12 +106,18 @@
+                 f"?expires={expires}&signature={self.sign(key, expires)}")
+ 
+ 
+-def nginx_conf(backend_port, port, html, ca, extra):
++def nginx_conf(backend_port, port, html, ca, extra, tls=None):
++    """The repo's server block on loopback; with tls (a folder with cert.pem and key.pem) it
++    keeps `listen ... ssl` and its http2 setting, as on the production host."""
+     server = CONF.read_text()
++    listen = (("listen  443 ssl;", f"listen 127.0.0.1:{port} ssl;"),
++              ("/etc/nginx/ssl/fullchain.pem", f"{tls}/cert.pem"),
++              ("/etc/nginx/ssl/privkey.pem", f"{tls}/key.pem")) if tls else (
++              ("listen  443 ssl;", f"listen 127.0.0.1:{port};"),
++              ("    ssl_certificate /etc/nginx/ssl/fullchain.pem;\n", ""),
++              ("    ssl_certificate_key /etc/nginx/ssl/privkey.pem;\n", ""))
+     for old, new in (
+-        ("listen  443 ssl;", f"listen 127.0.0.1:{port};"),
+-        ("    ssl_certificate /etc/nginx/ssl/fullchain.pem;\n", ""),
+-        ("    ssl_certificate_key /etc/nginx/ssl/privkey.pem;\n", ""),
++        *listen,
+         ("http://backend:8000/api/", f"http://127.0.0.1:{backend_port}/api/"),
+         ("/usr/share/nginx/html", str(html)),
+         ("/etc/ssl/certs/ca-certificates.crt", ca),
+@@ -355,3 +363,46 @@
+     session = httpx.get(f"{site['url']}/api/session", headers={**superuser.headers, "Accept-Encoding": "gzip"})
+     assert session.status_code == 200 and session.headers.get("content-encoding") == "gzip"
+     assert session.json()["user_id"] == superuser.user_id
++
++
++def alpn(port, offered):
++    """The protocol nginx picks in the TLS handshake for a client that offers these."""
++    context = ssl.create_default_context()
++    context.check_hostname, context.verify_mode = False, ssl.CERT_NONE
++    context.set_alpn_protocols(offered)
++    with socket.create_connection(("127.0.0.1", port)) as raw, context.wrap_socket(raw) as tls:
++        return tls.selected_alpn_protocol()
++
++
++@pytest.mark.skipif(not OPENSSL, reason="openssl is not installed")
++def test_nginx_offers_http2_over_tls_and_keeps_http1_clients(tmp_path):
++    """PF-03: browsers multiplex a route's chunks over one HTTP/2 connection; a client that
++    offers only http/1.1 (curl --http1.1, WebSocket transports of server-local blocks) keeps
++    HTTP/1.1 on the same port."""
++    import certifi
++
++    conf = CONF.read_text()
++    assert re.search(r"^    http2 on;$", conf, re.M), "http2 on; in the server block"
++    assert not re.search(r"listen[^;]*\bhttp2\b", conf), "listen ... http2 is deprecated since nginx 1.25.1"
++    for name in ("temp", "html", "extra", "tls"):
++        (tmp_path / name).mkdir()
++    (tmp_path / "html/index.html").write_text("<p>SPA</p>")
++    subprocess.run([OPENSSL, "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=localhost",
++                    "-keyout", str(tmp_path / "tls/key.pem"), "-out", str(tmp_path / "tls/cert.pem")],
++                   check=True, capture_output=True)
++    port = free_port()
++    (tmp_path / "nginx.conf").write_text(
++        nginx_conf(free_port(), port, tmp_path / "html", certifi.where(), tmp_path / "extra", tls=tmp_path / "tls"))
++    checked = subprocess.run([NGINX, "-t", "-p", str(tmp_path), "-c", "nginx.conf"], capture_output=True, text=True)
++    assert checked.returncode == 0 and "deprecated" not in checked.stderr, checked.stderr
++    nginx = subprocess.Popen([NGINX, "-p", str(tmp_path), "-c", "nginx.conf", "-g", "daemon off;"],
++                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
++    try:
++        wait_for(port)
++        assert alpn(port, ["h2", "http/1.1"]) == "h2"
++        assert alpn(port, ["http/1.1"]) == "http/1.1"
++        page = httpx.get(f"https://127.0.0.1:{port}/some/page", verify=False)
++        assert page.http_version == "HTTP/1.1" and page.status_code == 200 and page.text == "<p>SPA</p>"
++    finally:
++        nginx.terminate()
++        nginx.wait(10)

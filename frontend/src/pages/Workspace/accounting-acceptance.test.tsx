@@ -67,6 +67,8 @@ it("passes source and stable anonymous participant filters to the server and rep
   adapter = new MockAdapter(api);const summary = summaryFixture();
   const contributions: Contribution[] = summary.rows.slice(0, 3).map((row, index) => ({ contribution_id: `credit-${index}`, season_id: summary.season_id, participant_id: row.participant_id, user: row.user, source_kind: index === 1 ? "chair_merit" : "block_task", source_id: "block-info", source_title: `Источник ${index}`, score: index, calculation_version: "fixture", capabilities: [] }));
   adapter.onGet(`/seasons/${summary.season_id}/summary`).reply(200, summary);
+  // The page shows a season it finds in the list (SE-18).
+  adapter.onGet("/seasons").reply(200, response(createFixtures("chair").seasons));
   adapter.onGet("/assessments").reply(config => [200, response(contributions.filter(item => (!config.params.source_kind || item.source_kind === config.params.source_kind) && (!config.params.participant_id || item.participant_id === config.params.participant_id)))]);
   page = await mountWorkspace(<Routes><Route path="/seasons/:id/sources" element={<SourcesPage />} /></Routes>, { path: `/seasons/${summary.season_id}/sources` });await waitForPage(page);
   expect(page.container.textContent).toContain("Источник 1");
@@ -113,6 +115,19 @@ it("shows authoritative readiness blockers before any attempt to close a season"
   await act(async()=>{const overview=[...page!.container.querySelectorAll("details")].find(item=>item.querySelector("summary")?.textContent==="Работа сезона и управление итогами")!;overview.open=true;overview.dispatchEvent(new Event("toggle"));});await waitForPage(page);
   const panel = page.container.querySelector('[aria-label="Проверки сезона"]');expect(panel).not.toBeNull();expect(panel?.querySelector("a")?.getAttribute("href")).toBe("/reports?owner_kind=event&owner_id=event-1");expect(panel?.textContent).toContain("Нет итогового отчёта мероприятия");
   expect(adapter.history.get.some(request => request.url?.endsWith("/readiness"))).toBe(true);expect(adapter.history.post).toHaveLength(0);
+});
+it("returns from a blocker's task to the season checks already opened", async () => {
+  adapter = new MockAdapter(api);const fixture = createFixtures("chair");
+  adapter.onGet("/seasons").reply(200, response(fixture.seasons));adapter.onGet("/seasons/season-1/summary").reply(200, fixture.summary);
+  adapter.onGet("/seasons/season-1/readiness").reply(200, { ready: false, revision: 1, blockers: [{ kind: "missing_final_report", owner_kind: "event", owner_id: "event-1", title: "Event has no final report" }] });
+  page = await mountWorkspace(<Routes><Route path="/seasons/:id" element={<SeasonPage />} /></Routes>, { path: "/seasons/season-1?panel=checks" });await waitForPage(page);
+  const overview = [...page.container.querySelectorAll("details")].find(item => item.querySelector("summary")?.textContent === "Работа сезона и управление итогами")!;expect(overview.open).toBe(true);
+  const panel = page.container.querySelector('[aria-label="Проверки сезона"]')!;expect(panel.querySelector("details")?.open).toBe(true);expect(panel.textContent).toContain("Нет итогового отчёта мероприятия");
+});
+it("reopens the participant card a task returns to", async () => {
+  adapter = new MockAdapter(api);adapter.onAny().reply(200, { items: [], next_cursor: null });
+  page = await mountWorkspace(<SeasonParticipants summary={summaryFixture()} />, { path: "/seasons/season-1?participant=participant-4" });await waitForPage(page);
+  expect(page.container.textContent).toContain("Начисления участника");expect(page.container.querySelector("dialog")?.textContent).toContain("Даша Мастер");
 });
 it("does not fetch private summary or readiness for a participant without accounting access", async () => {
   adapter = new MockAdapter(api);const fixture = createFixtures("organizer");adapter.onGet("/seasons").reply(200, response(fixture.seasons));

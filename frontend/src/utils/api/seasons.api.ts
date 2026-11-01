@@ -1,11 +1,12 @@
 import type {
   Season,
-  SeasonBlocker,
+  SeasonReadiness,
   SeasonSummary,
   SeasonAnalytics,
   MasterBonus,
   Contribution,
   Merit,
+  MeritContexts,
   MeritCreate,
   MeritPatch,
   Revision,
@@ -44,7 +45,8 @@ export const seasonsApi = {
     ),
   summary: (id: string) =>
     request<SeasonSummary>("get", `/seasons/${idPath(id)}/summary`),
-  readiness: (id: string) => request<{ ready: boolean; blockers: SeasonBlocker[]; revision: number }>("get", `/seasons/${idPath(id)}/readiness`),
+  /** include_task_ids: assignment blockers carry the task the reader may open (or null). */
+  readiness: (id: string, params?: { include_task_ids?: boolean }) => request<SeasonReadiness>("get", `/seasons/${idPath(id)}/readiness`, undefined, params),
   analytics: (id: string, params: { participant_id?: string; block_id?: string } = {}) =>
     request<SeasonAnalytics>("get", `/seasons/${idPath(id)}/analytics`, undefined, params),
   summaryVersions: (id: string) =>
@@ -56,7 +58,9 @@ export const seasonsApi = {
   decisions: (
     id: string,
     userId: number,
-    data: { expected_version: number; decisions: Decision[]; reason?: string },
+    /** expected_decisions: the participant's marks the client saw; in an open or summarizing
+     * season they replace the summary version check (PB-16). */
+    data: { expected_version: number; expected_decisions?: Decision[]; decisions: Decision[]; reason?: string },
   ) =>
     request<SeasonSummary>(
       "put",
@@ -97,6 +101,8 @@ export const seasonsApi = {
   correctionPreview: (eventId: string) => request<{ object_id: string; source_season_id: string; revision: number; counts: { subevents: number; tasks: number; reports: number; merits: number } }>("get", `/season-corrections/event/${idPath(eventId)}/preview`),
   assessments: (params?: object) => page<Contribution>("/assessments", params),
   merits: (params?: object) => page<Merit>("/merits", params),
+  /** One request for the merit forms' blocks, events and subevents (optionally of one season). */
+  meritContexts: (seasonId?: string) => request<MeritContexts>("get", "/merits/contexts", undefined, seasonId ? { season_id: seasonId } : undefined),
   merit: (id: string) => request<Merit>("get", `/merits/${idPath(id)}`),
   createMerit: (data: MeritCreate) => request<Merit>("post", "/merits", data),
   updateMerit: (

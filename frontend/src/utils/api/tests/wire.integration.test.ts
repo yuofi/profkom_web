@@ -68,6 +68,9 @@ it("INT-06: actual response shapes, null relations and populated IDs match the p
   const sub = check("Subevent", await eventsApi.createSubevent(event.event_id, { title: "Wire subevent", description: richText() }));
   (await eventsApi.series()).items.forEach(s => check("ReportSeries", s));
   check("Meeting", await eventsApi.saveMeeting("events", event.event_id, { title: "Wire meeting", starts_at: new Date(Date.now() + 86400000).toISOString(), join_url: "https://example.com/meeting" }));
+  await eventsApi.saveMeeting("subevents", sub.subevent_id, { title: "Wire team meeting", starts_at: new Date(Date.now() + 86400000).toISOString(), join_url: "https://example.com/team" });
+  const teams = (await eventsApi.teamMeetings(event.event_id)).items;
+  expect(teams.map(item => item.subevent_id)).toEqual([sub.subevent_id]);teams.forEach(item => check("TeamMeeting", item));
   let report = check("Report", await reportsApi.create({ owner_kind: "event", owner_id: event.event_id, kind: "regular", title: "Wire report", content: richText("Published"), file_ids: [] }));
   report = check("Report", await reportsApi.publish(report.report_id, { expected_revision: report.revision }));
   (await reportsApi.versions(report.report_id)).items.forEach(v => check("ReportVersion", v));
@@ -114,6 +117,24 @@ it("INT-06: actual response shapes, null relations and populated IDs match the p
   expect(editedComment.history?.[0]?.content).toEqual(richText("Comment"));
   check("Merit", await seasonsApi.createMerit({ season_id: season.season_id, source_kind: "chair_merit", title: "Wire merit", description: richText("Contribution"), assigned_at: new Date(Date.now() - 3600000).toISOString(), deadline_at: new Date(Date.now() + 3600000).toISOString(), criteria: emptyCriteria(), recipients: [{ user_id: person.user_id, hours: 1, evaluation: 1, completed_at: new Date(Date.now() - 60000).toISOString() }], reason: "Wire acceptance" }));
   (await seasonsApi.assessments({ season_id: season.season_id })).items.forEach(c => check("Contribution", c));
+  // Opt-in light reads the pages use instead of fan-outs (PB-11, PF-13, PF-19, PF-06, PF-15, PB-22).
+  const withDeputies = check("Event", await eventsApi.get(event.event_id, { include_deputies: true }));
+  expect(withDeputies.leaders.every(leader => Array.isArray(leader.deputies))).toBe(true);
+  check("Subevent", await eventsApi.subevent(sub.subevent_id, { include_deputies: true }));
+  const hrBlock = check("Block", await membershipApi.block(blocks.find(b => b.is_hr)!.block_id, { include_deputies: true }));
+  expect(!hrBlock.master || Array.isArray(hrBlock.master.deputies)).toBe(true);
+  check("MeritContexts", await seasonsApi.meritContexts(season.season_id));
+  const lightList = check("TaskListPageResponse", await tasksApi.listPage({ season_id: season.season_id, include_facets: false, limit: 5 }));
+  expect([lightList.scopes, lightList.assignees]).toEqual([undefined, undefined]);
+  check("TaskFacets", await tasksApi.facets({ season_id: season.season_id }));
+  check("TaskCreateAccess", await taskQueuesApi.createAccess());
+  check("SeasonReadiness", await seasonsApi.readiness(season.season_id, { include_task_ids: true }));
+  const linked = await seasonsApi.assessments({ season_id: season.season_id, include_task_ids: true });
+  linked.items.forEach(c => check("Contribution", c));
+  expect(linked.items.some(c => c.assignment_inputs?.task_id === task.task_id)).toBe(true);
+  (await directoryApi.contact(person.user_id)).forEach(p => check("ContactInfoOut", p));
+  const ownRequests = await membershipApi.requests({ mine: true, state: ["approved", "rejected", "withdrawn"], limit: 5, order: "desc" });
+  ownRequests.items.forEach(r => check("BlockRequest", r));
   check("Dashboard", await workspaceApi.dashboard());
   (await workspaceApi.calendar(new Date(Date.now() - 86400000).toISOString(), new Date(Date.now() + 3 * 86400000).toISOString())).items.forEach(c => check("CalendarItem", c));
   (await workspaceApi.notifications()).items.forEach(n => check("Notification", n));

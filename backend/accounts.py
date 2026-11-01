@@ -76,9 +76,36 @@ def require_chair(uid, action="account.archive"):
         fail(403, "Only the chair and deputies manage archived accounts")
 
 
+def require_leadership_change(uid):
+    """Deputies share the chair's account rights, but only the chair changes who the
+    deputies are: archiving or restoring a deputy chair is such a change."""
+    import access
+
+    if not access.allowed(uid, "leadership.deputies"):
+        fail(403, "Only the chair archives or restores a chair deputy", "leadership_change_forbidden")
+
+
 def chair_term(s):
     r = s.query(RoleAssignmentORM).filter_by(scope_kind="global", role="chair").first()
     return r.role_assignment_id if r else None
+
+
+def restores_deputy_chair(s, a):
+    """Restoring this archive gives a deputy chair seat back (same chair term only), so
+    only the chair may do it (PE-01, owner 2026-10-31)."""
+    snap = json.loads(a.snapshot_json)
+    return snap.get("chair_term") == chair_term(s) and any(
+        r["role"] == "deputy_chair" and r["user_id"] == a.user_id for r in snap.get("roles", []))
+
+
+def archive_capabilities(s, a, actor):
+    import access
+
+    if not access.allowed(actor, "account.restore"):
+        return []
+    if restores_deputy_chair(s, a) and not access.allowed(actor, "leadership.deputies"):
+        return []
+    return ["restore_account"]
 
 
 def rename_archived_block_scopes(session, old_name, new_name, block_id):
@@ -157,6 +184,8 @@ def _archive(uid, reason, actor):
         fail(422, "Archive reason required")
     if db.is_chair(uid):
         fail(409, "Transfer the chair before archiving this account", "chair_transfer_required")
+    if db.is_deputy_chair(uid):
+        require_leadership_change(actor)
     with db._session() as s:
         u = s.get(UserORM, uid)
         if not u:
@@ -303,6 +332,10 @@ def _restore(uid, payload, actor):
             fail(404, "Archived account not found")
         if a.purged_at:
             fail(409, "Account was permanently cleared")
+        restore_global = restores_deputy_chair(s, a)
+        if restore_global:
+            # Refused before any repair or conflict prompt: a deputy has nothing to resolve.
+            require_leadership_change(actor)
         if not s.get(ContactInfoORM, uid):
             fail(409, "Repair the missing contact profile before restore")
         if u.account_state == "active":
@@ -350,10 +383,6 @@ def _restore(uid, payload, actor):
             )
         snap = json.loads(a.snapshot_json)
         lead = s.get(LeadershipORM, 1)
-        same_term = snap.get("chair_term") == chair_term(s)
-        restore_global = same_term and any(
-            r["role"] == "deputy_chair" and r["user_id"] == uid for r in snap["roles"]
-        )
         if restore_global and len(json.loads(lead.deputies_json or "[]")) >= 3:
             fail(409, "Deputy chair limit; free a position before restore", "restore_deputy_limit")
         u.account_state = "active"
@@ -483,6 +512,7 @@ def register_routes(router):
                         display_name=db._get_user_ref(s, a.user_id).display_name,
                         archived_at=a.archived_at,
                         master_conflicts=master_conflicts(s, a),
+                        capabilities=archive_capabilities(s, a, cur.user_id),
                     )
                     for a in s.query(AccountArchiveORM).filter_by(
                         restored_at=None, purged_at=None
@@ -536,15 +566,21 @@ def register_routes(router):
     def temporary_password(user_id: int, cur: User = Depends(get_current_user)):
         """There is no mail: the chair or a deputy hands the password over in person. It is
         shown once, never logged, and must be changed after the login (АВ-52 (а))."""
-        from auth import hash_password
+        from auth import hash_password, recheck_current_user
 
-        require(cur.user_id, "account.reset_password", "Only the chair and deputies reset passwords")
-        if db.is_chair(user_id) or db.is_deputy_chair(user_id):
-            # A deputy must not take over the chair or another deputy.
-            fail(403, "The chair and deputies change their own passwords")
+        def permitted():
+            require(cur.user_id, "account.reset_password", "Only the chair and deputies reset passwords")
+            if db.is_chair(user_id) or db.is_deputy_chair(user_id):
+                # A deputy must not take over the chair or another deputy.
+                fail(403, "The chair and deputies change their own passwords")
+        permitted()
         password = secrets.token_urlsafe(12)
+        # Hashed outside the write lock (own transaction); the short transaction
+        # repeats the session and permission checks against the current rows.
         hashed = hash_password(password)
-        with db._session() as s:
+        with db.atomic(), db._session() as s:
+            recheck_current_user(cur, working=True)
+            permitted()
             u, c = s.get(UserORM, user_id), s.get(ContactInfoORM, user_id)
             if not u or u.account_state == "archived" or not c:
                 fail(404, "Account not found")
@@ -553,6 +589,6 @@ def register_routes(router):
             u.hashed_password, u.must_change_password = hashed, True
             s.commit()
             email = c.email
-        # Sessions signed in before the reset end with it.
-        db.revoke_sessions(user_id)
+            # Sessions signed in before the reset end with it.
+            db.revoke_sessions(user_id)
         return TemporaryPasswordOut(user_id=user_id, email=email, temporary_password=password)

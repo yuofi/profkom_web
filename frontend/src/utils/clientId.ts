@@ -17,3 +17,12 @@ export function createClientId(): string {
   } catch { /* Report the missing secure provider, never use a predictable key. */ }
   throw Error("Не удалось создать защищённый номер запроса. Обновите страницу или используйте браузер с поддержкой Web Crypto.");
 }
+
+/** The key of one command (GL-07). It stays while the same data is sent again, e.g. after
+ *  an answer was lost, so the server recognises the repeat; changed data is a new command. */
+export type RequestKey = { current: { body: string; key: string } | null };
+export function requestKey(slot: RequestKey, payload: unknown): string {
+  const body = JSON.stringify(payload);
+  if (slot.current?.body !== body) slot.current = { body, key: createClientId() };
+  return slot.current.key;
+}

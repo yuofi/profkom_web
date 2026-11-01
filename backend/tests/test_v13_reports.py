@@ -81,13 +81,15 @@ def test_removed_author_does_not_keep_editing_rights_and_coleader_does(
         ).status_code
         == 200
     )
+    # The removed author no longer reads the draft either: 404 like its GET (GL-24).
+    assert client.get(f"/api/reports/{rid}", headers=r["author"].headers).status_code == 404
     assert (
         client.patch(
             f"/api/reports/{rid}",
             headers=r["author"].headers,
             json=dict(expected_revision=2, title="Wrong"),
         ).status_code
-        == 403
+        == 404
     )
     client.post(
         f"/api/seasons/{sid}/begin-summary",
@@ -107,7 +109,7 @@ def test_removed_author_does_not_keep_editing_rights_and_coleader_does(
             headers=r["author"].headers,
             json=dict(expected_revision=2, title="Still wrong"),
         ).status_code
-        == 403
+        == 404
     )
     result = client.patch(
         f"/api/reports/{rid}",
@@ -333,6 +335,34 @@ def series(client, superuser, make_user):
     return dict(p, past=past["season_id"], next=nxt["season_id"], event=ev, sub=sub, copy=copy["event"],
                 ev_series=ev["report_series_id"], sub_series=sub["report_series_id"],
                 ev_report=ev_report["report_id"], sub_report=sub_report["report_id"])
+
+
+def test_a_history_reader_check_reads_only_the_leadership_of_related_events(client, superuser, series):
+    """GL-16: deciding whether a lead of another instance reads a report never asks about the
+    leadership of an unrelated event of the open seasons, so it does not grow with them."""
+    from sqlalchemy import event as sql_event
+    from database import db, engine, ReportORM
+    from report_access import reader
+
+    x = series
+    for index in range(8):
+        _call(client, "POST", superuser, "/events", season_id=x["next"], title=f"Другое {index}", description="")
+    statements = []
+
+    def record(_c, _cursor, statement, *_rest):
+        # One leadership check of one event (database.is_event_leader and its deputy twin).
+        if statement.startswith("SELECT count(*)") and "FROM role_assignments" in statement:
+            statements.append(statement)
+    with db._session() as s:
+        report = s.get(ReportORM, x["ev_report"])
+        sql_event.listen(engine, "before_cursor_execute", record)
+        try:
+            assert reader(s, report, x["newhead"].user_id)
+            assert not reader(s, report, x["neworg"].user_id)
+        finally:
+            sql_event.remove(engine, "before_cursor_execute", record)
+    # The copy of the event only: its leader for one, its leader and deputy for the other.
+    assert len(statements) == 3
 
 
 @pytest.mark.parametrize("phase", ["next planned, past open", "next open, past summarizing"])

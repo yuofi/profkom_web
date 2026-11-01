@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import { mountWorkspace, settle } from "../../test/workspace";
+import { mountWorkspace, settle, waitForPage } from "../../test/workspace";
 import { api, apiUrl } from "../../utils/api";
 import { filesApi } from "../../utils/api/files.api";
 import { Avatar } from "../Avatar/Avatar";
@@ -31,6 +31,7 @@ it("decision 23: an API address goes to the API origin, other addresses stay", (
 it("decision 23: pictures and links of a material load from the API, the caption stays (A-MAT-3)", async () => {
   api.defaults.baseURL = "http://localhost:18000/api";
   page = await mountWorkspace(<MarkdownContent body={`![Схема](${content})\n\n[План](/api/files/file-2/content)\n\n\`\`\`gallery\n/api/files/file-3/content|Подпись\n\`\`\``} />);
+  await waitForPage(page, () => !!page!.container.querySelector("figcaption")); // The gallery loads with the first ```gallery.
   const images = Array.from(page.container.querySelectorAll("img")).map((i) => i.getAttribute("src"));
   expect(images).toContain("http://localhost:18000/api/files/file-1/content");
   expect(images).toContain("http://localhost:18000/api/files/file-3/content");

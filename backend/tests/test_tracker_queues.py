@@ -108,7 +108,7 @@ def test_grant_revocation_private_cache_and_underlying_membership(client,work):
     assert client.get('/api/session',headers=w['member'].headers).json()['access_revision']!=after
     assert client.get('/api/tasks/'+t['task_id'],headers=w['member'].headers).status_code==404
     aid=t['assignments'][0]['assignment_id']
-    assert client.post('/api/assignments/'+aid+'/start',headers=w['member'].headers,json={'expected_revision':1}).status_code==403
+    assert client.post('/api/assignments/'+aid+'/start',headers=w['member'].headers,json={'expected_revision':1}).status_code==404  # unreadable, like its GET (GL-24)
     replay='/api/task-queues/'+q['queue_id']+'/access-requests/'+grant['request_id']+'/approve'
     assert client.post(replay,headers=w['master'].headers,json={'expected_revision':r.json()['revision']}).status_code==409
     request_grant(client,q,w['member'],w['master'])
@@ -372,3 +372,81 @@ def test_close_private_complete_work_masks_return_without_rewriting_saved_summar
         saved=raw.rows_json
     assert client.get('/api/seasons/'+sid+'/summary/versions',headers=superuser.headers).status_code==200
     with db._session() as s:assert s.query(SeasonSummaryORM).filter_by(season_id=sid).one().rows_json==saved
+
+
+def test_task_queue_ref_says_whether_its_reader_may_open_the_queue(client,work,superuser,make_user):
+    from test_tracker_control_guards import control_for
+    from test_website_support import setup_support,report,ok
+    w=work;tid,qid=control_for(w)
+    control=client.get('/api/tasks/'+tid,headers=w['master'].headers).json()
+    assert control['queue']['readable'] is False and client.get('/api/task-queues/'+qid,headers=w['master'].headers).status_code==403
+    assert client.get('/api/tasks/'+tid,headers=superuser.headers).json()['queue']['readable'] is True
+    assert get(client,w)['queue']['readable'] is True
+    support_master,_=setup_support(client,superuser,make_user);author=make_user()
+    ticket=ok(report(client,author)[0])['task_id']
+    mine=client.get('/api/tasks/'+ticket,headers=author.headers).json()
+    assert mine['queue']['key']=='WEBSUPPORT' and mine['queue']['readable'] is False
+    assert client.get('/api/task-queues/'+mine['queue']['queue_id'],headers=author.headers).status_code==403
+    assert client.get('/api/tasks/'+ticket,headers=support_master.headers).json()['queue']['readable'] is True
+
+
+def test_deadline_outside_the_season_has_its_own_code_and_allowed_range(client,work):
+    from datetime import datetime,timedelta,timezone
+    w=work;season=w['season']
+    late=(datetime.fromisoformat(season['ends_at'])+timedelta(days=30)).isoformat()
+    past=(datetime.now(timezone.utc)-timedelta(days=1)).isoformat()
+    for deadline in (late,past):
+        r=client.post('/api/tasks',headers=w['master'].headers,json={**w['payload'],'deadline_at':deadline})
+        assert r.status_code==422,r.text
+        detail=r.json()['detail'];assert detail['code']=='deadline_out_of_range'
+        assert detail['fields']['deadline_at']=='out_of_range'
+        assert datetime.fromisoformat(detail['fields']['latest'])==datetime.fromisoformat(season['ends_at'])
+        assert datetime.fromisoformat(detail['fields']['earliest'])<=datetime.now(timezone.utc)
+
+
+def test_dates_refusal_names_a_moved_start_and_an_already_ended_season(client,work,superuser):
+    from datetime import datetime,timedelta,timezone
+    from database import SeasonORM
+    w=work;tid=w['task']['task_id']
+    inputs=client.get('/api/tasks/'+tid+'/assessment-inputs',headers=superuser.headers).json()
+    deadline=datetime.fromisoformat(inputs['deadline_at'])
+    r=client.patch('/api/tasks/'+tid+'/assessment-inputs',headers=superuser.headers,json={'expected_revision':inputs['revision'],'assigned_at':(deadline+timedelta(days=1)).isoformat(),'reason':'Начало после дедлайна'})
+    assert r.status_code==422,r.text
+    detail=r.json()['detail'];assert detail['code']=='assigned_out_of_range' and detail['fields']['assigned_at']=='out_of_range'
+    assert datetime.fromisoformat(detail['fields']['latest'])==deadline and 'deadline_at' not in detail['fields']
+    # The season has ended but is not closed yet: a new task has no allowed deadline.
+    ended=datetime.now(timezone.utc)-timedelta(hours=1)
+    with db._session() as session:
+        session.get(SeasonORM,w['season']['season_id']).ends_at=ended.isoformat();session.commit()
+    r=client.post('/api/tasks',headers=w['master'].headers,json={**w['payload'],'deadline_at':(ended+timedelta(minutes=30)).isoformat()})
+    assert r.status_code==422,r.text
+    detail=r.json()['detail'];assert detail['code']=='season_ended' and detail['fields']['deadline_at']=='out_of_range'
+    assert datetime.fromisoformat(detail['fields']['latest'])==ended and 'earliest' not in detail['fields']
+
+
+def test_event_default_queue_uses_event_title_and_migration_renames_only_placeholders(client,work,superuser):
+    """TR-37: an event's default queue is named after the event, never the 'Команда' fallback."""
+    from task_queues import migrate,PLACEHOLDER_QUEUE_NAME
+    w=work
+    event=client.post('/api/events',headers=superuser.headers,json={'season_id':w['season']['season_id'],'title':'Посвят'})
+    assert event.status_code==200,event.text
+    eid=event.json()['event_id']
+    r=client.post('/api/tasks',headers=superuser.headers,json={**w['payload'],'scope':{'kind':'event','id':eid},'assignees':[],'title':'Работа мероприятия'})
+    assert r.status_code==200,r.text
+    queue_id=r.json()['queue']['queue_id']
+    assert r.json()['queue']['name']=='Задачи команды Посвят'
+    other=client.post('/api/events',headers=superuser.headers,json={'season_id':w['season']['season_id'],'title':'Квест'})
+    assert other.status_code==200,other.text
+    with db._session() as s:
+        q=s.get(TaskQueueORM,queue_id);q.name=PLACEHOLDER_QUEUE_NAME;revision=q.revision
+        manual=TaskQueueORM(queue_id='queue-manual-event',name='Своя очередь',key='MANUALEV',scope_kind='event',scope_id=other.json()['event_id'],
+            owner_user_id=superuser.user_id,is_private=False,is_default=True,next_task_number=1,revision=1,created_at=None)
+        custom=TaskQueueORM(queue_id='queue-custom-event',name=PLACEHOLDER_QUEUE_NAME,key='CUSTOMEV',scope_kind='event',scope_id=eid,
+            owner_user_id=superuser.user_id,is_private=False,is_default=False,next_task_number=1,revision=1,created_at=None)
+        s.add_all([manual,custom]);s.commit()
+    migrate();migrate()
+    with db._session() as s:
+        renamed=s.get(TaskQueueORM,queue_id)
+        assert (renamed.name,renamed.revision)==('Задачи команды Посвят',revision+1)
+        assert s.get(TaskQueueORM,'queue-manual-event').name=='Своя очередь'
+        assert s.get(TaskQueueORM,'queue-custom-event').name==PLACEHOLDER_QUEUE_NAME

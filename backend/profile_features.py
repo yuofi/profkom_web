@@ -19,6 +19,7 @@ from domain_models import MembershipORM, ScopeTenureORM, BlockMetaORM, ProfileMe
 from models import User
 from registration import Revision, audit, fail, now, version
 from validation import Command
+from errors import InvalidInput
 from profile_features_models import (AchievementDefinitionORM, AchievementGrantORM,
     AchievementEventORM, NotificationPreferenceORM, NotificationDeliveryEventORM,
     KkrTemplateORM, KkrTemplateUseORM, ProfileEditorVersionORM)
@@ -51,6 +52,15 @@ def profile_target(session, user_id):
     return user
 
 
+def _block_id(session, name):
+    """The stable block id of a stored name, or the name itself without metadata."""
+    facts = access.block_facts() if isinstance(name, str) else None
+    if facts is not None:
+        return facts[1][name][0] if name in facts[1] else name
+    meta = session.query(BlockMetaORM).filter_by(legacy_name=name).first()
+    return meta.block_id if meta else name
+
+
 def scope_data(session, kind, id):
     """A label is not a grant to read the scope's working data."""
     if kind == "global":
@@ -60,8 +70,7 @@ def scope_data(session, kind, id):
         name = legacy_name(id)
         row = session.get(BlockORM, name)
         if row:
-            meta = session.query(BlockMetaORM).filter_by(legacy_name=name).first()
-            return {"kind": kind, "id": meta.block_id if meta else row.name, "name": row.name}
+            return {"kind": kind, "id": _block_id(session, row.name), "name": row.name}
     if kind == "event":
         row = session.get(EventORM, id)
     elif kind == "subevent":
@@ -75,7 +84,9 @@ def scope_data(session, kind, id):
 
 def award_manager(actor, kind, id):
     if kind == "global":
-        return access.allowed(actor, "kkr.view")
+        # Global relations hold no block/event leadership: the chair, the deputies and the HR
+        # master (PROFILE_FEATURES.md). KKR summary readers such as the HR deputy do not.
+        return access.allowed(actor, "achievement.manage")
     return kind in {"block", "event"} and access.allowed(actor, "achievement.manage", kind, id)
 
 
@@ -92,22 +103,31 @@ def kkr_manager(actor, kind=None, id=None):
 
 
 def available_scopes(session, actor, manager):
-    result = []
-    if manager(actor, "global", None):
-        result.append(scope_data(session, "global", None))
+    return scopes_for(session, actor, (manager,))[0]
+
+
+def scopes_for(session, actor, managers, *, first=False):
+    """available_scopes of several managers in one pass over blocks, events and
+    subevents (same order and checks each); `first` stops at the first scope."""
+    results = [[] for _ in managers]
+    def visit(kind, id):
+        for manager, result in zip(managers, results):
+            if (kind != "subevent" or manager is kkr_manager) and manager(actor, kind, id):
+                result.append(scope_data(session, kind, id) if not first else True)
+        return first and any(results)
+    if visit("global", None):
+        return results
     for block in session.query(BlockORM).order_by(BlockORM.name):
-        meta = session.query(BlockMetaORM).filter_by(legacy_name=block.name).first()
-        id = meta.block_id if meta else block.name
-        if manager(actor, "block", id):
-            result.append(scope_data(session, "block", id))
+        if visit("block", _block_id(session, block.name)):
+            return results
     for event in session.query(EventORM).order_by(EventORM.title):
-        if manager(actor, "event", event.event_id):
-            result.append(scope_data(session, "event", event.event_id))
-    if manager is kkr_manager:
+        if visit("event", event.event_id):
+            return results
+    if kkr_manager in managers:
         for sub in session.query(SubeventORM).order_by(SubeventORM.title):
-            if manager(actor, "subevent", sub.subevent_id):
-                result.append(scope_data(session, "subevent", sub.subevent_id))
-    return result
+            if visit("subevent", sub.subevent_id):
+                return results
+    return results
 
 
 class AwardCreate(Command):
@@ -239,12 +259,19 @@ def preferences(session, person):
                 delivery_status="not_connected")
 
 
-def collect_delivery_event(session, recipient, kind, payload, event_key):
-    """Reference-only disabled outbox; actual authorization must be rechecked at send."""
-    category = "tracker" if kind.startswith("task_") else "applications" if kind.startswith(("registration_", "block_application", "block_request")) else "pgas" if kind.startswith("pgas_") else None
+def delivery_category(kind):
+    return "tracker" if kind.startswith("task_") else "applications" if kind.startswith(("registration_", "block_application", "block_request")) else "pgas" if kind.startswith("pgas_") else None
+
+
+def collect_delivery_event(session, recipient, kind, payload, event_key, preferences=None):
+    """Reference-only disabled outbox; actual authorization must be rechecked at send.
+
+    ``preferences``: the recipients' preference rows (absent = no row) the caller
+    read in this session just before, instead of one lookup per recipient."""
+    category = delivery_category(kind)
     if category is None:
         return
-    row = session.get(NotificationPreferenceORM, recipient)
+    row = preferences.get(recipient) if preferences is not None else session.get(NotificationPreferenceORM, recipient)
     if not row:
         return
     channels = json.loads(row.preferences_json).get(category, {})
@@ -440,10 +467,17 @@ def register_routes(router):
     @router.get("/profile/me/features-context")
     def contexts(cur: User = Depends(get_current_user)):
         with db._session() as s:
-            award_scopes = available_scopes(s, cur.user_id, award_manager)
-            template_scopes = available_scopes(s, cur.user_id, kkr_manager)
+            award_scopes, template_scopes = scopes_for(s, cur.user_id, (award_manager, kkr_manager))
             return dict(award_scopes=award_scopes, template_scopes=template_scopes,
                         can_create_personal_template=bool(template_scopes), award_icons=list(AWARD_ICONS))
+
+    @router.get("/profile/me/features-flags")
+    def flags(cur: User = Depends(get_current_user)):
+        """Whether features-context would list any award / template scope, without the lists."""
+        with db._session() as s:
+            awards = scopes_for(s, cur.user_id, (award_manager,), first=True)[0]
+            templates = scopes_for(s, cur.user_id, (kkr_manager,), first=True)[0]
+            return dict(has_award_scopes=bool(awards), can_create_personal_template=bool(templates))
 
     @router.get("/profiles/{user_id}/activity")
     def get_activity(user_id: int, cur: User = Depends(get_current_user)):
@@ -579,7 +613,9 @@ def register_routes(router):
             profile = main.ProfileUpdate.model_validate(payload.profile)
             avatar = Avatar.model_validate(payload.avatar) if payload.avatar is not None else None
         except ValidationError as error:
-            fail(422, str(error))
+            # The fields the form shows next to its inputs, as for other invalid commands (PE-03).
+            raise InvalidInput(str(error), errors=[dict(type=item["type"], loc=list(item["loc"]), msg=item["msg"])
+                                                   for item in error.errors()])
         with db._session() as s:
             row = s.get(ProfileEditorVersionORM, cur.user_id)
             if (row.revision if row else 1) != payload.expected_revision or profile_fingerprint(s, cur.user_id) != payload.expected_fingerprint:

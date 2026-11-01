@@ -54,7 +54,31 @@
     opacity: 0.9;
 }
 
-img {
+/* The ways out of the 404 page: links and the «Назад» button look the same. */
+.actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px 32px;
+}
+
+.actions button {
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.actions :focus-visible {
+    outline: 2px solid var(--secondary);
+    outline-offset: 4px;
+    border-radius: 4px;
+}
+
+/* Only the picture of this page: a CSS module merged into the entry chunk must not style
+   every image of the site (PF-03/PF-11). */
+.wrapper img {
     width: 55%;
     max-height: 55%;
     height: auto;
@@ -96,7 +120,7 @@ img {
         margin-bottom: 8px;
     }
 
-    img {
+    .wrapper img {
         width: auto;
         max-width: 75%;
         max-height: 45%;

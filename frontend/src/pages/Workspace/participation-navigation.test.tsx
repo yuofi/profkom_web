@@ -31,7 +31,36 @@ it("pages a large personal team list without the removed team filters and duplic
   expect(page.container.querySelector('section[class*="myTeams"] input')).toBeNull();
   expect(page.container.querySelector('section[class*="myTeams"] select')).toBeNull();
   expect(page.container.querySelector('nav[aria-label="Быстрые переходы"]')).toBeNull();
-  expect(page.container.textContent).not.toContain("Учёт выполненной работы");
+  // The removed quick links do not come back: the one header button (GL-37 names it
+  // «Учёт выполненной работы») is the only way to /merits on the dashboard.
+  expect([...page.container.querySelectorAll('a[href="/merits"]')].map(link => link.textContent)).toEqual(["Учёт выполненной работы"]);
+});
+
+it("keeps the keyboard focus on «Далее» and «Назад» at the ends of a team list (smoke FV-2 follow-up)", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const prototype = mock.state.blocks[0];
+  const member = prototype.members[0];
+  mock.state.blocks = Array.from({ length: 22 }, (_, index) => ({
+    ...structuredClone(prototype), block_id: `own-${index}`, name: `Команда ${String(index + 1).padStart(2, "0")}`,
+    master: null, members: [{ ...member, user: { ...member.user, user_id: mock!.state.session.user_id } }],
+  }));
+  page = await mountWorkspace(<DashboardPage />);
+  await settle(); await settle();
+  const pager = page.container.querySelector('nav[aria-label="Мои блоки: страницы"]')!;
+  const [back, next] = ["Назад", "Далее"].map(text => [...pager.querySelectorAll("button")].find(button => button.textContent === text)!);
+  const first = () => page!.container.querySelector('a[href^="/blocks/own-"]')?.textContent;
+  // An end reads as unavailable and ignores presses but stays enabled: `disabled` on the
+  // focused button would drop the keyboard focus to <body>.
+  expect(back.getAttribute("aria-disabled")).toBe("true");expect(back.disabled).toBe(false);expect(next.getAttribute("aria-disabled")).toBeNull();
+  next.focus();
+  for (let press = 0; press < 3; press++) await act(async () => next.click());
+  expect(pager.textContent).toContain("3 из 3");expect(first()).toBe("Команда 17");
+  expect(next.getAttribute("aria-disabled")).toBe("true");expect(next.disabled).toBe(false);expect(document.activeElement).toBe(next);
+  expect(back.getAttribute("aria-disabled")).toBeNull();
+  back.focus();
+  for (let press = 0; press < 3; press++) await act(async () => back.click());
+  expect(pager.textContent).toContain("1 из 3");expect(first()).toBe("Команда 01");
+  expect(back.getAttribute("aria-disabled")).toBe("true");expect(document.activeElement).toBe(back);
 });
 
 it("a global administrator without personal assignments gets honest empty states", async () => {
@@ -61,7 +90,8 @@ it("reads a notification when its source opens", async () => {
     <Route path="/tasks/:id" element={<p>Открытая задача</p>} />
   </Routes>, { role: "organizer", path: "/notifications" });
   await settle(); await settle();
-  const link = Array.from(page.container.querySelectorAll("a")).find((a) => a.textContent === "Перейти к источнику")!;
+  // The compact row's text is the link to its source (GL-16).
+  const link = Array.from(page.container.querySelectorAll("a")).find((a) => a.textContent === "Назначена работа")!;
   await act(async () => link.click());
   await settle(); await settle();
   expect(page.container.textContent).toContain("Открытая задача");

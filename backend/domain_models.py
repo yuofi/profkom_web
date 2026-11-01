@@ -158,6 +158,8 @@ class MaterialORM(Base):
     deleted = Column(Boolean, nullable=False, default=False)
     deleted_at = Column(String, nullable=True)
     created_at = Column(String, nullable=False)
+    # When the readers' version was last published; unknown for older publications (GL-17).
+    published_at = Column(String, nullable=True)
     # Who reads a block guide: "block" — its members, leads and the chair's team; "everyone" —
     # every active participant (owner, 2026-10-25). Other materials read to everyone.
     audience = Column(String, nullable=False, default="block", server_default="block")

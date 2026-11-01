@@ -1,4 +1,4 @@
-import type { Page, Revision, ScopeRef, TaskQueue, TaskQueueAccessRequest, TaskQueueCatalog } from "./contract";
+import type { Page, Revision, ScopeRef, TaskCreateAccess, TaskQueue, TaskQueueAccessRequest, TaskQueueCatalog } from "./contract";
 import { allPages, idPath, request } from "./request";
 export const taskQueuesApi = {
   catalog: async (): Promise<TaskQueueCatalog> => {
@@ -14,6 +14,8 @@ export const taskQueuesApi = {
     }
     return { ...first, items, next_cursor: null };
   },
+  /** Whether «Создать задачу» applies anywhere, without the whole catalogue. */
+  createAccess: () => request<TaskCreateAccess>("get", "/task-queues/create-access"),
   get: (id: string) => request<TaskQueue>("get", `/task-queues/${idPath(id)}`),
   create: (data: { name: string; key: string; scope?: ScopeRef | null; owner_user_id?: number; is_private: boolean }) => request<TaskQueue>("post", "/task-queues", { ...data, scope: data.scope ? { kind: data.scope.kind, id: data.scope.id } : null }),
   update: (id: string, data: Revision & { name?: string; owner_user_id?: number; is_private?: boolean }) => request<TaskQueue>("patch", `/task-queues/${idPath(id)}`, data),

@@ -29,6 +29,8 @@ const button = (container: HTMLElement, label: string) => {
   const found = [...container.querySelectorAll<HTMLButtonElement>("button")].find((element) => element.textContent === label);
   if (!found) throw Error(`Button missing: ${label}`); return found;
 };
+/** The leave prompt's actions in order; the first is the primary one. */
+const actions = (container: HTMLElement) => [...container.querySelectorAll("dialog button")].map(item => item.textContent);
 async function click(element: HTMLElement) { await act(async () => element.click()); await settle(); }
 function Editor({ save = async () => {}, danger = false }: { save?: () => Promise<void>; danger?: boolean }) {
   return <><ActionForm fields={[{ name: "title", label: "Название", required: true, value: "Сохранено" }]} onSubmit={save} variant={danger ? "danger" : "primary"} /><Link to="/destination">Уйти</Link></>;
@@ -112,7 +114,7 @@ it("external file state cleared by successful submission becomes clean", async (
 });
 it("never auto-executes destructive forms", async () => {
   const save = vi.fn(async () => {}); const page = await mount(<Editor save={save} danger />); await change(field(page.container, "title"), "Причина удаления");
-  await click(page.container.querySelector("a")!); expect(button(page.container, "Сохранить и перейти").disabled).toBe(true);
+  await click(page.container.querySelector("a")!); expect(actions(page.container)).toEqual(["Остаться", "Уйти без сохранения"]);
   await click(button(page.container, "Уйти без сохранения")); expect(save).not.toHaveBeenCalled();
 });
 it("guards closing an editor dialog", async () => {
@@ -199,12 +201,22 @@ it("updates an open leave prompt when the label, save availability and busy stat
     return <Link to="/destination">Уйти</Link>;
   }
   const page = await mount(<Probe />);await click(page.container.querySelector("a")!);
-  expect(button(page.container, "Сохранить и перейти").disabled).toBe(true);expect(button(page.container, "Уйти без сохранения").disabled).toBe(false);
+  expect(actions(page.container)).toEqual(["Остаться", "Уйти без сохранения"]);expect(button(page.container, "Уйти без сохранения").disabled).toBe(false);
+  expect(page.container.querySelector("dialog")?.textContent).toContain("сохраняет только кнопка в самой форме");
   await act(async () => refresh({ label: "Текущий редактор", canSave: true, busy: false }));await settle();
+  expect(actions(page.container)).toEqual(["Сохранить и перейти", "Уйти без сохранения", "Остаться"]);
   expect(button(page.container, "Сохранить и перейти").disabled).toBe(false);expect(page.container.querySelector("dialog")?.textContent).toContain("Текущий редактор");
   expect(page.container.querySelector("dialog")?.textContent).not.toContain("Первый редактор");
   await act(async () => refresh({ label: "Текущий редактор", canSave: true, busy: true }));await settle();
   expect(button(page.container, "Сохранить и перейти").disabled).toBe(true);expect(button(page.container, "Уйти без сохранения").disabled).toBe(true);
   await act(async () => refresh({ label: "Текущий редактор", canSave: true, busy: false }));await settle();await click(button(page.container, "Сохранить и перейти"));
   expect(saved).toEqual(["Текущий редактор"]);expect(page.router.state.location.pathname).toBe("/destination");
+});
+
+it("takes the success note away at the first new change (PE-19)", async () => {
+  const page = await mount(<Editor />);
+  await change(field(page.container, "title"), "Первая редакция"); await submit(page.container.querySelector("form")!);
+  expect(page.container.textContent).toContain("Изменения сохранены");
+  await change(field(page.container, "title"), "Вторая редакция");
+  expect(page.container.textContent).not.toContain("Изменения сохранены");
 });

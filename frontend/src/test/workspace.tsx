@@ -11,7 +11,7 @@ import { workspaceQueryCache } from "../utils/api/invalidation";
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 export async function mountWorkspace(
   element: ReactNode,
-  options: { role?: MockRole; path?: string; client?: QueryClient; session?: Session } = {},
+  options: { role?: MockRole; path?: string; history?: string[]; client?: QueryClient; session?: Session | null } = {},
 ) {
   const client =
     options.client ??
@@ -27,10 +27,10 @@ export async function mountWorkspace(
   await act(async () =>
     root.render(
       <QueryClientProvider client={client}>
-        <MemoryRouter initialEntries={[options.path ?? "/"]}>
+        <MemoryRouter initialEntries={[...(options.history ?? []), options.path ?? "/"]}>
           <SessionContext.Provider
             value={{
-              session: options.session ?? createFixtures(options.role ?? "chair").session,
+              session: options.session === undefined ? createFixtures(options.role ?? "chair").session : options.session,
               loading: false,
               error: null,
               refresh: () => {},

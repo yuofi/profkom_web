@@ -3,29 +3,33 @@
   max-width: 100%;
   overflow-wrap: anywhere;
 }
+/* The one scroll frame of a Markdown table, with the shadow of .markdown table at the edge
+   that still hides columns. The table inside is an ordinary table again, not a second
+   scroll box that would clip its last column. */
 .tableWrap {
   max-width: 100%;
   overflow-x: auto;
   margin-block: 12px;
+  scrollbar-width: thin;
+  background:
+    linear-gradient(to right, var(--surface-container-low) 30%, transparent) left / 40px 100% no-repeat local,
+    linear-gradient(to left, var(--surface-container-low) 30%, transparent) right / 40px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgb(0 0 0 / 55%), transparent) left / 14px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgb(0 0 0 / 55%), transparent) right / 14px 100% no-repeat scroll;
+  background-color: var(--surface-container-low);
 }
 .tableWrap:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
-.tableWrap table {
-  width: 100%;
-  border-collapse: collapse;
+.content .tableWrap > table {
+  display: table;
+  width: auto;
+  min-width: 100%;
+  max-width: none;
+  overflow: visible;
+  background: none;
   font-variant-numeric: tabular-nums;
-}
-.tableWrap th, .tableWrap td {
-  padding: 8px 12px;
-  border: 1px solid var(--outline-variant);
-  text-align: start;
-  min-width: 80px;
-}
-.tableWrap th {
-  background: var(--surface-container-high);
-  font-weight: 700;
 }
 .content :global(.katex) {
   color: inherit;

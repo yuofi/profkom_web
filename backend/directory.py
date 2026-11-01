@@ -3,9 +3,11 @@
 import json
 import uuid
 from urllib.parse import urlsplit
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
+from pydantic.networks import validate_email
 from fastapi import Depends
-from database import db, UserORM, FileRecordORM
+from database import db, UserORM, FileRecordORM, _note_user
+from read_context import orm_get
 from domain_models import ProfileMetadataORM, FormerContactORM, MigrationORM
 from auth import get_current_user
 from models import User
@@ -36,7 +38,7 @@ class Period(Command):
         return self
 
 
-class Former(Command):
+class FormerFields(Command):
     surname: str = Field(min_length=1)
     name: str = Field(min_length=1)
     patronymic: str | None = None
@@ -47,11 +49,23 @@ class Former(Command):
     participation_periods: list[Period] = []
 
 
+class Former(FormerFields):
+    @field_validator("email")
+    @classmethod
+    def email_or_empty(cls, value):
+        """A saved card has no address or a valid one; earlier cards are still read as stored."""
+        value = value.strip()
+        # The bare address only: "Имя <a@b>" also passes validate_email, then links as mailto:Имя <...>.
+        if value and validate_email(value)[1].lower() != value.lower():
+            raise ValueError("Enter a bare email address without a display name")
+        return value
+
+
 class FormerPatch(Former):
     expected_revision: int
 
 
-class FormerOut(Former):
+class FormerOut(FormerFields):
     contact_id: str
     revision: int
     capabilities: list[str]
@@ -99,11 +113,13 @@ def is_vk_photo(url):
 def avatar_url(uid):
     """No storage call: a list of people costs no request to the bucket (A-MAT-9)."""
     with db._session() as s:
+        _note_user(uid)
         u = s.get(UserORM, uid)
         if not u:
             return "/avatars/default.svg"
-        m = s.get(ProfileMetadataORM, uid)
-        fr = s.get(FileRecordORM, m.avatar_file_id) if m and m.avatar_file_id else None
+        # A clean read UOW also remembers absent metadata/files (orm_get).
+        m = orm_get(s, ProfileMetadataORM, uid)
+        fr = orm_get(s, FileRecordORM, m.avatar_file_id) if m and m.avatar_file_id else None
         return _avatar_from_rows(u, m, fr)
 
 
@@ -163,7 +179,8 @@ def current_avatars(data):
 
 def contact_data(c):
     with db._session() as s:
-        m = s.get(ProfileMetadataORM, c.user_id)
+        _note_user(c.user_id)
+        m = orm_get(s, ProfileMetadataORM, c.user_id)
         return {
             **c.__dict__,
             "photo_url": avatar_url(c.user_id),
@@ -173,7 +190,7 @@ def contact_data(c):
         }
 
 
-def contacts(q=None, group_number=None, blocks=None, in_profcom=None, budget=None):
+def contacts(q=None, group_number=None, blocks=None, in_profcom=None, budget=None, user_id=None):
     result = []
     from database import BlockORM
 
@@ -186,7 +203,9 @@ def contacts(q=None, group_number=None, blocks=None, in_profcom=None, budget=Non
     wanted = [aliases.get(x, x) for x in wanted]
     if any(x not in names for x in wanted):
         return []
-    for c in db.list_contacts():
+    # user_id narrows the same filtered list to one person without reading the rest.
+    rows = db.list_contacts() if user_id is None else [c for c in [db.get_contact(user_id)] if c]
+    for c in rows:
         u = db.get_user(c.user_id)
         if not u or u.account_state != "active" or u.banned:
             continue
@@ -237,9 +256,16 @@ def register_routes(router):
     @router.get("/contacts/archive", response_model=Page[FormerOut])
     def former(q: str | None = None, cur: User = Depends(get_current_user)):
         with db._session() as s:
+            rows = s.query(FormerContactORM).order_by(FormerContactORM.created_at).all()
+            # A restored account is current again: its kept snapshot card stays for editors and
+            # a later archive, but the list of former participants does not show it (PE-11).
+            sources = {c.source_user_id for c in rows if c.source_user_id is not None}
+            returned = {uid for (uid,) in s.query(UserORM.user_id).filter(
+                UserORM.user_id.in_(sources), UserORM.account_state == "active")} if sources else set()
+            editor = access.allowed(cur.user_id, "former_contact.edit")
             cards = [
-                dict(contact_id=c.contact_id, revision=c.revision, capabilities=["edit_former_contact"] if access.allowed(cur.user_id, "former_contact.edit") else [], **json.loads(c.fields_json))
-                for c in s.query(FormerContactORM).order_by(FormerContactORM.created_at)
+                dict(contact_id=c.contact_id, revision=c.revision, capabilities=["edit_former_contact"] if editor else [], **json.loads(c.fields_json))
+                for c in rows if c.source_user_id not in returned
             ]
             return Page(
                 items=[

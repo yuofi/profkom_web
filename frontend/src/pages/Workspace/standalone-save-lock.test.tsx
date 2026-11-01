@@ -86,7 +86,7 @@ it.each([false, true])("PGAS locks its file picker, fields and dismissal while a
   const save = vi.spyOn(pgasApi, "create").mockImplementation(async (data) => { await pending.promise; if (fails) throw Error("Синтетический сбой сохранения"); return pgasResponse(data); });
   page = await mountWorkspace(<PgasPage />); await waitForPage(page);
   await click(page.container, "Загрузить файл");
-  const modal = page.container.querySelector('[role="dialog"]')!;
+  const modal = page.container.querySelector("dialog")!;
   await change(field(modal, "title"), "Документ А");
   await change(field(modal, "half_year"), "1");
   const input = modal.querySelector<HTMLInputElement>('input[type="file"]')!;

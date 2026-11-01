@@ -1,12 +1,9 @@
 import { useContext, type ReactNode } from "react";
 import clsx from "clsx";
 import { Link } from "react-router-dom";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import remarkBreaks from "remark-breaks";
+import { QueryClientContext, type Query } from "@tanstack/react-query";
 import { canRetainData, normalizeApiError } from "../../utils/api/request";
 import { errorDetail, userMessage } from "../../utils/api/messages";
-import type { RichText } from "../../utils/api/contract";
 import type { IconName } from "../icons";
 import { PageNavContext, SectionContext, toneStyle, type Tone } from "./sections";
 import s from "./Workspace.module.css";
@@ -47,6 +44,10 @@ export function Page({
       {children}
     </section>
   );
+}
+/** A refusal or a missing object still has its page: a title and a way on (GL-21). */
+export function DeniedPage({ title, back, children }: { title: string; back?: { to: string; label: string }; children: ReactNode }) {
+  return <Page title={title} actions={back && <RouteLink to={back.to}>{back.label}</RouteLink>}><Empty>{children}</Empty></Page>;
 }
 export const Card = ({
   title,
@@ -116,27 +117,16 @@ export const ErrorState = ({
 export const RouteLink = ({
   to,
   children,
+  state,
 }: {
   to: string;
   children: ReactNode;
+  /** Router state of the opened entry, such as the page an editor returns to. */
+  state?: unknown;
 }) => (
-  <Link className={s.linkButton} to={to}>
+  <Link className={s.linkButton} to={to} state={state}>
     {children}
   </Link>
-);
-export const Markdown = ({
-  content,
-  preview = false,
-}: {
-  content: RichText | string | null | undefined;
-  /** Only the beginning, for a card in a list. */
-  preview?: boolean;
-}) => (
-  <div className={clsx(s.markdown, preview && s.preview)}>
-    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
-      {typeof content === "string" ? content : (content?.body ?? "")}
-    </ReactMarkdown>
-  </div>
 );
 /** A label; the tone tells its meaning at a glance, the text tells it fully. */
 export const Badge = ({ children, tone }: { children: ReactNode; tone?: Tone }) => (
@@ -155,9 +145,13 @@ export function QueryState({
   retry?: () => void;
   keepDataOnError?: boolean;
 }) {
+  // Without an own retry, «Обновить данные» rereads the page's failed queries (GL-38).
+  const client = useContext(QueryClientContext);
+  const failed = { type: "active" as const, predicate: (query: Query) => query.state.status === "error" };
+  const reread = !retry && error && client?.getQueryCache().findAll(failed).length ? () => void client.refetchQueries(failed) : undefined;
   if (loading) return <Loading />;
   return <>
-    {error && <ErrorState error={error} retry={retry} />}
+    {error && <ErrorState error={error} retry={retry ?? reread} />}
     {(!error || (keepDataOnError && canRetainData(error))) ? children : null}
   </>;
 }

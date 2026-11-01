@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { authApi } from "./api/auth.api";
 import { sessionApi } from "./api/session.api";
@@ -7,6 +8,8 @@ import type { Session } from "./api/contract";
 import { forgetOwnChanges } from "../components/Workspace/ownRevisions";
 import { handleRevokedSession } from "./authSession";
 import { normalizeApiError } from "./api/request";
+import { onAccessChange, rememberSignedIn } from "./api";
+import { retryTransient } from "./api/invalidation";
 
 const notSession = (q: { queryKey: readonly unknown[] }) => q.queryKey[0] !== "session";
 
@@ -41,12 +44,19 @@ export const UserProvider = ({ children }: { children: React.ReactNode }) => {
         client.removeQueries({ predicate: (q) => notSession(q) && !q.isActive() });
         void client.invalidateQueries({ predicate: notSession, refetchType: "active" });
       }
+      rememberSignedIn(true);
       return next;
     },
-    retry: false,
+    // One failed poll (a restart, a 502) is tried again; the page stays meanwhile (GL-02).
+    retry: retryTransient,
     refetchOnWindowFocus: "always",
     refetchInterval: 60_000,
   });
+  // A refused refresh or a 403/404 of any request rereads the session at once instead of
+  // waiting for the next poll; the checks above then route, evict and remount (GL-06).
+  useEffect(() => onAccessChange(() => {
+    void client.invalidateQueries({ queryKey: ["session"] }, { cancelRefetch: false });
+  }), [client]);
   // A temporary password opens nothing but its change (АВ-52).
   const active = isActiveSession(sessionQuery.data) && !sessionQuery.data?.password_change_required;
   const profile = useQuery({
@@ -62,7 +72,9 @@ export const UserProvider = ({ children }: { children: React.ReactNode }) => {
         // Authorization depends on the confirmed session. Its private profile is
         // independent page data, so it must not serialize every workspace read.
         loading: sessionQuery.isLoading,
-        error: sessionQuery.error ?? profile.error,
+        error: sessionQuery.error,
+        // Only the own profile pages wait for it; its failure must not close the others.
+        profileError: profile.error,
         refresh: () => {
           void sessionQuery.refetch().then(({ data, error }) => {
             if (!error && isActiveSession(data))

@@ -8,6 +8,7 @@ import { installMockTransport } from "../../mocks/transport";
 import { createFixtures } from "../../mocks/fixtures";
 import { SessionContext } from "../../utils/session";
 import { seasonsApi } from "../../utils/api/seasons.api";
+import { ApiError } from "../../utils/api/request";
 import type { SeasonSummary, SummaryRow } from "../../utils/api/contract";
 import { UnsavedChangesProvider } from "../../components/Workspace/UnsavedChanges";
 import { ActionForm } from "../../components/Workspace/ActionForm";
@@ -176,7 +177,9 @@ it("saves the first draft before switching to the next editor and uses the refre
   await submit(second.form);await waitForPage(page);expect(save).toHaveBeenCalledTimes(2);
   expect(save.mock.calls.map(([, userId, values]) => ({ userId, version: values.expected_version }))).toEqual([{ userId: 9000, version: 1 }, { userId: 9001, version: 2 }]);
   expect(page.summary.version).toBe(3);expect(page.summary.rows[0].decisions).toEqual(["nice"]);expect(page.summary.rows[1].decisions).toEqual(["kick_warning"]);
-  expect(document.querySelectorAll("[data-anchored-popover] form")).toHaveLength(1);
+  // A saved closed-season correction closes its popover, so a second click cannot write a duplicate version.
+  expect(document.querySelectorAll("[data-anchored-popover]")).toHaveLength(0);
+  expect(rowFor(page.container, "Синтетический участник 001").querySelector('button[aria-label^="Изменить отметки:"]')?.getAttribute("aria-expanded")).toBe("false");
 });
 
 it("visits a hundred decision disclosures without accumulating hidden forms", async () => {
@@ -219,7 +222,18 @@ it("open-season mark clicks save immediately without allocating editors or refet
  expect(popup().querySelector('[role="menuitemcheckbox"][aria-label="Найс"]')?.getAttribute('title')).toBe('Найс — Добровольный уход из Профкома по личным причинам.');
  expect(popup().querySelector('[role="menuitemcheckbox"][aria-label="Кик"]')?.getAttribute('title')).toBe('Кик — Принудительное исключение из Профкома за недостаточную работу.');
  await act(async()=>[...popup().querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Найс')!.click());await waitForPage(page);
- expect(save).toHaveBeenCalledExactlyOnceWith('season-1',9000,{expected_version:1,decisions:['nice']});
+ expect(save).toHaveBeenCalledExactlyOnceWith('season-1',9000,{expected_version:1,expected_decisions:[],decisions:['nice']});
  expect(page.container.querySelectorAll('tbody form')).toHaveLength(0);expect(page.read).toHaveBeenCalledTimes(1);expect(page.commits()).toBeLessThan(200);
  expect(row.querySelector('[role="img"][aria-label="Найс"]')).not.toBeNull();expect(popup()).toBeNull();
+});
+
+it("an open-season mark sends the marks shown for that participant and refetches the summary on a conflict (PB-16)", async () => {
+ const page=await mountParticipants(false,200,false);page.summary.rows[0].decisions=['kick_warning'];
+ await act(async()=>{await page.client.invalidateQueries({queryKey:['summary','season-1']});});await waitForPage(page);expect(page.read).toHaveBeenCalledTimes(2);
+ const save=vi.spyOn(seasonsApi,"decisions").mockRejectedValueOnce(new ApiError('Конфликт',409,'revision_conflict'));
+ const row=rowFor(page.container,"Синтетический участник 000");
+ await act(async()=>row.querySelector<HTMLButtonElement>('button[aria-label^="Изменить отметки:"]')!.click());await waitForPage(page,()=>!!popup());
+ await act(async()=>[...popup().querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Найс')!.click());await waitForPage(page);
+ expect(save).toHaveBeenCalledExactlyOnceWith('season-1',9000,{expected_version:1,expected_decisions:['kick_warning'],decisions:['kick_warning','nice']});
+ expect(page.read).toHaveBeenCalledTimes(3);
 });

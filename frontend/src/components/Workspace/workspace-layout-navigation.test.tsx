@@ -1,14 +1,17 @@
 // @vitest-environment jsdom
 import { act } from "react";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { Route, Routes } from "react-router-dom";
 import { installMockTransport } from "../../mocks/transport";
 import { mountWorkspace, settle } from "../../test/workspace";
 import { WorkspaceLayout } from "./WorkspaceLayout";
+import { SectionHomeLink } from "./SectionHomeLink";
+import { supportApi } from "../../utils/api/support.api";
+import { UserContext } from "../../utils/me";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let mock: ReturnType<typeof installMockTransport> | undefined;
-afterEach(async () => { await page?.cleanup(); page = undefined; mock?.restore(); mock = undefined; });
+afterEach(async () => { await page?.cleanup(); page = undefined; mock?.restore(); mock = undefined; vi.restoreAllMocks(); });
 
 it("the collapsible mobile menu has a profile entry and closes after opening it", async () => {
   mock = installMockTransport("chair", { delay: 0 });
@@ -36,4 +39,21 @@ it("both desktop and mobile navigation name the task section Трекер", asyn
   expect(links).toHaveLength(2);
   for (const link of links) { expect(link.textContent).toContain("Трекер");expect(link.textContent).not.toContain("Задачи");expect(link.getAttribute("aria-current")).toBe("true"); }
   expect(page.container.querySelector("h1")?.textContent).toBe("Очереди");
+});
+
+it.each([[true, "Рабочее пространство"], [false, "Мой профиль"]])("/support of support staff %s belongs to «%s»", async (staff, label) => {
+  mock = installMockTransport("chair", { delay: 0 });
+  vi.spyOn(supportApi, "context").mockResolvedValue({ configured: true, revision: 1, block_id: null, queue_id: null, can_configure: false, can_manage_staff: false, can_triage: staff, staff_user_ids: [] });
+  page = await mountWorkspace(<Routes><Route element={<WorkspaceLayout />}><Route path="/support" element={<SectionHomeLink />} /></Route></Routes>, { path: "/support" });
+  await settle();
+  expect(page.container.querySelector("main a")?.textContent).toBe(`Профком ВМК · ${label}`);
+  const home = page.container.querySelector('nav[aria-label="Основная навигация"] a[href="/"]')!;
+  expect(home.getAttribute("aria-current")).toBe(staff ? "true" : null);
+});
+it("the menu names the user surname first, like the rest of the site (PE-26)", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const { surname, name } = mock.state.profile;
+  page = await mountWorkspace(<UserContext.Provider value={mock.state.profile}><Routes><Route element={<WorkspaceLayout />}><Route path="/" element={<p>Главная страница</p>} /></Route></Routes></UserContext.Provider>);
+  await settle(); await settle();
+  expect(page.container.querySelector('aside > div[class*="profile"] a')?.textContent).toBe(`${surname} ${name}`);
 });

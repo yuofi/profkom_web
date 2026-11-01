@@ -5,10 +5,11 @@ import { InteractiveChip } from "../../components/Workspace/InteractiveChip";
 import type { CalendarItem } from "../../utils/api/contract";
 import { getMeetingRoute, getSeasonRoute, targetRoute } from "../../utils/routes";
 import { displayTime } from "../../utils/dates";
-import { moscowDay, occursOnDay } from "../../utils/calendar";
+import { capitalizeFirst, moscowDay, occursOnDay } from "../../utils/calendar";
 import { toneStyle, type Tone } from "../../components/Workspace/sections";
 import { eventPeriod } from "./eventDates";
-import { dayStart, timedCalendarItems, type TimedCalendarItem } from "./calendarLayout";
+import { calendarDayLayout, coversWholeDay, dayStart, type TimedCalendarItem } from "./calendarLayout";
+import { useNarrowScreen } from "./useNarrowScreen";
 import { statusNames } from "./trackerStatus";
 import c from "./calendar.module.css";
 
@@ -34,7 +35,7 @@ export function CalendarItemLink({ item, season, time, compact = false }: { item
   const route = calendarRoute(item), label = `${KINDS[item.kind].label}: ${item.title}. ${eventPeriod(item)}. Сезон: ${season}`;
   return <HoverCard className={compact ? c.compactAnchor : c.timedAnchor} content={() => <CalendarPreview item={item} season={season} />}>
     {({ describedBy }) => route ? <Link className={compact ? c.compactLink : c.timedLink} to={route} aria-label={label} aria-describedby={describedBy}>
-      <i className={c.dot} aria-hidden="true" />{time && <time className={c.entryTime}>{time}</time>}<span className={c.entryTitle}>{item.title}</span>
+      <i className={c.dot} aria-hidden="true" /><span className={c.entryLabel}>{time && <time className={c.entryTime}>{time}</time>}<span className={c.entryTitle}>{item.title}</span></span>
     </Link> : <span className={c.compactLink} tabIndex={0} aria-label={label} aria-describedby={describedBy}>{time && <time>{time}</time>}<span>{item.title}</span></span>}
   </HoverCard>;
 }
@@ -48,8 +49,9 @@ function segmentTime(segment: TimedCalendarItem) {
 export function CalendarTimeGrid({ days, items, seasonTitle, today, compact = false }: {
   days: string[]; items: CalendarItem[]; seasonTitle: (id: string) => string; today: string; compact?: boolean;
 }) {
-  const scroll = useRef<HTMLDivElement>(null), key = days.join(",");
+  const scroll = useRef<HTMLDivElement>(null), frame = useRef<HTMLDivElement>(null), key = days.join(",");
   const [now, setNow] = useState(Date.now);
+  const narrow = useNarrowScreen(), maxLanes = compact || narrow || days.length > 1 ? 2 : 3;
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 60_000);return () => window.clearInterval(timer); }, []);
   useEffect(() => {
     if (!compact || !scroll.current) return;
@@ -59,26 +61,37 @@ export function CalendarTimeGrid({ days, items, seasonTitle, today, compact = fa
   // Only Today scrolls to its hours; full views remain in the page's normal flow.
   // Background data refreshes never reset the compact widget's chosen position.
   }, [compact, key]);
+  useEffect(() => {
+    // A week wider than the screen opens at today's column inside its own frame, not by page scroll.
+    const overflow = frame.current, column = overflow?.querySelector<HTMLElement>('[aria-current="date"]');
+    if (!overflow || !column || overflow.scrollWidth <= overflow.clientWidth) return;
+    overflow.scrollLeft = Math.max(0, column.getBoundingClientRect().left - overflow.getBoundingClientRect().left + overflow.scrollLeft - 52);
+  }, [key, today]);
   const nowDay = moscowDay(new Date(now).toISOString()), nowMinute = (now - dayStart(nowDay)) / 60000;
   const style = { "--calendar-days": days.length, "--calendar-min-width": days.length > 1 ? "780px" : "0px" } as CSSProperties;
-  const dayLabel = (day: string) => new Intl.DateTimeFormat("ru-RU", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/Moscow" }).format(dayStart(day));
+  const dayLabel = (day: string) => capitalizeFirst(new Intl.DateTimeFormat("ru-RU", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/Moscow" }).format(dayStart(day)));
   return <section className={`${c.timelineFrame} ${compact ? c.timelineCompact : ""}`} aria-label={days.length > 1 ? "Календарь недели" : "Календарь дня"} style={style}>
-    <div className={c.timelineOverflow}><div className={c.timelineInner}>
+    <div className={c.timelineOverflow} ref={frame}><div className={c.timelineInner}>
       <div className={c.timelineHeader}><span>МСК</span>{days.map(day => <strong key={day} aria-current={day === today ? "date" : undefined} aria-label={day}>{dayLabel(day)}</strong>)}</div>
-      <div className={c.allDayRow}><small>Весь день</small>{days.map(day => <div key={day} aria-label={`Весь день: ${day}`}>
-        {items.filter(item => item.all_day && occursOnDay(item, day)).map(item => <div key={item.id} style={toneStyle(KINDS[item.kind].tone)}><CalendarItemLink item={item} season={seasonTitle(item.season_id)} compact /></div>)}
-        {!items.some(item => item.all_day && occursOnDay(item, day)) && <span className={c.allDayEmpty}>—</span>}
-      </div>)}</div>
+      <div className={c.allDayRow}><small>Весь день</small>{days.map(day => { const allDay = items.filter(item => item.all_day ? occursOnDay(item, day) : coversWholeDay(item, day));return <div key={day} aria-label={`Весь день: ${day}`}>
+        {allDay.map(item => <div key={item.id} style={toneStyle(KINDS[item.kind].tone)}><CalendarItemLink item={item} season={seasonTitle(item.season_id)} compact time={item.all_day ? undefined : "↔"} /></div>)}
+        {!allDay.length && <span className={c.allDayEmpty}>—</span>}
+      </div>; })}</div>
       <div className={compact ? c.timelineScroller : c.timelineBody} ref={compact ? scroll : undefined}><div className={c.timeCanvas}>
         <div className={c.hourGutter} aria-label="Шкала часов">{Array.from({ length: 24 }, (_, hour) => <span key={hour} style={{ top: `${hour * 48}px` }}>{String(hour).padStart(2, "0")}:00</span>)}</div>
-        {days.map(day => <div className={c.timeColumn} key={day} aria-label={`События: ${day}`}>
+        {days.map((day, index) => { const layout = calendarDayLayout(items, day, maxLanes);return <div className={c.timeColumn} key={day} aria-label={`События: ${day}`}>
           {Array.from({ length: 24 }, (_, hour) => <div key={hour} className={c.hourLine} style={{ top: `${hour * 48}px` }} />)}
           {day === nowDay && <div className={c.nowLine} style={{ top: `${nowMinute / 60 * 48}px` }} aria-label="Текущее время" />}
-          {timedCalendarItems(items, day).map(segment => <div key={segment.item.id} className={`${c.timedItem} ${segment.point ? c.point : ""}`} data-calendar-item={segment.item.id} data-point={segment.point || undefined}
+          {layout.segments.map(segment => <div key={segment.item.id} className={`${c.timedItem} ${segment.point ? c.point : segment.end - segment.start < 45 ? c.short : ""} ${segment.continuesBefore ? c.continues : ""}`} data-calendar-item={segment.item.id} data-point={segment.point || undefined}
             style={{ ...toneStyle(KINDS[segment.item.kind].tone), top: `${segment.start / 60 * 48}px`, height: `${Math.max(26, (segment.end - segment.start) / 60 * 48)}px`, left: `calc(${segment.lane / segment.lanes * 100}% + 3px)`, width: `calc(${100 / segment.lanes}% - 6px)` }}>
             <CalendarItemLink item={segment.item} time={segmentTime(segment)} season={seasonTitle(segment.item.season_id)} />
           </div>)}
-        </div>)}
+          {layout.overflow.map(mark => <details key={mark.id} className={c.overflow} data-align={index < days.length / 2 && days.length > 1 ? "start" : "end"}
+            style={{ top: `${mark.start / 60 * 48}px`, left: `calc(${mark.lane / mark.lanes * 100}% + 3px)`, width: `calc(${100 / mark.lanes}% - 6px)` }}>
+            <summary aria-label={`Ещё записей в это время: ${mark.segments.length}`}>+{mark.segments.length}</summary>
+            <ul className={c.overflowList}>{mark.segments.map(segment => <li key={segment.item.id} style={toneStyle(KINDS[segment.item.kind].tone)}><CalendarItemLink item={segment.item} time={segmentTime(segment)} season={seasonTitle(segment.item.season_id)} compact /></li>)}</ul>
+          </details>)}
+        </div>; })}
       </div></div>
     </div></div>
   </section>;

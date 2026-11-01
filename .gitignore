@@ -8,6 +8,10 @@ pnpm-debug.log*
 lerna-debug.log*
 .env
 *.db
+# SQLite WAL files of a local database (PB-31)
+*.db-wal
+*.db-shm
+*.db-journal
 
 node_modules
 dist

@@ -7,7 +7,6 @@ avatars in snapshots), A-MAT-3, A-MAT-4, A-MAT-8, A-MAT-14 (old guides) and АВ
 old public uploads adopted as files).
 """
 
-import hashlib
 import json
 import subprocess
 import sys
@@ -18,9 +17,10 @@ from urllib.parse import quote
 import pytest
 from botocore.exceptions import EndpointConnectionError
 
-from database import db, FileRecordORM, SeasonSummaryORM, UserORM
+from database import db, BlockORM, FileRecordORM, SeasonSummaryORM, UserORM
 from domain_models import MaterialORM, ObjectDeletionORM, ProfileMetadataORM, SummaryVersionORM
 from settings import settings
+from sqlite_files import database_digest
 from test_v13_season_integrity import accept, close
 from test_v13_tracker import work  # noqa: F401  (fixture)
 
@@ -369,10 +369,10 @@ def test_old_uploads_are_adopted_in_place(client, superuser, user, make_user, ma
         "guides/plan.pdf": (PDF, "text/html"),  # whatever an old upload claimed
     })
     path = Path(settings.DATABASE_PATH)
-    before = hashlib.sha256(path.read_bytes()).hexdigest()
+    before = database_digest(path)
     out, report = run_adopt()
     assert report["mode"] == "dry_run" and report["external_calls"] is False
-    assert hashlib.sha256(path.read_bytes()).hexdigest() == before
+    assert database_digest(path) == before
     for secret in (BUCKET, "old.png", "Заявление", "plan", "file-someone-else", mid, "Подпись"):
         assert secret not in out
     assert report["avatars"] == dict(adopted=1, kept_sealed=1, superseded=1)
@@ -446,3 +446,31 @@ def test_adoption_needs_the_v13_schema(tmp_path):
     result = subprocess.run([sys.executable, str(ADOPT), "--database", str(path)],
                             capture_output=True, text=True, cwd=ADOPT.parents[1])
     assert result.returncode != 0 and "v13 schema" in result.stderr
+
+
+def test_an_assignment_draft_is_the_assignees_until_it_is_submitted(client, work, superuser, make_user, mock_s3):  # noqa: F811
+    w = work
+    aid = w["task"]["assignments"][0]["assignment_id"]
+    intent = client.post("/api/files/upload-intents", headers=w["member"].headers, json=dict(
+        owner_kind="assignment", owner_id=aid, purpose="submission", name="draft.pdf", mime_type="application/pdf", size_bytes=len(PDF)))
+    assert intent.status_code == 200, intent.text
+    fid = intent.json()["file_id"]
+    mock_s3["objects"]["private/" + fid] = (PDF, "application/pdf")
+    assert client.post(f"/api/files/{fid}/complete", headers=w["master"].headers, json={}).status_code == 404
+    assert client.post(f"/api/files/{fid}/complete", headers=w["member"].headers, json={}).status_code == 200
+    reader = make_user()  # another member of the team reads the task
+    with db._session() as session:
+        block = session.get(BlockORM, "IT")
+        block.arr_of_human = json.dumps(json.loads(block.arr_of_human or "[]") + [reader.user_id]);session.commit()
+    path = "/api/tasks/" + w["task"]["task_id"]
+    assert client.get(path, headers=reader.headers).status_code == 200
+    assert client.get(f"/api/files/{fid}/download", headers=w["member"].headers).status_code == 200
+    for other in (w["master"], reader, superuser, w["outside"]):
+        assert client.get(f"/api/files/{fid}/download", headers=other.headers).status_code == 404
+        assert client.get(content(fid), headers=other.headers).status_code == 404
+    submitted = client.post(f"/api/assignments/{aid}/submit", headers=w["member"].headers, json=dict(
+        expected_revision=1, text={"format": "markdown", "body": "Готово"}, file_ids=[fid], links=[]))
+    assert submitted.status_code == 200, submitted.text
+    for other in (w["master"], reader, superuser):
+        assert client.get(f"/api/files/{fid}/download", headers=other.headers).status_code == 200
+    assert client.get(f"/api/files/{fid}/download", headers=w["outside"].headers).status_code == 404

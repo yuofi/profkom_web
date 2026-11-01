@@ -82,6 +82,7 @@ class Material(BaseModel):
     deleted_at: str | None = None
     placeholder: bool = False
     community_url: str | None = None
+    published_at: str | None = None
 
 
 class EditorAssignment(BaseModel):
@@ -107,6 +108,7 @@ class ArchivedAccount(BaseModel):
     display_name: str
     archived_at: str
     master_conflicts: list[dict]
+    capabilities: list[str] = []
 
 
 class AccountState(BaseModel):

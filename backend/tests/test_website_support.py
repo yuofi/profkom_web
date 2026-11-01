@@ -9,6 +9,7 @@ from sqlalchemy import create_engine, text
 from database import db, TaskORM, ContributionORM, AssignmentORM
 from models import Block
 from support_models import FeedbackORM, SupportNoteORM, upgrade_tasks
+from test_v13_tracker import work  # noqa: F401
 
 
 def ok(response):
@@ -75,6 +76,34 @@ def test_reporter_is_full_reader_of_one_ticket_without_queue_or_other_report_acc
     assert req(client,other,"get",f"/tasks/{task_id}").status_code==404
     with db._session() as session:
         assert session.query(ContributionORM).count() == 0
+
+
+def test_ticket_author_keeps_executor_actions_without_the_sharing_right(client, superuser, make_user, work):
+    """GL-22 (owner 2026-10-31): the author keeps join/take/submit; sharing a support ticket is
+    support staff's, so a non-staff author gets no manage_task_access (its uses were refused)."""
+    master, settings = setup_support(client, superuser, make_user)
+    author, staff = make_user(), make_user()
+    ok(req(client, master, "put", "/support/staff", {"expected_revision": settings["revision"], "user_ids": [staff.user_id]}))
+    task_id = ok(report(client, author)[0])["task_id"]
+    task = ok(req(client, author, "get", "/tasks/" + task_id))
+    assert "manage_task_access" not in task["capabilities"]
+    assert {"join_task", "take_task", "submit_task_result", "change_task_status"} <= set(task["capabilities"])
+    assert ok(req(client, author, "get", f"/tasks/{task_id}/mentions")) == {"items": [], "next_cursor": None}
+    # The author is refused as a support ticket's author, not as someone who wrote no task.
+    for path, data in [(f"/tasks/{task_id}/mentions/none/approve", {"expected_revision": 1}),
+                       (f"/tasks/{task_id}/mentions/none/reject", {"expected_revision": 1}),
+                       (f"/tasks/{task_id}/access/{staff.user_id}/revoke", None)]:
+        refused = req(client, author, "post", path, data)
+        assert refused.status_code == 403, refused.text
+        assert refused.json()["detail"]["message"] == "Support ticket sharing is managed by support staff", refused.text
+    # The queue owner, support staff writing a ticket and an ordinary task's author keep the right;
+    # a staff member reading someone else's ticket never had it.
+    assert "manage_task_access" in ok(req(client, master, "get", "/tasks/" + task_id))["capabilities"]
+    assert "manage_task_access" not in ok(req(client, staff, "get", "/tasks/" + task_id))["capabilities"]
+    own = ok(report(client, staff)[0])["task_id"]
+    assert "manage_task_access" in ok(req(client, staff, "get", "/tasks/" + own))["capabilities"]
+    ordinary = ok(req(client, work["master"], "get", "/tasks/" + work["task"]["task_id"]))
+    assert "manage_task_access" in ordinary["capabilities"]
 
 
 def test_support_staff_assignment_revocation_and_private_notes(client, superuser, make_user):
@@ -255,3 +284,31 @@ def test_task_nullable_migration_preserves_legacy_rows_indexes_and_foreign_keys(
         connection.execute(text("INSERT INTO tasks VALUES ('service',NULL,NULL,'WEBSUPPORT')"))
         assert connection.execute(text("SELECT task_id FROM children")).scalar() == "old-task"
         assert connection.execute(text("SELECT task_id FROM task_creation_log")).scalar() == "service"
+
+
+def test_anonymous_tickets_are_signed_as_such_and_the_startup_names_older_ones(client, superuser, make_user):
+    """«Обращение без входа», not «Участник 89» (GL-30); the account still never signs in."""
+    from database import ContactInfoORM, UserORM
+    from support_models import SupportConfigORM
+    from scripts.preset_db import preset_support
+
+    master, settings = setup_support(client, superuser, make_user)
+    first = ok(report(client)[0])
+    with db._session() as session:
+        uid = session.query(SupportConfigORM).one().system_user_id
+        user = session.get(UserORM, uid)
+        assert user.banned and user.account_state == "archived"
+        task_id = session.get(FeedbackORM, first["report_id"]).task_id
+    names = json.dumps(ok(req(client, master, "get", "/tasks/" + task_id)), ensure_ascii=False)
+    assert "Обращение без входа" in names and f"Участник {uid}" not in names
+    with db.atomic():
+        with db._session() as session:
+            session.query(ContactInfoORM).filter_by(user_id=uid).delete()
+            session.commit()
+    preset_support()
+    preset_support()
+    with db._session() as session:
+        assert session.get(ContactInfoORM, uid).kkr_name == "Обращение без входа"
+    contacts = ok(req(client, master, "get", "/contacts"))
+    contacts = contacts["items"] if isinstance(contacts, dict) else contacts
+    assert all(person.get("user_id") != uid for person in contacts)

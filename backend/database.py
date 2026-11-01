@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from errors import Conflict, Forbidden, InvalidInput, NotFound, revision_conflict, season_closed
+import atexit
 import json
 import logging
 import asyncio
+import sqlite3
+import time
 from weakref import WeakKeyDictionary
 from anyio import to_thread
 from contextvars import ContextVar
@@ -60,7 +63,7 @@ from models import (
 )
 from settings import settings
 from identity import participant_id as accounting_participant_id
-from read_context import cached, cached_current, invalidate as invalidate_reads, memoized, read_scope, install_engine
+from read_context import cached, cached_current, invalidate as invalidate_reads, memoized, read_scope, install_engine, hold_identities
 
 DATABASE_URL = "sqlite:///" + settings.DATABASE_PATH
 
@@ -72,6 +75,38 @@ install_engine(engine)
 # holders need to commit and give theirs back. Two connections stay for work outside them.
 HTTP_UNITS = POOL_SIZE + POOL_OVERFLOW - 2
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+
+
+@event.listens_for(engine, "connect")
+def _sqlite_journal(dbapi_connection, _record):
+    """SQLITE_JOURNAL_MODE=WAL with synchronous=FULL (PB-31): readers and the writer no
+    longer wait for each other, and every acknowledged commit survives a crash or power
+    loss, as with the rollback journal. WAL is opt-in: on a server backend/.env names it in
+    a separately approved step (DEPLOY.md, section 7). The first connection converts an
+    existing database, the mode is stored in the file; without the setting it keeps or
+    returns to the rollback journal once no other connection is open. Through the DBAPI
+    cursor: a driver statement would end read_context's memo. Writes keep BEGIN IMMEDIATE
+    (Database.atomic)."""
+    cursor = dbapi_connection.cursor()
+    try:
+        try:
+            mode = cursor.execute(f"PRAGMA journal_mode={settings.SQLITE_JOURNAL_MODE}").fetchone()[0]
+        except sqlite3.OperationalError as error:
+            # Another connection holds the database: this one works in the stored mode
+            # and the next new connection tries again.
+            mode = f"unchanged ({error})"
+        cursor.execute("PRAGMA synchronous=FULL")
+    finally:
+        cursor.close()
+    if mode != settings.SQLITE_JOURNAL_MODE.lower():
+        logging.getLogger("profkom.database").warning("SQLite journal mode is not %s: %s", settings.SQLITE_JOURNAL_MODE, mode)
+
+
+# A script that ends leaves a self-contained database (PB-31): the last connection to close
+# copies -wal into the file and removes -wal/-shm. Without it the interpreter exits with pooled
+# connections open and SQLite keeps -wal for the next start. The server: main.py, on shutdown.
+atexit.register(engine.dispose)
+
 
 Base = declarative_base()
 
@@ -295,6 +330,10 @@ class TaskORM(Base):
     created_by_user_id = Column(Integer, nullable=False)
     created_at = Column(String, nullable=False)
     revision = Column(Integer, default=1, nullable=False)
+    # A repeated create with the same key returns this task (GL-07); NULL for older rows.
+    idempotency_key = Column(String, nullable=True)
+    request_hash = Column(String, nullable=True)
+    __table_args__ = (Index("ux_tasks_idempotency_key", "idempotency_key", unique=True),)
 
 
 class TaskQueueORM(Base):
@@ -485,6 +524,10 @@ class CommentORM(Base):
     history_json = Column(Text, nullable=False, default='[]')
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=True)
+    # A repeated comment with the same key returns this one (GL-07); NULL for older rows.
+    idempotency_key = Column(String, nullable=True)
+    request_hash = Column(String, nullable=True)
+    __table_args__ = (Index("ux_task_comments_idempotency_key", "idempotency_key", unique=True),)
 
 
 class FileRecordORM(Base):
@@ -670,6 +713,16 @@ def _ensure_sqlite_material_deleted_at():
 _ensure_sqlite_material_deleted_at()
 
 
+def _ensure_sqlite_material_published_at():
+    with engine.begin() as connection:
+        columns = {row[1] for row in connection.execute(text("PRAGMA table_info(materials)"))}
+        if columns and "published_at" not in columns:
+            connection.execute(text("ALTER TABLE materials ADD COLUMN published_at VARCHAR"))
+
+
+_ensure_sqlite_material_published_at()
+
+
 def _ensure_sqlite_block_avatar_column() -> None:
     """Existing block metadata keeps its IDs, membership and nullable avatar unchanged."""
     with engine.begin() as conn:
@@ -758,6 +811,22 @@ def _ensure_sqlite_comment_files_column() -> None:
 
 
 _ensure_sqlite_comment_files_column()
+
+
+def _ensure_sqlite_request_key_columns() -> None:
+    """GL-07: existing tasks and comments get no key (NULL); only new creates carry one."""
+    with engine.begin() as connection:
+        for table in ("tasks", "task_comments"):
+            names = {row[1] for row in connection.execute(text(f"PRAGMA table_info({table})"))}
+            if not names:
+                continue
+            for name in ("idempotency_key", "request_hash"):
+                if name not in names:
+                    connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} VARCHAR"))
+            connection.execute(text(f"CREATE UNIQUE INDEX IF NOT EXISTS ux_{table}_idempotency_key ON {table} (idempotency_key)"))
+
+
+_ensure_sqlite_request_key_columns()
 
 
 def _ensure_sqlite_event_closure_columns() -> None:
@@ -1035,6 +1104,8 @@ def _ensure_notification_read_at():
         names={r[1] for r in conn.execute(text("PRAGMA table_info(notifications)"))}
         if "event_key" not in names:conn.execute(text("ALTER TABLE notifications ADD COLUMN event_key VARCHAR"))
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_notification_event ON notifications(user_id,event_key) WHERE event_key IS NOT NULL"))
+        # The keyset page and the unread count read this index, not the whole history (GL-16).
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_notifications_feed ON notifications(user_id,created_at,notification_id)"))
         if "read_at" not in names:
             conn.execute(text("ALTER TABLE notifications ADD COLUMN read_at VARCHAR"))
             conn.execute(text("UPDATE notifications SET read_at=created_at WHERE is_read=1"))
@@ -1457,6 +1528,34 @@ def _ensure_contact_email_lower_index() -> None:
 _ensure_contact_email_lower_index()
 
 
+# PB-33: read indexes for hot lookups. Rows and existing indexes are untouched. The
+# direction of each ordered index matches its readers' ORDER BY, so rows with equal
+# timestamps keep the insertion order the former temporary sort produced. The
+# notification feed is a keyset on (created_at DESC, notification_id DESC) and reads
+# ix_notifications_feed (GL-16, _ensure_notification_read_at), so it has no entry here.
+_READ_INDEXES = (
+    ("ix_role_assignments_principal", "role_assignments", ("principal_assignment_id",)),
+    ("ix_block_master_user_id", "block", ("master_user_id",)),
+    ("ix_task_access_grants_user_active", "task_access_grants", ("user_id", "active")),
+    ("ix_task_queue_members_user_id", "task_queue_members", ("user_id",)),
+    ("ix_submissions_assignment_submitted", "submissions", ("assignment_id", "submitted_at")),
+    ("ix_task_comments_task_created", "task_comments", ("task_id", "created_at")),
+    ("ix_task_queue_requests_queue_user_created", "task_queue_requests", ("queue_id", "user_id", "created_at")),
+)
+
+
+def _ensure_sqlite_read_indexes(bind=None) -> None:
+    """Idempotent; a table or column absent from an old schema is skipped."""
+    with (bind or engine).begin() as conn:
+        for name, table, columns in _READ_INDEXES:
+            present = {row[1] for row in conn.execute(text(f'PRAGMA table_info("{table}")'))}
+            if all(column.split()[0] in present for column in columns):
+                conn.execute(text(f'CREATE INDEX IF NOT EXISTS {name} ON "{table}" ({", ".join(columns)})'))
+
+
+_ensure_sqlite_read_indexes()
+
+
 def _user_orm_to_dc(u: UserORM) -> UserDC:
     return UserDC(
         user_id=u.user_id,
@@ -1561,9 +1660,48 @@ def _format_blocks(items: list[str]) -> str:
 
 
 
+# Several people in one clean read UOW: read users, contacts, profile metadata and
+# avatar files once. Fewer people keep their individual PK reads.
+PEOPLE_BATCH_AFTER = 12
+
+
+def _note_user(user_id):
+    from read_context import after_distinct
+    after_distinct(None, "database.people", user_id, PEOPLE_BATCH_AFTER, _prime_people)
+
+
+def _prime_people():
+    """Warm only the read UOW's identity map and absent-PK hints.
+
+    Directory and reference policies still read these rows through their usual
+    lookups, so the projected values and their order are unchanged.
+    """
+    from sqlalchemy.orm import joinedload
+    from domain_models import ProfileMetadataORM
+    from read_context import prime_get
+    with db._session() as session:
+        # One row per person (contact and metadata are one-to-one): the driver's
+        # per-row cost, not the statement count, dominates under concurrency.
+        metadata = {}
+        for user, meta in session.query(UserORM, ProfileMetadataORM).outerjoin(
+                ProfileMetadataORM, ProfileMetadataORM.user_id == UserORM.user_id).options(
+                joinedload(UserORM.contact)):
+            prime_get(session, ProfileMetadataORM, user.user_id, meta)
+            if meta is not None:
+                metadata[user.user_id] = meta
+        file_ids = sorted({row.avatar_file_id for row in metadata.values() if row.avatar_file_id})
+        files = {}
+        for start in range(0, len(file_ids), 500):
+            files.update((row.file_id, row) for row in session.query(FileRecordORM).filter(
+                FileRecordORM.file_id.in_(file_ids[start:start + 500])))
+        for file_id in file_ids:
+            prime_get(session, FileRecordORM, file_id, files.get(file_id))
+
+
 def _user_to_ref_dc(u: Optional[UserORM]) -> Optional[UserRefDC]:
     if not u:
         return None
+    _note_user(u.user_id)
     return cached_current("database.user_ref", u.user_id, lambda: _user_to_ref_uncached(u))
 
 
@@ -1587,7 +1725,8 @@ def _user_ref_with_avatar(u: UserORM, photo_url) -> UserRefDC:
     return UserRefDC(user_id=u.user_id, display_name=display_name, avatar_url=photo_url)
 
 
-def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: Optional[int] = None) -> AssignmentPublicDC:
+def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: Optional[int] = None, facts=None) -> AssignmentPublicDC:
+    _note_user(a.assignee_user_id)
     u = session.get(UserORM, a.assignee_user_id)
     assignee_ref = _user_to_ref_dc(u) or UserRefDC(user_id=a.assignee_user_id, display_name=f"Участник {a.assignee_user_id}", avatar_url=None)
 
@@ -1633,15 +1772,17 @@ def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: O
         )
 
     unavail = None
+    task=session.get(TaskORM,a.task_id)
+    # The caller's one-task DTO facts (tracker.TaskFacts) apply only to that task.
+    facts = facts if facts is not None and task is not None and facts.task is task else None
+    readable = facts.readable if facts is not None else (lambda uid: db.can_read_task(uid,task,session))
     if u and (u.banned or getattr(u, "account_state", "active") != "active"):
         unavail = "archived"
     elif u:
-        task=session.get(TaskORM,a.task_id)
-        if task and not db.can_read_task(u.user_id,task,session):unavail="left_scope"
+        if task and not readable(u.user_id):unavail="left_scope"
 
     caps = []
-    task=session.get(TaskORM,a.task_id)
-    accessible=task and current_user_id and db.can_read_task(current_user_id,task,session)
+    accessible=task and current_user_id and readable(current_user_id)
     if accessible and current_user_id==a.assignee_user_id:
         if a.status=="assigned": caps += ["start_assignment","submit_result","request_help"]
         if a.status in ("in_progress","help_required","needs_revision"): caps += ["submit_result"]
@@ -1651,13 +1792,13 @@ def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: O
         caps += _task_caps(task, current_user_id, {
             "view_assessment_inputs": "task.inputs.view",
             "review_assignment": "task.review",
-            "reassign_assignment": "task.review",
+            "reassign_assignment": "task.add_assignment",
             "edit_assessment_inputs": "task.inputs.edit",
-        })
+        }, facts=facts)
 
     if task:
         from tracker import is_control_task
-        if is_control_task(session, task.task_id):
+        if facts.control() if facts is not None else is_control_task(session, task.task_id):
             caps = []
 
     return AssignmentPublicDC(
@@ -1672,23 +1813,85 @@ def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: O
     )
 
 
-def _task_caps(t: TaskORM, uid: int, table: dict) -> list[str]:
-    """Capabilities of a task or assignment, by the policy actions in `table`."""
+class _UnresolvedCandidate:
+    """An authorized unresolved assignment before its DTO is built (sort/page key)."""
+    __slots__ = ("assignment", "task")
+
+    def __init__(self, assignment, task):
+        self.assignment, self.task = assignment, task
+
+    @property
+    def deadline_at(self):
+        return self.task.deadline_at
+
+    @property
+    def assignment_id(self):
+        return self.assignment.assignment_id
+
+
+def _prime_assignment_details(session: Session, assignments) -> None:
+    """Batch the submissions and file records _assignment_orm_to_dc reads per row.
+
+    Only a clean read UOW keeps these hints. An assignment whose submissions share a
+    timestamp keeps its own ordered query, so SQLite's tie order is unchanged; the
+    converter still reads every value and applies its own fallbacks.
+    """
+    from read_context import prime_rows, prime_get, reusable
+    ids = list(dict.fromkeys(a.assignment_id for a in assignments))
+    if not ids or not reusable(session):
+        return
+    by_assignment = {aid: [] for aid in ids}
+    for offset in range(0, len(ids), 500):
+        for row in session.query(SubmissionORM).filter(SubmissionORM.assignment_id.in_(ids[offset:offset+500])).order_by(
+                SubmissionORM.submitted_at.asc()):
+            by_assignment[row.assignment_id].append(row)
+    file_ids = set()
+    for aid, rows in by_assignment.items():
+        if len({row.submitted_at for row in rows}) == len(rows):
+            prime_rows(session, "assignment.submissions", aid, rows)
+        for row in rows:
+            try:
+                values = json.loads(row.files_json or "[]")
+            except Exception:
+                continue
+            if isinstance(values, list):
+                file_ids.update(value for value in values if isinstance(value, str))
+    found = {}
+    ordered = sorted(file_ids)
+    for offset in range(0, len(ordered), 500):
+        for row in session.query(FileRecordORM).filter(FileRecordORM.file_id.in_(ordered[offset:offset+500])):
+            found[row.file_id] = row
+    for file_id in ordered:
+        prime_get(session, FileRecordORM, file_id, found.get(file_id))
+
+
+def _task_caps(t: TaskORM, uid: int, table: dict, facts=None) -> list[str]:
+    """Capabilities of a task or assignment, by the policy actions in `table`.
+
+    ``facts`` (tracker.TaskFacts of this task) supplies the same checks computed
+    once for the whole task DTO instead of once per assignment and table.
+    """
     import access
-    if not db.can_read_task(uid,t):return []
-    rel = access.relations(uid, t.scope_kind, t.scope_id)
-    state = access.season_state(t.season_id)
+    if facts is not None and facts.task is not t:
+        facts = None
+    if not (facts.readable(uid) if facts is not None else db.can_read_task(uid,t)):return []
+    rel = facts.relations(uid) if facts is not None else access.relations(uid, t.scope_kind, t.scope_id)
+    state = facts.season_state() if facts is not None else access.season_state(t.season_id)
     from tracker import can_edit_public, is_control_task
     with db._session() as session:
-        administrative = is_control_task(session, t.task_id)
-        return [cap for cap, action in table.items() if not ((t.scope_kind=="queue" or administrative) and action in {"task.inputs.view","task.inputs.edit","task.review"}) and (can_edit_public(session,t,uid) if action=="task.edit" else access.allowed(uid, action, state=state, rel=rel))]
+        administrative = facts.control() if facts is not None else is_control_task(session, t.task_id)
+        return [cap for cap, action in table.items() if not ((t.scope_kind=="queue" or administrative) and action in {"task.inputs.view","task.inputs.edit","task.review","task.add_assignment"}) and (can_edit_public(session,t,uid,facts=facts) if action=="task.edit" else access.allowed(uid, action, state=state, rel=rel))]
 
 
 def _task_orm_to_dc(session: Session, t: TaskORM, current_user_id: Optional[int] = None) -> TaskPublicDC:
     from read_context import orm_rows
+    from tracker import TaskFacts
+    # One calculation's access facts for this task; commands build it after their
+    # last write. Dropped at any change, never kept after this DTO.
+    facts = TaskFacts(session, t)
     a_orms = orm_rows(session, "tracker.rows", (AssignmentORM, (("task_id", t.task_id),)),
                       lambda:session.query(AssignmentORM).filter(AssignmentORM.task_id == t.task_id).all())
-    assignments = [_assignment_orm_to_dc(session, a, current_user_id) for a in a_orms]
+    assignments = [_assignment_orm_to_dc(session, a, current_user_id, facts=facts) for a in a_orms]
     caps = ["comment_task"]
     if current_user_id:
         caps += _task_caps(t, current_user_id, {
@@ -1696,7 +1899,7 @@ def _task_orm_to_dc(session: Session, t: TaskORM, current_user_id: Optional[int]
             "edit_task": "task.edit",
             "edit_assessment_inputs": "task.inputs.edit",
             "view_unresolved_assignments": "task.review",
-        })
+        }, facts=facts)
     desc_body = ""
     try:
         dj = json.loads(t.description_json or "{}")
@@ -1719,7 +1922,7 @@ def _task_orm_to_dc(session: Session, t: TaskORM, current_user_id: Optional[int]
         capabilities=caps,
     )
     from tracker import enrich_task
-    return enrich_task(session, t, result, current_user_id)
+    return enrich_task(session, t, result, current_user_id, facts=facts)
 
 
 def _comment_orm_to_dc(session: Session, c: CommentORM, current_user_id: Optional[int] = None) -> CommentDC:
@@ -2339,7 +2542,7 @@ def _recalculate_closed_master_bonuses_for_session(session: Session, season_id: 
                     c.updated_at = datetime.now(timezone.utc).isoformat()
 
 
-def _calculate_season_summary_for_session(session: Session, season_id: str, is_approved: bool = False) -> SeasonSummaryDC:
+def _calculate_season_summary_for_session(session: Session, season_id: str, is_approved: bool = False, current_user_id: Optional[int] = None) -> SeasonSummaryDC:
     prepared = _SeasonSummaryData(session,season_id)
     all_users = prepared.users
     included_users = []
@@ -2435,12 +2638,13 @@ def _calculate_season_summary_for_session(session: Session, season_id: str, is_a
 
     summary_state = "approved" if is_approved else "draft"
     caps = ["view_summary", "export_xlsx"]
+    import access
     if summary_state == "approved":
         caps.append("correct_summary")
-        import access
         if access.allowed(access.actor_id.get(), "summary.decide", state="closed"):
             caps.append("edit_decisions")
-    else:
+    elif access.allowed(current_user_id or access.actor_id.get(), "summary.decide", state=season_orm.state if season_orm else None):
+        # A planned season's draft is read, not marked (SE-21); open and summarizing follow the rule too.
         caps.append("edit_decisions")
 
     summary_orm = session.query(SeasonSummaryORM).filter(SeasonSummaryORM.season_id == season_id).first()
@@ -2474,6 +2678,19 @@ class _SessionLease:
         return getattr(self.session, name)
 
 
+WRITE_LOCK_LOG_MS = 200
+_write_lock_log = logging.getLogger("profkom.write_lock")
+
+
+def _report_write_lock(label, started, acquired, released):
+    """Wait = until BEGIN IMMEDIATE returned; hold = from then until the lock is free."""
+    wait = ((acquired if acquired is not None else released) - started) * 1000
+    hold = (released - acquired) * 1000 if acquired is not None else 0.0
+    if wait > WRITE_LOCK_LOG_MS or hold > WRITE_LOCK_LOG_MS:
+        _write_lock_log.warning("write unit %s waited %.0f ms and held the write lock %.0f ms",
+                                label or "-", wait, hold)
+
+
 class Database:
     """SQLAlchemy-backed database layer."""
 
@@ -2487,11 +2704,13 @@ class Database:
         return _SessionLease(active) if active is not None else self._SessionLocal()
 
     @asynccontextmanager
-    async def async_atomic(self, write=True):
+    async def async_atomic(self, write=True, label=None):
         """Keep the request context, without blocking the loop on SQLite locks.
 
         Waiting HTTP writers yield so the current request can commit. The
         synchronous atomic() remains available for scripts and domain services.
+        A write unit that waits for or holds the write lock longer than
+        WRITE_LOCK_LOG_MS is logged with ``label`` (method and path).
         """
         if _active_session.get() is not None:
             if write:
@@ -2500,6 +2719,8 @@ class Database:
             return
         lock = None
         loop = asyncio.get_running_loop()
+        started = time.perf_counter()
+        acquired = None
         if write:
             lock = self._http_write_locks.setdefault(loop, asyncio.Lock())
             await lock.acquire()
@@ -2508,11 +2729,13 @@ class Database:
                 with self._SessionLocal() as session:
                     if write:
                         await to_thread.run_sync(lambda: session.execute(text("BEGIN IMMEDIATE")))
+                        acquired = time.perf_counter()
                     token = _active_session.set(session)
                     try:
                         if write:
-                            yield
-                            await to_thread.run_sync(session.commit)
+                            with hold_identities(session):
+                                yield
+                                await to_thread.run_sync(session.commit)
                         else:
                             with read_scope(session):
                                 yield
@@ -2525,6 +2748,7 @@ class Database:
         finally:
             if lock is not None:
                 lock.release()
+                _report_write_lock(label, started, acquired, time.perf_counter())
 
     @contextmanager
     def atomic(self, write=True):
@@ -2539,8 +2763,9 @@ class Database:
             token = _active_session.set(session)
             try:
                 if write:
-                    yield
-                    session.commit()
+                    with hold_identities(session):
+                        yield
+                        session.commit()
                 else:
                     with read_scope(session):
                         yield
@@ -2596,7 +2821,20 @@ class Database:
         final_blocks_str = _format_blocks(sorted(list(valid_requested_blocks)))
         if u: u.blocks = final_blocks_str
         if c: c.blocks = final_blocks_str
+        self._seed_block_memberships(session, added)
         return final_blocks_str
+
+    def _seed_block_memberships(self, session: Session, block_names) -> None:
+        """A legacy roster write creates the matching memberships in its own transaction;
+        GET /blocks no longer repairs them (GL-05)."""
+        if not block_names:
+            return
+        from domain_seed import meta_for, seed_members
+        session.flush()
+        for name in sorted(block_names):
+            b = session.get(BlockORM, name)
+            if b:
+                seed_members(session, b, meta_for(session, name))
 
     def _sync_users_for_block(self, session: Session, block_name: str, new_user_ids: list[int]):
         b = session.get(BlockORM, block_name)
@@ -2643,6 +2881,8 @@ class Database:
         # Update block record itself
         b.arr_of_human = json.dumps(list(new_user_ids_set))
         b.cnt_of_human = len(new_user_ids_set)
+        if added:
+            self._seed_block_memberships(session, [block_name])
 
     # --- Users & ContactInfo ---
 
@@ -2708,6 +2948,7 @@ class Database:
     @memoized("database.user")
     def get_user(self, user_id: int) -> Optional[UserDC]:
         with self._session() as session:
+            _note_user(user_id)
             u = session.get(UserORM, user_id)
             if not u:
                 return None
@@ -3042,6 +3283,11 @@ class Database:
                     b.cnt_of_human = 0
 
             self._sync_admin_rights(session, {block.master, block.hr})
+            # A new block gets its stable identity and guide placeholder now, not on the
+            # first GET /blocks (GL-05).
+            from domain_seed import meta_for
+            from materials import ensure_block_guide
+            ensure_block_guide(session, meta_for(session, block.name).block_id)
 
             session.commit()
             session.refresh(b)
@@ -3277,6 +3523,8 @@ class Database:
     # --- Leadership and Roles ---
 
     def _get_user_ref(self, session: Session, user_id: Optional[int]) -> Optional[UserRefDC]:
+        if user_id is not None:
+            _note_user(user_id)
         return _user_to_ref_dc(session.get(UserORM,user_id)) if user_id is not None else None
 
     def get_leadership(self) -> LeadershipDC:
@@ -3468,6 +3716,7 @@ class Database:
     def is_tachki(self, user_id: int) -> bool:
         return self.is_chair(user_id) or self.is_deputy_chair(user_id)
 
+    @memoized("database.is_hr_master", copy_result=False)
     def is_hr_master(self, user_id: int) -> bool:
         with self._session() as session:
             count = (
@@ -3620,10 +3869,18 @@ class Database:
             starts_at=timestamp(starts_at) if starts_at is not None else None
             ends_at=timestamp(ends_at) if ends_at is not None else None
             if dt(starts_at or row.starts_at)>=dt(ends_at or row.ends_at):raise InvalidInput("Season must have positive duration")
-            for task in session.query(TaskORM).filter_by(season_id=season_id):
-                if dt(task.deadline_at)>dt(ends_at or row.ends_at):raise InvalidInput("Cannot shorten season before task deadline")
-            for merit in session.query(MeritORM).filter_by(season_id=season_id):
-                if dt(merit.deadline_at)>dt(ends_at or row.ends_at):raise InvalidInput("Cannot shorten season before merit deadline")
+            from domain_models import KkrControlEpicORM
+            controls={r.task_id for r in session.query(KkrControlEpicORM).filter_by(season_id=season_id)}
+            # Only an earlier end can leave saved work outside the season. Undated tasks and
+            # the managed KKR control epics (their deadline follows the season end) never block it.
+            shortened=ends_at is not None and dt(ends_at)<dt(row.ends_at)
+            if shortened:
+                for task in session.query(TaskORM).filter_by(season_id=season_id):
+                    if task.task_id not in controls and task.deadline_at and dt(task.deadline_at)>dt(ends_at):
+                        raise InvalidInput("Cannot shorten season before task deadline","season_shorter_than_tasks",subject=task.title)
+                for merit in session.query(MeritORM).filter_by(season_id=season_id):
+                    if merit.deadline_at and dt(merit.deadline_at)>dt(ends_at):
+                        raise InvalidInput("Cannot shorten season before merit deadline","season_shorter_than_tasks",subject=merit.title)
             if row.revision != expected_revision:
                 raise revision_conflict()
             session.info["history_reason"] = reason
@@ -3632,12 +3889,18 @@ class Database:
             if starts_at is not None:
                 row.starts_at = starts_at
             if ends_at is not None:
-                evs = session.query(EventORM).filter(EventORM.season_id == season_id).all()
+                evs = session.query(EventORM).filter(EventORM.season_id == season_id).all() if shortened else []
                 for ev in evs:
                     if ev.starts_at and dt(ev.starts_at) > dt(ends_at):
-                        raise InvalidInput("Cannot shorten season before event start")
+                        raise InvalidInput("Cannot shorten season before event start", "season_shorter_than_tasks", subject=ev.title)
                     if ev.ends_at and dt(ev.ends_at) > dt(ends_at):
-                        raise InvalidInput(f"Cannot shorten season ends_at before event '{ev.title}' deadline ({ev.ends_at})")
+                        raise InvalidInput(f"Cannot shorten season ends_at before event '{ev.title}' deadline ({ev.ends_at})", "season_shorter_than_tasks", subject=ev.title)
+                if dt(ends_at) != dt(row.ends_at):
+                    # Control epics stay open until the season end; move them in the same unit.
+                    for task in session.query(TaskORM).filter(TaskORM.task_id.in_(controls)) if controls else ():
+                        if task.deadline_at != ends_at:
+                            task.deadline_at = ends_at
+                            task.revision += 1
                 row.ends_at = ends_at
             row.revision += 1
             session.commit()
@@ -3979,6 +4242,8 @@ class Database:
             if not r:
                 raise NotFound("Report not found")
             if not self.is_report_editor(user_id, r, session):
+                if not self.can_read_report(user_id, r, session):
+                    raise NotFound("Report not found")  # like its GET (GL-24)
                 raise Forbidden("Forbidden: cannot edit this report")
             if r.revision != expected_revision:
                 raise revision_conflict()
@@ -4019,6 +4284,8 @@ class Database:
             if not r:
                 raise NotFound("Report not found")
             if not self.is_report_editor(user_id, r, session):
+                if not self.can_read_report(user_id, r, session):
+                    raise NotFound("Report not found")  # like its GET (GL-24)
                 raise Forbidden("Forbidden: cannot publish this report")
             if r.revision != expected_revision:
                 raise revision_conflict()
@@ -4411,6 +4678,9 @@ class Database:
                 RoleAssignmentORM.role == "event_leader",
             ).all()
             existing_by_uid = {r.user_id: r for r in existing}
+            # The same roster is a no-op: no new revision for other open forms.
+            if set(user_ids) == set(existing_by_uid):
+                return _event_orm_to_dc(session, ev)
 
             # Remove leaders not in user_ids and their deputies
             for uid, r in existing_by_uid.items():
@@ -4463,6 +4733,8 @@ class Database:
                 RoleAssignmentORM.role == "subevent_leader",
             ).all()
             existing_by_uid = {r.user_id: r for r in existing}
+            if set(user_ids) == set(existing_by_uid):
+                return _subevent_orm_to_dc(session, sub)
 
             for uid, r in existing_by_uid.items():
                 if uid not in user_ids:
@@ -4507,11 +4779,15 @@ class Database:
             for uid in user_ids:
                 _roster_candidate(session, uid)
 
-            old_ids = set()
+            old_list = []
             try:
-                old_ids = set(json.loads(sub.organizer_user_ids_json or "[]"))
+                old_list = list(json.loads(sub.organizer_user_ids_json or "[]"))
             except Exception:
                 pass
+            # The same ordered roster is a no-op: no new revision for other open forms.
+            if old_list == list(user_ids):
+                return _subevent_orm_to_dc(session, sub)
+            old_ids = set(old_list)
             new_ids = set(user_ids) - old_ids
             for uid in new_ids:
                 session.add(NotificationORM(
@@ -4708,11 +4984,16 @@ class Database:
             session.commit()
             return _meeting_orm_to_dc(row)
 
-    def delete_meeting(self, owner_kind: str, owner_id: str) -> bool:
+    def delete_meeting(self, owner_kind: str, owner_id: str, expected_revision: Optional[int] = None) -> bool:
         with self._session() as session:
             event=session.get(EventORM,owner_id) if owner_kind=="event" else session.get(EventORM,session.get(SubeventORM,owner_id).event_id) if session.get(SubeventORM,owner_id) else None
             if not event:raise NotFound("Meeting owner not found")
             if session.get(SeasonORM,event.season_id).state=="closed":raise season_closed("Conflict: closed meetings are not available")
+            if expected_revision is not None:
+                # The confirmed announcement must still be the current one; an absent one is already removed.
+                row = session.query(MeetingORM).filter(MeetingORM.owner_kind == owner_kind, MeetingORM.owner_id == owner_id).first()
+                if row is not None and row.revision != expected_revision:
+                    raise revision_conflict()
             deleted = session.query(MeetingORM).filter(
                 MeetingORM.owner_kind == owner_kind,
                 MeetingORM.owner_id == owner_id,
@@ -4791,6 +5072,7 @@ class Database:
             except Exception:
                 return False
 
+    @memoized("database.is_block_master_deputy", copy_result=False)
     def is_block_master_deputy(self, user_id: int, block_name: str) -> bool:
         with self._session() as session:
             count = session.query(RoleAssignmentORM).filter(
@@ -4842,11 +5124,11 @@ class Database:
     def require_task_right(self, user_id: int, action: str, t, state, denied: str, closed_denied: str) -> None:
         """Raises the 403 for `action` on task `t`; a closed season has its own message."""
         import access
-        if not self.can_read_task(user_id,t):raise Forbidden("Forbidden: task queue access ended")
-        if action in {"task.inputs.view", "task.inputs.edit", "task.review", "task.dates.edit"}:
+        if not self.can_read_task(user_id,t):raise NotFound("Task not found")  # like its GET (GL-24)
+        if action in {"task.inputs.view", "task.inputs.edit", "task.review", "task.add_assignment", "task.dates.edit"}:
             with self._session() as session:
                 self.require_accountable_task(session, t)
-        if t.scope_kind=="queue" and action in {"task.inputs.view","task.inputs.edit","task.review","task.dates.edit"}:raise InvalidInput("Independent tasks have no accounting source")
+        if t.scope_kind=="queue" and action in {"task.inputs.view","task.inputs.edit","task.review","task.add_assignment","task.dates.edit"}:raise InvalidInput("Independent tasks have no accounting source")
         if action=="task.edit":
             from tracker import can_edit_public
             with self._session() as session:permitted=can_edit_public(session,t,user_id)
@@ -4985,7 +5267,7 @@ class Database:
             from validation import period, timestamp, hours as check_hours
             if deadline_at is not None:
                 deadline_at=timestamp(deadline_at)
-                period(datetime.now(timezone.utc).isoformat(),deadline_at,season.ends_at)
+                period(datetime.now(timezone.utc).isoformat(),deadline_at,season.ends_at,start=None)
             if len({a.get("user_id") for a in assignees})!=len(assignees):raise InvalidInput("Duplicate assignees", "duplicate_users")
             for item in assignees:check_hours(item.get("hours",0))
             import access
@@ -5148,7 +5430,10 @@ class Database:
         user_id: int,
         parent_task_id: Optional[str] = None,
         parent_supplied: bool = False,
-    ) -> TaskPublicDC:
+        build_response: bool = True,
+    ) -> Optional[TaskPublicDC]:
+        """``build_response=False``: a caller that builds its own final DTO (one mixed
+        PATCH) skips this intermediate one; checks and writes are unchanged."""
         with self._session() as session:
             t = session.get(TaskORM, task_id)
             if not t or not self.can_read_task(user_id,t,session):
@@ -5158,7 +5443,7 @@ class Database:
             if title is not None or parent_supplied or description is None:
                 self.require_task_right(user_id, "task.edit", t, season and season.state,
                                         "Forbidden: cannot edit this task",
-                                        "Forbidden: only the chair and deputies can edit tasks in a closed season")
+                                        "Forbidden: only the chair, deputies and HR master can edit tasks in a closed season")
             elif not can_edit_description(session,t,user_id):raise Forbidden("Cannot edit task description")
             if t.revision != expected_revision:
                 raise revision_conflict()
@@ -5178,7 +5463,7 @@ class Database:
                 t.description_json = json.dumps({"format": "markdown", "body": description})
             t.revision += 1
             session.commit()
-            return _task_orm_to_dc(session, t, user_id)
+            return _task_orm_to_dc(session, t, user_id) if build_response else None
 
     # ─────────────────────────────────────────────────────────────
     #  BE-03: ASSIGNMENT ACTIONS
@@ -5190,7 +5475,7 @@ class Database:
             if not a:
                 raise NotFound("Assignment not found")
             task=session.get(TaskORM,a.task_id)
-            if not task or not self.can_read_task(user_id,task,session):raise Forbidden("Forbidden: scope access ended")
+            if not task or not self.can_read_task(user_id,task,session):raise NotFound("Assignment not found")  # like its GET (GL-24)
             self.require_accountable_task(session, task)
             if task.season_id and session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
             if a.assignee_user_id != user_id:
@@ -5214,7 +5499,7 @@ class Database:
             if not a:
                 raise NotFound("Assignment not found")
             task=session.get(TaskORM,a.task_id)
-            if not task or not self.can_read_task(user_id,task,session):raise Forbidden("Forbidden: scope access ended")
+            if not task or not self.can_read_task(user_id,task,session):raise NotFound("Assignment not found")  # like its GET (GL-24)
             self.require_accountable_task(session, task)
             if task.season_id and session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
             if a.assignee_user_id != user_id:
@@ -5270,7 +5555,7 @@ class Database:
             if not a:
                 raise NotFound("Assignment not found")
             task=session.get(TaskORM,a.task_id)
-            if not task or not self.can_read_task(user_id,task,session):raise Forbidden("Forbidden: scope access ended")
+            if not task or not self.can_read_task(user_id,task,session):raise NotFound("Assignment not found")  # like its GET (GL-24)
             self.require_accountable_task(session, task)
             if task.season_id and session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
             if a.assignee_user_id != user_id:
@@ -5300,7 +5585,7 @@ class Database:
             if not a:
                 raise NotFound("Assignment not found")
             task=session.get(TaskORM,a.task_id)
-            if not task or not self.can_read_task(user_id,task,session):raise Forbidden("Forbidden: scope access ended")
+            if not task or not self.can_read_task(user_id,task,session):raise NotFound("Assignment not found")  # like its GET (GL-24)
             self.require_accountable_task(session, task)
             if task.season_id and session.get(SeasonORM,task.season_id).state=="closed":raise season_closed()
             if a.assignee_user_id != user_id:
@@ -5351,7 +5636,7 @@ class Database:
             season = session.get(SeasonORM, t.season_id)
             self.require_task_right(reviewer_user_id, "task.review", t, season and season.state,
                                     "Forbidden: cannot accept assignment for this scope",
-                                    "Forbidden: only the chair and deputies can accept/evaluate in a closed season")
+                                    "Forbidden: only the chair, deputies and HR master can accept/evaluate in a closed season")
 
             if a.revision != expected_revision:
                 raise revision_conflict()
@@ -5406,7 +5691,7 @@ class Database:
             season = session.get(SeasonORM, t.season_id)
             self.require_task_right(reviewer_user_id, "task.review", t, season and season.state,
                                     "Forbidden: cannot review assignment for this scope",
-                                    "Forbidden: only the chair and deputies can request revision in a closed season")
+                                    "Forbidden: only the chair, deputies and HR master can request revision in a closed season")
 
             if a.revision != expected_revision:
                 raise revision_conflict()
@@ -5461,7 +5746,7 @@ class Database:
             season = session.get(SeasonORM, t.season_id)
             self.require_task_right(reviewer_user_id, "task.review", t, season and season.state,
                                     "Forbidden: cannot manage assignment for this scope",
-                                    "Forbidden: only the chair and deputies can mark not completed in a closed season")
+                                    "Forbidden: only the chair, deputies and HR master can mark not completed in a closed season")
 
             if a.revision != expected_revision:
                 raise revision_conflict()
@@ -5517,7 +5802,7 @@ class Database:
             season = session.get(SeasonORM, t.season_id)
             self.require_task_right(reviewer_user_id, "task.review", t, season and season.state,
                                     "Forbidden: cannot cancel assignment for this scope",
-                                    "Forbidden: only the chair and deputies can cancel assignment in a closed season")
+                                    "Forbidden: only the chair, deputies and HR master can cancel assignment in a closed season")
 
             if a.revision != expected_revision:
                 raise revision_conflict()
@@ -5560,7 +5845,17 @@ class Database:
         scope_id: Optional[str] = None,
         orphaned_only: bool = False,
         current_user_id: Optional[int] = None,
+        select=None,
     ) -> list[UnresolvedAssignmentDC]:
+        """Unresolved assignments the reader may review, optionally one selected page.
+
+        The reader's task access and task.review run over every candidate first.
+        ``select`` then receives these lightweight rows (``deadline_at`` and
+        ``assignment_id``) and returns the ones to build, in response order, e.g. a
+        keyset page. Assignment DTOs, submissions and the assignees' own task access
+        are computed only for the selected rows; orphaned_only depends on the
+        assignee's access, so it is evaluated for every candidate before ``select``.
+        """
         with self._session() as session:
             active_statuses = UNRESOLVED_STATUSES
             query = (
@@ -5575,27 +5870,64 @@ class Database:
                 query = query.filter(TaskORM.scope_id == scope_id)
 
             pairs = query.all()
-            results = []
             from tracker import is_control_task
-            for a, t in pairs:
-                if t.scope_kind=="queue" or a.status not in active_statuses or is_control_task(session, t.task_id):continue
+            # The central batch task ACL records the same task_read decisions the
+            # per-row checks below use (a no-op outside a clean read UOW).
+            from task_queues import readable_tasks_many
+            import access
+            candidates = [(a, t) for a, t in pairs
+                          if t.scope_kind != "queue" and a.status in active_statuses and not is_control_task(session, t.task_id)]
+            if current_user_id is not None:
+                readable_tasks_many(session, {current_user_id: list({t.task_id: t for _, t in candidates}.values())})
+            reviewable = {}
+            visible = []
+            for a, t in candidates:
                 if current_user_id is not None:
-                    import access
                     if not self.can_read_task(current_user_id,t,session):continue
-                    if not access.allowed(current_user_id, "task.review", t.scope_kind, t.scope_id,
-                                          state=access.season_state(t.season_id)):
+                    key = (t.scope_kind, t.scope_id, t.season_id)
+                    if key not in reviewable:
+                        reviewable[key] = access.allowed(current_user_id, "task.review", t.scope_kind, t.scope_id,
+                                                         state=access.season_state(t.season_id))
+                    if not reviewable[key]:
                         continue
+                visible.append((a, t))
 
+            def assignee_access(rows):
+                by_user = {}
+                for a, t in rows:
+                    by_user.setdefault(a.assignee_user_id, {})[t.task_id] = t
+                readable_tasks_many(session, {uid: list(tasks.values()) for uid, tasks in by_user.items()})
+
+            def unavailable(a, t):
+                _note_user(a.assignee_user_id)
                 u = session.get(UserORM, a.assignee_user_id)
-                unavail = None
                 if not u or u.banned or getattr(u, "account_state", "active") != "active":
-                    unavail = "archived"
-                elif not self.can_read_task(a.assignee_user_id,t,session):
-                    unavail = "left_scope"
+                    return "archived"
+                if not self.can_read_task(a.assignee_user_id,t,session):
+                    return "left_scope"
+                return None
 
-                if orphaned_only and unavail is None:
-                    continue
-
+            reasons = {}
+            if orphaned_only:
+                assignee_access(visible)
+                for a, t in visible:
+                    reasons[a.assignment_id] = unavailable(a, t)
+                visible = [(a, t) for a, t in visible if reasons[a.assignment_id] is not None]
+            rows = [_UnresolvedCandidate(a, t) for a, t in visible]
+            if select is not None:
+                rows = select(rows)
+            selected = [(row.assignment, row.task) for row in rows]
+            if not orphaned_only:
+                assignee_access(selected)
+            _prime_assignment_details(session, [a for a, _ in selected])
+            from read_context import reusable
+            subevent_ids = sorted({t.scope_id for _, t in selected if t.scope_kind == "subevent" and t.scope_id})
+            if subevent_ids and reusable(session):
+                # The selected rows' scope titles; the read UOW holds these rows.
+                session.query(SubeventORM).filter(SubeventORM.subevent_id.in_(subevent_ids)).all()
+            results = []
+            for a, t in selected:
+                unavail = reasons[a.assignment_id] if orphaned_only else unavailable(a, t)
                 a_dc=_assignment_orm_to_dc(session,a,current_user_id)
                 a_dc.assignee_unavailable_reason = unavail
                 results.append(
@@ -5630,9 +5962,9 @@ class Database:
                 raise NotFound("Task not found")
 
             season = session.get(SeasonORM, t.season_id)
-            self.require_task_right(manager_user_id, "task.review", t, season and season.state,
+            self.require_task_right(manager_user_id, "task.add_assignment", t, season and season.state,
                                     "Forbidden: cannot manage assignments for this scope",
-                                    "Forbidden: only the chair and deputies can reassign in a closed season")
+                                    "Forbidden: only the chair, deputies and HR master can reassign in a closed season")
 
             if a.inputs_revision != expected_revision:
                 raise revision_conflict()
@@ -5779,13 +6111,14 @@ class Database:
             )
 
     def require_dates_right(self, user_id: int, t, state, changes) -> None:
-        """Only the chair, deputies and HR master move a task's dates once set (УВ-5).
+        """Only the chair, deputies, HR master and HR deputy move a task's dates once set (УВ-5);
+        in a closed season the HR deputy does not (SE-13).
         `changes` holds (new, old) pairs; a new value naming the same instant is no move."""
         from participation import dt
         if any(new is not None and (old is None or dt(new) != dt(old)) for new, old in changes):
             self.require_task_right(user_id, "task.dates.edit", t, state,
-                                    "Forbidden: only the chair, deputies and HR master change task dates",
-                                    "Forbidden: only the chair and deputies change task dates in a closed season")
+                                    "Forbidden: only the chair, deputies, HR master and HR deputy change task dates",
+                                    "Forbidden: only the chair, deputies and HR master change task dates in a closed season")
 
     def patch_task_assessment_inputs(
         self,
@@ -5804,7 +6137,7 @@ class Database:
             season = session.get(SeasonORM, t.season_id)
             self.require_task_right(user_id, "task.inputs.edit", t, season and season.state,
                                     "Forbidden: cannot edit task assessment inputs",
-                                    "Forbidden: only the chair and deputies can edit assessment inputs in a closed season")
+                                    "Forbidden: only the chair, deputies and HR master can edit assessment inputs in a closed season")
             from participation import dt
             from validation import period, timestamp
             if assigned_at is not None:assigned_at=timestamp(assigned_at)
@@ -5819,7 +6152,7 @@ class Database:
 
             final_deadline = deadline_at or t.deadline_at
             if final_deadline is not None:
-                period(assigned_at or t.assigned_at, final_deadline, season.ends_at)
+                period(assigned_at or t.assigned_at, final_deadline, season.ends_at, start_moved=assigned_at is not None and deadline_at is None)
             if meta.starts_at and final_deadline is not None and dt(meta.starts_at)>dt(final_deadline):
                 raise InvalidInput("Planned start must not be later than the deadline")
             old_assigned = t.assigned_at
@@ -5897,7 +6230,7 @@ class Database:
             season = session.get(SeasonORM, t.season_id)
             self.require_task_right(user_id, "task.inputs.edit", t, season and season.state,
                                     "Forbidden: cannot edit assignment assessment inputs",
-                                    "Forbidden: only the chair and deputies can edit assessment inputs in a closed season")
+                                    "Forbidden: only the chair, deputies and HR master can edit assessment inputs in a closed season")
             from participation import dt
             from validation import assessment, hours as check_hours, timestamp
             if effective_completed_at is not None:effective_completed_at=timestamp(effective_completed_at)
@@ -5988,7 +6321,7 @@ class Database:
                 season = session.get(SeasonORM, t.season_id)
                 self.require_task_right(user_id, "task.inputs.edit", t, season and season.state,
                                         f"Forbidden: cannot edit assessment inputs for assignment {aid}",
-                                        "Forbidden: only the chair and deputies can edit assessment inputs in a closed season")
+                                        "Forbidden: only the chair, deputies and HR master can edit assessment inputs in a closed season")
                 if a.inputs_revision != exp_rev:
                     raise revision_conflict(f"Conflict: revision mismatch for assignment {aid}")
                 loaded_items.append((a, t))
@@ -6032,7 +6365,7 @@ class Database:
     ) -> list[CalculatedContributionDC]:
         import access
         if not access.allowed(current_user_id, "kkr.view"):
-            raise Forbidden("Forbidden: only HR master, the chair and deputies can view assessments")
+            raise Forbidden("Forbidden: only the chair, deputies, HR master and HR deputy can view assessments")
 
         with self._session() as session:
             q = session.query(ContributionORM)
@@ -6107,8 +6440,11 @@ class Database:
             if not season:
                 raise NotFound("Season not found")
             import access
-            if season.state == "closed" and not access.allowed(created_by_user_id, "summary.correct"):
-                raise Forbidden("Forbidden: only the chair and deputies can create merits in a closed season")
+            from merit_rules import CREATE_ACTIONS, can_create
+            # A closed season gets a new merit only from its circle (CLOSED_SEASON, SE-13): the
+            # same merit.create.* rule as below, refused here before the input checks.
+            if season.state == "closed" and not access.allowed(created_by_user_id, CREATE_ACTIONS[source_kind], state="closed"):
+                raise Forbidden("Forbidden: only the chair, deputies and HR master can create merits in a closed season")
             if season.state == "planned" and source_kind not in ("head_merit", "subevent_volunteer"):
                 raise InvalidInput("Only head_merit and subevent_volunteer are allowed in a planned season")
 
@@ -6117,7 +6453,6 @@ class Database:
             scope_kind = scope.get("kind")
             scope_id = scope.get("id")
 
-            from merit_rules import can_create
             if source_kind == "chair_merit":
                 denied = "Forbidden: only chair and deputies can create chair_merit"
             elif source_kind == "head_merit":
@@ -6136,7 +6471,7 @@ class Database:
                 if not session.get(SubeventORM, scope_id):
                     raise NotFound("Subevent not found")
                 denied = "Forbidden: cannot create volunteer merit for this subevent"
-            if not can_create(created_by_user_id, source_kind, event_id, scope_id):
+            if not can_create(created_by_user_id, source_kind, event_id, scope_id, state=season.state):
                 raise Forbidden(denied)
 
             from merit_rules import validate
@@ -6239,7 +6574,7 @@ class Database:
             season = session.get(SeasonORM, m.season_id)
             from merit_rules import can_manage
             if not can_manage(m, user_id, write=True):
-                raise Forbidden("Forbidden: only the chair and deputies can edit merits in a closed season"
+                raise Forbidden("Forbidden: only the chair, deputies and HR master can edit merits in a closed season"
                                  if season and season.state == "closed" else "Forbidden: cannot edit this merit")
 
             if m.revision != expected_revision:
@@ -6284,7 +6619,7 @@ class Database:
     def list_master_bonuses(self, season_id: str, current_user_id: int, block_id: Optional[str] = None) -> list[MasterBonusDC]:
         import access
         if not access.allowed(current_user_id, "kkr.view"):
-            raise Forbidden("Forbidden: only HR master, the chair and deputies can view master bonuses")
+            raise Forbidden("Forbidden: only the chair, deputies, HR master and HR deputy can view master bonuses")
         with self._session() as session:
             season = session.get(SeasonORM, season_id)
             if season and season.state == "closed":
@@ -6328,7 +6663,8 @@ class Database:
                         )
                     return res
 
-            bonuses = _calculate_master_bonuses_for_session(session, season_id)
+            # The summary's prepared inputs: the same rows and reference policy, read once.
+            bonuses = _calculate_master_bonuses_for_session(session, season_id, prepared=_SeasonSummaryData(session, season_id))
             if block_id:
                 bonuses = [b for b in bonuses if b.block_id == block_id]
             return bonuses
@@ -6336,7 +6672,7 @@ class Database:
     def get_season_summary(self, season_id: str, current_user_id: int) -> SeasonSummaryDC:
         import access
         if not access.allowed(current_user_id, "summary.view"):
-            raise Forbidden("Forbidden: only HR master, the chair and deputies can view season summary")
+            raise Forbidden("Forbidden: only the chair, deputies, HR master and HR deputy can view season summary")
         with self._session() as session:
             season = session.get(SeasonORM, season_id)
             if not season:
@@ -6395,7 +6731,7 @@ class Database:
                         capabilities=caps,
                     ),current_user_id)
             from task_queues import mask_summary
-            return mask_summary(session,_calculate_season_summary_for_session(session, season_id),current_user_id)
+            return mask_summary(session,_calculate_season_summary_for_session(session, season_id, current_user_id=current_user_id),current_user_id)
 
     def update_summary_decisions(
         self,
@@ -6405,9 +6741,10 @@ class Database:
         expected_version: int,
         reason: Optional[str],
         user_id: int,
+        expected_decisions: Optional[list[str]] = None,
     ) -> SeasonSummaryDC:
         from season_summaries import decisions as update
-        return update(season_id,target_user_id,decisions,expected_version,reason,user_id)
+        return update(season_id,target_user_id,decisions,expected_version,reason,user_id,expected_decisions)
 
     def correct_season_summary(
         self,
@@ -6436,7 +6773,7 @@ class Database:
             if not t:
                 raise NotFound("Task not found")
             if not (self.can_read_task(author_user_id,t,session)):
-                raise Forbidden("Forbidden: cannot comment on this task")
+                raise NotFound("Task not found")  # like its GET (GL-24)
 
             body = content.get("body", "") if isinstance(content, dict) else str(content)
             file_ids = [] if file_ids is None else file_ids
@@ -6466,8 +6803,9 @@ class Database:
             if not c:
                 raise NotFound("Comment not found")
             task=session.get(TaskORM,c.task_id)
-            if not task or not self.can_read_task(user_id,task,session):raise Forbidden("Forbidden: scope access ended")
-            self.require_accountable_task(session, task)
+            if not task or not self.can_read_task(user_id,task,session):raise NotFound("Comment not found")  # like its GET (GL-24)
+            # Comments are not accounting inputs: control epics accept them like creation does;
+            # their mention restrictions stay in tracker_collaboration._sync.
             from tracker import can_edit_comment
             if not can_edit_comment(session,c,user_id):
                 raise Forbidden("Forbidden: cannot edit this comment")
@@ -6514,9 +6852,10 @@ class Database:
         user_id: int,
     ) -> FileRecordDC:
         with self._session() as session:
-            from file_access import validate_metadata, permitted, owner_exists
+            from file_access import validate_metadata, permitted, owner_exists, owner_readable
             mime_type = validate_metadata(owner_kind,purpose,name,mime_type,size_bytes)
-            if not owner_exists(session, owner_kind, owner_id):
+            # An owner the user cannot read is the same 404 as a missing one (GL-24).
+            if not owner_exists(session, owner_kind, owner_id) or not owner_readable(session, owner_kind, owner_id, user_id):
                 raise NotFound(f"{owner_kind.capitalize()} not found")
             if owner_kind=="avatar":
                 if owner_id is not None and owner_id!=str(user_id):raise Forbidden("Forbidden: avatar owner mismatch")
@@ -6630,18 +6969,91 @@ def _load_leaders(session: Session, scope_kind: str, scope_id: str, role: str) -
                   lambda: _load_leaders_uncached(session, scope_kind, scope_id, role))
 
 
+def scalar_rows(session: Session, model, columns, *criteria):
+    """Scalar column tuples of a whole table in rowid order, read as ONE result row.
+
+    SQLite's driver releases and re-acquires the GIL for every fetched row, so
+    concurrent requests reading many rows wait on each other. json_group_array
+    builds the rows inside SQLite (TEXT->str, INTEGER->int, REAL->float,
+    NULL->None, exactly as a row fetch). A value JSON cannot hold (BLOB) falls
+    back to the ordinary row query; the select itself never writes.
+    """
+    from sqlalchemy import func, literal_column, select
+    from sqlalchemy.exc import DBAPIError
+    rowid = literal_column(model.__tablename__ + ".rowid")
+    statement = select(func.json_group_array(func.json_array(rowid, *columns))).select_from(model.__table__)
+    if criteria:
+        statement = statement.where(*criteria)
+    try:
+        raw = session.execute(statement).scalar_one()
+    except DBAPIError:
+        query = session.query(rowid, *columns)
+        rows = [tuple(row) for row in (query.filter(*criteria) if criteria else query)]
+    else:
+        rows = [tuple(row) for row in json.loads(raw)]
+    rows.sort(key=lambda row: row[0])
+    return [row[1:] for row in rows]
+
+
+from collections import namedtuple as _namedtuple
+_RoleFact = _namedtuple("_RoleFact", "role_assignment_id user_id revision")
+
+
+def _role_rows(session: Session):
+    """Every stored RoleAssignment of a clean read UOW, once, in rowid order; else None.
+
+    Grouped by (scope, role) and by principal. The single-scope queries below scan
+    the same table order, so leader and deputy order is unchanged.
+    """
+    from types import MappingProxyType
+    from read_context import snapshot
+    def load():
+        by_scope, by_principal, by_id = {}, {}, {}
+        for rid, user_id, kind, scope_id, role, principal, revision in scalar_rows(session, RoleAssignmentORM, (
+            RoleAssignmentORM.role_assignment_id, RoleAssignmentORM.user_id, RoleAssignmentORM.scope_kind,
+            RoleAssignmentORM.scope_id, RoleAssignmentORM.role, RoleAssignmentORM.principal_assignment_id,
+            RoleAssignmentORM.revision,
+        )):
+            fact = _RoleFact(rid, user_id, revision)
+            by_scope.setdefault((kind, scope_id, role), []).append(fact)
+            if principal is not None:
+                by_principal.setdefault(principal, []).append(fact)
+            by_id[rid] = (kind, scope_id, user_id)
+        return (MappingProxyType({key: tuple(rows) for key, rows in by_scope.items()}),
+                MappingProxyType({key: tuple(rows) for key, rows in by_principal.items()}),
+                MappingProxyType(by_id))
+    return snapshot("database.role_rows", load, session)
+
+
+def role_assignment_scope(session: Session, role_assignment_id):
+    """(scope_kind, scope_id, user_id) of a stored assignment, or None."""
+    grouped = _role_rows(session) if isinstance(role_assignment_id, str) else None
+    if grouped is not None:
+        return grouped[2].get(role_assignment_id)
+    a = session.get(RoleAssignmentORM, role_assignment_id)
+    return (a.scope_kind, a.scope_id, a.user_id) if a else None
+
+
 def _load_leaders_uncached(session: Session, scope_kind: str, scope_id: str, role: str) -> list[LeaderDC]:
-    rows = session.query(RoleAssignmentORM).filter(
-        RoleAssignmentORM.scope_kind == scope_kind,
-        RoleAssignmentORM.scope_id == scope_id,
-        RoleAssignmentORM.role == role,
-    ).all()
+    grouped = _role_rows(session) if all(isinstance(v, str) for v in (scope_kind, scope_id, role)) else None
+    if grouped is not None:
+        rows = grouped[0].get((scope_kind, scope_id, role), ())
+    else:
+        rows = session.query(RoleAssignmentORM).filter(
+            RoleAssignmentORM.scope_kind == scope_kind,
+            RoleAssignmentORM.scope_id == scope_id,
+            RoleAssignmentORM.role == role,
+        ).all()
     leaders = []
     for r in rows:
-        dep_rows = session.query(RoleAssignmentORM).filter(
-            RoleAssignmentORM.principal_assignment_id == r.role_assignment_id
-        ).all()
+        if grouped is not None:
+            dep_rows = grouped[1].get(r.role_assignment_id, ())
+        else:
+            dep_rows = session.query(RoleAssignmentORM).filter(
+                RoleAssignmentORM.principal_assignment_id == r.role_assignment_id
+            ).all()
         dep_uids = [d.user_id for d in dep_rows]
+        _note_user(r.user_id)
         u = session.get(UserORM, r.user_id)
         display_name = f"Участник {r.user_id}"
         photo_url = None

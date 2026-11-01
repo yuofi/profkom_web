@@ -163,6 +163,8 @@ export function installMockTransport(
       },
     ]),
   );
+  // The chair archives everybody except the chair (PE-01: a per-target capability).
+  const categoryRead = (item: { user_id: number; capabilities: string[] }) => ({ ...clone(item), capabilities: [...item.capabilities, ...(state.chair && item.user_id !== leadership.chair.user_id ? ["archive_account"] : [])] });
   const queueApplication = {
     ...clone(state.registration),
     user_id: 105,
@@ -214,6 +216,7 @@ export function installMockTransport(
   };
   const visibleReport = (report: Report) => {
     const r = clone(report);
+    r.owner_title = (report.owner_kind === "event" ? state.events.find(event => event.event_id === report.owner_id)?.title : state.subevents.find(sub => sub.subevent_id === report.owner_id)?.title) ?? "";
     if (!r.capabilities.includes("edit_report")) {
       delete r.draft_title;
       delete r.draft_content;
@@ -236,12 +239,21 @@ export function installMockTransport(
     );
   const publicSubevent = (sub: Subevent): Subevent => {
     const working = readsSubevent(sub.subevent_id) || sub.hr?.user_id === state.session.user_id;
-    return { ...clone(sub), starts_at: sub.starts_at ?? null, ends_at: sub.ends_at ?? null,
+    return { ...clone(sub), event_title: state.events.find(event => event.event_id === sub.event_id)?.title ?? "", starts_at: sub.starts_at ?? null, ends_at: sub.ends_at ?? null,
       announcement: sub.announcement ?? richText(""), all_day: sub.all_day ?? false, working_access: working,
       organizers: sub.organizer_user_ids.flatMap(uid => { const person = state.people.find(person => person.user_id === uid);return person ? [person] : []; }),
       description: working ? sub.description : richText(""), report_series_id: working ? sub.report_series_id : null,
       capabilities: working ? sub.capabilities : [] };
   };
+  /** include_deputies=true: each leader also carries its deputies as user references. */
+  const withDeputies = <T extends { leaders: Event["leaders"] }>(item: T, url: URL): T =>
+    url.searchParams.get("include_deputies") === "true"
+      ? { ...item, leaders: item.leaders.map(leader => ({ ...leader, deputies: leader.deputy_user_ids.map(uid => clone(state.people.find(person => person.user_id === uid) ?? { user_id: null, display_name: "Участник", avatar_url: null })) })) }
+      : item;
+  const taskFacets = () => ({
+    scopes: [...new Map(state.tasks.filter(readsTask).map(task => [`${task.scope.kind}:${task.scope.id}`, { ...task.scope, title: task.scope_title ?? "Команда" }])).values()],
+    assignees: clone(state.people),
+  });
   const readsEvent = (id: string) =>
     state.eventManager ||
     state.subevents.some(
@@ -260,6 +272,10 @@ export function installMockTransport(
               b.master?.deputy_user_ids.includes(state.session.user_id)),
         );
   const queueRequests: (TaskQueueAccessRequest & { queue_id: string })[] = [];
+  // As on the server (GL-07): a create repeated with its key returns the first result.
+  const requestKeys=new Map<string,{body:string;owner:number;result:()=>unknown}>();
+  const repeated=(data:Body,context:string):Reply|undefined=>{const key=data.idempotency_key;if(key===undefined)return undefined;if(typeof key!=="string"||!/^[0-9a-f-]{36}$/i.test(key))return fail(422,"invalid_input","Проверьте поля формы");const known=requestKeys.get(key);if(!known)return undefined;const {idempotency_key:_key,...body}=data;void _key;return known.owner===state.session.user_id&&known.body===context+JSON.stringify(body)?[200,clone(known.result())]:fail(409,"duplicate_request_key","Idempotency key has already been used");};
+  const rememberKey=(data:Body,context:string,result:()=>unknown)=>{if(typeof data.idempotency_key!=="string")return;const {idempotency_key:_key,...body}=data;void _key;requestKeys.set(data.idempotency_key,{body:context+JSON.stringify(body),owner:state.session.user_id,result});};
   const mentionRequests:TaskMentionRequest[]=[];const taskGrants=new Map<string,Set<number>>();
   const trackerAdmin = ["chair", "chair-deputy", "hr", "hr-deputy"].includes(role);
   const queueCreateScopes = (): NonNullable<TaskQueueCatalog["create_scopes"]> => {
@@ -321,7 +337,7 @@ export function installMockTransport(
         const status = inputs?.workflow_status ?? assignment.status;
         const kind = !["accepted", "not_completed", "cancelled"].includes(status) ? "unfinished_assignment"
           : ["accepted", "not_completed"].includes(status) && (inputs?.evaluation == null || status === "accepted" && inputs.hours == null) ? "missing_assessment" : null;
-        if (kind) blockers.push({ kind, owner_kind: "assignment", owner_id: assignment.assignment_id, title: task.title, subject: task.title, assignee: assignment.assignee.display_name });
+        if (kind) blockers.push({ kind, owner_kind: "assignment", owner_id: assignment.assignment_id, title: task.title, subject: task.title, assignee: assignment.assignee.display_name, task_id: task.task_id });
       }
     }
     const events = state.events.filter(event => event.season_id === season.season_id);
@@ -377,6 +393,9 @@ export function installMockTransport(
       const outward = link.source === task.task_id, other = state.tasks.find(item => item.task_id === (outward ? link.target : link.source));
       return other && readsTask(other) ? [{ link_id: link.link_id, kind: outward ? link.kind : inverse[link.kind], task: taskRef(other) }] : [];
     });
+    // As the server: only the author (or the owner of an authorless queue) closes and reopens.
+    const closer = (task.created_by?.user_id ?? state.queues.find(queue => queue.queue_id === task.queue?.queue_id)?.owner?.user_id) === state.session.user_id;
+    result.allowed_statuses ??= !result.capabilities.includes("change_task_status") ? [] : closer ? ["open", "in_progress", "completed", "closed"] : publicStatus(task.status) === "closed" ? [] : ["open", "in_progress", "completed"];
     return result;
   };
   const checklistValue = (raw: unknown, previous: TaskChecklistItem[] = []): { value?: TaskChecklistItem[]; error?: Reply } => {
@@ -456,7 +475,8 @@ export function installMockTransport(
   adapter.onAny().reply((config) => {
     const url = new URL(config.url ?? "/", "https://mock.example");
     const path = url.pathname.replace(/^\/api(?=\/)/, "");
-    Object.entries(config.params ?? {}).forEach(([k, v]) => {
+    if (config.params instanceof URLSearchParams) config.params.forEach((v, k) => url.searchParams.append(k, v));
+    else Object.entries(config.params ?? {}).forEach(([k, v]) => {
       if (v !== undefined) url.searchParams.set(k, String(v));
     });
     const parts = path.split("/").filter(Boolean).map(decodeURIComponent);
@@ -528,6 +548,7 @@ export function installMockTransport(
         200,
         state.people
           .filter((p) => !state.archived.some((a) => a.user_id === p.user_id))
+          .filter((p) => !url.searchParams.has("user_id") || String(p.user_id) === url.searchParams.get("user_id"))
           .map((p) => ({
             ...state.profile,
             user_id: p.user_id,
@@ -631,7 +652,9 @@ export function installMockTransport(
       if (!season) return fail(404, "not_found", "Сезон не найден");
       if (parts[2] === "readiness" && method === "get") {
         if (!kkrGlobal()) return denied();
-        const blockers = seasonBlockers(season);
+        const linked = url.searchParams.get("include_task_ids") === "true";
+        const taskOf = (assignmentId: string) => { const task = state.tasks.find(item => item.assignments.some(a => a.assignment_id === assignmentId));return task && readsTask(task) ? task.task_id : null; };
+        const blockers = seasonBlockers(season).map(blocker => linked && blocker.owner_kind === "assignment" ? { ...blocker, task_id: taskOf(blocker.owner_id) } : blocker);
         return [200, { ready: blockers.length === 0 && ["open", "summarizing"].includes(season.state), blockers, revision: season.revision }];
       }
       if (parts[2] === "analytics" && method === "get") {
@@ -678,14 +701,16 @@ export function installMockTransport(
           return list(history.map(v => ({ version: v.version, changed_by: v.changed_by, changed_at: v.changed_at,
             reason: v.reason, previous_summary_version: v.previous_summary_version })));
         }
+        // A closed season is changed by the chair, deputies and HR master (SE-13): the mock's global roles.
+        // A planned season takes no marks (SE-21).
         summary.capabilities =
           season.state === "closed"
-            ? state.chair
+            ? state.global
               ? ["edit_decisions", "correct_summary"]
               : []
-            : ["edit_decisions"];
+            : season.state === "planned" ? [] : ["edit_decisions"];
         if (parts[3] === "correct") {
-          if (!state.chair || season.state !== "closed") return denied();
+          if (!state.global || season.state !== "closed") return denied();
           if (data.expected_version !== summary.version) return conflict();
           const changes = data.changes as {
             kind: "task_inputs" | "assessment_inputs" | "merit";
@@ -741,11 +766,15 @@ export function installMockTransport(
           return [200, {...clone(summary), applied_revisions: changes.map(c => ({kind: c.kind, id: c.id, revision: recordFor(c)!.revision}))}];
         }
         if (method === "put") {
-          if (season.state === "closed" && !state.chair) return denied();
-          if (data.expected_version !== summary.version) return conflict();
+          if (season.state === "closed" && !state.global || season.state === "planned") return denied();
           const row = summary.rows.find(
             (r) => r.user.user_id === Number(parts[4]),
           );
+          // An open season's mark answers to the participant's own marks when they are sent (PB-16).
+          const seen = data.expected_decisions as Decision[] | undefined;
+          const marks = (values: Decision[]) => [...new Set(values)].sort().join();
+          if (season.state !== "closed" && seen) { if (!row || marks(seen) !== marks(row.decisions)) return conflict(); }
+          else if (data.expected_version !== summary.version) return conflict();
           if (row) row.decisions = data.decisions as Decision[];
           summary.version++;
           if (season.state === "closed") rememberSummary(season.season_id, String(data.reason ?? "Изменение отметок"));
@@ -879,7 +908,7 @@ export function installMockTransport(
             ? []
             : clone(
                 filter(state.events, url),  // event cards are visible to everyone (УВ-3)
-              ),
+              ).map(event => withDeputies(event, url)),
         );
       if (!state.session.capabilities.includes("create_event")) return denied();
       // As on the server: an existing series must be an event series.
@@ -908,7 +937,7 @@ export function installMockTransport(
       // Unreadable reads answer as missing ones (A-SEC-6); commands are refused.
       const hidden = () => (method === "get" ? fail(404, "not_found", "Объект недоступен") : denied());
       if (!isEvent && parts.length === 2 && method === "get") {
-        return [200, publicSubevent(item as Subevent)];
+        return [200, withDeputies(publicSubevent(item as Subevent), url)];
       }
       if (!isEvent && parts[2] === "hr") {
         if (!["chair", "chair-deputy", "hr"].includes(role)) return denied();
@@ -944,10 +973,16 @@ export function installMockTransport(
         ];
         return [200, clone(saved)];
       }
+      if (isEvent && parts[2] === "meetings" && method === "get") {
+        // GET /subevents/{id}/meeting per readable team, in one answer.
+        return list(state.subevents.filter((s) => s.event_id === parts[1] && readsSubevent(s.subevent_id) && s.capabilities.includes("view_meeting"))
+          .flatMap((s) => { const meeting = state.meetings.find((m) => m.owner_kind === "subevent" && m.owner_id === s.subevent_id);return meeting ? [{ subevent_id: s.subevent_id, subevent_title: s.title, meeting: clone(meeting) }] : []; })
+          .sort((a, b) => a.meeting.starts_at.localeCompare(b.meeting.starts_at)));
+      }
       if (isEvent && parts[2] === "subevents") {
         if (method === "get")
           return list(
-            state.subevents.filter((s) => s.event_id === parts[1]).map(publicSubevent),
+            state.subevents.filter((s) => s.event_id === parts[1]).map(sub => withDeputies(publicSubevent(sub), url)),
           );
         if (!state.manager) return denied();
         // As on the server: an existing series must be a child series of the parent's.
@@ -992,7 +1027,7 @@ export function installMockTransport(
         state.subevents.push(...subs);
         return [200, { event: clone(event), subevents: clone(subs) }];
       }
-      if (method === "get") return [200, clone(item)];
+      if (method === "get") return [200, withDeputies(clone(item), url)];
       if (!state.manager) return denied();
       if (mismatch(data, item)) return conflict();
       if (parts[2] === "leaders")
@@ -1039,6 +1074,8 @@ export function installMockTransport(
           parent_series_id: "series-event-1",
         },
       ]);
+    if (path === "/task-queues/create-access" && method === "get")
+      return [200, { can_create_task: state.queues.some(queue => visibleQueue(queue, false).capabilities.includes("create_task")) }];
     if (parts[0] === "task-queues") {
       if (parts.length === 1) {
         if (method === "get") { const scopes = queueCreateScopes();return [200, { items: state.queues.map(queue => visibleQueue(queue, false)), next_cursor: null, create_scopes: scopes, can_create_queue: scopes.length > 0 }]; }
@@ -1089,6 +1126,7 @@ export function installMockTransport(
       if (data.owner_user_id !== undefined) queue.owner = state.people.find(p => p.user_id === Number(data.owner_user_id)) ?? queue.owner;
       queue.revision!++;return [200, visibleQueue(queue)];
     }
+    if (path === "/tasks/facets" && method === "get") return [200, taskFacets()];
     if (path === "/tasks") {
       if (method === "get") {
         let tasks = filter(state.tasks, url).filter(readsTask);
@@ -1126,10 +1164,11 @@ export function installMockTransport(
         tasks = [...tasks].sort((a, b) => { const left = sortValue(a), right = sortValue(b);if (left == null || right == null) return left == null && right == null ? a.task_id.localeCompare(b.task_id) : left == null ? 1 : -1;return direction * (left.localeCompare(right) || a.task_id.localeCompare(b.task_id)); });
         if (options.scenario === "empty") tasks = [];
         const offset = Number((url.searchParams.get("cursor") ?? "mock:0").split(":")[1]), limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit")) || 20));
-        const scopes = [...new Map(state.tasks.filter(readsTask).map(task => [`${task.scope.kind}:${task.scope.id}`, { ...task.scope, title: task.scope_title ?? "Команда" }])).values()];
-        return [200, { items: tasks.slice(offset, offset + limit).map(visibleTask), total: tasks.length, scopes, assignees: clone(state.people), next_cursor: offset + limit < tasks.length ? `mock:${offset + limit}` : null }];
+        const facets = url.searchParams.get("include_facets") === "false" ? {} : taskFacets();
+        return [200, { items: tasks.slice(offset, offset + limit).map(visibleTask), total: tasks.length, ...facets, next_cursor: offset + limit < tasks.length ? `mock:${offset + limit}` : null }];
       }
-      const extraTask = extraInputs(data, ["queue_id", "scope", "season_id", "title", "description", "deadline_at", "assignees", "watcher_user_ids", "file_ids", "parent_task_id", "criteria", "task_type", "priority", "starts_at", "checklist"]);if (extraTask) return extraTask;
+      const extraTask = extraInputs(data, ["queue_id", "scope", "season_id", "title", "description", "deadline_at", "assignees", "watcher_user_ids", "file_ids", "parent_task_id", "criteria", "task_type", "priority", "starts_at", "checklist", "idempotency_key"]);if (extraTask) return extraTask;
+      const repeatedTask = repeated(data, "task");if (repeatedTask) return repeatedTask;
       const stage2 = stage2Patch(data);if (stage2.error) return stage2.error;
       const selectedQueue = state.queues.find(q => q.queue_id === data.queue_id);
       if (selectedQueue ? !readsQueue(selectedQueue) : !data.scope || !(trackerAdmin || readsScopeTask({ scope: data.scope } as Task))) return denied();
@@ -1192,6 +1231,7 @@ export function installMockTransport(
       if (typeof data.parent_task_id === "string") { const parent = state.tasks.find(t => t.task_id === data.parent_task_id);if (parent) { task.parent_task_id = parent.task_id;task.parent_task = { task_id: parent.task_id, task_key: parent.task_key!, title: parent.title }; } }
       task.assignees = task.assignments.map(a => a.assignee);task.watchers = ((data.watcher_user_ids ?? []) as number[]).map(uid => state.people.find(p => p.user_id === uid)!).filter(Boolean);task.attachments = taskFiles(data.file_ids);refreshRoster(task);
       state.tasks.push(task);rememberTask(task, "task_created", "Создана задача");
+      rememberKey(data, "task", () => visibleTask(state.tasks.find(item => item.task_id === task.task_id) ?? task));
       return [201, visibleTask(task)];
     }
     if (parts[0] === "tasks") {
@@ -1200,7 +1240,8 @@ export function installMockTransport(
       if (!readsTask(task))
         return method === "get" ? fail(404, "not_found", "Задача недоступна") : denied();
       const managesAccess=task.created_by?.user_id===state.session.user_id||state.queues.find(queue=>queue.queue_id===task.queue?.queue_id)?.owner?.user_id===state.session.user_id;
-      if(parts[2]==="mention-candidates")return list(clone(state.people));
+      const approvesAssignee=(uid:number|null)=>managesAccess||!!uid&&(!!taskGrants.get(task.task_id)?.has(uid)||[...(task.assignees??[]),...(task.watchers??[])].some(person=>person.user_id===uid));
+      if(parts[2]==="mention-candidates")return list(clone(state.people).map(person=>({...person,can_assign:approvesAssignee(person.user_id)})));
       if(parts[2]==="mentions") {
         if(method==="get")return list(clone(managesAccess?mentionRequests.filter(row=>row.task_id===task.task_id):[]));
         if(!managesAccess)return denied();const row=mentionRequests.find(row=>row.request_id===parts[3]&&row.task_id===task.task_id);
@@ -1210,9 +1251,13 @@ export function installMockTransport(
       }
       if(parts[2]==="access") {if(!managesAccess)return denied();const uid=Number(parts[3]);taskGrants.get(task.task_id)?.delete(uid);mentionRequests.filter(row=>row.task_id===task.task_id&&row.target?.user_id===uid).forEach(row=>row.capabilities=[]);return [200,{revoked:true}];}
       if(parts[2]==="description-checklist") {
-        if(mismatch(data,task))return conflict();const neutral=(body:string)=>body.replace(/^( {0,3}(?:[-+*]|\d+[.)])[ \t]+\[)[ xX](\])/gm,"$1 $2");
-        if(typeof data.body!=="string"||neutral(task.description.body)!==neutral(data.body))return denied();
-        const before=task.description.body;task.description=richText(data.body);task.revision++;rememberTask(task,"task_updated","Изменены отметки чеклиста",undefined,undefined,[{field:"description",before,after:data.body}]);return [200,visibleTask(task)];
+        // Like the server, the offset counts UTF-16 code units (a JavaScript string index).
+        if(mismatch(data,task))return conflict();const before=task.description.body,offset=data.offset;
+        if(typeof offset!=="number"||typeof data.checked!=="boolean")return fail(422,"invalid_input","Укажите отметку");
+        const prefix=before.slice(before.lastIndexOf("\n",offset-1)+1,offset);
+        if(!/^(?:[ \t]*>[ \t]?)*[ \t]*(?:(?:[-+*]|\d{1,9}[.)])[ \t]+)+\[$/.test(prefix)||!/[ xX]/.test(before[offset]??"")||before[offset+1]!=="]")return fail(403,"checklist_only","Только отметки чеклиста");
+        const body=before.slice(0,offset)+(data.checked?"x":" ")+before.slice(offset+1);if(body.toLowerCase()===before.toLowerCase())return [200,visibleTask(task)];
+        task.description=richText(body);task.revision++;rememberTask(task,"task_updated","Изменены отметки чеклиста",undefined,undefined,[{field:"description",before,after:body}]);return [200,visibleTask(task)];
       }
       if (parts[2] === "accounting-batch") {
         if (!task.capabilities.includes("view_assessment_inputs")) return denied();
@@ -1319,6 +1364,7 @@ export function installMockTransport(
       if(parts[2]==="assignees"&&parts[4]==="add") {
         if(!task.capabilities.includes("assign_task_participants"))return denied();if(mismatch(data,task))return conflict();
         const person=state.people.find(person=>person.user_id===Number(parts[3]));if(!person)return fail(422,"invalid_input","Участник недоступен");
+        if(!approvesAssignee(person.user_id))return fail(403,"task_access_approval_required","Сначала согласуйте доступ через призыв");
         task.assignees??=[];if(task.assignees.some(row=>row.user_id===person.user_id))return [200,visibleTask(task)];task.assignees.push(clone(person));task.watchers=task.watchers?.filter(row=>row.user_id!==person.user_id);
         if(!task.assignments.some(row=>row.assignee.user_id===person.user_id)){const aid=id("assignment");task.assignments.push({assignment_id:aid,assignee:clone(person),status:assignmentStatus(publicStatus(task.status)),revision:1,capabilities:[],submissions:[],assignee_unavailable_reason:null,review_note:null});state.assessments.push({assignment_id:aid,hours:0,evaluation:null,effective_completed_at:null,revision:1,workflow_revision:1,workflow_status:"assigned",capabilities:inputsCaps()});}
         refreshRoster(task);rememberTask(task,"roster_changed","Изменён состав задачи");return changed(task);
@@ -1346,6 +1392,7 @@ export function installMockTransport(
           return list(
             clone(state.comments.filter((c) => c.task_id === task.task_id).map(comment => ({...comment,mentioned_users:commentMentions(comment.content.body)}))),
           );
+        const repeatedComment=repeated(data,task.task_id);if(repeatedComment)return repeatedComment;
         const attachments=commentFiles(data.file_ids??[],task.task_id);if(!attachments)return fail(422,"invalid_input","Некорректные файлы комментария");
         if(!publicSubmission(data.content).body.trim()&&!attachments.length)return fail(422,"invalid_input","Добавьте текст или файл");
         const comment = {
@@ -1362,7 +1409,7 @@ export function installMockTransport(
         const mentions=(data.mentioned_user_ids??[]) as number[];
         if(!Array.isArray(mentions)||mentions.some(uid=>!state.people.some(person=>person.user_id===uid)))return fail(422,"invalid_input","Участник недоступен");
         for(const uid of new Set(mentions)){if(!mentionRequests.some(row=>row.task_id===task.task_id&&row.target?.user_id===uid&&row.status==="pending"))mentionRequests.push({request_id:id("mention"),task_id:task.task_id,task_key:task.task_key??null,target:clone(state.people.find(person=>person.user_id===uid)!),requested_by:clone(state.user),comment_id:comment.comment_id,status:"pending",created_at:mockNow,revision:1,capabilities:["approve_task_mention","reject_task_mention"]});}
-        state.comments.push(comment);rememberTask(task, "comment_added", "Добавлен комментарий");
+        state.comments.push(comment);rememberTask(task, "comment_added", "Добавлен комментарий");rememberKey(data,task.task_id,()=>comment);
         return [201, clone(comment)];
       }
       if (parts[2] === "assessment-inputs") {
@@ -1422,29 +1469,34 @@ export function installMockTransport(
       }
       return [200, visibleTask(task)];
     }
-    if (path === "/assignments/unresolved")
-      return state.manager
-        ? list(
-            state.tasks.flatMap((t) =>
-              t.assignments
-                .filter(
-                  (a) =>
-                    a.capabilities.includes("reassign_assignment") &&
-                    !["accepted", "not_completed", "cancelled"].includes(
-                      a.status,
-                    ),
-                )
-                .map((assignment) => ({
-                  assignment: clone(assignment),
-                  task_id: t.task_id,
-                  task_title: t.title,
-                  season_id: t.season_id,
-                  scope: t.scope,
-                  deadline_at: t.deadline_at,
-                })),
-            ),
-          )
-        : denied();
+    if (path === "/assignments/unresolved") {
+      if (!state.manager) return denied();
+      // As on the server: season and orphaned_only filter, include_total counts the matches.
+      const season = url.searchParams.get("season_id"), orphaned = url.searchParams.get("orphaned_only") === "true";
+      const items = state.tasks
+        .filter((t) => !season || t.season_id === season)
+        .flatMap((t) =>
+          t.assignments
+            .filter(
+              (a) =>
+                a.capabilities.includes("reassign_assignment") &&
+                !["accepted", "not_completed", "cancelled"].includes(
+                  a.status,
+                ) &&
+                (!orphaned || !!a.assignee_unavailable_reason),
+            )
+            .map((assignment) => ({
+              assignment: clone(assignment),
+              task_id: t.task_id,
+              task_title: t.title,
+              season_id: t.season_id,
+              scope: t.scope,
+              deadline_at: t.deadline_at,
+              task_status: publicStatus(t.status),
+            })),
+        );
+      return [200, { items, next_cursor: null, ...(url.searchParams.get("include_total") === "true" ? { total: items.length } : {}) }];
+    }
     if (parts[0] === "assignments") {
       const task = state.tasks.find((t) =>
         t.assignments.some((a) => a.assignment_id === parts[1]),
@@ -1749,6 +1801,8 @@ export function installMockTransport(
           : denied();
       if (method === "delete") {
         if (!material.capabilities.includes("delete_material")) return denied();
+        if (data.expected_revision === undefined) return fail(422, "invalid_input", "expected_revision is required");
+        if (mismatch(data, material)) return conflict();
         state.materials = state.materials.filter((m) => m !== material);
         material.revision += 1;
         state.deletedMaterials.push(material);  // reversible, as on the server
@@ -1801,7 +1855,11 @@ export function installMockTransport(
     if (parts[0] === "blocks") {
       const block = state.blocks.find((b) => b.block_id === parts[1]);
       if (!block) return fail(404, "not_found", "Блок не найден");
-      if (method === "get") return [200, clone(block)];
+      // Like GET /blocks/{id}: the guide link opens only for a reader of the guide (GL-10).
+      if (method === "get") {
+        const card = { ...clone(block), capabilities: state.materials.some(material => material.material_id === block.guide_material_id) ? [...new Set([...block.capabilities, "read_guide"])] : clone(block.capabilities) };
+        return [200, card.master ? { ...card, master: withDeputies({ leaders: [card.master] }, url).leaders[0] } : card];
+      }
       if (parts[2] === "leave") {
         return fail(403, "self_leave_forbidden", "Попросите руководителя блока или HR исключить вас из состава");
       }
@@ -1843,17 +1901,24 @@ export function installMockTransport(
       return changed(block);
     }
     if (parts[0] === "block-requests") {
-      if (parts.length === 1 && method === "get")
-        return list(
-          state.requests
+      if (parts.length === 1 && method === "get") {
+        const states = url.searchParams.getAll("state"), blockId = url.searchParams.get("block_id");
+        const visible = state.requests
             .map((r) => ({ ...clone(r), capabilities: requestCapabilities(r) }))
             .filter(
               (r) =>
                 state.global ||
                 r.user.user_id === state.session.user_id ||
                 r.capabilities.length,
-            ),
-        );
+            )
+            .filter(r => (!blockId || r.block_id === blockId) && (!states.length || states.includes(r.state))
+              && (url.searchParams.get("mine") !== "true" || r.user.user_id === state.session.user_id));
+        if (!url.searchParams.has("limit") && !url.searchParams.has("cursor")) return list(visible);
+        const offset = Number((url.searchParams.get("cursor") ?? "mock:0").split(":")[1]), limit = Number(url.searchParams.get("limit")) || 100;
+        const ordered = [...visible].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.request_id.localeCompare(b.request_id));
+        if (url.searchParams.get("order") === "desc") ordered.reverse();
+        return [200, { items: ordered.slice(offset, offset + limit), next_cursor: offset + limit < ordered.length ? `mock:${offset + limit}` : null }];
+      }
       if (parts.length === 1) {
         if (
           state.requests.some(
@@ -1970,7 +2035,7 @@ export function installMockTransport(
       const ids = [...new Set(pieces.map(Number))].sort((a, b) => a - b);
       if (raw.length > 4096 || pieces.some(value => !/^[1-9][0-9]{0,18}$/.test(value)) || ids.length > 200)
         return fail(422, "invalid_input", "Проверьте список участников");
-      return [200, { items: ids.flatMap(id => { const item = categories.get(id);return item ? [clone(item)] : []; }) }];
+      return [200, { items: ids.flatMap(id => { const item = categories.get(id);return item ? [categoryRead(item)] : []; }) }];
     }
     if (parts[0] === "participants" && parts[2] === "participation" && method === "get") {
       const target = Number(parts[1]);
@@ -1987,7 +2052,7 @@ export function installMockTransport(
         category.category = data.category as typeof category.category;
         category.revision++;
       }
-      return [200, clone(category)];
+      return [200, categoryRead(category)];
     }
     if (path === "/contacts/archive") {
       if (method === "get") return list(state.former.map(contact => ({ ...clone(contact), capabilities: state.global ? ["edit_former_contact"] : [] })));
@@ -2064,6 +2129,7 @@ export function installMockTransport(
             user_id: person.user_id!,
             display_name: person.display_name,
             archived_at: mockNow,
+            capabilities: ["restore_account"],
           });
       }
       if (
@@ -2159,7 +2225,8 @@ export function installMockTransport(
         blocks: state.blocks.flatMap((block) => {
           const roles: ParticipationRole[] = [];
           if (block.master?.user.user_id === uid) roles.push("master");
-          if (!block.is_hr && block.master?.deputy_user_ids.includes(uid)) roles.push("deputy_master");
+          // The HR block's deputy is an ordinary deputy there (GL-09).
+          if (block.master?.deputy_user_ids.includes(uid)) roles.push("deputy_master");
           if (block.members.some((member) => member.user.user_id === uid)) roles.push("member");
           return roles.length ? [{ block_id: block.block_id, name: block.name, roles }] : [];
         }),
@@ -2250,7 +2317,12 @@ export function installMockTransport(
         approvals: state.requests.some(request => requestCapabilities(request).some(cap => cap.endsWith("review_request"))) ? [{ kind: "block_requests", title: "Заявки в блоки", count: state.requests.length, to: "/blocks/requests" }] : [],
         merit_entries: state.blocks.filter(block => block.capabilities.includes("create_volunteer_merit")).map(block => ({ title: block.name, to: `/merits?source_kind=block_volunteer&scope_id=${block.block_id}` })) }];
     }
-    if (path === "/notifications") return list(clone(state.notifications));
+    if (path === "/notifications") {
+      const unread = url.searchParams.get("unread") === "true", limit = Number(url.searchParams.get("limit") ?? 30), start = Number(url.searchParams.get("cursor") ?? 0);
+      const ordered = clone(state.notifications).filter(n => !unread || !n.read_at).sort((a, b) => b.created_at.localeCompare(a.created_at) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+      return [200, { items: ordered.slice(start, start + limit), next_cursor: start + limit < ordered.length ? String(start + limit) : null }];
+    }
+    if (path === "/notifications/unread-count") return [200, { count: state.notifications.filter(n => !n.read_at).length }];
     if (parts[0] === "notifications") {
       state.notifications
         .filter((n) => parts[1] === "read-all" || n.id === parts[1])
@@ -2280,17 +2352,32 @@ export function installMockTransport(
                   source_title: t.title,
                   score: a.status === "accepted" ? 12.5 : null,
                   calculation_version: "synthetic_fixture",
-                  assignment_inputs: clone(
+                  assignment_inputs: ((inputs) => inputs && url.searchParams.get("include_task_ids") === "true" ? { ...inputs, task_id: readsTask(t) ? t.task_id : null } : inputs)(clone(
                     state.assessments.find(
                       (i) => i.assignment_id === a.assignment_id,
                     ),
-                  ),
+                  )),
                   capabilities: [],
                 })),
               ),
           )
         : denied();
+    if (path === "/merits/contexts" && method === "get") {
+      const seasonId = url.searchParams.get("season_id");
+      const merit = (caps: string[]) => caps.filter(cap => cap === "create_head_merit" || cap === "create_volunteer_merit");
+      const events = state.events.filter(event => !seasonId || event.season_id === seasonId);
+      return [200, {
+        blocks: state.blocks.map(block => ({ block_id: block.block_id, name: block.name, avatar_url: block.avatar_url ?? null, capabilities: merit(block.capabilities) })),
+        events: events.map(event => ({ event_id: event.event_id, season_id: event.season_id, title: event.title, capabilities: merit(event.capabilities) })),
+        subevents: state.subevents.filter(sub => events.some(event => event.event_id === sub.event_id)).map(sub => ({ subevent_id: sub.subevent_id, event_id: sub.event_id, title: sub.title, capabilities: merit(publicSubevent(sub).capabilities) })),
+      }];
+    }
     if (path === "/merits" || parts[0] === "merits") {
+      if (!state.manager && method === "get" && !parts[1]) {
+        // Like the server: the list holds what the session's scopes may read (`view_merits`), else it is empty.
+        const reads = (merit: Merit) => !!state.session.assignments?.some((a) => a.capabilities?.includes("view_merits") && (a.scope_kind === "event" ? merit.event_id === a.scope_id : merit.scope?.kind === a.scope_kind && merit.scope.id === a.scope_id));
+        return list(clone(filter(state.merits.filter(reads), url)));
+      }
       if (!state.manager)
         return method === "get" && parts[1] ? fail(404, "not_found", "Запись недоступна") : denied();
       if (method === "get") {

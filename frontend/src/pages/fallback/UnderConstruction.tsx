@@ -1,15 +1,12 @@
 import styles from "./UnderConstruction.module.css";
 import { useMediaQuery } from "../../utils/hooks/useMediaQuery";
 import { Image } from "../../components/Image/Image";
-import { Helmet } from "react-helmet-async";
 
 export const UnderConstructionPage = () => {
   const isMobile = useMediaQuery("(max-width: 768px)");
   return (
     <div className={styles.wrapper}>
-      <Helmet>
-        <title>Главная | Профком ВМК</title>
-      </Helmet>
+      <title>Главная | Профком ВМК</title>
       <h3 className={styles.heading}>Этот раздел пока в разработке</h3>
       <h6 className={styles.subheading}>но вы можете посмотреть гайды!</h6>
       <a

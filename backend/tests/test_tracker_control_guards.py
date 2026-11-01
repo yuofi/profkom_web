@@ -61,3 +61,37 @@ def test_managed_link_cannot_be_deleted_via_business_task_or_added_as_product_ep
         assert session.get(TaskLinkORM,link['link_id']) is not None
         assert session.get(TaskORM,business['task_id']).revision==saved['revision']
         assert session.query(TaskTrackerORM).filter_by(task_id=business['task_id']).one().parent_task_id is None
+
+
+def test_status_menu_receives_only_allowed_transitions_and_control_epics_none(client,work,superuser):
+    business=work['task'];path='/api/tasks/'+business['task_id']
+    reader=client.get(path,headers=work['member'].headers).json()
+    assert reader['allowed_statuses']==['open','in_progress','completed'] and 'change_task_status' in reader['capabilities']
+    author=client.get(path,headers=work['master'].headers).json()
+    assert author['allowed_statuses']==['open','in_progress','completed','closed']
+    listed=client.get('/api/tasks',headers=work['member'].headers).json()['items']
+    assert next(row for row in listed if row['task_id']==business['task_id'])['allowed_statuses']==reader['allowed_statuses']
+    assert client.post(path+'/status',headers=work['member'].headers,json={'expected_revision':reader['revision'],'status':'closed'}).status_code==403
+    tid,_=control_for(work)
+    for actor in (work['master'],superuser):
+        epic=client.get('/api/tasks/'+tid,headers=actor.headers).json()
+        assert epic['allowed_statuses']==[]
+        assert not {'change_task_status','start_task','resume_task','submit_task_result','toggle_task_checklist'}&set(epic['capabilities'])
+        response=client.post('/api/tasks/'+tid+'/status',headers=actor.headers,json={'expected_revision':epic['revision'],'status':'in_progress'})
+        assert response.status_code==409 and response.json()['detail']['code']=='control_epic_managed'
+
+
+def test_author_edits_own_control_comment_but_cannot_mention_a_nonreader(client,work,superuser):
+    tid,_=control_for(work);path='/api/tasks/'+tid
+    created=client.post(path+'/comments',headers=work['master'].headers,json={'content':'Черновик напоминания','mentioned_user_ids':[]})
+    assert created.status_code==200,created.text
+    comment=created.json();assert 'edit_comment' in comment['capabilities']
+    edited=client.patch('/api/comments/'+comment['comment_id'],headers=work['master'].headers,json={'content':'Исправленное напоминание','mentioned_user_ids':[]})
+    assert edited.status_code==200,edited.text
+    assert edited.json()['content']['body']=='Исправленное напоминание'
+    refused=client.patch('/api/comments/'+comment['comment_id'],headers=work['master'].headers,json={'content':'Призыв постороннего','mentioned_user_ids':[work['outside'].user_id]})
+    assert refused.status_code==409 and refused.json()['detail']['code']=='control_epic_managed'
+    with db._session() as session:
+        saved=session.get(CommentORM,comment['comment_id'])
+        assert __import__('json').loads(saved.content_json)['body']=='Исправленное напоминание'
+        assert session.query(TaskMentionRequestORM).filter_by(task_id=tid).count()==0

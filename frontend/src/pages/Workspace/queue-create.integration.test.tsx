@@ -10,6 +10,7 @@ import { taskQueuesApi } from "../../utils/api/taskQueues.api";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { emptyCriteria, richText } from "../../utils/api/contract";
 import { TaskQueuePage, TaskQueuesPage } from "./TaskQueuePages";
+import { getProfilePage } from "../../utils/routes";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 afterEach(async () => { await page?.cleanup();page = undefined;vi.restoreAllMocks(); });
@@ -55,7 +56,8 @@ it("creates a queue from catalog metadata with its creator as owner and assigns 
   const saved = await taskQueuesApi.get(queue.queue_id);
   expect(saved).toMatchObject({ name, key, owner: { user_id: session.user_id }, scope: { kind: "subevent", id: team.subevent_id }, access: "granted" });
   expect(page.container.querySelector("h1")?.textContent).toBe(name);
-  expect(page.container.querySelector(`a[href="/contacts/${session.user_id}"]`)?.textContent).toContain(saved.owner!.display_name);
+  // The creator is the signed-in user, so the owner chip opens their own profile (PE-17).
+  expect(page.container.querySelector(`a[href="${getProfilePage()}"]`)?.textContent).toContain(saved.owner!.display_name);
 
   const task = await tasksApi.create({ season_id: season.season_id, scope: { kind: "subevent", id: team.subevent_id }, queue_id: saved.queue_id, title: "Проверка ключа новой очереди", description: richText("Создано после формы очереди"), deadline_at: new Date(Date.now() + 86400000).toISOString(), criteria: emptyCriteria(), assignees: [{ user_id: owner.user_id, hours: 2 }] });
   expect(task.queue?.queue_id).toBe(saved.queue_id);expect(task.task_key).toBe(`${key}-1`);

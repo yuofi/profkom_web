@@ -13,7 +13,6 @@ import { useMe } from "../../utils/me";
 import { parseContent, stringifyContent } from "../../utils/parsing";
 import type { ContactInfoOut, ProfileUpdate } from "../../utils/api/types";
 import styles from "./InfoPage.module.css";
-import { Helmet } from "react-helmet-async";
 
 const mapContactToInfo = (contact: ContactInfoOut): ContactInfo => {
   return {
@@ -139,9 +138,7 @@ export const InfoPage = () => {
 
   return (
     <div className={styles.container}>
-      <Helmet>
-        <title>Контакты | Профком ВМК</title>
-      </Helmet>
+      <title>Контакты | Профком ВМК</title>
       <article className={styles.mainContent}>
         <h1 className={styles.title}>Контактная информация</h1>
         <div className={styles.chipList}>

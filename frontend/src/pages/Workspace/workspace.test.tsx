@@ -142,7 +142,14 @@ describe("Rendered authorization with a deliberately stale private cache", () =>
       ).not.toContain(privateText);
     },
   );
-  it("gates pending and rejected sessions before rendering the workspace outlet", () => {
+  it("gates pending and rejected sessions before rendering the workspace outlet", async () => {
+    // The account-state screens are loaded on demand (PF-11): the first render starts
+    // their code and shows only a loading state, never the workspace.
+    const first = renderPage("pending", <ProtectedRoute />, "/", "*");
+    expect(first).not.toContain("Мои задачи");
+    expect(first).not.toContain("Основная навигация");
+    await import("./SessionPages");
+    await new Promise((resolve) => setTimeout(resolve, 0));
     for (const role of ["pending", "rejected"] as const) {
       const html = renderPage(role, <ProtectedRoute />, "/", "*");
       expect(html).toContain(

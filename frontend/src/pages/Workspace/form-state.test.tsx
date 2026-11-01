@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, useState } from "react";
-import { Route, Routes } from "react-router-dom";
+import { Link, Route, Routes } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
 import { mountWorkspace, settle, change, field, pick, submit, waitForPage } from "../../test/workspace";
@@ -9,8 +9,9 @@ import { EventEditPage } from "./EventPages";
 import { BlockPage } from "./MembershipPages";
 import { AccountStatePage } from "./SessionPages";
 import { MeetingPage } from "./ReportPages";
-import { SeasonPage, SummaryPage } from "./SeasonPages";
+import { SeasonPage } from "./SeasonPages";
 import { seasonsApi } from "../../utils/api/seasons.api";
+import { eventsApi } from "../../utils/api/events.api";
 import { QueryState } from "../../components/Workspace/WorkspaceUI";
 import { ApiError } from "../../utils/api/request";
 import { MeritForm } from "./MeritPages";
@@ -39,10 +40,10 @@ it.each(["event", "block", "registration", "meeting", "season", "decisions"] as 
     registration: ["/", "/", <AccountStatePage />, "phone"],
     meeting: ["/meetings/subevent/subevent-1", "/meetings/:kind/:id", <MeetingPage />, "title"],
     season: ["/seasons/season-1", "/seasons/:id", <SeasonPage />, "title"],
-    decisions: ["/seasons/season-1/summary", "/seasons/:id/summary", <SummaryPage />, "reason"],
+    decisions: ["/seasons/season-1", "/seasons/:id", <SeasonPage />, "reason"],
   } as const;
   const [path, route, element, name] = routes[kind];
-  page = await mountWorkspace(<Routes><Route path={route} element={element} /></Routes>, { role, path });
+  page = await mountWorkspace(<Routes><Route path={route} element={element} />{kind === "event" && <Route path="/events/:id" element={<p>Страница мероприятия <Link to="/events/event-1/edit">Изменить мероприятие</Link></p>} />}</Routes>, { role, path });
   await settle(); await settle();
   if (kind === "event") await waitForPage(page!, () => !!page!.container.querySelector('textarea[name="description"]'));
   if (kind === "season") { await act(async () => page!.container.querySelector<HTMLButtonElement>('button[aria-label="Редактировать сезон"]')!.click());await settle(); }
@@ -69,8 +70,17 @@ it.each(["event", "block", "registration", "meeting", "season", "decisions"] as 
   const payload = JSON.parse(mutations().at(-1)!.data);
   expect(payload.expected_revision ?? payload.expected_version).toBe(latestRevision);
   expect(form.querySelector('[role="alert"]'), page.container.textContent ?? "").toBeNull();
+  // GL-32: a saved event opens its page in place of the spent editor; a new edit reads it anew.
+  if (kind === "event") {
+    await waitForPage(page!, () => !!page!.container.textContent?.includes("Страница мероприятия"));expect(form.isConnected).toBe(false);
+    await act(async () => page!.container.querySelector<HTMLAnchorElement>('a[href="/events/event-1/edit"]')!.click());
+    await waitForPage(page!, () => !!page!.container.querySelector('textarea[name="description"]'));
+    expect(page.container.textContent).not.toContain("Запись изменилась на сервере");
+  }
   if (kind === "season") { await act(async () => page!.container.querySelector<HTMLButtonElement>('button[aria-label="Редактировать сезон"]')!.click());await settle(); }
-  const repeatedForm = kind === "season" ? field(page.container,name).closest("form")! : form;
+  // A saved closed-season correction closes its popover; the next correction opens a fresh one.
+  if (kind === "decisions") { expect(form.isConnected).toBe(false);await act(async()=>page!.container.querySelector<HTMLButtonElement>('button[aria-label^="Изменить отметки:"]')!.click());await waitForPage(page!,()=>!!document.querySelector('[data-mark-menu]'));await act(async()=>document.querySelector<HTMLButtonElement>('[data-mark-menu] [aria-checked="true"]')!.click());await waitForPage(page!,()=>!!document.querySelector('[data-anchored-popover] input[name="reason"]')); }
+  const repeatedForm = kind === "season" || kind === "event" ? field(page.container,name).closest("form")! : kind === "decisions" ? field(document,name).closest("form")! : form;
   await change(field(repeatedForm, name), "ПОВТОРНОЕ СОХРАНЕНИЕ");
   if (kind === "season") await change(field(repeatedForm, "reason"), "Повторное уточнение плановых дат");
   await submit(repeatedForm);
@@ -78,6 +88,29 @@ it.each(["event", "block", "registration", "meeting", "season", "decisions"] as 
   const repeated = JSON.parse(mutations().at(-1)!.data);
   expect(repeated.expected_revision ?? repeated.expected_version).toBe(latestRevision + 1);
   expect(repeatedForm.querySelector('[role="alert"]')).toBeNull();
+});
+
+it("PF-02: a removed meeting announcement can be announced again at once", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  page = await mountWorkspace(<Routes><Route path="/meetings/:kind/:id" element={<MeetingPage />} /></Routes>, { path: "/meetings/subevent/subevent-1" });
+  await waitForPage(page!, () => !!page!.container.querySelector('input[name="title"]'));
+  const remove = () => [...page!.container.querySelectorAll<HTMLButtonElement>('button[type="submit"]')].find(button => button.textContent === "Снять объявление");
+  expect(remove()).toBeDefined();
+  // Over a real network the reread of the meeting lands after the form has restarted.
+  const real = eventsApi.meeting, held: (() => void)[] = [];let holding = true;
+  vi.spyOn(eventsApi, "meeting").mockImplementation((kind, id) => holding ? new Promise((resolve, reject) => { held.push(() => { real(kind, id).then(resolve, reject); }); }) : real(kind, id));
+  await submit(remove()!.closest("form")!);await settle();
+  // The removal is confirmed first (EV): the answer button sends it.
+  await act(async () => [...page!.container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Да, снять")!.click());await settle();
+  expect(remove()).toBeUndefined();
+  await act(async () => { holding = false;held.splice(0).forEach(release => release()); });await waitForPage(page!);
+  expect(mock.state.meetings.some(item => item.owner_id === "subevent-1")).toBe(false);
+  const form = field(page.container, "title").closest("form")!;
+  expect(form.textContent).not.toContain("Запись изменилась на сервере");
+  await change(field(form, "title"), "Новый созвон");await change(field(form, "starts"), "2026-11-02T18:00");await change(field(form, "url"), "https://example.com/new");
+  await submit(form);await waitForPage(page!);
+  expect(form.querySelector('[role="alert"]'), page.container.textContent ?? "").toBeNull();
+  expect(mock.state.meetings.find(item => item.owner_id === "subevent-1")?.title).toBe("Новый созвон");
 });
 
 it("A05: background revisions do not silently authorize overwriting a draft", async () => {
@@ -231,4 +264,18 @@ it("A09: initial loading does not claim that the catalogue is empty", async () =
   expect(page.container.textContent).not.toMatch(/Материалы готовятся|Ничего не найдено/);
   await act(async () => new Promise((resolve) => setTimeout(resolve, 65)));
   expect(page.container.querySelector("h2")).not.toBeNull();
+});
+
+it("counts an applied template as a change of a form that requires one", async () => {
+  // The merit editor: a template whose values equal the saved ones still changes the record.
+  function TemplateForm() {
+    const [template, setTemplate] = useState<string | null>(null);
+    return <ActionForm fields={[{ name: "title", label: "Название", value: "Сохранённое" }]} changeRequired={["title"]} externalState={template} savedExternalState={null}
+      onReplaceWithSaved={() => setTemplate(null)} beforeFields={() => <button type="button" onClick={() => setTemplate("template-1")}>Применить шаблон</button>} submitLabel="Сохранить" onSubmit={async () => undefined} />;
+  }
+  page = await mountWorkspace(<TemplateForm />);
+  const save = () => [...page!.container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Сохранить")!;
+  expect(save().disabled).toBe(true);
+  await clickButton(page.container, "Применить шаблон");
+  expect(save().disabled).toBe(false);
 });

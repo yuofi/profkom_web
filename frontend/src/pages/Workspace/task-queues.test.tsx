@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act } from "react";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { TaskQueuePage, TaskQueuesPage } from "./TaskQueuePages";
 import { TrackerListPage } from "./TrackerList";
@@ -9,6 +9,7 @@ import { installMockTransport } from "../../mocks/transport";
 import { taskQueuesApi } from "../../utils/api/taskQueues.api";
 import { tasksApi } from "../../utils/api/tasks.api";
 import type { TaskQueueAccessRequest } from "../../utils/api/contract";
+import { ApiError } from "../../utils/api/request";
 import { mountWorkspace, waitForPage, change, submit } from "../../test/workspace";
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let transport: ReturnType<typeof installMockTransport> | undefined;
@@ -20,9 +21,43 @@ async function mount(path: string, role: MockRole = "leader") {
 function button(label: string) { return [...page!.container.querySelectorAll("button")].find(p => p.textContent?.trim() === label)!; }
 it("shows a locked queue in the directory without its owner or scope", async () => {
   transport = installMockTransport("organizer", { delay: 0 });transport.state.queues[0].is_private = true;transport.state.queues[0].owner = transport.state.people[3];
-  await mount("/tasks/queues", "organizer");
+  await mount("/tasks/queues?access=all", "organizer");
   const card = page!.container.querySelector<HTMLAnchorElement>('a[href="/tasks/queues/queue-tasks"]')!.closest('tr')!;
   expect(card.textContent).toContain("TASK");expect(card.textContent).toContain("Нет доступа");expect(card.textContent).not.toContain(transport.state.people[3].display_name);expect(card.querySelector("img")).toBeNull();
+});
+it("a locked service queue without an access request is plain text in the directory and explains itself", async () => {
+  transport = installMockTransport("organizer", { delay: 0 });transport.state.queues[0].is_private = true;
+  const catalog = await taskQueuesApi.catalog();const queue = catalog.items[0];
+  vi.spyOn(taskQueuesApi, "catalog").mockResolvedValue({ ...catalog, items: [{ ...queue, key: "KKR", name: "Контроль заполнения ККР", access: "locked", can_request_access: false, capabilities: [] }] });
+  // A locked queue is listed under «Все»: by default the directory shows the user's own queues.
+  await mount("/tasks/queues?access=all", "organizer");
+  const row = page!.container.querySelector('table[aria-label="Список очередей"] tbody tr')!;
+  expect(row.textContent).toContain("Контроль заполнения ККР");expect(row.querySelector("a")).toBeNull();expect(row.hasAttribute("tabindex")).toBe(false);
+  await act(async () => (row as HTMLElement).click());expect(page!.container.querySelector("h1")?.textContent).toBe("Очереди");
+  await page!.cleanup();
+  for (const [key, text] of [["KKR", "служебная очередь контроля ККР"], ["WEBSUPPORT", "очередь поддержки сайта"]] as const) {
+    vi.spyOn(taskQueuesApi, "get").mockRejectedValue(new ApiError("Нет доступа к очереди", 403, "queue_access_required", { queue: { queue_id: queue.queue_id, name: key, key }, can_request_access: false }));
+    await mount(`/tasks/queues/${queue.queue_id}`, "organizer");
+    expect(page!.container.textContent).toContain(text);expect(page!.container.textContent).not.toContain("Доступ подтверждает её владелец");expect(page!.container.textContent).not.toContain("Запрос доступа сейчас недоступен");
+    expect(!!page!.container.querySelector('a[href="/support"]')).toBe(key === "WEBSUPPORT");
+    await page!.cleanup();
+  }
+  page = undefined;
+});
+it("lists only the user's own queues by default and keeps the access choice in the URL", async () => {
+  transport = installMockTransport("organizer", { delay: 0 });transport.state.queues[0].is_private = true;transport.state.queues[0].owner = transport.state.people[3];
+  function Location() { return <output data-location>{useLocation().search}</output>; }
+  page = await mountWorkspace(<><Routes><Route path="/tasks/queues" element={<TaskQueuesPage />} /></Routes><Location /></>, { path: "/tasks/queues", role: "organizer" });await waitForPage(page);
+  const select = [...page.container.querySelectorAll("select")].find(node => node.closest("label")?.textContent?.startsWith("Доступ"))!;
+  expect(select.value).toBe("granted");expect(page.container.querySelector('a[href="/tasks/queues/queue-tasks"]')).toBeNull();
+  await change(select, "all");
+  expect(page.container.querySelector("[data-location]")?.textContent).toBe("?access=all");expect(page.container.querySelector('a[href="/tasks/queues/queue-tasks"]')).not.toBeNull();
+});
+it("offers a way back from a queue that does not exist", async () => {
+  transport = installMockTransport("organizer", { delay: 0 });vi.spyOn(taskQueuesApi, "get").mockRejectedValue(new ApiError("Объект не найден", 404, "not_found"));
+  await mount("/tasks/queues/queue-missing", "organizer");
+  expect(page!.container.textContent).toContain("Очередь не найдена.");
+  expect([...page!.container.querySelectorAll("a")].find(link => link.textContent === "К очередям")?.getAttribute("href")).toBe("/tasks/queues");
 });
 it("persists an access request from the denied screen without loading tasks", async () => {
   transport = installMockTransport("organizer", { delay: 0 });transport.state.queues[0].is_private = true;transport.state.queues[0].owner = transport.state.people[3];
@@ -38,6 +73,14 @@ it("pins a queue on its page while clearing optional filters", async () => {
   expect(page!.container.querySelector("h1")?.textContent).toBe("Задачи встречи");expect(page!.container.querySelector('[aria-label="Навигация очереди"]')?.textContent).toContain("Очереди");expect(list).toHaveBeenCalledWith(expect.objectContaining({ queue_id: "queue-tasks", q: "материалы", status: "assigned" }), expect.any(AbortSignal));
   await act(async () => button("Сбросить все").click());await waitForPage(page!);
   const queueCall = list.mock.calls.filter(([params]) => params && "queue_id" in params).at(-1)![0];expect(queueCall).toMatchObject({ queue_id: "queue-tasks" });expect(queueCall).not.toHaveProperty("q");expect(page!.container.querySelectorAll("h1")).toHaveLength(1);expect(page!.container.querySelector('[aria-label="Очередь"]')).toBeNull();
+});
+it("omits the repeated team column inside a team queue and inactive paging on a single page", async () => {
+  transport = installMockTransport("leader", { delay: 0 });
+  vi.spyOn(tasksApi, "listPage").mockImplementation(async () => ({ items: [createFixtures("leader").tasks[0]], next_cursor: null, total: 1, scopes: [], assignees: [] }));
+  await mount("/tasks/queues/queue-tasks");
+  const headers = [...page!.container.querySelectorAll("thead th")].map(th => th.textContent?.trim());
+  expect(headers).not.toContain("Команда");expect(headers).toContain("Исполнители");expect(page!.container.querySelector("td[data-label='Команда']")).toBeNull();
+  expect(page!.container.textContent).toContain("На странице: 1");expect(button("Назад")).toBeUndefined();expect(button("Далее")).toBeUndefined();
 });
 it("sends the owner's exact request revision and hides controls for participants", async () => {
   transport = installMockTransport("leader", { delay: 0 });const fixture = createFixtures("leader");

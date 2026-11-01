@@ -1,5 +1,5 @@
 import type { CalendarItem } from "../../utils/api/contract";
-import { monthDays, monthTitle, moscowDay, occursOnDay, shiftMonth } from "../../utils/calendar";
+import { capitalizeFirst, monthDays, monthTitle, moscowDay, occursOnDay, shiftMonth } from "../../utils/calendar";
 
 export type CalendarView = "day" | "week" | "month";
 export const calendarView = (value: string | null): CalendarView => value === "day" || value === "week" ? value : "month";
@@ -21,7 +21,7 @@ export function shiftCalendarDate(date: string, view: CalendarView, delta: numbe
   return `${month}-${String(Math.min(Number(date.slice(-2)), monthDays(month).days.length)).padStart(2, "0")}`;
 }
 export function calendarTitle(view: CalendarView, date: string) {
-  if (view === "month") return monthTitle(date.slice(0, 7));
+  if (view === "month") return capitalizeFirst(monthTitle(date.slice(0, 7)));
   const format = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Moscow" });
   const range = calendarWindow(view, date);
   return view === "day" ? format.format(dayStart(date)) : format.formatRange(dayStart(range.days[0]), dayStart(range.days.at(-1)!));
@@ -35,6 +35,8 @@ export interface TimedCalendarItem {
   continuesAfter: boolean;
   lane: number;
   lanes: number;
+  /** Items of one group overlap each other directly or through a chain. */
+  group: number;
 }
 /** Real time bounds stay untouched; short marks reserve display space only for collision layout. */
 export function timedCalendarItems(items: CalendarItem[], day: string): TimedCalendarItem[] {
@@ -43,12 +45,13 @@ export function timedCalendarItems(items: CalendarItem[], day: string): TimedCal
     const start = Date.parse(item.starts_at), end = item.ends_at ? Date.parse(item.ends_at) : start;
     const point = end <= start;
     return { item, start: (Math.max(first, start) - first) / 60000, end: (Math.min(last, point ? start : end) - first) / 60000,
-      point, continuesBefore: start < first, continuesAfter: !point && end > last, lane: 0, lanes: 1 };
+      point, continuesBefore: start < first, continuesAfter: !point && end > last, lane: 0, lanes: 1, group: 0 };
   }).sort((left, right) => left.start - right.start || right.end - left.end || left.item.id.localeCompare(right.item.id));
-  let group: TimedCalendarItem[] = [], occupied: number[] = [], groupEnd = -1;
+  let group: TimedCalendarItem[] = [], occupied: number[] = [], groupEnd = -1, groups = 0;
   const finish = () => { group.forEach(segment => { segment.lanes = occupied.length; });group = [];occupied = []; };
   for (const segment of segments) {
-    if (segment.start >= groupEnd) finish();
+    if (segment.start >= groupEnd) { finish();groups++; }
+    segment.group = groups;
     const displayEnd = Math.max(segment.end, segment.start + 32);
     const free = occupied.findIndex(end => end <= segment.start);
     segment.lane = free < 0 ? occupied.length : free;
@@ -57,4 +60,31 @@ export function timedCalendarItems(items: CalendarItem[], day: string): TimedCal
   }
   finish();
   return segments;
+}
+/** A timed item that covers the whole Moscow day, such as the middle of a multi-day event:
+ *  it belongs to the all-day row instead of a 00:00–24:00 block over the grid. */
+export function coversWholeDay(item: CalendarItem, day: string) {
+  if (item.all_day || !item.ends_at) return false;
+  const first = dayStart(day), start = Date.parse(item.starts_at), end = Date.parse(item.ends_at);
+  return end > start && start <= first && end >= first + 86400000;
+}
+/** Items folded into one "+N" mark in the last visible lane; it lists them from the same projection. */
+export interface CalendarOverflow { id: string; start: number; lane: number; lanes: number; segments: TimedCalendarItem[] }
+/** The grid of one day: at most `maxLanes` columns, whole-day spans left to the all-day row. */
+export function calendarDayLayout(items: CalendarItem[], day: string, maxLanes: number) {
+  const segments = timedCalendarItems(items.filter(item => !coversWholeDay(item, day)), day);
+  const visible: TimedCalendarItem[] = [], overflow: CalendarOverflow[] = [];
+  const groups = new Map<number, TimedCalendarItem[]>();
+  segments.forEach(segment => groups.set(segment.group, [...(groups.get(segment.group) ?? []), segment]));
+  for (const group of groups.values()) {
+    if (group[0].lanes <= maxLanes) { visible.push(...group);continue; }
+    const kept = maxLanes - 1;
+    visible.push(...group.filter(segment => segment.lane < kept).map(segment => ({ ...segment, lanes: maxLanes })));
+    let mark: CalendarOverflow | undefined, markEnd = -1;
+    for (const segment of group.filter(segment => segment.lane >= kept).sort((left, right) => left.start - right.start || left.item.id.localeCompare(right.item.id))) {
+      if (!mark || segment.start >= markEnd) { mark = { id: `${day}:${segment.item.id}`, start: segment.start, lane: kept, lanes: maxLanes, segments: [] };overflow.push(mark); }
+      mark.segments.push(segment);markEnd = Math.max(markEnd, segment.start + 32, segment.end);
+    }
+  }
+  return { segments: visible, overflow };
 }

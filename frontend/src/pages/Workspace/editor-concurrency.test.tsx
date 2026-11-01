@@ -40,11 +40,11 @@ it.each(["material", "report", "task"] as const)("holds its baseline through bac
   await settle(); await settle();
   if (kind === "task") await click(page.container, "Редактировать");
   if (kind === "material") { await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Редактировать материал"]')!.click());await settle(); }
-  const form = kind === "bulk" ? forms().find(f => f.querySelector('[data-entity-picker][data-field-name="assignments"]'))!
+  let form = kind === "bulk" ? forms().find(f => f.querySelector('[data-entity-picker][data-field-name="assignments"]'))!
     : kind === "assessment" ? forms().find(f => f.querySelector('[name="evaluation"]'))!
     : field(page.container, kind === "task-inputs" ? "assigned" : "title").closest("form")!;
   const name = kind === "assessment" || kind === "bulk" ? "hours" : kind === "task-inputs" ? "deadline" : "title";
-  const value = name === "hours" ? "7" : name === "deadline" ? "2026-10-26T18:00" : "МОЙ ВВОД";
+  let value = name === "hours" ? "7" : name === "deadline" ? "2026-10-26T18:00" : "МОЙ ВВОД";
   await change(field(form, name), value);
   if (form.querySelector('[name="reason"]')) await change(field(form, "reason"), "Причина исправления");
   if (kind === "bulk") await pick(form, "assignments", mock.state.assessments[0].assignment_id);
@@ -60,6 +60,9 @@ it.each(["material", "report", "task"] as const)("holds its baseline through bac
     : kind === "task" ? vi.spyOn(tasksApi, "update") : kind === "task-inputs" ? vi.spyOn(tasksApi, "updateInputs")
     : kind === "assessment" ? vi.spyOn(tasksApi, "updateAssessment") : vi.spyOn(tasksApi, "bulkHours");
   for (let round = 0; round < 2; round++) {
+    if (kind === "task" && round) { // A saved task editor closes; the next save starts in a new dialog.
+      await click(page.container, "Редактировать");form = field(page.container, "title").closest("form")!;value = "МОЙ ВТОРОЙ ВВОД";await change(field(form, name), value);
+    }
     foreign(); await refetch(key);
     expect(field(form, name).value).toBe(value);
     expect(form.textContent).toContain("Запись изменилась на сервере");
@@ -68,9 +71,44 @@ it.each(["material", "report", "task"] as const)("holds its baseline through bac
     expect(spy.mock.calls).toHaveLength(before);
     await accept(form); await submit(form);
     expect(spy.mock.calls).toHaveLength(before + 1);
+    if (kind === "task") { expect(form.isConnected).toBe(false);expect(page.container.textContent).toContain("Изменения сохранены");continue; }
     expect((form.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBe(false);
     expect(form.textContent).not.toContain("Запись изменилась на сервере");
   }
+});
+
+it.each(["own", "foreign"] as const)("PF-02: an own save is not a conflict while its reread is still pending (%s reread)", async reread => {
+  mock = installMockTransport("chair", {delay: 0});
+  const r = mock.state.reports[0], start = r.revision;
+  page = await mountWorkspace(<Routes><Route path="/reports/:id" element={<ReportPage />} /></Routes>, {path: `/reports/${r.report_id}`});
+  await settle(); await settle();
+  const real = reportsApi.get, held: (() => void)[] = [];
+  vi.spyOn(reportsApi, "get").mockImplementation(id => new Promise((resolve, reject) => { held.push(() => { real(id).then(resolve, reject); }); }));
+  const save = vi.spyOn(reportsApi, "update");
+  const editor = namedForm("Сохранить черновик"), publication = namedForm("Опубликовать сохранённый отчёт");
+  const banner = () => [editor, publication].some(form => form.textContent?.includes("Запись изменилась на сервере")
+    || [...form.querySelectorAll("button")].some(button => /Сохранить мой ввод|Заменить мой ввод/.test(button.textContent ?? "")));
+  const submitButton = (form: HTMLFormElement) => form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+  await change(field(editor, "body"), "ПЕРВОЕ СОХРАНЕНИЕ");
+  await submit(editor); await settle();
+  // Saved, the reread of the report is held: the forms wait for it without a conflict.
+  expect(save).toHaveBeenCalledTimes(1);expect(r.revision).toBe(start + 1);expect(held.length).toBeGreaterThan(0);
+  expect(editor.textContent).toContain("Изменения сохранены");
+  expect(banner(), page.container.textContent ?? "").toBe(false);
+  expect(submitButton(editor).disabled).toBe(false);expect(submitButton(publication).disabled).toBe(false);
+  // A second save before the reread lands carries the revision the first one produced.
+  await change(field(editor, "body"), "ВТОРОЕ СОХРАНЕНИЕ");
+  await submit(editor); await settle();
+  expect(save).toHaveBeenCalledTimes(2);expect(save.mock.calls[1][1]).toMatchObject({expected_revision: start + 1});
+  expect(r.revision).toBe(start + 2);expect(banner()).toBe(false);
+  if (reread === "foreign") { r.revision++; r.draft_content = richText("ЧУЖОЙ ЧЕРНОВИК"); }
+  await act(async () => { held.splice(0).forEach(release => release()); });
+  await settle(); await settle();
+  // The reread with the own revision settles silently; someone else's revision still stops both forms.
+  expect(banner()).toBe(reread === "foreign");
+  expect(field(editor, "body").value).toBe("ВТОРОЕ СОХРАНЕНИЕ");
+  if (reread === "foreign") { expect(submitButton(editor).disabled).toBe(true);expect(submitButton(publication).disabled).toBe(true); }
+  else expect(submitButton(editor).disabled).toBe(false);
 });
 
 it("replacing a material draft also replaces Markdown outside Formik", async () => {
@@ -80,12 +118,12 @@ it("replacing a material draft also replaces Markdown outside Formik", async () 
   await settle(); await settle();
   await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Редактировать материал"]')!.click());await settle();
   const form = field(page.container, "title").closest("form")!;
-  await change(form.querySelector("textarea")!, "ЛОКАЛЬНЫЙ MARKDOWN");
+  await change(form.querySelector<HTMLTextAreaElement>('textarea[name="body"]')!, "ЛОКАЛЬНЫЙ MARKDOWN");
   m.revision++; m.title = "СЕРВЕРНОЕ НАЗВАНИЕ"; m.draft_content = richText("СЕРВЕРНЫЙ MARKDOWN");
   await refetch("materials");
-  expect(form.querySelector("textarea")!.value).toBe("ЛОКАЛЬНЫЙ MARKDOWN");
+  expect(form.querySelector<HTMLTextAreaElement>('textarea[name="body"]')!.value).toBe("ЛОКАЛЬНЫЙ MARKDOWN");
   await click(form, "Заменить мой ввод сохранёнными значениями");
-  expect(form.querySelector("textarea")!.value).toBe("СЕРВЕРНЫЙ MARKDOWN");
+  expect(form.querySelector<HTMLTextAreaElement>('textarea[name="body"]')!.value).toBe("СЕРВЕРНЫЙ MARKDOWN");
   expect(field(form, "title").value).toBe("СЕРВЕРНОЕ НАЗВАНИЕ");
   await submit(form);
   expect((await materialsApi.get(m.material_id)).draft_content?.body).toBe("СЕРВЕРНЫЙ MARKDOWN");

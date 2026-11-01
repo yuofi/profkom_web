@@ -145,7 +145,7 @@ it("creates, edits, publishes and deletes a material through available routes", 
   );
   await settle();
   expect(page.container.querySelector("form")).toBeNull();
-  await act(async () => page!.container.querySelector<HTMLAnchorElement>('a[href="/materials/new"]')!.click());await settle();
+  await act(async () => page!.container.querySelector<HTMLAnchorElement>('a[href="/materials/new"]')!.click());await waitForPage(page, () => !!page!.container.querySelector('[name="title"]'));
   const create = form(page.container, "Создать черновик");
   for (const [name, value] of Object.entries({
     title: "Материал приёмки",
@@ -158,8 +158,9 @@ it("creates, edits, publishes and deletes a material through available routes", 
   const material = mock.state.materials.find(
     (m) => m.title === "Материал приёмки",
   )!;
-  expect(page.container.querySelector("form")).toBeNull();
-  await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Редактировать материал"]')!.click());await settle();
+  // The new draft opens straight in its editor (GL-17); the editor is a lazy module.
+  await waitForPage(page, () => !!page!.container.querySelector('textarea[name="body"]'));
+  expect(form(page.container, "Сохранить черновик")).toBeDefined();
   const body = page.container.querySelector<HTMLTextAreaElement>('textarea[name="body"]')!;
   await change(body, "**Текст материала**");
   await submit(form(page.container, "Сохранить черновик"));
@@ -183,6 +184,8 @@ it("creates, edits, publishes and deletes a material through available routes", 
   const deleted = Array.from(page.container.querySelectorAll("details")).find(
     (d) => d.querySelector("summary")?.textContent === "Удалённые материалы",
   )!;
+  // The deleted list is read when the chair opens it.
+  await act(async () => { deleted.open = true;deleted.dispatchEvent(new Event("toggle")); });await waitForPage(page, () => !!deleted.textContent?.includes("Материал приёмки"));
   expect(deleted.textContent).toContain("Материал приёмки");
   await submit(form(deleted, "Восстановить"));
   await settle();

@@ -37,3 +37,23 @@ it("removes all cached version text after current history access is revoked", as
   await act(async () => { await page!.client.invalidateQueries({ queryKey: ["history", "task", "task-1"] }); });await waitForPage(page);
   expect(page.container.textContent).not.toContain("старую");expect(page.container.querySelector("del")).toBeNull();
 });
+it("reads codes, moments, checklists and criteria in words and keeps JSON for nested data only", async () => {
+  const row = entry();row.changes = [
+    { field: "state", label: "Состояние сезона", before: "planned", after: "open" },
+    { field: "ends_at", label: "Конец", before: null, after: "2027-04-09T00:27:35.594637+00:00" },
+    { field: "all_day", label: "Весь день", before: false, after: true },
+    { field: "role", label: "Роль", before: null, after: "deputy_event_leader" },
+    { field: "checklist", label: "Чеклист", before: ["- [ ] Забронировать зал"], after: ["- [x] Забронировать зал", "- [ ] Позвать гостей"] },
+    { field: "criteria", label: "Критерии", before: null, after: { unique: false, in_person: true } },
+    { field: "recipients", label: "Получатели", before: null, after: [{ user: people[1], hours: 2, completed_at: "2026-10-22T07:00:00+00:00" }] },
+    { field: "links", label: "Связи", before: null, after: { nested: { deep: 1 } } },
+  ];
+  vi.spyOn(historyApi, "list").mockResolvedValue({ items: [row], next_cursor: null });
+  page = await mountWorkspace(<HistoryPanel kind="season" id="season-1" />);await waitForPage(page);
+  const text = page.container.textContent ?? "";
+  for (const shown of ["Запланирован", "Открыт", "9 апр. 2027 г., 03:27", "Нет", "Да", "Заместитель главорга", "Позвать гостей", "Уникальная задача: Нет", "Очное присутствие: Да", "Часы: 2", "Дата выполнения: 22 окт. 2026 г., 10:00"]) expect(text.replace(/\u00a0/g, " ")).toContain(shown);
+  for (const raw of ["planned", "2027-04-09T", "deputy_event_leader", "[\"", "\"unique\"", "in_person"]) expect(text).not.toContain(raw);
+  expect(page.container.querySelectorAll("li li")).not.toHaveLength(0);
+  expect(page.container.querySelector(`a[href="/contacts/${people[1].user_id}"]`)).not.toBeNull();
+  expect([...page.container.querySelectorAll("pre")].map(node => node.textContent)).toEqual([JSON.stringify({ nested: { deep: 1 } }, null, 2)]);
+});

@@ -1,5 +1,6 @@
 import { normalizeApiError, type ApiError } from "./request";
 import type { SeasonBlocker } from "./contract";
+import { displayDate } from "../dates";
 
 /**
  * Russian texts of API errors, chosen by the stable `code` and then by status (FIX_PLAN
@@ -10,13 +11,14 @@ export const ERROR_TEXTS: Record<string, string> = {
   accounting_scope_required: "Сначала привяжите очередь к источнику учёта работы.",
   active_block_leader: "Сначала снимите или передайте руководящую роль в блоке.",
   self_leave_forbidden: "Для выхода из блока обратитесь к мастеру, его заместителю или руководителям HR.",
-  checklist_only: "В описании можно только отмечать пункты чеклиста. Для изменения текста нужны права редактора.",
+  checklist_only: "Этот пункт нельзя отметить: обновите описание и попробуйте снова.",
   coefficient_overflow: "Коэффициент слишком велик для расчёта. Укажите меньшее значение.",
   control_epic_managed: "Эпик контроля ККР обновляется автоматически и закрывается вместе с сезоном.",
   control_queue_conflict: "Этот ключ зарезервирован для контроля ККР. Выберите другой ключ или обратитесь к председателю.",
   invalid_coefficient: "Коэффициент должен быть конечным неотрицательным числом.",
   missing_assessment: "Заполните часы и оценку для каждого исполнителя либо исключите его из расчёта.",
   task_access_approval_required: "Сначала запросите доступ к задаче у автора или владельца очереди.",
+  task_close_author_only: "Закрыть или переоткрыть задачу может только её автор.",
   task_not_closed: "Перед заполнением ККР автор должен закрыть задачу.",
   unauthenticated: "Сессия закончилась. Войдите снова.",
   forbidden: "Нет доступа к этому действию. Возможно, роль снята.",
@@ -30,9 +32,13 @@ export const ERROR_TEXTS: Record<string, string> = {
   legacy_task_statuses: "У старых назначений разные исходы. Выберите совместимое действие, чтобы сохранить историю.",
   season_closed: "Сезон закрыт: эти данные больше не меняются.",
   season_not_ready: "Сезон пока нельзя закрыть.",
+  season_shorter_than_tasks: "Сезон нельзя закончить раньше сроков его задач, заслуг и мероприятий.",
   planned_exists: "Запланированный сезон уже есть.",
   final_report_exists: "Итоговый отчёт этого экземпляра уже есть.",
   invalid_input: "Проверьте введённые данные.",
+  deadline_out_of_range: "Дедлайн должен быть не раньше начала работы и не позже конца сезона.",
+  assigned_out_of_range: "Начало работы должно быть не позже дедлайна и конца сезона.",
+  season_ended: "Сезон уже закончился: дедлайн в нём поставить нельзя. Оставьте дедлайн пустым или выберите другой сезон.",
   validation_error: "Проверьте введённые данные.",
   registration_attempt_limit:
     "Лимит пяти отправок исчерпан. Для повторной подачи нужен сброс счётчика руководством.",
@@ -40,6 +46,7 @@ export const ERROR_TEXTS: Record<string, string> = {
   archive_scope_mapping_required: "Для прежних назначений выберите действующие блоки.",
   chair_transfer_required: "Сначала передайте пост председателя.",
   restore_deputy_limit: "Все места заместителей заняты. Освободите место перед восстановлением.",
+  leadership_change_forbidden: "Архивировать и восстанавливать заместителей председателя может только председатель.",
   already_chair: "Этот участник уже председатель.",
   already_member: "Участник уже в блоке.",
   email_taken: "Эта почта уже зарегистрирована.",
@@ -57,6 +64,8 @@ export const ERROR_TEXTS: Record<string, string> = {
   upload_expired: "Время загрузки истекло. Загрузите файл снова.",
   unavailable: "Сервис временно недоступен. Повторите позже.",
   network_error: "Нет связи с сервером. Проверьте подключение и повторите.",
+  timeout: "Сервер долго отвечает. Проверьте результат перед повтором.",
+  duplicate_request_key: "Этот запрос уже отправлен с другими данными. Обновите страницу и проверьте результат.",
   unexpected: "Что-то пошло не так. Обновите страницу и повторите.",
   contract_mismatch: "Сервер ответил в неожиданном виде. Обновите страницу.",
   feedback_duplicate_key: "Этот запрос уже использован для другого обращения. Откройте форму заново.",
@@ -90,8 +99,16 @@ function withFields(e: ApiError) {
     return "Сервис загрузки отклонил файл. Повторите загрузку; если ошибка сохраняется, сообщите руководству.";
   if (e.code === "upload_transfer_failed" && e.status >= 500)
     return "Сервис загрузки временно недоступен. Повторите загрузку позже.";
+  if (e.code === "season_shorter_than_tasks" && typeof e.fields.subject === "string" && e.fields.subject)
+    return `Сезон нельзя закончить раньше срока «${e.fields.subject}». Перенесите этот срок или выберите более позднее окончание.`;
   if (e.code === "deputy_limit" && typeof e.fields.limit === "number")
     return `Можно назначить не больше ${e.fields.limit} заместителей.`;
+  if (e.code === "deadline_out_of_range" && typeof e.fields.earliest === "string" && typeof e.fields.latest === "string")
+    return `Дедлайн должен быть не раньше ${displayDate(e.fields.earliest)} и не позже ${displayDate(e.fields.latest)} (конец сезона), МСК.`;
+  if (e.code === "assigned_out_of_range" && typeof e.fields.latest === "string")
+    return `Начало работы должно быть не позже ${displayDate(e.fields.latest)}, МСК.`;
+  if (e.code === "season_ended" && typeof e.fields.latest === "string")
+    return `Сезон закончился ${displayDate(e.fields.latest)}, МСК: дедлайн в нём поставить нельзя. Оставьте дедлайн пустым или выберите другой сезон.`;
   return undefined;
 }
 

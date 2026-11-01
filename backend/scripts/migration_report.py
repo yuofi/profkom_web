@@ -5,10 +5,12 @@ database alike, so a dry-run needs no application import. Only IDs, VK IDs from 
 saved links and the legacy master string are reported: no e-mails, phones or tokens.
 """
 
+import hashlib
 import json
 import re
 import uuid
 from collections import defaultdict
+from pathlib import Path
 from urllib.parse import urlsplit
 
 # The old VK login saved these (6eb9dea main.py:470, :493); vk_auth.VK_LINK reads the same link.
@@ -16,6 +18,21 @@ VK_LINK = re.compile(r"https?://(?:www\.|m\.)?vk\.(?:com|ru)/id(\d+)/?", re.IGNO
 VK_EMAIL = re.compile(r"vk_(\d+)@vk\.com", re.IGNORECASE)
 # The hosts directory_seed.is_vk_photo replaces at migration; other photos are kept.
 VK_HOSTS = ("vk.com", "vk.ru", "vkuserphoto.ru", "userapi.com", "vk-cdn.net", "vkuser.net")
+
+
+def source(path):
+    """The database file as sha256sum prints it, and the size of its -wal (PB-31).
+
+    Read it before the script opens the database: closing a descriptor of the file drops
+    every POSIX lock of the process, and an open WAL connection keeps one, so another
+    process could take itself for the last connection and remove -wal and -shm. A non-zero
+    source_wal_bytes means committed transactions may still be outside the file: the hash
+    then describes the file, not the database."""
+    wal = Path(f"{path}-wal")
+    return dict(
+        source_sha256=hashlib.sha256(Path(path).read_bytes()).hexdigest(),
+        source_wal_bytes=wal.stat().st_size if wal.exists() else 0,
+    )
 
 
 def tables(c):

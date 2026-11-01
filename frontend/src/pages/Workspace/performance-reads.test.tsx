@@ -2,6 +2,7 @@
 import { act } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { TrackerListPage } from "./TrackerList";
+import { TrackerParentSelector } from "./TrackerParentSelector";
 import { CalendarPage } from "./WorkspacePages";
 import { installMockTransport } from "../../mocks/transport";
 import { mountWorkspace, waitForPage, change, settle } from "../../test/workspace";
@@ -44,15 +45,37 @@ it("keeps tracker people and season filter reads behind the filter pane", async 
   expect(people).toHaveBeenCalledOnce();expect(seasons).toHaveBeenCalledOnce();
 });
 
-it("does not build an unused list page in a planning view and gets one-card facets only when asked", async () => {
+it("does not build an unused list page in a planning view and gets the facets only when asked", async () => {
   mock = installMockTransport("chair", { delay: 0 });
-  const read = vi.spyOn(tasksApi, "listPage");
+  const read = vi.spyOn(tasksApi, "listPage"), facets = vi.spyOn(tasksApi, "facets");
   page = await mountWorkspace(<TrackerListPage />, { path: "/tasks?view=calendar&month=2026-10" });await waitForPage(page);
   expect(page.container.querySelector('[aria-label="Календарь задач"]')).not.toBeNull();
   expect(read.mock.calls.every(call => (call[0] as { limit: number }).limit === 100)).toBe(true);
+  expect(facets).not.toHaveBeenCalled();
   await openFilters("Добавить фильтр");
-  expect(read.mock.calls.some(call => (call[0] as { limit: number }).limit === 1)).toBe(true);
-  expect(read.mock.calls.some(call => (call[0] as { limit: number }).limit === 20)).toBe(false);
+  expect(facets).toHaveBeenCalledOnce();
+  expect(read.mock.calls.every(call => (call[0] as { limit: number }).limit === 100)).toBe(true);
+});
+
+it("reads list pages without facets and loads the queue catalogue only for the filter or a chosen queue (PF-19)", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const read = vi.spyOn(tasksApi, "listPage"), facets = vi.spyOn(tasksApi, "facets"), catalog = vi.spyOn(taskQueuesApi, "catalog"), access = vi.spyOn(taskQueuesApi, "createAccess");
+  page = await mountWorkspace(<TrackerListPage />, { path: "/tasks" });await waitForPage(page);
+  expect(read).toHaveBeenCalled();expect(read.mock.calls.every(call => (call[0] as { include_facets?: boolean }).include_facets === false)).toBe(true);
+  expect(mock.adapter.history.get.filter(request => request.url === "/tasks").every(request => request.params?.include_facets === false)).toBe(true);
+  expect(facets).not.toHaveBeenCalled();expect(catalog).not.toHaveBeenCalled();expect(access).toHaveBeenCalledOnce();
+  expect([...page.container.querySelectorAll("a")].some(link => link.textContent === "Создать задачу")).toBe(true);
+  await openFilters("Добавить фильтр");
+  expect(facets).toHaveBeenCalledOnce();expect(catalog).toHaveBeenCalledOnce();
+  const picker = page.container.querySelector<HTMLElement>('[aria-label="Очередь"]')!;expect(picker.querySelectorAll("option").length).toBeGreaterThan(1);
+});
+
+it("names a chosen team from the facets without opening the filter pane", async () => {
+  mock = installMockTransport("chair", { delay: 0 });const task = mock.state.tasks.find(item => ["block", "subevent"].includes(item.scope.kind))!;
+  const facets = vi.spyOn(tasksApi, "facets"), catalog = vi.spyOn(taskQueuesApi, "catalog");
+  page = await mountWorkspace(<TrackerListPage />, { path: `/tasks?scope_kind=${task.scope.kind}&scope_id=${task.scope.id}` });await waitForPage(page);
+  expect(facets).toHaveBeenCalledWith({ scope_kind: task.scope.kind, scope_id: task.scope.id }, expect.anything());expect(catalog).not.toHaveBeenCalled();
+  expect(page.container.querySelector('[aria-label="Активные фильтры"]')?.textContent).toContain(`Команда: ${task.scope_title ?? "Команда"}`);
 });
 
 it("coalesces rapid tracker search input and cancels an older in-flight search without showing its late result", async () => {
@@ -123,4 +146,53 @@ it("does not reveal cached calendar directory options while a reopened filter is
   await act(async () => refuse(new ApiError("Нет доступа", 403)));
   await waitForPage(page);
   expect(document.querySelector('[data-entity-picker-popup]')?.textContent ?? "").not.toContain(name);
+});
+
+it("coalesces parent-task typing into one short read and cancels the superseded one", async () => {
+  mock = installMockTransport("chair", { delay: 0 });const fixture = createFixtures("chair").tasks[0];
+  let oldSignal: AbortSignal | undefined;
+  const read = vi.spyOn(tasksApi, "listPage").mockImplementation(async (params, signal) => {
+    if ((params as { q?: string }).q === "Подг") { oldSignal = signal;return new Promise(() => {}); }
+    return { items: [fixture], next_cursor: null, scopes: [], assignees: [] };
+  });
+  page = await mountWorkspace(<TrackerParentSelector value="" onChange={() => {}} seasonId={fixture.season_id} />);
+  const input = page.container.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  await act(async () => input.focus());await waitForPage(page);
+  expect(read).toHaveBeenCalledOnce();expect(read).toHaveBeenLastCalledWith({ season_id: fixture.season_id, limit: 20 }, expect.any(AbortSignal));
+  vi.useFakeTimers();
+  for (const value of ["П", "По", "Под", "Подг"]) { await change(input, value);await act(async () => { vi.advanceTimersByTime(100); }); }
+  expect(read).toHaveBeenCalledOnce();
+  await act(async () => { vi.advanceTimersByTime(250); });
+  expect(read).toHaveBeenCalledTimes(2);expect(read).toHaveBeenLastCalledWith({ season_id: fixture.season_id, q: "Подг", limit: 20 }, expect.any(AbortSignal));
+  expect(page.container.textContent).toContain(fixture.title);
+  await change(input, "Подготовка");await act(async () => { vi.advanceTimersByTime(250); });
+  expect(oldSignal?.aborted).toBe(true);expect(read).toHaveBeenCalledTimes(3);
+  vi.useRealTimers();
+});
+
+it("does not pick a previous search's row with Enter until the typed search has been read", async () => {
+  mock = installMockTransport("chair", { delay: 0 });const base = createFixtures("chair").tasks[0];
+  const stale = { ...base, task_id: "task-stale", task_key: "QH-1", title: "Найти раздаточные материалы" }, match = { ...base, task_id: "task-match", task_key: "QH-2", title: "Согласовать раздаточные материалы" };
+  let release: (() => void) | undefined;
+  vi.spyOn(tasksApi, "listPage").mockImplementation(async params => {
+    if (!(params as { q?: string }).q) return { items: [stale], next_cursor: null, scopes: [], assignees: [] };
+    await new Promise<void>(resolve => { release = resolve; });return { items: [match], next_cursor: null, scopes: [], assignees: [] };
+  });
+  const picked = vi.fn();
+  page = await mountWorkspace(<TrackerParentSelector value="" onChange={picked} seasonId={match.season_id} />);
+  const input = page.container.querySelector<HTMLInputElement>('[role="combobox"]')!, listbox = () => page!.container.querySelector('[role="listbox"]')!;
+  const enter = () => act(async () => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); });
+  await act(async () => input.focus());await waitForPage(page);
+  expect(listbox().textContent).toContain(stale.title);expect(listbox().getAttribute("aria-busy")).toBe("false");
+  await change(input, match.title);await enter();
+  expect(picked).not.toHaveBeenCalled();expect(input.value).toBe(match.title);
+  expect(page.container.querySelector('[role="status"]')?.textContent).toBe("Ищем задачи…");expect(listbox().getAttribute("aria-busy")).toBe("true");
+  for (let wait = 0; !release && wait < 100; wait++) await settle();
+  expect(release).toBeDefined();
+  await enter();
+  expect(picked).not.toHaveBeenCalled();expect(page.container.textContent).not.toContain("Подходящих задач нет.");
+  await act(async () => release!());await waitForPage(page);
+  expect(listbox().getAttribute("aria-busy")).toBe("false");expect(page.container.querySelector('[role="status"]')).toBeNull();expect(listbox().textContent).toContain(match.title);
+  await enter();
+  expect(picked).toHaveBeenCalledExactlyOnceWith(match.task_id);
 });

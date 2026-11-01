@@ -3,7 +3,7 @@
 import json, re, uuid
 from typing import Literal
 from pydantic import Field
-from fastapi import Depends, HTTPException
+from fastapi import Body, Depends, HTTPException
 from database import db, GuideORM, RoleAssignmentORM, UserORM
 from domain_models import MaterialORM, BlockMetaORM
 from models import User
@@ -57,6 +57,15 @@ def can_edit(id, uid):
         if not m or m.deleted:
             return False
     return access.allowed(uid, "material.edit", "material", id)
+
+
+def require_edit(id, uid):
+    """A command on a material the user cannot read is a 404 like its GET; a reader
+    without the editor right gets the 403 (GL-24)."""
+    if not can_edit(id, uid):
+        if not can_read(id, uid):
+            fail(404, "Material not found")
+        fail(403, "Material editor required")
 
 
 def block_only(m):
@@ -114,6 +123,7 @@ def dto(s, m, uid):
         ),
         revision=m.revision,
         placeholder=m.placeholder,
+        published_at=m.published_at if m.published_body is not None else None,
         community_url=(s.get(BlockMetaORM, m.owner_block_id).community_url if m.owner_block_id and s.get(BlockMetaORM, m.owner_block_id) else None),
         capabilities=[],
     )
@@ -132,13 +142,30 @@ def dto(s, m, uid):
         )
     if access.allowed(uid, "material.manage_editors"):
         data["capabilities"].append("manage_material_editors")
+        from read_context import orm_rows
         data["editor_user_ids"] = [
             r.user_id
-            for r in s.query(RoleAssignmentORM).filter_by(
+            for r in orm_rows(s, "material.editors", m.material_id, lambda: s.query(RoleAssignmentORM).filter_by(
                 scope_kind="material", scope_id=m.material_id, role="material_editor"
-            )
+            ).all())
         ]
     return data
+
+
+def _prime_editors(s, materials):
+    """The listing's editor rows in one read; several editors keep the original query."""
+    from read_context import prime_rows, reusable
+    from sqlalchemy import literal_column
+    if not reusable(s):
+        return
+    by_material = {}
+    for r in s.query(RoleAssignmentORM).filter_by(scope_kind="material", role="material_editor").order_by(
+            literal_column("role_assignments.rowid")):
+        by_material.setdefault(r.scope_id, []).append(r)
+    for m in materials:
+        rows = by_material.get(m.material_id, [])
+        if len(rows) <= 1:
+            prime_rows(s, "material.editors", m.material_id, rows)
 
 
 def deleted_dto(m):
@@ -157,9 +184,19 @@ def deleted_dto(m):
 
 
 def block_material_id(s, bid):
-    from material_seed import seed_materials
+    """The block's current guide, read-only: GET never creates a placeholder (GL-05).
+    Block creation, startup and deletion of the last guide keep one in place."""
+    m = (
+        s.query(MaterialORM)
+        .filter_by(owner_block_id=bid, deleted=False)
+        .order_by(MaterialORM.published_body.is_(None), MaterialORM.placeholder, MaterialORM.created_at)
+        .first()
+    )
+    return m.material_id if m else None
 
-    # New blocks are not created through HTTP; this also supports isolated fixtures.
+
+def ensure_block_guide(s, bid):
+    """Inside a write transaction: a placeholder guide when the block has no live material."""
     m = (
         s.query(MaterialORM)
         .filter_by(owner_block_id=bid, deleted=False)
@@ -201,6 +238,8 @@ def publish(s, m, uid):
         m.description = m.draft_description or ""
         m.original_link = m.draft_original_link
         m.published_body = m.draft_body or ""
+        from domain_seed import now as published_now
+        m.published_at = published_now()
         m.has_draft = False
         m.draft_body = None
         m.draft_title = None
@@ -295,20 +334,15 @@ def register_routes(router):
         response_model_exclude_unset=True,
     )
     def listing(cur: User = Depends(get_current_user)):
+        # Old guides are mapped at startup (scripts/preset_db.py); GET only reads (GL-05).
         with db._session() as s:
-            for g in s.query(GuideORM):
-                legacy_mapping(s, g.guide_id)
-            s.commit()
-            return Page(
-                items=[
-                    dto(s, m, cur.user_id)
-                    for m in s.query(MaterialORM)
-                    .filter_by(deleted=False)
-                    .order_by(MaterialORM.created_at)
-                    if can_read(m.material_id, cur.user_id)
-                ],
-                next_cursor=None,
-            )
+            readable = [
+                m for m in s.query(MaterialORM).filter_by(deleted=False).order_by(MaterialORM.created_at)
+                if can_read(m.material_id, cur.user_id)
+            ]
+            if access.allowed(cur.user_id, "material.manage_editors"):
+                _prime_editors(s, readable)
+            return Page(items=[dto(s, m, cur.user_id) for m in readable], next_cursor=None)
 
     @router.get("/materials/deleted", response_model=Page[MaterialOut], response_model_exclude_unset=True)
     def deleted(cur: User = Depends(get_current_user)):
@@ -424,8 +458,7 @@ def register_routes(router):
     def patch(material_id: str, payload: Patch, cur: User = Depends(get_current_user)):
         with db._session() as s:
             m = row(s, material_id)
-            if not can_edit(material_id, cur.user_id):
-                fail(403, "Material editor required")
+            require_edit(material_id, cur.user_id)
             version(m, payload.expected_revision)
             if not m.has_draft:
                 m.draft_title = m.title
@@ -472,17 +505,19 @@ def register_routes(router):
     ):
         with db._session() as s:
             m = row(s, material_id)
-            if not can_edit(material_id, cur.user_id):
-                fail(403, "Material editor required")
+            require_edit(material_id, cur.user_id)
             version(m, payload.expected_revision)
             return publish(s, m, cur.user_id)
 
     @router.delete("/materials/{material_id}")
-    def remove(material_id: str, cur: User = Depends(get_current_user)):
+    def remove(material_id: str, payload: Revision | None = Body(None), cur: User = Depends(get_current_user)):
         with db._session() as s:
             m = row(s, material_id)
-            if not can_edit(material_id, cur.user_id):
-                fail(403, "Material editor required")
+            require_edit(material_id, cur.user_id)
+            if payload is None:
+                fail(422, "expected_revision is required", "invalid_input")
+            # Like every other material command: a newer save by someone else is a 409 (GL-27).
+            version(m, payload.expected_revision)
             m.deleted = True
             m.deleted_at = now()
             m.revision += 1
@@ -495,6 +530,11 @@ def register_routes(router):
                 {},
                 dict(deleted=True),
             )
+            if m.owner_block_id:
+                # The block keeps a guide: its placeholder is created here, in the same
+                # write, instead of by the next GET /blocks (GL-05).
+                s.flush()
+                ensure_block_guide(s, m.owner_block_id)
             s.commit()
             return dict(deleted=True)
 
@@ -515,9 +555,14 @@ def register_routes(router):
                 u = s.get(UserORM, uid)
                 if not u or u.account_state != "active" or u.banned:
                     fail(422, "Editor must be active and approved", "inactive_user")
-            s.query(RoleAssignmentORM).filter_by(
+            # Per-row deletes (flushed before the new rows, which may repeat a pair the
+            # unique index covers): the flush hooks see material editors, not a bulk
+            # role-table command that forces every queue and control to be rechecked.
+            for editor in s.query(RoleAssignmentORM).filter_by(
                 scope_kind="material", scope_id=material_id, role="material_editor"
-            ).delete(synchronize_session=False)
+            ).all():
+                s.delete(editor)
+            s.flush()
             for uid in payload.user_ids:
                 s.add(
                     RoleAssignmentORM(
@@ -555,8 +600,7 @@ def register_routes(router):
         """Who reads a block guide; decided by its writers: the block leads and the chair's team."""
         with db._session() as s:
             m = row(s, material_id)
-            if not can_edit(material_id, cur.user_id):
-                fail(403, "Material editor required")
+            require_edit(material_id, cur.user_id)
             if m.kind != "guide" or not m.owner_block_id:
                 fail(422, "Only a block guide has an audience")
             version(m, payload.expected_revision)
@@ -573,8 +617,8 @@ def register_routes(router):
     def mapping(guide_id: int, cur: User = Depends(get_current_user)):
         """Resolve a bookmarked old identifier using current material visibility."""
         with db._session() as s:
-            m = legacy_mapping(s, guide_id)
-            if m.deleted or not can_read(m.material_id, cur.user_id):
+            # The mapping is created at startup; resolving a bookmark never writes (GL-05).
+            m = s.query(MaterialORM).filter_by(legacy_guide_id=guide_id).first()
+            if not m or m.deleted or not can_read(m.material_id, cur.user_id):
                 fail(404, "Guide not found")
-            s.commit()
             return dict(guide_id=guide_id, material_id=m.material_id, revision=m.revision)

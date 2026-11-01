@@ -36,19 +36,26 @@ def _event_open(uid, source_kind, event_id, scope_id):
     return True
 
 
-def can_create(uid, source_kind, event_id, scope_id):
-    if not _event_open(uid, source_kind, event_id, scope_id):
+def can_create(uid, source_kind, event_id, scope_id, state=None):
+    """Creating a merit in a season of `state`.
+
+    Like `can_manage`: a closed main event stops its heads; a closed season is changed by
+    its own circle (merit.create.*, owner 2026-10-31, SE-13) whatever the event's state."""
+    if state != "closed" and not _event_open(uid, source_kind, event_id, scope_id):
         return False
     kind, sid = merit_scope(source_kind, event_id, scope_id)
-    return access.allowed(uid, CREATE_ACTIONS[source_kind], kind, sid)
+    return access.allowed(uid, CREATE_ACTIONS[source_kind], kind, sid, state=state)
 
 
 def can_manage(m, uid, write=False):
-    """Viewing a merit; with `write`, editing it (a closed season narrows the rule)."""
-    if write and not _event_open(uid, m.source_kind, m.event_id, m.scope_id):
+    """Viewing a merit; with `write`, editing it (a closed season narrows the rule).
+
+    A closed main event stops its heads; a closed season is edited by its own circle
+    (merit.manage.*, owner 2026-10-31, SE-13) whatever the event's state."""
+    state = db.get_season(m.season_id).state if write else None
+    if write and state != "closed" and not _event_open(uid, m.source_kind, m.event_id, m.scope_id):
         return False
     kind, sid = merit_scope(m.source_kind, m.event_id, m.scope_id)
-    state = db.get_season(m.season_id).state if write else None
     action = "merit.manage" if write else "merit.view"
     return access.allowed(uid, f"{action}.{m.source_kind}", kind, sid, state=state)
 
@@ -106,3 +113,50 @@ def validate(s, data):
             r.get("completed_at") or data["deadline_at"],
         ):
             raise InvalidInput("Recipient belonged to this scope when work was performed")
+
+
+MERIT_CAPS = ("create_head_merit", "create_volunteer_merit")
+
+
+def contexts(uid, season_id=None):
+    """The merit forms' scope pickers in one read: every block, the events (of one
+    season when given) and their subevents with only their merit capabilities.
+
+    Items keep the GET /blocks, /events and /events/{id}/subevents order and each
+    capability list is the merit subset of those DTOs' capabilities, computed by the
+    same functions (block_caps, event_caps, subevent_caps behind subevent.view).
+    """
+    from domain_models import BlockMetaORM
+    from domain_seed import meta_for
+    from membership import block_avatar_url
+    from read_context import reusable
+    from workspace import _calendar_children
+
+    def merit(caps):
+        return [cap for cap in caps if cap in MERIT_CAPS]
+
+    with db._session() as s:
+        metas = {meta.legacy_name: meta for meta in s.query(BlockMetaORM)} if reusable(s) else {}
+        blocks = []
+        for b in s.query(BlockORM).order_by(BlockORM.name):
+            m = (metas.get(b.name) if reusable(s) else None) or meta_for(s, b.name)
+            # open_season adds only create_task, never a merit capability.
+            blocks.append(dict(block_id=m.block_id, name=b.name, avatar_url=block_avatar_url(s, m),
+                               capabilities=merit(access.block_caps(uid, b.name, False))))
+        query = s.query(EventORM)
+        if season_id:
+            query = query.filter(EventORM.season_id == season_id)
+        events = query.all()
+        children = _calendar_children(s, events)
+        event_items, sub_items = [], []
+        for event in events:
+            event_items.append(dict(event_id=event.event_id, season_id=event.season_id, title=event.title,
+                                    capabilities=merit(access.event_caps(event, uid))))
+            rows = children.get(event.event_id, []) if children is not None and reusable(s) else \
+                s.query(SubeventORM).filter(SubeventORM.event_id == event.event_id).all()
+            for sub in rows:
+                working = access.allowed(uid, "subevent.view", "subevent", sub.subevent_id)
+                sub_items.append(dict(subevent_id=sub.subevent_id, event_id=sub.event_id, title=sub.title,
+                                      capabilities=merit(access.subevent_caps(sub, uid)) if working else []))
+        s.commit()
+        return dict(blocks=blocks, events=event_items, subevents=sub_items)

@@ -6,6 +6,7 @@ from collections import defaultdict
 from contextvars import ContextVar
 from dataclasses import asdict
 from fastapi import Depends, HTTPException
+from sqlalchemy import func
 from models import User
 from auth import get_current_user
 from database import (
@@ -219,7 +220,7 @@ def refresh(session, season_id, uid, reason):
     if not row:
         raise Conflict("Closed summary snapshot missing")
     if not access.allowed(uid, "summary.correct"):
-        raise Forbidden("Forbidden: only chair can correct closed scoring")
+        raise Forbidden("Forbidden: only the chair, deputies and HR master correct closed scoring")
     # A legacy approved row is preserved after input mutation. Its old analytic
     # facts were never observed, so only the newly approved successor gets them.
     store_snapshot(session, season_id, uid, "Initial preserved snapshot", capture_analytics=False)
@@ -228,30 +229,39 @@ def refresh(session, season_id, uid, reason):
     allowed = {r["participant_id"] for r in rows}
     _recalculate_closed_master_bonuses_for_session(session, season_id)
     session.flush()
+    # The season's contributions and evaluated-task counts are read once (nothing is
+    # written until the rows are stored) and grouped as the per-participant queries were.
+    contributions = session.query(ContributionORM).filter_by(season_id=season_id).all()
     if any(
         c.participant_id not in allowed
-        for c in session.query(ContributionORM).filter_by(season_id=season_id)
+        for c in contributions
     ):
         raise InvalidInput("Recipient is outside the closed participant snapshot")
+    by_participant = defaultdict(list)
+    for c in contributions:
+        by_participant[c.participant_id].append(c)
     decisions = {
         d.user_id: json.loads(d.decisions_json)
         for d in session.query(SeasonDecisionORM).filter_by(season_id=season_id)
     }
+    evaluated = dict(
+        session.query(AssignmentORM.assignee_user_id, func.count())
+        .join(TaskORM, TaskORM.task_id == AssignmentORM.task_id)
+        .filter(
+            TaskORM.season_id == season_id,
+            TaskORM.scope_kind.in_(("block","subevent")),
+            AssignmentORM.status.in_(["accepted", "not_completed"]),
+            AssignmentORM.evaluation.isnot(None),
+        )
+        .group_by(AssignmentORM.assignee_user_id)
+    ) if rows else {}
     for r in rows:
-        r["source_scores"] = totals(session, season_id, r["participant_id"])
+        r["source_scores"] = totals(session, season_id, r["participant_id"],
+                                    contributions=by_participant.get(r["participant_id"], []))
         r["total_score"] = math.fsum(x["score"] for x in r["source_scores"])
         uid_row = r["user"]["user_id"]
         r["evaluated_task_count"] = (
-            session.query(AssignmentORM)
-            .join(TaskORM)
-            .filter(
-                TaskORM.season_id == season_id,
-                TaskORM.scope_kind.in_(("block","subevent")),
-                AssignmentORM.assignee_user_id == uid_row,
-                AssignmentORM.status.in_(["accepted", "not_completed"]),
-                AssignmentORM.evaluation.isnot(None),
-            )
-            .count()
+            evaluated.get(uid_row, 0)
             if uid_row is not None
             else r["evaluated_task_count"]
         )
@@ -273,9 +283,57 @@ def refresh(session, season_id, uid, reason):
     store_snapshot(session, season_id, uid, reason)
 
 
+def _same_instant(left, right):
+    from participation import dt
+    if not left or not right:
+        return not left and not right
+    try:
+        return dt(left) == dt(right)
+    except (ValueError, TypeError):
+        return left == right
+
+
+def _same_criteria(stored_json, value):
+    stored = json.loads(stored_json or "{}")
+    return {k for k, v in stored.items() if v} == {k for k, v in value.items() if v}
+
+
+def _unchanged(kind, obj, value):
+    """Whether one correction only repeats the saved inputs; template use is always a change."""
+    if value.get("template_selection"):
+        return False
+    for key, wanted in value.items():
+        if key == "template_selection":
+            continue
+        if kind in ("task_inputs", "assessment_inputs") and wanted is None:
+            continue  # these patches skip omitted/null inputs
+        if key in ("assigned_at", "deadline_at", "effective_completed_at"):
+            same = _same_instant(getattr(obj, key), wanted)
+        elif key == "criteria":
+            same = _same_criteria(obj.criteria_json, wanted or {})
+        elif key in ("hours", "evaluation"):
+            current = getattr(obj, key)
+            same = current is not None and float(current) == float(wanted)
+        elif key == "title":
+            same = obj.title == wanted
+        elif key == "description":
+            saved = json.loads(obj.description_json or "{}")
+            same = saved == (wanted if isinstance(wanted, dict) else {"format": "markdown", "body": str(wanted)})
+        elif key == "recipients":
+            def norm(items):
+                return sorted((int(r["user_id"]), float(r.get("hours", 0.0)), float(r.get("evaluation", 1.0)), r.get("completed_at")) for r in items or [])
+            saved, asked = norm(json.loads(obj.recipients_json or "[]")), norm(wanted)
+            same = len(saved) == len(asked) and all(a[:3] == b[:3] and _same_instant(a[3], b[3]) for a, b in zip(saved, asked))
+        else:
+            same = False
+        if not same:
+            return False
+    return True
+
+
 def correct(season_id, expected_version, reason, changes, uid):
     if not access.allowed(uid, "summary.correct"):
-        raise Forbidden("Forbidden: only chair can correct summary")
+        raise Forbidden("Forbidden: only the chair, deputies and HR master correct a closed summary")
     if not reason or not reason.strip():
         raise InvalidInput("Reason is required")
     with db.atomic():
@@ -301,7 +359,7 @@ def correct(season_id, expected_version, reason, changes, uid):
                 "assessment_inputs": AssignmentInputsPatchIn,
                 "merit": MeritPatchIn,
             }
-            prepared = []
+            prepared, repeated = [], []
             for c in changes:
                 if c["kind"] not in schemas:
                     raise InvalidInput("Invalid correction kind")
@@ -341,6 +399,10 @@ def correct(season_id, expected_version, reason, changes, uid):
                 value.pop("reason")
                 value.pop("expected_revision")
                 prepared.append((c, value))
+                repeated.append(_unchanged(c["kind"], obj, value))
+            if all(repeated):
+                # A repeated save keeps the immutable history; the route acknowledges current revisions.
+                return db.get_season_summary(season_id, uid)
             marker = _suppress.set(True)
             try:
                 for c, v in prepared:
@@ -379,61 +441,79 @@ def correct(season_id, expected_version, reason, changes, uid):
             return db.get_season_summary(season_id, uid)
 
 
-def decisions(season_id, target, values, expected_version, reason, uid):
+def decisions(season_id, target, values, expected_version, reason, uid, expected_decisions=None):
+    """Replace one participant's marks.
+
+    A closed season answers to its summary version. In an open or summarizing season the
+    marks the client saw for this participant (`expected_decisions`, any order) replace that
+    check, so accepted work elsewhere does not refuse the mark (owner, 2026-10-31, PB-16);
+    a request without them keeps the version check.
+    """
     if len(set(values)) != len(values) or not set(values) <= DECISIONS:
         raise InvalidInput("Invalid decisions")
-    with db._session() as s:
-        season = s.get(SeasonORM, season_id)
-        if not season:
-            raise NotFound("Season not found")
-        if not access.allowed(uid, "summary.decide", state=season.state):
-            raise Forbidden("Forbidden: only chair can edit closed decisions" if season.state == "closed"
-                             else "Forbidden: decision editor required")
-        if season.state == "closed" and (not reason or not reason.strip()):
-            raise InvalidInput("Reason is required")
-        row = current(s, season_id)
-        if (row.version if row else 1) != expected_version:
-            raise revision_conflict("Conflict: summary version mismatch")
-        summary = db.get_season_summary(season_id, uid)
-        if not any(r.user.user_id == target for r in summary.rows):
-            raise InvalidInput("Participant is outside this summary")
-        d = (
-            s.query(SeasonDecisionORM)
-            .filter_by(season_id=season_id, user_id=target)
-            .first()
-        )
-        old = json.loads(d.decisions_json) if d else []
-        if not d:
-            d = SeasonDecisionORM(
-                season_id=season_id,
-                user_id=target,
-                changed_by_user_id=uid,
-                decisions_json="[]",
-                updated_at=now(),
+    if expected_decisions is not None and not set(expected_decisions) <= DECISIONS:
+        raise InvalidInput("Invalid decisions")
+    # One write transaction compares and replaces: of two clicks on the same marks, the
+    # second sees the first one's marks and is refused.
+    with db.atomic():
+        with db._session() as s:
+            season = s.get(SeasonORM, season_id)
+            if not season:
+                raise NotFound("Season not found")
+            if not access.allowed(uid, "summary.decide", state=season.state):
+                raise Forbidden("Forbidden: only the chair, deputies and HR master edit closed marks" if season.state == "closed"
+                                 else "Forbidden: a planned season takes no marks" if season.state == "planned"
+                                 else "Forbidden: decision editor required")
+            if season.state == "closed" and (not reason or not reason.strip()):
+                raise InvalidInput("Reason is required")
+            d = (
+                s.query(SeasonDecisionORM)
+                .filter_by(season_id=season_id, user_id=target)
+                .first()
             )
-            s.add(d)
-        d.decisions_json = json.dumps(values)
-        d.changed_by_user_id = uid
-        d.reason = reason
-        d.updated_at = now()
-        audit(
-            s,
-            "summary_decisions",
-            season_id + ":" + str(target),
-            uid,
-            reason,
-            dict(decisions=old),
-            dict(decisions=values),
-        )
-        refresh(s, season_id, uid, reason or "Summary decisions updated")
-        s.commit()
-        if season.state == "closed":
-            return db.get_season_summary(season_id, uid)
-        summary.version = current(s, season_id).version
-        for person in summary.rows:
-            if person.user.user_id == target:
-                person.decisions = list(values)
-        return summary
+            old = json.loads(d.decisions_json) if d else []
+            if season.state == "closed" or expected_decisions is None:
+                row = current(s, season_id)
+                if (row.version if row else 1) != expected_version:
+                    raise revision_conflict("Conflict: summary version mismatch")
+            elif set(old) != set(expected_decisions):
+                raise revision_conflict("Conflict: participant marks changed")
+            summary = db.get_season_summary(season_id, uid)
+            if not any(r.user.user_id == target for r in summary.rows):
+                raise InvalidInput("Participant is outside this summary")
+            if any(r.user.user_id == target and set(r.decisions) == set(values) for r in summary.rows):
+                return summary  # the same marks again: no audit and no new summary version
+            if not d:
+                d = SeasonDecisionORM(
+                    season_id=season_id,
+                    user_id=target,
+                    changed_by_user_id=uid,
+                    decisions_json="[]",
+                    updated_at=now(),
+                )
+                s.add(d)
+            d.decisions_json = json.dumps(values)
+            d.changed_by_user_id = uid
+            d.reason = reason
+            d.updated_at = now()
+            audit(
+                s,
+                "summary_decisions",
+                season_id + ":" + str(target),
+                uid,
+                reason,
+                dict(decisions=old),
+                dict(decisions=values),
+            )
+            refresh(s, season_id, uid, reason or "Summary decisions updated")
+            s.commit()
+            if season.state == "closed":
+                return db.get_season_summary(season_id, uid)
+            summary.version = current(s, season_id).version
+            for person in summary.rows:
+                if person.user.user_id == target:
+                    person.decisions = list(values)
+            return summary
 
 
 def register_routes(router):
@@ -449,7 +529,7 @@ def register_routes(router):
         return preview_event(event_id, cur.user_id)
 
     @router.get("/seasons/{season_id}/readiness")
-    def readiness(season_id: str, cur: User = Depends(get_current_user)):
+    def readiness(season_id: str, include_task_ids: bool = False, cur: User = Depends(get_current_user)):
         if not access.allowed(cur.user_id, "summary.view"):
             raise Forbidden("Forbidden: season readiness requires summary access")
         from season_readiness import blockers
@@ -458,6 +538,11 @@ def register_routes(router):
             if not season:
                 raise NotFound("Season not found")
             items = blockers(session, season, cur.user_id)
+            if include_task_ids:
+                # Assignment blockers gain task_id: the task when the actor may open it.
+                from task_queues import assignment_task_ids
+                tasks = assignment_task_ids(cur.user_id, [b["owner_id"] for b in items if b["owner_kind"] == "assignment"])
+                items = [dict(b, task_id=tasks.get(b["owner_id"])) if b["owner_kind"] == "assignment" else b for b in items]
             return dict(ready=not items and season.state in {"open", "summarizing"}, blockers=items, revision=season.revision)
 
     def require_reader(uid):

@@ -25,6 +25,9 @@
 .reassign { border:1px solid var(--surface-variant);border-radius:7px;background:transparent;color:var(--primary);font:inherit;font-size:11px;line-height:1.4;cursor:pointer;padding:7px 8px;max-width:100%;overflow-wrap:anywhere; }
 .reassign:hover { background:var(--surface-container);border-color:var(--primary); }
 .reassign:focus-visible,.team:focus-visible,.history:focus-visible,.task>a:first-child:focus-visible { outline:2px solid var(--primary);outline-offset:3px; }
+.more { justify-self:start; }
+/* Reads as .button:disabled while its page loads, but keeps the keyboard focus. */
+.more[aria-disabled="true"] { opacity:.5;cursor:progress; }
 .empty { display:grid;justify-items:center;gap:12px;padding:45px 16px;text-align:center;border-top:1px solid var(--surface-variant); }
 .empty>span { color:var(--accent-lilac);font-size:32px;opacity:.7; }
 .empty h2 { font-size:18px;font-weight:500;margin:0; }

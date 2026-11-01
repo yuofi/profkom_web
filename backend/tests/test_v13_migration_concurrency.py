@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from database import db, SeasonORM, RoleAssignmentORM
+from sqlite_files import database_digest
 from test_v13_tracker import work
 
 
@@ -118,8 +119,8 @@ def test_legacy_migration_and_explicit_mapping_are_repeatable(tmp_path):
             == 1
         )
         assert c.execute("PRAGMA quick_check").fetchone()[0] == "ok"
-    # Retention dry-run must not run startup migrations or change the DB.
-    before = hashlib.sha256(path.read_bytes()).hexdigest()
+    # Retention dry-run must not run startup migrations or change the DB (now in WAL).
+    before = database_digest(path)
     subprocess.run(
         [
             sys.executable,
@@ -131,7 +132,7 @@ def test_legacy_migration_and_explicit_mapping_are_repeatable(tmp_path):
         cwd=root,
         capture_output=True,
     )
-    assert hashlib.sha256(path.read_bytes()).hexdigest() == before
+    assert database_digest(path) == before
 
 
 def test_concurrent_planned_creation_and_assignment_accept_are_atomic(

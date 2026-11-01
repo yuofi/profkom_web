@@ -21,7 +21,9 @@ from validation import timestamp
 
 
 def metadata(session, kind, identifier, *, create=False):
-    row = session.get(EventWorkspaceMetaORM, (kind, identifier))
+    from read_context import orm_get
+    # A clean read UOW also remembers absent rows; commands keep Session.get.
+    row = orm_get(session, EventWorkspaceMetaORM, (kind, identifier))
     if row is None:
         row = next((item for item in session.new if isinstance(item, EventWorkspaceMetaORM)
                     and item.owner_kind == kind and item.owner_id == identifier), None)
@@ -120,6 +122,8 @@ def extension(kind, owner):
             ids = owner.organizer_user_ids
             result["organizers"] = [asdict(ref) for uid in ids if (ref := db._get_user_ref(session, uid)) is not None]
             event = session.get(EventORM, owner.event_id)
+            # Approved readers already see the parent's title; pages no longer reread it for crumbs.
+            result["event_title"] = event.title if event else ""
             parent_meta = metadata(session, "event", owner.event_id)
             child_end = datetime.fromisoformat(timestamp(result["ends_at"])) + timedelta(days=int(result["all_day"])) if result["ends_at"] else None
             parent_end = datetime.fromisoformat(timestamp(event.ends_at)) + timedelta(days=int(bool(parent_meta and parent_meta.all_day))) if event and event.ends_at else None

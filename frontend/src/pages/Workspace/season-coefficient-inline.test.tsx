@@ -32,3 +32,40 @@ it('opens one audit form for a closed season and sends its reason and captured s
  const form=document.querySelector<HTMLFormElement>('[data-anchored-popover] form')!;await change(form.querySelector('input')!,'Проверенное исправление');await act(async()=>form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));await waitForPage(page!);
  expect(save).toHaveBeenCalledExactlyOnceWith('season-1',{source_kind:'block',source_id:'block-it',value:2,expected_revision:1,reason:'Проверенное исправление',expected_summary_version:8});
 });
+const popover=()=>document.querySelector<HTMLElement>('[data-anchored-popover]');
+const button=(label:string)=>[...popover()!.querySelectorAll<HTMLButtonElement>('button')].find(item=>item.textContent===label)!;
+it('asks before saving an open-season value above 10 on Enter, and saves only on the explicit «Сохранить» (SE-26)',async()=>{
+ const save=vi.spyOn(kkrApi,'coefficient').mockResolvedValue({...row,value:15,revision:2});await mount();
+ await change(coefficient(),'15');await enter();await waitForPage(page!,()=>!!popover());
+ expect(save).not.toHaveBeenCalled();expect(popover()!.querySelector('[role="alert"]')?.textContent).toBe('Коэффициент больше 10 — проверьте, нет ли опечатки');
+ expect(popover()!.querySelector('input')).toBeNull();expect(document.activeElement).toBe(popover());
+ await blur();await enter();expect(save).not.toHaveBeenCalled();
+ expect(button('Сохранить').className).toMatch(/button/);expect(button('Сохранить').className).toMatch(/primary/);expect(button('Отмена').className).toMatch(/button/);
+ await act(async()=>button('Сохранить').click());await waitForPage(page!);
+ expect(save).toHaveBeenCalledExactlyOnceWith('season-1',{source_kind:'block',source_id:'block-it',value:15,expected_revision:1});expect(popover()).toBeNull();
+});
+it('does not save a large value on blur and «Отмена» restores the saved coefficient; 10 itself saves at once (SE-26)',async()=>{
+ const save=vi.spyOn(kkrApi,'coefficient').mockResolvedValue({...row,value:10,revision:2});await mount();
+ await change(coefficient(),'10.5');await blur();await waitForPage(page!,()=>!!popover());expect(save).not.toHaveBeenCalled();
+ await act(async()=>button('Отмена').click());await waitForPage(page!);
+ expect(popover()).toBeNull();expect(save).not.toHaveBeenCalled();expect(coefficient().value).toBe('1');
+ await change(coefficient(),'10');await enter();await waitForPage(page!);
+ expect(save).toHaveBeenCalledExactlyOnceWith('season-1',{source_kind:'block',source_id:'block-it',value:10,expected_revision:1});expect(popover()).toBeNull();
+});
+it('keeps the explicit retry of a stale large value behind the same question (SE-26)',async()=>{
+ const save=vi.spyOn(kkrApi,'coefficient').mockRejectedValueOnce(new ApiError('Конфликт',409,'revision_conflict')).mockResolvedValue({...row,value:12,revision:4});await mount();
+ vi.mocked(kkrApi.statistics).mockResolvedValue({items:[{...row,value:3,revision:3}],preliminary:true});
+ await change(coefficient(),'12');await enter();await waitForPage(page!,()=>!!popover());await act(async()=>button('Сохранить').click());await waitForPage(page!);
+ expect(save).toHaveBeenCalledTimes(1);expect(coefficient().value).toBe('12');
+ await act(async()=>button('Сохранить мой ввод с обновлённой версией').click());await waitForPage(page!);
+ expect(save.mock.calls[1][1]).toMatchObject({value:12,expected_revision:3});expect(popover()).toBeNull();
+});
+it('shows the same warning in the closed-season popover, whose actions use the site buttons (SE-26)',async()=>{
+ const save=vi.spyOn(kkrApi,'coefficient').mockResolvedValue({...row,value:12,revision:2});await mount(false);await change(coefficient(),'12');await enter();
+ await waitForPage(page!,()=>!!popover()?.querySelector('input'));expect(save).not.toHaveBeenCalled();
+ expect(popover()!.querySelector('[role="alert"]')?.textContent).toBe('Коэффициент больше 10 — проверьте, нет ли опечатки');
+ const submit=button('Сохранить коэффициент'),cancel=button('Отмена');
+ expect(submit.className).toMatch(/button/);expect(submit.className).toMatch(/primary/);expect(cancel.className).toMatch(/button/);
+ await change(popover()!.querySelector('input')!,'Проверенное исправление');await act(async()=>submit.click());await waitForPage(page!);
+ expect(save).toHaveBeenCalledExactlyOnceWith('season-1',{source_kind:'block',source_id:'block-it',value:12,expected_revision:1,reason:'Проверенное исправление',expected_summary_version:8});
+});

@@ -56,3 +56,4 @@ export function missingFields(fields: RegistrationApplication["fields"]) {
     .filter(([name]) => failed.has(name))
     .map(([, label]) => label);
 }
+export { personName } from "./personName";

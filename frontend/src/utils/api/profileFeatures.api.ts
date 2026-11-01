@@ -3,6 +3,8 @@ import type { ContactInfoOut, ProfileUpdate } from "./types";
 import { idPath, request } from "./request";
 export interface FeatureScope { kind: "global" | "block" | "event" | "subevent"; id: string | null; name: string }
 export interface FeaturesContext { award_scopes: FeatureScope[]; template_scopes: FeatureScope[]; can_create_personal_template: boolean; award_icons: string[] }
+/** Whether features-context would list award / template scopes, without the lists. */
+export interface FeaturesFlags { has_award_scopes: boolean; can_create_personal_template: boolean }
 export interface ActivityFact { scope: FeatureScope; role: string; started_at: string | null; ended_at: string | null; observed: boolean; current: boolean }
 export interface Achievement { achievement_id: string; title: string; description: string; icon: string; scope: FeatureScope; revision: number; archived: boolean; capabilities: string[] }
 export interface AchievementValues { title: string; description: string; icon: string }
@@ -24,6 +26,7 @@ export interface KkrTemplate { template_id: string; visibility: "personal" | "te
 export interface TemplateCreate { visibility: "personal" | "team"; scope_kind?: FeatureScope["kind"]; scope_id?: string | null; values: TemplateValues }
 export const profileFeaturesApi = {
   context: () => request<FeaturesContext>("get", "/profile/me/features-context"),
+  flags: () => request<FeaturesFlags>("get", "/profile/me/features-flags"),
   activity: (id: number) => request<{ items: ActivityFact[] }>("get", `/profiles/${idPath(id)}/activity`),
   catalogue: (recipient_user_id?: number) => request<{ items: Achievement[] }>("get", "/achievements", undefined, { recipient_user_id }),
   achievements: (id: number) => request<{ items: AchievementGrant[] }>("get", `/profiles/${idPath(id)}/achievements`),

@@ -86,6 +86,16 @@ describe("API commands through mock transport", () => {
     });
     expect((await tasksApi.assessment(own.assignment_id)).hours).toBe(4);
   });
+  it("counts a description mark after emoji in UTF-16 code units, as the server does", async () => {
+    useMock("chair");
+    const task = await tasksApi.get("task-1");
+    const body = "- [ ] A " + "😀".repeat(11) + "\n- [ ] Бета\n- [ ] Гамма\n";
+    const edited = await tasksApi.update(task.task_id, { expected_revision: task.revision, description: richText(body) });
+    for (const offset of [9, 23, 35])
+      await expect(tasksApi.descriptionChecklist(task.task_id, { expected_revision: edited.revision, offset, checked: true })).rejects.toMatchObject({ status: 403 });
+    const marked = await tasksApi.descriptionChecklist(task.task_id, { expected_revision: edited.revision, offset: 34, checked: true });
+    expect(marked.description.body).toBe(body.replace("- [ ] Бета", "- [x] Бета"));
+  });
   it("lets the HR master read every task as well as the KKR (АВ-3)", async () => {
     useMock("hr");
     expect((await tasksApi.list({ mine: false })).items.map((x) => x.task_id)).toContain("task-1");
@@ -321,6 +331,28 @@ describe("API commands through mock transport", () => {
     expect(
       (await seasonsApi.summary("season-previous")).rows[0].decisions,
     ).not.toEqual(["kick", "nice"]);
+  });
+  it("answers an open-season mark by the participant's own marks, not the summary version (PB-16)", async () => {
+    useMock("chair");
+    const seen = await seasonsApi.summary("season-1");
+    const [first, second] = seen.rows;
+    const mark = (row: typeof first, data: Parameters<typeof seasonsApi.decisions>[2]) =>
+      seasonsApi.decisions("season-1", row.user.user_id!, data);
+    await mark(second, { expected_version: seen.version, expected_decisions: second.decisions, decisions: ["nice"] });
+    const saved = await mark(first, { expected_version: seen.version, expected_decisions: [...first.decisions].reverse(), decisions: ["kick"] });
+    expect(saved.rows.find((row) => row.participant_id === first.participant_id)?.decisions).toEqual(["kick"]);
+    await expect(mark(first, { expected_version: saved.version, expected_decisions: first.decisions, decisions: ["nice"] }))
+      .rejects.toMatchObject({ status: 409, code: "revision_conflict" });
+    await expect(mark(first, { expected_version: seen.version, decisions: ["nice"] }))
+      .rejects.toMatchObject({ status: 409, code: "revision_conflict" });
+  });
+  it("reads a planned season's summary without marks (SE-21)", async () => {
+    useMock("chair");
+    const planned = await seasonsApi.summary("season-next");
+    expect(planned.capabilities).not.toContain("edit_decisions");
+    await expect(seasonsApi.decisions("season-next", planned.rows[0].user.user_id!, { expected_version: planned.version, expected_decisions: planned.rows[0].decisions, decisions: ["nice"] }))
+      .rejects.toMatchObject({ status: 403 });
+    expect((await seasonsApi.summary("season-next")).version).toBe(planned.version);
   });
   it("retains old assignment history and records an independent replacement", async () => {
     useMock("leader");

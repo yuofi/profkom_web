@@ -16,7 +16,7 @@ export function BlockHr({ block }: { block: Block }) {
   return <>
     <div className={s.row}>
       {block.hr ? <UserChip user={block.hr} /> : <span className={s.muted}>HR не назначен</span>}
-      {can(block, "assign_block_hr") && <button type="button" className={s.button} aria-label="Изменить HR блока" title="Изменить HR блока" onClick={() => setEditing(true)}><Glyph name="edit" /></button>}
+      {can(block, "assign_block_hr") && <button type="button" className={`${s.button} ${s.iconButton}`} aria-label="Изменить HR блока" title="Изменить HR блока" onClick={() => setEditing(true)}><Glyph name="edit" /></button>}
     </div>
     {editing && can(block, "assign_block_hr") && <UnsavedChangesScope><TrackerTaskDialog title="HR блока" onClose={() => setEditing(false)}><BlockHrForm block={block} onSaved={() => setEditing(false)} /></TrackerTaskDialog></UnsavedChangesScope>}
   </>;

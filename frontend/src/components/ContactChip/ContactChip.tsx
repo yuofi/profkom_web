@@ -9,6 +9,8 @@ import { CardLabel } from '../CardLabel/CardLabel';
 import { TextField } from '../TextField/TextField';
 import { Button } from '../Button/Button';
 import type { IconName } from '../icons';
+import { isBackdropClick, useModalDialog } from '../Workspace/useModalDialog';
+import { personName } from '../../utils/personName';
 
 export interface ContactInfo {
   surname: string;
@@ -51,8 +53,10 @@ interface ContactChipProps {
   }) => {
   const [internalOpen, setInternalOpen] = useState(false);
   const isOpen = isExternalOpen !== undefined ? isExternalOpen : internalOpen;
+  const dialog = useModalDialog(isOpen);
 
   const info = useMemo(() => parseContent(initialContent), [initialContent]);
+  const fullName = `${info.surname} ${info.name} ${info.patronymic}`.trim();
   const isMobile = useMediaQuery("(max-width: 768px)");
 
 
@@ -103,7 +107,7 @@ interface ContactChipProps {
     }
     return value ? (
       <div className={styles.fieldView}>
-        {iconName && <Icon name={iconName} size={20} className={styles.fieldIcon} />}
+        {iconName && <Icon name={iconName} size={20} className={styles.fieldIcon} aria-hidden="true" />}
         <div className={styles.fieldContent}>
           <span className={styles.label}>{label}</span>
           <span className={styles.value}>{value}</span>
@@ -116,11 +120,13 @@ interface ContactChipProps {
     <>
       {!hideChip && (
         <div className={clsx(styles.chip, mode === 'edit' && styles.editMode)} onClick={handleToggle}>
-          <Avatar src={info.photo_url} size={isMobile ? 50 : 80} mode="disable" />
+          {/* Decorative: the name button beside it names the contact; the dialog's avatar zooms. */}
+          <Avatar src={info.photo_url} size={isMobile ? 50 : 80} mode="disable" alt="" />
           <div className={styles.chipInfo}>
-          <span className={styles.chipText}>
-            {`${info.surname} ${info.name} ${info.patronymic}`.trim() || 'ФИО'} {info.group ? `(${info.group})` : ''}
-          </span>
+          {/* The keyboard way in (GL-41); a click anywhere on the chip still opens it. */}
+          <button type="button" className={styles.chipText} aria-haspopup="dialog" aria-expanded={isOpen}>
+            {fullName || 'ФИО'} {info.group ? `(${info.group})` : ''}
+          </button>
           <div className={styles.chipTags}>
           {info.blocks.length > 0 && 
           info.blocks.split(",").map((block) => {
@@ -136,14 +142,16 @@ interface ContactChipProps {
       )}
 
       {isOpen && (
-        <div className={styles.modalOverlay} onClick={handleClose}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+        <dialog ref={dialog} className={styles.modalContent} aria-label={fullName ? `Контакт: ${fullName}` : 'Контакт'}
+          onCancel={(event) => { event.preventDefault(); handleClose(); }}
+          onClick={(event) => { event.stopPropagation(); if (isBackdropClick(event)) handleClose(); }}>
             <div className={styles.modalBody}>
               <div className={styles.avatarSection}>
                 <Avatar 
                   src={info.photo_url} 
                   size={100} 
                   mode={mode} 
+                  name={personName(info)}
                   onUpload={(url) => handleInputChange('photo_url', url)} 
                 />
               </div>
@@ -163,7 +171,7 @@ interface ContactChipProps {
               {renderField('Телефон', info.phone, 'phone', 'call')}
               <div className={styles.row}>
                 {renderField('ВК', info.vk, 'vk', 'share')}
-                {renderField('Телеграмм', info.tg, 'tg', 'send')}
+                {renderField('Telegram', info.tg, 'tg', 'send')}
               </div>
               {renderField('Почта', info.email, 'email', 'mail')}
             </div>
@@ -174,8 +182,7 @@ interface ContactChipProps {
                 </Button>
               </div>
             )}
-          </div>
-        </div>
+        </dialog>
       )}
     </>
   );

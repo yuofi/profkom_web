@@ -300,4 +300,6 @@ def test_close_blockers_name_the_work_and_whose_it_is(org):
     assert org2["subject"] == "Раздаточные материалы"
     assert {"Посвят", "Лекции"} <= {b["subject"] for b in blockers if b["kind"] == "missing_final_report"}
     for b in blockers:
-        assert b["subject"] and set(b) <= {"kind", "owner_kind", "owner_id", "title", "subject", "assignee"}, b
+        assert b["subject"] and set(b) <= {"kind", "owner_kind", "owner_id", "title", "subject", "assignee", "task_id"}, b
+        # Only a readable assignment names its task (SE-02); masked private queues never do.
+        assert ("task_id" in b) == (b["owner_kind"] == "assignment"), b

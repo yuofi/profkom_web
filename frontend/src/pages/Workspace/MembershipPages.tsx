@@ -1,18 +1,19 @@
-import { BlockChip } from "../../components/Workspace/BlockChip";
 import { UserChip } from "../../components/Workspace/UserChip";
 import { BlockAvatarPicker } from "../../components/Workspace/BlockAvatarPicker";
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { useParams } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Navigate, useParams } from "react-router-dom";
+import { getBlockRoute } from "../../utils/routes";
 import {
   Page,
   Card,
   QueryState,
-  Markdown,
   RouteLink,
   Badge,
   Empty,
+  Glyph,
 } from "../../components/Workspace/WorkspaceUI";
+import { Markdown } from "../../components/Workspace/WorkspaceMarkdown";
 import type { Tone } from "../../components/Workspace/sections";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { fundingLabels, registrationLabels } from "../../utils/contactFields";
@@ -30,7 +31,7 @@ import {
   usePeopleOptions,
   useWorkspaceActions,
 } from "../../utils/hooks/useWorkspace";
-import { Leaders } from "./EventLeaders";
+import { DeputiesForm, Leaders } from "./EventLeaders";
 import { OrganizationTree } from "./OrganizationTree";
 import { BlockHr } from "./BlockHr";
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
@@ -54,6 +55,9 @@ const requestTones: Record<BlockRequest["state"], Tone | undefined> = {
   withdrawn: undefined,
 };
 const isOpen = (r: BlockRequest) => ["pending_hr", "pending_block"].includes(r.state);
+const openStates: BlockRequest["state"][] = ["pending_hr", "pending_block"];
+const closedStates: BlockRequest["state"][] = ["approved", "rejected", "withdrawn"];
+const historyPage = 20;
 export function BlocksPage() {
   const { session } = useSession();
   const enabled = session?.account_state === "active" && session.registration_status === "approved";
@@ -86,18 +90,27 @@ export function BlocksPage() {
 export function BlockPage() {
   const { id = "" } = useParams();
   const { session } = useSession();
-  const people = usePeopleOptions();
   const { perform, refresh } = useWorkspaceActions();
+  const [leadership, setLeadership] = useState(false);
   const query = useQuery({
     queryKey: ["workspaceBlocks", id],
-    queryFn: () => membershipApi.block(id),
+    queryFn: () => membershipApi.block(id, { include_deputies: true }),
   });
   const b = !query.error || canRetainData(query.error) ? query.data : undefined;
+  // The directory serves only the master assignment form (PF-13).
+  const people = usePeopleOptions({ enabled: can(b, "manage_leaders") });
   const canViewTracker = can(b, "view_tasks");
   const alreadyInBlock = !!b && !!session && (b.members.some(member => member.user.user_id === session.user_id) || b.master?.user.user_id === session.user_id || !!b.master?.deputy_user_ids.includes(session.user_id));
+  // A member cannot leave on their own (403 self_leave_forbidden): say whom to ask (PE-22).
+  const plainMember = !!b && !!session && b.members.some(member => member.user.user_id === session.user_id) && b.master?.user.user_id !== session.user_id && !b.master?.deputy_user_ids.includes(session.user_id);
+  // Deputies come as references with include_deputies; the directory is not read for them (PF-13).
+  const deputies = b?.master ? (b.master.deputies?.length === b.master.deputy_user_ids.length ? b.master.deputies : b.master.deputy_user_ids.map(userId => people.options.find(option => option.value === String(userId))?.user)) : [];
+  const leaveContacts = b ? [b.master?.user, ...deputies, b.hr]
+    .filter((user, index, all): user is NonNullable<typeof user> => !!user?.user_id && user.user_id !== session?.user_id && all.findIndex(other => other?.user_id === user.user_id) === index) : [];
+  // Only the own requests to this block, not the whole visible history (PB-22, PF-13).
   const requests = useQuery({
-    queryKey: ["blockRequests"],
-    queryFn: membershipApi.requests,
+    queryKey: ["blockRequests", "mine", id],
+    queryFn: () => membershipApi.requests({ block_id: id, mine: true }),
   });
   const pending = requests.data?.items.find(
     (r) =>
@@ -105,18 +118,20 @@ export function BlockPage() {
       r.user.user_id === session?.user_id &&
       ["pending_hr", "pending_block"].includes(r.state),
   );
+  // An old address by name (/blocks/Медиа) moves to the block's id, so every link and request below uses the id.
+  if (b && id !== b.block_id) return <Navigate replace to={getBlockRoute(b.block_id)} />;
   return (
     <Page
       title={b?.name ?? "Блок"}
-      actions={<div className={s.row}>{b && <BlockAvatarPicker block={b} />}<RouteLink to="/blocks">Все блоки</RouteLink></div>}
+      actions={<div className={`${s.row} ${m.blockHeaderActions}`}>{b && <BlockAvatarPicker block={b} />}<RouteLink to="/blocks">Все блоки</RouteLink></div>}
     >
       <QueryState keepDataOnError={!!query.data}
         loading={query.isLoading} error={query.error}>
         {b && (
           <div className={s.stack}>
             <Card>
+              {/* The header already shows the block's avatar and name (PE-25). */}
               <div className={s.row}>
-                <BlockChip block={b} interactive={false} />
                 {canViewTracker && (
                   <RouteLink
                     to={`/tasks?scope_kind=block&scope_id=${encodeURIComponent(id)}`}
@@ -125,12 +140,14 @@ export function BlockPage() {
                   </RouteLink>
                 )}
                 {can(b, "create_volunteer_merit") && <RouteLink to={`/merits?source_kind=block_volunteer&scope_id=${encodeURIComponent(id)}`}>Учесть волонтёрскую работу</RouteLink>}
-                {b.guide_material_id ? (
+                {b.guide_material_id && can(b, "read_guide") ? (
                   <RouteLink
                     to={`/materials/${encodeURIComponent(b.guide_material_id)}`}
                   >
                     Гайд блока
                   </RouteLink>
+                ) : b.guide_material_id ? (
+                  <span className={s.muted}>Гайд доступен участникам блока</span>
                 ) : (
                   <span className={s.muted}>Гайд ещё готовится</span>
                 )}
@@ -148,8 +165,13 @@ export function BlockPage() {
               <Markdown content={b.description} />
             </Card>
             <Card title="Руководство">
-              <Leaders leaders={b.master ? [b.master] : []} />
-              {can(b, "manage_leaders") && (
+              <Leaders leaders={b.master ? [b.master] : []} editable={false} />
+              {(can(b, "manage_leaders") || can(b.master, "manage_deputies")) && (
+                <div className={s.row}><button type="button" className={s.button} onClick={() => setLeadership(true)}><Glyph name="edit" />Изменить руководство</button></div>
+              )}
+              {leadership && <UnsavedChangesScope><TrackerTaskDialog title="Руководство блока" onClose={() => setLeadership(false)}>
+              {/* Two server commands with their own rights and revisions: each section saves on its own. */}
+              {can(b, "manage_leaders") && (<section className={s.stack} aria-label="Мастер блока"><h3>Мастер блока</h3>
                 <ActionForm
                   key={b.block_id}
                   revision={b.revision}
@@ -175,7 +197,9 @@ export function BlockPage() {
                   }}
                   onConflict={refresh}
                 />
-              )}
+              </section>)}
+              {b.master && can(b.master, "manage_deputies") && <section className={s.stack} aria-label="Заместители мастера"><h3>Заместители мастера</h3><DeputiesForm leader={b.master} /></section>}
+              </TrackerTaskDialog></UnsavedChangesScope>}
             </Card>
             <Card title="HR блока"><BlockHr block={b} /></Card>
             <Card title="Состав блока">
@@ -183,8 +207,8 @@ export function BlockPage() {
                 {b.members.map((m) => (
                   <li key={m.user.user_id}>
                     <div className={s.between}>
-                      <span>
-                        {m.user.display_name}{" "}
+                      <span className={s.row}>
+                        <UserChip user={m.user} />
                         <Badge tone={m.block_category === "junior" ? "mint" : undefined}>
                           {m.block_category === "junior"
                             ? "Новичок блока"
@@ -197,6 +221,10 @@ export function BlockPage() {
                             fields={[]}
                             submitLabel="Убрать из состава"
                             variant="danger"
+                            confirm={{
+                              label: "Да, исключить",
+                              text: `Исключить ${m.user.display_name} из блока «${b.name}»? Вернуться в блок участник сможет только по новой заявке.`,
+                            }}
                             onSubmit={async () => {
                               await perform(() =>
                                 membershipApi.remove(id, m.user.user_id!),
@@ -212,6 +240,14 @@ export function BlockPage() {
                 Служебное назначение мастера или заместителя отдельно от
                 обычного членства.
               </p>
+              {plainMember && (
+                <div className={s.row}>
+                  <span className={s.muted}>
+                    Чтобы выйти из блока, обратитесь к мастеру, его заместителю или HR блока{leaveContacts.length ? ":" : "."}
+                  </span>
+                  {leaveContacts.map(user => <UserChip key={user.user_id} user={user} />)}
+                </div>
+              )}
               {alreadyInBlock ? null : pending ? (
                 <p>
                   Заявка: {requestStates[pending.state]} ·{" "}
@@ -277,18 +313,21 @@ function RequestCard({
   blockName: string;
 }) {
   const { perform, refresh } = useWorkspaceActions();
+  const [rejecting, setRejecting] = useState(false);
   const open = ["pending_hr", "pending_block"].includes(r.state);
   const review = can(
     r,
     r.state === "pending_hr" ? "hr_review_request" : "block_review_request",
   );
+  const wait = waited(r.stage_entered_at);
   return (
-    <Card title={`${r.user.display_name} → ${blockName}`}>
+    <Card>
+      <h2 className={m.requestTitle}><UserChip user={r.user} /><span>→ {blockName}</span></h2>
       <div className={s.row}><Badge tone={requestTones[r.state]}>{requestStates[r.state]}</Badge>{open && <RouteLink to={`/blocks/${encodeURIComponent(r.block_id)}`}>Открыть блок</RouteLink>}</div>
       {open ? (
         <p>
           Текущий этап с {displayDate(r.stage_entered_at)} ·{" "}
-          <span className={s.nowrap}>ждёт {waited(r.stage_entered_at)}</span>
+          <span className={s.nowrap}>ждёт {wait === "0 ч" ? "меньше часа" : wait}</span>
         </p>
       ) : (
         r.decided_at && <p>Решение: {displayDate(r.decided_at)}</p>
@@ -309,12 +348,12 @@ function RequestCard({
       ) : r.state === "approved" && <p className={s.muted}>Кто одобрил: сведения не сохранены.</p>}
       {r.substitute_available_at && (
         <p className={s.muted}>
-          Срок для подмены руководства: {displayDate(r.substitute_available_at)}{" "}
-          (72 часа текущего этапа). Доступность решения определяет сервер.
+          Если решение не принято до {displayDate(r.substitute_available_at)}, его смогут принять председатель или его заместители.
         </p>
       )}
+      {/* Approving and rejecting side by side; the reason is asked in a dialog (PE-27). */}
       {open && review && (
-        <div className={s.stack}>
+        <div className={m.requestDecisions}>
           <ActionForm
             revision={r.revision}
             record={`block-request:${r.request_id}`}
@@ -335,33 +374,40 @@ function RequestCard({
               );
             }}
           />
-          <details className={s.details}>
-            <summary>Отклонить с причиной</summary>
-            <ActionForm
-              revision={r.revision}
-              record={`block-request:${r.request_id}`}
-              onConflict={refresh}
-              fields={[
-                {
-                  name: "reason",
-                  label: "Причина отказа",
-                  type: "textarea",
-                  required: true,
-                },
-              ]}
-              submitLabel="Отклонить"
-              variant="danger"
-              onSubmit={async (v, expectedRevision) => {
-                return perform(() =>
-                  membershipApi.requestCommand(r.request_id, "reject", {
-                    expected_revision: expectedRevision!,
-                    reason: text(v, "reason"),
-                  }),
-                );
-              }}
-            />
-          </details>
+          <button type="button" className={`${s.button} ${m.reject}`} onClick={() => setRejecting(true)}>
+            Отклонить
+          </button>
         </div>
+      )}
+      {rejecting && open && review && (
+        <UnsavedChangesScope><TrackerTaskDialog title="Отклонить заявку в блок" onClose={() => setRejecting(false)}>
+          <p>{r.user.display_name} → {blockName}</p>
+          <ActionForm
+            revision={r.revision}
+            record={`block-request:${r.request_id}`}
+            onConflict={refresh}
+            fields={[
+              {
+                name: "reason",
+                label: "Причина отказа",
+                type: "textarea",
+                required: true,
+              },
+            ]}
+            submitLabel="Отклонить заявку"
+            variant="danger"
+            onSubmit={async (v, expectedRevision) => {
+              const saved = await perform(() =>
+                membershipApi.requestCommand(r.request_id, "reject", {
+                  expected_revision: expectedRevision!,
+                  reason: text(v, "reason"),
+                }),
+              );
+              setRejecting(false);
+              return saved;
+            }}
+          />
+        </TrackerTaskDialog></UnsavedChangesScope>
       )}
       {open && can(r, "withdraw_request") && (
         <ActionForm
@@ -384,9 +430,11 @@ function RequestCard({
   );
 }
 export function BlockRequestsPage() {
+  // Open requests in full (they are decided here), the own closed ones, and the rest of the
+  // history in keyset pages of 20 from the newest (PB-22) instead of every request with a full DTO.
   const query = useQuery({
-    queryKey: ["blockRequests"],
-    queryFn: membershipApi.requests,
+    queryKey: ["blockRequests", "open"],
+    queryFn: () => membershipApi.requests({ state: openStates }),
     refetchOnWindowFocus: "always",
     refetchInterval: (query) =>
       query.state.data?.items.some((r) =>
@@ -394,6 +442,17 @@ export function BlockRequestsPage() {
       )
         ? 60_000
         : false,
+  });
+  const mine = useQuery({
+    queryKey: ["blockRequests", "mine", "closed"],
+    queryFn: () => membershipApi.requests({ mine: true, state: closedStates }),
+    refetchOnWindowFocus: "always",
+  });
+  const history = useInfiniteQuery({
+    queryKey: ["blockRequests", "history"],
+    queryFn: ({ pageParam }) => membershipApi.requests({ state: closedStates, limit: historyPage, order: "desc", ...(pageParam ? { cursor: pageParam } : {}) }),
+    initialPageParam: "",
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
   });
   useDeadlineRefresh(
     query.data?.items
@@ -403,6 +462,15 @@ export function BlockRequestsPage() {
       ) ?? [],
     query.refetch,
   );
+  // A request decided elsewhere leaves the open list: reread the closed lists to show it there.
+  const client = useQueryClient(), openIds = query.data?.items.map(r => r.request_id).join(" "), previousOpen = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const before = previousOpen.current;previousOpen.current = openIds;
+    if (before === undefined || openIds === undefined) return;
+    const now = new Set(openIds.split(" "));
+    if (before.split(" ").some(id => id && !now.has(id)))
+      void client.invalidateQueries({ queryKey: ["blockRequests"], predicate: item => item.queryKey[1] !== "open" });
+  }, [client, openIds]);
   const blocks = useQuery({
     queryKey: ["workspaceBlocks"],
     queryFn: membershipApi.blocks,
@@ -416,16 +484,35 @@ export function BlockRequestsPage() {
     ["Прочие открытые", []],
     ["История", []],
   ];
-  for (const r of query.data?.items ?? []) {
+  // The open list is the freshest copy of an open request; the list keeps the server order.
+  const byId = new Map<string, BlockRequest>();
+  for (const r of [...history.data?.pages.flatMap(page => page.items) ?? [], ...mine.data?.items ?? [], ...query.data?.items ?? []]) byId.set(r.request_id, r);
+  const loaded = [...byId.values()].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.request_id.localeCompare(b.request_id));
+  const errors = [query.error, mine.error, history.error].filter(Boolean), error = errors.find(item => !canRetainData(item)) ?? errors[0] ?? null;
+  for (const r of loaded) {
     const index = can(r, "hr_review_request") ? 0 : can(r, "block_review_request") ? 1
       : r.user.user_id === session?.user_id ? 2 : isOpen(r) ? 3 : 4;
     sections[index][1].push(r);
   }
+  // The history is paged from its latest end: newest first, "Показать ещё" adds older ones.
+  sections[4][1].reverse();
+  // «Показать ещё» keeps the keyboard focus while its page loads: aria-disabled, as `disabled`
+  // on the focused button drops the focus to <body>. The last page removes the button, so its
+  // focus moves to the first older request that page added.
+  const shownHistory = sections[4][1].length, loadingMore = history.isFetchingNextPage;
+  const historyList = useRef<HTMLUListElement>(null), more = useRef<HTMLButtonElement>(null), firstAdded = useRef<number | null>(null);
+  useEffect(() => {
+    const index = firstAdded.current;
+    if (index === null || loadingMore) return;
+    firstAdded.current = null;
+    if (shownHistory > index && !more.current && (!document.activeElement || document.activeElement === document.body)) historyList.current?.children[index]?.querySelector<HTMLElement>("summary")?.focus();
+  }, [shownHistory, loadingMore]);
+  const blockName = (r: BlockRequest) => blocks.data?.find((b) => b.block_id === r.block_id)?.name ?? "Блок";
   const card = (r: BlockRequest) => (
     <RequestCard
       request={r}
       key={r.request_id}
-      blockName={blocks.data?.find((b) => b.block_id === r.block_id)?.name ?? "Блок"}
+      blockName={blockName(r)}
     />
   );
   return (
@@ -434,14 +521,33 @@ export function BlockRequestsPage() {
       description="Обычный блок: HR, затем мастер. В HR-блок вступление завершается после одного решения HR."
 
     >
-      <QueryState keepDataOnError={!!query.data}
-        loading={query.isLoading} error={query.error} retry={() => void query.refetch()}>
+      <QueryState keepDataOnError={!!query.data && !!mine.data && !!history.data}
+        loading={query.isLoading || mine.isLoading || history.isLoading} error={error} retry={() => { void query.refetch();void mine.refetch();void history.refetch(); }}>
         <div className={s.stack}>
           {sections.map(([title, items]) =>
-            items.length === 0 ? null : title === "История" ? (
+            items.length === 0 && !(title === "История" && history.hasNextPage) ? null : title === "История" ? (
+              // History is a compact list of rows, twenty a page; a row opens its card (PE-27).
               <details key={title} className={s.details}>
                 <summary>История · {items.length}</summary>
-                <div className={s.stack}>{items.map(card)}</div>
+                <ul ref={historyList} className={m.history}>
+                  {items.map((r) => (
+                    <li key={r.request_id}>
+                      <details className={m.historyRow}>
+                        <summary>
+                          <span>{r.user.display_name} → {blockName(r)}</span>
+                          <Badge tone={requestTones[r.state]}>{requestStates[r.state]}</Badge>
+                          {r.decided_at && <small>{displayDate(r.decided_at)}</small>}
+                        </summary>
+                        {card(r)}
+                      </details>
+                    </li>
+                  ))}
+                </ul>
+                {history.hasNextPage && (
+                  <button ref={more} type="button" className={s.button} aria-disabled={loadingMore || undefined} aria-busy={loadingMore || undefined} onClick={() => { if (loadingMore) return;firstAdded.current = shownHistory;void history.fetchNextPage(); }}>
+                    Показать ещё
+                  </button>
+                )}
               </details>
             ) : (
               <section key={title} aria-label={title} className={s.stack}>
@@ -450,7 +556,7 @@ export function BlockRequestsPage() {
               </section>
             ),
           )}
-          {query.data?.items.length === 0 && <Empty>Заявок пока нет.</Empty>}
+          {!!query.data && !!mine.data && !!history.data && !loaded.length && !history.hasNextPage && <Empty>Заявок пока нет.</Empty>}
         </div>
       </QueryState>
     </Page>

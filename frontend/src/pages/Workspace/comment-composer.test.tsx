@@ -27,7 +27,7 @@ it("comment frame keeps formatting, preview and footer together without help or 
   const controls=[...frame.querySelectorAll<HTMLButtonElement>('[role="toolbar"] button')];expect(controls.at(-1)?.getAttribute('aria-label')).toBe('Предпросмотр');
   expect(frame.querySelector('[data-editor-footer]')?.textContent).toContain('Прикрепить файлы');
   const input=frame.querySelector('textarea')!;input.focus();input.setSelectionRange(2,5);
-  await act(async()=>controls.at(-1)!.click());
+  await act(async()=>controls.at(-1)!.click());await waitForPage(page,()=>!!frame.querySelector('.katex'));
   expect(frame.querySelector('table')).not.toBeNull();expect(frame.querySelector('.katex')).not.toBeNull();expect(frame.querySelector(`a[href="/contacts/${user.user_id}"]`)?.textContent).toBe(user.display_name);
   await act(async()=>frame.querySelector<HTMLButtonElement>('[aria-label="Редактирование"]')!.click());expect(frame.querySelector('textarea')!.value).toBe(source);expect([frame.querySelector('textarea')!.selectionStart,frame.querySelector('textarea')!.selectionEnd]).toEqual([2,5]);
   expect(attach).not.toHaveBeenCalled();expect(frame.textContent).not.toContain('Шаблоны');expect(frame.textContent).not.toContain('Справка');
@@ -35,7 +35,7 @@ it("comment frame keeps formatting, preview and footer together without help or 
 
 it("mention popup searches locally, supports keyboard selection and restores focus", async () => {
   const targets=people.slice(0,3), selected=vi.fn(),insert=vi.fn();
-  vi.spyOn(taskCollaborationApi,'candidates').mockResolvedValue({items:targets,next_cursor:null});
+  vi.spyOn(taskCollaborationApi,'candidates').mockResolvedValue({items:targets.map(user=>({...user,can_assign:true})),next_cursor:null});
   page=await mountWorkspace(<TaskMentionPicker taskId="test-task" value={[]} onChange={selected} onMentionText={insert}/>);
   const trigger=page.container.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')!;
   await act(async()=>{trigger.focus();trigger.click();});await waitForPage(page);
@@ -83,7 +83,7 @@ it("the comment attachment popover preserves its local draft and never opens tas
 async function mountDraftTask(existing=false) {
   const fixture=createFixtures('chair'),task={...fixture.tasks[0],capabilities:['comment_task'],status:'open' as const};
   const comment={...fixture.comments[0],task_id:task.task_id,content:richText(`Старый [участник](/contacts/${people[1].user_id})`),mentioned_users:[people[1]],capabilities:['edit_comment']};
-  vi.spyOn(tasksApi,'get').mockResolvedValue(task);vi.spyOn(tasksApi,'comments').mockResolvedValue({items:existing?[comment]:[],next_cursor:null});vi.spyOn(seasonsApi,'list').mockResolvedValue({items:fixture.seasons,next_cursor:null});vi.spyOn(historyApi,'list').mockResolvedValue({items:[],next_cursor:null});vi.spyOn(taskCollaborationApi,'candidates').mockResolvedValue({items:people.slice(0,3),next_cursor:null});
+  vi.spyOn(tasksApi,'get').mockResolvedValue(task);vi.spyOn(tasksApi,'comments').mockResolvedValue({items:existing?[comment]:[],next_cursor:null});vi.spyOn(seasonsApi,'list').mockResolvedValue({items:fixture.seasons,next_cursor:null});vi.spyOn(historyApi,'list').mockResolvedValue({items:[],next_cursor:null});vi.spyOn(taskCollaborationApi,'candidates').mockResolvedValue({items:people.slice(0,3).map(user=>({...user,can_assign:true})),next_cursor:null});
   page=await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage/>}/></Routes>,{path:`/tasks/${task.task_id}`});await waitForPage(page);return{task,comment};
 }
 async function chooseDraftPerson(frame:Element,userId:number) {
@@ -96,7 +96,7 @@ it('correcting a selected person removes the owned token and sends only the repl
   await change(input,'Сохранить этот текст');await chooseDraftPerson(frame,people[1].user_id!);expect(input.value).toContain('/contacts/'+people[1].user_id);
   await chooseDraftPerson(frame,people[1].user_id!);expect(input.value).not.toContain('/contacts/'+people[1].user_id);expect(input.value).toContain('Сохранить этот текст');
   await chooseDraftPerson(frame,people[2].user_id!);await submit(frame.closest('form')!);await waitForPage(page!,()=>post.mock.calls.length===1);
-  expect(post).toHaveBeenCalledWith(task.task_id,{format:'markdown',body:expect.stringContaining('/contacts/'+people[2].user_id)},[people[2].user_id],[]);
+  expect(post).toHaveBeenCalledWith(task.task_id,{format:'markdown',body:expect.stringContaining('/contacts/'+people[2].user_id)},[people[2].user_id],[],expect.stringMatching(/^[0-9a-f-]{36}$/));
 });
 it('deleting an inserted link clears pending recipients while manually typed links stay display-only',async()=>{
   const {task,comment}=await mountDraftTask(),post=vi.spyOn(tasksApi,'comment').mockResolvedValue(comment);
@@ -104,7 +104,7 @@ it('deleting an inserted link clears pending recipients while manually typed lin
   await change(input,'Черновик');await chooseDraftPerson(frame,people[1].user_id!);
   const body=`Ручная [ссылка](/contacts/${people[2].user_id}) без призыва`;await change(input,body);
   expect(frame.querySelector('[data-editor-footer]')!.textContent).not.toContain('· 1');await submit(frame.closest('form')!);await waitForPage(page!,()=>post.mock.calls.length===1);
-  expect(post).toHaveBeenCalledWith(task.task_id,richText(body),[],[]);
+  expect(post).toHaveBeenCalledWith(task.task_id,richText(body),[],[],expect.stringMatching(/^[0-9a-f-]{36}$/));
 });
 it('editing an existing mentioned comment never re-sends its previous recipients',async()=>{
   const {comment}=await mountDraftTask(true),save=vi.spyOn(tasksApi,'editComment').mockResolvedValue(comment);

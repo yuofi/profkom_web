@@ -13,7 +13,7 @@ def material(client, chair):
     row = response.json()
     published = client.post('/api/materials/' + row['material_id'] + '/publish', headers=chair.headers, json=dict(expected_revision=row['revision']))
     assert published.status_code == 200, published.text
-    assert client.delete('/api/materials/' + row['material_id'], headers=chair.headers).status_code == 200
+    assert client.request('DELETE', '/api/materials/' + row['material_id'], headers=chair.headers, json=dict(expected_revision=published.json()['revision'])).status_code == 200
     return row['material_id']
 
 

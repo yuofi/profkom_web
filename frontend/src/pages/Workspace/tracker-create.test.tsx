@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import { act } from "react";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, useNavigate } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
 import { mountWorkspace, waitForPage, change, field, submit } from "../../test/workspace";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { filesApi } from "../../utils/api/files.api";
 import { richText, type FileRef } from "../../utils/api/contract";
+import { ApiError } from "../../utils/api/request";
 import { TaskCreateForm, TrackerTaskCreatePage } from "./TaskCreateForm";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
@@ -28,6 +29,31 @@ it("opens a blank task-like editor with parameters, permits no assignees and omi
   expect(form.querySelector('[name="hours"]')).toBeNull();expect(form.querySelector('[name="creative"]')).toBeNull();expect(form.querySelector('[aria-label="Параметры новой задачи"]')).not.toBeNull();
   await change(field(page.container, "title"), "Новая свободная задача");await change(field(form, "deadline"), "2026-10-29T18:00");await submit(form);await waitForPage(page, () => !!page!.container.textContent?.includes("Созданная задача") || !!page!.container.querySelector('[role="alert"]'));expect(page!.container.textContent).toContain("Созданная задача");
   expect(create).toHaveBeenCalledWith(expect.objectContaining({ queue_id: queue.queue_id, assignees: [], watcher_user_ids: [], file_ids: [], description: richText("") }));expect(create.mock.calls[0][0]).not.toHaveProperty("scope");
+});
+it("hints the deadline range and shows the server's refusal at the deadline field", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const create = vi.spyOn(tasksApi, "create").mockRejectedValue(new ApiError("Dates", 422, "deadline_out_of_range", { deadline_at: "out_of_range", earliest: "2026-10-31T09:00:00+00:00", latest: "2026-12-31T20:59:59+00:00" }));
+  page = await mountWorkspace(<TaskCreateForm queueId={mock.state.queues[0].queue_id} />);await waitForPage(page, () => !!page!.container.querySelector("form"));
+  const form = page.container.querySelector("form")!, deadline = field(form, "deadline") as HTMLInputElement;
+  expect(deadline.min).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+  await waitForPage(page, () => !!deadline.max);expect(mock.state.seasons.map(season => new Date(Date.parse(season.ends_at) + 3 * 3600_000).toISOString().slice(0, 16))).toContain(deadline.max);
+  await change(field(page.container, "title"), "Задача с поздним дедлайном");await change(deadline, "2027-06-01T12:00");await submit(form);await waitForPage(page);
+  expect(create).toHaveBeenCalledOnce();expect(deadline.getAttribute("aria-invalid")).toBe("true");
+  const message = document.getElementById(deadline.getAttribute("aria-describedby")!)!;expect(message.textContent?.replace(/\u00a0/g, " ")).toContain("не позже 31 дек. 2026 г., 23:59 (конец сезона)");
+  expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("Исправьте дедлайн задачи");
+  await change(deadline, "2026-11-30T12:00");expect(deadline.hasAttribute("aria-invalid")).toBe(false);
+});
+it("a season past its end gives no contradictory deadline range and explains it", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const ended = new Date(Date.now() - 3600_000).toISOString();mock.state.seasons.forEach(season => { season.ends_at = ended; });
+  const create = vi.spyOn(tasksApi, "create").mockRejectedValue(new ApiError("Dates", 422, "season_ended", { deadline_at: "out_of_range", latest: ended }));
+  page = await mountWorkspace(<TaskCreateForm queueId={mock.state.queues[0].queue_id} />);await waitForPage(page, () => !!page!.container.querySelector("form"));
+  const form = page.container.querySelector("form")!, deadline = field(form, "deadline") as HTMLInputElement;
+  await waitForPage(page, () => !!deadline.max);expect(deadline.min).toBe("");
+  expect(deadline.closest("label")!.textContent).toContain("дедлайн в нём поставить нельзя");
+  await change(field(page.container, "title"), "Задача в закончившемся сезоне");await change(deadline, deadline.max);await submit(form);await waitForPage(page);
+  expect(create).toHaveBeenCalledOnce();expect(deadline.getAttribute("aria-invalid")).toBe("true");
+  expect(document.getElementById(deadline.getAttribute("aria-describedby")!)!.textContent).toContain("Оставьте дедлайн пустым");
 });
 it("keeps typed Markdown when selecting another queue and has one searchable parent selector", async () => {
   mock = installMockTransport("chair", { delay: 0 });mock.state.queues.push({ ...mock.state.queues[0], queue_id: "extra", name: "Другая очередь", key: "EXTRA" });
@@ -54,4 +80,48 @@ it("clears a chosen parent when the creation season changes", async () => {
   page = await mountWorkspace(<TaskCreateForm scope={parent.scope} />);await waitForPage(page, () => !!page!.container.querySelector("form"));await chooseParent(parent.title);
   expect(field(page.container, "parent_task_id").value).toBe(parent.task_id);await change(field(page.container, "season"), "another-open");await waitForPage(page);
   expect(field(page.container, "parent_task_id").value).toBe("");
+});
+it("GL-07: a create whose answer was lost is repeated with the same key and makes one task", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const queue = { ...mock.state.queues[0], queue_id: "scoped", name: "Очередь блока", key: "IND", scope: { kind: "block" as const, id: mock.state.blocks[0].block_id }, capabilities: ["create_task"] };mock.state.queues.push(queue);
+  const original = tasksApi.create, before = mock.state.tasks.length;
+  // The server committed the first request, but the answer did not arrive in time.
+  const create = vi.spyOn(tasksApi, "create").mockImplementationOnce(async data => { await original(data);throw Object.assign(new Error("timeout of 60000ms exceeded"), { isAxiosError: true, code: "ECONNABORTED", config: {} }); });
+  page = await mountWorkspace(<Routes><Route path="/tasks/new" element={<TrackerTaskCreatePage />} /><Route path="/tasks/:id" element={<p>Созданная задача</p>} /></Routes>, { path: "/tasks/new?queue_id=scoped" });
+  await waitForPage(page, () => !!page!.container.querySelector("form"));const form = page.container.querySelector("form")!;
+  await change(field(page.container, "title"), "Задача после таймаута");await change(field(form, "deadline"), "2026-10-29T18:00");
+  await submit(form);await waitForPage(page, () => !!page!.container.querySelector('[role="alert"]'));
+  expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("Сервер долго отвечает. Проверьте результат перед повтором.");
+  await submit(form);await waitForPage(page, () => !!page!.container.textContent?.includes("Созданная задача"));
+  expect(create).toHaveBeenCalledTimes(2);
+  expect(create.mock.calls[1][0].idempotency_key).toBe(create.mock.calls[0][0].idempotency_key);
+  expect(mock.state.tasks.filter(task => task.title === "Задача после таймаута")).toHaveLength(1);expect(mock.state.tasks).toHaveLength(before + 1);
+});
+it("GL-32: «Назад» from a created task returns to the list, not to the spent form", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const queue = { ...mock.state.queues[0], queue_id: "scoped", name: "Очередь блока", key: "IND", scope: { kind: "block" as const, id: mock.state.blocks[0].block_id }, capabilities: ["create_task"] };mock.state.queues.push(queue);
+  function Created() { const navigate = useNavigate();return <><p>Созданная задача</p><button type="button" onClick={() => navigate(-1)}>Назад</button></>; }
+  page = await mountWorkspace(<Routes><Route path="/tasks" element={<p>Список задач</p>} /><Route path="/tasks/new" element={<TrackerTaskCreatePage />} /><Route path="/tasks/:id" element={<Created />} /></Routes>, { history: ["/tasks"], path: "/tasks/new?queue_id=scoped" });
+  await waitForPage(page, () => !!page!.container.querySelector("form"));const form = page.container.querySelector("form")!;
+  await change(field(page.container, "title"), "Задача с возвратом");await change(field(form, "deadline"), "2026-10-29T18:00");
+  await submit(form);await waitForPage(page, () => !!page!.container.textContent?.includes("Созданная задача"));
+  await act(async () => [...page!.container.querySelectorAll("button")].find(node => node.textContent === "Назад")!.click());await waitForPage(page);
+  expect(page.container.textContent).toContain("Список задач");expect(page.container.querySelector("form")).toBeNull();
+});
+it("returns an event draft to its event and names each parameter once", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  page = await mountWorkspace(<Routes><Route path="/tasks/new" element={<TrackerTaskCreatePage />} /></Routes>, { path: "/tasks/new?scope_kind=event&scope_id=event-1" });
+  await waitForPage(page, () => !!page!.container.querySelector("form"));
+  const links = [...page.container.querySelectorAll<HTMLAnchorElement>("a")].filter(link => ["День математика", "Отмена"].includes(link.textContent ?? ""));
+  expect(links.map(link => link.textContent)).toEqual(["День математика", "Отмена", "Отмена"]);
+  expect(links.every(link => link.getAttribute("href") === "/events/event-1")).toBe(true);
+  const parameters = page.container.querySelector('[aria-label="Параметры новой задачи"]')!;
+  expect(parameters.textContent).toContain("Определяется мероприятием.");expect(parameters.textContent).toContain("Осень и зима 2026");
+  expect(parameters.textContent).not.toContain("Выбрать исполнителей");expect(parameters.textContent).not.toContain("Выбрать наблюдателей");
+  for (const name of ["Исполнители", "Наблюдатели"]) {
+    const heading = [...parameters.querySelectorAll("h3")].find(node => node.textContent === name)!;
+    expect(parameters.querySelector(`[role="combobox"][aria-labelledby="${heading.id}"]`)).not.toBeNull();
+  }
+  const file = page.container.querySelector<HTMLInputElement>('input[type="file"]')!;
+  expect(file.closest("label")?.textContent).toContain("Прикрепить файлы");
 });

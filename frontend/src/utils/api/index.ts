@@ -13,9 +13,12 @@ interface CustomAxiosRequestConfig extends InternalAxiosRequestConfig {
     _authGeneration?: number;
 }
 
+/** A read gives up after 20 s; a command waits 60 s, because a slow server may still commit
+ *  it and the user must not repeat it blindly (GL-07). */
+export const READ_TIMEOUT_MS = 20_000, WRITE_TIMEOUT_MS = 60_000;
 export const api = axios.create({
     baseURL: prefix,
-    timeout: 10000,
+    timeout: READ_TIMEOUT_MS,
     withCredentials: true,
     headers: {
         'Content-Type': 'application/json'
@@ -37,6 +40,8 @@ api.interceptors.request.use(
         tagged._authGeneration ??= authGeneration;
         if (tagged._authGeneration !== authGeneration)
             throw new axios.CanceledError("Сессия изменилась", config);
+        if (!["get", "head", "options"].includes((config.method ?? "get").toLowerCase()))
+            config.timeout = Math.max(config.timeout ?? 0, WRITE_TIMEOUT_MS);
         const token = Cookies.get("access_token");
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
@@ -55,6 +60,24 @@ export function apiUrl<T extends string | undefined>(url: T): T {
 }
 
 let refreshPromise: Promise<void> | null = null;
+/** A non-secret hint that this browser signed in before. Without it, the login page does not
+ *  try a refresh that cannot succeed (GL-26); everywhere else the refresh is always tried. */
+const SIGNED_IN = "profkom-signed-in";
+export function rememberSignedIn(signedIn: boolean) {
+    try { if (signedIn) localStorage.setItem(SIGNED_IN, "1"); else localStorage.removeItem(SIGNED_IN); } catch { /* storage unavailable */ }
+}
+const signedInBefore = () => { try { return localStorage.getItem(SIGNED_IN) === "1"; } catch { return true; } };
+const onLoginPage = () => typeof window !== "undefined" && /^\/auth(\/|$)/.test(window.location.pathname);
+const isSessionRead = (config?: InternalAxiosRequestConfig) => config?.url === "/session";
+/** The provider rereads the session when a request shows that access may have changed: a
+ *  refused refresh (401, or 403 for a banned or archived account) or a refusal (403/404) of
+ *  an ordinary request (GL-06). */
+type AccessListener = () => void;
+let accessListener: AccessListener | null = null;
+export function onAccessChange(listener: AccessListener) {
+    accessListener = listener;
+    return () => { if (accessListener === listener) accessListener = null; };
+}
 /** Prevent a prior account's in-flight refresh/response from reviving its session. */
 export function beginAuthTransition() {
     authGeneration++;
@@ -108,6 +131,7 @@ api.interceptors.response.use(
             && !originalConfig.url?.includes('/auth/refresh')
             && !originalConfig.url?.includes('/auth/vk')
             && !originalConfig.url?.includes('/auth/register')
+            && !(isSessionRead(originalConfig) && onLoginPage() && !signedInBefore())
         ) {
             originalConfig._isRetry = true;
 
@@ -122,6 +146,9 @@ api.interceptors.response.use(
             
             if (refreshError) {
                 if (generation === authGeneration) Cookies.remove("access_token");
+                // The session itself is over: the session read reports it on its own.
+                if (axios.isAxiosError(refreshError) && [401, 403].includes(refreshError.response?.status ?? 0) && !isSessionRead(originalConfig))
+                    accessListener?.();
                 return Promise.reject(refreshError);
             }
             
@@ -132,6 +159,9 @@ api.interceptors.response.use(
             
             return api(originalConfig);
         }
+        const status = error.response?.status;
+        if ((status === 403 || status === 404) && originalConfig && !isSessionRead(originalConfig) && !originalConfig.url?.startsWith('/auth/'))
+            accessListener?.();
         return Promise.reject(error);
     }
 );

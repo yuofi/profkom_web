@@ -242,3 +242,116 @@ def test_nginx_starts_without_server_local_blocks(tmp_path, folder):
         nginx_conf(free_port(), free_port(), tmp_path / "html", certifi.where(), tmp_path / "extra"))
     out = subprocess.run([NGINX, "-t", "-p", str(tmp_path), "-c", "nginx.conf"], capture_output=True, text=True)
     assert out.returncode == 0, out.stderr
+
+
+def test_nginx_lets_a_full_feedback_screenshot_through_and_keeps_the_api_limit(site):
+    """A PNG of 2 MiB is about 2.8 MB of base64 inside the feedback JSON (GL-15)."""
+    screenshot = '{"kind": "bug", "screenshot": "data:image/png;base64,' + "A" * 2_790_000 + '"}'
+    reached = httpx.post(f"{site['url']}/api/feedback", content=screenshot, headers={"content-type": "application/json"})
+    assert reached.status_code == 422  # the backend itself validated it
+    refused = httpx.post(f"{site['url']}/api/feedback", content=b"x" * 4_300_000, headers={"content-type": "application/json"})
+    assert refused.status_code == 413
+    other = httpx.post(f"{site['url']}/api/tasks", content=b"x" * 1_300_000, headers={"content-type": "application/json"})
+    assert other.status_code == 413
+
+
+# About 4 kB of task-list JSON: well over gzip_min_length.
+API_JSON = ('{"items": [' + ", ".join(f'{{"task_id": "task-{n}", "title": "Задача {n}", "status": "open"}}'
+                                     for n in range(60)) + "]}").encode()
+
+
+class Upstream:
+    """A backend stand-in for the nginx rules alone: every answer is API_JSON (typed text/csv
+    under *.csv); records the path and the headers nginx sent."""
+
+    def __init__(self):
+        self.requests = []
+        upstream = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def answer(self):
+                self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                upstream.requests.append(dict(path=self.path, headers=dict(self.headers)))
+                self.send_response(200)
+                self.send_header("Content-Type", "text/csv" if self.path.endswith(".csv") else "application/json")
+                self.send_header("Content-Length", str(len(API_JSON)))
+                self.end_headers()
+                self.wfile.write(API_JSON)
+
+            do_GET = do_POST = answer
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.port = self.server.server_address[1]
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+
+def test_nginx_compresses_api_json_but_never_tokens_or_files(tmp_path):
+    """PF-12: a JSON answer of /api/ goes gzipped; token answers (/api/auth/, BREACH), file
+    bytes (/api/files/) and other types go as they are. The nested locations keep the proxy
+    headers of /api/: nginx inherits proxy_set_header only into a level that sets none."""
+    import certifi
+
+    upstream = Upstream()
+    for name in ("temp", "html", "extra"):
+        (tmp_path / name).mkdir()
+    port = free_port()
+    (tmp_path / "nginx.conf").write_text(
+        nginx_conf(upstream.port, port, tmp_path / "html", certifi.where(), tmp_path / "extra"))
+    nginx = subprocess.Popen([NGINX, "-p", str(tmp_path), "-c", "nginx.conf", "-g", "daemon off;"],
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    try:
+        wait_for(port)
+        gz = {"Accept-Encoding": "gzip"}
+        compressed = [("GET", "/api/tasks?limit=20"), ("GET", "/api/session"), ("POST", "/api/feedback")]
+        plain = [("POST", "/api/auth/login"), ("POST", "/api/auth/refresh"), ("POST", "/api/files/upload-intents"),
+                 ("GET", "/api/files/file-1/content"), ("GET", "/api/reports/export.csv")]
+        for method, path in compressed:
+            r = httpx.request(method, f"http://127.0.0.1:{port}{path}", headers=gz, content=b"{}" if method == "POST" else None)
+            assert r.headers.get("content-encoding") == "gzip" and r.headers.get("vary") == "Accept-Encoding", path
+            assert r.content == API_JSON and r.num_bytes_downloaded < len(API_JSON) / 4, path
+        for method, path in plain:
+            r = httpx.request(method, f"http://127.0.0.1:{port}{path}", headers=gz, content=b"{}" if method == "POST" else None)
+            assert "content-encoding" not in r.headers and r.headers["content-length"] == str(len(API_JSON)), path
+            assert r.content == API_JSON and r.num_bytes_downloaded == len(API_JSON), path
+        # A client that does not take gzip gets the JSON as it is.
+        r = httpx.get(f"http://127.0.0.1:{port}/api/tasks", headers={"Accept-Encoding": "identity"})
+        assert "content-encoding" not in r.headers and r.content == API_JSON
+        assert [seen["path"] for seen in upstream.requests] == [path for _, path in compressed + plain] + ["/api/tasks"]
+        for seen in upstream.requests:
+            headers = seen["headers"]
+            assert headers["Host"] == "127.0.0.1" and headers["X-Real-IP"] == "127.0.0.1", seen["path"]
+            assert headers["X-Forwarded-For"] == "127.0.0.1" and headers["X-File-Delivery"] == "accel", seen["path"]
+    finally:
+        nginx.terminate()
+        nginx.wait(10)
+        upstream.server.shutdown()
+
+
+def test_nginx_never_compresses_file_bytes(client, site, user, superuser, mock_s3):
+    """PF-12: a stored JSON file keeps its bytes, length and ranges on the X-Accel-Redirect
+    path, while the API's own JSON answers are compressed."""
+    key = "pgas/data.json"
+    mock_s3["objects"][key] = (API_JSON, "application/json")
+    with db._session() as s:
+        s.add(FileRecordORM(file_id="file-json", owner_kind="pgas", owner_id=None, purpose="pgas",
+                            name="data.json", mime_type="application/json", size_bytes=len(API_JSON),
+                            uploaded_by_user_id=0, state="completed", created_at="", expires_at="",
+                            storage_key=key))
+        s.commit()
+    gz = {**user.headers, "Accept-Encoding": "gzip"}
+    url = f"{site['url']}/api/files/file-json/content"
+    r = httpx.get(url, headers=gz)
+    assert r.status_code == 200 and r.headers["content-type"] == "application/json"
+    assert "content-encoding" not in r.headers and r.headers["content-length"] == str(len(API_JSON))
+    assert r.content == API_JSON and r.num_bytes_downloaded == len(API_JSON)
+    part = httpx.get(url, headers={**gz, "Range": "bytes=0-9"})
+    assert part.status_code == 206 and part.content == API_JSON[:10] and "content-encoding" not in part.headers
+    assert [seen["key"] for seen in site["storage"].requests] == [key, key]
+    # The real backend's own JSON goes compressed through the same nginx (the chair's session
+    # with its capabilities is over gzip_min_length).
+    session = httpx.get(f"{site['url']}/api/session", headers={**superuser.headers, "Accept-Encoding": "gzip"})
+    assert session.status_code == 200 and session.headers.get("content-encoding") == "gzip"
+    assert session.json()["user_id"] == superuser.user_id

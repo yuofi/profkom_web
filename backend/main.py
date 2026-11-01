@@ -38,6 +38,7 @@ from auth import (
     require_pgas_admin,        # права на раздел ПГАС
     REFRESH_TTL_DAYS,
     guard_working_access,
+    precheck_access_token,
     get_file_reader,
     unit_of_work,
 )
@@ -51,7 +52,7 @@ app = FastAPI(
 install_errors(app)
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
-router = APIRouter(prefix="/api", dependencies=[Depends(unit_of_work), Depends(guard_working_access)])
+router = APIRouter(prefix="/api", dependencies=[Depends(precheck_access_token), Depends(unit_of_work), Depends(guard_working_access)])
 origins = [
     FRONTEND_URL,
 ]
@@ -287,6 +288,17 @@ class ProfileUpdate(BaseModel):
     def validate_group_number(cls, v: Optional[str]) -> Optional[str]:
         return contact_rules.group_number(v)
 
+    @field_validator("surname", "name")
+    @classmethod
+    def require_name_part(cls, value: Optional[str]) -> Optional[str]:
+        # Omitted keeps the saved value; a sent surname or name is never blank (PE-03).
+        if value is None:
+            return value
+        value = value.strip()
+        if not value:
+            raise ValueError("Surname and name cannot be empty")
+        return value
+
 
 class ContactFilter(BaseModel):
     group_number: Optional[str] = None
@@ -477,6 +489,7 @@ class SubeventPatchIn(Command):
 
 
 class SubeventOut(BaseModel):
+    event_title: str = ""
     starts_at: Optional[str] = None
     ends_at: Optional[str] = None
     all_day: bool = False
@@ -516,6 +529,11 @@ class MeetingIn(Command):
     title: str
     starts_at: str
     join_url: str
+
+
+class MeetingDeleteIn(Command):
+    """Optional for older clients; when sent, a changed announcement is refused with 409."""
+    expected_revision: Optional[int] = None
 
 
 class MeetingOut(BaseModel):
@@ -607,6 +625,16 @@ class TaskCreateIn(Command):
     priority: Literal["low", "normal", "high", "urgent"] = "normal"
     starts_at: Optional[str] = None
     checklist: list[TaskChecklistIn] = Field(default_factory=list, max_length=200)
+    # GL-07: a UUID; a repeat with the same key returns the first task, other data is 409.
+    idempotency_key: Optional[str] = None
+
+    @field_validator("idempotency_key")
+    @classmethod
+    def request_key(cls, value):
+        from request_keys import canonical_key
+        if value is not None and canonical_key(value) is None:
+            raise ValueError("A UUID idempotency key is required")
+        return None if value is None else canonical_key(value)
 
 
 class TaskRosterIn(Command):
@@ -758,6 +786,7 @@ class TaskPublicOut(BaseModel):
     legacy_mixed_statuses: bool = False
     revision: int = 1
     capabilities: list[str] = []
+    allowed_statuses: list[str] = []
 
 
 class UnresolvedAssignmentOut(BaseModel):
@@ -769,6 +798,8 @@ class UnresolvedAssignmentOut(BaseModel):
     deadline_at: Optional[str]
     scope_title: str = ""
     scope_avatar_url: Optional[str] = None
+    # The public task status: its accounting dialog opens only once the task is closed.
+    task_status: Optional[str] = None
 
 
 class StartAssignmentIn(Command):
@@ -1023,6 +1054,9 @@ class SummaryCorrectionOut(SeasonSummaryOut):
 class SummaryDecisionsIn(Command):
     expected_version: int
     decisions: list[str]
+    # The participant's marks the client saw: in an open or summarizing season they replace
+    # the summary version check (owner, 2026-10-31, PB-16); a closed season keeps the version.
+    expected_decisions: Optional[list[str]] = None
     reason: Optional[str] = None
 
 
@@ -1043,6 +1077,19 @@ class CommentIn(Command):
     content: Union[RichTextSchema, str]
     mentioned_user_ids: list[int] = Field(default_factory=list, max_length=100)
     file_ids: Optional[list[str]] = Field(default=None, max_length=100)
+
+
+class CommentCreateIn(CommentIn):
+    # GL-07: a UUID; a repeat with the same key returns the first comment, other data is 409.
+    idempotency_key: Optional[str] = None
+
+    @field_validator("idempotency_key")
+    @classmethod
+    def request_key(cls, value):
+        from request_keys import canonical_key
+        if value is not None and canonical_key(value) is None:
+            raise ValueError("A UUID idempotency key is required")
+        return None if value is None else canonical_key(value)
 
 
 class CommentOut(BaseModel):
@@ -1119,6 +1166,8 @@ class ReportOut(BaseModel):
     published_version: Optional[int] = None
     revision: int
     capabilities: list[str] = Field(default_factory=list)
+    # The event or subevent title, so lists and the report page can name and link the owner.
+    owner_title: str = ""
 
 
     @model_serializer(mode="wrap")
@@ -1212,7 +1261,8 @@ def register(payload: RegisterIn, response: Response):
     Returns access + refresh tokens immediately.
     """
 
-    # Uniqueness: email, compared without case
+    # Uniqueness: email, compared without case. Checked again in the transaction:
+    # the password is hashed before it, outside the write lock (own transaction).
     if db.email_taken(str(payload.email)):
         raise HTTPException(409, "Email already registered")
 
@@ -1251,17 +1301,20 @@ def register(payload: RegisterIn, response: Response):
         super_user=False,
         admin=False,
     )
-    created = db.create_user_with_contact(contact_model, user_model)
+    with db.atomic():
+        if db.email_taken(str(payload.email)):
+            raise HTTPException(409, "Email already registered")
+        created = db.create_user_with_contact(contact_model, user_model)
 
-    from registration import ensure_application
-    with db._session() as session:
-        application=ensure_application(session, created.user_id)
-        from notifications import registration_submitted
-        registration_submitted(session,application)
-        session.commit()
+        from registration import ensure_application
+        with db._session() as session:
+            application=ensure_application(session, created.user_id)
+            from notifications import registration_submitted
+            registration_submitted(session,application)
+            session.commit()
 
-    # Return tokens so the user is logged-in right away
-    tokens = create_token_pair(created.user_id)
+        # Return tokens so the user is logged-in right away
+        tokens = create_token_pair(created.user_id)
     response.set_cookie(
         key="refresh_token",
         value=tokens["refresh_token"],
@@ -1313,15 +1366,24 @@ def change_password(
     payload: ChangePasswordIn,
     cur: User = Depends(get_current_user),
 ):
-    if cur.hashed_password:
-        if not payload.old_password:
-            raise HTTPException(400, "Old password is required")
-        if not verify_password(payload.old_password, cur.hashed_password):
-            raise HTTPException(400, "Invalid old password")
+    def verify_old(user):
+        if user.hashed_password:
+            if not payload.old_password:
+                raise HTTPException(400, "Old password is required")
+            if not verify_password(payload.old_password, user.hashed_password):
+                raise HTTPException(400, "Invalid old password")
 
+    # Both hashes are computed outside the write lock (own transaction); the short
+    # transaction rechecks the session and a password changed in between.
+    verify_old(cur)
     new_hashed = hash_password(payload.new_password)
-    db.update_user(cur.user_id, hashed_password=new_hashed, must_change_password=False)
-    revoke_all_user_tokens(cur.user_id)
+    from auth import recheck_current_user
+    with db.atomic():
+        user = recheck_current_user(cur)
+        if user.hashed_password != cur.hashed_password:
+            verify_old(user)
+        db.update_user(cur.user_id, hashed_password=new_hashed, must_change_password=False)
+        revoke_all_user_tokens(cur.user_id)
     return {"detail": "Password updated successfully"}
 
 
@@ -1631,6 +1693,13 @@ def list_blocks():
     return blocks_for(access.actor_id.get())
 
 
+@router.get("/blocks/catalog")
+def list_block_catalog():
+    """Light block identities (id, name, HR flag, avatar, master) for filters and labels."""
+    from membership import catalog
+    return {"items": catalog(access.actor_id.get()), "next_cursor": None}
+
+
 @router.post("/blocks", response_model=BlockOut)
 def create_block(payload: BlockIn, cur: User = Depends(require_superuser)):
     raise HTTPException(409,"Existing blocks are maintained; creating new blocks is disabled")
@@ -1667,9 +1736,9 @@ def exit_block(block_name: str, cur: User = Depends(get_current_user)):
 # ═══════════════════════════════════════════════════════════
 
 @router.get("/contacts", response_model=List[ContactInfoOut])
-def get_all_contacts(q:Optional[str]=None,group_number:Optional[str]=None,blocks:Optional[str]=None,in_profcom:Optional[bool]=None,budget:Optional[bool]=None,cur:User=Depends(get_current_user)):
+def get_all_contacts(q:Optional[str]=None,group_number:Optional[str]=None,blocks:Optional[str]=None,in_profcom:Optional[bool]=None,budget:Optional[bool]=None,user_id:Optional[int]=None,cur:User=Depends(get_current_user)):
     from directory import contacts
-    return [ContactInfoOut(**c) for c in contacts(q,group_number,blocks,in_profcom,budget)]
+    return [ContactInfoOut(**c) for c in contacts(q,group_number,blocks,in_profcom,budget,user_id=user_id)]
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1684,9 +1753,8 @@ def get_session(cur: User = Depends(get_current_user)):
 
     from registration import can_resubmit, ensure_application
     with db._session() as session:
-        application = ensure_application(session, cur.user_id)
+        application = ensure_application(session, cur.user_id, persist=False)
         reg_status, resubmit = application.status, can_resubmit(application)
-        session.commit()
     if acc_state == "pending":
         return SessionOut(
             user_id=cur.user_id,
@@ -1946,8 +2014,27 @@ def _to_subevent_out(sub: Subevent) -> SubeventOut:
         organizer_user_ids=sub.organizer_user_ids,
         report_series_id=sub.report_series_id if working else None,
         revision=sub.revision,
-        capabilities=access.subevent_caps(sub) if working else [],
+        # Tracker rights are independent of the working ACL: a task reader without
+        # subevent.view still gets the team-task entry, never working-data capabilities.
+        capabilities=access.subevent_caps(sub) if working else access.subevent_task_caps(sub),
     )
+
+
+def _include_deputies(out):
+    """The event/subevent DTO (or page) as JSON whose leaders also carry `deputies`:
+    deputy_user_ids as UserRefs under the reference policy of leader.user."""
+    from dataclasses import asdict
+    from fastapi.encoders import jsonable_encoder
+    from fastapi.responses import JSONResponse
+    from database import UserRefDC
+    data = jsonable_encoder(out)
+    items = data["items"] if "leaders" not in data else [data]
+    with db._session() as session:
+        for item in items:
+            for leader in item["leaders"]:
+                leader["deputies"] = [asdict(db._get_user_ref(session, uid) or UserRefDC(
+                    user_id=None, display_name="Обезличенный участник", avatar_url=None)) for uid in leader["deputy_user_ids"]]
+    return JSONResponse(data)
 
 
 def _to_meeting_out(m: Meeting) -> MeetingOut:
@@ -2023,6 +2110,7 @@ def _to_task_public_out(t) -> TaskPublicOut:
         legacy_mixed_statuses=t.legacy_status_conflict,
         revision=t.revision,
         capabilities=t.capabilities,
+        allowed_statuses=getattr(t,"allowed_statuses",None) or [],
     )
 
 
@@ -2198,7 +2286,34 @@ def _to_file_ref_out(f) -> FileRefOut:
     )
 
 
-def _to_report_out(r: Report) -> ReportOut:
+def _report_owner_titles(reports) -> dict[tuple[str, str], str]:
+    """Owner titles for a batch of reports: one query per owner kind (audit EV-06).
+
+    Event and subevent titles are public to approved accounts, like the announcements.
+    """
+    wanted: dict[str, set[str]] = {"event": set(), "subevent": set()}
+    for r in reports:
+        if r.owner_kind in wanted:
+            wanted[r.owner_kind].add(r.owner_id)
+    titles: dict[tuple[str, str], str] = {}
+    with db._session() as session:
+        for kind, key, title in (
+            ("event", database_module.EventORM.event_id, database_module.EventORM.title),
+            ("subevent", database_module.SubeventORM.subevent_id, database_module.SubeventORM.title),
+        ):
+            if wanted[kind]:
+                titles.update({(kind, oid): name for oid, name in session.query(key, title).filter(key.in_(wanted[kind])).all()})
+    return titles
+
+
+def _to_report_outs(reports) -> list[ReportOut]:
+    titles = _report_owner_titles(reports)
+    return [_to_report_out(r, titles.get((r.owner_kind, r.owner_id), "")) for r in reports]
+
+
+def _to_report_out(r: Report, owner_title: Optional[str] = None) -> ReportOut:
+    if owner_title is None:
+        owner_title = _report_owner_titles([r]).get((r.owner_kind, r.owner_id), "")
     files = [_to_file_ref_out(f) for f in r.files]
     draft_files = [_to_file_ref_out(f) for f in r.draft_files] if r.draft_files is not None else None
     draft_content = RichTextSchema(format=r.draft_content.format, body=r.draft_content.body) if r.draft_content is not None else None
@@ -2220,6 +2335,7 @@ def _to_report_out(r: Report) -> ReportOut:
         published_version=r.published_version,
         revision=r.revision,
         capabilities=r.capabilities,
+        owner_title=owner_title,
     )
 
 
@@ -2305,18 +2421,22 @@ def close_season(season_id: str, payload: SeasonRevisionIn, cur: User = Depends(
 # ── Report Series ──
 
 @router.get("/report-series", response_model=Page[ReportSeriesOut])
-def list_report_series(cur: User = Depends(get_current_user)):
+def list_report_series(series_id: Optional[str] = None, cur: User = Depends(get_current_user)):
+    """`series_id` narrows the list to that one series (empty when it is not readable),
+    so a report page can ask about its own history without the whole catalogue."""
     from report_access import series_reader
     with db._session() as session:
-        items=[r for r in db.list_report_series() if series_reader(session,r.series_id,cur.user_id)]
+        items=[r for r in db.list_report_series() if (series_id is None or r.series_id==series_id)
+               and series_reader(session,r.series_id,cur.user_id)]
         return Page(items=[ReportSeriesOut(series_id=r.series_id,owner_kind=r.owner_kind,title=r.title,parent_series_id=r.parent_series_id) for r in items])
 
 
 # ── Events ──
 
 @router.get("/events", response_model=Page[EventOut])
-def list_events(season_id: Optional[str] = None, cur: User = Depends(get_current_user)):
-    return Page(items=[_to_event_out(ev) for ev in db.list_events(season_id=season_id)])
+def list_events(season_id: Optional[str] = None, include_deputies: bool = False, cur: User = Depends(get_current_user)):
+    out = Page(items=[_to_event_out(ev) for ev in db.list_events(season_id=season_id)])
+    return _include_deputies(out) if include_deputies else out
 
 
 @router.post("/events", response_model=EventOut)
@@ -2336,11 +2456,11 @@ def create_event(payload: EventCreateIn, cur: User = Depends(get_current_user)):
 
 
 @router.get("/events/{event_id}", response_model=EventOut)
-def get_event(event_id: str, cur: User = Depends(get_current_user)):
+def get_event(event_id: str, include_deputies: bool = False, cur: User = Depends(get_current_user)):
     ev = db.get_event(event_id)
     if not ev:
         raise HTTPException(404, "Event not found")
-    return _to_event_out(ev)
+    return _include_deputies(_to_event_out(ev)) if include_deputies else _to_event_out(ev)
 
 
 @router.patch("/events/{event_id}", response_model=EventOut)
@@ -2400,19 +2520,20 @@ def create_subevent(event_id: str, payload: SubeventCreateIn, cur: User = Depend
 
 
 @router.get("/events/{event_id}/subevents", response_model=Page[SubeventOut])
-def list_subevents(event_id: str, cur: User = Depends(get_current_user)):
+def list_subevents(event_id: str, include_deputies: bool = False, cur: User = Depends(get_current_user)):
     ev = db.get_event(event_id)
     if not ev:
         raise HTTPException(404, "Event not found")
-    return Page(items=[_to_subevent_out(s) for s in db.list_subevents(event_id)])
+    out = Page(items=[_to_subevent_out(s) for s in db.list_subevents(event_id)])
+    return _include_deputies(out) if include_deputies else out
 
 
 @router.get("/subevents/{subevent_id}", response_model=SubeventOut)
-def get_subevent(subevent_id: str, cur: User = Depends(get_current_user)):
+def get_subevent(subevent_id: str, include_deputies: bool = False, cur: User = Depends(get_current_user)):
     sub = db.get_subevent(subevent_id)
     if not sub:
         raise HTTPException(404, "Subevent not found")
-    return _to_subevent_out(sub)
+    return _include_deputies(_to_subevent_out(sub)) if include_deputies else _to_subevent_out(sub)
 
 
 @router.patch("/subevents/{subevent_id}", response_model=SubeventOut)
@@ -2532,14 +2653,46 @@ def set_event_meeting(event_id: str, payload: MeetingIn, cur: User = Depends(get
 
 
 @router.delete("/events/{event_id}/meeting")
-def delete_event_meeting(event_id: str, cur: User = Depends(get_current_user)):
+def delete_event_meeting(event_id: str, payload: Optional[MeetingDeleteIn] = None, cur: User = Depends(get_current_user)):
     ev = db.get_event(event_id)
     if not ev:
         raise HTTPException(404, "Event not found")
     if not access.allowed(cur.user_id, "event.meeting.edit", "event", event_id):
         raise HTTPException(403, "Forbidden")
-    db.delete_meeting("event", event_id)
+    db.delete_meeting("event", event_id, payload.expected_revision if payload else None)
     return {"status": "deleted"}
+
+
+class TeamMeetingOut(BaseModel):
+    subevent_id: str
+    subevent_title: str
+    meeting: MeetingOut
+
+
+@router.get("/events/{event_id}/meetings", response_model=Page[TeamMeetingOut])
+def list_event_team_meetings(event_id: str, cur: User = Depends(get_current_user)):
+    """The event's child-team announcements the actor may read, in one request.
+
+    Each team follows exactly GET /subevents/{id}/meeting: working access and
+    meeting audience; a closed season has no current announcements.
+    """
+    ev = db.get_event(event_id)
+    if not ev:
+        raise HTTPException(404, "Event not found")
+    team = database_module.SubeventORM
+    with db._session() as session:
+        teams = session.query(team.subevent_id, team.title).filter(team.event_id == event_id).all()
+    items = []
+    for subevent_id, title in teams:
+        if not access.allowed(cur.user_id, "subevent.view", "subevent", subevent_id):
+            continue
+        if not access.allowed(cur.user_id, "subevent.meeting.view", "subevent", subevent_id):
+            continue
+        m = db.get_meeting("subevent", subevent_id)
+        if m:
+            items.append(TeamMeetingOut(subevent_id=subevent_id, subevent_title=title, meeting=_to_meeting_out(m)))
+    items.sort(key=lambda item: (item.meeting.starts_at, item.subevent_id))
+    return Page(items=items)
 
 
 @router.get("/subevents/{subevent_id}/meeting", response_model=Optional[MeetingOut])
@@ -2568,13 +2721,13 @@ def set_subevent_meeting(subevent_id: str, payload: MeetingIn, cur: User = Depen
 
 
 @router.delete("/subevents/{subevent_id}/meeting")
-def delete_subevent_meeting(subevent_id: str, cur: User = Depends(get_current_user)):
+def delete_subevent_meeting(subevent_id: str, payload: Optional[MeetingDeleteIn] = None, cur: User = Depends(get_current_user)):
     sub = db.get_subevent(subevent_id)
     if not sub:
         raise HTTPException(404, "Subevent not found")
     if not access.allowed(cur.user_id, "subevent.meeting.edit", "subevent", subevent_id):
         raise HTTPException(403, "Forbidden")
-    db.delete_meeting("subevent", subevent_id)
+    db.delete_meeting("subevent", subevent_id, payload.expected_revision if payload else None)
     return {"status": "deleted"}
 
 
@@ -2615,6 +2768,13 @@ def task_queue_catalog(cursor: Optional[str] = None,cur: User = Depends(get_curr
 def create_task_queue(payload: TaskQueueCreateIn,cur: User = Depends(get_current_user)):
     import task_queues
     return task_queues.create(cur.user_id,**payload.model_dump())
+
+
+@router.get("/task-queues/create-access")
+def task_queue_create_access(cur: User = Depends(get_current_user)):
+    """can_create_task: some catalogue queue offers create_task to the reader."""
+    from task_queues import create_access
+    return create_access(cur.user_id)
 
 
 @router.get("/task-queues/{queue_id}")
@@ -2677,6 +2837,13 @@ def create_task(payload: TaskCreateIn, cur: User = Depends(get_current_user)):
         "fixed_time": payload.criteria.fixed_time,
     }
     assignees = [a.model_dump() for a in payload.assignees]
+    import request_keys
+    request_hash = request_keys.digest(payload)
+    with db.atomic(), db._session() as session:
+        first = request_keys.previous(session, database_module.TaskORM, "created_by_user_id", cur.user_id, payload.idempotency_key, request_hash)
+        first_id = first.task_id if first else None
+    if first_id:
+        return get_task(first_id, cur)
     t = db.create_task(
         season_id=payload.season_id,
         scope_kind=scope_kind,
@@ -2691,6 +2858,8 @@ def create_task(payload: TaskCreateIn, cur: User = Depends(get_current_user)):
         planning=dict(task_type=payload.task_type,priority=payload.priority,
             starts_at=payload.starts_at,checklist=[item.model_dump() for item in payload.checklist]),
     )
+    with db.atomic(), db._session() as session:
+        request_keys.remember(session, session.get(database_module.TaskORM, t.task_id), payload.idempotency_key, request_hash)
     return _to_task_public_out(t)
 
 
@@ -2715,14 +2884,29 @@ def list_tasks(
     order: Literal["asc", "desc"] = "asc",
     cursor: Optional[str] = None,
     limit: int = Query(20,ge=1,le=100),
+    include_facets: bool = True,
     cur: User = Depends(get_current_user),
 ):
     from tracker import task_page
+    # include_facets=false omits scopes/assignees; GET /tasks/facets returns them alone.
     return task_page(cur.user_id, queue_id=queue_id,season_id=season_id, scope_kind=scope_kind,
         scope_id=scope_id, mine=mine, status=status, q=q, unfinished=unfinished,
         overdue=overdue, assignee_user_id=assignee_user_id, sort=sort, order=order,
         task_type=task_type,priority=priority,favorite=favorite,date_from=date_from,date_to=date_to,
-        cursor=cursor, limit=limit, converter=_to_task_public_out)
+        cursor=cursor, limit=limit, converter=_to_task_public_out, include_facets=include_facets)
+
+
+@router.get("/tasks/facets")
+def list_task_facets(
+    queue_id: Optional[str] = None,
+    season_id: Optional[str] = None,
+    scope_kind: Optional[Literal["block", "subevent", "event", "chair"]] = None,
+    scope_id: Optional[str] = None,
+    cur: User = Depends(get_current_user),
+):
+    """The authorized scopes/assignees of GET /tasks for the same selection filters."""
+    from tracker import task_facets
+    return task_facets(cur.user_id, queue_id=queue_id, season_id=season_id, scope_kind=scope_kind, scope_id=scope_id)
 
 
 @router.get("/tasks/{task_id}", response_model=TaskPublicOut)
@@ -2886,19 +3070,34 @@ def list_unresolved_assignments(
     scope_id: Optional[str] = None,
     orphaned_only: bool = False,
     cursor: Optional[str] = None,
+    limit: Optional[int] = Query(None, ge=1, le=100),
+    include_total: bool = False,
     cur: User = Depends(get_current_user),
 ):
     if not access.allowed(cur.user_id, "queue.view"):
         raise HTTPException(403, "Forbidden: unresolved assignments are for area leaders")
+    # The keyset page is chosen over the authorized lightweight selection; only its
+    # rows are converted (the same key and cursor as before).
+    pages = []
+    def select(rows):
+        pages.append((len(rows), cursor_page(rows, lambda u: (u.deadline_at or "", u.assignment_id), cursor, limit=limit)))
+        return pages[0][1].items
     items = db.list_unresolved_assignments(
         season_id=season_id,
         scope_kind=scope_kind,
         scope_id=scope_id,
         orphaned_only=orphaned_only,
         current_user_id=cur.user_id,
+        select=select,
     )
-    page = cursor_page(items, lambda u: (u.deadline_at or "", u.assignment.assignment_id), cursor)
-    return {
+    total, page = pages[0]
+    # The page's task statuses in one query, so the list names each task's state.
+    from tracker_status import public_status
+    from database import TaskTrackerORM
+    task_ids = list({u.task_id for u in items})
+    with db._session() as session:
+        statuses = {task_id: public_status(status) for task_id, status in session.query(TaskTrackerORM.task_id, TaskTrackerORM.status).filter(TaskTrackerORM.task_id.in_(task_ids))} if task_ids else {}
+    result = {
         "next_cursor": page.next_cursor,
         "items": [
             UnresolvedAssignmentOut(
@@ -2908,11 +3107,15 @@ def list_unresolved_assignments(
                 season_id=u.season_id,
                 scope=membership.scope_out(u.scope),
                 deadline_at=u.deadline_at,
+                task_status=statuses.get(u.task_id, "open"),
                 **membership.scope_display(u.scope),
             )
-            for u in page.items
+            for u in items
         ]
     }
+    if include_total:
+        result["total"] = total
+    return result
 
 
 @router.post("/assignments/{assignment_id}/reassign", response_model=ReassignAssignmentOut)
@@ -3002,6 +3205,7 @@ def list_assessments(
     participant_id: Optional[str] = None,
     user_id: Optional[int] = None,
     cursor: Optional[str] = None,
+    include_task_ids: bool = False,
     cur: User = Depends(get_current_user),
 ):
     items = db.list_assessments(
@@ -3013,7 +3217,16 @@ def list_assessments(
         user_id=user_id,
     )
     page = cursor_page(items, lambda c: (c.created_at, c.contribution_id), cursor, descending=True)
-    return {"items": [_to_calculated_contribution_out(c) for c in page.items], "next_cursor": page.next_cursor}
+    out = [_to_calculated_contribution_out(c) for c in page.items]
+    if include_task_ids:
+        # assignment_inputs.task_id: the task when the actor may open it, else null.
+        from task_queues import assignment_task_ids
+        tasks = assignment_task_ids(cur.user_id, [c.assignment_inputs.assignment_id for c in out if c.assignment_inputs])
+        out = [c.model_dump(mode="json", by_alias=True) for c in out]
+        for c in out:
+            if c["assignment_inputs"]:
+                c["assignment_inputs"]["task_id"] = tasks.get(c["assignment_inputs"]["assignment_id"])
+    return {"items": out, "next_cursor": page.next_cursor}
 
 
 # ── Merits & Volunteers ──
@@ -3032,6 +3245,13 @@ def list_merits(
         event_id=event_id,
     )
     return {"items": [_to_merit_out(m) for m in items], "next_cursor": None}
+
+
+@router.get("/merits/contexts")
+def list_merit_contexts(season_id: Optional[str] = None, cur: User = Depends(get_current_user)):
+    """Blocks, events and subevents with their merit capabilities for the merit forms."""
+    from merit_rules import contexts
+    return contexts(cur.user_id, season_id)
 
 
 @router.post("/merits", response_model=MeritOut)
@@ -3117,6 +3337,7 @@ def update_summary_decisions(
         expected_version=payload.expected_version,
         reason=payload.reason,
         user_id=cur.user_id,
+        expected_decisions=payload.expected_decisions,
     )
     return _to_season_summary_out(s)
 
@@ -3154,16 +3375,28 @@ def list_task_comments(task_id: str, cur: User = Depends(get_current_user)):
 
 
 @router.post("/tasks/{task_id}/comments", response_model=CommentOut)
-def create_task_comment(task_id: str, payload: CommentIn, cur: User = Depends(get_current_user)):
+def create_task_comment(task_id: str, payload: CommentCreateIn, cur: User = Depends(get_current_user)):
+    import request_keys
+    request_hash = request_keys.digest(payload, task_id)
     with db.atomic():
-        c = db.create_comment(
-            task_id=task_id,
-            content={"format":"markdown","body":_to_rich_text_body(payload.content)},
-            author_user_id=cur.user_id,
-            file_ids=payload.file_ids,
-        )
-        from tracker_collaboration import sync_comment_mentions
-        sync_comment_mentions(c.comment_id, cur.user_id, payload.mentioned_user_ids)
+        with db._session() as session:
+            first = request_keys.previous(session, database_module.CommentORM, "author_user_id", cur.user_id, payload.idempotency_key, request_hash)
+            if first:
+                task = session.get(database_module.TaskORM, task_id)
+                if not task or not db.can_read_task(cur.user_id, task, session):
+                    raise HTTPException(404, "Task not found")
+                c = database_module._comment_orm_to_dc(session, first, cur.user_id)
+        if not first:
+            c = db.create_comment(
+                task_id=task_id,
+                content={"format":"markdown","body":_to_rich_text_body(payload.content)},
+                author_user_id=cur.user_id,
+                file_ids=payload.file_ids,
+            )
+            from tracker_collaboration import sync_comment_mentions
+            sync_comment_mentions(c.comment_id, cur.user_id, payload.mentioned_user_ids)
+            with db._session() as session:
+                request_keys.remember(session, session.get(database_module.CommentORM, c.comment_id), payload.idempotency_key, request_hash)
     from tracker_collaboration import comment_mention_refs
     return _to_comment_out(c, comment_mention_refs([c]).get(c.comment_id))
 
@@ -3260,7 +3493,7 @@ def list_reports(
         state=state,
         current_user_id=cur.user_id,
     )
-    return Page(items=[_to_report_out(r) for r in items])
+    return Page(items=_to_report_outs(items))
 
 
 @router.get("/reports/{report_id}", response_model=ReportOut)
@@ -3311,7 +3544,7 @@ def list_report_history(
 ):
     items = db.list_report_history(series_id, year, cur.user_id)
     page = cursor_page(items, lambda r: (r.published_at or "", r.report_id), cursor, descending=True)
-    return Page(items=[_to_report_out(r) for r in page.items], next_cursor=page.next_cursor)
+    return Page(items=_to_report_outs(page.items), next_cursor=page.next_cursor)
 
 
 # ── Dashboard & Calendar ──
@@ -3357,9 +3590,22 @@ def get_calendar(
 # ── Notifications ──
 
 @router.get("/notifications", response_model=Page[NotificationOut])
-def list_notifications(cur: User = Depends(get_current_user)):
-    from workspace import notifications
-    return Page(items=notifications(cur.user_id))
+def list_notifications(cursor: Optional[str] = None, limit: int = Query(30, ge=1, le=100), unread: bool = False,
+                       cur: User = Depends(get_current_user)):
+    """Newest first, one keyset page at a time; `unread` keeps only the unread (GL-16)."""
+    from workspace import notification_page
+    return notification_page(cur.user_id, cursor=cursor, limit=limit, unread=unread)
+
+
+class UnreadCountOut(BaseModel):
+    count: int
+
+
+@router.get("/notifications/unread-count", response_model=UnreadCountOut)
+def notification_unread_count(cur: User = Depends(get_current_user)):
+    """The bell's badge without the list (GL-16)."""
+    from workspace import unread_notifications
+    return UnreadCountOut(count=unread_notifications(cur.user_id))
 
 
 @router.post("/notifications/{notification_id}/read")
@@ -3402,6 +3648,9 @@ register_account_routes(router)
 from support import register_routes as register_support_routes, register_worker as register_support_worker
 register_support_routes(router)
 register_support_worker(app)
+# After the support worker stops: the last connection copies -wal into the database file and
+# removes -wal/-shm (PB-31). uvicorn re-raises SIGTERM after shutdown, so atexit hooks never run.
+app.add_event_handler("shutdown", database_module.engine.dispose)
 
 from tracker_collaboration import register_routes as register_tracker_collaboration_routes
 register_tracker_collaboration_routes(router)

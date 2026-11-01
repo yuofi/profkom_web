@@ -15,6 +15,7 @@ let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let transport: ReturnType<typeof installMockTransport> | undefined;
 afterEach(async () => { await page?.cleanup();page = undefined;transport?.restore();transport = undefined;vi.restoreAllMocks(); });
 const stamp = () => [...page!.container.querySelectorAll<HTMLAnchorElement>("a")].find(link => link.textContent === "Профком ВМК · Трекер")!;
+const currentStamp = () => [...page!.container.querySelectorAll<HTMLElement>('[aria-current="page"]')].find(node => node.textContent === "Профком ВМК · Трекер");
 function trackerRoutes() {
   return <Routes>
     <Route path="/tasks" element={<TrackerListPage />} />
@@ -25,13 +26,28 @@ function trackerRoutes() {
     <Route path="/tasks/:id" element={<TrackerTaskPage />} />
   </Routes>;
 }
+it("GL-36: on the task list itself the stamp is the current page; with a query it resets it", async () => {
+  transport = installMockTransport("chair", { delay: 0 });
+  page = await mountWorkspace(trackerRoutes(), { path: "/tasks" });await waitForPage(page);
+  expect(currentStamp()?.tagName).toBe("SPAN");expect(stamp()).toBeUndefined();
+  await page.cleanup();
+  page = await mountWorkspace(trackerRoutes(), { path: "/tasks?q=Отчёт" });await waitForPage(page);
+  expect(currentStamp()).toBeUndefined();expect(stamp().getAttribute("href")).toBe("/tasks");
+});
 it.each(["list", "catalog", "queue", "task", "new", "unresolved"])("the %s tracker page keeps a real home link and opens the general task list", async (surface) => {
   transport = installMockTransport("chair", { delay: 0 });
-  const paths: Record<string, string> = { list: "/tasks", catalog: "/tasks/queues", queue: "/tasks/queues/queue-tasks", task: `/tasks/${transport.state.tasks[0].task_id}`, new: "/tasks/new?queue_id=queue-tasks", unresolved: "/tasks/unresolved" };
+  // On the list itself the stamp is a link only while filters are set: it resets them (SE-15).
+  const paths: Record<string, string> = { list: "/tasks?mine=false", catalog: "/tasks/queues", queue: "/tasks/queues/queue-tasks", task: `/tasks/${transport.state.tasks[0].task_id}`, new: "/tasks/new?queue_id=queue-tasks", unresolved: "/tasks/unresolved" };
   page = await mountWorkspace(trackerRoutes(), { path: paths[surface] });await waitForPage(page);
   const link = stamp();expect(link).toBeDefined();expect(link.getAttribute("href")).toBe("/tasks");
   await act(async () => link.click());await waitForPage(page);
   expect(page.container.querySelector("h1")?.textContent).toBe("Задачи");
+});
+it("the unfiltered list names its section without a link to itself", async () => {
+  transport = installMockTransport("chair", { delay: 0 });
+  page = await mountWorkspace(trackerRoutes(), { path: "/tasks" });await waitForPage(page);
+  expect(stamp()).toBeUndefined();
+  expect([...page.container.querySelectorAll("span")].some(node => node.textContent === "Профком ВМК · Трекер")).toBe(true);
 });
 it("the locked queue screen has the same way back without exposing its tasks", async () => {
   transport = installMockTransport("organizer", { delay: 0 });transport.state.queues[0].is_private = true;transport.state.queues[0].owner = transport.state.people[3];
@@ -50,4 +66,12 @@ it.each(["ctrlKey", "metaKey"] as const)("%s keeps the anchor's native navigatio
   await act(async () => link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, [modifier]: true })));
   expect(link.tagName).toBe("A");expect(link.getAttribute("href")).toBe("/tasks");expect(intercepted).toBe(false);expect(open).not.toHaveBeenCalled();
   expect(page.container.textContent).toContain("Текущая страница");expect(page.container.textContent).not.toContain("Список открыт");
+});
+it("GL-36: on an admin tab the stamp keeps that tab instead of jumping to the first one", async () => {
+  const { SectionHomeLink } = await import("./SectionHomeLink");
+  page = await mountWorkspace(<Routes><Route path="/admin/:tab" element={<SectionHomeLink to="/admin" label="Администрирование" />} /></Routes>, { path: "/admin/leadership?q=Иванов" });
+  expect(page.container.querySelector("a")?.getAttribute("href")).toBe("/admin/leadership");
+  await page.cleanup();
+  page = await mountWorkspace(<Routes><Route path="/admin/:tab" element={<SectionHomeLink to="/admin" label="Администрирование" />} /></Routes>, { path: "/admin/leadership" });
+  expect(page.container.querySelector("a")).toBeNull();expect(page.container.querySelector('[aria-current="page"]')?.textContent).toBe("Профком ВМК · Администрирование");
 });

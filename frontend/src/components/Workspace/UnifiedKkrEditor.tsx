@@ -23,7 +23,7 @@ export function UnifiedKkrEditor({task,onClose}: {task:Task; onClose?:()=>void})
   return <QueryState loading={query.isLoading} error={query.error} retry={()=>void query.refetch()}>{query.data&&<BatchEditor taskId={task.task_id} saved={query.data} onClose={onClose}/>}</QueryState>;
 }
 function BatchEditor({taskId,saved,onClose}:{taskId:string;saved:AccountingBatch;onClose?:()=>void}) {
-  const leave=useGuardedAction();const client=useQueryClient();const [template,setTemplate]=useState<TemplateSelection|null>(null);const templates=useQuery({queryKey:['kkr-templates'],queryFn:profileFeaturesApi.templates,enabled:can(saved,'edit_assessment_inputs')});const [draft,setDraft]=useState(saved),[baseline,setBaseline]=useState(saved),[reason,setReason]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false);
+  const leave=useGuardedAction();const client=useQueryClient();const [template,setTemplate]=useState<TemplateSelection|null>(null);const templates=useQuery({queryKey:['kkrTemplates'],queryFn:profileFeaturesApi.templates,enabled:can(saved,'edit_assessment_inputs')});const [draft,setDraft]=useState(saved),[baseline,setBaseline]=useState(saved),[reason,setReason]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false);
   const editable=can(saved,'edit_assessment_inputs');const dirty=JSON.stringify(draft)!==JSON.stringify(baseline)||!!reason||!!template;
   const stale=saved.revision!==baseline.revision||saved.public_revision!==baseline.public_revision||saved.assignments.some(row=>baseline.assignments.find(old=>old.assignment_id===row.assignment_id)?.revision!==row.revision);
   if(stale&&!dirty&&!busy){setDraft(saved);setBaseline(saved);}

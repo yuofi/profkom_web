@@ -17,12 +17,16 @@
 .metadata { display: flex; gap: 10px 18px; flex-wrap: wrap; align-items: center; color: inherit; font-size: 12px; opacity: .75; line-height: 1.5; }
 .taskKey { display: inline-block; background: var(--background); border: 1px solid var(--background); border-radius: 5px; padding: 3px 7px; color: var(--primary); font-variant-numeric: tabular-nums; font-weight: 600; letter-spacing: .025em; }
 .headerNotice { color: inherit; }
+.manualLink { display: grid; gap: 4px; max-width: min(100%, 560px); font-size: 12px; }
+.manualLink input { min-width: 0; padding: 6px 10px; border: 1px solid var(--outline-variant); border-radius: 8px; background: var(--surface-container-lowest); color: var(--on-surface); font: inherit; font-size: 13px; }
 .backLink { color: inherit; font-size: 13px; text-decoration: none; }
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 270px; align-items: start; min-width: 0; }
 .main { display: grid; min-width: 0; padding: 24px 26px 0 0; gap: 26px; }
 .description { display: grid; gap: 15px; min-width: 0; }
 .sectionHeading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .sectionHeading h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.headingTitle { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.savingNote { color: var(--on-surface-variant); font-size: 12px; white-space: nowrap; }
 .inlineActions { display: flex; gap: 5px 12px; flex-wrap: wrap; align-items: center; }
 .subtleButton { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--primary); padding: 7px 8px; font: inherit; font-size: 13px; line-height: 1.3; cursor: pointer; text-align: left; }
 .subtleButton:hover:not(:disabled) { background: var(--surface-container); border-color: var(--surface-variant); }
@@ -37,16 +41,25 @@
 .parameters > summary { font-size: 19px; font-weight: 600; list-style: none; cursor: pointer; padding: 0 0 16px; }
 .parameters > summary::-webkit-details-marker { display: none; }
 .parameters dl { display: grid; gap: 23px; margin: 0; }
-.parameters dl > div { display: grid; gap: 8px; min-width: 0; }
+/* In two columns a short cell keeps its value under the label beside a tall neighbour. */
+.parameters dl > div { display: grid; align-content: start; gap: 8px; min-width: 0; }
 .parameters dt { font-size: 12px; color: var(--on-surface); opacity: .58; }
 .parameters dd { text-align: left; margin: 0; font-size: 14px; min-width: 0; overflow-wrap: anywhere; }
 .parameters dd > a:not(.personChip) { color: var(--primary); text-decoration: none; }
 .parameters dd > a:hover { text-decoration: underline; }
+/* Borderless triggers keep their text in the column of the plain values; only here, not in tables or the header. */
+.parameters dd > [data-row-action], .parameters .people > .subtleButton { margin-inline-start: -8px; }
+.parameters { position: relative; }
+.rosterPerson > .removePerson { margin-inline-start: auto; } /* One column of removal buttons whatever the name length. */
+.parametersEdit { position: absolute; top: -7px; right: 0; color: var(--primary); }
 .people { display: grid; justify-items: start; gap: 9px; }
 .personChip { display: inline-flex; max-width: 100%; align-items: center; gap: 6px; min-height: 29px; padding: 5px 9px; border: 1px solid var(--surface-variant); border-radius: 18px; background: var(--surface-container); color: var(--on-surface); font-size: 12px; text-decoration: none; box-sizing: border-box; overflow-wrap: anywhere; }
 .personChip span { flex: 0 0 auto; font-size: 16px; }
 .personChip:hover { color: var(--primary); border-color: var(--primary); }
 .unavailable { display: block; margin: 5px 0 0 9px; color: var(--accent-peach); font-size: 11px; }
+.queueText { display: inline-flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; min-width: 0; overflow-wrap: anywhere; }
+.accountingNotice { margin: 16px 0 0; padding: 10px 14px; border-left: 3px solid var(--accent-peach); background: var(--surface-container-low); font-size: 13px; line-height: 1.5; }
+.pickerHint { max-width: 100%; color: var(--on-surface-variant); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
 .overdue { color: var(--accent-rose); }
 .activity { border-top: 1px solid var(--surface-variant); min-width: 0; }
 .activityHeader { display: flex; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px solid var(--surface-variant); min-width: 0; }
@@ -84,6 +97,8 @@
 .accountingPerson h3 { margin-top: 0; font-size: 15px; }
 .dialog { width: min(850px, calc(100vw - 28px)); max-height: calc(100dvh - 32px); box-sizing: border-box; padding: 24px; border: 1px solid var(--outline-variant); border-radius: 16px; background: var(--surface-container-low); color: var(--on-surface); overflow: auto; }
 .dialog::backdrop { background: rgb(0 0 0 / .65); }
+/* A modal inside a card stays centred: the tag beats `.card > * { margin-block: 0 }` (PE-07). */
+dialog.dialog { margin: auto; }
 .dialogHeader { display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; margin-bottom: 20px; }
 .dialogHeader h2 { margin: 0; font-size: 22px; line-height: 1.3; overflow-wrap: anywhere; }
 .dialogBody { display: grid; gap: 16px; min-width: 0; }
@@ -111,7 +126,7 @@
 
 .parentValue { display: grid; gap: 6px; justify-items: end; min-width: 0; text-align: right; }.parentValue > a { color: var(--primary); text-decoration: none; overflow-wrap: anywhere; }.parentValue > a:hover { text-decoration: underline; }.parentField { display: grid; gap: 8px; font-size: 14px; }.parentField input,.parentField select { width: 100%; box-sizing: border-box; min-width: 0; }
 
-.rosterPerson { display: flex; justify-content: flex-start; gap: 5px; align-items: center; flex-wrap: wrap; min-width: 0; }.rosterPerson > :first-child { flex: 0 1 auto; min-width: 0; max-width: calc(100% - 31px); }.removePerson { border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--on-surface); width: 25px; height: 25px; font-size: 19px; cursor: pointer; flex: 0 0 auto; }.removePerson:hover:not(:disabled) { border-color: var(--surface-variant); color: var(--primary); }.removePerson:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }.removePerson:disabled { opacity: .4; cursor: progress; }
+.rosterPerson { display: flex; justify-self: stretch; justify-content: flex-start; gap: 5px; align-items: center; flex-wrap: wrap; min-width: 0; }.rosterPerson > :first-child { flex: 0 1 auto; min-width: 0; max-width: calc(100% - 31px); }.removePerson { border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--on-surface); width: 25px; height: 25px; font-size: 19px; cursor: pointer; flex: 0 0 auto; }.removePerson:hover:not(:disabled) { border-color: var(--surface-variant); color: var(--primary); }.removePerson:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }.removePerson:disabled { opacity: .4; cursor: progress; }
 
 .rosterDiff { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; padding: 8px 12px 13px; }.rosterDiff > section { display: grid; align-content: start; gap: 8px; min-width: 0; }.rosterDiff h4 { margin: 0; font-size: 11px; font-weight: 400; opacity: .6; }
 @media(max-width:520px) { .rosterDiff { grid-template-columns: minmax(0,1fr); } }

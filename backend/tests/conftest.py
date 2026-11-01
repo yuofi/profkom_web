@@ -38,6 +38,9 @@ os.environ.setdefault("S3_TENANT_ID", "test-tenant")
 os.environ.setdefault("S3_REGION_NAME", "ru-central-1")
 # VK ID application of the test site; urlopen is always mocked (mock_vk)
 os.environ.setdefault("VK_CLIENT_ID", "test-vk-app")
+# PB-31: набор идёт в WAL — в журнале, который включают на сервере отдельным шагом.
+# Журнал по умолчанию (DELETE) проверяет test_sqlite_wal.
+os.environ["SQLITE_JOURNAL_MODE"] = "WAL"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -538,7 +541,7 @@ def make_guide() -> Callable[..., Any]:
         description: str = "",
         original_link: Optional[str] = None,
     ):
-        return db.create_guide(
+        guide = db.create_guide(
             Guide(
                 guide_id=0,
                 title=title,
@@ -548,6 +551,14 @@ def make_guide() -> Callable[..., Any]:
                 original_link=original_link,
             )
         )
+        # An imported old guide is mapped to its material at startup (preset_db), never by
+        # a GET (GL-05); the fixture performs the same mapping right away.
+        from materials import legacy_mapping
+        with db.atomic():
+            with db._session() as session:
+                legacy_mapping(session, guide.guide_id)
+                session.commit()
+        return guide
 
     return _make
 

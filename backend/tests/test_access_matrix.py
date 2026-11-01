@@ -251,7 +251,8 @@ class Op:
     def expected(self, role):
         if role in EXPECTED[self.op]:
             return self.ok
-        return {404} if self.readers and role not in EXPECTED[self.readers] else self.deny
+        readers = EXPECTED[self.readers] if isinstance(self.readers, str) else self.readers
+        return {404} if readers and role not in readers else self.deny
 
 
 def _ensure_meeting(kind, key):
@@ -342,23 +343,23 @@ def ops():
            lambda o, r: {"expected_revision": BAD, "review_note": "probe"}, ok=(409,), readers="T3"),
         Op("T8", "POST", lambda o: f"/assignments/{o.ids['asg_blk_org1']}/cancel", lambda o, r: {"expected_revision": BAD, "reason": "probe"}, ok=(409,), readers="T4"),
         Op("T9", "PATCH", lambda o: f"/assignments/{o.ids['asg_sub_org1']}/assessment-inputs",
-           lambda o, r: {"expected_revision": BAD, "reason": "probe", "hours": 2}, ok=(409,), cap=("T3", "edit_assessment_inputs")),
+           lambda o, r: {"expected_revision": BAD, "reason": "probe", "hours": 2}, ok=(409,), cap=("T3", "edit_assessment_inputs"), readers="T3"),
         Op("T10", "GET", lambda o: f"/tasks/{o.ids['task_sub']}/assessment-inputs", cap=("T3", "view_assessment_inputs"), readers="T3"),
         Op("T11", "GET", lambda o: f"/tasks/{o.ids['task_blk']}/assessment-inputs", cap=("T4", "view_assessment_inputs"), readers="T4"),
         Op("T12", "POST", lambda o: f"/assignments/{o.ids['asg_sub_org2']}/reassign",
            lambda o, r: {"expected_revision": BAD, "new_assignee_user_id": o.uid("org1"), "hours": 1, "previous_outcome": "cancelled", "reason": "probe"},
-           ok=(409,)),
+           ok=(409,), readers="T3"),
         Op("T13", "GET", lambda o: "/assignments/unresolved", cap=("S1", "view_unresolved_assignments")),
         Op("T14", "PATCH", lambda o: f"/assignments/{o.ids['asg_blk_org1']}/assessment-inputs",
-           lambda o, r: {"expected_revision": BAD, "reason": "probe", "hours": 2}, ok=(409,), cap=("T4", "edit_assessment_inputs")),
+           lambda o, r: {"expected_revision": BAD, "reason": "probe", "hours": 2}, ok=(409,), cap=("T4", "edit_assessment_inputs"), readers="T4"),
         # Dates of a task, once set, are moved by the chair, deputies and HR master (УВ-5).
         Op("T15", "PATCH", lambda o: f"/tasks/{o.ids['task_sub']}/assessment-inputs",
            lambda o, r: {"expected_revision": BAD, "reason": "probe", "deadline_at": stamp(4.25)}, ok=(409,),
-           cap=("T10", "edit_assessment_dates")),
+           cap=("T10", "edit_assessment_dates"), readers="T3"),
         Op("T16", "GET", lambda o: f"/assignments/{o.ids['asg_sub_org1']}/assessment-inputs", cap=("T3", "view_assessment_inputs"), readers="T3"),
         Op("T17", "PATCH", lambda o: f"/assignments/{o.ids['asg_sub_org1']}/assessment-inputs",
            lambda o, r: {"expected_revision": BAD, "reason": "probe", "effective_completed_at": stamp(-1.25)}, ok=(409,),
-           cap=("T16", "edit_assessment_dates")),
+           cap=("T16", "edit_assessment_dates"), readers="T3"),
         # KKR, merits, summary, seasons
         Op("K1", "GET", lambda o: f"/assessments?season_id={cur(o)}", cap=("S1", "view_kkr")),
         Op("K2", "GET", lambda o: f"/seasons/{cur(o)}/summary", cap=("S1", "view_summary")),
@@ -385,6 +386,11 @@ def ops():
         Op("K16", "POST", lambda o: "/season-corrections", lambda o, r: {"object_kind": "event", "object_id": o.ids["event"],
            "expected_revision": BAD, "target_season_id": o.ids["planned"], "reason": "probe"}, ok=(409,), cap=("S1", "correct_season")),
         Op("K17", "GET", lambda o: f"/merits?season_id={cur(o)}"),
+        # A planned season's summary is read, never marked (owner 2026-10-31, SE-21).
+        Op("K18", "GET", lambda o: f"/seasons/{o.ids['planned']}/summary", cap=("S1", "view_summary")),
+        Op("K19", "PUT", lambda o: f"/seasons/{o.ids['planned']}/summary/decisions/{o.uid('org1')}",
+           lambda o, r: {"expected_version": BAD, "expected_decisions": [], "decisions": [], "reason": "probe"}, ok=(409,),
+           cap=("K18", "edit_decisions")),
         Op("C4", "GET", lambda o: f"/participants/{o.uid('itmem')}/category"),
         Op("C5", "PATCH", lambda o: f"/participants/{o.uid('itmem')}/category",
            lambda o, r: {**_fresh_category(o), "reason": "probe"}, cap=("C4", "edit_participant_category")),
@@ -395,18 +401,20 @@ def ops():
            title=f"probe-erep-{r}", content=rich("x"), file_ids=[]), cap=("E2", "create_report")),
         Op("R3", "GET", lambda o: f"/reports/{o.ids['report_sub']}", deny=(404,)),
         Op("R4", "PATCH", lambda o: f"/reports/{o.ids['report_sub']}", lambda o, r: {"expected_revision": BAD, "title": "x"}, ok=(409,),
-           cap=("R3", "edit_report")),
+           cap=("R3", "edit_report"), readers="R3"),
         Op("R5", "POST", lambda o: f"/reports/{o.ids['report_sub']}/publish", lambda o, r: {"expected_revision": BAD}, ok=(409,),
-           cap=("R3", "publish_report")),
+           cap=("R3", "publish_report"), readers="R3"),
         Op("R6", "GET", lambda o: f"/reports/{o.ids['report_event']}", deny=(404,)),
         Op("R7", "PATCH", lambda o: f"/reports/{o.ids['report_event']}", lambda o, r: {"expected_revision": BAD, "title": "x"}, ok=(409,),
-           cap=("R6", "edit_report")),
+           cap=("R6", "edit_report"), readers="R6"),
         Op("R8", "GET", lambda o: f"/report-history?series_id={o.ids['past_event_series']}", deny=(404,)),
         Op("R9", "GET", lambda o: f"/report-history?series_id={o.ids['past_sub_series']}", deny=(404,)),
         Op("R10", "GET", lambda o: f"/reports/{o.ids['past_event_report']}", deny=(404,)),
         Op("R11", "GET", lambda o: f"/reports/{o.ids['past_sub_report']}", deny=(404,)),
-        Op("R12", "PATCH", lambda o: f"/reports/{o.ids['past_event_report']}", lambda o, r: {"expected_revision": BAD, "title": "x"}, ok=(409,)),
-        Op("R13", "PATCH", lambda o: f"/reports/{o.ids['past_sub_report']}", lambda o, r: {"expected_revision": BAD, "title": "x"}, ok=(409,)),
+        Op("R12", "PATCH", lambda o: f"/reports/{o.ids['past_event_report']}", lambda o, r: {"expected_revision": BAD, "title": "x"}, ok=(409,),
+           readers="R10"),
+        Op("R13", "PATCH", lambda o: f"/reports/{o.ids['past_sub_report']}", lambda o, r: {"expected_revision": BAD, "title": "x"}, ok=(409,),
+           readers="R11"),
         # Meetings
         Op("M1", "GET", lambda o: f"/events/{o.ids['event']}/meeting", prepare=_ensure_meeting("events", "event"),
            cap=("E2", "view_meeting"), deny=(404,)),  # A-EVT-4
@@ -428,13 +436,14 @@ def ops():
         Op("B4", "DELETE", lambda o: f"/blocks/{o.ids['it']}/members/{o.uid('outsider')}", ok=(200, 404), cap=("B1", "remove_member")),
         Op("B5", "DELETE", lambda o: f"/blocks/{o.ids['hr']}/members/{o.uid('outsider')}", ok=(200, 404), cap=("B1h", "remove_member")),
         Op("B6", "POST", lambda o: f"/block-requests/{o.ids['request']['request_id']}/hr-approve",
-           lambda o, r: {"expected_revision": o.ids["request"]["revision"]}, prepare=_request("hr", "pending_hr")),
+           lambda o, r: {"expected_revision": o.ids["request"]["revision"]}, prepare=_request("hr", "pending_hr"), readers=HR_REQUEST_VIEW),
         Op("B7", "POST", lambda o: f"/block-requests/{o.ids['request']['request_id']}/hr-approve",
-           lambda o, r: {"expected_revision": o.ids["request"]["revision"]}, prepare=_request("it", "pending_hr")),
+           lambda o, r: {"expected_revision": o.ids["request"]["revision"]}, prepare=_request("it", "pending_hr"), readers=IT_REQUEST_VIEW),
         Op("B8", "POST", lambda o: f"/block-requests/{o.ids['request']['request_id']}/block-approve",
-           lambda o, r: {"expected_revision": o.ids["request"]["revision"]}, prepare=_request("it", "pending_block")),
+           lambda o, r: {"expected_revision": o.ids["request"]["revision"]}, prepare=_request("it", "pending_block"), readers=IT_REQUEST_VIEW),
         Op("B9", "POST", lambda o: f"/block-requests/{o.ids['request']['request_id']}/reject",
-           lambda o, r: {"expected_revision": o.ids["request"]["revision"], "reason": "probe"}, prepare=_request("hr", "pending_hr")),
+           lambda o, r: {"expected_revision": o.ids["request"]["revision"], "reason": "probe"}, prepare=_request("hr", "pending_hr"),
+           readers=HR_REQUEST_VIEW),
         Op("B12", "PUT", lambda o: f"/blocks/{o.ids['it']}/leader", lambda o, r: {"user_id": o.uid("master"), "expected_revision": BAD}, ok=(409,),
            cap=("B1", "manage_leaders")),
         Op("B13", "PUT", lambda o: f"/role-assignments/{o.ids['ra_master_it']}/deputies",
@@ -461,13 +470,17 @@ def ops():
         # Materials
         Op("MT1", "GET", lambda o: f"/materials/{o.ids['material']}"),
         Op("MT2", "PATCH", lambda o: f"/materials/{o.ids['material']}", same_title("materials", "material"), cap=("MT1", "edit_material")),
-        Op("MT3", "DELETE", lambda o: f"/materials/{o.ids['disposable']}", prepare=_disposable_material, cap=("MT1", "delete_material")),
+        Op("MT3", "DELETE", lambda o: f"/materials/{o.ids['disposable']}", _fresh("disposable", "materials"), prepare=_disposable_material,
+           cap=("MT1", "delete_material"), readers="MT1"),
         Op("MT4", "POST", lambda o: "/materials", lambda o, r: dict(kind="general", title=f"probe-mat-{r}", description="", content=rich("x")),
            cap=("S1", "create_shared_material")),  # A-MAT-13
         Op("MT5", "PUT", lambda o: f"/materials/{o.ids['material']}/editors", lambda o, r: {"user_ids": [o.uid("editor")], "expected_revision": BAD},
            ok=(409,), cap=("MT1", "manage_material_editors")),
-        Op("MT6", "PATCH", lambda o: f"/materials/{o.ids['guide_it']}", _fresh("guide_it", "materials")),
-        Op("MT7", "PATCH", lambda o: f"/materials/{o.ids['guide_hr']}", _fresh("guide_hr", "materials")),
+        Op("MT6", "PATCH", lambda o: f"/materials/{o.ids['guide_it']}", _fresh("guide_it", "materials"), readers="MT8"),
+        Op("MT7", "PATCH", lambda o: f"/materials/{o.ids['guide_hr']}", _fresh("guide_hr", "materials"), readers="MT9"),
+        # Block guides read to their block, its leads and the chair's team (2026-10-25).
+        Op("MT8", "GET", lambda o: f"/materials/{o.ids['guide_it']}", deny=(404,)),
+        Op("MT9", "GET", lambda o: f"/materials/{o.ids['guide_hr']}", deny=(404,)),
         # Contacts
         Op("C1", "GET", lambda o: "/contacts"),
         Op("C2", "GET", lambda o: "/contacts/archive"),
@@ -509,8 +522,12 @@ EVENT_LEAD = {"head1", "head1dep"}
 SUB_LEAD = {"resp1", "resp1dep"}
 SUB_TEAM = SUB_LEAD | {"org1"}
 IT_LEAD = {"master", "mdeputy"}
+HR_LEAD = HRM | {"hrdeputy"}  # the HR block's master and deputy in that block (GL-09)
 IT_MEMBERS = {"itmem", "org1"}
 QUEUE = TACHKI | HRM | IT_LEAD | EVENT_LEAD | SUB_LEAD
+# Who sees a block request at all (requests_for); others get 404 on its commands (GL-24).
+HR_REQUEST_VIEW = TACHKI | REQUEST_HR | {"hract"}
+IT_REQUEST_VIEW = HR_REQUEST_VIEW | IT_LEAD
 
 EXPECTED = {
     "S1": ALL, "E1": ALL, "E2": ALL,
@@ -539,9 +556,10 @@ EXPECTED = {
     "K9": TACHKI,
     "K10": TACHKI | KKR_HR | EVENT_LEAD | SUB_LEAD, "K11": TACHKI | EVENT_LEAD,
     "K12": TACHKI | EVENT_LEAD, "K13": TACHKI,
-    "K14": TACHKI,  # closed season corrections (АВ-2)
+    "K14": TACHKI | HRM,  # closed season corrections: also the HR master, not the HR deputy (owner 2026-10-31, SE-13)
     "K15": {"chair"},  # opening and closing a season (АВ-49)
     "K16": TACHKI, "K17": ALL,
+    "K18": TACHKI | KKR_HR, "K19": set(),  # SE-21: no marks in a planned season
     "C4": ALL, "C5": TACHKI | HRM,
     "R1": SUB_LEAD, "R2": EVENT_LEAD,  # АВ-27
     "R3": TACHKI | HRM | EVENT_LEAD | SUB_TEAM, "R4": SUB_LEAD, "R5": SUB_LEAD,
@@ -555,7 +573,8 @@ EXPECTED = {
     "M3": TACHKI | HRM | EVENT_LEAD | SUB_TEAM, "M4": TACHKI | EVENT_LEAD | SUB_LEAD,
     "M5": TACHKI | EVENT_LEAD, "M6": TACHKI | EVENT_LEAD | SUB_LEAD,
     "B1": ALL, "B1h": ALL,
-    "B2": TACHKI | IT_LEAD, "B3": TACHKI | HRM,
+    # The HR deputy is an ordinary deputy of the HR block: its card, guide and queues (owner 2026-10-31, GL-09).
+    "B2": TACHKI | IT_LEAD, "B3": TACHKI | HR_LEAD,
     "B4": TACHKI | REQUEST_HR | IT_LEAD, "B5": TACHKI | REQUEST_HR,  # the master's deputy removes members (A-ROL-2)
     "B6": REQUEST_HR, "B7": REQUEST_HR, "B8": IT_LEAD, "B9": REQUEST_HR,  # chair and deputies only after 72 hours (АВ-29)
     "B12": TACHKI, "B13": TACHKI | {"master"}, "B14": TACHKI | HRM,
@@ -564,7 +583,8 @@ EXPECTED = {
     "A4": {"chair"}, "A5": {"chair"},
     "P1": ALL, "P2": TACHKI | {"pgas"}, "P3": TACHKI | {"pgas"}, "P4": TACHKI | {"pgas"},  # decision 14
     "MT1": ALL, "MT2": TACHKI | {"editor"}, "MT3": TACHKI | {"editor"}, "MT4": TACHKI, "MT5": TACHKI,
-    "MT6": TACHKI | IT_LEAD, "MT7": TACHKI | HRM,
+    "MT6": TACHKI | IT_LEAD, "MT7": TACHKI | HR_LEAD,
+    "MT8": TACHKI | IT_LEAD | IT_MEMBERS, "MT9": TACHKI | HR_LEAD | {"hract"},
     "C1": ALL, "C2": ALL, "C3": TACHKI | HRM,
 }
 WORKING_SUBEVENTS = {role: (["sa", "sb"] if role in TACHKI | HRM | EVENT_LEAD else ["sa"] if role in SUB_TEAM else [])
@@ -598,7 +618,9 @@ def test_role_matrix(org, role):
         assert child["working_access"] == working, (role, key)
         if not working:
             assert child["description"] == rich("") and child["report_series_id"] is None, (role, key)
-            assert child["capabilities"] == [], (role, key)
+            # A task reader without the working ACL keeps only the team-task entry (TR-25).
+            assert set(child["capabilities"]) <= {"view_tasks", "create_task"}, (role, key, child["capabilities"])
+            assert ("view_tasks" in child["capabilities"]) == (role in TRACKER_HR), (role, key, child["capabilities"])
         else:
             assert child["description"]["body"] and child["report_series_id"], (role, key)
     assert not problems, f"{role}:\n  " + "\n  ".join(problems)
@@ -627,8 +649,10 @@ def test_denied_task_edit_leaves_no_trace(org, task_key, op):
 
 
 def test_closed_season_task_edit(org):
-    """Only the chair and the deputies edit a closed season's task (АВ-2); others keep 403/404."""
-    expected = {"chair": 200, "deputy": 200, "resp1": 403, "head1": 403, "org1": 403, "hrmaster": 403, "outsider": 404}
+    """The chair, the deputies and the HR master edit a closed season's task (owner 2026-10-31,
+    SE-13); the HR deputy and the season's own leads keep 403, non-readers 404."""
+    expected = {"chair": 200, "deputy": 200, "hrmaster": 200, "hrdeputy": 403, "resp1": 403, "head1": 403, "org1": 403,
+                "master": 404, "itmem": 404, "outsider": 404}
     for role, status_wanted in expected.items():
         before, status, _, after = _patch_title(org, "task_closed", role, f"Списки ({role})")
         assert status == status_wanted, (role, status)
@@ -651,10 +675,98 @@ def test_closed_season_offers_no_roster_or_merit_actions(org):
                         {"user_ids": [], "expected_revision": leader["revision"]})
     assert status == 409
     session = org.raw("GET", "/session", who="head1")[1]
+    # Reading saved merits is not a change, so it stays available for the past season (SE-05).
     past = [x for x in session["assignments"] if x["scope_id"] == org.ids["past_event"]]
-    assert past and all(x["capabilities"] == [] for x in past)
+    assert past and all(x["capabilities"] == ["view_merits"] for x in past)
     current = [x for x in session["assignments"] if x["scope_id"] == org.ids["event"]]
-    assert current and all(x["capabilities"] == ["create_head_merit"] for x in current)
+    assert current and all(x["capabilities"] == ["create_head_merit", "view_merits"] for x in current)
+
+
+def test_hr_deputy_is_an_ordinary_deputy_of_their_hr_block(org):
+    """GL-09 (owner 2026-10-31, answer 4): in the HR block the HR deputy has everything a
+    deputy of any block has (card, guide, queues), beside their global HR rights; renaming
+    the block stays with the chair and deputies, and other blocks stay closed to them."""
+    import access
+    uid = org.uid("hrdeputy")
+    assert not hasattr(access, "HR_BLOCK_DEPUTY")
+    assert access.scope_relations(uid, "block", org.ids["hr"]) == {access.BLOCK_DEPUTY}
+    assert access.scope_relations(uid, "block", org.ids["it"]) == set()
+    assert {access.HR_DEPUTY, access.HR_TRACKER_READER, access.QUEUE_HOLDER, access.BLOCK_LEAD_ANYWHERE} <= access.relations(uid)
+    assert access.relations(uid).isdisjoint(access.CLOSED_SEASON)
+    assert "create_material" in org.req("GET", "/session", who="hrdeputy")["capabilities"]
+    # The guide: read, edit, publish and delete like the block's master; another block's guide stays hidden.
+    guide = org.req("GET", f"/materials/{org.ids['guide_hr']}", who="hrdeputy")
+    assert {"edit_material", "publish_material", "delete_material"} <= set(guide["capabilities"])
+    for method, suffix in [("PATCH", ""), ("POST", "/publish"), ("DELETE", "")]:
+        status, _ = org.raw(method, f"/materials/{org.ids['guide_hr']}{suffix}", {"expected_revision": BAD}, "hrdeputy")
+        assert status == 409, (method, suffix, status)  # the right passed; the stale revision did not
+    assert org.raw("GET", f"/materials/{org.ids['guide_it']}", who="hrdeputy")[0] == 404
+    assert org.raw("PATCH", f"/materials/{org.ids['guide_it']}", {"expected_revision": BAD}, "hrdeputy")[0] == 404
+    # The card: description, community link and avatar; not the name or the leaders.
+    card = org.req("GET", f"/blocks/{org.ids['hr']}", who="hrdeputy")
+    assert {"edit_block", "read_guide", "remove_member"} <= set(card["capabilities"])
+    assert not {"manage_leaders", "assign_block_hr", "create_volunteer_merit"} & set(card["capabilities"])
+    for body in ({"description": rich("Описание")}, {"community_url": "https://example.com/hr"}):
+        assert org.raw("PATCH", f"/blocks/{org.ids['hr']}", {"expected_revision": BAD, **body}, "hrdeputy")[0] == 409
+    renamed = org.raw("PATCH", f"/blocks/{org.ids['hr']}", {"expected_revision": card["revision"], "name": "HR renamed"}, "hrdeputy")
+    assert renamed[0] == 403 and org.req("GET", f"/blocks/{org.ids['hr']}")["name"] == card["name"]
+    avatar = dict(owner_kind="block", purpose="avatar", name="hr.png", mime_type="image/png", size_bytes=10)
+    assert org.raw("POST", "/files/upload-intents", {**avatar, "owner_id": org.ids["hr"]}, "hrdeputy")[0] == 200
+    assert org.raw("POST", "/files/upload-intents", {**avatar, "owner_id": org.ids["it"]}, "hrdeputy")[0] == 403
+    it_card = org.req("GET", f"/blocks/{org.ids['it']}", who="hrdeputy")
+    assert not {"edit_block", "read_guide"} & set(it_card["capabilities"])
+    assert org.raw("PATCH", f"/blocks/{org.ids['it']}", {"expected_revision": BAD}, "hrdeputy")[0] == 403
+    # Queues: the HR block is offered and accepted, the IT block is not (the reserved key stops before a write).
+    catalog = org.req("GET", "/task-queues", who="hrdeputy")
+    scopes = {(scope["kind"], scope["id"]) for scope in catalog["create_scopes"]}
+    assert ("block", org.ids["hr"]) in scopes and ("block", org.ids["it"]) not in scopes and catalog["can_create_queue"]
+    for block, status in (("hr", 409), ("it", 403)):
+        body = {"name": "Проба", "key": "KKR", "scope": {"kind": "block", "id": org.ids[block]}, "is_private": False}
+        assert org.raw("POST", "/task-queues", body, "hrdeputy")[0] == status, block
+    # The block deputy's task rights there; the global HR rights stay.
+    assert access.allowed(uid, "task.assign_others", "block", org.ids["hr"])
+    assert not access.allowed(uid, "task.assign_others", "block", org.ids["it"])
+    for action in ("kkr.view", "summary.view", "block.review_hr_stage", "block_request.view_all"):
+        assert access.allowed(uid, action, "block", org.ids["it"]), action
+    assert access.allowed(uid, "kkr.remind", state="open") and access.allowed(uid, "task.edit", "block", org.ids["it"], state="open")
+    assert not access.allowed(uid, "block.rename") and not access.allowed(uid, "block.manage_leader")
+
+
+@pytest.mark.parametrize("role,kind,readable", [("master", "block", True), ("mdeputy", "block", True), ("resp1", "subevent", True),
+                                                 ("head1", "event", True), ("org1", "subevent", False), ("itmem", "block", False)])
+def test_scoped_merit_readers_get_view_capability(org, role, kind, readable):
+    """SE-05: the menu and merits page follow merit.view.*; the server still filters each list."""
+    session = org.raw("GET", "/session", who=role)[1]
+    scoped = [x for x in session["assignments"] if x["scope_kind"] == kind]
+    if readable:
+        assert scoped and any("view_merits" in x["capabilities"] for x in scoped), session["assignments"]
+    else:
+        assert not any("view_merits" in x["capabilities"] for x in session["assignments"])
+
+
+@pytest.mark.parametrize("kind", ["block", "subevent"])
+def test_hr_curator_gets_session_view_merits(org, kind):
+    """SE-05: a block or subevent HR holds no role assignment there, yet reads its merits;
+    `/session` says so with a session-level `view_merits` that ends with the curatorship."""
+    path, merit = (f"/blocks/{org.ids['it']}", "merit_block") if kind == "block" else (f"/subevents/{org.ids['sa']}", "merit_sub")
+
+    def curator(user_id):
+        org.req("PUT", f"{path}/hr", {"user_id": user_id, "expected_revision": org.req("GET", path)["revision"]})
+
+    def reads():
+        session = org.req("GET", "/session", who="org3")
+        listed = {m["merit_id"] for m in org.req("GET", f"/merits?season_id={org.ids['current']}", who="org3")["items"]}
+        return "view_merits" in session["capabilities"], org.ids[merit] in listed
+
+    assert reads() == (False, False)
+    curator(org.uid("org3"))
+    try:
+        session = org.req("GET", "/session", who="org3")
+        assert not any("view_merits" in a["capabilities"] for a in session["assignments"])
+        assert reads() == (True, True)
+    finally:
+        curator(None)
+    assert reads() == (False, False)
 
 
 @pytest.mark.skipif(not os.environ.get("ACCESS_MATRIX_DUMP"), reason="dump mode only")

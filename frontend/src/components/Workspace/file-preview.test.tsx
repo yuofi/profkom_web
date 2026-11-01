@@ -29,6 +29,7 @@ it("opens code in a dialog through checked API bytes rather than triggering a do
   await open(ref("script.js", "text/javascript"));
   expect(page!.container.querySelector("dialog[open]")).not.toBeNull();
   expect(get).toHaveBeenCalledWith("file-preview-1", expect.any(AbortSignal));
+  await waitForPage(page!, () => !!page!.container.querySelector("pre code .hljs-keyword")); // Highlighting loads with the first code preview.
   expect(page!.container.querySelector("pre code .hljs-keyword")?.textContent).toBe("const");
   expect(page!.container.querySelector("figcaption")?.textContent).toBe("JavaScript");
   expect(click).not.toHaveBeenCalled();
@@ -97,4 +98,18 @@ it("content API uses the authenticated client, canonical endpoint, blob response
   const data = blob("safe");const get = vi.spyOn(api, "get").mockResolvedValue({ data });const controller = new AbortController();
   expect(await filesApi.content("file/id", controller.signal)).toBe(data);
   expect(get).toHaveBeenCalledWith("/files/file%2Fid/content", { responseType: "blob", signal: controller.signal });
+});
+it("a background access recheck keeps the shown file and a tab return checks once", async () => {
+  vi.spyOn(filesApi, "content").mockResolvedValue(blob("synthetic image", "image/png"));await open(ref("image.png", "image/png"));
+  let allow!: () => void;
+  vi.mocked(filesApi.download).mockClear().mockImplementation(() => new Promise(resolve => { allow = () => resolve({ download_url: "/api/files/file-preview-1/content", expires_at: null }); }));
+  // Returning to the tab fires visibilitychange (TanStack), then focus (FilePreview), as separate tasks.
+  await act(async () => { document.dispatchEvent(new Event("visibilitychange", { bubbles: true })); });await settle();
+  await act(async () => { window.dispatchEvent(new Event("focus")); });await settle();
+  expect(filesApi.download).toHaveBeenCalledTimes(1);
+  const image = page!.container.querySelector("dialog img")!;
+  expect(image).not.toBeNull();expect(image.closest("[hidden]")).toBeNull();
+  expect(page!.container.textContent).not.toContain("Проверяем доступ к файлу");
+  await act(async () => allow());await waitForPage(page!);
+  expect(page!.container.querySelector("dialog img")).toBe(image);expect(URL.revokeObjectURL).not.toHaveBeenCalled();
 });

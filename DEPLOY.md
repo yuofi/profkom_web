@@ -1,13 +1,14 @@
-# Поставка на тест и откат
+# Поставка и откат
 
 Документ описывает порядок подготовки, а не разрешение на запуск. Внешние
 Git-операции, SSH, тестовый сервер, production и реальные VK/S3 требуют явного
 разрешения владельца на конкретную среду и действие. См. [AGENTS.md](AGENTS.md).
 
-Старый пошаговый cutover базы `6eb9dea`, ресурсы сервера и наблюдения 24–25 октября
-сохранены в [архиве](docs/archive/operations/DEPLOY_20261025.md). Его свободное место,
-образы, сеть и конфигурация не считаются текущими без проверки. Миграционная
-процедура не является обычным обновлением тестового сайта.
+Пошаговый cutover базы `6eb9dea`, ресурсы сервера и наблюдения 24–25 октября
+сохранены в [архиве](docs/archive/operations/DEPLOY_20261025.md); для перехода production
+на `release-1` его шаги остаются в силе (раздел 5). Свободное место, образы, сеть и
+конфигурация оттуда не считаются текущими без проверки. Миграционная процедура не
+является обычным обновлением тестового сайта.
 
 ## 1. Зафиксировать кандидат локально
 
@@ -45,7 +46,8 @@ cookies, JWT, `.env`, подписанные ссылки и персональ�
 
 1. Подготовить серверную копию конфигурации, прежнего образа и frontend-артефактов.
 2. Остановить только нужный backend, корректно checkpoint SQLite и создать
-   согласованную резервную копию **на сервере**. Не переносить реальные базы локально.
+   согласованную резервную копию **на сервере** — только через backup API (раздел 7).
+   Не переносить реальные базы локально.
 3. До изменения сохранить проверяемые отпечатки таблиц и схемы: ID, старые значения,
    индексы/триггеры, учёт, утверждённые снимки, аккаунты и версии сессий.
 4. Установить проверенные артефакты и запустить целевой backend. Проверить реальные
@@ -73,6 +75,229 @@ cookies, JWT, `.env`, подписанные ссылки и персональ�
 байтов S3, а тестовую выкладку — за production-релиз. Скриншоты тестовой базы
 с реальными данными не делаются.
 
+## 5. Переход production с `6eb9dea` на `release-1`
+
+Рабочий сайт по-прежнему на `6eb9dea`. Его переход на `release-1` идёт по шагам
+[cutover](docs/archive/operations/DEPLOY_20261025.md): подготовка (раздел 1),
+репетиция на копии базы (2), окно выкладки (3), проверка отчёта и карты (4) и откат (5).
+Перед ним заново выполняется preflight раздела 2 этого документа, а разрешение
+владельца нужно на каждый шаг на сервере. В шаги cutover внесены правила аудита
+31 октября. Левая колонка — разделы и шаги cutover; «раздел 7» и «раздел 8» справа —
+разделы этого документа.
+
+| Где в cutover | Что внесено |
+| --- | --- |
+| Раздел 0, «База» | Журнал DELETE; WAL — только строкой `SQLITE_JOURNAL_MODE=WAL` (раздел 7); папка `data` остаётся доступной uid 999 на запись |
+| Раздел 2, копия и `.env` | `chown` копии покрывает и `site.db-wal`, `site.db-shm`; строка WAL в `$H/backend/.env` — только при разрешении WAL; без явного разрешения PF-12 — правка `frontend/nginx.conf` из шага 4 раздела 3 до сборки образа |
+| Раздел 2, проверка | `journal_mode` и `integrity_check` копии: репетиция идёт в том журнале, в котором пойдёт выкладка |
+| Раздел 3, перед командами | Условие PF-12: сжатие `/api/` приходит на сервер, только если разрешение называет PF-12 явно (раздел 8) |
+| Раздел 3, шаги 3 и 6 | Строка WAL — только при отдельном разрешении; без неё миграция не меняет журнал |
+| Раздел 3, шаг 4 | Команда, которая убирает четыре строки PF-12 из `location /api/` до сборки образа; новые location после `6eb9dea` в сверке nginx |
+| Раздел 3, шаг 7 | `journal_mode` и `integrity_check`, владельцы `data/<db>*`, счётчик строки PF-12 в `nginx -T`; затем `Content-Encoding` в браузере |
+| Раздел 4 | `source_wal_bytes` — `0`, `source_sha256` совпадает с `sha256sum` |
+| Раздел 5 | Копия новой базы — только backup API; `-wal`/`-shm` удаляют только после остановки backend перед заменой базы; правку PF-12 снимают перед `checkout main` |
+
+HTTP/2 входит в этот переход, только если коммит PF-03 есть в выкладываемой ветке
+(раздел 9).
+
+## 6. Тестовый сайт
+
+`test.profcom-cmc.online` — проект compose `profkom-test` в `/root/profkom-test` на
+мигрированной копии рабочей базы; его устройство на 25 октября описано в разделе 6
+[cutover](docs/archive/operations/DEPLOY_20261025.md). Скрипты теста вне git
+(`server-stage.sh`, `deploy-test.py`, `checkpoint-test.py`) копируют базу только через
+backup API, а `-wal` и `-shm` удаляют только при восстановлении: после остановки
+backend и перед заменой базы копией.
+
+- **Журнал.** Скрипты `SQLITE_JOURNAL_MODE` не задают, поэтому тест остаётся в DELETE.
+  WAL там включает тот же отдельный шаг с разрешения (раздел 7) в `/root/profkom-test`:
+  проект `profkom-test`, контейнер `profkom-test-backend-1`, база `site.db`.
+- **Сжатие `/api/`.** `frontend/nginx.conf` копии теста обновляет только новый `test-up`
+  скрипта `server-stage.sh`, и с `release-1` такой `test-up` включит сжатие. Для этого
+  нужно то же разрешение, что называет PF-12; без него перед `test-up` в копии теста
+  выполняется та же правка, что в шаге 4 раздела 3 cutover (раздел 8).
+- **HTTP/2.** Тест работает без TLS, а браузеры используют HTTP/2 только поверх TLS:
+  серверная часть PF-03 тесту ничего не даёт.
+
+## 7. База в режиме WAL (PB-31)
+
+Со строкой `SQLITE_JOURNAL_MODE=WAL` в `backend/.env` каждое подключение backend включает
+`journal_mode=WAL` и `synchronous=FULL`. Без строки база остаётся в журнале DELETE или
+возвращается в него при старте, поэтому ни переход на `release-1`, ни обновление теста
+сами WAL не включают. Строку добавляют только отдельным шагом с отдельного разрешения
+владельца (ниже). Режим хранится в файле базы: первое подключение переводит её, дальше
+она остаётся в WAL. Каждая подтверждённая запись по-прежнему сброшена на диск до ответа —
+одной синхронизацией `<db>-wal` вместо четырёх в DELETE (журнал дважды, база, папка;
+посчитано локально). Чтения не ждут запись, запись не ждёт чтений; писатель один
+(`BEGIN IMMEDIATE`).
+
+- **Файлы рядом с базой.** `<db>-wal` — подтверждённые транзакции, ещё не перенесённые
+  в `<db>`. Перенос (checkpoint) идёт сам; последнее соединение при штатном закрытии
+  переносит всё и удаляет файл. После `kill -9`, OOM или сбоя питания файл остаётся
+  с данными, следующий старт их подхватывает. `<db>-shm` — индекс `<db>-wal` в общей
+  памяти, данных в нём нет. Пока есть `<db>-wal`, в самом `<db>` может не быть последних
+  записей: `sha256sum data/<db>` описывает только этот файл, как и `source_sha256`
+  отчётов миграции, а о записях в `<db>-wal` говорит их `source_wal_bytes` (раздел 4 cutover).
+- **Копии — только через backup API.** Эта команда читает `<db>` вместе с `<db>-wal`
+  и даёт целую копию на границе транзакции, в том числе пока backend пишет; ею же
+  снимают копии разделы 2, 3 и 5 cutover:
+
+  ```sh
+  python3 -c "import sqlite3, sys; s = sqlite3.connect('file:' + sys.argv[1] + '?mode=ro', uri=True); s.backup(sqlite3.connect(sys.argv[2]))" data/<db> <копия>
+  ```
+
+  `cp`, `rsync`, `tar`, `scp` и `docker cp` рабочей `<db>` запрещены: даже после
+  остановки backend последние записи могут лежать в `<db>-wal`. Готовую копию, которую
+  никто не открыл, можно копировать обычным `cp`, как в разделе 5 cutover. Копия базы
+  в WAL тоже в режиме WAL.
+- **`<db>-wal` и `<db>-shm` рабочей базы не удаляют:** в них подтверждённые записи.
+  Их удаляют только при откате (раздел 5 cutover): после остановки backend и сразу
+  перед заменой `<db>` резервной копией.
+- **Права.** SQLite создаёт `<db>-wal` и `<db>-shm` рядом с базой, поэтому папка `data`
+  должна быть доступна на запись uid 999. На 25 октября она 777, база 999:999 (раздел 0
+  cutover), так и оставить. Команды на сервере выполняются от root (`sudo`). По исходному
+  коду SQLite (`os_unix.c`: процесс root передаёт созданные им `-wal` и `-shm` владельцу
+  базы) такие файлы получают 999:999. Локально это не проверено (root нет), поэтому
+  владельцев после первого запуска в WAL и после копии при остановленном backend
+  проверяет `stat` (шаг 7 раздела 3 cutover; включение ниже). Если базу при остановленном
+  backend прочитает другой пользователь (например, `yulov`), `<db>-wal` и `<db>-shm` могут
+  остаться его файлами, и backend не сможет записывать: `attempt to write a readonly
+  database`. Тогда при остановленном backend вернуть им владельца, не удаляя:
+  `chown --reference=data/<db> data/<db>-wal data/<db>-shm`.
+- **Backup API при остановленном backend** создаёт пустые `<db>-wal` и `<db>-shm`, если
+  их нет, и оставляет их. Это нормально; владелец у них, как сказано выше, должен стать
+  999:999 — проверить `stat -c '%u:%g %n' data/<db>*`. Если тот, кто снимает копию,
+  не может писать в папку базы, команда завершится ошибкой `attempt to write a readonly
+  database` и оставит пустой файл копии.
+
+**Включение на сервере** — отдельное действие, только с отдельного разрешения владельца
+(AGENTS.md). Без разрешения ничего делать не нужно: строки `SQLITE_JOURNAL_MODE=WAL`
+в `backend/.env` нет, и база остаётся в DELETE. Если владелец разрешил включить WAL уже
+при переходе на `release-1`, строку дописывают в `backend/.env` в шаге 3 раздела 3
+cutover: базу переводит первый `--apply` шага 6, проверка — в шаге 7 (`wal ok`), а в
+репетиции (раздел 2 cutover) та же строка стоит в `$H/backend/.env`. Для теста всё то же
+в `/root/profkom-test` (раздел 6). Включение на работающем `release-1`:
+
+```sh
+D=/home/yulov/profkom_web; B=/home/yulov/profkom-backups; cd $D
+stat -c '%a %u:%g %n' data data/<db>*                      # data 777, база 999:999; иначе не продолжать
+python3 -c "import sqlite3, sys; s = sqlite3.connect('file:' + sys.argv[1] + '?mode=ro', uri=True); s.backup(sqlite3.connect(sys.argv[2]))" data/<db> $B/before-wal-$(date +%Y%m%d-%H%M%S).db
+docker compose stop backend
+sed -i '/^SQLITE_JOURNAL_MODE=/d' backend/.env && echo "SQLITE_JOURNAL_MODE=WAL" >> backend/.env
+docker compose up -d --no-build backend                    # первое подключение переводит базу в WAL
+docker exec profkom_web-backend-1 python -c "import sqlite3; c = sqlite3.connect('/app/data/<db>'); print(c.execute('pragma journal_mode').fetchone()[0], c.execute('pragma integrity_check').fetchone()[0])"   # wal ok
+stat -c '%u:%g %n' data/<db>*                               # все файлы 999:999
+python3 backend/check_live.py --url https://profcom-cmc.ru --read-only
+```
+
+Если проверка не прошла — откат ниже.
+
+**Откат WAL без отката версии** — тоже с отдельного разрешения. Данные сохраняются:
+перевод в DELETE переносит `<db>-wal` в базу и сам удаляет `<db>-wal` и `<db>-shm`.
+Выполняется только при остановленном backend.
+
+```sh
+D=/home/yulov/profkom_web; B=/home/yulov/profkom-backups; cd $D
+python3 -c "import sqlite3, sys; s = sqlite3.connect('file:' + sys.argv[1] + '?mode=ro', uri=True); s.backup(sqlite3.connect(sys.argv[2]))" data/<db> $B/before-delete-$(date +%Y%m%d-%H%M%S).db
+docker compose stop backend
+sed -i '/^SQLITE_JOURNAL_MODE=/d' backend/.env              # без строки backend остаётся в DELETE
+docker compose run --rm --no-deps -T --entrypoint python backend -c "import sqlite3; c = sqlite3.connect('/app/data/<db>'); print(c.execute('pragma journal_mode=DELETE').fetchone()[0], c.execute('pragma integrity_check').fetchone()[0])"   # delete ok
+ls data/<db>*                                               # только <db>
+docker compose up -d --no-build backend
+python3 backend/check_live.py --url https://profcom-cmc.ru --read-only
+```
+
+Если команда напечатала `wal` или `database is locked`, базу ещё держит другой процесс:
+найти и остановить его, файлы не удалять. Без строки `SQLITE_JOURNAL_MODE=WAL` backend
+вернул бы базу в DELETE и сам при старте, но отдельная команда при остановленном backend
+показывает результат и `integrity_check` до запуска. Откат всей версии (раздел 5 cutover)
+возвращает копию `6eb9dea`, она в журнале DELETE.
+
+## 8. Сжатие JSON-ответов `/api/` (PF-12)
+
+`frontend/nginx.conf` сжимает gzip JSON-ответы `/api/` (`application/json`, от 512 байт):
+API страницы приходит в несколько раз меньше, 28 типичных запросов председателя —
+109 кБ вместо 784 кБ (измерено локально). Не сжимаются ответы `/api/auth/` (токены рядом
+с текстом, который может выбрать атакующий, BREACH), `/api/files/` и `/_storage` (байты
+файла сохраняют длину и диапазоны) и всё, что не JSON. Конфигурация nginx входит в образ
+frontend (`COPY nginx.conf` в `frontend/Dockerfile.prebuilt`) и не монтируется, поэтому
+сжатие включает и выключает только новый образ frontend и перезапуск одного frontend:
+backend, база и `nginx-extra` не меняются, frontend стоит несколько секунд.
+
+- **Без разрешения сжатия нет.** Разрешение на выкладку включает сжатие, только если
+  называет PF-12 явно. Иначе шаг 4 раздела 3 cutover до сборки образа убирает из
+  `location /api/` четыре строки PF-12: комментарий, `gzip on;`,
+  `gzip_types application/json;` и пустую строку после них — той же командой, что
+  в откате ниже. API тогда отвечает без сжатия, как `6eb9dea`. Репетиция (раздел 2
+  cutover) собирает образ так же. Правка остаётся в рабочей копии
+  (`git diff --numstat -- frontend/nginx.conf` печатает `0 4 frontend/nginx.conf`),
+  поэтому и следующий образ из неё собирается без сжатия. Перед переходом рабочей копии
+  на другой коммит правку снимают (`git checkout -- frontend/nginx.conf`) и, пока PF-12
+  не разрешён, после перехода делают снова; откат всей версии (раздел 5 cutover) снимает
+  её перед `checkout main`.
+- **Проверка.** Команда шага 7 раздела 3 cutover считает строку PF-12 в `nginx -T`
+  работающего контейнера: `1` со сжатием, `0` без него; число должно совпасть
+  с разрешением. Вывод `nginx -T` целиком не печатать: в нём пути Marzban. Ответы
+  проверяют председатель и владелец в браузере, вкладка «Сеть»: с PF-12 у ответа
+  `/api/session` есть заголовок `Content-Encoding: gzip`, а у ответов `/api/auth/` (вход,
+  `refresh` после перезагрузки страницы) и у открытого файла `/api/files/<id>/content`
+  его нет. Без PF-12 его нет ни у одного ответа `/api/`.
+- **Тестовый сайт** получает сжатие только с новым `test-up` и только с тем же
+  разрешением (раздел 6).
+
+**Включение на работающем `release-1`** — отдельное действие, только с отдельного
+разрешения владельца (AGENTS.md). Образ собирается из того же `frontend/dist`, который
+работает:
+
+```sh
+D=/home/yulov/profkom_web; cd $D; G="git -c safe.directory=*"
+$G diff --numstat -- frontend/nginx.conf                       # 0 4 frontend/nginx.conf — правка шага 4 раздела 3 cutover; иначе не продолжать
+[ "$(docker exec profkom_web-frontend-1 sha256sum /usr/share/nginx/html/index.html | cut -d' ' -f1)" = "$(sha256sum frontend/dist/index.html | cut -d' ' -f1)" ] && echo match   # тот же dist; иначе не продолжать
+$G checkout -- frontend/nginx.conf                             # строки PF-12 вернулись
+docker build -q -f frontend/Dockerfile.prebuilt -t profkom_web-frontend frontend
+docker run --rm --add-host backend:127.0.0.1 -v /home/yulov/certs:/etc/nginx/ssl:ro -v $D/nginx-extra:/etc/nginx/extra:ro profkom_web-frontend nginx -t   # successful; иначе откат ниже
+docker compose up -d --no-build --no-deps --force-recreate frontend   # только frontend; не down
+docker exec profkom_web-frontend-1 nginx -T 2>/dev/null | grep -c '^ *gzip_types application/json;$'   # 1
+python3 backend/check_live.py --url https://profcom-cmc.ru --read-only
+```
+
+Затем председатель и владелец проверяют ответы в браузере, как после шага 7 раздела 3
+cutover: у `/api/session` есть `Content-Encoding: gzip`, у ответов `/api/auth/` и
+`/api/files/<id>/content` его нет. Если проверка не прошла — откат ниже.
+
+**Откат сжатия без отката версии** — тоже с отдельного разрешения: та же правка, что
+в шаге 4 раздела 3 cutover, новый образ и перезапуск одного frontend.
+
+```sh
+D=/home/yulov/profkom_web; cd $D
+[ "$(docker exec profkom_web-frontend-1 sha256sum /usr/share/nginx/html/index.html | cut -d' ' -f1)" = "$(sha256sum frontend/dist/index.html | cut -d' ' -f1)" ] && echo match   # тот же dist; иначе не продолжать
+python3 - <<'PY'
+p = "frontend/nginx.conf"
+s = open(p, "rb").read()
+pf12 = b"        # JSON only (PF-12): any other answer of the API goes as the backend made it.\n        gzip on;\n        gzip_types application/json;\n\n"
+assert s.count(pf12) == 1, "в location /api/ нет строк PF-12 release-1: не продолжать"
+open(p, "wb").write(s.replace(pf12, b""))
+PY
+docker build -q -f frontend/Dockerfile.prebuilt -t profkom_web-frontend frontend
+docker run --rm --add-host backend:127.0.0.1 -v /home/yulov/certs:/etc/nginx/ssl:ro -v $D/nginx-extra:/etc/nginx/extra:ro profkom_web-frontend nginx -t   # successful
+docker compose up -d --no-build --no-deps --force-recreate frontend   # только frontend; не down
+docker exec profkom_web-frontend-1 nginx -T 2>/dev/null | grep -c '^ *gzip_types application/json;$'   # 0
+python3 backend/check_live.py --url https://profcom-cmc.ru --read-only
+```
+
+В браузере у ответов `/api/` больше нет `Content-Encoding: gzip`. Откат всей версии
+(раздел 5 cutover) возвращает `6eb9dea`, у которой API тоже без сжатия.
+
+## 9. HTTP/2 (PF-03)
+
+`frontend/nginx.conf` HTTP/2 не включает. Серверную часть выполняет только отдельный
+исполнитель по [инструкции PF-03](docs/audit/PF-03/README.md): диагностика чтением,
+выбор пути по состоянию сервера, замер, включение, проверка VPN Marzban и готовый откат —
+с разрешением владельца на каждый шаг на сервере. Склейка мелких чанков, клиентская
+часть PF-03, уже в коде. После включения сюда записывают факты: дату, версию nginx,
+выбранный путь и что он оставляет следующим выкладкам (заготовка — в разделе 3.3
+инструкции).
+
 ## Где искать доказательства
 
 Локальные результаты лежат в игнорируемой `.local/logs/`; [указатель](docs/archive/README.md)
@@ -80,4 +305,5 @@ cookies, JWT, `.env`, подписанные ссылки и персональ�
 привязаны к конкретному SHA/состоянию сервера; их нужно прочитать и адаптировать,
 а не запускать вслепую. Последняя проверенная в этом чате поставка `12dede0`
 описана в `.local/logs/attachment-layout-deploy-20261030/`; сервер в рамках
-ревизии документации 31 октября повторно не опрашивался.
+ревизии документации 31 октября повторно не опрашивался, аудит 31 октября –
+1 ноября его и тестовый сайт не трогал.

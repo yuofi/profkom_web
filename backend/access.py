@@ -10,6 +10,7 @@ what can change at all (planned/open/closed); a rule can narrow its relations by
 from contextvars import ContextVar
 import hashlib
 import json
+from types import MappingProxyType
 from database import db
 from read_context import memoized
 
@@ -20,7 +21,7 @@ actor_id = ContextVar("profkom_actor_id", default=None)
 CHAIR = "chair"
 CHAIR_DEPUTY = "chair_deputy"
 HR_MASTER = "hr_master"
-HR_DEPUTY = "hr_deputy"  # the actual deputy of the configured HR block
+HR_DEPUTY = "hr_deputy"  # the actual deputy of the configured HR block, also BLOCK_DEPUTY there
 HR_TRACKER_READER = "hr_tracker_reader"  # narrowly scoped global tracker read, not KKR/reports
 PGAS_ADMIN = "pgas_admin"
 BLOCK_LEAD_ANYWHERE = "block_lead_anywhere"  # master or deputy of some block
@@ -45,6 +46,9 @@ MATERIAL_EDITOR = "material_editor"
 
 TACHKI = frozenset({CHAIR, CHAIR_DEPUTY})  # the chair and the chair's deputies
 SUMMARY = TACHKI | {HR_MASTER, HR_DEPUTY}
+# Who changes a closed season, its marks included: the chair, the chair's deputies and the
+# HR master; not the HR deputy or area leads (owner, 2026-10-31, SE-13).
+CLOSED_SEASON = TACHKI | {HR_MASTER}
 EVENT_LEADS = frozenset({EVENT_LEADER, EVENT_DEPUTY})
 SUB_LEADS = frozenset({SUB_LEADER, SUB_DEPUTY})
 BLOCK_LEADS = frozenset({BLOCK_MASTER, BLOCK_DEPUTY})
@@ -93,12 +97,16 @@ POLICY = {
     "task.view": TACHKI | {HR_MASTER,HR_DEPUTY,HR_TRACKER_READER,BLOCK_HR,SUBEVENT_HR,EVENT_TEAM} | AREA_TEAM,
     "task.create": TACHKI | {HR_MASTER,HR_TRACKER_READER,BLOCK_HR,SUBEVENT_HR,EVENT_TEAM} | AREA_TEAM,
     "task.assign_others": TACHKI | AREA_LEADS | {BLOCK_HR,SUBEVENT_HR},
-    "task.edit": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY} | AREA_LEADS, "closed": TACHKI}),  # public task editing; closed seasons keep chair-only leadership policy
-    "task.review": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS, "closed": TACHKI}),
+    "task.edit": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY} | AREA_LEADS, "closed": CLOSED_SEASON}),  # public task editing
+    "task.review": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS, "closed": CLOSED_SEASON}),
+    # A new assignment row for someone's work: a reassignment; in a closed season also the
+    # roster's join/take/assign. A closed season's rows are added by its circle: the chair,
+    # the deputies and the HR master, not the HR deputy (owner, 2026-10-31, TR-05).
+    "task.add_assignment": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS, "closed": CLOSED_SEASON}),
     "task.inputs.view": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS,
-    "task.inputs.edit": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS, "closed": TACHKI}),
+    "task.inputs.edit": ByState({"*": TACHKI | {HR_MASTER,HR_DEPUTY,BLOCK_HR,SUBEVENT_HR} | AREA_LEADS, "closed": CLOSED_SEASON}),
     # Issue date, deadline and completion date, once set; area leads do not move them (УВ-5)
-    "task.dates.edit": ByState({"*": SUMMARY, "closed": TACHKI}),
+    "task.dates.edit": ByState({"*": SUMMARY, "closed": CLOSED_SEASON}),
     "queue.view": TACHKI | {HR_MASTER, HR_DEPUTY, QUEUE_HOLDER},
     "queue.create": TACHKI | BLOCK_LEADS | EVENT_LEADS | SUB_LEADS,
     "event.close": TACHKI,
@@ -107,20 +115,25 @@ POLICY = {
     # KKR, summary, merits
     "kkr.view": SUMMARY,
     "summary.view": SUMMARY,
-    "summary.decide": ByState({"*": SUMMARY, "closed": {CHAIR}}),
-    "summary.correct": TACHKI,  # closed season corrections (АВ-2)
-    "merit.create.chair": TACHKI,
-    "merit.create.head": TACHKI | EVENT_LEADS,  # decision 12
-    "merit.create.block_volunteer": TACHKI,
-    "merit.create.subevent_volunteer": TACHKI | EVENT_LEADS,  # A-KKR-8 (a)
+    # Marks (отметки); a planned season takes none, its summary stays readable (owner, 2026-10-31, SE-21)
+    "summary.decide": ByState({"*": SUMMARY, "planned": frozenset(), "closed": CLOSED_SEASON}),
+    "summary.correct": CLOSED_SEASON,  # closed season corrections, coefficients included
+    # Calling leaders to fill KKR of closed tasks, only while work is accounted: the HR master
+    # and the HR deputy, not the chair or the chair's deputies (owner, 2026-10-31, SE-14)
+    "kkr.remind": ByState({"*": frozenset(), "open": {HR_MASTER, HR_DEPUTY}, "summarizing": {HR_MASTER, HR_DEPUTY}}),
+    # A new merit in a closed season is a change of that season: its circle only (SE-13)
+    "merit.create.chair": ByState({"*": TACHKI, "closed": CLOSED_SEASON}),
+    "merit.create.head": ByState({"*": TACHKI | EVENT_LEADS, "closed": CLOSED_SEASON}),  # decision 12
+    "merit.create.block_volunteer": ByState({"*": TACHKI, "closed": CLOSED_SEASON}),
+    "merit.create.subevent_volunteer": ByState({"*": TACHKI | EVENT_LEADS, "closed": CLOSED_SEASON}),  # A-KKR-8 (a)
     "merit.view.chair_merit": SUMMARY,
     "merit.view.head_merit": SUMMARY | EVENT_LEADS,
     "merit.view.block_volunteer": SUMMARY | BLOCK_LEADS | {BLOCK_HR},
     "merit.view.subevent_volunteer": SUMMARY | EVENT_LEADS | SUB_LEADS | {SUBEVENT_HR},
-    "merit.manage.chair_merit": ByState({"*": TACHKI, "closed": TACHKI}),
-    "merit.manage.head_merit": ByState({"*": TACHKI | EVENT_LEADS, "closed": TACHKI}),
-    "merit.manage.block_volunteer": ByState({"*": TACHKI, "closed": TACHKI}),
-    "merit.manage.subevent_volunteer": ByState({"*": TACHKI | EVENT_LEADS, "closed": TACHKI}),
+    "merit.manage.chair_merit": ByState({"*": TACHKI, "closed": CLOSED_SEASON}),
+    "merit.manage.head_merit": ByState({"*": TACHKI | EVENT_LEADS, "closed": CLOSED_SEASON}),
+    "merit.manage.block_volunteer": ByState({"*": TACHKI, "closed": CLOSED_SEASON}),
+    "merit.manage.subevent_volunteer": ByState({"*": TACHKI | EVENT_LEADS, "closed": CLOSED_SEASON}),
     "achievement.manage": TACHKI | {HR_MASTER, BLOCK_MASTER, EVENT_LEADER},
     # Blocks and membership
     "block.edit": TACHKI | BLOCK_LEADS,
@@ -148,9 +161,9 @@ POLICY = {
     "material.create": TACHKI | {BLOCK_LEAD_ANYWHERE},  # general materials or a block guide
     "material.create_general": TACHKI,
     "material.create_guide": TACHKI | BLOCK_LEADS,  # checked against the owning block
-    "material.edit": TACHKI | {MATERIAL_EDITOR},
-    # Checked on the owning block of a guide for its block only (owner, 2026-10-25)
-    "material.read_block_guide": TACHKI | BLOCK_LEADS | {BLOCK_MEMBER},  # also publish and reversible delete (decision 18)
+    "material.edit": TACHKI | {MATERIAL_EDITOR},  # also publish and reversible delete (decision 18)
+    # Checked on the owning block of a guide for its block only (owner, 2026-10-25); reading only.
+    "material.read_block_guide": TACHKI | BLOCK_LEADS | {BLOCK_MEMBER},
     "material.manage_editors": TACHKI,
     "material.restore": TACHKI,  # deletion is reversible (decision 18)
     "pgas.manage": TACHKI | {PGAS_ADMIN},  # decision 14
@@ -166,17 +179,135 @@ QUEUE_ROLES = {
 }
 
 
-@memoized("access.hr_blocks")
+# ── Request-scoped facts ──
+# In a clean read UOW the small role/scope tables are read once as immutable facts,
+# and the same relation rules below evaluate them for every actor and object of the
+# request. Commands, dirty sessions and calls outside a read UOW get None and keep
+# the original per-object queries. There is no cache between requests.
+
+def _facts(name, load):
+    from read_context import snapshot
+    return snapshot("access.facts." + name, load)
+
+
+def _plain_uid(uid):
+    # SQL compares other key types with column affinity; keep those on the old path.
+    return isinstance(uid, int) and not isinstance(uid, bool)
+
+
+def _listed(raw, uid):
+    """The JSON roster check of Database.is_block_member/is_subevent_organizer."""
+    if not raw:
+        return False
+    try:
+        return uid in json.loads(raw)
+    except Exception:
+        return False
+
+
+def _role_facts():
+    """user_id -> frozenset((scope_kind, scope_id, role)) of every persisted role."""
+    def load():
+        from database import RoleAssignmentORM, scalar_rows
+        by_user = {}
+        with db._session() as session:
+            for uid, kind, scope_id, role in scalar_rows(session, RoleAssignmentORM, (
+                RoleAssignmentORM.user_id, RoleAssignmentORM.scope_kind,
+                RoleAssignmentORM.scope_id, RoleAssignmentORM.role,
+            )):
+                by_user.setdefault(uid, set()).add((kind, scope_id, role))
+        return MappingProxyType({uid: frozenset(rows) for uid, rows in by_user.items()})
+    return _facts("roles", load)
+
+
+def _block_facts():
+    """name -> (master_user_id, is_hr, arr_of_human); the rows stay in the session."""
+    def load():
+        from database import BlockORM
+        with db._session() as session:
+            return MappingProxyType({
+                block.name: (block.master_user_id, bool(is_hr), block.arr_of_human)
+                for block, is_hr in session.query(BlockORM, BlockORM.is_hr == True)  # noqa: E712
+            })
+    return _facts("blocks", load)
+
+
+def block_facts():
+    """(block_id -> legacy_name, legacy_name -> (block_id, hr_user_id)) or None.
+
+    Stable block identities for the current clean read UOW only; the metadata rows
+    also remain loaded in its session. A missing metadata row is not repaired here.
+    """
+    def load():
+        from domain_models import BlockMetaORM
+        by_id, by_name = {}, {}
+        with db._session() as session:
+            for meta in session.query(BlockMetaORM):
+                by_id[meta.block_id] = meta.legacy_name
+                by_name[meta.legacy_name] = (meta.block_id, getattr(meta, "hr_user_id", None))
+        return MappingProxyType(by_id), MappingProxyType(by_name)
+    return _facts("block_meta", load)
+
+
+def _subevent_facts():
+    """(subevent_id -> (event_id, organizer_user_ids_json), event_id -> subevent ids)."""
+    def load():
+        from database import SubeventORM, scalar_rows
+        rows, children = {}, {}
+        with db._session() as session:
+            for sid, event_id, organizers in scalar_rows(session, SubeventORM, (
+                SubeventORM.subevent_id, SubeventORM.event_id, SubeventORM.organizer_user_ids_json
+            )):
+                rows[sid] = (event_id, organizers)
+                children.setdefault(event_id, []).append(sid)
+        return MappingProxyType(rows), MappingProxyType({k: tuple(v) for k, v in children.items()})
+    return _facts("subevents", load)
+
+
+def _subevent_hr_facts():
+    """subevent_id -> hr_user_id of existing subevent workspace metadata rows."""
+    def load():
+        from database import scalar_rows
+        from event_workspace_models import EventWorkspaceMetaORM
+        with db._session() as session:
+            return MappingProxyType({
+                owner_id: hr_user_id for owner_id, hr_user_id in scalar_rows(
+                    session, EventWorkspaceMetaORM, (EventWorkspaceMetaORM.owner_id, EventWorkspaceMetaORM.hr_user_id),
+                    EventWorkspaceMetaORM.owner_kind == "subevent")
+            })
+    return _facts("subevent_hr", load)
+
+
+def subevent_ids(event_id):
+    """IDs of the event's subevents; their order carries no meaning."""
+    facts = _subevent_facts() if isinstance(event_id, str) else None
+    if facts is not None:
+        return facts[1].get(event_id, ())
+    from database import SubeventORM
+    with db._session() as session:
+        return tuple(row[0] for row in session.query(SubeventORM.subevent_id).filter_by(event_id=event_id))
+
+
+@memoized("access.hr_blocks", copy_result=False)
 def _hr_block_names():
+    blocks = _block_facts()
+    if blocks is not None:
+        return frozenset(name for name, (_, is_hr, _) in blocks.items() if is_hr)
     from database import BlockORM
 
     with db._session() as session:
-        return {b.name for b in session.query(BlockORM).filter(BlockORM.is_hr == True)}  # noqa: E712
+        return frozenset(b.name for b in session.query(BlockORM).filter(BlockORM.is_hr == True))  # noqa: E712
 
 
 @memoized("access.block_name", copy_result=False)
 def block_name(block_id):
     """Blocks are addressed by API id or by their stored name; roles use the name."""
+    blocks = _block_facts() if isinstance(block_id, str) else None
+    metas = block_facts() if blocks is not None else None
+    if metas is not None:
+        if block_id in blocks:
+            return block_id
+        return metas[0].get(block_id)
     from database import BlockORM
     from domain_models import BlockMetaORM
 
@@ -187,29 +318,66 @@ def block_name(block_id):
         return meta.legacy_name if meta else None
 
 
-@memoized("access.global")
-def _global(uid):
+def _is_hr_master(uid):
+    blocks = _block_facts() if _plain_uid(uid) else None
+    if blocks is None:
+        return db.is_hr_master(uid)
+    return any(is_hr and master == uid for master, is_hr, _ in blocks.values())
+
+
+def _masters_some_block(uid):
+    blocks = _block_facts() if _plain_uid(uid) else None
+    if blocks is None:
+        return bool(db.get_user_master_block_names(uid))
+    return any(master == uid for master, _, _ in blocks.values())
+
+
+def _assignment_roles(uid):
+    """(scope_kind, scope_id, role) of stored assignments, as _global reads them.
+
+    Database.get_user_assignments also lists synthetic chair/deputy/block-master
+    rows; _global derives those relations from the leadership and block checks.
+    """
+    if _plain_uid(uid) and _role_facts() is not None:
+        return _scoped_roles(uid)
+    return [(a.scope_kind, a.scope_id, a.role) for a in db.get_user_assignments(uid)]
+
+
+def _is_block_deputy(uid, name):
+    if _plain_uid(uid) and _role_facts() is not None:
+        return _has_scope_role(uid, "block", name, "deputy_master")
+    return db.is_block_master_deputy(uid, name)
+
+
+@memoized("access.global", copy_result=False)
+def _global_relations(uid):
     rel = set()
     if db.is_chair(uid):
         rel.add(CHAIR)
     if db.is_deputy_chair(uid):
         rel.add(CHAIR_DEPUTY)
-    if db.is_hr_master(uid):
+    if _is_hr_master(uid):
         rel.add(HR_MASTER)
     if getattr(db.get_user(uid), "pgas_admin", False):
         rel.add(PGAS_ADMIN)
     hr_blocks = _hr_block_names()
-    for a in db.get_user_assignments(uid):
-        if a.scope_kind == "block" and a.role == "deputy_master" and a.scope_id in hr_blocks:
+    for scope_kind, scope_id, role in _assignment_roles(uid):
+        if scope_kind == "block" and role == "deputy_master" and scope_id in hr_blocks:
+            # The explicit HR deputy: global HR grants by POLICY; a block lead like any deputy
+            # (owner, 2026-10-31, GL-09). CLOSED_SEASON still leaves them out (SE-13).
             rel.update({HR_TRACKER_READER,HR_DEPUTY})
-            continue  # explicit HR deputy; its grants are defined by POLICY, not legacy names
-        if a.role in QUEUE_ROLES.get(a.scope_kind, set()):
+        if role in QUEUE_ROLES.get(scope_kind, set()):
             rel.add(QUEUE_HOLDER)
-        if a.scope_kind == "block" and a.role in ("master", "deputy_master"):
+        if scope_kind == "block" and role in ("master", "deputy_master"):
             rel.add(BLOCK_LEAD_ANYWHERE)
-    if db.get_user_master_block_names(uid):
+    if _masters_some_block(uid):
         rel.update({QUEUE_HOLDER, BLOCK_LEAD_ANYWHERE})
-    return rel
+    return frozenset(rel)
+
+
+def _global(uid):
+    """A caller-owned copy of the actor's global relations."""
+    return set(_global_relations(uid))
 
 
 def _block(uid, block_id):
@@ -217,20 +385,31 @@ def _block(uid, block_id):
     if not name:
         return set()
     rel = set()
-    from database import BlockORM
-    with db._session() as session:
-        block = session.get(BlockORM, name)
-    if (block and block.master_user_id == uid) or _has_scope_role(uid, "block", name, "master"):
+    blocks = _block_facts() if isinstance(name, str) else None
+    metas = block_facts() if blocks is not None else None
+    if metas is not None:
+        block = blocks.get(name)
+        master = block is not None and block[0] == uid
+        member = block is not None and _listed(block[2], uid)
+        curator = name in metas[1] and metas[1][name][1] == uid
+    else:
+        from database import BlockORM
+        from domain_models import BlockMetaORM
+        with db._session() as session:
+            block = session.get(BlockORM, name)
+        master = bool(block and block.master_user_id == uid)
+        member = db.is_block_member(uid, name)
+        with db._session() as session:
+            metadata = session.query(BlockMetaORM).filter_by(legacy_name=name).one_or_none()
+            curator = bool(metadata and getattr(metadata, "hr_user_id", None) == uid)
+    if master or _has_scope_role(uid, "block", name, "master"):
         rel.add(BLOCK_MASTER)
-    if _has_scope_role(uid, "block", name, "deputy_master") and name not in _hr_block_names():
-        rel.add(BLOCK_DEPUTY)
-    if db.is_block_member(uid, name):
+    if _has_scope_role(uid, "block", name, "deputy_master"):
+        rel.add(BLOCK_DEPUTY)  # the HR block's deputy too (owner, 2026-10-31, GL-09)
+    if member:
         rel.add(BLOCK_MEMBER)
-    from domain_models import BlockMetaORM
-    with db._session() as session:
-        metadata = session.query(BlockMetaORM).filter_by(legacy_name=name).one_or_none()
-        if metadata and getattr(metadata, "hr_user_id", None) == uid:
-            rel.add(BLOCK_HR)
+    if curator:
+        rel.add(BLOCK_HR)
     return rel
 
 
@@ -240,40 +419,54 @@ def _event(uid, event_id):
         rel.add(EVENT_LEADER)
     if _has_scope_role(uid, "event", event_id, "deputy_event_leader"):
         rel.add(EVENT_DEPUTY)
-    from database import SubeventORM
-    with db._session() as session:
-        children = [row[0] for row in session.query(SubeventORM.subevent_id).filter_by(event_id=event_id)]
+    facts = _subevent_facts() if isinstance(event_id, str) else None
+    children = facts[1].get(event_id, ()) if facts is not None else subevent_ids(event_id)
     if any(
         _has_scope_role(uid, "subevent", sid, "subevent_leader") or _has_scope_role(uid, "subevent", sid, "deputy_subevent_leader")
         for sid in children
     ):
         rel.add(EVENT_SUB_LEAD)
-    if any(db.is_subevent_organizer(uid, sid) for sid in children) or EVENT_SUB_LEAD in rel:
+    organizes = ((lambda sid: _listed(facts[0][sid][1], uid)) if facts is not None
+                 else (lambda sid: db.is_subevent_organizer(uid, sid)))
+    if any(organizes(sid) for sid in children) or EVENT_SUB_LEAD in rel:
         rel.add(EVENT_TEAM)
     return rel
 
 
 def _subevent(uid, subevent_id):
-    from database import SubeventORM
-    with db._session() as session:
-        sub = session.get(SubeventORM, subevent_id)
-    if not sub:
-        return set()
+    facts = _subevent_facts() if isinstance(subevent_id, str) else None
+    curators = _subevent_hr_facts() if facts is not None else None
+    if curators is not None:
+        sub = facts[0].get(subevent_id)
+        if sub is None:
+            return set()
+        event_id = sub[0]
+        organizer = _listed(sub[1], uid)
+        curator = subevent_id in curators and curators[subevent_id] == uid
+    else:
+        from database import SubeventORM
+        with db._session() as session:
+            sub = session.get(SubeventORM, subevent_id)
+        if not sub:
+            return set()
+        event_id = sub.event_id
+        organizer = db.is_subevent_organizer(uid, subevent_id)
+        from event_workspace_models import EventWorkspaceMetaORM
+        with db._session() as session:
+            meta = session.get(EventWorkspaceMetaORM, ("subevent", subevent_id))
+            curator = bool(meta and meta.hr_user_id == uid)
     rel = set()
     if _has_scope_role(uid, "subevent", subevent_id, "subevent_leader"):
         rel.add(SUB_LEADER)
     if _has_scope_role(uid, "subevent", subevent_id, "deputy_subevent_leader"):
         rel.add(SUB_DEPUTY)
-    if db.is_subevent_organizer(uid, subevent_id):
+    if organizer:
         rel.add(ORGANIZER)
-    from event_workspace_models import EventWorkspaceMetaORM
-    with db._session() as session:
-        meta = session.get(EventWorkspaceMetaORM, ("subevent", subevent_id))
-        if meta and meta.hr_user_id == uid:
-            rel.add(SUBEVENT_HR)
-    if _has_scope_role(uid, "event", sub.event_id, "event_leader"):
+    if curator:
+        rel.add(SUBEVENT_HR)
+    if _has_scope_role(uid, "event", event_id, "event_leader"):
         rel.add(EVENT_LEADER)
-    if _has_scope_role(uid, "event", sub.event_id, "deputy_event_leader"):
+    if _has_scope_role(uid, "event", event_id, "deputy_event_leader"):
         rel.add(EVENT_DEPUTY)
     return rel
 
@@ -285,6 +478,9 @@ def _scoped_roles(uid):
     Scalar selection retains the old existence-query semantics in mixed command
     sessions: unflushed role changes are not silently treated as committed roles.
     """
+    roles = _role_facts() if _plain_uid(uid) else None
+    if roles is not None:
+        return roles.get(uid, frozenset())
     from database import RoleAssignmentORM
     with db._session() as session:
         return frozenset(tuple(row) for row in session.query(
@@ -306,9 +502,12 @@ def _material(uid, material_id):
         if not m or m.deleted:
             return set()
         meta = session.get(BlockMetaORM, m.owner_block_id) if m.owner_block_id else None
-        editor = bool(meta and _block(uid, meta.legacy_name) & BLOCK_LEADS) or session.query(
-            RoleAssignmentORM
-        ).filter_by(user_id=uid, scope_kind="material", scope_id=material_id, role="material_editor").first() is not None
+        # A clean read UOW answers the editor check from the persisted role snapshot.
+        snapshot = _plain_uid(uid) and isinstance(material_id, str) and _role_facts() is not None
+        editor = bool(meta and _block(uid, meta.legacy_name) & BLOCK_LEADS) or (
+            _has_scope_role(uid, "material", material_id, "material_editor") if snapshot else session.query(
+                RoleAssignmentORM
+            ).filter_by(user_id=uid, scope_kind="material", scope_id=material_id, role="material_editor").first() is not None)
         return {MATERIAL_EDITOR} if editor else set()
 
 
@@ -330,7 +529,7 @@ def relations(uid, kind=None, scope_id=None):
     user = db.get_user(uid)
     if not user or user.account_state != "active" or user.banned:
         return frozenset()
-    rel = _global(uid)
+    rel = _global_relations(uid)
     if kind in SCOPES and scope_id is not None:
         rel |= scope_relations(uid, kind, scope_id)
     return frozenset(rel)
@@ -360,8 +559,8 @@ def all_queue_reader(uid):
     """Owner policy: HR deputy's global tracker read is separate from reports/KKR."""
     user=db.get_user(uid)
     if not user or user.banned or user.account_state!="active":return False
-    if db.is_chair(uid) or db.is_deputy_chair(uid) or db.is_hr_master(uid):return True
-    return any(db.is_block_master_deputy(uid,name) for name in _hr_block_names())
+    if db.is_chair(uid) or db.is_deputy_chair(uid) or _is_hr_master(uid):return True
+    return any(_is_block_deputy(uid,name) for name in _hr_block_names())
 
 
 def scope_access_revision(uid):
@@ -433,7 +632,21 @@ GLOBAL_CAPS = {
 def global_caps(uid):
     if not uid:
         return []
-    return _caps(GLOBAL_CAPS, uid)
+    return sorted({*_caps(GLOBAL_CAPS, uid), *curated_merit_caps(uid)})
+
+
+def curated_merit_caps(uid):
+    """`view_merits` of an HR curator: a block or subevent HR holds no role assignment there,
+    yet merit.view.* lets them read that area's saved merits (SE-05)."""
+    from domain_models import BlockMetaORM
+    from event_workspace_models import EventWorkspaceMetaORM
+
+    with db._session() as session:
+        blocks = [row[0] for row in session.query(BlockMetaORM.legacy_name).filter_by(hr_user_id=uid)]
+        subevents = [row[0] for row in session.query(EventWorkspaceMetaORM.owner_id).filter_by(owner_kind="subevent", hr_user_id=uid)]
+    readable = any(allowed(uid, "merit.view.block_volunteer", "block", name) for name in blocks) or any(
+        allowed(uid, "merit.view.subevent_volunteer", "subevent", sid) for sid in subevents)
+    return ["view_merits"] if readable else []
 
 
 def season_caps(season, uid=None):
@@ -443,7 +656,7 @@ def season_caps(season, uid=None):
         "open": {"edit_season": "season.edit", "begin_summary": "season.begin_summary", "create_event": "event.create"},
         "summarizing": {"close_season": "season.close"},
     }
-    return _caps({**by_state.get(season.state, {}), "view_summary": "summary.view", "view_readiness": "summary.view"}, uid)
+    return _caps({**by_state.get(season.state, {}), "view_summary": "summary.view", "view_readiness": "summary.view", "remind_kkr": "kkr.remind"}, uid, state=season.state)
 
 
 EVENT_CAPS = {
@@ -484,6 +697,8 @@ SUBEVENT_CAPS = {
     "assign_subevent_hr": "subevent.hr.assign",
     "view_tasks": "task.view",
     "view_meeting": "subevent.meeting.view",
+    # The team's published reports; the subevent's HR curator reads tasks, not reports.
+    "view_reports": "subevent.report.read",
     "manage_leaders": "subevent.manage_leaders",
     "manage_deputies": "subevent.manage_leader_deputies",
     "manage_organizers": "subevent.manage_organizers",
@@ -500,7 +715,7 @@ SUBEVENT_CAPS = {
 
 def subevent_caps(sub, uid=None):
     uid = uid or actor_id.get()
-    state = season_state(db.get_event(sub.event_id).season_id)
+    state = season_state(_event_row(sub.event_id).season_id)
     if state == "closed":
         return []
     table = dict(SUBEVENT_CAPS)
@@ -509,9 +724,21 @@ def subevent_caps(sub, uid=None):
     result = _caps(table, uid, "subevent", sub.subevent_id, state)
     if "create_volunteer_merit" in result:
         from merit_rules import can_create
-        if not can_create(uid, "subevent_volunteer", None, sub.subevent_id):
+        if not can_create(uid, "subevent_volunteer", None, sub.subevent_id, state=state):
             result.remove("create_volunteer_merit")
     return result
+
+
+def subevent_task_caps(sub, uid=None):
+    """Tracker entry for task readers without the subevent working ACL; no working-data capabilities."""
+    uid = uid or actor_id.get()
+    state = season_state(db.get_event(sub.event_id).season_id)
+    if state == "closed":
+        return []
+    table = {"view_tasks": "task.view"}
+    if state in ("planned", "open"):
+        table["create_task"] = "task.create"
+    return _caps(table, uid, "subevent", sub.subevent_id, state)
 
 
 def meeting_caps(owner_kind, owner_id, uid=None):
@@ -536,28 +763,53 @@ ASSIGNMENT_CAPS = {
 }
 
 
+MERIT_VIEW_CAPS = {
+    "event": {"view_merits": "merit.view.head_merit"},
+    "block": {"view_merits": "merit.view.block_volunteer"},
+    "subevent": {"view_merits": "merit.view.subevent_volunteer"},
+}
+
+
 def assignment_caps(uid, kind, scope_id):
-    """Capabilities of one role assignment in `/session`: merits for its own scope."""
+    """Capabilities of one role assignment in `/session`: merits for its own scope.
+    Reading saved merits (`view_merits`) also covers closed seasons."""
     if kind == "global":
         return global_caps(uid)
-    if _closed_scope(kind, scope_id) and not allowed(uid, "summary.correct"):
-        return []
-    result = _caps(ASSIGNMENT_CAPS.get(kind, {}), uid, kind, scope_id)
+    readable = _caps(MERIT_VIEW_CAPS.get(kind, {}), uid, kind, scope_id)
+    # In a closed season's scope merit.create.* narrows to the season's circle (SE-13)
+    state = "closed" if _closed_scope(kind, scope_id) else None
+    result = _caps(ASSIGNMENT_CAPS.get(kind, {}), uid, kind, scope_id, state)
     if kind in {"event", "subevent"}:
         from merit_rules import can_create
         source = "head_merit" if kind == "event" else "subevent_volunteer"
-        if not can_create(uid, source, scope_id if kind == "event" else None, scope_id if kind == "subevent" else None):
+        if not can_create(uid, source, scope_id if kind == "event" else None, scope_id if kind == "subevent" else None, state=state):
             result = [cap for cap in result if cap not in {"create_head_merit", "create_volunteer_merit"}]
-    return result
+    return sorted({*result, *readable})
+
+
+def _event_row(event_id):
+    """The stored event row only: season checks need no leadership DTO."""
+    from database import EventORM
+    from read_context import orm_get
+    with db._session() as session:
+        return orm_get(session, EventORM, event_id)
+
+
+def _subevent_event_id(subevent_id):
+    from database import SubeventORM
+    from read_context import orm_get
+    with db._session() as session:
+        sub = orm_get(session, SubeventORM, subevent_id)
+        return sub.event_id if sub else None
 
 
 def _closed_scope(kind, scope_id):
     """Whether an event or subevent belongs to a closed season (blocks have no season)."""
     if kind == "subevent":
-        scope_id = getattr(db.get_subevent(scope_id), "event_id", None)
+        scope_id = _subevent_event_id(scope_id)
     elif kind != "event":
         return False
-    event = db.get_event(scope_id) if scope_id else None
+    event = _event_row(scope_id) if scope_id else None
     return bool(event) and season_state(event.season_id) == "closed"
 
 
@@ -586,6 +838,86 @@ def block_caps(uid, name, open_season):
     return _caps(table, uid, "block", name)
 
 
+# Relations holders() can enumerate from their stored sources; any other relation
+# (block membership, PGAS, "leads some queue") makes it decline (None).
+_HOLDER_RELATIONS = TACHKI | {HR_MASTER, HR_DEPUTY, HR_TRACKER_READER, BLOCK_MASTER, BLOCK_DEPUTY, BLOCK_HR,
+                              EVENT_LEADER, EVENT_DEPUTY, EVENT_SUB_LEAD, EVENT_TEAM, SUB_LEADER, SUB_DEPUTY,
+                              SUBEVENT_HR, ORGANIZER}
+
+
+def _rule_relations(action):
+    rule = POLICY[action]
+    return frozenset().union(*rule.values()) if isinstance(rule, ByState) else frozenset(rule)
+
+
+def holders(actions, kind=None, scope_id=None, *, scopes=()):
+    """A superset of the users who may hold a relation granting one of ``actions``
+    on one block, event or subevent (or globally with ``kind=None``), else None.
+
+    Only bounds a recipient scan: every candidate is still decided by the caller's
+    own ACL (allowed(), report or meeting readers). Covers the chair and deputies,
+    HR masters and HR-block roles, the block master and curator, every role on the
+    object, its parent event and child subevents, their organizers and curators;
+    ``scopes`` adds every role holder of further (kind, id) objects.
+    """
+    needed = frozenset().union(*(_rule_relations(action) for action in actions))
+    if needed - _HOLDER_RELATIONS or kind not in (None, "block", "event", "subevent"):
+        return None
+    from database import BlockORM, LeadershipORM, RoleAssignmentORM, SubeventORM
+    from domain_models import BlockMetaORM
+    from event_workspace_models import EventWorkspaceMetaORM
+
+    def listed(raw):
+        try:
+            values = json.loads(raw) if raw else []
+        except Exception:
+            return set()
+        return {value for value in values if isinstance(value, int)} if isinstance(values, list) else set()
+
+    result = set()
+    pairs = set(scopes)
+    with db._session() as session:
+        leadership = session.get(LeadershipORM, 1)
+        if leadership is not None:
+            result.add(leadership.chair_user_id)
+            result |= listed(leadership.deputies_json)
+        hr_blocks = set()
+        for name, master, is_hr in session.query(BlockORM.name, BlockORM.master_user_id, BlockORM.is_hr):
+            if is_hr:
+                hr_blocks.add(name)
+                result.add(master)
+        pairs |= {("block", name) for name in hr_blocks}
+        if kind == "block":
+            name = block_name(scope_id) or scope_id
+            pairs |= {("block", scope_id), ("block", name)}
+            block = session.get(BlockORM, name)
+            if block is not None:
+                result.add(block.master_user_id)
+            # Entity reads: the ACL reads these rows' current (possibly unflushed) fields.
+            result |= {meta.hr_user_id for meta in session.query(BlockMetaORM).filter(
+                (BlockMetaORM.legacy_name == name) | (BlockMetaORM.block_id == scope_id))}
+        elif kind in ("event", "subevent"):
+            sub = session.get(SubeventORM, scope_id) if kind == "subevent" else None
+            event_id = sub.event_id if sub is not None else scope_id if kind == "event" else None
+            children = [sub] if sub is not None else list(session.query(SubeventORM).filter_by(event_id=event_id)) if kind == "event" else []
+            pairs |= {("event", event_id), ("subevent", scope_id)} | {("subevent", child.subevent_id) for child in children}
+            for child in children:
+                result |= listed(child.organizer_user_ids_json)
+            ids = [child.subevent_id for child in children] + ([scope_id] if kind == "subevent" else [])
+            if ids:
+                result |= {meta.hr_user_id for meta in session.query(EventWorkspaceMetaORM).filter(
+                    EventWorkspaceMetaORM.owner_kind == "subevent", EventWorkspaceMetaORM.owner_id.in_(ids))}
+        scope_ids = sorted({scope for _, scope in pairs if scope is not None})
+        for index in range(0, len(scope_ids), 400):
+            for user_id, scope_kind, scope in session.query(
+                    RoleAssignmentORM.user_id, RoleAssignmentORM.scope_kind, RoleAssignmentORM.scope_id).filter(
+                    RoleAssignmentORM.scope_id.in_(scope_ids[index:index + 400])):
+                if (scope_kind, scope) in pairs:
+                    result.add(user_id)
+    result.discard(None)
+    return frozenset(result)
+
+
 def can_review_request(uid, stage, block_id, substitute_ready):
     """A block request's review stage; the chair and deputies substitute after 72 hours."""
     action = "block.review_hr_stage" if stage == "pending_hr" else "block.review_block_stage"
@@ -596,12 +928,12 @@ def leader_caps(leader, uid=None):
     """`manage_deputies` of one leader: who may set that leader's deputies."""
     uid = uid or actor_id.get()
     with db._session() as session:
-        from database import RoleAssignmentORM
+        from database import role_assignment_scope
 
-        a = session.get(RoleAssignmentORM, leader.role_assignment_id)
-        if not a:
+        stored = role_assignment_scope(session, leader.role_assignment_id)
+        if not stored:
             return []
-        kind, scope_id, holder = a.scope_kind, a.scope_id, a.user_id
+        kind, scope_id, holder = stored
     if _closed_scope(kind, scope_id):
         return []  # a closed season's rosters are immutable
     return ["manage_deputies"] if can_set_deputies(uid, kind, scope_id, holder) else []

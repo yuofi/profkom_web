@@ -33,6 +33,14 @@ queue halfway through archive. Final flush and identity expiration make current
 ACL checks observe the same transaction, including bulk commands that deliberately
 did not synchronize their ORM identity map.
 
+The commit-time recheck covers only the queues a change can affect: queues owned by
+the changed accounts, memberships and roles' users, the changed queues themselves
+and queues of the changed scopes (block master/HR masters/chair are the successor
+candidates). Block name or HR flag, block creation/deletion, leadership, subevent
+deletion or event move, scope deletion, ORM bulk UPDATE/DELETE and any unknown
+change still recheck every queue. Material-editor role rows (`scope_kind ==
+"material"`) cannot own or recover a queue and are not marked.
+
 A transfer changes only `TaskQueue.owner_user_id` and its queue revision, plus one
 private AuditLog record containing IDs, automatic/manual marker and recovery tier.
 The real triggering actor is used when available; actor ID 0 represents a system

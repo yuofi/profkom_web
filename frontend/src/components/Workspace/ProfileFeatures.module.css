@@ -32,6 +32,10 @@
 .library { display: grid; gap: 14px; }
 @media (max-width: 768px) { .roles { grid-template-columns: minmax(0, 1fr); } }
 .activityHistory { margin-top:18px; }
-.activityHistory>summary { cursor:pointer;color:var(--primary);padding:8px 0;font-size:14px; }
+/* The only content of its card: no separating line and gap above it. */
+.activityHistory.activityOnly { margin-top:0;padding-top:0;border-top:0; }
 .historyMore { border:0;background:transparent;color:var(--primary);font:inherit;font-size:13px;padding:12px 0;cursor:pointer; }
 .historyMore:focus-visible { outline:2px solid var(--primary);outline-offset:3px; }
+/* The template editor above the list: its title and a normal «Закрыть» beside it. */
+.templateEditor { display:grid;gap:14px;padding:16px;border:1px solid color-mix(in srgb,var(--outline-variant) 45%,transparent);border-radius:12px;background:var(--surface-container-low); }
+.templateEditorHeader { display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap; }.templateEditorHeader h3 { margin:0;font-size:16px;font-weight:500; }

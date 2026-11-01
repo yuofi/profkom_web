@@ -24,7 +24,7 @@ def _load(session, task_id, uid, write=False):
     meta=session.query(TaskTrackerORM).filter_by(task_id=task_id).first()
     from tracker import public_status
     if not meta or public_status(meta.status)!='closed':raise Conflict('Close the task before filling accounting','task_not_closed')
-    db.require_task_right(uid,'task.inputs.edit' if write else 'task.inputs.view',task,season.state,'Accounting access required','Only chair and deputies can correct closed season accounting')
+    db.require_task_right(uid,'task.inputs.edit' if write else 'task.inputs.view',task,season.state,'Accounting access required','Only the chair, deputies and HR master correct closed season accounting')
     from domain_models import KkrControlEpicORM
     if session.query(KkrControlEpicORM).filter_by(task_id=task_id).first():raise InvalidInput('A control epic is not an accounting work task','control_epic_managed')
     return task,meta,season

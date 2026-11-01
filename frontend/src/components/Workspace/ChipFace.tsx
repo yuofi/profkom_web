@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { initials } from "../../utils/initials";
 import s from "./ChipFace.module.css";
 const fallbackAvatar = "/avatars/default.svg";
 function safeAvatar(source: string | null | undefined): string | null {
@@ -9,8 +10,7 @@ function safeAvatar(source: string | null | undefined): string | null {
   } catch { return null; }
 }
 export function ChipInitials({ name, className = "" }: { name: string; className?: string }) {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  const text = words.slice(0, 2).map(word => [...word][0]).join("").toLocaleUpperCase("ru") || "•";
+  const text = initials(name) || "•";
   return <span className={`${s.initials} ${className}`} aria-hidden="true">{text}</span>;
 }
 export function ChipAvatar({ src, large = false, fallback, className = "", presentation = "photo" }: { src?: string | null; large?: boolean; fallback?: ReactNode; className?: string; presentation?: "photo" | "logo" }) {

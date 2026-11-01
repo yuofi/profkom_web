@@ -228,3 +228,32 @@ def test_new_block_history_survives_rename_and_never_joins_reused_legacy_label(c
         session.add(ambiguous);session.flush();source_id=str(ambiguous.id);session.commit()
     assert 'AMBIGUOUS_LEGACY_BLOCK_TEXT' not in json.dumps(ok(get(client,work['outsider'],'block',reused['block_id'])))
     assert client.post('/api/history/audit/'+source_id+'/hide',headers=work['outsider'].headers,json=dict(expected_revision=1)).status_code==404
+
+
+def test_history_labels_every_metadata_field_and_records_hr_under_its_role(client, work, superuser):
+    block = ok(client.get('/api/blocks/'+work['block']['block_id'], headers=superuser.headers))
+    block = ok(client.patch('/api/blocks/'+block['block_id'], headers=superuser.headers, json=dict(expected_revision=block['revision'], community_url='https://vk.com/history_team')))
+    ok(client.put('/api/blocks/'+block['block_id']+'/hr', headers=superuser.headers, json=dict(expected_revision=block['revision'], user_id=work['reader'].user_id)))
+    with db._session() as session:  # A row written before HR had its own key.
+        session.add(AuditLogORM(target_kind='block_hr', target_id=block['block_id'], changed_by_user_id=superuser.user_id, old_values_json=json.dumps({'user_id': work['reader'].user_id}), new_values_json=json.dumps({'user_id': None}), created_at=datetime.now(timezone.utc).isoformat()))
+        session.commit()
+    changes = [change for item in ok(get(client, superuser, 'block', block['block_id']))['items'] for change in item['changes']]
+    assert {'field': 'community_url', 'label': 'Ссылка на сообщество', 'before': None, 'after': 'https://vk.com/history_team'} in changes
+    hr = [change for change in changes if change['field'] == 'hr_user_id']
+    assert [change['label'] for change in hr] == ['HR', 'HR'] and not any(change['field'] == 'user_id' for change in changes)
+    assert {side['user_id'] for change in hr for side in (change['before'], change['after']) if side} == {work['reader'].user_id}
+    season = [change for item in ok(get(client, superuser, 'season', work['season']['season_id']))['items'] for change in item['changes']]
+    assert {change['field']: change['label'] for change in season if change['field'] in {'state', 'is_current'}} == {'state': 'Состояние сезона', 'is_current': 'Текущий сезон'}
+
+
+def test_one_block_settings_change_is_one_history_entry(client, work, superuser):
+    """PE-12: the explicit audit no longer repeats what the flush hook records."""
+    block = ok(client.get('/api/blocks/'+work['block']['block_id'], headers=superuser.headers))
+    before = ok(get(client, work['reader'], 'block', block['block_id']))['items']
+    ok(client.patch('/api/blocks/'+block['block_id'], headers=superuser.headers,
+                    json=dict(expected_revision=block['revision'], community_url='https://example.com/history-team')))
+    after = ok(get(client, work['reader'], 'block', block['block_id']))['items']
+    added = [item for item in after if item['id'] not in {row['id'] for row in before}]
+    links = [change for item in added for change in item['changes'] if change['field'] == 'community_url']
+    assert len(added) == 1 and len(links) == 1, added
+    assert links[0]['after'] == 'https://example.com/history-team'

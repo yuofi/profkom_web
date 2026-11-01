@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { canRetainData } from "../../utils/api/request";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useLogout } from "../../utils/hooks/useLogout";
 import {
   Page,
@@ -19,11 +19,26 @@ import { membershipApi } from "../../utils/api/membership.api";
 import { sessionApi } from "../../utils/api/session.api";
 import { directoryApi } from "../../utils/api/directory.api";
 import { clearPrivateCache } from "../../utils/api/invalidation";
+import { leaveAuthNotice } from "../../utils/authSession";
 import s from "../../components/Workspace/Workspace.module.css";
 import { RegistrationForm } from "../../components/Workspace/RegistrationForm";
 import { missingFields } from "../../utils/contactFields";
 import { DemoRolePicker } from "../../components/Workspace/DemoRolePicker";
 import { HistoryDisclosure } from "../../components/Workspace/HistoryPanel";
+import { SECTIONS, SectionContext } from "../../components/Workspace/sections";
+import ProfkomLogo from "../../components/profkomLogo";
+import a from "./SessionPages.module.css";
+
+/** The frame of a session without the workspace: the site's mark, a centred column, and a
+ *  stamp that names this screen instead of the section in the address (GL-18). */
+function AccountLayout({ label, children }: { label: string; children: ReactNode }) {
+  const { pathname } = useLocation();
+  return <div className={a.layout}>
+    <div className={a.brand}><ProfkomLogo variant="desktop" width={42} strokeWidth={16} aria-hidden="true" /><span>Профком<small>ВМК МГУ</small></span></div>
+    <SectionContext.Provider value={{ ...SECTIONS[0], label, to: pathname }}>{children}</SectionContext.Provider>
+  </div>;
+}
+import { UserChip } from "../../components/Workspace/UserChip";
 export function AccountStatePage() {
   const { session } = useSession();
   const { logout, busy, error } = useLogout();
@@ -36,6 +51,7 @@ export function AccountStatePage() {
   const missing = application.data ? missingFields(application.data.fields) : [];
   const reason = application.data?.rejection_reason;
   return (
+    <AccountLayout label="Регистрация">
     <Page
       title={
         session?.account_state === "archived"
@@ -50,7 +66,7 @@ export function AccountStatePage() {
         <DemoRolePicker />
         <QueryState loading={application.isLoading} error={application.error} keepDataOnError={!!application.data}>
           <>
-            {reason && <p>{reason}</p>}
+            {reason && <p className={s.warning}>Причина: {reason}</p>}
             {missing.length > 0 ? (
               <p role="status">
                 Заполните обязательные поля: {missing.join(", ")}.
@@ -66,24 +82,30 @@ export function AccountStatePage() {
               </p>
             )}
             {application.data && application.data.status !== "approved" && (
-              <RegistrationForm application={application.data} />
+              <div className={a.columns}><RegistrationForm application={application.data} /></div>
             )}
           </>
         </QueryState>
-        <button className={s.button} disabled={busy} onClick={() => void logout()}>
-          {busy ? "Выходим…" : "Ко входу"}
-        </button>
+        <div className={a.actions}>
+          <button className={s.button} disabled={busy} onClick={() => void logout()}>
+            {busy ? "Выходим…" : "Выйти"}
+          </button>
+        </div>
         {error && <p role="alert" className={s.error}>{error}</p>}
       </Card>
     </Page>
+    </AccountLayout>
   );
 }
 /** A temporary password from the chair or a deputy: the server opens nothing else until
  *  it is changed (АВ-52). The change ends every session, this one too. */
 export function PasswordChangePage() {
   const { logout, busy, error } = useLogout();
+  // The address typed at the login with the temporary password, if this tab came from it.
+  const loginEmail = (useLocation().state as { email?: string } | null)?.email ?? null;
   const [changed, setChanged] = useState(false);
   return (
+    <AccountLayout label="Смена пароля">
     <Page
       title="Смените временный пароль"
       description="Пароль выдали председатель или зам. Пока он не сменён, рабочие разделы закрыты."
@@ -106,15 +128,21 @@ export function PasswordChangePage() {
               if (password === text(v, "old")) throw Error("Новый пароль должен отличаться от временного");
               await authApi.changePassword({ old_password: text(v, "old"), new_password: password });
               setChanged(true);
+              // The change ended every session, this one too: straight to the login, its address in (PE-21).
+              leaveAuthNotice({ notice: "Пароль изменён. Войдите с новым паролем.", email: loginEmail });
+              await logout();
             }}
           />
         )}
-        <button className={s.button} disabled={busy} onClick={() => void logout()}>
-          {busy ? "Выходим…" : "Ко входу"}
-        </button>
+        <div className={a.actions}>
+          <button className={s.button} disabled={busy} onClick={() => void logout()}>
+            {busy ? "Выходим…" : changed ? "Ко входу" : "Выйти"}
+          </button>
+        </div>
         {error && <p role="alert" className={s.error}>{error}</p>}
       </Card>
     </Page>
+    </AccountLayout>
   );
 }
 export function WorkspaceStartPage() {
@@ -185,11 +213,10 @@ export function LeadershipPage() {
       {(leadership.error || contacts.error) && <ErrorState error={leadership.error || contacts.error} />}
       <div className={s.stack}>
         <Card title="Текущий состав">
-          <p>Председатель: {current.chair?.display_name ?? "не назначен"}</p>
-          <p>
+          <p className={s.row}>Председатель: {current.chair ? <UserChip user={current.chair} /> : "не назначен"}</p>
+          <p className={s.row}>
             Заместители:{" "}
-            {current.deputies.map((p) => p.display_name).join(", ") ||
-              "не назначены"}
+            {current.deputies.length ? current.deputies.map((p, index) => <UserChip key={p.user_id ?? `deputy-${index}`} user={p} />) : "не назначены"}
           </p>
         </Card>
         <HistoryDisclosure kind="leadership" id="current" title="История руководства Профкома" />
@@ -213,6 +240,14 @@ export function LeadershipPage() {
                 },
               ]}
               submitLabel="Передать пост"
+              confirm={{
+                label: "Да, передать пост",
+                // An unavailable candidate is refused by requireEligible below, before any question.
+                text: (v) => {
+                  const candidate = choices.find((choice) => choice.value === text(v, "user"));
+                  return candidate ? `Передать пост председателя: ${candidate.label}? Вы потеряете права председателя, а текущие заместители — глобальные права. Вернуть пост сможет только новый председатель.` : null;
+                },
+              }}
               onSubmit={async (v, expectedRevision) => {
                 const userId = number(v, "user");
                 requireEligible([userId]);

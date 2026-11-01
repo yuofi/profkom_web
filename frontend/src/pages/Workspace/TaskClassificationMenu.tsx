@@ -3,8 +3,7 @@ import { createPortal } from "react-dom";
 import type { Task, TaskPriority, TaskType } from "../../utils/api/contract";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { userMessage } from "../../utils/api/messages";
-import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
-import { recordOwnChange, useOwnRevisions } from "../../components/Workspace/ownRevisions";
+import { useTaskCommand } from "./taskCommands";
 import { ownedLayerTarget, useAnchoredLayer } from "../../components/Workspace/useAnchoredLayer";
 import { classificationCapabilities, classificationLabels, classificationOptions, taskClassificationValue, type TaskClassificationField, type TaskClassificationValue } from "./taskClassification";
 import s from "./TaskClassificationMenu.module.css";
@@ -24,7 +23,7 @@ export function TaskClassificationMenu({ task, field, iconOnly = false, onBrand 
   const trigger = useRef<HTMLButtonElement>(null), menu = useRef<HTMLDivElement>(null), errorLayer = useRef<HTMLDivElement>(null), entry = useRef<"current" | "first" | "last">("current");
   const menuId = `task-classification-${useId()}`, portal = useAnchoredLayer(open && allowed, trigger, menu, 250);
   const errorPortal = useAnchoredLayer(!!error, trigger, errorLayer, 300);
-  const { perform, refresh } = useWorkspaceActions(), own = useOwnRevisions();
+  const run = useTaskCommand(task);
   const close = useCallback(() => setOpen(false), []);
   useLayoutEffect(() => {
     if (!open || !allowed || !portal || !menu.current) return;
@@ -46,11 +45,8 @@ export function TaskClassificationMenu({ task, field, iconOnly = false, onBrand 
     if (saving.current || !allowed) return;
     close();if (next === current) return;saving.current = true;setBusy(true);setError("");
     try {
-      await perform(async () => {
-        const saved = await tasksApi.update(task.task_id, { expected_revision: task.revision, ...(field === "task_type" ? { task_type: next as TaskType } : { priority: next as TaskPriority }) });
-        recordOwnChange(own, `task:${task.task_id}`, task.revision, saved.revision);own.setQueryData(["tasks", task.task_id], saved);return saved;
-      });
-    } catch (failure) { setError(userMessage(failure));await refresh(); } finally { saving.current = false;setBusy(false); }
+      await run(expected => tasksApi.update(task.task_id, { expected_revision: expected, ...(field === "task_type" ? { task_type: next as TaskType } : { priority: next as TaskPriority }) }));
+    } catch (failure) { setError(userMessage(failure)); } finally { saving.current = false;setBusy(false); }
   };
   return <span className={`${s.root} ${onBrand ? s.onBrand : ""}`} data-row-action onClick={event => event.stopPropagation()} onKeyDown={event => { event.stopPropagation();if (event.key === "Escape" && open) { event.preventDefault();close(); } }}>
     <button ref={trigger} type="button" className={`${s.trigger} ${iconOnly ? s.iconOnly : ""}`} disabled={!allowed} aria-disabled={busy || !allowed} aria-busy={busy} aria-label={`${heading}: ${label}`} title={`${heading}: ${label}`} aria-haspopup="menu" aria-expanded={open && allowed} aria-controls={open && allowed ? menuId : undefined} aria-describedby={error ? `${menuId}-error` : undefined}

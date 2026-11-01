@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { displayDate } from "../../utils/dates";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
 import { SectionHomeLink } from "../../components/Workspace/SectionHomeLink";
@@ -12,6 +13,7 @@ import { Empty, QueryState } from "../../components/Workspace/WorkspaceUI";
 import { ids } from "../../components/Workspace/formValues";
 import { useGuardedAction } from "../../components/Workspace/unsavedChangesHooks";
 import { canRetainData } from "../../utils/api/request";
+import { isStale } from "../../utils/api/messages";
 import { materialsApi } from "../../utils/api/materials.api";
 import { membershipApi } from "../../utils/api/membership.api";
 import { richText, type Material } from "../../utils/api/contract";
@@ -22,6 +24,8 @@ import w from "../../components/Workspace/Workspace.module.css";
 import s from "./MaterialWorkspace.module.css";
 
 const kinds: Record<string, string> = { kmb: "КМБ", guide: "Гайд блока", general: "Общий документ" };
+/** A title wraps to as many lines as it needs (GL-44). */
+const grow = (element: HTMLTextAreaElement | null) => { if (element) { element.style.height = "auto";element.style.height = `${element.scrollHeight}px`; } };
 
 /** Publication is always a separate explicit command; this editor only saves source drafts. */
 export function MaterialEditor({ material: m, onClose }: { material?: Material; onClose?: () => void }) {
@@ -34,6 +38,11 @@ export function MaterialEditor({ material: m, onClose }: { material?: Material; 
   // published_content contains short-lived signed file links. It is never an editing source.
   const [body, setBody] = useState(m?.source_content?.body ?? ""), [kind, setKind] = useState(m?.kind ?? ""), [block, setBlock] = useState("");
   const [saving, setSaving] = useState(false);
+  // Every refused field at once, each cleared by its own edit (GL-17).
+  const [problems, setProblems] = useState<Partial<Record<"title" | "description" | "original" | "kind" | "block", string>>>({});
+  const edited = (name: keyof typeof problems) => setProblems(current => { if (!current[name]) return current;const next = { ...current };delete next[name];return next; });
+  const problem = (name: keyof typeof problems) => problems[name] && <span id={`material-${name}-error`} className={w.fieldError}>{problems[name]}</span>;
+  const invalid = (name: keyof typeof problems) => problems[name] ? { "aria-invalid": true, "aria-describedby": `material-${name}-error` } : {};
   const external = { title, description, original, body, kind, block };
   const [initial] = useState(external);
   const saved = m ? { title: m.title, description: m.description, original: m.original_link ?? "", body: m.source_content?.body ?? "", kind: m.kind, block: "" } : initial;
@@ -46,30 +55,36 @@ export function MaterialEditor({ material: m, onClose }: { material?: Material; 
     <div className={s.workspace}>
       <section className={s.main} aria-label="Текст материала">
         {editable ? <ActionForm fields={[]} revision={m?.revision} record={m ? `material:${m.material_id}` : undefined} externalState={external} savedExternalState={saved} externalBusy={saving} savedDetails={stateDetails} onReplaceWithSaved={replace} onConflict={refresh} submitLabel={m ? "Сохранить черновик" : "Создать черновик"} allowExitSave={!!m} onSubmit={async (_values, revision) => {
-          if (!title.trim()) throw Error("Введите название материала");
-          if (!m && !description.trim()) throw Error("Добавьте краткое описание материала");
-          if (original && !/^https?:\/\//i.test(original)) throw Error("Используйте ссылку https:// или http://");
-          if (!m && !availableKinds.includes(kind)) throw Error("Выберите доступный раздел материала");
-          if (!m && kind === "guide" && !guideBlocks.some(item => item.block_id === block)) throw Error("Выберите блок для гайда");
+          const found = {
+            ...(!title.trim() && { title: "Введите название материала." }),
+            ...(!m && !description.trim() && { description: "Добавьте краткое описание материала." }),
+            ...(original && !/^https?:\/\//i.test(original) && { original: "Используйте ссылку https:// или http://." }),
+            ...(!m && !availableKinds.includes(kind) && { kind: "Выберите доступный раздел материала." }),
+            ...(!m && kind === "guide" && !guideBlocks.some(item => item.block_id === block) && { block: "Выберите блок для гайда." }),
+          };
+          setProblems(found);
+          if (Object.keys(found).length) throw Error(`Проверьте поля: ${Object.values(found).join(" ")}`);
           setSaving(true);
           try {
             const result = await perform(() => m ? materialsApi.update(m.material_id, { expected_revision: revision!, title: title.trim(), description, original_link: original || null, content: richText(body) }) : materialsApi.create({ title: title.trim(), description, kind, ...(kind === "guide" ? { owner_block_id: block } : {}), ...(original ? { original_link: original } : {}), content: richText(body) }));
-            if (!m) navigate(getMaterialRoute(result.material_id));
+            // A new draft opens in its editor, with publication at hand (GL-17); it replaces the
+            // blank /materials/new entry, so Back leads to where creation started.
+            if (!m) navigate(`${getMaterialRoute(result.material_id)}?edit=1`, { replace: true });
             return result;
           } finally { setSaving(false); }
         }}>
-          <label className={`${w.field} ${s.title}`}>Название материала<input name="title" value={title} onChange={event => setTitle(event.target.value)} placeholder="Название материала" required disabled={saving} autoFocus /></label>
+          <label className={`${w.field} ${s.title}`}>Название материала<textarea name="title" rows={1} value={title} ref={grow} onChange={event => { setTitle(event.target.value.replace(/\s*\n\s*/g, " "));edited("title");grow(event.currentTarget); }} onKeyDown={event => { if (event.key === "Enter") event.preventDefault(); }} placeholder="Название материала" required disabled={saving} autoFocus {...invalid("title")} />{problem("title")}</label>
           <MarkdownEditor name="body" label="Текст материала" value={body} onChange={setBody} rows={20} disabled={saving} context="material" />
+          {/* Before the save button on every width, not after the form in the side column (GL-43). */}
+          <label className={w.field}>Краткое описание<textarea name="description" rows={3} value={description} onChange={event => { setDescription(event.target.value);edited("description"); }} disabled={saving} required={!m} {...invalid("description")} />{problem("description")}</label>
+          <label className={w.field}>Ссылка на оригинал<input name="original" type="url" value={original} onChange={event => { setOriginal(event.target.value);edited("original"); }} placeholder="https://" disabled={saving} {...invalid("original")} />{problem("original")}</label>
         </ActionForm> : <section className={s.reading}>{m?.published_content ? <MarkdownContent body={m.published_content.body} /> : <Empty>Материал ещё не опубликован.</Empty>}</section>}
       </section>
       <aside className={s.parameters} aria-label="Параметры материала"><h2>Параметры</h2>
-        {editable ? <>
-          <label className={w.field}>Краткое описание<textarea name="description" rows={3} value={description} onChange={event => setDescription(event.target.value)} disabled={saving} required={!m} /></label>
-          <label className={w.field}>Ссылка на оригинал<input name="original" type="url" value={original} onChange={event => setOriginal(event.target.value)} placeholder="https://" disabled={saving} /></label>
-        </> : <p className={w.muted}>{m?.description}</p>}
+        {!editable && <p className={w.muted}>{m?.description}</p>}
         {m ? <div className={s.metadata}><span>Раздел</span><strong>{kinds[m.kind] ?? m.kind}</strong></div> : <QueryState loading={blocks.isLoading} error={blocks.error} keepDataOnError={!!blocks.data} retry={() => { void blocks.refetch(); }}>
-          <label className={w.field}>Раздел<select name="kind" value={kind} onChange={event => { setKind(event.target.value);setBlock(""); }} disabled={saving} required><option value="">Выберите раздел…</option>{availableKinds.map(value => <option key={value} value={value}>{kinds[value]}</option>)}</select></label>
-          {kind === "guide" && <div className={w.field}><label htmlFor="material-owner-block">Блок — для гайда</label><EntityPicker id="material-owner-block" name="block" label="Блок — для гайда" entity="block" value={block} onChange={setBlock} options={guideBlocks.map(item => ({ value: item.block_id, label: item.name, block: item }))} disabled={saving} required /></div>}
+          <label className={w.field}>Раздел<select name="kind" value={kind} onChange={event => { setKind(event.target.value);setBlock("");edited("kind");edited("block"); }} disabled={saving} required {...invalid("kind")}><option value="">Выберите раздел…</option>{availableKinds.map(value => <option key={value} value={value}>{kinds[value]}</option>)}</select>{problem("kind")}</label>
+          {kind === "guide" && <div className={w.field}><label htmlFor="material-owner-block">Блок — для гайда</label><EntityPicker id="material-owner-block" name="block" label="Блок — для гайда" entity="block" value={block} onChange={value => { setBlock(value);edited("block"); }} options={guideBlocks.map(item => ({ value: item.block_id, label: item.name, block: item }))} disabled={saving} required />{problem("block")}</div>}
         </QueryState>}
         {m && <MaterialManagement material={m} onDeleteBusy={setSaving} />}
       </aside>
@@ -80,7 +95,7 @@ export function MaterialEditor({ material: m, onClose }: { material?: Material; 
 function MaterialManagement({ material: m, onDeleteBusy }: { material: Material; onDeleteBusy: (busy: boolean) => void }) {
   const { session } = useSession(), { perform, refresh } = useWorkspaceActions();
   return <>
-    {can(m, "publish_material") && <section className={s.management}><h3>Публикация</h3><p className={w.muted}>{m.draft_content ? "Есть сохранённый черновик. Публикация применит именно его, без несохранённых правок." : "Сначала сохраните черновик материала."}</p><ActionForm revision={m.revision} record={`material:${m.material_id}`} fields={[]} disabled={!m.draft_content} savedDetails={<MarkdownContent body={m.source_content?.body ?? ""} />} allowExitSave={false} submitLabel="Опубликовать сохранённый черновик" onConflict={refresh} onSubmit={async (_values, revision) => perform(() => materialsApi.publish(m.material_id, { expected_revision: revision! }))} /></section>}
+    {can(m, "publish_material") && <section className={s.management}><h3>Публикация</h3><p className={w.muted}>{m.published_content ? m.published_at ? `Опубликовано ${displayDate(m.published_at)}.` : "Опубликовано." : "Ещё не опубликовано."}</p><p className={w.muted}>{m.draft_content ? "Есть сохранённый черновик. Публикация применит именно его, без несохранённых правок." : "Сначала сохраните черновик материала."}</p><ActionForm revision={m.revision} record={`material:${m.material_id}`} fields={[]} disabled={!m.draft_content} savedDetails={<MarkdownContent body={m.source_content?.body ?? ""} />} allowExitSave={false} submitLabel="Опубликовать сохранённый черновик" onConflict={refresh} onSubmit={async (_values, revision) => perform(() => materialsApi.publish(m.material_id, { expected_revision: revision! }))} /></section>}
     {m.audience && <section className={s.management}><h3>Кто видит гайд</h3><MaterialAudience material={m} /></section>}
     {m.owner_block_id === null && can(session, "manage_material_editors") && <MaterialEditors material={m} />}
     {can(m, "delete_material") && <MaterialDeletion material={m} onBusy={onDeleteBusy} />}
@@ -92,13 +107,14 @@ function MaterialEditors({ material: m }: { material: Material }) {
 }
 
 function MaterialDeletion({ material: m, onBusy }: { material: Material; onBusy: (busy: boolean) => void }) {
-  const navigate = useNavigate(), leave = useGuardedAction(), { refresh } = useWorkspaceActions();
+  // The deleted material's cache goes too: Back must not show it as readable (GL-28).
+  const navigate = useNavigate(), leave = useGuardedAction(), { refresh } = useWorkspaceActions(), client = useQueryClient();
   const [busy, setBusy] = useState(false), [failure, setFailure] = useState<unknown>(null);
   return <details className={`${w.details} ${s.management}`}><summary>Удалить материал</summary><p>Материал вместе с черновиком скроется у всех читателей. Председатель и замы могут его восстановить.</p>
     <form className={w.form} onSubmit={event => { event.preventDefault();if (busy) return;leave(async () => {
       setBusy(true);onBusy(true);setFailure(null);
-      try { await materialsApi.remove(m.material_id);navigate("/materials", { replace: true });await refresh(); }
-      catch (error) { setFailure(error); }
+      try { await materialsApi.remove(m.material_id, { expected_revision: m.revision });navigate("/materials", { replace: true });client.removeQueries({ queryKey: ["materials", m.material_id] });await refresh(); }
+      catch (error) { setFailure(error);if (isStale(error)) await refresh(); }
       finally { setBusy(false);onBusy(false); }
     }); }}><button className={`${w.button} ${w.danger}`} type="submit" disabled={busy}>{busy ? "Удаляем…" : "Удалить материал"}</button></form>
     {failure != null && <QueryState loading={false} error={failure}>{null}</QueryState>}

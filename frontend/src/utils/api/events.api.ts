@@ -4,6 +4,7 @@ import type {
   RichText,
   Leader,
   Meeting,
+  TeamMeeting,
   Revision,
   ReportSeries,
   Block,
@@ -11,7 +12,8 @@ import type {
 import { idPath, allPages as page, request } from "./request";
 export const eventsApi = {
   list: (params?: object) => page<Event>("/events", params),
-  get: (id: string) => request<Event>("get", `/events/${idPath(id)}`),
+  /** include_deputies: every leader also carries its deputies as user references. */
+  get: (id: string, params?: { include_deputies?: boolean }) => request<Event>("get", `/events/${idPath(id)}`, undefined, params),
   setClosed: (id: string, closed: boolean, version: Revision) =>
     request<Event>("post", `/events/${idPath(id)}/${closed ? "close" : "reopen"}`, version),
   create: (data: {
@@ -35,8 +37,8 @@ export const eventsApi = {
       data,
     ),
   subevents: (id: string) => page<Subevent>(`/events/${idPath(id)}/subevents`),
-  subevent: (id: string) =>
-    request<Subevent>("get", `/subevents/${idPath(id)}`),
+  subevent: (id: string, params?: { include_deputies?: boolean }) =>
+    request<Subevent>("get", `/subevents/${idPath(id)}`, undefined, params),
   createSubevent: (
     id: string,
     data: { title: string; description: RichText; report_series_id?: string; announcement?: RichText; starts_at?: string | null; ends_at?: string | null; all_day?: boolean },
@@ -74,6 +76,8 @@ export const eventsApi = {
   series: () => page<ReportSeries>("/report-series"),
   meeting: (kind: "events" | "subevents", id: string) =>
     request<Meeting | null>("get", `/${kind}/${idPath(id)}/meeting`),
+  /** The readable child-team announcements of one event, filtered by the server. */
+  teamMeetings: (id: string) => page<TeamMeeting>(`/events/${idPath(id)}/meetings`),
   saveMeeting: (
     kind: "events" | "subevents",
     id: string,
@@ -84,6 +88,7 @@ export const eventsApi = {
       expected_revision?: number;
     },
   ) => request<Meeting>("put", `/${kind}/${idPath(id)}/meeting`, data),
-  deleteMeeting: (kind: "events" | "subevents", id: string) =>
-    request<void>("delete", `/${kind}/${idPath(id)}/meeting`),
+  /** The revision the user confirmed; a changed announcement is refused with 409. */
+  deleteMeeting: (kind: "events" | "subevents", id: string, version?: Revision) =>
+    request<void>("delete", `/${kind}/${idPath(id)}/meeting`, version),
 };

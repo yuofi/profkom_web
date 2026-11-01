@@ -1,10 +1,11 @@
 # Public tracker and private accounting
 
-Current contract, reviewed 2026-10-31. The owner-approved iteration of
+Current contract, reviewed 2026-11-01. The owner-approved iteration of
 [2026-10-30](../../docs/decisions/2026-10-30-portal.md) supersedes the older public
-workflow. This document describes current behavior; legacy routes are adapters,
-not a second permission model. See also [planning](TRACKER_STAGE2.md) and
-[comment attachments](COMMENT_ATTACHMENTS.md).
+workflow; the owner decisions of [2026-10-31](../../docs/decisions/2026-10-31-qa-audit.md)
+narrow closed-season changes and support-ticket sharing. This document describes
+current behavior; legacy routes are adapters, not a second permission model. See also
+[planning](TRACKER_STAGE2.md) and [comment attachments](COMMENT_ATTACHMENTS.md).
 
 ## Public workflow and permissions
 
@@ -26,13 +27,24 @@ watcher role and sets `in_progress`. A direct status choice never self-assigns.
 Repeated satisfied commands are idempotent; stale revisions roll back.
 
 A reader and an assignee have the same base public rights: read, change ordinary
-working status, toggle checkmarks, edit any comment, self-join/watch. These roles
-alone do not authorize description, type, priority, planning or checklist-text edits.
-Metadata belongs to the author, queue owner and existing authorized public editors,
-subject to current scope/season restrictions. Actual HR masters and deputies have
-global public task-edit authority in non-closed seasons, including foreign/private
-queues. Closed scope edits retain their original chair/deputy restrictions; legacy
-queue-only author/owner exceptions do not imply a global HR bypass.
+working status, submit a result, toggle checkmarks, edit any comment, self-join/watch.
+These roles alone do not authorize description, type, priority, planning or
+checklist-text edits. Metadata belongs to the author, queue owner and existing
+authorized public editors, subject to current scope/season restrictions. Actual HR
+masters and deputies have global public task-edit authority in non-closed seasons,
+including foreign/private queues; in the HR block the HR deputy is also an ordinary
+block deputy.
+
+A closed season is changed only by the chair, the deputies and the HR master
+(`CLOSED_SEASON` in `access.POLICY`): public task fields, review, assessment inputs and
+dates, merits and summary corrections. The HR deputy and area leads make none of these
+changes there, the HR block included. A new assignment row in a closed season (join,
+take, assign, reassignment; rule `task.add_assignment`) is added by the same circle;
+others get 409 `season_closed` on join/take and 403 on assign/reassign, while a former
+assignee who still owns a row may rejoin. Reader controls are not narrowed: in a closed
+season every reader still changes the public status, submits a result, ticks checklist
+marks and comments; none of these changes accounting. Closed independent tasks also
+keep the creator/queue-owner exception for public fields.
 
 Markdown checkmarks use the conservative `/description-checklist` command: only
 recognized checked flags may change, not arbitrary text or code examples. Structured
@@ -43,8 +55,9 @@ checkmarks have a separate strict item toggle. Neither expands description-edit 
 Public task status, roster and public revision remain separate from Assignment
 outcome, hours, evaluation, dates, TaskInputs and private revisions. Private edits do
 not leak their notes/criteria/values into public history or silently move public status.
-Current scope/season roles govern accounting; actual HR deputies now share global
-KKR/summary/analytics authority, without unrelated report/event-management privileges.
+Current scope/season roles govern accounting; actual HR deputies share global
+KKR/summary/analytics authority, without unrelated report/event-management privileges
+and without closed-season changes.
 
 After observed public closure, the unified accounting editor saves common task
 criteria plus all assignee rows atomically. `accounting_batch.py` validates every
@@ -101,7 +114,10 @@ duplicate credit. Mutations use task revisions and publish only safe roster diff
 
 Any commentator may explicitly summon an active approved user. Existing readers are
 notified directly. An outsider requires author OR queue-owner approval before the
-notification and a revocable single-task grant. The grant opens public task content,
+notification and a revocable single-task grant. A WEBSUPPORT ticket is shared only by
+support staff: its author, unless staff, gets no `manage_task_access`, and approve,
+reject and revoke answer 403, while the author keeps the reader's join/take/submit
+actions. The grant opens public task content,
 comments, files and ordinary actions, not the queue, hidden relations, KKR or reports.
 All singular/batch/file reads recheck revocation; self-join cannot elevate the grant.
 

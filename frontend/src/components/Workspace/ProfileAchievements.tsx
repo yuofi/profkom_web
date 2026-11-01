@@ -19,10 +19,14 @@ const icon = (name: string) => <Glyph name={(Object.hasOwn(iconLabels, name) ? n
 export function ProfileAchievements({ userId }: { userId: number }) {
   const query = useQuery({ queryKey: ["profileAchievements", userId], queryFn: () => profileFeaturesApi.achievements(userId) });
   const catalogue = useQuery({ queryKey: ["achievements", userId], queryFn: () => profileFeaturesApi.catalogue(userId) });
-  const context = useQuery({ queryKey: ["profileFeaturesContext"], queryFn: profileFeaturesApi.context });
+  // A cheap flag decides the expander; the full features context loads once it is opened (PF-15).
+  const flags = useQuery({ queryKey: ["profileFeaturesContext", "flags"], queryFn: profileFeaturesApi.flags });
+  const [catalogueOpened, setCatalogueOpened] = useState(false);
+  const context = useQuery({ queryKey: ["profileFeaturesContext"], queryFn: profileFeaturesApi.context, enabled: catalogueOpened });
   const data = !query.error || canRetainData(query.error) ? query.data : undefined;
   const awards = !catalogue.error || canRetainData(catalogue.error) ? catalogue.data : undefined;
   const ctx = !context.error || canRetainData(context.error) ? context.data : undefined;
+  const managesAwards = (!flags.error || canRetainData(flags.error)) && flags.data?.has_award_scopes === true;
   const active = data?.items.filter(grant => !grant.revoked_at) ?? [];
   const available = awards?.items.filter(award => !award.archived && award.capabilities.includes("grant_achievement")) ?? [];
   return <Card title="Достижения">
@@ -34,9 +38,9 @@ export function ProfileAchievements({ userId }: { userId: number }) {
       </>}
     </QueryState>
     {!!available.length && <details className={w.details}><summary>Выдать награду</summary><GrantForm key={userId} userId={userId} awards={available} /></details>}
-    {!!ctx?.award_scopes.length && <details className={w.details}><summary>Каталог и управление наградами</summary><QueryState loading={catalogue.isLoading} error={catalogue.error} keepDataOnError={!!awards}>
-      {awards && <UnsavedChangesScope><Catalogue context={ctx} awards={awards.items} /></UnsavedChangesScope>}
-    </QueryState></details>}
+    {managesAwards && <details className={w.details} onToggle={event => { if (event.currentTarget.open) setCatalogueOpened(true); }}><summary>Каталог и управление наградами</summary>{catalogueOpened && <QueryState loading={catalogue.isLoading || context.isLoading} error={catalogue.error ?? context.error} keepDataOnError={!!awards && !!ctx}>
+      {awards && ctx && <UnsavedChangesScope><Catalogue context={ctx} awards={awards.items} /></UnsavedChangesScope>}
+    </QueryState>}</details>}
   </Card>;
 }
 function AwardBadge({ grant }: { grant: AchievementGrant }) {

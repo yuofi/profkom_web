@@ -18,8 +18,8 @@ import { accessFingerprint } from "../../utils/session";
 import { UserProvider } from "../../utils/ctx";
 import { TaskPage } from "./TaskPages";
 import { BlockPage } from "./MembershipPages";
-import { EventPage, SubeventPage } from "./EventPages";
-import { SummaryPage } from "./SeasonPages";
+import { EventPage, SubeventCreatePage, SubeventEditPage, SubeventPage } from "./EventPages";
+import { SeasonPage } from "./SeasonPages";
 import { AccountStatePage, LeadershipPage } from "./SessionPages";
 
 // FIX_PLAN 2.12 against the live local API: forms keep their input through access
@@ -36,6 +36,10 @@ const taskActionsSettled = () => ![...page!.container.querySelectorAll<HTMLButto
 async function click(container: ParentNode, label: string) {
   const b = Array.from(container.querySelectorAll("button")).find(b => b.textContent === label);
   expect(b, label).toBeDefined(); await act(async () => b!.click()); await waitForPage(page!, taskActionsSettled);
+}
+async function follow(container: ParentNode, label: string) {
+  const link = Array.from(container.querySelectorAll("a")).find(a => a.textContent === label);
+  expect(link, label).toBeDefined(); await act(async () => link!.click()); await waitForPage(page!);
 }
 async function pickerOptions(container: ParentNode, name: string) {
   const input = container.querySelector<HTMLInputElement>(`[data-entity-picker][data-field-name="${name}"] [role="combobox"]`)!;
@@ -114,7 +118,10 @@ it("2.12 A-FE-1, A-FE-2: the chair's block description draft survives making the
   let block = (await membershipApi.blocks()).find(b => b.name === "Integration IT")!;
   block = await eventsApi.blockLeader(block.block_id, other.user_id, { expected_revision: block.revision });
   await mount(`/blocks/${block.block_id}`, "/blocks/:id", <BlockPage />, true);
-  await until(() => !!page!.container.querySelector('[name="url"]') && !!page!.container.querySelector('[data-entity-picker][data-field-name="user"]'));
+  // The master is assigned in the leadership dialog (EV-11); the description form stays on the page.
+  await until(() => !!page!.container.querySelector('[name="url"]'));
+  await click(page!.container, "Изменить руководство");
+  await until(() => !!page!.container.querySelector('dialog [data-entity-picker][data-field-name="user"]'));
   const masterOptions = await pickerOptions(page!.container, "user");
   expect(masterOptions.querySelector(`[data-option-value="${chair.user_id}"]`)).not.toBeNull();
   const description = field(page!.container, "url").closest("form")!;
@@ -138,7 +145,7 @@ it("2.12 A-FE-2: a subevent's organizers and then its description save without a
   const season = await openSeason();
   const event = await eventsApi.create({ season_id: season.season_id, title: "Мероприятие соседних форм", description: richText("") });
   const sub = await eventsApi.createSubevent(event.event_id, { title: "Соседние формы", description: richText("") });
-  await mount(`/subevents/${sub.subevent_id}`, "/subevents/:id", <SubeventPage />);
+  page = await mountWorkspace(<Routes><Route path="/subevents/:id" element={<SubeventPage />} /><Route path="/subevents/:id/edit" element={<SubeventEditPage />} /></Routes>, { path: `/subevents/${sub.subevent_id}`, session: await sessionApi.get() });
   await until(() => !!page!.container.querySelector('button[aria-label="Изменить состав организаторов"]'));
   await act(async () => page!.container.querySelector<HTMLButtonElement>('button[aria-label="Изменить состав организаторов"]')!.click());
   await until(() => !!page!.container.querySelector('dialog [data-entity-picker][data-field-name="users"]'));
@@ -147,7 +154,8 @@ it("2.12 A-FE-2: a subevent's organizers and then its description save without a
   expect(organizerOptions.querySelector(`[data-option-value="${org.user_id}"]`)).not.toBeNull();
   await pick(organizers, "users", String(org.user_id));await submit(organizers);
   await until(() => !page!.container.querySelector("dialog"));
-  await click(page!.container, "Редактировать подмероприятие");
+  await follow(page!.container, "Редактировать подмероприятие");
+  await until(() => !!page!.container.querySelector('[name="description"]'));
   const description = field(page!.container, "description").closest("form")!;
   await change(field(description, "description"), "Новое описание команды");
   expect(description.textContent).not.toContain("Запись изменилась на сервере");
@@ -192,7 +200,7 @@ it("2.12 A-FE-2: two rows of one summary save one after another without a confli
   // Decisions are edited while the season is summarized; closed totals are corrected elsewhere.
   const current = (await seasonsApi.list()).items.find(s => s.season_id === season.season_id)!;
   await seasonsApi.command(season.season_id, "begin-summary", { expected_revision: current.revision });
-  await mount(`/seasons/${season.season_id}/summary`, "/seasons/:id/summary", <SummaryPage />);
+  await mount(`/seasons/${season.season_id}`, "/seasons/:id", <SeasonPage />);
   const rows = () => forms().filter(f => f.querySelector('[name="decisions"]'));
   const participantRow = (id: number) => page!.container.querySelector(`tbody a[href="/contacts/${id}"]`)?.closest("tr");
   await until(() => !!participantRow(people[0].user_id) && !!participantRow(people[1].user_id));expect(rows()).toHaveLength(0);
@@ -201,7 +209,8 @@ it("2.12 A-FE-2: two rows of one summary save one after another without a confli
   const choose=async(id:number)=>{await act(async()=>mark(id).click());await until(()=>!!document.querySelector('[data-mark-menu]'));const button=document.querySelector<HTMLButtonElement>('[data-mark-menu] button[aria-label="Найс"]')!;await act(async()=>button.click());await until(()=>!!mark(id).querySelector('[role="img"][aria-label="Найс"]')&&!mark(id).disabled);};
   await choose(people[0].user_id);await choose(people[1].user_id);
   expect(rows()).toHaveLength(0);
-  expect(decisions.mock.calls.map(([, userId, values]) => ({ userId, expected_version: values.expected_version }))).toEqual([{ userId: people[0].user_id, expected_version: before }, { userId: people[1].user_id, expected_version: before + 1 }]);
+  // A summarizing season's mark also sends the marks its row showed (PB-16).
+  expect(decisions.mock.calls.map(([, userId, values]) => ({ userId, expected_version: values.expected_version, expected_decisions: values.expected_decisions }))).toEqual([{ userId: people[0].user_id, expected_version: before, expected_decisions: [] }, { userId: people[1].user_id, expected_version: before + 1, expected_decisions: [] }]);
   const after = await seasonsApi.summary(season.season_id);expect(after.version).toBe(before + 2);
   for (const person of people) expect(after.rows.find(row => row.user.user_id === person.user_id)?.decisions).toEqual(["nice"]);
 });
@@ -287,10 +296,11 @@ it("2.12 A-TSK-6: a comment resets and an explicit child canvas creates once bef
   expect((await tasksApi.comments(task.task_id)).items.map(c => c.content.body)).toEqual(["Один комментарий"]);
   await page!.cleanup(); page = undefined;
 
-  page = await mountWorkspace(<Routes><Route path="/events/:id" element={<EventPage />} /><Route path="/subevents/:id" element={<SubeventPage />} /></Routes>, { path: `/events/${event.event_id}`, session: await sessionApi.get() });
+  page = await mountWorkspace(<Routes><Route path="/events/:id" element={<EventPage />} /><Route path="/events/:id/subevents/new" element={<SubeventCreatePage />} /><Route path="/subevents/:id" element={<SubeventPage />} /></Routes>, { path: `/events/${event.event_id}`, session: await sessionApi.get() });
   await waitForPage(page!);
   expect(page!.container.querySelector('input[name="title"]')).toBeNull();
-  await click(page!.container, "Добавить подмероприятие");
+  await follow(page!.container, "Добавить подмероприятие");
+  await until(() => !!page!.container.querySelector('input[name="title"]'));
   const create = field(page!.container, "title").closest("form")!;
   const before = (await eventsApi.subevents(event.event_id)).items.length;
   await change(field(create, "title"), "Новое подмероприятие");

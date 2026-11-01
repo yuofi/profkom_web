@@ -20,6 +20,8 @@ it("persists independent channels/categories while explicitly leaving delivery d
   page = await mountWorkspace(<NotificationPreferences />);
   await waitForPage(page, () => !!page!.container.querySelector('input[aria-label="Изменения тикетов трекера: Почта"]'));
   expect(page.container.textContent).toContain("Отправка ещё не подключена");
+  // A plain explanation, not an error-coloured warning (PE-25).
+  expect(Array.from(page.container.querySelectorAll("p")).find((p) => p.textContent?.startsWith("Отправка ещё не подключена"))?.className).not.toMatch(/warning/);
   const checkbox = page.container.querySelector<HTMLInputElement>('input[aria-label="Изменения тикетов трекера: Почта"]')!;
   await act(async () => checkbox.click());
   await act(async () => page!.container.querySelector<HTMLButtonElement>('button[type="submit"]')!.click());
@@ -45,6 +47,8 @@ it("shows public past roles of inaccessible teams without working links or made-
   expect(page.container.textContent).toContain("Ответственный");
   expect(page.container.textContent).toContain("Дата начала неизвестна");
   expect(page.container.querySelector('a[href*="hidden-team"]')).toBeNull();
+  // The history disclosure has the shared chevron of the other disclosures (PE-25).
+  expect(page.container.querySelector("details")?.className).toMatch(/details/);
 });
 
 function TemplateForm() {

@@ -1,5 +1,4 @@
 import { createBrowserRouter, createRoutesFromElements, Navigate, Outlet, RouterProvider, Route } from "react-router-dom";
-import { HelmetProvider } from "react-helmet-async";
 import { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "./App.css";
@@ -7,6 +6,7 @@ import { UnsavedChangesProvider } from "./components/Workspace/UnsavedChanges";
 import { WorkspaceLayout } from "./components/Workspace/WorkspaceLayout";
 import { FeedbackProvider } from "./components/Workspace/FeedbackButton";
 import { Loading } from "./components/Workspace/WorkspaceUI";
+import { AppErrorPage } from "./components/Workspace/PageErrorBoundary";
 const EventsListPage = lazy(() =>
   import("./pages/Workspace/EventPages").then((m) => ({
     default: m.EventsListPage,
@@ -17,6 +17,8 @@ const EventPage = lazy(() =>
   })));
 const EventCreatePage = lazy(() => import("./pages/Workspace/EventPages").then(m => ({ default: m.EventCreatePage })));
 const EventEditPage = lazy(() => import("./pages/Workspace/EventPages").then(m => ({ default: m.EventEditPage })));
+const SubeventCreatePage = lazy(() => import("./pages/Workspace/EventPages").then(m => ({ default: m.SubeventCreatePage })));
+const SubeventEditPage = lazy(() => import("./pages/Workspace/EventPages").then(m => ({ default: m.SubeventEditPage })));
 const SubeventPage = lazy(() =>
   import("./pages/Workspace/EventPages").then((m) => ({
     default: m.SubeventPage,
@@ -124,7 +126,9 @@ const LegacyMaterialRedirect = lazy(() => import("./pages/Workspace/LegacyMateri
 const GreetingPage = lazy(() => import("./pages/Greeting/Greeting").then(m => ({ default: m.GreetingPage })));
 import { UserProvider } from "./utils/ctx";
 import { retryTransient, workspaceQueryCache } from "./utils/api/invalidation";
+import { workspaceStaleTime } from "./utils/routePrefetch";
 import { ProtectedRoute } from "./pages/Wrappers/wrappers";
+import { LegacyAdminRedirect } from "./pages/Admin/LegacyAdminRedirect";
 const ProfilePage = lazy(() => import("./pages/ProfilePage/ProfilePage").then(m => ({ default: m.ProfilePage })));
 const ProfileSettingsPage = lazy(() => import("./pages/ProfilePage/ProfileSettingsPage").then(m => ({ default: m.ProfileSettingsPage })));
 const KkrTemplatesPage = lazy(() => import("./pages/Workspace/SeasonPages").then(module => ({ default: module.KkrTemplatesPage })));
@@ -136,7 +140,7 @@ const NotFoundPage = lazy(() => import("./pages/fallback/NotFoundPage").then(m =
 const SupportPage = lazy(() => import("./pages/Workspace/SupportPage").then(module => ({ default: module.SupportPage })));
 const queryClient = new QueryClient({
   queryCache: workspaceQueryCache(),
-  defaultOptions: { queries: { refetchOnWindowFocus: false, retry: retryTransient } },
+  defaultOptions: { queries: { refetchOnWindowFocus: false, retry: retryTransient, staleTime: workspaceStaleTime } },
 });
 function AppShell() {
   return (
@@ -152,7 +156,7 @@ function AppShell() {
   );
 }
 const router = createBrowserRouter(createRoutesFromElements(
-  <Route element={<AppShell />}>
+  <Route element={<AppShell />} errorElement={<AppErrorPage />}>
                 <Route path="/auth" element={<GreetingPage />} />
                 <Route element={<ProtectedRoute />}>
                   <Route path="/" element={<WorkspaceLayout />}>
@@ -169,7 +173,7 @@ const router = createBrowserRouter(createRoutesFromElements(
                     />
                     <Route
                       path="accounts/archive"
-                      element={<Navigate to="/admin/accounts" replace />}
+                      element={<LegacyAdminRedirect tab="accounts" />}
                     />
                     <Route
                       path="info"
@@ -187,8 +191,10 @@ const router = createBrowserRouter(createRoutesFromElements(
                     <Route path="events/new" element={<EventCreatePage />} />
                     <Route path="events/:id/edit" element={<EventEditPage />} />
                     <Route path="events/:id" element={<EventPage />} />
+                    <Route path="events/:id/subevents/new" element={<SubeventCreatePage />} />
                     <Route path="subevents/:id" element={<SubeventPage />} />
-                    <Route path="leadership" element={<Navigate to="/admin/leadership" replace />} />
+                    <Route path="subevents/:id/edit" element={<SubeventEditPage />} />
+                    <Route path="leadership" element={<LegacyAdminRedirect tab="leadership" fallback="/blocks" />} />
                     <Route path="tasks" element={<TasksListPage />} />
                     <Route
                       path="tasks/unresolved"
@@ -239,7 +245,7 @@ const router = createBrowserRouter(createRoutesFromElements(
                     <Route path="blocks/:id" element={<BlockPage />} />
                     <Route
                       path="registrations"
-                      element={<Navigate to="/admin/registrations" replace />}
+                      element={<LegacyAdminRedirect tab="registrations" />}
                     />
                     {/* Each tab checks its own right (АВ-34). */}
                     <Route path="admin" element={<AdminPanel />} />
@@ -251,11 +257,9 @@ const router = createBrowserRouter(createRoutesFromElements(
 ));
 function App() {
   return (
-    <HelmetProvider>
-      <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
-      </QueryClientProvider>
-    </HelmetProvider>
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>
   );
 }
 export default App;

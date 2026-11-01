@@ -3,6 +3,7 @@ import pytest
 from database import db,TaskTrackerORM,BlockORM,RoleAssignmentORM,ContributionORM
 from domain_models import KkrControlEpicORM,SeasonCoefficientORM
 from test_v13_tracker import work  # noqa:F401
+from test_hr_tracker_edit import hr_roles  # noqa:F401
 from models import Block
 from registration import now
 
@@ -319,16 +320,20 @@ def test_legacy_reserved_queue_collision_refuses_without_hijacking(client,superu
 def test_existing_read_repair_never_bootstraps_control_on_get(client,work,superuser,make_user):
     from domain_models import BlockMetaORM
     db.create_block(Block(name='Read repair legacy block',master=''))
-    with db._session() as session:before=session.query(KkrControlEpicORM).count()
+    with db._session() as session:
+        # Since GL-05 create_block, a write, makes the block identity and with it its control.
+        meta=session.query(BlockMetaORM).filter_by(legacy_name='Read repair legacy block').one()
+        assert session.query(KkrControlEpicORM).filter_by(source_kind='block',source_id=meta.block_id).count()==1
+        before=session.query(KkrControlEpicORM).count()
     response=client.get('/api/blocks',headers=superuser.headers)
     assert response.status_code==200,response.text
     with db._session() as session:
-        meta=session.query(BlockMetaORM).filter_by(legacy_name='Read repair legacy block').one()
+        # The GET adds nothing and keeps the identity.
         assert session.query(KkrControlEpicORM).count()==before
-        assert not session.query(KkrControlEpicORM).filter_by(source_kind='block',source_id=meta.block_id).first()
+        assert session.query(BlockMetaORM).filter_by(legacy_name='Read repair legacy block').one().block_id==meta.block_id
     person=make_user();db.set_block_leader('Read repair legacy block',person.user_id)
     with db._session() as session:
-        assert session.query(KkrControlEpicORM).filter_by(source_kind='block',source_id=meta.block_id).first()
+        assert session.query(KkrControlEpicORM).filter_by(source_kind='block',source_id=meta.block_id).count()==1
 
 
 @pytest.mark.parametrize('second_kind',['block_volunteer','block_task'],ids=['source-sum','participant-total'])
@@ -429,3 +434,72 @@ def test_actual_mark_command_does_not_query_block_identity_per_credit(client,wor
     source=next(source for source in row['source_scores'] if source['source_kind']=='block_task')
     assert source['source_id']==work['block']['block_id'] and source['score']==120
     assert row['total_score']==120 and row['decisions']==['nice']
+
+
+def test_reminder_right_follows_policy_and_season_state(client,work,superuser,make_hr):
+    import access
+    hr,_=make_hr(block_name='Reminder state HR')
+    sid=work['task']['season_id']
+    assert 'remind_kkr' in client.get('/api/seasons/'+sid,headers=hr.headers).json()['capabilities']
+    assert 'remind_kkr' not in client.get('/api/seasons/'+sid,headers=superuser.headers).json()['capabilities']
+    assert client.get('/api/seasons/'+sid+'/kkr-control',headers=hr.headers).json()['capabilities']==['remind_kkr']
+    assert access.roles_for('kkr.remind','closed')==frozenset() and access.roles_for('kkr.remind','planned')==frozenset()
+    from datetime import datetime,timedelta,timezone
+    moment=datetime.now(timezone.utc)
+    planned=client.post('/api/seasons',headers=superuser.headers,json={'title':'Следующий','type':'winter_spring',
+        'starts_at':(moment+timedelta(days=60)).isoformat(),'ends_at':(moment+timedelta(days=120)).isoformat()})
+    assert planned.status_code==200,planned.text
+    planned=planned.json()
+    assert 'remind_kkr' not in client.get('/api/seasons/'+planned['season_id'],headers=hr.headers).json()['capabilities']
+    assert client.get('/api/seasons/'+planned['season_id']+'/kkr-control',headers=hr.headers).json()['capabilities']==[]
+    assert client.post('/api/seasons/'+planned['season_id']+'/kkr-control/remind',headers=hr.headers).status_code==403
+
+
+@pytest.fixture
+def remind_roles(client,work,superuser,make_user,hr_roles):
+    """Every role the KKR summon rule names or refuses, around the `work` IT block."""
+    hr=hr_roles
+    deputy=make_user()
+    leadership=client.get('/api/leadership',headers=superuser.headers).json()
+    response=client.put('/api/leadership/deputies',headers=superuser.headers,
+        json={'user_ids':[deputy.user_id],'expected_revision':leadership['revision']})
+    assert response.status_code==200,response.text
+    return {'chair':superuser,'chair_deputy':deputy,'hr_master':hr['master'],'hr_deputy':hr['deputy'],
+            'block_master':work['master'],'member':work['member'],'outsider':make_user()}
+
+
+@pytest.mark.parametrize('role,permitted',[('chair',False),('chair_deputy',False),('hr_master',True),('hr_deputy',True),
+                                           ('block_master',False),('member',False),('outsider',False)])
+def test_reminder_circle_is_the_hr_master_and_the_hr_deputy(client,work,remind_roles,role,permitted):
+    """SE-14, owner 2026-10-31: only the HR master and the HR deputy summon leaders to fill KKR;
+    the chair and the chair's deputies do not. The capability follows the command."""
+    actor=remind_roles[role];task=work['task'];sid=task['season_id'];close_task(task)
+    season=client.get('/api/seasons/'+sid,headers=actor.headers)
+    assert season.status_code==200,season.text
+    assert ('remind_kkr' in season.json()['capabilities'])==permitted
+    controls=client.get('/api/seasons/'+sid+'/kkr-control',headers=actor.headers)
+    if controls.status_code==200:
+        assert ('remind_kkr' in controls.json()['capabilities'])==permitted
+    else:
+        assert not permitted and controls.status_code==403,controls.text
+    response=client.post('/api/seasons/'+sid+'/kkr-control/remind',headers=actor.headers)
+    assert response.status_code==(200 if permitted else 403),response.text
+    if permitted:
+        # The summon is a real mention in the block's control ticket, written by the caller.
+        assert response.json()['comments_created']==1
+        items=client.get('/api/seasons/'+sid+'/kkr-control',headers=actor.headers).json()['items']
+        control=next(item for item in items if item['source_kind']=='block' and item['source_id']==work['block']['block_id'])
+        comments=client.get('/api/tasks/'+control['task_id']+'/comments',headers=actor.headers).json()['items']
+        assert [comment['author']['user_id'] for comment in comments]==[actor.user_id]
+
+
+@pytest.mark.parametrize('state',['planned','closed'])
+def test_hr_deputy_summons_only_while_work_is_accounted(client,work,remind_roles,state):
+    from database import SeasonORM
+    sid=work['task']['season_id']
+    with db._session() as session:
+        session.get(SeasonORM,sid).state=state;session.commit()
+    for role in ('hr_master','hr_deputy'):
+        actor=remind_roles[role]
+        assert 'remind_kkr' not in client.get('/api/seasons/'+sid,headers=actor.headers).json()['capabilities']
+        assert client.post('/api/seasons/'+sid+'/kkr-control/remind',headers=actor.headers).status_code==403

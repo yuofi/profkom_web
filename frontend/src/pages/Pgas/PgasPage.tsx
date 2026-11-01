@@ -1,6 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useId, useMemo, useRef, useState } from "react";
-import { Helmet } from "react-helmet-async";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { FormikProvider } from "formik";
 import { useGuardedAction } from "../../components/Workspace/unsavedChangesHooks";
@@ -17,6 +16,8 @@ import styles from "./PgasPage.module.css";
 import type { IconName } from "../../components/icons";
 import { userMessage } from "../../utils/api/messages";
 import { AnchoredPopover } from "../../components/Workspace/AnchoredPopover";
+import { FileButton } from "../../components/Workspace/FileButton";
+import { isBackdropClick, useModalDialog } from "../../components/Workspace/useModalDialog";
 
 const CURRENT_YEAR = new Date().getFullYear();
 // Годы для выпадающего списка: следующий год и семь предыдущих
@@ -88,11 +89,24 @@ export const PgasPage = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const modal = useModalDialog(isModalOpen);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [sortType, setSortType] = useState<SortType>("default");
   const [yearFilter, setYearFilter] = useState("all");
   const [periodFilter, setPeriodFilter] = useState("all");
+  // On a phone the filters fold under one summary, as on the contacts page (PE-28).
+  const [filtersOpen, setFiltersOpen] = useState(() =>
+    typeof window.matchMedia !== "function" || window.matchMedia("(min-width: 769px)").matches,
+  );
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(min-width: 769px)");
+    const sync = (event: MediaQueryListEvent) => { if (event.matches) setFiltersOpen(true); };
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
+  const activeFilters = [yearFilter !== "all", periodFilter !== "all", sortType !== "default"].filter(Boolean).length;
 
   const { session } = useSession();
   // The chair, deputies and pgas_admin edit (decision 14); the server decides it.
@@ -156,6 +170,7 @@ export const PgasPage = () => {
     validationSchema: PgasValidationSchema,
     protectChanges: { enabled: isModalOpen, scope, label: "Документ ПГАС", externalDirty: !!selectedFile, externalBusy: createMutation.isPending, discard: () => resetFile() },
     onSubmit: async (values) => {
+      if (!selectedFile) return; // reported beside the file button
       await createMutation.mutateAsync(values);
     },
   });
@@ -221,9 +236,9 @@ export const PgasPage = () => {
         )
       }
     >
-      <Helmet>
-        <title>ПГАС | Профком ВМК</title>
-      </Helmet>
+      <title>ПГАС | Профком ВМК</title>
+      <details className={`${s.details} ${s.filterDetails}`} open={filtersOpen} onToggle={(event) => setFiltersOpen(event.currentTarget.open)}>
+      <summary>Фильтры{activeFilters > 0 && ` · ${activeFilters}`}</summary>
       <div className={styles.filters}>
         <label className={s.field}>Год
           <select aria-label="Год документов" value={yearFilter} onChange={event => setYearFilter(event.target.value)}><option value="all">Все годы</option>{filterYears.map(year => <option value={year} key={year}>{year}</option>)}</select>
@@ -242,6 +257,7 @@ export const PgasPage = () => {
           </select>
         </label>
       </div>
+      </details>
 
       {isLoading ? (
         <Loading />
@@ -266,12 +282,12 @@ export const PgasPage = () => {
             <tbody>
               {sortedEntries.map((entry) => (
                 <tr key={entry.entry_id}>
-                  <td>{entry.title}</td>
-                  <td>
+                  <td className={styles.titleCell} title={entry.title}>{entry.title}</td>
+                  <td className={styles.yearCell}>
                     <Badge tone="yellow">{entry.year}</Badge>
                   </td>
-                  <td><span className={styles.periodCell}>{periodLabel(entry.half_year)}{canManage && <PeriodEditor entry={entry} />}</span></td>
-                  <td>
+                  <td className={styles.periodTd}><span className={styles.periodCell}>{periodLabel(entry.half_year)}{canManage && <PeriodEditor entry={entry} />}</span></td>
+                  <td className={styles.fileCell}>
                     <a
                       className={styles.fileLink}
                       href={apiUrl(entry.file_url)}
@@ -286,7 +302,7 @@ export const PgasPage = () => {
                     </a>
                   </td>
                   {canManage && (
-                    <td>
+                    <td className={styles.actionCell}>
                       <button
                         className={`${s.button} ${s.danger} ${styles.deleteButton}`}
                         onClick={() => handleDelete(entry)}
@@ -305,14 +321,9 @@ export const PgasPage = () => {
       )}
 
       {isModalOpen && (
-        <div className={styles.modalOverlay} onClick={requestModalClose}>
-          <div
-            className={styles.modal}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="pgas-upload-title"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <dialog ref={modal} className={styles.modal} aria-labelledby="pgas-upload-title"
+          onCancel={(event) => { event.preventDefault(); requestModalClose(); }}
+          onClick={(event) => { if (isBackdropClick(event)) requestModalClose(); }}>
             <div className={styles.modalHeader}>
               <h3 id="pgas-upload-title">Загрузить файл</h3>
               <button type="button" className={s.button} disabled={isSaving} onClick={requestModalClose} aria-label="Закрыть">
@@ -321,7 +332,8 @@ export const PgasPage = () => {
             </div>
 
             <FormikProvider value={formik}>
-              <form className={s.form} onSubmit={formik.handleSubmit}>
+              {/* All mistakes at once: no native required, Formik touches every field and the file is checked too. */}
+              <form className={s.form} noValidate onSubmit={(event) => { if (!selectedFile && !fileError) setFileError("Прикрепите файл"); formik.handleSubmit(event); }}>
                 <fieldset className={s.formFields} disabled={isSaving}>
                   <label className={s.field}>
                     Название мероприятия
@@ -356,34 +368,15 @@ export const PgasPage = () => {
                   </label>
 
                   <label className={s.field}>Период документа
-                    <select name="half_year" value={formik.values.half_year} onChange={formik.handleChange} onBlur={formik.handleBlur} required>
+                    <select name="half_year" value={formik.values.half_year} onChange={formik.handleChange} onBlur={formik.handleBlur}>
                       <option value="">Выберите период…</option><option value="1">Январь–май</option><option value="2">Июнь–декабрь</option>
                     </select>
                     {formik.touched.half_year && formik.errors.half_year && <span className={s.fieldError}>{String(formik.errors.half_year)}</span>}
                   </label>
 
-                  <div className={styles.fileField}>
-                    <button
-                      type="button"
-                      className={s.button}
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <Glyph name="attach_file" />
-                      Выбрать файл
-                    </button>
-                    <span className={styles.chosenFileName}>
-                      {selectedFile ? selectedFile.name : "Файл не выбран"}
-                    </span>
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      style={{ display: "none" }}
-                      accept={fileAccept("pgas")}
-                      onChange={handleFileChange}
-                    />
-                  </div>
+                  <div className={s.field}><span id="pgas-file-label">Файл документа</span><FileButton labelledBy="pgas-file-label" fileName={selectedFile?.name} accept={fileAccept("pgas")} inputRef={fileInputRef} onChange={handleFileChange} invalid={!!fileError} describedBy={fileError ? "pgas-file-error" : undefined} /></div>
 
-                  {fileError && <p role="alert" className={s.fieldError}>{fileError}</p>}
+                  {fileError && <p id="pgas-file-error" role="alert" className={s.fieldError}>{fileError}</p>}
 
                   {globalError && <p role="alert" className={s.fieldError}>{globalError}</p>}
 
@@ -402,8 +395,7 @@ export const PgasPage = () => {
                 </fieldset>
               </form>
             </FormikProvider>
-          </div>
-        </div>
+        </dialog>
       )}
     </Page>
   );

@@ -18,9 +18,10 @@ def fail(code, message):
 DERIVED = object()
 
 
-def ensure_application(s, uid, funding=DERIVED):
+def ensure_application(s, uid, funding=DERIVED, persist=True):
     """The account's application; a missing one is created from the contact. `funding`
-    overrides the study basis of a new one: None for a VK account, which chooses it."""
+    overrides the study basis of a new one: None for a VK account, which chooses it.
+    `persist=False` (GET) returns the same default unsaved: a read never writes (GL-05)."""
     r = s.get(RegistrationORM, uid)
     if r:
         return r
@@ -51,12 +52,16 @@ def ensure_application(s, uid, funding=DERIVED):
             [dict(action="initial_submission", at=now(), actor=uid)]
         ),
     )
+    if not persist:
+        return r
     s.add(r)
     s.flush()
     return r
 
 
-def meta_for(s, name):
+def meta_for(s, name, persist=True):
+    """The block's identity; a missing one is created. `persist=False` (GET) returns the
+    same identity unsaved: a read never writes (GL-05)."""
     m = s.query(BlockMetaORM).filter_by(legacy_name=name).first()
     if not m:
         if not s.get(BlockORM, name):
@@ -71,6 +76,8 @@ def meta_for(s, name):
             description="",
             revision=1,
         )
+        if not persist:
+            return m
         s.add(m)
         s.flush()
     return m

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, useNavigate, type NavigateFunction } from "react-router-dom";
 import { createFixtures } from "../../mocks/fixtures";
 import { installMockTransport } from "../../mocks/transport";
 import { change, mountWorkspace, waitForPage } from "../../test/workspace";
@@ -15,7 +15,8 @@ import { OrganizationTree } from "./OrganizationTree";
 import type { Leadership, UserRef } from "../../utils/api/contract";
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let transport: ReturnType<typeof installMockTransport> | undefined;
-afterEach(async () => { await page?.cleanup();page = undefined;transport?.restore();transport = undefined;vi.restoreAllMocks(); });
+// The tree keeps its view per history entry (PE-36); every test starts on a fresh one.
+afterEach(async () => { await page?.cleanup();page = undefined;transport?.restore();transport = undefined;vi.restoreAllMocks();sessionStorage.clear(); });
 const fixture = () => {
   const f = createFixtures("organizer");
   const leadership: Leadership = { chair: f.people[3], deputies: [f.people[4]], revision: 1, capabilities: [] };
@@ -121,3 +122,48 @@ it("finds the always-visible global leadership and offers a reset for empty resu
   await change(input, "НетТакогоУчастника");expect(page.container.textContent).toContain("Ничего не найдено");expect(page.container.querySelector('[role="status"]')?.textContent).toContain("Совпадений в руководстве Профкома: 0");
   await act(async () => button("Показать все блоки").click());expect(input.value).toBe("");expect(toggles()).toHaveLength(f.blocks.length);for (const toggle of toggles()) expect(toggle.getAttribute("aria-expanded")).toBe("false");
 });
+
+it("«Назад» returns to the expanded branches and the search; a new visit starts collapsed (PE-36)", async () => {
+  const f = fixture();
+  let navigate: NavigateFunction = () => {};
+  function Navigator() { navigate = useNavigate();return null; }
+  page = await mountWorkspace(<><Navigator /><Routes><Route path="/blocks" element={<OrganizationTree blocks={f.blocks} leadership={f.leadership} people={f.people} />} /><Route path="/blocks/:id" element={<p>Страница блока открыта</p>} /></Routes></>, { path: "/blocks" });
+  await act(async () => toggles()[1].click());
+  await act(async () => navigate(`/blocks/${f.blocks[0].block_id}`));expect(page.container.textContent).toContain("Страница блока открыта");
+  await act(async () => navigate(-1));
+  expect(toggles().map(toggle => toggle.getAttribute("aria-expanded"))).toEqual(f.blocks.map((_, index) => String(index === 1)));
+  await change(page.container.querySelector<HTMLInputElement>('input[type="search"]')!, f.blocks[0].name);
+  await act(async () => navigate(`/blocks/${f.blocks[0].block_id}`));await act(async () => navigate(-1));
+  expect(page.container.querySelector<HTMLInputElement>('input[type="search"]')!.value).toBe(f.blocks[0].name);
+  // A new visit from another page (a link, not «Назад») is a new history entry.
+  await act(async () => navigate(`/blocks/${f.blocks[0].block_id}`));await act(async () => navigate("/blocks"));
+  expect(page.container.querySelector<HTMLInputElement>('input[type="search"]')!.value).toBe("");
+  for (const toggle of toggles()) expect(toggle.getAttribute("aria-expanded")).toBe("false");
+});
+
+it("the tree keeps only the latest views of its visits in the tab's storage (PE-36)", async () => {
+  const f = fixture();
+  for (let index = 0; index < 25; index += 1) sessionStorage.setItem(`profkom-organization-tree:/blocks:old-${index}`, JSON.stringify({ search: "", expanded: [], at: index + 1 }));
+  sessionStorage.setItem("profkom-auth-notice", "{}");
+  page = await mountWorkspace(<Routes><Route path="/blocks" element={<OrganizationTree blocks={f.blocks} leadership={f.leadership} people={f.people} />} /></Routes>, { path: "/blocks" });
+  await act(async () => toggles()[0].click());
+  const views = Object.keys(sessionStorage).filter(key => key.startsWith("profkom-organization-tree:"));
+  expect(views).toHaveLength(20);
+  expect(views.filter(key => key.includes(":old-"))).toHaveLength(19);
+  expect(views.some(key => key.endsWith(":old-24"))).toBe(true);expect(views.some(key => key.endsWith(":old-5"))).toBe(false);
+  expect(sessionStorage.getItem("profkom-auth-notice")).toBe("{}");
+});
+
+it("a collapsed block names its master beside the count; the open branch lists the leadership (PE-37)", async () => {
+  const f = fixture(), block = f.blocks.find(item => item.master)!;
+  page = await mountWorkspace(<OrganizationTree blocks={[block]} leadership={f.leadership} people={f.people} />);
+  const heading = () => page!.container.querySelector('[aria-label="Блоки Профкома"]>li>div')!;
+  expect(heading().querySelector(`a[href="/contacts/${block.master!.user.user_id}"]`)).not.toBeNull();
+  expect(heading().textContent).toMatch(/Участников: \d+/);
+  // A screen reader hears the role before the name; the chip itself stays the same.
+  expect(heading().querySelector('[class*="visuallyHidden"]')?.textContent).toBe("Мастер:");
+  await act(async () => toggles()[0].click());
+  expect(heading().querySelector(`a[href="/contacts/${block.master!.user.user_id}"]`)).toBeNull();
+  expect(controlled(toggles()[0]).querySelector(`a[href="/contacts/${block.master!.user.user_id}"]`)).not.toBeNull();
+});
+

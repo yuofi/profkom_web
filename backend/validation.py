@@ -10,12 +10,25 @@ def timestamp(value):
     return dt(value).isoformat()
 
 
-def period(assigned, deadline, season_end):
+def period(assigned, deadline, season_end, start="assigned_at", start_moved=False):
+    """assigned_at <= deadline_at <= season end, refused with the field to correct.
+
+    The deadline is named by default, with its allowed range. The start (``start``)
+    is named instead when only the start moved or the start itself is past the season
+    end. With ``start=None`` the start is now (a new task): when the season has already
+    ended there is no allowed deadline, which ``season_ended`` says.
+    """
     a, d, e = map(dt, (assigned, deadline, season_end))
-    if not a <= d <= e:
-        raise InvalidInput(
-            "Dates must satisfy assigned_at <= deadline_at <= season ends_at"
-        )
+    if a <= d <= e:
+        return
+    message = "Dates must satisfy assigned_at <= deadline_at <= season ends_at"
+    if a > e and start is None:
+        raise InvalidInput(message, "season_ended", deadline_at="out_of_range", latest=e.isoformat())
+    if a > e or (start_moved and d < a):
+        raise InvalidInput(message, "assigned_out_of_range", latest=min(d, e).isoformat(), **{start: "out_of_range"})
+    raise InvalidInput(
+        message, "deadline_out_of_range", deadline_at="out_of_range", earliest=a.isoformat(), latest=e.isoformat()
+    )
 
 
 def hours(value):

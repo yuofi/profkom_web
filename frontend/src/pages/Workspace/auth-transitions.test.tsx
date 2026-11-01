@@ -15,6 +15,7 @@ import { GreetingPage } from "../Greeting/Greeting";
 import { ProtectedRoute } from "../Wrappers/wrappers";
 import { AccountStatePage } from "./SessionPages";
 import { useSession } from "../../utils/session";
+import { leaveAuthNotice, peekAuthNotice } from "../../utils/authSession";
 
 vi.mock("../../components/VKAuth/authButton", () => ({
   VKAuthButton: ({ onSuccess, onError }: { onSuccess: (data: { access_token: string }) => Promise<void>; onError: () => void }) => <>
@@ -25,7 +26,7 @@ vi.mock("../../components/VKAuth/authButton", () => ({
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let adapter: MockAdapter | undefined;
-afterEach(async () => { await page?.cleanup(); page = undefined; adapter?.restore(); Cookies.remove("access_token"); vi.restoreAllMocks(); });
+afterEach(async () => { await page?.cleanup(); page = undefined; adapter?.restore(); Cookies.remove("access_token"); sessionStorage.clear(); vi.restoreAllMocks(); });
 
 it.each(["pending", "rejected", "active"] as const)("A03: password and VK login use session-first for %s", async (state) => {
   for (const channel of ["password", "vk"]) {
@@ -49,7 +50,7 @@ it.each(["pending", "rejected", "active"] as const)("A03: password and VK login 
       <Route element={<ProtectedRoute />}><Route path="/" element={<p>ACTIVE_WORKSPACE</p>} /></Route>
     </Routes></UserProvider></HelmetProvider>, { path: "/auth", client });
     if (channel === "password") {
-      await act(async () => page!.container.querySelector("h5")!.click());
+      await act(async () => page!.container.querySelector<HTMLButtonElement>("button[aria-expanded]")!.click());
       await change(field(page.container, "email"), "student@example.org");
       await change(field(page.container, "password"), "synthetic-password");
       await submit(page.container.querySelector("form")!);
@@ -76,7 +77,7 @@ it("A03: VK SDK and API failures are visible", async () => {
   adapter = new MockAdapter(api);
   // As backend/vk_auth.py answers when VK ID does not respond: a legacy string detail.
   adapter.onPost("/auth/vk").reply(503, { detail: "VK ID is unavailable" });
-  page = await mountWorkspace(<HelmetProvider><GreetingPage /></HelmetProvider>);
+  page = await mountWorkspace(<HelmetProvider><GreetingPage /></HelmetProvider>, { session: null });
   await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "VK error")!.click());
   expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("Не удалось войти через VK");
   await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "VK test")!.click());
@@ -86,10 +87,10 @@ it("A03: VK SDK and API failures are visible", async () => {
 });
 
 it("A03: a VK error does not stay over the password form", async () => {
-  page = await mountWorkspace(<HelmetProvider><GreetingPage /></HelmetProvider>);
+  page = await mountWorkspace(<HelmetProvider><GreetingPage /></HelmetProvider>, { session: null });
   await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "VK error")!.click());
   expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("Не удалось войти через VK");
-  await act(async () => page!.container.querySelector("h5")!.click());
+  await act(async () => page!.container.querySelector<HTMLButtonElement>("button[aria-expanded]")!.click());
   expect(field(page.container, "password")).toBeTruthy();
   expect(page.container.querySelector('[role="alert"]')).toBeNull();
 });
@@ -98,7 +99,7 @@ it("2.18 MIGRATION-08: the VK of an old account that is not linked yet is named,
   adapter = new MockAdapter(api);
   // As backend/vk_auth.py answers for an account of the old site without a VK identity.
   adapter.onPost("/auth/vk").reply(409, { detail: "This VK is named by an existing account; it must be linked first" });
-  page = await mountWorkspace(<HelmetProvider><GreetingPage /></HelmetProvider>);
+  page = await mountWorkspace(<HelmetProvider><GreetingPage /></HelmetProvider>, { session: null });
   await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "VK test")!.click());
   await settle();
   const alert = page.container.querySelector('[role="alert"]')?.textContent;
@@ -116,7 +117,7 @@ it("A03: pending logout revokes the server session and clears private caches bef
   Cookies.set("access_token", "synthetic-token");
   page.client.setQueryData(["session"], f.session);
   page.client.setQueryData(["private"], "secret");
-  await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "Ко входу")!.click());
+  await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "Выйти")!.click());
   await settle();
   expect(adapter.history.post.map((r) => r.url)).toEqual(["/auth/logout"]);
   expect(Cookies.get("access_token")).toBeUndefined();
@@ -137,10 +138,10 @@ it("A03: logout network error stays actionable; pending refresh never reads a pr
   await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "Refresh")!.click());
   await settle();
   expect(adapter.history.get.some((r) => r.url === "/profile/me")).toBe(false);
-  await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "Ко входу")!.click());
+  await act(async () => Array.from(page!.container.querySelectorAll("button")).find((b) => b.textContent === "Выйти")!.click());
   await settle();
   expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("Не удалось завершить сессию");
-  expect(page.container.textContent).toContain("Ко входу");
+  expect(page.container.textContent).toContain("Выйти");
 });
 
 it("A-FE-4: a session the server ended leaves nothing private in the cache", async () => {
@@ -167,4 +168,53 @@ it("A-FE-4: a session the server ended leaves nothing private in the cache", asy
   } finally {
     refresh.restore();
   }
+});
+
+it("after the temporary password change the login opens on the password form with the address (PE-21)", async () => {
+  const f = createFixtures("organizer");
+  const session = { ...f.session, capabilities: [], password_change_required: true };
+  adapter = new MockAdapter(api);
+  const calls: string[] = [];
+  adapter.onAny().reply((config) => {
+    calls.push(config.url!);
+    if (config.url === "/auth/login") return [200, { access_token: "synthetic-login-token" }];
+    if (config.url === "/auth/change-password") return [200, { detail: "Password updated successfully" }];
+    if (config.url === "/auth/logout") return [200, {}];
+    if (config.url === "/session") return [200, session];
+    return [404, {}];
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+  page = await mountWorkspace(<HelmetProvider><UserProvider><Routes>
+    <Route path="/auth" element={<GreetingPage />} />
+    <Route element={<ProtectedRoute />}><Route path="/" element={<p>ACTIVE_WORKSPACE</p>} /></Route>
+  </Routes></UserProvider></HelmetProvider>, { path: "/auth", client });
+  await settle();
+  await act(async () => page!.container.querySelector<HTMLButtonElement>("button[aria-expanded]")!.click());
+  await change(field(page.container, "email"), "student@example.org");
+  await change(field(page.container, "password"), "temporary-1");
+  await submit(page.container.querySelector("form")!); await settle(); await settle();
+  expect(page.container.querySelector("h1")?.textContent).toBe("Смените временный пароль");
+  const form = page.container.querySelector("form")!;
+  await change(field(form, "old"), "temporary-1");
+  await change(field(form, "password"), "Own-New-Pass-2026");
+  await change(field(form, "again"), "Own-New-Pass-2026");
+  await submit(form); await settle(); await settle();
+  expect(calls).toContain("/auth/change-password");
+  expect(page.container.querySelector('[role="status"]')?.textContent).toBe("Пароль изменён. Войдите с новым паролем.");
+  expect(field(page.container, "email").value).toBe("student@example.org");
+  expect(field(page.container, "password").value).toBe("");
+  expect(page.container.textContent).not.toContain("VK test");
+  // The note is for this one return to the login: the next login takes it away.
+  await change(field(page.container, "password"), "Own-New-Pass-2026");
+  await submit(page.container.querySelector("form")!); await settle(); await settle();
+  expect(sessionStorage.getItem("profkom-auth-notice")).toBeNull();
+});
+
+it("the password-change note is not shown on a visit to the login much later in the tab (PE-21)", () => {
+  leaveAuthNotice({ notice: "Пароль изменён. Войдите с новым паролем.", email: null });
+  expect(peekAuthNotice()?.notice).toBe("Пароль изменён. Войдите с новым паролем.");
+  const now = Date.now();
+  vi.spyOn(Date, "now").mockReturnValue(now + 16 * 60 * 1000);
+  expect(peekAuthNotice()).toBeNull();
+  expect(sessionStorage.getItem("profkom-auth-notice")).toBeNull();
 });

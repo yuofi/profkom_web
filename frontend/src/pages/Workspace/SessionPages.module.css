@@ -1,0 +1,61 @@
+/* The screens of a session that has no workspace yet: a centred column like the login page,
+   with the site's mark and room for the feedback button below the last field (GL-18). */
+.layout {
+  --section: var(--accent-yellow);
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 24px 24px 88px;
+  display: grid;
+  gap: 24px;
+  align-content: start;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--primary);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+.brand svg {
+  flex: none;
+}
+.brand small {
+  display: block;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  margin-top: 7px;
+  opacity: 0.65;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+/* Outside the workspace frame the list of choice keeps its own arrow (the frame draws it there). */
+.layout.layout select:not([multiple]) {
+  appearance: none;
+  padding-right: 42px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23f2f69e' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 16px center;
+}
+@media (min-width: 768px) {
+  /* The registration details in two columns; the form's own messages span both. */
+  .columns form:first-of-type > fieldset {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 20px;
+  }
+  .columns form:first-of-type > fieldset > :is(h3, [role="alert"]) {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 768px) {
+  .layout {
+    padding: 16px 16px 88px;
+  }
+}

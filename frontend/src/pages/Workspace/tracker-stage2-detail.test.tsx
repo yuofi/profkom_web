@@ -9,7 +9,8 @@ import { tasksApi } from "../../utils/api/tasks.api";
 import { ApiError } from "../../utils/api/request";
 import type { Task,TaskLink } from "../../utils/api/contract";
 import { TaskPlanningEditor } from "./TrackerTaskPlanning";
-import { TrackerTaskChecklist } from "./TrackerTaskChecklist";
+import { ChecklistDraftFields, TrackerTaskChecklist } from "./TrackerTaskChecklist";
+import type { ChecklistDraft } from "./trackerStage2Drafts";
 import { TrackerTaskRelations } from "./TrackerTaskRelations";
 import { TrackerTaskHistoryDiff } from "./TrackerTaskHistoryDiff";
 let page:Awaited<ReturnType<typeof mountWorkspace>>|undefined;
@@ -58,6 +59,23 @@ it("a denied relation search removes cached options",async()=>{
  page=await mountWorkspace(<TrackerParentSelector value="" onChange={()=>{}} label="Связанная задача"/>,{client});await act(async()=>page!.container.querySelector<HTMLInputElement>('[role="combobox"]')!.focus());await waitForPage(page);expect(page.container.textContent).toContain("Скрытый вариант");await act(async()=>{await client.invalidateQueries({queryKey:key});});await waitForPage(page);expect(page.container.querySelectorAll('[role="option"]')).toHaveLength(0);expect(page.container.textContent).not.toContain("Скрытый вариант");
 });
 
+it("Enter in a checklist item adds the next item instead of submitting, Backspace in an empty one removes it",async()=>{
+ const submitted=vi.fn();let latest:ChecklistDraft[]=[];
+ function Wrapper(){const[items,setItems]=useState<ChecklistDraft[]>([{key:"a",text:"Первый",checked:false},{key:"b",text:"Третий",checked:false}]);latest=items;return <form onSubmit={event=>{event.preventDefault();submitted();}}><ChecklistDraftFields items={items} onChange={setItems}/></form>;}
+ page=await mountWorkspace(<Wrapper/>);
+ const press=async(field:HTMLInputElement,key:string)=>{let kept=true;await act(async()=>{kept=field.dispatchEvent(new KeyboardEvent("keydown",{key,bubbles:true,cancelable:true}));});return kept;};
+ const first=page.container.querySelector<HTMLInputElement>('[aria-label="Пункт чеклиста 1"]')!;
+ expect(await press(first,"Enter")).toBe(false);expect(submitted).not.toHaveBeenCalled();
+ expect(latest.map(item=>item.text)).toEqual(["Первый","","Третий"]);expect(document.activeElement).toBe(page.container.querySelector('[aria-label="Пункт чеклиста 2"]'));
+ expect(await press(document.activeElement as HTMLInputElement,"Backspace")).toBe(false);
+ expect(latest.map(item=>item.text)).toEqual(["Первый","Третий"]);expect(document.activeElement).toBe(page.container.querySelector('[aria-label="Пункт чеклиста 1"]'));
+ expect(await press(page.container.querySelector<HTMLInputElement>('[aria-label="Пункт чеклиста 1"]')!,"Backspace")).toBe(true);expect(latest).toHaveLength(2);
+});
+it("an empty checklist is one compact add action for its editor",async()=>{
+ page=await mountWorkspace(<TrackerTaskChecklist task={{...task(),checklist:[]}}/>);
+ const section=page.container.querySelector('[aria-label="Чеклист задачи"]')!;
+ expect(section.querySelector("h2")).toBeNull();expect(section.textContent).toBe("+ Добавить чеклист");
+});
 it("a saved new checklist closes and reopens with accepted server IDs",async()=>{
  let setCurrent:((task:Task)=>void)|undefined;const original={...task(),checklist:[]};function Wrapper(){const[current,set]=useState<Task>(original);setCurrent=set;return <TrackerTaskChecklist task={current}/>;}
  const write=vi.spyOn(tasksApi,"update").mockImplementation(async(_,data)=>{const saved:Task={...original,revision:data.expected_revision+1,checklist:(data.checklist??[]).map(item=>({...item,item_id:item.item_id??"server-item"}))};setCurrent!(saved);return saved;});

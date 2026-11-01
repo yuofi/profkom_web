@@ -13,14 +13,15 @@ let mock: ReturnType<typeof installMockTransport> | undefined;
 afterEach(async () => { await page?.cleanup();page = undefined;mock?.restore();mock = undefined;vi.restoreAllMocks(); });
 const empty: Workday = { today: "2026-10-30", agenda: [], tasks: [], overdue_tasks: [], overdue_count: 0, undated_count: 2, approvals: [], merit_entries: [] };
 
-it("keeps a real empty-day calendar beside deadline lists and personal teams below", async () => {
+it("keeps a short empty-day line beside deadline lists and personal teams below (EV-28)", async () => {
   mock = installMockTransport("chair", { delay: 0 });
   vi.spyOn(workspaceApi, "home").mockResolvedValue(empty);
   page = await mountWorkspace(<DashboardPage />);await waitForPage(page);
   const day = page.container.querySelector('[role="region"][aria-label="Сегодняшний день"]')!;
-  expect(day.querySelector('[aria-label="Календарь дня"]')).not.toBeNull();
-  expect(day.querySelector('[aria-label="Шкала часов"]')?.children).toHaveLength(24);
-  expect(day.querySelector('[class*="timelineScroller"]')).not.toBeNull();
+  // An empty day no longer draws 24 empty hours; it says so and leads to the calendar.
+  expect(day.querySelector('[aria-label="Календарь дня"]')).toBeNull();
+  expect(day.textContent).toBe("Сегодня событий нет · открыть календарь");
+  expect(day.querySelector("a")?.getAttribute("href")).toBe("/calendar?view=day&date=2026-10-30");
   expect(page.container.querySelector('[aria-label="Задачи по срокам"]')?.textContent).toContain("Ближайшие задачи");
   expect(page.container.textContent).toContain("Просроченных задач нет.");
   expect(page.container.textContent).toContain("Нет задач с будущим дедлайном.");
@@ -51,7 +52,7 @@ it("shows the compact accounting entry for explicit assignment capabilities and 
   expect(page.container.querySelector('header a[href="/merits"]')).toBeNull();
   await page.cleanup();
   page = await mountWorkspace(<DashboardPage />, { session: { ...plain, assignments: [{ role_assignment_id: "scoped-head", role: "event_leader", scope_kind: "event", scope_id: "event-one", revision: 1, capabilities: ["create_head_merit"] }] } });await waitForPage(page);
-  expect(page.container.querySelector('header a[href="/merits"]')?.textContent).toBe("Учёт работы");
+  expect(page.container.querySelector('header a[href="/merits"]')?.textContent).toBe("Учёт выполненной работы");
 });
 
 it("leaves personal teams readable when the day request fails and offers a retry", async () => {

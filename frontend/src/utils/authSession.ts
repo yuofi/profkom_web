@@ -3,7 +3,7 @@ import Cookies from "js-cookie";
 import { authApi } from "./api/auth.api";
 import { sessionApi } from "./api/session.api";
 import { normalizeApiError } from "./api/request";
-import { beginAuthTransition } from "./api";
+import { beginAuthTransition, rememberSignedIn } from "./api";
 
 const notSession = (q: { queryKey: readonly unknown[] }) => q.queryKey[0] !== "session";
 
@@ -17,8 +17,10 @@ async function discardPrivateData(client: QueryClient) {
 /** The provider loads a profile only after this session is confirmed active. */
 export async function completeAuthentication(client: QueryClient, accessToken: string) {
   beginAuthTransition();
+  clearAuthNotice();
   await discardPrivateData(client);
   Cookies.set("access_token", accessToken, { expires: 1 / 8 });
+  rememberSignedIn(true);
   return client.fetchQuery({ queryKey: ["session"], queryFn: sessionApi.get, staleTime: 0 });
 }
 
@@ -28,6 +30,7 @@ export async function completeAuthentication(client: QueryClient, accessToken: s
 export async function handleRevokedSession(client: QueryClient) {
   beginAuthTransition();
   Cookies.remove("access_token");
+  rememberSignedIn(false);
   await client.cancelQueries({ predicate: notSession });
   client.setQueryData(["session"], null);
   client.removeQueries({ predicate: notSession });
@@ -43,5 +46,26 @@ export async function endSession(client: QueryClient) {
   }
   beginAuthTransition();
   Cookies.remove("access_token");
+  rememberSignedIn(false);
   await discardPrivateData(client);
+}
+
+/** A note for the login page after a sign-out on purpose (PE-21): the revoked session
+ *  redirects to /auth on its own, so the note waits in the tab's storage, not in the route. */
+export interface AuthNotice { notice: string; email: string | null }
+const AUTH_NOTICE = "profkom-auth-notice";
+/** The note greets this return to the login, not a visit much later in the same tab. */
+const AUTH_NOTICE_TTL_MS = 15 * 60 * 1000;
+export function leaveAuthNotice(notice: AuthNotice) {
+  try { sessionStorage.setItem(AUTH_NOTICE, JSON.stringify({ ...notice, at: Date.now() })); } catch { /* no storage: no note */ }
+}
+export function peekAuthNotice(): AuthNotice | null {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(AUTH_NOTICE) ?? "null") as { notice?: unknown; email?: unknown; at?: unknown } | null;
+    if (typeof value?.at === "number" && Date.now() - value.at > AUTH_NOTICE_TTL_MS) { clearAuthNotice(); return null; }
+    return typeof value?.notice === "string" ? { notice: value.notice, email: typeof value.email === "string" ? value.email : null } : null;
+  } catch { return null; }
+}
+export function clearAuthNotice() {
+  try { sessionStorage.removeItem(AUTH_NOTICE); } catch { /* no storage */ }
 }

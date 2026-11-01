@@ -21,6 +21,9 @@ from event_workspace_models import EventWorkspaceMetaORM
 
 _MARKER = "queue_owner_recovery_needed"
 _RUNNING = "queue_owner_recovery_running"
+# What the command changed: the users whose access may differ, the queues and the
+# scopes concerned; "full" when the change can move anyone's access.
+_SCOPE = "queue_owner_recovery_scope"
 _STARTUP_PENDING = False
 _RELEVANT = {
     UserORM: ("account_state", "banned", "blocks"),
@@ -96,8 +99,35 @@ def _record_transfer(session, queue, previous, successor, tier):
     ))
 
 
-def reconcile(session):
-    """Return transfer count; caller owns commit/rollback and any write lock."""
+def _concerned(session, scope):
+    """Which queues a scoped recheck visits, or None for all of them.
+
+    A queue's decision depends only on its owner's access and, when the owner is
+    unavailable, on its successor candidates (its block's master, HR masters, the
+    chair). So the queues owned by affected users, the changed queues, the queues of
+    changed scopes and of blocks an affected user masters are rechecked; an affected
+    HR master or chair (a candidate for every queue) rechecks all.
+    """
+    if scope is None or scope["full"]:
+        return None
+    users = {uid for uid in scope["users"] if uid is not None}
+    leadership = session.get(LeadershipORM, 1)
+    candidates = {leadership.chair_user_id} if leadership else set()
+    candidates |= {block.master_user_id for block in session.query(BlockORM).filter_by(is_hr=True)}
+    if users & candidates:
+        return None
+    scopes = set(scope["scopes"])
+    if users:
+        scopes |= {("block", name) for name, in session.query(BlockORM.name).filter(BlockORM.master_user_id.in_(sorted(users)))}
+    return users, set(scope["queues"]), scopes
+
+
+def reconcile(session, scope=None):
+    """Return transfer count; caller owns commit/rollback and any write lock.
+
+    ``scope`` (collected by the flush hooks) limits the recheck to the queues a
+    command can have affected; None rechecks every queue.
+    """
     if session.info.get(_RUNNING):
         return 0
     session.info[_RUNNING] = True
@@ -106,7 +136,11 @@ def reconcile(session):
         with _same_session(session):
             session.flush()
             session.expire_all()  # include ORM bulk commands using synchronize_session=False
+            concerned = _concerned(session, scope)
             for queue in session.query(TaskQueueORM).order_by(TaskQueueORM.queue_id):
+                if concerned is not None and not (queue.owner_user_id in concerned[0] or queue.queue_id in concerned[1]
+                                                  or (queue.scope_kind, queue.scope_id) in concerned[2]):
+                    continue
                 if owner_available(session, queue):
                     continue
                 successor = _successor(session, queue)
@@ -125,6 +159,7 @@ def reconcile(session):
     finally:
         session.info.pop(_RUNNING, None)
         session.info.pop(_MARKER, None)
+        session.info.pop(_SCOPE, None)
 
 
 def reconcile_existing():
@@ -164,14 +199,15 @@ def install_hooks():
         if session.info.get(_RUNNING):
             return
         relevant = tuple(_RELEVANT)
-        if any(isinstance(obj, relevant) for obj in (*session.new, *session.deleted)):
-            session.info[_MARKER] = True
-            return
+        for obj in (*session.new, *session.deleted):
+            if isinstance(obj, relevant) and not _material_role(obj):
+                session.info[_MARKER] = True
+                _note(session, obj, "deleted" if obj in session.deleted else "new")
         for obj in session.dirty:
             fields = _RELEVANT.get(type(obj))
-            if fields and any(inspect(obj).attrs[field].history.has_changes() for field in fields):
+            if fields and any(inspect(obj).attrs[field].history.has_changes() for field in fields) and not _material_role(obj):
                 session.info[_MARKER] = True
-                return
+                _note(session, obj, "dirty")
 
     @event.listens_for(Session, "do_orm_execute")
     def track_bulk_access_changes(state):
@@ -180,6 +216,7 @@ def install_hooks():
         table = getattr(state.statement, "table", None)
         if table is not None and table.name in {model.__tablename__ for model in _RELEVANT}:
             state.session.info[_MARKER] = True
+            _scope(state.session)["full"] = True  # a bulk command names no rows
 
     @event.listens_for(Session, "before_commit")
     def recover_after_final_command_state(session):
@@ -189,9 +226,77 @@ def install_hooks():
         # commit, after archive has removed all roles and marked the account inactive.
         session.flush()
         if session.info.get(_MARKER):
-            reconcile(session)
+            reconcile(session, session.info.get(_SCOPE))
 
     @event.listens_for(Session, "after_rollback")
     @event.listens_for(Session, "after_commit")
     def clear_marker(session):
         session.info.pop(_MARKER, None)
+        session.info.pop(_SCOPE, None)
+
+
+def _scope(session):
+    return session.info.setdefault(_SCOPE, dict(users=set(), queues=set(), scopes=set(), full=False))
+
+
+def _values(obj, name):
+    """Every value of an attribute in this flush: before and after the change."""
+    history = inspect(obj).attrs[name].history
+    return [*history.deleted, *history.added, *history.unchanged]
+
+
+def _listed(raw):
+    try:
+        values = json.loads(raw) if raw else []
+    except Exception:
+        return set()
+    return set(values) if isinstance(values, list) else set()
+
+
+def _changed(obj, name):
+    return inspect(obj).attrs[name].history.has_changes()
+
+
+def _material_role(obj):
+    """A material editor (before and after the change) reads no queue or task scope."""
+    return isinstance(obj, RoleAssignmentORM) and all(kind == "material" for kind in _values(obj, "scope_kind"))
+
+
+def _note(session, obj, state):
+    """Record whom and what one changed row concerns (see _concerned)."""
+    scope = _scope(session)
+    users, scopes = scope["users"], scope["scopes"]
+    if isinstance(obj, UserORM):
+        users.update(_values(obj, "user_id"))
+    elif isinstance(obj, BlockORM):
+        # A new, removed or renamed block or a changed HR flag moves the HR roles
+        # and every member's scope: recheck all.
+        if state != "dirty" or _changed(obj, "name") or _changed(obj, "is_hr"):
+            scope["full"] = True
+        users.update(_values(obj, "master_user_id"))
+        for raw in _values(obj, "arr_of_human"):
+            users.update(_listed(raw))
+        scopes.update(("block", name) for name in _values(obj, "name"))
+    elif isinstance(obj, BlockMetaORM):
+        users.update(_values(obj, "hr_user_id"))
+        scopes.update(("block", name) for name in _values(obj, "legacy_name"))
+    elif isinstance(obj, EventWorkspaceMetaORM):
+        users.update(_values(obj, "hr_user_id"))
+        scopes.update(zip(_values(obj, "owner_kind"), _values(obj, "owner_id")))
+    elif isinstance(obj, LeadershipORM):
+        scope["full"] = True
+    elif isinstance(obj, RoleAssignmentORM):
+        users.update(_values(obj, "user_id"))
+        scopes.update((kind, scope_id) for kind in _values(obj, "scope_kind") for scope_id in _values(obj, "scope_id"))
+    elif isinstance(obj, SubeventORM):
+        if state == "deleted" or _changed(obj, "event_id"):
+            scope["full"] = True
+        for raw in _values(obj, "organizer_user_ids_json"):
+            users.update(_listed(raw))
+        scopes.update(("subevent", sid) for sid in _values(obj, "subevent_id"))
+        scopes.update(("event", eid) for eid in _values(obj, "event_id"))
+    elif isinstance(obj, TaskQueueORM):
+        scope["queues"].update(_values(obj, "queue_id"))
+        users.update(_values(obj, "owner_user_id"))
+    else:
+        scope["full"] = True

@@ -15,8 +15,15 @@ function Location() { return <output data-location>{useLocation().search}</outpu
 function seed() { vi.useFakeTimers({ toFake: ["Date"] });vi.setSystemTime(new Date("2026-10-29T11:00:00Z"));mock = installMockTransport("chair", { delay: 0 });return mock; }
 const button = (label: string) => [...page!.container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === label || button.getAttribute("aria-label") === label)!;
 async function click(label: string) { await act(async () => button(label).click());await waitForPage(page!); }
-it("keeps an empty Today widget as a complete shared day calendar", async () => {
-  seed();vi.spyOn(workspaceApi, "home").mockResolvedValue({ today: "2026-10-29", agenda: [], tasks: [], overdue_tasks: [], overdue_count: 0, approvals: [], merit_entries: [] });
+it("shows an empty Today as one line to the calendar and a day with entries as the complete shared day calendar (EV-28)", async () => {
+  seed();const home = vi.spyOn(workspaceApi, "home").mockResolvedValue({ today: "2026-10-29", agenda: [], tasks: [], overdue_tasks: [], overdue_count: 0, approvals: [], merit_entries: [] });
+  page = await mountWorkspace(<DashboardPage />);await waitForPage(page);
+  const region = page.container.querySelector('[role="region"][aria-label="Сегодняшний день"]')!;
+  expect(region.querySelector('[aria-label="Календарь дня"]')).toBeNull();
+  expect(region.textContent).toBe("Сегодня событий нет · открыть календарь");
+  expect(region.querySelector("a")?.getAttribute("href")).toBe("/calendar?view=day&date=2026-10-29");
+  await page.cleanup();
+  home.mockResolvedValue({ today: "2026-10-29", agenda: [{ id: "meeting", season_id: "season", kind: "meeting", title: "Созвон", starts_at: "2026-10-29T15:00:00Z", ends_at: null, target: { kind: "event", id: "event" } }], tasks: [], overdue_tasks: [], overdue_count: 0, approvals: [], merit_entries: [] });
   page = await mountWorkspace(<DashboardPage />);await waitForPage(page);
   const today = page.container.querySelector('[aria-label="Календарь дня"]')!;
   expect(today).not.toBeNull();expect(today.querySelector('[aria-label="Шкала часов"]')?.children).toHaveLength(24);
@@ -33,6 +40,8 @@ it.each([
   expect(page.container.querySelector('[class*="timelineBody"]')).not.toBeNull();expect(page.container.querySelector('[class*="timelineScroller"]')).toBeNull();
   expect(page.container.querySelector('[aria-label="Шкала часов"]')?.children).toHaveLength(24);
   expect(page.container.textContent).toContain("00:00");expect(page.container.textContent).toContain("23:00");
+  // Only the weekday is upper-case; the month abbreviation stays lower-case.
+  expect(page.container.querySelector('[aria-label="2026-10-29"]')?.textContent).toBe("Чт, 29 окт.");
   expect(internalScroll).not.toHaveBeenCalled();expect(pageScroll).not.toHaveBeenCalled();
 });
 it("preserves Today hour scrolling through data refresh and only recenters for a new day", async () => {

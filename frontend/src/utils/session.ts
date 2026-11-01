@@ -4,6 +4,8 @@ export interface SessionState {
   session: Session | null;
   loading: boolean;
   error: unknown;
+  /** The own profile record failed to load (the session itself is fine). */
+  profileError?: unknown;
   refresh: () => void;
 }
 export const SessionContext = createContext<SessionState>({

@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useDebouncedValue } from "../../utils/hooks/useDebouncedValue";
 import type { TaskType } from "../../utils/api/contract";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { canRetainData } from "../../utils/api/request";
@@ -17,7 +18,11 @@ export function TrackerParentSelector({ value, onChange, seasonId, taskId, initi
   const [picked, setPicked] = useState<ParentRef | null>(null);
   const [open, setOpen] = useState(false), [search, setSearch] = useState(""), [active, setActive] = useState(0);
   const selected = useQuery({ queryKey: ["tasks", value], queryFn: () => tasksApi.get(value), enabled: !!value });
-  const query = useQuery({ queryKey: ["tasks", "parent-combobox", seasonId === null ? "without-season" : seasonId ?? "", taskId ?? "", taskType ?? "", search], queryFn: () => tasksApi.listPage({ ...(seasonId ? { season_id: seasonId } : {}), q: search || undefined, ...(taskType ? { task_type: taskType } : {}), limit: 100 }), enabled: open && !disabled });
+  // Typing settles for 250 ms before one short read; a newer search cancels the older one, and the last list stays meanwhile.
+  const settledSearch = useDebouncedValue(search);
+  const query = useQuery({ queryKey: ["tasks", "parent-combobox", seasonId === null ? "without-season" : seasonId ?? "", taskId ?? "", taskType ?? "", settledSearch], queryFn: ({ signal }) => tasksApi.listPage({ ...(seasonId ? { season_id: seasonId } : {}), q: settledSearch || undefined, ...(taskType ? { task_type: taskType } : {}), limit: 20 }, signal), enabled: open && !disabled, placeholderData: keepPreviousData });
+  // A typed search that has not been read yet still shows the previous list; it can be looked at, not picked with Enter.
+  const searching = search !== settledSearch || query.isPlaceholderData;
   const options = (query.error && !canRetainData(query.error) ? [] : query.data?.items ?? []).filter(task => task.queue?.key!=="KKR" && task.task_id !== taskId && (seasonId === undefined || task.season_id === seasonId) && (!taskType || task.task_type === taskType));
   const refused = !!selected.error && !canRetainData(selected.error);
   const parent = refused ? null : selected.data?.task_id === value ? selected.data : selected.isLoading && picked?.task_id === value ? picked : initialParent?.task_id === value ? initialParent : null;
@@ -37,7 +42,7 @@ export function TrackerParentSelector({ value, onChange, seasonId, taskId, initi
       onBlur={event => { if (!root.current?.contains(event.relatedTarget as Node)) setOpen(false); }}
       onKeyDown={event => {
         if (event.key === "Escape" && open) { event.preventDefault();event.stopPropagation();setOpen(false);return; }
-        if (event.key === "Enter") { event.preventDefault();if (open && options[active]) pick(options[active].task_id);else { setSearch("");setOpen(true); }return; }
+        if (event.key === "Enter") { event.preventDefault();if (open && searching) return;if (open && options[active]) pick(options[active].task_id);else { setSearch("");setOpen(true); }return; }
         if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
         event.preventDefault();setOpen(true);
         if (!options.length) return;
@@ -47,9 +52,9 @@ export function TrackerParentSelector({ value, onChange, seasonId, taskId, initi
     </div>
     <input type="hidden" name="parent_task_id" value={value} />
     {open && !disabled && <div className={s.popup}>
-      {query.isLoading && <p role="status">Ищем задачи…</p>}{query.error && <p role="alert">{userMessage(query.error)}</p>}
-      <ul id={`${id}-options`} role="listbox" aria-label={fieldLabel === "Родительская задача" ? "Доступные родительские задачи" : "Доступные задачи для связи"}>{options.map((task, index) => <li id={`${id}-option-${index}`} key={task.task_id} role="option" aria-selected={value === task.task_id} data-active={active === index} onMouseDown={event => event.preventDefault()} onMouseEnter={() => setActive(index)} onClick={() => pick(task.task_id)}><strong>{task.task_key ?? "Задача"}</strong><span>{task.title}</span>{task.queue && <small>{task.queue.name}</small>}</li>)}</ul>
-      {!query.isLoading && !query.error && !options.length && <p>Подходящих задач нет.</p>}
+      {(query.isLoading || searching) && <p role="status">Ищем задачи…</p>}{query.error && <p role="alert">{userMessage(query.error)}</p>}
+      <ul id={`${id}-options`} role="listbox" aria-busy={searching} aria-label={fieldLabel === "Родительская задача" ? "Доступные родительские задачи" : "Доступные задачи для связи"}>{options.map((task, index) => <li id={`${id}-option-${index}`} key={task.task_id} role="option" aria-selected={value === task.task_id} data-active={active === index} onMouseDown={event => event.preventDefault()} onMouseEnter={() => setActive(index)} onClick={() => pick(task.task_id)}><strong>{task.task_key ?? "Задача"}</strong><span>{task.title}</span>{task.queue && <small>{task.queue.name}</small>}</li>)}</ul>
+      {!query.isLoading && !searching && !query.error && !options.length && <p>Подходящих задач нет.</p>}
       {query.data?.next_cursor && <p>Показана часть задач. Уточните название или ключ.</p>}
     </div>}
   </div>;

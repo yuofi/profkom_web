@@ -290,7 +290,9 @@
   border-color: transparent;
   color: color-mix(in srgb, var(--on-surface) 70%, transparent);
 }
-.button:disabled {
+/* A loading «Показать ещё» or a pager end stays enabled to keep the keyboard focus (aria-disabled) and reads the same. */
+.button:disabled,
+.button[aria-disabled="true"] {
   opacity: 0.5;
   cursor: progress;
 }
@@ -568,6 +570,23 @@ span.cardIcon {
   font-weight: 600;
   white-space: nowrap;
 }
+/* One table look in every Markdown text (tasks, events, reports): grid lines and a filled
+   head on the existing tokens, and an edge shadow while columns are still off to the side. */
+.markdown th,
+.markdown td {
+  border: 1px solid var(--outline-variant);
+}
+.markdown th {
+  background: var(--surface-container-high);
+}
+.markdown table {
+  background:
+    linear-gradient(to right, var(--surface-container-low) 30%, transparent) left / 40px 100% no-repeat local,
+    linear-gradient(to left, var(--surface-container-low) 30%, transparent) right / 40px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgb(0 0 0 / 55%), transparent) left / 14px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgb(0 0 0 / 55%), transparent) right / 14px 100% no-repeat scroll;
+  background-color: var(--surface-container-low);
+}
 .markdown blockquote {
   margin: 0;
   padding: 2px 0 2px 16px;
@@ -827,6 +846,10 @@ span.cardIcon {
 }
 .page a {
   color: var(--primary);
+}
+/* A link drawn as the main action keeps its dark ink on the yellow fill. */
+.page a.primary {
+  color: var(--on-primary);
 }
 .warning {
   padding: 12px;
@@ -1167,6 +1190,20 @@ span.cardIcon {
 .formFields > .field {
   min-width: 0;
 }
+/* ActionForm `compact`: short fields of one group share a row; everything else keeps the full width. */
+.compactFields {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr));
+}
+.compactFields > :not(.compactField) {
+  grid-column: 1 / -1;
+}
+.compactFields > .compactStart {
+  grid-column-start: 1;
+}
+/* A longer label that wraps (a recipient's name) must not push its field below its neighbours. */
+.compactFields > .compactField {
+  align-content: end;
+}
 .eyebrow {
   font-size: 12px;
   opacity: 0.82;
@@ -1264,6 +1301,14 @@ span.cardIcon {
     border-radius: 12px;
     background: var(--surface-container-low);
   }
+  /* The folded «Фильтры» reads in the middle of its box, its marker beside it (PE-28). */
+  .filterDetails > summary {
+    align-items: center;
+  }
+  .filterDetails > summary::before {
+    align-self: center;
+    margin-block: 0;
+  }
   .filterDetails .filters {
     margin-top: 12px;
     margin-bottom: 0;
@@ -1294,3 +1339,27 @@ span.cardIcon {
     padding-inline: 10px;
   }
 }
+
+/* An opt-in toggle button shows when it is on, besides announcing aria-pressed (EV-15). */
+.toggle[aria-pressed="true"] { background: var(--primary-container); color: var(--on-primary-container); border-color: var(--primary); }
+
+/* An icon-only button keeps its square where a phone row stretches its buttons (PE-31). */
+.iconButton {
+  flex: none;
+}
+@media (max-width: 768px) {
+  .row .iconButton {
+    flex-grow: 0;
+  }
+  /* The tabs of a section are one line that scrolls sideways on a phone (PE-32). */
+  .tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    scrollbar-width: thin;
+  }
+  .tabs a {
+    scroll-snap-align: start;
+  }
+}
+

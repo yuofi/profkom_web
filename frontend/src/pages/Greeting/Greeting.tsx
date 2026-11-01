@@ -10,11 +10,12 @@ import { useState } from "react";
 import { authApi } from "../../utils/api/auth.api";
 import { VKAuthButton } from "../../components/VKAuth/authButton";
 import { type TokenResult } from "@vkid/sdk";
-import { completeAuthentication } from "../../utils/authSession";
+import { completeAuthentication, peekAuthNotice } from "../../utils/authSession";
 import { ERROR_TEXTS, userMessage } from "../../utils/api/messages";
-import { useNavigate } from "react-router-dom";
-import { Helmet } from "react-helmet-async";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
+import { isActiveSession, useSession } from "../../utils/session";
+import { returnPath } from "../../utils/returnPath";
 
 // The login routes answer with plain strings (old site): the texts go by status.
 const LOGIN_TEXTS = {
@@ -30,22 +31,29 @@ const VK_TEXTS = {
 };
 
 export const GreetingPage = () => {
-  const [signUp, setSignUp] = useState(true);
+  // After a password change the page opens on the password form with the address (PE-21).
+  // The note stays until the next login: the redirect may mount this page more than once.
+  const [arrival] = useState(peekAuthNotice);
+  const [signUp, setSignUp] = useState(!arrival);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  // The page a missing or ended session was sent here from (ProtectedRoute), checked (GL-13).
+  const target = returnPath((useLocation().state as { from?: unknown } | null)?.from);
+  const { session, loading } = useSession();
 
   const gradientClipPath =
     "M0.5 344.087V0.5H294.828C345.087 35.9281 365.664 60.4296 398.609 106.688L400.5 438.5H158.273C119.065 370.449 83.4742 347.686 0.5 344.087Z";
 
   // A new account signs up with VK and fills its application after; the form only logs in.
   const { formik, isSuccess, globalError, setGlobalError } = useForm({
-    initialValues: { email: "", password: "" },
+    initialValues: { email: arrival?.email ?? "", password: "" },
     validationSchema: SignInValidationSchema,
     errorTexts: LOGIN_TEXTS,
     onSubmit: async (data) => {
       const response = await authApi.login({ email: data.email, password: data.password });
       await completeAuthentication(queryClient, response.data.access_token);
-      navigate("/", { replace: true });
+      // A temporary password is changed next: its page hands the address back to this form (PE-21).
+      navigate(target, { replace: true, state: { email: data.email } });
     },
   });
 
@@ -56,7 +64,7 @@ export const GreetingPage = () => {
         access_token: data.access_token, id_token: data.id_token,
       });
       await completeAuthentication(queryClient, response.data.access_token);
-      navigate("/", { replace: true });
+      navigate(target, { replace: true });
     } catch (error) {
       setGlobalError(userMessage(error, VK_TEXTS));
     }
@@ -65,13 +73,16 @@ export const GreetingPage = () => {
     setGlobalError("Не удалось войти через VK. Повторите попытку.");
   };
 
+  // Signed in already (a bookmark, «Назад» after the login): the workspace, not the form.
+  // Pending, rejected and temporary-password sessions keep this page (GL-26).
+  if (!loading && isActiveSession(session) && !session?.password_change_required)
+    return <Navigate to={target} replace />;
+
   return (
     <div className={styles.container}>
-      <Helmet>
-        <title>
+      <title>
           {signUp ? "Регистрация | Профком ВМК" : "Вход | Профком ВМК"}
         </title>
-      </Helmet>
       <CurvedRectangle
         theme="dark"
         cutoutPosition="bottom-right"
@@ -131,8 +142,10 @@ export const GreetingPage = () => {
                 </Button>
               </>
             )}
-            <h5
+            <button
+              type="button"
               className={styles.formSubheading}
+              aria-expanded={!signUp}
               onClick={() => {
                 setSignUp(!signUp);
                 formik.resetForm();
@@ -140,8 +153,9 @@ export const GreetingPage = () => {
                 setGlobalError(null);
               }}
             >
-              {signUp ? "или войти c паролем" : "войти с вк"}
-            </h5>
+              {signUp ? "или войти с паролем" : "войти с вк"}
+            </button>
+            {arrival?.notice && <div role="status">{arrival.notice}</div>}
             {isSuccess && <div>Успешно!</div>}
             {globalError && <div role="alert" style={{ color: "var(--error)" }}>{globalError}</div>}
           </form>

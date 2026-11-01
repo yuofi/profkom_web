@@ -9,7 +9,8 @@ import re
 import uuid
 from fastapi import Depends
 from sqlalchemy.orm import selectinload
-from pydantic import Field
+from typing import Optional
+from pydantic import Field, model_validator
 from validation import Command
 from auth import get_current_user
 from models import User
@@ -114,11 +115,29 @@ def approve_assignment_access(session,task,target_uid,actor_uid):
     return grant
 
 
-def _managers(session,task):
+def _managers(session,task,facts=None):
     from task_queues import task_queue,active
+    from tracker import _facts_for
+    from support import is_support_queue,is_staff
+    facts=_facts_for(facts,task)
     queue=task_queue(session,task)
-    return {uid for uid in (task.created_by_user_id,queue.owner_user_id if queue else None)
-            if uid and active(session,uid) and db.can_read_task(uid,task,session)}
+    author=task.created_by_user_id
+    # A support ticket's access is shared by support staff, not by its author (GL-22).
+    if author and queue and is_support_queue(session,queue) and not cached(
+            session,"support.is_staff",author,lambda:is_staff(session,author),copy_result=False):author=None
+    return {uid for uid in (author,queue.owner_user_id if queue else None)
+            if uid and active(session,uid) and (facts.readable(uid) if facts else db.can_read_task(uid,task,session))}
+
+
+def _require_manager(session,task,uid,message):
+    if uid in _managers(session,task):return
+    from task_queues import task_queue
+    from support import is_support_queue
+    queue=task_queue(session,task)
+    # A support ticket's own author is told who shares it (GL-22).
+    if uid==task.created_by_user_id and queue and is_support_queue(session,queue):
+        raise Forbidden("Support ticket sharing is managed by support staff")
+    raise Forbidden(message)
 
 
 def _task_key(session,task):
@@ -220,7 +239,7 @@ def decide(task_id,request_id,uid,expected_revision,approve):
     with db.atomic():
       with db._session() as session:
         task=visible_task(session,task_id,uid)
-        if uid not in _managers(session,task):raise Forbidden("Only task author or queue owner can approve mentions")
+        _require_manager(session,task,uid,"Only task author or queue owner can approve mentions")
         row=session.get(TaskMentionRequestORM,request_id)
         if not row or row.task_id!=task_id:raise NotFound("Task access request not found")
         if row.revision!=expected_revision:raise revision_conflict()
@@ -242,7 +261,7 @@ def revoke(task_id,target_uid,uid):
     with db.atomic():
       with db._session() as session:
         task=visible_task(session,task_id,uid)
-        if uid not in _managers(session,task):raise Forbidden("Only task author or queue owner can revoke access")
+        _require_manager(session,task,uid,"Only task author or queue owner can revoke access")
         row=session.get(TaskAccessGrantORM,(task_id,target_uid))
         if not row or not row.active:raise NotFound("Task grant not found")
         if row.source=="control":raise Conflict("Control access is managed automatically","control_epic_managed")
@@ -253,12 +272,24 @@ def revoke(task_id,target_uid,uid):
 
 
 def candidates(task_id,uid):
-    from tracker import visible_task
-    from task_queues import active
+    """Active people for mentions and assignment. can_assign: the person already reads
+    the task, or the actor approves access (author/queue owner). Support tickets and
+    control epics never share access by a mention, so only their readers are offered."""
+    from tracker import visible_task,is_control_task
+    from task_queues import active,task_readers,task_queue
+    from support import is_support_queue
     with db._session() as session:
-        visible_task(session,task_id,uid)
-        return dict(items=[asdict(ref) for row in session.query(UserORM).options(selectinload(UserORM.contact)).order_by(UserORM.user_id)
-            if active(session,row.user_id) and (ref:=_user_to_ref_dc(row))],next_cursor=None)
+        task=visible_task(session,task_id,uid)
+        rows=[row for row in session.query(UserORM).options(selectinload(UserORM.contact)).order_by(UserORM.user_id) if active(session,row.user_id)]
+        readers=task_readers(session,task,[row.user_id for row in rows])
+        queue=task_queue(session,task)
+        closed=bool(queue and is_support_queue(session,queue)) or is_control_task(session,task.task_id)
+        approver=not closed and uid in _managers(session,task)
+        from database import _user_ref_with_avatar
+        from directory import avatar_urls
+        rows=[row for row in rows if not closed or row.user_id in readers];avatars=avatar_urls(session,rows)
+        return dict(items=[dict(asdict(ref),can_assign=row.user_id in readers or approver) for row in rows
+            if (ref:=_user_ref_with_avatar(row,avatars[row.user_id]))],next_cursor=None)
 
 
 class MentionDecisionIn(Command):
@@ -267,7 +298,15 @@ class MentionDecisionIn(Command):
 
 class DescriptionChecklistIn(Command):
     expected_revision:int=Field(ge=1)
-    body:str=Field(max_length=1000000)
+    body:Optional[str]=Field(None,max_length=1000000)
+    offset:Optional[int]=Field(None,ge=0,le=2000000,description="Position of the [ ]/[x] mark in the description, in UTF-16 code units (a JavaScript string index).")
+    checked:Optional[bool]=Field(None,strict=True)
+
+    @model_validator(mode="after")
+    def one_form(self):
+        if (self.body is None)==(self.offset is None) or (self.offset is None)!=(self.checked is None):
+            raise ValueError("Send either the marked body or offset with checked")
+        return self
 
 
 class QueueCancelIn(Command):
@@ -278,7 +317,7 @@ def register_routes(router):
     @router.post("/tasks/{task_id}/description-checklist")
     def description_checklist(task_id:str,payload:DescriptionChecklistIn,cur:User=Depends(get_current_user)):
         from main import _to_task_public_out
-        return _to_task_public_out(toggle_description_checklist(task_id,cur.user_id,payload.expected_revision,payload.body))
+        return _to_task_public_out(toggle_description_checklist(task_id,cur.user_id,payload.expected_revision,payload.body,payload.offset,payload.checked))
 
     @router.post("/tasks/{task_id}/assignees/{user_id}/add")
     def assign_task_person(task_id:str,user_id:int,payload:MentionDecisionIn,cur:User=Depends(get_current_user)):
@@ -318,31 +357,29 @@ def register_routes(router):
         return cancel_request(queue_id,request_id,cur.user_id,payload.expected_revision)
 
 
-def toggle_description_checklist(task_id,uid,expected_revision,body):
-    """Reader command changes only checkbox marker bytes, never description text."""
-    import re
+def toggle_description_checklist(task_id,uid,expected_revision,body=None,offset=None,checked=None):
+    """Reader command changes only checkbox marker bytes, never description text.
+
+    The client names one marker by its source offset in UTF-16 code units, as a
+    browser indexes the text (or, compatibly, sends the whole body); either way only
+    bytes of task markers outside code may change.
+    """
     from tracker import visible_task,activity,is_control_task
-    def neutral(value):
-        # Fenced examples are literal code, not interactive checklist content.
-        output=[];fence=None
-        for line in value.splitlines(keepends=True):
-            marker=re.match(r'^ {0,3}(`{3,}|~{3,})',line)
-            if marker:
-                token=marker.group(1)
-                if fence is None:fence=token
-                elif token[0]==fence[0] and len(token)>=len(fence):fence=None
-                output.append(line);continue
-            if fence is None:
-                line=re.sub(r'^( {0,3}(?:[-+*]|\d+[.)])[ \t]+\[)[ xX](\])',r'\1 \2',line,count=1)
-            output.append(line)
-        return ''.join(output)
+    from markdown_checklist import checklist_marker_offsets,checklist_marker_utf16_offsets
     with db.atomic():
       with db._session() as session:
         task=visible_task(session,task_id,uid)
         if task.revision!=expected_revision:raise revision_conflict()
         if is_control_task(session,task_id):raise Forbidden('Control epic content is managed automatically')
         content=json.loads(task.description_json or '{}');before=content.get('body','')
-        if neutral(before)!=neutral(body):raise Forbidden('Only checklist marks may be changed','checklist_only')
+        if offset is not None:
+            index=checklist_marker_utf16_offsets(before).get(offset)
+            if index is None:raise Forbidden('Only checklist marks may be changed','checklist_only')
+            body=before if (before[index]!=' ')==checked else before[:index]+('x' if checked else ' ')+before[index+1:]
+        else:
+            markers=checklist_marker_offsets(before)
+            if len(body)!=len(before) or any(old!=new and (index not in markers or new not in ' xX') for index,(old,new) in enumerate(zip(before,body))):
+                raise Forbidden('Only checklist marks may be changed','checklist_only')
         if before!=body:
             content['body']=body;task.description_json=json.dumps(content,ensure_ascii=False);task.revision+=1
             activity(session,task,'task_updated',uid,'Изменены отметки чеклиста',changes=[dict(field='description',label='Описание',before=before,after=body)])

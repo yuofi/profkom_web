@@ -5,6 +5,7 @@ import { text } from "../../components/Workspace/formValues";
 import { membershipApi } from "../../utils/api/membership.api";
 import { can, useSession } from "../../utils/session";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
+import s from "../../components/Workspace/Workspace.module.css";
 
 export function ParticipantCategoryPanel({ userId }: { userId: number }) {
   const { session } = useSession();
@@ -20,7 +21,7 @@ export function ParticipantCategoryPanel({ userId }: { userId: number }) {
     <QueryState keepDataOnError={!!query.data}
         loading={query.isLoading} error={query.error}>
       {category && (
-        <div>
+        <div className={s.stack}>
           <p>
             Глобальная категория:{" "}
             {category.category === "junior" ? "Джуниор" : "Активист"}. Новичок

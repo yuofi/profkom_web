@@ -50,15 +50,14 @@ export function SummaryHistory({ seasonId }: { seasonId: string }) {
           <details className={s.details}>
             <summary>Источники начислений сохранённой версии</summary>
             <ul className={s.list}>{historical.contributions.map(c => <li key={c.contribution_id}>
-              {participant(c.participant_id)} · {c.source_title}: {c.score?.toFixed(2) ?? "—"}
-              <span className={s.muted}> · Формула: {c.calculation_version}</span>
+              {participant(c.participant_id)} · {c.source_title}: {metricValue(c.score)}
             </li>)}</ul>
             {!historical.contributions.length && <Empty>Начислений в этой версии нет.</Empty>}
           </details>
           <details className={s.details}>
             <summary>Бонусы мастеров сохранённой версии</summary>
             {historical.master_bonuses.map(b => <div key={b.bonus_id}>
-              <p>{b.recipient_participant_id ? participant(b.recipient_participant_id) : "Мастер не назначен"}: {b.amount.toFixed(2)} · {b.calculation_version}</p>
+              <p>{b.recipient_participant_id ? participant(b.recipient_participant_id) : "Мастер не назначен"}: {metricValue(b.amount)} ККР</p>
               <ul>{b.basis.map(m => <li key={m.participant_id}>
                 {m.user.display_name}: {metricValue(m.member_task_score)} — {m.included ? "включён" : m.exclusion === "master" ? "исключён как мастер" : "исключён: неположительный вклад"}
               </li>)}</ul>

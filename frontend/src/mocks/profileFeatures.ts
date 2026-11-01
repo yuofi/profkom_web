@@ -31,6 +31,7 @@ export function profileFeatureMock(state: Fixtures, taskHistory?: () => Map<stri
       hiddenHistory.set(parts[2], mockNow);return [200, { status: "hidden" }];
     }
     if (path === "/profile/me/features-context") return [200, copy(context)];
+    if (path === "/profile/me/features-flags") return [200, { has_award_scopes: context.award_scopes.length > 0, can_create_personal_template: context.can_create_personal_template }];
     if (path === "/profile/me/editor") {
       if (method === "patch") {
         if (data.expected_revision !== revision || data.expected_fingerprint !== editor().fingerprint) return fail(409, "revision_conflict");

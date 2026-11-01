@@ -15,8 +15,8 @@
 | `backend/` | FastAPI, SQLAlchemy 2, SQLite. Описание — [backend/README.md](backend/README.md), проверки — [backend/TESTING.md](backend/TESTING.md) |
 | `frontend/` | React 19, TypeScript, Vite. Описание — [frontend/README.md](frontend/README.md) |
 | `docker-compose.yml` | Два контейнера: `backend` (uvicorn, база в `./data`) и `frontend` (nginx со сборкой, TLS и прокси `/api/`) |
-| [DEPLOY.md](docs/archive/operations/DEPLOY_20261025.md) | Выкладка на сервер и откат |
-| [ARCHITECTURE.md](docs/archive/specifications/ARCHITECTURE_V13.md) | Задание и спецификация v1.3 |
+| [DEPLOY.md](DEPLOY.md) | Поставка и откат; пошаговый переход production — [cutover в архиве](docs/archive/operations/DEPLOY_20261025.md) |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Действующие требования и архитектура; исходное задание v1.3 — [в архиве](docs/archive/specifications/ARCHITECTURE_V13.md) |
 | [AGENTS.md](AGENTS.md) | Правила работы с проектом |
 
 ## Локальный запуск
