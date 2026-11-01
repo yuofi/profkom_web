@@ -35,9 +35,16 @@ import c from "./EventCatalogue.module.css";
 
 /** Event and subevent pages show deputies from the response, without the whole directory (PF-13). */
 const withDeputies = { include_deputies: true };
-function useReportsLink(owner_kind: "event" | "subevent", owner_id: string, canCreate: boolean, enabled = true) {
-  const readable = useQuery({ queryKey: ["reports", "owner", owner_kind, owner_id], queryFn: () => reportsApi.list({ owner_kind, owner_id }), enabled: enabled && !!owner_id && !canCreate });
-  return enabled && (canCreate || !readable.error && !!readable.data?.items.length);
+/** The reports link shows to who may write a report or read one; the server lists only the
+ *  readable ones. An event's list is read by every reader who is not a creator, so it starts
+ *  by the address with the event's own read (PF-14); the event's answer decides whether it
+ *  counts, and a creator does not read it again. A subevent's list stays unasked until the
+ *  subevent says the reader works on that team: its public readers ask for no team work. */
+function useReportsLink(owner_kind: "event" | "subevent", owner_id: string, owner: Event | Subevent | undefined, working = true) {
+  const canCreate = can(owner, "create_report"), shown = !!owner && working;
+  const early = owner_kind === "event" && !owner;
+  const readable = useQuery({ queryKey: ["reports", "owner", owner_kind, owner_id], queryFn: () => reportsApi.list({ owner_kind, owner_id }), enabled: !!owner_id && (early || shown && !canCreate) });
+  return shown && (canCreate || !readable.error && !!readable.data?.items.length);
 }
 type EventCataloguePhase = "all" | "current" | "upcoming" | "undated";
 const cataloguePhases: {value:EventCataloguePhase;label:string}[]=[{value:"all",label:"Все"},{value:"current",label:"Сейчас идут"},{value:"upcoming",label:"Ближайшие"},{value:"undated",label:"Без даты"}];
@@ -136,7 +143,7 @@ export function EventPage() {
   const subs = useQuery({ queryKey: ["events", id, "subevents"], queryFn: () => eventsApi.subevents(id) });
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
   const [editor, setEditor] = useState<"leaders" | "season" | null>(null);
-  const event = query.data, reportsLink = useReportsLink("event", event ? id : "", can(event, "create_report"));
+  const event = query.data, reportsLink = useReportsLink("event", id, event);
   const changeClosed = async () => {
     if (!event || statePending) return;
     setStatePending(true);setStateError(false);
@@ -165,7 +172,7 @@ export function SubeventPage() {
   const query = useQuery({ queryKey: ["events", "subevent", id], queryFn: () => eventsApi.subevent(id, withDeputies) });
   const sub = query.data;
   const working = sub?.working_access ?? !!sub?.capabilities.length;
-  const reportsLink = useReportsLink("subevent", sub ? id : "", can(sub, "create_report"), working);
+  const reportsLink = useReportsLink("subevent", id, sub, working);
   const [editor, setEditor] = useState<"leaders" | "organizers" | "hr" | null>(null);
   // The directory is read for an open organizer/HR editor or a response without organizer references (PF-13).
   const people = usePeopleOptions({ includeNonMembers: true, enabled: editor === "organizers" || editor === "hr" || (!!sub && !sub.organizers) });
