@@ -6,7 +6,7 @@ import { tasksApi } from "../../utils/api/tasks.api";
 import { can } from "../../utils/session";
 import { userMessage } from "../../utils/api/messages";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
-import { useTaskCommand } from "./taskCommands";
+import { useTaskCommand, useTaskFormCommand } from "./taskCommands";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
@@ -59,10 +59,10 @@ export function TrackerTaskChecklist({ task }: { task: Task }) {
   </section>;
 }
 function ChecklistEditor({ task,onClose }: { task: Task; onClose: () => void }) {
-  const [items,setItems] = useState(() => checklistDraft(task.checklist)),[busy,setBusy] = useState(false);const { perform,refresh } = useWorkspaceActions();
+  const [items,setItems] = useState(() => checklistDraft(task.checklist)),[busy,setBusy] = useState(false);const { refresh } = useWorkspaceActions(),save = useTaskFormCommand(task.task_id);
   return <TrackerTaskDialog title="Чеклист задачи" onClose={onClose} busy={busy}><ActionForm fields={[]} revision={task.revision} record={`task:${task.task_id}`} externalState={checklistPayload(items)} savedExternalState={checklistPayload(checklistDraft(task.checklist))} onReplaceWithSaved={() => setItems(checklistDraft(task.checklist))} onConflict={refresh} submitLabel="Сохранить чеклист"
     savedDetails={<ul>{task.checklist?.map(item => <li key={item.item_id}>{item.checked ? "✓ " : ""}{item.text}</li>)}</ul>}
-    onSubmit={async (_,expectedRevision) => { const payload = checklistPayload(items);if(payload.some(item=>!item.text))throw Error("Заполните текст каждого пункта");setBusy(true);try { const saved = await perform(()=>tasksApi.update(task.task_id,{expected_revision:expectedRevision!,checklist:payload}));onClose();return saved; } finally {setBusy(false);} }}>
+    onSubmit={async (_,expectedRevision) => { const payload = checklistPayload(items);if(payload.some(item=>!item.text))throw Error("Заполните текст каждого пункта");setBusy(true);try { const saved = await save(expectedRevision!,expected=>tasksApi.update(task.task_id,{expected_revision:expected,checklist:payload}));onClose();return saved; } finally {setBusy(false);} }}>
     <ChecklistDraftFields items={items} onChange={setItems} disabled={busy} />
   </ActionForm></TrackerTaskDialog>;
 }

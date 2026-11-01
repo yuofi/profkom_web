@@ -28,11 +28,12 @@ function showInLists(client: QueryClient, saved: Task) {
 
 /**
  * Own commands of one task run one at a time, in click order, across every control of the
- * card (checklists, status, take/join, classification). Each sends the revision the user
- * acted on, advanced only through this tab's acknowledged own changes: a foreign change
- * still answers 409 and is never retried. An optional patch shows the result at once and
- * is rolled back if the command fails; the workspace reread starts once the queue drains,
- * without holding any control.
+ * card (checklists, status, take/join, classification, links) and its dialogs (title and
+ * description, planning, checklist items, parent, files, new link, result). Each sends the
+ * revision the user acted on, advanced at its turn only through this tab's acknowledged own
+ * changes: a foreign change still answers 409 and is never retried. The answer replaces the
+ * cached task; an optional patch shows the result at once and is rolled back if the command
+ * fails; the workspace reread starts once the queue drains, without holding any control.
  */
 export async function runTaskCommand(client: QueryClient, taskId: string, baseRevision: number, command: (expectedRevision: number) => Promise<Task>, patch?: TaskPatch): Promise<Task> {
   const key = ["tasks", taskId], record = `task:${taskId}`, queue = queueOf(client, taskId), entry: Pending = { patch };
@@ -65,6 +66,15 @@ export async function runTaskCommand(client: QueryClient, taskId: string, baseRe
 export function useTaskCommand(task: Pick<Task, "task_id" | "revision">) {
   const client = useQueryClient();
   return (command: (expectedRevision: number) => Promise<Task>, patch?: TaskPatch) => runTaskCommand(client, task.task_id, task.revision, command, patch);
+}
+
+/** The same queue for a versioned dialog of the task (ActionForm, record `task:<id>`): it
+ *  starts from the revision the form holds, so a save right after a checkmark waits for it
+ *  instead of being refused as stale. A failure, a foreign 409 too, reaches the form, which
+ *  keeps the draft. */
+export function useTaskFormCommand(taskId: string) {
+  const client = useQueryClient();
+  return (formRevision: number, command: (expectedRevision: number) => Promise<Task>) => runTaskCommand(client, taskId, formRevision, command);
 }
 
 /** Marks one Markdown task marker of the description, as the server will. */
