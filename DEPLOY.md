@@ -82,8 +82,8 @@ sha256sum $H/data/site.db
 Блоки Marzban из локальной правки `nginx.conf` переносятся в `$H/nginx-extra/marzban.conf` (раздел 3, шаг 2). Сжатие JSON-ответов `/api/` (PF-12) — как в выкладке: если разрешение не называет PF-12 явно, до сборки образа frontend в `$H` выполняется правка `frontend/nginx.conf` из шага 4 раздела 3 (раздел 8).
 
 ```sh
-cd $H && $P build backend
-tar xzf $DIST -C frontend && docker build -q -f frontend/Dockerfile.prebuilt -t profkom-rehearsal-frontend frontend   # без явного разрешения PF-12 между tar и docker build — правка шага 4 раздела 3
+cd $H && $P build backend && tar xzf $DIST -C frontend   # без явного разрешения PF-12 здесь правка шага 4 раздела 3, затем:
+docker build -q -f frontend/Dockerfile.prebuilt -t profkom-rehearsal-frontend frontend
 docker run --rm --add-host backend:127.0.0.1 -v /home/yulov/certs:/etc/nginx/ssl:ro -v $H/nginx-extra:/etc/nginx/extra:ro profkom-rehearsal-frontend nginx -t
 RUN="$P run --rm --no-deps -T --entrypoint python backend"
 $RUN scripts/migrate_v13.py --database /app/data/site.db --report /app/data/dry.json
@@ -159,7 +159,7 @@ sed -i "s/^JWT_SECRET_KEY=.*/JWT_SECRET_KEY=$(head -c 48 /dev/urandom | base64 |
 # echo "SQLITE_JOURNAL_MODE=WAL" >> backend/.env
 # 4. Образы.
 tar xzf $DIST -C frontend
-# Сжатие JSON-ответов /api/ (PF-12, раздел 8). Если разрешение на выкладку называет PF-12 явно, эту команду пропустить. Иначе она убирает его из location /api/ до сборки образа. При повторе шага, если `git diff --numstat -- frontend/nginx.conf` уже печатает `0 4`, правка сделана — команду пропустить:
+# Сжатие JSON-ответов /api/ (PF-12, раздел 8). Если разрешение на выкладку называет PF-12 явно, эту команду пропустить. Иначе она убирает его из location /api/ до сборки образа. При повторе шага, если `git -c safe.directory='*' diff --numstat -- frontend/nginx.conf` уже печатает `0 4 frontend/nginx.conf`, правка сделана — команду пропустить:
 python3 - <<'PY'
 p = "frontend/nginx.conf"
 s = open(p, "rb").read()
