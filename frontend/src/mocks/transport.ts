@@ -1469,30 +1469,34 @@ export function installMockTransport(
       }
       return [200, visibleTask(task)];
     }
-    if (path === "/assignments/unresolved")
-      return state.manager
-        ? list(
-            state.tasks.flatMap((t) =>
-              t.assignments
-                .filter(
-                  (a) =>
-                    a.capabilities.includes("reassign_assignment") &&
-                    !["accepted", "not_completed", "cancelled"].includes(
-                      a.status,
-                    ),
-                )
-                .map((assignment) => ({
-                  assignment: clone(assignment),
-                  task_id: t.task_id,
-                  task_title: t.title,
-                  season_id: t.season_id,
-                  scope: t.scope,
-                  deadline_at: t.deadline_at,
-                  task_status: publicStatus(t.status),
-                })),
-            ),
-          )
-        : denied();
+    if (path === "/assignments/unresolved") {
+      if (!state.manager) return denied();
+      // As on the server: season and orphaned_only filter, include_total counts the matches.
+      const season = url.searchParams.get("season_id"), orphaned = url.searchParams.get("orphaned_only") === "true";
+      const items = state.tasks
+        .filter((t) => !season || t.season_id === season)
+        .flatMap((t) =>
+          t.assignments
+            .filter(
+              (a) =>
+                a.capabilities.includes("reassign_assignment") &&
+                !["accepted", "not_completed", "cancelled"].includes(
+                  a.status,
+                ) &&
+                (!orphaned || !!a.assignee_unavailable_reason),
+            )
+            .map((assignment) => ({
+              assignment: clone(assignment),
+              task_id: t.task_id,
+              task_title: t.title,
+              season_id: t.season_id,
+              scope: t.scope,
+              deadline_at: t.deadline_at,
+              task_status: publicStatus(t.status),
+            })),
+        );
+      return [200, { items, next_cursor: null, ...(url.searchParams.get("include_total") === "true" ? { total: items.length } : {}) }];
+    }
     if (parts[0] === "assignments") {
       const task = state.tasks.find((t) =>
         t.assignments.some((a) => a.assignment_id === parts[1]),

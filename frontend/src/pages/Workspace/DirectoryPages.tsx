@@ -293,7 +293,8 @@ export function DirectoryPage() {
             {filtered?.map((p) => (
               <Card key={p.user_id} className={d.card}>
                 <div className={d.header}>
-                  <Avatar src={p.photo_url} size={48} loading="lazy" />
+                  {/* Part of the card's stretched profile link: no own zoom, no extra tab stop (smoke FS-2). */}
+                  <Avatar src={p.photo_url} size={48} loading="lazy" mode="disable" alt="" />
                   <div className={d.identity}>
                     <h2><Link className={d.profileLink} to={`/contacts/${p.user_id}`}>{p.surname} {p.name} {p.patronymic}</Link></h2>
                     <p className={d.summary}>{p.group_number || "Группа не указана"}</p>

@@ -370,6 +370,10 @@ export interface UnresolvedAssignment {
   /** Public task status; the accounting dialog opens only for a closed task. */
   task_status?: TaskPublicStatus | null;
 }
+/** GET /assignments/unresolved: one keyset page; `total` (all matching rows) with include_total. */
+export interface UnresolvedAssignmentPage extends Page<UnresolvedAssignment> {
+  total?: number;
+}
 export interface TaskInputs extends Versioned {
   task_id: string;
   assigned_at: string;

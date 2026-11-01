@@ -13,10 +13,11 @@ import type {
   AssessmentInputs,
   Comment,
   UnresolvedAssignment,
+  UnresolvedAssignmentPage,
   TaskPublicPatch,
   TaskLinkKind,
 } from "./contract";
-import { idPath, allPages as page, request } from "./request";
+import { idPath, allPages as page, page as onePage, request } from "./request";
 /** Body of each assignment command, exactly as the server accepts it: extra keys are 422. */
 export interface AssignmentCommands {
   start: Revision;
@@ -62,8 +63,9 @@ export const tasksApi = {
     data: AssignmentCommands[C],
   ) =>
     request<Assignment>("post", `/assignments/${idPath(id)}/${command}`, data),
-  unresolved: (params?: object) =>
-    page<UnresolvedAssignment>("/assignments/unresolved", params),
+  /** One page (filters, cursor, include_total): the screen reads further pages on demand. */
+  unresolved: (params?: object, signal?: AbortSignal): Promise<UnresolvedAssignmentPage> =>
+    onePage<UnresolvedAssignment>("/assignments/unresolved", params, signal),
   reassign: (
     id: string,
     data: Revision & {

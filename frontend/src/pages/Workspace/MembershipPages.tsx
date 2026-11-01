@@ -496,6 +496,17 @@ export function BlockRequestsPage() {
   }
   // The history is paged from its latest end: newest first, "Показать ещё" adds older ones.
   sections[4][1].reverse();
+  // «Показать ещё» keeps the keyboard focus while its page loads: aria-disabled, as `disabled`
+  // on the focused button drops the focus to <body>. The last page removes the button, so its
+  // focus moves to the first older request that page added.
+  const shownHistory = sections[4][1].length, loadingMore = history.isFetchingNextPage;
+  const historyList = useRef<HTMLUListElement>(null), more = useRef<HTMLButtonElement>(null), firstAdded = useRef<number | null>(null);
+  useEffect(() => {
+    const index = firstAdded.current;
+    if (index === null || loadingMore) return;
+    firstAdded.current = null;
+    if (shownHistory > index && !more.current && (!document.activeElement || document.activeElement === document.body)) historyList.current?.children[index]?.querySelector<HTMLElement>("summary")?.focus();
+  }, [shownHistory, loadingMore]);
   const blockName = (r: BlockRequest) => blocks.data?.find((b) => b.block_id === r.block_id)?.name ?? "Блок";
   const card = (r: BlockRequest) => (
     <RequestCard
@@ -518,7 +529,7 @@ export function BlockRequestsPage() {
               // History is a compact list of rows, twenty a page; a row opens its card (PE-27).
               <details key={title} className={s.details}>
                 <summary>История · {items.length}</summary>
-                <ul className={m.history}>
+                <ul ref={historyList} className={m.history}>
                   {items.map((r) => (
                     <li key={r.request_id}>
                       <details className={m.historyRow}>
@@ -533,7 +544,7 @@ export function BlockRequestsPage() {
                   ))}
                 </ul>
                 {history.hasNextPage && (
-                  <button type="button" className={s.button} disabled={history.isFetchingNextPage} aria-busy={history.isFetchingNextPage} onClick={() => void history.fetchNextPage()}>
+                  <button ref={more} type="button" className={s.button} aria-disabled={loadingMore || undefined} aria-busy={loadingMore || undefined} onClick={() => { if (loadingMore) return;firstAdded.current = shownHistory;void history.fetchNextPage(); }}>
                     Показать ещё
                   </button>
                 )}

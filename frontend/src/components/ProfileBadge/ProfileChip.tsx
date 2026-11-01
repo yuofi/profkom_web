@@ -23,7 +23,7 @@ export const ProfileChip = ({
   const iconContent = customIcon ? (
     <>{customIcon}</>
   ) : (
-    <Icon name={iconName} className={styles.icon} size={24} />
+    <Icon name={iconName} className={styles.icon} size={24} aria-hidden="true" />
   );
 
   if (variant === "iconBg") {

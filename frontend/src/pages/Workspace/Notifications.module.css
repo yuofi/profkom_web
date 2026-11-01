@@ -52,6 +52,11 @@ a.text:hover {
   color: var(--primary);
   text-decoration: underline;
 }
+/* A text without a link takes the focus after «Показать ещё»: the same ring as the links. */
+span.text:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
 .row form {
   flex: none;
 }

@@ -34,7 +34,9 @@ it("closing the anchored reassignment protects its own draft and never discards 
 it("keyboard filtering keeps a dirty reassignment until explicit discard, then hides the available row", async () => {
   const transport = installMockTransport("chair", { delay: 0 }), task = transport.state.tasks[0], assignment = { ...task.assignments[0], assignee_unavailable_reason: null, capabilities: ["view_assessment_inputs", "reassign_assignment"] };
   if (!task.season_id || !task.deadline_at) throw new Error("Scoped unresolved fixture must retain real dates");
-  vi.spyOn(tasksApi, "unresolved").mockResolvedValue({ items: [{ task_id: task.task_id, task_title: task.title, assignment, scope: { kind: "subevent", id: "subevent-1" }, scope_title: "Команда", season_id: task.season_id, deadline_at: task.deadline_at }], next_cursor: null });
+  // The server applies the filter: the available row is not among the orphaned ones.
+  const row = { task_id: task.task_id, task_title: task.title, assignment, scope: { kind: "subevent" as const, id: "subevent-1" }, scope_title: "Команда", season_id: task.season_id, deadline_at: task.deadline_at };
+  vi.spyOn(tasksApi, "unresolved").mockImplementation(async (params) => ({ items: (params as { orphaned_only?: boolean }).orphaned_only ? [] : [row], next_cursor: null }));
   vi.spyOn(tasksApi, "assessment").mockResolvedValue({ ...transport.state.assessments[0], assignment_id: assignment.assignment_id, workflow_status: "assigned" });const command = vi.spyOn(tasksApi, "reassign");
   const container = document.createElement("div");document.body.append(container);const root = createRoot(container), client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   const router = createMemoryRouter([{ path: "/tasks/unresolved", element: <UnsavedChangesProvider><UnresolvedPage /></UnsavedChangesProvider> }], { initialEntries: ["/tasks/unresolved"] });
