@@ -8,7 +8,7 @@ import { membershipApi } from "../../utils/api/membership.api";
 import { request } from "../../utils/api/request";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
-import { emptyCriteria, richText } from "../../utils/api/contract";
+import { emptyCriteria, richText, type Decision } from "../../utils/api/contract";
 import { UnresolvedPage } from "./TaskPages";
 import { ReportPage } from "./ReportPages";
 import { reportsApi } from "../../utils/api/reports.api";
@@ -112,7 +112,10 @@ it("INT-03: closed correction keeps old totals immutable and exposes provenance 
   const old = await seasonsApi.summaryVersion(closed.season_id, summary.version);
   // Not the signed-in chair: their own chip opens /profile, not the contact route (PE-17).
   const row = summary.rows.find(r => r.user.user_id !== null && r.user.user_id !== session.user_id)!;
-  summary = await seasonsApi.decisions(closed.season_id, row.user.user_id!, { expected_version: summary.version, decisions: ["nice"], reason: "INT-03 новая отметка" });
+  // Both corrections must change the marks: the same marks again keep the summary version.
+  // An earlier file may have marked this participant «nice» before the season closed.
+  const [first, second]: Decision[][] = row.decisions.includes("nice") ? [["golden_red_bull"], ["nice"]] : [["nice"], ["golden_red_bull"]];
+  summary = await seasonsApi.decisions(closed.season_id, row.user.user_id!, { expected_version: summary.version, decisions: first, reason: "INT-03 новая отметка" });
   page = await mountWorkspace(<Routes><Route path="/seasons/:id/summary" element={<SummaryPage />} /><Route path="/seasons/:id" element={<SeasonPage />} /></Routes>, { path: `/seasons/${closed.season_id}/summary`, session });
   await waitForPage(page, () => !!page!.container.querySelector('section[aria-label="Участники и ККР"]'));
   const expectDecisionColumns = (root: ParentNode, version: typeof summary) => {
@@ -150,7 +153,7 @@ it("INT-03: closed correction keeps old totals immutable and exposes provenance 
   expect(historical.querySelectorAll('form')).toHaveLength(0);
   expectDecisionColumns(historical, old.summary);
   const oldText = historical.textContent;
-  await seasonsApi.decisions(closed.season_id, row.user.user_id!, { expected_version: summary.version, decisions: ["golden_red_bull"], reason: "INT-03 ещё одна коррекция" });
+  await seasonsApi.decisions(closed.season_id, row.user.user_id!, { expected_version: summary.version, decisions: second, reason: "INT-03 ещё одна коррекция" });
   await act(async () => invalidateWorkspace(page!.client));
   await waitForPage(page);
   expect((await seasonsApi.summaryVersion(closed.season_id, old.version))).toEqual(old);
