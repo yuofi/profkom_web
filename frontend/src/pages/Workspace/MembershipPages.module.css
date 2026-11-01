@@ -51,4 +51,31 @@
   .registrationDetails>summary>:not(div) { grid-column:1;grid-row:2;justify-self:start; }
   .registrationDetails>summary::after { grid-column:2;grid-row:1; }
 }
-
+/* The block page (D-05). Its own actions are one row under the name in the header, as on a
+   subevent page; the notes there keep the header's dark ink. */
+.blockNav { margin-top:18px; }
+.blockNav>p { margin:0;font-size:14px; }
+.blockNav .navNote { color:inherit;opacity:.8; }
+/* The application's form is only its button in that row; its answer takes a line of its own. */
+.blockNav>form,.blockNav>form>fieldset,.blockNav>form>fieldset>div { display:contents; }
+.blockNav>form>fieldset>:is([role="alert"],[role="status"],details) { flex:1 1 100%; }
+.blockNav>form>fieldset>details { color:inherit; }
+/* «О блоке»: the form of the description opens in place under the text. */
+.about>h2+details { margin-top:0;padding-top:0;border-top:0; }
+.about>details[open]>form { margin-top:14px; }
+/* «Руководство»: the master with the deputies and, in a column at the right, the block's HR. */
+.leadership { display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:14px 28px;align-items:start; }
+.leadershipPart { display:grid;gap:10px;align-content:start;min-width:0; }
+.hrPart { border-left:1px solid color-mix(in srgb,var(--outline-variant) 28%,transparent);padding-left:28px; }
+.note.note { font-size:13px; }
+@media(max-width:768px) {
+  .leadership { grid-template-columns:minmax(0,1fr); }
+  .hrPart { border-left:0;padding-left:0;border-top:1px solid color-mix(in srgb,var(--outline-variant) 28%,transparent);padding-top:14px; }
+  /* A member's row: the name over the badge, «Убрать» kept at the right. */
+  .members .member.member { flex-wrap:nowrap;gap:8px; }
+  .memberName.memberName { flex:1 1 auto;min-width:0;gap:4px 8px; }
+  .member>form { flex:0 0 auto; }
+  /* The removal's question takes the whole row. */
+  .members .member.member:has(>form [role="alert"]) { flex-wrap:wrap; }
+  .member:has(>form [role="alert"])>form { flex:1 1 100%; }
+}

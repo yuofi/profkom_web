@@ -94,6 +94,7 @@ export function ActionForm({
   title,
   fields,
   submitLabel = "Сохранить",
+  submitTitle,
   onSubmit,
   onConflict,
   successMessage = "Изменения сохранены",
@@ -121,6 +122,9 @@ export function ActionForm({
   title?: string;
   fields: Field[];
   submitLabel?: string;
+  /** The submit's full name, its tooltip and accessible name, when its label is one short word
+   *  in a row of a list, e.g. «Убрать» for «Убрать из состава: …» (D-05). */
+  submitTitle?: string;
   onSubmit: (values: Values, expectedRevision?: number, expectedRevisionKey?: string) => Promise<void | { revision: number } | { version: number } | { revisionKey: string }>;
   successMessage?: string;
   children?: ReactNode;
@@ -555,6 +559,8 @@ export function ActionForm({
           <button
             className={`${s.button} ${variant === "primary" ? s.primary : variant === "danger" ? s.danger : ""}`}
             type="submit"
+            aria-label={form.isSubmitting ? undefined : submitTitle}
+            title={submitTitle}
             disabled={form.isSubmitting || refreshing || disabled || unchanged || pendingRemoval.length > 0 || awaitingCommand || (versioned && (changedRevision || stale))}
           >
             {form.isSubmitting ? "Сохраняем…" : submitLabel}

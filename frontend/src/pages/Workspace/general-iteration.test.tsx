@@ -53,7 +53,7 @@ it("keeps all self-leave and active leader removal controls out of block members
   block.members = [mock.state.user, mock.state.people[1], mock.state.people[2]].map(user => ({ user, block_category: "member" }));
   page = await mountWorkspace(<Routes><Route path="/blocks/:id" element={<BlockPage />} /></Routes>, { path: `/blocks/${block.block_id}` });await waitForPage(page);
   expect(page.container.textContent).not.toContain("Выйти из блока");
-  const removers = [...page.container.querySelectorAll<HTMLButtonElement>("button")].filter(item => item.textContent === "Убрать из состава");
+  const removers = [...page.container.querySelectorAll<HTMLButtonElement>("button")].filter(item => item.getAttribute("aria-label")?.startsWith("Убрать из состава"));
   expect(removers).toHaveLength(1);
   expect(removers[0].closest("li")?.textContent).toContain(mock.state.people[2].display_name);
   expect(page.container.querySelector('input[type="file"]')).toBeNull();
