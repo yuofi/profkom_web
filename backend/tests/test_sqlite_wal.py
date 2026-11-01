@@ -5,8 +5,9 @@ application keeps WAL and synchronous=FULL; an existing rollback-journal databas
 its rows and indexes, and without the setting it keeps or returns to the rollback
 journal. Acknowledged commits survive a killed writer, the backup of DEPLOY.md is
 consistent while writes run and after a stop, units that read before they write never
-fail with SQLITE_BUSY while other writers commit, and a stopped backend or script leaves
-only the database file. The migration scripts hash the file before they open it.
+fail with SQLITE_BUSY while other writers commit, an HTTP read right after an acknowledged
+write sees it, and a stopped backend or script leaves only the database file. The
+migration scripts hash the file before they open it.
 """
 import hashlib
 import json
@@ -20,6 +21,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from contextlib import closing
 from pathlib import Path
 
@@ -30,6 +32,7 @@ import database
 from database import db, engine, UserORM
 from read_context import reusable
 from settings import Settings
+from test_v13_tracker import work  # noqa: F401 - the fixture
 
 BACKEND = Path(__file__).resolve().parents[1]
 ROOT = BACKEND.parent
@@ -209,6 +212,53 @@ def test_units_that_read_before_they_write_never_fail_while_others_commit(tmp_pa
     assert errors == []
 
 
+def test_a_read_right_after_an_acknowledged_write_sees_it(client, work):
+    """Read-your-writes over HTTP (PB-31): a command commits before its response (FastAPI
+    closes the unit of work first), and the next request reads the newest commit on
+    whichever pooled connection it gets, while other requests keep reading."""
+    master = work["master"]
+    tasks = [work["task"]] + [client.post("/api/tasks", headers=master.headers, json={**work["payload"], "title": f"Работа {k}"}).json()
+                              for k in range(3)]
+    stale, errors, done = [], [], threading.Event()
+
+    def writer(task):
+        path, revision, target = f"/api/tasks/{task['task_id']}", task["revision"], "in_progress"
+        for i in range(12):
+            r = client.post(f"{path}/status", headers=master.headers, json=dict(expected_revision=revision, status=target))
+            if r.status_code != 200:
+                errors.append(r.text[:300])
+                return
+            revision = r.json()["revision"]
+            read = client.get(path, headers=master.headers).json()
+            if (read["revision"], read["status"]) != (revision, target):
+                stale.append((task["task_id"], revision, target, read["revision"], read["status"]))
+            if i % 3 == 0:
+                comment = client.post(f"{path}/comments", headers=master.headers,
+                                      json=dict(content=f"Комментарий {i}", idempotency_key=str(uuid.uuid4()))).json()
+                if comment["comment_id"] not in {c["comment_id"] for c in client.get(f"{path}/comments", headers=master.headers).json()["items"]}:
+                    stale.append((task["task_id"], comment["comment_id"]))
+            target = "open" if target == "in_progress" else "in_progress"
+
+    def reader(k):
+        while not done.is_set():
+            r = client.get(("/api/tasks", "/api/workspace/home", f"/api/tasks/{tasks[k % len(tasks)]['task_id']}/comments")[k % 3],
+                           headers=master.headers)
+            if r.status_code != 200:
+                errors.append(r.text[:300])
+            k += 1
+
+    readers = [threading.Thread(target=reader, args=(k,)) for k in range(4)]
+    writers = [threading.Thread(target=writer, args=(task,)) for task in tasks]
+    for thread in readers + writers:
+        thread.start()
+    for thread in writers:
+        thread.join()
+    done.set()
+    for thread in readers:
+        thread.join()
+    assert errors == [] and stale == []
+
+
 def test_the_migration_scripts_hash_the_file_before_they_open_it(tmp_path, monkeypatch):
     """source_sha256 is the database file as sha256sum prints it, read before the script
     opens the database: closing a descriptor of the file drops the POSIX locks that an
@@ -311,6 +361,10 @@ while True:
 
 
 def test_a_killed_writer_loses_no_acknowledged_commit(tmp_path):
+    """A process crash (SIGKILL, OOM): every commit the writer acknowledged is present and
+    whole. This holds with any synchronous setting. Durability through a power loss is
+    synchronous=FULL, which syncs -wal before COMMIT returns; here it is checked only as
+    the PRAGMA of every new connection."""
     path = tmp_path / "killed.db"
     with closing(sqlite3.connect(path)) as connection:
         connection.executescript("CREATE TABLE acked(n INTEGER PRIMARY KEY, payload BLOB); CREATE TABLE last(n INTEGER); INSERT INTO last VALUES (0);")
