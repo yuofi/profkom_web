@@ -1,4 +1,4 @@
-import { useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { QueryState, Empty, Glyph } from "../../components/Workspace/WorkspaceUI";
@@ -83,7 +83,18 @@ export function UnresolvedPage() {
     enabled: allowed,
   });
   const items = query.data?.pages.flatMap(page => page.items);
-  const total = query.data?.pages[0]?.total ?? items?.length ?? 0;
+  const total = query.data?.pages[0]?.total ?? items?.length ?? 0, shown = items?.length ?? 0;
+  // «Показать ещё» keeps the keyboard focus while its page loads: aria-disabled, as `disabled`
+  // on the focused button drops the focus to <body>. The last page removes the button, so its
+  // focus moves to the first row that page added.
+  const rows = useRef<HTMLTableSectionElement>(null), more = useRef<HTMLButtonElement>(null), firstAdded = useRef<number | null>(null);
+  const loadingMore = query.isFetchingNextPage || query.isPlaceholderData;
+  useEffect(() => {
+    const index = firstAdded.current;
+    if (index === null || shown <= index) return;
+    firstAdded.current = null;
+    if (!more.current && (!document.activeElement || document.activeElement === document.body)) rows.current?.rows[index]?.querySelector<HTMLAnchorElement>("a")?.focus();
+  }, [shown]);
   return <section className={s.page}>
     <BrandedHeader className={s.header}><div><TrackerHomeLink /><h1 className={w.title}>Оставшаяся работа</h1><p className={w.description}>Незавершённые назначения и решения по ККР. Прежняя история сохраняется; новое назначение создаётся отдельно.</p></div><div className={s.headerActions}><Link to="/tasks" className={w.button}>Все задачи</Link>{seasonId && <Link to="/tasks/unresolved" className={w.button}>Все сезоны</Link>}</div></BrandedHeader>
     {!allowed ? <Empty>Нет доступа к разделу «Оставшаяся работа».</Empty> : <>
@@ -92,7 +103,7 @@ export function UnresolvedPage() {
       <QueryState keepDataOnError={!!query.data} loading={query.isLoading} error={query.error} retry={() => { void query.refetch(); }}>
         {!!items?.length && <div className={s.tableWrap} aria-busy={query.isPlaceholderData || undefined}><table className={s.table} aria-label="Оставшаяся работа по назначениям">
           <thead><tr>{["Задача", "Исполнитель", "Команда", "Учёт ККР", "Доступ исполнителя", "Дедлайн, МСК"].map(title => <th scope="col" key={title}>{title}</th>)}</tr></thead>
-          <tbody>{items.map(item => <tr key={item.assignment.assignment_id}>
+          <tbody ref={rows}>{items.map(item => <tr key={item.assignment.assignment_id}>
             <td className={s.task}><Link to={getTaskRoute(item.task_id)}>{item.task_title}</Link><Link className={s.history} to={`${getTaskRoute(item.task_id)}?assignment_id=${encodeURIComponent(item.assignment.assignment_id)}`}>Задача и история</Link></td>
             <td className={s.person} data-label="Исполнитель"><AssigneeReassignment item={item} onSaved={() => setSaved("Прежнее назначение закрыто. Новое назначение создано.")} /></td>
             <td className={s.scope} data-label="Команда"><TeamChip scope={item.scope} title={item.scope_title} avatarUrl={item.scope_avatar_url} /></td>
@@ -102,7 +113,7 @@ export function UnresolvedPage() {
 
           </tr>)}</tbody>
         </table></div>}
-        {query.hasNextPage && <button type="button" className={`${w.button} ${s.more}`} disabled={query.isFetchingNextPage || query.isPlaceholderData} aria-busy={query.isFetchingNextPage} onClick={() => { void query.fetchNextPage(); }}>{query.isFetchingNextPage ? "Загружаем…" : "Показать ещё"}</button>}
+        {query.hasNextPage && <button ref={more} type="button" className={`${w.button} ${s.more}`} aria-disabled={loadingMore || undefined} aria-busy={query.isFetchingNextPage || undefined} onClick={() => { if (loadingMore) return;firstAdded.current = shown;void query.fetchNextPage(); }}>{query.isFetchingNextPage ? "Загружаем…" : "Показать ещё"}</button>}
         {items?.length === 0 && <div className={s.empty}><Glyph name="task_alt" /><h2>Оставшейся работы нет.</h2><p>{onlyUnavailable ? "Нет назначений без доступного исполнителя. Снимите фильтр, чтобы увидеть остальные." : seasonId ? "В выбранном сезоне нет незавершённых назначений." : "Все доступные назначения завершены или получили учётное решение."}</p><Link to="/tasks" className={w.button}>Открыть задачи</Link></div>}
       </QueryState>
     </>}

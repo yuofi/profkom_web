@@ -52,7 +52,7 @@ it("the server applies the URL season filter and the unavailable-only checkbox a
   await act(async () => page!.container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());await waitForPage(page, () => page!.container.querySelectorAll("tbody tr").length === 1);
   expect(read).toHaveBeenCalledTimes(2);expect(read.mock.calls[1][0]).toMatchObject({ season_id: "season-1", orphaned_only: true, include_total: true });expect(page.container.textContent).toContain("Назначений: 1");
 });
-it("renders the first page at once and reads the next cursor only on «Показать ещё» (smoke FS-1)", async () => {
+it("renders the first page at once, reads the next cursor only on «Показать ещё» and keeps the keyboard focus (smoke FS-1)", async () => {
   const first = Array.from({ length: 3 }, (_, index) => item({ task_id: `task-${index}`, task_title: `Первая страница ${index}`, assignment: { ...item().assignment, assignment_id: `first-${index}` } }));
   const second = item({ task_id: "task-next", task_title: "Следующая страница", assignment: { ...item().assignment, assignment_id: "next" } });
   let release: () => void = () => {};
@@ -62,9 +62,14 @@ it("renders the first page at once and reads the next cursor only on «Пока�
   });
   page = await mountWorkspace(<Routes><Route path="/tasks/unresolved" element={<UnresolvedPage />} /></Routes>, { path: "/tasks/unresolved" });await waitForPage(page);
   expect(read).toHaveBeenCalledTimes(1);expect(page.container.querySelectorAll("tbody tr")).toHaveLength(3);expect(page.container.textContent).toContain("Назначений: 4 · показано 3");
-  const more = [...page.container.querySelectorAll<HTMLButtonElement>("button")].find(node => node.textContent === "Показать ещё")!;await act(async () => more.click());await settle();expect(read).toHaveBeenCalledTimes(2);expect(read.mock.calls[1][0]).toMatchObject({ cursor: "cursor-1", include_total: true });
-  expect(page.container.querySelectorAll("tbody tr")).toHaveLength(3);expect([...page.container.querySelectorAll("button")].find(node => node.textContent === "Загружаем…")?.matches(":disabled")).toBe(true);
+  const more = [...page.container.querySelectorAll<HTMLButtonElement>("button")].find(node => node.textContent === "Показать ещё")!;more.focus();await act(async () => more.click());await settle();expect(read).toHaveBeenCalledTimes(2);expect(read.mock.calls[1][0]).toMatchObject({ cursor: "cursor-1", include_total: true });
+  // While the page loads the button reads as unavailable and ignores clicks, but stays enabled:
+  // `disabled` on the focused button would drop the keyboard focus to <body>.
+  expect(page.container.querySelectorAll("tbody tr")).toHaveLength(3);expect(more.textContent).toBe("Загружаем…");expect(more.getAttribute("aria-disabled")).toBe("true");expect(more.disabled).toBe(false);expect(document.activeElement).toBe(more);
+  await act(async () => more.click());await settle();expect(read).toHaveBeenCalledTimes(2);
   await act(async () => release());await waitForPage(page, () => page!.container.querySelectorAll("tbody tr").length === 4);
+  // The last page removes the button: its focus goes to the first row that page added.
+  expect(more.isConnected).toBe(false);expect(document.activeElement?.textContent).toBe("Следующая страница");expect(document.activeElement?.getAttribute("href")).toBe("/tasks/task-next");
   expect(page.container.textContent).toContain("Следующая страница");expect(page.container.textContent).toContain("Назначений: 4");expect(page.container.textContent).not.toContain("показано");expect([...page.container.querySelectorAll("button")].some(node => node.textContent === "Показать ещё")).toBe(false);
 });
 it("hides all cached private rows and never queries the endpoint for a role without queue access", async () => {
