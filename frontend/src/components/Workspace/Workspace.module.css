@@ -290,7 +290,7 @@
   border-color: transparent;
   color: color-mix(in srgb, var(--on-surface) 70%, transparent);
 }
-/* A loading «Показать ещё» stays enabled to keep the keyboard focus (aria-disabled) and reads the same. */
+/* A loading «Показать ещё» or a pager end stays enabled to keep the keyboard focus (aria-disabled) and reads the same. */
 .button:disabled,
 .button[aria-disabled="true"] {
   opacity: 0.5;

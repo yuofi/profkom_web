@@ -68,6 +68,9 @@ function PersonalTeams({ title, teams, empty }: { title: string; teams: Personal
   const [selectedPage, setSelectedPage] = useState(0);
   const pages = Math.ceil(teams.length / TEAM_PAGE_SIZE);
   const page = Math.min(selectedPage, Math.max(0, pages - 1));
+  // The ends are aria-disabled and ignore presses: `disabled` on the focused «Далее» or «Назад»
+  // would drop the keyboard focus to <body>.
+  const turn = (to: number) => { if (to >= 0 && to < pages) setSelectedPage(to); };
   return (
     <section className={`${s.card} ${d.panel}`} aria-label={title}>
       <DashboardHeading title={title} count={teams.length} />
@@ -85,9 +88,9 @@ function PersonalTeams({ title, teams, empty }: { title: string; teams: Personal
       </ul>
       {!teams.length && <Empty>{empty}</Empty>}
       {pages > 1 && <nav className={d.paging} aria-label={`${title}: страницы`}>
-        <button className={s.button} disabled={page === 0} onClick={() => setSelectedPage(page - 1)}>Назад</button>
+        <button className={s.button} aria-disabled={page === 0 || undefined} onClick={() => turn(page - 1)}>Назад</button>
         <span role="status">{page + 1} из {pages}</span>
-        <button className={s.button} disabled={page + 1 >= pages} onClick={() => setSelectedPage(page + 1)}>Далее</button>
+        <button className={s.button} aria-disabled={page + 1 >= pages || undefined} onClick={() => turn(page + 1)}>Далее</button>
       </nav>}
     </section>
   );
