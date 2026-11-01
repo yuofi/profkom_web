@@ -5,7 +5,7 @@ import { Route, Routes } from "react-router-dom";
 import { QueryClient } from "@tanstack/react-query";
 import { installMockTransport } from "../../mocks/transport";
 import { createFixtures } from "../../mocks/fixtures";
-import { mountWorkspace, waitForPage, change, field, submit } from "../../test/workspace";
+import { mountWorkspace, waitForPage, settle, change, field, submit } from "../../test/workspace";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { directoryApi } from "../../utils/api/directory.api";
 import { eventsApi } from "../../utils/api/events.api";
@@ -39,13 +39,36 @@ it("renders a compact tracker table with genuine task/team links, profile chip a
   expect(page!.container.querySelector(`a[href="/tasks/${row.task_id}"]`)?.textContent).toBe(row.task_title);expect(page!.container.querySelector(`a[href="/contacts/${row.assignment.assignee.user_id}"]`)).not.toBeNull();expect(page!.container.querySelector(`a[href="/subevents/${row.scope.id}"]`)?.textContent).toContain("Команда разработки");
   expect(page!.container.textContent).toContain("Учёт ККР");expect(page!.container.textContent).toContain("На доработке");expect(page!.container.textContent).toContain("Нет доступа к задаче");expect(page!.container.querySelector("form,dialog")).toBeNull();expect(assessment).not.toHaveBeenCalled();expect(contacts).not.toHaveBeenCalled();expect(scope).not.toHaveBeenCalled();
 });
-it("preserves the URL season filter and limits unavailable-only rows without losing other seasons in cache", async () => {
-  const current = item();await mount([current, { ...item(), assignment: { ...current.assignment, assignment_id: "available", assignee_unavailable_reason: null } }, { ...item(), task_title: "Другой сезон", season_id: "season-other", assignment: { ...current.assignment, assignment_id: "other-season" } }], "/tasks/unresolved?season_id=season-1");
-  expect(page!.container.querySelectorAll("tbody tr")).toHaveLength(2);expect(page!.container.textContent).not.toContain("Другой сезон");expect(page!.container.querySelector('a[href="/tasks/unresolved"]')?.textContent).toBe("Все сезоны");
-  await act(async () => page!.container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());await waitForPage(page!);expect(page!.container.querySelectorAll("tbody tr")).toHaveLength(1);expect(page!.container.textContent).toContain("Назначений: 1");
+it("the server applies the URL season filter and the unavailable-only checkbox and counts the matches (smoke FS-1)", async () => {
+  const current = item(), rows = [current, { ...item(), assignment: { ...current.assignment, assignment_id: "available", assignee_unavailable_reason: null } }, { ...item(), task_title: "Другой сезон", season_id: "season-other", assignment: { ...current.assignment, assignment_id: "other-season" } }];
+  const read = vi.spyOn(tasksApi, "unresolved").mockImplementation(async (params) => {
+    const { season_id, orphaned_only } = params as { season_id?: string; orphaned_only?: boolean };
+    const items = rows.filter(row => (!season_id || row.season_id === season_id) && (!orphaned_only || row.assignment.assignee_unavailable_reason));
+    return { items, next_cursor: null, total: items.length };
+  });
+  page = await mountWorkspace(<Routes><Route path="/tasks/unresolved" element={<UnresolvedPage />} /></Routes>, { path: "/tasks/unresolved?season_id=season-1" });await waitForPage(page);
+  expect(read).toHaveBeenCalledTimes(1);expect(read.mock.calls[0][0]).toEqual({ season_id: "season-1", orphaned_only: undefined, limit: 100, include_total: true, cursor: undefined });
+  expect(page.container.querySelectorAll("tbody tr")).toHaveLength(2);expect(page.container.textContent).not.toContain("Другой сезон");expect(page.container.textContent).toContain("Назначений: 2");expect(page.container.querySelector('a[href="/tasks/unresolved"]')?.textContent).toBe("Все сезоны");
+  await act(async () => page!.container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());await waitForPage(page, () => page!.container.querySelectorAll("tbody tr").length === 1);
+  expect(read).toHaveBeenCalledTimes(2);expect(read.mock.calls[1][0]).toMatchObject({ season_id: "season-1", orphaned_only: true, include_total: true });expect(page.container.textContent).toContain("Назначений: 1");
+});
+it("renders the first page at once and reads the next cursor only on «Показать ещё» (smoke FS-1)", async () => {
+  const first = Array.from({ length: 3 }, (_, index) => item({ task_id: `task-${index}`, task_title: `Первая страница ${index}`, assignment: { ...item().assignment, assignment_id: `first-${index}` } }));
+  const second = item({ task_id: "task-next", task_title: "Следующая страница", assignment: { ...item().assignment, assignment_id: "next" } });
+  let release: () => void = () => {};
+  const read = vi.spyOn(tasksApi, "unresolved").mockImplementation(async (params) => {
+    if (!(params as { cursor?: string }).cursor) return { items: first, next_cursor: "cursor-1", total: 4 };
+    await new Promise<void>(resolve => { release = resolve; });return { items: [second], next_cursor: null, total: 4 };
+  });
+  page = await mountWorkspace(<Routes><Route path="/tasks/unresolved" element={<UnresolvedPage />} /></Routes>, { path: "/tasks/unresolved" });await waitForPage(page);
+  expect(read).toHaveBeenCalledTimes(1);expect(page.container.querySelectorAll("tbody tr")).toHaveLength(3);expect(page.container.textContent).toContain("Назначений: 4 · показано 3");
+  const more = [...page.container.querySelectorAll<HTMLButtonElement>("button")].find(node => node.textContent === "Показать ещё")!;await act(async () => more.click());await settle();expect(read).toHaveBeenCalledTimes(2);expect(read.mock.calls[1][0]).toMatchObject({ cursor: "cursor-1", include_total: true });
+  expect(page.container.querySelectorAll("tbody tr")).toHaveLength(3);expect([...page.container.querySelectorAll("button")].find(node => node.textContent === "Загружаем…")?.matches(":disabled")).toBe(true);
+  await act(async () => release());await waitForPage(page, () => page!.container.querySelectorAll("tbody tr").length === 4);
+  expect(page.container.textContent).toContain("Следующая страница");expect(page.container.textContent).toContain("Назначений: 4");expect(page.container.textContent).not.toContain("показано");expect([...page.container.querySelectorAll("button")].some(node => node.textContent === "Показать ещё")).toBe(false);
 });
 it("hides all cached private rows and never queries the endpoint for a role without queue access", async () => {
-  const client = new QueryClient({ queryCache: workspaceQueryCache(), defaultOptions: { queries: { retry: false, staleTime: Infinity } } });client.setQueryData(["tasks", "unresolved"], { items: [item()], next_cursor: null });const read = vi.spyOn(tasksApi, "unresolved");
+  const client = new QueryClient({ queryCache: workspaceQueryCache(), defaultOptions: { queries: { retry: false, staleTime: Infinity } } });client.setQueryData(["tasks", "unresolved", {}], { pages: [{ items: [item()], next_cursor: null }], pageParams: [null] });const read = vi.spyOn(tasksApi, "unresolved");
   page = await mountWorkspace(<UnresolvedPage />, { role: "organizer", client });await waitForPage(page);expect(page.container.textContent).toContain("Нет доступа к разделу «Оставшаяся работа».");expect(page.container.textContent).not.toContain("Нет доступа к очереди");expect(page.container.textContent).not.toContain(item().task_title);expect(page.container.querySelector("table,form,[data-anchored-popover]")).toBeNull();expect(read).not.toHaveBeenCalled();
 });
 it("provides truthful empty/error states and a refused refresh drops both table and private editor", async () => {
