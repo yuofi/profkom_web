@@ -57,7 +57,8 @@ it("INT-01: real session opens only the manager's queue and loses access with th
   // counter. The reassignment dialog must use the authoritative input revision.
   const oldAssignment = task.assignments[0], publicBefore = await tasksApi.get(task.task_id);
   const privateBefore = await tasksApi.assessment(oldAssignment.assignment_id);
-  const corrected = await tasksApi.updateAssessment(oldAssignment.assignment_id, { expected_revision: privateBefore.revision, hours: 3, reason: "INT-01 уточнили часы перед переназначением" });
+  // The single PATCH waits for the task's closure (SE-12); bulk hours move the same input revision.
+  const [corrected] = (await tasksApi.bulkHours([{ assignment_id: oldAssignment.assignment_id, expected_revision: privateBefore.revision }], 3, "INT-01 уточнили часы перед переназначением")).items;
   const queued = (await tasksApi.unresolved()).items.find(item => item.assignment.assignment_id === oldAssignment.assignment_id)!;
   expect(corrected.revision).not.toBe(queued.assignment.revision);
   await act(async () => invalidateWorkspace(page!.client));await waitForPage(page);

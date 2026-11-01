@@ -80,18 +80,22 @@ it("INT-06: actual response shapes, null relations and populated IDs match the p
   check("TaskInputs", await tasksApi.inputs(task.task_id));
   let assignment = task.assignments[0]; check("AssessmentInputs", await tasksApi.assessment(assignment.assignment_id));
   assignment = check("Assignment", await tasksApi.command(assignment.assignment_id, "submit", { expected_revision: assignment.revision, text: richText("Done") }));
+  const submittedTask = check("Task", await tasksApi.get(task.task_id));
+  const actualSubmissionTime = submittedTask.submissions?.at(-1)?.submitted_at;expect(actualSubmissionTime).toBeTruthy();
+  // The legacy review waits for the author's closure (SE-12, owner 2026-11-01).
+  const openInputs = check("AssessmentInputs", await tasksApi.assessment(assignment.assignment_id));
+  await expect(tasksApi.command(assignment.assignment_id, "accept", { expected_revision: openInputs.workflow_revision!, evaluation: 1 })).rejects.toMatchObject({ status: 409, code: "task_not_closed" });
+  const closedTask = check("Task", await tasksApi.changeStatus(task.task_id, { expected_revision: submittedTask.revision, status: "closed" }));
+  expect(closedTask.closed_at).toBeTruthy();
   const privateInputs = check("AssessmentInputs", await tasksApi.assessment(assignment.assignment_id));
   expect(typeof privateInputs.workflow_revision).toBe("number");
   const publicBeforeReview = check("Task", await tasksApi.get(task.task_id));
-  const actualSubmissionTime = publicBeforeReview.submissions?.at(-1)?.submitted_at;expect(actualSubmissionTime).toBeTruthy();
   check("Assignment", await tasksApi.command(assignment.assignment_id, "accept", { expected_revision: privateInputs.workflow_revision!, evaluation: 1 }));
   const privateAccepted = check("AssessmentInputs", await tasksApi.assessment(assignment.assignment_id));
   expect(privateAccepted.workflow_status).toBe("accepted");expect(privateAccepted.evaluation).toBe(1);expect(privateAccepted.hours).toBe(1);
   expect(Date.parse(privateAccepted.effective_completed_at!)).toBe(Date.parse(actualSubmissionTime!));
   const publicAfterReview = check("Task", await tasksApi.get(task.task_id));
   expect([publicAfterReview.status, publicAfterReview.revision]).toEqual([publicBeforeReview.status, publicBeforeReview.revision]);
-  const closedTask = check("Task", await tasksApi.changeStatus(task.task_id, { expected_revision: publicAfterReview.revision, status: "closed" }));
-  expect(closedTask.closed_at).toBeTruthy();
   const accounting = check("AccountingBatch", await kkrApi.batch(task.task_id));
   check("AccountingBatch", await kkrApi.saveBatch(task.task_id, {
     expected_public_revision: accounting.public_revision, expected_revision: accounting.revision,

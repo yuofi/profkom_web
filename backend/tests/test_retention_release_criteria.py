@@ -11,7 +11,7 @@ from database import (Base, db, UserORM, ContactInfoORM, AssignmentORM, Contribu
     ReportORM, ReportVersionORM, MasterBonusORM, AuditLogORM)
 from domain_models import AccountArchiveORM, FormerContactORM, SummaryVersionORM, MaterialORM
 from membership import set_membership
-from test_v13_tracker import work
+from test_v13_tracker import work, close_by_author
 from test_v13_season_integrity import accept, close
 
 
@@ -163,6 +163,7 @@ def test_old_uncompleted_assignment_gaining_hours_after_purge_keeps_anonymous_id
     with db._session() as session:
         session.get(AssignmentORM, aid).hours = None
         session.commit()
+    close_by_author(client, work["task"]["task_id"], work["master"])  # KKR after the author's closure (SE-12)
     before = ok(client.get(f"/api/assignments/{aid}/assessment-inputs", headers=superuser.headers))
     ok(client.post(f"/api/assignments/{aid}/not-complete", headers=superuser.headers,
         json={"expected_revision": before["workflow_revision"], "evaluation": -1, "reason": "Observed old incomplete work"}))

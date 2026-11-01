@@ -6242,6 +6242,8 @@ class Database:
                 effective_completed_at = timestamp(observed_closed_at)
             else:
                 self.require_dates_right(user_id, t, season and season.state, ((effective_completed_at, a.effective_completed_at),))
+            from tracker import require_closed_task
+            require_closed_task(session, t, season and season.state)  # SE-12, owner 2026-11-01
             if a.inputs_revision != expected_revision:
                 raise revision_conflict()
             if not reason or not reason.strip():

@@ -9,7 +9,7 @@ from database import (db, engine, SeasonORM, AssignmentORM, ContributionORM,
     TaskORM, TaskTrackerORM, SeasonSummaryORM, BlockORM, RoleAssignmentORM)
 from domain_models import SummaryVersionORM
 from models import Block
-from test_v13_tracker import work  # noqa:F401
+from test_v13_tracker import work, close_by_author  # noqa:F401
 from test_v13_season_integrity import close
 
 
@@ -19,7 +19,11 @@ def analytics(client, w, actor, **filters):
     return response.json()
 
 
-def private_input(client, assignment, chair, **values):
+def private_input(client, assignment, chair, author, **values):
+    """Assessment inputs of an assignment, after the author's closure of its task (SE-12)."""
+    with db._session() as session:
+        task_id = session.get(AssignmentORM, assignment).task_id
+    close_by_author(client, task_id, author)
     path = '/api/assignments/' + assignment + '/assessment-inputs'
     current = client.get(path, headers=chair.headers).json()
     response = client.patch(path, headers=chair.headers, json=dict(expected_revision=current['revision'], reason='Synthetic observed work', **values))
@@ -77,7 +81,7 @@ def test_two_assignees_count_one_task_sum_hours_and_moscow_week(client, work, su
     date=sunday.isoformat()  # Monday in Moscow, Sunday UTC, inside this synthetic season.
     expected_week=(sunday.date()+timedelta(days=1)).isoformat()
     for assignment in task['assignments']:
-        private_input(client, assignment['assignment_id'], superuser, evaluation=1, effective_completed_at=date)
+        private_input(client, assignment['assignment_id'], superuser, w['master'], evaluation=1, effective_completed_at=date)
     result=analytics(client,w,superuser)
     assert result['totals']['completed_tasks']==1 and result['totals']['credited_hours']==5
     assert result['coverage']['accepted_assignments']==2
@@ -93,7 +97,7 @@ def test_two_assignees_count_one_task_sum_hours_and_moscow_week(client, work, su
 
 def test_negative_credits_merits_and_bonus_are_in_kkr_but_not_accepted_hours(client, work, superuser):
     w=work; aid=w['task']['assignments'][0]['assignment_id']
-    private_input(client,aid,superuser,evaluation=-1)
+    private_input(client,aid,superuser,w['master'],evaluation=-1)
     start=datetime.now(timezone.utc)-timedelta(days=2); completed=datetime.now(timezone.utc)-timedelta(days=1)
     response=client.post('/api/merits',headers=superuser.headers,json=dict(season_id=w['task']['season_id'],source_kind='chair_merit',title='Observed merit',assigned_at=start.isoformat(),deadline_at=(completed+timedelta(days=1)).isoformat(),recipients=[dict(user_id=w['member'].user_id,hours=4,evaluation=1,completed_at=completed.isoformat())],reason='Synthetic merit'))
     assert response.status_code==200,response.text
@@ -126,7 +130,7 @@ def test_legacy_missing_hours_dates_are_unknown_not_zero_or_created_at(client, w
 
 def test_new_closed_snapshot_preserves_facts_old_version_does_not_change(client, work, superuser):
     w=work; sid=w['task']['season_id'];aid=w['task']['assignments'][0]['assignment_id'];completed=datetime.now(timezone.utc).isoformat()
-    private_input(client,aid,superuser,evaluation=1,effective_completed_at=completed)
+    private_input(client,aid,superuser,w['master'],evaluation=1,effective_completed_at=completed)
     original=close(client,w,superuser)
     first=analytics(client,w,superuser)
     assert first['basis']['kind']=='approved_snapshot' and first['basis']['version']==original['version']
@@ -137,7 +141,7 @@ def test_new_closed_snapshot_preserves_facts_old_version_does_not_change(client,
         assert json.loads(saved.summary_json)['analytics_facts']['accepted_assignments'][0]['effective_completed_at']==completed
     http=client.get('/api/seasons/'+sid+'/summary/versions/'+str(original['version']),headers=superuser.headers)
     assert http.status_code==200 and 'analytics_facts' not in http.json()['summary']
-    private_input(client,aid,superuser,hours=6)
+    private_input(client,aid,superuser,w['master'],hours=6)
     second=analytics(client,w,superuser)
     assert second['basis']['version']==original['version']+1 and second['totals']['credited_hours']==6
     with db._session() as session:
@@ -153,7 +157,7 @@ def test_new_closed_snapshot_preserves_facts_old_version_does_not_change(client,
 
 def test_old_closed_snapshot_gaps_and_comparison_never_use_live_facts(client,work,superuser):
     w=work;sid=w['task']['season_id'];aid=w['task']['assignments'][0]['assignment_id']
-    private_input(client,aid,superuser,evaluation=1,effective_completed_at=datetime.now(timezone.utc).isoformat())
+    private_input(client,aid,superuser,w['master'],evaluation=1,effective_completed_at=datetime.now(timezone.utc).isoformat())
     original=close(client,w,superuser)
     # Synthetic pre-upgrade version: remove only the newly optional key in fixture.
     with db._session() as session:
@@ -203,7 +207,7 @@ def test_legacy_approved_rows_without_version_keep_totals_and_unknown_source_cou
 
 def test_current_and_approved_analytics_get_have_no_orm_writes(client,work,superuser):
     w=work;aid=w['task']['assignments'][0]['assignment_id']
-    private_input(client,aid,superuser,evaluation=1,effective_completed_at=datetime.now(timezone.utc).isoformat())
+    private_input(client,aid,superuser,w['master'],evaluation=1,effective_completed_at=datetime.now(timezone.utc).isoformat())
     writes=[]
     def capture(_conn,_cursor,statement,_params,_context,_many):
         if statement.lstrip().upper().startswith(('INSERT','UPDATE','DELETE','REPLACE','ALTER','CREATE')):writes.append(statement.split()[0])
@@ -222,12 +226,12 @@ def test_current_and_approved_analytics_get_have_no_orm_writes(client,work,super
 
 def test_legacy_first_preservation_never_backfills_current_hours_into_old_approval(client,work,superuser):
     w=work;sid=w['task']['season_id'];aid=w['task']['assignments'][0]['assignment_id']
-    private_input(client,aid,superuser,evaluation=1,effective_completed_at=datetime.now(timezone.utc).isoformat())
+    private_input(client,aid,superuser,w['master'],evaluation=1,effective_completed_at=datetime.now(timezone.utc).isoformat())
     original=close(client,w,superuser)
     with db._session() as session:
         session.query(SummaryVersionORM).filter_by(season_id=sid).delete()
         session.commit()
-    private_input(client,aid,superuser,hours=6)
+    private_input(client,aid,superuser,w['master'],hours=6)
     with db._session() as session:
         old=session.query(SummaryVersionORM).filter_by(season_id=sid,version=original['version']).one()
         assert 'analytics_facts' not in json.loads(old.summary_json)

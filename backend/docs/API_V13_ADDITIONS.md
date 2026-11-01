@@ -199,6 +199,13 @@ capability выдаётся ровно тогда, когда сервер вы�
   назначения отвечает 409. Часы и дата выполнения отменённого назначения правятся.
 - `not-complete`, `cancel` и правка исходных данных оценивания пишут в журнал
   аудита прежние и новые `status` и `evaluation` вместе с причиной.
+- `POST /assignments/{id}/accept`, `…/not-complete` и
+  `PATCH /assignments/{id}/assessment-inputs` по задаче, которую автор ещё не
+  закрыл (в том числе переоткрытой), отвечают 409 `task_not_closed`, как общий
+  диалог ККР (`/tasks/{id}/accounting-batch`), и ничего не меняют (SE-12, решение
+  владельца 2026-11-01). Право проверяется раньше: без него по-прежнему 403/404.
+  В закрытом сезоне, в том числе в коррекциях сводной, этой проверки нет.
+  `request-revision`, `cancel` и `POST /assessment-inputs/bulk-hours` её не делают.
 - Тело каждой команды содержит только её поля: `accept` — `evaluation` и
   необязательный `review_note`, `request-revision` — `review_note`,
   `not-complete` — `evaluation` и `reason`, `cancel` — `reason`. Лишнее поле — 422.

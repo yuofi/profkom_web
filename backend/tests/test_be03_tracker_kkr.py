@@ -16,8 +16,9 @@ Acceptance tests for BE-03: Трекер, сдачи, комментарии, ф
      всем лидам области отправляется notification kind="task_help_required".
    - resume: help_required -> in_progress.
    - submit: submitted_at серверная, сдача с текстом/ссылками/файлами, статус submitted.
-   - accept: частный исход accepted с оценкой 1 или 1.5 и расчетом ККР;
-     публичный статус/история не меняются, дата берётся из реальной сдачи.
+   - accept: частный исход accepted с оценкой 1 или 1.5 и расчетом ККР, после закрытия
+     задачи автором (SE-12); публичный статус/история не меняются, дата берётся из
+     реальной сдачи.
    - request-revision: частный исход needs_revision, замечание обязательно,
      начисление ККР отзывается; частные решения не уведомляют обычного исполнителя.
    - not-complete: оценка 0 или -1, дата завершения не требуется, штраф -1 не ослабляется просрочкой.
@@ -58,6 +59,7 @@ import pytest
 from test_api_contract import error_body
 from api_helpers import post_season
 from database import db, NotificationORM, UserORM, BlockORM, SeasonORM, ReportORM
+from test_v13_tracker import close_by_author
 
 
 TASKS_URL = "/api/tasks"
@@ -311,18 +313,21 @@ def test_полный_цикл_назначения_сдача_приемка_д
     actual_completed_at = public_before_accept["submissions"][-1]["submitted_at"]
     assert private["effective_completed_at"] is None
 
-    # 6. Приёмка меняет только частный исход, а не публичный Task/Assignment.status.
+    # 6. Приёмка идёт после закрытия задачи автором (SE-12) и меняет только частный исход,
+    # а не публичный Task/Assignment.status.
+    close_by_author(client, task["task_id"], master)
+    public_closed = client.get(f"{TASKS_URL}/{task['task_id']}", headers=member.headers).json()
     res_acc = client.post(
         f"{ASSIGNMENTS_URL}/{asgn_id}/accept",
         json={"expected_revision": private["workflow_revision"], "evaluation": 1.5, "review_note": "Отличная работа!"},
         headers=master.headers,
     )
     assert res_acc.status_code == 200
-    assert res_acc.json()["status"] == "submitted"
+    assert res_acc.json()["status"] == next(a for a in public_closed["assignments"] if a["assignment_id"] == asgn_id)["status"]
     accepted = client.get(f"{ASSIGNMENTS_URL}/{asgn_id}/assessment-inputs", headers=master.headers).json()
     assert accepted["workflow_status"] == "accepted" and accepted["evaluation"] == 1.5
     assert accepted["effective_completed_at"] == actual_completed_at
-    assert client.get(f"{TASKS_URL}/{task['task_id']}", headers=member.headers).json() == public_before_accept
+    assert client.get(f"{TASKS_URL}/{task['task_id']}", headers=member.headers).json() == public_closed
 
 
 # ═════════════════════════════════════════════════════════════
@@ -351,6 +356,7 @@ def test_формула_ккр_граничные_значения(client, test_
     )
     task = res.json()
     asgn_id = task["assignments"][0]["assignment_id"]
+    close_by_author(client, task["task_id"], master)  # KKR after the author's closure (SE-12)
     private = client.get(f"{ASSIGNMENTS_URL}/{asgn_id}/assessment-inputs", headers=master.headers)
     assert private.status_code == 200
     rev = private.json()["workflow_revision"]
@@ -363,7 +369,7 @@ def test_формула_ккр_граничные_значения(client, test_
         headers=master.headers,
     )
     assert res_fail.status_code == 200
-    assert res_fail.json()["status"] == "assigned"
+    assert res_fail.json()["status"] == public_before["assignments"][0]["status"]
     private_after = client.get(f"{ASSIGNMENTS_URL}/{asgn_id}/assessment-inputs", headers=master.headers).json()
     assert private_after["workflow_status"] == "not_completed" and private_after["evaluation"] == -1
     assert client.get(f"{TASKS_URL}/{task['task_id']}", headers=member.headers).json() == public_before
@@ -513,6 +519,7 @@ def test_закрытие_сезона_бонус_мастера_и_повыше
     assert res_start.status_code == 200
     res_sub = client.post(f"{ASSIGNMENTS_URL}/{asgn['assignment_id']}/submit", json={"expected_revision": res_start.json()["revision"], "text": "Готово", "links": [], "file_ids": []}, headers=member.headers)
     assert res_sub.status_code == 200
+    close_by_author(client, res_t.json()["task_id"], master)  # KKR after the author's closure (SE-12)
     private = client.get(f"{ASSIGNMENTS_URL}/{asgn['assignment_id']}/assessment-inputs", headers=master.headers)
     assert private.status_code == 200
     public_before = client.get(f"{TASKS_URL}/{res_t.json()['task_id']}", headers=member.headers).json()

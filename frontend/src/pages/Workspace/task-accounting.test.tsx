@@ -59,6 +59,13 @@ it("a rejected atomic decision retains hours, reason and selection without issui
   const form = field(page!.container, "hours").closest("form")!;await change(field(form, "hours"), "4");await change(field(form, "evaluation"), "0");await change(field(form, "reason"), "Работа не выполнена");await submit(form);await waitForPage(page!);
   expect(update).toHaveBeenCalledTimes(1);expect(field(form, "hours").value).toBe("4");expect(field(form, "evaluation").value).toBe("0");expect(field(form, "reason").value).toBe("Работа не выполнена");expect(form.textContent).toContain("Запись изменилась");
 });
+it("an unclosed task's refusal shows the server reason and keeps the entered KKR (SE-12)", async () => {
+  await mountAccounting(inputs({ workflow_status: "submitted" }));
+  const update = vi.spyOn(tasksApi, "updateAssessment").mockRejectedValue(new ApiError("Close the task before filling accounting", 409, "task_not_closed"));
+  const form = field(page!.container, "hours").closest("form")!;await change(field(form, "hours"), "3");await change(field(form, "evaluation"), "1");await change(field(form, "reason"), "Работа принята");await submit(form);await waitForPage(page!);
+  expect(update).toHaveBeenCalledTimes(1);expect(form.textContent).toContain("Перед заполнением ККР автор должен закрыть задачу.");
+  expect([field(form, "hours").value, field(form, "evaluation").value, field(form, "reason").value]).toEqual(["3", "1", "Работа принята"]);
+});
 it("excludes only unfinished accounting with its private revision and mandatory reason", async () => {
   let saved = inputs();await mountAccounting(saved, assignment({ revision: 91, status: "accepted" }));vi.mocked(tasksApi.assessment).mockImplementation(async () => saved);
   const command = vi.spyOn(tasksApi, "command").mockImplementation(async () => { saved = { ...saved, workflow_status: "cancelled", workflow_revision: 8, revision: 8 };return assignment({ status: "accepted", revision: 91 }); });

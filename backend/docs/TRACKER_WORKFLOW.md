@@ -71,7 +71,11 @@ change also advances the public task revision/history. Closed corrections use a
 reason and acknowledge the revisions returned by their write transaction, not a
 later GET. Approved numeric snapshots stay immutable except versioned correction.
 
-Compatible private review URLs retain their own workflow/source guards. Legacy
+Compatible private review URLs retain their own workflow/source guards. Like the
+batch, `accept`, `not-complete` and `PATCH /assignments/{id}/assessment-inputs`
+answer 409 `task_not_closed` until the task is publicly closed (a reopened task
+included); the right is checked first, and a closed season's corrections are exempt
+(SE-12, owner 2026-11-01). `request-revision`, `cancel` and bulk hours are not gated. Legacy
 acceptance without an effective completion date requires an observed submission or
 an authorized explicit date; it cannot invent `now`. See
 [analytics and coefficients](SEASON_ANALYTICS.md) for the distinction between private

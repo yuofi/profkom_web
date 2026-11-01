@@ -81,6 +81,8 @@ it("real template fills the assessment draft and persists only with the normal K
   const task = await tasksApi.create({ season_id: active.season_id, scope: { kind: "subevent", id: team.subevent_id }, title: "Шаблонная оценка HTTP", description: richText("Сохранённое описание задачи"), deadline_at: new Date(Date.now() + 3600000).toISOString(), assignees: [{ user_id: worker.user_id, hours: 0 }] });
   await liveLogin(worker.email);const current = await tasksApi.get(task.task_id);await tasksApi.submitResult(task.task_id, { expected_revision: current.revision, text: richText("Фактический результат") });
   const session = await liveLogin();
+  // KKR is filled after the author's closure (SE-12).
+  await tasksApi.changeStatus(task.task_id, { expected_revision: (await tasksApi.get(task.task_id)).revision, status: "closed" });
   const template = await profileFeaturesApi.createTemplate({ visibility: "personal", values: { title: "Оценка по шаблону HTTP", description: "Назначение шаблона", hours: 4, evaluation: 1.5, criteria: emptyCriteria() } });
   page = await mountWorkspace(<AssessmentPanel assignment={task.assignments[0]} open hasResult />, { session });await waitForPage(page);
   await pick(page.container, "kkr-template", template.template_id);
@@ -103,11 +105,12 @@ it("real history shows a public diff and explicit version hiding preserves curre
   const queue = await taskQueuesApi.create({ name: "История авторских версий", key: "HISTORY" + crypto.randomUUID().replace(/[^a-f]/g, "").slice(0, 10).toUpperCase(), scope: { kind: "subevent", id: team.subevent_id }, is_private: false });
   await liveLogin(worker.email);
   const task = await tasksApi.create({ season_id: active.season_id, queue_id: queue.queue_id, title: "История версий HTTP", description: richText("Начальное описание"), deadline_at: new Date(Date.now() + 3600000).toISOString(), assignees: [{ user_id: worker.user_id, hours: 0 }] });
-  expect(task.created_by?.user_id).toBe(worker.user_id);await liveLogin();
+  expect(task.created_by?.user_id).toBe(worker.user_id);
+  const closed = await tasksApi.changeStatus(task.task_id, { expected_revision: task.revision, status: "closed" });await liveLogin();  // KKR after the author's closure (SE-12)
   const input = await tasksApi.assessment(task.assignments[0].assignment_id);
   const assessed = await tasksApi.updateAssessment(input.assignment_id, { expected_revision: input.revision, hours: 7, reason: "СЛУЖЕБНОЕ_ОСНОВАНИЕ_ККР" });
   const session = await liveLogin(worker.email);
-  let edited = await tasksApi.update(task.task_id, { expected_revision: task.revision, description: richText("СКРЫВАЕМАЯ_ВЕРСИЯ_HTTP") });
+  let edited = await tasksApi.update(task.task_id, { expected_revision: closed.revision, description: richText("СКРЫВАЕМАЯ_ВЕРСИЯ_HTTP") });
   edited = await tasksApi.update(task.task_id, { expected_revision: edited.revision, description: richText("Сохранённое итоговое описание") });
   page = await mountWorkspace(<HistoryPanel kind="task" id={task.task_id} />, { session });await waitForPage(page);
   expect(page.container.textContent).not.toContain("СЛУЖЕБНОЕ_ОСНОВАНИЕ_ККР");

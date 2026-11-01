@@ -584,6 +584,14 @@ def change_status(task_id,uid,expected_revision,status,*,text="",links=None,file
         return respond(session)
 
 
+def require_closed_task(session,task,state):
+    """KKR of a task is filled after its author closed it, as in the accounting batch; a
+    closed season's correction is not refused (owner 2026-11-01, SE-12). Callers check the
+    right first, so a caller without it keeps its 403/404."""
+    if state!="closed" and public_status(metadata(session,task).status)!="closed":
+        raise Conflict("Close the task before filling accounting","task_not_closed")
+
+
 def private_review(assignment_id,uid,expected_revision,status,*,evaluation=None,reason=None,review_note=None,**_ignored):
     from season_summaries import refresh
     with db.atomic():
@@ -594,6 +602,9 @@ def private_review(assignment_id,uid,expected_revision,status,*,evaluation=None,
         state=task_state(session,task)
         db.require_task_right(uid,"task.review",task,state,"Forbidden: cannot review task accounting","Forbidden: cannot review closed accounting")
         if task.scope_kind=="queue":raise InvalidInput("Independent tasks have no accounting source")
+        # «Принять работу» and «не выполнено» are KKR assessment; a return for revision and
+        # an exclusion are not, and stay available on an open task.
+        if status in {"accepted","not_completed"}:require_closed_task(session,task,state)
         if row.inputs_revision!=expected_revision:raise revision_conflict()
         note=reason or review_note or ""
         before=dict(status=row.status,hours=row.hours,evaluation=row.evaluation,effective_completed_at=row.effective_completed_at)

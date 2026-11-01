@@ -4,6 +4,18 @@ from database import db, BlockORM, TaskORM, AssignmentORM, SeasonORM
 from models import Block
 
 
+def close_by_author(client, task_id, author):
+    """The author's public closure; the legacy KKR routes assess a task only after it
+    (owner 2026-11-01, SE-12). An already closed task is left as it is."""
+    task = client.get(f"/api/tasks/{task_id}", headers=author.headers).json()
+    if task["status"] == "closed":
+        return task
+    r = client.post(f"/api/tasks/{task_id}/status", headers=author.headers,
+                    json=dict(expected_revision=task["revision"], status="closed"))
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
 @pytest.fixture
 def work(client, superuser, make_user):
     master = make_user()
@@ -69,6 +81,7 @@ def test_task_transitions_last_submission_and_hidden_inputs(client, work, superu
     t = w["task"]
     a = t["assignments"][0]
     aid = a["assignment_id"]
+    closed = close_by_author(client, t["task_id"], w["master"])
     assert (
         client.post(
             f"/api/assignments/{aid}/accept",
@@ -77,11 +90,14 @@ def test_task_transitions_last_submission_and_hidden_inputs(client, work, superu
         ).status_code
         == 422  # no observed submission or authorized completion date
     )
+    r = client.post(f"/api/tasks/{t['task_id']}/status", headers=w["master"].headers,
+                    json={"expected_revision": closed["revision"], "status": "open"})
+    assert r.status_code == 200, r.text
     r = client.post(
         f"/api/assignments/{aid}/submit",
         headers=w["member"].headers,
         json={
-            "expected_revision": 1,
+            "expected_revision": public_revision(client, w, aid),
             "text": {"format": "markdown", "body": "Готово"},
             "file_ids": [],
             "links": [],
@@ -89,6 +105,7 @@ def test_task_transitions_last_submission_and_hidden_inputs(client, work, superu
     )
     assert r.status_code == 200, r.text
     submitted = r.json()["submissions"][-1]["submitted_at"]
+    close_by_author(client, t["task_id"], w["master"])
     r = client.post(
         f"/api/assignments/{aid}/accept",
         headers=w["master"].headers,
@@ -256,12 +273,14 @@ def test_event_merit_cannot_change_its_season(client, work, superuser):
 
 # FIX_PLAN 1.1 (A-TSK-2): a final outcome changes only through assessment inputs.
 def assignment_in(client, w, status):
-    """A fresh assignment of the member, brought to `status` through the API."""
+    """A fresh assignment of the member, brought to `status` through the API. Its task is
+    closed by the author, after which the legacy KKR routes assess it (SE-12)."""
     task = client.post("/api/tasks", headers=w["master"].headers, json=w["payload"]).json()
     aid = task["assignments"][0]["assignment_id"]
     post = lambda command, who, **body: client.post(f"/api/assignments/{aid}/{command}", headers=w[who].headers, json=dict(expected_revision=public_revision(client,w,aid) if command=="submit" else accounting_revision(client,w,aid), **body))  # noqa: E731
     if status in ("submitted", "accepted", "not_completed"):
         assert post("submit", "member", text=dict(format="markdown", body="Готово")).status_code == 200
+    close_by_author(client, task["task_id"], w["master"])
     if status == "accepted":
         assert post("accept", "master", evaluation=1).status_code == 200
     if status == "not_completed":
@@ -420,6 +439,8 @@ def test_area_lead_fills_inputs_but_moves_no_dates(client, work, superuser):
     assert (dt(old["deadline_at"]), dt(new["deadline_at"])) == (dt(deadline), dt(moved))
 
     # The completion date of an assignment follows the same rule; hours stay with the lead.
+    # The assignment's inputs are filled after the author's closure (SE-12).
+    close_by_author(client, tid, w["master"])
     inputs_url = f"/api/assignments/{aid}/assessment-inputs"
     inputs = client.get(inputs_url, headers=w["master"].headers).json()
     assert "edit_assessment_dates" not in inputs["capabilities"]
@@ -445,14 +466,17 @@ def test_area_lead_fills_inputs_but_moves_no_dates(client, work, superuser):
 def test_hidden_inputs_keep_the_assignees_revision(client,work):
     w=work;aid=w['task']['assignments'][0]['assignment_id'];url=f'/api/assignments/{aid}/assessment-inputs'
     seen=public_revision(client,w,aid);inputs=client.get(url,headers=w['master'].headers).json()
-    r=client.patch(url,headers=w['master'].headers,json=dict(expected_revision=inputs['revision'],hours=3,reason='Часы'));assert r.status_code==200
-    r=client.post('/api/assessment-inputs/bulk-hours',headers=w['master'].headers,json=dict(items=[dict(assignment_id=aid,expected_revision=r.json()['revision'])],hours=6,reason='Часы'));assert r.status_code==200
+    # On an open task the lead moves hours in bulk; the single PATCH waits for the closure (SE-12).
+    r=client.post('/api/assessment-inputs/bulk-hours',headers=w['master'].headers,json=dict(items=[dict(assignment_id=aid,expected_revision=inputs['revision'])],hours=3,reason='Часы'));assert r.status_code==200
+    r=client.post('/api/assessment-inputs/bulk-hours',headers=w['master'].headers,json=dict(items=[dict(assignment_id=aid,expected_revision=r.json()['items'][0]['revision'])],hours=6,reason='Часы'));assert r.status_code==200
     assert public_revision(client,w,aid)==seen
     private=client.get(url,headers=w['master'].headers).json()
     r=client.post(f'/api/assignments/{aid}/submit',headers=w['member'].headers,json=dict(expected_revision=seen,text='Готово'));assert r.status_code==200,r.text
     assert client.get(url,headers=w['master'].headers).json()==private  # result does not fabricate accounting inputs
+    close_by_author(client,w['task']['task_id'],w['master']);closed=public_revision(client,w,aid)
+    assert client.get(url,headers=w['master'].headers).json()==private  # nor does the public closure
     r=client.post(f'/api/assignments/{aid}/accept',headers=w['master'].headers,json=dict(expected_revision=private['workflow_revision'],evaluation=1));assert r.status_code==200,r.text
-    assert public_revision(client,w,aid)==seen+1
+    assert public_revision(client,w,aid)==closed
     current=client.get(url,headers=w['master'].headers).json();assert current['effective_completed_at']
     r=client.patch(url,headers=w['master'].headers,json=dict(expected_revision=current['revision'],evaluation=1.5,reason='Оценка'));assert r.status_code==200,r.text
-    assert public_revision(client,w,aid)==seen+1
+    assert public_revision(client,w,aid)==closed

@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from database import db, SeasonORM, RoleAssignmentORM
 from sqlite_files import database_digest
-from test_v13_tracker import work
+from test_v13_tracker import work, close_by_author
 
 
 def test_legacy_migration_and_explicit_mapping_are_repeatable(tmp_path):
@@ -165,6 +165,7 @@ def test_concurrent_planned_creation_and_assignment_accept_are_atomic(
         w["member"].headers,
     )
     assert submitted.status_code == 200, submitted.text
+    close_by_author(client, w["task"]["task_id"], w["master"])  # acceptance follows the closure (SE-12)
     body = dict(expected_revision=client.get("/api/assignments/"+aid+"/assessment-inputs",headers=w["master"].headers).json()["workflow_revision"], evaluation=1)
     with ThreadPoolExecutor(2) as pool:
         responses = list(
