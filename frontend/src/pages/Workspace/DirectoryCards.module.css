@@ -27,11 +27,16 @@
 }
 .identity h2 { font-size: 18px; line-height: 1.3; min-height: 2.6em; }
 .summary { color: var(--on-surface-variant); font-size: 14px; line-height: 1.35; margin-top: 6px; }
+/* The right column: the category badge on top, the account management in the card's lower
+ * right corner. Its two short lines keep the column as narrow as the badge (D-08). */
+.side { flex: 0 0 auto; align-self: stretch; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 /* The category badge is one word: it never breaks inside (PE-30). */
-.category { font-size: 12px; flex: 0 0 auto; }
+.category { font-size: 12px; }
 .category > * { white-space: nowrap; }
-.actions { display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--outline-variant); padding-top: 12px; margin-top: auto; }
-.actions button { font-size: 13px; }
+/* Its words break only between them: the card's «anywhere» would split them into letters. */
+.manage { margin: auto -6px -2px 0; width: min-content; overflow-wrap: normal; padding: 2px 6px; border: 0; border-radius: var(--radius-small); background: none; color: var(--primary); font: inherit; font-size: 12px; font-weight: 500; line-height: 1.3; text-align: right; cursor: pointer; }
+.manage:hover { background: color-mix(in srgb, var(--primary) var(--hover-opacity), transparent); }
+.manage:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .blocks { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; max-height: 2.8em; overflow: hidden; margin-top: 4px; font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
 .blocks .blockLink, .blocks .blockLink:hover { color: color-mix(in srgb, var(--on-background) 80%, var(--surface)); text-decoration: none; }
 .blocks .blockLink:hover { color: var(--accent-mint); }
@@ -46,11 +51,21 @@
 .card { position:relative; }
 .identity h2 .profileLink { color:var(--on-surface);text-decoration:none; }
 .profileLink::after { content:"";position:absolute;inset:0;border-radius:var(--radius-large); }
-.profileLink:focus-visible { outline:none; }
+/* Only the card's ring: the page's own «a:focus-visible» ring would draw a second one around the name. */
+.card .profileLink:focus-visible { outline:none; }
 .profileLink:focus-visible::after { outline:2px solid var(--primary);outline-offset:3px; }
 .card:hover { border-color:color-mix(in srgb,var(--primary) 40%,var(--outline-variant)); }
-.blocks .blockLink,.actions>a,.actions>button { position:relative;z-index:1; }
-.actions>a { font-size:13px;text-decoration:none; }
+.blocks .blockLink,.manage { position:relative;z-index:1; }
+
+/* Phone: each contact is a list row — a 40 px avatar, the name and group, the badge on the right,
+ * the blocks under the name (D-08). */
+@media (max-width: 768px) {
+  .grid { gap: 8px; }
+  .grid > .card { padding: 12px 14px; }
+  .header > :first-child { flex-basis: 40px; }
+  .identity h2 { min-height: 0; }
+  .summary { margin-top: 2px; }
+}
 
 /* Account management: the category and the destructive archive are separate sections. */
 .manageSection { display: grid; gap: 12px; min-width: 0; }

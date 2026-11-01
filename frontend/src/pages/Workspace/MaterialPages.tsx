@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useId, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   Page,
@@ -29,6 +29,9 @@ import cards from "./MaterialCards.module.css";
 const MaterialContent = lazy(() => import("../../components/Workspace/MaterialContent").then(module => ({ default: module.MaterialContent })));
 const MaterialEditor = lazy(() => import("./MaterialEditor").then(module => ({ default: module.MaterialEditor })));
 const loading = <p className={s.muted} role="status">Загружаем…</p>;
+// The sections of the catalogue in their order; a kind the list does not know reads as a document, as its badge does.
+const SECTIONS = [{ kind: "kmb", label: "КМБ" }, { kind: "general", label: "Общие документы" }, { kind: "guide", label: "Гайды блоков" }];
+const sectionOf = (m: Material) => SECTIONS.some(section => section.kind === m.kind) ? m.kind : "general";
 export function MaterialsPage() {
   const { session } = useSession();
   const [params, setParams] = useSearchParams();
@@ -40,14 +43,18 @@ export function MaterialsPage() {
     queryKey: ["materials"],
     queryFn: materialsApi.list,
   });
+  const headingId = useId();
   const visibleItems = (query.data?.items ?? []).filter((m) =>
     (!kind || m.kind === kind) && `${m.title} ${m.description}`.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru")),
   );
   const clearFilters = () => setParams(previous => { const next = new URLSearchParams(previous);next.delete("q");next.delete("kind");return next; }, { replace: true });
   // КМБ and documents first, then published guides; guides still in preparation fold away.
-  const order = ["kmb", "general", "guide"], byTitle = (a: Material, b: Material) => a.title.localeCompare(b.title, "ru");
-  const ready = visibleItems.filter(m => !m.placeholder).sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind) || byTitle(a, b));
+  const byTitle = (a: Material, b: Material) => a.title.localeCompare(b.title, "ru");
+  const ready = visibleItems.filter(m => !m.placeholder).sort(byTitle);
   const preparing = visibleItems.filter(m => m.placeholder).sort(byTitle);
+  // «Все материалы» shows each nonempty section under its title and count; a chosen section
+  // is the filter's own, so it needs no title (D-09).
+  const groups = SECTIONS.map(section => ({ ...section, items: ready.filter(m => sectionOf(m) === section.kind) })).filter(group => group.items.length > 0);
   return (
     <Page
       title="Материалы"
@@ -78,7 +85,7 @@ export function MaterialsPage() {
             void query.refetch();
           }}
         >
-          {ready.length > 0 && <MaterialCards items={ready} />}
+          {kind ? ready.length > 0 && <MaterialCards items={ready} /> : groups.map(group => <MaterialSection key={group.kind} id={`${headingId}-${group.kind}`} label={group.label} items={group.items} />)}
           {preparing.length > 0 && <details className={s.details} open={!ready.length || kind === "guide" || !!search.trim()}>
             <summary>Гайды блоков в подготовке · {preparing.length}</summary>
             <MaterialCards items={preparing} />
@@ -98,21 +105,34 @@ export function MaterialsPage() {
     </Page>
   );
 }
-function MaterialCards({ items }: { items: Material[] }) {
-  return <div className={cards.grid}>
-    {items.map((m) => (
-      <Card key={m.material_id} title={m.title} className={cards.card}>
-        <div className={s.badges}>
-          <Badge tone={m.kind === "kmb" ? "yellow" : m.kind === "guide" ? "lilac" : "sky"}>
-            {m.kind === "kmb" ? "КМБ" : m.kind === "guide" ? "Гайд" : "Документ"}
-          </Badge>
-          {m.audience === "block" && <Badge tone="peach">Для участников блока</Badge>}
-        </div>
-        <p className={cards.description}>{m.description}</p>
-        <RouteLink to={`/materials/${encodeURIComponent(m.material_id)}`}>Открыть</RouteLink>
-      </Card>
-    ))}
+/** A section of «Все материалы»: its title with the count, then its cards titled one level below. */
+function MaterialSection({ id, label, items }: { id: string; label: string; items: Material[] }) {
+  return <>
+    <h2 id={id} className={cards.groupTitle}>{label} <span className={s.muted}>· {items.length}</span></h2>
+    <MaterialCards items={items} labelledBy={id} heading="h3" />
+  </>;
+}
+function MaterialCards({ items, labelledBy, heading: Heading = "h2" }: { items: Material[]; labelledBy?: string; heading?: "h2" | "h3" }) {
+  return <div className={cards.grid} role={labelledBy ? "group" : undefined} aria-labelledby={labelledBy}>
+    {items.map((m) => <MaterialCard key={m.material_id} material={m} heading={Heading} />)}
   </div>;
+}
+/** The whole card opens the material: its title is the link, stretched over the card (D-09). */
+function MaterialCard({ material: m, heading: Heading }: { material: Material; heading: "h2" | "h3" }) {
+  const metaId = useId();
+  return <Card className={cards.card}>
+    <Heading className={cards.title}><Link className={cards.link} to={`/materials/${encodeURIComponent(m.material_id)}`} aria-describedby={metaId}>{m.title}</Link></Heading>
+    {/* The badges and one line of the description; the full text is on the material's page. */}
+    <div className={cards.meta} id={metaId}>
+      <div className={s.badges}>
+        <Badge tone={m.kind === "kmb" ? "yellow" : m.kind === "guide" ? "lilac" : "sky"}>
+          {m.kind === "kmb" ? "КМБ" : m.kind === "guide" ? "Гайд" : "Документ"}
+        </Badge>
+        {m.audience === "block" && <Badge tone="peach">Для участников блока</Badge>}
+      </div>
+      {m.description && <p className={cards.description}>{m.description}</p>}
+    </div>
+  </Card>;
 }
 function DeletedMaterials() {
   const { perform, refresh } = useWorkspaceActions();
