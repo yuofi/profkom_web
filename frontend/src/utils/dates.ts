@@ -3,15 +3,33 @@ const moscow = new Intl.DateTimeFormat("ru-RU", {
   dateStyle: "medium",
   timeStyle: "short",
 });
+const keepParts = (text: string) =>
+  text
+    .split(", ")
+    .map((part) => part.replace(/ /g, "\u00a0"))
+    .join(", ");
 /** "5 окт. 2026 г., 15:55": a line may break after the comma only, not inside the date or the time. */
 export const displayDate = (value: string | null | undefined) =>
   value && !Number.isNaN(Date.parse(value))
-    ? moscow
-        .format(new Date(value))
-        .split(", ")
-        .map((part) => part.replace(/ /g, "\u00a0"))
-        .join(", ")
+    ? keepParts(moscow.format(new Date(value)))
     : "—";
+const moscowShort = new Intl.DateTimeFormat("ru-RU", {
+  timeZone: "Europe/Moscow",
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+const moscowYear = new Intl.DateTimeFormat("ru-RU", {
+  timeZone: "Europe/Moscow",
+  year: "numeric",
+});
+/** "5 окт., 15:55" within the current Moscow year; a date of another year keeps it, as in displayDate (D-02). */
+export const shortDate = (value: string | null | undefined, now = Date.now()) =>
+  value && !Number.isNaN(Date.parse(value)) &&
+  moscowYear.format(new Date(value)) === moscowYear.format(now)
+    ? keepParts(moscowShort.format(new Date(value)))
+    : displayDate(value);
 const moscowTime = new Intl.DateTimeFormat("ru-RU", {
   timeZone: "Europe/Moscow",
   timeStyle: "short",
