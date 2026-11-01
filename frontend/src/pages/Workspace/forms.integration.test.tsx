@@ -209,7 +209,8 @@ it("2.12 A-FE-2: two rows of one summary save one after another without a confli
   const choose=async(id:number)=>{await act(async()=>mark(id).click());await until(()=>!!document.querySelector('[data-mark-menu]'));const button=document.querySelector<HTMLButtonElement>('[data-mark-menu] button[aria-label="Найс"]')!;await act(async()=>button.click());await until(()=>!!mark(id).querySelector('[role="img"][aria-label="Найс"]')&&!mark(id).disabled);};
   await choose(people[0].user_id);await choose(people[1].user_id);
   expect(rows()).toHaveLength(0);
-  expect(decisions.mock.calls.map(([, userId, values]) => ({ userId, expected_version: values.expected_version }))).toEqual([{ userId: people[0].user_id, expected_version: before }, { userId: people[1].user_id, expected_version: before + 1 }]);
+  // A summarizing season's mark also sends the marks its row showed (PB-16).
+  expect(decisions.mock.calls.map(([, userId, values]) => ({ userId, expected_version: values.expected_version, expected_decisions: values.expected_decisions }))).toEqual([{ userId: people[0].user_id, expected_version: before, expected_decisions: [] }, { userId: people[1].user_id, expected_version: before + 1, expected_decisions: [] }]);
   const after = await seasonsApi.summary(season.season_id);expect(after.version).toBe(before + 2);
   for (const person of people) expect(after.rows.find(row => row.user.user_id === person.user_id)?.decisions).toEqual(["nice"]);
 });
