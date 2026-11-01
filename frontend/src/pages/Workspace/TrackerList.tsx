@@ -23,7 +23,8 @@ import { TaskStatusMenu } from "./TaskStatusMenu";
 import { TrackerFavoriteButton } from "./TrackerFavoriteButton";
 import { TrackerCalendar } from "./TrackerCalendar";
 import { TrackerGantt } from "./TrackerGantt";
-import { loadPlanningTasks, planningMonth, planningRange, taskTypeNames, taskPriorityNames } from "./trackerPlanning";
+import { taskTypeNames, taskPriorityNames } from "./trackerPlanning";
+import { trackerTaskRead } from "./trackerTaskRead";
 import { UserChip } from "../../components/Workspace/UserChip";
 import { publicStatusNames as statusNames } from "./trackerStatus";
 import w from "../../components/Workspace/Workspace.module.css";
@@ -56,11 +57,10 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
     document.addEventListener("pointerdown", close); document.addEventListener("keydown", escape);
     return () => { document.removeEventListener("pointerdown", close); document.removeEventListener("keydown", escape); };
   }, []);
-  const view = params.get("view") === "calendar" ? "calendar" : params.get("view") === "gantt" ? "gantt" : "list";
-  const month = planningMonth(params.get("month")), zoom = params.get("zoom") === "month" ? "month" : "week";
-  const range = planningRange(month, view === "calendar" ? "calendar" : "gantt", zoom);
+  // The same read a queue page starts with the queue (PF-14): one definition, one key.
+  const read = trackerTaskRead(params, queue?.queue_id, settledSearch);
+  const { view, month, zoom, range, cursor, filters } = read;
   const needsDefaults = !queue && !selectionKeys.some(key => params.has(key));
-  const cursor = params.get("cursor") ?? "";
   const pageNumber = Math.max(1, Number(params.get("page")) || 1);
   // Cursors of earlier pages live in this history entry (they survive a reload); the URL
   // keeps the immediately previous cursor so an opened link can still step back once.
@@ -68,32 +68,10 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
   const savedCursors = (location.state as { trackerCursors?: unknown } | null)?.trackerCursors;
   const cursorStack = Array.isArray(savedCursors) && savedCursors.every(item => typeof item === "string") && savedCursors.length === pageNumber - 1 && (savedCursors.at(-1) ?? "") === previousCursor
     ? savedCursors as string[] : pageNumber === 1 ? [] : null;
-  const filters = {
-    queue_id: queue?.queue_id ?? params.get("queue_id") ?? "",
-    mine: params.get("mine") ?? "false",
-    status: params.get("status") ?? "",
-    season_id: params.get("season_id") ?? "",
-    scope_kind: params.get("scope_kind") ?? "",
-    scope_id: params.get("scope_id") ?? "",
-    assignee_user_id: params.get("assignee_user_id") ?? "",
-    q: params.get("q") ?? "",
-    task_type: params.get("task_type") ?? "",
-    priority: params.get("priority") ?? "",
-    favorite: params.get("favorite") ?? "",
-    unfinished: params.get("unfinished") ?? "false",
-    overdue: params.get("overdue") ?? "false",
-    sort: params.get("sort") ?? "deadline",
-    order: params.get("order") ?? "asc",
-    limit: 20,
-    ...(cursor ? { cursor } : {}),
-  };
-  const requestFilters = Object.fromEntries(Object.entries({ ...filters, q: settledSearch }).filter(([, value]) => value !== ""));
-  // Pages come without facets; the filter panel reads them for its selection only (PF-19).
-  const listFilters = { ...requestFilters, include_facets: false };
   // The previous page stays on screen while the next selection loads; a refused read still has no data.
-  const query = useQuery({ queryKey: ["tasks", "page", listFilters], queryFn: ({ signal }) => tasksApi.listPage(listFilters, signal), enabled: !searchPending && !needsDefaults && view === "list", placeholderData: keepPreviousData });
+  const query = useQuery({ ...read.list, enabled: !searchPending && !needsDefaults && view === "list", placeholderData: keepPreviousData });
   const listBusy = searchPending || query.isPlaceholderData;
-  const timeline = useQuery({ queryKey: ["tasks", "planning", requestFilters, range.first, range.last], queryFn: ({ signal }) => loadPlanningTasks(requestFilters, range, signal), enabled: view !== "list" && !searchPending && !needsDefaults });
+  const timeline = useQuery({ ...read.planning, enabled: view !== "list" && !searchPending && !needsDefaults });
   const selection = Object.fromEntries(Object.entries({ queue_id: filters.queue_id, season_id: filters.season_id, scope_kind: filters.scope_kind, scope_id: filters.scope_id }).filter(([, value]) => value !== ""));
   const scopeFiltered = !queue && !!filters.scope_kind && !!filters.scope_id;
   const facets = useQuery({ queryKey: ["tasks", "facets", selection], queryFn: ({ signal }) => tasksApi.facets(selection, signal), enabled: !needsDefaults && (filtersOpen || scopeFiltered) });

@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { useQueryClient, type Query, type QueryClient } from "@tanstack/react-query";
+import { useQueryClient, type Query, type QueryClient, type QueryFunction } from "@tanstack/react-query";
 import { tasksApi } from "./api/tasks.api";
 import { referenceStaleTime } from "./api/invalidation";
 
@@ -44,7 +44,9 @@ export const workspaceStaleTime = (query: Query) => {
   if (at !== undefined) prefetched.delete(query.queryHash);
   return referenceStaleTime(query);
 };
-function prefetch(client: QueryClient, queryKey: readonly unknown[], queryFn: () => Promise<unknown>) {
+/** Starts a read for a page about to mount, or for a part a page mounts later (the queue
+ *  page and its task list, PF-14); that reader then joins it instead of asking again. */
+export function prefetchRead(client: QueryClient, queryKey: readonly unknown[], queryFn: QueryFunction) {
   const query = client.getQueryCache().find({ queryKey, exact: true });
   if (query && (query.state.fetchStatus !== "idle" || Date.now() - query.state.dataUpdatedAt < PREFETCH_FRESH_MS)) return;
   const started = Date.now();
@@ -55,8 +57,8 @@ function prefetch(client: QueryClient, queryKey: readonly unknown[], queryFn: ()
 }
 /** A task and its comments, the same queries the task page reads, side by side. */
 export function prefetchTask(client: QueryClient, taskId: string) {
-  prefetch(client, ["tasks", taskId], () => tasksApi.get(taskId));
-  prefetch(client, ["tasks", taskId, "comments"], () => tasksApi.comments(taskId));
+  prefetchRead(client, ["tasks", taskId], () => tasksApi.get(taskId));
+  prefetchRead(client, ["tasks", taskId, "comments"], () => tasksApi.comments(taskId));
 }
 /** The first data of a route, started with its code instead of after it. Call it only
  *  inside the workspace layout, i.e. for a confirmed active session (READ_PATHS.md). */
@@ -74,7 +76,7 @@ export function useTaskPrefetch(ignore?: (target: EventTarget | null) => boolean
   const start = (taskId: string) => (event: { target: EventTarget | null }) => {
     cancel();
     if (ignore?.(event.target)) return;
-    timer.current = setTimeout(() => { preloadRouteCode("/tasks/task");prefetch(client, ["tasks", taskId], () => tasksApi.get(taskId)); }, 120);
+    timer.current = setTimeout(() => { preloadRouteCode("/tasks/task");prefetchRead(client, ["tasks", taskId], () => tasksApi.get(taskId)); }, 120);
   };
   return (taskId: string) => ({ onPointerOver: start(taskId), onPointerLeave: cancel, onFocus: start(taskId), onBlur: cancel });
 }

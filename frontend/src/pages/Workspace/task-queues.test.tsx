@@ -62,10 +62,13 @@ it("offers a way back from a queue that does not exist", async () => {
 it("persists an access request from the denied screen without loading tasks", async () => {
   transport = installMockTransport("organizer", { delay: 0 });transport.state.queues[0].is_private = true;transport.state.queues[0].owner = transport.state.people[3];
   const list = vi.spyOn(tasksApi, "listPage");await mount("/tasks/queues/queue-tasks", "organizer");
-  expect(page!.container.querySelector("h1")?.textContent).toBe("Нет доступа к очереди");expect(list).not.toHaveBeenCalled();
+  expect(page!.container.querySelector("h1")?.textContent).toBe("Нет доступа к очереди");
+  // The task read starts with the queue's (PF-14) and is refused with the queue's own answer: no tasks load.
+  expect(list).toHaveBeenCalledOnce();await expect(list.mock.results[0].value).rejects.toMatchObject({ status: 403, code: "queue_access_required" });
   const request = vi.spyOn(taskQueuesApi, "requestAccess");await change(page!.container.querySelector<HTMLTextAreaElement>('textarea[name="message"]')!, "Хочу помочь с задачами");
   await submit(button("Запросить доступ").closest("form")!);await waitForPage(page!);
   expect(request).toHaveBeenCalledWith("queue-tasks", "Хочу помочь с задачами");expect(page!.container.textContent).toContain("Ваш запрос ожидает решения владельца");expect(page!.container.querySelector("table")).toBeNull();
+  expect(list).toHaveBeenCalledOnce();
 });
 it("pins a queue on its page while clearing optional filters", async () => {
   transport = installMockTransport("leader", { delay: 0 });const list = vi.spyOn(tasksApi, "listPage");
