@@ -2885,15 +2885,18 @@ def list_tasks(
     cursor: Optional[str] = None,
     limit: int = Query(20,ge=1,le=100),
     include_facets: bool = True,
+    exclude_kkr_control: bool = False,
     cur: User = Depends(get_current_user),
 ):
     from tracker import task_page
     # include_facets=false omits scopes/assignees; GET /tasks/facets returns them alone.
+    # exclude_kkr_control=true leaves out managed KKR control epics, which keep no accounting of their own.
     return task_page(cur.user_id, queue_id=queue_id,season_id=season_id, scope_kind=scope_kind,
         scope_id=scope_id, mine=mine, status=status, q=q, unfinished=unfinished,
         overdue=overdue, assignee_user_id=assignee_user_id, sort=sort, order=order,
         task_type=task_type,priority=priority,favorite=favorite,date_from=date_from,date_to=date_to,
-        cursor=cursor, limit=limit, converter=_to_task_public_out, include_facets=include_facets)
+        cursor=cursor, limit=limit, converter=_to_task_public_out, include_facets=include_facets,
+        exclude_kkr_control=exclude_kkr_control)
 
 
 @router.get("/tasks/facets")
