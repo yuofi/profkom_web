@@ -1,4 +1,4 @@
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import {
   emptyCriteria,
@@ -13,9 +13,7 @@ import { displayDate, moscowInput, toUtc } from "../../utils/dates";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { ActionForm, type Field } from "./ActionForm";
 import { number, text } from "./formValues";
-import { Loading, QueryState } from "./WorkspaceUI";
-import { revisionSnapshot, snapshotRevisions } from "./revisionSnapshot";
-import { advanceOwn, recordOwnChange, useOwnRevisions } from "./ownRevisions";
+import { QueryState } from "./WorkspaceUI";
 import { UserChip } from "./UserChip";
 import a from "./AssessmentPanel.module.css";
 import s from "./Workspace.module.css";
@@ -239,81 +237,6 @@ export function TaskInputsPanel({ task }: { task: Task }) {
         )}
         {inputs && <HistoryDisclosure kind="task" id={task.task_id} title="История параметров и исходных полей задачи" />}
       </QueryState>
-    </details>
-  );
-}
-export function BulkHoursPanel({ task }: { task: Task }) {
-  const { perform, refresh } = useWorkspaceActions();
-  const client = useOwnRevisions();
-  const [ready, setReady] = useState(false);
-  const queries = useQueries({
-    queries: task.assignments
-      .filter((a) => can(a, "view_assessment_inputs"))
-      .map((a) => ({
-        queryKey: ["assessments", a.assignment_id],
-        queryFn: () => tasksApi.assessment(a.assignment_id),
-      })),
-  });
-  const inputs = queries.flatMap((q) =>
-    q.data && can(q.data, "edit_assessment_inputs") ? [q.data] : [],
-  );
-  if (!ready && queries.every(q => !q.isLoading)) setReady(true);
-  if (!ready) return <Loading />;
-  if (!inputs.some((a) => can(a, "edit_assessment_inputs"))) return null;
-  return (
-    <details className={s.details}>
-      <summary>Установить часы нескольким исполнителям</summary>
-      <ActionForm
-        revisionKey={revisionSnapshot(inputs.map(i => ({id: i.assignment_id, revision: i.revision})))}
-        // Own corrections of single assignments move this combined baseline too (A-FE-2).
-        rebaseKey={(key) => revisionSnapshot([...snapshotRevisions(key)].map(([id, revision]) => ({id, revision: advanceOwn(client, `assignment-inputs:${id}`, revision)})))}
-        adoptWhenUntouched
-        savedDetails={<ul>{inputs.map(i => <li key={i.assignment_id}>{task.assignments.find(a => a.assignment_id === i.assignment_id)?.assignee.display_name}: {i.hours ?? "не заданы"} ч.</li>)}</ul>}
-        fields={[
-          {
-            name: "assignments",
-            label: "Назначения",
-            type: "multi",
-            required: true,
-            options: task.assignments
-              .filter((a) =>
-                inputs.some((i) => i.assignment_id === a.assignment_id),
-              )
-              .map((a) => ({
-                value: a.assignment_id,
-                label: a.assignee.display_name,
-                user: a.assignee,
-              })),
-          },
-          {
-            name: "hours",
-            label: "Одинаковое количество часов",
-            type: "number",
-            min: 0,
-            required: true,
-          },
-          { name: "reason", label: "Причина", required: true },
-        ]}
-        onSubmit={async (v, _expectedRevision, snapshot) => {
-          const selected = v.assignments as string[];
-          const revisions = snapshotRevisions(snapshot);
-          if (selected.some(id => !revisions.has(id) || !inputs.some(i => i.assignment_id === id)))
-            throw Error("Обновите список доступных назначений");
-          const saved = await perform(() =>
-            tasksApi.bulkHours(
-              selected.map(id => ({assignment_id: id, expected_revision: revisions.get(id)!})),
-              number(v, "hours"),
-              text(v, "reason"),
-            ),
-          );
-          saved.items.forEach(i => {
-            recordOwnChange(client, `assignment-inputs:${i.assignment_id}`, revisions.get(i.assignment_id)!, i.revision);
-            revisions.set(i.assignment_id, i.revision);
-          });
-          return { revisionKey: revisionSnapshot([...revisions].map(([id, revision]) => ({id, revision}))) };
-        }}
-        onConflict={refresh}
-      />
     </details>
   );
 }

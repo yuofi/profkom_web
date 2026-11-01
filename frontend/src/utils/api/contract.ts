@@ -185,6 +185,11 @@ export interface ReportSeries {
   title: string;
   parent_series_id: string | null;
 }
+/** GET /report-series/continuable: a series a new event (or a new subevent of the parent)
+ *  may continue, with its latest instance the reader can open; null when there is none. */
+export interface ContinuableSeries extends ReportSeries {
+  latest: { title: string; season_id: string; season_title: string | null } | null;
+}
 export interface Criteria {
   unique: boolean;
   creative: boolean;

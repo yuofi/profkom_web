@@ -5,7 +5,7 @@ import { Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
 import { mountWorkspace, waitForPage, settle } from "../../test/workspace";
-import { workspaceQueryCache } from "../../utils/api/invalidation";
+import { invalidateWorkspace, workspaceQueryCache } from "../../utils/api/invalidation";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { membershipApi } from "../../utils/api/membership.api";
 import { supportApi } from "../../utils/api/support.api";
@@ -14,7 +14,8 @@ import { SeasonBlockerLink } from "../../components/Workspace/SeasonBlockerLink"
 import { SupportTaskPanel } from "../../components/Workspace/SupportTaskPanel";
 import { ProfileAchievements } from "../../components/Workspace/ProfileAchievements";
 import { MeritsPage } from "./MeritPages";
-import { EventPage, SubeventPage } from "./EventPages";
+import { EventCreatePage, EventPage, SubeventCreatePage, SubeventPage } from "./EventPages";
+import { continuableSeriesKey } from "./useReportSeries";
 import { BlockPage, BlockRequestsPage } from "./MembershipPages";
 import { SeasonParticipants } from "./SeasonParticipants";
 
@@ -42,6 +43,36 @@ it("reads the merit scopes of the season once and shares them with every editor 
   expect(gets("/merits/contexts")[0].params).toEqual({ season_id: "season-1" });
   expect(gets(/\/subevents$/)).toHaveLength(0);expect(gets("/events")).toHaveLength(0);expect(gets("/blocks")).toHaveLength(0);
   expect(page.container.textContent).toContain("Учесть выполненную работу");
+});
+
+const seriesOptions = () => [...page!.container.querySelector<HTMLSelectElement>('select[name="series"]')!.options].map(option => [option.value, option.textContent]);
+it("offers the report series of a new subevent and event from one read, not one per earlier instance (PB-11)", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  // The festival series in three seasons: last year's instance, this one (event-1) and the next, new one.
+  const [festival] = mock.state.events, [lectures] = mock.state.subevents;
+  mock.state.events.push({ ...structuredClone(festival), event_id: "event-old", season_id: "season-previous", title: "День математика 2025" },
+    { ...structuredClone(festival), event_id: "event-next", season_id: "season-next", title: "День математика 2027" });
+  mock.state.subevents.push({ ...structuredClone(lectures), subevent_id: "subevent-old", event_id: "event-old", title: "Лекции 2025" });
+  const client = productionClient();
+  page = await mountWorkspace(<Routes><Route path="/events/:id/subevents/new" element={<SubeventCreatePage />} /></Routes>, { path: "/events/event-next/subevents/new", client });
+  await waitForPage(page, () => !!page!.container.querySelector('select[name="series"]') && seriesOptions().length > 1);
+  // The latest instance of the child series is this season's, not last year's.
+  expect(seriesOptions()).toEqual([["new", "Новая серия"], ["series-sub-1", `Лекции и встречи — ${lectures.title}, Осень и зима 2026`]]);
+  expect(gets("/report-series/continuable")).toHaveLength(1);
+  expect(gets("/report-series/continuable")[0].params).toEqual({ parent_event_id: "event-next" });
+  expect(gets(/\/subevents$/)).toHaveLength(0);expect(gets("/events")).toHaveLength(0);expect(gets("/report-series")).toHaveLength(0);
+  // Every workspace command rereads it: the key is under the invalidated ["reports"].
+  expect(client.getQueryState(continuableSeriesKey("event-next"))?.status).toBe("success");
+  await act(async () => { await invalidateWorkspace(client); });
+  expect(gets("/report-series/continuable")).toHaveLength(2);
+  await page.cleanup();
+  mock.restore();mock = installMockTransport("chair", { delay: 0 });
+  page = await mountWorkspace(<Routes><Route path="/events/new" element={<EventCreatePage />} /></Routes>, { path: "/events/new", client: productionClient() });
+  await waitForPage(page, () => !!page!.container.querySelector('select[name="series"]') && seriesOptions().length > 1);
+  expect(seriesOptions()).toEqual([["new", "Новая серия"], ["series-event-1", "День математика — День математика, Осень и зима 2026"]]);
+  expect(gets("/report-series/continuable")).toHaveLength(1);
+  expect(gets("/report-series/continuable")[0].params).toEqual({});
+  expect(gets("/events")).toHaveLength(0);expect(gets("/report-series")).toHaveLength(0);
 });
 
 it("shows event and subevent deputies from the response and reads the directory only for an editor (PF-13)", async () => {
