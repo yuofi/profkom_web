@@ -14,6 +14,8 @@ interface AvatarProps {
   onUpload?: (url: string) => void;
   className?: string;
   loading?: "lazy" | "eager";
+  /** "" where the avatar only accompanies a name shown next to it. */
+  alt?: string;
 }
 
 export const Avatar: React.FC<AvatarProps> = ({
@@ -23,6 +25,7 @@ export const Avatar: React.FC<AvatarProps> = ({
   onUpload,
   className,
   loading,
+  alt = "Avatar",
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -59,7 +62,7 @@ export const Avatar: React.FC<AvatarProps> = ({
       return (
         <Image
           src={imageSrc}
-          alt="Avatar"
+          alt={alt}
           className={styles.image}
           disableModal={mode === "edit" || mode === "disable"}
           loading={loading}

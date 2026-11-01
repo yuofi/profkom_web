@@ -58,6 +58,13 @@ it("contacts use compact cards and separate account management", async () => {
   expect(cards).toHaveLength(2);
   expect(cards[0].querySelector("details")).toBeNull();
   expect(cards[0].querySelector('h2 a[href="/contacts/101"]')).not.toBeNull();
+  // The avatar lies under the stretched profile link: a plain decorative image (smoke FS-2).
+  const avatar = cards[0].querySelector("img")!;
+  expect(avatar.getAttribute("alt")).toBe("");
+  expect(avatar.hasAttribute("role")).toBe(false);
+  expect(avatar.hasAttribute("tabindex")).toBe(false);
+  await act(async () => avatar.click());
+  expect(document.querySelector('[aria-label="Просмотр изображения"]')).toBeNull();
   const details = Array.from(cards[0].querySelectorAll("a")).find((link) => link.textContent === "Подробнее")!;
   expect(details.getAttribute("href")).toBe("/contacts/101");
   expect(page.container.querySelector("dialog")).toBeNull();
