@@ -1,4 +1,9 @@
 .chip { --chip-accent:var(--accent-lilac);font-variant-numeric:tabular-nums; }
+/* One chip width for every state (owner 2026-11-01): the hidden sizer lists all names, so the label box is as wide as
+   the longest one and the current name sits in its centre. A narrower column wraps the name inside the same width. */
+.label { display:inline-flex;flex-direction:column;max-width:100%;min-width:0; }
+.label>span { text-align:center; }
+.label::after { content:attr(data-sizer);height:0;overflow:hidden;visibility:hidden;white-space:pre; }
 .preview { display:grid;gap:10px;min-width:0; }
 .preview>small { color:var(--accent-lilac);font-size:10px;letter-spacing:.08em;text-transform:uppercase; }
 .preview>strong { font-size:17px;line-height:1.35;font-weight:500; }
