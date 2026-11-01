@@ -93,11 +93,16 @@ async function mountSeason(task: Task, allowed = true) {
 }
 it("a block task opens contextual season correction with its own revision and no raw-ID field", async () => {
   const task = { ...fixture().tasks[0], scope: { kind: "block" as const, id: "block-1" }, task_key: "IT-3", revision: 29 };
-  await mountSeason(task);await click("Изменить сезон");const dialog = page!.container.querySelector("dialog")!;expect(dialog.textContent).toContain(`IT-3 · ${task.title}`);expect(dialog.querySelector('[name="object_id"]')).toBeNull();
+  await mountSeason(task);expect(page!.container.querySelector("a[title], a[aria-describedby]")).toBeNull();
+  await click("Изменить сезон");const dialog = page!.container.querySelector("dialog")!;expect(dialog.textContent).toContain(`IT-3 · ${task.title}`);expect(dialog.querySelector('[name="object_id"]')).toBeNull();
 });
 it("subevent tasks link their actual event hierarchy and independent tasks do not offer unsupported moves", async () => {
   vi.spyOn(eventsApi, "subevent").mockResolvedValue(fixture().subevents[0]);const task = fixture().tasks[0];await mountSeason(task);
   const link = [...page!.container.querySelectorAll("a")].find(item => item.textContent === "Изменить сезон мероприятия");expect(link?.getAttribute("href")).toBe(`/events/${fixture().subevents[0].event_id}`);expect(page!.container.querySelector("button")).toBeNull();
+  // D-03: the explanation is both links' tooltip and description; the card keeps it for a screen without hover.
+  const hint = document.getElementById(link!.getAttribute("aria-describedby")!)!, season = page!.container.querySelector<HTMLAnchorElement>('a[href^="/seasons/"]')!;
+  expect(hint.textContent).toBe("Сезон меняется вместе с мероприятием и его задачами.");expect(hint.className).toMatch(/seasonHint/);
+  expect(link!.title).toBe(hint.textContent);expect(season.title).toBe(hint.textContent);expect(season.getAttribute("aria-describedby")).toBe(hint.id);
   await page!.cleanup();page = undefined;vi.restoreAllMocks();await mountSeason({ ...task, scope: { kind: "queue", id: "independent" } });expect(page!.container.textContent).toContain("пока не поддерживается");expect(page!.container.querySelector("button")).toBeNull();
 });
 it("season correction is absent without the current global capability and safe season history remains readable", async () => {
