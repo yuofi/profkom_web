@@ -1,6 +1,6 @@
 # Rehearsing API 1.3 migration
 
-Work on a SQLite-backup copy first. Copy a database only with SQLite's backup API (DEPLOY.md): the application keeps it in WAL mode (PB-31), and a plain file copy can miss committed transactions that are still in `-wal`, for example after the API was killed. Keep the original and record its SHA-256. Import-time schema additions are idempotent; duplicate planned/current seasons, role assignments, contributions or final reports stop the integrity-index installation instead of silently deleting rows.
+Work on a SQLite-backup copy first. Copy a database only with SQLite's backup API (DEPLOY.md): with `SQLITE_JOURNAL_MODE=WAL` the application keeps it in WAL mode (PB-31), and a plain file copy can miss committed transactions that are still in `-wal`, for example after the API was killed. Keep the original and record its SHA-256. Import-time schema additions are idempotent; duplicate planned/current seasons, role assignments, contributions or final reports stop the integrity-index installation instead of silently deleting rows.
 
 ```sh
 cd backend
@@ -9,7 +9,7 @@ python scripts/mapping_candidate.py --database /absolute/copy.db --out /absolute
 python scripts/migrate_v13.py --database /absolute/copy.db --apply --mapping /absolute/ids.json --report /absolute/mapped.json
 ```
 
-Dry-run and the candidate use `mode=ro` and do not import the app; on a WAL database they may leave an empty `-wal` and `-shm` next to it. Apply imports the app, which switches the database to WAL (unless `SQLITE_JOURNAL_MODE=DELETE`), runs the existing additive startup migrations, then the mapping, and records counts, quick_check, stable block IDs and the sections below. Repeat apply on the same copy and verify counts/source text hashes, IDs and accounting: a repeat only adds the audit record of the repeated mapping. Rollback means restoring the whole backup and matching application version, not trying to drop individual columns.
+Dry-run and the candidate use `mode=ro` and do not import the app; on a WAL database they may leave an empty `-wal` and `-shm` next to it. Apply imports the app, which keeps the rollback journal unless `SQLITE_JOURNAL_MODE=WAL` switches the database to WAL (DEPLOY.md, section 7), runs the existing additive startup migrations, then the mapping, and records counts, quick_check, stable block IDs and the sections below. Repeat apply on the same copy and verify counts/source text hashes, IDs and accounting: a repeat only adds the audit record of the repeated mapping. Rollback means restoring the whole backup and matching application version, not trying to drop individual columns.
 
 ## The report
 

@@ -1,11 +1,12 @@
 """PB-31 (owner 2026-10-31): SQLite works in WAL with synchronous=FULL.
 
-Every new connection of the application keeps WAL and synchronous=FULL; an existing
-rollback-journal database keeps its rows and indexes, and SQLITE_JOURNAL_MODE=DELETE
-returns it. Acknowledged commits survive a killed writer, the backup of DEPLOY.md is
-consistent while writes run and after a stop, units that read before they write
-never fail with SQLITE_BUSY while other writers commit, and a stopped backend or script
-leaves only the database file.
+With SQLITE_JOURNAL_MODE=WAL (this suite runs so, conftest) every new connection of the
+application keeps WAL and synchronous=FULL; an existing rollback-journal database keeps
+its rows and indexes, and without the setting it keeps or returns to the rollback
+journal. Acknowledged commits survive a killed writer, the backup of DEPLOY.md is
+consistent while writes run and after a stop, units that read before they write never
+fail with SQLITE_BUSY while other writers commit, and a stopped backend or script leaves
+only the database file.
 """
 import os
 import random
@@ -26,6 +27,7 @@ from sqlalchemy.orm import Session
 import database
 from database import db, engine, UserORM
 from read_context import reusable
+from settings import Settings
 
 BACKEND = Path(__file__).resolve().parents[1]
 ROOT = BACKEND.parent
@@ -75,33 +77,58 @@ INSERT INTO notifications VALUES ('n1', 7, 'kind', '{}', 0, 'same'), ('n2', 7, '
 """
 
 
-def test_a_rollback_journal_database_switches_to_wal_and_back(tmp_path):
-    path = tmp_path / "old-journal.db"
+def old_database(path):
     with closing(sqlite3.connect(path)) as connection:
         connection.executescript(OLD)
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
 
-    def state():
-        with closing(sqlite3.connect(path)) as connection:
-            rows = {t: connection.execute(f"SELECT * FROM {t} ORDER BY rowid").fetchall() for t in ("block", "notifications")}
-            schema = connection.execute("SELECT type, name, sql FROM sqlite_master ORDER BY type, name").fetchall()
-            return connection.execute("PRAGMA journal_mode").fetchone()[0], rows, schema, connection.execute("PRAGMA integrity_check").fetchone()[0]
 
-    def start(mode):
-        result = subprocess.run([sys.executable, "-c", "import database"], cwd=BACKEND, capture_output=True, text=True,
-                                env={**os.environ, "DATABASE_PATH": str(path), "SQLITE_JOURNAL_MODE": mode})
-        assert result.returncode == 0, result.stderr
-        return state()
+def state(path):
+    with closing(sqlite3.connect(path)) as connection:
+        rows = {t: connection.execute(f"SELECT * FROM {t} ORDER BY rowid").fetchall() for t in ("block", "notifications")}
+        schema = connection.execute("SELECT type, name, sql FROM sqlite_master ORDER BY type, name").fetchall()
+        return connection.execute("PRAGMA journal_mode").fetchone()[0], rows, schema, connection.execute("PRAGMA integrity_check").fetchone()[0]
 
-    mode, rows, schema, check = start("WAL")
+
+def start(path, mode):
+    """`import database` in a new process, as the API and every script start. Without `mode`
+    the process has no SQLITE_JOURNAL_MODE: no variable and no .env in its folder."""
+    env = {k: v for k, v in os.environ.items() if k != "SQLITE_JOURNAL_MODE"}
+    env.update(DATABASE_PATH=str(path), PYTHONPATH=os.pathsep.join(filter(None, [str(BACKEND), os.environ.get("PYTHONPATH")])))
+    if mode:
+        env["SQLITE_JOURNAL_MODE"] = mode
+    result = subprocess.run([sys.executable, "-c", "import database"], cwd=path.parent, capture_output=True, text=True, env=env)
+    assert result.returncode == 0, result.stderr
+    return state(path)
+
+
+def test_a_rollback_journal_database_switches_to_wal_and_back(tmp_path):
+    path = tmp_path / "old-journal.db"
+    old_database(path)
+    mode, rows, schema, check = start(path, "WAL")
     assert mode == "wal" and check == "ok"
     assert rows["block"][0][:2] == ("Старый", "Мастер")
     assert [row[:6] for row in rows["notifications"]] == [("n1", 7, "kind", "{}", 0, "same"), ("n2", 7, "kind", "{}", 1, "later")]
     assert ("index", "custom_notification_index", "CREATE INDEX custom_notification_index ON notifications(user_id)") in schema
-    assert start("WAL") == ("wal", rows, schema, "ok")
-    assert start("DELETE") == ("delete", rows, schema, "ok")
+    assert start(path, "WAL") == ("wal", rows, schema, "ok")
+    assert start(path, "DELETE") == ("delete", rows, schema, "ok")
     assert not Path(f"{path}-wal").exists()
-    assert start("WAL") == ("wal", rows, schema, "ok")
+    assert start(path, "WAL") == ("wal", rows, schema, "ok")
+
+
+def test_only_the_setting_turns_wal_on(tmp_path):
+    """The server switch is opt-in (PB-31): without SQLITE_JOURNAL_MODE=WAL in backend/.env
+    the database keeps the rollback journal, so neither a release-1 deploy nor a test-site
+    update turns WAL on unless the separately approved step adds the line (DEPLOY.md,
+    section 7); without the line a WAL database returns to the rollback journal."""
+    assert Settings.model_fields["SQLITE_JOURNAL_MODE"].default == "DELETE"
+    path = tmp_path / "site.db"
+    old_database(path)
+    first = start(path, None)  # the startup migrations add their columns
+    assert (first[0], first[3]) == ("delete", "ok")
+    assert start(path, "WAL") == ("wal", *first[1:])
+    assert start(path, None) == first
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["site.db"]
 
 
 def test_a_locked_database_keeps_its_mode_until_a_later_connection(tmp_path, caplog):

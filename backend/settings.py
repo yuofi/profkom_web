@@ -13,8 +13,9 @@ class Settings(BaseSettings):
     ADMIN_NAME: str = ""
     ADMIN_PASSWORD: str = ""
     DATABASE_PATH: str = ""
-    # WAL by default (PB-31); DELETE is the rollback of DEPLOY.md.
-    SQLITE_JOURNAL_MODE: Literal["WAL", "DELETE"] = "WAL"
+    # WAL only where backend/.env names it (PB-31): on a server a separately approved step of
+    # DEPLOY.md, section 7. Otherwise the rollback journal.
+    SQLITE_JOURNAL_MODE: Literal["WAL", "DELETE"] = "DELETE"
 
     model_config = SettingsConfigDict(
         env_file=".env",

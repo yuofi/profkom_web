@@ -79,12 +79,14 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, futu
 
 @event.listens_for(engine, "connect")
 def _sqlite_journal(dbapi_connection, _record):
-    """WAL with synchronous=FULL (PB-31): readers and the writer no longer wait for each
-    other, and every acknowledged commit survives a crash or power loss, as with the
-    rollback journal. The first connection converts an existing database; the mode is
-    stored in the file. SQLITE_JOURNAL_MODE=DELETE converts it back once no other
-    connection is open (DEPLOY.md). Through the DBAPI cursor: a driver statement would
-    end read_context's memo. Writes keep BEGIN IMMEDIATE (Database.atomic)."""
+    """SQLITE_JOURNAL_MODE=WAL with synchronous=FULL (PB-31): readers and the writer no
+    longer wait for each other, and every acknowledged commit survives a crash or power
+    loss, as with the rollback journal. WAL is opt-in: on a server backend/.env names it in
+    a separately approved step (DEPLOY.md, section 7). The first connection converts an
+    existing database, the mode is stored in the file; without the setting it keeps or
+    returns to the rollback journal once no other connection is open. Through the DBAPI
+    cursor: a driver statement would end read_context's memo. Writes keep BEGIN IMMEDIATE
+    (Database.atomic)."""
     cursor = dbapi_connection.cursor()
     try:
         try:
