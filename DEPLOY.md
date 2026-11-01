@@ -159,7 +159,8 @@ sed -i "s/^JWT_SECRET_KEY=.*/JWT_SECRET_KEY=$(head -c 48 /dev/urandom | base64 |
 tar xzf $DIST -C frontend
 docker compose build backend
 docker build -q -f frontend/Dockerfile.prebuilt -t profkom_web-frontend frontend
-# Все location рабочего nginx есть в новом: строк «<» быть не должно, «>» — только /_storage и @storage_failed.
+# С этим образом на сервер приходит gzip JSON-ответов /api/ (PF-12, frontend/nginx.conf): выкладка — отдельный шаг, только с разрешения владельца.
+# Все location рабочего nginx есть в новом: строк «<» быть не должно, «>» — только новые после 6eb9dea: /assets/, *.mjs, /api/feedback, /api/auth/, /api/files/, /_storage и @storage_failed.
 diff <(docker exec profkom_web-frontend-1 nginx -T 2>/dev/null | grep -E '^\s*location' | sort -u) \
      <(docker run --rm --add-host backend:127.0.0.1 -v /home/yulov/certs:/etc/nginx/ssl:ro -v $D/nginx-extra:/etc/nginx/extra:ro profkom_web-frontend nginx -T 2>/dev/null | grep -E '^\s*location' | sort -u)
 # 5. Остановка и резервная копия.
