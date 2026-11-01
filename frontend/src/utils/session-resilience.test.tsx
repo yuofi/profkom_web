@@ -79,8 +79,8 @@ it("GL-02: a failed profile read closes only the own profile pages", async () =>
   await render();
   await until(() => !!container.querySelector('[role="alert"]'));
   expect(container.textContent).not.toContain("Профиль");
-  await act(async () => { await router!.navigate("/tasks/task-1"); });
   adapter!.onGet("/materials").reply(200, { items: [], next_cursor: null });
+  await act(async () => { await router!.navigate("/tasks/task-1"); });
   await until(() => container.textContent!.includes("Материалы"));
   expect(container.querySelector('[role="alert"]')).toBeNull();
 });
