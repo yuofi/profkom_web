@@ -107,13 +107,19 @@ in non-closed seasons, including other blocks, subevents and independent/private
 queues. The central `task.edit` policy grants title/Markdown-description editing and
 the corresponding public editor controls; Markdown checkboxes use that same guarded
 description PATCH. This does not transfer queue ownership or change any accounting,
-report or analytics permission. The HR deputy retains global tracker reading and
-ordinary reader controls, without a new global editing or private-accounting grant.
-Closed tasks are edited by the chair, the deputies and the HR master (owner 2026-10-31,
-SE-13), never by the HR deputy. Closed independent tasks also retain the existing
-creator/queue-owner exception. A new assignment row in a closed season (join, take,
-assign, reassignment) still needs the chair or a deputy (`task.add_assignment`, the TR-05
-default awaiting the owner's answer).
+report or analytics permission. The actual HR deputy reads every queue and task and
+shares this global public editing in non-closed seasons, with the global review,
+assessment inputs and dates of the same `access.POLICY` rules and the global KKR,
+summary and analytics (owner 2026-10-30); in the HR block they are also an ordinary
+block deputy (owner 2026-10-31, GL-09). Closed tasks are edited by the chair, the
+deputies and the HR master (owner 2026-10-31, SE-13), never by the HR deputy. Closed
+independent tasks also retain the existing creator/queue-owner exception. A new
+assignment row in a closed season (join, take, assign, reassignment) is added by the
+same circle, the chair, the deputies and the HR master, never by the HR deputy or area
+leads (`task.add_assignment`, owner 2026-10-31, TR-05). Reader controls are not narrowed
+by SE-13: in a closed season every task reader, the HR deputy included, still changes
+the public status, submits a result, ticks checklist marks and comments; none of these
+changes accounting.
 
 ## Real roster and watcher subscriptions
 
@@ -190,7 +196,10 @@ trusting a user-authored link label. Missing, archived or banned targets become
 non-interactive unavailable-person chips. Code and foreign links remain ordinary
 Markdown. This is presentation only: writing a profile link never notifies anyone
 or grants access. The explicit mention command and author/queue-owner approval
-continue to control notifications and any revocable single-task grant.
+continue to control notifications and any revocable single-task grant. A WEBSUPPORT
+ticket is shared only by support staff: its author, unless staff, is no approver and
+gets no `manage_task_access`, yet keeps the reader's join/take/submit actions (owner
+2026-10-31, GL-22).
 
 The editor tracks notification intent only for targets explicitly chosen in the
 current draft. Removing or untagging their inserted token clears that pending

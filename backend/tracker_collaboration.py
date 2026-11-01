@@ -118,10 +118,26 @@ def approve_assignment_access(session,task,target_uid,actor_uid):
 def _managers(session,task,facts=None):
     from task_queues import task_queue,active
     from tracker import _facts_for
+    from support import is_support_queue,is_staff
     facts=_facts_for(facts,task)
     queue=task_queue(session,task)
-    return {uid for uid in (task.created_by_user_id,queue.owner_user_id if queue else None)
+    author=task.created_by_user_id
+    # A support ticket's access is shared by support staff, not by its author (GL-22).
+    if author and queue and is_support_queue(session,queue) and not cached(
+            session,"support.is_staff",author,lambda:is_staff(session,author),copy_result=False):author=None
+    return {uid for uid in (author,queue.owner_user_id if queue else None)
             if uid and active(session,uid) and (facts.readable(uid) if facts else db.can_read_task(uid,task,session))}
+
+
+def _require_manager(session,task,uid,message):
+    if uid in _managers(session,task):return
+    from task_queues import task_queue
+    from support import is_support_queue
+    queue=task_queue(session,task)
+    # A support ticket's own author is told who shares it (GL-22).
+    if uid==task.created_by_user_id and queue and is_support_queue(session,queue):
+        raise Forbidden("Support ticket sharing is managed by support staff")
+    raise Forbidden(message)
 
 
 def _task_key(session,task):
@@ -223,7 +239,7 @@ def decide(task_id,request_id,uid,expected_revision,approve):
     with db.atomic():
       with db._session() as session:
         task=visible_task(session,task_id,uid)
-        if uid not in _managers(session,task):raise Forbidden("Only task author or queue owner can approve mentions")
+        _require_manager(session,task,uid,"Only task author or queue owner can approve mentions")
         row=session.get(TaskMentionRequestORM,request_id)
         if not row or row.task_id!=task_id:raise NotFound("Task access request not found")
         if row.revision!=expected_revision:raise revision_conflict()
@@ -245,7 +261,7 @@ def revoke(task_id,target_uid,uid):
     with db.atomic():
       with db._session() as session:
         task=visible_task(session,task_id,uid)
-        if uid not in _managers(session,task):raise Forbidden("Only task author or queue owner can revoke access")
+        _require_manager(session,task,uid,"Only task author or queue owner can revoke access")
         row=session.get(TaskAccessGrantORM,(task_id,target_uid))
         if not row or not row.active:raise NotFound("Task grant not found")
         if row.source=="control":raise Conflict("Control access is managed automatically","control_epic_managed")

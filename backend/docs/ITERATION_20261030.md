@@ -35,7 +35,10 @@ update of the test site after local verification; production is not authorized.
 
 ## Queue creation and accounting source
 
-- Block masters/deputies create queues in their own blocks.
+- Block masters/deputies create queues in their own blocks. Owner decision 2026-10-31
+  (GL-09): the actual HR deputy is an ordinary deputy of the HR block here too (queues,
+  guide, block card, task/roster/assessment rights), but makes none of the SE-13
+  closed-season changes; a task reader's controls stay with them as with every reader.
 - Main-event heads/deputies create queues in their event (default) or a child.
 - Subevent responsible/deputies create queues in their own subevent.
 - Chair/deputies may select any source or the stable chair-work source `chair`.

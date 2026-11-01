@@ -5929,7 +5929,7 @@ class Database:
             season = session.get(SeasonORM, t.season_id)
             self.require_task_right(manager_user_id, "task.add_assignment", t, season and season.state,
                                     "Forbidden: cannot manage assignments for this scope",
-                                    "Forbidden: only the chair and deputies can reassign in a closed season")
+                                    "Forbidden: only the chair, deputies and HR master can reassign in a closed season")
 
             if a.inputs_revision != expected_revision:
                 raise revision_conflict()
