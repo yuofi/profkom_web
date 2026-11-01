@@ -83,7 +83,7 @@ sha256sum $H/data/site.db
 
 ```sh
 cd $H && $P build backend
-tar xzf $DIST -C frontend && docker build -q -f frontend/Dockerfile.prebuilt -t profkom-rehearsal-frontend frontend
+tar xzf $DIST -C frontend && docker build -q -f frontend/Dockerfile.prebuilt -t profkom-rehearsal-frontend frontend   # без явного разрешения PF-12 между tar и docker build — правка шага 4 раздела 3
 docker run --rm --add-host backend:127.0.0.1 -v /home/yulov/certs:/etc/nginx/ssl:ro -v $H/nginx-extra:/etc/nginx/extra:ro profkom-rehearsal-frontend nginx -t
 RUN="$P run --rm --no-deps -T --entrypoint python backend"
 $RUN scripts/migrate_v13.py --database /app/data/site.db --report /app/data/dry.json
@@ -159,7 +159,7 @@ sed -i "s/^JWT_SECRET_KEY=.*/JWT_SECRET_KEY=$(head -c 48 /dev/urandom | base64 |
 # echo "SQLITE_JOURNAL_MODE=WAL" >> backend/.env
 # 4. Образы.
 tar xzf $DIST -C frontend
-# Сжатие JSON-ответов /api/ (PF-12, раздел 8). Если разрешение на выкладку называет PF-12 явно, эту команду пропустить. Иначе она убирает его из location /api/ до сборки образа:
+# Сжатие JSON-ответов /api/ (PF-12, раздел 8). Если разрешение на выкладку называет PF-12 явно, эту команду пропустить. Иначе она убирает его из location /api/ до сборки образа. При повторе шага, если `git diff --numstat -- frontend/nginx.conf` уже печатает `0 4`, правка сделана — команду пропустить:
 python3 - <<'PY'
 p = "frontend/nginx.conf"
 s = open(p, "rb").read()
@@ -329,6 +329,7 @@ python3 backend/check_live.py --url https://profcom-cmc.ru --read-only
 
 ```sh
 D=/home/yulov/profkom_web; cd $D
+[ "$(docker exec profkom_web-frontend-1 sha256sum /usr/share/nginx/html/index.html | cut -d' ' -f1)" = "$(sha256sum frontend/dist/index.html | cut -d' ' -f1)" ] && echo match   # тот же dist; иначе не продолжать
 python3 - <<'PY'
 p = "frontend/nginx.conf"
 s = open(p, "rb").read()
