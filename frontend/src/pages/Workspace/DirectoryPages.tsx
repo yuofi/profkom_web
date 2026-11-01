@@ -28,6 +28,7 @@ import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { displayDate } from "../../utils/dates";
 import { getBlockRoute } from "../../utils/routes";
 import { ParticipantCategoryPanel } from "./ParticipantCategoryPanel";
+import { useNarrowScreen } from "./useNarrowScreen";
 import s from "../../components/Workspace/Workspace.module.css";
 const searchable = (value: string) => value.toLocaleLowerCase("ru").replaceAll("ё", "е");
 /** Every word of the query, in any order, case and ё aside (PE-23). */
@@ -98,6 +99,8 @@ export function DirectoryPage() {
   const emails = emailExport.data?.emails.join("; ") ?? "";
   const [copied, setCopied] = useState("");
   const [selected, setSelected] = useState<{ id: number; mode: "manage" } | null>(null);
+  // A phone shows each contact as a list row with a smaller avatar (D-08).
+  const narrow = useNarrowScreen();
   const [filtersOpen, setFiltersOpen] = useState(() =>
     typeof window.matchMedia !== "function" || window.matchMedia("(min-width: 769px)").matches,
   );
@@ -294,7 +297,7 @@ export function DirectoryPage() {
               <Card key={p.user_id} className={d.card}>
                 <div className={d.header}>
                   {/* Part of the card's stretched profile link: no own zoom, no extra tab stop (smoke FS-2). */}
-                  <Avatar src={p.photo_url} size={48} loading="lazy" mode="disable" alt="" />
+                  <Avatar src={p.photo_url} size={narrow ? 40 : 48} loading="lazy" mode="disable" alt="" />
                   <div className={d.identity}>
                     <h2><Link className={d.profileLink} to={`/contacts/${p.user_id}`}>{p.surname} {p.name} {p.patronymic}</Link></h2>
                     <p className={d.summary}>{p.group_number || "Группа не указана"}</p>
@@ -306,11 +309,12 @@ export function DirectoryPage() {
                       </span></span>;
                     })}</div>
                   </div>
-                  <div className={d.category}><Category category={categoryByUser.get(p.user_id)} pending={categoriesPending} /></div>
-                </div>
-                <div className={d.actions}>
-                  <Link className={s.button} to={`/contacts/${p.user_id}`}>Подробнее</Link>
-                  {mayManage(p.user_id) && <button className={s.button} type="button" onClick={() => setSelected({ id: p.user_id, mode: "manage" })}>Управление аккаунтом</button>}
+                  {/* The whole card opens the profile, so it has no «Подробнее» row: the account management
+                   * is a small button in the lower right corner, above the stretched link like the block links (D-08). */}
+                  <div className={d.side}>
+                    <div className={d.category}><Category category={categoryByUser.get(p.user_id)} pending={categoriesPending} /></div>
+                    {mayManage(p.user_id) && <button className={d.manage} type="button" onClick={() => setSelected({ id: p.user_id, mode: "manage" })}>Управление аккаунтом</button>}
+                  </div>
                 </div>
               </Card>
             ))}
