@@ -34,7 +34,7 @@ import { displayDate } from "../../utils/dates";
 import { getSeasonRoute, getTaskRoute, getTaskQueueRoute, getTaskQueuesRoute } from "../../utils/routes";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { requestKey, type RequestKey } from "../../utils/clientId";
-import { markDescription, useTaskCommand, useTaskFormCommand } from "./taskCommands";
+import { markDescription, useDialogHold, useTaskCommand, useTaskFormCommand } from "./taskCommands";
 import { TaskStatusMenu } from "./TaskStatusMenu";
 import { taskStatus } from "./trackerStatus";
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
@@ -72,6 +72,8 @@ export function TrackerTaskPage() {
 }
 function TaskContent({ task, assignmentId, accountingRequested=false, back }: { task: Task; assignmentId: string | null; accountingRequested?:boolean; back: { to: string; label: string } | null }) {
   const [editor, setEditor] = useState<"description" | "files" | "parent" | "planning" | null>(null);
+  // An editor whose save is queued stays open after an earlier answer drops its capability (TR-01 review).
+  const editorHold = useDialogHold(), closeEditor = () => { setEditor(null);editorHold.release(); };
   const [copied, setCopied] = useState(""), [manualLink, setManualLink] = useState(""), [linking, setLinking] = useState(false), [saved, setSaved] = useState("");
   const [kkrOpen,setKkrOpen]=useState(!!assignmentId||accountingRequested);
   const [checklistPending, setChecklistPending] = useState<readonly number[]>([]), [checklistError, setChecklistError] = useState("");
@@ -152,24 +154,26 @@ function TaskContent({ task, assignmentId, accountingRequested=false, back }: { 
       </aside>
     </div>
     {kkrOpen && hasAccounting && <UnsavedChangesScope><TrackerTaskDialog title="Учёт работы и ККР" onClose={()=>setKkrOpen(false)}><UnifiedKkrEditor task={task} onClose={()=>setKkrOpen(false)} /></TrackerTaskDialog></UnsavedChangesScope>}
-    {editor && (editor === "description" ? descriptionEditable : editor === "parent" ? can(task, "edit_task") : editor === "planning" ? can(task,"edit_task_metadata") : can(task, "attach_task_file")) && <UnsavedChangesScope>{editor === "description" ? <DescriptionEditor task={task} onClose={() => setEditor(null)} onSaved={savedEditor} /> : editor === "parent" ? <ParentTaskEditor task={task} onClose={() => setEditor(null)} onSaved={savedEditor} /> : editor === "planning" ? <TaskPlanningEditor task={task} onClose={() => setEditor(null)} onSaved={savedEditor} /> : <TaskFilesEditor task={task} onClose={() => setEditor(null)} onSaved={savedEditor} />}</UnsavedChangesScope>}
+    {editor && (editorHold.held || (editor === "description" ? descriptionEditable : editor === "parent" ? can(task, "edit_task") : editor === "planning" ? can(task,"edit_task_metadata") : can(task, "attach_task_file"))) && <UnsavedChangesScope>{editor === "description" ? <DescriptionEditor task={task} onClose={closeEditor} onSend={editorHold.hold} onSaved={savedEditor} /> : editor === "parent" ? <ParentTaskEditor task={task} onClose={closeEditor} onSend={editorHold.hold} onSaved={savedEditor} /> : editor === "planning" ? <TaskPlanningEditor task={task} onClose={closeEditor} onSend={editorHold.hold} onSaved={savedEditor} /> : <TaskFilesEditor task={task} onClose={closeEditor} onSend={editorHold.hold} onSaved={savedEditor} />}</UnsavedChangesScope>}
   </>;
 }
 
-function DescriptionEditor({ task, onClose, onSaved }: { task: Task; onClose: () => void; onSaved?: () => void }) {
-  const [body, setBody] = useState(task.description.body);const [busy, setBusy] = useState(false);const { refresh } = useWorkspaceActions();const save = useTaskFormCommand(task.task_id);
+function DescriptionEditor({ task, onClose, onSend, onSaved }: { task: Task; onClose: () => void; onSend?: () => void; onSaved?: () => void }) {
+  const [body, setBody] = useState(task.description.body);const [busy, setBusy] = useState(false);const { refresh } = useWorkspaceActions();const save = useTaskFormCommand(task.task_id, onSend);
   // The save waits in the card's command queue (TR-01): right after a checkmark it sends the
-  // next own revision; a foreign change still answers 409 here and keeps the draft.
-  return <TrackerTaskDialog title="Редактировать задачу" onClose={onClose} busy={busy}><ActionForm fields={can(task, "edit_task") ? [{ name: "title", label: "Название задачи", value: task.title, required: true }] : []} revision={task.revision} record={`task:${task.task_id}`} onConflict={refresh}
+  // next own revision; a foreign change still answers 409 here and keeps the draft. A title
+  // once sent stays in the form even if an earlier answer then took edit_task away.
+  const [titleSent, setTitleSent] = useState(false), titled = can(task, "edit_task") || titleSent;
+  return <TrackerTaskDialog title="Редактировать задачу" onClose={onClose} busy={busy}><ActionForm fields={titled ? [{ name: "title", label: "Название задачи", value: task.title, required: true }] : []} revision={task.revision} record={`task:${task.task_id}`} onConflict={refresh}
     externalState={body} savedExternalState={task.description.body} onReplaceWithSaved={() => setBody(task.description.body)}
     savedDetails={<div><p>Сохранённое название: {task.title}</p><MarkdownContent body={task.description.body} /></div>} submitLabel="Сохранить описание"
-    onSubmit={async (values, expectedRevision) => { setBusy(true);try { const saved = await save(expectedRevision!, expected => tasksApi.update(task.task_id, { expected_revision: expected, ...(can(task, "edit_task") ? { title: text(values, "title") } : {}), description: richText(body) }));onSaved?.();onClose();return saved; } finally { setBusy(false); } }}>
+    onSubmit={async (values, expectedRevision) => { setBusy(true);setTitleSent(titled);try { const saved = await save(expectedRevision!, expected => tasksApi.update(task.task_id, { expected_revision: expected, ...(titled ? { title: text(values, "title") } : {}), description: richText(body) }));onSaved?.();onClose();return saved; } finally { setBusy(false); } }}>
       <MarkdownEditor value={body} onChange={setBody} label="Описание задачи в Markdown" name="body" rows={12} context="task" disabled={busy} />
     </ActionForm></TrackerTaskDialog>;
 }
-function ParentTaskEditor({ task, onClose, onSaved }: { task: Task; onClose: () => void; onSaved?: () => void }) {
+function ParentTaskEditor({ task, onClose, onSend, onSaved }: { task: Task; onClose: () => void; onSend?: () => void; onSaved?: () => void }) {
   const [parentId, setParentId] = useState(task.parent_task?.task_id ?? ""), [busy, setBusy] = useState(false);
-  const { refresh } = useWorkspaceActions(), save = useTaskFormCommand(task.task_id);
+  const { refresh } = useWorkspaceActions(), save = useTaskFormCommand(task.task_id, onSend);
   return <TrackerTaskDialog title="Родительская задача" onClose={onClose} busy={busy}>
     <p className={w.muted}>Можно выбрать доступную задачу из любой очереди этого сезона.</p>
     <ActionForm fields={[]} revision={task.revision} record={`task:${task.task_id}`} onConflict={refresh} externalState={parentId} savedExternalState={task.parent_task?.task_id ?? ""}
@@ -233,8 +237,8 @@ function TaskPeopleParameters({ task }: { task: Task }) {
     {error && <p role="alert" className={w.error}>{error}</p>}
   </>;
 }
-function TaskFilesEditor({ task, onClose, onSaved }: { task: Task; onClose: () => void; onSaved?: () => void }) {
-  const [files, setFiles] = useState<FileRef[]>(task.attachments ?? []), [uploading, setUploading] = useState(false), [busy, setBusy] = useState(false);const { refresh } = useWorkspaceActions(), save = useTaskFormCommand(task.task_id);
+function TaskFilesEditor({ task, onClose, onSend, onSaved }: { task: Task; onClose: () => void; onSend?: () => void; onSaved?: () => void }) {
+  const [files, setFiles] = useState<FileRef[]>(task.attachments ?? []), [uploading, setUploading] = useState(false), [busy, setBusy] = useState(false);const { refresh } = useWorkspaceActions(), save = useTaskFormCommand(task.task_id, onSend);
   return <TrackerTaskDialog title="Файлы к постановке задачи" onClose={onClose} busy={busy || uploading}><p className={w.muted}>Эти файлы доступны читателям задачи после сохранения. Результат работы сдаётся отдельно.</p>
     <ActionForm fields={[]} revision={task.revision} record={`task:${task.task_id}`} onConflict={refresh} externalState={files} savedExternalState={task.attachments ?? []} externalBusy={uploading}
       onReplaceWithSaved={() => setFiles(task.attachments ?? [])} savedDetails={<div><p>Сохранённые вложения задачи:</p><Attachments files={task.attachments ?? []} /></div>} submitLabel="Сохранить вложения"

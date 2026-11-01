@@ -6,7 +6,7 @@ import { tasksApi } from "../../utils/api/tasks.api";
 import { can } from "../../utils/session";
 import { userMessage } from "../../utils/api/messages";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
-import { useTaskCommand, useTaskFormCommand } from "./taskCommands";
+import { useDialogHold, useTaskCommand, useTaskFormCommand } from "./taskCommands";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
@@ -40,7 +40,9 @@ export function TrackerTaskChecklist({ task }: { task: Task }) {
   const items = task.checklist ?? [], allowed = can(task,"edit_task_checklist"), toggleAllowed = can(task,"toggle_task_checklist"), done = items.filter(item => item.checked).length;
   const [editing,setEditing] = useState(false),[pending,setPending] = useState<readonly string[]>([]),[error,setError] = useState("");
   const saving = useRef(new Set<string>()), run = useTaskCommand(task);
-  if (!items.length && !allowed) return null;
+  // The item editor whose save is queued stays open after an earlier answer drops its capability (TR-01 review).
+  const editorHold = useDialogHold(), closeEditor = () => { setEditing(false);editorHold.release(); };
+  if (!items.length && !allowed && !editorHold.held) return null;
   const toggle = async (itemId: string, checked: boolean) => {
     if (saving.current.has(itemId)) return;
     saving.current.add(itemId);setPending([...saving.current]);setError("");
@@ -49,17 +51,17 @@ export function TrackerTaskChecklist({ task }: { task: Task }) {
   };
   if (!items.length) return <section className={`${s.section} ${s.emptySection}`} aria-label="Чеклист задачи">
     <button type="button" className={s.subtle} onClick={() => setEditing(true)}>+ Добавить чеклист</button>
-    {editing && <UnsavedChangesScope><ChecklistEditor task={task} onClose={() => setEditing(false)} /></UnsavedChangesScope>}
+    {editing && <UnsavedChangesScope><ChecklistEditor task={task} onClose={closeEditor} onSend={editorHold.hold} /></UnsavedChangesScope>}
   </section>;
   return <section className={s.section} aria-label="Чеклист задачи">
     <div className={s.heading}><div className={s.headingTitle}><h2>Чеклист</h2><span role="status" className={s.saving}>{pending.length ? "Сохраняем…" : ""}</span></div><div className={s.headingActions}>{!!items.length && <span className={s.count}>{done} из {items.length}</span>}{allowed && <button type="button" className={s.subtle} disabled={!!pending.length} onClick={() => setEditing(true)}>{items.length ? "Изменить пункты" : "+ Добавить чеклист"}</button>}</div></div>
     {!!items.length && <><div className={s.progress} role="progressbar" aria-label="Выполнение чеклиста" aria-valuemin={0} aria-valuemax={items.length} aria-valuenow={done}><span style={{ width: `${done/items.length*100}%` }} /></div><ul className={s.checklist}>{items.map(item => <li key={item.item_id}><label className={s.check} data-checked={item.checked}><input type="checkbox" checked={item.checked} disabled={!toggleAllowed || editing || pending.includes(item.item_id)} aria-busy={pending.includes(item.item_id) || undefined} onChange={event => { void toggle(item.item_id,event.target.checked); }} /><span>{item.text}</span></label></li>)}</ul></>}
     {error && <p role="alert" className={w.error}>{error}</p>}
-    {editing && allowed && <UnsavedChangesScope><ChecklistEditor task={task} onClose={() => setEditing(false)} /></UnsavedChangesScope>}
+    {editing && (allowed || editorHold.held) && <UnsavedChangesScope><ChecklistEditor task={task} onClose={closeEditor} onSend={editorHold.hold} /></UnsavedChangesScope>}
   </section>;
 }
-function ChecklistEditor({ task,onClose }: { task: Task; onClose: () => void }) {
-  const [items,setItems] = useState(() => checklistDraft(task.checklist)),[busy,setBusy] = useState(false);const { refresh } = useWorkspaceActions(),save = useTaskFormCommand(task.task_id);
+function ChecklistEditor({ task,onClose,onSend }: { task: Task; onClose: () => void; onSend?: () => void }) {
+  const [items,setItems] = useState(() => checklistDraft(task.checklist)),[busy,setBusy] = useState(false);const { refresh } = useWorkspaceActions(),save = useTaskFormCommand(task.task_id,onSend);
   return <TrackerTaskDialog title="Чеклист задачи" onClose={onClose} busy={busy}><ActionForm fields={[]} revision={task.revision} record={`task:${task.task_id}`} externalState={checklistPayload(items)} savedExternalState={checklistPayload(checklistDraft(task.checklist))} onReplaceWithSaved={() => setItems(checklistDraft(task.checklist))} onConflict={refresh} submitLabel="Сохранить чеклист"
     savedDetails={<ul>{task.checklist?.map(item => <li key={item.item_id}>{item.checked ? "✓ " : ""}{item.text}</li>)}</ul>}
     onSubmit={async (_,expectedRevision) => { const payload = checklistPayload(items);if(payload.some(item=>!item.text))throw Error("Заполните текст каждого пункта");setBusy(true);try { const saved = await save(expectedRevision!,expected=>tasksApi.update(task.task_id,{expected_revision:expected,checklist:payload}));onClose();return saved; } finally {setBusy(false);} }}>

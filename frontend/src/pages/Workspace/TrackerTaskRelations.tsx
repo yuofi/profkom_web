@@ -6,7 +6,7 @@ import { can } from "../../utils/session";
 import { userMessage } from "../../utils/api/messages";
 import { getTaskCreateRoute, getTaskRoute } from "../../utils/routes";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
-import { useTaskCommand, useTaskFormCommand } from "./taskCommands";
+import { useDialogHold, useTaskCommand, useTaskFormCommand } from "./taskCommands";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
@@ -22,7 +22,7 @@ export function TrackerTaskRelations({task,onEditParent,editing:openedOutside,on
   const allowed=can(task,"manage_task_links"),parentEditable=can(task,"edit_task"),links=task.links??[];
   const [editingHere,setEditingHere]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState("");
   const editing=openedOutside??editingHere,setEditing=onEditingChange??setEditingHere;
-  const {refresh}=useWorkspaceActions(),run=useTaskCommand(task);
+  const {refresh}=useWorkspaceActions(),run=useTaskCommand(task),linkHold=useDialogHold();
   const blocked=links.filter(link=>link.kind==="blocked_by" && link.task.status!=="closed");
   // Queued with the card's other commands, so a link removed right after a checkmark is not refused as stale.
   const remove=async(id:string)=>{if(busy)return;setBusy(true);setError("");try{await run(expected=>tasksApi.removeLink(task.task_id,id,{expected_revision:expected}));}catch(failure){setError(userMessage(failure));await refresh();}finally{setBusy(false);}};
@@ -35,14 +35,15 @@ export function TrackerTaskRelations({task,onEditParent,editing:openedOutside,on
       {(Object.keys(relationNames)as TaskLinkKind[]).map(kind=>{const group=links.filter(link=>link.kind===kind);return !!group.length&&<div className={s.relationGroup} key={kind}><h3>{relationNames[kind]}</h3><ul className={s.relationList}>{group.map(link=><li className={s.relationRow} key={link.link_id}><TaskReference task={link.task}/>{allowed&&!link.managed&&<button type="button" className={s.itemAction} disabled={busy} aria-label={`Удалить связь: ${link.task.task_key}`} onClick={()=>{void remove(link.link_id);}}>×</button>}</li>)}</ul></div>;})}
     </div>
     {error&&<p role="alert" className={w.error}>{error}</p>}
-    {editing&&(allowed||parentEditable)&&<UnsavedChangesScope><LinkEditor task={task} onClose={()=>setEditing(false)}/></UnsavedChangesScope>}
+    {editing&&(allowed||parentEditable||linkHold.held)&&<UnsavedChangesScope><LinkEditor task={task} onSend={linkHold.hold} onClose={()=>{setEditing(false);linkHold.release();}}/></UnsavedChangesScope>}
   </section>;
 }
-function LinkEditor({task,onClose}:{task:Task;onClose:()=>void}) {
-  const [kind,setKind]=useState<TaskLinkKind|"parent">("related"),[target,setTarget]=useState(""),[busy,setBusy]=useState(false);const {refresh}=useWorkspaceActions(),save=useTaskFormCommand(task.task_id);
+function LinkEditor({task,onClose,onSend}:{task:Task;onClose:()=>void;onSend?:()=>void}) {
+  const [kind,setKind]=useState<TaskLinkKind|"parent">("related"),[target,setTarget]=useState(""),[busy,setBusy]=useState(false);const {refresh}=useWorkspaceActions(),save=useTaskFormCommand(task.task_id,onSend);
   const type=task.task_type??"task",allowed=can(task,"manage_task_links"),hasEpic=task.links?.some(link=>link.kind==="epic");
   const choices=(Object.keys(kindChoices)as (TaskLinkKind|"parent")[]).filter(key=>key==="parent"?can(task,"edit_task"):allowed&&(key==="epic"||key==="milestone"?type==="task":key==="epic_member"?type==="epic":key==="milestone_member"?type==="milestone":true));
-  const actualKind=choices.includes(kind)?kind:choices[0],targetType:TaskType|undefined=actualKind==="epic"?"epic":actualKind==="milestone"?"milestone":["epic_member","milestone_member"].includes(actualKind)?"task":undefined;
+  // A held dialog (useDialogHold) whose rights are gone keeps the chosen kind and target in sight.
+  const actualKind=choices.includes(kind)?kind:choices[0]??kind,targetType:TaskType|undefined=actualKind==="epic"?"epic":actualKind==="milestone"?"milestone":["epic_member","milestone_member"].includes(actualKind)?"task":undefined;
   return <TrackerTaskDialog title="Добавить связь" onClose={onClose} busy={busy}><ActionForm fields={[]} revision={task.revision} record={`task:${task.task_id}`} externalState={{kind:actualKind,target}} savedExternalState={{kind:choices.includes("related")?"related":choices[0],target:""}} onReplaceWithSaved={()=>{setKind(choices.includes("related")?"related":choices[0]);setTarget("");}} onConflict={refresh} submitLabel="Добавить связь"
     onSubmit={async(_,expectedRevision)=>{if(!target)throw Error("Выберите доступную задачу для связи");setBusy(true);try{const saved=await save(expectedRevision!,expected=>actualKind==="parent"?tasksApi.update(task.task_id,{expected_revision:expected,parent_task_id:target}):tasksApi.addLink(task.task_id,{expected_revision:expected,target_task_id:target,kind:actualKind}));onClose();return saved;}finally{setBusy(false);}}}>
     <label className={w.field}>Тип связи<select name="relation_kind" value={actualKind} disabled={busy} onChange={event=>{setKind(event.target.value as TaskLinkKind|"parent");setTarget("");}}>{choices.map(key=><option value={key} key={key} disabled={key==="epic"&&hasEpic}>{kindChoices[key]}</option>)}</select></label>

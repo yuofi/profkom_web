@@ -19,9 +19,9 @@ export function TaskPlanningFields({ value, onChange, disabled = false, deadline
     {value.task_type !== "milestone" ? <label className={w.field}>Плановое начало, МСК<input name="starts_at" type="datetime-local" value={value.starts} max={deadline && Number.isFinite(Date.parse(deadline)) ? moscowInput(deadline) : undefined} disabled={disabled} onChange={event => onChange({ ...value, starts: event.target.value })} /></label> : <p className={s.hint}>Веха — контрольная точка по дедлайну. Дата начала ей не нужна.</p>}
   </div>;
 }
-export function TaskPlanningEditor({ task, onClose, onSaved }: { task: Task; onClose: () => void; onSaved?: () => void }) {
+export function TaskPlanningEditor({ task, onClose, onSend, onSaved }: { task: Task; onClose: () => void; onSend?: () => void; onSaved?: () => void }) {
   const [draft, setDraft] = useState(() => planningDraft(task)), [busy, setBusy] = useState(false);
-  const { refresh } = useWorkspaceActions(), save = useTaskFormCommand(task.task_id);
+  const { refresh } = useWorkspaceActions(), save = useTaskFormCommand(task.task_id, onSend);
   return <TrackerTaskDialog title="Планирование задачи" onClose={onClose} busy={busy}>
     <ActionForm fields={[]} revision={task.revision} record={`task:${task.task_id}`} externalState={draft} savedExternalState={planningDraft(task)}
       onReplaceWithSaved={() => setDraft(planningDraft(task))} onConflict={refresh} submitLabel="Сохранить параметры" savedDetails={<p>{taskTypeNames[task.task_type ?? "task"]} · {taskPriorityNames[task.priority ?? "normal"]} · Начало: {displayDate(task.starts_at)}</p>}

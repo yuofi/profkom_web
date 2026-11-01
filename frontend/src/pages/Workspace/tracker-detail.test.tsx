@@ -374,6 +374,93 @@ it("a dialog save does not read the task again after its answer filled it; the r
   expect(reads()).toBe(taskReads + 1);
 });
 
+/** The status chip changes the status to «Выполнена», still unanswered; its answer leaves the
+ *  reader only read_task and change_task_status. */
+async function statusInFlight(extra: Partial<Task>) {
+  const server = { task: makeTask({ status: "in_progress", revision: 8, allowed_statuses: ["open", "in_progress", "completed"], ...extra }) };
+  const releases: (() => void)[] = [];
+  vi.spyOn(tasksApi, "changeStatus").mockImplementation(async () => {
+    await new Promise<void>(resolve => releases.push(resolve));
+    server.task = { ...server.task, status: "completed", revision: server.task.revision + 1, capabilities: ["read_task", "change_task_status"] };return server.task;
+  });
+  await mountTask(server.task);vi.mocked(tasksApi.get).mockImplementation(async () => server.task);
+  await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"][aria-label^="Статус задачи:"]')!.click());
+  await act(async () => [...page!.container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(button => button.textContent?.includes("Выполнена"))!.click());
+  return { server, releases };
+}
+/** Meanwhile the reader opens «Сдать результат», types and sends: the save waits in the queue. */
+async function resultQueuedBehindStatus(submitted: (data: Parameters<typeof tasksApi.submitResult>[1]) => Promise<Task>) {
+  const result = vi.spyOn(tasksApi, "submitResult").mockImplementation(async (_id, data) => { const saved = await submitted(data);server.task = saved;return saved; });
+  const { server, releases } = await statusInFlight({ capabilities: ["read_task", "change_task_status", "submit_task_result"] });
+  await click("Сдать результат");await waitForPage(page!, () => !!page!.container.querySelector('dialog [name="body"]'));
+  const dialog = page!.container.querySelector("dialog")!;
+  await change(dialog.querySelector<HTMLTextAreaElement>('[name="body"]')!, "Мой результат");await submit(dialog.querySelector("form")!);
+  expect(result).not.toHaveBeenCalled();expect(releases).toHaveLength(1);
+  await act(async () => releases.shift()!());
+  return { server, result, dialog };
+}
+it("a result queued behind a status change that drops submit_task_result keeps its dialog and shows the refusal there (TR-01 review)", async () => {
+  const { result, dialog } = await resultQueuedBehindStatus(async () => { throw new ApiError("Result submission is not allowed in this status", 409, "conflict"); });
+  await waitForPage(page!, () => result.mock.calls.length === 1);await settle();
+  expect(result.mock.calls.map(call => call[1].expected_revision)).toEqual([9]);
+  // The status answer took the capability away, yet the dialog stays with the refusal and the typed result.
+  expect(page!.container.querySelector('[aria-label^="Статус задачи:"]')?.getAttribute("aria-label")).toBe("Статус задачи: Выполнена");
+  expect([...page!.container.querySelectorAll("button")].some(button => button.textContent === "Сдать результат" && !button.closest("dialog"))).toBe(false);
+  expect(dialog.isConnected).toBe(true);await waitForPage(page!, () => !!dialog.querySelector('[role="alert"]'));
+  expect(dialog.querySelector('[role="alert"]')?.textContent).toContain("Запись изменилась");
+  expect(dialog.querySelector<HTMLTextAreaElement>('[name="body"]')?.value).toBe("Мой результат");
+  // Closing it lets the capability decide again: the dialog does not come back.
+  await act(async () => dialog.querySelector<HTMLButtonElement>('button[aria-label="Закрыть окно"]')!.click());await settle();
+  const discard = [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Уйти без сохранения");
+  if (discard) await act(async () => discard.click());
+  await waitForPage(page!, () => !page!.container.querySelector("dialog"));
+  expect(result).toHaveBeenCalledTimes(1);
+});
+it("a title and description save queued behind a checkmark whose answer drops edit_task keeps its dialog, the refusal and the draft (TR-01 review)", async () => {
+  const { server, releases } = editableWithChecklist();
+  const update = vi.spyOn(tasksApi, "update").mockRejectedValue(new ApiError("Forbidden: cannot edit task", 403, "forbidden"));
+  await mountTask(server.task);vi.mocked(tasksApi.get).mockImplementation(async () => server.task);
+  await tickChecklist();
+  const dialog = await openTaskEditor("Моё название", "Моё описание");
+  await submit(dialog.querySelector("form")!);expect(update).not.toHaveBeenCalled();
+  // Meanwhile the reader lost the right to edit: the checkmark's answer carries it no more.
+  server.task = { ...server.task, capabilities: ["read_task", "toggle_task_checklist"] };
+  await act(async () => releases.shift()!());
+  await waitForPage(page!, () => update.mock.calls.length === 1);await settle();
+  expect(page!.container.querySelector<HTMLInputElement>('section[aria-label="Чеклист задачи"] input[type="checkbox"]')?.checked).toBe(true);
+  expect([...page!.container.querySelectorAll("button")].some(button => button.textContent === "Редактировать")).toBe(false);
+  expect(dialog.isConnected).toBe(true);await waitForPage(page!, () => !!dialog.querySelector('[role="alert"]'));
+  expect(dialog.querySelector('[role="alert"]')?.textContent).toContain("Нет доступа");
+  expect(dialog.querySelector<HTMLInputElement>('input[name="title"]')?.value).toBe("Моё название");
+  expect(dialog.querySelector<HTMLTextAreaElement>('textarea[name="body"]')?.value).toBe("Моё описание");
+});
+it("a first checklist queued behind a status change that drops edit_task_checklist keeps its dialog, the refusal and the items (TR-01 review)", async () => {
+  const update = vi.spyOn(tasksApi, "update").mockRejectedValue(new ApiError("Forbidden: cannot edit task", 403, "forbidden"));
+  const { releases } = await statusInFlight({ checklist: [], capabilities: ["read_task", "change_task_status", "edit_task_checklist"] });
+  await click("+ Добавить чеклист");const dialog = page!.container.querySelector("dialog")!;
+  await click("+ Добавить пункт", dialog);await change(dialog.querySelector<HTMLInputElement>('[name="checklist-0"]')!, "Первый пункт");
+  await submit(dialog.querySelector("form")!);expect(update).not.toHaveBeenCalled();
+  await act(async () => releases.shift()!());
+  await waitForPage(page!, () => update.mock.calls.length === 1);await settle();
+  expect(update.mock.calls[0][1]).toMatchObject({ expected_revision: 9, checklist: [{ text: "Первый пункт", checked: false }] });
+  expect(dialog.isConnected).toBe(true);await waitForPage(page!, () => !!dialog.querySelector('[role="alert"]'));
+  expect(dialog.querySelector('[role="alert"]')?.textContent).toContain("Нет доступа");
+  expect(dialog.querySelector<HTMLInputElement>('[name="checklist-0"]')?.value).toBe("Первый пункт");
+  // Closed, the empty checklist the reader may no longer fill is gone again.
+  await act(async () => dialog.querySelector<HTMLButtonElement>('button[aria-label="Закрыть окно"]')!.click());await settle();
+  const discard = [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Уйти без сохранения");
+  if (discard) await act(async () => discard.click());
+  await waitForPage(page!, () => !page!.container.querySelector("dialog"));
+  expect(page!.container.querySelector('section[aria-label="Чеклист задачи"]')).toBeNull();
+});
+it("a result queued behind a status change that drops submit_task_result is saved and closes its dialog as usual (TR-01 review)", async () => {
+  const { result } = await resultQueuedBehindStatus(async data => ({ ...makeTask(), status: "completed", revision: 10, capabilities: ["read_task", "change_task_status"], submissions: [{ submission_id: "s1", submitted_at: "2026-10-26T11:00:00Z", submitted_by: people[0], text: data.text, links: [], files: [] }] }));
+  await waitForPage(page!, () => !page!.container.querySelector("dialog"));
+  expect(result.mock.calls.map(call => [call[1].expected_revision, call[1].text])).toEqual([[9, richText("Мой результат")]]);
+  expect(page!.container.querySelector('header [role="alert"]')).toBeNull();
+  expect(page!.container.querySelector('[aria-label^="Статус задачи:"]')?.getAttribute("aria-label")).toBe("Статус задачи: Выполнена");
+});
+
 it("a refused queued mark rolls back only itself and keeps later own marks", async () => {
   let task = makeTask({ description: richText("- [ ] Первый"), revision: 8, checklist: [{ item_id: "one", text: "Пункт", checked: false }], capabilities: ["read_task", "toggle_task_checklist"] });
   const releases: (() => void)[] = [];const later = () => new Promise<void>(resolve => releases.push(resolve));

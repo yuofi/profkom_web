@@ -5,7 +5,7 @@ import { userMessage } from "../../utils/api/messages";
 import { Glyph, Loading } from "../../components/Workspace/WorkspaceUI";
 import { toneStyle } from "../../components/Workspace/sections";
 import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
-import { useTaskCommand } from "./taskCommands";
+import { useDialogHold, useTaskCommand } from "./taskCommands";
 import w from "../../components/Workspace/Workspace.module.css";
 import s from "./TaskStatusMenu.module.css";
 import { publicStatusNames as statusNames, statusTones, taskStatus, taskTransitions } from "./trackerStatus";
@@ -20,6 +20,8 @@ const ResultDialog = lazy(() => import("./TaskResultDialog").then(module => ({ d
 /** Public workflow only. Hours, evaluations and accounting dates use their own protected forms. */
 export function TaskStatusMenu({ task, variant = "chip", onChanged, onClosed }: { task: Task; variant?: "chip" | "actions"; onChanged?: () => void; onClosed?: (saved: Task) => void }) {
   const [open, setOpen] = useState(false), [resultOpen, setResultOpen] = useState(false);
+  // A queued result stays in its dialog after a status answer drops submit_task_result (TR-01 review).
+  const resultHold = useDialogHold();
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
   const ref = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null);
   const run = useTaskCommand(task);
@@ -76,6 +78,6 @@ export function TaskStatusMenu({ task, variant = "chip", onChanged, onClosed }: 
       {task.capabilities.includes("submit_task_result") && <button type="button" className={`${w.button} ${w.primary}`} disabled={busy} onClick={() => setResultOpen(true)}>Сдать результат</button>}
     </div>}
     {error && <p role="alert" className={w.error}>{error}</p>}
-    {resultOpen && task.capabilities.includes("submit_task_result") && <UnsavedChangesScope><Suspense fallback={<Loading />}><ResultDialog task={task} onClose={() => setResultOpen(false)} onChanged={onChanged} /></Suspense></UnsavedChangesScope>}
+    {resultOpen && (task.capabilities.includes("submit_task_result") || resultHold.held) && <UnsavedChangesScope><Suspense fallback={<Loading />}><ResultDialog task={task} onClose={() => { setResultOpen(false);resultHold.release(); }} onSend={resultHold.hold} onChanged={onChanged} /></Suspense></UnsavedChangesScope>}
   </div>;
 }

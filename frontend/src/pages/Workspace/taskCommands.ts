@@ -1,4 +1,5 @@
 import { hashKey, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import type { Task } from "../../utils/api/contract";
 import { invalidateWorkspace } from "../../utils/api/invalidation";
 import { advanceOwn, recordOwnChange } from "../../components/Workspace/ownRevisions";
@@ -74,10 +75,20 @@ export function useTaskCommand(task: Pick<Task, "task_id" | "revision">) {
 /** The same queue for a versioned dialog of the task (ActionForm, record `task:<id>`): it
  *  starts from the revision the form holds, so a save right after a checkmark waits for it
  *  instead of being refused as stale. A failure, a foreign 409 too, reaches the form, which
- *  keeps the draft. */
-export function useTaskFormCommand(taskId: string) {
+ *  keeps the draft. `onSend` runs as the save is queued (see useDialogHold). */
+export function useTaskFormCommand(taskId: string, onSend?: () => void) {
   const client = useQueryClient();
-  return (formRevision: number, command: (expectedRevision: number) => Promise<Task>) => runTaskCommand(client, taskId, formRevision, command);
+  return (formRevision: number, command: (expectedRevision: number) => Promise<Task>) => { onSend?.();return runTaskCommand(client, taskId, formRevision, command); };
+}
+
+/** A dialog of the task shows while the capability behind it holds. Once its save is queued
+ *  (`hold`, the onSend of useTaskFormCommand) it stays until it is closed: the save may wait
+ *  behind a command whose answer takes that capability away, and its outcome, a refusal too,
+ *  must still reach the open form, which keeps the draft; a success closes it as usual.
+ *  `release` belongs to every close of the dialog. */
+export function useDialogHold() {
+  const [held, setHeld] = useState(false);
+  return { held, hold: () => setHeld(true), release: () => setHeld(false) };
 }
 
 /** Marks one Markdown task marker of the description, as the server will. */

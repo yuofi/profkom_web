@@ -12,9 +12,9 @@ import { TrackerTaskDialog } from "./TrackerTaskDialog";
 import { statusNames, taskStatus } from "./trackerStatus";
 import s from "./TaskStatusMenu.module.css";
 
-export function TaskResultDialog({ task, onClose, onChanged }: { task: Task; onClose: () => void; onChanged?: () => void }) {
+export function TaskResultDialog({ task, onClose, onSend, onChanged }: { task: Task; onClose: () => void; onSend?: () => void; onChanged?: () => void }) {
   const [body, setBody] = useState(""), [files, setFiles] = useState<FileRef[]>([]), [uploading, setUploading] = useState(false), [busy, setBusy] = useState(false);
-  const { refresh } = useWorkspaceActions(), save = useTaskFormCommand(task.task_id);
+  const { refresh } = useWorkspaceActions(), save = useTaskFormCommand(task.task_id, onSend);
   return <TrackerTaskDialog title="Сдать результат" onClose={onClose} busy={busy || uploading}>
     <ActionForm fields={[{ name: "links", label: "Ссылки — каждая с новой строки", type: "textarea" }]} revision={task.revision} record={`task:${task.task_id}`} onConflict={refresh} allowExitSave={false} submitLabel="Отправить результат"
       externalState={{ body, files }} savedExternalState={{ body: "", files: [] }} externalBusy={uploading} disabled={busy} onReplaceWithSaved={() => { setBody("");setFiles([]); }}
