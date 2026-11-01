@@ -51,7 +51,10 @@ reads for the labels (rows without `assignment_inputs` or an evaluation are neve
 offered), after the server's matches and once per assignment. EntityPicker's
 `onSearch` mode does not filter those matches again, keeps the chosen option's label
 when a later search no longer returns it, and Enter does not choose while the search
-is still loading.
+is still loading. A page may pass the chosen values' current options
+(`selectedOptions`), which win over that kept label: the corrections page rebuilds the
+chosen assignment's label from the assessments it reads, so after a correction its chip
+names the saved hours and evaluation.
 
 The season participant summary mounts at most one decision editor. Closed row
 disclosures contain no ActionForm or Formik subscriptions. Switching participant,

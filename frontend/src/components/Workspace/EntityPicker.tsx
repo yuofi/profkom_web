@@ -35,6 +35,10 @@ interface CommonProps {
    * then the server's matches for that text and are not filtered again; a chosen option keeps its
    * label after a later search no longer returns it, and Enter does not choose while loading. */
   onSearch?: (text: string) => void;
+  /** Chosen values as the page's current data describes them, for chips whose option the
+   * (server) options no longer list: they replace the label kept from the moment of choice, so
+   * a chip follows a saved change of what it names. */
+  selectedOptions?: EntityOption[];
   onBlur?: () => void;
 }
 export type EntityPickerProps = CommonProps & (
@@ -150,7 +154,7 @@ export function EntityPicker(props: EntityPickerProps) {
     {props.label && <label className={s.label} id={`${id}-label`} htmlFor={id}>{props.label}</label>}
     <div className={s.control} data-invalid={props.invalid || undefined} data-single={!props.multiple || undefined}>
       {selected.length > 0 && <ul className={s.selected} aria-label="Выбранные значения">{selected.map((value, index) => {
-        const option = options.find(option => option.value === value) ?? (server ? chosen.get(value) : undefined);
+        const option = options.find(option => option.value === value) ?? props.selectedOptions?.find(option => option.value === value) ?? (server ? chosen.get(value) : undefined);
         const label = option?.label ?? missingLabel(props.entity);
         return <li key={value} data-selected-value={value} title={props.multiple ? undefined : label}>
           {option ? <OptionChip option={option} /> : <span className={s.missing}>{label}</span>}

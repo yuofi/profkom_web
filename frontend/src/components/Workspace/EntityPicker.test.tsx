@@ -145,3 +145,17 @@ it("server search reports typed text, keeps server matches unfiltered and the ch
   await press("Enter");expect(page.container.querySelector<HTMLInputElement>('input[type="hidden"][name="task"]')?.value).toBe("t-2");
   await choose("t-1");expect(page.container.querySelector<HTMLInputElement>('input[type="hidden"][name="task"]')?.value).toBe("t-1");
 });
+it("a chosen server match's chip follows the page's current option of it once the matches no longer list it (PF-06 review)", async () => {
+  function Server() {
+    const [value, setValue] = useState(""), [search, setSearch] = useState(""), [label, setLabel] = useState("Анна · Сценарий · 2 ч / оценка 1");
+    const row = { value: "a-1", label };
+    return <><EntityPicker name="assignment" label="Назначение" value={value} onChange={setValue} options={search === "анна" ? [row] : []} onSearch={setSearch}
+      selectedOptions={value === "a-1" ? [row] : undefined} /><button type="button" data-correct onClick={() => setLabel("Анна · Сценарий · 3 ч / оценка 1.5")}>Исправить</button></>;
+  }
+  page = await mountWorkspace(<Server />);await open();await change(input(), "анна");await choose("a-1");
+  const chip = () => page!.container.querySelector('[data-selected-value="a-1"]')?.textContent;
+  expect(chip()).toContain("2 ч / оценка 1");
+  // The search is cleared and no longer lists the row; a saved correction changes its values.
+  await click(page!.container.querySelector<HTMLButtonElement>("[data-correct]")!);
+  expect(chip()).toContain("3 ч / оценка 1.5");expect(chip()).not.toContain("2 ч");
+});

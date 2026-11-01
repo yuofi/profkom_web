@@ -867,14 +867,18 @@ export function CorrectionsPage() {
   // A hidden source carries no assignment_inputs and is never offered; a saved evaluation marks an
   // accepted or not completed assignment. Server matches come first, one row per assignment.
   const words = settledSearch.trim().toLocaleLowerCase("ru").split(/\s+/).filter(Boolean);
+  const personOption = (c: { user: { display_name: string }; source_title: string }, saved: AssessmentInputs): EntityOption =>
+    ({ value: saved.assignment_id, label: `${c.user.display_name} · ${c.source_title} · ${savedValues(saved)}` });
   const personAssignments: EntityOption[] = !words.length ? [] : (contributions.data?.items ?? []).flatMap((c) => {
     const saved = c.assignment_inputs;
     if (!saved || saved.evaluation === null) return [];
     const text = `${c.user.display_name} ${c.source_title}`.toLocaleLowerCase("ru");
-    return words.every((word) => text.includes(word))
-      ? [{ value: saved.assignment_id, label: `${c.user.display_name} · ${c.source_title} · ${savedValues(saved)}` }]
-      : [];
+    return words.every((word) => text.includes(word)) ? [personOption(c, saved)] : [];
   });
+  // The chosen assignment's chip names its hours and evaluation as they are now: after a
+  // correction, also when the cleared search no longer lists it (PF-06 review).
+  const chosenOptions: EntityOption[] = kind !== "assessment_inputs" || !objectId ? [] : (contributions.data?.items ?? []).flatMap((c) =>
+    c.assignment_inputs?.assignment_id === objectId ? [personOption(c, c.assignment_inputs)] : []);
   const assessmentOptions: EntityOption[] = [];
   for (const option of [...taskAssignments, ...personAssignments])
     if (!assessmentOptions.some((known) => known.value === option.value)) assessmentOptions.push(option);
@@ -944,6 +948,7 @@ export function CorrectionsPage() {
                   options={options ?? []}
                   {...(kind === "merit" ? {} : {
                     onSearch: setSearch,
+                    selectedOptions: chosenOptions,
                     note: partial ? `Показана часть задач сезона. Уточните ${kind === "assessment_inputs" ? "исполнителя, " : ""}название или ключ.` : undefined,
                   })}
                 />

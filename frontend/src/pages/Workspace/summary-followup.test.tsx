@@ -239,6 +239,54 @@ it("finds an assignment to correct by the person's name in the season's assessme
   expect(container.querySelector('[data-field-name="correction_object"] [data-selected-value="assignment-1"]')?.textContent).toContain(person);
 });
 
+it("after a correction the chip of an assignment found by the person's name shows the saved hours and evaluation (PF-06 review)", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  mock.state.seasons.find((s) => s.season_id === "season-1")!.state = "closed";
+  const task = mock.state.tasks[0];
+  for (const assignment of task.assignments) assignment.status = "accepted";
+  Object.assign(mock.state.assessments[0], { evaluation: 1, effective_completed_at: "2026-10-02T10:00:00Z" });
+  // 25 earlier tasks fill the season's first 20 matches: the chosen row is found only by the person's name.
+  for (let n = 1; n <= 25; n++) mock.state.tasks.unshift({ ...structuredClone(task), task_id: `task-early-${n}`, task_key: `EA-${n}`, title: `Ранняя задача ${n}`, deadline_at: "2026-10-05T10:00:00Z", assignments: [] });
+  page = await mountWorkspace(
+    <Routes>
+      <Route path="/seasons/:id/corrections" element={<CorrectionsPage />} />
+    </Routes>,
+    { path: "/seasons/season-1/corrections" },
+  );
+  await settle();
+  await settle();
+  const container = page.container;
+  const person = task.assignments[0].assignee.display_name;
+  const box = () => container.querySelector<HTMLInputElement>('[data-field-name="correction_object"] [role="combobox"]')!;
+  const search = async (text: string) => {
+    await act(async () => { box().focus();box().click(); });
+    await change(box(), text);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 300)); });
+    await settle();
+    await settle();
+  };
+  const chip = () => container.querySelector('[data-field-name="correction_object"] [data-selected-value="assignment-1"]')?.textContent;
+  await search(person.split(" ")[1]);
+  await pick(container, "correction_object", "assignment-1");
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 300)); });
+  await settle();
+  await settle();
+  expect(chip()).toBe(`${person} · ${task.title} · 2 ч / оценка 1`);
+  // The cleared search offers the season's first 20 tasks, without the chosen one.
+  await act(async () => { box().focus();box().click(); });
+  expect(document.querySelector('[role="listbox"]')).not.toBeNull();
+  expect(document.querySelector('[role="listbox"] [data-option-value="assignment-1"]')).toBeNull();
+  await act(async () => { box().blur(); });
+  await change(field(container, "hours"), "3");
+  await change(field(container, "reason"), "Исправлены часы");
+  await submit(container.querySelector("form")!);
+  await settle();
+  await settle();
+  expect(container.textContent).toContain("Изменения сохранены");
+  expect(mock.state.assessments[0].hours).toBe(3);
+  expect(chip()).toBe(`${person} · ${task.title} · 3 ч / оценка 1`);
+});
+
 it.each(["assessment_inputs", "merit"])(
   "keeps an unchanged %s correction from writing a duplicate summary version",
   async (kind) => {
