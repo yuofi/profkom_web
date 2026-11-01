@@ -9,6 +9,7 @@ from database import (db, AuditLogORM, TaskActivityORM, TaskORM, AssignmentORM, 
 from domain_models import MembershipORM, ScopeTenureORM, SummaryVersionORM
 from history_models import HistoryRedactionORM
 from models import Block
+from test_v13_tracker import close_by_author
 
 
 def ok(response):
@@ -48,6 +49,7 @@ def edit(client, work, body):
 
 def test_public_task_history_excludes_private_hours_criteria_reason_and_outcomes(client, work):
     assignment = work['task']['assignments'][0]['assignment_id']
+    close_by_author(client, work['task']['task_id'], work['worker'])  # KKR follows the author's closure (SE-12)
     inputs = ok(client.get(f'/api/assignments/{assignment}/assessment-inputs', headers=work['master'].headers))
     ok(client.patch(f'/api/assignments/{assignment}/assessment-inputs', headers=work['master'].headers,
                     json=dict(expected_revision=inputs['revision'], hours=731, evaluation=0, reason='PRIVATE_ACCOUNTING_REASON')))
@@ -196,6 +198,7 @@ def test_legacy_scope_label_reuse_never_grants_historical_redaction(client, work
 
 def test_private_audit_hide_preserves_numeric_truth_and_current_accounting(client, work):
     assignment=work['task']['assignments'][0]['assignment_id']
+    close_by_author(client,work['task']['task_id'],work['worker'])  # KKR follows the author's closure (SE-12)
     inputs=ok(client.get(f'/api/assignments/{assignment}/assessment-inputs',headers=work['master'].headers))
     saved=ok(client.patch(f'/api/assignments/{assignment}/assessment-inputs',headers=work['master'].headers,json=dict(expected_revision=inputs['revision'],hours=9,evaluation=0,reason='ПРИВАТНЫЙ_УДАЛЯЕМЫЙ_ТЕКСТ')))
     rows=ok(get(client,work['master'],'assignment',assignment))['items']

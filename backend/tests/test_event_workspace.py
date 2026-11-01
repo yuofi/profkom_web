@@ -7,6 +7,7 @@ import access
 from database import db, AssignmentORM, ContributionORM, EventORM
 from event_workspace_models import EventWorkspaceMetaORM
 from api_helpers import post_season
+from test_v13_tracker import close_by_author
 
 
 def ok(response):
@@ -81,6 +82,7 @@ def test_exact_child_hr_can_edit_private_inputs_without_leadership_or_global_gra
     assert 'create_volunteer_merit' not in sub['capabilities']
     assert not {'edit_subevent','manage_leaders','manage_organizers','view_meeting','create_report'}&set(sub['capabilities'])
     path='/api/assignments/'+w['task']['assignments'][0]['assignment_id']+'/assessment-inputs'
+    close_by_author(client,w['task']['task_id'],w['head'])  # KKR after the author's closure (SE-12)
     private=ok(client.get(path,headers=actor.headers))
     ok(client.patch(path,headers=actor.headers,json={'expected_revision':private['revision'],'hours':3,'reason':'Scoped HR check'}))
     assert not access.allowed(actor.user_id,'event.edit','event',w['event']['event_id'])

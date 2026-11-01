@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from database import AssignmentORM, ContributionORM, SeasonORM, db
+from test_v13_tracker import close_by_author
 
 
 def require(response):
@@ -72,6 +73,7 @@ def test_head_creates_assigns_and_evaluates_organizer_through_each_responsible(c
     before = private_snapshot()
     task = require(client.post('/api/tasks/'+task['task_id']+'/status', headers=organizer.headers, json={'expected_revision': task['revision'], 'status': 'submitted', 'text': 'Единый результат команды'}))
     assert private_snapshot() == before
+    close_by_author(client, task['task_id'], actor)  # KKR after the author's closure (SE-12)
     inputs = require(client.get(path, headers=actor.headers))
     assert 'edit_assessment_inputs' in inputs['capabilities']
     public_before = require(client.get('/api/tasks/'+task['task_id'], headers=organizer.headers))

@@ -10,7 +10,7 @@ import pytest
 from database import Base, db, ContributionORM, AuditLogORM
 from membership import set_membership
 from models import Block
-from test_v13_tracker import work
+from test_v13_tracker import work, close_by_author
 from test_v13_season_integrity import accept, close
 
 
@@ -144,6 +144,7 @@ def test_master_bonus_exact_basis_excludes_master_nonpositive_and_volunteer_and_
             "expected_revision": task_input["revision"], "assigned_at": assigned.isoformat(), "deadline_at": deadline.isoformat(),
             "reason": "Documented past work dates"})
         aid = task["assignments"][0]["assignment_id"]
+        close_by_author(client, task["task_id"], work["master"] if index == 0 else superuser)  # SE-12
         command(client, superuser, "PATCH", f"/assignments/{aid}/assessment-inputs", {
             "expected_revision": inputs(client, superuser, aid)["revision"], "reason": "Documented completed work",
             "hours": abs(score)/1.5, "evaluation": 1 if score > 0 else -1 if score < 0 else 0,

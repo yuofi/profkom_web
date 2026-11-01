@@ -29,6 +29,17 @@ def stamp(days):
     return (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
 
 
+def accept_unclosed(client, work):
+    """Accepted work whose task stays publicly unclosed when the season closes: accept()
+    closes the task first (SE-12), then its author reopens it to «completed»."""
+    aid = accept(client, work)
+    task = client.get(f"/api/tasks/{work['task']['task_id']}", headers=work["master"].headers).json()
+    reopened = client.post(f"/api/tasks/{task['task_id']}/status", headers=work["master"].headers,
+                           json={"expected_revision": task["revision"], "status": "completed"})
+    assert reopened.status_code == 200, reopened.text
+    return aid
+
+
 @pytest.fixture
 def closed(client, work, superuser, make_user, hr_roles):
     deputy = make_user()
@@ -42,7 +53,7 @@ def closed(client, work, superuser, make_user, hr_roles):
         assigned_at=stamp(-3), deadline_at=stamp(-2), reason="Фикстура",
         recipients=[{"user_id": work["member"].user_id, "hours": 1, "evaluation": 1, "completed_at": stamp(-2)}]))
     assert merit.status_code == 200, merit.text
-    aid = accept(client, work)
+    aid = accept_unclosed(client, work)
     close(client, work, superuser)
     people = {"chair": superuser, "chair_deputy": deputy, "hr_master": hr_roles["master"], "hr_deputy": hr_roles["deputy"],
               "block_master": work["master"], "member": work["member"], "outsider": work["outside"]}
@@ -328,7 +339,7 @@ def closed_hr(client, work, superuser, hr_roles):
         title="Заслуга HR", description="", criteria={}, assigned_at=stamp(-3), deadline_at=stamp(-2), reason="Фикстура",
         recipients=[{"user_id": work["outside"].user_id, "hours": 1, "evaluation": 1, "completed_at": stamp(-2)}]))
     assert merit.status_code == 200, merit.text
-    it_aid = accept(client, work)
+    it_aid = accept_unclosed(client, work)
     close(client, work, superuser)
     return dict(sid=sid, deputy=hr_roles["deputy"], hr=hr_roles, merit_id=merit.json()["merit_id"],
                 tasks=[(task.json()["task_id"], hr_aid, hr_roles["block_id"]), (work["task"]["task_id"], it_aid, work["block"]["block_id"])])

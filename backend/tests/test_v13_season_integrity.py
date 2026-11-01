@@ -1,7 +1,7 @@
 import json, pytest
 from database import db, AssignmentORM, ContributionORM, UserORM
 from models import Block
-from test_v13_tracker import work
+from test_v13_tracker import work, close_by_author
 
 
 def accept(client, w):
@@ -12,6 +12,7 @@ def accept(client, w):
         json=dict(expected_revision=1, text="Done", links=[], file_ids=[]),
     )
     assert r.status_code == 200, r.text
+    close_by_author(client, w["task"]["task_id"], w["master"])
     r = client.post(
         f"/api/assignments/{a}/accept",
         headers=w["master"].headers,

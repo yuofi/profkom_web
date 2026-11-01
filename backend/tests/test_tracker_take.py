@@ -3,7 +3,7 @@ import pytest
 from database import (db, TaskORM, TaskTrackerORM, TaskRosterORM, AssignmentORM,
     TaskActivityORM, ContributionORM, NotificationORM, SeasonORM)
 from errors import InvalidInput
-from test_v13_tracker import work  # noqa: F401
+from test_v13_tracker import work, close_by_author  # noqa: F401
 from test_tracker_queues import make_queue, request_grant, create_in
 
 
@@ -74,10 +74,14 @@ def test_take_rejoins_same_accepted_ledger_without_credit_or_private_revision_ch
     submitted = client.post('/api/tasks/' + task['task_id'] + '/submit-result', headers=work['member'].headers,
         json={'expected_revision': task['revision'], 'text': 'Синтетический фактический результат'})
     assert submitted.status_code == 200, submitted.text
+    closed = close_by_author(client, task['task_id'], work['master'])  # acceptance follows the closure (SE-12)
     inputs = client.get('/api/assignments/' + aid + '/assessment-inputs', headers=work['master'].headers).json()
     accepted = client.post('/api/assignments/' + aid + '/accept', headers=work['master'].headers,
         json={'expected_revision': inputs['workflow_revision'], 'evaluation': 1})
     assert accepted.status_code == 200, accepted.text
+    reopened = client.post('/api/tasks/' + task['task_id'] + '/status', headers=work['master'].headers,
+        json={'expected_revision': closed['revision'], 'status': 'completed'})
+    assert reopened.status_code == 200, reopened.text
     before = private_snapshot();assert before[1]
     task = current(client, work)
     removed = client.post('/api/tasks/' + task['task_id'] + '/assignees/' + str(work['member'].user_id) + '/remove',

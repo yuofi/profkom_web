@@ -5,7 +5,7 @@ import pytest
 import access
 from database import AssignmentORM, AuditLogORM, BlockORM, ContributionORM, SeasonORM, db
 from models import Block
-from test_v13_tracker import work  # noqa: F401
+from test_v13_tracker import work, close_by_author  # noqa: F401
 
 
 def require(response):
@@ -76,6 +76,7 @@ def test_curator_evaluates_existing_member_and_creates_assigned_work_without_pub
     submitted = require(client.post('/api/tasks/'+task['task_id']+'/status', headers=w['member'].headers,
         json={'expected_revision': task['revision'], 'status': 'submitted', 'text': 'Общий результат работы'}))
     assert private_snapshot() == old
+    close_by_author(client, task['task_id'], w['master'])  # KKR after the author's closure (SE-12)
     public_before = require(client.get('/api/tasks/'+task['task_id'], headers=w['member'].headers))
     inputs = require(client.get(path, headers=actor.headers))
     assert 'edit_assessment_inputs' in inputs['capabilities']

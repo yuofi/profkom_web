@@ -3,7 +3,7 @@ import json
 from datetime import datetime,timezone
 import pytest
 from database import db,TaskORM,AssignmentORM,TaskTrackerORM,TaskRosterORM,ContributionORM,SeasonORM,NotificationORM
-from test_v13_tracker import work  # noqa:F401
+from test_v13_tracker import work, close_by_author  # noqa:F401
 from test_tracker_queues import make_queue,request_grant,legacy_queue
 
 
@@ -36,8 +36,10 @@ def test_reader_working_statuses_and_author_close_reopen_leave_accounting_unchan
 
 def test_remove_to_watcher_rejoin_reuses_ledger_and_invalidates_old_public_command(client,work,superuser):
     w=work;tid=w['task']['task_id'];aid=w['task']['assignments'][0]['assignment_id']
+    closed=close_by_author(client,tid,w['master'])  # the credit is given after the closure (SE-12), then the task reopens
     inputs=client.get('/api/assignments/'+aid+'/assessment-inputs',headers=superuser.headers).json()
     r=client.patch('/api/assignments/'+aid+'/assessment-inputs',headers=superuser.headers,json={'expected_revision':inputs['revision'],'evaluation':1,'effective_completed_at':datetime.now(timezone.utc).isoformat(),'reason':'Synthetic authorized credit'});assert r.status_code==200,r.text
+    r=client.post('/api/tasks/'+tid+'/status',headers=w['master'].headers,json={'expected_revision':closed['revision'],'status':'in_progress'});assert r.status_code==200,r.text
     before=accounting(tid);initial=read(client,w)
     r=client.post('/api/tasks/'+tid+'/assignees/'+str(w['member'].user_id)+'/remove',headers=w['master'].headers,json={'expected_revision':initial['revision']});assert r.status_code==200,r.text
     assert r.json()['assignees']==[] and [u['user_id'] for u in r.json()['watchers']]==[w['member'].user_id]
@@ -82,6 +84,7 @@ def test_real_result_does_not_set_completion_but_authorized_review_can_use_actua
     t=read(client,w);r=client.post('/api/tasks/'+tid+'/submit-result',headers=w['member'].headers,json={'expected_revision':t['revision'],'text':'Реальный совместный результат'});assert r.status_code==200,r.text
     submitted=r.json()['submissions'][-1]['submitted_at'];assert accounting(tid)==before
     t=read(client,w);r=client.post('/api/tasks/'+tid+'/status',headers=w['member'].headers,json={'expected_revision':t['revision'],'status':'assigned'});assert r.status_code==200
+    close_by_author(client,tid,w['master'])  # the review follows the author's closure (SE-12)
     public=read(client,w);private=client.get('/api/assignments/'+aid+'/assessment-inputs',headers=superuser.headers).json()
     r=client.post('/api/assignments/'+aid+'/accept',headers=w['master'].headers,json={'expected_revision':private['workflow_revision'],'evaluation':1});assert r.status_code==200,r.text
     assert read(client,w)==public
@@ -135,11 +138,14 @@ def test_draft_code_file_owned_until_create_then_queue_acl(client,work,mock_s3):
 
 def test_authorized_evaluation_uses_observed_date_and_private_note_stays_private(client,work):
     w=work;tid=w['task']['task_id'];aid=w['task']['assignments'][0]['assignment_id'];url='/api/assignments/'+aid+'/assessment-inputs'
+    closed=close_by_author(client,tid,w['master'])  # KKR is filled after the author's closure (SE-12)
     private=client.get(url,headers=w['master'].headers).json();before=accounting(tid)
     denied=client.patch(url,headers=w['master'].headers,json={'expected_revision':private['revision'],'evaluation':1,'reason':'No fictitious date'})
     assert denied.status_code==422 and accounting(tid)==before
+    r=client.post('/api/tasks/'+tid+'/status',headers=w['master'].headers,json={'expected_revision':closed['revision'],'status':'open'});assert r.status_code==200,r.text
     t=read(client,w);r=client.post('/api/tasks/'+tid+'/submit-result',headers=w['member'].headers,json={'expected_revision':t['revision'],'text':'Фактическая сдача'})
-    assert r.status_code==200;rdate=r.json()['submissions'][-1]['submitted_at'];public=read(client,w)
+    assert r.status_code==200;rdate=r.json()['submissions'][-1]['submitted_at']
+    close_by_author(client,tid,w['master']);public=read(client,w)
     history=client.get('/api/tasks/'+tid+'/history',headers=w['member'].headers).json()
     private=client.get(url,headers=w['master'].headers).json()
     r=client.patch(url,headers=w['master'].headers,json={'expected_revision':private['revision'],'evaluation':1.5,'reason':'Private evaluator note'})
@@ -177,6 +183,7 @@ def test_private_reassignment_ignores_public_terminal_and_does_not_reopen_final_
     with db._session() as s:
         a=s.get(AssignmentORM,newid);assert a.status=='assigned' and a.effective_completed_at is None
     t=read(client,w,w['master']);r=client.post('/api/tasks/'+tid+'/submit-result',headers=w['master'].headers,json={'expected_revision':t['revision'],'text':'Actual result'});assert r.status_code==200
+    close_by_author(client,tid,w['master'])  # the result reopened the task; the review follows its closure (SE-12)
     private=client.get('/api/assignments/'+newid+'/assessment-inputs',headers=w['master'].headers).json()
     r=client.post('/api/assignments/'+newid+'/accept',headers=w['master'].headers,json={'expected_revision':private['workflow_revision'],'evaluation':1});assert r.status_code==200
     public=read(client,w,w['master']);from tracker import seed_existing
@@ -211,7 +218,8 @@ def test_private_review_audit_records_real_completion_before_and_after(client,wo
     from database import AuditLogORM
     w=work;tid=w['task']['task_id'];aid=w['task']['assignments'][0]['assignment_id'];current=read(client,w)
     r=client.post('/api/tasks/'+tid+'/submit-result',headers=w['member'].headers,json={'expected_revision':current['revision'],'text':'Observed completion for private audit'})
-    assert r.status_code==200;rdate=r.json()['submissions'][-1]['submitted_at'];public=read(client,w)
+    assert r.status_code==200;rdate=r.json()['submissions'][-1]['submitted_at']
+    close_by_author(client,tid,w['master']);public=read(client,w)  # the review follows the author's closure (SE-12)
     version=client.get('/api/assignments/'+aid+'/assessment-inputs',headers=w['master'].headers).json()['workflow_revision']
     r=client.post('/api/assignments/'+aid+'/accept',headers=w['master'].headers,json={'expected_revision':version,'evaluation':1.5,'review_note':'Private audit acceptance'})
     assert r.status_code==200,r.text
