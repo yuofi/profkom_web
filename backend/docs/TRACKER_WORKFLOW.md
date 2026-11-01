@@ -116,7 +116,10 @@ deputies and the HR master (owner 2026-10-31, SE-13), never by the HR deputy. Cl
 independent tasks also retain the existing creator/queue-owner exception. A new
 assignment row in a closed season (join, take, assign, reassignment) is added by the
 same circle, the chair, the deputies and the HR master, never by the HR deputy or area
-leads (`task.add_assignment`, owner 2026-10-31, TR-05).
+leads (`task.add_assignment`, owner 2026-10-31, TR-05). Reader controls are not narrowed
+by SE-13: in a closed season every task reader, the HR deputy included, still changes
+the public status, submits a result, ticks checklist marks and comments; none of these
+changes accounting.
 
 ## Real roster and watcher subscriptions
 

@@ -299,8 +299,9 @@ def test_closed_season_merit_of_a_closed_event_follows_the_season_circle(client,
             assert (cap in access.assignment_caps(actor.user_id, kind, scope_id)) is editor, (actor.user_id, source)
 
 
-# ── GL-09 (owner 2026-10-31): the HR deputy is an ordinary deputy of the HR block, yet only
-# reads a closed season, on the HR block's tasks as on any other (SE-13).
+# ── GL-09 (owner 2026-10-31): the HR deputy is an ordinary deputy of the HR block, yet makes
+# no SE-13 change of a closed season, on the HR block's tasks as on any other. A task reader's
+# controls (public status, result, checklist marks, comments) are not part of SE-13.
 
 TASK_WRITE_CAPS = {"edit_task", "edit_task_description", "attach_task_file", "review_task", "join_task", "take_task",
                    "assign_task_participants", "remove_task_assignee", "edit_task_metadata", "manage_task_links",
