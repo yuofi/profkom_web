@@ -28,6 +28,17 @@ def summary(client, actor, sid):
     return response.json()
 
 
+def hold_summary_reads(monkeypatch):
+    read = db.get_season_summary
+
+    def slow(*args):
+        result = read(*args)
+        time.sleep(0.3)  # a check made outside the write transaction would pass for both clicks here
+        return result
+
+    monkeypatch.setattr(db, "get_season_summary", slow)
+
+
 @pytest.mark.parametrize("state", ["open", "summarizing"])
 def test_mark_survives_accounting_elsewhere_and_answers_to_its_own_marks(client, work, superuser, state):
     sid, target = work["season"]["season_id"], work["master"].user_id
@@ -81,14 +92,7 @@ def test_two_clicks_on_the_same_marks_save_exactly_one(client, work, superuser, 
     import season_summaries
     sid, target = work["season"]["season_id"], work["member"].user_id
     version = summary(client, superuser, sid)["version"]
-    read = db.get_season_summary
-
-    def slow(*args):
-        result = read(*args)
-        time.sleep(0.3)  # a check made outside the write transaction would pass for both clicks here
-        return result
-
-    monkeypatch.setattr(db, "get_season_summary", slow)
+    hold_summary_reads(monkeypatch)
     start = threading.Barrier(2)
 
     def click(values):
@@ -106,6 +110,29 @@ def test_two_clicks_on_the_same_marks_save_exactly_one(client, work, superuser, 
     assert len(won) == 1 and len(lost) == 1 and lost[0].code == "revision_conflict", results
     winner = next(row.decisions for row in won[0].rows if row.user.user_id == target)
     assert marks(summary(client, superuser, sid), target) == winner
+    with db._session() as session:
+        assert session.query(SeasonDecisionORM).filter_by(season_id=sid, user_id=target).count() == 1
+
+
+def test_two_concurrent_requests_on_the_same_marks_answer_200_and_409(client, work, superuser, monkeypatch):
+    sid, target = work["season"]["season_id"], work["member"].user_id
+    seen = summary(client, superuser, sid)
+    # The route's write unit of work and the domain transaction each keep this; it fails only without both.
+    hold_summary_reads(monkeypatch)
+    start = threading.Barrier(2)
+
+    def click(values):
+        start.wait()
+        return put(client, superuser, sid, target, {"expected_version": seen["version"], "expected_decisions": marks(seen, target),
+            "decisions": values})
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(click, (["nice"], ["kick"])))
+    monkeypatch.undo()
+    assert sorted(response.status_code for response in responses) == [200, 409], [response.text for response in responses]
+    won, lost = sorted(responses, key=lambda response: response.status_code)
+    assert lost.json()["detail"]["code"] == "revision_conflict", lost.text
+    assert marks(summary(client, superuser, sid), target) == marks(won.json(), target)
     with db._session() as session:
         assert session.query(SeasonDecisionORM).filter_by(season_id=sid, user_id=target).count() == 1
 
