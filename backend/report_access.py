@@ -93,15 +93,24 @@ def _historical_reader(s, series_id, uid, other_than):
     # Only an instance of this series or of its parent can qualify: compare the
     # series first, then check that one event's leadership.
     events, subs = _live_instances(s, other_than)
+    # The stored roles behind Database.is_event_leader/..._deputy and their subevent twins,
+    # read once (a read UOW answers from its role snapshot): no statement per instance (PB-11).
+    roles = None
+
+    def leads(kind, scope_id, *names):
+        nonlocal roles
+        if roles is None:
+            roles = access._scoped_roles(uid)
+        return any((kind, scope_id, name) in roles for name in names)
+
     for event_id, event_series_id in events:
-        if (series_id in (event_series_id,) or series.parent_series_id == event_series_id) and (
-            db.is_event_leader(uid, event_id)
-            or db.is_event_leader_deputy(uid, event_id)
+        if (series_id in (event_series_id,) or series.parent_series_id == event_series_id) and leads(
+            "event", event_id, "event_leader", "deputy_event_leader"
         ):
             return True
     for subevent_id, subevent_series_id in subs:
-        if subevent_series_id == series_id and (
-            db.is_subevent_leader(uid, subevent_id) or db.is_subevent_leader_deputy(uid, subevent_id)
+        if subevent_series_id == series_id and leads(
+            "subevent", subevent_id, "subevent_leader", "deputy_subevent_leader"
         ):
             return True
     return False
@@ -154,6 +163,63 @@ def series_reader(s, series_id, uid):
         if frozen(s, r, uid, editors_only=False) if closed else editor(s, r, uid):
             return True
     return False
+
+
+def continuable(uid, parent_event_id=None):
+    """The report series a new event, or a new subevent of `parent_event_id`, may
+    continue, each with its latest instance; None when the parent event does not exist.
+
+    One read of what the series field used to assemble from GET /report-series,
+    GET /events, GET /seasons and GET /events/{id}/subevents of the parent and of every
+    earlier instance of its series (FIX_PLAN 2.21, PB-11), with the same filters:
+    series_reader decides each series; a subevent without subevent.view, whose
+    report_series_id those routes mask, neither names a latest instance nor marks
+    its series as used. Series keep the /report-series order; the latest instance is
+    the first one of the highest season sequence in /events and subevent order.
+    """
+    with db._session() as s:
+        parent = s.get(EventORM, parent_event_id) if parent_event_id is not None else None
+        if parent_event_id is not None and parent is None:
+            return None
+        if parent is None:
+            candidates = [r for r in s.query(ReportSeriesORM) if r.owner_kind == "event"]
+        else:
+            candidates = [r for r in s.query(ReportSeriesORM)
+                          if r.owner_kind == "subevent" and r.parent_series_id == parent.report_series_id]
+        readable = [r for r in candidates if series_reader(s, r.series_id, uid)]
+        if not readable:
+            return []
+        seasons = {row.season_id: (row.sequence_number or 0, row.title) for row in s.query(
+            SeasonORM.season_id, SeasonORM.sequence_number, SeasonORM.title)}
+        events = s.query(EventORM.event_id, EventORM.season_id, EventORM.title, EventORM.report_series_id).all()
+        used = set()
+        if parent is None:
+            instances = [(e.report_series_id, e.title, e.season_id) for e in events]
+        else:
+            earlier = [e for e in events if e.report_series_id == parent.report_series_id and e.event_id != parent.event_id]
+            children = {}
+            for sub in s.query(SubeventORM.subevent_id, SubeventORM.event_id, SubeventORM.title,
+                               SubeventORM.report_series_id).filter(
+                    SubeventORM.event_id.in_([e.event_id for e in earlier] + [parent.event_id])):
+                if access.allowed(uid, "subevent.view", "subevent", sub.subevent_id):
+                    children.setdefault(sub.event_id, []).append(sub)
+            used = {sub.report_series_id for sub in children.get(parent.event_id, ()) if sub.report_series_id}
+            instances = [(sub.report_series_id, sub.title, e.season_id) for e in earlier for sub in children.get(e.event_id, ())]
+        latest = {}
+        for series_id, title, season_id in instances:
+            rank = seasons.get(season_id, (0, None))[0]
+            if series_id not in latest or rank > latest[series_id][0]:
+                latest[series_id] = (rank, title, season_id)
+        items = []
+        for r in readable:
+            if r.series_id in used:
+                continue
+            found = latest.get(r.series_id)
+            items.append(dict(series_id=r.series_id, owner_kind=r.owner_kind, title=r.title,
+                              parent_series_id=r.parent_series_id,
+                              latest=dict(title=found[1], season_id=found[2], season_title=seasons.get(found[2], (0, None))[1])
+                              if found else None))
+        return items
 
 
 def freeze_editors(s, season_id):

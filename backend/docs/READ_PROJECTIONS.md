@@ -90,8 +90,9 @@ bursts as well as single requests when changing these thresholds. Task ACL batch
 reuse the TaskIndex rows, prefill refused control grants and the reader's queue
 memberships; `readable_tasks_many` records decisions for several readers (assignee
 and actor) of one selection. `report_access.historical_reader` compares series
-first and memoizes per request. Every value lives only in its unit of work: a dirty
-object, flush, command or transaction boundary discards it.
+first, checks leadership against the actor's role snapshot (no statement per
+series instance) and memoizes per request. Every value lives only in its unit of
+work: a dirty object, flush, command or transaction boundary discards it.
 
 Never cache a live ORM object with detached-value helpers. Never bypass support,
 private queue, current membership/leadership, KKR or access_revision checks to
