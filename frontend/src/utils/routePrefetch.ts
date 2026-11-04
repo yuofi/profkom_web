@@ -22,6 +22,7 @@ const routeCode: [RegExp, () => Promise<unknown>][] = [
   [/^\/(reports|meetings)(\/|$)/, () => import("../pages/Workspace/ReportPages")],
   [/^\/pgas$/, () => import("../pages/Pgas/PgasPage")],
   [/^\/admin(\/|$)/, () => import("../pages/Admin/AdminPage")],
+  [/^\/broadcasts(\/|$)/, () => import("../pages/Workspace/BroadcastPages")],
   [/^\/support$/, () => import("../pages/Workspace/SupportPage")],
   [/^\/profile$/, () => import("../pages/ProfilePage/ProfilePage")],
   [/^\/profile\/settings$/, () => import("../pages/ProfilePage/ProfileSettingsPage")],
