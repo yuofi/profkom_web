@@ -68,14 +68,16 @@ export function BotLinkStep({ id, lead, frame = "card" }: {
     void client.invalidateQueries({ queryKey: ["session"] });
     void client.invalidateQueries({ queryKey: ["registrations", "me"] });
   }, [client, state, blocked, sessionState, sessionBlocked]);
-  // «Код истёк» appears on time, without waiting for another answer.
+  // «Код истёк» appears on time, without waiting for another answer; so does the end of a
+  // code issued earlier (in another tab or before a reload).
+  const expiry = shown?.expires_at ?? data?.code_expires_at ?? null;
   useEffect(() => {
-    if (!shown) return;
-    const left = Date.parse(shown.expires_at) - Date.now();
+    if (!expiry) return;
+    const left = Date.parse(expiry) - Date.now();
     if (!(left > 0)) return;
     const timer = window.setTimeout(() => setNow(Date.now()), Math.min(left + 50, 3_600_000));
     return () => window.clearTimeout(timer);
-  }, [shown]);
+  }, [expiry]);
   const create = useMutation({
     mutationFn: botLinkApi.createCode,
     onSuccess: async (next) => {
@@ -97,8 +99,8 @@ export function BotLinkStep({ id, lead, frame = "card" }: {
       {create.isPending ? "Получаем код…" : label}
     </button>
   );
-  const openBot = (href: string | null | undefined) => href
-    ? <a className={s.linkButton} href={href} {...external}>Открыть бота</a>
+  const openBot = (href: string | null | undefined, primary = false) => href
+    ? <a className={`${s.linkButton} ${primary ? s.primary : ""}`} href={href} {...external}>Открыть бота</a>
     : null;
   let body: ReactNode;
   if (me.isLoading) body = <Loading />;
@@ -112,14 +114,14 @@ export function BotLinkStep({ id, lead, frame = "card" }: {
         {text.status}
         {linked && data.vk_user_id !== null && <> Страница ВКонтакте: id{data.vk_user_id}.</>}
       </p>
-      {text.hint && !shown && (linkState === "none" ? <p>{text.hint}</p> : <div className={s.note}><p>{text.hint}</p>{openBot(data.bot_url)}</div>)}
+      {text.hint && !shown && (linkState === "none" ? <p>{text.hint}</p> : <div className={`${s.note} ${b.hint}`}><p>{text.hint}</p>{openBot(data.bot_url)}</div>)}
       {shown && !expired && <div className={b.panel}>
         <p className={s.muted}>Ваш код</p>
         <p className={b.code}>{groupCode(shown.code)}</p>
         {shown.link_url
           ? <p>Откройте бота и нажмите «Начать»: код уйдёт сам.</p>
           : <p>Отправьте боту ВКонтакте команду ниже.</p>}
-        {openBot(shown.link_url)}
+        {openBot(shown.link_url, true)}
         <p>{shown.link_url ? "Если бот не ответил, отправьте ему команду:" : "Команда:"}</p>
         <div className={b.command}>
           <code>{shown.command}</code>

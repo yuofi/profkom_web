@@ -12,6 +12,10 @@
 .status {
   font-weight: 500;
 }
+/* The shared note keeps its look; the card's gap stands for its outer margin. */
+.hint.hint {
+  margin: 0;
+}
 .panel {
   display: grid;
   gap: 10px;
