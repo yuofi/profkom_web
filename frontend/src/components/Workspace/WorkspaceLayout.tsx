@@ -27,6 +27,8 @@ const shown: Record<string, (session: Session | null) => boolean> = {
   "/seasons": (session) => can(session, "view_summary"),
   "/merits": (session) => createsMerits(session) || readsMerits(session),
   "/admin": (session) => visibleAdminTabs(session).length > 0,
+  // The chair, the deputies and the senders they name (BOT_API.md, stage 4).
+  "/broadcasts": (session) => can(session, "send_broadcast") || can(session, "manage_broadcast_senders"),
 };
 
 const noSubscription = () => () => {};
@@ -104,7 +106,7 @@ export function WorkspaceLayout({ children }: { children?: ReactNode } = {}) {
   const onSupport = pathname === "/support" || pathname.startsWith("/support/");
   const support = useQuery({ queryKey: ["supportContext"], queryFn: supportApi.context, enabled: onSupport && isWorkingSession(session) });
   const supportStaff = onSupport && (!support.error || canRetainData(support.error)) && !!(support.data?.can_triage || support.data?.can_configure);
-  const section = sectionOf(pathname, { supportStaff });
+  const section = sectionOf(pathname, { supportStaff, broadcaster: shown["/broadcasts"](session) });
   const menu = useDismissibleMenu();
   const registerSideMenu = useContext(FeedbackSideMenuContext);
   const visible = SECTIONS.filter(({ to }) => to !== "/notifications" && (shown[to]?.(session) ?? true));

@@ -28,6 +28,7 @@ export const SECTIONS: Section[] = [
   { to: "/seasons", label: "Сезоны и ККР", icon: "insights", tone: "lilac" },
   { to: "/merits", label: "Учёт выполненной работы", icon: "fact_check", tone: "mint", under: ["/seasons/*/merits"] },
   { to: "/admin", label: "Администрирование", icon: "admin_panel_settings", tone: "rose", under: ["/accounts", "/registrations"] },
+  { to: "/broadcasts", label: "Рассылки", icon: "send", tone: "sky" },
   { to: "/blocks", label: "Блоки", icon: "groups", tone: "peach" },
   { to: "/materials", label: "Материалы", icon: "menu_book", tone: "rose", under: ["/guides", "/docs", "/info"] },
   { to: "/pgas", label: "ПГАС", icon: "workspace_premium", tone: "yellow" },
@@ -39,10 +40,13 @@ const inside = (pathname: string, path: string) => {
 };
 
 /** The section of the most specific matching path: /seasons/1/merits is under Учёт выполненной работы, not Сезоны. */
-export function sectionOf(pathname: string, { supportStaff = false }: { supportStaff?: boolean } = {}): Section {
+export function sectionOf(pathname: string, { supportStaff = false, broadcaster = false }: { supportStaff?: boolean; broadcaster?: boolean } = {}): Section {
   // /support is reached from the profile («Мои обращения») and belongs to it (GL-30); for the
   // support staff it is the work page of the queue, in the workspace.
   if (inside(pathname, "/profile") || !supportStaff && inside(pathname, "/support")) return { to: "/profile", label: "Мой профиль", icon: "account_circle", tone: "yellow" };
+  // A broadcast's page is where the bell leads every member (BOT_API.md, stage 4): it is a
+  // notification for them, and a page of Рассылки for those who have that menu item.
+  if (!broadcaster && inside(pathname, "/broadcasts/*")) return SECTIONS.find(({ to }) => to === "/notifications")!;
   let found: Section | undefined, depth = 0;
   for (const section of SECTIONS)
     for (const path of section.to === "/" ? [] : [section.to, ...(section.under ?? [])])

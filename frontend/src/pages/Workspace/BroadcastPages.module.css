@@ -1,0 +1,50 @@
+/* Broadcasts through the bot (BOT_API.md, stage 4): the shared cards, fields and lists of
+   Workspace.module.css; here only what a plain-text message needs. */
+
+/* The text as VK shows it: plain, with its line breaks. */
+.text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.compose textarea {
+  min-height: 180px;
+}
+.preview {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  font-size: 14px;
+}
+.preview .text {
+  font-size: 16px;
+}
+/* The cancel of a row stands over the row's link, with its question. */
+.rowAction {
+  position: relative;
+  z-index: 1;
+  order: 3;
+  flex: 1 1 100%;
+}
+.counts {
+  display: grid;
+  grid-template-columns: max-content auto;
+  gap: 6px 16px;
+  margin: 0;
+}
+.counts > div {
+  display: contents;
+}
+.counts dt {
+  color: color-mix(in srgb, var(--on-surface) 78%, transparent);
+}
+.counts dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 600px) {
+  .counts {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}

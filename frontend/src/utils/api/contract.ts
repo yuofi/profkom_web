@@ -100,6 +100,49 @@ export interface BotLinkCode {
   /** «привязать ABCDE-FGHJK»: the command for the bot when `ref` did not arrive. */
   command: string;
 }
+/** A broadcast through HereBot (BOT_API.md, «Рассылки», stage 4): `sending` while recipients
+ *  wait, `done` when none does, `cancelled` when stopped while some still waited. */
+export type BroadcastState = "sending" | "done" | "cancelled";
+/** Recipients in VK by state; only readers with `broadcast.send` get them. */
+export interface BroadcastCounts {
+  total: number;
+  pending: number;
+  sent: number;
+  /** VK answered 901: messages from the community are not allowed. */
+  denied: number;
+  failed: number;
+  cancelled: number;
+  /** Not sent within 24 hours. */
+  expired: number;
+}
+/** BroadcastOut: GET /broadcasts/{id} for any active account, the list and the commands. */
+export interface Broadcast {
+  broadcast_id: string;
+  text: string;
+  /** null once the author's account was deleted by retention. */
+  author: UserRef | null;
+  created_at: string;
+  state: BroadcastState;
+  cancelled_at: string | null;
+  /** null without the right to send broadcasts. */
+  counts: BroadcastCounts | null;
+}
+/** GET /broadcasts/audience: active accounts that get the site notice (the author excluded)
+ *  and how many of them the broadcast reaches in VK. */
+export interface BroadcastAudience {
+  total: number;
+  reachable: number;
+}
+/** POST /broadcasts: 1–4000 characters after trimming; the key is a UUID (GL-07). */
+export interface BroadcastInput {
+  text: string;
+  idempotency_key: string;
+}
+/** PUT /broadcasts/senders/{user_id}. */
+export interface BroadcastSenderChange {
+  user_id: number;
+  sender: boolean;
+}
 /** Shown once to the chair or deputy who handed it out; never stored by the client. */
 export interface TemporaryPassword {
   user_id: number;

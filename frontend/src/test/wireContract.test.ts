@@ -136,3 +136,51 @@ it("keeps the demo notification settings on the wire contract, with VK as the de
     } finally { mock.restore(); }
   }
 });
+
+it("checks the stage 4 broadcasts: a broadcast with and without counts, the audience and a sender change", () => {
+  const counts = { total: 412, pending: 25, sent: 380, denied: 3, failed: 2, cancelled: 0, expired: 2 };
+  const broadcast = { broadcast_id: "b-1", text: "Собрание\nв четверг", author: { user_id: 104, display_name: "Алексей Соколов", avatar_url: null },
+    created_at: "2026-11-05T09:00:00Z", state: "sending", cancelled_at: null, counts };
+  expect(wireIssues("Broadcast", broadcast)).toEqual([]);
+  expect(wireIssues("Broadcast", { ...broadcast, counts: null, author: null })).toEqual([]);
+  expect(wireIssues("Broadcast", { ...broadcast, state: "cancelled", cancelled_at: "2026-11-05T09:03:00Z" })).toEqual([]);
+  expect(wireIssues("Broadcast", { ...broadcast, state: "paused" })).not.toEqual([]);
+  expect(wireIssues("Broadcast", { ...broadcast, recipients: [] })).toContain("Broadcast.recipients: unexpected field");
+  // A nullable object reports the whole field: neither the counts nor null.
+  expect(wireIssues("Broadcast", { ...broadcast, counts: { ...counts, vk_message_ids: [] } })).toEqual([expect.stringMatching(/^Broadcast\.counts: expected /)]);
+  expect(wireIssues("BroadcastCounts", { ...counts, vk_message_ids: [] })).toContain("BroadcastCounts.vk_message_ids: unexpected field");
+  expect(wireIssues("BroadcastCounts", { ...counts, expired: undefined })).toContain("BroadcastCounts.expired: expected number");
+  expect(wireIssues("Broadcast", { ...broadcast, cancelled_at: undefined })).not.toEqual([]);
+  expect(wireIssues("BroadcastAudience", { total: 430, reachable: 412 })).toEqual([]);
+  expect(wireIssues("BroadcastAudience", { total: 430, reachable: 412, missing: 18 })).toContain("BroadcastAudience.missing: unexpected field");
+  expect(wireIssues("BroadcastSenderChange", { user_id: 101, sender: true })).toEqual([]);
+  expect(wireIssues("BroadcastSenderChange", { user_id: 101, sender: "yes" })).not.toEqual([]);
+});
+
+it("keeps the demo broadcasts on the wire contract for senders, the chair and other members", async () => {
+  const { installMockTransport } = await import("../mocks/transport");
+  const { broadcastsApi } = await import("../utils/api/broadcasts.api");
+  for (const role of ["chair", "hr"] as const) {
+    const mock = installMockTransport(role, { delay: 0 });
+    try {
+      const first = await broadcastsApi.list();
+      const rest = await broadcastsApi.list(first.next_cursor);
+      for (const item of [...first.items, ...rest.items]) expect(wireIssues("Broadcast", item), `${role} ${item.broadcast_id}`).toEqual([]);
+      expect(first.items.every((item) => item.counts !== null)).toBe(true);
+      expect(wireIssues("BroadcastAudience", await broadcastsApi.audience()), role).toEqual([]);
+      const created = await broadcastsApi.create({ text: "Проверка", idempotency_key: "2806d837-7862-47db-9658-10c0ba31f12c" });
+      expect(wireIssues("Broadcast", created), role).toEqual([]);
+      expect(wireIssues("Broadcast", await broadcastsApi.cancel(created.broadcast_id)), role).toEqual([]);
+      if (role === "chair") {
+        for (const person of (await broadcastsApi.senders()).items) expect(wireIssues("UserRef", person)).toEqual([]);
+        expect(wireIssues("BroadcastSenderChange", await broadcastsApi.setSender(101, true))).toEqual([]);
+      }
+    } finally { mock.restore(); }
+  }
+  const mock = installMockTransport("organizer", { delay: 0 });
+  try {
+    const item = await broadcastsApi.get("broadcast-3");
+    expect(wireIssues("Broadcast", item)).toEqual([]);
+    expect(item.counts).toBeNull();
+  } finally { mock.restore(); }
+});

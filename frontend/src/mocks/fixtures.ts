@@ -64,6 +64,11 @@ export const mockNow = "2026-10-18T12:00:00Z";
 export const mockBotLinkDeadline = "2026-12-01T00:00:00+03:00";
 /** The synthetic VK id of a linked account (no real VK page). */
 export const mockVkId = (userId: number) => 100000 + userId;
+/** A site-wide grant: seen in the session without capabilities of its own (BOT_API.md). */
+export const mockBroadcasterAssignment = (userId: number) => ({
+  role_assignment_id: `site-broadcaster-${userId}`, user_id: userId, role: "broadcaster", scope_kind: "site" as const,
+  scope_id: null, principal_assignment_id: null, revision: 1, capabilities: [] as string[],
+});
 const allManagement = [
   "edit_event",
   "manage_leaders",
@@ -137,6 +142,9 @@ export function createFixtures(role: MockRole = "organizer") {
               "manage_pgas",
               "grant_pgas_admin",
               "reset_password",
+              // Broadcasts through the bot (BOT_API.md, stage 4).
+              "send_broadcast",
+              "manage_broadcast_senders",
             ]
           : []),
         ...(chair
@@ -151,6 +159,8 @@ export function createFixtures(role: MockRole = "organizer") {
             ]
           : []),
         ...(chair || role === "editor" || manager ? materialCaps : []),
+        // The demo HR master is a broadcast sender the chair named (a site-wide grant).
+        ...(role === "hr" ? ["send_broadcast"] : []),
       ]
     : [];
   const assignment = {
@@ -175,7 +185,7 @@ export function createFixtures(role: MockRole = "organizer") {
     registration_status:
       role === "rejected" ? "rejected" : active ? "approved" : "pending",
     capabilities: caps,
-    assignments: active ? [assignment] : [],
+    assignments: active ? [assignment, ...(role === "hr" ? [mockBroadcasterAssignment(userId)] : [])] : [],
     // Stage 2 is on: a pending account still has to link the bot, an active one has.
     bot_link: role === "archived" ? null : { state: active ? "ok" : "none", required: !active, blocked: false, deadline: mockBotLinkDeadline },
   };

@@ -138,6 +138,8 @@ const PgasPage = lazy(() => import("./pages/Pgas/PgasPage").then(m => ({ default
 const AdminPanel = lazy(() => import("./pages/Admin/AdminPage").then(m => ({ default: m.default })));
 const NotFoundPage = lazy(() => import("./pages/fallback/NotFoundPage").then(m => ({ default: m.default })));
 const SupportPage = lazy(() => import("./pages/Workspace/SupportPage").then(module => ({ default: module.SupportPage })));
+const BroadcastsPage = lazy(() => import("./pages/Workspace/BroadcastPages").then(m => ({ default: m.BroadcastsPage })));
+const BroadcastPage = lazy(() => import("./pages/Workspace/BroadcastPages").then(m => ({ default: m.BroadcastPage })));
 const queryClient = new QueryClient({
   queryCache: workspaceQueryCache(),
   defaultOptions: { queries: { refetchOnWindowFocus: false, retry: retryTransient, staleTime: workspaceStaleTime } },
@@ -250,6 +252,9 @@ const router = createBrowserRouter(createRoutesFromElements(
                     {/* Each tab checks its own right (АВ-34). */}
                     <Route path="admin" element={<AdminPanel />} />
                     <Route path="admin/:tab" element={<AdminPanel />} />
+                    {/* Broadcasts through the bot (BOT_API.md, stage 4); the bell opens a broadcast for everyone. */}
+                    <Route path="broadcasts" element={<BroadcastsPage />} />
+                    <Route path="broadcasts/:id" element={<BroadcastPage />} />
                   </Route>
                 </Route>
                 <Route path="*" element={<NotFoundPage />} />
