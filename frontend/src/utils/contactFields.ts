@@ -6,18 +6,19 @@ export function normalizeTelegram(value: string) {
   const match = clean.match(/^(?:https?:\/\/)?(?:www\.)?t\.me\/([A-Za-z0-9_]{5,32})\/?$/i);
   return match ? `@${match[1]}` : clean;
 }
+/** A link on vk.com or vk.ru (also m.vk.*) becomes https://vk.com/<name>; a name loses its @. */
 export function normalizeVk(value: string) {
   const clean = value.trim();
-  const match = clean.match(/^(?:https?:\/\/)?(?:www\.)?vk\.com\/([A-Za-z0-9_][A-Za-z0-9_.]{0,63})\/?$/i);
-  return match ? `https://vk.com/${match[1]}` : clean;
+  const match = clean.match(/^(?:https?:\/\/)?(?:www\.|m\.)?vk\.(?:com|ru)\/([A-Za-z0-9_][A-Za-z0-9_.]{0,63})\/?$/i);
+  return match ? `https://vk.com/${match[1]}` : clean.replace(/^@(?=[A-Za-z0-9_])/, "");
 }
 export const telegramField = z.string().transform(normalizeTelegram).refine(
   value => !value || /^@?[A-Za-z0-9_]{5,32}$/.test(value),
-  "Укажите Telegram: @username, username или ссылку t.me/username",
+  "Укажите Telegram: @имя, имя или ссылку t.me/имя",
 );
 export const vkField = z.string().transform(normalizeVk).refine(
   value => !value || /^[A-Za-z0-9_][A-Za-z0-9_.]{0,63}$/.test(value) || /^https:\/\/vk\.com\/[A-Za-z0-9_][A-Za-z0-9_.]{0,63}$/.test(value),
-  "Укажите имя профиля VK или ссылку vk.com/имя",
+  "Укажите VK: ссылку vk.com/имя, vk.com/id123 или только имя профиля",
 );
 /** The same rule as the server: a group is a number from 100 to 700 (A-ROL-17). */
 export const isValidGroupNumber = (value: string | number) => {

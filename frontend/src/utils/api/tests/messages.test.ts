@@ -104,6 +104,14 @@ describe("fieldMessage", () => {
     expect(fieldMessage({ type: "something_new", msg: "Whatever" })).toBe("Проверьте значение.");
     expect(fieldMessage(undefined)).toBe("Проверьте значение.");
   });
+  it("keeps format examples and service names in our texts", () => {
+    const vk = "Укажите VK: ссылку vk.com/имя, vk.com/id123 или только имя профиля";
+    const tg = "Укажите Telegram: @имя, имя или ссылку t.me/имя";
+    expect(fieldMessage(vk)).toBe(vk);
+    expect(fieldMessage({ type: "value_error", msg: `Value error, ${tg}` })).toBe(tg);
+    expect(fieldMessage({ msg: "Укажите VK" })).toBe("Укажите VK");
+    expect(fieldMessage("Укажите адрес example.com, а не format")).toBe("Проверьте значение.");
+  });
 });
 
 describe("blockerText (A-KKR-15)", () => {

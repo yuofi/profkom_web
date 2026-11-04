@@ -159,6 +159,9 @@ export function errorDetail(error: unknown): string | null {
 
 const cyrillic = /[А-Яа-яЁё]/;
 const latinWord = /[A-Za-z]{3,}/;
+// Our texts show formats (vk.com/имя, t.me/имя, @имя) and name services: neither is English.
+const notProse = /\S*[./@]\S*|\b(?:VK|Telegram)\b/g;
+const ours = (text: string) => cyrillic.test(text) && !latinWord.test(text.replace(notProse, " "));
 const FIELD_TEXTS: Record<string, string> = {
   missing: "Заполните поле.",
   string_too_short: "Слишком короткое значение.",
@@ -180,10 +183,10 @@ const FIELD_TEXTS: Record<string, string> = {
  */
 export function fieldMessage(item: unknown): string {
   if (typeof item === "string")
-    return cyrillic.test(item) && !latinWord.test(item) ? item : "Проверьте значение.";
+    return ours(item) ? item : "Проверьте значение.";
   const issue = (item ?? {}) as { type?: unknown; msg?: unknown };
   const text = String(issue.msg ?? "").replace(/^Value error, /, "");
-  if (cyrillic.test(text) && !latinWord.test(text)) return text;
+  if (ours(text)) return text;
   return FIELD_TEXTS[String(issue.type ?? "")] ?? "Проверьте значение.";
 }
 

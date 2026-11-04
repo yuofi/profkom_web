@@ -11,10 +11,13 @@ TELEGRAM = re.compile(r"@?[A-Za-z0-9_]{5,32}\Z")
 TELEGRAM_URL = re.compile(
     r"(?:https?://)?(?:www\.)?t\.me/([A-Za-z0-9_]{5,32})/?\Z", re.I
 )
-VK_NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.]{0,63}\Z")
+# A profile name alone (with or without @) or a link on vk.com or vk.ru, also the mobile m.vk.*
+VK_NAME = re.compile(r"@?([A-Za-z0-9_][A-Za-z0-9_.]{0,63})\Z")
 VK_URL = re.compile(
-    r"(?:https?://)?(?:www\.)?vk\.com/([A-Za-z0-9_][A-Za-z0-9_.]{0,63})/?\Z", re.I
+    r"(?:https?://)?(?:www\.|m\.)?vk\.(?:com|ru)/([A-Za-z0-9_][A-Za-z0-9_.]{0,63})/?\Z", re.I
 )
+VK_FORMAT = "Укажите VK: ссылку vk.com/имя, vk.com/id123 или только имя профиля"
+TELEGRAM_FORMAT = "Укажите Telegram: @имя, имя или ссылку t.me/имя"
 
 
 def telegram(value):
@@ -25,9 +28,7 @@ def telegram(value):
     if match:
         return "@" + match[1]
     if value and not TELEGRAM.fullmatch(value):
-        raise InvalidInput(
-            "Укажите Telegram: @username, username или ссылку t.me/username"
-        )
+        raise InvalidInput(TELEGRAM_FORMAT)
     return value
 
 
@@ -38,9 +39,10 @@ def vk(value):
     match = VK_URL.fullmatch(value)
     if match:
         return "https://vk.com/" + match[1]
-    if value and not VK_NAME.fullmatch(value):
-        raise InvalidInput("Укажите имя профиля VK или ссылку vk.com/имя")
-    return value
+    name = VK_NAME.fullmatch(value)
+    if value and not name:
+        raise InvalidInput(VK_FORMAT)
+    return name[1] if name else value
 
 
 def group_number(value):
