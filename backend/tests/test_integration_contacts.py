@@ -5,8 +5,8 @@ from test_v13_access_contract import REGISTER
 @pytest.mark.parametrize("tg,vk,normalized_tg,normalized_vk", [
     ("@valid_user", "id1", "@valid_user", "id1"),
     ("valid_user", "ivan2", "valid_user", "ivan2"),
-    ("https://t.me/valid_user/", "vk.com/id1", "@valid_user", "https://vk.com/id1"),
-    ("  valid_user  ", " https://vk.com/u/ ", "valid_user", "https://vk.com/u"),
+    ("https://t.me/valid_user/", "vk.com/id1", "@valid_user", "https://vk.ru/id1"),
+    ("  valid_user  ", " https://vk.com/u/ ", "valid_user", "https://vk.ru/u"),
 ])
 def test_contact_syntax_consistent_across_registration_application_profile(client, superuser, tg, vk, normalized_tg, normalized_vk):
     signup = client.post("/api/auth/register", json={**REGISTER, "tg": tg, "vk": vk, "patronymic": ""})
