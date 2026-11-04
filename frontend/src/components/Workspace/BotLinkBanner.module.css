@@ -1,3 +1,9 @@
+/* The site's link colour is made for the dark page and fades on the warning fill: the link
+   takes the warning's ink, underlined like «Скрыть». */
+.banner a {
+  color: inherit;
+  text-decoration: underline;
+}
 /* «Скрыть» reads as the link beside it: no frame of its own inside the reminder. */
 .dismiss {
   padding: 0;

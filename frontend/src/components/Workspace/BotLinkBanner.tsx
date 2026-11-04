@@ -25,7 +25,7 @@ export function BotLinkBanner() {
     ? (until ? `Привяжите бота ВКонтакте${until}.` : "Привяжите бота ВКонтакте: скоро это станет обязательным.")
     : (until ? `Бот ВКонтакте настроен не до конца: исправьте${until}.` : "Бот ВКонтакте настроен не до конца: скоро привязка станет обязательной.");
   return (
-    <p role="note" className={s.warning}>
+    <p role="note" className={`${s.warning} ${b.banner}`}>
       {text}{" "}
       <Link to={`${getProfileSettingsRoute()}#${BOT_LINK_ANCHOR}`}>{link.state === "none" ? "Привязать" : "Исправить"}</Link>{" "}
       <button type="button" className={b.dismiss} onClick={() => { try { sessionStorage.setItem(DISMISSED, "1"); } catch { /* storage unavailable */ } setHidden(true); }}>Скрыть</button>
