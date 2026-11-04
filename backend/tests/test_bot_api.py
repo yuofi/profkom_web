@@ -138,8 +138,9 @@ def test_rotation_accepts_both_configured_tokens(client, monkeypatch):
 
 # ───────────────────────────── GET /work ─────────────────────────────
 
-def test_idle_work_is_empty_and_one_select(client, enabled):
-    """Stage 3 reads the VK queue: an idle poll is one SELECT (its index: test_bot_notify)."""
+def test_idle_work_is_empty_and_two_selects(client, enabled):
+    """Stage 3 reads the VK queue, stage 4 the batches of broadcasts: an idle poll is two
+    SELECTs (their indexes: test_bot_notify, test_bot_broadcasts)."""
     with sql() as statements:
         r = client.get(WORK, headers=BOT)
     assert r.status_code == 200, r.text
@@ -149,7 +150,7 @@ def test_idle_work_is_empty_and_one_select(client, enabled):
     assert data["deliveries"] == data["broadcasts"] == data["commands"] == []
     server = datetime.strptime(data["server_time"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
     assert abs((server - datetime.now(timezone.utc)).total_seconds()) < 5
-    assert len(statements) == 1 and statements[0].lstrip().startswith("SELECT"), statements
+    assert len(statements) == 2 and all(s.lstrip().startswith("SELECT") for s in statements), statements
 
 
 @pytest.mark.parametrize("limit,status", [(1, 200), (100, 200), (0, 422), (101, 422), ("x", 422)])

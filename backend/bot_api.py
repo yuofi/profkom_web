@@ -1,4 +1,4 @@
-"""HereBot: the service API /api/bot/v1 and the people's routes (stages 1 to 3).
+"""HereBot: the service API /api/bot/v1 and the people's routes (stages 1 to 4).
 
 The contract is backend/docs/BOT_API.md. The bot is a client with a service token; the site
 stores only its SHA-256 (settings.BOT_API_TOKEN_SHA256, two values while rotating). The token
@@ -8,7 +8,8 @@ Stage 1 keeps the last heartbeat and the bot's error groups. Stage 2 links an ac
 VK: the site issues a one-time code, the bot confirms it, reports carry the VK's message and
 token events (the policy without SQL is bot_link.py). Stage 3 hands out the site's
 notifications queued for VK (notification_delivery_events, channel `vk`) and applies the
-bot's results.
+bot's results. Stage 4 does the same for the batches of broadcasts; the people's side of
+broadcasts (sending, the list, cancel) is broadcasts.py.
 """
 import hashlib
 import hmac
@@ -27,14 +28,15 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.routing import APIRoute
 from fastapi.security.utils import get_authorization_scheme_param
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
-from sqlalchemy import bindparam, case, delete, func, literal, select, text, update
+from sqlalchemy import bindparam, case, delete, exists, func, literal, select, text, update
 
 import access
 import bot_link
 from api_contract import Page
 from auth import get_current_user, unit_of_work
-from bot_link import TOKEN_STATUSES, parse, stamp, state_of, utcnow
-from bot_models import BotErrorORM, BotLinkCodeORM, BotLinkORM, BotStatusORM
+from bot_link import TOKEN_STATUSES, iso, parse, stamp, state_of, utcnow
+from bot_models import (BotErrorORM, BotLinkCodeORM, BotLinkORM, BotStatusORM, BroadcastBatchORM, BroadcastORM,
+                        BroadcastRecipientORM)
 from database import db, ContactInfoORM, ExternalIdentityORM, NotificationORM, RoleAssignmentORM, UserORM
 from domain_contract import UserReference
 from errors import Conflict, NotFound, PayloadTooLarge, TooManyRequests, Unauthenticated
@@ -70,6 +72,10 @@ RESULTS = ("sent", "denied", "failed")
 # Literal, not bound: SQLite uses the partial index ix_delivery_vk_pending only for a query
 # whose WHERE repeats the index's own terms.
 PENDING_VK = text("notification_delivery_events.channel = 'vk' AND notification_delivery_events.state = 'pending'")
+# Stage 4: the batches of broadcasts, over ix_broadcast_batches_pending in the same way.
+PENDING_BATCH = text("broadcast_batches.state = 'pending'")
+MAX_BATCHES = 5  # batches in one /work, apart from `limit`
+MAX_BATCH_REPORTS, BATCH_SIZE = 10, 100  # batches in one report, recipients in a batch
 
 
 # ── Service token ──
@@ -182,13 +188,29 @@ class TokenEvent(Lenient):
     at: datetime
 
 
-class DeliveryResult(Lenient):
-    """What VK answered to one delivery; another status is skipped (rules of v1)."""
-    delivery_id: str = Field(min_length=1, max_length=64)
+class Outcome(Lenient):
+    """What VK answered to one message; another status is skipped (rules of v1)."""
     status: str = Field(max_length=32)
     vk_message_id: int | None = Field(None, ge=0, le=2**63 - 1)
     error_code: int | clipped(64) | None = None  # VK's error code, or the bot's word for a network failure
     retryable: bool = False
+
+    def code(self):
+        return None if self.error_code is None else str(self.error_code)[:64]
+
+
+class DeliveryResult(Outcome):
+    delivery_id: str = Field(min_length=1, max_length=64)
+
+
+class PeerResult(Outcome):
+    """One recipient of a batch (stage 4)."""
+    peer_id: VkUserId
+
+
+class BatchResults(Lenient):
+    batch_id: str = Field(min_length=1, max_length=64)
+    results: list[PeerResult] = Field(default_factory=list, max_length=BATCH_SIZE)
 
 
 class Report(Lenient):
@@ -198,6 +220,7 @@ class Report(Lenient):
     heartbeat: Heartbeat | None = None
     errors: list[ErrorGroup] = Field(default_factory=list, max_length=MAX_ERRORS)
     deliveries: list[DeliveryResult] = Field(default_factory=list, max_length=MAX_DELIVERIES)
+    broadcasts: list[BatchResults] = Field(default_factory=list, max_length=MAX_BATCH_REPORTS)
     vk_events: list[VkEvent] = Field(default_factory=list, max_length=MAX_EVENTS)
     tokens: list[TokenEvent] = Field(default_factory=list, max_length=MAX_EVENTS)
 
@@ -228,13 +251,23 @@ class Delivery(BaseModel):
     created_at: str
 
 
+class Batch(BaseModel):
+    """One batch of a broadcast to send with messages.send and peer_ids (stage 4)."""
+    broadcast_id: str
+    batch_id: str
+    text: str
+    peer_ids: list[int]
+    random_id: int
+    created_at: str
+
+
 class Work(BaseModel):
     api: int = API
     server_time: str
     poll_after_ms: int = POLL_AFTER_MS
     paused: bool = False
     deliveries: list[Delivery] = []  # stage 3
-    broadcasts: list[dict] = []  # stage 4
+    broadcasts: list[Batch] = []  # stage 4
     commands: list[dict] = []  # stage 5
 
 
@@ -249,9 +282,10 @@ class Accepted(BaseModel):
 
 @service_router.get("/work", response_model=Work)
 def work(limit: int = Query(50, ge=1, le=100)):
-    """Stage 3: the due VK deliveries; an idle poll is one indexed SELECT."""
+    """The due VK deliveries (stage 3) and batches of broadcasts (stage 4); an idle poll is
+    two SELECTs, each over its partial index."""
     now = utcnow()
-    return Work(server_time=stamp(now), deliveries=due_deliveries(limit, now))
+    return Work(server_time=stamp(now), deliveries=due_deliveries(limit, now), broadcasts=due_batches(now))
 
 
 @service_router.post("/report", response_model=Accepted)
@@ -272,9 +306,13 @@ def store(payload, now):
     A heartbeat-only report is one SELECT and one UPDATE of bot_status (with BEGIN, three
     statements); error groups add one SELECT and their writes; the retention runs when the
     report adds a group or an hour after the last pass, and hourly expires the VK deliveries
-    pending for 24 hours. VK events add one SELECT of the links they name and writes of the
+    pending for 24 hours and the batches of broadcasts pending for 24 hours (one UPDATE, two
+    more when some expire). VK events add one SELECT of the links they name and writes of the
     changed ones only. Delivery results add one SELECT of their rows and one UPDATE of the
-    pending ones; the rows the last polls held add one UPDATE.
+    pending ones; the rows the last polls held add one UPDATE. Batch results add two SELECTs
+    (the batches, their open recipients) and an UPDATE each of recipients, batches and
+    broadcasts; the empty batches the last polls held add one UPDATE. A `denied` of either
+    adds one SELECT of the links with their accounts and the writes of the changed ones.
     """
     with db._session() as s:
         status = s.get(BotStatusORM, 1)
@@ -291,9 +329,13 @@ def store(payload, now):
         added = merge_errors(s, payload.errors) if payload.errors else False
         if payload.vk_events or payload.tokens:
             apply_events(s, payload.vk_events, payload.tokens, now)
-        held = HELD.snapshot()
+        held, empty, denied = HELD.snapshot(), EMPTY.snapshot(), (set(), set())
         if payload.deliveries or held:
-            apply_results(s, payload.deliveries, held, now)
+            denied[0].update(apply_results(s, payload.deliveries, held, now))
+        if payload.broadcasts or empty:
+            denied[1].update(apply_batches(s, payload.broadcasts, empty, now))
+        if denied[0] or denied[1]:
+            deny_messages(s, now, uids=denied[0], vks=denied[1])
         due = not status.cleaned_at or status.cleaned_at <= stamp(now - CLEAN_EVERY)
         if due:
             status.cleaned_at = stamp(now)
@@ -310,8 +352,10 @@ def store(payload, now):
         if due:
             s.execute(update(DeliveryORM).where(PENDING_VK, DeliveryORM.created_at < (now - DELIVERY_TTL).isoformat())
                       .values(state="expired", updated_at=now.isoformat()), execution_options=plain)
+            expire_batches(s, now)
         s.commit()
     HELD.discard(held)
+    EMPTY.discard(empty)
     return False
 
 
@@ -346,8 +390,14 @@ def anonymize(session, uid, old_pid, new_pid):
     """Retention callback (account_cleanup): the account's VK link and codes go. The stage 1
     tables hold the bot's own state and log groups, no site account. The site grants are
     role_assignments rows; the cleanup removes them with the account's other roles. The VK
-    deliveries are notification_delivery_events rows: profile_features.anonymize deletes them."""
+    deliveries are notification_delivery_events rows: profile_features.anonymize deletes them.
+    Stage 4: the account's rows as a broadcast recipient go, and its broadcasts and
+    cancellations lose its name (the texts stay)."""
     session.query(BotLinkCodeORM).filter_by(user_id=uid).delete(synchronize_session=False)
+    session.query(BroadcastRecipientORM).filter_by(user_id=uid).delete(synchronize_session=False)
+    for field in ("author_user_id", "cancelled_by_user_id"):
+        session.query(BroadcastORM).filter(getattr(BroadcastORM, field) == uid).update(
+            {field: None}, synchronize_session=False)
     user = session.get(UserORM, uid)
     if user is not None:
         save_link(session, user, None)
@@ -690,8 +740,8 @@ def apply_results(s, results, held, now):
     """The bot's results: one SELECT of the pending rows they name and one UPDATE (executemany)
     of those. A result for a row no longer pending, or an unknown one, changes nothing (a
     repeat); of two for one row in a report the first counts; a row without a result (the bot
-    did not try it) stays as it is. `denied` also turns the link's messages off, as
-    message_deny at the report time. Then the rows the polls held are cancelled if pending."""
+    did not try it) stays as it is. Then the rows the polls held are cancelled if pending.
+    Returns the accounts of `denied` rows: the caller turns their links' messages off."""
     D, when = DeliveryORM, now.isoformat()
     first = {}
     for result in results:
@@ -718,28 +768,150 @@ def apply_results(s, results, held, now):
             state=bindparam("b_state"), attempts=bindparam("b_attempts"), next_attempt_at=bindparam("b_next"),
             sent_at=bindparam("b_sent"), vk_message_id=bindparam("b_message"), error_code=bindparam("b_error"),
             updated_at=bindparam("b_updated")), changes)
-    if denied:
-        deny_messages(s, denied, now)
     if held:
         s.execute(update(D).where(D.delivery_id.in_(held), PENDING_VK).values(state="cancelled", updated_at=when),
                   execution_options=dict(synchronize_session=False))
+    return denied
 
 
-def deny_messages(s, uids, now):
-    """VK answered 901: the accounts' links take no messages from the report time on, as a
-    message_deny event would (a stored later time wins). One SELECT of the links with their
-    accounts; save_link recomputes users.bot_link_state."""
+def deny_messages(s, now, uids=(), vks=()):
+    """VK answered 901: the links of these accounts (deliveries) and of these VKs (batches of
+    broadcasts) take no messages from the report time on, as a message_deny event would (a
+    stored later time wins). One SELECT of the links with their accounts; save_link
+    recomputes users.bot_link_state."""
     at = stamp(now)
     for link, user in s.execute(select(BotLinkORM, UserORM).join(UserORM, UserORM.user_id == BotLinkORM.user_id)
-                                .where(BotLinkORM.user_id.in_(uids))).all():
+                                .where(BotLinkORM.user_id.in_(uids) | BotLinkORM.vk_user_id.in_(vks))).all():
         if at >= link.messages_at and (link.messages_allowed, link.messages_at) != (False, at):
             link.messages_allowed, link.messages_at, link.updated_at = False, at, at
             save_link(s, user, link)
 
 
+# ── Broadcasts through the bot (stage 4) ──
+
+EMPTY = Held()  # due batches /work found without a pending recipient: the next report closes them
+
+
+def due_batches(now):
+    """GET /work: up to MAX_BATCHES pending batches, due and at most 24 hours old, oldest
+    first, each with the VKs remembered for its pending recipients. Idle, one SELECT over
+    ix_broadcast_batches_pending (the broadcast's text joined by its key); with batches, one
+    SELECT of their pending recipients. A batch without one is not handed out: it is held
+    for the next report, which closes it, and the following polls skip it."""
+    B, R, C = BroadcastBatchORM, BroadcastRecipientORM, BroadcastORM
+    held = EMPTY.snapshot()
+    query = (select(B.batch_id, B.broadcast_id, B.created_at, C.text).join(C, C.broadcast_id == B.broadcast_id)
+             .where(PENDING_BATCH, B.next_attempt_at <= iso(now), B.created_at >= iso(now - DELIVERY_TTL))
+             .order_by(B.created_at, B.batch_id).limit(MAX_BATCHES))
+    if held:
+        query = query.where(B.batch_id.not_in(held))
+    with db._session() as s:
+        batches = s.execute(query).all()
+        if not batches:
+            return []
+        peers = {}
+        for batch_id, vk in s.execute(select(R.batch_id, R.vk_user_id).where(
+                R.batch_id.in_([b.batch_id for b in batches]), R.state == "pending").order_by(R.batch_id, R.user_id)):
+            peers.setdefault(batch_id, []).append(vk)
+    EMPTY.add(b.batch_id for b in batches if b.batch_id not in peers)
+    return [Batch(broadcast_id=b.broadcast_id, batch_id=b.batch_id, text=b.text, peer_ids=peers[b.batch_id],
+                  random_id=random_id(b.batch_id), created_at=stamp(datetime.fromisoformat(b.created_at)))
+            for b in batches if b.batch_id in peers]
+
+
+def apply_batches(s, entries, empty, now):
+    """The bot's results for batches: one SELECT of the batches named, one of their recipients
+    still `pending` or `cancelled` (a sent message beats a cancellation), one UPDATE
+    (executemany) each of the changed recipients and batches, one of the broadcasts left
+    without a pending recipient. An unknown batch or peer, another state or a second result
+    for one recipient in the report changes nothing. A retryable failure keeps a pending
+    recipient pending and a cancelled one cancelled. A pending batch named is `done` when no
+    recipient is left pending; else it counts an attempt and waits RETRY_MINUTES, and after
+    the fifth the recipients left fail with their last error. The empty batches the polls
+    held are closed. Returns the VKs that answered `denied`."""
+    B, R, C = BroadcastBatchORM, BroadcastRecipientORM, BroadcastORM
+    when, first, denied = iso(now), {}, set()
+    for entry in entries:
+        for result in entry.results:
+            if result.status in RESULTS:
+                first.setdefault((entry.batch_id, result.peer_id), result)
+    named = list(dict.fromkeys(entry.batch_id for entry in entries))
+    batches = {b.batch_id: b for b in s.execute(select(B.batch_id, B.broadcast_id, B.state, B.attempts)
+                                                .where(B.batch_id.in_(named)))} if named else {}
+    recipients, finished = {}, set()  # (broadcast_id, user_id): [state, vk_message_id, error_code]; broadcasts
+    left = {}  # batch_id: keys of its recipients still pending
+    if batches:
+        for r in s.execute(select(R.broadcast_id, R.user_id, R.batch_id, R.vk_user_id, R.state, R.error_code)
+                           .where(R.batch_id.in_(list(batches)), R.state.in_(("pending", "cancelled")))):
+            key, result = (r.broadcast_id, r.user_id), first.get((r.batch_id, r.vk_user_id))
+            if result is not None and not (result.status == "failed" and result.retryable):
+                recipients[key] = [result.status, result.vk_message_id if result.status == "sent" else None, result.code()]
+                if result.status == "denied":
+                    denied.add(r.vk_user_id)
+            elif r.state == "pending":  # a retryable failure, or no result at all
+                if result is not None:
+                    recipients[key] = ["pending", None, result.code()]
+                left.setdefault(r.batch_id, []).append((key, recipients[key][2] if key in recipients else r.error_code))
+    changes = []
+    for b in batches.values():
+        if b.state != "pending":
+            continue
+        attempts, pending = b.attempts + 1, left.get(b.batch_id)
+        change = dict(b_id=b.batch_id, b_state="done", b_attempts=attempts, b_next=when, b_updated=when)
+        if pending and attempts <= len(RETRY_MINUTES):
+            change.update(b_state="pending", b_next=iso(now + timedelta(minutes=RETRY_MINUTES[attempts - 1])))
+        else:
+            for key, error in pending or ():  # the fifth attempt: the rest fail with their last error
+                recipients[key] = ["failed", None, error]
+            finished.add(b.broadcast_id)
+        changes.append(change)
+    if recipients:  # every row names the same columns: one executemany
+        table = R.__table__
+        s.execute(update(table).where(table.c.broadcast_id == bindparam("b_broadcast"), table.c.user_id == bindparam("b_user"))
+                  .values(state=bindparam("b_state"), vk_message_id=bindparam("b_message"), error_code=bindparam("b_error"),
+                          updated_at=bindparam("b_updated")),
+                  [dict(b_broadcast=key[0], b_user=key[1], b_state=state, b_message=message, b_error=error, b_updated=when)
+                   for key, (state, message, error) in recipients.items()])
+    if changes:
+        table = B.__table__
+        s.execute(update(table).where(table.c.batch_id == bindparam("b_id")).values(
+            state=bindparam("b_state"), attempts=bindparam("b_attempts"), next_attempt_at=bindparam("b_next"),
+            updated_at=bindparam("b_updated")), changes)
+    plain, nobody = dict(synchronize_session=False), ~exists().where(R.batch_id == B.batch_id, R.state == "pending")
+    which = C.broadcast_id.in_(finished)
+    if empty:
+        s.execute(update(B).where(B.batch_id.in_(empty), PENDING_BATCH, nobody).values(state="done", updated_at=when),
+                  execution_options=plain)
+        which |= C.broadcast_id.in_(select(B.broadcast_id).where(B.batch_id.in_(empty)))
+    if finished or empty:
+        close_broadcasts(s, which, when)
+    return denied
+
+
+def close_broadcasts(s, which, when):
+    """Broadcasts among `which` still `sending` without a pending recipient become `done`."""
+    R, C = BroadcastRecipientORM, BroadcastORM
+    s.execute(update(C).where(which, C.state == "sending", ~exists().where(R.broadcast_id == C.broadcast_id, R.state == "pending"))
+              .values(state="done", updated_at=when), execution_options=dict(synchronize_session=False))
+
+
+def expire_batches(s, now):
+    """Hourly: pending batches over 24 hours old and their pending recipients are `expired`,
+    their broadcasts `done` when nothing else is pending. One UPDATE when none expire."""
+    B, R, C = BroadcastBatchORM.__table__, BroadcastRecipientORM, BroadcastORM
+    when = iso(now)
+    gone = s.execute(update(B).where(PENDING_BATCH, B.c.created_at < iso(now - DELIVERY_TTL))
+                     .values(state="expired", updated_at=when).returning(B.c.batch_id, B.c.broadcast_id)).all()
+    if gone:
+        s.execute(update(R).where(R.batch_id.in_([g.batch_id for g in gone]), R.state == "pending")
+                  .values(state="expired", updated_at=when), execution_options=dict(synchronize_session=False))
+        close_broadcasts(s, C.broadcast_id.in_({g.broadcast_id for g in gone}), when)
+
+
 def reset_deliveries():
-    """Tests: forget the held deliveries."""
+    """Tests: forget the held deliveries and empty batches."""
     HELD.clear()
+    EMPTY.clear()
 
 
 # ── People: console status and grants (stage 1) ──

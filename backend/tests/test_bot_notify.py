@@ -794,6 +794,7 @@ def test_a_new_database_has_the_same_index():
 # ───────────────────────────── the statement budget ─────────────────────────────
 
 def test_an_idle_poll_is_one_select_over_the_partial_index(client, enabled, make_user):
+    """Of the deliveries: the second SELECT of an idle poll is the batches' (test_bot_broadcasts)."""
     person = ready(make_user, 1200)
     notify([person.user_id])
     [d] = poll(client)
@@ -801,7 +802,8 @@ def test_an_idle_poll_is_one_select_over_the_partial_index(client, enabled, make
     for _ in range(2):
         with sql() as statements:
             assert poll(client) == []
-        assert len(statements) == 1, statements
+        assert [s for s in statements if "notification_delivery_events" in s] == statements[:1], statements
+        assert len(statements) == 2, statements
     bot_api.HELD.add(["held-1"])  # held ids are part of the same statement
     seen = []
 
@@ -812,7 +814,7 @@ def test_an_idle_poll_is_one_select_over_the_partial_index(client, enabled, make
         assert poll(client) == []
     finally:
         event.remove(engine, "before_cursor_execute", keep)
-    [(statement, parameters)] = seen
+    [(statement, parameters), _batches] = seen
     with engine.connect() as c:
         plan = [str(row[-1]) for row in c.exec_driver_sql("EXPLAIN QUERY PLAN " + statement, parameters)]
     assert any("ix_delivery_vk_pending" in step for step in plan), plan
