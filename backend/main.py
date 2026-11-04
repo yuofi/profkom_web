@@ -354,6 +354,14 @@ class LeadershipDeputiesIn(BaseModel):
     expected_revision: int
 
 
+class SessionBotLinkOut(BaseModel):
+    """The account's VK link through the bot, from the users row (BOT_API.md, stage 2)."""
+    state: Literal["none", "ok", "messages_denied", "token_missing", "token_invalid"]
+    required: bool
+    blocked: bool
+    deadline: Optional[str] = None
+
+
 class SessionOut(BaseModel):
     user_id: int
     account_state: str
@@ -368,6 +376,8 @@ class SessionOut(BaseModel):
     pgas_admin: bool = False
     # A temporary password is in use: nothing works until it is changed (АВ-52)
     password_change_required: bool = False
+    # None while the bot integration is off
+    bot_link: Optional[SessionBotLinkOut] = None
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1769,6 +1779,7 @@ def get_session(cur: User = Depends(get_current_user)):
     with db._session() as session:
         application = ensure_application(session, cur.user_id, persist=False)
         reg_status, resubmit = application.status, can_resubmit(application)
+    link = bot_link.summary(cur)  # from the users row already read: no SQL
     if acc_state == "pending":
         return SessionOut(
             user_id=cur.user_id,
@@ -1777,10 +1788,11 @@ def get_session(cur: User = Depends(get_current_user)):
             capabilities=["resubmit_registration"] if resubmit else [],
             assignments=[],
             password_change_required=cur.must_change_password,
+            bot_link=link,
         )
     if cur.must_change_password:
         return SessionOut(user_id=cur.user_id, account_state=acc_state,
-                          registration_status=reg_status, password_change_required=True)
+                          registration_status=reg_status, password_change_required=True, bot_link=link)
 
     caps = access.global_caps(cur.user_id)
 
@@ -1816,6 +1828,7 @@ def get_session(cur: User = Depends(get_current_user)):
         admin=cur.admin,
         pgas_admin=cur.pgas_admin,
         events_roles=cur.events_roles or "[]",
+        bot_link=link,
     )
 
 

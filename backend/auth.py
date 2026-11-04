@@ -17,7 +17,9 @@ from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 
+import bot_link
 from database import db
+from errors import Forbidden
 from models import User
 
 # ── Config (hardcoded defaults; override via env vars) ─────
@@ -245,6 +247,7 @@ def revoke_all_user_tokens(user_id: int):
     db.revoke_sessions(user_id)
 
 PASSWORD_CHANGE_REQUIRED = "Password change required"
+BOT_LINK_REQUIRED = "VK link through the bot required"
 # Open to any account that is not archived or banned: pending ones register there, and the
 # VK link through the bot is part of registration (BOT_API.md, stage 2).
 OPEN_TO_ACCOUNTS = {"/registrations/me", "/registrations/me/resubmit", "/bot-link/me", "/bot-link/code"}
@@ -255,6 +258,14 @@ def _access_rules(request: Request):
     feedback_intake = path == "/feedback" and request.method == "POST"
     exempt=feedback_intake or path.startswith("/auth/") or path=="/session" or path in OPEN_TO_ACCOUNTS
     return path, feedback_intake, exempt
+
+
+def check_bot_link(user: User, path: str = "") -> None:
+    """After BOT_LINK_DEADLINE an active account works only with a working VK link; the link
+    routes and the bot console stay open (BOT_API.md, stage 2). Decided from the users row
+    already read, after the active-account and temporary-password checks: no SQL."""
+    if bot_link.blocked(user) and not path.startswith(bot_link.OPEN_PREFIXES):
+        raise Forbidden(BOT_LINK_REQUIRED, "bot_link_required")
 
 
 async def precheck_access_token(request: Request):
@@ -291,6 +302,7 @@ async def guard_working_access(request: Request):
         if cur.must_change_password:
             # Only the session, logout and the password change itself until then (АВ-52)
             raise HTTPException(403,PASSWORD_CHANGE_REQUIRED)
+        check_bot_link(cur, path)
         uid=cur.user_id
     elif token and not path.startswith("/auth/") and not feedback_intake:
         uid=(await to_thread.run_sync(get_current_user, token)).user_id
@@ -330,6 +342,7 @@ def recheck_current_user(cur: User, *, working: bool = False) -> User:
             raise HTTPException(403, "Approved active account required")
         if user.must_change_password:
             raise HTTPException(403, PASSWORD_CHANGE_REQUIRED)
+        check_bot_link(user)
     return user
 
 
