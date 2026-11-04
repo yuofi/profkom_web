@@ -59,3 +59,10 @@
     padding: 16px 16px 88px;
   }
 }
+/* The bot step under the registration card, with the same distance as between cards. */
+.step {
+  margin-top: 16px;
+}
+.step:empty {
+  display: none;
+}

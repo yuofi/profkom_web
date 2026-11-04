@@ -5,12 +5,13 @@ import { Link, Outlet, UNSAFE_DataRouterContext, useLocation } from "react-route
 import { prefetchRouteData, preloadRouteCode } from "../../utils/routePrefetch";
 import { useMe } from "../../utils/me";
 import { personName } from "../../utils/personName";
-import { can, isActiveSession, useSession } from "../../utils/session";
+import { can, isWorkingSession, useSession } from "../../utils/session";
 import { supportApi } from "../../utils/api/support.api";
 import { canRetainData } from "../../utils/api/request";
 import { DemoRolePicker } from "./DemoRolePicker";
 import { PageErrorBoundary } from "./PageErrorBoundary";
 import { NotificationBell } from "./NotificationBell";
+import { BotLinkBanner } from "./BotLinkBanner";
 import { FeedbackSideMenuContext } from "./feedbackDialog";
 import s from "./WorkspaceLayout.module.css";
 import ws from "./Workspace.module.css";
@@ -101,7 +102,7 @@ export function WorkspaceLayout({ children }: { children?: ReactNode } = {}) {
   const client = useQueryClient();
   // The same query as the support page: on /support only, and no extra request.
   const onSupport = pathname === "/support" || pathname.startsWith("/support/");
-  const support = useQuery({ queryKey: ["supportContext"], queryFn: supportApi.context, enabled: onSupport && isActiveSession(session) && !session?.password_change_required });
+  const support = useQuery({ queryKey: ["supportContext"], queryFn: supportApi.context, enabled: onSupport && isWorkingSession(session) });
   const supportStaff = onSupport && (!support.error || canRetainData(support.error)) && !!(support.data?.can_triage || support.data?.can_configure);
   const section = sectionOf(pathname, { supportStaff });
   const menu = useDismissibleMenu();
@@ -164,6 +165,7 @@ export function WorkspaceLayout({ children }: { children?: ReactNode } = {}) {
             <Link to="/profile/edit">Задать пароль</Link>
           </p>
         )}
+        <BotLinkBanner />
         <SectionContext.Provider value={section}>
           <PageErrorBoundary resetKey={pathname}>
             <Suspense fallback={<Loading />}>

@@ -7,7 +7,7 @@ import { canRetainData } from "../../utils/api/request";
 import { userMessage } from "../../utils/api/messages";
 import { targetRoute } from "../../utils/routes";
 import { displayDate } from "../../utils/dates";
-import { isActiveSession, useSession } from "../../utils/session";
+import { isWorkingSession, useSession } from "../../utils/session";
 import { useNotificationCommands } from "../../utils/hooks/useWorkspace";
 import { useConfirmedNavigation } from "./unsavedChangesHooks";
 import { AnchoredPopover } from "./AnchoredPopover";
@@ -17,7 +17,7 @@ import s from "./NotificationBell.module.css";
 const BELL_PAGE = 20;
 
 export function NotificationBell() {
-  const { session, loading, error: sessionError } = useSession(), active = isActiveSession(session) && !session?.password_change_required && !loading && (!sessionError || canRetainData(sessionError));
+  const { session, loading, error: sessionError } = useSession(), active = isWorkingSession(session) && !loading && (!sessionError || canRetainData(sessionError));
   const [open, setOpen] = useState(false), [readingAll, setReadingAll] = useState(false), [error, setError] = useState("");
   const anchor = useRef<HTMLButtonElement>(null), list = useRef<HTMLDivElement>(null), pending = useRef(new Map<string, Promise<void>>()), allPending = useRef(false), panelId = `notifications-${useId()}`;
   const navigate = useConfirmedNavigation(), commands = useNotificationCommands();

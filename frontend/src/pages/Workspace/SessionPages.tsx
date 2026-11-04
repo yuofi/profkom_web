@@ -22,6 +22,7 @@ import { clearPrivateCache } from "../../utils/api/invalidation";
 import { leaveAuthNotice } from "../../utils/authSession";
 import s from "../../components/Workspace/Workspace.module.css";
 import { RegistrationForm } from "../../components/Workspace/RegistrationForm";
+import { BotLinkStep } from "../../components/Workspace/BotLinkStep";
 import { missingFields } from "../../utils/contactFields";
 import { DemoRolePicker } from "../../components/Workspace/DemoRolePicker";
 import { HistoryDisclosure } from "../../components/Workspace/HistoryPanel";
@@ -50,6 +51,10 @@ export function AccountStatePage() {
   });
   const missing = application.data ? missingFields(application.data.fields) : [];
   const reason = application.data?.rejection_reason;
+  // The VK link through the bot is a required step while the integration is on (stage 2).
+  const bot = application.data ? application.data.bot_link ?? session?.bot_link ?? null : null;
+  const botMissing = !!bot && bot.state !== "ok";
+  const pending = application.data?.status === "pending";
   return (
     <AccountLayout label="Регистрация">
     <Page
@@ -67,10 +72,14 @@ export function AccountStatePage() {
         <QueryState loading={application.isLoading} error={application.error} keepDataOnError={!!application.data}>
           <>
             {reason && <p className={s.warning}>Причина: {reason}</p>}
-            {missing.length > 0 ? (
+            {missing.length > 0 || botMissing ? (
               <p role="status">
-                Заполните обязательные поля: {missing.join(", ")}.
-                {application.data?.status === "pending" && " Заявка уйдёт на рассмотрение, когда все сведения будут сохранены."}
+                {missing.length > 0 && `Заполните обязательные поля: ${missing.join(", ")}.`}
+                {missing.length > 0 && botMissing && " "}
+                {botMissing && (pending ? "Привяжите бота ВКонтакте ниже." : "Перед повторной отправкой привяжите бота ВКонтакте ниже.")}
+                {pending && (bot
+                  ? " Заявка уйдёт на рассмотрение, когда все сведения будут сохранены и бот будет привязан."
+                  : " Заявка уйдёт на рассмотрение, когда все сведения будут сохранены.")}
               </p>
             ) : (
               !reason && <p>Дождитесь решения руководства Профкома.</p>
@@ -86,6 +95,35 @@ export function AccountStatePage() {
             )}
           </>
         </QueryState>
+        <div className={a.actions}>
+          <button className={s.button} disabled={busy} onClick={() => void logout()}>
+            {busy ? "Выходим…" : "Выйти"}
+          </button>
+        </div>
+        {error && <p role="alert" className={s.error}>{error}</p>}
+      </Card>
+      {session?.account_state === "pending" && application.data && application.data.status !== "approved" && (
+        <div className={a.step}>
+          <BotLinkStep lead={<p className={s.muted}>Обязательный шаг регистрации: бот будет присылать уведомления сайта в личные сообщения.</p>} />
+        </div>
+      )}
+    </Page>
+    </AccountLayout>
+  );
+}
+/** After BOT_LINK_DEADLINE an active account without a working VK link reaches nothing but
+ *  this step (403 bot_link_required elsewhere); a working link lets the session in at its
+ *  next read, which the step triggers itself (BOT_API.md, «Привязка VK»). */
+export function BotLinkRequiredPage() {
+  const { logout, busy, error } = useLogout();
+  return (
+    <AccountLayout label="Бот ВКонтакте">
+    <Page
+      title="Привяжите бота ВКонтакте"
+      description="Срок привязки прошёл. Пока бот не привязан и не настроен, рабочие разделы закрыты."
+    >
+      <Card>
+        <BotLinkStep frame="plain" />
         <div className={a.actions}>
           <button className={s.button} disabled={busy} onClick={() => void logout()}>
             {busy ? "Выходим…" : "Выйти"}

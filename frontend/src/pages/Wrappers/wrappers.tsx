@@ -7,10 +7,11 @@ import { useMe } from '../../utils/me';
 import { WorkspaceSkeleton } from '../../components/Workspace/WorkspaceLayout';
 import s from "./wrappers.module.css";
 
-// Pending, rejected and temporary-password screens are rare: their forms are not part of
+// Pending, rejected, temporary-password and overdue-bot screens are rare: their forms are not part of
 // every member's first download (PF-11).
 const AccountStatePage = lazy(() => import("../Workspace/SessionPages").then(m => ({ default: m.AccountStatePage })));
 const PasswordChangePage = lazy(() => import("../Workspace/SessionPages").then(m => ({ default: m.PasswordChangePage })));
+const BotLinkRequiredPage = lazy(() => import("../Workspace/SessionPages").then(m => ({ default: m.BotLinkRequiredPage })));
 
 /** The confirmed session stays while a poll fails for a moment: the page and its drafts too. */
 function SessionOffline({ retry }: { retry: () => void }) {
@@ -35,6 +36,9 @@ export const ProtectedRoute = () => {
   if (!session) return <Navigate to="/auth" replace />;
   if (session.password_change_required) return <Suspense fallback={<Loading />}><PasswordChangePage /></Suspense>;
   if (!isActiveSession(session)) return <Suspense fallback={<Loading />}><AccountStatePage /></Suspense>;
+  // After BOT_LINK_DEADLINE an active account without a working VK link has only this step;
+  // the temporary password above comes first (BOT_API.md, «Привязка VK»).
+  if (session.bot_link?.blocked) return <Suspense fallback={<Loading />}><BotLinkRequiredPage /></Suspense>;
   // Profile forms take their initial values from this record. Mount them only
   // after it arrives, while other pages can fetch alongside the profile.
   if (!user && (pathname === "/profile" || pathname.startsWith("/profile/")))

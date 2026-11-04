@@ -13,6 +13,16 @@ const roles = [
   ["archived", "Архивный аккаунт"],
   ["multi", "Несколько ролей"],
 ];
+// The VK link of the demo account (mocks/transport.ts, MockBotScenario); «По роли»: a
+// pending account has not linked the bot yet, an active one has.
+const bots = [
+  ["", "По роли"],
+  ["ok", "Привязан"],
+  ["none", "Не привязан"],
+  ["denied", "Сообщения запрещены"],
+  ["blocked", "Срок прошёл"],
+  ["off", "Выключен"],
+];
 export function DemoRolePicker() {
   if (!import.meta.env.DEV || !isDemoMode) return null;
   return (
@@ -53,6 +63,23 @@ export function DemoRolePicker() {
           <option value="empty">Пустые списки</option>
           <option value="error">Сбой сервиса</option>
           <option value="conflict">Конфликт сохранения</option>
+        </select>
+      </label>
+      <label>
+        Бот ВКонтакте
+        <select
+          aria-label="Демонстрационная привязка бота"
+          value={sessionStorage.getItem("profkom-demo-bot") ?? ""}
+          onChange={(e) => {
+            sessionStorage.setItem("profkom-demo-bot", e.target.value);
+            window.location.assign("/");
+          }}
+        >
+          {bots.map(([value, title]) => (
+            <option key={value} value={value}>
+              {title}
+            </option>
+          ))}
         </select>
       </label>
     </div>

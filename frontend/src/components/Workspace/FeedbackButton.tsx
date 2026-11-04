@@ -2,7 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useLocation, Link } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
-import { isActiveSession, useSession } from "../../utils/session";
+import { isWorkingSession, useSession } from "../../utils/session";
 import { supportApi, type FeedbackInput, type FeedbackReceipt } from "../../utils/api/support.api";
 import { fieldMessage, userMessage } from "../../utils/api/messages";
 import { canRetainData, normalizeApiError } from "../../utils/api/request";
@@ -115,8 +115,8 @@ function refusalText(failure: unknown) {
 }
 function FeedbackForm({ diagnostics, onClose }: { diagnostics: FeedbackInput["diagnostics"]; onClose: () => void }) {
   const { session } = useSession(), scope = useId(), leave = useGuardedAction(scope), navigate = useConfirmedNavigation(), dialog = useRef<HTMLDivElement>(null), restore = useRef<HTMLElement | null>(null);
-  const canTrack = isActiveSession(session) && !session?.password_change_required;
-  const context = useQuery({ queryKey: ["supportContext"], queryFn: supportApi.context, enabled: isActiveSession(session) && !session?.password_change_required });
+  const canTrack = isWorkingSession(session);
+  const context = useQuery({ queryKey: ["supportContext"], queryFn: supportApi.context, enabled: isWorkingSession(session) });
   const [kind, setKind] = useState<"bug" | "feature">("bug"), [title, setTitle] = useState(""), [body, setBody] = useState(""), [contact, setContact] = useState(""), [include, setInclude] = useState(true), [screenshot, setScreenshot] = useState<string | null>(null), [screenshotName, setScreenshotName] = useState("");
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [result, setResult] = useState<FeedbackReceipt | null>(null), [fields, setFields] = useState<FieldErrors>({});
   // Set only while the last attempt may have been stored (no answer, 5xx): the retry then

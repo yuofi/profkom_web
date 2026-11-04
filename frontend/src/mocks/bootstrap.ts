@@ -17,5 +17,7 @@ export async function startDevelopmentMocks(): Promise<void> {
     (["normal", "empty", "error", "conflict"] as const).find(
       (s) => s === selectedScenario,
     ) ?? "normal";
-  installMockTransport(role, { scenario });
+  const selectedBot = sessionStorage.getItem("profkom-demo-bot");
+  const bot = (["ok", "none", "denied", "blocked", "off"] as const).find((b) => b === selectedBot);
+  installMockTransport(role, { scenario, bot });
 }

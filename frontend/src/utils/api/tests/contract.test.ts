@@ -259,6 +259,11 @@ describe("API commands through mock transport", () => {
   it("keeps one registration account and does not spend attempts on conflicts", async () => {
     const fixture = useMock("rejected");
     const application = await membershipApi.registration();
+    // Stage 2: an application without a working VK link is not sent again, nor spent.
+    await expect(membershipApi.resubmit({ expected_revision: application.revision }))
+      .rejects.toMatchObject({ status: 409, code: "bot_link_required" });
+    expect((await membershipApi.registration()).attempts_used).toBe(1);
+    fixture.bot.state = "ok";fixture.syncBot();
     const resubmitted = await membershipApi.resubmit({
       expected_revision: application.revision,
     });

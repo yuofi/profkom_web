@@ -60,6 +60,10 @@ export const people: UserRef[] = [
   { user_id: 105, display_name: "Дарья Белова", avatar_url: null },
 ];
 export const mockNow = "2026-10-18T12:00:00Z";
+/** BOT_LINK_DEADLINE of the synthetic site: active accounts see the reminder until then. */
+export const mockBotLinkDeadline = "2026-12-01T00:00:00+03:00";
+/** The synthetic VK id of a linked account (no real VK page). */
+export const mockVkId = (userId: number) => 100000 + userId;
 const allManagement = [
   "edit_event",
   "manage_leaders",
@@ -172,6 +176,8 @@ export function createFixtures(role: MockRole = "organizer") {
       role === "rejected" ? "rejected" : active ? "approved" : "pending",
     capabilities: caps,
     assignments: active ? [assignment] : [],
+    // Stage 2 is on: a pending account still has to link the bot, an active one has.
+    bot_link: role === "archived" ? null : { state: active ? "ok" : "none", required: !active, blocked: false, deadline: mockBotLinkDeadline },
   };
   const profile: MeOut = {
     user_id: userId,
@@ -556,6 +562,7 @@ export function createFixtures(role: MockRole = "organizer") {
     },
     revision: 1,
     capabilities: role === "rejected" ? ["resubmit_registration"] : [],
+    bot_link: role === "archived" ? null : { state: active ? "ok" : "none", vk_user_id: active ? mockVkId(userId) : null },
   };
   const requests: BlockRequest[] = [
     {

@@ -79,3 +79,6 @@
   .members .member.member:has(>form [role="alert"]) { flex-wrap:wrap; }
   .member:has(>form [role="alert"])>form { flex:1 1 100%; }
 }
+/* Why «Одобрить» waits: above the decisions, in the card's own padding. */
+.decisionNote { margin:0;padding:0 22px 10px; }
+@media(max-width:600px) { .decisionNote { padding:0 16px 10px; } }

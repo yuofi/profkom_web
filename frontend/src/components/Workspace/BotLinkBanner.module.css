@@ -1,0 +1,14 @@
+/* «Скрыть» reads as the link beside it: no frame of its own inside the reminder. */
+.dismiss {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.dismiss:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}

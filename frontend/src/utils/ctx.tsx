@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { authApi } from "./api/auth.api";
 import { sessionApi } from "./api/session.api";
 import { UserContext } from "./me";
-import { SessionContext, isActiveSession, accessFingerprint, sessionIdentity } from "./session";
+import { SessionContext, isActiveSession, isWorkingSession, accessFingerprint, sessionIdentity } from "./session";
 import type { Session } from "./api/contract";
 import { forgetOwnChanges } from "../components/Workspace/ownRevisions";
 import { handleRevokedSession } from "./authSession";
@@ -57,8 +57,8 @@ export const UserProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => onAccessChange(() => {
     void client.invalidateQueries({ queryKey: ["session"] }, { cancelRefetch: false });
   }), [client]);
-  // A temporary password opens nothing but its change (АВ-52).
-  const active = isActiveSession(sessionQuery.data) && !sessionQuery.data?.password_change_required;
+  // A temporary password or an overdue VK link opens nothing but its own step (АВ-52, BOT_API.md).
+  const active = isWorkingSession(sessionQuery.data);
   const profile = useQuery({
     queryKey: ["currentUser", sessionQuery.data?.user_id],
     queryFn: authApi.getMe,
