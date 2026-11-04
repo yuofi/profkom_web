@@ -1181,6 +1181,25 @@ def _ensure_sqlite_users_bot_link_state_column() -> None:
 _ensure_sqlite_users_bot_link_state_column()
 
 
+def _ensure_sqlite_delivery_queue() -> None:
+    """HereBot stage 3 (BOT_API.md): the VK queue columns of notification_delivery_events and
+    the partial index of its pending rows. Existing rows keep their state; NULL times."""
+    with engine.begin() as conn:
+        names = {r[1] for r in conn.execute(text("PRAGMA table_info(notification_delivery_events)")).fetchall()}
+        if not names:
+            return
+        for name, declaration in (("attempts", "INTEGER NOT NULL DEFAULT 0"), ("next_attempt_at", "VARCHAR"),
+                                  ("sent_at", "VARCHAR"), ("vk_message_id", "INTEGER"), ("error_code", "VARCHAR"),
+                                  ("updated_at", "VARCHAR")):
+            if name not in names:
+                conn.execute(text(f"ALTER TABLE notification_delivery_events ADD COLUMN {name} {declaration}"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_delivery_vk_pending ON notification_delivery_events "
+                          "(next_attempt_at, created_at) WHERE channel = 'vk' AND state = 'pending'"))
+
+
+_ensure_sqlite_delivery_queue()
+
+
 def _ensure_sqlite_file_records_columns() -> None:
     """Add sealed_at and storage_key to SQLite DBs created before files were served by the API."""
     with engine.begin() as conn:

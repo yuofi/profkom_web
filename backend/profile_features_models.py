@@ -2,7 +2,7 @@
 
 Imported by database before create_all. No identity is copied into event JSON.
 """
-from sqlalchemy import Boolean, Column, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, Column, ForeignKey, Index, Integer, String, Text, text
 from database import Base
 
 
@@ -59,6 +59,10 @@ class NotificationPreferenceORM(Base):
 
 
 class NotificationDeliveryEventORM(Base):
+    """One notification for one channel outside the site. Email and Telegram rows stay
+    `not_connected`; the VK channel is the HereBot queue of stage 3 (BOT_API.md): `pending`
+    until the bot reports `sent`, `denied` or `failed`, or the site `cancelled` or `expired`.
+    Times are ISO 8601 UTC as `created_at` (registration.now), so they compare as text."""
     __tablename__ = "notification_delivery_events"
     delivery_id = Column(String, primary_key=True)
     user_id = Column(Integer, nullable=True, index=True)
@@ -69,7 +73,17 @@ class NotificationDeliveryEventORM(Base):
     channel = Column(String, nullable=False)
     state = Column(String, nullable=False, default="not_connected")
     created_at = Column(String, nullable=False)
-    __table_args__ = (Index("unique_profile_delivery", "user_id", "event_key", "channel", unique=True),)
+    # Stage 3, added columns (database._ensure_sqlite_delivery_queue on an old schema).
+    attempts = Column(Integer, nullable=False, default=0, server_default=text("0"))  # results the bot reported
+    next_attempt_at = Column(String, nullable=True)  # a pending row is handed out from then on
+    sent_at = Column(String, nullable=True)
+    vk_message_id = Column(Integer, nullable=True)
+    error_code = Column(String, nullable=True)
+    updated_at = Column(String, nullable=True)
+    __table_args__ = (Index("unique_profile_delivery", "user_id", "event_key", "channel", unique=True),
+                      # The bot's idle poll reads this index only (BOT_API.md, «Выдача в GET /work»).
+                      Index("ix_delivery_vk_pending", "next_attempt_at", "created_at",
+                            sqlite_where=text("channel = 'vk' AND state = 'pending'")))
 
 
 class KkrTemplateORM(Base):
