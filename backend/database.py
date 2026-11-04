@@ -698,6 +698,7 @@ import profile_features_models
 import support_models
 import history_models
 import tracker_collaboration_models
+import bot_models
 
 Base.metadata.create_all(bind=engine)
 support_models.upgrade_tasks(engine)

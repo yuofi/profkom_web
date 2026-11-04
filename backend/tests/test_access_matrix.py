@@ -486,6 +486,16 @@ def ops():
         Op("C2", "GET", lambda o: "/contacts/archive"),
         Op("C3", "POST", lambda o: "/contacts/archive", lambda o, r: {"surname": "Бывший", "name": f"Проба-{r}", "participation_periods": []},
            cap=("S1", "edit_former_contacts")),
+        # HereBot (owner, 2026-11-04). "Integration IT" is not the block named exactly IT: nobody
+        # here has the console, the chair and deputies included. Revoking a grant nobody holds
+        # changes nothing, so the probes leave the organisation as it was.
+        Op("BOT1", "GET", lambda o: "/bot/console/status", cap=("S1", "view_bot_console")),
+        Op("BOT2", "GET", lambda o: "/bot/maintainers", cap=("S1", "operate_bot")),
+        Op("BOT3", "PUT", lambda o: f"/bot/maintainers/{o.uid('outsider')}", lambda o, r: {"maintainer": False},
+           cap=("S1", "manage_bot_maintainers")),
+        Op("BC1", "GET", lambda o: "/broadcasts/senders", cap=("S1", "send_broadcast")),
+        Op("BC2", "PUT", lambda o: f"/broadcasts/senders/{o.uid('outsider')}", lambda o, r: {"sender": False},
+           cap=("S1", "manage_broadcast_senders")),
     ]
 
 
@@ -586,6 +596,8 @@ EXPECTED = {
     "MT6": TACHKI | IT_LEAD, "MT7": TACHKI | HR_LEAD,
     "MT8": TACHKI | IT_LEAD | IT_MEMBERS, "MT9": TACHKI | HR_LEAD | {"hract"},
     "C1": ALL, "C2": ALL, "C3": TACHKI | HRM,
+    "BOT1": set(), "BOT2": set(), "BOT3": set(),  # the IT block master and maintainers only
+    "BC1": TACHKI, "BC2": TACHKI,  # without senders, send_broadcast is the chair's and deputies'
 }
 WORKING_SUBEVENTS = {role: (["sa", "sb"] if role in TACHKI | HRM | EVENT_LEAD else ["sa"] if role in SUB_TEAM else [])
                     for role in ROLES}

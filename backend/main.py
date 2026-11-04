@@ -3680,13 +3680,22 @@ app.add_event_handler("shutdown", database_module.engine.dispose)
 from tracker_collaboration import register_routes as register_tracker_collaboration_routes
 register_tracker_collaboration_routes(router)
 
+import bot_api
+bot_api.register_routes(router)
+
 app.include_router(router)
+# The HereBot service routes: a service token instead of a user session (backend/docs/BOT_API.md).
+app.include_router(bot_api.service_router)
 
 def contract_openapi():
     if app.openapi_schema:return app.openapi_schema
     from fastapi.openapi.utils import get_openapi
     schema=get_openapi(title=app.title,version="1.3.0",routes=app.routes)
     public={"/api/auth/register","/api/auth/login","/api/auth/vk","/api/auth/refresh","/api/feedback"}
+    schema.setdefault('components',{}).setdefault('securitySchemes',{})['BotServiceToken']={
+        'type':'http','scheme':'bearer',
+        'description':'HereBot service token; the site keeps its SHA-256 in BOT_API_TOKEN_SHA256',
+    }
     schema.setdefault('components',{}).setdefault('schemas',{})['DomainError']={
         'type':'object','required':['detail'],'properties':{'detail':{
             'type':'object','required':['code','message'],'properties':{
@@ -3697,11 +3706,13 @@ def contract_openapi():
     }
 
     for path,methods in schema['paths'].items():
+        service=path.startswith(bot_api.PREFIX+'/')
         for method,operation in methods.items():
-            if path in public and method=='post':operation.pop('security',None)
+            if service:operation['security']=[{'BotServiceToken':[]}]
+            elif path in public and method=='post':operation.pop('security',None)
             else:operation['security']=[{'OAuth2PasswordBearer':[]}]
             if not legacy(path):
-                for code in ('401','403','404','409','422'):
+                for code in (('401','404','413','422') if service else ('401','403','404','409','422')):
                     operation.setdefault('responses',{})[code]={'description':'Domain error','content':{'application/json':{'schema':{'$ref':'#/components/schemas/DomainError'}}}}
 
     app.openapi_schema=schema

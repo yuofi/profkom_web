@@ -23,6 +23,9 @@
     принимает старый и новый, потом бот получает новый, потом старый убирают.
   - Без `BOT_API_TOKEN_SHA256` интеграция на сайте выключена: все маршруты `/api/bot/v1`
     отвечают 404 с кодом `bot_api_disabled`.
+  - Сайт сравнивает SHA-256 присланного токена с каждым значением через
+    `hmac.compare_digest`. Значения — 64 строчные hex-цифры; другое значение настройки
+    останавливает запуск backend.
 - Маршруты `/api/bot/v1` не входят в пользовательский роутер `/api`: у них нет JWT, проверки
   аккаунта и `guard_working_access`. Зависимости — проверка служебного токена (без обращения к
   БД) и обычная единица работы: GET — читающая, без блокировки записи; POST — пишущая.
@@ -35,6 +38,10 @@
   | 413 | `payload_too_large` | Тело больше 256 КиБ |
   | 422 | обычный код проверки | Тело не по схеме |
 
+  Порядок проверок: размер тела, затем настройка и токен, затем схема. Тело больше 256 КиБ
+  отклоняется по `Content-Length` до чтения, а без длины — по мере чтения. Тело читается до
+  единицы работы, поэтому медленная отправка не держит блокировку записи. В OpenAPI у этих
+  маршрутов своя схема безопасности `BotServiceToken`.
 - Время — ISO 8601 в UTC с `Z`: `2026-11-04T09:00:00Z`.
 
 **Правила версии.** Внутри `v1` изменения только добавляют поля, виды команд и состояния. Обе
@@ -141,6 +148,10 @@
 
 Ответ: `{"api": 1, "accepted": true, "duplicate": false, "server_time": "…"}`.
 
+Сайт проверяет: `report_id` и `boot_id` — 32 строчные hex-цифры, `fingerprint` — 16, `count` —
+1…10⁹, `interval_s` — 1…86400, в `components` и `counters` — до 32 ключей, `api` — `1`. Время без
+пояса считается UTC; сайт хранит и отдаёт его с точностью до секунды.
+
 **Поля:**
 
 - `report_id` — новый для каждого отчёта, повтор того же отчёта — с тем же `report_id`. Сайт
@@ -158,6 +169,10 @@
     `fingerprint` — первые 16 hex SHA-256 этих полей.
   - `count` — сколько раз запись повторилась с прошлого удачного отчёта.
   - `message` — до 1000 символов, `traceback` — до 8000 символов; сайт обрезает и сам.
+    `logger` и `where` сайт обрезает до 200 символов.
+  - Сайт складывает группы с одним `fingerprint`, в том числе внутри одного отчёта: `count`
+    суммируется, `first_at` — меньший, `last_at` — больший, остальные поля — из последнего
+    отчёта.
   - Секреты (ключ Long Poll, токены) бот вычищает до отправки.
 - `deliveries` (этап 3): `{delivery_id, status, vk_message_id, error_code, retryable}`.
   `status`: `sent`, `failed`, `denied` — `denied` значит, что VK ответил 901 (пользователь не
@@ -191,11 +206,17 @@
 
 | Маршрут | Право | Что делает |
 | --- | --- | --- |
-| `GET /api/bot/console/status` | `bot.console.view` | `{enabled, online, last_seen_at, boot_id, heartbeat, errors}`. `online` — последний отчёт не старше `max(3 × interval_s, 180)` секунд. `errors` — до 100 групп, сначала свежие |
-| `GET /api/bot/maintainers` | `bot.console.view` | Сопровождающие бота |
-| `PUT /api/bot/maintainers/{user_id}` | `bot.maintainers.manage` | `{maintainer: bool}`, назначить можно только активный аккаунт, запись в аудит |
-| `GET /api/broadcasts/senders` | `broadcast.senders.manage` | Отправители рассылок |
-| `PUT /api/broadcasts/senders/{user_id}` | `broadcast.senders.manage` | `{sender: bool}`, назначить можно только активный аккаунт, запись в аудит |
+| `GET /api/bot/console/status` | `bot.console.view` | `{enabled, online, last_seen_at, boot_id, heartbeat, errors}`. `online` — интеграция включена, последний отчёт не старше `max(3 × interval_s, 180)` секунд и последний heartbeat без `stopping: true`. `errors` — до 100 групп, сначала свежие: `{fingerprint, level, logger, where, message, traceback, count, first_at, last_at}` |
+| `GET /api/bot/maintainers` | `bot.console.view` | Сопровождающие бота: `{items: [{user_id, display_name, avatar_url}], next_cursor: null}` |
+| `PUT /api/bot/maintainers/{user_id}` | `bot.maintainers.manage` | `{maintainer: bool}` → `{user_id, maintainer}`. Назначить можно только активный аккаунт, снять — всегда, повтор ничего не меняет. Изменение — в аудит |
+| `GET /api/broadcasts/senders` | `broadcast.senders.manage` | Отправители рассылок, как список сопровождающих |
+| `PUT /api/broadcasts/senders/{user_id}` | `broadcast.senders.manage` | `{sender: bool}` → `{user_id, sender}`, правила те же |
+
+Capabilities в `/api/session`: `view_bot_console`, `operate_bot`, `manage_bot_maintainers`,
+`send_broadcast`, `manage_broadcast_senders`. Назначения — строки `role_assignments` с
+`scope_kind = "site"`, `scope_id = null`. В `assignments` сессии они видны без своих
+capabilities. Архив аккаунта их снимает, восстановление не возвращает: их выдают заново
+мастер IT или председатель и замы. Несуществующий аккаунт и назначение неактивного — 404.
 
 Этапы 2–5 добавят маршруты привязки (`/api/bot-link/...`), рассылок (`/api/broadcasts`) и команд
 консоли (`/api/bot/console/commands`).
@@ -204,12 +225,15 @@
 
 **Этап 1:** новые таблицы, только добавления.
 
-- `bot_status` — одна строка: `boot_id`, `report_id`, `started_at`, `last_seen_at`,
-  `heartbeat_json`, `updated_at`.
+- `bot_status` — одна строка: `boot_id`, `report_id`, `started_at`, `last_seen_at` (время
+  последнего отчёта), `heartbeat_json`, `updated_at` (когда сохранён heartbeat), `cleaned_at`
+  (последняя чистка `bot_errors`).
 - `bot_errors` — группа на `fingerprint`: `level`, `logger`, `location`, `message`,
   `traceback`, `count`, `first_at`, `last_at`; индекс по `last_at`.
-  - Сайт хранит не больше 500 групп и не старше 30 дней.
-  - Чистка — внутри отчёта, не чаще раза в час.
+  - Сайт хранит не больше 500 групп и не старше 30 дней; остаются группы с самым поздним
+    `last_at`.
+  - Чистка — внутри отчёта: не чаще раза в час, а также сразу, если отчёт добавил новые
+    группы. Так лимит в 500 групп соблюдается и между чистками.
 
 Этапы 2–5 добавят: привязки и коды привязки, столбцы попыток в
 `notification_delivery_events`, рассылки и их получателей, команды консоли.
@@ -219,7 +243,7 @@
 | Что | Предел |
 | --- | --- |
 | Холостой `GET /work` | Читающая единица; на этапе 1 без SQL, позже — по частичным индексам; p95 < 5 мс локально |
-| `POST /report` только с heartbeat | Не больше 3 SQL; блокировка записи p95 < 5 мс локально |
+| `POST /report` только с heartbeat | Не больше 3 SQL (`BEGIN IMMEDIATE`, чтение и запись `bot_status`, проверено тестом); блокировка записи p95 < 5 мс локально. Повтор отчёта — 2 SQL, чистка добавляет 2 |
 | Частота записей | Heartbeat раз в 60 секунд плюс отчёты с результатами: порядка 1,5–3 тысяч коротких транзакций в сутки |
 | Права на страницах | Новые отношения берутся из снимков `role_assignments` и блоков, которые уже читаются на каждый запрос: 0 дополнительных SQL на страницу |
 

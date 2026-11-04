@@ -73,6 +73,10 @@ export const ERROR_TEXTS: Record<string, string> = {
   template_archived: "Шаблон перенесён в архив. Выберите другой шаблон.",
   template_scope_mismatch: "Этот шаблон относится к другой команде. Выберите подходящий шаблон.",
   pagination_error: "Не удалось загрузить список целиком. Обновите страницу.",
+  // HereBot service API (backend/docs/BOT_API.md): the bot reads these, a page never should.
+  bot_api_disabled: "Связь с ботом на сайте выключена.",
+  bot_token_invalid: "Служебный токен бота не подходит.",
+  payload_too_large: "Слишком большой запрос. Уменьшите объём данных.",
 };
 
 const BY_STATUS: Record<number, string> = {

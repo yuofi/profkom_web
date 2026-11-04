@@ -43,6 +43,16 @@ class InvalidInput(DomainError, ValueError):
     status, code = 422, "invalid_input"
 
 
+class Unauthenticated(DomainError):
+    """A missing or wrong credential that is not a user session (the bot's service token)."""
+
+    status, code = 401, "unauthenticated"
+
+
+class PayloadTooLarge(DomainError):
+    status, code = 413, "payload_too_large"
+
+
 def revision_conflict(message="Conflict: revision mismatch"):
     return Conflict(message, "revision_conflict")
 

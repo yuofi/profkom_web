@@ -254,7 +254,8 @@ def test_routes_do_not_turn_messages_into_statuses():
 
 def _emitted_codes():
     """Every `code` a backend module can put into an error body."""
-    typed = {"NotFound", "Forbidden", "Conflict", "InvalidInput", "SeasonNotReadyError", "DomainError"}
+    typed = {"NotFound", "Forbidden", "Conflict", "InvalidInput", "Unauthenticated", "PayloadTooLarge",
+             "SeasonNotReadyError", "DomainError"}
     codes = set()
     for path in _modules():
         for node in ast.walk(ast.parse(path.read_text())):

@@ -58,6 +58,7 @@ assert str(_TMP_DB) in database_module.DATABASE_URL, (
 )
 
 TABLES = (
+    "bot_errors", "bot_status",
     "task_mention_requests", "task_access_grants", "kkr_control_epics", "season_coefficients",
     "history_redactions",
     "support_notes", "feedback_reports", "feedback_rate_limits", "support_staff", "support_config",

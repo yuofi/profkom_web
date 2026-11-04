@@ -271,6 +271,13 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ('PUT', '/api/users/{user_id}/pgas-admin'),
     ('PUT', '/api/subevents/{subevent_id}/meeting'),
     ('PUT', '/api/subevents/{subevent_id}/organizers'),
+    ('GET', '/api/bot/console/status'),
+    ('GET', '/api/bot/maintainers'),
+    ('PUT', '/api/bot/maintainers/{user_id}'),
+    ('GET', '/api/broadcasts/senders'),
+    ('PUT', '/api/broadcasts/senders/{user_id}'),
+    ('GET', '/api/bot/v1/work'),
+    ('POST', '/api/bot/v1/report'),
 )
 
 # Служебные маршруты, которые FastAPI монтирует сам (единственное законное
@@ -288,9 +295,18 @@ PUBLIC_ROUTES: tuple[tuple[str,str], ...] = (
 )
 
 
-# Всё остальное обязано требовать Bearer-токен.
+# Служебные маршруты бота HereBot (backend/docs/BOT_API.md): ни публичные, ни под
+# пользовательским JWT. Bearer — служебный токен, его SHA-256 задан BOT_API_TOKEN_SHA256;
+# проверка без обращения к БД. Без настройки — 404 bot_api_disabled, с чужим токеном — 401.
+SERVICE_ROUTES: tuple[tuple[str, str], ...] = (
+    ('GET', '/api/bot/v1/work'),
+    ('POST', '/api/bot/v1/report'),
+)
+
+
+# Всё остальное обязано требовать Bearer-токен пользователя.
 PROTECTED_ROUTES: tuple[tuple[str, str], ...] = tuple(
-    r for r in API_ROUTES if r not in PUBLIC_ROUTES
+    r for r in API_ROUTES if r not in PUBLIC_ROUTES and r not in SERVICE_ROUTES
 )
 
 # /api/auth/refresh формально публичный (Bearer не нужен), но без cookie
@@ -449,14 +465,47 @@ def test_эталонный_литерал_не_содержит_дублей():
 
 
 def test_матрица_доступа_покрывает_все_маршруты():
-    """Каждый маршрут отнесён ровно к одной категории: публичный или защищённый."""
+    """Каждый маршрут отнесён ровно к одной категории: публичный, защищённый или служебный."""
     public = set(PUBLIC_ROUTES)
     protected = set(PROTECTED_ROUTES)
-    assert public & protected == set(), "Маршрут одновременно публичный и защищённый"
-    assert public | protected == set(API_ROUTES), (
+    service = set(SERVICE_ROUTES)
+    assert public & protected == public & service == protected & service == set(), "Маршрут в двух категориях"
+    assert public | protected | service == set(API_ROUTES), (
         "Матрица доступа не покрывает весь API: "
-        f"не классифицированы {sorted(set(API_ROUTES) - public - protected)}"
+        f"не классифицированы {sorted(set(API_ROUTES) - public - protected - service)}"
     )
+
+
+@pytest.mark.parametrize("method,path", SERVICE_ROUTES, ids=rid)
+def test_служебный_маршрут_не_зависит_от_пользовательской_сессии(spec, method, path):
+    """Своя проверка токена и единица работы, без JWT, аккаунта и guard_working_access;
+    в схеме — отдельная схема безопасности BotServiceToken."""
+    import bot_api
+
+    calls = dependency_calls(route_object(method, path).dependant)
+    assert calls[:2] == [bot_api.bot_token, auth_module.unit_of_work], calls
+    assert not {auth_module.get_current_user, auth_module.precheck_access_token, auth_module.guard_working_access} & set(calls)
+    operation = spec["paths"][path][method.lower()]
+    assert operation.get("security") == [{"BotServiceToken": []}]
+    assert {"401", "404", "413", "422"} <= set(operation["responses"])
+
+
+@pytest.mark.parametrize("method,path", SERVICE_ROUTES, ids=rid)
+def test_служебный_маршрут_без_настройки_выключен_а_с_настройкой_требует_токен(client, make_user, monkeypatch, method, path):
+    """Без BOT_API_TOKEN_SHA256 — 404 bot_api_disabled; с ним без токена, с чужим токеном или
+    с токеном пользователя — 401 bot_token_invalid; конверт ошибок обычный."""
+    from settings import settings
+
+    user = make_user(password=None)
+    for headers in ({}, user.headers):
+        resp = call(client, method, path, headers=headers)
+        assert resp.status_code == 404 and resp.json()["detail"]["code"] == "bot_api_disabled", resp.text
+        error_body(resp)
+    monkeypatch.setattr(settings, "BOT_API_TOKEN_SHA256", "0" * 64)
+    for headers in ({}, user.headers, {"Authorization": "Bearer wrong"}):
+        resp = call(client, method, path, headers=headers)
+        assert resp.status_code == 401 and resp.json()["detail"]["code"] == "bot_token_invalid", resp.text
+        error_body(resp)
 
 
 def test_все_прикладные_маршруты_имеют_префикс_api():
@@ -1067,9 +1116,10 @@ def test_openapi_не_содержит_лишних_путей(spec):
 
 
 def test_схема_безопасности_объявлена(spec):
-    """В components должна быть ровно одна схема — OAuth2PasswordBearer."""
+    """В components две схемы: OAuth2PasswordBearer людей и BotServiceToken бота."""
     schemes = spec["components"]["securitySchemes"]
-    assert list(schemes) == ["OAuth2PasswordBearer"], f"Схемы: {list(schemes)}"
+    assert sorted(schemes) == ["BotServiceToken", "OAuth2PasswordBearer"], f"Схемы: {list(schemes)}"
+    assert (schemes["BotServiceToken"]["type"], schemes["BotServiceToken"]["scheme"]) == ("http", "bearer")
     assert schemes["OAuth2PasswordBearer"]["type"] == "oauth2"
     flows = schemes["OAuth2PasswordBearer"]["flows"]
     assert flows["password"]["tokenUrl"] == "/api/auth/login", (
