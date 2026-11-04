@@ -3,7 +3,7 @@ import { publicStatus } from "../pages/Workspace/trackerStatus";
 import axios, { type AxiosRequestConfig } from "axios";
 import MockAdapter from "axios-mock-adapter";
 import { api } from "../utils/api";
-import { createFixtures, mockNow, type MockRole } from "./fixtures";
+import { createFixtures, mockBotLinkDeadline, mockNow, mockVkId, type MockRole } from "./fixtures";
 import { profileFeatureMock } from "./profileFeatures";
 import {
   richText,
@@ -36,8 +36,13 @@ import {
   type SummaryVersionSnapshot,
   type ParticipationRole,
   type CalendarItem,
+  type BotLinkMe,
+  type BotLinkState,
+  type BotTokenStatus,
 } from "../utils/api/contract";
 
+/** The demo's VK link through the bot: by role (pending — not linked), or chosen in the picker. */
+export type MockBotScenario = "ok" | "none" | "denied" | "blocked" | "off";
 type Reply = [number, unknown];
 type Body = Record<string, unknown>;
 const fail = (
@@ -76,6 +81,7 @@ export function installMockTransport(
     delay?: number;
     scenario?: "normal" | "empty" | "error" | "conflict";
     now?: string;
+    bot?: MockBotScenario;
   } = {},
 ) {
   const state = createFixtures(role);
@@ -175,7 +181,49 @@ export function installMockTransport(
     user_id: 105,
     status: "pending" as typeof state.registration.status,
     capabilities: ["reset_registration_limit"],
+    // A ready application: the applicant has linked the bot (stage 2).
+    bot_link: { state: "ok" as BotLinkState, vk_user_id: mockVkId(105) } as typeof state.registration.bot_link,
   };
+  // The VK link (BOT_API.md, «Привязка VK»). A code is «used by the bot» after a few polls.
+  const pendingAccount = state.session.account_state === "pending";
+  const scenario = options.bot ?? (pendingAccount ? "none" : "ok");
+  const linkedAtStart = scenario === "ok" || scenario === "denied";
+  const bot = {
+    enabled: scenario !== "off" && state.session.account_state !== "archived",
+    state: (scenario === "ok" ? "ok" : scenario === "denied" ? "messages_denied" : "none") as BotLinkState,
+    vk_user_id: (linkedAtStart ? mockVkId(state.session.user_id) : null) as number | null,
+    messages_allowed: (linkedAtStart ? scenario === "ok" : null) as boolean | null,
+    token_status: (linkedAtStart ? "ok" : null) as BotTokenStatus | null,
+    linked_at: (linkedAtStart ? mockNow : null) as string | null,
+    // «Срок прошёл»: the deadline is behind, an active account without the link is closed.
+    deadline: scenario === "blocked" ? "2026-11-01T00:00:00+03:00" : mockBotLinkDeadline,
+    overdue: scenario === "blocked",
+    bot_url: "https://vk.me/profkom_demo_bot" as string | null,
+    code: null as { code: string; expires_at: string } | null,
+    polls: 0,
+    /** How many reads of /bot-link/me pass before the synthetic bot confirms the code. */
+    confirmAfterPolls: 2,
+    issued: [] as number[],
+  };
+  const botLinkView = () => {
+    const required = pendingAccount || bot.overdue;
+    return { state: bot.state, required, blocked: !pendingAccount && required && bot.state !== "ok", deadline: bot.deadline };
+  };
+  const syncBot = () => {
+    state.session.bot_link = bot.enabled ? botLinkView() : null;
+    state.registration.bot_link = bot.enabled ? { state: bot.state, vk_user_id: bot.vk_user_id } : null;
+    if (!bot.enabled) queueApplication.bot_link = null;
+  };
+  syncBot();
+  const liveCode = () => bot.code && Date.parse(bot.code.expires_at) > Date.now() ? bot.code : null;
+  const botMe = (): BotLinkMe => bot.enabled
+    ? { enabled: true, vk_user_id: bot.vk_user_id, messages_allowed: bot.messages_allowed, token_status: bot.token_status, linked_at: bot.linked_at, ...botLinkView(), bot_url: bot.bot_url, code_expires_at: liveCode()?.expires_at ?? null }
+    : { enabled: false, state: null, vk_user_id: null, messages_allowed: null, token_status: null, linked_at: null, required: false, blocked: false, deadline: null, bot_url: null, code_expires_at: null };
+  const confirmBotCode = () => {
+    Object.assign(bot, { state: "ok", vk_user_id: mockVkId(state.session.user_id), messages_allowed: true, token_status: "ok", linked_at: new Date().toISOString(), code: null, polls: 0 });
+    syncBot();
+  };
+  const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
   // Public profile projection: current team identities/roles only. Never copy
   // task, private accounting or target-user capabilities into this resource.
   const participantTeams = (uid: number) => ({
@@ -520,6 +568,8 @@ export function installMockTransport(
     if (path === "/registrations/me/resubmit") {
       if (mismatch(data, state.registration)) return conflict();
       if (state.registration.status !== "rejected") return conflict();
+      if (state.registration.bot_link && state.registration.bot_link.state !== "ok")
+        return fail(409, "bot_link_required", "The VK link is not ready");
       if (state.registration.attempts_used >= 5)
         return fail(
           409,
@@ -533,7 +583,30 @@ export function installMockTransport(
       state.registration.capabilities = [];
       return changed(state.registration);
     }
+    if (path === "/bot-link/me" || path === "/bot-link/code") {
+      if (state.session.account_state === "archived") return denied();
+      if (path === "/bot-link/me" && method === "get") {
+        if (liveCode() && ++bot.polls >= bot.confirmAfterPolls) confirmBotCode();
+        return [200, botMe()];
+      }
+      if (path === "/bot-link/code" && method === "post") {
+        if (!bot.enabled) return fail(404, "bot_api_disabled", "Bot integration is disabled");
+        const hour = Date.now() - 3_600_000;
+        bot.issued = bot.issued.filter((at) => at > hour);
+        if (bot.issued.length >= 10) return fail(429, "link_code_rate_limited", "Too many link codes");
+        bot.issued.push(Date.now());
+        const raw = Array.from({ length: 10 }, () => CROCKFORD[Math.floor(Math.random() * CROCKFORD.length)]).join("");
+        const code = `${raw.slice(0, 5)}-${raw.slice(5)}`;
+        bot.code = { code, expires_at: new Date(Date.now() + 15 * 60_000).toISOString() };
+        bot.polls = 0;
+        return [200, { ...bot.code, link_url: bot.bot_url ? `${bot.bot_url}?ref=${raw}` : null, command: `привязать ${code}` }];
+      }
+      return fail(405, "method_not_allowed", "Method not allowed");
+    }
     if (state.session.account_state !== "active") return denied();
+    // After the deadline only the link and the feedback stay open (guard_working_access).
+    if (state.session.bot_link?.blocked && !(path === "/feedback" && method === "post"))
+      return fail(403, "bot_link_required", "The VK link is required");
     const profileReply = profileFeatures(path, method, data, url.searchParams);
     if (profileReply) return profileReply;
     if (
@@ -2049,6 +2122,8 @@ export function installMockTransport(
         return list(!status || status === queueApplication.status ? [clone(queueApplication)] : []);
       }
       if (mismatch(data, queueApplication)) return conflict();
+      if (parts[2] === "approve" && queueApplication.bot_link && queueApplication.bot_link.state !== "ok")
+        return fail(409, "bot_link_required", "The application is not ready");
       if (parts[2] === "reset-attempts") queueApplication.attempts_used = 0;
       else {
         queueApplication.status =
@@ -2452,6 +2527,9 @@ export function installMockTransport(
     state,
     legacyMaterialIds,
     adapter,
+    bot,
+    queueApplication,
+    syncBot,
     restore: () => {
       adapter.restore();
       uploads.restore();
