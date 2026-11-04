@@ -40,19 +40,27 @@ Active awards and safe issue/revocation facts are public to approved members. Se
 notes and revocation reasons are visible only to the recipient and current scope award
 managers. UserRefs resolve against current account identity; event JSON stores no names.
 
-## Notification preferences and disabled delivery infrastructure
+## Notification preferences and delivery outside the site
 
 The owner stores an independent email/Telegram/VK choice for tracker changes, new or
-approved applications, and PGAS documents. Defaults are all off. PUT requires the saved
-preference revision. The UI clearly states that sending is not connected.
+approved applications, and PGAS documents. Defaults are all off; the first VK link of an
+account through the bot turns VK on for tracker and applications (owner, 2026-11-04). PUT
+requires the saved preference revision. GET and PUT also answer `channels`: email and
+Telegram are `not_connected`, VK is `ready`, `link_required` or `not_connected` (see
+[BOT_API](BOT_API.md), stage 3).
 
 `collect_delivery_event(session, recipient, kind, payload, event_key)` receives already
 authorized internal recipients. It stores only source kind/ID, channel/category/key and
-`not_connected` state, deduplicated by recipient+event key+channel. No titles, message
-bodies, addresses, provider credentials or task data are copied. Notifications emitted
-through `notifications.emit` call it in the same transaction. Other owning modules call
-the same helper for their events. The future adapter must call `delivery_event_allowed`
-again immediately before attempting delivery. No sender/worker is installed here.
+state, deduplicated by recipient+event key+channel. No titles, message bodies, addresses,
+provider credentials or task data are copied. Notifications emitted through
+`notifications.emit` call it in the same transaction. Other owning modules call the same
+helper for their events. Email and Telegram rows stay `not_connected`: no sender is
+installed for them, and a future adapter must call `delivery_event_allowed` immediately
+before attempting delivery. With the HereBot integration on the VK row is the bot's queue
+(`pending` while the recipient's VK takes the community's messages, no row otherwise); the
+bot's poll rechecks the account, the preference and the bell's access for each recipient at
+hand-out and builds the text from the bell's own wording ([BOT_API](BOT_API.md),
+«Уведомления через бота»).
 
 ## KKR templates
 

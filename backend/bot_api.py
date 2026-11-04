@@ -1,12 +1,14 @@
-"""HereBot: the service API /api/bot/v1 and the people's routes (stages 1 and 2).
+"""HereBot: the service API /api/bot/v1 and the people's routes (stages 1 to 3).
 
 The contract is backend/docs/BOT_API.md. The bot is a client with a service token; the site
 stores only its SHA-256 (settings.BOT_API_TOKEN_SHA256, two values while rotating). The token
 check reads no database, so a wrong token never waits for the write lock or a unit. The
 service routes are outside the user router: no JWT, account or working-access guard.
-Stage 1 hands out no work and keeps the last heartbeat and the bot's error groups. Stage 2
-links an account to its VK: the site issues a one-time code, the bot confirms it, reports
-carry the VK's message and token events (the policy without SQL is bot_link.py).
+Stage 1 keeps the last heartbeat and the bot's error groups. Stage 2 links an account to its
+VK: the site issues a one-time code, the bot confirms it, reports carry the VK's message and
+token events (the policy without SQL is bot_link.py). Stage 3 hands out the site's
+notifications queued for VK (notification_delivery_events, channel `vk`) and applies the
+bot's results.
 """
 import hashlib
 import hmac
@@ -19,12 +21,13 @@ from collections import deque
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.routing import APIRoute
 from fastapi.security.utils import get_authorization_scheme_param
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
-from sqlalchemy import delete, func, select
+from sqlalchemy import bindparam, case, delete, func, literal, select, text, update
 
 import access
 import bot_link
@@ -32,12 +35,15 @@ from api_contract import Page
 from auth import get_current_user, unit_of_work
 from bot_link import TOKEN_STATUSES, parse, stamp, state_of, utcnow
 from bot_models import BotErrorORM, BotLinkCodeORM, BotLinkORM, BotStatusORM
-from database import db, ContactInfoORM, ExternalIdentityORM, RoleAssignmentORM, UserORM
+from database import db, ContactInfoORM, ExternalIdentityORM, NotificationORM, RoleAssignmentORM, UserORM
 from domain_contract import UserReference
 from errors import Conflict, NotFound, PayloadTooLarge, TooManyRequests, Unauthenticated
 from models import User
+from profile_features import vk_on_by_default
+from profile_features_models import NotificationDeliveryEventORM as DeliveryORM, NotificationPreferenceORM
 from registration import audit, fail, link_changed
 from settings import settings
+from workspace import notification_views
 
 PREFIX = "/api/bot/v1"
 API = 1
@@ -54,6 +60,16 @@ CODES_PER_HOUR = 10
 FAILURES_PER_VK, FAILURES_TOTAL = 10, 200  # failed confirmations in FAILURE_WINDOW
 FAILURE_WINDOW = timedelta(minutes=15)
 DISABLED = "Bot API is disabled"
+MAX_DELIVERIES = 100  # results in one report
+DELIVERY_TTL = timedelta(hours=24)  # a notification not sent by then is `expired`
+RETRY_MINUTES = (1, 5, 30, 120)  # the wait after the 1st to 4th retryable failure; the 5th is final
+TEXT_LIMIT = 4000
+HELD_LIMIT = 1000
+GONE = ("archived", "purged")  # with a ban: an account whose notifications are `cancelled`
+RESULTS = ("sent", "denied", "failed")
+# Literal, not bound: SQLite uses the partial index ix_delivery_vk_pending only for a query
+# whose WHERE repeats the index's own terms.
+PENDING_VK = text("notification_delivery_events.channel = 'vk' AND notification_delivery_events.state = 'pending'")
 
 
 # ── Service token ──
@@ -166,12 +182,22 @@ class TokenEvent(Lenient):
     at: datetime
 
 
+class DeliveryResult(Lenient):
+    """What VK answered to one delivery; another status is skipped (rules of v1)."""
+    delivery_id: str = Field(min_length=1, max_length=64)
+    status: str = Field(max_length=32)
+    vk_message_id: int | None = Field(None, ge=0, le=2**63 - 1)
+    error_code: int | clipped(64) | None = None  # VK's error code, or the bot's word for a network failure
+    retryable: bool = False
+
+
 class Report(Lenient):
     api: Literal[1] = API
     report_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     boot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     heartbeat: Heartbeat | None = None
     errors: list[ErrorGroup] = Field(default_factory=list, max_length=MAX_ERRORS)
+    deliveries: list[DeliveryResult] = Field(default_factory=list, max_length=MAX_DELIVERIES)
     vk_events: list[VkEvent] = Field(default_factory=list, max_length=MAX_EVENTS)
     tokens: list[TokenEvent] = Field(default_factory=list, max_length=MAX_EVENTS)
 
@@ -193,12 +219,21 @@ class LinkConfirmed(BaseModel):
     state: str
 
 
+class Delivery(BaseModel):
+    """One notification to send with messages.send (stage 3)."""
+    delivery_id: str
+    peer_id: int
+    text: str
+    random_id: int
+    created_at: str
+
+
 class Work(BaseModel):
     api: int = API
     server_time: str
     poll_after_ms: int = POLL_AFTER_MS
     paused: bool = False
-    deliveries: list[dict] = []  # stage 3
+    deliveries: list[Delivery] = []  # stage 3
     broadcasts: list[dict] = []  # stage 4
     commands: list[dict] = []  # stage 5
 
@@ -213,9 +248,10 @@ class Accepted(BaseModel):
 # ── Service routes ──
 
 @service_router.get("/work", response_model=Work)
-async def work(limit: int = Query(50, ge=1, le=100)):
-    """Stage 1 has no queue yet: empty lists, no SQL."""
-    return Work(server_time=stamp(utcnow()))
+def work(limit: int = Query(50, ge=1, le=100)):
+    """Stage 3: the due VK deliveries; an idle poll is one indexed SELECT."""
+    now = utcnow()
+    return Work(server_time=stamp(now), deliveries=due_deliveries(limit, now))
 
 
 @service_router.post("/report", response_model=Accepted)
@@ -235,8 +271,10 @@ def store(payload, now):
 
     A heartbeat-only report is one SELECT and one UPDATE of bot_status (with BEGIN, three
     statements); error groups add one SELECT and their writes; the retention runs when the
-    report adds a group or an hour after the last pass. VK events add one SELECT of the
-    links they name and writes of the changed ones only.
+    report adds a group or an hour after the last pass, and hourly expires the VK deliveries
+    pending for 24 hours. VK events add one SELECT of the links they name and writes of the
+    changed ones only. Delivery results add one SELECT of their rows and one UPDATE of the
+    pending ones; the rows the last polls held add one UPDATE.
     """
     with db._session() as s:
         status = s.get(BotStatusORM, 1)
@@ -253,6 +291,9 @@ def store(payload, now):
         added = merge_errors(s, payload.errors) if payload.errors else False
         if payload.vk_events or payload.tokens:
             apply_events(s, payload.vk_events, payload.tokens, now)
+        held = HELD.snapshot()
+        if payload.deliveries or held:
+            apply_results(s, payload.deliveries, held, now)
         due = not status.cleaned_at or status.cleaned_at <= stamp(now - CLEAN_EVERY)
         if due:
             status.cleaned_at = stamp(now)
@@ -266,7 +307,11 @@ def store(payload, now):
             keep = select(BotErrorORM.fingerprint).order_by(
                 BotErrorORM.last_at.desc(), BotErrorORM.fingerprint.desc()).limit(KEEP_GROUPS)
             s.execute(delete(BotErrorORM).where(BotErrorORM.fingerprint.not_in(keep)), execution_options=plain)
+        if due:
+            s.execute(update(DeliveryORM).where(PENDING_VK, DeliveryORM.created_at < (now - DELIVERY_TTL).isoformat())
+                      .values(state="expired", updated_at=now.isoformat()), execution_options=plain)
         s.commit()
+    HELD.discard(held)
     return False
 
 
@@ -300,7 +345,8 @@ def merge_errors(s, items):
 def anonymize(session, uid, old_pid, new_pid):
     """Retention callback (account_cleanup): the account's VK link and codes go. The stage 1
     tables hold the bot's own state and log groups, no site account. The site grants are
-    role_assignments rows; the cleanup removes them with the account's other roles."""
+    role_assignments rows; the cleanup removes them with the account's other roles. The VK
+    deliveries are notification_delivery_events rows: profile_features.anonymize deletes them."""
     session.query(BotLinkCodeORM).filter_by(user_id=uid).delete(synchronize_session=False)
     user = session.get(UserORM, uid)
     if user is not None:
@@ -425,6 +471,7 @@ def _confirm(payload, vk, now):
         links = {l.user_id: l for l in s.query(BotLinkORM).filter(
             (BotLinkORM.user_id == user.user_id) | (BotLinkORM.vk_user_id == vk))}
         link = links.pop(user.user_id, None)
+        first = link is None  # the account's first link turns VK on by default (stage 3)
         holder = s.get(UserORM, next(iter(links))) if links else None
         if holder is not None and holder.account_state not in ("archived", "purged"):
             raise Conflict("This VK is linked to another account", "vk_taken")
@@ -448,6 +495,8 @@ def _confirm(payload, vk, now):
         row.used_at, row.used_vk_user_id = stamp(now), vk
         audit(s, "user", user.user_id, user.user_id, "bot_link", {"vk_user_id": old}, {"vk_user_id": vk})
         save_link(s, user, link)
+        if first:
+            vk_on_by_default(s, user.user_id)
         answer = LinkConfirmed(user_id=user.user_id, display_name=display_name(s, user.user_id),
                                state=user.bot_link_state or "none")
         s.commit()
@@ -520,6 +569,176 @@ def link_status(cur, now):
                           code_expires_at=expires, **(dict(
                               vk_user_id=link.vk_user_id, messages_allowed=link.messages_allowed,
                               token_status=link.token_status, linked_at=link.linked_at) if link else {}))
+
+
+# ── Notifications through the bot (stage 3) ──
+
+class Held:
+    """Deliveries /work refused (no access to the object, the account gone) until the next
+    report marks them `cancelled`: /work is a read unit and writes nothing. In process memory,
+    as the link limits (one uvicorn process); at most HELD_LIMIT ids, /work finds the others
+    again. /work skips the held ids, so they do not take the place of sendable rows."""
+
+    def __init__(self):
+        self.ids, self.lock = set(), threading.Lock()
+
+    def add(self, ids):
+        with self.lock:
+            for delivery_id in ids:
+                if len(self.ids) >= HELD_LIMIT:
+                    break
+                self.ids.add(delivery_id)
+
+    def snapshot(self):
+        with self.lock:
+            return sorted(self.ids)
+
+    def discard(self, ids):
+        with self.lock:
+            self.ids.difference_update(ids)
+
+    def clear(self):
+        with self.lock:
+            self.ids.clear()
+
+
+HELD = Held()
+
+# The page a notification opens: targetRoute of frontend/src/utils/routes.ts.
+ROUTES = {"event": "/events/{}", "subevent": "/subevents/{}", "task": "/tasks/{}", "task_queue": "/tasks/queues/{}",
+          "block": "/blocks/{}", "report": "/reports/{}", "material": "/materials/{}", "season": "/seasons/{}",
+          "pgas": "/pgas", "registrations": "/admin/registrations", "block_requests": "/blocks/requests",
+          "meeting_event": "/meetings/event/{}", "meeting_subevent": "/meetings/subevent/{}"}
+
+
+def target_path(target):
+    """The site path of a notification's target; "/" without a target the site opens."""
+    template, ident = ROUTES.get((target or {}).get("kind")), (target or {}).get("id")
+    if template is None or not isinstance(ident, str) or not ident:
+        return "/"
+    return template.format(quote(ident, safe="!~*'()"))  # encodeURIComponent
+
+
+def delivery_text(view):
+    """The bell's text and a link to the same page (owner, 2026-11-04: the kind, the object's
+    title and the link). Over TEXT_LIMIT the text is cut with «…», the link never."""
+    link = settings.public_site_url() + target_path(view["target"])
+    body, room = view["text"], TEXT_LIMIT - len(link) - 1
+    if len(body) > room:
+        body = body[:max(room - 1, 0)] + "…"
+    return (body + "\n" + link)[:TEXT_LIMIT]
+
+
+def random_id(delivery_id):
+    """The first 31 bits of SHA-256 of the delivery ID, never 0: every repeat sends the same,
+    so VK drops a second copy."""
+    return int.from_bytes(hashlib.sha256(delivery_id.encode()).digest()[:4], "big") >> 1 or 1
+
+
+def due_deliveries(limit, now):
+    """GET /work: up to `limit` pending VK rows, due and at most 24 hours old, oldest first.
+
+    A row whose VK takes no messages now (no link, messages denied, VK off for its category)
+    waits: the SELECT skips it, so it never takes the place of a sendable row. A row of an
+    account that is gone (archived, purged, banned), without its notification, or whose
+    object the person no longer reads (the bell shows access_revoked) is not handed out and
+    is held for `cancelled`. An idle poll is the one SELECT over ix_delivery_vk_pending; with
+    rows, one SELECT of their notifications and the bell's text, target and access check
+    (workspace.notification_views) once per recipient.
+    """
+    D, L, U, P = DeliveryORM, BotLinkORM, UserORM, NotificationPreferenceORM
+    held = HELD.snapshot()
+    gone = (U.user_id.is_(None) | (U.banned == True) | U.account_state.in_(GONE)).label("gone")  # noqa: E712
+    stored = case((func.json_valid(P.preferences_json) == 1, P.preferences_json))  # a broken row reads as off
+    vk_on = func.json_extract(stored, literal("$.") + D.category + literal(".vk")) == 1
+    query = (select(D.delivery_id, D.user_id, D.event_key, D.created_at, L.vk_user_id, gone)
+             .outerjoin(U, U.user_id == D.user_id).outerjoin(L, L.user_id == D.user_id).outerjoin(P, P.user_id == D.user_id)
+             .where(PENDING_VK, D.next_attempt_at <= now.isoformat(), D.created_at >= (now - DELIVERY_TTL).isoformat(),
+                    gone | ((L.messages_allowed == True) & vk_on))  # noqa: E712
+             .order_by(D.created_at, D.delivery_id).limit(limit))
+    if held:
+        query = query.where(D.delivery_id.not_in(held))
+    refused, result = [], []
+    with db._session() as s:
+        rows = s.execute(query).all()
+        refused += [r.delivery_id for r in rows if r.gone]
+        rows = [r for r in rows if not r.gone]
+        keys = {(r.user_id, r.event_key) for r in rows}
+        notes = {(n.user_id, n.event_key): n for n in s.query(NotificationORM).filter(
+            NotificationORM.user_id.in_({u for u, _ in keys}), NotificationORM.event_key.in_({k for _, k in keys}))} if keys else {}
+        by_user = {}
+        for r in rows:
+            if (r.user_id, r.event_key) in notes:
+                by_user.setdefault(r.user_id, []).append(r)
+        views = {}
+        for uid, items in by_user.items():
+            views.update(zip((r.delivery_id for r in items),
+                             notification_views(s, uid, [notes[r.user_id, r.event_key] for r in items])))
+        for r in rows:
+            view = views.get(r.delivery_id)
+            if view is None or view["kind"] == "access_revoked":
+                refused.append(r.delivery_id)
+                continue
+            result.append(Delivery(delivery_id=r.delivery_id, peer_id=r.vk_user_id, text=delivery_text(view),
+                                   random_id=random_id(r.delivery_id), created_at=stamp(datetime.fromisoformat(r.created_at))))
+    HELD.add(refused)
+    return result
+
+
+def apply_results(s, results, held, now):
+    """The bot's results: one SELECT of the pending rows they name and one UPDATE (executemany)
+    of those. A result for a row no longer pending, or an unknown one, changes nothing (a
+    repeat); of two for one row in a report the first counts; a row without a result (the bot
+    did not try it) stays as it is. `denied` also turns the link's messages off, as
+    message_deny at the report time. Then the rows the polls held are cancelled if pending."""
+    D, when = DeliveryORM, now.isoformat()
+    first = {}
+    for result in results:
+        if result.status in RESULTS:
+            first.setdefault(result.delivery_id, result)
+    changes, denied = [], set()
+    if first:
+        for row in s.execute(select(D.delivery_id, D.user_id, D.attempts, D.next_attempt_at)
+                             .where(D.delivery_id.in_(list(first)), PENDING_VK)):
+            result, attempts = first[row.delivery_id], row.attempts + 1
+            change = dict(b_id=row.delivery_id, b_state=result.status, b_attempts=attempts, b_next=row.next_attempt_at,
+                          b_sent=None, b_message=None, b_updated=when,
+                          b_error=None if result.error_code is None else str(result.error_code)[:64])
+            if result.status == "sent":
+                change.update(b_sent=when, b_message=result.vk_message_id)
+            elif result.status == "denied":
+                denied.add(row.user_id)
+            elif result.retryable and attempts <= len(RETRY_MINUTES):
+                change.update(b_state="pending", b_next=(now + timedelta(minutes=RETRY_MINUTES[attempts - 1])).isoformat())
+            changes.append(change)
+    if changes:  # every row names the same columns: one executemany
+        table = D.__table__
+        s.execute(update(table).where(table.c.delivery_id == bindparam("b_id")).values(
+            state=bindparam("b_state"), attempts=bindparam("b_attempts"), next_attempt_at=bindparam("b_next"),
+            sent_at=bindparam("b_sent"), vk_message_id=bindparam("b_message"), error_code=bindparam("b_error"),
+            updated_at=bindparam("b_updated")), changes)
+    if denied:
+        deny_messages(s, denied, now)
+    if held:
+        s.execute(update(D).where(D.delivery_id.in_(held), PENDING_VK).values(state="cancelled", updated_at=when),
+                  execution_options=dict(synchronize_session=False))
+
+
+def deny_messages(s, uids, now):
+    """VK answered 901: the accounts' links take no messages from the report time on, as a
+    message_deny event would (a stored later time wins). One SELECT of the links with their
+    accounts; save_link recomputes users.bot_link_state."""
+    at = stamp(now)
+    for link, user in s.execute(select(BotLinkORM, UserORM).join(UserORM, UserORM.user_id == BotLinkORM.user_id)
+                                .where(BotLinkORM.user_id.in_(uids))).all():
+        if at >= link.messages_at and (link.messages_allowed, link.messages_at) != (False, at):
+            link.messages_allowed, link.messages_at, link.updated_at = False, at, at
+            save_link(s, user, link)
+
+
+def reset_deliveries():
+    """Tests: forget the held deliveries."""
+    HELD.clear()
 
 
 # ── People: console status and grants (stage 1) ──

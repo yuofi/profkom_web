@@ -12,6 +12,7 @@ import uuid
 from fastapi import Depends, HTTPException
 from pydantic import Field, StrictBool, ValidationError, model_validator
 import access
+import bot_link
 from auth import get_current_user
 from database import (db, UserORM, BlockORM, EventORM, SubeventORM, RoleAssignmentORM,
                       FileRecordORM, MeritORM, AssignmentORM, TaskORM, _roster_candidate)
@@ -252,22 +253,51 @@ class PreferenceUpdate(Revision):
     preferences: PreferenceValues
 
 
-def preferences(session, person):
+def channels(link_state):
+    """Each channel's state (BOT_API.md, stage 3): only VK is connected, through the bot,
+    from the users row the request has already read."""
+    vk = "not_connected" if not bot_link.enabled() else "ready" if link_state in bot_link.SENDABLE else "link_required"
+    return dict(email="not_connected", telegram="not_connected", vk=vk)
+
+
+def preferences(session, person, link_state=None):
     row = session.get(NotificationPreferenceORM, person)
     return dict(revision=row.revision if row else 1,
                 preferences=json.loads(row.preferences_json) if row else PreferenceValues().model_dump(),
-                delivery_status="not_connected")
+                delivery_status="not_connected", channels=channels(link_state))
+
+
+VK_BY_DEFAULT = ("tracker", "applications")
+
+
+def vk_on_by_default(session, person):
+    """The first VK link of an account turns VK on for «трекер» and «заявки» (owner,
+    2026-11-04); the other values stay. A changed row takes a new revision."""
+    row = session.get(NotificationPreferenceORM, person)
+    values = json.loads(row.preferences_json) if row else PreferenceValues().model_dump()
+    if all(values.get(category, {}).get("vk") is True for category in VK_BY_DEFAULT):
+        return
+    for category in VK_BY_DEFAULT:
+        values.setdefault(category, {})["vk"] = True
+    if row is None:
+        row = NotificationPreferenceORM(user_id=person, revision=1)
+        session.add(row)
+    row.preferences_json = json.dumps(values, ensure_ascii=False)
+    row.revision += 1
 
 
 def delivery_category(kind):
     return "tracker" if kind.startswith("task_") else "applications" if kind.startswith(("registration_", "block_application", "block_request")) else "pgas" if kind.startswith("pgas_") else None
 
 
-def collect_delivery_event(session, recipient, kind, payload, event_key, preferences=None):
-    """Reference-only disabled outbox; actual authorization must be rechecked at send.
+def collect_delivery_event(session, recipient, kind, payload, event_key, preferences=None, user=None):
+    """Reference-only outbox; actual authorization is rechecked at send.
 
     ``preferences``: the recipients' preference rows (absent = no row) the caller
-    read in this session just before, instead of one lookup per recipient."""
+    read in this session just before, instead of one lookup per recipient; ``user``: the
+    recipient's users row the caller has. Email and Telegram rows stay `not_connected`.
+    With the bot integration on a VK row is the bot's queue (BOT_API.md, stage 3): `pending`
+    if the recipient's VK takes the community's messages, else no row."""
     category = delivery_category(kind)
     if category is None:
         return
@@ -278,15 +308,26 @@ def collect_delivery_event(session, recipient, kind, payload, event_key, prefere
     reference = next(((k.removesuffix("_id"), str(payload[k])) for k in ("task_id", "request_id", "registration_user_id", "pgas_entry_id", "entry_id", "block_id") if payload.get(k) is not None), None)
     if reference is None:
         return
+    created = now()
     for channel in CHANNELS:
-        if channels.get(channel) and not session.query(NotificationDeliveryEventORM).filter_by(user_id=recipient, event_key=event_key, channel=channel).first():
+        if not channels.get(channel):
+            continue
+        state = "not_connected"
+        if channel == "vk" and bot_link.enabled():
+            person = user if user is not None else session.get(UserORM, recipient)
+            if person is None or person.bot_link_state not in bot_link.SENDABLE:
+                continue
+            state = "pending"
+        if not session.query(NotificationDeliveryEventORM).filter_by(user_id=recipient, event_key=event_key, channel=channel).first():
+            # Every row names the same columns, so one flush inserts them all in one statement.
             session.add(NotificationDeliveryEventORM(delivery_id=uid(), user_id=recipient, event_key=event_key,
                 category=category, source_kind=reference[0], source_id=reference[1], channel=channel,
-                state="not_connected", created_at=now()))
+                state=state, created_at=created, attempts=0, next_attempt_at=created, updated_at=created))
 
 
 def delivery_event_allowed(session, event):
-    """The future adapter must call this immediately before any delivery attempt."""
+    """One row's send check for a future email or Telegram adapter. The VK channel rechecks
+    a whole batch at hand-out instead (bot_api.due_deliveries: workspace.notification_views)."""
     person = session.get(UserORM, event.user_id) if event.user_id is not None else None
     if not person or person.account_state != "active" or person.banned:
         return False
@@ -584,7 +625,7 @@ def register_routes(router):
     @router.get("/profile/me/notification-preferences")
     def get_preferences(cur: User = Depends(get_current_user)):
         with db._session() as s:
-            return preferences(s, cur.user_id)
+            return preferences(s, cur.user_id, cur.bot_link_state)
 
     @router.put("/profile/me/notification-preferences")
     def set_preferences(payload: PreferenceUpdate, cur: User = Depends(get_current_user)):
@@ -598,7 +639,7 @@ def register_routes(router):
             row.preferences_json = payload.preferences.model_dump_json()
             row.revision += 1
             s.flush()
-            return preferences(s, cur.user_id)
+            return preferences(s, cur.user_id, cur.bot_link_state)
 
     @router.get("/profile/me/editor")
     def get_editor(cur: User = Depends(get_current_user)):

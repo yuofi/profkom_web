@@ -1,7 +1,7 @@
 """HereBot stage 1 (backend/docs/BOT_API.md, decisions of 2026-11-04).
 
 The service API /api/bot/v1: the token check without the database, disabled/401/413/422,
-the empty work queue without SQL, reports (heartbeat, error groups, dedup, truncation,
+the idle work queue in one SELECT, reports (heartbeat, error groups, dedup, truncation,
 retention, the statement budget). The people's side: console status, the IT master by the
 block name "IT", maintainers and broadcast senders as `site` role assignments, their
 capabilities, audit, archive and restore.
@@ -138,7 +138,8 @@ def test_rotation_accepts_both_configured_tokens(client, monkeypatch):
 
 # ───────────────────────────── GET /work ─────────────────────────────
 
-def test_work_is_empty_in_stage_1_and_runs_no_sql(client, enabled):
+def test_idle_work_is_empty_and_one_select(client, enabled):
+    """Stage 3 reads the VK queue: an idle poll is one SELECT (its index: test_bot_notify)."""
     with sql() as statements:
         r = client.get(WORK, headers=BOT)
     assert r.status_code == 200, r.text
@@ -148,7 +149,7 @@ def test_work_is_empty_in_stage_1_and_runs_no_sql(client, enabled):
     assert data["deliveries"] == data["broadcasts"] == data["commands"] == []
     server = datetime.strptime(data["server_time"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
     assert abs((server - datetime.now(timezone.utc)).total_seconds()) < 5
-    assert statements == []
+    assert len(statements) == 1 and statements[0].lstrip().startswith("SELECT"), statements
 
 
 @pytest.mark.parametrize("limit,status", [(1, 200), (100, 200), (0, 422), (101, 422), ("x", 422)])

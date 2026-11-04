@@ -1,4 +1,4 @@
-"""HereBot stage 2: the VK link policy, without the database (backend/docs/BOT_API.md).
+"""HereBot stages 2 and 3: the VK link policy, without the database (backend/docs/BOT_API.md).
 
 An account's link lives in bot_links; its state is copied to users.bot_link_state in the same
 transaction, so the working-access gate and /api/session decide from the users row they have
@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from settings import settings
 
 TOKEN_STATUSES = ("ok", "missing", "invalid", "unknown")
+# Stage 3: the states whose VK takes the community's messages (a token is not needed to send).
+SENDABLE = ("ok", "token_missing", "token_invalid")
 # Open after the deadline besides the routes free anyway (auth._access_rules): the link
 # routes and the bot console, which checks its own rights.
 OPEN_PREFIXES = ("/bot-link/", "/bot/console/")

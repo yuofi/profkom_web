@@ -1,4 +1,5 @@
-"""In-transaction outbox for internal notifications. No external delivery."""
+"""In-transaction outbox for internal notifications. Outside the site only the VK channel is
+connected, through the bot's queue (profile_features.collect_delivery_event, BOT_API.md)."""
 
 import json, uuid
 from database import db, UserORM, NotificationORM, AssignmentORM
@@ -68,7 +69,7 @@ def emit(session, recipients, kind, payload, event_key, actor=None):
         )
         from profile_features import collect_delivery_event
         collect_delivery_event(session, uid, kind, payload, event_key,
-                               preferences=preferences if isinstance(uid, int) else None)
+                               preferences=preferences if isinstance(uid, int) else None, user=u)
 
 
 def report_published(session, report, actor):
