@@ -1,7 +1,7 @@
 /** Synthetic profile feature fixtures. No provider delivery or KKR computation. */
 import type { Fixtures } from "./fixtures";
 import { mockNow } from "./fixtures";
-import type { Achievement, AchievementGrant, FeaturesContext, KkrTemplate, NotificationPreferences, TemplateValues } from "../utils/api/profileFeatures.api";
+import type { Achievement, AchievementGrant, FeaturesContext, KkrTemplate, NotificationChannelState, NotificationPreferences, PreferenceSettings, TemplateValues } from "../utils/api/profileFeatures.api";
 import type { TaskHistoryEvent } from "../utils/api/contract";
 type Reply = [number, unknown];
 const copy = <T,>(value: T): T => structuredClone(value);
@@ -20,7 +20,21 @@ export function profileFeatureMock(state: Fixtures, taskHistory?: () => Map<stri
   const editor = () => ({ revision, fingerprint: String(revision).padStart(64, "0"), contact: copy(state.profile) });
   const ownAward = (row: Achievement) => global || scopes.some(scope => scope.kind === row.scope.kind && scope.id === row.scope.id);
   const hiddenHistory = new Map<string, string>();
-  return (path: string, method: string, data: Record<string, unknown>, search?: URLSearchParams): Reply | undefined => {
+  // The VK channel follows the demo's link as the session shows it (BOT_API.md, stage 3):
+  // linked with messages allowed — ready; the integration off — not connected.
+  const vkChannel = (): NotificationChannelState => {
+    const link = state.session.bot_link;
+    return !link ? "not_connected" : link.state === "none" || link.state === "messages_denied" ? "link_required" : "ready";
+  };
+  const preferenceSettings = (): PreferenceSettings => ({ revision: preferenceRevision, preferences: copy(preferences), delivery_status: "not_connected", channels: { email: "not_connected", telegram: "not_connected", vk: vkChannel() } });
+  /** The first VK link turns VK on for «трекер» and «заявки», the rest stays (BOT_API.md,
+   *  «VK по умолчанию»). `before`: the demo account was linked before the demo began. */
+  const linkVk = (before = false) => {
+    if (preferences.tracker.vk && preferences.applications.vk) return;
+    preferences.tracker.vk = preferences.applications.vk = true;
+    if (!before) preferenceRevision++;
+  };
+  const handle = (path: string, method: string, data: Record<string, unknown>, search?: URLSearchParams): Reply | undefined => {
     const parts = path.split("/").filter(Boolean);
     if (path === "/history") {
       const id = search?.get("target_id") ?? "", kind = search?.get("target_kind");
@@ -45,7 +59,7 @@ export function profileFeatureMock(state: Fixtures, taskHistory?: () => Map<stri
     if (path.startsWith("/profile/me/avatar-drafts/")) return [204, null];
     if (path === "/profile/me/notification-preferences") {
       if (method === "put") { if (data.expected_revision !== preferenceRevision) return fail(409, "revision_conflict");Object.assign(preferences, copy(data.preferences));preferenceRevision++; }
-      return [200, { revision: preferenceRevision, preferences: copy(preferences), delivery_status: "not_connected" }];
+      return [200, preferenceSettings()];
     }
     if (parts[0] === "profiles" && parts[2] === "activity") {
       const person = Number(parts[1]);
@@ -88,4 +102,5 @@ export function profileFeatureMock(state: Fixtures, taskHistory?: () => Map<stri
     }
     return undefined;
   };
+  return Object.assign(handle, { linkVk });
 }

@@ -17,7 +17,15 @@ export interface AchievementGrant {
 export type NotificationChannel = "email" | "telegram" | "vk";
 export type NotificationCategory = "tracker" | "applications" | "pgas";
 export type NotificationPreferences = Record<NotificationCategory, Record<NotificationChannel, boolean>>;
-export interface PreferenceSettings { revision: number; preferences: NotificationPreferences; delivery_status: "not_connected" }
+/** A channel now (BOT_API.md, stage 3): `ready` — VK linked with messages allowed;
+ *  `link_required` — VK not linked or messages denied; `not_connected` — no sending
+ *  (email, Telegram, and VK while the bot integration is off). */
+export type NotificationChannelState = "not_connected" | "ready" | "link_required";
+export interface PreferenceSettings {
+  revision: number; preferences: NotificationPreferences; delivery_status: "not_connected";
+  /** Stage 3; absent from an older server. */
+  channels?: Record<NotificationChannel, NotificationChannelState>;
+}
 export type AvatarSelection = { preset_id: string } | { file_id: string };
 export interface ProfileEditorData { revision: number; fingerprint: string; contact: ContactInfoOut }
 export interface TemplateValues { title: string; description: string; hours: number; evaluation: -1 | 0 | 1 | 1.5; criteria: Criteria }

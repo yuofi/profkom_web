@@ -215,13 +215,17 @@ export function installMockTransport(
     if (!bot.enabled) queueApplication.bot_link = null;
   };
   syncBot();
+  // A linked account has had VK on for «трекер» and «заявки» since its first link (stage 3).
+  if (linkedAtStart && bot.enabled) profileFeatures.linkVk(true);
   const liveCode = () => bot.code && Date.parse(bot.code.expires_at) > Date.now() ? bot.code : null;
   const botMe = (): BotLinkMe => bot.enabled
     ? { enabled: true, vk_user_id: bot.vk_user_id, messages_allowed: bot.messages_allowed, token_status: bot.token_status, linked_at: bot.linked_at, ...botLinkView(), bot_url: bot.bot_url, code_expires_at: liveCode()?.expires_at ?? null }
     : { enabled: false, state: null, vk_user_id: null, messages_allowed: null, token_status: null, linked_at: null, required: false, blocked: false, deadline: null, bot_url: null, code_expires_at: null };
   const confirmBotCode = () => {
+    const first = bot.linked_at === null;
     Object.assign(bot, { state: "ok", vk_user_id: mockVkId(state.session.user_id), messages_allowed: true, token_status: "ok", linked_at: new Date().toISOString(), code: null, polls: 0 });
     syncBot();
+    if (first) profileFeatures.linkVk();
   };
   const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
   // Public profile projection: current team identities/roles only. Never copy

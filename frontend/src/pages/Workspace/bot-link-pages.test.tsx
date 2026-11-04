@@ -132,6 +132,7 @@ it("puts the «Бот ВКонтакте» block in the profile settings, before
   expect(page.container.querySelector("#bot h2")?.textContent).toBe("Бот ВКонтакте");
   expect(text()).toContain(`Страница ВКонтакте: id${mockVkId(mock.state.session.user_id)}.`);
   expect(text()).toContain("Привязка обязательна с 1 дек. 2026 г., 00:00.");
+  expect(page.container.querySelector("#bot")?.textContent).toContain("Уведомления сайта приходят в VK по настройкам ниже.");
 });
 
 it("makes the bot a required step of a pending registration, and the demo bot completes it", async () => {
@@ -147,6 +148,8 @@ it("makes the bot a required step of a pending registration, and the demo bot co
   // The own application was reread: it is ready and waits for the decision.
   await waitForPage(page, () => text().includes("Дождитесь решения руководства Профкома."));
   expect(mock.state.registration.bot_link).toEqual({ state: "ok", vk_user_id: mockVkId(mock.state.session.user_id) });
+  // No notification settings here: the profile settings' line about them is not shown.
+  expect(text()).not.toContain("по настройкам ниже");
 });
 
 it("asks a rejected applicant to link the bot before sending again", async () => {

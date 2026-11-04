@@ -34,10 +34,12 @@ const external = { target: "_blank", rel: "noopener noreferrer" } as const;
  * one-time code with the bot's link and command, and a poll of GET /bot-link/me every 3 s
  * while it waits. Nothing while the integration is off (`session.bot_link` null).
  */
-export function BotLinkStep({ id, lead, frame = "card" }: {
+export function BotLinkStep({ id, lead, linkedNote, frame = "card" }: {
   id?: string;
   /** A line under the title: why the step is here. */
   lead?: ReactNode;
+  /** A line under the state while the link works (`ok`): what it gives on this page. */
+  linkedNote?: ReactNode;
   /** `plain`: inside the host's own card (the gate page). */
   frame?: "card" | "plain";
 }) {
@@ -114,6 +116,7 @@ export function BotLinkStep({ id, lead, frame = "card" }: {
         {text.status}
         {linked && data.vk_user_id !== null && <> Страница ВКонтакте: id{data.vk_user_id}.</>}
       </p>
+      {linkState === "ok" && linkedNote}
       {text.hint && !shown && (linkState === "none" ? <p>{text.hint}</p> : <div className={`${s.note} ${b.hint}`}><p>{text.hint}</p>{openBot(data.bot_url)}</div>)}
       {shown && !expired && <div className={b.panel}>
         <p className={s.muted}>Ваш код</p>
