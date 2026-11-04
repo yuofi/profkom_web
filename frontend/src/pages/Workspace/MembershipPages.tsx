@@ -37,6 +37,7 @@ import { BlockHr } from "./BlockHr";
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
 import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
 import { userMessage } from "../../utils/api/messages";
+import { botLinkLabels } from "../../components/Workspace/botLink";
 import m from "./MembershipPages.module.css";
 import { HistoryDisclosure } from "../../components/Workspace/HistoryPanel";
 import s from "../../components/Workspace/Workspace.module.css";
@@ -587,6 +588,7 @@ export function BlockRequestsPage() {
     </Page>
   );
 }
+const BOT_NOT_READY = "Одобрить можно, когда заявитель привяжет и настроит бота ВКонтакте.";
 const registrationStatuses = {
   pending: "Ожидают решения",
   rejected: "Отклонённые",
@@ -600,12 +602,15 @@ function RegistrationCard({ registration: r }: { registration: RegistrationAppli
     if (busy) return;
     setBusy(true);setError("");
     try { await perform(() => membershipApi.registrationCommand(r.user_id, "approve", { expected_revision: r.revision })); }
-    catch (failure) { setError(userMessage(failure));await refresh(); }
+    catch (failure) { setError(userMessage(failure, { bot_link_required: BOT_NOT_READY }));await refresh(); }
     finally { setBusy(false); }
   };
+  // Stage 2: an application is ready only with a working VK link; the server refuses others (409).
+  const botBlocks = !!r.bot_link && r.bot_link.state !== "ok";
+  const reasonId = `registration-${r.user_id}-bot`;
   return <Card className={m.registrationCard}>
     <details className={m.registrationDetails} onToggle={event => setExpanded(event.currentTarget.open)}>
-      <summary><div><strong>{r.fields.surname} {r.fields.name} {r.fields.patronymic}</strong><small>{[r.fields.group_number, r.fields.email].filter(Boolean).join(" · ")}</small></div><Badge tone={r.status === "pending" ? "peach" : r.status === "rejected" ? "rose" : "mint"}>{r.status === "pending" ? "Ожидает решения" : r.status === "rejected" ? "Отклонена" : "Одобрена"}</Badge></summary>
+      <summary><div><strong>{r.fields.surname} {r.fields.name} {r.fields.patronymic}</strong><small>{[r.fields.group_number, r.fields.email].filter(Boolean).join(" · ")}</small></div><span className={s.badges}><Badge tone={r.status === "pending" ? "peach" : r.status === "rejected" ? "rose" : "mint"}>{r.status === "pending" ? "Ожидает решения" : r.status === "rejected" ? "Отклонена" : "Одобрена"}</Badge>{r.bot_link && <Badge tone={r.bot_link.state === "ok" ? "mint" : "rose"}>Бот: {botLinkLabels[r.bot_link.state]}</Badge>}</span></summary>
       {expanded && <div className={m.registrationBody}>
         <dl className={m.registrationFields}>{Object.entries(registrationLabels).map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{r.fields[key as keyof typeof registrationLabels] || "—"}</dd></div>)}<div><dt>Основа обучения</dt><dd>{r.fields.funding ? fundingLabels[r.fields.funding] : "Не выбрано"}</dd></div></dl>
         <p className={s.muted}>Отправок: {r.attempts_used}/{r.attempt_limit} · за всё время: {r.total_submissions}</p>
@@ -613,7 +618,8 @@ function RegistrationCard({ registration: r }: { registration: RegistrationAppli
         {r.status !== "approved" && can(r, "reset_registration_limit") && <details className={s.details}><summary>Сбросить лимит отправок</summary><ActionForm revision={r.revision} record={`registration:${r.user_id}`} fields={[{ name: "reason", label: "Основание сброса счётчика", required: true }]} submitLabel="Сбросить лимит" variant="quiet" onConflict={refresh} onSubmit={async (values, revision) => perform(() => membershipApi.registrationCommand(r.user_id, "reset-attempts", { expected_revision: revision!, reason: text(values, "reason") }))} /></details>}
       </div>}
     </details>
-    {r.status === "pending" && <div className={m.decisions}><button type="button" className={s.button} aria-busy={busy} disabled={busy} onClick={() => void approve()}>Одобрить</button><button type="button" className={`${s.button} ${m.reject}`} disabled={busy} onClick={() => setRejecting(true)}>Отклонить</button></div>}
+    {r.status === "pending" && botBlocks && <p id={reasonId} className={`${s.muted} ${m.decisionNote}`}>{BOT_NOT_READY}</p>}
+    {r.status === "pending" && <div className={m.decisions}><button type="button" className={s.button} aria-busy={busy} disabled={busy || botBlocks} aria-describedby={botBlocks ? reasonId : undefined} onClick={() => void approve()}>Одобрить</button><button type="button" className={`${s.button} ${m.reject}`} disabled={busy} onClick={() => setRejecting(true)}>Отклонить</button></div>}
     {error && <p role="alert" className={s.error}>{error}</p>}
     {rejecting && r.status === "pending" && <UnsavedChangesScope><TrackerTaskDialog title="Отклонить регистрацию" onClose={() => setRejecting(false)}><p>{r.fields.surname} {r.fields.name}</p><ActionForm revision={r.revision} record={`registration:${r.user_id}`} fields={[{ name: "reason", label: "Причина отказа", type: "textarea", required: true }]} submitLabel="Отклонить регистрацию" variant="danger" onConflict={refresh} onSubmit={async (values, revision) => { const saved = await perform(() => membershipApi.registrationCommand(r.user_id, "reject", { expected_revision: revision!, reason: text(values, "reason") }));setRejecting(false);return saved; }} /></TrackerTaskDialog></UnsavedChangesScope>}
   </Card>;
