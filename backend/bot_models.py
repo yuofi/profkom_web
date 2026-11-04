@@ -1,10 +1,11 @@
-"""Additive HereBot persistence (backend/docs/BOT_API.md, stage 1).
+"""Additive HereBot persistence (backend/docs/BOT_API.md, stages 1 and 2).
 
 Imported by database before create_all. The bot's own data stays in its PostgreSQL; the
-site keeps only the last report's state and the bot's grouped log errors. Times are
-ISO 8601 UTC strings with `Z`, so they compare as text.
+site keeps the last report's state, the bot's grouped log errors and, from stage 2, the VK
+link of an account with its one-time codes. Times are ISO 8601 UTC strings with `Z`, whole
+seconds, so they compare as text.
 """
-from sqlalchemy import Column, Integer, String, Text
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Text
 from database import Base
 
 
@@ -33,3 +34,29 @@ class BotErrorORM(Base):
     count = Column(Integer, nullable=False, default=0)
     first_at = Column(String, nullable=False)
     last_at = Column(String, nullable=False, index=True)
+
+
+class BotLinkORM(Base):
+    """The VK of an account, confirmed by the bot with a code. Its state is copied to
+    users.bot_link_state in the same transaction (bot_api.save_link)."""
+    __tablename__ = "bot_links"
+    user_id = Column(Integer, ForeignKey("users.user_id"), primary_key=True)
+    vk_user_id = Column(Integer, nullable=False, unique=True)
+    messages_allowed = Column(Boolean, nullable=False)
+    messages_at = Column(String, nullable=False)  # the bot's time of the value: later events only
+    token_status = Column(String, nullable=False)  # ok, missing, invalid, unknown
+    token_at = Column(String, nullable=False)
+    linked_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+
+
+class BotLinkCodeORM(Base):
+    """A one-time link code: only its SHA-256 is kept. A new code of the account deletes its
+    other codes and every expired one."""
+    __tablename__ = "bot_link_codes"
+    code_hash = Column(String, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False, index=True)
+    created_at = Column(String, nullable=False)
+    expires_at = Column(String, nullable=False, index=True)
+    used_at = Column(String, nullable=True)
+    used_vk_user_id = Column(Integer, nullable=True)  # a repeat by the same VK answers the same

@@ -130,6 +130,9 @@ class UserORM(Base):
     session_version = Column(Integer, nullable=False, default=0, server_default="0")
     # A temporary password from the chair or a deputy must be changed before any work (АВ-52)
     must_change_password = Column(Boolean, default=False, nullable=False, server_default="0")
+    # Copy of the HereBot VK link state (bot_models.BotLinkORM), NULL for none: the access gate
+    # and /api/session read it from this row without another query (BOT_API.md, stage 2).
+    bot_link_state = Column(String, nullable=True)
 
     contact = relationship("ContactInfoORM", back_populates="user", uselist=False)
 
@@ -1167,6 +1170,17 @@ def _ensure_sqlite_users_must_change_password_column() -> None:
 _ensure_sqlite_users_must_change_password_column()
 
 
+def _ensure_sqlite_users_bot_link_state_column() -> None:
+    """Add bot_link_state to SQLite DBs created before the bot's VK link; NULL is no link."""
+    with engine.begin() as conn:
+        names = {r[1] for r in conn.execute(text("PRAGMA table_info(users)")).fetchall()}
+        if names and "bot_link_state" not in names:
+            conn.execute(text("ALTER TABLE users ADD COLUMN bot_link_state VARCHAR"))
+
+
+_ensure_sqlite_users_bot_link_state_column()
+
+
 def _ensure_sqlite_file_records_columns() -> None:
     """Add sealed_at and storage_key to SQLite DBs created before files were served by the API."""
     with engine.begin() as conn:
@@ -1574,6 +1588,7 @@ def _user_orm_to_dc(u: UserORM) -> UserDC:
         category=getattr(u, "category", "junior") or "junior",
         session_version=u.session_version,
         must_change_password=bool(u.must_change_password),
+        bot_link_state=u.bot_link_state,
     )
 
 
