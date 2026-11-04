@@ -1,8 +1,9 @@
+import os
 import pathlib
 import re
 from datetime import datetime
 from typing import Literal
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -61,6 +62,28 @@ class Settings(BaseSettings):
         if value is not None and not isinstance(value, datetime):
             raise ValueError("BOT_LINK_DEADLINE: ISO 8601 with an offset")
         return value
+
+    # Stage 3: the site's address for people in the links of VK notifications, without a
+    # trailing slash. Empty: FRONTEND_URL. With the integration on, https only in production.
+    PUBLIC_SITE_URL: str = ""
+
+    @field_validator("PUBLIC_SITE_URL")
+    @classmethod
+    def _public_site_url(cls, value):
+        value = value.strip().rstrip("/")
+        if value and not re.fullmatch(r"https?://[^\s/?#]+(?:/[^\s?#]*)?", value):
+            raise ValueError("PUBLIC_SITE_URL: http(s)://host[/path], without a query")
+        return value
+
+    @model_validator(mode="after")
+    def _public_site_url_in_production(self):
+        if os.getenv("APP_ENV") == "production" and self.BOT_API_TOKEN_SHA256 and not self.public_site_url().startswith("https://"):
+            raise ValueError("PUBLIC_SITE_URL (or FRONTEND_URL) must be https:// in production with the bot integration on")
+        return self
+
+    def public_site_url(self):
+        """PUBLIC_SITE_URL, else FRONTEND_URL as main.py reads it; no trailing slash."""
+        return (self.PUBLIC_SITE_URL or os.getenv("FRONTEND_URL", "http://localhost:5173").strip()).rstrip("/")
 
     model_config = SettingsConfigDict(
         env_file=".env",
