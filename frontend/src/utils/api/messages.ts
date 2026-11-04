@@ -77,6 +77,10 @@ export const ERROR_TEXTS: Record<string, string> = {
   bot_api_disabled: "Связь с ботом на сайте выключена.",
   bot_token_invalid: "Служебный токен бота не подходит.",
   payload_too_large: "Слишком большой запрос. Уменьшите объём данных.",
+  link_code_invalid: "Код привязки не подошёл: он неверный, истёк или уже использован.",
+  link_rate_limited: "Слишком много неудачных попыток привязки. Попробуйте позже.",
+  vk_mismatch: "Аккаунт сайта создан входом через другой VK.",
+  vk_taken: "Этот VK уже привязан к другому аккаунту сайта.",
   // The VK link through the bot (stage 2).
   bot_link_required: "Сначала привяжите бота ВКонтакте.",
   link_code_rate_limited: "Слишком много кодов за час. Подождите немного и получите код снова.",
