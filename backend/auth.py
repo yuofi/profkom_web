@@ -245,12 +245,15 @@ def revoke_all_user_tokens(user_id: int):
     db.revoke_sessions(user_id)
 
 PASSWORD_CHANGE_REQUIRED = "Password change required"
+# Open to any account that is not archived or banned: pending ones register there, and the
+# VK link through the bot is part of registration (BOT_API.md, stage 2).
+OPEN_TO_ACCOUNTS = {"/registrations/me", "/registrations/me/resubmit", "/bot-link/me", "/bot-link/code"}
 
 
 def _access_rules(request: Request):
     path=request.url.path.removeprefix("/api")
     feedback_intake = path == "/feedback" and request.method == "POST"
-    exempt=feedback_intake or path.startswith("/auth/") or path=="/session" or path in {"/registrations/me","/registrations/me/resubmit"}
+    exempt=feedback_intake or path.startswith("/auth/") or path=="/session" or path in OPEN_TO_ACCOUNTS
     return path, feedback_intake, exempt
 
 

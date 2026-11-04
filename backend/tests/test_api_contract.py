@@ -278,6 +278,9 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ('PUT', '/api/broadcasts/senders/{user_id}'),
     ('GET', '/api/bot/v1/work'),
     ('POST', '/api/bot/v1/report'),
+    ('GET', '/api/bot-link/me'),
+    ('POST', '/api/bot-link/code'),
+    ('POST', '/api/bot/v1/links/confirm'),
 )
 
 # Служебные маршруты, которые FastAPI монтирует сам (единственное законное
@@ -301,6 +304,7 @@ PUBLIC_ROUTES: tuple[tuple[str,str], ...] = (
 SERVICE_ROUTES: tuple[tuple[str, str], ...] = (
     ('GET', '/api/bot/v1/work'),
     ('POST', '/api/bot/v1/report'),
+    ('POST', '/api/bot/v1/links/confirm'),
 )
 
 

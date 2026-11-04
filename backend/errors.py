@@ -53,6 +53,10 @@ class PayloadTooLarge(DomainError):
     status, code = 413, "payload_too_large"
 
 
+class TooManyRequests(DomainError):
+    status, code = 429, "rate_limited"
+
+
 def revision_conflict(message="Conflict: revision mismatch"):
     return Conflict(message, "revision_conflict")
 

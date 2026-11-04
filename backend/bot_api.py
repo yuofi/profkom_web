@@ -1,15 +1,21 @@
-"""HereBot: the service API /api/bot/v1 and the people's console and grant routes (stage 1).
+"""HereBot: the service API /api/bot/v1 and the people's routes (stages 1 and 2).
 
 The contract is backend/docs/BOT_API.md. The bot is a client with a service token; the site
 stores only its SHA-256 (settings.BOT_API_TOKEN_SHA256, two values while rotating). The token
 check reads no database, so a wrong token never waits for the write lock or a unit. The
 service routes are outside the user router: no JWT, account or working-access guard.
-Stage 1 hands out no work and keeps the last heartbeat and the bot's error groups.
+Stage 1 hands out no work and keeps the last heartbeat and the bot's error groups. Stage 2
+links an account to its VK: the site issues a one-time code, the bot confirms it, reports
+carry the VK's message and token events (the policy without SQL is bot_link.py).
 """
 import hashlib
 import hmac
 import json
+import re
+import secrets
+import threading
 import uuid
+from collections import deque
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal
@@ -18,17 +24,19 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.routing import APIRoute
 from fastapi.security.utils import get_authorization_scheme_param
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 import access
+import bot_link
 from api_contract import Page
 from auth import get_current_user, unit_of_work
-from bot_models import BotErrorORM, BotStatusORM
-from database import db, RoleAssignmentORM, UserORM
+from bot_link import TOKEN_STATUSES, parse, stamp, state_of, utcnow
+from bot_models import BotErrorORM, BotLinkCodeORM, BotLinkORM, BotStatusORM
+from database import db, ContactInfoORM, ExternalIdentityORM, RoleAssignmentORM, UserORM
 from domain_contract import UserReference
-from errors import NotFound, PayloadTooLarge, Unauthenticated
+from errors import Conflict, NotFound, PayloadTooLarge, TooManyRequests, Unauthenticated
 from models import User
-from registration import audit, fail
+from registration import audit, fail, link_changed
 from settings import settings
 
 PREFIX = "/api/bot/v1"
@@ -40,20 +48,12 @@ POLL_AFTER_MS = 3000
 KEEP_GROUPS, KEEP_DAYS, CLEAN_EVERY = 500, 30, timedelta(hours=1)
 CONSOLE_ERRORS = 100
 ONLINE_FLOOR_S = 180
-
-
-def utcnow():
-    return datetime.now(timezone.utc)
-
-
-def stamp(moment):
-    """ISO 8601 UTC with `Z`, whole seconds: the wire format and the stored text order."""
-    moment = moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
-    return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def parse(text):
-    return datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+MAX_EVENTS = 500
+CODE_ALPHABET, CODE_LENGTH, CODE_TTL = "0123456789ABCDEFGHJKMNPQRSTVWXYZ", 10, timedelta(minutes=15)  # Crockford base32
+CODES_PER_HOUR = 10
+FAILURES_PER_VK, FAILURES_TOTAL = 10, 200  # failed confirmations in FAILURE_WINDOW
+FAILURE_WINDOW = timedelta(minutes=15)
+DISABLED = "Bot API is disabled"
 
 
 # ── Service token ──
@@ -67,7 +67,7 @@ async def bot_token(request: Request):
     """404 while the integration is off, 401 for a missing or wrong token; no database read."""
     hashes = token_hashes()
     if not hashes:
-        raise NotFound("Bot API is disabled", "bot_api_disabled")
+        raise NotFound(DISABLED, "bot_api_disabled")
     scheme, token = get_authorization_scheme_param(request.headers.get("Authorization"))
     digest = hashlib.sha256(token.encode()).hexdigest() if scheme.lower() == "bearer" and token else ""
     # Every configured hash is compared: the timing does not tell which one matched.
@@ -149,12 +149,48 @@ class ErrorGroup(Lenient):
     last_at: datetime
 
 
+VkUserId = Annotated[int, Field(gt=0, le=2**63 - 1)]
+
+
+class VkEvent(Lenient):
+    """message_allow or message_deny from Long Poll; another event is skipped (rules of v1)."""
+    vk_user_id: VkUserId
+    event: str = Field(max_length=32)
+    at: datetime
+
+
+class TokenEvent(Lenient):
+    """The bot's last word on the user's token; an unknown status is skipped."""
+    vk_user_id: VkUserId
+    status: str = Field(max_length=32)
+    at: datetime
+
+
 class Report(Lenient):
     api: Literal[1] = API
     report_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     boot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     heartbeat: Heartbeat | None = None
     errors: list[ErrorGroup] = Field(default_factory=list, max_length=MAX_ERRORS)
+    vk_events: list[VkEvent] = Field(default_factory=list, max_length=MAX_EVENTS)
+    tokens: list[TokenEvent] = Field(default_factory=list, max_length=MAX_EVENTS)
+
+
+class LinkConfirm(Lenient):
+    api: Literal[1] = API
+    code: str = Field(min_length=1, max_length=64)
+    vk_user_id: VkUserId
+    messages_allowed: bool | None = None  # None: VK did not answer the check
+    token_status: Literal[TOKEN_STATUSES]
+    at: datetime  # when the bot checked both: the reference time of later events
+
+
+class LinkConfirmed(BaseModel):
+    api: int = API
+    linked: bool = True
+    user_id: int
+    display_name: str
+    state: str
 
 
 class Work(BaseModel):
@@ -188,12 +224,19 @@ def report(payload: Report):
     return Accepted(duplicate=store(payload, now), server_time=stamp(now))
 
 
+@service_router.post("/links/confirm", response_model=LinkConfirmed)
+def links_confirm(payload: LinkConfirm):
+    """Stage 2: the bot confirms the code a person sent it; a repeat answers the same."""
+    return confirm_link(payload, utcnow())
+
+
 def store(payload, now):
     """The report in the request's write unit; True for a repeat of the last report.
 
     A heartbeat-only report is one SELECT and one UPDATE of bot_status (with BEGIN, three
     statements); error groups add one SELECT and their writes; the retention runs when the
-    report adds a group or an hour after the last pass.
+    report adds a group or an hour after the last pass. VK events add one SELECT of the
+    links they name and writes of the changed ones only.
     """
     with db._session() as s:
         status = s.get(BotStatusORM, 1)
@@ -208,6 +251,8 @@ def store(payload, now):
             status.heartbeat_json = json.dumps(payload.heartbeat.model_dump(mode="json"), ensure_ascii=False)
             status.updated_at = stamp(now)
         added = merge_errors(s, payload.errors) if payload.errors else False
+        if payload.vk_events or payload.tokens:
+            apply_events(s, payload.vk_events, payload.tokens, now)
         due = not status.cleaned_at or status.cleaned_at <= stamp(now - CLEAN_EVERY)
         if due:
             status.cleaned_at = stamp(now)
@@ -253,9 +298,228 @@ def merge_errors(s, items):
 
 
 def anonymize(session, uid, old_pid, new_pid):
-    """Retention callback (account_cleanup): the stage 1 tables hold the bot's own state and
-    log groups, no site account. The site grants are role_assignments rows; the cleanup
-    removes them with the account's other roles."""
+    """Retention callback (account_cleanup): the account's VK link and codes go. The stage 1
+    tables hold the bot's own state and log groups, no site account. The site grants are
+    role_assignments rows; the cleanup removes them with the account's other roles."""
+    session.query(BotLinkCodeORM).filter_by(user_id=uid).delete(synchronize_session=False)
+    user = session.get(UserORM, uid)
+    if user is not None:
+        save_link(session, user, None)
+
+
+# ── The VK link (stage 2) ──
+
+class Window:
+    """Events per key in a sliding window, in process memory: the site runs one uvicorn
+    process (BOT_API.md). reset() is for tests."""
+
+    def __init__(self, span):
+        self.span, self.events, self.lock = span, {}, threading.Lock()
+
+    def _live(self, key, now):
+        events = self.events.get(key)
+        while events and events[0] <= now - self.span:
+            events.popleft()
+        if events is not None and not events:
+            del self.events[key]
+        return len(events or ())
+
+    def count(self, key, now):
+        with self.lock:
+            return self._live(key, now)
+
+    def add(self, key, now):
+        with self.lock:
+            if len(self.events) > 10000:  # forget keys whose window has passed
+                for stale in [k for k, v in self.events.items() if v[-1] <= now - self.span]:
+                    del self.events[stale]
+            self.events.setdefault(key, deque()).append(now)
+
+    def reset(self):
+        with self.lock:
+            self.events.clear()
+
+
+CODES = Window(timedelta(hours=1))  # codes issued per account
+FAILURES = Window(FAILURE_WINDOW)  # failed confirmations per VK, and of everyone under None
+
+
+def reset_limits():
+    CODES.reset()
+    FAILURES.reset()
+
+
+_READ_AS = str.maketrans({"O": "0", "I": "1", "L": "1"})
+
+
+def normalize(code):
+    """As the bot reads a code: no spaces or hyphens, upper case, O is 0, I and L are 1. None
+    if what is left is not a code."""
+    text = re.sub(r"[\s-]+", "", code).upper().translate(_READ_AS)
+    return text if len(text) == CODE_LENGTH and all(ch in CODE_ALPHABET for ch in text) else None
+
+
+def code_hash(code):
+    return hashlib.sha256(code.encode()).hexdigest()
+
+
+def shown(code):
+    return f"{code[:5]}-{code[5:]}"
+
+
+def save_link(s, user, link):
+    """The one writer of bot_links and its copy users.bot_link_state: both change in this
+    transaction, so the gate and /api/session read a current state with the users row. None
+    removes the account's link. A pending application that became ready is announced."""
+    if link is None:
+        existing = s.get(BotLinkORM, user.user_id)
+        if existing is not None:
+            s.delete(existing)
+            s.flush()  # the VK is free for another account within this transaction
+    else:
+        s.add(link)
+    old, user.bot_link_state = user.bot_link_state, state_of(link)
+    if user.bot_link_state != old:
+        link_changed(s, user, old)
+
+
+def display_name(s, uid):
+    c = s.get(ContactInfoORM, uid)
+    return " ".join(part for part in (c.name, c.surname) if part) if c else ""
+
+
+def confirm_link(payload, now):
+    """POST /links/confirm. Failures (404, 409) are counted per VK and in all; past the limit
+    every attempt answers 429 before the code is looked at."""
+    vk = payload.vk_user_id
+    if FAILURES.count(vk, now) >= FAILURES_PER_VK or FAILURES.count(None, now) >= FAILURES_TOTAL:
+        raise TooManyRequests("Too many failed link attempts", "link_rate_limited")
+    try:
+        return _confirm(payload, vk, now)
+    except (NotFound, Conflict):
+        FAILURES.add(vk, now)
+        FAILURES.add(None, now)
+        raise
+
+
+def _confirm(payload, vk, now):
+    invalid = NotFound("Link code not found, expired or used", "link_code_invalid")
+    code = normalize(payload.code)
+    with db._session() as s:
+        row = s.get(BotLinkCodeORM, code_hash(code)) if code else None
+        if row is None or row.expires_at <= stamp(now) or (row.used_at and row.used_vk_user_id != vk):
+            raise invalid
+        user = s.get(UserORM, row.user_id)
+        if user is None or user.banned or user.account_state in ("archived", "purged"):
+            raise invalid
+        if row.used_at:  # the same VK again: the answer may have been lost on the way to the bot
+            return LinkConfirmed(user_id=user.user_id, display_name=display_name(s, user.user_id),
+                                 state=user.bot_link_state or "none")
+        subject = f"vk:{vk}"
+        identities = s.query(ExternalIdentityORM).filter(
+            (ExternalIdentityORM.user_id == user.user_id) | (ExternalIdentityORM.subject == subject)).all()
+        if any(i.user_id == user.user_id and i.subject != subject for i in identities):
+            raise Conflict("The account signs in with another VK", "vk_mismatch")
+        if any(i.user_id != user.user_id for i in identities):
+            raise Conflict("This VK signs in to another account", "vk_taken")
+        links = {l.user_id: l for l in s.query(BotLinkORM).filter(
+            (BotLinkORM.user_id == user.user_id) | (BotLinkORM.vk_user_id == vk))}
+        link = links.pop(user.user_id, None)
+        holder = s.get(UserORM, next(iter(links))) if links else None
+        if holder is not None and holder.account_state not in ("archived", "purged"):
+            raise Conflict("This VK is linked to another account", "vk_taken")
+        if holder is not None:  # an archived account gives the VK up
+            audit(s, "user", holder.user_id, user.user_id, "bot_link", {"vk_user_id": vk}, {"vk_user_id": None})
+            save_link(s, holder, None)
+        at, old = stamp(payload.at), link.vk_user_id if link else None
+        if link is None or link.vk_user_id != vk:
+            # A new link, or another VK in place of the old one: the confirmation is all it knows.
+            link = link or BotLinkORM(user_id=user.user_id)
+            link.vk_user_id, link.linked_at = vk, stamp(now)
+            # A person who wrote to the community has allowed its messages unless VK says otherwise.
+            link.messages_allowed = True if payload.messages_allowed is None else payload.messages_allowed
+            link.messages_at, link.token_status, link.token_at = at, payload.token_status, at
+        else:  # the same VK: a value older than the stored one does not win, as for events
+            if payload.messages_allowed is not None and at >= link.messages_at:
+                link.messages_allowed, link.messages_at = payload.messages_allowed, at
+            if at >= link.token_at:
+                link.token_status, link.token_at = payload.token_status, at
+        link.updated_at = stamp(now)
+        row.used_at, row.used_vk_user_id = stamp(now), vk
+        audit(s, "user", user.user_id, user.user_id, "bot_link", {"vk_user_id": old}, {"vk_user_id": vk})
+        save_link(s, user, link)
+        answer = LinkConfirmed(user_id=user.user_id, display_name=display_name(s, user.user_id),
+                               state=user.bot_link_state or "none")
+        s.commit()
+    return answer
+
+
+def apply_events(s, vk_events, tokens, now):
+    """Events of linked VKs; the others are skipped and not stored. An event applies when its
+    `at` is not before the stored time of its field; of equal times the last in the list wins.
+    One SELECT of the links named, writes of the changed rows only."""
+    allow = {"message_allow": True, "message_deny": False}
+    vk_events = [e for e in vk_events if e.event in allow]
+    tokens = [t for t in tokens if t.status in TOKEN_STATUSES]
+    ids = {e.vk_user_id for e in vk_events} | {t.vk_user_id for t in tokens}
+    if not ids:
+        return
+    links = {l.vk_user_id: l for l in s.query(BotLinkORM).filter(BotLinkORM.vk_user_id.in_(ids))}
+    changed = set()
+
+    def put(vk, moment, value, field, at_field):
+        link, at = links.get(vk), stamp(moment)
+        if link is None or at < getattr(link, at_field):
+            return
+        if (getattr(link, field), getattr(link, at_field)) != (value, at):
+            setattr(link, field, value)
+            setattr(link, at_field, at)
+            changed.add(vk)
+    for e in vk_events:
+        put(e.vk_user_id, e.at, allow[e.event], "messages_allowed", "messages_at")
+    for t in tokens:
+        put(t.vk_user_id, t.at, t.status, "token_status", "token_at")
+    if not changed:
+        return
+    users = {u.user_id: u for u in s.query(UserORM).filter(UserORM.user_id.in_([links[vk].user_id for vk in changed]))}
+    for vk in sorted(changed):
+        links[vk].updated_at = stamp(now)
+        save_link(s, users[links[vk].user_id], links[vk])
+
+
+def issue_code(uid, now):
+    """POST /bot-link/code: a new code replaces the account's others; expired codes of anyone
+    go with it. Four statements with BEGIN and the account read."""
+    if not bot_link.enabled():
+        raise NotFound(DISABLED, "bot_api_disabled")
+    if CODES.count(uid, now) >= CODES_PER_HOUR:
+        raise TooManyRequests(f"At most {CODES_PER_HOUR} link codes an hour", "link_code_rate_limited")
+    code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LENGTH))
+    with db._session() as s:
+        s.execute(delete(BotLinkCodeORM).where((BotLinkCodeORM.user_id == uid) | (BotLinkCodeORM.expires_at <= stamp(now))),
+                  execution_options=dict(synchronize_session=False))
+        s.add(BotLinkCodeORM(code_hash=code_hash(code), user_id=uid, created_at=stamp(now), expires_at=stamp(now + CODE_TTL)))
+        s.commit()
+    CODES.add(uid, now)
+    url = settings.BOT_VK_URL
+    return LinkCode(code=shown(code), expires_at=stamp(now + CODE_TTL), link_url=f"{url}?ref={code}" if url else None,
+                    command=f"привязать {shown(code)}")
+
+
+def link_status(cur, now):
+    """GET /bot-link/me: with the account read, one SELECT of the link and the live code."""
+    if not bot_link.enabled():
+        return LinkStatus(enabled=False)
+    live = select(func.max(BotLinkCodeORM.expires_at)).where(
+        BotLinkCodeORM.user_id == cur.user_id, BotLinkCodeORM.used_at.is_(None),
+        BotLinkCodeORM.expires_at > stamp(now)).scalar_subquery()
+    with db._session() as s:
+        link, expires = s.execute(select(BotLinkORM, live).select_from(UserORM).outerjoin(
+            BotLinkORM, BotLinkORM.user_id == UserORM.user_id).where(UserORM.user_id == cur.user_id)).one()
+        return LinkStatus(enabled=True, **bot_link.summary(cur, now), bot_url=settings.BOT_VK_URL or None,
+                          code_expires_at=expires, **(dict(
+                              vk_user_id=link.vk_user_id, messages_allowed=link.messages_allowed,
+                              token_status=link.token_status, linked_at=link.linked_at) if link else {}))
 
 
 # ── People: console status and grants (stage 1) ──
@@ -299,6 +563,28 @@ class Sender(BaseModel):
 class SenderOut(BaseModel):
     user_id: int
     sender: bool
+
+
+class LinkStatus(BaseModel):
+    """GET /bot-link/me; with the integration off only `enabled: false`."""
+    enabled: bool
+    state: str | None = None
+    vk_user_id: int | None = None
+    messages_allowed: bool | None = None
+    token_status: str | None = None
+    linked_at: str | None = None
+    required: bool = False
+    blocked: bool = False
+    deadline: str | None = None
+    bot_url: str | None = None
+    code_expires_at: str | None = None
+
+
+class LinkCode(BaseModel):
+    code: str
+    expires_at: str
+    link_url: str | None = None
+    command: str
 
 
 def online(status, heartbeat, now):
@@ -386,3 +672,13 @@ def register_routes(router):
         """The chair and deputies decide who else sends broadcasts (owner, 2026-11-04)."""
         require(cur.user_id, "broadcast.senders.manage", SENDERS)
         return SenderOut(user_id=user_id, sender=set_grant(user_id, "broadcaster", payload.sender, cur.user_id))
+
+    # Stage 2: open to every account that is not archived or banned, pending ones included
+    # (auth._access_rules exempts them; get_current_user still refuses archive and ban).
+    @router.get("/bot-link/me", response_model=LinkStatus)
+    def own_bot_link(cur: User = Depends(get_current_user)):
+        return link_status(cur, utcnow())
+
+    @router.post("/bot-link/code", response_model=LinkCode)
+    def new_bot_link_code(cur: User = Depends(get_current_user)):
+        return issue_code(cur.user_id, utcnow())
