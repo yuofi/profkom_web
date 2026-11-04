@@ -1,0 +1,53 @@
+/* The VK link step: the state, then the code in its own panel. */
+.step {
+  display: grid;
+  gap: 14px;
+  justify-items: start;
+  min-width: 0;
+}
+.step > *,
+.panel > * {
+  margin: 0;
+}
+.status {
+  font-weight: 500;
+}
+.panel {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  padding: 16px 18px;
+  border-radius: var(--radius-large);
+  background: var(--surface-container);
+  min-width: 0;
+}
+/* Large and in two groups: easy to compare with what the bot shows or to retype. */
+.code {
+  font: 600 32px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.12em;
+  color: var(--primary);
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+.command {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.command code {
+  padding: 6px 10px;
+  border-radius: var(--radius-medium);
+  background: var(--surface-container-high);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 768px) {
+  .panel {
+    padding: 14px;
+  }
+  .code {
+    font-size: 26px;
+  }
+}
