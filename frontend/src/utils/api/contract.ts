@@ -34,7 +34,8 @@ export interface RoleAssignment extends Versioned {
   role_assignment_id: string;
   user_id?: number;
   role: string;
-  scope_kind: "global" | "block" | "event" | "subevent" | "material";
+  /** `site`: a site-wide grant (bot_maintainer, broadcaster), scope_id null (BOT_API.md). */
+  scope_kind: "global" | "block" | "event" | "subevent" | "material" | "site";
   scope_id: string | null;
   principal_assignment_id?: string | null;
 }

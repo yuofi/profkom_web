@@ -416,6 +416,11 @@ def _restore(uid, payload, actor):
                 if r["role"] != "deputy_chair" or not restore_global:
                     skipped.add(r["role_assignment_id"])
                     continue
+            if r["scope_kind"] == "site":
+                # Bot maintainer and broadcast sender grants are given again by their owners
+                # (the IT master; the chair and deputies), never by the restore (2026-11-04).
+                skipped.add(r["role_assignment_id"])
+                continue
             if r["role"] == "master":
                 b = s.get(BlockORM, r["scope_id"])
                 if not b:

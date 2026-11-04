@@ -37,3 +37,11 @@ it("validates declared legacy compatibility fields without opening arbitrary met
   expect(wireIssues("Session", { ...session, permissions: [1] })).not.toEqual([]);
   expect(wireIssues("Session", { ...session, leadership: { is_chair: true, is_deputy: false, private_score: 3 } })).not.toEqual([]);
 });
+
+it("accepts the site-wide bot and broadcast grants among session assignments", () => {
+  const session = createFixtures("chair").session;
+  const site = { role_assignment_id: "site-1", user_id: session.user_id, role: "bot_maintainer", scope_kind: "site",
+    scope_id: null, principal_assignment_id: null, revision: 1, capabilities: [] };
+  expect(wireIssues("Session", { ...session, assignments: [...(session.assignments ?? []), site] })).toEqual([]);
+  expect(wireIssues("Session", { ...session, assignments: [{ ...site, scope_kind: "galaxy" }] })).not.toEqual([]);
+});

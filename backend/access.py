@@ -26,6 +26,11 @@ HR_TRACKER_READER = "hr_tracker_reader"  # narrowly scoped global tracker read, 
 PGAS_ADMIN = "pgas_admin"
 BLOCK_LEAD_ANYWHERE = "block_lead_anywhere"  # master or deputy of some block
 QUEUE_HOLDER = "queue_holder"  # leads some block, event or subevent
+# HereBot (owner, 2026-11-04): the console belongs to the master of the block named exactly
+# IT_BLOCK and the maintainers they assign; broadcasts to the chair, deputies and senders.
+IT_MASTER = "it_master"
+BOT_MAINTAINER = "bot_maintainer"  # role_assignments: scope_kind "site", role "bot_maintainer"
+BROADCASTER = "broadcaster"  # role_assignments: scope_kind "site", role "broadcaster"
 # Block
 BLOCK_MASTER = "block_master"
 BLOCK_DEPUTY = "block_deputy"
@@ -45,6 +50,8 @@ ORGANIZER = "organizer"
 MATERIAL_EDITOR = "material_editor"
 
 TACHKI = frozenset({CHAIR, CHAIR_DEPUTY})  # the chair and the chair's deputies
+IT_BLOCK = "IT"  # renamed, its master loses the console until the name returns
+SITE_ROLES = {"bot_maintainer": BOT_MAINTAINER, "broadcaster": BROADCASTER}
 SUMMARY = TACHKI | {HR_MASTER, HR_DEPUTY}
 # Who changes a closed season, its marks included: the chair, the chair's deputies and the
 # HR master; not the HR deputy or area leads (owner, 2026-10-31, SE-13).
@@ -170,6 +177,13 @@ POLICY = {
     "pgas.grant": TACHKI,  # pgas_admin is given and taken back by the chair and deputies (decision 14)
     "account.reset_password": TACHKI,  # a temporary password, no mail (АВ-52 (а))
     "leadership.view": TACHKI,  # the administration tab; only the chair changes it (АВ-2, АВ-34)
+    # HereBot (owner, 2026-11-04): the chair and deputies get no console rights, unless one of
+    # them masters the IT block; maintainers assigned earlier keep theirs when the master changes.
+    "bot.console.view": {IT_MASTER, BOT_MAINTAINER},
+    "bot.console.operate": {IT_MASTER, BOT_MAINTAINER},  # stage 5: restart, logs, update, rollback
+    "bot.maintainers.manage": {IT_MASTER},
+    "broadcast.send": TACHKI | {BROADCASTER},  # stage 4
+    "broadcast.senders.manage": TACHKI,
 }
 
 QUEUE_ROLES = {
@@ -325,11 +339,12 @@ def _is_hr_master(uid):
     return any(is_hr and master == uid for master, is_hr, _ in blocks.values())
 
 
-def _masters_some_block(uid):
+def _mastered_blocks(uid):
+    """Names of the blocks whose stored master is `uid`."""
     blocks = _block_facts() if _plain_uid(uid) else None
     if blocks is None:
-        return bool(db.get_user_master_block_names(uid))
-    return any(master == uid for master, _, _ in blocks.values())
+        return frozenset(db.get_user_master_block_names(uid))
+    return frozenset(name for name, (master, _, _) in blocks.items() if master == uid)
 
 
 def _assignment_roles(uid):
@@ -370,8 +385,13 @@ def _global_relations(uid):
             rel.add(QUEUE_HOLDER)
         if scope_kind == "block" and role in ("master", "deputy_master"):
             rel.add(BLOCK_LEAD_ANYWHERE)
-    if _masters_some_block(uid):
+        if scope_kind == "site" and role in SITE_ROLES:
+            rel.add(SITE_ROLES[role])
+    mastered = _mastered_blocks(uid)
+    if mastered:
         rel.update({QUEUE_HOLDER, BLOCK_LEAD_ANYWHERE})
+    if IT_BLOCK in mastered:
+        rel.add(IT_MASTER)  # the same block read as above: no further query
     return frozenset(rel)
 
 
@@ -626,6 +646,11 @@ GLOBAL_CAPS = {
     "grant_pgas_admin": "pgas.grant",
     "reset_password": "account.reset_password",
     "view_leadership": "leadership.view",
+    "view_bot_console": "bot.console.view",
+    "operate_bot": "bot.console.operate",
+    "manage_bot_maintainers": "bot.maintainers.manage",
+    "send_broadcast": "broadcast.send",
+    "manage_broadcast_senders": "broadcast.senders.manage",
 }
 
 

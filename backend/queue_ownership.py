@@ -258,8 +258,9 @@ def _changed(obj, name):
 
 
 def _material_role(obj):
-    """A material editor (before and after the change) reads no queue or task scope."""
-    return isinstance(obj, RoleAssignmentORM) and all(kind == "material" for kind in _values(obj, "scope_kind"))
+    """A material editor or a site grant (bot maintainer, broadcast sender), before and after
+    the change, reads no queue or task scope."""
+    return isinstance(obj, RoleAssignmentORM) and all(kind in ("material", "site") for kind in _values(obj, "scope_kind"))
 
 
 def _note(session, obj, state):

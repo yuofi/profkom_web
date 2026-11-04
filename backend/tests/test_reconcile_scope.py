@@ -149,6 +149,17 @@ def test_scope_collects_users_queues_and_full_triggers(monkeypatch):
             s.delete(s.get(RoleAssignmentORM, "ra-x"))
             s.commit()
     assert len(seen) == count
+    # A site grant (bot maintainer, broadcast sender) reads no queue either (2026-11-04).
+    with db.atomic():
+        with db._session() as s:
+            s.add(RoleAssignmentORM(role_assignment_id="ra-site", user_id=people["editor"], role="bot_maintainer",
+                                    scope_kind="site", scope_id=None))
+            s.commit()
+    with db.atomic():
+        with db._session() as s:
+            s.delete(s.get(RoleAssignmentORM, "ra-site"))
+            s.commit()
+    assert len(seen) == count
 
 
 def _kkr_tables():
@@ -201,6 +212,8 @@ def test_narrowed_kkr_reconciliation_leaves_nothing_to_reconcile(client, work, s
                 s.get(UserORM, plain.user_id).banned = True
                 s.add(RoleAssignmentORM(role_assignment_id=str(uuid.uuid4()), user_id=member.user_id,
                                         role="material_editor", scope_kind="material", scope_id="m-kkr"))
+                s.add(RoleAssignmentORM(role_assignment_id=str(uuid.uuid4()), user_id=member.user_id,
+                                        role="broadcaster", scope_kind="site", scope_id=None))
                 s.commit()
         assert calls == []
         # An account that does lead (the block master) still reconciles the controls.

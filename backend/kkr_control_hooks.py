@@ -45,10 +45,10 @@ def reconcile(session, actor_uid=None):
 
 
 def _material_role(obj):
-    """A material editor (before and after the change): no control reads it."""
+    """A material editor or a site grant (before and after the change): no control reads it."""
     if not isinstance(obj,RoleAssignmentORM):return False
     history=inspect(obj).attrs['scope_kind'].history
-    return all(kind=='material' for kind in (*history.deleted,*history.added,*history.unchanged))
+    return all(kind in ('material','site') for kind in (*history.deleted,*history.added,*history.unchanged))
 
 
 def _holds_role(session, user):
