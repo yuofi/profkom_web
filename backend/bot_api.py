@@ -252,6 +252,12 @@ def merge_errors(s, items):
     return len(rows) < len(groups)
 
 
+def anonymize(session, uid, old_pid, new_pid):
+    """Retention callback (account_cleanup): the stage 1 tables hold the bot's own state and
+    log groups, no site account. The site grants are role_assignments rows; the cleanup
+    removes them with the account's other roles."""
+
+
 # ── People: console status and grants (stage 1) ──
 
 class ConsoleError(BaseModel):
