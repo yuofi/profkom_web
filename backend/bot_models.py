@@ -1,11 +1,13 @@
-"""Additive HereBot persistence (backend/docs/BOT_API.md, stages 1 and 2).
+"""Additive HereBot persistence (backend/docs/BOT_API.md, stages 1, 2 and 4).
 
 Imported by database before create_all. The bot's own data stays in its PostgreSQL; the
-site keeps the last report's state, the bot's grouped log errors and, from stage 2, the VK
-link of an account with its one-time codes. Times are ISO 8601 UTC strings with `Z`, whole
-seconds, so they compare as text.
+site keeps the last report's state, the bot's grouped log errors, from stage 2 the VK link
+of an account with its one-time codes and from stage 4 the broadcasts with their batches
+and recipients. Times of stages 1 and 2 are ISO 8601 UTC strings with `Z`, whole seconds;
+those of stage 4 have microseconds and `+00:00` (broadcasts.iso), as the stage 3 queue. Each
+kind compares as text.
 """
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, ForeignKey, Index, Integer, String, Text, text
 from database import Base
 
 
@@ -60,3 +62,50 @@ class BotLinkCodeORM(Base):
     expires_at = Column(String, nullable=False, index=True)
     used_at = Column(String, nullable=True)
     used_vk_user_id = Column(Integer, nullable=True)  # a repeat by the same VK answers the same
+
+
+class BroadcastORM(Base):
+    """A broadcast (stage 4): `sending` while a recipient is pending, then `done`, or
+    `cancelled` by a sender before that. The author is NULL after the account's retention."""
+    __tablename__ = "broadcasts"
+    broadcast_id = Column(String, primary_key=True)
+    author_user_id = Column(Integer, ForeignKey("users.user_id"), nullable=True)
+    text = Column(Text, nullable=False)
+    state = Column(String, nullable=False)  # sending, done, cancelled
+    idempotency_key = Column(String, nullable=True)  # GL-07, as POST /tasks (request_keys)
+    request_hash = Column(String, nullable=True)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+    cancelled_at = Column(String, nullable=True)
+    cancelled_by_user_id = Column(Integer, ForeignKey("users.user_id"), nullable=True)
+    __table_args__ = (Index("ux_broadcasts_idempotency_key", "idempotency_key", unique=True),
+                      Index("ix_broadcasts_list", "created_at", "broadcast_id"))
+
+
+class BroadcastBatchORM(Base):
+    """Up to 100 recipients the bot sends in one messages.send: `pending` until the bot's
+    report leaves none of them pending (`done`), or `cancelled`, `expired` after 24 hours."""
+    __tablename__ = "broadcast_batches"
+    batch_id = Column(String, primary_key=True)  # <broadcast_id>-0000, in the recipients' user_id order
+    broadcast_id = Column(String, ForeignKey("broadcasts.broadcast_id"), nullable=False, index=True)
+    state = Column(String, nullable=False)
+    attempts = Column(Integer, nullable=False, default=0)  # reports that named it while pending
+    next_attempt_at = Column(String, nullable=False)
+    created_at = Column(String, nullable=False)  # the broadcast's
+    updated_at = Column(String, nullable=False)
+    # The bot's idle poll reads this index only (BOT_API.md, «Рассылки», «Выдача в GET /work»).
+    __table_args__ = (Index("ix_broadcast_batches_pending", "next_attempt_at", "created_at",
+                            sqlite_where=text("state = 'pending'")),)
+
+
+class BroadcastRecipientORM(Base):
+    """One account in the list fixed at send, with the VK its link had then."""
+    __tablename__ = "broadcast_recipients"
+    broadcast_id = Column(String, ForeignKey("broadcasts.broadcast_id"), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.user_id"), primary_key=True)
+    batch_id = Column(String, nullable=False, index=True)
+    vk_user_id = Column(Integer, nullable=False)
+    state = Column(String, nullable=False)  # pending, sent, denied, failed, cancelled, expired
+    vk_message_id = Column(Integer, nullable=True)
+    error_code = Column(String, nullable=True)  # VK's code or the bot's word, as text
+    updated_at = Column(String, nullable=False)

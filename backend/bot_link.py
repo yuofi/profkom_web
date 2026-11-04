@@ -1,4 +1,4 @@
-"""HereBot stages 2 and 3: the VK link policy, without the database (backend/docs/BOT_API.md).
+"""HereBot stages 2 to 4: the VK link policy, without the database (backend/docs/BOT_API.md).
 
 An account's link lives in bot_links; its state is copied to users.bot_link_state in the same
 transaction, so the working-access gate and /api/session decide from the users row they have
@@ -28,6 +28,13 @@ def stamp(moment):
 
 def parse(text):
     return datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+
+
+def iso(moment):
+    """ISO 8601 UTC with microseconds and `+00:00`, the stored times of the stage 4 broadcasts:
+    as the stage 3 queue (registration.now), but always with the fraction, so they compare as
+    text."""
+    return moment.astimezone(timezone.utc).isoformat(timespec="microseconds")
 
 
 def enabled():

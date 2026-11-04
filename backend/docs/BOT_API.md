@@ -728,18 +728,27 @@ AND state = 'pending'`; уникальный индекс `(user_id, event_key, 
 retention `profile_features.anonymize` удаляет строки аккаунта всех каналов. Архив их не
 трогает, но строки `pending` архивного аккаунта выдача отменяет (`cancelled`).
 
-**Этап 4:** новые таблицы.
+**Этап 4:** новые таблицы (`bot_models.py`). На старой базе их создаёт `create_all` при
+запуске backend, повторный запуск ничего не меняет.
 
-- `broadcasts` — `broadcast_id`, `author_user_id` (`NULL` после удаления аккаунта автора по
-  retention), `text`, `state`, `idempotency_key` (уникальный, может быть `NULL`), `created_at`,
-  `updated_at`, `cancelled_at`, `cancelled_by_user_id`.
-- `broadcast_batches` — `batch_id` (ключ), `broadcast_id`, `state`, `attempts`,
-  `next_attempt_at`, `created_at`, `updated_at`. Частичный индекс по `(next_attempt_at,
-  created_at)` для строк `state = 'pending'`.
+- `broadcasts` — `broadcast_id` (UUID), `author_user_id` (`NULL` после удаления аккаунта автора
+  по retention), `text`, `state`, `idempotency_key` (уникальный индекс
+  `ux_broadcasts_idempotency_key`, может быть `NULL`), `request_hash` — SHA-256 запроса с ключом,
+  как у задач (`request_keys`), `created_at`, `updated_at`, `cancelled_at`,
+  `cancelled_by_user_id`. Индекс `ix_broadcasts_list` по `(created_at, broadcast_id)` — для
+  списка.
+- `broadcast_batches` — `batch_id` (ключ; `<broadcast_id>-0000`, `-0001` … по порядку
+  получателей), `broadcast_id` (индекс), `state`, `attempts` (сколько отчётов назвали пачку,
+  пока она была `pending`), `next_attempt_at`, `created_at` (время рассылки), `updated_at`.
+  Частичный индекс `ix_broadcast_batches_pending` по `(next_attempt_at, created_at)` для строк
+  `state = 'pending'`.
 - `broadcast_recipients` — ключ `(broadcast_id, user_id)`; `batch_id` (индекс), `vk_user_id`,
   `state`, `vk_message_id`, `error_code` (текст), `updated_at`.
-- Удаление аккаунта по retention удаляет его строки получателя и стирает автора в его
-  рассылках. Архив их не трогает.
+- Времена в этих таблицах — ISO 8601 UTC с микросекундами и `+00:00`, как в очереди этапа 3, но
+  всегда с дробной частью: сравниваются как текст. В ответах — с `Z` до секунды.
+- Удаление аккаунта по retention (`bot_api.anonymize`) удаляет его строки получателя и стирает
+  `author_user_id` и `cancelled_by_user_id` в его рассылках; текст остаётся. Архив их не
+  трогает.
 
 Этап 5 добавит команды консоли.
 
