@@ -84,6 +84,9 @@ export const ERROR_TEXTS: Record<string, string> = {
   // The VK link through the bot (stage 2).
   bot_link_required: "Сначала привяжите бота ВКонтакте.",
   link_code_rate_limited: "Слишком много кодов за час. Подождите немного и получите код снова.",
+  // Broadcasts through the bot (stage 4).
+  broadcast_no_recipients: "Рассылку некому отправить: ни у кого не подключён бот ВКонтакте.",
+  broadcast_not_sending: "Рассылка уже завершена или отменена.",
 };
 
 const BY_STATUS: Record<number, string> = {
