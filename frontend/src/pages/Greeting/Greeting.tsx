@@ -14,7 +14,7 @@ import { completeAuthentication, peekAuthNotice } from "../../utils/authSession"
 import { ERROR_TEXTS, userMessage } from "../../utils/api/messages";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { isActiveSession, useSession } from "../../utils/session";
+import { isWorkingSession, useSession } from "../../utils/session";
 import { returnPath } from "../../utils/returnPath";
 
 // The login routes answer with plain strings (old site): the texts go by status.
@@ -75,7 +75,7 @@ export const GreetingPage = () => {
 
   // Signed in already (a bookmark, «Назад» after the login): the workspace, not the form.
   // Pending, rejected and temporary-password sessions keep this page (GL-26).
-  if (!loading && isActiveSession(session) && !session?.password_change_required)
+  if (!loading && isWorkingSession(session))
     return <Navigate to={target} replace />;
 
   return (

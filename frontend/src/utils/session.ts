@@ -22,6 +22,12 @@ export const can = (
 export const isActiveSession = (session: Session | null | undefined) =>
   session?.account_state === "active" &&
   session.registration_status === "approved";
+/** An active session the server opens for work: no temporary password to change (АВ-52)
+ *  and no VK link overdue (BOT_API.md, «Привязка VK»). Only such a session reads its data. */
+export const isWorkingSession = (session: Session | null | undefined) =>
+  isActiveSession(session) &&
+  !session?.password_change_required &&
+  !session?.bot_link?.blocked;
 /** Who is signed in: only a change of this starts the workspace over (A-FE-1). */
 export const sessionIdentity = (session: Session | null | undefined) =>
   JSON.stringify(

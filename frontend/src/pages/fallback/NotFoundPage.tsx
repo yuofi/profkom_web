@@ -2,7 +2,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import styles from "./UnderConstruction.module.css";
 import { useMediaQuery } from "../../utils/hooks/useMediaQuery";
 import { Image } from "../../components/Image/Image";
-import { isActiveSession, useSession } from "../../utils/session";
+import { isWorkingSession, useSession } from "../../utils/session";
 import { WorkspaceLayout, WorkspaceSkeleton } from "../../components/Workspace/WorkspaceLayout";
 import { Empty, Page, RouteLink } from "../../components/Workspace/WorkspaceUI";
 import w from "../../components/Workspace/Workspace.module.css";
@@ -51,7 +51,7 @@ function WorkspaceNotFound() {
 export function NotFoundRoute() {
   const { session, loading } = useSession();
   if (loading) return <WorkspaceSkeleton />;
-  return isActiveSession(session) && !session?.password_change_required
+  return isWorkingSession(session)
     ? <WorkspaceLayout><WorkspaceNotFound /></WorkspaceLayout>
     : <NotFoundPage />;
 }
