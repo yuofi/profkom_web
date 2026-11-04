@@ -28,6 +28,12 @@ class RegistrationFields(BaseModel):
     residence: str
 
 
+class RegistrationBotLink(BaseModel):
+    """The applicant's VK link through the bot (BOT_API.md, stage 2)."""
+    state: Literal["none", "ok", "messages_denied", "token_missing", "token_invalid"]
+    vk_user_id: int | None
+
+
 class RegistrationApplication(BaseModel):
     user_id: int
     status: Literal["pending", "approved", "rejected"]
@@ -38,6 +44,8 @@ class RegistrationApplication(BaseModel):
     fields: RegistrationFields
     revision: int
     capabilities: list[str]
+    # None while the bot integration is off
+    bot_link: RegistrationBotLink | None = None
 
 
 class BlockRequestApproval(BaseModel):

@@ -3,6 +3,7 @@ import json
 
 import os
 import access
+import bot_link
 import membership
 import vk_auth  # noqa: F401  (fails at startup without VK_CLIENT_ID in production)
 import contact_rules
@@ -1319,8 +1320,11 @@ def register(payload: RegisterIn, response: Response):
         from registration import ensure_application
         with db._session() as session:
             application=ensure_application(session, created.user_id)
-            from notifications import registration_submitted
-            registration_submitted(session,application)
+            # With the bot integration on, the reviewers hear of it once the VK is linked too
+            # (registration.ready, BOT_API.md stage 2).
+            if not bot_link.enabled():
+                from notifications import registration_submitted
+                registration_submitted(session,application)
             session.commit()
 
         # Return tokens so the user is logged-in right away
@@ -1402,12 +1406,12 @@ def vk_login(payload: VKLoginIn, response: Response):
     from vk_auth import login_user, verified_identity
     # VK answers first, outside any transaction (A-ROL-15); then one short transaction.
     identity = verified_identity(payload.access_token)
-    from registration import complete, ensure_application
+    from registration import ensure_application, ready
     with db.atomic(), db._session() as session:
         user = login_user(identity)
         # A new VK account chooses its study basis itself (decision 28)
         application=ensure_application(session, user.user_id, funding=None)
-        if application.status=='pending' and complete(application):
+        if application.status=='pending' and ready(application, user.bot_link_state):
             from notifications import registration_submitted
             registration_submitted(session,application)
         tokens = create_token_pair(user.user_id)

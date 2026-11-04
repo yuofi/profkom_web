@@ -11,6 +11,8 @@ from domain_models import RegistrationORM, ParticipationORM, MembershipORM
 from models import User
 from api_contract import Page
 from domain_contract import RegistrationApplication as ApplicationOut
+from bot_models import BotLinkORM
+import bot_link
 import contact_rules
 import access
 
@@ -105,13 +107,54 @@ def complete(r):
         return False
 
 
-def dto(r, uid):
+def ready(r, state):
+    """Approvable: every field and, with the bot integration on, a working VK link (the
+    applicant's users.bot_link_state, BOT_API.md stage 2)."""
+    return complete(r) and (state == "ok" or not bot_link.enabled())
+
+
+LINK_REQUIRED = "The applicant has no working VK link through the bot"
+
+
+def link_changed(s, user, old_state):
+    """bot_api.save_link changed an account's link state: a pending application that became
+    ready reaches the reviewers (the event key keeps one notice per submission)."""
+    if user.account_state != "pending":
+        return
+    r = ensure_application(s, user.user_id, persist=False)
+    if r.status == "pending" and not ready(r, old_state) and ready(r, user.bot_link_state):
+        from notifications import registration_submitted
+
+        registration_submitted(s, r)
+
+
+def link_state(s, uid):
+    """users.bot_link_state of the applicant; not read while the integration is off."""
+    return s.get(UserORM, uid).bot_link_state if bot_link.enabled() else None
+
+
+def link_of(s, uid):
+    """The applicant's VK link; nothing is read while the integration is off."""
+    return s.get(BotLinkORM, uid) if bot_link.enabled() else None
+
+
+def links_of(s, uids):
+    """The links of a page of applications in one read."""
+    if not bot_link.enabled() or not uids:
+        return {}
+    return {l.user_id: l for l in s.query(BotLinkORM).filter(BotLinkORM.user_id.in_(sorted(set(uids))))}
+
+
+def dto(r, uid, link=None):
+    """`link` is the applicant's bot_links row (link_of/links_of): it fills `bot_link` and,
+    with the integration on, approval is offered only for a ready application."""
+    on, state = bot_link.enabled(), bot_link.state_of(link)
     caps = []
     if r.user_id == uid and can_resubmit(r):
         caps.append("resubmit_registration")
     if access.allowed(uid, "registration.review"):
         if r.status == "pending":
-            caps += ["approve_registration", "reject_registration"]
+            caps += (["approve_registration"] if not on or ready(r, state) else []) + ["reject_registration"]
         if r.status != "approved":
             caps += ["reset_registration_limit"]
     return dict(
@@ -124,6 +167,7 @@ def dto(r, uid):
         fields=json.loads(r.fields_json),
         revision=r.revision,
         capabilities=caps,
+        bot_link=dict(state=state or "none", vk_user_id=link.vk_user_id if link else None) if on else None,
     )
 
 
@@ -149,7 +193,7 @@ def register_routes(router):
     def own(cur: User = Depends(get_current_user)):
         with db._session() as s:
             r = ensure_application(s, cur.user_id, persist=False)
-            return dto(r, cur.user_id)
+            return dto(r, cur.user_id, link_of(s, cur.user_id))
 
     @router.patch("/registrations/me", response_model=ApplicationOut)
     def update(payload: Update, cur: User = Depends(get_current_user)):
@@ -162,11 +206,12 @@ def register_routes(router):
             old = json.loads(r.fields_json)
             if db.email_taken(fields["email"], cur.user_id):
                 fail(409, "Email already registered", "email_taken")
-            was_complete = complete(r)
+            state = link_state(s, cur.user_id)
+            was_ready = ready(r, state)
             r.fields_json = json.dumps(fields, ensure_ascii=False)
             append_history(r, "edit_fields", cur.user_id)
-            if r.status == "pending" and not was_complete:
-                # A VK application reaches the reviewers once it can be decided (A-ROL-20)
+            if r.status == "pending" and not was_ready and ready(r, state):
+                # An application reaches the reviewers once it can be decided (A-ROL-20)
                 from notifications import registration_submitted
 
                 registration_submitted(s, r)
@@ -180,7 +225,7 @@ def register_routes(router):
                 fields,
             )
             s.commit()
-            return dto(r, cur.user_id)
+            return dto(r, cur.user_id, link_of(s, cur.user_id))
 
     @router.post("/registrations/me/resubmit", response_model=ApplicationOut)
     def resubmit(payload: Revision, cur: User = Depends(get_current_user)):
@@ -199,6 +244,8 @@ def register_routes(router):
                 )
             if not complete(r):
                 fail(422, "Complete all required registration fields")
+            if not ready(r, link_state(s, cur.user_id)):
+                fail(409, LINK_REQUIRED, "bot_link_required")
             r.attempts_used += 1
             r.total_submissions += 1
             r.status = "pending"
@@ -217,7 +264,7 @@ def register_routes(router):
                 dict(total_submissions=r.total_submissions),
             )
             s.commit()
-            return dto(r, cur.user_id)
+            return dto(r, cur.user_id, link_of(s, cur.user_id))
 
     @router.get("/registrations", response_model=Page[ApplicationOut])
     def queue(
@@ -232,12 +279,9 @@ def register_routes(router):
             rows = s.query(RegistrationORM)
             if status:
                 rows = rows.filter(RegistrationORM.status == status)
-            return Page(
-                items=[
-                    dto(r, cur.user_id)
-                    for r in sorted(rows, key=lambda r: (order.get(r.status, 3), r.user_id))
-                ]
-            )
+            rows = sorted(rows, key=lambda r: (order.get(r.status, 3), r.user_id))
+            links = links_of(s, [r.user_id for r in rows])
+            return Page(items=[dto(r, cur.user_id, links.get(r.user_id)) for r in rows])
 
     @router.post("/registrations/{user_id}/{command}", response_model=ApplicationOut)
     def decide(
@@ -269,6 +313,8 @@ def register_routes(router):
                         fail(422, "Complete all required registration fields")
                     u = s.get(UserORM, user_id)
                     c = s.get(ContactInfoORM, user_id)
+                    if not ready(r, u.bot_link_state):
+                        fail(409, LINK_REQUIRED, "bot_link_required")
                     if db.email_taken(str(fields.email), user_id):
                         fail(409, "Email already registered", "email_taken")
                     for k in (
@@ -335,7 +381,7 @@ def register_routes(router):
             collect_delivery_event(s, user_id, "registration_" + command, {"registration_user_id": user_id},
                                    f"registration:{user_id}:decision:{r.revision}")
             s.commit()
-            return dto(r, cur.user_id)
+            return dto(r, cur.user_id, link_of(s, user_id))
 
 
 from domain_seed import ensure_application
