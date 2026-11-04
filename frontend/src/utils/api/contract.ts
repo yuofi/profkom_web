@@ -58,6 +58,47 @@ export interface Session {
   assignments?: RoleAssignment[];
   /** A temporary password is in use: it must be changed before any work (АВ-52). */
   password_change_required?: boolean;
+  /** The VK link through HereBot (BOT_API.md, «Привязка VK»); null while the integration is
+   *  off. An older server without stage 2 leaves it out, which reads as null. */
+  bot_link?: SessionBotLink | null;
+}
+/** The state of the VK link through HereBot: only `ok` meets the requirement. */
+export type BotLinkState = "none" | "ok" | "messages_denied" | "token_missing" | "token_invalid";
+/** The bot's last check of the user's VK token; `unknown` (VK did not answer) does not block. */
+export type BotTokenStatus = "ok" | "missing" | "invalid" | "unknown";
+export interface SessionBotLink {
+  state: BotLinkState;
+  /** The link is already mandatory: always for a pending account, from the deadline for an active one. */
+  required: boolean;
+  /** An active account is closed until the link is fixed. */
+  blocked: boolean;
+  /** BOT_LINK_DEADLINE for active accounts, or null without it. */
+  deadline: string | null;
+}
+/** GET /bot-link/me. With the integration off: enabled false, the rest null or false. */
+export interface BotLinkMe {
+  enabled: boolean;
+  state: BotLinkState | null;
+  vk_user_id: number | null;
+  messages_allowed: boolean | null;
+  token_status: BotTokenStatus | null;
+  linked_at: string | null;
+  required: boolean;
+  blocked: boolean;
+  deadline: string | null;
+  /** The dialog with the bot (BOT_VK_URL), or null without the setting. */
+  bot_url: string | null;
+  /** The expiry of the unused code, or null. */
+  code_expires_at: string | null;
+}
+/** POST /bot-link/code: a new one-time code; it replaces the previous one. */
+export interface BotLinkCode {
+  code: string;
+  expires_at: string;
+  /** `<BOT_VK_URL>?ref=<code>`, or null without BOT_VK_URL. */
+  link_url: string | null;
+  /** «привязать ABCDE-FGHJK»: the command for the bot when `ref` did not arrive. */
+  command: string;
 }
 /** Shown once to the chair or deputy who handed it out; never stored by the client. */
 export interface TemporaryPassword {
@@ -105,6 +146,14 @@ export interface RegistrationApplication extends Versioned {
   total_submissions: number;
   rejection_reason: string | null;
   fields: RegistrationFields;
+  /** The applicant's VK link (stage 2); null while the integration is off. A pending
+   *  application is ready for review only with all fields and state `ok`. */
+  bot_link?: ApplicationBotLink | null;
+}
+export interface ApplicationBotLink {
+  state: BotLinkState;
+  /** null while nothing is linked. */
+  vk_user_id: number | null;
 }
 export interface BlockRequest extends Versioned {
   request_id: string;

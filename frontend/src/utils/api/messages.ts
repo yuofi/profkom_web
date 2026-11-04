@@ -77,6 +77,9 @@ export const ERROR_TEXTS: Record<string, string> = {
   bot_api_disabled: "Связь с ботом на сайте выключена.",
   bot_token_invalid: "Служебный токен бота не подходит.",
   payload_too_large: "Слишком большой запрос. Уменьшите объём данных.",
+  // The VK link through the bot (stage 2).
+  bot_link_required: "Сначала привяжите бота ВКонтакте.",
+  link_code_rate_limited: "Слишком много кодов за час. Подождите немного и получите код снова.",
 };
 
 const BY_STATUS: Record<number, string> = {
