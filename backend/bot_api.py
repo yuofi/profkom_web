@@ -608,7 +608,8 @@ HELD = Held()
 ROUTES = {"event": "/events/{}", "subevent": "/subevents/{}", "task": "/tasks/{}", "task_queue": "/tasks/queues/{}",
           "block": "/blocks/{}", "report": "/reports/{}", "material": "/materials/{}", "season": "/seasons/{}",
           "pgas": "/pgas", "registrations": "/admin/registrations", "block_requests": "/blocks/requests",
-          "meeting_event": "/meetings/event/{}", "meeting_subevent": "/meetings/subevent/{}"}
+          "meeting_event": "/meetings/event/{}", "meeting_subevent": "/meetings/subevent/{}",
+          "broadcast": "/broadcasts/{}"}
 
 
 def target_path(target):

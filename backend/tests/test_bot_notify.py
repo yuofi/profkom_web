@@ -444,6 +444,7 @@ def test_the_route_map_mirrors_the_frontend_target_route():
     ("material", "m-1", "/materials/m-1"), ("season", "x-1", "/seasons/x-1"), ("pgas", "12", "/pgas"),
     ("registrations", "42", "/admin/registrations"), ("block_requests", "mine", "/blocks/requests"),
     ("meeting_event", "e-1", "/meetings/event/e-1"), ("meeting_subevent", "s-1", "/meetings/subevent/s-1"),
+    ("broadcast", "b-1", "/broadcasts/b-1"),
     ("task", "a b/c?d#e&é", "/tasks/a%20b%2Fc%3Fd%23e%26%C3%A9"), ("task", "x!~*'()-_.", "/tasks/x!~*'()-_."),
     ("unknown", "x", "/"), ("task", "", "/"), ("task", 7, "/"),
 ])

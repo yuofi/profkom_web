@@ -40,6 +40,8 @@ export const getTaskCreateRoute = ({ queueId, scope, parentTaskId }: { queueId?:
   if (parentTaskId) query.set("parent_task_id", parentTaskId);
   return `/tasks/new${query.size ? `?${query}` : ""}`;
 };
+export const getBroadcastsRoute = () => "/broadcasts";
+export const getBroadcastRoute = (id: string) => `/broadcasts/${encodeURIComponent(id)}`;
 export const getTaskQueuesRoute = () => "/tasks/queues";
 export const getTaskQueueRoute = (id: string) => `/tasks/queues/${encodeURIComponent(id)}`;
 export const getBlockRoute = (id: string) =>
@@ -72,6 +74,7 @@ export function targetRoute(
     block_requests: () => "/blocks/requests",
     meeting_event: id => getMeetingRoute("event", id),
     meeting_subevent: id => getMeetingRoute("subevent", id),
+    broadcast: getBroadcastRoute,
   };
   return Object.hasOwn(builders, target.kind)
     ? builders[target.kind](target.id)
