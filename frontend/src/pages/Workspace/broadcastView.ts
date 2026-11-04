@@ -43,10 +43,11 @@ export function audienceHint({ total, reachable }: BroadcastAudience) {
     (missing ? ` У ${missing} бот не подключён — они увидят рассылку только на сайте.` : "");
 }
 
-/** The question before sending: both counts and what cannot be undone. */
-export function sendQuestion({ total, reachable }: BroadcastAudience) {
+/** The question before sending: the VK count, the site bell (every participant but the
+ *  author, so no number) and what cannot be undone. */
+export function sendQuestion({ reachable }: BroadcastAudience) {
   return `Отправить рассылку? В VK её получат ${reachable} ${plural(reachable, "человек", "человека", "человек")}, ` +
-    `на сайте в уведомлениях — ${total} ${plural(total, "участник", "участника", "участников")}. ` +
+    "на сайте она появится в уведомлениях у всех участников. " +
     "Отменить потом можно только то, что ещё не ушло.";
 }
 

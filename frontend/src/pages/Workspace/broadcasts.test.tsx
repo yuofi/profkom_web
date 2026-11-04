@@ -117,7 +117,7 @@ it("previews the text as VK shows it, line breaks kept, and says who gets it", a
 it("asks with the VK and the site counts, can be withdrawn, and sends once on the answer", async () => {
   await mount();
   await compose("Собрание в пятницу");
-  expect(alertText()).toContain("Отправить рассылку? В VK её получат 412 человек, на сайте в уведомлениях — 430 участников.");
+  expect(alertText()).toContain("Отправить рассылку? В VK её получат 412 человек, на сайте она появится в уведомлениях у всех участников.");
   expect(button("Отправить")!.disabled).toBe(true);
   expect(document.activeElement).toBe(button("Да, отправить"));
   await click(button("Отмена"), "Отмена");
@@ -132,7 +132,7 @@ it("asks with the VK and the site counts, can be withdrawn, and sends once on th
   await submit(textarea().closest("form")!);
   await waitForPage(page!);
   // The question names the counts read at that moment.
-  expect(alertText()).toContain("В VK её получат 413 человек, на сайте в уведомлениях — 431 участник.");
+  expect(alertText()).toContain("В VK её получат 413 человек, на сайте она появится в уведомлениях у всех участников.");
   await click(button("Да, отправить"), "Да, отправить");
   expect(posts().map((body) => body.text)).toEqual(["Собрание в субботу"]);
   expect(page!.container.querySelector('[role="status"]')?.textContent).toBe("Рассылка отправлена. Ход отправки — в списке ниже.");
@@ -366,7 +366,7 @@ it("words the counts, the audience and the start of a text plainly", () => {
   expect(audienceHint({ total: 430, reachable: 412 })).toBe("Получат в VK: 412 из 430. У 18 бот не подключён — они увидят рассылку только на сайте.");
   expect(audienceHint({ total: 430, reachable: 430 })).toBe("Получат в VK: 430 из 430.");
   expect(audienceHint({ total: 4, reachable: 5 })).toBe("Получат в VK: 5 из 5.");
-  expect(sendQuestion({ total: 21, reachable: 2 })).toContain("получат 2 человека, на сайте в уведомлениях — 21 участник.");
+  expect(sendQuestion({ total: 21, reachable: 2 })).toContain("получат 2 человека, на сайте она появится в уведомлениях у всех участников.");
   expect(broadcastLength("  a👋b \n")).toBe(3);
   expect(excerpt("Первая\n\nвторая   строка")).toBe("Первая вторая строка");
   expect(excerpt("а".repeat(150))).toBe(`${"а".repeat(140)}…`);
