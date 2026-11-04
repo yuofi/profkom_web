@@ -159,7 +159,7 @@ export function errorDetail(error: unknown): string | null {
 
 const cyrillic = /[А-Яа-яЁё]/;
 const latinWord = /[A-Za-z]{3,}/;
-// Our texts show formats (vk.com/имя, t.me/имя, @имя) and name services: neither is English.
+// Our texts show formats (vk.ru/имя, t.me/имя, @имя) and name services: neither is English.
 const notProse = /\S*[./@]\S*|\b(?:VK|Telegram)\b/g;
 const ours = (text: string) => cyrillic.test(text) && !latinWord.test(text.replace(notProse, " "));
 const FIELD_TEXTS: Record<string, string> = {

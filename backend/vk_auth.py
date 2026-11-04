@@ -110,7 +110,7 @@ def login_user(identity: dict):
             kkr_name=f"{name} {surname}",
             group_number="",  # the applicant fills it in before approval (A-ROL-20)
             phone=phone,
-            vk=f"https://vk.com/id{identity['vk_id']}",
+            vk=f"https://vk.ru/id{identity['vk_id']}",
         ),
         User(user_id=0, hashed_password="", group_number="", account_state="pending"),
     )

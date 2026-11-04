@@ -6,11 +6,11 @@ from errors import InvalidInput
 
 
 @pytest.mark.parametrize(("value", "saved"), [
-    ("https://vk.com/id1", "https://vk.com/id1"),
-    ("vk.com/u/", "https://vk.com/u"),
-    ("https://vk.ru/id294457478", "https://vk.com/id294457478"),
-    ("https://m.vk.com/durov", "https://vk.com/durov"),
-    ("www.vk.ru/some.name", "https://vk.com/some.name"),
+    ("https://vk.com/id1", "https://vk.ru/id1"),
+    ("vk.com/u/", "https://vk.ru/u"),
+    ("https://vk.ru/id294457478", "https://vk.ru/id294457478"),
+    ("https://m.vk.com/durov", "https://vk.ru/durov"),
+    ("www.vk.ru/some.name", "https://vk.ru/some.name"),
     ("@durov", "durov"),
     ("id1", "id1"),
     ("", ""),
@@ -24,7 +24,7 @@ def test_vk_accepts_the_usual_forms(value, saved):
 def test_vk_refuses_with_the_formats(value):
     with pytest.raises(InvalidInput) as refused:
         contact_rules.vk(value)
-    assert "vk.com/имя" in refused.value.message
+    assert "vk.ru/имя" in refused.value.message
 
 
 def test_telegram_refusal_names_the_formats():

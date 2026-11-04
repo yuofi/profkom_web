@@ -11,12 +11,13 @@ TELEGRAM = re.compile(r"@?[A-Za-z0-9_]{5,32}\Z")
 TELEGRAM_URL = re.compile(
     r"(?:https?://)?(?:www\.)?t\.me/([A-Za-z0-9_]{5,32})/?\Z", re.I
 )
-# A profile name alone (with or without @) or a link on vk.com or vk.ru, also the mobile m.vk.*
+# A profile name alone (with or without @) or a link on vk.com or vk.ru, also the mobile m.vk.*;
+# a link is saved on vk.ru, the main VK domain (owner, 2026-11-04)
 VK_NAME = re.compile(r"@?([A-Za-z0-9_][A-Za-z0-9_.]{0,63})\Z")
 VK_URL = re.compile(
     r"(?:https?://)?(?:www\.|m\.)?vk\.(?:com|ru)/([A-Za-z0-9_][A-Za-z0-9_.]{0,63})/?\Z", re.I
 )
-VK_FORMAT = "Укажите VK: ссылку vk.com/имя, vk.com/id123 или только имя профиля"
+VK_FORMAT = "Укажите VK: ссылку vk.ru/имя, vk.ru/id123 или только имя профиля"
 TELEGRAM_FORMAT = "Укажите Telegram: @имя, имя или ссылку t.me/имя"
 
 
@@ -38,7 +39,7 @@ def vk(value):
     value = value.strip()
     match = VK_URL.fullmatch(value)
     if match:
-        return "https://vk.com/" + match[1]
+        return "https://vk.ru/" + match[1]
     name = VK_NAME.fullmatch(value)
     if value and not name:
         raise InvalidInput(VK_FORMAT)

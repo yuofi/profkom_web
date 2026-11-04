@@ -157,7 +157,7 @@ def test_контакт_сохраняет_переданные_поля(client)
     assert contact.patronymic == "Иванович", "Отчество должно сохраняться"
     assert contact.tg == "@ivan_durov", "Телеграм должен сохраняться как есть, вместе с @"
     assert contact.phone == "+7 900 000-00-00", "Телефон должен сохраняться"
-    assert contact.vk == "https://vk.com/ivan_test", "Ссылка VK должна сохраняться"
+    assert contact.vk == "https://vk.ru/ivan_test", "Ссылка VK должна сохраняться"
     assert contact.location == "Москва", "Место жительства должно сохраняться"
 
 

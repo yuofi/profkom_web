@@ -105,7 +105,7 @@ describe("fieldMessage", () => {
     expect(fieldMessage(undefined)).toBe("Проверьте значение.");
   });
   it("keeps format examples and service names in our texts", () => {
-    const vk = "Укажите VK: ссылку vk.com/имя, vk.com/id123 или только имя профиля";
+    const vk = "Укажите VK: ссылку vk.ru/имя, vk.ru/id123 или только имя профиля";
     const tg = "Укажите Telegram: @имя, имя или ссылку t.me/имя";
     expect(fieldMessage(vk)).toBe(vk);
     expect(fieldMessage({ type: "value_error", msg: `Value error, ${tg}` })).toBe(tg);

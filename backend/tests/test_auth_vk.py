@@ -149,7 +149,7 @@ def test_novyy_polzovatel_sozdaetsya_s_pravilnym_kontaktom(client, mock_vk):
     assert contact.surname == "Сидоров", "фамилия взята не из VK"
     assert contact.patronymic == "", "отчество должно быть пустым"
     assert contact.kkr_name == "Пётр Сидоров", "kkr_name = 'first_name last_name'"
-    assert contact.vk == "https://vk.com/id777", "vk-ссылка собрана неверно"
+    assert contact.vk == "https://vk.ru/id777", "vk-ссылка собрана неверно"
     assert contact.group_number == "", "группу VK-аккаунт заполняет в заявке сам (A-ROL-20)"
     assert contact.budget is False, "budget для VK-регистрации жёстко True"
     assert contact.in_profcom is False, "in_profcom должен быть False"

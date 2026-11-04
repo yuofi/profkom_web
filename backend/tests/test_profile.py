@@ -666,7 +666,7 @@ def test_patch_неизвестные_поля_отклоняются_без_п�
         ("surname", "Ли"),
         ("location", "общежитие ДСВ, к. 1234"),
         ("phone", "+7 (999) 000-11-22"),
-        ("vk", "https://vk.com/id1"),
+        ("vk", "https://vk.ru/id1"),
         ("tg", "@valid_user"),
         ("kkr_name", "Имя Фамилия"),
     ],
