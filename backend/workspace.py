@@ -121,6 +121,7 @@ TITLED = {
     "subevent_leader_assignment": "Вы назначены руководителем подмероприятия: ",
     "subevent_organizer_assignment": "Вы назначены организатором подмероприятия: ",
     "task_queue_access_request": "Запрос доступа к очереди: ",
+    "broadcast": "Рассылка: ",  # HereBot stage 4: the first line of the text (BOT_API.md)
 }
 PLAIN = {
     "task_assignment": "Вам назначена задача",
@@ -137,6 +138,7 @@ PLAIN = {
     "deputy_master_assignment": "Вы назначены заместителем мастера блока",
     "deputy_event_leader_assignment": "Вы назначены заместителем руководителя мероприятия",
     "deputy_subevent_leader_assignment": "Вы назначены заместителем руководителя подмероприятия",
+    "broadcast": "Рассылка",
 }
 # A block request: (for the applicant, for its reviewers).
 REQUEST_TEXT = {
@@ -202,7 +204,10 @@ def notification_views(s, uid, notifications):
         target = None
         allowed = True
         extra = {}
-        if n.kind == "pgas_document.created" and p.get("entry_id"):
+        if n.kind == "broadcast" and isinstance(p.get("broadcast_id"), str):
+            # Every active account reads a broadcast's page: never access_revoked.
+            target = {"kind": "broadcast", "id": p["broadcast_id"]}
+        elif n.kind == "pgas_document.created" and p.get("entry_id"):
             from database import PgasEntryORM
             allowed = s.get(PgasEntryORM, p["entry_id"]) is not None
             target = {"kind": "pgas", "id": str(p["entry_id"])} if allowed else None

@@ -7,8 +7,8 @@
 и отчитывается. Сайт не обращается к VK и к боту внутри запросов пользователей. Базы не
 общие: сайт хранит очередь и состояние бота у себя, бот — свои данные в PostgreSQL.
 
-Разделы помечены этапом. Этапы 1–3 реализованы, этап 4 — контракт к реализации, раздел этапа 5
-— черновик: при реализации его уточняют здесь же, совместимо с правилами версии ниже.
+Разделы помечены этапом. Этапы 1–4 реализованы, раздел этапа 5 — черновик: при реализации его
+уточняют здесь же, совместимо с правилами версии ниже.
 
 ## Транспорт и доступ
 
@@ -551,8 +551,12 @@ https://profkom.example/tasks/3f2a…
 В той же транзакции сайт ставит уведомление вида `broadcast` всем действующим аккаунтам (как
 `emit`: не в архиве, без блокировки), кроме автора. Его получают и те, у кого VK не привязан.
 
-- Текст в колокольчике — «Рассылка: » и первая непустая строка текста, не длиннее 100
-  символов (длиннее — обрезается с «…»).
+- Текст в колокольчике — «Рассылка: » и первая непустая строка текста без пробелов по краям,
+  не длиннее 100 символов (длиннее — первые 99 и «…»). Её хранит `payload` уведомления:
+  `{broadcast_id, title}`; `event_key` — `broadcast:<broadcast_id>`.
+- Уведомления пишет `notifications.emit_everyone`: один запрос аккаунтов и одна пакетная
+  вставка, правила `emit` те же (не в архиве, без блокировки, не автор, без повтора по
+  `event_key`).
 - Цель — `{kind: "broadcast", id: <broadcast_id>}`, страница `/broadcasts/{id}` с полным
   текстом. `bot_api.ROUTES` и `targetRoute` получают эту цель вместе.
 - В VK это уведомление не уходит: у вида `broadcast` нет категории доставки.
@@ -671,21 +675,29 @@ capabilities. Архив аккаунта их снимает, восстано�
 `delivery_status` (`not_connected`) остаётся. Состояние берётся из строки `users`, которую
 запрос уже прочитал: SQL не добавляется.
 
-**Этап 4:** рассылки. При выключенной интеграции `audience` и создание отвечают 404
-`bot_api_disabled`, список и страницы рассылок работают.
+**Этап 4:** рассылки (`backend/broadcasts.py`). Право проверяется первым: без
+`broadcast.send` — 403 `forbidden`, в том числе при выключенной интеграции. При выключенной
+интеграции `audience` и создание отвечают 404 `bot_api_disabled`, список, страницы и отмена
+работают.
 
 | Маршрут | Право | Что делает |
 | --- | --- | --- |
-| `GET /api/broadcasts/audience` | `broadcast.send` | `{total, reachable}`: сколько действующих аккаунтов (как в уведомлении на сайте, без автора) и сколько из них получат рассылку в VK (список получателей, как при отправке). Читающая единица, один запрос |
-| `POST /api/broadcasts` | `broadcast.send` | `{text, idempotency_key}` → `BroadcastOut`. Ключ — UUID. Повтор с тем же ключом возвращает ту же рассылку, тот же ключ с другим текстом — 409, как у задач (GL-07). Нет ни одного получателя в VK — 409 `broadcast_no_recipients`. Запись в аудит |
-| `GET /api/broadcasts` | `broadcast.send` | `{items: BroadcastOut[], next_cursor}`, свежие первыми, по 20 |
-| `GET /api/broadcasts/{id}` | действующий аккаунт | `BroadcastOut`. Без `broadcast.send` поле `counts` — `null`. Нет рассылки — 404 |
-| `POST /api/broadcasts/{id}/cancel` | `broadcast.send` | → `BroadcastOut`. Рассылка не `sending` — 409 `broadcast_not_sending`. Запись в аудит |
+| `GET /api/broadcasts/audience` | `broadcast.send` | `{total, reachable}`: `total` — все действующие аккаунты (не в архиве, без блокировки), автор тоже; `reachable` — сколько из них получат рассылку в VK (список получателей, как при отправке; автор — если подходит), поэтому `reachable ≤ total`. Колокольчик получают `total` − 1: все, кроме автора. Читающая единица, один запрос |
+| `POST /api/broadcasts` | `broadcast.send` | `{text, idempotency_key}` → `BroadcastOut`. `text` — 1…4000 символов после обрезки пробелов по краям, иначе 422 `validation_error` с `loc: ["body", "text"]` в `fields.errors`; лишнее поле — тоже 422. `idempotency_key` — UUID или нет поля. Повтор тем же автором с тем же ключом и тем же текстом (после обрезки) возвращает ту же рассылку в её нынешнем состоянии; тот же ключ с другим текстом или от другого аккаунта — 409 `duplicate_request_key`, как у задач (GL-07). Нет ни одного получателя в VK — 409 `broadcast_no_recipients`, ничего не сохраняется. Запись в аудит |
+| `GET /api/broadcasts` | `broadcast.send` | `{items: BroadcastOut[], next_cursor}`, свежие первыми, по 20 (в наборе интеграционных тестов — по 3, `api_contract.PAGE_SIZE`). Следующая страница — `?cursor=<next_cursor>`; неверный курсор — 422 `invalid_input` |
+| `GET /api/broadcasts/{id}` | действующий аккаунт | `BroadcastOut`. Без `broadcast.send` поле `counts` — `null`. Нет рассылки — 404 `not_found` |
+| `POST /api/broadcasts/{id}/cancel` | `broadcast.send` | → `BroadcastOut`, отменяет любой обладатель права. Нет рассылки — 404 `not_found`; рассылка не `sending` — 409 `broadcast_not_sending`. Запись в аудит |
 
 `BroadcastOut`: `{broadcast_id, text, author, created_at, state, cancelled_at, counts}`.
 `author` — `{user_id, display_name, avatar_url}` или `null` после удаления аккаунта автора.
-`state` — `sending`, `done`, `cancelled`. `counts` — `{total, pending, sent, denied, failed,
-cancelled, expired}` по получателям в VK.
+`created_at`, `cancelled_at` — ISO 8601 UTC с `Z` до секунды. `state` — `sending`, `done`,
+`cancelled`. `counts` — `{total, pending, sent, denied, failed, cancelled, expired}` по
+получателям в VK.
+
+Аудит: `target_kind = "broadcast"`, `target_id` — `broadcast_id`, автор записи — отправитель.
+Причина `broadcast_send` — `{state: "sending", recipients, notified}` (получателей в VK и
+уведомлений на сайте), `broadcast_cancel` — `{state: "cancelled", cancelled}` (сколько
+получателей отменено).
 
 Отправителей назначают председатель и замы на той же странице через маршруты этапа 1
 `/api/broadcasts/senders`.

@@ -3699,6 +3699,8 @@ register_tracker_collaboration_routes(router)
 
 import bot_api
 bot_api.register_routes(router)
+import broadcasts  # after bot_api: /broadcasts/senders before /broadcasts/{broadcast_id}
+broadcasts.register_routes(router)
 
 app.include_router(router)
 # The HereBot service routes: a service token instead of a user session (backend/docs/BOT_API.md).

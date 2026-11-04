@@ -72,6 +72,27 @@ def emit(session, recipients, kind, payload, event_key, actor=None):
                                preferences=preferences if isinstance(uid, int) else None, user=u)
 
 
+def emit_everyone(session, kind, payload, event_key, actor=None):
+    """emit to every active account (not archived, not banned) but the actor, in two
+    statements however many there are: one SELECT of the accounts without this event yet and
+    one INSERT (executemany), no ORM rows. For kinds without a delivery category only (the
+    stage 4 broadcast): they have no outbox row. Returns how many were notified."""
+    from profile_features import delivery_category
+    from sqlalchemy import exists, insert, select
+    assert delivery_category(kind) is None, kind
+    ids = session.execute(select(UserORM.user_id).where(
+        UserORM.account_state == "active", UserORM.banned == False,  # noqa: E712
+        UserORM.user_id != (actor if isinstance(actor, int) else -1),
+        ~exists().where(NotificationORM.user_id == UserORM.user_id, NotificationORM.event_key == event_key),
+    ).order_by(UserORM.user_id)).scalars().all()
+    if ids:
+        body, created = json.dumps(payload, ensure_ascii=False), now()
+        session.execute(insert(NotificationORM.__table__), [
+            dict(notification_id=str(uuid.uuid4()), user_id=uid, kind=kind, payload_json=body, event_key=event_key,
+                 is_read=False, read_at=None, created_at=created) for uid in ids])
+    return len(ids)
+
+
 def report_published(session, report, actor):
     from report_access import reader_candidates
     recipients = recipients_among(session, reader_candidates(session, report),

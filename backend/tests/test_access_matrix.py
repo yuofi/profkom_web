@@ -496,6 +496,11 @@ def ops():
         Op("BC1", "GET", lambda o: "/broadcasts/senders", cap=("S1", "send_broadcast")),
         Op("BC2", "PUT", lambda o: f"/broadcasts/senders/{o.uid('outsider')}", lambda o, r: {"sender": False},
            cap=("S1", "manage_broadcast_senders")),
+        # Stage 4 with the integration off: the history reads, the audience and a send answer
+        # 404 bot_api_disabled, after the right (a refusal is still 403).
+        Op("BC3", "GET", lambda o: "/broadcasts", cap=("S1", "send_broadcast")),
+        Op("BC4", "GET", lambda o: "/broadcasts/audience", ok=(404,)),
+        Op("BC5", "POST", lambda o: "/broadcasts", lambda o, r: {"text": f"Проба {r}"}, ok=(404,)),
     ]
 
 
@@ -598,6 +603,7 @@ EXPECTED = {
     "C1": ALL, "C2": ALL, "C3": TACHKI | HRM,
     "BOT1": set(), "BOT2": set(), "BOT3": set(),  # the IT block master and maintainers only
     "BC1": TACHKI, "BC2": TACHKI,  # without senders, send_broadcast is the chair's and deputies'
+    "BC3": TACHKI, "BC4": TACHKI, "BC5": TACHKI,
 }
 WORKING_SUBEVENTS = {role: (["sa", "sb"] if role in TACHKI | HRM | EVENT_LEAD else ["sa"] if role in SUB_TEAM else [])
                     for role in ROLES}
