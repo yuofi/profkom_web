@@ -71,7 +71,8 @@ CORE_TABLES = set("users contact_info guides block pgas_entries refresh_tokens e
 # Callback modules own their exact typed identity fields; no guessed JSON identifiers.
 CALLBACKS = (("profile_features_models", "profile_features"), ("support_models", "support"),
              ("history_models", "history"), ("bot_models", "bot_api"))
-PRIVATE_FIELDS = {"surname", "name", "patronymic", "kkr_name", "group_number", "location", "residence", "phone", "email", "tg", "vk", "photo_url"}
+# vk_user_id: the VK of the bot link in the account's own audit entries (BOT_API.md, stage 2).
+PRIVATE_FIELDS = {"surname", "name", "patronymic", "kkr_name", "group_number", "location", "residence", "phone", "email", "tg", "vk", "photo_url", "vk_user_id"}
 
 
 def _retention_policy():
