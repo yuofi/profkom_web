@@ -100,3 +100,39 @@ it("keeps every fixture session and application, and the demo bot answers, on th
     } finally { mock.restore(); }
   }
 });
+
+it("checks the notification settings with the stage 3 channels and from an older server without them", () => {
+  const off = { email: false, telegram: false, vk: false };
+  const settings = { revision: 1, preferences: { tracker: off, applications: off, pgas: off }, delivery_status: "not_connected" };
+  const channels = { email: "not_connected", telegram: "not_connected", vk: "ready" };
+  expect(wireIssues("PreferenceSettings", settings)).toEqual([]);
+  for (const vk of ["ready", "link_required", "not_connected"]) expect(wireIssues("PreferenceSettings", { ...settings, channels: { ...channels, vk } }), vk).toEqual([]);
+  expect(wireIssues("PreferenceSettings", { ...settings, channels: { ...channels, vk: "linked" } })).toEqual([expect.stringMatching(/^PreferenceSettings\.channels: expected /)]);
+  expect(wireIssues("PreferenceSettings", { ...settings, channels: { ...channels, max: "ready" } })).not.toEqual([]);
+  expect(wireIssues("PreferenceSettings", { ...settings, channels: { email: "not_connected", vk: "ready" } })).not.toEqual([]);
+  expect(wireIssues("PreferenceSettings", { ...settings, channels: null })).not.toEqual([]);
+  expect(wireIssues("NotificationChannelState", "linked")).not.toEqual([]);
+  // The Record-typed settings are checked key by key, as declared fields.
+  expect(wireIssues("PreferenceSettings", { ...settings, preferences: { ...settings.preferences, pgas: { ...off, vk: "yes" } } })).toEqual(["PreferenceSettings.preferences.pgas.vk: expected boolean"]);
+  expect(wireIssues("PreferenceSettings", { ...settings, preferences: { ...settings.preferences, pgas: { ...off, max: true } } })).toEqual(["PreferenceSettings.preferences.pgas.max: unexpected field"]);
+});
+
+it("keeps the demo notification settings on the wire contract, with VK as the demo bot is", async () => {
+  const { installMockTransport } = await import("../mocks/transport");
+  const { profileFeaturesApi } = await import("../utils/api/profileFeatures.api");
+  const cases = [["ok", "ready"], ["none", "link_required"], ["denied", "link_required"], ["off", "not_connected"]] as const;
+  for (const [bot, vk] of cases) {
+    const mock = installMockTransport("organizer", { delay: 0, bot });
+    try {
+      const settings = await profileFeaturesApi.preferences();
+      expect(wireIssues("PreferenceSettings", settings), bot).toEqual([]);
+      expect(settings.channels, bot).toEqual({ email: "not_connected", telegram: "not_connected", vk });
+      expect(wireIssues("PreferenceSettings", await profileFeaturesApi.savePreferences(settings.revision, settings.preferences)), bot).toEqual([]);
+      // Messages allowed without a working token still deliver (BOT_API.md, stage 3).
+      if (bot === "ok") for (const state of ["token_missing", "token_invalid"] as const) {
+        mock.bot.state = state;mock.syncBot();
+        expect((await profileFeaturesApi.preferences()).channels?.vk, state).toBe("ready");
+      }
+    } finally { mock.restore(); }
+  }
+});

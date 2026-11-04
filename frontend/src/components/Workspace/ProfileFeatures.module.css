@@ -18,6 +18,9 @@
 .awardDetail p { margin: 0; }
 .awardDetail > [data-icon] { font-size: 32px; color: var(--primary); }
 .revoked { opacity: .76; }
+/* The channel notes above the table: one group, closer than the card's own gap. */
+.channelNotes { display: grid; gap: 6px; }
+.channelNotes p { margin: 0; }
 .preferences { overflow-x: auto; }
 .preferences table { width: 100%; min-width: 420px; border-collapse: collapse; }
 .preferences thead th { white-space: nowrap; overflow-wrap: normal; word-break: normal; }

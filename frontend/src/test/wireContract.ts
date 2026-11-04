@@ -2,7 +2,7 @@
 import ts from "typescript";
 import { fileURLToPath } from "node:url";
 
-const paths = ["../utils/api/contract.ts", "../utils/api/types.ts", "../utils/api/kkr.api.ts"].map(p => fileURLToPath(new URL(p, import.meta.url)));
+const paths = ["../utils/api/contract.ts", "../utils/api/types.ts", "../utils/api/kkr.api.ts", "../utils/api/profileFeatures.api.ts"].map(p => fileURLToPath(new URL(p, import.meta.url)));
 const program = ts.createProgram(paths, { strict: true, target: ts.ScriptTarget.ESNext });
 const checker = program.getTypeChecker();
 const sources = paths.map(p => program.getSourceFile(p)!);
@@ -41,6 +41,8 @@ function validate(type: ts.Type, value: unknown, path: string, depth = 0): strin
   return [...extras, ...properties.flatMap(p => {
     const field = Object.hasOwn(object, p.name) ? object[p.name] : undefined;
     if (field === undefined && p.flags & ts.SymbolFlags.Optional) return [];
-    return validate(checker.getTypeOfSymbolAtLocation(p, p.valueDeclaration ?? p.declarations![0]), field, `${path}.${p.name}`, depth + 1);
+    // A mapped type's property (Record<"email" | …, T>) has no declaration of its own.
+    const declaration = p.valueDeclaration ?? p.declarations?.[0];
+    return validate(declaration ? checker.getTypeOfSymbolAtLocation(p, declaration) : checker.getTypeOfSymbol(p), field, `${path}.${p.name}`, depth + 1);
   })];
 }

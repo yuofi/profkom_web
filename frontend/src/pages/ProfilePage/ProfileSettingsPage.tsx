@@ -12,17 +12,19 @@ import s from "../../components/Workspace/Workspace.module.css";
 /** Own preferences remain separate from the public-facing profile overview. */
 export function ProfileSettingsPage() {
   const { session } = useSession();
-  const { hash } = useLocation();
+  const { hash, key } = useLocation();
   const deadline = session?.bot_link?.deadline;
-  // The workspace reminder leads here: its block in view.
+  // The workspace reminder and the notification settings lead here: its block in view, also
+  // when the address already ends with it (a new navigation, the same hash).
   useEffect(() => {
     if (hash === `#${BOT_LINK_ANCHOR}`) document.getElementById(BOT_LINK_ANCHOR)?.scrollIntoView?.({ block: "start" });
-  }, [hash]);
+  }, [hash, key]);
   return <Page title="Настройки профиля" description="Выберите, какие события и каналы уведомлений вам нужны." actions={<RouteLink to={getProfilePage()}><Glyph name="arrow_back" />К профилю</RouteLink>}>
     <div className={s.stack}>
       <BotLinkStep id={BOT_LINK_ANCHOR} lead={<p className={s.muted}>{deadline
         ? `Бот будет присылать уведомления сайта. Привязка обязательна с ${displayDate(deadline)}.`
-        : "Бот будет присылать уведомления сайта в личные сообщения."}</p>} />
+        : "Бот будет присылать уведомления сайта в личные сообщения."}</p>}
+        linkedNote={<p>Уведомления сайта приходят в VK по настройкам ниже.</p>} />
       <NotificationPreferences />
     </div>
   </Page>;

@@ -16,12 +16,14 @@ let mock: ReturnType<typeof installMockTransport> | undefined;
 beforeEach(() => { mock = installMockTransport("chair", { delay: 0 }); });
 afterEach(async () => { await page?.cleanup();page = undefined;mock?.restore();mock = undefined;vi.restoreAllMocks(); });
 
-it("persists independent channels/categories while explicitly leaving delivery disconnected", async () => {
+it("persists independent channels/categories and says which channels do not send yet", async () => {
   page = await mountWorkspace(<NotificationPreferences />);
   await waitForPage(page, () => !!page!.container.querySelector('input[aria-label="Изменения тикетов трекера: Почта"]'));
-  expect(page.container.textContent).toContain("Отправка ещё не подключена");
-  // A plain explanation, not an error-coloured warning (PE-25).
-  expect(Array.from(page.container.querySelectorAll("p")).find((p) => p.textContent?.startsWith("Отправка ещё не подключена"))?.className).not.toMatch(/warning/);
+  expect(page.container.textContent).toContain("Почта и Telegram пока не подключены: выбор сохраняется на будущее.");
+  // Plain explanations, not error-coloured warnings (PE-25).
+  const notes = Array.from(page.container.querySelectorAll("p")).filter((p) => /не подключены|В VK/.test(p.textContent ?? ""));
+  expect(notes).toHaveLength(2);
+  for (const note of notes) expect(note.className).not.toMatch(/warning/);
   const checkbox = page.container.querySelector<HTMLInputElement>('input[aria-label="Изменения тикетов трекера: Почта"]')!;
   await act(async () => checkbox.click());
   await act(async () => page!.container.querySelector<HTMLButtonElement>('button[type="submit"]')!.click());
