@@ -961,15 +961,22 @@ retention `profile_features.anonymize` удаляет строки аккаун�
 
 **Этап 5:**
 
-- `bot_commands` — `command_id` (ключ, 32 hex), `kind`, `args_json`, `state`, `code`,
-  `message`, `output` (стирается через 24 часа), `requested_by_user_id`,
-  `requested_vk_user_id`, `requested_name`, `idempotency_key` (уникальный, может быть `NULL`),
-  `request_hash`, `created_at`, `updated_at`, `finished_at`. Частичный индекс по
-  `created_at` для `pending` и `running`, индекс по `created_at` для списка. Хранятся 30 дней и
-  не больше 500 последних.
-- `bot_status` получает столбцы `paused` (по умолчанию `false`), `paused_at`,
-  `paused_by_user_id`. На старой базе их добавляет функция по образцу этапа 3, повторный запуск
-  ничего не меняет.
+- `bot_commands` (`bot_models.py`, на старой базе её создаёт `create_all`) — `command_id` (ключ,
+  32 hex), `kind`, `args_json`, `state`, `code`, `message`, `output` (стирается через 24 часа),
+  `requested_by_user_id`, `requested_vk_user_id`, `requested_name`, `idempotency_key`
+  (уникальный индекс `ux_bot_commands_idempotency_key`, может быть `NULL`), `request_hash`,
+  `created_at`, `updated_at`, `finished_at` (когда пришёл итог). Хранятся 30 дней и не больше 500
+  последних.
+  - Частичный индекс `ix_bot_commands_open` по `(created_at, command_id)` для строк `state IN
+    ('pending', 'running')`: по нему и проверка в холостом опросе, и чтение команд по порядку.
+    С одним `created_at` план для чтения по порядку выбирал индекс списка.
+  - Индекс `ix_bot_commands_list` по `(created_at, command_id)` — для списка.
+  - Времена — как у рассылок этапа 4: ISO 8601 UTC с микросекундами и `+00:00`, сравниваются как
+    текст.
+- `bot_status` получает столбцы `paused` (по умолчанию `false`), `paused_at` (с `Z` до секунды,
+  как прочие времена этой строки), `paused_by_user_id`. Снятие паузы стирает `paused_at` и
+  `paused_by_user_id`: они называют действующую паузу. На старой базе столбцы добавляет
+  `database._ensure_sqlite_bot_console` по образцу этапа 3, повторный запуск ничего не меняет.
 - Удаление аккаунта по retention стирает в его командах `requested_by_user_id`,
   `requested_vk_user_id` и `requested_name`, а в `bot_status` — `paused_by_user_id`, если пауза
   его. Архив их не трогает.

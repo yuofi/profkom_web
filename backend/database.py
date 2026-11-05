@@ -1200,6 +1200,22 @@ def _ensure_sqlite_delivery_queue() -> None:
 _ensure_sqlite_delivery_queue()
 
 
+def _ensure_sqlite_bot_console() -> None:
+    """HereBot stage 5 (BOT_API.md): the console's pause in bot_status. An existing row reads
+    as not paused; create_all makes the new bot_commands table."""
+    with engine.begin() as conn:
+        names = {r[1] for r in conn.execute(text("PRAGMA table_info(bot_status)")).fetchall()}
+        if not names:
+            return
+        for name, declaration in (("paused", "BOOLEAN NOT NULL DEFAULT 0"), ("paused_at", "VARCHAR"),
+                                  ("paused_by_user_id", "INTEGER REFERENCES users (user_id)")):
+            if name not in names:
+                conn.execute(text(f"ALTER TABLE bot_status ADD COLUMN {name} {declaration}"))
+
+
+_ensure_sqlite_bot_console()
+
+
 def _ensure_sqlite_file_records_columns() -> None:
     """Add sealed_at and storage_key to SQLite DBs created before files were served by the API."""
     with engine.begin() as conn:

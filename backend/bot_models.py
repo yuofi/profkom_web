@@ -1,18 +1,20 @@
-"""Additive HereBot persistence (backend/docs/BOT_API.md, stages 1, 2 and 4).
+"""Additive HereBot persistence (backend/docs/BOT_API.md, stages 1, 2, 4 and 5).
 
 Imported by database before create_all. The bot's own data stays in its PostgreSQL; the
 site keeps the last report's state, the bot's grouped log errors, from stage 2 the VK link
-of an account with its one-time codes and from stage 4 the broadcasts with their batches
-and recipients. Times of stages 1 and 2 are ISO 8601 UTC strings with `Z`, whole seconds;
-those of stage 4 have microseconds and `+00:00` (broadcasts.iso), as the stage 3 queue. Each
-kind compares as text.
+of an account with its one-time codes, from stage 4 the broadcasts with their batches and
+recipients and from stage 5 the console's commands and its pause. Times of stages 1 and 2
+and of the pause are ISO 8601 UTC strings with `Z`, whole seconds; those of stages 4 and 5
+have microseconds and `+00:00` (bot_link.iso), as the stage 3 queue. Each kind compares as
+text.
 """
 from sqlalchemy import Boolean, Column, ForeignKey, Index, Integer, String, Text, text
 from database import Base
 
 
 class BotStatusORM(Base):
-    """One row (id 1): the last accepted report and the last heartbeat."""
+    """One row (id 1): the last accepted report and the last heartbeat; from stage 5 also the
+    console's pause (database._ensure_sqlite_bot_console adds its columns to an old table)."""
     __tablename__ = "bot_status"
     id = Column(Integer, primary_key=True)
     boot_id = Column(String, nullable=True)
@@ -22,6 +24,10 @@ class BotStatusORM(Base):
     heartbeat_json = Column(Text, nullable=True)
     updated_at = Column(String, nullable=True)  # server time the heartbeat was stored
     cleaned_at = Column(String, nullable=True)  # the last retention pass over bot_errors
+    # Stage 5: the console paused sending (GET /work hands out no deliveries or batches).
+    paused = Column(Boolean, nullable=False, default=False, server_default=text("0"))
+    paused_at = Column(String, nullable=True)  # NULL while not paused
+    paused_by_user_id = Column(Integer, ForeignKey("users.user_id"), nullable=True)  # NULL after retention
 
 
 class BotErrorORM(Base):
@@ -109,3 +115,30 @@ class BroadcastRecipientORM(Base):
     vk_message_id = Column(Integer, nullable=True)
     error_code = Column(String, nullable=True)  # VK's code or the bot's word, as text
     updated_at = Column(String, nullable=False)
+
+
+class BotCommandORM(Base):
+    """A console command (stage 5): `pending` until the bot reports `running` or its result
+    (`done`, `failed`, `unsupported`); `expired` when pending for 10 minutes or running for 30
+    since created_at. The requester's fields are NULL after the account's retention."""
+    __tablename__ = "bot_commands"
+    command_id = Column(String, primary_key=True)  # 32 hex, secrets.token_hex(16)
+    kind = Column(String, nullable=False)  # restart, logs, updates_check, update, rollback
+    args_json = Column(Text, nullable=False)
+    state = Column(String, nullable=False)
+    code = Column(String, nullable=True)  # the bot's machine reason, at most 64 characters
+    message = Column(Text, nullable=True)  # the bot's words for a person, at most 500 characters
+    output = Column(Text, nullable=True)  # the log lines of `logs`, wiped after 24 hours
+    requested_by_user_id = Column(Integer, ForeignKey("users.user_id"), nullable=True)
+    requested_vk_user_id = Column(Integer, nullable=True)  # the VK of the requester's link then
+    requested_name = Column(String, nullable=True)  # the requester's site display name then
+    idempotency_key = Column(String, nullable=True)  # GL-07, as POST /tasks (request_keys)
+    request_hash = Column(String, nullable=True)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+    finished_at = Column(String, nullable=True)  # when the result came
+    # The bot's poll checks the open commands over the partial index only (BOT_API.md,
+    # «Консоль бота», «Выдача в GET /work»); the console's history pages over the second.
+    __table_args__ = (Index("ux_bot_commands_idempotency_key", "idempotency_key", unique=True),
+                      Index("ix_bot_commands_open", "created_at", "command_id", sqlite_where=text("state IN ('pending', 'running')")),
+                      Index("ix_bot_commands_list", "created_at", "command_id"))
