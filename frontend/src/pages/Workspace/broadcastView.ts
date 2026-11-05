@@ -1,5 +1,6 @@
-import type { Broadcast, BroadcastAudience, BroadcastCounts, BroadcastState } from "../../utils/api/contract";
+import type { Broadcast, BroadcastAudience, BroadcastCounts, BroadcastState, SendingPause } from "../../utils/api/contract";
 import type { Tone } from "../../components/Workspace/sections";
+import { displayDate } from "../../utils/dates";
 import { plural } from "./seasonAnalyticsView";
 
 /** The longest broadcast VK takes from the site (BOT_API.md, «Рассылки»). */
@@ -22,6 +23,26 @@ export const broadcastStateTones: Record<BroadcastState, Tone | undefined> = {
   cancelled: undefined,
 };
 
+/** The badge of a broadcast: a sending one the bot console paused says so instead. */
+export function broadcastBadge(item: Pick<Broadcast, "state" | "paused">): { label: string; tone?: Tone } {
+  if (item.state === "sending" && item.paused) return { label: "Приостановлена", tone: "peach" };
+  return { label: broadcastStateNames[item.state], tone: broadcastStateTones[item.state] };
+}
+
+/** «Мастерова Мария, 5 ноября 2026 г., 03:10»: who paused and when, what of it is known. */
+const pauseSource = ({ paused_at, paused_by }: SendingPause) => {
+  const source = [paused_by?.display_name, paused_at ? displayDate(paused_at) : ""].filter(Boolean).join(", ");
+  return source ? ` (${source})` : "";
+};
+/** Beside a sending broadcast while the console paused sending. */
+export const pausedBroadcastText = (pause: SendingPause) =>
+  `Отправку в VK приостановили в консоли бота${pauseSource(pause)}. Рассылка ждёт в очереди и уйдёт, когда отправку возобновят; ` +
+  "что не уйдёт за сутки, отправлено не будет. Возобновляют отправку мастер блока IT и сопровождающие бота. На сайте уведомление о рассылке уже у всех.";
+/** Above the send button while the console paused sending. */
+export const pausedComposeText = (pause: SendingPause) =>
+  `Отправка в VK сейчас приостановлена в консоли бота${pauseSource(pause)}. Новая рассылка встанет в очередь и уйдёт, когда отправку возобновят; ` +
+  "на сайте уведомление появится сразу.";
+
 /** VK did not take it: messages not allowed, a final error, or a day passed without sending. */
 export const notDelivered = (counts: BroadcastCounts) => counts.denied + counts.failed + counts.expired;
 
@@ -36,7 +57,7 @@ export function progressText(counts: BroadcastCounts) {
 
 /** The hint under the text: how many get it in VK and how many only on the site. `reachable`
  *  above `total` (the author linked, but not counted on the site) still reads sensibly. */
-export function audienceHint({ total, reachable }: BroadcastAudience) {
+export function audienceHint({ total, reachable }: Pick<BroadcastAudience, "total" | "reachable">) {
   if (reachable <= 0) return "Сейчас рассылку некому отправить в VK: ни у кого не подключён бот.";
   const missing = Math.max(0, total - reachable);
   return `Получат в VK: ${reachable} из ${Math.max(total, reachable)}.` +
@@ -44,10 +65,11 @@ export function audienceHint({ total, reachable }: BroadcastAudience) {
 }
 
 /** The question before sending: the VK count, the site bell (every participant but the
- *  author, so no number) and what cannot be undone. */
-export function sendQuestion({ reachable }: BroadcastAudience) {
+ *  author, so no number), the pause if there is one and what cannot be undone. */
+export function sendQuestion({ reachable, paused }: Pick<BroadcastAudience, "reachable"> & Partial<BroadcastAudience>) {
   return `Отправить рассылку? В VK её получат ${reachable} ${plural(reachable, "человек", "человека", "человек")}, ` +
     "на сайте она появится в уведомлениях у всех участников. " +
+    (paused ? "Сейчас отправка в VK приостановлена: рассылка уйдёт туда, когда отправку возобновят. " : "") +
     "Отменить потом можно только то, что ещё не ушло.";
 }
 

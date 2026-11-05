@@ -219,12 +219,12 @@ export function installMockTransport(
   syncBot();
   // A linked account has had VK on for «трекер» and «заявки» since its first link (stage 3).
   if (linkedAtStart && bot.enabled) profileFeatures.linkVk(true);
-  // Broadcasts (stage 4): the demo's integration switch turns the audience and sending off.
-  const broadcasts = broadcastMock(state, () => bot.enabled);
-  if (options.scenario === "empty") { broadcasts.store.items = [];broadcasts.store.senders = []; }
-  // The bot console (stage 5): the same switch; the server's requests need the reader's VK.
+  // The bot console (stage 5): the demo's integration switch; the server's requests need the reader's VK.
   const botConsole = botConsoleMock(state, () => bot.enabled, () => bot.vk_user_id !== null);
   if (options.scenario === "empty") { botConsole.store.commands = [];botConsole.store.errors = [];botConsole.store.maintainers = []; }
+  // Broadcasts (stage 4): the same switch turns the audience and sending off; the console's pause holds them.
+  const broadcasts = broadcastMock(state, () => bot.enabled, botConsole.pause);
+  if (options.scenario === "empty") { broadcasts.store.items = [];broadcasts.store.senders = []; }
   const liveCode = () => bot.code && Date.parse(bot.code.expires_at) > Date.now() ? bot.code : null;
   const botMe = (): BotLinkMe => bot.enabled
     ? { enabled: true, vk_user_id: bot.vk_user_id, messages_allowed: bot.messages_allowed, token_status: bot.token_status, linked_at: bot.linked_at, ...botLinkView(), bot_url: bot.bot_url, code_expires_at: liveCode()?.expires_at ?? null }

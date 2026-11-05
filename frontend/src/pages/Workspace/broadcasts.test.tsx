@@ -14,7 +14,8 @@ import { ApiError } from "../../utils/api/request";
 import type { Session } from "../../utils/api/contract";
 import { BroadcastPage, BroadcastsPage } from "./BroadcastPages";
 import {
-  BROADCAST_POLL_MS, audienceHint, broadcastLength, broadcastPollInterval, excerpt, progressText, sendQuestion,
+  BROADCAST_POLL_MS, audienceHint, broadcastBadge, broadcastLength, broadcastPollInterval, excerpt, pausedBroadcastText,
+  pausedComposeText, progressText, sendQuestion,
 } from "./broadcastView";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
@@ -370,9 +371,51 @@ it("words the counts, the audience and the start of a text plainly", () => {
   expect(broadcastLength("  a👋b \n")).toBe(3);
   expect(excerpt("Первая\n\nвторая   строка")).toBe("Первая вторая строка");
   expect(excerpt("а".repeat(150))).toBe(`${"а".repeat(140)}…`);
-  const item = { broadcast_id: "b", text: "x", author: null, created_at: "2026-11-05T00:00:00Z", state: "sending" as const, cancelled_at: null, counts };
+  const item = { broadcast_id: "b", text: "x", author: null, created_at: "2026-11-05T00:00:00Z", state: "sending" as const, cancelled_at: null, counts, paused: null };
   expect(broadcastPollInterval([item])).toBe(BROADCAST_POLL_MS);
   expect(broadcastPollInterval([{ ...item, counts: null }])).toBe(false);
   expect(broadcastPollInterval([{ ...item, state: "done" }])).toBe(false);
   expect(broadcastPollInterval(undefined)).toBe(false);
+});
+
+it("words the console's pause on the badge, beside a broadcast and before a send", () => {
+  const pause = { paused_at: "2026-11-05T07:10:00Z", paused_by: { user_id: 104, display_name: "Алексей Соколов", avatar_url: null } };
+  expect(broadcastBadge({ state: "sending", paused: pause })).toEqual({ label: "Приостановлена", tone: "peach" });
+  expect(broadcastBadge({ state: "sending", paused: null })).toEqual({ label: "Идёт отправка", tone: "sky" });
+  expect(broadcastBadge({ state: "done", paused: pause }).label).toBe("Отправлена");
+  expect(pausedBroadcastText(pause)).toMatch(/^Отправку в VK приостановили в консоли бота \(Алексей Соколов, .+\)\. Рассылка ждёт в очереди и уйдёт, когда отправку возобновят;/);
+  expect(pausedBroadcastText(pause)).toContain("Возобновляют отправку мастер блока IT и сопровождающие бота.");
+  expect(pausedBroadcastText({ paused_at: null, paused_by: null })).toMatch(/^Отправку в VK приостановили в консоли бота\. /);
+  expect(pausedComposeText({ ...pause, paused_by: null })).toMatch(/^Отправка в VK сейчас приостановлена в консоли бота \(\d+[^)]*\d\d:\d\d\)\. Новая рассылка встанет в очередь/);
+  expect(sendQuestion({ reachable: 2, paused: pause })).toContain("Сейчас отправка в VK приостановлена: рассылка уйдёт туда, когда отправку возобновят.");
+  expect(sendQuestion({ reachable: 2, paused: null })).not.toContain("приостановлена");
+});
+
+it("shows senders that the console paused sending, and nobody else", async () => {
+  await mount("chair");
+  expect(text()).not.toContain("приостановлен");
+  await page!.cleanup();page = undefined;mock!.restore();
+  mock = installMockTransport("chair", { delay: 0 });
+  mock.broadcasts.step = 0;
+  Object.assign(mock.botConsole, { paused: true, pausedAt: "2026-11-05T07:10:00Z", pausedBy: 104 });
+  page = await mountWorkspace(pages, { role: "chair", path: "/broadcasts" });
+  await waitForPage(page);
+  expect(text()).toContain("Отправка в VK сейчас приостановлена в консоли бота (Алексей Соколов, ");
+  expect(row("Собрание актива")?.textContent).toContain("Приостановлена");
+  expect(row("До 25 октября")?.textContent).toContain("Отправлена");
+  await page.cleanup();page = undefined;
+  page = await mountWorkspace(pages, { role: "chair", path: "/broadcasts/broadcast-3" });
+  await waitForPage(page);
+  expect(text()).toContain("Приостановлена");
+  expect(text()).toContain("Отправку в VK приостановили в консоли бота (Алексей Соколов, ");
+  // The bot sends nothing while paused: the demo holds the broadcast still.
+  mock.broadcasts.step = 60;
+  expect((await broadcastsApi.get("broadcast-3")).counts?.pending).toBe(172);
+  await page.cleanup();page = undefined;mock.restore();
+  mock = installMockTransport("organizer", { delay: 0 });
+  Object.assign(mock.botConsole, { paused: true, pausedAt: "2026-11-05T07:10:00Z", pausedBy: 104 });
+  page = await mountWorkspace(pages, { role: "organizer", path: "/broadcasts/broadcast-3" });
+  await waitForPage(page);
+  expect(text()).toContain("Собрание актива");
+  expect(text()).not.toContain("приостанов");
 });

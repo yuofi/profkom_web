@@ -30,7 +30,7 @@ from api_contract import Page
 from auth import get_current_user
 from bot_api import BATCH_SIZE, DISABLED, TEXT_LIMIT, require
 from bot_link import SENDABLE, iso, stamp, utcnow
-from bot_models import BotLinkORM, BroadcastBatchORM, BroadcastORM, BroadcastRecipientORM
+from bot_models import BotLinkORM, BotStatusORM, BroadcastBatchORM, BroadcastORM, BroadcastRecipientORM
 from database import UserORM, _user_ref_with_avatar, db
 from domain_contract import UserReference
 from errors import Conflict, InvalidInput, NotFound
@@ -58,9 +58,16 @@ class BroadcastIn(BaseModel):
         return None if value is None else request_keys.canonical_key(value)
 
 
+class SendingPause(BaseModel):
+    """The console paused sending through the bot (BOT_API.md, «Пауза отправки»)."""
+    paused_at: str | None = None
+    paused_by: UserReference | None = None  # None after the account's retention
+
+
 class Audience(BaseModel):
     total: int  # active accounts (not archived, not banned), the author included
     reachable: int  # of them, the VK recipients a send now fixes: never more than total
+    paused: SendingPause | None = None  # the console paused sending: a new broadcast waits
 
 
 class Counts(BaseModel):
@@ -81,6 +88,7 @@ class BroadcastOut(BaseModel):
     state: Literal["sending", "done", "cancelled"]
     cancelled_at: str | None = None
     counts: Counts | None = None  # the VK recipients by state; only for `broadcast.send`
+    paused: SendingPause | None = None  # only with counts, while sending and the console paused it
 
 
 def enabled():
@@ -99,15 +107,19 @@ def zulu(value):
 
 
 def audience():
-    """GET /broadcasts/audience: one SELECT over the accounts with their links. The author is
-    counted in both (the bell skips them, the VK list does not)."""
-    U, L = UserORM, BotLinkORM
+    """GET /broadcasts/audience: one SELECT over the accounts with their links and the pause.
+    The author is counted in both (the bell skips them, the VK list does not). While paused,
+    one more read names who paused."""
+    U, L, S = UserORM, BotLinkORM, BotStatusORM
+    pause = [select(column).where(S.id == 1).scalar_subquery() for column in (S.paused, S.paused_at, S.paused_by_user_id)]
     with db._session() as s:
-        total, reachable = s.execute(
-            select(func.count(), func.count(L.user_id).filter(U.bot_link_state.in_(SENDABLE)))
+        total, reachable, paused, paused_at, paused_by = s.execute(
+            select(func.count(), func.count(L.user_id).filter(U.bot_link_state.in_(SENDABLE)), *pause)
             .select_from(U).outerjoin(L, L.user_id == U.user_id)
             .where(U.account_state == "active", U.banned == False)).one()  # noqa: E712
-    return Audience(total=total, reachable=reachable)
+        people = authors(s, {paused_by} if paused and paused_by is not None else set())
+        return Audience(total=total, reachable=reachable,
+                        paused=SendingPause(paused_at=paused_at, paused_by=people.get(paused_by)) if paused else None)
 
 
 def send(payload, uid, now):
@@ -197,8 +209,15 @@ def page(cursor):
 
 def views(s, rows, with_counts, known=None):
     """BroadcastOut of `rows`: the authors in one read with their avatars, the counts in one
-    GROUP BY (`known` when the caller has them)."""
-    people = authors(s, {r.author_user_id for r in rows if r.author_user_id is not None})
+    GROUP BY (`known` when the caller has them). Senders of a sending broadcast also learn
+    whether the console paused sending: one read of bot_status, its author with the others."""
+    status = s.get(BotStatusORM, 1) if with_counts and any(r.state == "sending" for r in rows) else None
+    paused = status is not None and bool(status.paused)
+    ids = {r.author_user_id for r in rows if r.author_user_id is not None}
+    if paused and status.paused_by_user_id is not None:
+        ids.add(status.paused_by_user_id)
+    people = authors(s, ids)
+    pause = SendingPause(paused_at=status.paused_at, paused_by=people.get(status.paused_by_user_id)) if paused else None
     counts = {}
     if with_counts:
         counts = {r.broadcast_id: dict.fromkeys(("total", *STATES), 0) for r in rows}
@@ -214,7 +233,8 @@ def views(s, rows, with_counts, known=None):
                     counts[bid][state] += number
     return [BroadcastOut(broadcast_id=r.broadcast_id, text=r.text, author=people.get(r.author_user_id),
                          created_at=zulu(r.created_at), state=r.state, cancelled_at=zulu(r.cancelled_at),
-                         counts=Counts(**counts[r.broadcast_id]) if with_counts else None) for r in rows]
+                         counts=Counts(**counts[r.broadcast_id]) if with_counts else None,
+                         paused=pause if r.state == "sending" else None) for r in rows]
 
 
 def authors(s, ids):

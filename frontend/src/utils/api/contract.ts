@@ -115,6 +115,12 @@ export interface BroadcastCounts {
   /** Not sent within 24 hours. */
   expired: number;
 }
+/** The bot console paused sending (BOT_API.md, «Пауза отправки»): when and by whom. */
+export interface SendingPause {
+  paused_at: string | null;
+  /** null once that account was deleted by retention. */
+  paused_by: UserRef | null;
+}
 /** BroadcastOut: GET /broadcasts/{id} for any active account, the list and the commands. */
 export interface Broadcast {
   broadcast_id: string;
@@ -126,12 +132,16 @@ export interface Broadcast {
   cancelled_at: string | null;
   /** null without the right to send broadcasts. */
   counts: BroadcastCounts | null;
+  /** The console paused sending; only beside counts, while the broadcast is `sending`. */
+  paused: SendingPause | null;
 }
 /** GET /broadcasts/audience: active accounts that get the site notice (the author excluded)
  *  and how many of them the broadcast reaches in VK. */
 export interface BroadcastAudience {
   total: number;
   reachable: number;
+  /** The console paused sending: a new broadcast waits in the queue. */
+  paused: SendingPause | null;
 }
 /** POST /broadcasts: 1–4000 characters after trimming; the key is a UUID (GL-07). */
 export interface BroadcastInput {

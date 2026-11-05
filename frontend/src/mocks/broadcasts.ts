@@ -1,8 +1,8 @@
 /** Synthetic broadcasts through the bot (BOT_API.md, «Рассылки», stage 4). Nothing goes to VK:
- *  a sending broadcast moves on by itself each time it is read. */
+ *  a sending broadcast moves on by itself each time it is read, unless the console paused sending. */
 import type { Fixtures } from "./fixtures";
 import { mockNow } from "./fixtures";
-import type { Broadcast, BroadcastCounts, UserRef } from "../utils/api/contract";
+import type { Broadcast, BroadcastCounts, SendingPause, UserRef } from "../utils/api/contract";
 
 type Reply = [number, unknown];
 type Body = Record<string, unknown>;
@@ -16,8 +16,9 @@ const counts = (total: number, rest: Partial<BroadcastCounts> = {}): BroadcastCo
   return { total, sent, ...known };
 };
 
-/** `enabled()` is the demo's integration switch (the «Бот ВКонтакте» picker, «Выключен»). */
-export function broadcastMock(state: Fixtures, enabled: () => boolean) {
+/** `enabled()` is the demo's integration switch (the «Бот ВКонтакте» picker, «Выключен»);
+ *  `pause()` is the bot console's pause. */
+export function broadcastMock(state: Fixtures, enabled: () => boolean, pause: () => SendingPause | null = () => null) {
   const person = (id: number): UserRef => copy(state.people.find((p) => p.user_id === id)!);
   const store = {
     /** Active accounts without the author, and how many of them have the bot. */
@@ -49,12 +50,14 @@ export function broadcastMock(state: Fixtures, enabled: () => boolean) {
   const manages = () => state.session.capabilities.includes("manage_broadcast_senders");
   /** The bot takes the next recipients; the last one done ends the sending. */
   const advance = (item: Broadcast) => {
-    if (item.state !== "sending" || !item.counts || !store.step) return;
+    if (item.state !== "sending" || !item.counts || !store.step || pause()) return;
     const c = item.counts, step = Math.min(c.pending, store.step), failed = step >= store.step ? 1 : 0;
     c.pending -= step;c.sent += step - failed;c.failed += failed;
     if (!c.pending) item.state = "done";
   };
-  const view = (item: Broadcast): Broadcast => ({ ...copy(item), counts: sends() ? copy(item.counts) : null });
+  const view = (item: Broadcast): Broadcast => ({
+    ...copy(item), counts: sends() ? copy(item.counts) : null, paused: sends() && item.state === "sending" ? pause() : null,
+  });
   const handle = (path: string, method: string, data: Body, search?: URLSearchParams): Reply | undefined => {
     const parts = path.split("/").filter(Boolean);
     if (parts[0] !== "broadcasts") return undefined;
@@ -75,7 +78,7 @@ export function broadcastMock(state: Fixtures, enabled: () => boolean) {
     if (parts[1] === "audience") {
       if (!sends()) return fail(403, "forbidden", "Forbidden");
       if (!enabled()) return fail(404, "bot_api_disabled", "Bot integration is disabled");
-      return [200, copy(store.audience)];
+      return [200, { ...copy(store.audience), paused: pause() }];
     }
     if (!parts[1]) {
       if (!sends()) return fail(403, "forbidden", "Forbidden");
@@ -104,6 +107,7 @@ export function broadcastMock(state: Fixtures, enabled: () => boolean) {
       const item: Broadcast = {
         broadcast_id: `broadcast-new-${store.keys.size + 1}`, text, author: copy(state.user), created_at: new Date().toISOString(),
         state: "sending", cancelled_at: null, counts: counts(store.audience.reachable, { pending: store.audience.reachable, sent: 0 }),
+        paused: null,
       };
       store.items.push(item);store.keys.set(key, { text, id: item.broadcast_id });
       return [200, view(item)];

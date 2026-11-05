@@ -1,7 +1,7 @@
 /** A synthetic bot console (BOT_API.md, «Консоль бота», stages 1 and 5). Nothing reaches a bot or
  *  a server: a command moves on by itself each time it is read, as the bot would take it. */
 import type { Fixtures } from "./fixtures";
-import type { BotCommand, BotCommandArgs, BotCommandKind, BotConsoleStatus, BotHeartbeat, BotLogError, UserRef } from "../utils/api/contract";
+import type { BotCommand, BotCommandArgs, BotCommandKind, BotConsoleStatus, BotHeartbeat, BotLogError, SendingPause, UserRef } from "../utils/api/contract";
 
 type Reply = [number, unknown];
 type Body = Record<string, unknown>;
@@ -235,5 +235,9 @@ export function botConsoleMock(state: Fixtures, enabled: () => boolean, linked: 
     if (typeof key === "string") store.keys.set(key, { body, id: item.command_id });
     return [200, view(item, true)];
   };
-  return Object.assign(handle, { store });
+  /** The pause as the broadcasts show it to senders (BOT_API.md, «Пауза отправки»). */
+  const pause = (): SendingPause | null => store.paused
+    ? { paused_at: store.pausedAt, paused_by: store.pausedBy === null ? null : person(store.pausedBy) }
+    : null;
+  return Object.assign(handle, { store, pause });
 }

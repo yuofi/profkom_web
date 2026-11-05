@@ -227,7 +227,7 @@ def test_the_audience_counts_every_active_account_and_the_list(client, enabled, 
     """`total` is every active account, the author included; `reachable` the VK list of a send."""
     chair = team["chair"]
     r = client.get(f"{URL}/audience", headers=chair.headers)
-    assert r.json() == {"total": 6, "reachable": 0}  # chair, deputy, it, other, member, outsider
+    assert r.json() == {"total": 6, "reachable": 0, "paused": None}  # chair, deputy, it, other, member, outsider
     linked(chair.user_id, 2200)  # the author is a recipient when their VK takes messages
     linked(team["member"].user_id, 2201, token="missing")
     linked(team["it"].user_id, 2202, messages=False)
@@ -238,7 +238,7 @@ def test_the_audience_counts_every_active_account_and_the_list(client, enabled, 
     db.update_user(pending.user_id, account_state="pending")
     with sql() as statements:
         data = client.get(f"{URL}/audience", headers=chair.headers).json()
-    assert data == {"total": 6, "reachable": 2}
+    assert data == {"total": 6, "reachable": 2, "paused": None}
     assert len([s for s in statements if "bot_links" in s]) == 1
     sent = send(client, chair)
     assert counts(client, chair, sent["broadcast_id"])["total"] == 2
@@ -615,7 +615,7 @@ def test_the_list_pages_newest_first_with_counts(client, enabled, team, sender):
     second = client.get(URL, headers=team["deputy"].headers, params={"cursor": first["next_cursor"]}).json()
     assert [i["broadcast_id"] for i in second["items"]] == made[::-1][20:] and second["next_cursor"] is None
     oldest = second["items"][-1]
-    assert set(oldest) == {"broadcast_id", "text", "author", "created_at", "state", "cancelled_at", "counts"}
+    assert set(oldest) == {"broadcast_id", "text", "author", "created_at", "state", "cancelled_at", "counts", "paused"}
     assert (oldest["text"], oldest["state"], oldest["counts"]) == ("Рассылка 0", "cancelled", tally(total=3, cancelled=3))
     assert oldest["author"]["user_id"] == team["chair"].user_id and oldest["author"]["display_name"]
     assert first["items"][0]["author"]["user_id"] == authors[22 % 3].user_id
@@ -777,6 +777,55 @@ def test_a_list_page_costs_the_same_for_1_or_20_broadcasts(client, enabled, team
     for i in range(19):
         send(client, (team["chair"], team["deputy"], sender)[i % 3])
     assert count() == (one, 20)
+
+
+# ───────────────────────────── the console's pause ─────────────────────────────
+
+def console_pause(client, actor, paused=True):
+    r = client.put("/api/bot/console/pause", headers=actor.headers, json={"paused": paused})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_senders_see_the_consoles_pause_on_what_still_sends(client, enabled, team):
+    """The pause the IT master set reaches the senders: in the audience before a send and on
+    every sending broadcast, with when and who. A finished broadcast, a reader without the
+    right and the time after resuming show none."""
+    chair, it, member = team["chair"], team["it"], team["member"]
+    crowd(2, 81000)
+    cancelled = send(client, chair)["broadcast_id"]
+    client.post(f"{URL}/{cancelled}/cancel", headers=chair.headers).raise_for_status()
+    assert client.get(f"{URL}/audience", headers=chair.headers).json()["paused"] is None
+    since = console_pause(client, it)["paused_at"]
+    pause = client.get(f"{URL}/audience", headers=chair.headers).json()["paused"]
+    assert pause["paused_at"] == since and pause["paused_by"]["user_id"] == it.user_id
+    made = send(client, chair)
+    assert made["paused"] == pause
+    page = client.get(URL, headers=chair.headers).json()["items"]
+    assert {item["broadcast_id"]: item["paused"] for item in page} == {made["broadcast_id"]: pause, cancelled: None}
+    assert client.get(f"{URL}/{made['broadcast_id']}", headers=chair.headers).json()["paused"] == pause
+    assert client.get(f"{URL}/{made['broadcast_id']}", headers=member.headers).json()["paused"] is None
+    console_pause(client, it, False)
+    assert client.get(f"{URL}/{made['broadcast_id']}", headers=chair.headers).json()["paused"] is None
+    assert client.get(f"{URL}/audience", headers=chair.headers).json()["paused"] is None
+
+
+def test_the_pause_is_read_only_beside_a_sending_broadcast(client, enabled, chair):
+    """The audience reads the pause in its one SELECT; a list page reads bot_status once, and
+    not at all when nothing on it is sending."""
+    crowd(1, 82000)
+    bid = send(client, chair)["broadcast_id"]
+    with sql() as statements:
+        client.get(f"{URL}/audience", headers=chair.headers).raise_for_status()
+    pause = [s for s in statements if "bot_status" in s]
+    assert len(pause) == 1 and "bot_links" in pause[0], statements  # the audience's own SELECT
+    with sql() as statements:
+        client.get(URL, headers=chair.headers).raise_for_status()
+    assert len([s for s in statements if "bot_status" in s]) == 1
+    client.post(f"{URL}/{bid}/cancel", headers=chair.headers).raise_for_status()
+    with sql() as statements:
+        client.get(URL, headers=chair.headers).raise_for_status()
+    assert not [s for s in statements if "bot_status" in s]
 
 
 def test_session_and_the_bell_count_cost_no_more_with_broadcasts(client, enabled, team):

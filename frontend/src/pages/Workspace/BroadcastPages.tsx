@@ -16,8 +16,8 @@ import { displayDate, shortDate } from "../../utils/dates";
 import { getBroadcastRoute, getBroadcastsRoute } from "../../utils/routes";
 import { can, useSession } from "../../utils/session";
 import {
-  BROADCAST_MAX, audienceHint, broadcastLength, broadcastPollInterval, broadcastStateNames, broadcastStateTones,
-  excerpt, progressText, sendQuestion,
+  BROADCAST_MAX, audienceHint, broadcastBadge, broadcastLength, broadcastPollInterval, excerpt, pausedBroadcastText,
+  pausedComposeText, progressText, sendQuestion,
 } from "./broadcastView";
 import s from "../../components/Workspace/Workspace.module.css";
 import b from "./BroadcastPages.module.css";
@@ -128,6 +128,7 @@ function BroadcastCompose() {
           </section>
         </div>
         {audience.data && !off && <p className={s.muted}>{audienceHint(audience.data)}</p>}
+        {audience.data?.paused && !off && <div role="status" className={s.note}><p>{pausedComposeText(audience.data.paused)}</p></div>}
         {asking && ready && <div role="alert" className={s.warning}>
           <p>{sendQuestion(audience.data!)}</p>
           <div className={s.row}>
@@ -206,7 +207,7 @@ function BroadcastHistory() {
             <li key={item.broadcast_id}>
               <RouteLink to={getBroadcastRoute(item.broadcast_id)}>{excerpt(item.text)}</RouteLink>
               <p>{item.author?.display_name ?? "Автор неизвестен"} · <time dateTime={item.created_at}>{shortDate(item.created_at)}</time></p>
-              <Badge tone={broadcastStateTones[item.state]}>{broadcastStateNames[item.state]}</Badge>
+              <Badge tone={broadcastBadge(item).tone}>{broadcastBadge(item).label}</Badge>
               {item.counts && <span className={s.muted}>{progressText(item.counts)}</span>}
               <CancelBroadcast item={item} className={b.rowAction} />
             </li>
@@ -307,7 +308,8 @@ export function BroadcastPage() {
             <p className={b.text}>{item.text}</p>
           </Card>
           {item.counts && <Card title="Отправка в VK">
-            <div className={s.badges}><Badge tone={broadcastStateTones[item.state]}>{broadcastStateNames[item.state]}</Badge></div>
+            <div className={s.badges}><Badge tone={broadcastBadge(item).tone}>{broadcastBadge(item).label}</Badge></div>
+            {item.paused && <div role="status" className={s.warning}><p>{pausedBroadcastText(item.paused)}</p></div>}
             <BroadcastCountsList counts={item.counts} />
             {item.state === "cancelled" && item.cancelled_at && <p className={s.muted}>Отменена {displayDate(item.cancelled_at)}.</p>}
             <CancelBroadcast item={item} />

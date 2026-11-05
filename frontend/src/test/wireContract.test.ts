@@ -140,8 +140,14 @@ it("keeps the demo notification settings on the wire contract, with VK as the de
 it("checks the stage 4 broadcasts: a broadcast with and without counts, the audience and a sender change", () => {
   const counts = { total: 412, pending: 25, sent: 380, denied: 3, failed: 2, cancelled: 0, expired: 2 };
   const broadcast = { broadcast_id: "b-1", text: "Собрание\nв четверг", author: { user_id: 104, display_name: "Алексей Соколов", avatar_url: null },
-    created_at: "2026-11-05T09:00:00Z", state: "sending", cancelled_at: null, counts };
+    created_at: "2026-11-05T09:00:00Z", state: "sending", cancelled_at: null, counts, paused: null };
+  // The bot console's pause beside a sending broadcast (stage 5).
+  const pause = { paused_at: "2026-11-05T07:10:00Z", paused_by: { user_id: 104, display_name: "Алексей Соколов", avatar_url: null } };
   expect(wireIssues("Broadcast", broadcast)).toEqual([]);
+  expect(wireIssues("Broadcast", { ...broadcast, paused: pause })).toEqual([]);
+  expect(wireIssues("Broadcast", { ...broadcast, paused: { paused_at: null, paused_by: null } })).toEqual([]);
+  expect(wireIssues("SendingPause", { ...pause, paused: true })).toContain("SendingPause.paused: unexpected field");
+  expect(wireIssues("Broadcast", { ...broadcast, paused: undefined })).not.toEqual([]);
   expect(wireIssues("Broadcast", { ...broadcast, counts: null, author: null })).toEqual([]);
   expect(wireIssues("Broadcast", { ...broadcast, state: "cancelled", cancelled_at: "2026-11-05T09:03:00Z" })).toEqual([]);
   expect(wireIssues("Broadcast", { ...broadcast, state: "paused" })).not.toEqual([]);
@@ -151,8 +157,10 @@ it("checks the stage 4 broadcasts: a broadcast with and without counts, the audi
   expect(wireIssues("BroadcastCounts", { ...counts, vk_message_ids: [] })).toContain("BroadcastCounts.vk_message_ids: unexpected field");
   expect(wireIssues("BroadcastCounts", { ...counts, expired: undefined })).toContain("BroadcastCounts.expired: expected number");
   expect(wireIssues("Broadcast", { ...broadcast, cancelled_at: undefined })).not.toEqual([]);
-  expect(wireIssues("BroadcastAudience", { total: 430, reachable: 412 })).toEqual([]);
-  expect(wireIssues("BroadcastAudience", { total: 430, reachable: 412, missing: 18 })).toContain("BroadcastAudience.missing: unexpected field");
+  expect(wireIssues("BroadcastAudience", { total: 430, reachable: 412, paused: null })).toEqual([]);
+  expect(wireIssues("BroadcastAudience", { total: 430, reachable: 412, paused: pause })).toEqual([]);
+  expect(wireIssues("BroadcastAudience", { total: 430, reachable: 412 })).not.toEqual([]);
+  expect(wireIssues("BroadcastAudience", { total: 430, reachable: 412, paused: null, missing: 18 })).toContain("BroadcastAudience.missing: unexpected field");
   expect(wireIssues("BroadcastSenderChange", { user_id: 101, sender: true })).toEqual([]);
   expect(wireIssues("BroadcastSenderChange", { user_id: 101, sender: "yes" })).not.toEqual([]);
 });
