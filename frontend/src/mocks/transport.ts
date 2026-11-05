@@ -6,6 +6,7 @@ import { api } from "../utils/api";
 import { createFixtures, mockBotLinkDeadline, mockNow, mockVkId, type MockRole } from "./fixtures";
 import { profileFeatureMock } from "./profileFeatures";
 import { broadcastMock } from "./broadcasts";
+import { botConsoleMock } from "./botConsole";
 import {
   richText,
   type AssignmentStatus,
@@ -221,6 +222,9 @@ export function installMockTransport(
   // Broadcasts (stage 4): the demo's integration switch turns the audience and sending off.
   const broadcasts = broadcastMock(state, () => bot.enabled);
   if (options.scenario === "empty") { broadcasts.store.items = [];broadcasts.store.senders = []; }
+  // The bot console (stage 5): the same switch; the server's requests need the reader's VK.
+  const botConsole = botConsoleMock(state, () => bot.enabled, () => bot.vk_user_id !== null);
+  if (options.scenario === "empty") { botConsole.store.commands = [];botConsole.store.errors = [];botConsole.store.maintainers = []; }
   const liveCode = () => bot.code && Date.parse(bot.code.expires_at) > Date.now() ? bot.code : null;
   const botMe = (): BotLinkMe => bot.enabled
     ? { enabled: true, vk_user_id: bot.vk_user_id, messages_allowed: bot.messages_allowed, token_status: bot.token_status, linked_at: bot.linked_at, ...botLinkView(), bot_url: bot.bot_url, code_expires_at: liveCode()?.expires_at ?? null }
@@ -619,6 +623,8 @@ export function installMockTransport(
     if (profileReply) return profileReply;
     const broadcastReply = broadcasts(path, method, data, url.searchParams);
     if (broadcastReply) return broadcastReply;
+    const consoleReply = botConsole(path, method, data, url.searchParams);
+    if (consoleReply) return consoleReply;
     if (
       parts[0] === "profile" &&
       /^\d+$/.test(parts[1] ?? "") &&
@@ -2539,6 +2545,7 @@ export function installMockTransport(
     adapter,
     bot,
     broadcasts: broadcasts.store,
+    botConsole: botConsole.store,
     queueApplication,
     syncBot,
     restore: () => {

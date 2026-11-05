@@ -29,6 +29,7 @@ export const SECTIONS: Section[] = [
   { to: "/merits", label: "Учёт выполненной работы", icon: "fact_check", tone: "mint", under: ["/seasons/*/merits"] },
   { to: "/admin", label: "Администрирование", icon: "admin_panel_settings", tone: "rose", under: ["/accounts", "/registrations"] },
   { to: "/broadcasts", label: "Рассылки", icon: "send", tone: "sky" },
+  { to: "/bot", label: "Консоль бота", icon: "sync", tone: "lilac" },
   { to: "/blocks", label: "Блоки", icon: "groups", tone: "peach" },
   { to: "/materials", label: "Материалы", icon: "menu_book", tone: "rose", under: ["/guides", "/docs", "/info"] },
   { to: "/pgas", label: "ПГАС", icon: "workspace_premium", tone: "yellow" },
