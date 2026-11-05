@@ -1,7 +1,6 @@
 /** A synthetic bot console (BOT_API.md, «Консоль бота», stages 1 and 5). Nothing reaches a bot or
  *  a server: a command moves on by itself each time it is read, as the bot would take it. */
 import type { Fixtures } from "./fixtures";
-import { mockNow } from "./fixtures";
 import type { BotCommand, BotCommandArgs, BotCommandKind, BotConsoleStatus, BotHeartbeat, BotLogError, UserRef } from "../utils/api/contract";
 
 type Reply = [number, unknown];
@@ -9,7 +8,7 @@ type Body = Record<string, unknown>;
 const copy = <T,>(value: T): T => structuredClone(value);
 const fail = (status: number, code: string, message: string, fields?: object): Reply => [status, { detail: { code, message, fields } }];
 const PAGE = 20;
-const at = (minutesBefore: number, from = Date.parse(mockNow)) => new Date(from - minutesBefore * 60_000).toISOString().replace(/\.\d{3}Z$/, "Z");
+const iso = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
 /** A 32-hex id, unique for each seed. */
 const hex = (seed: number) => `${seed.toString(16).padStart(8, "0")}4be0a1c2d3e4f5061728394a`;
 const LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"];
@@ -29,6 +28,8 @@ const LOG = [
 /** `enabled()` is the demo's integration switch (the «Бот ВКонтакте» picker, «Выключен»);
  *  `linked()` says whether the reader has a VK link for the server's requests. */
 export function botConsoleMock(state: Fixtures, enabled: () => boolean, linked: () => boolean) {
+  // A console is about now: its times follow the clock, not the fixtures' date.
+  const started = Date.now(), at = (minutesBefore: number) => iso(started - minutesBefore * 60_000);
   const person = (id: number): UserRef => copy(state.people.find((p) => p.user_id === id)!);
   const heartbeat: BotHeartbeat = {
     version: "2.4.0", commit: "abc1234", started_at: at(60 * 26), interval_s: 60, stopping: false,
@@ -61,7 +62,8 @@ export function botConsoleMock(state: Fixtures, enabled: () => boolean, linked: 
   });
   const store = {
     online: true,
-    lastSeenAt: at(0.5),
+    /** Seconds since the last report, at each read; null — the bot never reported. */
+    reportAgo: 20 as number | null,
     bootId: hex(9),
     heartbeat,
     errors,
@@ -99,11 +101,12 @@ export function botConsoleMock(state: Fixtures, enabled: () => boolean, linked: 
   };
   const can = (capability: string) => state.session.capabilities.includes(capability);
   const status = (): BotConsoleStatus => ({
-    enabled: enabled(), online: enabled() && store.online, last_seen_at: store.lastSeenAt, boot_id: store.bootId,
+    enabled: enabled(), online: enabled() && store.online, boot_id: store.bootId,
+    last_seen_at: store.reportAgo === null ? null : iso(Date.now() - store.reportAgo * 1000),
     heartbeat: copy(store.heartbeat), errors: copy(store.errors), paused: store.paused, paused_at: store.pausedAt,
     paused_by: store.pausedBy === null ? null : person(store.pausedBy), queue: copy(store.queue),
   });
-  const now = () => new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+  const now = () => iso(Date.now());
   /** The bot finishes a command: what it changes on its side and in its heartbeat. */
   const finish = (item: BotCommand) => {
     const args = item.args as { lines?: number; level?: string | null; contains?: string | null; version?: string };
