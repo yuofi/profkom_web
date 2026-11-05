@@ -14,7 +14,7 @@ import { ApiError } from "../../utils/api/request";
 import type { BotCommand, BotUpdates, Session } from "../../utils/api/contract";
 import { displayDate } from "../../utils/dates";
 import { BotConsolePage } from "./BotConsolePage";
-import { COMMAND_POLL_MS, DOWNTIME, STATUS_POLL_MS } from "./botConsoleView";
+import { COMMAND_POLL_MS, DOWNTIME, RESTART_WAIT_TEXT, SERVER_WAIT_TEXT, STATUS_POLL_MS } from "./botConsoleView";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let mock: ReturnType<typeof installMockTransport> | undefined;
@@ -454,4 +454,82 @@ it("lets the IT master name and remove maintainers; a maintainer sees the list a
   expect(card("Журнал бота")).toBeNull();
   expect(button("Обновить до 2.5.0")).toBeUndefined();
   expect(card("История команд")).not.toBeNull();
+});
+
+const spinners = (root: ParentNode) => root.querySelectorAll('[class*="spinner"]').length;
+
+it("turns a ring while the bot has the command, then while the server works on the update", async () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  await mount();
+  mock!.botConsole.step = 1;
+  const updates = () => card("Обновления")!;
+  expect(spinners(updates())).toBe(0);
+  await click(button("Обновить до 2.5.0"));
+  await click(button("Да, обновить"));
+  expect(updates().textContent).toContain("Ждёт бота");
+  expect(spinners(updates())).toBe(1);
+  expect(updates().querySelector('[aria-busy="true"]')).not.toBeNull();
+  // The open command also turns in the history.
+  expect(spinners(card("История команд")!)).toBe(1);
+  await tick(COMMAND_POLL_MS);
+  expect(updates().textContent).toContain("Выполняется");
+  expect(spinners(updates())).toBe(1);
+  await tick(COMMAND_POLL_MS);
+  expect(updates().textContent).toContain("Выполнена");
+  // The demo's server ended the job of this request at once: its outcome, no ring.
+  expect(text()).toContain("Сервер сообщил итог: готово.");
+  expect(spinners(updates())).toBe(0);
+  // A heartbeat without the job yet: the console waits for the server.
+  const job = mock!.botConsole.heartbeat.updates!.job!;
+  mock!.botConsole.heartbeat.updates!.job = null;
+  await tick(STATUS_POLL_MS);
+  expect(text()).toContain(SERVER_WAIT_TEXT);
+  expect(spinners(updates())).toBe(1);
+  // The job is going: one ring, by the command, not a second one by the job.
+  mock!.botConsole.heartbeat.updates!.job = { ...job, state: "", phase: "build" };
+  await tick(STATUS_POLL_MS);
+  expect(text()).toContain(SERVER_WAIT_TEXT);
+  expect(spinners(updates())).toBe(1);
+  mock!.botConsole.heartbeat.updates!.job = { ...job, state: "failed", phase: "health", rolled_back: true };
+  await tick(STATUS_POLL_MS);
+  expect(text()).toContain("Сервер сообщил итог: новая версия не заработала, сервер вернул прежнюю.");
+  expect(text()).not.toContain(SERVER_WAIT_TEXT);
+  expect(spinners(updates())).toBe(0);
+});
+
+it("shows a job going on the server with a ring, whoever started it", async () => {
+  await mount("it", {}, undefined, () => {
+    const updates = mock!.botConsole.heartbeat.updates!;
+    updates.job = { id: "dm-1", source: "bot", action: "update", state: "", phase: "build", reason: "", from: "2.4.0", to: "2.5.0",
+      running: "2.4.0", rolled_back: false, started_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  });
+  expect(card("Обновления")!.textContent).toContain("Сервер выполняет задачу. Итог придёт с очередным отчётом бота.");
+  expect(spinners(card("Обновления")!)).toBe(1);
+});
+
+it("waits with a ring for the bot to come back after a restart", async () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  await mount();
+  mock!.botConsole.step = 1;
+  const control = () => card("Управление")!;
+  const before = mock!.botConsole.bootId;
+  await click(button("Перезапустить бота"));
+  await click(button("Да, перезапустить"));
+  expect(spinners(control())).toBe(1);
+  await tick(COMMAND_POLL_MS);
+  await tick(COMMAND_POLL_MS);
+  expect(control().textContent).toContain("Выполнена");
+  // The demo's bot is back at once, under a new boot.
+  expect(control().textContent).toContain("Бот снова на связи, запущен ");
+  expect(spinners(control())).toBe(0);
+  // Still the old boot: the console waits.
+  const after = mock!.botConsole.bootId;
+  mock!.botConsole.bootId = before;
+  await tick(STATUS_POLL_MS);
+  expect(control().textContent).toContain(RESTART_WAIT_TEXT);
+  expect(spinners(control())).toBe(1);
+  mock!.botConsole.bootId = after;
+  await tick(STATUS_POLL_MS);
+  expect(control().textContent).toContain("Бот снова на связи");
+  expect(control().textContent).not.toContain(RESTART_WAIT_TEXT);
 });

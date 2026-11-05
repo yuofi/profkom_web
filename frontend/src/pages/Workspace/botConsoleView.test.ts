@@ -2,7 +2,8 @@ import { expect, it } from "vitest";
 import { ApiError } from "../../utils/api/request";
 import type { BotCommand, BotConsoleStatus, BotHeartbeat, BotUpdateCheck, BotUpdates } from "../../utils/api/contract";
 import {
-  COMMAND_POLL_MS, DOWNTIME, STATUS_POLL_MS, ago, changelogFor, checkText, commandOutcome, commandPollInterval, commandTitle,
+  COMMAND_POLL_MS, DOWNTIME, RESTART_WAIT_MS, SERVER_WAIT_MS, STATUS_POLL_MS, ago, jobFinished, jobGoing, jobOutcome, restartBackText,
+  restartWait, serverWait, changelogFor, checkText, commandOutcome, commandPollInterval, commandTitle,
   componentRows, connection, counterRows, databaseName, isRelease, jobRows, lastReport, levelTone, logsArgs, longPollText, newerMajor,
   pauseText, queueText, remoteText, restartQuestion, rollbackOffer, rollbackQuestion, runningVersion, statusPollInterval, updateOffer,
   updateQuestion, updatesAllowed,
@@ -176,4 +177,43 @@ it("checks the log form before it becomes a command", () => {
   // Characters as the server counts them: an emoji is one.
   expect(logsArgs({ lines: "5", level: "", contains: "👋".repeat(100) }).args?.contains).toBe("👋".repeat(100));
   expect(logsArgs({ lines: "5", level: "", contains: "я".repeat(102) })).toEqual({ field: "contains", error: "Подстрока длиннее 100 символов. Сократите её на 2." });
+});
+
+it("waits for the server's job of the request after a done update, then for nothing", () => {
+  const done = { command_id: "c".repeat(32), kind: "update", args: { version: "2.5.0" }, state: "done", code: null, message: null,
+    requested_by: null, created_at: "2026-11-05T09:00:00Z", updated_at: "2026-11-05T09:00:05Z", finished_at: "2026-11-05T09:00:05Z",
+    has_output: false, output: null } as BotCommand;
+  const at = Date.parse("2026-11-05T09:01:00Z");
+  const job = { id: done.command_id, source: "bot", action: "update", state: "", phase: "build", reason: "", from: "2.4.0", to: "2.5.0",
+    running: "2.4.0", rolled_back: false, started_at: "2026-11-05T09:00:10Z", updated_at: "2026-11-05T09:00:40Z" };
+  expect(serverWait(done, null, at)).toEqual({ waiting: true, late: false, job: null });
+  expect(serverWait(done, { ...job, id: "other" }, at)).toEqual({ waiting: true, late: false, job: null });
+  expect(serverWait(done, job, at)).toEqual({ waiting: true, late: false, job });
+  expect(serverWait(done, { ...job, state: "ok" }, at)).toEqual({ waiting: false, late: false, job: { ...job, state: "ok" } });
+  expect(serverWait(done, null, Date.parse("2026-11-05T09:00:05Z") + SERVER_WAIT_MS + 1)).toEqual({ waiting: false, late: true, job: null });
+  for (const other of [{ ...done, state: "running" }, { ...done, kind: "updates_check" }, { ...done, state: "failed" }] as BotCommand[])
+    expect(serverWait(other, job, at)).toBeNull();
+  expect(serverWait(undefined, job, at)).toBeNull();
+  expect(jobFinished({ ...job, state: "interrupted" })).toBe(true);
+  expect(jobFinished({ ...job, state: "toString" })).toBe(false);
+  expect(jobGoing(job, at)).toBe(true);
+  expect(jobGoing({ ...job, state: "failed" }, at)).toBe(false);
+  expect(jobGoing({ ...job, action: "" }, at)).toBe(false);
+  expect(jobGoing(job, Date.parse("2026-11-05T10:00:00Z"))).toBe(false);
+  expect(jobOutcome({ ...job, state: "failed" })).toBe("Сервер сообщил итог: новая версия не заработала, сервер вернул прежнюю.");
+});
+
+it("waits for another boot after a done restart", () => {
+  const done = { command_id: "d".repeat(32), kind: "restart", args: {}, state: "done", code: null, message: null, requested_by: null,
+    created_at: "2026-11-05T09:00:00Z", updated_at: "2026-11-05T09:00:02Z", finished_at: "2026-11-05T09:00:02Z", has_output: false,
+    output: null } as BotCommand;
+  const at = Date.parse("2026-11-05T09:00:30Z"), old = "b".repeat(32);
+  expect(restartWait(done, old, status(), at)).toEqual({ back: false, late: false });
+  expect(restartWait(done, old, status({ boot_id: "e".repeat(32) }), at)).toEqual({ back: true, late: false });
+  expect(restartWait(done, null, status(), at)).toEqual({ back: true, late: false });
+  expect(restartWait(done, old, status(), Date.parse("2026-11-05T09:00:02Z") + RESTART_WAIT_MS + 1)).toEqual({ back: false, late: true });
+  expect(restartWait({ ...done, state: "running" }, old, status(), at)).toBeNull();
+  expect(restartWait({ ...done, kind: "logs" } as BotCommand, old, status(), at)).toBeNull();
+  expect(restartBackText(null)).toBe("Бот снова на связи. Long Poll подключается в течение минуты.");
+  expect(restartBackText("2026-11-05T09:00:03Z")).toMatch(/^Бот снова на связи, запущен .+\. Long Poll подключается в течение минуты\.$/);
 });

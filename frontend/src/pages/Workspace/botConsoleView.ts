@@ -155,6 +155,13 @@ export function newerMajor(heartbeat: BotHeartbeat | null | undefined) {
   return check && word(check.status) === "available" && isRelease(check.newer_major) ? word(check.newer_major) : null;
 }
 
+/** How long the console waits with a spinner for what follows a done command: the server's
+ *  job after «Обновить» or «Откатить», the bot's return after «Перезапустить». */
+export const SERVER_WAIT_MS = 15 * 60_000;
+export const RESTART_WAIT_MS = 5 * 60_000;
+/** A job the server reported nothing about for so long is not shown as going. */
+export const JOB_STALE_MS = 30 * 60_000;
+
 const JOB_ACTIONS: Record<string, string> = { update: "Обновление", rollback: "Откат" };
 const JOB_STATES: Record<string, string> = {
   ok: "готово",
@@ -163,6 +170,40 @@ const JOB_STATES: Record<string, string> = {
   inconclusive: "сервер не дождался, пока бот заработает",
   interrupted: "прервано, прежняя версия возвращена",
 };
+/** The job has its final state; an empty one is still going. */
+export const jobFinished = (job: BotUpdateJob) => Object.hasOwn(JOB_STATES, word(job.state));
+const since = (value: string | null | undefined, now: number) => (value ? now - Date.parse(value) : Number.NaN);
+/** A job is going on the server: started, not finished and not silent for half an hour. */
+export const jobGoing = (job: BotUpdateJob | null | undefined, now = Date.now()) =>
+  !!job && !!word(job.action) && !jobFinished(job) && since(word(job.updated_at) || word(job.started_at), now) < JOB_STALE_MS;
+
+/** After a done «Обновить» or «Откатить»: the server's job of that request (its id is the
+ *  command's) and whether the console still waits for its end. `late`: waited too long. */
+export function serverWait(command: BotCommand | undefined, job: BotUpdateJob | null | undefined, now = Date.now()):
+  { waiting: boolean; late: boolean; job: BotUpdateJob | null } | null {
+  if (!command || command.state !== "done" || (command.kind !== "update" && command.kind !== "rollback")) return null;
+  const own = job && word(job.id) === command.command_id ? job : null;
+  if (own && jobFinished(own)) return { waiting: false, late: false, job: own };
+  const late = since(command.finished_at ?? command.updated_at, now) > SERVER_WAIT_MS;
+  return { waiting: !late, late, job: own };
+}
+export const SERVER_WAIT_TEXT = "Ждём итога от сервера. Он приходит с отчётом бота раз в минуту, а при обновлении — когда бот поднимется в новой версии, обычно через 1–5 минут.";
+export const SERVER_LATE_TEXT = "Итога от сервера всё нет. Он появится в «Последней задаче на сервере», когда бот его пришлёт; если бот не на связи, спросите оператора сервера.";
+export const jobOutcome = (job: BotUpdateJob) => `Сервер сообщил итог: ${JOB_STATES[word(job.state)] ?? word(job.state)}.`;
+export const JOB_GOING_TEXT = "Сервер выполняет задачу. Итог придёт с очередным отчётом бота.";
+
+/** After a done «Перезапустить»: the bot is back once its boot_id changed. */
+export function restartWait(command: BotCommand | undefined, before: string | null | undefined, status: BotConsoleStatus, now = Date.now()):
+  { back: boolean; late: boolean } | null {
+  if (!command || command.kind !== "restart" || command.state !== "done") return null;
+  const back = !!status.boot_id && status.boot_id !== before;
+  return { back, late: !back && since(command.finished_at ?? command.updated_at, now) > RESTART_WAIT_MS };
+}
+export const RESTART_WAIT_TEXT = "Ждём, пока бот вернётся: обычно несколько секунд.";
+export const RESTART_LATE_TEXT = "Бот пока не вернулся. Если он так и не выйдет на связь, спросите оператора сервера.";
+export const restartBackText = (startedAt: string | null | undefined) =>
+  `Бот снова на связи${startedAt ? `, запущен ${displayDate(startedAt)}` : ""}. Long Poll подключается в течение минуты.`;
+
 /** The last update or rollback on the server, field by field. */
 export function jobRows(job: BotUpdateJob): [string, string][] {
   const from = word(job.from), to = word(job.to), state = word(job.state);

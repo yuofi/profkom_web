@@ -17,10 +17,12 @@ import { displayDate, shortDate } from "../../utils/dates";
 import { getProfileSettingsRoute } from "../../utils/routes";
 import { can, useSession } from "../../utils/session";
 import {
-  LOG_LEVELS, LOG_LINES_DEFAULT, PAUSE_QUESTION, changelogFor, checkText, commandOpen, commandOutcome, commandPollInterval,
-  commandStateNames, commandStateTones, commandTitle, componentRows, connection, counterRows, databaseName, jobRows, lastReport,
-  levelTone, logsArgs, longPollText, newerMajor, pauseText, queueText, remoteText, restartQuestion, rollbackOffer, rollbackQuestion,
-  runningVersion, statusPollInterval, updateOffer, updateQuestion, updatesAllowed,
+  JOB_GOING_TEXT, LOG_LEVELS, LOG_LINES_DEFAULT, PAUSE_QUESTION, RESTART_LATE_TEXT, RESTART_WAIT_TEXT, SERVER_LATE_TEXT,
+  SERVER_WAIT_TEXT, changelogFor, checkText, commandOpen, commandOutcome, commandPollInterval, commandStateNames,
+  commandStateTones, commandTitle, componentRows, connection, counterRows, databaseName, jobGoing, jobOutcome, jobRows,
+  lastReport, levelTone, logsArgs, longPollText, newerMajor, pauseText, queueText, remoteText, restartBackText,
+  restartQuestion, restartWait, rollbackOffer, rollbackQuestion, runningVersion, serverWait, statusPollInterval, updateOffer,
+  updateQuestion, updatesAllowed,
 } from "./botConsoleView";
 import { plural } from "./seasonAnalyticsView";
 import s from "../../components/Workspace/Workspace.module.css";
@@ -100,20 +102,30 @@ function CommandOutput({ text }: { text: string }) {
   );
 }
 
-/** What became of a command: its state, the bot's words and, for the log, the output. */
-function CommandResult({ query }: { query: ReturnType<typeof useCommand> }) {
+/** A turning ring: the console waits for the bot or the server (owner, 2026-11-05). */
+const Spinner = () => <span className={c.spinner} aria-hidden="true" />;
+function Waiting({ children }: { children: ReactNode }) {
+  return <p role="status" className={c.waiting}><Spinner />{children}</p>;
+}
+
+/** What became of a command: its state, the bot's words and, for the log, the output; then
+ *  what the card waits for after it (`children`). */
+function CommandResult({ query, children }: { query: ReturnType<typeof useCommand>; children?: ReactNode }) {
   const command = query.data;
   if (!command) return query.error ? <ErrorState error={query.error} retry={() => { void query.refetch(); }} /> : <Loading />;
+  const open = commandOpen(command);
   return (
-    <div className={c.result}>
+    <div className={c.result} aria-busy={open || undefined}>
       <div className={s.row} role="status">
         <Badge tone={commandStateTones[command.state]}>{commandStateNames[command.state] ?? command.state}</Badge>
+        {open && <Spinner />}
         <span>{commandOutcome(command)}</span>
       </div>
       {command.message && <p>{command.message}</p>}
       {command.code && command.state === "failed" && <p className={s.muted}>Причина: <code>{command.code}</code></p>}
       {command.output !== null && <CommandOutput text={command.output} />}
-      {query.error && commandOpen(command) && <p className={s.muted}>{userMessage(query.error)} Проверим снова через пару секунд.</p>}
+      {query.error && open && <p className={s.muted}>{userMessage(query.error)} Проверим снова через пару секунд.</p>}
+      {children}
     </div>
   );
 }
@@ -177,7 +189,7 @@ function StatusCard({ status, now }: { status: BotConsoleStatus; now: number }) 
 }
 
 /** The update channel (BOT_API.md, «Обновления в heartbeat») and, for operators, its commands. */
-function UpdatesCard({ status, operates }: { status: BotConsoleStatus; operates: boolean }) {
+function UpdatesCard({ status, operates, now }: { status: BotConsoleStatus; operates: boolean; now: number }) {
   const { session } = useSession();
   const [last, setLast] = useState<string | null>(null);
   const command = useCommand(last);
@@ -187,6 +199,8 @@ function UpdatesCard({ status, operates }: { status: BotConsoleStatus; operates:
   // The server's requests name the VK of the person who asks (bot_console_vk_required).
   const noVk = session?.bot_link?.state === "none";
   const waiting = commandOpen(command.data);
+  // After «Обновить» or «Откатить» the server works on: its job comes with the bot's reports.
+  const server = serverWait(command.data, updates?.job, now);
   const disabled = !status.enabled || !status.online;
   return (
     <Card title="Обновления">
@@ -206,6 +220,7 @@ function UpdatesCard({ status, operates }: { status: BotConsoleStatus; operates:
         </section>}
         {updates.job && <div className={c.block}>
           <h3>Последняя задача на сервере</h3>
+          {jobGoing(updates.job, now) && !server?.waiting && <Waiting>{JOB_GOING_TEXT}</Waiting>}
           <Facts rows={jobRows(updates.job)} />
         </div>}
         {operates && updatesAllowed(updates) && <div className={c.block}>
@@ -223,7 +238,11 @@ function UpdatesCard({ status, operates }: { status: BotConsoleStatus; operates:
             onCreated={(created) => setLast(created.command_id)} />
         </div>}
       </>}
-      {last && <CommandResult query={command} />}
+      {last && <CommandResult query={command}>
+        {server?.waiting && <Waiting>{SERVER_WAIT_TEXT}</Waiting>}
+        {server?.late && <p className={s.muted}>{SERVER_LATE_TEXT}</p>}
+        {server?.job && !server.waiting && !server.late && <p role="status">{jobOutcome(server.job)}</p>}
+      </CommandResult>}
     </Card>
   );
 }
@@ -248,10 +267,13 @@ function PauseControl({ status }: { status: BotConsoleStatus }) {
       confirm={{ text: PAUSE_QUESTION, label: "Да, приостановить" }} onSubmit={() => set(true)} />;
 }
 
-function ControlCard({ status }: { status: BotConsoleStatus }) {
+function ControlCard({ status, now }: { status: BotConsoleStatus; now: number }) {
   const [last, setLast] = useState<string | null>(null);
+  // The boot the restart stops: the bot is back once the status names another one.
+  const [before, setBefore] = useState<string | null>(null);
   const command = useCommand(last);
   const reachable = status.enabled && status.online;
+  const restart = restartWait(command.data, before, status, now);
   return (
     <Card title="Управление">
       {status.enabled && !status.online && <p className={s.muted}>Бот не на связи: перезапуск и журнал до него не дойдут. Пауза работает и без него.</p>}
@@ -266,8 +288,13 @@ function ControlCard({ status }: { status: BotConsoleStatus }) {
         <h3>Перезапуск</h3>
         <p className={s.muted}>Бот остановится штатно, и сервер поднимет его снова. Не чаще раза в 2 минуты.</p>
         <CommandButton input={{ kind: "restart", args: {} }} label="Перезапустить бота" variant="danger" disabled={!reachable || commandOpen(command.data)}
-          question={restartQuestion()} answer="Да, перезапустить" onCreated={(created) => setLast(created.command_id)} />
-        {last && <CommandResult query={command} />}
+          question={restartQuestion()} answer="Да, перезапустить"
+          onCreated={(created) => { setBefore(status.boot_id);setLast(created.command_id); }} />
+        {last && <CommandResult query={command}>
+          {restart && !restart.back && !restart.late && <Waiting>{RESTART_WAIT_TEXT}</Waiting>}
+          {restart?.late && <p className={s.muted}>{RESTART_LATE_TEXT}</p>}
+          {restart?.back && <p role="status">{restartBackText(status.heartbeat?.started_at)}</p>}
+        </CommandResult>}
       </div>
     </Card>
   );
@@ -347,7 +374,10 @@ function CommandRow({ item }: { item: BotCommand }) {
       <div className={c.entry}>
         <div className={c.head}>
           <strong>{commandTitle(item)}</strong>
-          <Badge tone={commandStateTones[item.state]}>{commandStateNames[item.state] ?? item.state}</Badge>
+          <span className={s.badges}>
+            {commandOpen(item) && <Spinner />}
+            <Badge tone={commandStateTones[item.state]}>{commandStateNames[item.state] ?? item.state}</Badge>
+          </span>
         </div>
         <p className={s.muted}>
           {item.requested_by?.display_name ?? "Аккаунт удалён"} · <time dateTime={item.created_at}>{shortDate(item.created_at)}</time>
@@ -483,8 +513,8 @@ function BotConsole({ operates, manages }: { operates: boolean; manages: boolean
           {data && <>
             {/* The age of the last report as of the last read: it moves on with each poll. */}
             <StatusCard status={data} now={status.dataUpdatedAt} />
-            <UpdatesCard status={data} operates={operates} />
-            {operates && <ControlCard status={data} />}
+            <UpdatesCard status={data} operates={operates} now={status.dataUpdatedAt} />
+            {operates && <ControlCard status={data} now={status.dataUpdatedAt} />}
             {operates && <LogsCard status={data} />}
           </>}
         </QueryState>
