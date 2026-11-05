@@ -1,0 +1,71 @@
+/* The bot console (BOT_API.md, stage 5): the shared cards, fields and lists of
+   Workspace.module.css; here only the facts, the log output and the body of a row. */
+
+/* A titled part of a card. */
+.block {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.block > * {
+  margin: 0;
+}
+/* The rows of a card's list of facts are the shared ones; numbers keep their width. */
+.facts dd {
+  font-variant-numeric: tabular-nums;
+}
+/* Records of the log as the bot wrote them: monospace, one line each, scrolled in place. */
+.log {
+  box-sizing: border-box;
+  max-width: 100%;
+  max-height: 420px;
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--surface-variant) 70%, transparent);
+  background: var(--surface-container-lowest);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre;
+  overflow-wrap: normal;
+  tab-size: 4;
+  scrollbar-width: thin;
+}
+.changelog {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+/* What became of a command the reader started or opened. */
+.result {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface-container);
+}
+.result > p {
+  margin: 0;
+}
+/* The body of a history or an error row: the whole width of the row. */
+.entry {
+  display: grid;
+  flex: 1 1 100%;
+  gap: 6px;
+  min-width: 0;
+}
+.entry > * {
+  margin: 0;
+}
+/* The title and the state of a row on one line. */
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 8px;
+}

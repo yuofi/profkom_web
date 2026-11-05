@@ -140,6 +140,7 @@ const NotFoundPage = lazy(() => import("./pages/fallback/NotFoundPage").then(m =
 const SupportPage = lazy(() => import("./pages/Workspace/SupportPage").then(module => ({ default: module.SupportPage })));
 const BroadcastsPage = lazy(() => import("./pages/Workspace/BroadcastPages").then(m => ({ default: m.BroadcastsPage })));
 const BroadcastPage = lazy(() => import("./pages/Workspace/BroadcastPages").then(m => ({ default: m.BroadcastPage })));
+const BotConsolePage = lazy(() => import("./pages/Workspace/BotConsolePage").then(m => ({ default: m.BotConsolePage })));
 const queryClient = new QueryClient({
   queryCache: workspaceQueryCache(),
   defaultOptions: { queries: { refetchOnWindowFocus: false, retry: retryTransient, staleTime: workspaceStaleTime } },
@@ -255,6 +256,8 @@ const router = createBrowserRouter(createRoutesFromElements(
                     {/* Broadcasts through the bot (BOT_API.md, stage 4); the bell opens a broadcast for everyone. */}
                     <Route path="broadcasts" element={<BroadcastsPage />} />
                     <Route path="broadcasts/:id" element={<BroadcastPage />} />
+                    {/* The bot console (BOT_API.md, stage 5): the IT block master and the maintainers. */}
+                    <Route path="bot" element={<BotConsolePage />} />
                   </Route>
                 </Route>
                 <Route path="*" element={<NotFoundPage />} />

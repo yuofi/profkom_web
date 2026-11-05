@@ -29,6 +29,8 @@ const shown: Record<string, (session: Session | null) => boolean> = {
   "/admin": (session) => visibleAdminTabs(session).length > 0,
   // The chair, the deputies and the senders they name (BOT_API.md, stage 4).
   "/broadcasts": (session) => can(session, "send_broadcast") || can(session, "manage_broadcast_senders"),
+  // The IT block master and the maintainers they name; not the chair (BOT_API.md, stage 5).
+  "/bot": (session) => can(session, "view_bot_console"),
 };
 
 const noSubscription = () => () => {};

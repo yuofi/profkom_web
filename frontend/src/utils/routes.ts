@@ -42,6 +42,7 @@ export const getTaskCreateRoute = ({ queueId, scope, parentTaskId }: { queueId?:
 };
 export const getBroadcastsRoute = () => "/broadcasts";
 export const getBroadcastRoute = (id: string) => `/broadcasts/${encodeURIComponent(id)}`;
+export const getBotConsoleRoute = () => "/bot";
 export const getTaskQueuesRoute = () => "/tasks/queues";
 export const getTaskQueueRoute = (id: string) => `/tasks/queues/${encodeURIComponent(id)}`;
 export const getBlockRoute = (id: string) =>

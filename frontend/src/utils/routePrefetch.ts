@@ -23,6 +23,7 @@ const routeCode: [RegExp, () => Promise<unknown>][] = [
   [/^\/pgas$/, () => import("../pages/Pgas/PgasPage")],
   [/^\/admin(\/|$)/, () => import("../pages/Admin/AdminPage")],
   [/^\/broadcasts(\/|$)/, () => import("../pages/Workspace/BroadcastPages")],
+  [/^\/bot$/, () => import("../pages/Workspace/BotConsolePage")],
   [/^\/support$/, () => import("../pages/Workspace/SupportPage")],
   [/^\/profile$/, () => import("../pages/ProfilePage/ProfilePage")],
   [/^\/profile\/settings$/, () => import("../pages/ProfilePage/ProfileSettingsPage")],
