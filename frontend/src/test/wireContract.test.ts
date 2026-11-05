@@ -184,3 +184,73 @@ it("keeps the demo broadcasts on the wire contract for senders, the chair and ot
     expect(item.counts).toBeNull();
   } finally { mock.restore(); }
 });
+
+it("checks the stage 5 console: the status with and without the updates, a command of each args shape and a maintainer change", () => {
+  const check = { status: "available", checked_at: "2026-11-05T08:00:00Z", running: "2.4.0", target: "2.5.0", newer_major: "", blocked: "",
+    previous: "2.3.0", rollback: "bot", error_kind: "" };
+  const job = { id: "j-1", source: "bot", action: "update", state: "ok", phase: "", reason: "", from: "2.3.0", to: "2.4.0", running: "2.4.0",
+    rolled_back: false, started_at: "2026-11-04T08:00:00Z", updated_at: null };
+  const updates = { remote: "on", check, changelog: { version: "2.5.0", from: "2.4.0", truncated: false, text: "- Консоль." }, job };
+  const heartbeat = { version: "2.4.0", commit: "abc1234", started_at: "2026-11-04T08:00:00Z", interval_s: 60, stopping: false,
+    components: { longpoll: 4, site: null }, longpoll_connected: null, database: "postgresql", counters: { chats: 3, tokens: null }, updates };
+  const error = { fingerprint: "f", level: "ERROR", logger: "bot", where: "loop.py:10", message: "Ошибка", traceback: null, count: 1,
+    first_at: "2026-11-05T08:00:00Z", last_at: "2026-11-05T08:00:00Z" };
+  const status = { enabled: true, online: true, last_seen_at: "2026-11-05T09:00:00Z", boot_id: "b-1", heartbeat, errors: [error], paused: true,
+    paused_at: "2026-11-05T09:00:00Z", paused_by: { user_id: 101, display_name: "Анна Смирнова", avatar_url: null }, queue: { deliveries: 3, batches: 1 } };
+  expect(wireIssues("BotConsoleStatus", status)).toEqual([]);
+  // An older bot leaves the updates out; a bot that read none of its files sends every field null.
+  const older = Object.fromEntries(Object.entries(heartbeat).filter(([key]) => key !== "updates"));
+  expect(wireIssues("BotConsoleStatus", { ...status, heartbeat: older })).toEqual([]);
+  expect(wireIssues("BotHeartbeat", { ...heartbeat, updates: null })).toEqual([]);
+  expect(wireIssues("BotUpdates", { remote: null, check: null, changelog: null, job: null })).toEqual([]);
+  expect(wireIssues("BotUpdates", { ...updates, remote: "maybe" })).not.toEqual([]);
+  expect(wireIssues("BotConsoleStatus", { ...status, heartbeat: null, last_seen_at: null, boot_id: null, paused: false, paused_at: null, paused_by: null })).toEqual([]);
+  expect(wireIssues("BotConsoleStatus", { ...status, token: "x" })).toContain("BotConsoleStatus.token: unexpected field");
+  expect(wireIssues("BotConsoleStatus", { ...status, queue: { deliveries: 3 } })).toContain("BotConsoleStatus.queue.batches: expected number");
+  expect(wireIssues("BotHeartbeat", { ...heartbeat, counters: { chats: "3" } })).not.toEqual([]);
+  expect(wireIssues("BotLogError", { ...error, traceback: "Traceback…", ip: "10.0.0.1" })).toContain("BotLogError.ip: unexpected field");
+
+  const command = { command_id: "c-1", kind: "logs", args: { lines: 200, level: null, contains: null }, state: "done", code: null, message: null,
+    requested_by: null, created_at: "2026-11-05T09:00:00Z", updated_at: "2026-11-05T09:00:04Z", finished_at: "2026-11-05T09:00:04Z", has_output: true, output: null };
+  expect(wireIssues("BotCommand", command)).toEqual([]);
+  expect(wireIssues("BotCommand", { ...command, output: "2026-11-05 09:00:00 INFO start" })).toEqual([]);
+  expect(wireIssues("BotCommand", { ...command, kind: "restart", args: {}, has_output: false, finished_at: null, state: "pending" })).toEqual([]);
+  expect(wireIssues("BotCommand", { ...command, kind: "update", args: { version: "2.5.0" }, state: "failed", code: "rate_limited", message: "Подождите." })).toEqual([]);
+  expect(wireIssues("BotCommand", { ...command, args: { lines: 200, level: "TRACE", contains: null } })).not.toEqual([]);
+  expect(wireIssues("BotCommand", { ...command, args: { version: "2.5.0", force: true } })).not.toEqual([]);
+  expect(wireIssues("BotCommand", { ...command, state: "cancelled" })).not.toEqual([]);
+  expect(wireIssues("BotCommand", { ...command, kind: "shell" })).not.toEqual([]);
+  expect(wireIssues("BotCommand", { ...command, idempotency_key: "k" })).toContain("BotCommand.idempotency_key: unexpected field");
+  expect(wireIssues("BotMaintainerChange", { user_id: 102, maintainer: false })).toEqual([]);
+  expect(wireIssues("BotMaintainerChange", { user_id: 102, maintainer: "no" })).not.toEqual([]);
+});
+
+it("keeps the demo console on the wire contract: status, history, an open command to its end, the pause and maintainers", async () => {
+  const { installMockTransport } = await import("../mocks/transport");
+  const { botConsoleApi } = await import("../utils/api/botConsole.api");
+  const mock = installMockTransport("it", { delay: 0 });
+  try {
+    expect(wireIssues("BotConsoleStatus", await botConsoleApi.status())).toEqual([]);
+    const first = await botConsoleApi.commands();
+    const rest = await botConsoleApi.commands(first.next_cursor);
+    for (const item of [...first.items, ...rest.items]) expect(wireIssues("BotCommand", item), item.command_id).toEqual([]);
+    expect(new Set(first.items.map((item) => item.kind))).toEqual(new Set(["logs", "updates_check", "restart", "update"]));
+    const created = await botConsoleApi.create({ kind: "logs", args: { lines: 5, level: "WARNING" }, idempotency_key: "8a7bd2c6-3d55-4d6c-9a7c-0f9c3fd7a6e1" });
+    expect(wireIssues("BotCommand", created)).toEqual([]);
+    let item = created;
+    for (let i = 0; i < 5 && (item.state === "pending" || item.state === "running"); i += 1) {
+      item = await botConsoleApi.command(created.command_id);
+      expect(wireIssues("BotCommand", item), item.state).toEqual([]);
+    }
+    expect(item).toMatchObject({ state: "done", has_output: true, output: expect.any(String) });
+    const restart = await botConsoleApi.create({ kind: "restart", args: {}, idempotency_key: "0c1f4a54-55b7-4a59-8a1c-8e3c1b7f0d2a" });
+    expect(wireIssues("BotCommand", restart)).toEqual([]);
+    expect(wireIssues("BotConsoleStatus", await botConsoleApi.pause(true))).toEqual([]);
+    expect(wireIssues("BotConsoleStatus", await botConsoleApi.pause(false))).toEqual([]);
+    for (const person of (await botConsoleApi.maintainers()).items) expect(wireIssues("UserRef", person)).toEqual([]);
+    expect(wireIssues("BotMaintainerChange", await botConsoleApi.setMaintainer(104, true))).toEqual([]);
+    // A bot that has never reported: no heartbeat, no report time.
+    Object.assign(mock.botConsole, { online: false, reportAgo: null, heartbeat: null });
+    expect(wireIssues("BotConsoleStatus", await botConsoleApi.status())).toEqual([]);
+  } finally { mock.restore(); }
+});
