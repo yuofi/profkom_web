@@ -501,6 +501,14 @@ def ops():
         Op("BC3", "GET", lambda o: "/broadcasts", cap=("S1", "send_broadcast")),
         Op("BC4", "GET", lambda o: "/broadcasts/audience", ok=(404,)),
         Op("BC5", "POST", lambda o: "/broadcasts", lambda o, r: {"text": f"Проба {r}"}, ok=(404,)),
+        # Stage 5, the console: the right first (403), then with the integration off the pause and
+        # a command answer 404 bot_api_disabled; reading works. Nobody here holds the console.
+        Op("BOT4", "PUT", lambda o: "/bot/console/pause", lambda o, r: {"paused": False}, ok=(404,),
+           cap=("S1", "operate_bot")),
+        Op("BOT5", "POST", lambda o: "/bot/console/commands", lambda o, r: {"kind": "logs"}, ok=(404,),
+           cap=("S1", "operate_bot")),
+        Op("BOT6", "GET", lambda o: "/bot/console/commands", cap=("S1", "view_bot_console")),
+        Op("BOT7", "GET", lambda o: f"/bot/console/commands/{'0' * 32}", ok=(404,)),
     ]
 
 
@@ -602,6 +610,7 @@ EXPECTED = {
     "MT8": TACHKI | IT_LEAD | IT_MEMBERS, "MT9": TACHKI | HR_LEAD | {"hract"},
     "C1": ALL, "C2": ALL, "C3": TACHKI | HRM,
     "BOT1": set(), "BOT2": set(), "BOT3": set(),  # the IT block master and maintainers only
+    "BOT4": set(), "BOT5": set(), "BOT6": set(), "BOT7": set(),
     "BC1": TACHKI, "BC2": TACHKI,  # without senders, send_broadcast is the chair's and deputies'
     "BC3": TACHKI, "BC4": TACHKI, "BC5": TACHKI,
 }

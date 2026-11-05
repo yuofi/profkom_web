@@ -10,7 +10,8 @@ token events (the policy without SQL is bot_link.py). Stage 3 hands out the site
 notifications queued for VK (notification_delivery_events, channel `vk`) and applies the
 bot's results. Stage 4 does the same for the batches of broadcasts; the people's side of
 broadcasts (sending, the list, cancel) is broadcasts.py. Stage 5 hands out the console's
-commands, applies their results and honours the console's pause.
+commands, applies their results and honours the console's pause; the console itself (status,
+pause, commands) is bot_console.py.
 """
 import hashlib
 import hmac
@@ -55,7 +56,6 @@ MAX_ERRORS = 50
 MESSAGE_LIMIT, TRACEBACK_LIMIT, NAME_LIMIT = 1000, 8000, 200
 POLL_AFTER_MS = 3000
 KEEP_GROUPS, KEEP_DAYS, CLEAN_EVERY = 500, 30, timedelta(hours=1)
-CONSOLE_ERRORS = 100
 ONLINE_FLOOR_S = 180
 MAX_EVENTS = 500
 CODE_ALPHABET, CODE_LENGTH, CODE_TTL = "0123456789ABCDEFGHJKMNPQRSTVWXYZ", 10, timedelta(minutes=15)  # Crockford base32
@@ -1078,28 +1078,7 @@ def clean_commands(s, now):
               execution_options=plain)
 
 
-# ── People: console status and grants (stage 1) ──
-
-class ConsoleError(BaseModel):
-    fingerprint: str
-    level: str
-    logger: str
-    where: str
-    message: str
-    traceback: str | None = None
-    count: int
-    first_at: str
-    last_at: str
-
-
-class ConsoleStatus(BaseModel):
-    enabled: bool
-    online: bool
-    last_seen_at: str | None = None
-    boot_id: str | None = None
-    heartbeat: dict | None = None
-    errors: list[ConsoleError] = []
-
+# ── People: grants (stage 1); the console's status is bot_console.py ──
 
 class Maintainer(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -1153,20 +1132,6 @@ def online(status, heartbeat, now):
     return parse(status.last_seen_at) >= now - timedelta(seconds=window)
 
 
-def console_status(now):
-    with db._session() as s:
-        status = s.get(BotStatusORM, 1)
-        heartbeat = json.loads(status.heartbeat_json) if status is not None and status.heartbeat_json else None
-        rows = s.query(BotErrorORM).order_by(BotErrorORM.last_at.desc(), BotErrorORM.fingerprint.desc()).limit(CONSOLE_ERRORS)
-        errors = [ConsoleError(fingerprint=r.fingerprint, level=r.level, logger=r.logger, where=r.location,
-                               message=r.message, traceback=r.traceback, count=r.count, first_at=r.first_at,
-                               last_at=r.last_at) for r in rows]
-        enabled = bool(token_hashes())
-        return ConsoleStatus(enabled=enabled, online=enabled and online(status, heartbeat, now),
-                             last_seen_at=status.last_seen_at if status else None,
-                             boot_id=status.boot_id if status else None, heartbeat=heartbeat, errors=errors)
-
-
 def require(uid, action, message):
     if not access.allowed(uid, action):
         fail(403, message)
@@ -1203,10 +1168,7 @@ CONSOLE = "Bot console access required"
 
 
 def register_routes(router):
-    @router.get("/bot/console/status", response_model=ConsoleStatus)
-    def bot_console_status(cur: User = Depends(get_current_user)):
-        require(cur.user_id, "bot.console.view", CONSOLE)
-        return console_status(utcnow())
+    """The console's own routes, its status included, are bot_console.register_routes."""
 
     @router.get("/bot/maintainers", response_model=Page[UserReference])
     def bot_maintainers(cur: User = Depends(get_current_user)):

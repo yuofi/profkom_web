@@ -7,8 +7,9 @@
 и отчитывается. Сайт не обращается к VK и к боту внутри запросов пользователей. Базы не
 общие: сайт хранит очередь и состояние бота у себя, бот — свои данные в PostgreSQL.
 
-Разделы помечены этапом. Этапы 1–4 реализованы, этап 5 — в работе: при реализации его
-уточняют здесь же, совместимо с правилами версии ниже.
+Разделы помечены этапом. Этапы 1–4 реализованы. У этапа 5 реализована сторона сайта
+(`/api/bot/v1` и маршруты консоли), интерфейс и бот — в работе: при реализации этап уточняют
+здесь же, совместимо с правилами версии ниже.
 
 ## Транспорт и доступ
 
@@ -868,14 +869,14 @@ capabilities. Архив аккаунта их снимает, восстано�
 Отправителей назначают председатель и замы на той же странице через маршруты этапа 1
 `/api/broadcasts/senders`.
 
-**Этап 5:** консоль бота (`backend/bot_console.py`). Право проверяется первым (403
-`forbidden`). При выключенной интеграции пауза и создание команды отвечают 404
-`bot_api_disabled`, чтение работает.
+**Этап 5:** консоль бота (`backend/bot_console.py`; там же теперь `status` этапа 1). Право
+проверяется первым (403 `forbidden`). При выключенной интеграции пауза и создание команды
+отвечают 404 `bot_api_disabled`, чтение работает.
 
 | Маршрут | Право | Что делает |
 | --- | --- | --- |
-| `GET /api/bot/console/status` | `bot.console.view` | Как на этапе 1, плюс `paused`, `paused_at`, `paused_by` (`{user_id, display_name, avatar_url}` или `null`) и `queue: {deliveries, batches}` — строки канала `vk` и пачки рассылок в `pending`. `heartbeat.updates` — как прислал бот |
-| `PUT /api/bot/console/pause` | `bot.console.operate` | `{paused: bool}` → ответ `status`. Повтор ничего не меняет и в аудит не пишется. Аудит `bot_pause` и `bot_resume` |
+| `GET /api/bot/console/status` | `bot.console.view` | Как на этапе 1, плюс `paused`, `paused_at`, `paused_by` (`{user_id, display_name, avatar_url}` или `null`; без паузы оба `null`) и `queue: {deliveries, batches}` — все строки канала `vk` и пачки рассылок в `pending`, в том числе ждущие повтора. `heartbeat.updates` — как прислал бот; без него ключа нет |
+| `PUT /api/bot/console/pause` | `bot.console.operate` | `{paused: bool}` → ответ `status`. Пауза создаёт строку `bot_status`, если её ещё нет. Повтор ничего не меняет и в аудит не пишется. Аудит `bot_pause` и `bot_resume` |
 | `POST /api/bot/console/commands` | `bot.console.operate` | `{kind, args, idempotency_key}` → `CommandOut`, см. ниже |
 | `GET /api/bot/console/commands` | `bot.console.view` | `{items: CommandOut[], next_cursor}`, свежие первыми, по 20; `output` в списке — `null`. Неверный курсор — 422 `invalid_input` |
 | `GET /api/bot/console/commands/{id}` | `bot.console.view` | `CommandOut` с `output`. Нет команды — 404 `not_found` |
@@ -883,26 +884,37 @@ capabilities. Архив аккаунта их снимает, восстано�
 Создание команды:
 
 - `kind` и `args` — как в «Консоль бота», лишнее поле или неверное значение — 422
-  `validation_error`. `args` у `logs` можно не передавать целиком или частично — значения по
-  умолчанию: 200 записей, любой уровень, без подстроки.
+  `validation_error`, `loc` — путь к полю (`["body", "args", "lines"]`). `args` у `logs` можно не
+  передавать целиком или частично — значения по умолчанию: 200 записей, любой уровень, без
+  подстроки. У `restart` и `updates_check` `args` — `{}` или нет поля. Сохраняются и уходят боту
+  `args` со значениями по умолчанию.
 - Бот не `online` — 409 `bot_offline`: команда до него не дойдёт.
 - Уже есть `pending` или `running` команда того же вида — 409 `bot_command_pending`; `update` и
   `rollback` считаются одним видом.
 - `updates_check`, `update`, `rollback` без привязанного VK у автора — 409
   `bot_console_vk_required`: серверу нужен VK ID автора запроса.
-- `restart` раньше чем через 2 минуты после прошлого `restart` — 429
-  `bot_command_rate_limited`.
+- `restart` раньше чем через 2 минуты после прошлого `restart` (по его `created_at`, в любом
+  состоянии) — 429 `bot_command_rate_limited`.
 - `idempotency_key` — UUID или нет поля. Повтор тем же автором с тем же ключом и теми же
-  `kind` и `args` возвращает ту же команду; иначе — 409 `duplicate_request_key`.
+  `kind` и `args` (после значений по умолчанию) возвращает ту же команду в её нынешнем
+  состоянии; иначе — 409 `duplicate_request_key`.
+- Порядок проверок: право, интеграция, повтор по ключу (он отвечает, даже если бот уже не на
+  связи), затем `bot_offline`, `bot_command_pending`, `bot_console_vk_required`,
+  `bot_command_rate_limited`. Отказ ничего не сохраняет.
+- Боту в `requested_by` уходят `user_id` автора, VK его привязки в момент создания (или `null`)
+  и `display_name` автора на сайте — тот же, что в `requested_by` ответа.
 - Запись в аудит `bot_command`: `{kind, args}`.
 
 `CommandOut`: `{command_id, kind, args, state, code, message, requested_by, created_at,
 updated_at, finished_at, has_output, output}`. `requested_by` — `{user_id, display_name,
 avatar_url}` или `null` после удаления аккаунта. `state` при чтении учитывает сроки: `pending`
 старше 10 минут и `running` старше 30 минут показываются как `expired`, даже если чистка их ещё
-не отметила. `has_output` — есть ли сохранённый `output` (24 часа).
+не отметила. `has_output` — есть ли сохранённый `output` и прошло ли меньше 24 часов с итога:
+позже `output` — `null`, даже если чистка его ещё не стёрла. Времена — ISO 8601 UTC с `Z` до
+секунды. Ответ на создание — тоже `CommandOut`.
 
-Аудит этапа 5: `target_kind = "bot"`, `target_id` — `command_id` или `pause`.
+Аудит этапа 5: `target_kind = "bot"`, `target_id` — `command_id` или `pause`, автор записи —
+автор команды или паузы. У паузы — `{paused: false}` → `{paused: true}` и наоборот.
 
 ## Хранение на сайте
 

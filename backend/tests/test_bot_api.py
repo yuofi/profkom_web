@@ -488,7 +488,8 @@ def _seen(seconds_ago):
 def test_console_status_online_offline_and_errors(client, team, monkeypatch):
     it = team["it"]
     data = _status(client, it)
-    assert data == {"enabled": False, "online": False, "last_seen_at": None, "boot_id": None, "heartbeat": None, "errors": []}
+    assert data == {"enabled": False, "online": False, "last_seen_at": None, "boot_id": None, "heartbeat": None, "errors": [],
+                    "paused": False, "paused_at": None, "paused_by": None, "queue": {"deliveries": 0, "batches": 0}}
     monkeypatch.setattr(settings, "BOT_API_TOKEN_SHA256", HASH)
     assert _status(client, it)["enabled"] is True and _status(client, it)["online"] is False
     _seed_groups(150, lambda i: at(minutes=-100 - i))  # fingerprints 0…149, older
