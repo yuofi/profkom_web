@@ -87,6 +87,11 @@ export const ERROR_TEXTS: Record<string, string> = {
   // Broadcasts through the bot (stage 4).
   broadcast_no_recipients: "Рассылку некому отправить: ни у кого не подключён бот ВКонтакте.",
   broadcast_not_sending: "Рассылка уже завершена или отменена.",
+  // The bot console (stage 5).
+  bot_offline: "Бот сейчас не на связи: команда до него не дойдёт.",
+  bot_command_pending: "Такая команда уже ждёт выполнения.",
+  bot_command_rate_limited: "Бота перезапускали меньше двух минут назад. Подождите немного.",
+  bot_console_vk_required: "Чтобы обновлять бота из консоли, привяжите свой VK к сайту.",
 };
 
 const BY_STATUS: Record<number, string> = {
