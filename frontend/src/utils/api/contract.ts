@@ -143,6 +143,150 @@ export interface BroadcastSenderChange {
   user_id: number;
   sender: boolean;
 }
+/** The bot's last heartbeat as it sent it (BOT_API.md, «POST /report»); the site keeps it as is. */
+export interface BotHeartbeat {
+  /** `2.3.0` a release, `2.3.0-3-gabc1234` a commit after it, `-dirty`, `-local`. */
+  version: string;
+  /** The short hash of the build, or "". */
+  commit: string;
+  started_at: string;
+  interval_s: number;
+  /** The bot's last report before it stops. */
+  stopping: boolean;
+  /** Seconds since the component's last health mark, as of the heartbeat; null without one. */
+  components: Record<string, number | null>;
+  longpoll_connected: boolean | null;
+  /** `postgresql` or `sqlite`. */
+  database: string;
+  /** From the bot's database once a heartbeat; deliveries_* and broadcasts_* since its start.
+   *  A counter the bot could not count is left out. */
+  counters: Record<string, number | null>;
+  /** Stage 5: the update channel as the bot reads it in `state/`; an older bot leaves it out. */
+  updates?: BotUpdates | null;
+}
+/** `heartbeat.updates` (stage 5): every field null when its file is missing or unreadable.
+ *  The site stores it unchecked, so a reader treats each value as possibly absent. */
+export interface BotUpdates {
+  /** `state/host`: updates through the bot allowed on the server (and a request format it reads). */
+  remote: "on" | "off" | null;
+  check: BotUpdateCheck | null;
+  changelog: BotChangelog | null;
+  job: BotUpdateJob | null;
+}
+/** `state/check`: the last check of the server. Empty strings stand for «none». */
+export interface BotUpdateCheck {
+  /** `available`, `up-to-date`, `major-available`, `blocked`, `dev-build`, `no-releases`, `error`. */
+  status: string;
+  checked_at: string | null;
+  running: string;
+  target: string;
+  newer_major: string;
+  blocked: string;
+  previous: string;
+  /** `bot`: a rollback through the bot is possible; `ssh`: only on the server. */
+  rollback: string;
+  /** Why the check failed: `network`, `denied`, `hostkey`. */
+  error_kind: string;
+}
+/** `state/changelog`: the CHANGELOG of the available version, up to 8000 characters. */
+export interface BotChangelog {
+  version: string;
+  from: string;
+  truncated: boolean;
+  text: string;
+}
+/** `state/job`: the current or last update or rollback on the server. */
+export interface BotUpdateJob {
+  id: string;
+  source: string;
+  action: string;
+  /** Final: `ok`, `aborted`, `failed`, `inconclusive`, `interrupted`; else still going. */
+  state: string;
+  phase: string;
+  reason: string;
+  from: string;
+  to: string;
+  running: string;
+  rolled_back: boolean;
+  started_at: string | null;
+  updated_at: string | null;
+}
+/** A group of the bot's log records of WARNING and above (BOT_API.md, «errors»). */
+export interface BotLogError {
+  fingerprint: string;
+  level: string;
+  logger: string;
+  where: string;
+  message: string;
+  traceback: string | null;
+  count: number;
+  first_at: string;
+  last_at: string;
+}
+/** GET /bot/console/status (stages 1 and 5). */
+export interface BotConsoleStatus {
+  /** The integration is on on the site. */
+  enabled: boolean;
+  /** Enabled, the last report recent enough and not the bot's goodbye. */
+  online: boolean;
+  last_seen_at: string | null;
+  boot_id: string | null;
+  heartbeat: BotHeartbeat | null;
+  /** Up to 100 groups, the freshest first. */
+  errors: BotLogError[];
+  /** Stage 5: sending through the bot paused from the console. */
+  paused: boolean;
+  paused_at: string | null;
+  paused_by: UserRef | null;
+  /** VK deliveries and broadcast batches waiting to be sent. */
+  queue: { deliveries: number; batches: number };
+}
+export type BotCommandKind = "restart" | "logs" | "updates_check" | "update" | "rollback";
+/** `expired`: pending over 10 minutes or running over 30 without a result. */
+export type BotCommandState = "pending" | "running" | "done" | "failed" | "unsupported" | "expired";
+export type BotLogLevel = "DEBUG" | "INFO" | "WARNING" | "ERROR" | "CRITICAL";
+/** `logs`: the last `lines` records (1–2000), not below `level`, with `contains` (1–100 characters). */
+export interface BotLogsArgs {
+  lines: number;
+  level: BotLogLevel | null;
+  contains: string | null;
+}
+/** `update`, `rollback`: the X.Y.Z the person saw (`check.target` or `check.previous`). */
+export interface BotVersionArgs {
+  version: string;
+}
+/** `restart`, `updates_check`. */
+export type BotNoArgs = Record<never, never>;
+export type BotCommandArgs = BotNoArgs | BotLogsArgs | BotVersionArgs;
+/** POST /bot/console/commands; the key is a UUID (GL-07). */
+export type BotCommandInput = { idempotency_key: string } & (
+  | { kind: "restart" | "updates_check"; args: BotNoArgs }
+  | { kind: "logs"; args: Partial<BotLogsArgs> }
+  | { kind: "update" | "rollback"; args: BotVersionArgs });
+/** CommandOut: the list gives `output` null; GET /bot/console/commands/{id} gives it. */
+export interface BotCommand {
+  command_id: string;
+  kind: BotCommandKind;
+  args: BotCommandArgs;
+  state: BotCommandState;
+  /** The bot's machine reason: `rate_limited`, `busy`, `disabled`, `stale`, `no_reply`, `no_log` … */
+  code: string | null;
+  /** The bot's words for a person. */
+  message: string | null;
+  /** null once the account was deleted by retention. */
+  requested_by: UserRef | null;
+  created_at: string;
+  updated_at: string;
+  finished_at: string | null;
+  /** A `logs` output is kept for 24 hours. */
+  has_output: boolean;
+  output: string | null;
+}
+/** PUT /bot/maintainers/{user_id}. */
+export interface BotMaintainerChange {
+  user_id: number;
+  maintainer: boolean;
+}
 /** Shown once to the chair or deputy who handed it out; never stored by the client. */
 export interface TemporaryPassword {
   user_id: number;
