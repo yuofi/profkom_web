@@ -33,6 +33,7 @@ export const mockRoles = [
   "chair",
   "chair-deputy",
   "editor",
+  "it",
   "pending",
   "rejected",
   "archived",
@@ -47,6 +48,7 @@ export const mockRoleNames: Record<MockRole, string> = {
   chair: "Председатель",
   "chair-deputy": "Зам председателя",
   editor: "Редактор",
+  it: "Мастер IT",
   pending: "Ожидание одобрения",
   rejected: "Отказ регистрации",
   archived: "Архивный аккаунт",
@@ -161,6 +163,8 @@ export function createFixtures(role: MockRole = "organizer") {
         ...(chair || role === "editor" || manager ? materialCaps : []),
         // The demo HR master is a broadcast sender the chair named (a site-wide grant).
         ...(role === "hr" ? ["send_broadcast"] : []),
+        // The master of the IT block runs the bot console; the chair does not see it (stage 5).
+        ...(role === "it" ? ["view_bot_console", "operate_bot", "manage_bot_maintainers"] : []),
       ]
     : [];
   const assignment = {
@@ -169,12 +173,14 @@ export function createFixtures(role: MockRole = "organizer") {
       ? "chair"
       : role === "hr"
         ? "hr_master"
-        : manager
-          ? "event_leader"
-          : "organizer",
+        : role === "it"
+          ? "block_master"
+          : manager
+            ? "event_leader"
+            : "organizer",
     scope_kind:
-      chair || role === "hr" ? ("global" as const) : ("event" as const),
-    scope_id: chair || role === "hr" ? null : "event-1",
+      chair || role === "hr" ? ("global" as const) : role === "it" ? ("block" as const) : ("event" as const),
+    scope_id: chair || role === "hr" ? null : role === "it" ? "block-it" : "event-1",
     revision: 1,
     capabilities: caps,
   };
