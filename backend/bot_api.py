@@ -1,4 +1,4 @@
-"""HereBot: the service API /api/bot/v1 and the people's routes (stages 1 to 4).
+"""HereBot: the service API /api/bot/v1 and the people's routes (stages 1 to 5).
 
 The contract is backend/docs/BOT_API.md. The bot is a client with a service token; the site
 stores only its SHA-256 (settings.BOT_API_TOKEN_SHA256, two values while rotating). The token
@@ -9,7 +9,8 @@ VK: the site issues a one-time code, the bot confirms it, reports carry the VK's
 token events (the policy without SQL is bot_link.py). Stage 3 hands out the site's
 notifications queued for VK (notification_delivery_events, channel `vk`) and applies the
 bot's results. Stage 4 does the same for the batches of broadcasts; the people's side of
-broadcasts (sending, the list, cancel) is broadcasts.py.
+broadcasts (sending, the list, cancel) is broadcasts.py. Stage 5 hands out the console's
+commands, applies their results and honours the console's pause.
 """
 import hashlib
 import hmac
@@ -21,22 +22,22 @@ import uuid
 from collections import deque
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.routing import APIRoute
 from fastapi.security.utils import get_authorization_scheme_param
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
-from sqlalchemy import bindparam, case, delete, exists, func, literal, select, text, update
+from sqlalchemy import and_, bindparam, case, delete, exists, func, literal, or_, select, text, update
 
 import access
 import bot_link
 from api_contract import Page
 from auth import get_current_user, unit_of_work
 from bot_link import TOKEN_STATUSES, iso, parse, stamp, state_of, utcnow
-from bot_models import (BotErrorORM, BotLinkCodeORM, BotLinkORM, BotStatusORM, BroadcastBatchORM, BroadcastORM,
-                        BroadcastRecipientORM)
+from bot_models import (BotCommandORM, BotErrorORM, BotLinkCodeORM, BotLinkORM, BotStatusORM, BroadcastBatchORM,
+                        BroadcastORM, BroadcastRecipientORM)
 from database import db, ContactInfoORM, ExternalIdentityORM, NotificationORM, RoleAssignmentORM, UserORM
 from domain_contract import UserReference
 from errors import Conflict, NotFound, PayloadTooLarge, TooManyRequests, Unauthenticated
@@ -76,6 +77,16 @@ PENDING_VK = text("notification_delivery_events.channel = 'vk' AND notification_
 PENDING_BATCH = text("broadcast_batches.state = 'pending'")
 MAX_BATCHES = 5  # batches in one /work, apart from `limit`
 MAX_BATCH_REPORTS, BATCH_SIZE = 10, 100  # batches in one report, recipients in a batch
+# Stage 5: the console's commands, over ix_bot_commands_open in the same way.
+OPEN_COMMANDS = text("bot_commands.state IN ('pending', 'running')")
+COMMAND_KINDS = ("restart", "logs", "updates_check", "update", "rollback")
+COMMAND_RESULTS = ("running", "done", "failed", "unsupported")
+PENDING_TTL, RUNNING_TTL = timedelta(minutes=10), timedelta(minutes=30)  # since created_at, then `expired`
+MAX_COMMANDS, MAX_COMMAND_REPORTS = 10, 20  # commands in one /work, results in one report
+OUTPUT_LIMIT, OUTPUT_TTL = 128 * 1024, timedelta(hours=24)  # bytes of UTF-8; a `logs` output is kept 24 hours
+COMMAND_MESSAGE_LIMIT = 500
+KEEP_COMMANDS = 500  # and KEEP_DAYS
+UPDATES_LIMIT = 16 * 1024  # bytes of JSON of heartbeat.updates
 
 
 # ── Service token ──
@@ -147,6 +158,21 @@ class Lenient(BaseModel):
 Key = Annotated[str, Field(min_length=1, max_length=64)]
 
 
+def small_object(value):
+    """Stage 5 `updates`, kept as the bot sent it: an object of at most UPDATES_LIMIT bytes of
+    JSON. Anything else drops this key alone; the report is accepted."""
+    if not isinstance(value, dict):
+        return None
+    return value if len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()) <= UPDATES_LIMIT else None
+
+
+def last_bytes(value):
+    """A `logs` output over OUTPUT_LIMIT bytes of UTF-8 keeps its end: the newest records, as
+    the bot drops the oldest."""
+    raw = value.encode()
+    return value if len(raw) <= OUTPUT_LIMIT else raw[-OUTPUT_LIMIT:].decode(errors="ignore")
+
+
 class Heartbeat(Lenient):
     version: str = Field(max_length=64)
     commit: str = Field("", max_length=64)
@@ -157,6 +183,7 @@ class Heartbeat(Lenient):
     longpoll_connected: bool | None = None
     database: str = Field("", max_length=32)
     counters: dict[Key, int | None] = Field(default_factory=dict, max_length=32)
+    updates: Annotated[Any, AfterValidator(small_object)] = None  # stage 5: the bot's state/ files
 
 
 class ErrorGroup(Lenient):
@@ -213,6 +240,15 @@ class BatchResults(Lenient):
     results: list[PeerResult] = Field(default_factory=list, max_length=BATCH_SIZE)
 
 
+class CommandResult(Lenient):
+    """What the bot did with a console command (stage 5); another status is skipped."""
+    command_id: str = Field(min_length=1, max_length=64)
+    status: str = Field(max_length=32)
+    code: clipped(64) | None = None  # the machine reason: rate_limited, busy, stale, no_log …
+    message: clipped(COMMAND_MESSAGE_LIMIT) | None = None
+    output: Annotated[str, AfterValidator(last_bytes)] | None = None  # the lines of `logs`
+
+
 class Report(Lenient):
     api: Literal[1] = API
     report_id: str = Field(pattern=r"^[0-9a-f]{32}$")
@@ -221,6 +257,7 @@ class Report(Lenient):
     errors: list[ErrorGroup] = Field(default_factory=list, max_length=MAX_ERRORS)
     deliveries: list[DeliveryResult] = Field(default_factory=list, max_length=MAX_DELIVERIES)
     broadcasts: list[BatchResults] = Field(default_factory=list, max_length=MAX_BATCH_REPORTS)
+    commands: list[CommandResult] = Field(default_factory=list, max_length=MAX_COMMAND_REPORTS)
     vk_events: list[VkEvent] = Field(default_factory=list, max_length=MAX_EVENTS)
     tokens: list[TokenEvent] = Field(default_factory=list, max_length=MAX_EVENTS)
 
@@ -261,14 +298,31 @@ class Batch(BaseModel):
     created_at: str
 
 
+class Requester(BaseModel):
+    """Who asked for a command: the site account, the VK of its link (None without one) and
+    the site display name; all None after the account's retention."""
+    user_id: int | None = None
+    vk_user_id: int | None = None
+    name: str | None = None
+
+
+class Command(BaseModel):
+    """One console command for the bot (stage 5)."""
+    command_id: str
+    kind: str
+    args: dict
+    requested_by: Requester
+    created_at: str
+
+
 class Work(BaseModel):
     api: int = API
     server_time: str
     poll_after_ms: int = POLL_AFTER_MS
-    paused: bool = False
+    paused: bool = False  # stage 5
     deliveries: list[Delivery] = []  # stage 3
     broadcasts: list[Batch] = []  # stage 4
-    commands: list[dict] = []  # stage 5
+    commands: list[Command] = []  # stage 5
 
 
 class Accepted(BaseModel):
@@ -282,10 +336,17 @@ class Accepted(BaseModel):
 
 @service_router.get("/work", response_model=Work)
 def work(limit: int = Query(50, ge=1, le=100)):
-    """The due VK deliveries (stage 3) and batches of broadcasts (stage 4); an idle poll is
-    two SELECTs, each over its partial index."""
+    """Stage 5 first: one SELECT of the pause and of whether a command is open, the commands
+    themselves only when one is. While paused, nothing else. Then the due VK deliveries
+    (stage 3) and batches of broadcasts (stage 4): an idle poll is three SELECTs, each over
+    its partial index, one while paused."""
     now = utcnow()
-    return Work(server_time=stamp(now), deliveries=due_deliveries(limit, now), broadcasts=due_batches(now))
+    paused, waiting = console_flags(now)
+    commands = due_commands(now) if waiting else []
+    if paused:
+        return Work(server_time=stamp(now), paused=True, commands=commands)
+    return Work(server_time=stamp(now), deliveries=due_deliveries(limit, now), broadcasts=due_batches(now),
+                commands=commands)
 
 
 @service_router.post("/report", response_model=Accepted)
@@ -313,6 +374,8 @@ def store(payload, now):
     (the batches, their open recipients) and an UPDATE each of recipients, batches and
     broadcasts; the empty batches the last polls held add one UPDATE. A `denied` of either
     adds one SELECT of the links with their accounts and the writes of the changed ones.
+    Command results (stage 5) add one SELECT of the commands named and one UPDATE of the
+    changed ones; hourly the commands add three: expiry, outputs over 24 hours, retention.
     """
     with db._session() as s:
         status = s.get(BotStatusORM, 1)
@@ -323,8 +386,11 @@ def store(payload, now):
             s.add(status)
         status.report_id, status.boot_id, status.last_seen_at = payload.report_id, payload.boot_id, stamp(now)
         if payload.heartbeat is not None:
-            status.started_at = stamp(payload.heartbeat.started_at)
-            status.heartbeat_json = json.dumps(payload.heartbeat.model_dump(mode="json"), ensure_ascii=False)
+            heartbeat = payload.heartbeat
+            status.started_at = stamp(heartbeat.started_at)
+            # Without `updates` (a bot before stage 5, or one too big) the heartbeat is stored as before.
+            heartbeat = heartbeat.model_dump(mode="json", exclude={"updates"} if heartbeat.updates is None else None)
+            status.heartbeat_json = json.dumps(heartbeat, ensure_ascii=False)
             status.updated_at = stamp(now)
         added = merge_errors(s, payload.errors) if payload.errors else False
         if payload.vk_events or payload.tokens:
@@ -336,6 +402,8 @@ def store(payload, now):
             denied[1].update(apply_batches(s, payload.broadcasts, empty, now))
         if denied[0] or denied[1]:
             deny_messages(s, now, uids=denied[0], vks=denied[1])
+        if payload.commands:
+            apply_commands(s, payload.commands, now)
         due = not status.cleaned_at or status.cleaned_at <= stamp(now - CLEAN_EVERY)
         if due:
             status.cleaned_at = stamp(now)
@@ -353,6 +421,7 @@ def store(payload, now):
             s.execute(update(DeliveryORM).where(PENDING_VK, DeliveryORM.created_at < (now - DELIVERY_TTL).isoformat())
                       .values(state="expired", updated_at=now.isoformat()), execution_options=plain)
             expire_batches(s, now)
+            clean_commands(s, now)
         s.commit()
     HELD.discard(held)
     EMPTY.discard(empty)
@@ -392,12 +461,16 @@ def anonymize(session, uid, old_pid, new_pid):
     role_assignments rows; the cleanup removes them with the account's other roles. The VK
     deliveries are notification_delivery_events rows: profile_features.anonymize deletes them.
     Stage 4: the account's rows as a broadcast recipient go, and its broadcasts and
-    cancellations lose its name (the texts stay)."""
-    session.query(BotLinkCodeORM).filter_by(user_id=uid).delete(synchronize_session=False)
-    session.query(BroadcastRecipientORM).filter_by(user_id=uid).delete(synchronize_session=False)
+    cancellations lose its name (the texts stay). Stage 5: its console commands lose the
+    requester (account, VK, name) and the pause loses its author if it was the account."""
+    plain = dict(synchronize_session=False)
+    session.query(BotLinkCodeORM).filter_by(user_id=uid).delete(**plain)
+    session.query(BroadcastRecipientORM).filter_by(user_id=uid).delete(**plain)
     for field in ("author_user_id", "cancelled_by_user_id"):
-        session.query(BroadcastORM).filter(getattr(BroadcastORM, field) == uid).update(
-            {field: None}, synchronize_session=False)
+        session.query(BroadcastORM).filter(getattr(BroadcastORM, field) == uid).update({field: None}, **plain)
+    session.query(BotCommandORM).filter_by(requested_by_user_id=uid).update(
+        {"requested_by_user_id": None, "requested_vk_user_id": None, "requested_name": None}, **plain)
+    session.query(BotStatusORM).filter_by(paused_by_user_id=uid).update({"paused_by_user_id": None}, **plain)
     user = session.get(UserORM, uid)
     if user is not None:
         save_link(session, user, None)
@@ -914,6 +987,97 @@ def reset_deliveries():
     EMPTY.clear()
 
 
+# ── The console's commands and pause (stage 5) ──
+
+def live_commands(now):
+    """The terms of the commands the bot still gets: pending under 10 minutes and running under
+    30, both since created_at. The literal first term repeats ix_bot_commands_open's own."""
+    C = BotCommandORM
+    return (OPEN_COMMANDS, C.created_at >= iso(now - RUNNING_TTL),
+            or_(C.state == "running", C.created_at >= iso(now - PENDING_TTL)))
+
+
+def shown_state(state, created_at, now):
+    """The state a reader sees: pending for 10 minutes or running for 30 is `expired` even
+    before the hourly pass marks it."""
+    if (state == "pending" and created_at < iso(now - PENDING_TTL)) or (
+            state == "running" and created_at < iso(now - RUNNING_TTL)):
+        return "expired"
+    return state
+
+
+def console_flags(now):
+    """GET /work: the pause (no bot_status row is not paused) and whether a command is open,
+    in one SELECT: the status row by its key and an EXISTS over ix_bot_commands_open."""
+    paused = select(BotStatusORM.paused).where(BotStatusORM.id == 1).scalar_subquery()
+    with db._session() as s:
+        paused, waiting = s.execute(select(paused, exists().where(*live_commands(now)))).one()
+    return bool(paused), bool(waiting)
+
+
+def due_commands(now):
+    """GET /work: up to MAX_COMMANDS open commands, oldest first, over ix_bot_commands_open. A
+    command is handed out until its result comes, after `running` too: a bot restarted by an
+    update finds it again."""
+    C = BotCommandORM
+    with db._session() as s:
+        rows = s.execute(select(C.command_id, C.kind, C.args_json, C.requested_by_user_id, C.requested_vk_user_id,
+                                C.requested_name, C.created_at).where(*live_commands(now))
+                         .order_by(C.created_at, C.command_id).limit(MAX_COMMANDS)).all()
+    return [Command(command_id=r.command_id, kind=r.kind, args=json.loads(r.args_json),
+                    requested_by=Requester(user_id=r.requested_by_user_id, vk_user_id=r.requested_vk_user_id,
+                                           name=r.requested_name),
+                    created_at=stamp(datetime.fromisoformat(r.created_at))) for r in rows]
+
+
+def apply_commands(s, results, now):
+    """The bot's command results in the order sent, each on the state the console shows
+    (shown_state) after the ones before it: `running` applies to a pending command; done,
+    failed and unsupported to a pending, running or expired one (a late result beats the
+    expiry). So `running` and the result of one command in a report end in the result. A
+    finished command, an unknown command_id or status is skipped. The output is kept for
+    `logs` only. One SELECT of the commands named, one UPDATE (executemany) of the changed."""
+    C, when = BotCommandORM, iso(now)
+    results = [r for r in results if r.status in COMMAND_RESULTS]
+    if not results:
+        return
+    rows = s.execute(select(C.command_id, C.kind, C.state, C.created_at)
+                     .where(C.command_id.in_({r.command_id for r in results}))).all()
+    kinds = {r.command_id: r.kind for r in rows}
+    states = {r.command_id: shown_state(r.state, r.created_at, now) for r in rows}
+    changes = {}
+    for result in results:
+        state, final = states.get(result.command_id), result.status != "running"
+        if state not in (("pending", "running", "expired") if final else ("pending",)):
+            continue
+        states[result.command_id] = result.status
+        output = result.output if final and kinds[result.command_id] == "logs" else None
+        changes[result.command_id] = dict(b_id=result.command_id, b_state=result.status, b_code=result.code,
+                                          b_message=result.message, b_output=output, b_updated=when,
+                                          b_finished=when if final else None)
+    if changes:  # every row names the same columns: one executemany
+        table = C.__table__
+        s.execute(update(table).where(table.c.command_id == bindparam("b_id")).values(
+            state=bindparam("b_state"), code=bindparam("b_code"), message=bindparam("b_message"),
+            output=bindparam("b_output"), updated_at=bindparam("b_updated"), finished_at=bindparam("b_finished")),
+            list(changes.values()))
+
+
+def clean_commands(s, now):
+    """Hourly: pending for 10 minutes and running for 30 become `expired`, outputs over 24 hours
+    old are wiped, commands over 30 days old go and the newest KEEP_COMMANDS stay. Three
+    statements."""
+    C, plain, when = BotCommandORM, dict(synchronize_session=False), iso(now)
+    s.execute(update(C).where(OPEN_COMMANDS, or_(C.created_at < iso(now - RUNNING_TTL),
+                                                 and_(C.state == "pending", C.created_at < iso(now - PENDING_TTL))))
+              .values(state="expired", updated_at=when), execution_options=plain)
+    s.execute(update(C).where(C.output.is_not(None), C.finished_at < iso(now - OUTPUT_TTL)).values(output=None),
+              execution_options=plain)
+    keep = select(C.command_id).order_by(C.created_at.desc(), C.command_id.desc()).limit(KEEP_COMMANDS)
+    s.execute(delete(C).where(or_(C.created_at < iso(now - timedelta(days=KEEP_DAYS)), C.command_id.not_in(keep))),
+              execution_options=plain)
+
+
 # ── People: console status and grants (stage 1) ──
 
 class ConsoleError(BaseModel):
@@ -1035,17 +1199,18 @@ def set_grant(user_id, role, granted, actor):
 
 MAINTAINERS = "Only the IT block master manages bot maintainers"
 SENDERS = "Only the chair and deputies manage broadcast senders"
+CONSOLE = "Bot console access required"
 
 
 def register_routes(router):
     @router.get("/bot/console/status", response_model=ConsoleStatus)
     def bot_console_status(cur: User = Depends(get_current_user)):
-        require(cur.user_id, "bot.console.view", "Bot console access required")
+        require(cur.user_id, "bot.console.view", CONSOLE)
         return console_status(utcnow())
 
     @router.get("/bot/maintainers", response_model=Page[UserReference])
     def bot_maintainers(cur: User = Depends(get_current_user)):
-        require(cur.user_id, "bot.console.view", "Bot console access required")
+        require(cur.user_id, "bot.console.view", CONSOLE)
         return grantees("bot_maintainer")
 
     @router.put("/bot/maintainers/{user_id}", response_model=MaintainerOut)

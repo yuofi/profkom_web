@@ -7,7 +7,8 @@ in user_id order; the bell notification to every active account but the author; 
 message after a cancellation, denied with the link, retries and the fifth attempt, empty
 batches); the hourly expiry; cancel; the list and its counts; retention; the tables on an old
 database; and the statement budget (idle /work, /work with batches, a report with 5 × 100
-results, a send, a list page, /api/session).
+results, a send, a list page, /api/session). Stage 5 adds the first SELECT of every poll: the
+pause and the open commands (test_bot_console).
 """
 import hashlib
 import json
@@ -508,7 +509,7 @@ def test_a_batch_without_pending_recipients_is_skipped_and_closed_by_the_next_re
         s.commit()
     with sql() as statements:
         handed = poll(client)
-    assert [b["batch_id"] for b in handed] == [second] and len(statements) == 3
+    assert [b["batch_id"] for b in handed] == [second] and len(statements) == 4
     assert bot_api.EMPTY.snapshot() == [first]
     assert [b["batch_id"] for b in poll(client)] == [second]  # the held batch takes no place
     report(client)  # no results: the held batch is closed
@@ -704,7 +705,7 @@ def _seen(call):
     return result, seen
 
 
-def test_an_idle_poll_is_two_selects_over_the_partial_indexes(client, enabled, chair):
+def test_an_idle_poll_is_three_selects_over_the_partial_indexes(client, enabled, chair):
     crowd(1, 75000)
     bid = send(client, chair)["broadcast_id"]
     report(client, entry(poll(client)[0]))
@@ -712,19 +713,19 @@ def test_an_idle_poll_is_two_selects_over_the_partial_indexes(client, enabled, c
     for held in ([], ["held-0000"]):  # held empty batches are part of the same statement
         bot_api.EMPTY.add(held)
         handed, seen = _seen(lambda: poll(client))
-        assert handed == [] and len(seen) == 2, seen
-        statement, parameters = seen[1]
+        assert handed == [] and len(seen) == 3, seen
+        statement, parameters = seen[2]
         assert "FROM broadcast_batches" in statement
         assert any("ix_broadcast_batches_pending" in step for step in _plan(statement, parameters))
 
 
-def test_work_with_5_batches_is_three_selects(client, enabled, chair):
+def test_work_with_5_batches_is_four_selects(client, enabled, chair):
     crowd(600, 76000)
     send(client, chair)
     handed, seen = _seen(lambda: poll(client))
     assert len(handed) == 5 and sum(len(b["peer_ids"]) for b in handed) == 500
-    assert len(seen) == 3 and all(s.lstrip().startswith("SELECT") for s, _ in seen), [s for s, _ in seen]
-    assert any("ix_broadcast_recipients_batch_id" in step for step in _plan(*seen[2]))
+    assert len(seen) == 4 and all(s.lstrip().startswith("SELECT") for s, _ in seen), [s for s, _ in seen]
+    assert any("ix_broadcast_recipients_batch_id" in step for step in _plan(*seen[3]))
 
 
 def test_a_report_with_5_by_100_results_is_a_few_bulk_statements(client, enabled, chair):

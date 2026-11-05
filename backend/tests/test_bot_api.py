@@ -138,9 +138,10 @@ def test_rotation_accepts_both_configured_tokens(client, monkeypatch):
 
 # ───────────────────────────── GET /work ─────────────────────────────
 
-def test_idle_work_is_empty_and_two_selects(client, enabled):
-    """Stage 3 reads the VK queue, stage 4 the batches of broadcasts: an idle poll is two
-    SELECTs (their indexes: test_bot_notify, test_bot_broadcasts)."""
+def test_idle_work_is_empty_and_three_selects(client, enabled):
+    """Stage 5 reads the pause and the open commands, stage 3 the VK queue, stage 4 the
+    batches of broadcasts: an idle poll is three SELECTs (their indexes: test_bot_console,
+    test_bot_notify, test_bot_broadcasts)."""
     with sql() as statements:
         r = client.get(WORK, headers=BOT)
     assert r.status_code == 200, r.text
@@ -150,7 +151,7 @@ def test_idle_work_is_empty_and_two_selects(client, enabled):
     assert data["deliveries"] == data["broadcasts"] == data["commands"] == []
     server = datetime.strptime(data["server_time"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
     assert abs((server - datetime.now(timezone.utc)).total_seconds()) < 5
-    assert len(statements) == 2 and all(s.lstrip().startswith("SELECT") for s in statements), statements
+    assert len(statements) == 3 and all(s.lstrip().startswith("SELECT") for s in statements), statements
 
 
 @pytest.mark.parametrize("limit,status", [(1, 200), (100, 200), (0, 422), (101, 422), ("x", 422)])
@@ -207,11 +208,11 @@ def test_broken_json_answers_422(client, enabled):
 def test_unknown_fields_of_later_stages_are_skipped(client, enabled):
     payload = body(errors=[group(extra="x")], deliveries=[{"delivery_id": "d", "status": "sent"}],
                    vk_events=[{"vk_user_id": 1, "event": "message_allow", "at": at()}], future={"a": 1})
-    payload["heartbeat"]["updates"] = {"channel": "stable"}
+    payload["heartbeat"]["later"] = {"channel": "stable"}  # stage 5 stores `updates` (test_bot_console)
     r = post(client, payload)
     assert r.status_code == 200, r.text
     stored = json.loads(status_row()["heartbeat_json"])
-    assert "updates" not in stored and stored["version"] == "2.3.0"
+    assert "later" not in stored and "updates" not in stored and stored["version"] == "2.3.0"
     assert "extra" not in error_rows()["0f3a9c2d4e5b6a70"]
 
 
