@@ -46,6 +46,7 @@ import { useDebouncedValue } from "../../utils/hooks/useDebouncedValue";
 import s from "../../components/Workspace/Workspace.module.css";
 import { KkrTemplateTools, TemplateRefusal } from "../../components/Workspace/KkrTemplateLibrary";
 import type { TemplateSelection } from "../../utils/api/profileFeatures.api";
+import type { TemplateTarget } from "../../utils/kkrTemplates";
 import { HistoryDisclosure } from "../../components/Workspace/HistoryPanel";
 import { metricValue, sourceNames } from "./seasonAnalyticsView";
 import u from "./SeasonWorkspace.module.css";
@@ -201,6 +202,11 @@ function MeritEditor({
     : existing.source_kind === "block_volunteer" ? contexts.data?.blocks.find((x) => x.block_id === scopeId)?.name
     : existing.source_kind === "subevent_volunteer" ? contexts.data?.subs.find((x) => x.subevent_id === scopeId)?.title
     : contexts.data?.events.find((x) => x.event_id === scopeId)?.title;
+  // The team the server checks an applied template against (B3).
+  const templateTarget: TemplateTarget = source === "chair_merit" ? { kind: "chair", id: null }
+    : source === "head_merit" ? { kind: "event", id: scopeId }
+    : source === "block_volunteer" ? { kind: "block", id: scopeId }
+    : { kind: "subevent", id: scopeId, eventId: contexts.data?.subs.find((x) => x.subevent_id === scopeId)?.event_id };
   const fields: Field[] = [
     {
       name: "title",
@@ -377,7 +383,7 @@ function MeritEditor({
             fields={fields}
             changeRequired={existing ? fields.filter(field => field.name !== "reason").map(field => field.name) : undefined}
             externalState={templateSelection} savedExternalState={null} onReplaceWithSaved={() => setTemplateSelection(null)}
-            beforeFields={form => <KkrTemplateTools form={form} mode="merit" selection={templateSelection} onSelection={setTemplateSelection} />}
+            beforeFields={form => <KkrTemplateTools form={form} mode="merit" selection={templateSelection} onSelection={setTemplateSelection} target={templateTarget} />}
             failureActions={(failure, form) => <TemplateRefusal failure={failure} form={form} mode="merit" selection={templateSelection} onSelection={setTemplateSelection} />}
             onConflict={async () => {
               await people.refetch();

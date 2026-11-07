@@ -11,7 +11,7 @@ import { tasksApi } from '../../utils/api/tasks.api';
 import { moscowInput, toUtc } from '../../utils/dates';
 import { criteriaLabels } from '../../utils/kkrCriteria';
 import { ActionForm } from './ActionForm';
-import { templateRefused } from '../../utils/kkrTemplates';
+import { templateRefused, useFittingTemplates, type TemplateTarget } from '../../utils/kkrTemplates';
 import { text } from './formValues';
 import { useUnsavedChanges } from './unsavedChangesHooks';
 import { UserChip } from './UserChip';
@@ -24,10 +24,12 @@ import w from './Workspace.module.css';
 export function UnifiedKkrEditor({task}: {task:Task}) {
   const query=useQuery({queryKey:['accounting-batch',task.task_id],queryFn:()=>kkrApi.batch(task.task_id),enabled:can(task,'view_assessment_inputs')});
   if (!can(task,'view_assessment_inputs')) return <Empty>Учёт ККР доступен уполномоченным руководителям.</Empty>;
-  return <QueryState loading={query.isLoading} error={query.error} retry={()=>void query.refetch()}>{query.data&&<BatchEditor taskId={task.task_id} saved={query.data}/>}</QueryState>;
+  return <QueryState loading={query.isLoading} error={query.error} retry={()=>void query.refetch()}>{query.data&&<BatchEditor taskId={task.task_id} saved={query.data} target={task.scope.kind==='queue'?{kind:'chair',id:null}:{kind:task.scope.kind,id:task.scope.id}}/>}</QueryState>;
 }
-function BatchEditor({taskId,saved}:{taskId:string;saved:AccountingBatch}) {
-  const client=useQueryClient();const [template,setTemplate]=useState<TemplateSelection|null>(null);const templates=useQuery({queryKey:['kkrTemplates'],queryFn:profileFeaturesApi.templates,enabled:can(saved,'edit_assessment_inputs')});const [draft,setDraft]=useState(saved),[baseline,setBaseline]=useState(saved),[reason,setReason]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false);
+function BatchEditor({taskId,saved,target}:{taskId:string;saved:AccountingBatch;target:TemplateTarget}) {
+  const client=useQueryClient();const [template,setTemplate]=useState<TemplateSelection|null>(null);const templates=useQuery({queryKey:['kkrTemplates'],queryFn:profileFeaturesApi.templates,enabled:can(saved,'edit_assessment_inputs')});
+  // Only templates the server takes for this task's team (B3).
+  const offered=useFittingTemplates(templates.data?.items,target);const [draft,setDraft]=useState(saved),[baseline,setBaseline]=useState(saved),[reason,setReason]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false);
   // The code of a save refused because of its template: it offers to save without it (B6).
   const [refusal,setRefusal]=useState('');
   const editable=can(saved,'edit_assessment_inputs');const dirty=JSON.stringify(draft)!==JSON.stringify(baseline)||!!reason||!!template;
@@ -65,7 +67,7 @@ function BatchEditor({taskId,saved}:{taskId:string;saved:AccountingBatch}) {
     <p className={w.muted}>Дата выполнения для ККР: {displayDate(saved.closed_at)}{!saved.closed_at?' · У прежней закрытой задачи дата закрытия не зафиксирована. Сохраняется известная расчётная дата.':''}</p>
     {saved.season_closed&&<p className={w.warning}>Закрытый сезон: исправление создаст новую версию итогов. Укажите причину.</p>}
     {stale&&<p className={w.warning}>Данные изменились. <button type="button" onClick={()=>{setDraft(saved);setBaseline(saved);setReason('');}}>Загрузить сохранённые</button></p>}
-    {editable&&templates.data?.items.some(item=>!item.archived)&&<label>Применить шаблон<select aria-label="Шаблон ККР" value={template?.template_id??''} disabled={busy||stale} onChange={event=>{const chosen=templates.data?.items.find(item=>item.template_id===event.target.value);if(!chosen){setTemplate(null);return;}setBusy(true);setRefusal('');void apply(chosen).catch(e=>setError(userMessage(e))).finally(()=>setBusy(false));}}><option value="">Выберите шаблон</option>{templates.data.items.filter(item=>!item.archived).map(item=><option key={item.template_id} value={item.template_id}>{item.values.title}</option>)}</select></label>}
+    {editable&&offered.length>0&&<label>Применить шаблон<select aria-label="Шаблон ККР" value={template?.template_id??''} disabled={busy||stale} onChange={event=>{const chosen=offered.find(item=>item.template_id===event.target.value);if(!chosen){setTemplate(null);return;}setBusy(true);setRefusal('');void apply(chosen).catch(e=>setError(userMessage(e))).finally(()=>setBusy(false));}}><option value="">Выберите шаблон</option>{offered.map(item=><option key={item.template_id} value={item.template_id}>{item.values.title}</option>)}</select></label>}
     <fieldset disabled={!editable||busy||stale}><legend>Общие признаки задачи</legend><div className={s.criteria}>{Object.entries(criteriaLabels).map(([key,label])=><label key={key}><input type="checkbox" checked={draft.criteria[key as keyof Criteria]} onChange={event=>setDraft(value=>({...value,criteria:{...value.criteria,[key]:event.target.checked}}))}/>{label}</label>)}</div></fieldset>
     <div className={s.accountingTableWrap}><table className={s.accountingTable}><thead><tr><th>Исполнитель</th><th>Часы</th><th>Оценка</th><th>Учёт</th></tr></thead><tbody>{draft.assignments.map(row=><tr key={row.assignment_id}><td><UserChip user={row.assignee}/>{!row.is_current&&<small>Прежний исполнитель</small>}</td><td><input aria-label={`Часы: ${row.assignee.display_name}`} type="number" step="any" min="0" required={!row.excluded} disabled={!editable||busy||stale||row.excluded} value={row.hours??''} onChange={event=>patch(row.assignment_id,{hours:event.target.value===''?null:Number(event.target.value)})}/></td><td><select aria-label={`Оценка: ${row.assignee.display_name}`} required={!row.excluded} disabled={!editable||busy||stale||row.excluded} value={row.evaluation??''} onChange={event=>patch(row.assignment_id,{evaluation:event.target.value===''?null:Number(event.target.value) as -1|0|1|1.5})}><option value="">Выберите</option><option value="-1">−1 · Не выполнено</option><option value="0">0 · Не выполнено</option><option value="1">1 · Зачтено</option><option value="1.5">1,5 · Зачтено</option></select></td><td><label><input type="checkbox" disabled={!editable||busy||stale} checked={row.excluded} onChange={event=>patch(row.assignment_id,{excluded:event.target.checked})}/>Исключить</label></td></tr>)}</tbody></table></div>
     {saved.season_closed&&editable&&<label>Причина исправления<textarea required value={reason} disabled={busy} onChange={event=>setReason(event.target.value)}/></label>}

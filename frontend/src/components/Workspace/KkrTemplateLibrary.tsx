@@ -4,7 +4,7 @@ import type { FormikProps } from "formik";
 import { emptyCriteria } from "../../utils/api/contract";
 import { profileFeaturesApi, type FeaturesContext, type KkrTemplate, type TemplateSelection, type TemplateValues } from "../../utils/api/profileFeatures.api";
 import { ApiError, canRetainData, normalizeApiError } from "../../utils/api/request";
-import { templateRefused } from "../../utils/kkrTemplates";
+import { templateRefused, useFittingTemplates, type TemplateTarget } from "../../utils/kkrTemplates";
 import { userMessage } from "../../utils/api/messages";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { ActionForm, type Field } from "./ActionForm";
@@ -81,6 +81,9 @@ function LibraryEditor({ templates, context, initialValues }: { templates: KkrTe
   </div>;
 }
 
+/** Whose template it is, in a picker label. */
+const templateOwner = (row: KkrTemplate) => row.visibility === "personal" ? "личный" : row.scope?.kind === "global" ? "Весь Профком" : row.scope?.name;
+
 /** Who made the template and who saved it last (B2, owner 2026-11-08); no creation date. */
 function Authorship({ template }: { template: KkrTemplate }) {
   return <p className={s.authorship}><span>Автор</span><UserChip user={template.author} />
@@ -99,12 +102,15 @@ function applyTemplate(form: FormikProps<Values>, mode: "merit" | "assessment", 
 }
 
 /** Copies only template fields into this Formik draft. Never submits an assessment. */
-export function KkrTemplateTools({ form, mode, selection, onSelection }: {
+export function KkrTemplateTools({ form, mode, selection, onSelection, target }: {
   form: FormikProps<Values>; mode: "merit" | "assessment"; selection: TemplateSelection | null;
   onSelection: (selection: TemplateSelection | null) => void;
+  /** The record's team: only templates the server takes for it are offered. */
+  target?: TemplateTarget;
 }) {
   const query = useQuery({ queryKey: ["kkrTemplates"], queryFn: profileFeaturesApi.templates });
   const data = !query.error || canRetainData(query.error) ? query.data : undefined;
+  const offered = useFittingTemplates(data?.items, target);
   const [selected, setSelected] = useState(""), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>(null), [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
   const initial = (): TemplateValues => {
@@ -114,9 +120,9 @@ export function KkrTemplateTools({ form, mode, selection, onSelection }: {
   };
   return <div className={s.templateTools}>
     <EntityPicker label="Шаблон ККР" name="kkr-template" value={selected} onChange={setSelected} placeholder="Найти шаблон" disabled={busy || form.isSubmitting}
-      options={(data?.items ?? []).filter(row => !row.archived).map(row => ({ value: row.template_id, label: `${row.values.title} · ${row.visibility === "personal" ? "личный" : row.scope?.name}` }))} />
-    <button type="button" className={w.button} disabled={!selected || busy || form.isSubmitting} onClick={() => {
-      const template = data?.items.find(row => row.template_id === selected);if (!template) return;setBusy(true);setError(null);
+      options={offered.map(row => ({ value: row.template_id, label: `${row.values.title} · ${templateOwner(row)}` }))} />
+    <button type="button" className={w.button} disabled={!offered.some(row => row.template_id === selected) || busy || form.isSubmitting} onClick={() => {
+      const template = offered.find(row => row.template_id === selected);if (!template) return;setBusy(true);setError(null);
       void profileFeaturesApi.prepare(template).then(prepared => { applyTemplate(form, mode, prepared.values);onSelection(prepared.selection); }).catch(setError).finally(() => setBusy(false));
     }}>Подставить шаблон</button>
     <button ref={anchor} type="button" className={w.button} onClick={() => setOpen(true)}>Сохранить как шаблон / Управление</button>

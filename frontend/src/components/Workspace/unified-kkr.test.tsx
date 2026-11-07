@@ -94,3 +94,9 @@ it('a template edited after «Подставить» is applied again on request
  await submit(page!.container.querySelector('form')!);await waitForPage(page!);
  expect(save.mock.calls[1][1].template_selection).toEqual({template_id:template.template_id,revision:4});expect(page!.container.textContent).toContain('ККР сохранён');
 });
+it('offers only templates the server takes for the task team, including its event through the subevent',async()=>{
+ const scoped=(id:string,scope:KkrTemplate['scope'],extra:Partial<KkrTemplate>={}):KkrTemplate=>({...template,template_id:id,visibility:'team',scope,values:{...template.values,title:id},...extra});
+ vi.spyOn(profileFeaturesApi,'templates').mockResolvedValue({items:[template,scoped('Весь Профком',{kind:'global',id:null,name:'Профком'}),scoped('Своё мероприятие',{kind:'event',id:'event-1',name:'Мероприятие'}),scoped('Своё подмероприятие',{kind:'subevent',id:'subevent-1',name:'Встреча'}),scoped('Чужое мероприятие',{kind:'event',id:'event-other',name:'Другое'}),scoped('Чужой блок',{kind:'block',id:'block-other',name:'Блок'}),scoped('Архивный',{kind:'global',id:null,name:'Профком'},{archived:true})]});
+ await mount();await waitForPage(page!,()=>!!page!.container.querySelector('select[aria-label="Шаблон ККР"]'));await waitForPage(page!);
+ expect([...page!.container.querySelectorAll('select[aria-label="Шаблон ККР"] option')].map(option=>option.textContent)).toEqual(['Выберите шаблон','Обычная смена','Весь Профком','Своё мероприятие','Своё подмероприятие']);
+});
