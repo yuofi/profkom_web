@@ -8,7 +8,7 @@ import membership
 import vk_auth  # noqa: F401  (fails at startup without VK_CLIENT_ID in production)
 import contact_rules
 from api_contract import Page, cursor_page, install_errors, legacy
-from errors import InvalidInput
+from errors import InvalidInput, NotFound
 from validation import Command
 from datetime import datetime, timezone
 from typing import List, Optional, Union, Literal
@@ -1111,6 +1111,12 @@ class CommentCreateIn(CommentIn):
         if value is not None and canonical_key(value) is None:
             raise ValueError("A UUID idempotency key is required")
         return None if value is None else canonical_key(value)
+
+
+class CommentChecklistIn(Command):
+    expected_body: str = Field(max_length=1000000, description="The comment body the mark was made on; another current body is 409 comment_changed.")
+    offset: int = Field(ge=0, le=2000000, description="Position of the [ ]/[x] mark in the body, in UTF-16 code units (a JavaScript string index).")
+    checked: bool = Field(strict=True)
 
 
 class CommentOut(BaseModel):
@@ -3427,6 +3433,8 @@ def create_task_comment(task_id: str, payload: CommentCreateIn, cur: User = Depe
                 task = session.get(database_module.TaskORM, task_id)
                 if not task or not db.can_read_task(cur.user_id, task, session):
                     raise HTTPException(404, "Task not found")
+                if first.deleted_at:
+                    raise NotFound("Comment was deleted", "comment_deleted")
                 c = database_module._comment_orm_to_dc(session, first, cur.user_id)
         if not first:
             c = db.create_comment(
@@ -3456,6 +3464,20 @@ def patch_comment(comment_id: str, payload: CommentIn, cur: User = Depends(get_c
         sync_comment_mentions(c.comment_id, cur.user_id, payload.mentioned_user_ids)
     from tracker_collaboration import comment_mention_refs
     return _to_comment_out(c, comment_mention_refs([c]).get(c.comment_id))
+
+
+@router.post("/comments/{comment_id}/checklist", response_model=CommentOut)
+def toggle_comment_checklist(comment_id: str, payload: CommentChecklistIn, cur: User = Depends(get_current_user)):
+    from task_comments import toggle_checklist
+    c = toggle_checklist(comment_id, cur.user_id, payload.expected_body, payload.offset, payload.checked)
+    from tracker_collaboration import comment_mention_refs
+    return _to_comment_out(c, comment_mention_refs([c]).get(c.comment_id))
+
+
+@router.delete("/comments/{comment_id}", status_code=204)
+def delete_comment(comment_id: str, cur: User = Depends(get_current_user)):
+    from task_comments import delete
+    delete(comment_id, cur.user_id)
 
 
 # ── Files ──

@@ -149,14 +149,21 @@ def permitted(session, fr, uid, write=False):
             # Upload/complete belongs to the uploader, including an ordinary
             # task reader. Publication is only a CURRENT comment binding; old
             # history metadata never grants byte/download/preview access.
-            if write or fr.uploaded_by_user_id == uid:
-                return fr.uploaded_by_user_id == uid
             from database import CommentORM
             from read_context import cached
-            def published():
-                return frozenset(fid for (raw,) in session.query(CommentORM.files_json).filter_by(task_id=task.task_id)
-                    for fid in json.loads(raw or '[]'))
-            return fr.file_id in cached(session,'task.comment_files',task.task_id,published,copy_result=False)
+            def bindings():
+                live, deleted = set(), set()
+                for raw, deleted_at in session.query(CommentORM.files_json, CommentORM.deleted_at).filter_by(task_id=task.task_id):
+                    (deleted if deleted_at else live).update(json.loads(raw or '[]'))
+                return frozenset(live), frozenset(deleted - live)
+            published, withdrawn = cached(session,'task.comment_files',task.task_id,bindings,copy_result=False)
+            # A deleted comment takes its files out of the task, for its uploader too;
+            # the stored bytes are kept.
+            if fr.file_id in withdrawn:
+                return False
+            if write or fr.uploaded_by_user_id == uid:
+                return fr.uploaded_by_user_id == uid
+            return fr.file_id in published
         meta = metadata(session,task)
         attached = set(json.loads(meta.files_json or "[]"))
         for sub in session.query(TaskSubmissionORM).filter_by(task_id=task.task_id):attached.update(json.loads(sub.files_json or "[]"))
