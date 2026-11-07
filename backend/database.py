@@ -2744,6 +2744,51 @@ def _report_write_lock(label, started, acquired, released):
                                 label or "-", wait, hold)
 
 
+def _same_moment(left, right) -> bool:
+    if not left or not right:
+        return not left and not right
+    try:
+        from participation import dt
+        return dt(left) == dt(right)
+    except (ValueError, TypeError, AttributeError, InvalidInput):
+        return left == right
+
+
+def _merit_state(m: "MeritORM") -> dict:
+    """The fields of a merit record that its history shows, as stored."""
+    return dict(title=m.title, description=json.loads(m.description_json or "{}"),
+                assigned_at=m.assigned_at, deadline_at=m.deadline_at,
+                criteria=json.loads(m.criteria_json or "{}"), recipients=json.loads(m.recipients_json or "[]"))
+
+
+def _merit_changed(field: str, old, new) -> bool:
+    if field in ("assigned_at", "deadline_at"):
+        return not _same_moment(old, new)
+    if field == "criteria":
+        return {k for k, v in (old or {}).items() if v} != {k for k, v in (new or {}).items() if v}
+    if field == "recipients":
+        def rows(items):
+            return {r.get("user_id"): r for r in items or [] if isinstance(r, dict)}
+        before, after = rows(old), rows(new)
+        return before.keys() != after.keys() or any(
+            float(before[k].get("hours") or 0) != float(after[k].get("hours") or 0)
+            or float(before[k].get("evaluation") or 0) != float(after[k].get("evaluation") or 0)
+            or not _same_moment(before[k].get("completed_at"), after[k].get("completed_at")) for k in before)
+    return old != new
+
+
+def _merit_edit_audit(session, m: "MeritORM", before: dict, actor: int, reason: str, stamp: str) -> None:
+    """One history entry per edit of a merit record (B9, owner 2026-11-08): the changed fields,
+    old and new, with the editor and the reason. An edit that changes nothing writes nothing."""
+    after = _merit_state(m)
+    changed = [field for field in after if _merit_changed(field, before[field], after[field])]
+    if changed:
+        session.add(AuditLogORM(target_kind="merit", target_id=m.merit_id, changed_by_user_id=actor, reason=reason,
+                                old_values_json=json.dumps({k: before[k] for k in changed}, ensure_ascii=False),
+                                new_values_json=json.dumps({k: after[k] for k in changed}, ensure_ascii=False),
+                                created_at=stamp))
+
+
 class Database:
     """SQLAlchemy-backed database layer."""
 
@@ -6641,6 +6686,7 @@ class Database:
             candidate=dict(season_id=m.season_id,source_kind=m.source_kind,event_id=m.event_id,scope={"kind":m.scope_kind,"id":m.scope_id} if m.scope_kind else None,assigned_at=m.assigned_at,deadline_at=m.deadline_at,recipients=json.loads(m.recipients_json))
             candidate.update(values)
             validate(session,candidate)
+            before = _merit_state(m)
             if "title" in values:
                 m.title = values["title"]
             if "description" in values:
@@ -6665,6 +6711,7 @@ class Database:
 
             m.reason = reason
             m.revision += 1
+            _merit_edit_audit(session, m, before, user_id, reason, datetime.now(timezone.utc).isoformat())
             _recalculate_merit_contribution(session, m)
             from season_summaries import refresh
             refresh(session,m.season_id,user_id,reason)

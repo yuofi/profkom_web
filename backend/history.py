@@ -16,7 +16,7 @@ from auth import get_current_user
 from api_contract import cursor_page
 from database import (db, AuditLogORM, TaskActivityORM, TaskORM, AssignmentORM, MeritORM,
                       SeasonORM, BlockORM, EventORM, SubeventORM, LeadershipORM,
-                      RoleAssignmentORM, CommentORM)
+                      RoleAssignmentORM, CommentORM, KKR_CRITERIA, _same_moment)
 from domain_models import BlockMetaORM, MembershipORM, ScopeTenureORM
 from history_models import HistoryRedactionORM
 from event_workspace_models import EventWorkspaceMetaORM
@@ -174,9 +174,31 @@ def _clean(session, value, field):
     return value
 
 
+def _recipient_changes(session, before, after):
+    """A merit edit names each recipient it touched: added, removed or their changed inputs."""
+    def rows(items):
+        return {item.get("user_id"): item for item in items if isinstance(item, dict)} if isinstance(items, list) else {}
+    old, new = rows(before), rows(after)
+    result = []
+    for person in [*old, *(person for person in new if person not in old)]:
+        was, now_ = old.get(person), new.get(person)
+        if was and now_:
+            keys = [key for key in ("hours", "evaluation", "completed_at") if not (
+                _same_moment(was.get(key), now_.get(key)) if key == "completed_at" else was.get(key) == now_.get(key))]
+            if not keys:
+                continue
+            label, was, now_ = "Исходные поля получателя", {"user_id": person, **{key: was.get(key) for key in keys}}, {"user_id": person, **{key: now_.get(key) for key in keys}}
+        else:
+            label = "Добавлен получатель" if now_ else "Убран получатель"
+        result.append(dict(field="recipients", label=label, before=_clean(session, was, "recipients"), after=_clean(session, now_, "recipients")))
+    return result
+
+
 def _audit_changes(session, row, private):
     old, new = _loads(row.old_values_json, {}), _loads(row.new_values_json, {})
     allowed = PRIVATE_INPUTS if private else METADATA
+    # An edit of a merit record (not its creation) shows each criterion and recipient on its own.
+    merit_edit = row.target_kind == "merit" and bool(old)
     result = []
     for name in sorted(set(old) | set(new)):
         field = {"deputies_json": "deputy_user_ids", "organizer_user_ids_json": "organizer_user_ids", "description_json": "description"}.get(name, name)
@@ -184,7 +206,16 @@ def _audit_changes(session, row, private):
             field = "hr_user_id"  # Earlier HR rows were written under the member key.
         if field not in allowed or old.get(name) == new.get(name):
             continue
-        result.append(dict(field=field, label=LABELS.get(field, field), before=_clean(session, old.get(name), field), after=_clean(session, new.get(name), field)))
+        if merit_edit and field == "recipients":
+            result.extend(_recipient_changes(session, old.get(name), new.get(name)))
+            continue
+        before, after = old.get(name), new.get(name)
+        if merit_edit and field == "criteria" and isinstance(before, dict) and isinstance(after, dict):
+            order = list(KKR_CRITERIA)
+            keys = [key for key in sorted(set(before) | set(after), key=lambda key: (order.index(key) if key in order else len(order), key))
+                    if bool(before.get(key)) != bool(after.get(key))]
+            before, after = {key: bool(before.get(key)) for key in keys}, {key: bool(after.get(key)) for key in keys}
+        result.append(dict(field=field, label=LABELS.get(field, field), before=_clean(session, before, field), after=_clean(session, after, field)))
     return result
 
 
