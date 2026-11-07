@@ -16,16 +16,12 @@ export function ChecklistDraftFields({ items, onChange, disabled = false }: { it
   const move = (index: number, direction: number) => { const next = [...items];[next[index], next[index+direction]] = [next[index+direction], next[index]];onChange(next); };
   const fields = useRef(new Map<string, HTMLInputElement>()), add = useRef<HTMLButtonElement>(null), focusKey = useRef<string | null>(null);
   useEffect(() => { if (focusKey.current === null) return;(fields.current.get(focusKey.current) ?? add.current)?.focus();focusKey.current = null; });
-  // Inside a form Enter must not submit an unfinished checklist: it adds the next item, and
-  // Backspace in an empty item removes it, as in a list editor.
+  // Inside a form Enter must not submit an unfinished checklist: it adds the next item.
+  // Backspace only edits the text; an item is removed with «×» alone (owner 2026-11-08, В3).
   const keys = (event: KeyboardEvent<HTMLInputElement>, index: number) => {
-    if (event.nativeEvent.isComposing) return;
-    if (event.key === "Enter") {
-      event.preventDefault();if (items.length >= 200) return;
-      const item = { key: createClientId(), text: "", checked: false };focusKey.current = item.key;onChange([...items.slice(0, index + 1), item, ...items.slice(index + 1)]);
-    } else if (event.key === "Backspace" && !event.currentTarget.value) {
-      event.preventDefault();focusKey.current = items[index - 1]?.key ?? items[index + 1]?.key ?? "";onChange(items.filter((_, i) => i !== index));
-    }
+    if (event.nativeEvent.isComposing || event.key !== "Enter") return;
+    event.preventDefault();if (items.length >= 200) return;
+    const item = { key: createClientId(), text: "", checked: false };focusKey.current = item.key;onChange([...items.slice(0, index + 1), item, ...items.slice(index + 1)]);
   };
   return <div className={s.draftList}>
     {items.map((item, index) => <div className={s.draftRow} key={item.key}>
