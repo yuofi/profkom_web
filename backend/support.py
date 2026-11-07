@@ -67,9 +67,17 @@ def _leaders(session):
     return {uid for uid in result if _active(session, uid)}
 
 
+def _system_editor(uid):
+    """The chair and deputies configure support; the service account holds every right."""
+    import service_account
+    return db.is_chair(uid) or db.is_deputy_chair(uid) or service_account.is_service_id(uid)
+
+
 def is_staff(session, uid):
     if not _active(session, uid):
         return False
+    if session.get(UserORM, uid).is_service:
+        return True
     assignment = session.get(SupportStaffORM, uid)
     return uid in _leaders(session) or bool(assignment and assignment.active)
 
@@ -99,7 +107,7 @@ def is_support_task(session, task):
 def context(uid):
     with db._session() as session:
         config = _config(session)
-        system_editor = db.is_chair(uid) or db.is_deputy_chair(uid)
+        system_editor = _system_editor(uid)
         manager = uid in _leaders(session) or system_editor
         return dict(configured=bool(config and config.queue_id), revision=config.revision if config else 1,
                     block_id=config.block_id if config else None, queue_id=config.queue_id if config else None,
@@ -237,7 +245,7 @@ class DeadlineIn(Command):
 
 
 def configure(uid, payload):
-    if not (db.is_chair(uid) or db.is_deputy_chair(uid)):
+    if not _system_editor(uid):
         raise Forbidden("Only the chair and deputies configure website support")
     with db._session() as session:
         meta = session.get(BlockMetaORM, payload.block_id)
@@ -277,11 +285,12 @@ def set_staff(uid, payload):
         config = _config(session)
         if not config:
             raise InvalidInput("Configure website support first")
-        if uid not in _leaders(session) and not (db.is_chair(uid) or db.is_deputy_chair(uid)):
+        if uid not in _leaders(session) and not _system_editor(uid):
             raise Forbidden("Only support leaders may manage support staff")
         version(config, payload.expected_revision)
         selected = set(payload.user_ids)
-        if any(isinstance(value, bool) or not _active(session, value) for value in selected):
+        import service_account
+        if any(isinstance(value, bool) or not _active(session, value) or service_account.refused(session, value) for value in selected):
             raise InvalidInput("Support staff must have active approved accounts")
         previous = {row.user_id for row in session.query(SupportStaffORM).filter_by(active=True)}
         for row in session.query(SupportStaffORM):

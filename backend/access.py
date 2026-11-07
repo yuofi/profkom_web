@@ -186,6 +186,11 @@ POLICY = {
     "broadcast.senders.manage": TACHKI,
 }
 
+# The service (root) account holds every relation any rule names, to every object (owner,
+# 2026-11-08, service_account.py); a rule's season state still narrows it like anyone's.
+SERVICE_RELATIONS = frozenset().union(*(
+    frozenset().union(*rule.values()) if isinstance(rule, ByState) else frozenset(rule) for rule in POLICY.values()))
+
 QUEUE_ROLES = {
     "block": {"master", "deputy_master"},
     "event": {"event_leader", "deputy_event_leader"},
@@ -366,6 +371,8 @@ def _is_block_deputy(uid, name):
 
 @memoized("access.global", copy_result=False)
 def _global_relations(uid):
+    if getattr(db.get_user(uid), "is_service", False):
+        return SERVICE_RELATIONS
     rel = set()
     if db.is_chair(uid):
         rel.add(CHAIR)
@@ -549,6 +556,8 @@ def relations(uid, kind=None, scope_id=None):
     user = db.get_user(uid)
     if not user or user.account_state != "active" or user.banned:
         return frozenset()
+    if user.is_service:
+        return SERVICE_RELATIONS
     rel = _global_relations(uid)
     if kind in SCOPES and scope_id is not None:
         rel |= scope_relations(uid, kind, scope_id)
@@ -579,6 +588,7 @@ def all_queue_reader(uid):
     """Owner policy: HR deputy's global tracker read is separate from reports/KKR."""
     user=db.get_user(uid)
     if not user or user.banned or user.account_state!="active":return False
+    if user.is_service:return True
     if db.is_chair(uid) or db.is_deputy_chair(uid) or _is_hr_master(uid):return True
     return any(_is_block_deputy(uid,name) for name in _hr_block_names())
 

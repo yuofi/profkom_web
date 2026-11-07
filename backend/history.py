@@ -243,6 +243,9 @@ def _historical_supervisor(session, supervisor, subject, kind, identifier, stamp
 def may_hide(session, actor, author, kind, target, stamp):
     if author == actor:
         return True  # Current object access was checked, including after season closure.
+    from service_account import is_service_id
+    if is_service_id(actor):
+        return True  # every right (owner, 2026-11-08); the target's own access was checked
     scope_kind, scope_id = _scope(session, kind, target)
     return _historical_supervisor(session, actor, author, scope_kind, scope_id, stamp)
 

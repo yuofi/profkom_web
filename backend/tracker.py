@@ -312,8 +312,8 @@ def enrich_task(session,task,result,uid,facts=None):
             if "completed" not in result.allowed_statuses:result.capabilities.remove("submit_task_result")
         result.capabilities+=_task_caps(task,uid,{"review_task":"task.review","attach_task_file":"task.edit"},facts=facts)
         if can_edit_description(session,task,uid,facts):result.capabilities.append("edit_task_description")
-        from tracker_collaboration import _managers
-        if uid in _managers(session,task,facts):result.capabilities.append("manage_task_access")
+        from tracker_collaboration import is_manager
+        if is_manager(session,task,uid,facts):result.capabilities.append("manage_task_access")
         if readable(uid):
             member=next((m for m in roster(session,task.task_id) if m.user_id==uid),None)
             # A closed season gets new accounting rows only from its circle: the chair, deputies and HR master.
@@ -322,9 +322,12 @@ def enrich_task(session,task,result,uid,facts=None):
             # The same rule as the roster command: a former assignee who still owns a row may rejoin.
             from task_roster import creates_closed_assignment
             new_row=closed_ledger and creates_closed_assignment(session,task,uid,uid)
-            if (not member or member.role!="assignee") and not new_row:result.capabilities.append("join_task")
-            if can_change_status(session,task,uid,"in_progress",facts) and (not member or member.role!="assignee" or meta.status!="in_progress" or meta.legacy_mixed_statuses) and not new_row:result.capabilities.append("take_task")
-            if not member or member.role not in {"assignee","watcher"}:result.capabilities.append("watch_task")
+            # The service account never takes part in a task (owner, 2026-11-08).
+            from service_account import is_service_id
+            outsider=is_service_id(uid)
+            if (not member or member.role!="assignee") and not new_row and not outsider:result.capabilities.append("join_task")
+            if can_change_status(session,task,uid,"in_progress",facts) and (not member or member.role!="assignee" or meta.status!="in_progress" or meta.legacy_mixed_statuses) and not new_row and not outsider:result.capabilities.append("take_task")
+            if (not member or member.role not in {"assignee","watcher"}) and not outsider:result.capabilities.append("watch_task")
             if member and member.role=="watcher":result.capabilities.append("unwatch_task")
             if can_edit_public(session,task,uid,facts):
                 result.capabilities += ["remove_task_watcher"] if closed_ledger else ["assign_task_participants","remove_task_watcher"]
@@ -421,6 +424,8 @@ def can_close(session,task,uid,facts=None):
     readable=facts.readable if facts else (lambda reader:db.can_read_task(reader,task,session))
     if not readable(uid):return False
     from task_queues import task_queue,active
+    from service_account import is_service_id
+    if is_service_id(uid):return True  # every right (owner, 2026-11-08)
     author=task.created_by_user_id
     if author and active(session,author) and readable(author):return author==uid
     queue=task_queue(session,task)

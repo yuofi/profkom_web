@@ -35,6 +35,9 @@ def change(task_id,actor,expected_revision,command,target_uid=None):
         meta=metadata(session,task);ensure_roster(session,task,meta)
         if task.revision!=expected_revision:raise revision_conflict()
         uid=target_uid if command in {'remove','assign','remove_watcher'} else actor
+        if command in {'join','take','assign','watch'}:
+            from service_account import refuse
+            refuse(session,uid)  # never an assignee or watcher (owner, 2026-11-08)
         if command in {'remove','assign','remove_watcher'} and not can_edit_public(session,task,actor):
             raise Forbidden('Only task editors may change other participants')
         if command=='take' and not can_change_status(session,task,actor,'in_progress'):
@@ -49,8 +52,8 @@ def change(task_id,actor,expected_revision,command,target_uid=None):
                 from support import is_support_queue
                 queue=task_queue(session,task)
                 if queue and is_support_queue(session,queue):raise Forbidden('Support access is delegated by support leaders')
-                from tracker_collaboration import _managers,approve_assignment_access
-                if actor not in _managers(session,task):raise Forbidden('Сначала согласуйте доступ через призыв','task_access_approval_required')
+                from tracker_collaboration import is_manager,approve_assignment_access
+                if not is_manager(session,task,actor):raise Forbidden('Сначала согласуйте доступ через призыв','task_access_approval_required')
                 approve_assignment_access(session,task,uid,actor)
         member=_member(session,task,uid);old_roles=_current_roles(session,task)
         if command=='remove' and (not member or member.role!='assignee'):raise NotFound('Current task assignee not found')
