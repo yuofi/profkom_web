@@ -122,6 +122,7 @@ export function ActionForm({
   beforeFields,
   confirm,
   actions,
+  failureActions,
 }: {
   title?: string;
   fields: Field[];
@@ -160,6 +161,8 @@ export function ActionForm({
   confirm?: { text: ReactNode | ((values: Values) => ReactNode); label: string };
   /** Secondary controls in one row after the submit, such as a cancel link or a preview toggle. */
   actions?: ReactNode;
+  /** More ways on under a refusal, such as saving again without an applied template (B6). */
+  failureActions?: (failure: ApiError, form: FormikProps<Values>) => ReactNode;
 } & Versioning) {
   const formId = useId();
   const submitted = useRef(false);
@@ -552,6 +555,7 @@ export function ActionForm({
                 </button>
               </p>
             )}
+            {failureActions?.(failure, form)}
           </div>
         )}
         {failure && <ErrorDetail error={failure} />}

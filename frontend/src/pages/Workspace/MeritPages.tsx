@@ -44,7 +44,7 @@ import {
 } from "../../utils/hooks/useWorkspace";
 import { useDebouncedValue } from "../../utils/hooks/useDebouncedValue";
 import s from "../../components/Workspace/Workspace.module.css";
-import { KkrTemplateTools } from "../../components/Workspace/KkrTemplateLibrary";
+import { KkrTemplateTools, TemplateRefusal } from "../../components/Workspace/KkrTemplateLibrary";
 import type { TemplateSelection } from "../../utils/api/profileFeatures.api";
 import { HistoryDisclosure } from "../../components/Workspace/HistoryPanel";
 import { metricValue, sourceNames } from "./seasonAnalyticsView";
@@ -378,6 +378,7 @@ function MeritEditor({
             changeRequired={existing ? fields.filter(field => field.name !== "reason").map(field => field.name) : undefined}
             externalState={templateSelection} savedExternalState={null} onReplaceWithSaved={() => setTemplateSelection(null)}
             beforeFields={form => <KkrTemplateTools form={form} mode="merit" selection={templateSelection} onSelection={setTemplateSelection} />}
+            failureActions={(failure, form) => <TemplateRefusal failure={failure} form={form} mode="merit" selection={templateSelection} onSelection={setTemplateSelection} />}
             onConflict={async () => {
               await people.refetch();
               await refresh();

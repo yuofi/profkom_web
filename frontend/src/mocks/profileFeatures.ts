@@ -102,5 +102,14 @@ export function profileFeatureMock(state: Fixtures, taskHistory?: () => Map<stri
     }
     return undefined;
   };
-  return Object.assign(handle, { linkVk });
+  /** A save with an applied template, checked as the server does (B6): reachable, not archived, unchanged. */
+  const checkTemplate = (selection: unknown): Reply | undefined => {
+    if (!selection) return undefined;
+    const { template_id, revision: wanted } = selection as { template_id?: string; revision?: number };
+    const row = templates.find(item => item.template_id === template_id);
+    if (!row) return fail(404, "template_unavailable");
+    if (row.archived) return fail(409, "template_archived");
+    return row.revision === wanted ? undefined : fail(409, "template_changed");
+  };
+  return Object.assign(handle, { linkVk, checkTemplate });
 }

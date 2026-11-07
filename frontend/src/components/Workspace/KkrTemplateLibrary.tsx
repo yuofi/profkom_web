@@ -1,9 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
 import type { FormikProps } from "formik";
 import { emptyCriteria } from "../../utils/api/contract";
 import { profileFeaturesApi, type FeaturesContext, type KkrTemplate, type TemplateSelection, type TemplateValues } from "../../utils/api/profileFeatures.api";
-import { canRetainData } from "../../utils/api/request";
+import { ApiError, canRetainData, normalizeApiError } from "../../utils/api/request";
+import { templateRefused } from "../../utils/kkrTemplates";
+import { userMessage } from "../../utils/api/messages";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { ActionForm, type Field } from "./ActionForm";
 import { AnchoredPopover } from "./AnchoredPopover";
@@ -85,6 +87,17 @@ function Authorship({ template }: { template: KkrTemplate }) {
     {template.revision > 1 && <><span>Изменил(а)</span><UserChip user={template.updated_by} /></>}</p>;
 }
 
+/** The template's values in this Formik draft; dates, recipients and reasons stay as they are. */
+function applyTemplate(form: FormikProps<Values>, mode: "merit" | "assessment", prepared: TemplateValues) {
+  const next = { ...form.values };
+  if (mode === "merit") {
+    next.title = prepared.title;next.body = prepared.description;
+    for (const [key, value] of Object.entries(prepared.criteria)) next[key] = String(value);
+    for (const key of Object.keys(next)) { if (key.startsWith("hours_")) next[key] = String(prepared.hours);if (key.startsWith("evaluation_")) next[key] = String(prepared.evaluation); }
+  } else { next.hours = String(prepared.hours);next.evaluation = String(prepared.evaluation); }
+  void form.setValues(next);
+}
+
 /** Copies only template fields into this Formik draft. Never submits an assessment. */
 export function KkrTemplateTools({ form, mode, selection, onSelection }: {
   form: FormikProps<Values>; mode: "merit" | "assessment"; selection: TemplateSelection | null;
@@ -104,21 +117,49 @@ export function KkrTemplateTools({ form, mode, selection, onSelection }: {
       options={(data?.items ?? []).filter(row => !row.archived).map(row => ({ value: row.template_id, label: `${row.values.title} · ${row.visibility === "personal" ? "личный" : row.scope?.name}` }))} />
     <button type="button" className={w.button} disabled={!selected || busy || form.isSubmitting} onClick={() => {
       const template = data?.items.find(row => row.template_id === selected);if (!template) return;setBusy(true);setError(null);
-      void profileFeaturesApi.prepare(template).then(prepared => {
-        const next = { ...form.values };
-        if (mode === "merit") {
-          next.title = prepared.values.title;next.body = prepared.values.description;
-          for (const [key, value] of Object.entries(prepared.values.criteria)) next[key] = String(value);
-          for (const key of Object.keys(next)) { if (key.startsWith("hours_")) next[key] = String(prepared.values.hours);if (key.startsWith("evaluation_")) next[key] = String(prepared.values.evaluation); }
-        } else { next.hours = String(prepared.values.hours);next.evaluation = String(prepared.values.evaluation); }
-        void form.setValues(next);onSelection(prepared.selection);
-      }).catch(setError).finally(() => setBusy(false));
+      void profileFeaturesApi.prepare(template).then(prepared => { applyTemplate(form, mode, prepared.values);onSelection(prepared.selection); }).catch(setError).finally(() => setBusy(false));
     }}>Подставить шаблон</button>
     <button ref={anchor} type="button" className={w.button} onClick={() => setOpen(true)}>Сохранить как шаблон / Управление</button>
-    {selection && <small>Шаблон подставлен. Проверьте поля и сохраните {mode === "merit" ? "работу" : "оценку"}. <button type="button" className={w.button} onClick={() => onSelection(null)}>Отвязать шаблон</button></small>}
+    {/* No «Отвязать шаблон»: a save the template blocks offers to go on without it (B6, owner 2026-11-08). */}
+    {selection && <small>Шаблон подставлен. Проверьте поля и сохраните {mode === "merit" ? "работу" : "оценку"}.</small>}
     {error != null && <QueryState loading={false} error={error}>{null}</QueryState>}
     {query.error && <QueryState loading={false} error={query.error}>{null}</QueryState>}
     <UnsavedChangesScope><TemplatePopover open={open} anchor={anchor} close={() => setOpen(false)} initialValues={initial()} /></UnsavedChangesScope>
+  </div>;
+}
+
+/**
+ * Under a save refused because of its template: the same save without the template link and,
+ * for a template edited after «Подставить», its current version (B6, owner 2026-11-08).
+ * Renders nothing for other refusals.
+ */
+export function TemplateRefusal({ failure, form, mode, selection, onSelection }: {
+  failure: unknown; form: FormikProps<Values>; mode: "merit" | "assessment";
+  selection: TemplateSelection | null; onSelection: (selection: TemplateSelection | null) => void;
+}) {
+  const client = useQueryClient();
+  const [busy, setBusy] = useState(false), [note, setNote] = useState(""), [error, setError] = useState<unknown>(null);
+  // The save repeats once the form has dropped the link, so it sends exactly the same values without it.
+  const retry = useRef(false);
+  useEffect(() => { if (retry.current && !selection) { retry.current = false;void form.submitForm(); } }, [selection, form]);
+  if (!templateRefused(failure)) return null;
+  const reapply = async () => {
+    if (!selection) return;
+    setBusy(true);setError(null);setNote("");
+    try {
+      const list = await client.fetchQuery({ queryKey: ["kkrTemplates"], queryFn: profileFeaturesApi.templates, staleTime: 0 });
+      const current = list.items.find(row => row.template_id === selection.template_id);
+      if (!current || current.archived) throw new ApiError("Шаблон недоступен", 404, "template_unavailable");
+      const prepared = await profileFeaturesApi.prepare(current);
+      applyTemplate(form, mode, prepared.values);onSelection(prepared.selection);
+      setNote("Шаблон подставлен заново. Проверьте поля и сохраните.");
+    } catch (reason) { setError(reason); } finally { setBusy(false); }
+  };
+  return <div className={w.row}>
+    <button type="button" className={w.button} disabled={busy || form.isSubmitting} onClick={() => { if (!selection) { void form.submitForm();return; } retry.current = true;onSelection(null); }}>Сохранить без шаблона</button>
+    {normalizeApiError(failure).code === "template_changed" && selection && <button type="button" className={w.button} disabled={busy || form.isSubmitting} onClick={() => void reapply()}>{busy ? "Подставляем…" : "Подставить заново"}</button>}
+    {note && <p role="status">{note}</p>}
+    {error != null && <p role="alert">{userMessage(error)}</p>}
   </div>;
 }
 function TemplatePopover({ open, anchor, close, initialValues }: { open: boolean; anchor: React.RefObject<HTMLButtonElement | null>; close: () => void; initialValues: TemplateValues }) {

@@ -13,6 +13,8 @@ import { installMockTransport } from '../../mocks/transport';
 import { kkrApi, type AccountingBatch } from '../../utils/api/kkr.api';
 import { ApiError } from '../../utils/api/request';
 import { UnifiedKkrEditor } from './UnifiedKkrEditor';
+import { profileFeaturesApi, type KkrTemplate } from '../../utils/api/profileFeatures.api';
+import { emptyCriteria } from '../../utils/api/contract';
 let page:Awaited<ReturnType<typeof mountWorkspace>>|undefined;
 let transport:ReturnType<typeof installMockTransport>|undefined;
 afterEach(async()=>{await page?.cleanup();page=undefined;transport?.restore();transport=undefined;vi.restoreAllMocks();});
@@ -67,4 +69,28 @@ it('background changes preserve input and block an overwrite until saved values 
 it('a forbidden refetch removes accounting inputs instead of showing stale private cached values',async()=>{
  const saved=await mount();vi.mocked(kkrApi.batch).mockRejectedValue(new ApiError('Доступ отозван',403));await act(async()=>{await page!.client.invalidateQueries({queryKey:['accounting-batch',saved.task_id]});});await waitForPage(page!);
  expect(page!.container.querySelector('table')).toBeNull();expect(page!.container.textContent).toContain('Доступ отозван');
+});
+const owner={user_id:101,display_name:'Анна Смирнова',avatar_url:null};
+const template:KkrTemplate={template_id:'personal-kkr',visibility:'personal',scope:null,revision:3,archived:false,values:{title:'Обычная смена',description:'',hours:4,evaluation:1,criteria:emptyCriteria()},author:owner,updated_by:owner};
+async function useTemplate(){const select=page!.container.querySelector<HTMLSelectElement>('select[aria-label="Шаблон ККР"]')!;await change(select,template.template_id);await waitForPage(page!);}
+it('a save refused for its template goes on without it; there is no «Отвязать шаблон»',async()=>{
+ vi.spyOn(profileFeaturesApi,'templates').mockResolvedValue({items:[template]});vi.spyOn(profileFeaturesApi,'prepare').mockResolvedValue({selection:{template_id:template.template_id,revision:3},values:template.values});
+ const saved=await mount();const save=vi.spyOn(kkrApi,'saveBatch').mockImplementation(async(_id,data)=>{if(data.template_selection)throw new ApiError('Шаблон недоступен',404,'template_unavailable');return {...saved,assignments:saved.assignments.map((row,i)=>({...row,...data.assignments[i],revision:row.revision+1}))};});
+ await useTemplate();expect(buttons('Отвязать шаблон')).toBeUndefined();expect(page!.container.querySelector<HTMLInputElement>('input[aria-label^="Часы:"]')!.value).toBe('4');
+ await submit(page!.container.querySelector('form')!);await waitForPage(page!);
+ expect(page!.container.querySelector('[role="alert"]')?.textContent).toContain('Шаблон вам больше недоступен');expect(buttons('Подставить заново')).toBeUndefined();
+ await click('Сохранить без шаблона');
+ expect(save).toHaveBeenCalledTimes(2);expect(save.mock.calls[1][1].template_selection).toBeUndefined();expect(save.mock.calls[1][1].assignments.map(row=>row.hours)).toEqual(save.mock.calls[0][1].assignments.map(row=>row.hours));
+ expect(page!.container.textContent).toContain('ККР сохранён');
+});
+it('a template edited after «Подставить» is applied again on request and saved with its new version',async()=>{
+ const templates=vi.spyOn(profileFeaturesApi,'templates').mockResolvedValue({items:[template]});vi.spyOn(profileFeaturesApi,'prepare').mockImplementation(async row=>({selection:{template_id:row.template_id,revision:row.revision},values:row.values}));
+ const saved=await mount();const save=vi.spyOn(kkrApi,'saveBatch').mockImplementation(async(_id,data)=>{if(data.template_selection?.revision===3)throw new ApiError('Шаблон изменён',409,'template_changed');return {...saved,assignments:saved.assignments.map((row,i)=>({...row,...data.assignments[i],revision:row.revision+1}))};});
+ await useTemplate();templates.mockResolvedValue({items:[{...template,revision:4,values:{...template.values,hours:6}}]});
+ await submit(page!.container.querySelector('form')!);await waitForPage(page!);
+ expect(page!.container.querySelector('[role="alert"]')?.textContent).toContain('Шаблон изменили после того, как вы его подставили');
+ await click('Подставить заново');
+ expect(page!.container.textContent).toContain('Шаблон подставлен заново');expect(page!.container.querySelector<HTMLInputElement>('input[aria-label^="Часы:"]')!.value).toBe('6');expect(save).toHaveBeenCalledTimes(1);
+ await submit(page!.container.querySelector('form')!);await waitForPage(page!);
+ expect(save.mock.calls[1][1].template_selection).toEqual({template_id:template.template_id,revision:4});expect(page!.container.textContent).toContain('ККР сохранён');
 });
