@@ -3,7 +3,7 @@ import { act } from "react";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { liveLogin, liveParticipant } from "../../test/liveApi";
-import { mountWorkspace, waitForPage, change, submit } from "../../test/workspace";
+import { commentAction, mountWorkspace, waitForPage, change, submit } from "../../test/workspace";
 import { wireIssues } from "../../test/wireContract";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { eventsApi } from "../../utils/api/events.api";
@@ -40,8 +40,7 @@ it("posts a real mention chip through the comment footer without bypassing outsi
   const targetSession=await liveLogin(target.email);const readable=await tasksApi.get(task.task_id);expect(readable.capabilities).not.toContain('edit_task_description');
   page=await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage/>}/></Routes>,{path:`/tasks/${task.task_id}`,session:targetSession});await waitForPage(page);
   expect(page.container.querySelector('[data-editor-footer] [aria-label="Прикрепить файлы к комментарию"]')).not.toBeNull();
-  const edit=[...page.container.querySelectorAll<HTMLButtonElement>('article button')].find(button=>button.textContent==='Редактировать')!;expect(edit).toBeDefined();
-  await act(async()=>edit.click());const editor=page.container.querySelector('article [data-markdown-editor="comment"]')!;await change(editor.querySelector('textarea')!,'Правка читателя без потери доступа');await submit(editor.closest('form')!);await waitForPage(page,()=>page!.container.textContent!.includes('Правка читателя без потери доступа'));
+  await commentAction(page.container.querySelector('article')!,'Редактировать');const editor=page.container.querySelector('article [data-markdown-editor="comment"]')!;await change(editor.querySelector('textarea')!,'Правка читателя без потери доступа');await submit(editor.closest('form')!);await waitForPage(page,()=>page!.container.textContent!.includes('Правка читателя без потери доступа'));
   await page.cleanup();page=undefined;
   await liveLogin(author.email);await taskCollaborationApi.revoke(task.task_id,target.user_id);await liveLogin(target.email);await expect(tasksApi.comments(task.task_id)).rejects.toMatchObject({status:404});
 });
