@@ -68,6 +68,10 @@ Personal templates remain owner-only; team templates use current original KKR sc
 permissions. They never grant access to a team, assignment, recipient or private field.
 Values include a work title/description, hours, evaluation and existing criteria flags.
 GET/list, versioned edit/archive, copying and prepare all preserve ownership/scope.
+The DTO names `author` (`owner_user_id`) and `updated_by` (`updated_by_user_id`, set on
+create and every PATCH) as user refs; there is no creation date in it. The column is
+added idempotently at startup and backfilled from the latest template audit actor, or
+the owner when a template has no audit row; an anonymized actor leaves it NULL.
 
 Prepare only copies values to the current editor; dates, recipients and correction
 reasons stay under user control. Assignment preparation changes only hours/evaluation,
@@ -81,6 +85,13 @@ transaction. It stores the frozen template version/values and actual saved value
 `kkr_template_uses`. A stale/inaccessible/foreign-team template rolls back the complete
 command. Later template edits cannot recalculate or rewrite the saved work. Closed
 season corrections use the same callback through their owning correction service.
+
+Such a refusal names the template, not the record, so the client can offer the same
+save without `template_selection`: `template_unavailable` (404, missing or no longer
+visible), `template_archived` (409), `template_changed` (409, edited after prepare) and
+`template_scope_mismatch` (422). Prepare itself keeps the template's own 404 and
+`revision_conflict`. Pickers offer only templates the target scope accepts: personal,
+global, the same team, and for a subevent also its event.
 
 Retention nulls explicit actor/owner/grantee identity fields, transfers grant participant
 identity, removes personal preferences/delivery state and leaves personal templates
