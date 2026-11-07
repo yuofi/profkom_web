@@ -1140,7 +1140,9 @@ def require(uid, action, message):
 def grantees(role):
     """Accounts holding the site grant, as user references (archive removes the row)."""
     with db._session() as s:
-        ids = s.query(RoleAssignmentORM.user_id).filter_by(scope_kind="site", role=role).order_by(RoleAssignmentORM.user_id)
+        import service_account
+        ids = s.query(RoleAssignmentORM.user_id).filter_by(scope_kind="site", role=role).filter(
+            service_account.visible(RoleAssignmentORM.user_id)).order_by(RoleAssignmentORM.user_id)
         return Page(items=[asdict(db._get_user_ref(s, uid)) for (uid,) in ids])
 
 
@@ -1148,7 +1150,8 @@ def set_grant(user_id, role, granted, actor):
     """Only an active account is granted; revoking always works; a repeat changes nothing."""
     with db._session() as s:
         u = s.get(UserORM, user_id)
-        if not u or (granted and u.account_state != "active"):
+        # The service account holds every right already and is never a grantee.
+        if not u or u.is_service or (granted and u.account_state != "active"):
             fail(404, "Active user not found")
         rows = s.query(RoleAssignmentORM).filter_by(user_id=user_id, scope_kind="site", role=role).all()
         if granted != bool(rows):
@@ -1196,8 +1199,12 @@ def register_routes(router):
     # (auth._access_rules exempts them; get_current_user still refuses archive and ban).
     @router.get("/bot-link/me", response_model=LinkStatus)
     def own_bot_link(cur: User = Depends(get_current_user)):
+        if cur.is_service:  # no VK link, banner or gate (owner, 2026-11-08)
+            return LinkStatus(enabled=False)
         return link_status(cur, utcnow())
 
     @router.post("/bot-link/code", response_model=LinkCode)
     def new_bot_link_code(cur: User = Depends(get_current_user)):
+        if cur.is_service:
+            raise NotFound(DISABLED, "bot_api_disabled")
         return issue_code(cur.user_id, utcnow())

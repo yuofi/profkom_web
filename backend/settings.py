@@ -85,9 +85,33 @@ class Settings(BaseSettings):
         """PUBLIC_SITE_URL, else FRONTEND_URL as main.py reads it; no trailing slash."""
         return (self.PUBLIC_SITE_URL or os.getenv("FRONTEND_URL", "http://localhost:5173").strip()).rstrip("/")
 
+    # The service (root) account for debugging (owner, 2026-11-08; backend/docs/SERVICE_ACCOUNT.md):
+    # its login and the bcrypt hash of its password (scripts/service_password_hash.py). Off while
+    # either is empty; a change takes effect after a restart.
+    ROOT_LOGIN: str = ""
+    ROOT_PASSWORD_HASH: str = ""
+
+    @field_validator("ROOT_LOGIN")
+    @classmethod
+    def _root_login(cls, value):
+        if value and not re.fullmatch(r"[^\s@]{1,64}", value):
+            raise ValueError("ROOT_LOGIN: 1-64 characters without spaces or @")
+        return value
+
+    @field_validator("ROOT_PASSWORD_HASH")
+    @classmethod
+    def _root_password_hash(cls, value):
+        value = value.strip()
+        if value and not re.fullmatch(r"\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}", value):
+            # The value itself is never repeated in the message.
+            raise ValueError("ROOT_PASSWORD_HASH: the bcrypt hash printed by scripts/service_password_hash.py")
+        return value
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",
+        # A refused value (a token hash, a password hash) never reaches the startup error.
+        hide_input_in_errors=True,
     )
     
 settings = Settings()

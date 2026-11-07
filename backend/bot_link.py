@@ -56,8 +56,9 @@ def state_of(link):
 
 
 def required(user, now):
-    """Pending accounts always; active ones from BOT_LINK_DEADLINE."""
-    if not enabled():
+    """Pending accounts always; active ones from BOT_LINK_DEADLINE. Never the service
+    account (owner, 2026-11-08)."""
+    if not enabled() or getattr(user, "is_service", False):
         return False
     if user.account_state == "pending":
         return True
@@ -72,8 +73,9 @@ def blocked(user, now=None):
 
 
 def summary(user, now=None):
-    """`bot_link` of /api/session: {state, required, blocked, deadline}, None while off."""
-    if not enabled():
+    """`bot_link` of /api/session: {state, required, blocked, deadline}, None while off and
+    for the service account, which has no link, banner or gate."""
+    if not enabled() or getattr(user, "is_service", False):
         return None
     now = now or utcnow()
     deadline = settings.BOT_LINK_DEADLINE

@@ -70,7 +70,8 @@ MARKDOWN_COLUMNS = {("reports", "content_json"), ("reports", "draft_content_json
 CORE_TABLES = set("users contact_info guides block pgas_entries refresh_tokens external_identities leadership role_assignments seasons report_series events subevents meetings notifications season_corrections tasks task_queues task_queue_requests task_queue_members task_tracker task_checklist task_links task_favorites task_roster task_activity task_submissions assignments submissions task_comments file_records merits contributions master_bonuses season_summaries season_decisions reports report_versions report_editors audit_logs registration_applications participation_intervals block_metadata memberships block_applications category_revisions domain_migrations scope_tenures summary_versions materials profile_metadata former_contacts account_archives object_deletions event_workspace_metadata season_coefficients kkr_control_epics task_mention_requests task_access_grants".split())
 # Callback modules own their exact typed identity fields; no guessed JSON identifiers.
 CALLBACKS = (("profile_features_models", "profile_features"), ("support_models", "support"),
-             ("history_models", "history"), ("bot_models", "bot_api"))
+             ("history_models", "history"), ("bot_models", "bot_api"),
+             ("service_account_models", "service_account"))
 # vk_user_id: the VK of the bot link in the account's own audit entries (BOT_API.md, stage 2).
 PRIVATE_FIELDS = {"surname", "name", "patronymic", "kkr_name", "group_number", "location", "residence", "phone", "email", "tg", "vk", "photo_url", "vk_user_id"}
 
