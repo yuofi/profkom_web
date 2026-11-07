@@ -261,6 +261,8 @@
     `/pgas`, `/contacts`) отвечают, как на любую свою ошибку, строкой в `detail`:
     `VK link through the bot required`.
   - Без `BOT_LINK_DEADLINE` действующие аккаунты не ограничиваются.
+  - Сервисный аккаунт привязки не имеет и не ограничивается: `bot_link` — `null`,
+    уведомлений в VK он не получает ([SERVICE_ACCOUNT](SERVICE_ACCOUNT.md)).
 
 ### Настройки сайта
 

@@ -12,6 +12,7 @@
 | Аналитика, коэффициенты и сохранённые итоги | [SEASON_ANALYTICS](SEASON_ANALYTICS.md) |
 | Профиль, достижения, шаблоны и внешние уведомления | [PROFILE_FEATURES](PROFILE_FEATURES.md) |
 | Связь с ботом HereBot: очередь работы, отчёты, консоль | [BOT_API](BOT_API.md) |
+| Сервисный аккаунт: вход по логину, права, невидимость, уведомления о входе | [SERVICE_ACCOUNT](SERVICE_ACCOUNT.md) |
 | История и скрытие текстов версий | [HISTORY](HISTORY.md) |
 | Аватары блоков | [BLOCK_AVATARS](BLOCK_AVATARS.md) |
 | Проекции чтения и производительность | [READ_PROJECTIONS](READ_PROJECTIONS.md) |
