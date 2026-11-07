@@ -138,6 +138,22 @@ semantics, foreign-file refusal, private drafts and history metadata. Files do n
 become instruction attachments. Failed saves retain the draft; upload blocks submit.
 Current comments and the task attachment tab share the same comments query.
 
+Whoever may comment (`tracker.can_comment`: every current reader, closed seasons and
+control epics included) may also tick a comment's checklist and delete a comment
+(owner 2026-11-08, V4/V5; `task_comments.py`). `POST /comments/{id}/checklist` takes
+`expected_body`, a UTF-16 `offset` and a strict `checked`: another current body is 409
+`comment_changed` unless it is exactly this mark (a lost-answer repeat), a non-marker is
+403 `checklist_only`. The comment is not marked edited and gets no version snapshot; the
+activity `comment_checklist_toggled` («Отмечен пункт «…» в комментарии») carries the
+`comment` before/after. `DELETE /comments/{id}` (204, repeatable) soft-deletes with
+`deleted_at`/`deleted_by_user_id`: no placeholder, the comment leaves the list and the
+attachment tab, its files leave the task, its pending mention requests become
+`cancelled`; access already granted by an approved mention stays. Earlier entries keep
+their visibility and `comment_deleted` («Комментарий удалён») names who deleted it, with
+the last text as `before`. Editing, marking or re-creating (GL-07 key) a deleted comment
+is 404 `comment_deleted`. Notifications already sent still open the task. The UI puts
+«Редактировать» and «Удалить» in the comment's «⋯» menu; deletion asks once more.
+
 ## Files, hierarchy and history
 
 Instruction attachment drafts use task-owned contexts and public-editor rights.
@@ -165,7 +181,7 @@ GET paths do not seed accounting controls, calculate scores or repair hidden tas
 
 Focused tests include `test_tracker_reader_policy.py`, `test_tracker_iteration.py`,
 `test_tracker_control_guards.py`, `test_comment_mentions.py`,
-`test_comment_attachments.py`, `test_tracker_queues.py`, `test_kkr_iteration.py`,
+`test_comment_attachments.py`, `test_comment_commands.py`, `test_tracker_queues.py`, `test_kkr_iteration.py`,
 file/history/migration regressions. Fixtures
 and services are synthetic; current test names and precise commands are listed in
 [TESTING](../TESTING.md).

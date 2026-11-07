@@ -22,12 +22,17 @@ within current task access. Old comment-history snapshots contain only FileRef
 metadata and never authorize old bytes. Task membership/grant revocation also
 revokes file access immediately.
 
+Deleting a comment (TRACKER_WORKFLOW.md) withdraws its files from the task for
+everyone, its uploader included: no read, download or new binding, unless a live
+comment still binds the same file. The records and stored bytes are kept.
+
 Comment history records previous content and attachment metadata; task activity
 contains an attachment diff, including attachment-only edits. Invalid later file
 or mention validation rolls the entire HTTP command back. Existing SQLite comments
-receive an additive `files_json` column defaulting to `[]`; old text/history, IDs,
-indexes and triggers are retained. Account-retention explicitly reviews this new
-JSON column.
+receive an additive `files_json` column defaulting to `[]`, and additive nullable
+`deleted_at`/`deleted_by_user_id`; old text/history, IDs, indexes and triggers are
+retained. Account-retention explicitly reviews the JSON column and clears a purged
+deleter.
 
 Focused regression: `tests/test_comment_attachments.py`, together with contextual
 file delivery/integrity, retention and tracker/history tests. All tests use
