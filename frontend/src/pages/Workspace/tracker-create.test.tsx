@@ -125,3 +125,17 @@ it("returns an event draft to its event and names each parameter once", async ()
   const file = page.container.querySelector<HTMLInputElement>('input[type="file"]')!;
   expect(file.closest("label")?.textContent).toContain("Прикрепить файлы");
 });
+it("names each queue's team in the select and refuses a queue whose event season is closed (owner 2026-11-08, В8)", async () => {
+  mock = installMockTransport("chair", { delay: 0 });mock.state.seasons.find(season => season.season_id === "season-1")!.state = "closed";
+  const create = vi.spyOn(tasksApi, "create");
+  page = await mountWorkspace(<Routes><Route path="/tasks/new" element={<TrackerTaskCreatePage />} /></Routes>, { path: "/tasks/new?queue_id=queue-tasks" });
+  await waitForPage(page, () => !!page!.container.querySelector("#task-queue-notice"));
+  const form = page.container.querySelector("form")!, select = field(form, "queue") as HTMLSelectElement;
+  expect([...select.options].find(option => option.value === "queue-tasks")?.textContent).toBe("TASK · Задачи встречи · Лекции и встречи");
+  expect([...select.options].find(option => option.value === `queue-${mock!.state.blocks[0].block_id}`)?.textContent).toBe(`INFO · ${mock.state.blocks[0].name} · ${mock.state.blocks[0].name}`);
+  const notice = "Сезон «Осень и зима 2026» закрыт — новые задачи в этой очереди создать нельзя.";
+  expect(page.container.querySelector("#task-queue-notice")?.textContent).toBe(notice);expect(select.getAttribute("aria-describedby")).toBe("task-queue-notice");
+  await change(field(page.container, "title"), "Задача в закрытом сезоне");await submit(form);await waitForPage(page);
+  expect(create).not.toHaveBeenCalled();expect(page.container.querySelector('[role="alert"]')?.textContent).toContain(notice);
+  await change(select, `queue-${mock.state.blocks[0].block_id}`);await waitForPage(page, () => !page!.container.querySelector("#task-queue-notice"));expect(select.hasAttribute("aria-describedby")).toBe(false);
+});

@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams, useNavigate, useSearchParams } from "react-router-dom";
 import type { EntityOption } from "../../components/Workspace/EntityPicker";
 import { UserChip } from "../../components/Workspace/UserChip";
+import { TeamChip } from "../../components/Workspace/TeamChip";
 import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
 import { directoryApi } from "../../utils/api/directory.api";
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
@@ -22,6 +23,8 @@ import { displayDate } from "../../utils/dates";
 import { TrackerListPage } from "./TrackerList";
 import { trackerTaskRead } from "./trackerTaskRead";
 import { prefetchRead } from "../../utils/routePrefetch";
+import { queueCreationNotice } from "./queuePlace";
+import { QueueSeasonChip } from "./QueueSeasonChip";
 import w from "../../components/Workspace/Workspace.module.css";
 import s from "./TaskQueuePages.module.css";
 
@@ -46,9 +49,9 @@ export function TaskQueuesPage() {
     <BrandedHeader className={s.header}><div><TrackerHomeLink /><h1 className={w.title}>Очереди</h1><p className={w.description}>Общие и закрытые очереди задач.</p></div><div className={s.headerActions}><RouteLink to="/tasks">Все задачи</RouteLink>{catalog.data?.can_create_queue && <button className={`${w.button} ${w.primary}`} onClick={() => setCreating(true)}>Создать очередь</button>}</div></BrandedHeader>
     <div className={s.filters}><label className={w.field}>Поиск очередей<input type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Название или ключ" /></label><label className={w.field}>Доступ<select value={access} onChange={e => setAccess(e.target.value)}><option value="granted">Доступные мне</option><option value="all">Все очереди</option><option value="locked">Закрытые для меня</option></select></label></div>
     <QueryState loading={catalog.isLoading} error={catalog.error} keepDataOnError={!!catalog.data} retry={() => void catalog.refetch()}>
-      <div className={s.tableWrap}><table className={s.table} aria-label="Список очередей"><thead><tr><th scope="col">Имя очереди</th><th scope="col">Ключ очереди</th><th scope="col">Владелец очереди</th></tr></thead><tbody>{items.map(queue => <tr key={queue.queue_id} {...(closed(queue) ? {} : { tabIndex: 0, onClick: (event: MouseEvent<HTMLTableRowElement>) => open(event, queue), onAuxClick: (event: MouseEvent<HTMLTableRowElement>) => open(event, queue), onKeyDown: (event: KeyboardEvent<HTMLTableRowElement>) => keyboard(event, queue), "aria-label": `Открыть очередь ${queue.name}` })}>
+      <div className={s.tableWrap}><table className={s.table} aria-label="Список очередей"><thead><tr><th scope="col">Имя очереди</th><th scope="col">Ключ очереди</th><th scope="col">Команда и сезон</th><th scope="col">Владелец очереди</th></tr></thead><tbody>{items.map(queue => <tr key={queue.queue_id} {...(closed(queue) ? {} : { tabIndex: 0, onClick: (event: MouseEvent<HTMLTableRowElement>) => open(event, queue), onAuxClick: (event: MouseEvent<HTMLTableRowElement>) => open(event, queue), onKeyDown: (event: KeyboardEvent<HTMLTableRowElement>) => keyboard(event, queue), "aria-label": `Открыть очередь ${queue.name}` })}>
         <td>{closed(queue) ? <span className={s.queueName}>{queue.name}</span> : <Link to={getTaskQueueRoute(queue.queue_id)} className={s.queueName}>{queue.name}</Link>}{queue.access === "locked" && <span className={s.tableBadge}><LockIcon />Нет доступа</span>}{queue.access === "granted" && queue.is_private && <span className={s.tableBadge}>Закрытая очередь</span>}</td>
-        <td className={s.key}>{queue.key}</td><td>{queue.access === "granted" && queue.owner ? <span><UserChip user={queue.owner} />{queue.owner_unavailable && <small className={w.muted}> · Ожидает передачи</small>}</span> : <span className={w.muted}>{queue.access === "locked" ? "Скрыт" : "Не назначен"}</span>}</td>
+        <td className={s.key}>{queue.key}</td><td>{queue.access === "granted" ? <QueuePlace queue={queue} /> : <span className={w.muted}>Скрыта</span>}</td><td>{queue.access === "granted" && queue.owner ? <span><UserChip user={queue.owner} />{queue.owner_unavailable && <small className={w.muted}> · Ожидает передачи</small>}</span> : <span className={w.muted}>{queue.access === "locked" ? "Скрыт" : "Не назначен"}</span>}</td>
       </tr>)}</tbody></table></div>
       {!items.length && <Empty>{access === "granted" && !search.trim() ? "Доступных вам очередей пока нет. Выберите «Все очереди», чтобы запросить доступ." : "Очереди не найдены."}</Empty>}
       {creating && catalog.data && <UnsavedChangesScope><TrackerTaskDialog title="Создать очередь" onClose={() => setCreating(false)}><QueueCreateForm catalog={catalog.data} /></TrackerTaskDialog></UnsavedChangesScope>}
@@ -73,9 +76,17 @@ export function TaskQueuePage() {
   if (error?.status === 404) return <section className={s.page}><TrackerHomeLink /><Empty>Очередь не найдена.</Empty><div><RouteLink to={getTaskQueuesRoute()}>К очередям</RouteLink></div></section>;
   return <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!query.data} retry={() => void query.refetch()}>{query.data?.access === "granted" && <>{query.data.key === "WEBSUPPORT" && <RouteLink to="/support">Обращения и настройки поддержки</RouteLink>}<TrackerListPage key={id} queue={query.data} header={<QueueHeader queue={query.data} />} /></>}</QueryState>;
 }
+/** The queue's team and, for an event or subevent queue, its season (owner 2026-11-08, В8). */
+function QueuePlace({ queue }: { queue: TaskQueue }) {
+  const team = queue.scope && queue.scope_title ? <TeamChip scope={queue.scope} title={queue.scope_title} />
+    : queue.scope ? queue.scope_title === null && <span className={w.muted}>Команда недоступна</span> : <span className={w.muted}>Без команды</span>;
+  return <span className={s.place}>{team}{queue.season && <QueueSeasonChip season={queue.season} />}</span>;
+}
 function LockIcon() { return <svg aria-hidden="true" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="5" y="10" width="14" height="11" rx="2" /><path d="M8 10V6a4 4 0 0 1 8 0v4" /><path d="M12 14v3" /></svg>; }
 function QueueHeader({ queue }: { queue: TaskQueue }) {
-  return <><BrandedHeader className={s.header}><div><TrackerHomeLink /><nav className={s.breadcrumbs} aria-label="Навигация очереди"><Link to={getTaskQueuesRoute()}>Очереди</Link><span aria-hidden="true">›</span><span>{queue.name}</span></nav><h1 className={w.title}>{queue.name}</h1><p><span className={s.key}>{queue.key}</span> · {queue.is_private ? "Закрытая очередь" : queue.scope ? "Для участников команды" : "Для всех активных пользователей"}</p>{queue.owner && <Owner user={queue.owner} />}</div><RouteLink to="/tasks">Все задачи</RouteLink></BrandedHeader>{queue.owner_unavailable && <p role="status" className={w.warning}>Владелец очереди недоступен. Передача владения ожидает доступного руководителя.</p>}{can(queue, "manage_queue") && <details className={s.manage}><summary>Настройки очереди и доступ</summary><div className={s.manageBody}><QueueEditor queue={queue} /><QueueRequests queue={queue} /></div></details>}</>;
+  const notice = can(queue, "create_task") ? queueCreationNotice(queue) : null;
+  return <><BrandedHeader className={s.header}><div><TrackerHomeLink /><nav className={s.breadcrumbs} aria-label="Навигация очереди"><Link to={getTaskQueuesRoute()}>Очереди</Link><span aria-hidden="true">›</span><span>{queue.name}</span></nav><h1 className={w.title}>{queue.name}</h1><p><span className={s.key}>{queue.key}</span> · {queue.is_private ? "Закрытая очередь" : queue.scope ? "Для участников команды" : "Для всех активных пользователей"}</p>
+    <div className={s.facts}>{queue.scope && queue.scope_title !== undefined && <div className={s.owner}><small>Команда</small>{queue.scope_title ? <TeamChip scope={queue.scope} title={queue.scope_title} /> : <span>Команда недоступна</span>}</div>}{queue.season && <div className={s.owner}><small>Сезон</small><QueueSeasonChip season={queue.season} /></div>}{queue.owner && <Owner user={queue.owner} />}</div></div><RouteLink to="/tasks">Все задачи</RouteLink></BrandedHeader>{queue.owner_unavailable && <p role="status" className={w.warning}>Владелец очереди недоступен. Передача владения ожидает доступного руководителя.</p>}{notice && <p role="status" className={w.warning}>{notice}</p>}{can(queue, "manage_queue") && <details className={s.manage}><summary>Настройки очереди и доступ</summary><div className={s.manageBody}><QueueEditor queue={queue} /><QueueRequests queue={queue} /></div></details>}</>;
 }
 function Owner({ user }: { user: UserRef }) {
   return <div className={s.owner}><small>Владелец очереди</small><UserChip user={user} /></div>;

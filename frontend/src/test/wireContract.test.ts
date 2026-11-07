@@ -262,3 +262,21 @@ it("keeps the demo console on the wire contract: status, history, an open comman
     expect(wireIssues("BotConsoleStatus", await botConsoleApi.status())).toEqual([]);
   } finally { mock.restore(); }
 });
+
+it("keeps the demo queues' team, season and creation hint on the wire contract, granted and locked (owner 2026-11-08, В8)", async () => {
+  const { installMockTransport } = await import("../mocks/transport");
+  const { taskQueuesApi } = await import("../utils/api/taskQueues.api");
+  const mock = installMockTransport("leader", { delay: 0 });
+  try {
+    mock.state.queues[1].is_private = true;mock.state.queues[1].owner = mock.state.people[3];
+    const catalog = await taskQueuesApi.catalog();
+    expect(wireIssues("TaskQueueCatalog", catalog)).toEqual([]);
+    const granted = catalog.items.find(queue => queue.queue_id === "queue-tasks")!, locked = catalog.items.find(queue => queue.access === "locked")!;
+    expect(granted).toMatchObject({ scope_title: "Лекции и встречи", season: { season_id: "season-1", state: "open" }, task_creation: { available: true, reason: null } });
+    expect(locked).toBeDefined();for (const key of ["scope_title", "season", "task_creation"]) expect(locked).not.toHaveProperty(key);
+    expect(wireIssues("TaskQueue", await taskQueuesApi.get("queue-tasks"))).toEqual([]);
+    expect(wireIssues("TaskQueueCreation", { available: false, reason: "season_closed" })).toEqual([]);
+    expect(wireIssues("TaskQueueCreation", { available: false, reason: "season_frozen" })).not.toEqual([]);
+    expect(wireIssues("TaskQueueSeason", { season_id: "s", title: "Сезон", state: "summarizing", starts_at: "2026-10-01" })).toContain("TaskQueueSeason.starts_at: unexpected field");
+  } finally { mock.restore(); }
+});

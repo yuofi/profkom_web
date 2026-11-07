@@ -27,6 +27,7 @@ import { taskTypeNames, taskPriorityNames } from "./trackerPlanning";
 import { trackerTaskRead } from "./trackerTaskRead";
 import { UserChip } from "../../components/Workspace/UserChip";
 import { publicStatusNames as statusNames } from "./trackerStatus";
+import { queueTakesTasks } from "./queuePlace";
 import w from "../../components/Workspace/Workspace.module.css";
 import s from "./TrackerList.module.css";
 
@@ -179,7 +180,7 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
     </BrandedHeader>}
     <div className={s.topbar}>
       <label className={s.search}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg><input type="search" aria-label="Поиск задач" placeholder="Название или ключ" value={filters.q} onChange={(event) => update("q", event.target.value, true)} /></label>
-      {(queue ? can(queue, "create_task") : canCreateInScope || ((!createAccess.error || canRetainData(createAccess.error)) && createAccess.data?.can_create_task === true)) && <Link className={w.linkButton} to={getTaskCreateRoute({ queueId: queue?.queue_id, ...(scope ? { scope } : {}) })} title="Создать задачу"><Glyph name="add" /><span className={s.toolLabel}>Создать задачу</span></Link>}
+      {(queue ? can(queue, "create_task") && queueTakesTasks(queue) : canCreateInScope || ((!createAccess.error || canRetainData(createAccess.error)) && createAccess.data?.can_create_task === true)) && <Link className={w.linkButton} to={getTaskCreateRoute({ queueId: queue?.queue_id, ...(scope ? { scope } : {}) })} title="Создать задачу"><Glyph name="add" /><span className={s.toolLabel}>Создать задачу</span></Link>}
       <div className={s.views} aria-label="Представление задач">
         {([["list", "Список"], ["calendar", "Календарь"], ["gantt", "Гантт"]] as const).map(([key, label]) => <button key={key} type="button" aria-pressed={view === key} onClick={() => update("view", key === "list" ? "" : key)}>{label}</button>)}
       </div>

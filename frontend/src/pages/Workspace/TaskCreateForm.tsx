@@ -27,6 +27,7 @@ import { getTaskRoute, getTaskQueueRoute, getTaskQueuesRoute, getBlockRoute, get
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { requestKey, type RequestKey } from "../../utils/clientId";
 import { TrackerParentSelector } from "./TrackerParentSelector";
+import { queueCreationNotice, queueOptionLabel } from "./queuePlace";
 import w from "../../components/Workspace/Workspace.module.css";
 import s from "./TaskCreateForm.module.css";
 
@@ -87,6 +88,8 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId, fal
   const queueReady = !!selectedQueue && queueDetails.data?.queue_id === selectedQueue.queue_id && queueDetails.data.access === "granted" && can(queueDetails.data, "create_task") && !queueDetails.error;
   const queuePending = !!selectedQueue && queueDetails.isFetching;
   const creationScope = queue?.scope ?? fallback?.scope;
+  // The server's own rule for the selected queue (owner 2026-11-08, В8): a closed or summarizing season takes no task.
+  const creationNotice = queue ? queueCreationNotice(queue) : null;
   const previousSeason = useRef(""), sent = useRef<RequestKey["current"]>(null);
   const context = useQuery({ queryKey: ["tasks", "create-queue-season", queue?.scope?.kind, queue?.scope?.id], enabled: (creationScope?.kind === "subevent" || creationScope?.kind === "event") && !fallback, queryFn: async () => {
     if(queue!.scope!.kind==="event")return (await eventsApi.get(queue!.scope!.id)).season_id;
@@ -120,6 +123,7 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId, fal
         setAttempted(true);
         if (!queue && !fallback) throw Error("Выберите доступную очередь");
         if (selectedQueue && (!queueReady || queuePending)) throw Error("Дождитесь проверки доступа к выбранной очереди");
+        if (creationNotice) throw Error(creationNotice);
         if (!title.trim()) throw Error("Введите название задачи");
         const deadlineAt = deadline ? toUtc(deadline) : null, planned = planningPayload(planning);
         if (planned.starts_at && deadlineAt && Date.parse(planned.starts_at) > Date.parse(deadlineAt)) throw Error("Плановое начало не может быть позже дедлайна");
@@ -151,7 +155,7 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId, fal
         </section>
         <aside className={s.parameters} aria-label="Параметры новой задачи"><h2>Параметры</h2>
           <TaskPlanningFields value={planning} onChange={setPlanning} disabled={saving} deadline={deadline ? toUtc(deadline) : undefined} />
-          {queue ? <label className={`${w.field} ${s.field}`}>Очередь<select name="queue" value={queue?.queue_id ?? queueId} disabled={saving} onChange={event => { setQueueId(event.target.value);setAssignees([]); }}>{queues.map(item => <option key={item.queue_id} value={item.queue_id}>{item.key} · {item.name}</option>)}</select></label> : <div className={s.field}><span>Очередь</span><strong>Очередь команды по умолчанию</strong><small className={w.muted}>Задача появится в очереди этой команды.</small></div>}
+          {queue ? <><label className={`${w.field} ${s.field}`}>Очередь<select name="queue" value={queue?.queue_id ?? queueId} disabled={saving} aria-describedby={creationNotice ? "task-queue-notice" : undefined} onChange={event => { setQueueId(event.target.value);setAssignees([]); }}>{queues.map(item => <option key={item.queue_id} value={item.queue_id}>{queueOptionLabel(item)}</option>)}</select></label>{creationNotice && <p id="task-queue-notice" role="status" className={w.warning}>{creationNotice}</p>}</> : <div className={s.field}><span>Очередь</span><strong>Очередь команды по умолчанию</strong><small className={w.muted}>Задача появится в очереди этой команды.</small></div>}
           {eventScope ? <div className={s.field}><span>Сезон</span><span className={s.fixedValue}><Glyph name="calendar_month" />{!fallback && context.isLoading ? "Загрузка…" : seasons.find(item => item.season_id === seasonId)?.title ?? "Не определён"}</span><small className={w.muted}>Определяется мероприятием.</small>{context.error && <QueryState loading={false} error={context.error}>{null}</QueryState>}</div> : <label className={`${w.field} ${s.field}`}>Сезон<select name="season" value={season} onChange={event => setSeason(event.target.value)} disabled={saving} required>{seasons.filter(item => creationScope?.kind === "block" ? item.state === "open" : ["open", "planned"].includes(item.state)).map(item => <option key={item.season_id} value={item.season_id}>{item.title}</option>)}</select></label>}
           <label className={`${w.field} ${s.field}`}>Дедлайн, МСК<input name="deadline" type="datetime-local" value={deadline} min={seasonEnded ? undefined : moscowInput(new Date().toISOString())} max={seasonEnd ? moscowInput(seasonEnd) : undefined} aria-invalid={!!deadlineError || undefined} aria-describedby={deadlineError ? "task-deadline-error" : undefined} onChange={event => { setDeadline(event.target.value);setDeadlineError(""); }}  disabled={saving} />{deadlineError ? <small id="task-deadline-error" className={w.fieldError}>{deadlineError}</small> : seasonEnded && <small className={w.muted}>Сезон закончился {displayDate(seasonEnd)}, МСК: дедлайн в нём поставить нельзя.</small>}</label>
           <section className={s.people}><h3 id={assigneesLabel}>Исполнители</h3>{selectedQueue ? <QueryState loading={queuePending} error={queueDetails.error} retry={() => void queueDetails.refetch()}>{queueReady ? <PeopleChoices people={queue?.scope && can(queue, "assign_task_others") ? queue.assignable_users ?? [] : [self]} value={assignees} onChange={chooseAssignees} name="users" labelledBy={assigneesLabel} disabled={saving} /> : !queueDetails.error && !queuePending ? <Empty>Создание задачи в этой очереди недоступно.</Empty> : null}</QueryState> : fallback?.canAssignOthers ? <LegacyScopedAssignees scope={fallback.scope} value={assignees} onChange={chooseAssignees} labelledBy={assigneesLabel} disabled={saving} /> : <PeopleChoices people={[self]} value={assignees} onChange={chooseAssignees} name="users" labelledBy={assigneesLabel} disabled={saving} />}</section>

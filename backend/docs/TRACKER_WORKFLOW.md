@@ -106,8 +106,18 @@ ordinary team membership, and never grants private accounting/report authority.
 Chair/deputies and actual HR master/deputy read ordinary queues globally. The
 WEBSUPPORT queue and managed KKR controls have stricter dedicated gates.
 
+A queue has no season of its own (owner 2026-11-08, В8). A granted queue DTO (item and
+catalogue) carries its place: `scope_title` (the team), `season` `{season_id,title,state}`
+for event/subevent queues (the event's season) and a `task_creation` hint
+`{available,reason}` that repeats the `POST /tasks` rule: event/subevent while the event
+season is planned or open (`season_summarizing`, `season_closed`), block/chair while a
+season is open (`no_open_season`), legacy unscoped while one is planned or open
+(`no_season`), `team_missing` for a vanished scope. KKR and WEBSUPPORT get `null`. The
+hint is advice for the UI; `POST /tasks` still decides. The catalogue loads all places
+of a page in a fixed handful of queries.
+
 A locked catalogue entry exposes only safe ID/name/key and the viewer's own request
-state, not scope/owner/people/tasks/counts. Requests can be cancelled; the owner
+state, not scope/team/season/owner/people/tasks/counts. Requests can be cancelled; the owner
 approves/rejects or revokes. Replaying an old approval cannot restore a revoked grant.
 Session `access_revision` includes current role, ownership, privacy and grants.
 Ownership recovery is described in [QUEUE_OWNERSHIP](QUEUE_OWNERSHIP.md); GET never

@@ -20,6 +20,7 @@ import {
   type TaskQueue,
   type TaskQueueCatalog,
   type TaskQueueAccessRequest,
+  type TaskQueueCreation,
   type TaskChecklistItem,
   type TaskLinkKind,
   type TrackerTaskRef,
@@ -357,11 +358,25 @@ export function installMockTransport(
   };
   const readsQueue = (queue: TaskQueue) => trackerAdmin || queue.owner?.user_id === state.session.user_id || queueRequests.some(r => r.queue_id === queue.queue_id && r.user.user_id === state.session.user_id && r.status === "approved") || (!queue.scope || readsScopeTask({ scope: queue.scope } as Task)) && !queue.is_private;
   const readsTask = (task: Task) => !!taskGrants.get(task.task_id)?.has(state.session.user_id) || (task.queue && state.queues.some(q => q.queue_id === task.queue!.queue_id) ? readsQueue(state.queues.find(q => q.queue_id === task.queue!.queue_id)!) : trackerAdmin || readsScopeTask(task));
+  /** The queue's team, its event season and the creation rule of POST /tasks (owner 2026-11-08, В8). */
+  const queuePlace = (queue: TaskQueue): Pick<TaskQueue, "scope_title" | "season" | "task_creation"> => {
+    const states = new Set(state.seasons.map(season => season.state)), creation = (reason: TaskQueueCreation["reason"]): TaskQueueCreation => ({ available: reason === null, reason });
+    const service = queue.key === "KKR" || queue.key === "WEBSUPPORT", scope = queue.scope;
+    const place = (scope_title: string | null, season: TaskQueue["season"], reason: TaskQueueCreation["reason"]) => ({ scope_title, season, task_creation: service ? null : creation(reason) });
+    if (!scope) return place(null, null, states.has("planned") || states.has("open") ? null : "no_season");
+    if (scope.kind === "chair") return place("Работа председателя", null, states.has("open") ? null : "no_open_season");
+    if (scope.kind === "block") { const block = state.blocks.find(item => item.block_id === scope.id);return place(block?.name ?? null, null, !block ? "team_missing" : states.has("open") ? null : "no_open_season"); }
+    const sub = scope.kind === "subevent" ? state.subevents.find(item => item.subevent_id === scope.id) : undefined;
+    const event = state.events.find(item => item.event_id === (scope.kind === "event" ? scope.id : sub?.event_id)), season = state.seasons.find(item => item.season_id === event?.season_id);
+    const title = scope.kind === "event" ? event?.title : sub?.title;
+    if (!title || !season) return place(title ?? null, null, "team_missing");
+    return place(title, { season_id: season.season_id, title: season.title, state: season.state }, season.state === "summarizing" ? "season_summarizing" : season.state === "closed" ? "season_closed" : null);
+  };
   const visibleQueue = (queue: TaskQueue, includeAssignable = true): TaskQueue => {
     const own = queueRequests.filter(r => r.queue_id === queue.queue_id && r.user.user_id === state.session.user_id).at(-1);
     const access_request_status = own?.status === "revoked" ? null : own?.status ?? null;
     if (!readsQueue(queue)) return { queue_id: queue.queue_id, name: queue.name, key: queue.key, access: "locked", capabilities: access_request_status === "pending" ? ["cancel_queue_access_request"] : [], can_request_access: access_request_status !== "pending", access_request_status, access_request_id: own?.request_id ?? null, access_request_revision: own?.revision ?? null };
-    const result: TaskQueue = { ...clone(queue), access: "granted", can_request_access: false, access_request_status, capabilities: [...new Set([...queue.capabilities, "create_task"])], ...(state.manager && queue.scope ? { assignable_users: clone(state.people), capabilities: [...new Set([...queue.capabilities, "create_task", "assign_task_others"])] } : {}) };
+    const result: TaskQueue = { ...clone(queue), access: "granted", can_request_access: false, access_request_status, capabilities: [...new Set([...queue.capabilities, "create_task"])], ...(state.manager && queue.scope ? { assignable_users: clone(state.people), capabilities: [...new Set([...queue.capabilities, "create_task", "assign_task_others"])] } : {}), ...queuePlace(queue) };
     if (!includeAssignable) delete result.assignable_users;
     return result;
   };
