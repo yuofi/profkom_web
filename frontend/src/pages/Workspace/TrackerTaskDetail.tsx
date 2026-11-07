@@ -153,7 +153,7 @@ function TaskContent({ task, assignmentId, accountingRequested=false, back }: { 
         </div></details>
       </aside>
     </div>
-    {kkrOpen && hasAccounting && <UnsavedChangesScope><TrackerTaskDialog title="Учёт работы и ККР" onClose={()=>setKkrOpen(false)}><UnifiedKkrEditor task={task} onClose={()=>setKkrOpen(false)} /></TrackerTaskDialog></UnsavedChangesScope>}
+    {kkrOpen && hasAccounting && <UnsavedChangesScope><TrackerTaskDialog title="Учёт работы и ККР" onClose={()=>setKkrOpen(false)}><UnifiedKkrEditor task={task} /></TrackerTaskDialog></UnsavedChangesScope>}
     {editor && (editorHold.held || (editor === "description" ? descriptionEditable : editor === "parent" ? can(task, "edit_task") : editor === "planning" ? can(task,"edit_task_metadata") : can(task, "attach_task_file"))) && <UnsavedChangesScope>{editor === "description" ? <DescriptionEditor task={task} onClose={closeEditor} onSend={editorHold.hold} onSaved={savedEditor} /> : editor === "parent" ? <ParentTaskEditor task={task} onClose={closeEditor} onSend={editorHold.hold} onSaved={savedEditor} /> : editor === "planning" ? <TaskPlanningEditor task={task} onClose={closeEditor} onSend={editorHold.hold} onSaved={savedEditor} /> : <TaskFilesEditor task={task} onClose={closeEditor} onSend={editorHold.hold} onSaved={savedEditor} />}</UnsavedChangesScope>}
   </>;
 }

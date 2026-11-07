@@ -11,19 +11,21 @@ import { moscowInput, toUtc } from '../../utils/dates';
 import { criteriaLabels } from '../../utils/kkrCriteria';
 import { ActionForm } from './ActionForm';
 import { text } from './formValues';
-import { useUnsavedChanges, useGuardedAction } from './unsavedChangesHooks';
+import { useUnsavedChanges } from './unsavedChangesHooks';
 import { UserChip } from './UserChip';
 import { QueryState, Empty } from './WorkspaceUI';
 import s from './AssessmentPanel.module.css';
 import w from './Workspace.module.css';
 
-export function UnifiedKkrEditor({task,onClose}: {task:Task; onClose?:()=>void}) {
+/** The KKR window's form. It has no close button of its own: ✕, Escape and the backdrop of the
+ *  window close it through the unsaved-changes guard (A3, owner 2026-11-08). */
+export function UnifiedKkrEditor({task}: {task:Task}) {
   const query=useQuery({queryKey:['accounting-batch',task.task_id],queryFn:()=>kkrApi.batch(task.task_id),enabled:can(task,'view_assessment_inputs')});
   if (!can(task,'view_assessment_inputs')) return <Empty>Учёт ККР доступен уполномоченным руководителям.</Empty>;
-  return <QueryState loading={query.isLoading} error={query.error} retry={()=>void query.refetch()}>{query.data&&<BatchEditor taskId={task.task_id} saved={query.data} onClose={onClose}/>}</QueryState>;
+  return <QueryState loading={query.isLoading} error={query.error} retry={()=>void query.refetch()}>{query.data&&<BatchEditor taskId={task.task_id} saved={query.data}/>}</QueryState>;
 }
-function BatchEditor({taskId,saved,onClose}:{taskId:string;saved:AccountingBatch;onClose?:()=>void}) {
-  const leave=useGuardedAction();const client=useQueryClient();const [template,setTemplate]=useState<TemplateSelection|null>(null);const templates=useQuery({queryKey:['kkrTemplates'],queryFn:profileFeaturesApi.templates,enabled:can(saved,'edit_assessment_inputs')});const [draft,setDraft]=useState(saved),[baseline,setBaseline]=useState(saved),[reason,setReason]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false);
+function BatchEditor({taskId,saved}:{taskId:string;saved:AccountingBatch}) {
+  const client=useQueryClient();const [template,setTemplate]=useState<TemplateSelection|null>(null);const templates=useQuery({queryKey:['kkrTemplates'],queryFn:profileFeaturesApi.templates,enabled:can(saved,'edit_assessment_inputs')});const [draft,setDraft]=useState(saved),[baseline,setBaseline]=useState(saved),[reason,setReason]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false);
   const editable=can(saved,'edit_assessment_inputs');const dirty=JSON.stringify(draft)!==JSON.stringify(baseline)||!!reason||!!template;
   const stale=saved.revision!==baseline.revision||saved.public_revision!==baseline.public_revision||saved.assignments.some(row=>baseline.assignments.find(old=>old.assignment_id===row.assignment_id)?.revision!==row.revision);
   if(stale&&!dirty&&!busy){setDraft(saved);setBaseline(saved);}
@@ -49,7 +51,7 @@ function BatchEditor({taskId,saved,onClose}:{taskId:string;saved:AccountingBatch
     {saved.season_closed&&editable&&<label>Причина исправления<textarea required value={reason} disabled={busy} onChange={event=>setReason(event.target.value)}/></label>}
     {notice&&<p role="status">{notice}</p>}
     {error&&<p className={w.error} role="alert">{error}</p>}
-    <div className={w.row}>{editable&&<button type="submit" disabled={busy||stale}>{busy?'Сохраняем…':'Сохранить ККР'}</button>}{onClose&&<button type="button" disabled={busy} onClick={()=>leave(onClose)}>Позже</button>}</div>
+    {editable&&<div className={w.row}><button type="submit" disabled={busy||stale}>{busy?'Сохраняем…':'Сохранить ККР'}</button></div>}
   </form>{can(saved,'edit_assessment_dates')&&<AccountingDates taskId={taskId}/>}</section>;
 }
 
