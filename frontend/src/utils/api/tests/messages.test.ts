@@ -79,6 +79,14 @@ describe("userMessage (FIX_PLAN 2.13)", () => {
     expect(userMessage(axiosError(503, { detail: "VK ID is unavailable" }))).toBe(ERROR_TEXTS.unavailable);
   });
 
+  it("says who sends broadcasts and who names the senders", () => {
+    const send = axiosError(403, { detail: { code: "broadcast_send_forbidden", message: "Broadcast sender rights required", fields: {} } });
+    expect(userMessage(send)).toBe("Отправлять рассылки могут председатель, замы и назначенные отправители. Попросите председателя или зама добавить вас в отправители.");
+    expect(errorDetail(send)).toBe("broadcast_send_forbidden: Broadcast sender rights required");
+    const senders = axiosError(403, { detail: { code: "broadcast_senders_forbidden", message: "Only the chair and deputies manage broadcast senders", fields: {} } });
+    expect(userMessage(senders)).toBe("Назначать отправителей рассылок могут только председатель и замы.");
+  });
+
   it("offers a refresh only when the data changed", () => {
     for (const code of ["conflict", "revision_conflict"])
       expect(isStale(new ApiError("x", 409, code)), code).toBe(true);

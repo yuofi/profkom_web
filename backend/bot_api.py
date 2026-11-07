@@ -1132,9 +1132,10 @@ def online(status, heartbeat, now):
     return parse(status.last_seen_at) >= now - timedelta(seconds=window)
 
 
-def require(uid, action, message):
+def require(uid, action, message, code=None):
+    """403 without the right; `code` gives the client its own text, else `forbidden`."""
     if not access.allowed(uid, action):
-        fail(403, message)
+        fail(403, message, code)
 
 
 def grantees(role):
@@ -1183,13 +1184,13 @@ def register_routes(router):
 
     @router.get("/broadcasts/senders", response_model=Page[UserReference])
     def broadcast_senders(cur: User = Depends(get_current_user)):
-        require(cur.user_id, "broadcast.senders.manage", SENDERS)
+        require(cur.user_id, "broadcast.senders.manage", SENDERS, code="broadcast_senders_forbidden")
         return grantees("broadcaster")
 
     @router.put("/broadcasts/senders/{user_id}", response_model=SenderOut)
     def set_broadcast_sender(user_id: int, payload: Sender, cur: User = Depends(get_current_user)):
         """The chair and deputies decide who else sends broadcasts (owner, 2026-11-04)."""
-        require(cur.user_id, "broadcast.senders.manage", SENDERS)
+        require(cur.user_id, "broadcast.senders.manage", SENDERS, code="broadcast_senders_forbidden")
         return SenderOut(user_id=user_id, sender=set_grant(user_id, "broadcaster", payload.sender, cur.user_id))
 
     # Stage 2: open to every account that is not archived or banned, pending ones included

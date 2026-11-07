@@ -814,7 +814,7 @@ https://profkom.example/tasks/3f2a…
 | `GET /api/bot/console/status` | `bot.console.view` | `{enabled, online, last_seen_at, boot_id, heartbeat, errors}`. `online` — интеграция включена, последний отчёт не старше `max(3 × interval_s, 180)` секунд и последний heartbeat без `stopping: true`. `errors` — до 100 групп, сначала свежие: `{fingerprint, level, logger, where, message, traceback, count, first_at, last_at}` |
 | `GET /api/bot/maintainers` | `bot.console.view` | Сопровождающие бота: `{items: [{user_id, display_name, avatar_url}], next_cursor: null}` |
 | `PUT /api/bot/maintainers/{user_id}` | `bot.maintainers.manage` | `{maintainer: bool}` → `{user_id, maintainer}`. Назначить можно только активный аккаунт, снять — всегда, повтор ничего не меняет. Изменение — в аудит |
-| `GET /api/broadcasts/senders` | `broadcast.senders.manage` | Отправители рассылок, как список сопровождающих |
+| `GET /api/broadcasts/senders` | `broadcast.senders.manage` | Отправители рассылок, как список сопровождающих. Без права здесь и в `PUT` — 403 `broadcast_senders_forbidden` |
 | `PUT /api/broadcasts/senders/{user_id}` | `broadcast.senders.manage` | `{sender: bool}` → `{user_id, sender}`, правила те же |
 
 Capabilities в `/api/session`: `view_bot_console`, `operate_bot`, `manage_bot_maintainers`,
@@ -844,7 +844,8 @@ capabilities. Архив аккаунта их снимает, восстано�
 запрос уже прочитал: SQL не добавляется.
 
 **Этап 4:** рассылки (`backend/broadcasts.py`). Право проверяется первым: без
-`broadcast.send` — 403 `forbidden`, в том числе при выключенной интеграции. При выключенной
+`broadcast.send` — 403 `broadcast_send_forbidden`, в том числе при выключенной интеграции
+(клиент называет, кто отправляет рассылки и к кому обратиться). При выключенной
 интеграции `audience` и создание отвечают 404 `bot_api_disabled`, список, страницы и отмена
 работают.
 

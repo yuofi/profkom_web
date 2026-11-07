@@ -87,6 +87,8 @@ export const ERROR_TEXTS: Record<string, string> = {
   // Broadcasts through the bot (stage 4).
   broadcast_no_recipients: "Рассылку некому отправить: ни у кого не подключён бот ВКонтакте.",
   broadcast_not_sending: "Рассылка уже завершена или отменена.",
+  broadcast_send_forbidden: "Отправлять рассылки могут председатель, замы и назначенные отправители. Попросите председателя или зама добавить вас в отправители.",
+  broadcast_senders_forbidden: "Назначать отправителей рассылок могут только председатель и замы.",
   // The bot console (stage 5).
   bot_offline: "Бот сейчас не на связи: команда до него не дойдёт.",
   bot_command_pending: "Такая команда уже ждёт выполнения.",

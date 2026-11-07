@@ -9,6 +9,9 @@ type Body = Record<string, unknown>;
 const copy = <T,>(value: T): T => structuredClone(value);
 const fail = (status: number, code: string, message: string, fields?: object): Reply => [status, { detail: { code, message, fields } }];
 const PAGE = 20;
+// As the server: a refusal by the right names the broadcasts' own code.
+const notSender = (): Reply => fail(403, "broadcast_send_forbidden", "Broadcast sender rights required");
+const notManager = (): Reply => fail(403, "broadcast_senders_forbidden", "Only the chair and deputies manage broadcast senders");
 const at = (minutesBefore: number) => new Date(Date.parse(mockNow) - minutesBefore * 60_000).toISOString();
 const counts = (total: number, rest: Partial<BroadcastCounts> = {}): BroadcastCounts => {
   const known = { pending: 0, denied: 0, failed: 0, cancelled: 0, expired: 0, ...rest };
@@ -62,7 +65,7 @@ export function broadcastMock(state: Fixtures, enabled: () => boolean, pause: ()
     const parts = path.split("/").filter(Boolean);
     if (parts[0] !== "broadcasts") return undefined;
     if (parts[1] === "senders") {
-      if (!manages()) return fail(403, "forbidden", "Forbidden");
+      if (!manages()) return notManager();
       if (!parts[2] && method === "get")
         return [200, { items: store.senders.map((id) => person(id)), next_cursor: null }];
       if (parts[2] && method === "put") {
@@ -76,12 +79,12 @@ export function broadcastMock(state: Fixtures, enabled: () => boolean, pause: ()
       return fail(405, "method_not_allowed", "Method not allowed");
     }
     if (parts[1] === "audience") {
-      if (!sends()) return fail(403, "forbidden", "Forbidden");
+      if (!sends()) return notSender();
       if (!enabled()) return fail(404, "bot_api_disabled", "Bot integration is disabled");
       return [200, { ...copy(store.audience), paused: pause() }];
     }
     if (!parts[1]) {
-      if (!sends()) return fail(403, "forbidden", "Forbidden");
+      if (!sends()) return notSender();
       if (method === "get") {
         store.items.forEach(advance);
         const sorted = [...store.items].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.broadcast_id.localeCompare(a.broadcast_id));
@@ -119,7 +122,7 @@ export function broadcastMock(state: Fixtures, enabled: () => boolean, pause: ()
       return [200, view(item)];
     }
     if (parts[2] === "cancel" && method === "post") {
-      if (!sends()) return fail(403, "forbidden", "Forbidden");
+      if (!sends()) return notSender();
       if (!item) return fail(404, "not_found", "No such broadcast");
       if (item.state !== "sending") return fail(409, "broadcast_not_sending", "The broadcast is not sending");
       const c = item.counts!;

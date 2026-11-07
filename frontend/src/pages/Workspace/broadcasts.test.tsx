@@ -205,6 +205,30 @@ it("names a refusal readably and keeps the draft", async () => {
   expect(text()).not.toContain("Idempotency");
 });
 
+it("says who sends and who names the senders when the server refuses by the right", async () => {
+  await mount("chair-deputy");
+  vi.spyOn(broadcastsApi, "create").mockRejectedValueOnce(new ApiError("Broadcast sender rights required", 403, "broadcast_send_forbidden"));
+  await compose("Без права");
+  await click(button("Да, отправить"));
+  expect(alertText()).toContain(ERROR_TEXTS.broadcast_send_forbidden);
+  expect(page!.container.querySelector("details code")?.textContent).toBe("broadcast_send_forbidden: Broadcast sender rights required");
+  expect(textarea().value).toBe("Без права");
+  vi.spyOn(broadcastsApi, "setSender").mockRejectedValueOnce(new ApiError("Only the chair and deputies manage broadcast senders", 403, "broadcast_senders_forbidden"));
+  const senders = [...page!.container.querySelectorAll("section")].find((item) => item.querySelector("h2")?.textContent === "Отправители")!;
+  const form = senders.querySelector('[data-field-name="user"]')!.closest("form")!;
+  await pick(form, "user", "101");
+  await submit(form);
+  await waitForPage(page!);
+  expect(form.querySelector('[role="alert"]')?.textContent).toBe(ERROR_TEXTS.broadcast_senders_forbidden);
+  // The demo answers as the server does: a member without the right, a sender who names nobody.
+  mock!.state.session.capabilities = mock!.state.session.capabilities.filter((cap) => cap !== "manage_broadcast_senders");
+  await expect(broadcastsApi.senders()).rejects.toMatchObject({ status: 403, code: "broadcast_senders_forbidden" });
+  mock!.state.session.capabilities = mock!.state.session.capabilities.filter((cap) => cap !== "send_broadcast");
+  for (const call of [broadcastsApi.audience, () => broadcastsApi.list(), () => broadcastsApi.cancel("broadcast-3"),
+    () => broadcastsApi.create({ text: "x", idempotency_key: "00000000-0000-4000-8000-000000000000" })])
+    await expect(call()).rejects.toMatchObject({ status: 403, code: "broadcast_send_forbidden" });
+});
+
 it("shows a short note instead of the form while the integration is off, and the history stays", async () => {
   await mount("chair", { bot: "off" });
   expect(text()).toContain("Связь с ботом ВКонтакте выключена, поэтому новую рассылку сейчас не отправить.");
