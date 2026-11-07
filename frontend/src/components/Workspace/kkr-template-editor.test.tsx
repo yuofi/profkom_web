@@ -27,7 +27,7 @@ it("closes the editor with a status after creating a template instead of a false
   page = await mountWorkspace(<KkrTemplateLibrary embedded />);await waitForPage(page);
   expect(page.container.textContent).toContain("Пока нет доступных шаблонов.");
   await act(async () => button("Создать шаблон ККР").click());await waitForPage(page);
-  // The editor sits above the list with a normal «Закрыть»; the empty state waits for the editor to close.
+  // A new template opens as a card at the top of the list with a normal «Закрыть»; the empty state waits for it to close.
   expect(page.container.querySelector('section[aria-label="Новый шаблон ККР"] button')?.textContent).toBe("Закрыть");
   expect(page.container.textContent).not.toContain("Пока нет доступных шаблонов.");
   expect(page.container.querySelector('[data-entity-picker][data-field-name="visibility"]')).not.toBeNull();
@@ -80,4 +80,62 @@ it("names the author of each template and, once it was changed, who saved it las
   expect(card("Дежурство").textContent).not.toContain("Изменил(а)");
   expect(card("Встреча").textContent).toContain("Изменил(а)");expect(card("Встреча").textContent).toContain("Борис Петров");
   expect(page.container.textContent).not.toMatch(/Создан/);
+});
+
+const values = { title: "Дежурство", description: "Смена у входа", hours: 2, evaluation: 1 as const, criteria: emptyCriteria() };
+const personal = (id: string, title: string, extra: Partial<KkrTemplate> = {}): KkrTemplate => ({ template_id: id, visibility: "personal", scope: null, revision: 1, archived: false, values: { ...values, title }, author, updated_by: author, ...extra });
+const cards = () => [...page!.container.querySelectorAll<HTMLElement>("strong, section h3")].map(node => node.textContent);
+
+it("edits a template inside its own card, focused; a new template and a copy open as a card at the top", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  vi.spyOn(profileFeaturesApi, "templates").mockResolvedValue({ items: [personal("a", "Первый"), personal("b", "Второй"), personal("c", "Третий")] });
+  vi.spyOn(profileFeaturesApi, "context").mockResolvedValue(context);
+  const scroll = vi.fn();Element.prototype.scrollIntoView = scroll;
+  page = await mountWorkspace(<KkrTemplateLibrary embedded />);await waitForPage(page);
+  const card = (title: string) => [...page!.container.querySelectorAll("strong")].find(node => node.textContent === title)!.parentElement!;
+  await act(async () => card("Второй").querySelector<HTMLButtonElement>("button")!.click());await waitForPage(page);
+  // The second card turned into the form; the others keep their places.
+  expect(cards()).toEqual(["Первый", "Изменение шаблона", "Третий"]);
+  const form = page.container.querySelector<HTMLElement>('section[aria-label="Изменение шаблона ККР"]')!;
+  expect(document.activeElement).toBe(form.querySelector('input[name="title"]'));
+  expect((document.activeElement as HTMLInputElement).value).toBe("Второй");
+  expect(scroll).toHaveBeenCalledTimes(1);
+  await act(async () => button("Закрыть").click());await waitForPage(page);
+  await act(async () => [...card("Третий").querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === "Копировать")!.click());await waitForPage(page);
+  expect(cards()).toEqual(["Новый шаблон ККР", "Первый", "Второй", "Третий"]);
+  expect((document.activeElement as HTMLInputElement).value).toBe("Третий · копия");
+  expect(scroll).toHaveBeenCalledTimes(2);
+  Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+});
+
+it("filters the library on the page by words, team and kind; archived templates only on request", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  vi.spyOn(profileFeaturesApi, "templates").mockResolvedValue({ items: [
+    personal("own", "Ёлка во дворе"),
+    personal("team", "Регистрация гостей", { visibility: "team", scope: { kind: "event", id: "event-1", name: "День математика" } }),
+    personal("all", "Общий сбор", { visibility: "team", scope: { kind: "global", id: null, name: "Профком" }, values: { ...values, title: "Общий сбор", description: "Ёмкая работа" } }),
+    personal("old", "Старый шаблон", { archived: true }),
+  ] });
+  vi.spyOn(profileFeaturesApi, "context").mockResolvedValue(context);
+  page = await mountWorkspace(<KkrTemplateLibrary embedded />);await waitForPage(page);
+  const titles = () => [...page!.container.querySelectorAll("strong")].map(node => node.textContent);
+  const filters = page.container.querySelector<HTMLElement>('[role="group"][aria-label="Фильтры шаблонов"]')!;
+  expect(titles()).toEqual(["Ёлка во дворе", "Регистрация гостей", "Общий сбор"]);
+  expect([...filters.querySelectorAll("select")[0].querySelectorAll("option")].map(option => option.textContent)).toEqual(["Все команды", "Весь Профком", "Мероприятие: День математика"]);
+  // «е» finds «ё», in the title and in the description.
+  await change(filters.querySelector<HTMLInputElement>('input[type="search"]')!, "ем");
+  expect(titles()).toEqual(["Общий сбор"]);
+  await change(filters.querySelector<HTMLInputElement>('input[type="search"]')!, "елка");
+  expect(titles()).toEqual(["Ёлка во дворе"]);
+  await change(filters.querySelector<HTMLInputElement>('input[type="search"]')!, "");
+  await change(filters.querySelectorAll("select")[0], "event:event-1");
+  expect(titles()).toEqual(["Регистрация гостей"]);
+  await change(filters.querySelectorAll("select")[0], "");
+  await change(filters.querySelectorAll("select")[1], "personal");
+  expect(titles()).toEqual(["Ёлка во дворе"]);
+  await act(async () => filters.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+  expect(titles()).toEqual(["Ёлка во дворе", "Старый шаблон"]);
+  await change(filters.querySelectorAll("select")[1], "team");
+  await change(filters.querySelector<HTMLInputElement>('input[type="search"]')!, "нет такого");
+  expect(page.container.textContent).toContain("Нет шаблонов по этим условиям.");
 });

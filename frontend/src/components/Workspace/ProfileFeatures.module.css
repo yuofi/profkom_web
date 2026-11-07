@@ -33,6 +33,8 @@
 .preview { width: 80px; height: 80px; object-fit: cover; border-radius: 50%; }
 .templateTools { display: flex; flex-wrap: wrap; gap: 10px; padding-bottom: 14px; border-bottom: 1px solid var(--outline-variant); }
 .library { display: grid; gap: 14px; }
+/* The library's filters take the list's gap, not a page's margin. */
+.library .libraryFilters { margin-bottom: 0; }
 /* A template card's author and last editor: small words before each person's chip. */
 .authorship { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0; font-size: 13px; color: var(--on-surface-variant); }
 @media (max-width: 768px) { .roles { grid-template-columns: minmax(0, 1fr); } }

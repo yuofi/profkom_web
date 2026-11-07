@@ -44,6 +44,13 @@ function LibraryEditor({ templates, context, initialValues }: { templates: KkrTe
   const leave = useGuardedAction(), { perform, refresh } = useWorkspaceActions();
   const template = editing?.template;
   const choose = (next: EditorChoice) => leave(() => { setCreated("");setEditing(next);setGeneration(value => value + 1); });
+  const opened = useRef<HTMLElement>(null);
+  // An opened form is brought into view with its first field focused: in its card or at the top (B5).
+  useEffect(() => {
+    if (!generation || !opened.current) return;
+    opened.current.scrollIntoView?.({ block: "nearest" });
+    opened.current.querySelector<HTMLElement>("input:not([type=hidden]), textarea, select")?.focus({ preventScroll: true });
+  }, [generation]);
   const values = editing?.values;
   const fields: Field[] = values ? [
     { name: "title", label: "Название работы / шаблона", value: values.title, required: true },
@@ -56,7 +63,10 @@ function LibraryEditor({ templates, context, initialValues }: { templates: KkrTe
       ...scopeOptions(context.template_scopes),
     ] }]),
   ] : [];
-  const editor = editing && <ActionForm key={generation} revision={template?.revision} onConflict={refresh} fields={fields} submitLabel="Сохранить шаблон"
+  const editor = editing && <section ref={opened} className={s.templateEditor} aria-label={template ? "Изменение шаблона ККР" : "Новый шаблон ККР"}>
+    <div className={s.templateEditorHeader}><h3>{template ? "Изменение шаблона" : "Новый шаблон ККР"}</h3><button type="button" className={w.button} onClick={() => leave(() => setEditing(null))}>Закрыть</button></div>
+    {template && <Authorship template={template} />}
+    <ActionForm key={generation} revision={template?.revision} onConflict={refresh} fields={fields} submitLabel="Сохранить шаблон"
       onSubmit={async (draft, revision) => {
         const data: TemplateValues = { title: text(draft, "title"), description: text(draft, "body"), hours: number(draft, "hours"), evaluation: number(draft, "evaluation") as TemplateValues["evaluation"], criteria: { ...emptyCriteria(), ...criteriaFromValues(draft) } };
         const selected = text(draft, "visibility"), scope = context.template_scopes[Number(selected)];
@@ -67,17 +77,48 @@ function LibraryEditor({ templates, context, initialValues }: { templates: KkrTe
         // A new template closes its editor with a status: the same form must not turn into the edit form of another revision.
         if (!template) { setEditing(null);setCreated(saved.values.title);return { revision: saved.revision }; }
         setEditing({ template: saved, values: saved.values });return { revision: saved.revision };
-      }} />;
-  // The editor opens above the list, next to its button; the empty state is for a closed editor only.
+      }} />
+  </section>;
+  const [filter, setFilter] = useState<LibraryFilter>(noFilter);
+  // The template being edited stays in its place whatever the filters say.
+  const shown = templates.filter(row => row.template_id === template?.template_id || matches(row, filter));
+  // A new template or a copy opens as a card at the top; a template is edited in its own card.
   return <div className={s.library}>
     {context.can_create_personal_template && <div className={w.row}><button type="button" className={w.button} onClick={() => choose({ values: initialValues ?? emptyValues() })}>Создать шаблон ККР</button></div>}
     {created && <p role="status" className={w.success}>Шаблон создан: {created}</p>}
-    {editing && <section className={s.templateEditor} aria-label={template ? "Изменение шаблона ККР" : "Новый шаблон ККР"}><div className={s.templateEditorHeader}><h3>{template ? "Изменение шаблона" : "Новый шаблон ККР"}</h3><button type="button" className={w.button} onClick={() => leave(() => setEditing(null))}>Закрыть</button></div>{editor}</section>}
+    {editing && !template && editor}
+    {templates.length > 0 && <LibraryFilters templates={templates} value={filter} onChange={setFilter} />}
     {!templates.length && !editing && <Empty>Пока нет доступных шаблонов.</Empty>}
-    {templates.map(row => <div className={s.badge} key={row.template_id}><strong>{row.values.title}</strong><span>{row.visibility === "personal" ? "Личный" : row.scope?.name} · {row.archived ? "В архиве" : `${row.values.hours} ч · оценка ${row.values.evaluation}`}</span><Authorship template={row} /><div className={w.row}>
+    {templates.length > 0 && !shown.length && <Empty>Нет шаблонов по этим условиям.</Empty>}
+    {shown.map(row => row.template_id === template?.template_id ? <div key={row.template_id}>{editor}</div> : <div className={s.badge} key={row.template_id}><strong>{row.values.title}</strong><span>{row.visibility === "personal" ? "Личный" : templateOwner(row)} · {row.archived ? "В архиве" : `${row.values.hours} ч · оценка ${row.values.evaluation}`}</span><Authorship template={row} /><div className={w.row}>
       <button type="button" className={w.button} onClick={() => choose({ template: row, values: row.values })}>Изменить шаблон</button>
       {context.can_create_personal_template && <button type="button" className={w.button} onClick={() => choose({ values: { ...row.values, title: `${row.values.title} · копия` } })}>Копировать</button>}
     </div></div>)}
+  </div>;
+}
+
+/** The library's own filters (B4): on the loaded list, nothing is asked of the server. */
+interface LibraryFilter { search: string; team: string; kind: "" | "personal" | "team"; archived: boolean }
+const noFilter: LibraryFilter = { search: "", team: "", kind: "", archived: false };
+const folded = (value: string) => value.toLocaleLowerCase("ru").replaceAll("ё", "е");
+const teamKey = (row: KkrTemplate) => row.scope ? `${row.scope.kind}:${row.scope.id ?? ""}` : "";
+function matches(row: KkrTemplate, filter: LibraryFilter) {
+  const search = folded(filter.search.trim());
+  return (filter.archived || !row.archived)
+    && (!filter.kind || row.visibility === filter.kind)
+    && (!filter.team || (row.visibility === "team" && teamKey(row) === filter.team))
+    && (!search || folded(`${row.values.title} ${row.values.description}`).includes(search));
+}
+function LibraryFilters({ templates, value, onChange }: { templates: KkrTemplate[]; value: LibraryFilter; onChange: (value: LibraryFilter) => void }) {
+  const teams = new Map<string, string>();
+  for (const row of templates) if (row.visibility === "team" && row.scope) teams.set(teamKey(row), row.scope.kind === "global" ? "Весь Профком" : `${scopeKinds[row.scope.kind]}: ${row.scope.name}`);
+  const set = (next: Partial<LibraryFilter>) => onChange({ ...value, ...next });
+  return <div className={`${w.filters} ${s.libraryFilters}`} role="group" aria-label="Фильтры шаблонов">
+    <label className={`${w.field} ${w.search}`}>Поиск<input type="search" value={value.search} placeholder="Название или описание" onChange={event => set({ search: event.target.value })} /></label>
+    <label className={w.field}>Команда<select value={value.team} onChange={event => set({ team: event.target.value })}><option value="">Все команды</option>
+      {[...teams].sort((a, b) => a[1].localeCompare(b[1], "ru")).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+    <label className={w.field}>Вид<select value={value.kind} onChange={event => set({ kind: event.target.value as LibraryFilter["kind"] })}><option value="">Личные и командные</option><option value="personal">Личные</option><option value="team">Командные</option></select></label>
+    <div className={`${w.field} ${w.checkField}`}><label className={w.check}><input type="checkbox" checked={value.archived} onChange={event => set({ archived: event.target.checked })} />Показать архивные</label></div>
   </div>;
 }
 
