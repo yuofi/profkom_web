@@ -98,6 +98,8 @@ class KkrTemplateORM(Base):
     revision = Column(Integer, nullable=False, default=1)
     archived = Column(Boolean, nullable=False, default=False)
     created_at = Column(String, nullable=False)
+    # Who saved the current revision (creation or the last edit); database._ensure_sqlite_kkr_template_editor.
+    updated_by_user_id = Column(Integer, nullable=True)
 
 
 class KkrTemplateUseORM(Base):

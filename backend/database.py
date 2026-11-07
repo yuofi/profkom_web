@@ -1218,6 +1218,26 @@ def _ensure_sqlite_bot_console() -> None:
 _ensure_sqlite_bot_console()
 
 
+def _ensure_sqlite_kkr_template_editor() -> None:
+    """The last editor of a KKR template. When the column is added, an existing template takes
+    the actor of its latest audited change, or its author when none was audited."""
+    with engine.begin() as conn:
+        names = {r[1] for r in conn.execute(text("PRAGMA table_info(kkr_templates)")).fetchall()}
+        if not names or "updated_by_user_id" in names:
+            return
+        conn.execute(text("ALTER TABLE kkr_templates ADD COLUMN updated_by_user_id INTEGER"))
+        # A removed account's audit rows carry 0 (account_cleanup): the editor stays unknown.
+        audited = ("FROM audit_logs a WHERE a.target_kind = 'kkr_template' "
+                   "AND a.target_id = kkr_templates.template_id")
+        conn.execute(text(
+            f"UPDATE kkr_templates SET updated_by_user_id = CASE WHEN EXISTS (SELECT 1 {audited}) "
+            f"THEN NULLIF((SELECT a.changed_by_user_id {audited} ORDER BY a.id DESC LIMIT 1), 0) "
+            "ELSE owner_user_id END"))
+
+
+_ensure_sqlite_kkr_template_editor()
+
+
 def _ensure_sqlite_file_records_columns() -> None:
     """Add sealed_at and storage_key to SQLite DBs created before files were served by the API."""
     with engine.begin() as conn:

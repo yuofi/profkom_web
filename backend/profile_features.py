@@ -394,18 +394,24 @@ def template_access(row, actor):
 
 
 def template_dto(session, row):
+    # The author and whoever saved the current revision; a removed account reads «Бывший участник».
     return dict(template_id=row.template_id, visibility=row.visibility,
         scope=scope_data(session, row.scope_kind, row.scope_id) if row.visibility == "team" else None,
-        values=json.loads(row.values_json), revision=row.revision, archived=row.archived)
+        values=json.loads(row.values_json), revision=row.revision, archived=row.archived,
+        author=user_ref(session, row.owner_user_id), updated_by=user_ref(session, row.updated_by_user_id))
 
 
-def selected_template(session, actor, selection):
+def selected_template(session, actor, selection, applied=False):
+    """`applied`: the template comes with a saved record, so its refusals name the template
+    (template_unavailable, template_changed) rather than the record (B6, owner 2026-11-08)."""
     parsed = TemplateSelection.model_validate(selection)
     row = session.get(KkrTemplateORM, parsed.template_id)
     if not row or not template_access(row, actor):
-        fail(404, "Template is unavailable")
+        fail(404, "Template is unavailable", "template_unavailable" if applied else None)
     if row.archived:
         fail(409, "Template has been archived", "template_archived")
+    if applied and row.revision != parsed.revision:
+        fail(409, "Template changed after it was applied", "template_changed")
     version(row, parsed.revision)
     return row
 
@@ -413,7 +419,7 @@ def selected_template(session, actor, selection):
 def capture_template_use(session, actor, selection, target_kind, target_id, actual_values):
     if not selection:
         return
-    row = selected_template(session, actor, selection)
+    row = selected_template(session, actor, selection, applied=True)
     if target_kind == "merit":
         target = session.get(MeritORM, target_id)
         kind, id = (target.scope_kind, target.scope_id) if target.scope_kind else ("event", target.event_id) if target.event_id else ("global", None)
@@ -486,7 +492,7 @@ def anonymize(session, person, old_participant_id, new_participant_id):
         session.query(cls).filter_by(user_id=person).delete(synchronize_session=False)
     for cls, fields in ((AchievementDefinitionORM, ("created_by_user_id",)),
         (AchievementGrantORM, ("user_id", "issued_by_user_id", "revoked_by_user_id")),
-        (AchievementEventORM, ("actor_user_id",)), (KkrTemplateORM, ("owner_user_id",)),
+        (AchievementEventORM, ("actor_user_id",)), (KkrTemplateORM, ("owner_user_id", "updated_by_user_id")),
         (KkrTemplateUseORM, ("actor_user_id",))):
         for field in fields:
             session.query(cls).filter(getattr(cls, field) == person).update({field: None}, synchronize_session=False)
@@ -719,7 +725,7 @@ def register_routes(router):
             row = KkrTemplateORM(template_id=uid(), owner_user_id=cur.user_id, visibility=payload.visibility,
                 scope_kind=scope["kind"] if scope else None, scope_id=scope["id"] if scope else None,
                 title=payload.values.title, values_json=payload.values.model_dump_json(), revision=1,
-                archived=False, created_at=now())
+                archived=False, created_at=now(), updated_by_user_id=cur.user_id)
             s.add(row)
             audit(s, "kkr_template", row.template_id, cur.user_id, "KKR template created", {}, payload.model_dump())
             s.flush()
@@ -735,6 +741,7 @@ def register_routes(router):
             old = json.loads(row.values_json)
             row.title, row.values_json, row.archived = payload.values.title, payload.values.model_dump_json(), payload.archived
             row.revision += 1
+            row.updated_by_user_id = cur.user_id
             audit(s, "kkr_template", row.template_id, cur.user_id, "KKR template changed", old, payload.model_dump(exclude={"expected_revision"}))
             return template_dto(s, row)
 
