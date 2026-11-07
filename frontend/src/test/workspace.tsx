@@ -97,6 +97,11 @@ export async function change(
     await selectEntity(picker, value);
     return;
   }
+  // A checkbox field of ActionForm holds "true" / "false": the value ticks or unticks it.
+  if (element instanceof HTMLInputElement && element.type === "checkbox") {
+    if (element.checked !== (value === "true")) await act(async () => element.click());
+    return;
+  }
   await act(async () => {
     const prototype =
       element instanceof HTMLSelectElement

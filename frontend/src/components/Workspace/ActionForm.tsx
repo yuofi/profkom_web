@@ -26,7 +26,9 @@ export interface Field {
     | "email"
     | "url"
     | "password"
-    | "markdown";
+    | "markdown"
+    /** A yes/no mark: its value is "true" or "false". */
+    | "checkbox";
   /** A function makes the field required depending on the other values. */
   required?: boolean | ((values: Values) => boolean);
   value?: string | string[];
@@ -68,7 +70,9 @@ const visible = (field: Field, values: Values) =>
     ));
 
 const savedValues = (fields: Field[]): Values =>
-  Object.fromEntries(fields.map((f) => [f.name, f.value ?? (f.type === "multi" ? [] : "")]));
+  Object.fromEntries(fields.map((f) => [f.name, f.value ?? (f.type === "multi" ? [] : f.type === "checkbox" ? "false" : "")]));
+/** A saved value as the «saved values» list shows it. */
+const shownValue = (f: Field, value: string) => f.type === "checkbox" ? (value === "true" ? "Да" : "Нет") : value || "—";
 
 /** Where a chain of own saves (from → to) leads from `from`. */
 const follow = <K,>(chain: [K, K][], from: K) => {
@@ -405,6 +409,18 @@ export function ActionForm({
               required: isRequired(field, form.values),
               disabled: form.isSubmitting,
             };
+            if (field.type === "checkbox") return (
+              <div className={`${s.field} ${s.checkField} ${compact}`} key={field.name}>
+                <label className={s.check} id={`${id}-label`}>
+                  <input id={id} name={field.name} type="checkbox" value="true" onBlur={form.handleBlur} disabled={form.isSubmitting}
+                    checked={String(form.values[field.name] ?? initialValues[field.name]) === "true"}
+                    aria-describedby={props["aria-describedby"]}
+                    onChange={(e) => void form.setFieldValue(field.name, e.target.checked ? "true" : "false")} />
+                  {field.label}
+                </label>
+                {field.hint && <small>{field.hint}</small>}
+              </div>
+            );
             // The Markdown editor labels its own source field and keeps its toolbar, preview and frame.
             if (field.type === "markdown") return (
               <div key={field.name}>
@@ -543,7 +559,7 @@ export function ActionForm({
           <div role="status" className={s.details}>
             <p>Запись изменилась на сервере. Ваш ввод сохранён. Сверьте актуальные значения перед сохранением.</p>
             <details><summary>Актуальные сохранённые значения</summary>
-              <dl>{fields.filter((f) => f.value !== undefined).map((f) => <div key={f.name}><dt>{f.label}</dt><dd>{Array.isArray(f.value) ? f.value.map((value) => f.options?.find((o) => o.value === value)?.label ?? value).join(", ") : f.value || "—"}</dd></div>)}</dl>
+              <dl>{fields.filter((f) => f.value !== undefined).map((f) => <div key={f.name}><dt>{f.label}</dt><dd>{Array.isArray(f.value) ? f.value.map((value) => f.options?.find((o) => o.value === value)?.label ?? value).join(", ") : shownValue(f, f.value ?? "")}</dd></div>)}</dl>
               {savedDetails}
             </details>
             <button type="button" className={s.button} onClick={() => { setExpectedRevision(revision); setExpectedRevisionKey(revisionKey); setFailure(null); setMessage(""); }}>Сохранить мой ввод с обновлённой версией</button>

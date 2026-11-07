@@ -21,6 +21,7 @@ import {
   submit,
 } from "../../test/workspace";
 import { CorrectionsPage, MeritForm } from "./MeritPages";
+import { criteriaKeys, criteriaLabels } from "../../utils/kkrCriteria";
 import { DecisionBadges } from "./SeasonPages";
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let mock: ReturnType<typeof installMockTransport>;
@@ -113,6 +114,16 @@ it.each(["assessment_inputs", "task_inputs", "merit"])(
     expect(container.textContent).toContain("Изменения сохранены");
   },
 );
+
+it("corrects a closed task's criteria with the same checkboxes and names as the task window", async () => {
+  await openCorrections("task_inputs");
+  const container = page!.container;
+  const boxes = criteriaKeys.map(key => container.querySelector<HTMLInputElement>(`input[type="checkbox"][name="${key}"]`)!);
+  expect(boxes.map(box => box.closest("label")?.textContent)).toEqual(criteriaKeys.map(key => criteriaLabels[key]));
+  expect(container.querySelector("select[name=unique]")).toBeNull();
+  const saved = [...container.querySelectorAll("details dl > div")].find(row => row.querySelector("dt")?.textContent === criteriaLabels.creative);
+  expect(saved?.querySelector("dd")?.textContent).toBe("Нет");
+});
 
 it("offers only accountable tasks and evaluated assignments to correct, with a searchable picker", async () => {
   await openCorrections("assessment_inputs");

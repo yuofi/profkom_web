@@ -34,7 +34,7 @@ import {
 import { canRetainData, normalizeApiError } from "../../utils/api/request";
 import { readsMerits } from "./meritAccess";
 import { evaluationOptions } from "../../utils/evaluations";
-import { criteriaLabels } from "../../utils/kkrCriteria";
+import { criteriaFromValues, criteriaKeys, criteriaLabels } from "../../utils/kkrCriteria";
 import { UserChip } from "../../components/Workspace/UserChip";
 import { can, useSession } from "../../utils/session";
 import { toUtc, displayDate, moscowInput } from "../../utils/dates";
@@ -231,18 +231,12 @@ function MeritEditor({
       compact: "period",
       value: existing ? moscowInput(existing.deadline_at) : "",
     },
-    ...Object.entries(criteriaLabels).map(([name, label]) => ({
+    ...criteriaKeys.map((name) => ({
       name,
-      label,
-      type: "select" as const,
+      label: criteriaLabels[name],
+      type: "checkbox" as const,
       compact: "criteria",
-      value: String(
-        existing?.criteria[name as keyof typeof criteriaLabels] ?? false,
-      ),
-      options: [
-        { value: "false", label: "Нет" },
-        { value: "true", label: "Да" },
-      ],
+      value: String(existing?.criteria[name] ?? false),
     })),
     {
       name: "users",
@@ -448,15 +442,7 @@ function MeritEditor({
                 description: richText(text(v, "body")),
                 assigned_at: assigned,
                 deadline_at: deadline,
-                criteria: {
-                  ...emptyCriteria(),
-                  ...Object.fromEntries(
-                    Object.keys(criteriaLabels).map((k) => [
-                      k,
-                      text(v, k) === "true",
-                    ]),
-                  ),
-                },
+                criteria: { ...emptyCriteria(), ...criteriaFromValues(v) },
                 recipients,
                 ...(existing ? { reason: text(v, "reason") } : {}),
               };
@@ -666,18 +652,12 @@ function ClosedCorrectionEditor({
         required: true,
         value: data.record.deadline_at ? moscowInput(data.record.deadline_at) : "",
       },
-      ...Object.entries(criteriaLabels).map(([name, label]) => ({
+      ...criteriaKeys.map((name) => ({
         name,
-        label,
-        type: "select" as const,
-        required: true,
-        value: String(
-          data.record.criteria[name as keyof typeof criteriaLabels],
-        ),
-        options: [
-          { value: "true", label: "Да" },
-          { value: "false", label: "Нет" },
-        ],
+        label: criteriaLabels[name],
+        type: "checkbox" as const,
+        compact: "criteria",
+        value: String(data.record.criteria[name]),
       })),
     ];
   if (data?.kind === "assessment_inputs")
@@ -738,7 +718,8 @@ function ClosedCorrectionEditor({
                     <div key={f.name}>
                       <dt>{f.label}</dt>
                       <dd>
-                        {f.options?.find((o) => o.value === f.value)?.label ??
+                        {f.type === "checkbox" ? (f.value === "true" ? "Да" : "Нет")
+                          : f.options?.find((o) => o.value === f.value)?.label ??
                           f.value ??
                           "—"}
                       </dd>
@@ -770,12 +751,7 @@ function ClosedCorrectionEditor({
                     values = {
                       assigned_at,
                       deadline_at,
-                      criteria: Object.fromEntries(
-                        Object.keys(criteriaLabels).map((k) => [
-                          k,
-                          text(v, k) === "true",
-                        ]),
-                      ),
+                      criteria: criteriaFromValues(v),
                     };
                   } else {
                     const evaluation = number(v, "evaluation");

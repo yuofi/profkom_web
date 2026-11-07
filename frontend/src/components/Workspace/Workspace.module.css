@@ -1204,6 +1204,24 @@ span.cardIcon {
 .compactFields > .compactField {
   align-content: end;
 }
+/* ActionForm `checkbox`: the box and its words on one line, as tall as the inputs of its row. */
+.checkField .check {
+  min-height: 44px;
+  margin-bottom: 0;
+  line-height: 1.4;
+}
+/* Outside the shell (a portalled popover) the box keeps its size instead of an input's. */
+.checkField input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  min-height: 20px;
+  padding: 0;
+  flex: 0 0 20px;
+  accent-color: var(--primary);
+}
+.checkField input[type="checkbox"]:focus {
+  box-shadow: none;
+}
 .eyebrow {
   font-size: 12px;
   opacity: 0.82;
