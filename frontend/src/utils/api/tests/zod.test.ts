@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isValidGroupNumber, SignUpValidationSchema, ProfileValidationSchema } from "../../zod";
+import { isValidGroupNumber, SignUpValidationSchema, ProfileValidationSchema, SignInValidationSchema } from "../../zod";
 
 describe("isValidGroupNumber", () => {
   it("should accept valid group numbers from 100 to 700", () => {
@@ -96,5 +96,18 @@ describe("ProfileValidationSchema group_number", () => {
     if (!invalidResult.success) {
       expect(invalidResult.error.issues[0].message).toBe("Номер группы должен быть числом от 100 до 700");
     }
+  });
+});
+
+describe("SignInValidationSchema email", () => {
+  const login = (email: string) => SignInValidationSchema.safeParse({ email, password: "Password-123" }).success;
+
+  it("takes an address or a login without @ and spaces (the service account)", () => {
+    expect(login("user@test.ru")).toBe(true);
+    expect(login("root")).toBe(true);
+  });
+
+  it("refuses a broken address, spaces and an empty field", () => {
+    for (const value of ["user@", "@test.ru", "user name@test.ru", "ro ot", " root", ""]) expect(login(value)).toBe(false);
   });
 });

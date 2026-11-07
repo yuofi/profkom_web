@@ -23,8 +23,14 @@ export const SignUpValidationSchema = z.object({
     path: ["passwordAgain"]  
 });
 
+// An address, or a login without @ and spaces: the service account's (backend/docs/SERVICE_ACCOUNT.md).
+const signInLogin = z.string().refine(
+    (value) => (value.includes('@') ? z.email().safeParse(value).success : /^\S+$/.test(value)),
+    'Неправильный формат email',
+);
+
 export const SignInValidationSchema = z.object({
-    email: z.email('Неправильный формат email'),
+    email: signInLogin,
     password: z.string().min(8, "длина пароля должна быть хотя бы 8 символов"),
 });
 
