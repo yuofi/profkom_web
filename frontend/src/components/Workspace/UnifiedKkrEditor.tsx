@@ -57,8 +57,8 @@ function BatchEditor({taskId,saved,target}:{taskId:string;saved:AccountingBatch;
     if(!template)return;setBusy(true);setError('');setNotice('');
     try {
       const list=await client.fetchQuery({queryKey:['kkrTemplates'],queryFn:profileFeaturesApi.templates,staleTime:0});
-      const current=list.items.find(item=>item.template_id===template.template_id&&!item.archived);
-      if(!current)throw new ApiError('Шаблон недоступен',404,'template_unavailable');
+      const current=list.items.find(item=>item.template_id===template.template_id);
+      if(!current||current.archived)throw current?new ApiError('Шаблон в архиве',409,'template_archived'):new ApiError('Шаблон недоступен',404,'template_unavailable');
       await apply(current);setRefusal('');setNotice('Шаблон подставлен заново. Проверьте поля и сохраните.');
     } catch(e){setError(userMessage(e));} finally {setBusy(false);}
   };

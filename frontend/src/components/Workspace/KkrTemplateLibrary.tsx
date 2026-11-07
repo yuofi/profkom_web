@@ -200,7 +200,7 @@ export function TemplateRefusal({ failure, form, mode, selection, onSelection }:
     try {
       const list = await client.fetchQuery({ queryKey: ["kkrTemplates"], queryFn: profileFeaturesApi.templates, staleTime: 0 });
       const current = list.items.find(row => row.template_id === selection.template_id);
-      if (!current || current.archived) throw new ApiError("Шаблон недоступен", 404, "template_unavailable");
+      if (!current || current.archived) throw current ? new ApiError("Шаблон в архиве", 409, "template_archived") : new ApiError("Шаблон недоступен", 404, "template_unavailable");
       const prepared = await profileFeaturesApi.prepare(current);
       applyTemplate(form, mode, prepared.values);onSelection(prepared.selection);
       setNote("Шаблон подставлен заново. Проверьте поля и сохраните.");
