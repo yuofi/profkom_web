@@ -43,6 +43,10 @@ export interface Field {
   min?: number;
   max?: number;
   whenSelected?: { name: string; value: string };
+  /** Shown only while this holds for the current values; a hidden field is not validated. */
+  visibleWhen?: (values: Values) => boolean;
+  /** A checkbox that also sets other fields: the values after its change, set in one step. */
+  onCheck?: (checked: boolean, values: Values) => Values;
   onSelectionChange?: (values: string[]) => void;
   /** A multiple choice of people asks before removing saved ones; marks need not. */
   confirmRemoval?: boolean;
@@ -63,11 +67,12 @@ const isRequired = (field: Field, values: Values) =>
   typeof field.required === "function" ? field.required(values) : !!field.required;
 
 const visible = (field: Field, values: Values) =>
-  !field.whenSelected ||
-  (Array.isArray(values[field.whenSelected.name]) &&
-    (values[field.whenSelected.name] as string[]).includes(
-      field.whenSelected.value,
-    ));
+  (!field.whenSelected ||
+    (Array.isArray(values[field.whenSelected.name]) &&
+      (values[field.whenSelected.name] as string[]).includes(
+        field.whenSelected.value,
+      ))) &&
+  (!field.visibleWhen || field.visibleWhen(values));
 
 const savedValues = (fields: Field[]): Values =>
   Object.fromEntries(fields.map((f) => [f.name, f.value ?? (f.type === "multi" ? [] : f.type === "checkbox" ? "false" : "")]));
@@ -418,7 +423,10 @@ export function ActionForm({
                   <input id={id} name={field.name} type="checkbox" value="true" onBlur={form.handleBlur} disabled={form.isSubmitting}
                     checked={String(form.values[field.name] ?? initialValues[field.name]) === "true"}
                     aria-describedby={props["aria-describedby"]}
-                    onChange={(e) => void form.setFieldValue(field.name, e.target.checked ? "true" : "false")} />
+                    onChange={(e) => {
+                      const value = e.target.checked ? "true" : "false";
+                      void (field.onCheck ? form.setValues(field.onCheck(e.target.checked, { ...initialValues, ...form.values, [field.name]: value })) : form.setFieldValue(field.name, value));
+                    }} />
                   {field.label}
                 </label>
                 {field.hint && <small>{field.hint}</small>}
@@ -563,7 +571,7 @@ export function ActionForm({
           <div role="status" className={s.details}>
             <p>Запись изменилась на сервере. Ваш ввод сохранён. Сверьте актуальные значения перед сохранением.</p>
             <details><summary>Актуальные сохранённые значения</summary>
-              <dl>{fields.filter((f) => f.value !== undefined).map((f) => <div key={f.name}><dt>{f.label}</dt><dd>{Array.isArray(f.value) ? f.value.map((value) => f.options?.find((o) => o.value === value)?.label ?? value).join(", ") : shownValue(f, f.value ?? "")}</dd></div>)}</dl>
+              <dl>{fields.filter((f) => f.value !== undefined && visible(f, initialValues)).map((f) => <div key={f.name}><dt>{f.label}</dt><dd>{Array.isArray(f.value) ? f.value.map((value) => f.options?.find((o) => o.value === value)?.label ?? value).join(", ") : shownValue(f, f.value ?? "")}</dd></div>)}</dl>
               {savedDetails}
             </details>
             <button type="button" className={s.button} onClick={() => { setExpectedRevision(revision); setExpectedRevisionKey(revisionKey); setFailure(null); setMessage(""); }}>Сохранить мой ввод с обновлённой версией</button>

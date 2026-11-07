@@ -127,6 +127,29 @@ export function MeritEntryPage() {
   </Page>;
 }
 
+/** The common block of the merit form applies: «Одинаково для всех» with two or more recipients (B1). */
+const sameForAll = (values: Values) => values.same_for_all === "true" && ids(values, "users").length > 1;
+/** A recipient's own fields count: no common block, or «Поправить отдельно» for them. */
+const ownValues = (user: string) => (values: Values) => !sameForAll(values) || values[`own_${user}`] === "true";
+const recipientKeys = ["hours", "evaluation", "completed"] as const;
+/** Ticking «Одинаково для всех» starts the common block from the first recipient's values, if it is empty. */
+function withCommonFromFirst(values: Values): Values {
+  const first = ids(values, "users")[0];
+  if (first === undefined || recipientKeys.some((key) => text(values, `common_${key}`))) return values;
+  return { ...values, ...Object.fromEntries(recipientKeys.map((key) => [`common_${key}`, text(values, `${key}_${first}`)])) };
+}
+/** Unticking it gives every recipient without own values the common ones, so nothing typed is lost. */
+function withCommonCopied(values: Values): Values {
+  const next = { ...values };
+  for (const user of ids(values, "users")) if (values[`own_${user}`] !== "true") for (const key of recipientKeys) next[`${key}_${user}`] = text(values, `common_${key}`);
+  return next;
+}
+/** A saved recipient's values differ from the first recipient's, which start the common block. */
+function differsFromFirst(merit: Merit, user: number) {
+  const first = merit.recipients[0], own = merit.recipients.find((r) => r.user_id === user);
+  return !!first && !!own && (own.hours !== first.hours || own.evaluation !== first.evaluation || own.completed_at !== first.completed_at);
+}
+
 function MeritEditor({
   seasonId,
   existing,
@@ -255,10 +278,59 @@ function MeritEditor({
         people.options.find((p) => p.value === value) ?? selectedPeople.find((p) => p.value === value) ?? { value, label: `Участник #${value}` },
       )),
     },
+    // «Одинаково для всех» (B1, owner 2026-11-08): one block of values for every selected
+    // recipient; one person may still get own values.
+    {
+      name: "same_for_all",
+      label: "Одинаково для всех",
+      type: "checkbox" as const,
+      visibleWhen: (values: Values) => ids(values, "users").length > 1,
+      onCheck: (checked: boolean, values: Values) => checked ? withCommonFromFirst(values) : withCommonCopied(values),
+    },
+    {
+      name: "common_hours",
+      label: "Часы для всех",
+      type: "number" as const,
+      required: true,
+      min: 0,
+      compact: "common",
+      visibleWhen: sameForAll,
+      value: String(existing?.recipients[0]?.hours ?? ""),
+    },
+    {
+      name: "common_evaluation",
+      label: "Оценка для всех",
+      type: "select" as const,
+      required: true,
+      compact: "common",
+      visibleWhen: sameForAll,
+      value: String(existing?.recipients[0]?.evaluation ?? ""),
+      options: evaluationOptions,
+    },
+    {
+      name: "common_completed",
+      label: "Дата выполнения для всех, МСК",
+      type: "datetime-local" as const,
+      compact: "common",
+      visibleWhen: sameForAll,
+      required: (values: Values) => Number(values.common_evaluation) > 0,
+      value: existing?.recipients[0]?.completed_at ? moscowInput(existing.recipients[0].completed_at) : "",
+    },
     ...recipientOptions.flatMap((p) => [
+      {
+        name: `own_${p.value}`,
+        whenSelected: { name: "users", value: p.value },
+        label: `Поправить отдельно: ${p.label}`,
+        type: "checkbox" as const,
+        compact: `recipient_${p.value}`,
+        visibleWhen: sameForAll,
+        // A saved recipient whose values differ from the common ones keeps them.
+        value: String(!!existing && differsFromFirst(existing, Number(p.value))),
+      },
       {
         name: `hours_${p.value}`,
         whenSelected: { name: "users", value: p.value },
+        visibleWhen: ownValues(p.value),
         required: true,
         label: `Часы: ${p.label}`,
         type: "number" as const,
@@ -272,6 +344,7 @@ function MeritEditor({
       {
         name: `evaluation_${p.value}`,
         whenSelected: { name: "users", value: p.value },
+        visibleWhen: ownValues(p.value),
         required: true,
         label: `Оценка: ${p.label}`,
         type: "select" as const,
@@ -285,6 +358,7 @@ function MeritEditor({
       {
         name: `completed_${p.value}`,
         whenSelected: { name: "users", value: p.value },
+        visibleWhen: ownValues(p.value),
         label: `Дата выполнения, МСК: ${p.label}`,
         type: "datetime-local" as const,
         compact: `recipient_${p.value}`,
@@ -412,9 +486,10 @@ function MeritEditor({
               if (assigned > deadline)
                 throw Error("Дата выдачи позже дедлайна");
               const recipients = ids(v, "users").map((user_id) => {
-                const evaluation = text(v, `evaluation_${user_id}`),
-                  hours = text(v, `hours_${user_id}`),
-                  completed = text(v, `completed_${user_id}`);
+                const own = ownValues(String(user_id))(v);
+                const evaluation = text(v, own ? `evaluation_${user_id}` : "common_evaluation"),
+                  hours = text(v, own ? `hours_${user_id}` : "common_hours"),
+                  completed = text(v, own ? `completed_${user_id}` : "common_completed");
                 if (
                   !hours ||
                   !evaluation ||

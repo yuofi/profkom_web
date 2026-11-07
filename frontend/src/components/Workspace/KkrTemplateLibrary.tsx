@@ -137,7 +137,8 @@ function applyTemplate(form: FormikProps<Values>, mode: "merit" | "assessment", 
   if (mode === "merit") {
     next.title = prepared.title;next.body = prepared.description;
     for (const [key, value] of Object.entries(prepared.criteria)) next[key] = String(value);
-    for (const key of Object.keys(next)) { if (key.startsWith("hours_")) next[key] = String(prepared.hours);if (key.startsWith("evaluation_")) next[key] = String(prepared.evaluation); }
+    // Every recipient's values and the common block of «Одинаково для всех».
+    for (const key of Object.keys(next)) { if (key.startsWith("hours_") || key === "common_hours") next[key] = String(prepared.hours);if (key.startsWith("evaluation_") || key === "common_evaluation") next[key] = String(prepared.evaluation); }
   } else { next.hours = String(prepared.hours);next.evaluation = String(prepared.evaluation); }
   void form.setValues(next);
 }
@@ -156,8 +157,11 @@ export function KkrTemplateTools({ form, mode, selection, onSelection, target }:
   const anchor = useRef<HTMLButtonElement>(null);
   const initial = (): TemplateValues => {
     const recipient = Array.isArray(form.values.users) ? form.values.users[0] : null;
-    const evaluation = text(form.values, recipient && mode === "merit" ? `evaluation_${recipient}` : "evaluation");
-    return { title: text(form.values, "title") || "Шаблон оценки", description: text(form.values, "body"), hours: number(form.values, recipient && mode === "merit" ? `hours_${recipient}` : "hours"), evaluation: (evaluation === "" ? 1 : Number(evaluation)) as TemplateValues["evaluation"], criteria: { ...emptyCriteria(), ...criteriaFromValues(form.values) } };
+    // A merit's values: the common block when it applies to the first recipient, else that recipient's own.
+    const common = mode === "merit" && form.values.same_for_all === "true" && Array.isArray(form.values.users) && form.values.users.length > 1 && form.values[`own_${recipient}`] !== "true";
+    const key = (name: string) => common ? `common_${name}` : recipient && mode === "merit" ? `${name}_${recipient}` : name;
+    const evaluation = text(form.values, key("evaluation"));
+    return { title: text(form.values, "title") || "Шаблон оценки", description: text(form.values, "body"), hours: number(form.values, key("hours")), evaluation: (evaluation === "" ? 1 : Number(evaluation)) as TemplateValues["evaluation"], criteria: { ...emptyCriteria(), ...criteriaFromValues(form.values) } };
   };
   return <div className={s.templateTools}>
     <EntityPicker label="Шаблон ККР" name="kkr-template" value={selected} onChange={setSelected} placeholder="Найти шаблон" disabled={busy || form.isSubmitting}
