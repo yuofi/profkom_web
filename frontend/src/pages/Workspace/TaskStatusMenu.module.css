@@ -12,9 +12,8 @@
 .option:disabled { opacity: .42; cursor: not-allowed; }
 .option[aria-current] { opacity: .8; }
 .option span:last-child:not(:first-child) { margin-left: auto; }
-.actions { display: flex; gap: 8px; flex-wrap: wrap; }
 /* On a phone the menu is a sheet at the bottom of the screen, above the feedback button (as the filter sheet). */
-@media(max-width: 768px) { .actions { gap: 7px; }.actions button { flex-grow: 1; }.menu { position: fixed; z-index: 45; inset: auto 14px 20px; width: auto; max-width: none; max-height: calc(100dvh - 100px); overflow-y: auto; } }
+@media(max-width: 768px) { .menu { position: fixed; z-index: 45; inset: auto 14px 20px; width: auto; max-width: none; max-height: calc(100dvh - 100px); overflow-y: auto; } }
 
 /* One chip width for every status (owner 2026-11-01): the hidden sizer lists all status names, so the label box is as wide
    as the longest one and the current name sits in its centre. A locked chip keeps the arrow's place empty. */
@@ -24,4 +23,3 @@
 .chip > [data-icon], .static::after { flex: 0 0 auto; font-size: 16px; }
 .static::after { content: ""; width: 1em; }
 
-.pickerFields { border: 0; padding: 0; margin: 0; min-width: 0; }

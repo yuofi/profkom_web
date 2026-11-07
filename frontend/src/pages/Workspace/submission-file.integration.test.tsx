@@ -3,7 +3,8 @@ import { act } from "react";
 import { afterEach, expect, it } from "vitest";
 import { Route, Routes } from "react-router-dom";
 import { liveLogin, liveParticipant } from "../../test/liveApi";
-import { mountWorkspace, submit, waitForPage } from "../../test/workspace";
+import { mountWorkspace, waitForPage } from "../../test/workspace";
+import { submitTaskResult } from "../../test/taskResults";
 import { eventsApi } from "../../utils/api/events.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { tasksApi } from "../../utils/api/tasks.api";
@@ -15,7 +16,7 @@ import { TaskPage } from "./TaskPages";
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 afterEach(async () => { await page?.cleanup(); page = undefined; });
 
-it("an assignee uploads and submits a file without text; foreign and revoked users cannot upload or download it", async () => {
+it("an earlier file-only result stays visible to its assignee; foreign and revoked users cannot upload or download it", async () => {
   const worker = await liveParticipant("file-only-assignee");
   const foreign = await liveParticipant("file-only-foreign");
   await liveLogin();
@@ -36,29 +37,22 @@ it("an assignee uploads and submits a file without text; foreign and revoked use
   // A task the user cannot read answers like a missing one (GL-24).
   await expect(filesApi.intent({ ...owner, name: "result.txt", mime_type: "text/plain", size_bytes: 12 })).rejects.toMatchObject({ status: 404 });
   const session = await liveLogin(worker.email);
-  page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TaskPage />} /></Routes>, { path: `/tasks/${task.task_id}`, session });
-  await waitForPage(page);
-  const open = [...page.container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Сдать результат")!;
-  await act(async () => open.click());await waitForPage(page);
-  const input = page.container.querySelector<HTMLInputElement>('input[type="file"]')!;
-  expect(input).not.toBeNull();
+  // The site has no «Сдать результат» any more (owner 2026-11-08, В6); the endpoint stays and an
+  // earlier file-only result keeps its own section and its file access.
   const file = new File(["Synthetic file-only result"], "result.txt", { type: "text/plain" });
-  await act(async () => {
-    Object.defineProperty(input, "files", { configurable: true, value: [file] });
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-  });
-  await waitForPage(page, () => !!page!.container.textContent?.includes("result.txt") && !page!.container.textContent?.includes("Загрузка файла:"));
-  expect(page.container.querySelector('[role="alert"]')).toBeNull();
-  const send = Array.from(page.container.querySelectorAll("button")).find((button) => button.textContent === "Отправить результат")!;
-  const form = send.closest("form")!;
-  expect((form.querySelector('[name="body"]') as HTMLTextAreaElement).value).toBe("");
-  await submit(form);
-  await waitForPage(page, () => !page!.container.querySelector('input[type="file"]'));
+  const uploaded = await filesApi.upload(file, owner);
+  await submitTaskResult(task.task_id, { expected_revision: (await tasksApi.get(task.task_id)).revision, text: richText(""), links: [], file_ids: [uploaded.file_id] });
   const saved = await tasksApi.get(task.task_id);
   const result = saved.submissions!.at(-1)!;
   expect(saved.status).toBe("completed");
   expect(result.text.body).toBe("");
   expect(result.files).toHaveLength(1);
+  page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TaskPage />} /></Routes>, { path: `/tasks/${task.task_id}`, session });
+  await waitForPage(page);
+  expect([...page.container.querySelectorAll("button")].some(button => ["Сдать результат", "Взять в работу"].includes(button.textContent ?? ""))).toBe(false);
+  await act(async () => page!.container.querySelector<HTMLButtonElement>("#task-tab-attachments")!.click());
+  await waitForPage(page, () => !!page!.container.querySelector("#task-panel-attachments")?.textContent?.includes("result.txt"));
+  expect(page.container.querySelector("#task-panel-attachments")!.textContent).toContain("Результаты работы");
   const attached = result.files[0];
   const { download_url } = await filesApi.download(attached.file_id);
   const response = await api.get(download_url.slice("/api".length), { responseType: "text" });

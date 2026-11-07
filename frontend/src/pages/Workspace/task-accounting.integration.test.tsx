@@ -7,6 +7,7 @@ import { mountWorkspace,change,submit,waitForPage } from '../../test/workspace';
 import { eventsApi } from '../../utils/api/events.api';
 import { seasonsApi } from '../../utils/api/seasons.api';
 import { tasksApi } from '../../utils/api/tasks.api';
+import { submitTaskResult } from '../../test/taskResults';
 import { kkrApi } from '../../utils/api/kkr.api';
 import { emptyCriteria,richText } from '../../utils/api/contract';
 import { TrackerTaskPage } from './TrackerTaskDetail';
@@ -21,7 +22,7 @@ it('saves all assignees atomically after public closure, versions closed correct
  const event=await eventsApi.create({season_id:season.season_id,title:'Атомарное оценивание ККР',description:richText()});let sub=await eventsApi.createSubevent(event.event_id,{title:'Команда учёта',description:richText()});sub=await eventsApi.organizers(sub.subevent_id,people.map(person=>person.user_id),{expected_revision:sub.revision});
  let task=await tasksApi.create({season_id:season.season_id,scope:{kind:'subevent',id:sub.subevent_id},title:'Общая задача, индивидуальный ККР',description:richText('Сдать общий результат'),deadline_at:new Date(Date.now()+86400000).toISOString(),criteria:emptyCriteria(),assignees:people.map((person,index)=>({user_id:person.user_id,hours:index+2}))});
  await expect(kkrApi.batch(task.task_id)).rejects.toMatchObject({status:409});
- await liveLogin(people[0].email);task=await tasksApi.submitResult(task.task_id,{expected_revision:task.revision,text:richText('Наблюдаемая фактическая сдача'),file_ids:[],links:[]});await liveLogin();task=await tasksApi.changeStatus(task.task_id,{expected_revision:task.revision,status:'closed'});
+ await liveLogin(people[0].email);task=await submitTaskResult(task.task_id,{expected_revision:task.revision,text:richText('Наблюдаемая фактическая сдача'),file_ids:[],links:[]});await liveLogin();task=await tasksApi.changeStatus(task.task_id,{expected_revision:task.revision,status:'closed'});
  const publicBefore=await tasksApi.get(task.task_id);expect(publicBefore.closed_at).toBeTruthy();const [first,second,third]=task.assignments;
  const before=await kkrApi.batch(task.task_id);const stale={expected_public_revision:before.public_revision,expected_revision:before.revision,criteria:before.criteria,assignments:before.assignments.map((row,index)=>({assignment_id:row.assignment_id,expected_revision:row.revision+(index===1?1:0),hours:99,evaluation:1 as const,excluded:false}))};
  await expect(kkrApi.saveBatch(task.task_id,stale)).rejects.toMatchObject({status:409});expect(await kkrApi.batch(task.task_id)).toEqual(before);

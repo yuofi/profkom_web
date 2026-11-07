@@ -7,7 +7,6 @@ import { createFixtures, people } from "../../mocks/fixtures";
 import { mountWorkspace, waitForPage, settle, change, submit } from "../../test/workspace";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
-import { filesApi } from "../../utils/api/files.api";
 import { richText, type Task, type Comment, type FileRef } from "../../utils/api/contract";
 import { TrackerTaskPage } from "./TrackerTaskDetail";
 import { TaskStatusMenu } from "./TaskStatusMenu";
@@ -101,19 +100,25 @@ it("status menu supports arrow keys, Home/End and restores focus on Escape", asy
   await press("Home");expect(document.activeElement?.textContent?.trim()).toBe("В работе");
   await press("Escape");expect(page.container.querySelector('[role="menu"]')).toBeNull();expect(document.activeElement).toBe(trigger);
 });
-it("one shared file-only result targets the task rather than an individual assignment", async () => {
-  const task = makeTask();const file: FileRef = { file_id: "shared-file", name: "result.txt", mime_type: "text/plain", size_bytes: 10 };
-  const upload = vi.spyOn(filesApi, "upload").mockResolvedValue(file);
-  const command = vi.spyOn(tasksApi, "submitResult").mockResolvedValue({ ...task, status: "completed", revision: task.revision + 1 });
-  page = await mountWorkspace(<TaskStatusMenu task={task} variant="actions" />);await click("Сдать результат");
-  // The result dialog is loaded on demand: under load its code may take longer than one settle.
-  await waitForPage(page, () => !!page!.container.querySelector('input[type="file"]'));
-  const input = page.container.querySelector<HTMLInputElement>('input[type="file"]')!;
-  const blob = new File(["shared result"], "result.txt", { type: "text/plain" });
-  await act(async () => { Object.defineProperty(input, "files", { configurable: true, value: [blob] });input.dispatchEvent(new Event("change", { bubbles: true })); });await waitForPage(page);
-  expect(upload).toHaveBeenCalledWith(blob, { owner_kind: "task", owner_id: task.task_id, purpose: "submission" }, expect.any(Function));
-  await submit(page.container.querySelector("form")!);await waitForPage(page);
-  expect(command).toHaveBeenCalledWith(task.task_id, expect.objectContaining({ text: richText(""), file_ids: [file.file_id] }));
+it.each([["an ordinary task", undefined], ["a support ticket", { queue_id: "support", name: "WEBSUPPORT", key: "WEBSUPPORT" }]] as const)("%s offers neither «Взять в работу» nor «Сдать результат»; joining and the status chip stay (owner 2026-11-08, В6)", async (_kind, queue) => {
+  const task = makeTask({ status: "open", ...(queue ? { queue } : {}), allowed_statuses: ["open", "in_progress", "completed"], assignees: [], capabilities: ["read_task", "comment_task", "change_task_status", "take_task", "submit_task_result", "join_task"] });
+  await mountTask(task);
+  const labels = [...page!.container.querySelectorAll("button")].map(button => button.textContent?.trim());
+  expect(labels).not.toContain("Взять в работу");expect(labels).not.toContain("Сдать результат");
+  expect(labels).toContain("Стать исполнителем");
+  expect(page!.container.querySelector('[aria-haspopup="menu"][aria-label="Статус задачи: Открыта"]')).not.toBeNull();
+  expect(page!.container.querySelector('[aria-label="Действия с задачей"]')).toBeNull();
+});
+it("«Результаты работы» shows only results already sent; a task without them has no such section", async () => {
+  const task = makeTask({ submissions: [] });await mountTask(task);
+  await click("Вложения");
+  const panel = () => page!.container.querySelector("#task-panel-attachments")!;
+  expect(panel().textContent).toContain("Файлы к постановке задачи");expect(panel().textContent).not.toContain("Результаты работы");expect(panel().textContent).not.toContain("Результат пока не отправлен");
+  await page!.cleanup();page = undefined;vi.restoreAllMocks();
+  const file: FileRef = { file_id: "shared-file", name: "result.txt", mime_type: "text/plain", size_bytes: 10 };
+  await mountTask(makeTask({ submissions: [{ submission_id: "s1", submitted_at: "2026-10-26T11:00:00Z", submitted_by: people[0], text: richText("Прежний результат"), links: [], files: [file] }] }));
+  await click("Вложения");
+  expect(panel().textContent).toContain("Результаты работы");expect(panel().textContent).toContain("Прежний результат");expect(panel().textContent).toContain("result.txt");
 });
 it("comments switch newest/oldest order and retain the unposted Markdown draft across tabs", async () => {
   const task = makeTask();const comments: Comment[] = [
@@ -388,34 +393,6 @@ async function statusInFlight(extra: Partial<Task>) {
   await act(async () => [...page!.container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(button => button.textContent?.includes("Выполнена"))!.click());
   return { server, releases };
 }
-/** Meanwhile the reader opens «Сдать результат», types and sends: the save waits in the queue. */
-async function resultQueuedBehindStatus(submitted: (data: Parameters<typeof tasksApi.submitResult>[1]) => Promise<Task>) {
-  const result = vi.spyOn(tasksApi, "submitResult").mockImplementation(async (_id, data) => { const saved = await submitted(data);server.task = saved;return saved; });
-  const { server, releases } = await statusInFlight({ capabilities: ["read_task", "change_task_status", "submit_task_result"] });
-  await click("Сдать результат");await waitForPage(page!, () => !!page!.container.querySelector('dialog [name="body"]'));
-  const dialog = page!.container.querySelector("dialog")!;
-  await change(dialog.querySelector<HTMLTextAreaElement>('[name="body"]')!, "Мой результат");await submit(dialog.querySelector("form")!);
-  expect(result).not.toHaveBeenCalled();expect(releases).toHaveLength(1);
-  await act(async () => releases.shift()!());
-  return { server, result, dialog };
-}
-it("a result queued behind a status change that drops submit_task_result keeps its dialog and shows the refusal there (TR-01 review)", async () => {
-  const { result, dialog } = await resultQueuedBehindStatus(async () => { throw new ApiError("Result submission is not allowed in this status", 409, "conflict"); });
-  await waitForPage(page!, () => result.mock.calls.length === 1);await settle();
-  expect(result.mock.calls.map(call => call[1].expected_revision)).toEqual([9]);
-  // The status answer took the capability away, yet the dialog stays with the refusal and the typed result.
-  expect(page!.container.querySelector('[aria-label^="Статус задачи:"]')?.getAttribute("aria-label")).toBe("Статус задачи: Выполнена");
-  expect([...page!.container.querySelectorAll("button")].some(button => button.textContent === "Сдать результат" && !button.closest("dialog"))).toBe(false);
-  expect(dialog.isConnected).toBe(true);await waitForPage(page!, () => !!dialog.querySelector('[role="alert"]'));
-  expect(dialog.querySelector('[role="alert"]')?.textContent).toContain("Запись изменилась");
-  expect(dialog.querySelector<HTMLTextAreaElement>('[name="body"]')?.value).toBe("Мой результат");
-  // Closing it lets the capability decide again: the dialog does not come back.
-  await act(async () => dialog.querySelector<HTMLButtonElement>('button[aria-label="Закрыть окно"]')!.click());await settle();
-  const discard = [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Уйти без сохранения");
-  if (discard) await act(async () => discard.click());
-  await waitForPage(page!, () => !page!.container.querySelector("dialog"));
-  expect(result).toHaveBeenCalledTimes(1);
-});
 it("a title and description save queued behind a checkmark whose answer drops edit_task keeps its dialog, the refusal and the draft (TR-01 review)", async () => {
   const { server, releases } = editableWithChecklist();
   const update = vi.spyOn(tasksApi, "update").mockRejectedValue(new ApiError("Forbidden: cannot edit task", 403, "forbidden"));
@@ -453,14 +430,6 @@ it("a first checklist queued behind a status change that drops edit_task_checkli
   await waitForPage(page!, () => !page!.container.querySelector("dialog"));
   expect(page!.container.querySelector('section[aria-label="Чеклист задачи"]')).toBeNull();
 });
-it("a result queued behind a status change that drops submit_task_result is saved and closes its dialog as usual (TR-01 review)", async () => {
-  const { result } = await resultQueuedBehindStatus(async data => ({ ...makeTask(), status: "completed", revision: 10, capabilities: ["read_task", "change_task_status"], submissions: [{ submission_id: "s1", submitted_at: "2026-10-26T11:00:00Z", submitted_by: people[0], text: data.text, links: [], files: [] }] }));
-  await waitForPage(page!, () => !page!.container.querySelector("dialog"));
-  expect(result.mock.calls.map(call => [call[1].expected_revision, call[1].text])).toEqual([[9, richText("Мой результат")]]);
-  expect(page!.container.querySelector('header [role="alert"]')).toBeNull();
-  expect(page!.container.querySelector('[aria-label^="Статус задачи:"]')?.getAttribute("aria-label")).toBe("Статус задачи: Выполнена");
-});
-
 it("a refused queued mark rolls back only itself and keeps later own marks", async () => {
   let task = makeTask({ description: richText("- [ ] Первый"), revision: 8, checklist: [{ item_id: "one", text: "Пункт", checked: false }], capabilities: ["read_task", "toggle_task_checklist"] });
   const releases: (() => void)[] = [];const later = () => new Promise<void>(resolve => releases.push(resolve));

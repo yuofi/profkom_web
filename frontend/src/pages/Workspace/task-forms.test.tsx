@@ -7,7 +7,6 @@ import { installMockTransport } from "../../mocks/transport";
 import { mountWorkspace, change, field, pick, submit, settle, waitForPage } from "../../test/workspace";
 import { ActionForm, type Field } from "../../components/Workspace/ActionForm";
 import { TaskPage } from "./TaskPages";
-import { filesApi } from "../../utils/api/files.api";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { ApiError } from "../../utils/api/request";
 import { AssessmentPanel } from "../../components/Workspace/AssessmentPanel";
@@ -129,33 +128,6 @@ it("A-TSK-5: a public status conflict rereads the task before an explicit retry"
   await choose();expect(page!.container.querySelector('[role="alert"]')?.textContent).toContain("Запись изменилась");await choose();expect(status).toHaveBeenLastCalledWith(task.task_id,{expected_revision:2,status:"in_progress"});expect(accounting).not.toHaveBeenCalled();
 });
 
-it("A-TSK-12: replacing a submission draft with the saved values empties its text and files", async () => {
-  await taskPage("organizer");
-  const command = vi.spyOn(tasksApi, "submitResult").mockRejectedValueOnce(new ApiError("Changed", 409, "revision_conflict")).mockImplementation(async () => { mock!.state.tasks[0].status = "completed";mock!.state.tasks[0].revision++;return structuredClone(mock!.state.tasks[0]); });
-  vi.spyOn(filesApi, "upload").mockResolvedValue({ file_id: "file-result", name: "result.pdf", mime_type: "application/pdf", size_bytes: 10 });
-  await clickButton(page!.container, "Сдать результат");
-  const result = () => page!.container.querySelector<HTMLFormElement>("dialog form")!;
-  const draft = () => result().closest("dialog")!;
-  const input = draft().querySelector<HTMLInputElement>('input[type="file"]')!;
-  Object.defineProperty(input, "files", { value: [new File(["%PDF-1.7"], "result.pdf", { type: "application/pdf" })] });
-  await act(async () => input.dispatchEvent(new Event("change", { bubbles: true }))); await settle();
-  expect(draft().textContent).toContain("result.pdf");
-  await change(field(result(), "body"), "Мой результат");
-  await change(field(result(), "links"), "https://example.org/result");
-  mock!.state.tasks[0].revision++;
-  await submit(result());
-  await clickButton(result(), "Обновить данные");
-  expect(field(result(), "body").value).toBe("Мой результат");
-  expect(draft().textContent).toContain("result.pdf");
-  await clickButton(result(), "Заменить мой ввод сохранёнными значениями");
-  expect(field(result(), "body").value).toBe("");
-  expect(field(result(), "links").value).toBe("");
-  expect(draft().textContent).not.toContain("result.pdf");
-  expect(result().textContent).not.toContain("Запись изменилась на сервере");
-  await change(field(result(), "body"), "Новый результат");
-  await submit(result());
-  expect(command).toHaveBeenLastCalledWith(mock!.state.tasks[0].task_id, expect.objectContaining({ expected_revision: 2, file_ids: [], links: [] }));
-});
 
 
 it("private cancellation governs evaluation controls even when the public status differs, and drops a stale evaluation", async () => {

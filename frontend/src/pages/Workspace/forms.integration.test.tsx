@@ -13,6 +13,7 @@ import { membershipApi } from "../../utils/api/membership.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { sessionApi } from "../../utils/api/session.api";
 import { tasksApi } from "../../utils/api/tasks.api";
+import { submitTaskResult } from "../../test/taskResults";
 import { emptyCriteria, richText, type Session } from "../../utils/api/contract";
 import { accessFingerprint } from "../../utils/session";
 import { UserProvider } from "../../utils/ctx";
@@ -85,7 +86,6 @@ async function subeventTask(people: { user_id: number }[], title: string) {
   return { season, event, sub, task };
 }
 const taskPage = (id: string, live = false) => mount(`/tasks/${id}`, "/tasks/:id", <TaskPage />, live);
-const pdf = (name: string) => new File([new TextEncoder().encode("%PDF-1.7 synthetic result\n")], name, { type: "application/pdf" });
 
 it("2.12 A-FE-1: a comment draft survives a grant elsewhere; a removal still hides the task", async () => {
   const org = await liveParticipant("fe1-org");
@@ -193,7 +193,7 @@ it("2.12 A-FE-2: two rows of one summary save one after another without a confli
   const people = [await liveParticipant("summary-a"), await liveParticipant("summary-b")];
   const { season, task } = await subeventTask(people, "Задача для сводной");
   await liveLogin(people[0].email);
-  await tasksApi.submitResult(task.task_id, { expected_revision: task.revision, text: richText("Общий результат"), links: [], file_ids: [] });
+  await submitTaskResult(task.task_id, { expected_revision: task.revision, text: richText("Общий результат"), links: [], file_ids: [] });
   await liveLogin();
   const submitted = await tasksApi.get(task.task_id);
   await tasksApi.changeStatus(task.task_id, { expected_revision: submitted.revision, status: "closed" });  // KKR after the author's closure (SE-12)
@@ -226,63 +226,6 @@ it("2.12 A-TSK-5: a public status conflict refreshes its counter without changin
  await choose();expect((await tasksApi.get(task.task_id)).status).toBe("completed");
  const after=(await chair.get(`/assignments/${task.assignments[0].assignment_id}/assessment-inputs`)).data;
  expect([after.hours,after.evaluation,after.effective_completed_at,after.workflow_status,after.workflow_revision]).toEqual([before.hours,before.evaluation,before.effective_completed_at,before.workflow_status,before.workflow_revision]);
-});
-
-it("2.12 A-TSK-12: a submission replaced after a conflict leaves with no text and no files", async () => {
-  const org = await liveParticipant("submit");
-  const { task } = await subeventTask([org], "Задача со сдачей");
-  const second = await actorClient(org.email);
-  await liveLogin(org.email);
-  await taskPage(task.task_id);
-  await until(() => [...page!.container.querySelectorAll("button")].some(button => button.textContent === "Сдать результат"));
-  await click(page!.container, "Сдать результат");
-  const draft = () => page!.container.querySelector("dialog");
-  const result = () => draft()?.querySelector("form");
-  await until(() => !!result());
-  const input = draft()!.querySelector<HTMLInputElement>('input[type="file"]')!;
-  Object.defineProperty(input, "files", { value: [pdf("result.pdf")] });
-  await act(async () => { input.dispatchEvent(new Event("change", { bubbles: true })); });
-  await until(() => !!draft()?.textContent?.includes("result.pdf"));
-  await change(field(result()!, "body"), "Мой результат");
-  await second.post(`/tasks/${task.task_id}/status`, { expected_revision: task.revision, status: "in_progress" });
-  await submit(result()!);
-  await until(() => !!result()?.textContent?.includes("Обновить данные"));
-  await click(result()!, "Обновить данные");
-  const compared = result()!.querySelector('[role="status"] details')!;
-  expect(compared.querySelectorAll("dd").length).toBeGreaterThan(0);
-  expect(compared.textContent).toContain("В работе");
-  await click(result()!, "Заменить мой ввод сохранёнными значениями");
-  expect(field(result()!, "body").value).toBe("");
-  expect(draft()!.textContent).not.toContain("result.pdf");
-  await change(field(result()!, "body"), "Результат без файла");
-  await submit(result()!);
-  await until(() => !result());
-  const last = (await tasksApi.get(task.task_id)).submissions!.at(-1)!;
-  expect([last.text.body, last.files]).toEqual(["Результат без файла", []]);
-});
-
-it("2.12 EDITORS-05 (decision 32): hours changed by the lead do not stop the assignee's submission", async () => {
-  const org = await liveParticipant("hours");
-  const { task } = await subeventTask([org], "Задача с часами");
-  const own = task.assignments[0];
-  const chair = await actorClient("chair@example.com");
-  await liveLogin(org.email);
-  await taskPage(task.task_id);
-  await until(() => [...page!.container.querySelectorAll("button")].some(button => button.textContent === "Сдать результат"));
-  await click(page!.container, "Сдать результат");
-  const result = () => page!.container.querySelector<HTMLFormElement>("dialog form");
-  await until(() => !!result());
-  await change(field(result()!, "body"), "Результат после смены часов");
-  const inputs = (await chair.get(`/assignments/${own.assignment_id}/assessment-inputs`)).data;
-  // The single-assignment PATCH waits for the task's closure (SE-12); bulk hours move the same inputs revision.
-  await chair.post("/assessment-inputs/bulk-hours", { items: [{ assignment_id: own.assignment_id, expected_revision: inputs.revision }], hours: 5, reason: "Больше работы" });
-  await act(async () => { await page!.client.invalidateQueries(); });
-  await waitForPage(page!);
-  expect(result()!.textContent).not.toContain("Запись изменилась на сервере");
-  await submit(result()!);
-  await until(() => !result());
-  expect((await tasksApi.get(task.task_id)).assignments[0].status).toBe("submitted");
-  expect((await chair.get(`/assignments/${own.assignment_id}/assessment-inputs`)).data.hours).toBe(5);
 });
 
 it("2.12 A-TSK-6: a comment resets and an explicit child canvas creates once before returning to its reader", async () => {

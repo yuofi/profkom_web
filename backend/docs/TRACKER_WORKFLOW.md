@@ -26,6 +26,12 @@ working status never acknowledges or overwrites private accounting.
 watcher role and sets `in_progress`. A direct status choice never self-assigns.
 Repeated satisfied commands are idempotent; stale revisions roll back.
 
+The site calls neither `take` nor `submit-result` (owner 2026-11-08, В6): there are no
+«Взять в работу» and «Сдать результат» buttons, support tickets included. A result is
+written in a comment; the task's «Результаты работы» section shows only results already
+submitted. Both endpoints and the `take_task`/`submit_task_result` capabilities remain
+for earlier clients and tests.
+
 A reader and an assignee have the same base public rights: read, change ordinary
 working status, submit a result, toggle checkmarks, edit any comment, self-join/watch.
 These roles alone do not authorize description, type, priority, planning or

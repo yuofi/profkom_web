@@ -93,7 +93,9 @@ describe("Rendered authorization with a deliberately stale private cache", () =>
       "/tasks/task-1",
       "/tasks/:id",
     );
-    expect(html).toContain("Сдать результат");
+    // The public status chip renders; there is no «Сдать результат» any more (owner 2026-11-08, В6).
+    expect(html).toContain("Статус задачи:");
+    expect(html).not.toContain("Сдать результат");
     expect(html).not.toContain("Исходные поля оценивания");
     expect(html).not.toContain("Установить часы");
     expect(html).not.toContain("Даты и признаки");
