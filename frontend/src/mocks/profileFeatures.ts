@@ -92,13 +92,13 @@ export function profileFeatureMock(state: Fixtures, taskHistory?: () => Map<stri
     if (path === "/kkr-templates") {
       if (method === "get") return [200, { items: copy(templates) }];
       if (!context.can_create_personal_template) return fail(403, "forbidden");
-      const row: KkrTemplate = { template_id: `fixture-template-${++counter}`, visibility: data.visibility as KkrTemplate["visibility"], values: copy(data.values as TemplateValues), scope: scopes.find(scope => scope.kind === data.scope_kind && scope.id === data.scope_id) ?? null, revision: 1, archived: false };
+      const row: KkrTemplate = { template_id: `fixture-template-${++counter}`, visibility: data.visibility as KkrTemplate["visibility"], values: copy(data.values as TemplateValues), scope: scopes.find(scope => scope.kind === data.scope_kind && scope.id === data.scope_id) ?? null, revision: 1, archived: false, author: copy(state.user), updated_by: copy(state.user) };
       templates.push(row);return [200, copy(row)];
     }
     if (parts[0] === "kkr-templates") {
       const row = templates.find(row => row.template_id === parts[1]);if (!row) return fail(404, "not_found");if (data.expected_revision !== row.revision) return fail(409, "revision_conflict");
       if (parts[2] === "prepare") return row.archived ? fail(409, "template_archived") : [200, { selection: { template_id: row.template_id, revision: row.revision }, values: copy(row.values) }];
-      row.values = copy(data.values as TemplateValues);row.archived = data.archived === true;row.revision++;return [200, copy(row)];
+      row.values = copy(data.values as TemplateValues);row.archived = data.archived === true;row.revision++;row.updated_by = copy(state.user);return [200, copy(row)];
     }
     return undefined;
   };

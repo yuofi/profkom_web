@@ -30,7 +30,8 @@ export type AvatarSelection = { preset_id: string } | { file_id: string };
 export interface ProfileEditorData { revision: number; fingerprint: string; contact: ContactInfoOut }
 export interface TemplateValues { title: string; description: string; hours: number; evaluation: -1 | 0 | 1 | 1.5; criteria: Criteria }
 export interface TemplateSelection { template_id: string; revision: number }
-export interface KkrTemplate { template_id: string; visibility: "personal" | "team"; scope: FeatureScope | null; values: TemplateValues; revision: number; archived: boolean }
+/** `author` made the template, `updated_by` saved its current revision; «Бывший участник» for a removed account. */
+export interface KkrTemplate { template_id: string; visibility: "personal" | "team"; scope: FeatureScope | null; values: TemplateValues; revision: number; archived: boolean; author: UserRef; updated_by: UserRef }
 export interface TemplateCreate { visibility: "personal" | "team"; scope_kind?: FeatureScope["kind"]; scope_id?: string | null; values: TemplateValues }
 export const profileFeaturesApi = {
   context: () => request<FeaturesContext>("get", "/profile/me/features-context"),

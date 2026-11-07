@@ -12,6 +12,7 @@ import { useGuardedAction } from "./unsavedChangesHooks";
 import { EntityPicker } from "./EntityPicker";
 import { text, number, type Values } from "./formValues";
 import { Card, Empty, QueryState } from "./WorkspaceUI";
+import { UserChip } from "./UserChip";
 import { evaluationOptions } from "../../utils/evaluations";
 import { criteriaFromValues, criteriaKeys, criteriaLabels } from "../../utils/kkrCriteria";
 import s from "./ProfileFeatures.module.css";
@@ -71,11 +72,17 @@ function LibraryEditor({ templates, context, initialValues }: { templates: KkrTe
     {created && <p role="status" className={w.success}>Шаблон создан: {created}</p>}
     {editing && <section className={s.templateEditor} aria-label={template ? "Изменение шаблона ККР" : "Новый шаблон ККР"}><div className={s.templateEditorHeader}><h3>{template ? "Изменение шаблона" : "Новый шаблон ККР"}</h3><button type="button" className={w.button} onClick={() => leave(() => setEditing(null))}>Закрыть</button></div>{editor}</section>}
     {!templates.length && !editing && <Empty>Пока нет доступных шаблонов.</Empty>}
-    {templates.map(row => <div className={s.badge} key={row.template_id}><strong>{row.values.title}</strong><span>{row.visibility === "personal" ? "Личный" : row.scope?.name} · {row.archived ? "В архиве" : `${row.values.hours} ч · оценка ${row.values.evaluation}`}</span><div className={w.row}>
+    {templates.map(row => <div className={s.badge} key={row.template_id}><strong>{row.values.title}</strong><span>{row.visibility === "personal" ? "Личный" : row.scope?.name} · {row.archived ? "В архиве" : `${row.values.hours} ч · оценка ${row.values.evaluation}`}</span><Authorship template={row} /><div className={w.row}>
       <button type="button" className={w.button} onClick={() => choose({ template: row, values: row.values })}>Изменить шаблон</button>
       {context.can_create_personal_template && <button type="button" className={w.button} onClick={() => choose({ values: { ...row.values, title: `${row.values.title} · копия` } })}>Копировать</button>}
     </div></div>)}
   </div>;
+}
+
+/** Who made the template and who saved it last (B2, owner 2026-11-08); no creation date. */
+function Authorship({ template }: { template: KkrTemplate }) {
+  return <p className={s.authorship}><span>Автор</span><UserChip user={template.author} />
+    {template.revision > 1 && <><span>Изменил(а)</span><UserChip user={template.updated_by} /></>}</p>;
 }
 
 /** Copies only template fields into this Formik draft. Never submits an assessment. */

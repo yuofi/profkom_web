@@ -13,6 +13,7 @@ afterEach(async () => { await page?.cleanup();page = undefined;mock?.restore();m
 const context: FeaturesContext = { award_scopes: [], award_icons: [], can_create_personal_template: true, template_scopes: [
   { kind: "subevent", id: "sub-1", name: "Секция 1" }, { kind: "block", id: "block-it", name: "IT" }, { kind: "event", id: "event-1", name: "День математика" },
 ] };
+const author = { user_id: 101, display_name: "Анна Смирнова", avatar_url: null }, editor = { user_id: 102, display_name: "Борис Петров", avatar_url: null };
 const button = (name: string) => [...page!.container.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === name)!;
 
 it("closes the editor with a status after creating a template instead of a false version conflict", async () => {
@@ -21,7 +22,7 @@ it("closes the editor with a status after creating a template instead of a false
   vi.spyOn(profileFeaturesApi, "templates").mockImplementation(async () => ({ items: structuredClone(items) }));
   vi.spyOn(profileFeaturesApi, "context").mockResolvedValue(context);
   const create = vi.spyOn(profileFeaturesApi, "createTemplate").mockImplementation(async data => {
-    const saved: KkrTemplate = { template_id: "new", visibility: "personal", scope: null, revision: 1, archived: false, values: data.values };items.push(saved);return saved;
+    const saved: KkrTemplate = { template_id: "new", visibility: "personal", scope: null, revision: 1, archived: false, values: data.values, author, updated_by: author };items.push(saved);return saved;
   });
   page = await mountWorkspace(<KkrTemplateLibrary embedded />);await waitForPage(page);
   expect(page.container.textContent).toContain("Пока нет доступных шаблонов.");
@@ -54,7 +55,7 @@ it("offers team scopes in a searchable picker, blocks first, each named with its
 
 it("keeps template values the user typed when a template stays open after an edit", async () => {
   mock = installMockTransport("chair", { delay: 0 });
-  const row: KkrTemplate = { template_id: "saved", visibility: "personal", scope: null, revision: 3, archived: false, values: { title: "Точная оценка", description: "Текст", hours: 7, evaluation: 1.5, criteria: emptyCriteria() } };
+  const row: KkrTemplate = { template_id: "saved", visibility: "personal", scope: null, revision: 3, archived: false, values: { title: "Точная оценка", description: "Текст", hours: 7, evaluation: 1.5, criteria: emptyCriteria() }, author, updated_by: author };
   vi.spyOn(profileFeaturesApi, "templates").mockResolvedValue({ items: [row] });
   vi.spyOn(profileFeaturesApi, "context").mockResolvedValue(context);
   vi.spyOn(profileFeaturesApi, "updateTemplate").mockImplementation(async (template, values) => ({ ...template, revision: template.revision + 1, values }));
@@ -63,4 +64,20 @@ it("keeps template values the user typed when a template stays open after an edi
   await change(field(page.container, "hours"), "8");await submit(page.container.querySelector("form")!);await waitForPage(page);
   expect(page.container.querySelector('section[aria-label="Изменение шаблона ККР"] form')).not.toBeNull();
   expect(page.container.textContent).not.toContain("Запись изменилась на сервере");
+});
+
+it("names the author of each template and, once it was changed, who saved it last; no creation date", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const values = { title: "Дежурство", description: "", hours: 2, evaluation: 1 as const, criteria: emptyCriteria() };
+  vi.spyOn(profileFeaturesApi, "templates").mockResolvedValue({ items: [
+    { template_id: "fresh", visibility: "personal", scope: null, revision: 1, archived: false, values, author, updated_by: author },
+    { template_id: "edited", visibility: "personal", scope: null, revision: 4, archived: false, values: { ...values, title: "Встреча" }, author, updated_by: editor },
+  ] });
+  vi.spyOn(profileFeaturesApi, "context").mockResolvedValue(context);
+  page = await mountWorkspace(<KkrTemplateLibrary embedded />);await waitForPage(page);
+  const card = (title: string) => [...page!.container.querySelectorAll("strong")].find(node => node.textContent === title)!.parentElement!;
+  expect(card("Дежурство").textContent).toContain("Автор");expect(card("Дежурство").textContent).toContain("Анна Смирнова");
+  expect(card("Дежурство").textContent).not.toContain("Изменил(а)");
+  expect(card("Встреча").textContent).toContain("Изменил(а)");expect(card("Встреча").textContent).toContain("Борис Петров");
+  expect(page.container.textContent).not.toMatch(/Создан/);
 });
