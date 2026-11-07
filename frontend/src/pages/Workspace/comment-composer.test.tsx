@@ -12,7 +12,7 @@ import { MarkdownContent } from "../../components/Workspace/MarkdownContent";
 import { createFixtures, people } from "../../mocks/fixtures";
 import { taskCollaborationApi } from "../../utils/api/taskCollaboration.api";
 import { richText } from "../../utils/api/contract";
-import { mountWorkspace, waitForPage, change, settle, submit } from "../../test/workspace";
+import { mountWorkspace, waitForPage, change, settle, submit, commentAction } from "../../test/workspace";
 import { wireIssues } from "../../test/wireContract";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
@@ -108,7 +108,7 @@ it('deleting an inserted link clears pending recipients while manually typed lin
 });
 it('editing an existing mentioned comment never re-sends its previous recipients',async()=>{
   const {comment}=await mountDraftTask(true),save=vi.spyOn(tasksApi,'editComment').mockResolvedValue(comment);
-  await act(async()=>[...page!.container.querySelectorAll<HTMLButtonElement>('article button')].find(button=>button.textContent==='Редактировать')!.click());
+  await commentAction(page!.container.querySelector('article')!,'Редактировать');
   const frame=page!.container.querySelector('article [data-markdown-editor="comment"]')!,body=comment.content.body+' Исправление текста';await change(frame.querySelector('textarea')!,body);await submit(frame.closest('form')!);await waitForPage(page!,()=>save.mock.calls.length===1);
   expect(save).toHaveBeenCalledWith(comment.comment_id,richText(body),[],[]);
 });

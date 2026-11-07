@@ -84,6 +84,9 @@
 .comment header,.submission header { display: flex; gap: 8px 14px; align-items: center; flex-wrap: wrap; }
 .comment header time,.submission header time { color: var(--on-surface); opacity: .5; font-size: 12px; }
 .comment header button { margin-left: auto; }
+/* Deleting a comment asks once more, framed like hiding a history version. */
+.commentConfirm { display: grid; gap: 10px; border: 1px solid var(--error); padding: 12px; border-radius: 12px; }
+.commentConfirm p { margin: 0; font-size: 14px; line-height: 1.5; }
 .attachmentSections { display: grid; gap: 24px; min-width: 0; }
 .attachmentSections > section { display: grid; gap: 12px; min-width: 0; }
 .attachmentSections h3 { font-size: 15px; margin: 0; }

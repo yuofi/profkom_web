@@ -678,7 +678,7 @@ export function createFixtures(role: MockRole = "organizer") {
       content: richText("Если нужна помощь, напишите в комментариях."),
       created_at: mockNow,
       updated_at: null,
-      capabilities: userId === 102 || userId === 101 ? ["edit_comment"] : [],
+      capabilities: userId === 102 || userId === 101 ? ["edit_comment", "toggle_comment_checklist", "delete_comment"] : [],
     },
   ];
   return {

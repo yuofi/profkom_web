@@ -4,7 +4,7 @@ import { act } from "react";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { createFixtures, people } from "../../mocks/fixtures";
-import { mountWorkspace, waitForPage, settle, change, submit } from "../../test/workspace";
+import { mountWorkspace, waitForPage, settle, change, submit, commentAction } from "../../test/workspace";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { filesApi } from "../../utils/api/files.api";
@@ -605,7 +605,7 @@ it("uses edit_comment capability for shared comments without requiring the origi
   const task = makeTask({ capabilities: ["read_task", "edit_task_description"] });
   const comment: Comment = { comment_id: "shared-comment", attachments: [], task_id: task.task_id, author: people[1], content: richText("Общий комментарий"), created_at: "2026-10-27T10:00:00Z", updated_at: null, capabilities: ["edit_comment"] };
   const edit = vi.spyOn(tasksApi, "editComment").mockResolvedValue({ ...comment, content: richText("Правка исполнителя") });
-  await mountTask(task, [comment]);const article = page!.container.querySelector("article")!;await click("Редактировать", article);
+  await mountTask(task, [comment]);const article = page!.container.querySelector("article")!;await commentAction(article, "Редактировать");
   await change(article.querySelector<HTMLTextAreaElement>("textarea")!, "Правка исполнителя");await submit(article.querySelector("form")!);await waitForPage(page!);
   expect(edit).toHaveBeenCalledWith(comment.comment_id, richText("Правка исполнителя"), [], []);
 });

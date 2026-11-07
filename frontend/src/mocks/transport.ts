@@ -24,6 +24,7 @@ import {
   type TaskLinkKind,
   type TrackerTaskRef,
   type TaskMentionRequest,
+  type Comment,
   type Report,
   type ReportSeries,
   type ReportVersion,
@@ -115,13 +116,14 @@ export function installMockTransport(
     string,
     FileRef & { complete: boolean; uploaded: boolean; owner_kind?: string; owner_id?: string; purpose?: string; uploaded_by_user_id?: number }
   >();
+  const deletedComments: Comment[] = [];
   const commentFiles=(ids:unknown,taskId:string,previous:FileRef[]=[]):FileRef[]|null=>{
     if(!Array.isArray(ids)||ids.length>100||new Set(ids).size!==ids.length)return null;
     const result:FileRef[]=[];
     for(const id of ids){
       if(typeof id!=="string")return null;
       const kept=previous.find(file=>file.file_id===id);if(kept){result.push(clone(kept));continue;}
-      const file=files.get(id);if(!file?.complete||file.owner_kind!=="task"||file.owner_id!==taskId||file.purpose!=="comment"||file.uploaded_by_user_id!==state.session.user_id)return null;
+      const file=files.get(id);if(!file?.complete||file.owner_kind!=="task"||file.owner_id!==taskId||file.purpose!=="comment"||file.uploaded_by_user_id!==state.session.user_id||deletedComments.some(comment=>comment.attachments.some(item=>item.file_id===id)))return null;
       result.push({file_id:file.file_id,name:file.name,mime_type:file.mime_type,size_bytes:file.size_bytes});
     }
     return result;
@@ -1512,7 +1514,7 @@ export function installMockTransport(
           content: publicSubmission(data.content),
           created_at: mockNow,
           updated_at: null,
-          capabilities: ["edit_comment"],
+          capabilities: ["edit_comment", "toggle_comment_checklist", "delete_comment"],
           mentioned_users: commentMentions(publicSubmission(data.content).body),
         };
         const mentions=(data.mentioned_user_ids??[]) as number[];
@@ -1764,9 +1766,32 @@ export function installMockTransport(
       return [200, { items: clone(changedItems) }];
     }
     if (parts[0] === "comments") {
+      const removed = deletedComments.find(c => c.comment_id === parts[1]), removedTask = removed && state.tasks.find(t => t.task_id === removed.task_id);
+      if (removed && removedTask && readsTask(removedTask)) return method === "delete" ? [204, null] : fail(404, "comment_deleted", "Комментарий удалён");
       const comment = state.comments.find((c) => c.comment_id === parts[1]);
       const task = comment && state.tasks.find(t => t.task_id === comment.task_id);
-      if (!comment || !task || !readsTask(task)) return denied();
+      if (!comment || !task || !readsTask(task)) return fail(404, "not_found", "Комментарий недоступен");
+      if (method === "delete") {
+        // Like the server: no placeholder, files leave the task, pending mentions are cancelled.
+        state.comments = state.comments.filter(item => item.comment_id !== comment.comment_id);deletedComments.push(comment);
+        mentionRequests.filter(row => row.comment_id === comment.comment_id && row.status === "pending").forEach(row => { row.status = "cancelled";row.revision++;row.capabilities = []; });
+        rememberTask(task, "comment_deleted", "Комментарий удалён", undefined, undefined, [{ field: "comment", label: "Комментарий", before: comment.content.body, after: null }]);
+        return [204, null];
+      }
+      if (parts[2] === "checklist") {
+        // The offset counts UTF-16 code units; the body the reader saw guards a foreign change.
+        const before = comment.content.body, offset = data.offset, checked = data.checked;
+        if (typeof data.expected_body !== "string" || typeof offset !== "number" || typeof checked !== "boolean") return fail(422, "invalid_input", "Укажите отметку");
+        const marked = (body: string) => body.slice(0, offset) + (checked ? "x" : " ") + body.slice(offset + 1);
+        if (data.expected_body !== before) return before === marked(data.expected_body) ? [200, clone({ ...comment, mentioned_users: commentMentions(before) })] : fail(409, "comment_changed", "Комментарий изменился");
+        const prefix = before.slice(before.lastIndexOf("\n", offset - 1) + 1, offset);
+        if (!/^(?:[ \t]*>[ \t]?)*[ \t]*(?:(?:[-+*]|\d{1,9}[.)])[ \t]+)+\[$/.test(prefix) || !/[ xX]/.test(before[offset] ?? "") || before[offset + 1] !== "]") return fail(403, "checklist_only", "Только отметки чеклиста");
+        if ((before[offset] !== " ") === checked) return [200, clone({ ...comment, mentioned_users: commentMentions(before) })];
+        comment.content = richText(marked(before));
+        const label = comment.content.body.slice(offset + 2).split("\n")[0].trim() || "без текста";
+        rememberTask(task, "comment_checklist_toggled", checked ? `Отмечен пункт «${label}» в комментарии` : `Снята отметка с пункта «${label}» в комментарии`, undefined, undefined, [{ field: "comment", label: "Комментарий", before, after: comment.content.body }]);
+        return [200, clone({ ...comment, mentioned_users: commentMentions(comment.content.body) })];
+      }
       const attachments=data.file_ids===undefined?comment.attachments:commentFiles(data.file_ids,task.task_id,comment.attachments);
       if(!attachments)return fail(422,"invalid_input","Некорректные файлы комментария");
       if(!publicSubmission(data.content).body.trim()&&!attachments.length)return fail(422,"invalid_input","Добавьте текст или файл");
@@ -2309,7 +2334,8 @@ export function installMockTransport(
       if(file.owner_kind==="task"&&file.purpose==="comment") {
         const task=state.tasks.find(task=>task.task_id===file.owner_id);
         const bound=state.comments.some(comment=>comment.task_id===file.owner_id&&comment.attachments.some(item=>item.file_id===file.file_id));
-        if(!task||!readsTask(task)||(!bound&&file.uploaded_by_user_id!==state.session.user_id))return fail(404,"not_found","Файл не найден");
+        const withdrawn=!bound&&deletedComments.some(comment=>comment.attachments.some(item=>item.file_id===file.file_id));
+        if(!task||!readsTask(task)||withdrawn||(!bound&&file.uploaded_by_user_id!==state.session.user_id))return fail(404,"not_found","Файл не найден");
       }
       if (file.owner_kind === "block") {
         const block = state.blocks.find(block => block.block_id === file.owner_id);

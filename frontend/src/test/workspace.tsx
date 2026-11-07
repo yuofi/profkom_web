@@ -149,3 +149,14 @@ export function field(container: ParentNode, name: string) {
   if (!element) throw Error(`Missing field ${name}`);
   return element;
 }
+/** Opens the «⋯» menu of a comment (an `article`) and chooses one of its actions. */
+export async function commentAction(article: ParentNode, label: string) {
+  const trigger = article.querySelector<HTMLButtonElement>('header [aria-haspopup="menu"]');
+  if (!trigger) throw Error("Missing comment menu");
+  await act(async () => trigger.click());
+  const menu = document.getElementById(trigger.getAttribute("aria-controls") ?? "");
+  const item = [...(menu?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])].find(button => button.textContent?.trim() === label);
+  if (!item) throw Error(`Missing comment action ${label}`);
+  await act(async () => item.click());
+  await settle();
+}

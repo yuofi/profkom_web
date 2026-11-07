@@ -524,7 +524,8 @@ export interface TaskHistoryEvent {
 }
 export interface TaskMentionRequest {
   request_id:string;task_id:string;task_key:string|null;target:UserRef|null;requested_by:UserRef|null;
-  comment_id:string|null;status:"pending"|"approved"|"rejected";created_at:string;revision:number;capabilities:string[];
+  /** "cancelled": its comment was deleted before a decision. */
+  comment_id:string|null;status:"pending"|"approved"|"rejected"|"cancelled";created_at:string;revision:number;capabilities:string[];
 }
 /** A person offered by GET /tasks/{id}/mention-candidates. */
 export interface TaskCandidate extends UserRef {
