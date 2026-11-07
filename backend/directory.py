@@ -207,7 +207,8 @@ def contacts(q=None, group_number=None, blocks=None, in_profcom=None, budget=Non
     rows = db.list_contacts() if user_id is None else [c for c in [db.get_contact(user_id)] if c]
     for c in rows:
         u = db.get_user(c.user_id)
-        if not u or u.account_state != "active" or u.banned:
+        # list_contacts already filters the service account (service_account.visible); one target too.
+        if not u or u.account_state != "active" or u.banned or u.is_service:
             continue
         if group_number is not None and c.group_number != str(group_number):
             continue

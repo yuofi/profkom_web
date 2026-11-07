@@ -197,6 +197,8 @@ def register_routes(router):
 
     @router.patch("/registrations/me", response_model=ApplicationOut)
     def update(payload: Update, cur: User = Depends(get_current_user)):
+        if cur.is_service:
+            fail(409, "Use your contact profile")  # like an approved account; no application row
         with db._session() as s:
             r = ensure_application(s, cur.user_id)
             version(r, payload.expected_revision)
@@ -229,6 +231,8 @@ def register_routes(router):
 
     @router.post("/registrations/me/resubmit", response_model=ApplicationOut)
     def resubmit(payload: Revision, cur: User = Depends(get_current_user)):
+        if cur.is_service:
+            fail(409, "Only rejected registrations can be resubmitted")
         with db._session() as s:
             r = ensure_application(s, cur.user_id)
             version(r, payload.expected_revision)
@@ -275,8 +279,9 @@ def register_routes(router):
         if not access.allowed(cur.user_id, "registration.review"):
             fail(403, "Registration review required")
         order = {"pending": 0, "rejected": 1, "approved": 2}
+        from service_account import visible
         with db._session() as s:
-            rows = s.query(RegistrationORM)
+            rows = s.query(RegistrationORM).filter(visible(RegistrationORM.user_id))
             if status:
                 rows = rows.filter(RegistrationORM.status == status)
             rows = sorted(rows, key=lambda r: (order.get(r.status, 3), r.user_id))
@@ -293,6 +298,9 @@ def register_routes(router):
         if not access.allowed(cur.user_id, "registration.review"):
             fail(403, "Registration review required")
         with db._session() as s:
+            from service_account import refused
+            if refused(s, user_id):
+                fail(404, "Registration not found")
             r = ensure_application(s, user_id)
             version(r, payload.expected_revision)
             reason = (payload.reason or "").strip()

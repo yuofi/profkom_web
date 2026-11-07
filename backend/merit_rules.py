@@ -99,7 +99,9 @@ def validate(s, data):
     recipients = data["recipients"]
     if not recipients or len({r["user_id"] for r in recipients}) != len(recipients):
         raise InvalidInput("Recipients must be nonempty and unique", "duplicate_users")
+    from service_account import refuse
     for r in recipients:
+        refuse(s, r["user_id"])  # never a recipient (owner, 2026-11-08)
         u = s.get(UserORM, r["user_id"])
         if not u or u.account_state != "active" or u.banned:
             raise InvalidInput("Recipient must be active and approved", "inactive_user")

@@ -9,6 +9,7 @@ from pydantic import BaseModel
 import access
 from auth import get_current_user
 from database import db, UserORM, LeadershipORM
+from service_account import visible
 from domain_models import CategoryRevisionORM
 from errors import InvalidInput
 from models import User
@@ -66,7 +67,8 @@ def categories(session, user_ids, actor_id):
     caps = target_capabilities(session, actor_id)
     rows = session.query(UserORM.user_id, UserORM.category, CategoryRevisionORM.revision).outerjoin(
         CategoryRevisionORM, CategoryRevisionORM.user_id == UserORM.user_id
-    ).filter(UserORM.user_id.in_(user_ids), UserORM.account_state == "active", UserORM.banned == False).order_by(UserORM.user_id)  # noqa: E712
+    ).filter(UserORM.user_id.in_(user_ids), UserORM.account_state == "active", UserORM.banned == False,  # noqa: E712
+             visible()).order_by(UserORM.user_id)
     return dict(items=[dict(user_id=uid, category=category, revision=revision if revision is not None else 1,
                            capabilities=caps(uid)) for uid, category, revision in rows])
 

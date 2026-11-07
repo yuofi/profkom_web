@@ -17,9 +17,10 @@ def seed_observed_participation(at=None):
             stamp = at or now()
             memberships = {}
             intervals = {}
+            from service_account import visible
             for user in s.query(UserORM).filter_by(
                 account_state="active", banned=False
-            ):
+            ).filter(visible()):
                 if (
                     not s.query(ParticipationORM)
                     .filter_by(user_id=user.user_id, ended_at=None)

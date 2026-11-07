@@ -4,6 +4,7 @@ connected, through the bot's queue (profile_features.collect_delivery_event, BOT
 import json, uuid
 from database import db, UserORM, NotificationORM, AssignmentORM
 from registration import now
+from service_account import visible
 
 
 def _chunks(values, size=500):
@@ -14,14 +15,15 @@ def recipients_among(session, candidates, decide):
     """Users passing ``decide``, listed as a scan of every user lists them.
 
     ``candidates`` (a superset such as access.holders) only bounds the scan; the
-    existing ACL ``decide`` still makes every decision. None scans every user.
+    existing ACL ``decide`` still makes every decision. None scans every user. The
+    service account, which passes every ACL, is never among them (owner, 2026-11-08).
     """
     if candidates is None:
-        return [u.user_id for u in session.query(UserORM) if decide(u.user_id)]
+        return [u.user_id for u in session.query(UserORM).filter(visible()) if decide(u.user_id)]
     ids = sorted(uid for uid in candidates if isinstance(uid, int))
     present = set()
     for batch in _chunks(ids):
-        present.update(u.user_id for u in session.query(UserORM).filter(UserORM.user_id.in_(batch)))
+        present.update(u.user_id for u in session.query(UserORM).filter(UserORM.user_id.in_(batch), visible()))
     return [uid for uid in ids if uid in present and decide(uid)]
 
 
@@ -73,7 +75,7 @@ def emit(session, recipients, kind, payload, event_key, actor=None):
 
 
 def emit_everyone(session, kind, payload, event_key, actor=None):
-    """emit to every active account (not archived, not banned) but the actor, in two
+    """emit to every active account (not archived, not banned, not the service account) but the actor, in two
     statements however many there are: one SELECT of the accounts without this event yet and
     one INSERT (executemany), no ORM rows. For kinds without a delivery category only (the
     stage 4 broadcast): they have no outbox row. Returns how many were notified."""
@@ -81,7 +83,7 @@ def emit_everyone(session, kind, payload, event_key, actor=None):
     from sqlalchemy import exists, insert, select
     assert delivery_category(kind) is None, kind
     ids = session.execute(select(UserORM.user_id).where(
-        UserORM.account_state == "active", UserORM.banned == False,  # noqa: E712
+        UserORM.account_state == "active", UserORM.banned == False, visible(),  # noqa: E712
         UserORM.user_id != (actor if isinstance(actor, int) else -1),
         ~exists().where(NotificationORM.user_id == UserORM.user_id, NotificationORM.event_key == event_key),
     ).order_by(UserORM.user_id)).scalars().all()

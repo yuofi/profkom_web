@@ -20,7 +20,8 @@ def migrate_core():
                 "unknown_participation_dates": [],
                 "incomplete_user_ids": [],
             }
-            for u in s.query(UserORM):
+            from service_account import visible
+            for u in s.query(UserORM).filter(visible()):
                 c = s.get(ContactInfoORM, u.user_id)
                 if not c:
                     # A row without contacts is not a participant (A-DIR-16, decision 35).

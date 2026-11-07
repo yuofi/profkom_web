@@ -193,7 +193,8 @@ def analytics(season_id, uid, participant_id=None, block_id=None):
         if season_id not in by_id:
             raise NotFound("Season not found")
         block_ids, block_names = _block_maps(session)
-        users = session.query(UserORM).options(joinedload(UserORM.contact)).all()
+        from service_account import visible
+        users = session.query(UserORM).options(joinedload(UserORM.contact)).filter(visible()).all()
         anonymous = {row.user_id: row.anonymous_participant_id for row in session.query(AccountArchiveORM) if row.purged_at}
         participant_ids = {row.user_id: anonymous.get(row.user_id) or "participant-" + str(row.user_id) for row in users}
         refs = {participant_ids[row.user_id]: asdict(_user_to_ref_dc(row)) for row in users}

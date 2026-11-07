@@ -565,7 +565,8 @@ def public_participation(uid, actor):
             user = session.get(UserORM, target)
             registration = session.get(RegistrationORM, target)
             if (not user or user.banned or user.account_state != "active"
-                    or registration is not None and registration.status != "approved"):
+                    or registration is not None and registration.status != "approved"
+                    or target == uid and user.is_service):
                 fail(refusal, "Participant not available")
         data = participation(uid)
         block_roles = {"member", "master", "deputy_master"}
@@ -683,6 +684,8 @@ def register_routes(router):
 
     @router.post("/block-requests", response_model=RequestOut)
     def join(payload: Join, cur: User = Depends(get_current_user)):
+        if cur.is_service:
+            fail(403, "The service account is a member of no block")  # owner, 2026-11-08
         with db._session() as s:
             name = legacy_name(payload.block_id)
             bid = meta_for(s, name).block_id
@@ -867,7 +870,7 @@ def register_routes(router):
     def category(user_id: int, cur: User = Depends(get_current_user)):
         with db._session() as s:
             u = s.get(UserORM, user_id)
-            if not u or u.account_state != "active" or u.banned:
+            if not u or u.account_state != "active" or u.banned or u.is_service:
                 fail(404, "Participant not found")
             r = s.get(CategoryRevisionORM, user_id)
             from category_projection import target_capabilities
@@ -888,7 +891,7 @@ def register_routes(router):
             fail(422, "Reason is required")
         with db._session() as s:
             u = s.get(UserORM, user_id)
-            if not u or u.account_state != "active" or u.banned:
+            if not u or u.account_state != "active" or u.banned or u.is_service:
                 fail(404, "Participant not found")
             r = s.get(CategoryRevisionORM, user_id)
             if not r:

@@ -188,7 +188,7 @@ def _archive(uid, reason, actor):
         require_leadership_change(actor)
     with db._session() as s:
         u = s.get(UserORM, uid)
-        if not u:
+        if not u or u.is_service:  # removed only by its configuration (SERVICE_ACCOUNT.md)
             fail(404, "Account not found")
         if u.account_state == "purged":
             fail(409, "Account was permanently cleared")
@@ -549,7 +549,8 @@ def register_routes(router):
     def pgas_admins(cur: User = Depends(get_current_user)):
         require(cur.user_id, "pgas.grant", "Only the chair and deputies manage PGAS admins")
         with db._session() as s:
-            rows = s.query(UserORM).filter_by(pgas_admin=True).order_by(UserORM.user_id)
+            from service_account import visible
+            rows = s.query(UserORM).filter_by(pgas_admin=True).filter(visible()).order_by(UserORM.user_id)
             return Page(items=[asdict(db._get_user_ref(s, u.user_id)) for u in rows])
 
     @router.put("/users/{user_id}/pgas-admin", response_model=PgasAdminOut)
@@ -558,7 +559,7 @@ def register_routes(router):
         require(cur.user_id, "pgas.grant", "Only the chair and deputies manage PGAS admins")
         with db._session() as s:
             u = s.get(UserORM, user_id)
-            if not u or (payload.pgas_admin and u.account_state != "active"):
+            if not u or u.is_service or (payload.pgas_admin and u.account_state != "active"):
                 fail(404, "Active user not found")
             if u.pgas_admin != payload.pgas_admin:
                 audit(s, "user", user_id, cur.user_id, "pgas_admin",
@@ -587,7 +588,8 @@ def register_routes(router):
             recheck_current_user(cur, working=True)
             permitted()
             u, c = s.get(UserORM, user_id), s.get(ContactInfoORM, user_id)
-            if not u or u.account_state == "archived" or not c:
+            # The service account's password lives in the server configuration only.
+            if not u or u.account_state == "archived" or not c or u.is_service:
                 fail(404, "Account not found")
             audit(s, "user", user_id, cur.user_id, "temporary_password",
                   {"has_password": bool(u.hashed_password)}, {"must_change_password": True})

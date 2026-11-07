@@ -32,6 +32,7 @@ from bot_api import BATCH_SIZE, DISABLED, TEXT_LIMIT, require
 from bot_link import SENDABLE, iso, stamp, utcnow
 from bot_models import BotLinkORM, BotStatusORM, BroadcastBatchORM, BroadcastORM, BroadcastRecipientORM
 from database import UserORM, _user_ref_with_avatar, db
+from service_account import visible
 from domain_contract import UserReference
 from errors import Conflict, InvalidInput, NotFound
 from models import User
@@ -116,7 +117,7 @@ def audience():
         total, reachable, paused, paused_at, paused_by = s.execute(
             select(func.count(), func.count(L.user_id).filter(U.bot_link_state.in_(SENDABLE)), *pause)
             .select_from(U).outerjoin(L, L.user_id == U.user_id)
-            .where(U.account_state == "active", U.banned == False)).one()  # noqa: E712
+            .where(U.account_state == "active", U.banned == False, visible())).one()  # noqa: E712
         people = authors(s, {paused_by} if paused and paused_by is not None else set())
         return Audience(total=total, reachable=reachable,
                         paused=SendingPause(paused_at=paused_at, paused_by=people.get(paused_by)) if paused else None)
@@ -141,7 +142,7 @@ def send(payload, uid, now):
         batch = literal(bid + "-") + func.printf("%04d", (func.row_number().over(order_by=U.user_id) - 1) // BATCH_SIZE)
         snapshot = (select(literal(bid), U.user_id, batch, L.vk_user_id, literal("pending"), literal(when))
                     .select_from(U).join(L, L.user_id == U.user_id)
-                    .where(U.account_state == "active", U.banned == False, U.bot_link_state.in_(SENDABLE)))  # noqa: E712
+                    .where(U.account_state == "active", U.banned == False, U.bot_link_state.in_(SENDABLE), visible()))  # noqa: E712
         count = s.execute(insert(BroadcastRecipientORM.__table__).from_select(
             ["broadcast_id", "user_id", "batch_id", "vk_user_id", "state", "updated_at"], snapshot)).rowcount
         if not count:
