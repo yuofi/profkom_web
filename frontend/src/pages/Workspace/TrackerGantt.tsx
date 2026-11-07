@@ -6,7 +6,8 @@ import { getTaskRoute } from "../../utils/routes";
 import { TrackerPlanPreview } from "./TrackerPlanPreview";
 import { TrackerPlanningNavigation } from "./TrackerPlanningNavigation";
 import { dayMillis, dayTitle, moscowDay, taskPlanning, type PlanningRange } from "./trackerPlanning";
-import { statusNames, taskStatus } from "./trackerStatus";
+import { statusNames, statusTones, taskStatus } from "./trackerStatus";
+import { toneStyle } from "../../components/Workspace/sections";
 import s from "./TrackerPlanning.module.css";
 /** One compact row per task; people and details are in the bar's hover card. */
 const ROW = 52;
@@ -46,7 +47,7 @@ export function TrackerGantt({ tasks, range, month, onMonth, zoom, onZoom }: { t
           const left = x(row.first), width = Math.max(6, Math.min(length, x(row.last) + dayWidth) - left), dependencies = (row.task.links ?? []).filter(link => link.kind === "blocked_by"), epic = (row.task.links ?? []).find(link => link.kind === "epic");
           return <div className={s.ganttRow} key={row.task.task_id}><div className={s.ganttTask} data-epic={epic ? "true" : undefined}><Link to={getTaskRoute(row.task.task_id)} title={row.task.title}><small>{row.task.task_key}{row.task.task_type === "epic" ? " · Эпик" : row.task.task_type === "milestone" ? " · Веха" : ""}{epic && ` · Эпик ${epic.task.task_key}`}{dependencies.length > 0 && ` · Зависимостей: ${dependencies.length}`}</small><strong>{row.task.title}</strong></Link>
           </div><div className={s.ganttTrack}>
-            <HoverCard content={() => <TrackerPlanPreview task={row.task} />}>{({ describedBy, close }) => <Link className={`${s.bar} ${row.hasStart ? "" : s.milestone}`} data-status={taskStatus(row.task)} data-type={row.task.task_type ?? "task"} style={{ left: row.hasStart ? left : Math.min(length - dayWidth, left), width: row.hasStart ? width : dayWidth }} to={getTaskRoute(row.task.task_id)} aria-describedby={describedBy} onClick={close} aria-label={`${row.task.task_key ?? "Задача"} · ${row.task.title} · ${statusNames[taskStatus(row.task)]} · ${row.task.task_type === "milestone" ? "Веха, срок" : row.hasStart ? "Плановое начало " + dayTitle.format(dayMillis(row.first)) : "Начало не задано, дедлайн"} · ${dayTitle.format(dayMillis(row.last))}`}><span>{row.hasStart ? row.task.task_key ?? row.task.title : "◆"}</span></Link>}</HoverCard>
+            <HoverCard content={() => <TrackerPlanPreview task={row.task} />}>{({ describedBy, close }) => <Link className={`${s.bar} ${row.hasStart ? "" : s.milestone}`} data-status={taskStatus(row.task)} data-type={row.task.task_type ?? "task"} style={{ ...toneStyle(statusTones[taskStatus(row.task)]), left: row.hasStart ? left : Math.min(length - dayWidth, left), width: row.hasStart ? width : dayWidth }} to={getTaskRoute(row.task.task_id)} aria-describedby={describedBy} onClick={close} aria-label={`${row.task.task_key ?? "Задача"} · ${row.task.title} · ${statusNames[taskStatus(row.task)]} · ${row.task.task_type === "milestone" ? "Веха, срок" : row.hasStart ? "Плановое начало " + dayTitle.format(dayMillis(row.first)) : "Начало не задано, дедлайн"} · ${dayTitle.format(dayMillis(row.last))}`}><span>{row.hasStart ? row.task.task_key ?? row.task.title : "◆"}</span></Link>}</HoverCard>
           </div></div>;
         })}
         {!rows.length && <p className={s.emptyTimeline}>В выбранном периоде нет задач. Измените месяц или фильтры.</p>}

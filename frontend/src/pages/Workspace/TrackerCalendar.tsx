@@ -5,7 +5,8 @@ import { getTaskRoute } from "../../utils/routes";
 import { TrackerPlanPreview } from "./TrackerPlanPreview";
 import { TrackerPlanningNavigation } from "./TrackerPlanningNavigation";
 import { dayMillis, dayTitle, moscowDay, taskPlanning, type PlanningRange } from "./trackerPlanning";
-import { statusNames, taskStatus } from "./trackerStatus";
+import { statusNames, statusTones, taskStatus } from "./trackerStatus";
+import { toneStyle } from "../../components/Workspace/sections";
 import s from "./TrackerPlanning.module.css";
 
 export function TrackerCalendar({ tasks, range, month, onMonth }: { tasks: Task[]; range: PlanningRange; month: string; onMonth: (month: string) => void }) {
@@ -27,5 +28,5 @@ export function TrackerCalendar({ tasks, range, month, onMonth }: { tasks: Task[
   </section>;
 }
 function CalendarTask({ task, kind }: { task: Task; kind: string }) {
-  return <HoverCard content={() => <TrackerPlanPreview task={task} />}>{({ describedBy, close }) => <Link className={s.calendarTask} data-status={taskStatus(task)} data-type={task.task_type ?? "task"} to={getTaskRoute(task.task_id)} aria-describedby={describedBy} aria-label={`${task.task_key ?? "Задача"} · ${task.title} · ${kind} · ${statusNames[taskStatus(task)]}`} onClick={close}><small>{task.task_key} · {task.task_type === "milestone" ? "Веха" : kind}</small><span>{task.title}</span></Link>}</HoverCard>;
+  return <HoverCard content={() => <TrackerPlanPreview task={task} />}>{({ describedBy, close }) => <Link className={s.calendarTask} data-status={taskStatus(task)} style={toneStyle(statusTones[taskStatus(task)])} data-type={task.task_type ?? "task"} to={getTaskRoute(task.task_id)} aria-describedby={describedBy} aria-label={`${task.task_key ?? "Задача"} · ${task.title} · ${kind} · ${statusNames[taskStatus(task)]}`} onClick={close}><small>{task.task_key} · {task.task_type === "milestone" ? "Веха" : kind}</small><span>{task.title}</span></Link>}</HoverCard>;
 }

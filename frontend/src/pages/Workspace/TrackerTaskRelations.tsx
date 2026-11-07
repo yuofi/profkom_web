@@ -11,12 +11,12 @@ import { ActionForm } from "../../components/Workspace/ActionForm";
 import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
 import { TrackerParentSelector } from "./TrackerParentSelector";
-import { statusNames } from "./trackerStatus";
+import { TaskStatusBadge } from "./TaskStatusBadge";
 import s from "./TrackerTaskStage2.module.css";
 import w from "../../components/Workspace/Workspace.module.css";
 const relationNames: Record<TaskLinkKind,string> = { related:"Связана с", blocks:"Блокирует", blocked_by:"Зависит от", epic:"Входит в эпик", epic_member:"Задачи эпика", milestone:"Входит в вехи", milestone_member:"Задачи вехи" };
 const kindChoices: Record<TaskLinkKind|string,string> = { parent:"Родительская задача", related:"Связана с", blocks:"Блокирует", blocked_by:"Зависит от", epic:"Входит в эпик", epic_member:"Добавить задачу в эпик", milestone:"Входит в веху", milestone_member:"Добавить задачу в веху" };
-function TaskReference({ task }: {task:TrackerTaskRef}) {return <Link className={s.taskLink} to={getTaskRoute(task.task_id)}><strong>{task.task_key}</strong><span>{task.title}</span><small>{statusNames[task.status]}</small></Link>;}
+function TaskReference({ task }: {task:TrackerTaskRef}) {return <Link className={s.taskLink} to={getTaskRoute(task.task_id)}><strong>{task.task_key}</strong><span>{task.title}</span><TaskStatusBadge status={task.status} className={s.taskStatus}/></Link>;}
 /** `editing`/`onEditingChange` let the task card open the link editor from elsewhere. */
 export function TrackerTaskRelations({task,onEditParent,editing:openedOutside,onEditingChange}:{task:Task;onEditParent:()=>void;editing?:boolean;onEditingChange?:(open:boolean)=>void}) {
   const allowed=can(task,"manage_task_links"),parentEditable=can(task,"edit_task"),links=task.links??[];
