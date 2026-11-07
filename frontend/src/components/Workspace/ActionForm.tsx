@@ -46,6 +46,8 @@ export interface Field {
   confirmRemoval?: boolean;
   /** Short fields of one group share a row (dates, hours and evaluation, yes/no criteria); a new group starts a new row. */
   compact?: string;
+  /** A plain text field rewrites what is typed, e.g. into capitals; the value stays editable as usual. */
+  normalize?: (value: string) => string;
 }
 type Refresh = () => unknown | Promise<unknown>;
 /**
@@ -479,8 +481,9 @@ export function ActionForm({
                     max={field.max}
                     step={field.type === "number" ? "any" : undefined}
                     value={String(form.values[field.name] ?? initialValues[field.name])}
+                    autoCapitalize={field.normalize ? "characters" : undefined}
                     onChange={(e) =>
-                      void form.setFieldValue(field.name, e.target.value)
+                      void form.setFieldValue(field.name, field.normalize ? field.normalize(e.target.value) : e.target.value)
                     }
                   />
                 )}

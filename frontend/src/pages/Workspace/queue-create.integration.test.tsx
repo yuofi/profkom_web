@@ -45,12 +45,13 @@ it("creates a queue from catalog metadata with its creator as owner and assigns 
   expect(option).toBeDefined();expect(option.textContent).toContain(team.title);
   await change(field(form, "scope"), scopeValue);await waitForPage(page);expect(form.querySelector('[name="owner"]')).toBeNull();
   const name = `Очередь через UI ${crypto.randomUUID()}`;
-  await change(field(form, "name"), name);await change(field(form, "key"), "BAD1");
+  await change(field(form, "name"), name);await change(field(form, "key"), "1BAD");
   await submit(form);await waitForPage(page);
-  expect(create).not.toHaveBeenCalled();expect(form.querySelector('[role="alert"]')?.textContent).toContain("Ключ должен содержать только заглавные английские буквы A–Z");
+  expect(create).not.toHaveBeenCalled();expect(form.querySelector('[role="alert"]')?.textContent).toContain("Ключ начинается с латинской буквы");
 
-  const key = `U${crypto.randomUUID().replace(/[^a-f]/g, "").slice(0, 9).toUpperCase()}`;
-  await change(field(form, "key"), key);await submit(form);await waitForPage(page, () => page!.container.querySelector("h1")?.textContent === name && !page!.container.querySelector("dialog"));
+  // Digits after the first letter are allowed and lower case is turned into capitals (owner 2026-11-08, В9).
+  const key = `U${crypto.randomUUID().replace(/-/g, "").slice(0, 9).toUpperCase()}`;
+  await change(field(form, "key"), key.toLowerCase());expect(field(form, "key").value).toBe(key);await submit(form);await waitForPage(page, () => page!.container.querySelector("h1")?.textContent === name && !page!.container.querySelector("dialog"));
   expect(create).toHaveBeenCalledTimes(1);
   const queue = (await taskQueuesApi.catalog()).items.find(item => item.key === key)!;expect(queue).toBeDefined();
   const saved = await taskQueuesApi.get(queue.queue_id);

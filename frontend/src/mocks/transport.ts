@@ -1186,7 +1186,9 @@ export function installMockTransport(
         const scope = data.scope as Record<string, unknown> | null | undefined;
         if (!scope || Object.keys(scope).some(key => !["kind", "id"].includes(key)) || !["block", "event", "subevent", "chair"].includes(String(scope.kind)) || typeof scope.id !== "string") return fail(422, "validation_error", "Требуется точный контекст команды");
         if (!queueCreateScopes().some(item => item.kind === scope.kind && item.id === scope.id)) return denied();
-        if (!/^[A-Z]+$/.test(String(data.key)) || state.queues.some(q => q.key === data.key)) return fail(422, "invalid_input", "Проверьте ключ очереди");
+        if (!/^[A-Z][A-Z0-9]{0,31}$/.test(String(data.key))) return fail(422, "validation_error", "Проверьте ключ очереди");
+        if (data.key === "KKR") return fail(409, "control_queue_conflict", "Ключ KKR зарезервирован");
+        if (data.key === "WEBSUPPORT" || state.queues.some(q => q.key === data.key)) return fail(409, "queue_key_conflict", "Ключ очереди уже занят");
         const owner = data.owner_user_id === undefined ? state.user : state.people.find(p => p.user_id === Number(data.owner_user_id));
         if (!owner || owner.user_id !== state.session.user_id) return denied();
         const queue: TaskQueue = { queue_id: id("queue"), name: String(data.name), key: String(data.key), scope: data.scope ? clone(data.scope) as TaskQueue["scope"] : null, owner: clone(owner), is_private: !!data.is_private, revision: 1, created_at: mockNow, access: "granted", can_request_access: false, access_request_status: null, capabilities: ["create_task", ...(owner.user_id === state.session.user_id ? ["manage_queue", "view_queue_requests"] : [])] };

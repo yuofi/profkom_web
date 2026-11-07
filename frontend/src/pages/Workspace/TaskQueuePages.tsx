@@ -80,16 +80,20 @@ function QueueHeader({ queue }: { queue: TaskQueue }) {
 function Owner({ user }: { user: UserRef }) {
   return <div className={s.owner}><small>Владелец очереди</small><UserChip user={user} /></div>;
 }
+/** A Latin capital first, then capitals or digits (owner 2026-11-08, В9); the server checks the same and the reserved keys. */
+const QUEUE_KEY = /^[A-Z][A-Z0-9]{0,31}$/, RESERVED_QUEUE_KEYS = ["KKR", "WEBSUPPORT"];
 function QueueCreateForm({ catalog }: { catalog: TaskQueueCatalog }) {
   const { perform } = useWorkspaceActions();const navigate = useNavigate();
   const scopes = catalog.create_scopes ?? [];
   return <><p className={w.muted}>Вы станете владельцем очереди своей команды.</p><ActionForm fields={[
     { name: "name", label: "Название очереди", required: true },
-    { name: "key", label: "Ключ очереди", required: true, hint: "От\u00a01 до\u00a032 заглавных английских букв A–Z. Ключ после создания не меняется." },
+    { name: "key", label: "Ключ очереди", required: true, normalize: value => value.toUpperCase(), hint: "Латинские заглавные буквы A–Z и цифры, первым символом — буква, не более\u00a032 символов; строчные буквы станут заглавными. Ключ после создания не меняется." },
     { name: "scope", label: "Команда очереди", type: "select", entity: "scope", required: true, value: scopes[0] ? JSON.stringify([scopes[0].kind,scopes[0].id]) : "", options: scopes.map(scope => ({ value: JSON.stringify([scope.kind, scope.id]), label: scope.title, scope: { kind: scope.kind, name: scope.title } })) },
     { name: "visibility", label: "Доступ к очереди", type: "select", required: true, value: "public", options: [{ value: "public", label: "Участники команды" }, { value: "private", label: "По одобрению владельца" }] },
   ]} submitLabel="Создать очередь" resetOnSuccess allowExitSave={false} onSubmit={async values => {
-    const key = text(values, "key");if (!/^[A-Z]{1,32}$/.test(key)) throw Error("Ключ должен содержать только заглавные английские буквы A–Z, не более\u00a032 букв");
+    const key = text(values, "key").trim().toUpperCase();
+    if (!QUEUE_KEY.test(key)) throw Error("Ключ начинается с латинской буквы и содержит только латинские буквы A–Z и цифры, не более\u00a032 символов");
+    if (RESERVED_QUEUE_KEYS.includes(key)) throw Error(`Ключ ${key} зарезервирован для служебной очереди. Выберите другой ключ`);
     const chosen = text(values, "scope");const scope = scopes.find(item => JSON.stringify([item.kind, item.id]) === chosen);
     if (!scope) throw Error("Выберите команду, которой вы руководите");
     const result = await perform(() => taskQueuesApi.create({ name: text(values, "name").trim(), key, scope, is_private: text(values, "visibility") === "private" }));navigate(getTaskQueueRoute(result.queue_id));

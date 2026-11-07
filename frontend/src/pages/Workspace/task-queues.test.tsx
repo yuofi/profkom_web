@@ -94,15 +94,23 @@ it("sends the owner's exact request revision and hides controls for participants
   expect(decide).toHaveBeenCalledWith("queue-tasks", "request-local", "approve", 4);expect(page!.container.textContent).toContain("Доступ одобрен");expect(button("Отозвать доступ")).toBeDefined();
   await page!.cleanup();page = undefined;transport.restore();transport = undefined;vi.restoreAllMocks();transport = installMockTransport("organizer", { delay: 0 });await mount("/tasks/queues/queue-tasks", "organizer");expect(page!.container.textContent).not.toContain("Настройки очереди и доступ");
 });
-it("validates an uppercase-only key before creating a named queue", async () => {
+it("validates a key of a leading Latin letter and capitals or digits, upper-cases it while typed, keeps service keys reserved", async () => {
   transport = installMockTransport("leader", { delay: 0 });await mount("/tasks/queues");await act(async () => button("Создать очередь").click());await waitForPage(page!);const create = vi.spyOn(taskQueuesApi, "create");
-  await change(page!.container.querySelector<HTMLInputElement>('input[name="name"]')!, "Веб-сайт");await change(page!.container.querySelector<HTMLInputElement>('input[name="key"]')!, "IT WEB-2");await submit(page!.container.querySelector<HTMLFormElement>('dialog form')!);await waitForPage(page!);
-  expect(create).not.toHaveBeenCalled();expect(page!.container.textContent).toContain("только заглавные английские буквы");
-  await change(page!.container.querySelector<HTMLInputElement>('input[name="key"]')!, "ITWEB");await submit(page!.container.querySelector<HTMLFormElement>('dialog form')!);await waitForPage(page!);
-  expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: "Веб-сайт", key: "ITWEB", is_private: false }));expect(page!.container.querySelector("h1")?.textContent).toBe("Веб-сайт");
+  const key = () => page!.container.querySelector<HTMLInputElement>('input[name="key"]')!, send = async () => { await submit(page!.container.querySelector<HTMLFormElement>('dialog form')!);await waitForPage(page!); };
+  expect(page!.container.textContent).toContain("Латинские заглавные буквы A–Z и цифры, первым символом — буква");
+  await change(page!.container.querySelector<HTMLInputElement>('input[name="name"]')!, "Веб-сайт");
+  // 'Т1' starts with a Cyrillic Т.
+  for (const wrong of ["IT WEB-2", "1TWEB", "T-1", "\u04221"]) {
+    await change(key(), wrong);await send();
+    expect(create).not.toHaveBeenCalled();expect(page!.container.textContent).toContain("Ключ начинается с латинской буквы и содержит только латинские буквы A–Z и цифры");
+  }
+  await change(key(), "kkr");expect(key().value).toBe("KKR");await send();
+  expect(create).not.toHaveBeenCalled();expect(page!.container.textContent).toContain("Ключ KKR зарезервирован для служебной очереди");
+  await change(key(), "it2web");expect(key().value).toBe("IT2WEB");await send();
+  expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: "Веб-сайт", key: "IT2WEB", is_private: false }));expect(page!.container.querySelector("h1")?.textContent).toBe("Веб-сайт");
   const wire = transport!.adapter.history.post.find(request => request.url?.endsWith("/task-queues"))!;
   const body = JSON.parse(wire.data);expect(body.scope).toEqual({ kind: "event", id: transport!.state.events[0].event_id });
-  expect(transport!.state.queues.find(q => q.key === "ITWEB")?.owner?.user_id).toBe(transport!.state.session.user_id);
+  expect(transport!.state.queues.find(q => q.key === "IT2WEB")?.owner?.user_id).toBe(transport!.state.session.user_id);
 });
 it("removes only the queue filter in the global task list", async () => {
   transport = installMockTransport("leader", { delay: 0 });const list = vi.spyOn(tasksApi, "listPage");await mount("/tasks?queue_id=queue-tasks&mine=true");

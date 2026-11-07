@@ -476,6 +476,8 @@ def _letters(number):
 
 
 PLACEHOLDER_QUEUE_NAME='Задачи команды Команда'
+# A Latin capital first, then capitals or digits; lower case is not folded here (owner 2026-11-08, В9).
+QUEUE_KEY='[A-Z][A-Z0-9]{0,31}'
 
 
 def _scope_title(session, kind, scope_id):
@@ -692,8 +694,9 @@ def create(uid,name,key,scope=None,owner_user_id=None,is_private=False):
             if not scope_object:raise NotFound('Queue scope not found')
             if not db.can_view_scope(uid,kind,sid):raise Forbidden('Cannot create queue outside a readable scope')
         if not name.strip():raise InvalidInput('Queue name is required')
-        if not re.fullmatch('[A-Z]+',key):raise InvalidInput('Queue key must contain uppercase ASCII letters only')
+        if not re.fullmatch(QUEUE_KEY,key):raise InvalidInput('Queue key must start with an uppercase ASCII letter followed by uppercase ASCII letters or digits')
         if key=='KKR':raise Conflict('Queue key KKR is reserved for accounting control','control_queue_conflict')
+        if key=='WEBSUPPORT':raise Conflict('Queue key WEBSUPPORT is reserved for website support','queue_key_conflict')
         if session.query(TaskQueueORM).filter_by(key=key).first():raise Conflict('Queue key already exists','queue_key_conflict')
         q=TaskQueueORM(queue_id=qid,name=name.strip(),key=key,scope_kind=kind,scope_id=sid,
             owner_user_id=uid,is_private=is_private,is_default=False,next_task_number=1,revision=1,created_at=now())

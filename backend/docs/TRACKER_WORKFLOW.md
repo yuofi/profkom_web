@@ -96,8 +96,11 @@ source or stable chair work `chair`. Ordinary readers cannot create queues. Old
 unscoped queues are compatibility data, not a supported new source choice; explicit
 rebinding preserves history and never guesses source identity from personal names.
 
-A queue has an immutable unique uppercase ASCII-letter key; task numbers advance
-monotonically within it. Existing UUID URLs stay valid. Scope ACL and private-queue
+A queue has an immutable unique key `^[A-Z][A-Z0-9]{0,31}$`: an uppercase ASCII letter,
+then uppercase ASCII letters or digits (owner 2026-11-08, В9; the create form turns lower
+case into capitals, the server does not). `KKR` and `WEBSUPPORT` are reserved (409
+`control_queue_conflict` / `queue_key_conflict`). Task numbers advance monotonically
+within a queue. Existing UUID URLs stay valid. Scope ACL and private-queue
 owner/grant checks govern reading. An approved explicit queue grant works without
 ordinary team membership, and never grants private accounting/report authority.
 Chair/deputies and actual HR master/deputy read ordinary queues globally. The

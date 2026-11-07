@@ -603,7 +603,8 @@ class TaskAssigneeIn(Command):
 
 class TaskQueueCreateIn(Command):
     name: str = Field(min_length=1,max_length=200)
-    key: str = Field(min_length=1,max_length=32,pattern=r"^[A-Z]+$")
+    # A Latin capital first, then capitals or digits (owner 2026-11-08, В9).
+    key: str = Field(min_length=1,max_length=32,pattern=r"^[A-Z][A-Z0-9]{0,31}$")
     scope: Optional[dict] = None
     owner_user_id: Optional[int] = None
     is_private: bool = False
