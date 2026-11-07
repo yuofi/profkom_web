@@ -13,9 +13,9 @@ import { EntityPicker } from "./EntityPicker";
 import { text, number, type Values } from "./formValues";
 import { Card, Empty, QueryState } from "./WorkspaceUI";
 import { evaluationOptions } from "../../utils/evaluations";
+import { criteriaKeys, criteriaLabels } from "../../utils/kkrCriteria";
 import s from "./ProfileFeatures.module.css";
 import w from "./Workspace.module.css";
-const criteriaLabels = { unique: "Уникальная работа", creative: "Творческая", external_communication: "Общение вне вуза", in_person: "Очное присутствие", fixed_time: "В определённое время" };
 const emptyValues = (): TemplateValues => ({ title: "", description: "", hours: 0, evaluation: 1, criteria: emptyCriteria() });
 type EditorChoice = { template?: KkrTemplate; values: TemplateValues };
 const scopeKinds = { block: "Блок", event: "Мероприятие", subevent: "Подмероприятие", global: "Весь Профком" } as const;
@@ -55,7 +55,7 @@ function LibraryEditor({ templates, context, initialValues }: { templates: KkrTe
   ] : [];
   const editor = editing && <ActionForm key={generation} revision={template?.revision} onConflict={refresh} fields={fields} submitLabel="Сохранить шаблон"
       onSubmit={async (draft, revision) => {
-        const data: TemplateValues = { title: text(draft, "title"), description: text(draft, "body"), hours: number(draft, "hours"), evaluation: number(draft, "evaluation") as TemplateValues["evaluation"], criteria: { ...emptyCriteria(), ...Object.fromEntries(Object.keys(criteriaLabels).map(key => [key, text(draft, key) === "true"])) } };
+        const data: TemplateValues = { title: text(draft, "title"), description: text(draft, "body"), hours: number(draft, "hours"), evaluation: number(draft, "evaluation") as TemplateValues["evaluation"], criteria: { ...emptyCriteria(), ...Object.fromEntries(criteriaKeys.map(key => [key, text(draft, key) === "true"])) } };
         const selected = text(draft, "visibility"), scope = context.template_scopes[Number(selected)];
         if (!template && selected !== "personal" && !scope) throw Error("Выберите область шаблона");
         const saved = await perform(() => template
@@ -90,7 +90,7 @@ export function KkrTemplateTools({ form, mode, selection, onSelection }: {
   const initial = (): TemplateValues => {
     const recipient = Array.isArray(form.values.users) ? form.values.users[0] : null;
     const evaluation = text(form.values, recipient && mode === "merit" ? `evaluation_${recipient}` : "evaluation");
-    return { title: text(form.values, "title") || "Шаблон оценки", description: text(form.values, "body"), hours: number(form.values, recipient && mode === "merit" ? `hours_${recipient}` : "hours"), evaluation: (evaluation === "" ? 1 : Number(evaluation)) as TemplateValues["evaluation"], criteria: { ...emptyCriteria(), ...Object.fromEntries(Object.keys(criteriaLabels).map(key => [key, text(form.values, key) === "true"])) } };
+    return { title: text(form.values, "title") || "Шаблон оценки", description: text(form.values, "body"), hours: number(form.values, recipient && mode === "merit" ? `hours_${recipient}` : "hours"), evaluation: (evaluation === "" ? 1 : Number(evaluation)) as TemplateValues["evaluation"], criteria: { ...emptyCriteria(), ...Object.fromEntries(criteriaKeys.map(key => [key, text(form.values, key) === "true"])) } };
   };
   return <div className={s.templateTools}>
     <EntityPicker label="Шаблон ККР" name="kkr-template" value={selected} onChange={setSelected} placeholder="Найти шаблон" disabled={busy || form.isSubmitting}

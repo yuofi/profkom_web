@@ -34,6 +34,7 @@ import {
 import { canRetainData, normalizeApiError } from "../../utils/api/request";
 import { readsMerits } from "./meritAccess";
 import { evaluationOptions } from "../../utils/evaluations";
+import { criteriaLabels } from "../../utils/kkrCriteria";
 import { UserChip } from "../../components/Workspace/UserChip";
 import { can, useSession } from "../../utils/session";
 import { toUtc, displayDate, moscowInput } from "../../utils/dates";
@@ -53,13 +54,6 @@ const kinds: Record<MeritCreate["source_kind"], string> = {
   chair_merit: "Заслуга председателя",
   block_volunteer: "Волонтёрская работа блока",
   subevent_volunteer: "Волонтёрская работа подмероприятия",
-};
-const criteriaLabels = {
-  unique: "Уникальная работа",
-  creative: "Творческая",
-  external_communication: "Общение вне вуза",
-  in_person: "Очное присутствие",
-  fixed_time: "В определённое время",
 };
 /** PATCH /merits/{id} takes only these fields; kind, season and scope stay as created (A-KKR-1). */
 function meritPatch({ title, description, assigned_at, deadline_at, criteria, recipients, template_selection }: MeritCreate & { template_selection?: TemplateSelection }): MeritPatch & { template_selection?: TemplateSelection } {

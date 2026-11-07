@@ -943,12 +943,14 @@ XLSX_SOURCES = {
     "subevent_volunteer": "Волонтёрская работа подмероприятия",
     "master_bonus": "Бонус мастеру",
 }
-XLSX_CRITERIA = {
-    "unique": "Уникальная",
-    "creative": "Творческая",
-    "external_communication": "Общение вне вуза",
-    "in_person": "Очное присутствие",
-    "fixed_time": "В определённое время",
+# The five KKR criteria, in order, in the owner's KKR table wording (export, history); the
+# frontend names them the same (frontend/src/utils/kkrCriteria.ts).
+KKR_CRITERIA = {
+    "unique": "Уникальная задача",
+    "creative": "Требует творческого подхода",
+    "external_communication": "Требует общения с администрацией или людьми вне вуза",
+    "in_person": "Требует очного присутствия",
+    "fixed_time": "Выполняется в определённое время",
 }
 
 
@@ -957,7 +959,7 @@ def _xlsx_criteria(raw: str) -> str:
         chosen = json.loads(raw or "{}")
     except ValueError:
         return raw
-    return ", ".join(XLSX_CRITERIA.get(k, k) for k, v in chosen.items() if v) if isinstance(chosen, dict) else raw
+    return ", ".join(KKR_CRITERIA.get(k, k) for k, v in chosen.items() if v) if isinstance(chosen, dict) else raw
 
 
 def generate_summary_xlsx(summary: SeasonSummaryDC, contributions: list[CalculatedContributionDC]) -> bytes:

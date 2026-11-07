@@ -8,6 +8,7 @@ import { displayDate } from '../../utils/dates';
 import { profileFeaturesApi, type TemplateSelection } from '../../utils/api/profileFeatures.api';
 import { tasksApi } from '../../utils/api/tasks.api';
 import { moscowInput, toUtc } from '../../utils/dates';
+import { criteriaLabels } from '../../utils/kkrCriteria';
 import { ActionForm } from './ActionForm';
 import { text } from './formValues';
 import { useUnsavedChanges, useGuardedAction } from './unsavedChangesHooks';
@@ -16,7 +17,6 @@ import { QueryState, Empty } from './WorkspaceUI';
 import s from './AssessmentPanel.module.css';
 import w from './Workspace.module.css';
 
-const criteriaNames: Record<keyof Criteria, string> = { unique:'Уникальная задача', creative:'Творческий подход', external_communication:'Общение вне вуза', in_person:'Очное присутствие', fixed_time:'В определённое время' };
 export function UnifiedKkrEditor({task,onClose}: {task:Task; onClose?:()=>void}) {
   const query=useQuery({queryKey:['accounting-batch',task.task_id],queryFn:()=>kkrApi.batch(task.task_id),enabled:can(task,'view_assessment_inputs')});
   if (!can(task,'view_assessment_inputs')) return <Empty>Учёт ККР доступен уполномоченным руководителям.</Empty>;
@@ -44,7 +44,7 @@ function BatchEditor({taskId,saved,onClose}:{taskId:string;saved:AccountingBatch
     {saved.season_closed&&<p className={w.warning}>Закрытый сезон: исправление создаст новую версию итогов. Укажите причину.</p>}
     {stale&&<p className={w.warning}>Данные изменились. <button type="button" onClick={()=>{setDraft(saved);setBaseline(saved);setReason('');}}>Загрузить сохранённые</button></p>}
     {editable&&templates.data?.items.some(item=>!item.archived)&&<label>Применить шаблон<select aria-label="Шаблон ККР" value={template?.template_id??''} disabled={busy||stale} onChange={event=>{const chosen=templates.data?.items.find(item=>item.template_id===event.target.value);if(!chosen){setTemplate(null);return;}setBusy(true);void profileFeaturesApi.prepare(chosen).then(result=>{setTemplate(result.selection);setDraft(value=>({...value,criteria:result.values.criteria,assignments:value.assignments.map(row=>({...row,hours:result.values.hours,evaluation:result.values.evaluation}))}));}).catch(e=>setError(userMessage(e))).finally(()=>setBusy(false));}}><option value="">Выберите шаблон</option>{templates.data.items.filter(item=>!item.archived).map(item=><option key={item.template_id} value={item.template_id}>{item.values.title}</option>)}</select></label>}
-    <fieldset disabled={!editable||busy||stale}><legend>Общие признаки задачи</legend><div className={s.criteria}>{Object.entries(criteriaNames).map(([key,label])=><label key={key}><input type="checkbox" checked={draft.criteria[key as keyof Criteria]} onChange={event=>setDraft(value=>({...value,criteria:{...value.criteria,[key]:event.target.checked}}))}/>{label}</label>)}</div></fieldset>
+    <fieldset disabled={!editable||busy||stale}><legend>Общие признаки задачи</legend><div className={s.criteria}>{Object.entries(criteriaLabels).map(([key,label])=><label key={key}><input type="checkbox" checked={draft.criteria[key as keyof Criteria]} onChange={event=>setDraft(value=>({...value,criteria:{...value.criteria,[key]:event.target.checked}}))}/>{label}</label>)}</div></fieldset>
     <div className={s.accountingTableWrap}><table className={s.accountingTable}><thead><tr><th>Исполнитель</th><th>Часы</th><th>Оценка</th><th>Учёт</th></tr></thead><tbody>{draft.assignments.map(row=><tr key={row.assignment_id}><td><UserChip user={row.assignee}/>{!row.is_current&&<small>Прежний исполнитель</small>}</td><td><input aria-label={`Часы: ${row.assignee.display_name}`} type="number" step="any" min="0" required={!row.excluded} disabled={!editable||busy||stale||row.excluded} value={row.hours??''} onChange={event=>patch(row.assignment_id,{hours:event.target.value===''?null:Number(event.target.value)})}/></td><td><select aria-label={`Оценка: ${row.assignee.display_name}`} required={!row.excluded} disabled={!editable||busy||stale||row.excluded} value={row.evaluation??''} onChange={event=>patch(row.assignment_id,{evaluation:event.target.value===''?null:Number(event.target.value) as -1|0|1|1.5})}><option value="">Выберите</option><option value="-1">−1 · Не выполнено</option><option value="0">0 · Не выполнено</option><option value="1">1 · Зачтено</option><option value="1.5">1,5 · Зачтено</option></select></td><td><label><input type="checkbox" disabled={!editable||busy||stale} checked={row.excluded} onChange={event=>patch(row.assignment_id,{excluded:event.target.checked})}/>Исключить</label></td></tr>)}</tbody></table></div>
     {saved.season_closed&&editable&&<label>Причина исправления<textarea required value={reason} disabled={busy} onChange={event=>setReason(event.target.value)}/></label>}
     {notice&&<p role="status">{notice}</p>}
