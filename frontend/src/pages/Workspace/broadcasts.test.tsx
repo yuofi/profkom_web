@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act } from "react";
+import { AxiosError, AxiosHeaders } from "axios";
 import { focusManager } from "@tanstack/react-query";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
@@ -10,7 +11,7 @@ import { WorkspaceLayout } from "../../components/Workspace/WorkspaceLayout";
 import { sectionOf } from "../../components/Workspace/sections";
 import { broadcastsApi } from "../../utils/api/broadcasts.api";
 import { ERROR_TEXTS } from "../../utils/api/messages";
-import { ApiError } from "../../utils/api/request";
+import { ApiError, normalizeApiError } from "../../utils/api/request";
 import type { Session } from "../../utils/api/contract";
 import { BroadcastPage, BroadcastsPage } from "./BroadcastPages";
 import {
@@ -227,6 +228,21 @@ it("says who sends and who names the senders when the server refuses by the righ
   for (const call of [broadcastsApi.audience, () => broadcastsApi.list(), () => broadcastsApi.cancel("broadcast-3"),
     () => broadcastsApi.create({ text: "x", idempotency_key: "00000000-0000-4000-8000-000000000000" })])
     await expect(call()).rejects.toMatchObject({ status: 403, code: "broadcast_send_forbidden" });
+});
+
+it("does not blame a removed role for a 403 without any detail and keeps «Подробнее»", async () => {
+  await mount("chair-deputy");
+  // A page of something on the way, not this API: each of its refusals carries a detail.
+  const html = "<html><head><title>403 Forbidden</title></head><body><h1>403 Forbidden</h1></body></html>";
+  const proxy = new AxiosError("Request failed with status code 403", "ERR_BAD_REQUEST", undefined, undefined,
+    { status: 403, statusText: "Forbidden", headers: { "content-type": "text/html" }, config: { headers: new AxiosHeaders() }, data: html });
+  vi.spyOn(broadcastsApi, "list").mockRejectedValue(normalizeApiError(proxy));
+  await act(async () => { await page!.client.refetchQueries({ queryKey: ["broadcasts", "list"] }); });
+  await waitForPage(page!);
+  expect(alertText()).toContain(ERROR_TEXTS.forbidden_unexplained);
+  expect(text()).not.toContain(ERROR_TEXTS.forbidden);
+  expect([...page!.container.querySelectorAll("details code")].map((item) => item.textContent)).toContain("http_403: Не удалось выполнить запрос");
+  expect(textarea()).not.toBeNull();
 });
 
 it("shows a short note instead of the form while the integration is off, and the history stays", async () => {

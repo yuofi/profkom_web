@@ -22,6 +22,9 @@ export const ERROR_TEXTS: Record<string, string> = {
   task_not_closed: "Перед заполнением ККР автор должен закрыть задачу.",
   unauthenticated: "Сессия закончилась. Войдите снова.",
   forbidden: "Нет доступа к этому действию. Возможно, роль снята.",
+  // A 403 whose answer has no detail. Every refusal of this API carries one, so this came from
+  // something on the way (a proxy's own page) and says nothing about the role.
+  forbidden_unexplained: "Запрос отклонён без пояснения (ошибка 403). Сообщите мастеру IT, что и когда вы делали.",
   queue_access_required: "Для этой очереди нужен доступ. Можно отправить запрос её владельцу.",
   task_type_conflict: "Сначала удалите связи, несовместимые с новым типом задачи.",
   task_epic_conflict: "У задачи уже есть эпик. Удалите прежнюю связь, чтобы выбрать другой.",
@@ -149,6 +152,7 @@ export function userMessage(
     overrides[e.status] ??
     withFields(e) ??
     ERROR_TEXTS[e.code] ??
+    (e.status === 403 && !e.explained ? ERROR_TEXTS.forbidden_unexplained : undefined) ??
     BY_STATUS[e.status] ??
     (e.status >= 500
       ? "Ошибка на сервере. Повторите позже."

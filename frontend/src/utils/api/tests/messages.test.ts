@@ -1,6 +1,6 @@
 import { AxiosError, AxiosHeaders, CanceledError } from "axios";
 import { describe, expect, it } from "vitest";
-import { ApiError } from "../request";
+import { ApiError, normalizeApiError } from "../request";
 import { blockerText, ERROR_TEXTS, errorDetail, fieldMessage, isStale, userMessage } from "../messages";
 
 const axiosError = (status: number | null, data?: unknown) =>
@@ -77,6 +77,29 @@ describe("userMessage (FIX_PLAN 2.13)", () => {
     expect(userMessage(axiosError(409, { detail: { code: "season_closed", message: "Conflict: season is closed" } })))
       .toBe(ERROR_TEXTS.season_closed);
     expect(userMessage(axiosError(503, { detail: "VK ID is unavailable" }))).toBe(ERROR_TEXTS.unavailable);
+  });
+
+  it("does not blame a removed role for a 403 that came without any detail, and keeps «Подробнее»", () => {
+    // Every refusal of this API carries a detail; a page of a proxy on the way does not.
+    const html = "<html><head><title>403 Forbidden</title></head><body><center><h1>403 Forbidden</h1></center></body></html>";
+    for (const data of [html, undefined, "", {}, { detail: null }, { message: "Forbidden" }]) {
+      const failure = axiosError(403, data);
+      expect(normalizeApiError(failure).explained, JSON.stringify(data)).toBe(false);
+      expect(userMessage(failure), JSON.stringify(data)).toBe(ERROR_TEXTS.forbidden_unexplained);
+      expect(errorDetail(failure)).toBe("http_403: Не удалось выполнить запрос");
+    }
+    expect(ERROR_TEXTS.forbidden_unexplained).toBe("Запрос отклонён без пояснения (ошибка 403). Сообщите мастеру IT, что и когда вы делали.");
+    expect(ERROR_TEXTS.forbidden_unexplained).not.toMatch(/рол/);
+    // The server's refusals keep their texts: by code, an old route's string, an unread blob.
+    expect(userMessage(axiosError(403, { detail: { code: "forbidden", message: "Admin rights required", fields: {} } }))).toBe(ERROR_TEXTS.forbidden);
+    expect(userMessage(axiosError(403, { detail: "Admin rights required" }))).toBe(ERROR_TEXTS.forbidden);
+    expect(errorDetail(axiosError(403, { detail: "Admin rights required" }))).toBe("http_403: Admin rights required");
+    expect(userMessage(axiosError(403, new Blob(['{"detail":"Forbidden"}'], { type: "application/json" })))).toBe(ERROR_TEXTS.forbidden);
+    expect(userMessage(new ApiError("x", 403, "denied"))).toBe(ERROR_TEXTS.forbidden);
+    // A screen's own text still comes first; other statuses without a detail keep theirs.
+    expect(userMessage(axiosError(403, html), { 403: "Вход недоступен." })).toBe("Вход недоступен.");
+    expect(userMessage(axiosError(404, html))).toBe(ERROR_TEXTS.not_found);
+    expect(userMessage(axiosError(502, html))).toBe("Ошибка на сервере. Повторите позже.");
   });
 
   it("says who sends broadcasts and who names the senders", () => {

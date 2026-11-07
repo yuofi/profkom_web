@@ -14,6 +14,7 @@ export class UploadError extends ApiError {
       original.status,
       transfer ? "upload_transfer_failed" : original.code,
       { ...(transfer ? {} : original.fields), upload_stage: stage },
+      transfer || original.explained,
     );
     this.name = "UploadError";
   }

@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import axios from "axios";
 import { ApiError } from "../request";
 import { filesApi } from "../files.api";
-import { userMessage } from "../messages";
+import { ERROR_TEXTS, userMessage } from "../messages";
 
 const intent = {
   file_id: "file-local",
@@ -23,6 +23,13 @@ it("a denied upload intent retains the API error and does not send file bytes", 
   expect(error).toMatchObject({ status: 403, code: "forbidden", fields: { upload_stage: "intent" } });
   expect(userMessage(error)).toContain("Не удалось начать загрузку файла");
   expect(transfer).not.toHaveBeenCalled();
+});
+
+it("an upload intent refused without any detail keeps that through its stage", async () => {
+  vi.spyOn(filesApi, "intent").mockRejectedValue(new ApiError("Не удалось выполнить запрос", 403, "http_403", {}, false));
+  const error = await upload().catch((e) => e);
+  expect(error).toMatchObject({ status: 403, explained: false, fields: { upload_stage: "intent" } });
+  expect(userMessage(error)).toBe(`Не удалось начать загрузку файла. ${ERROR_TEXTS.forbidden_unexplained}`);
 });
 
 it.each([0, 403, 503])("a failed file transfer (%s) is safe and never completes the object", async (status) => {
