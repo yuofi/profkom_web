@@ -8,7 +8,9 @@ import type {
   Merit,
   MeritContexts,
   MeritCreate,
+  MeritJournalPage,
   MeritPatch,
+  MeritTeam,
   Revision,
   Decision,
   SummaryVersionMetadata,
@@ -21,6 +23,14 @@ import {
   request,
   normalizeApiError,
 } from "./request";
+/** The journal's filters: one team (the chair has no id) and one recipient. */
+export interface MeritJournalQuery {
+  season_id: string;
+  team?: Pick<MeritTeam, "kind" | "id"> | null;
+  user_id?: number | null;
+  cursor?: string | null;
+  limit?: number;
+}
 export const seasonsApi = {
   list: () => page<Season>("/seasons"),
   current: () => request<Season>("get", "/seasons/current"),
@@ -104,6 +114,15 @@ export const seasonsApi = {
   /** One request for the merit forms' blocks, events and subevents (optionally of one season). */
   meritContexts: (seasonId?: string) => request<MeritContexts>("get", "/merits/contexts", undefined, seasonId ? { season_id: seasonId } : undefined),
   merit: (id: string) => request<Merit>("get", `/merits/${idPath(id)}`),
+  /** One page of the season's journal of merit record edits, newest first (B9). */
+  meritJournal: ({ season_id, team, user_id, cursor, limit }: MeritJournalQuery, signal?: AbortSignal) =>
+    request<MeritJournalPage>("get", "/merits/history", undefined, {
+      season_id,
+      ...(team ? { scope_kind: team.kind, ...(team.id ? { scope_id: team.id } : {}) } : {}),
+      ...(user_id ? { user_id } : {}),
+      ...(cursor ? { cursor } : {}),
+      ...(limit ? { limit } : {}),
+    }, signal),
   createMerit: (data: MeritCreate) => request<Merit>("post", "/merits", data),
   updateMerit: (
     id: string,
