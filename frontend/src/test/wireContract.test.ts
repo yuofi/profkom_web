@@ -287,3 +287,65 @@ it("keeps the demo queues' team, season and creation hint on the wire contract, 
     expect(wireIssues("TaskQueueSeason", { season_id: "s", title: "Сезон", state: "summarizing", starts_at: "2026-10-01" })).toContain("TaskQueueSeason.starts_at: unexpected field");
   } finally { mock.restore(); }
 });
+
+it("checks GET /merits/history: each edit as GET /history shows it, its record and team, and the totals of every page (B9)", () => {
+  const user = { user_id: 101, display_name: "Анна Смирнова", avatar_url: null };
+  const entry = { id: "audit:12", source_kind: "audit", source_id: "12", target: { kind: "merit", id: "merit-1" }, changed_by: user,
+    created_at: "2026-11-07T18:35:00.123456+00:00", description: "Изменены исходные поля ККР", reason: "Дубль: человек уже учтён",
+    changes: [{ field: "recipients", label: "Убран получатель", before: { user, hours: 3, evaluation: 1, completed_at: null }, after: null },
+      { field: "criteria", label: "Критерии", before: { urgent: false }, after: { urgent: true } }],
+    hidden: false, hidden_by: null, hidden_at: null, revision: 1, can_hide: true };
+  const item = { entry, merit: { merit_id: "merit-1", title: "Обработка фотографий", source_kind: "block_volunteer", team: { kind: "block", id: "block-media", title: "Медиа" } } };
+  const page = { items: [item], next_cursor: "WyIyMDI2LTExLTA3IiwgImF1ZGl0OjEyIl0=", total: 10, records: 9 };
+  expect(wireIssues("MeritJournalPage", page)).toEqual([]);
+  const chair = { ...item, merit: { ...item.merit, source_kind: "chair_merit", team: { kind: "chair", id: null, title: null } } };
+  const hidden = { ...item, entry: { ...entry, description: "Версия скрыта", changes: [], reason: null, hidden: true, hidden_by: user, hidden_at: "2026-11-08T09:00:00+00:00", revision: 2, can_hide: false } };
+  expect(wireIssues("MeritJournalPage", { items: [chair, hidden], next_cursor: null, total: 2, records: 1 })).toEqual([]);
+  expect(wireIssues("MeritJournalPage", { items: [], next_cursor: null })).toEqual(["MeritJournalPage.total: expected number", "MeritJournalPage.records: expected number"]);
+  expect(wireIssues("MeritJournalItem", { ...item, merit: { ...item.merit, team: { kind: "season", id: "s", title: null } } })).not.toEqual([]);
+  expect(wireIssues("MeritJournalItem", { ...item, merit: { ...item.merit, recipients: [] } })).toContain("MeritJournalItem.merit.recipients: unexpected field");
+  expect(wireIssues("MeritJournalItem", { ...item, entry: { ...entry, score: 3 } })).toContain("MeritJournalItem.entry.score: unexpected field");
+});
+
+it("keeps the demo journal on the wire contract: edits, a closed season's correction, both filters and the pages", async () => {
+  const { installMockTransport } = await import("../mocks/transport");
+  const { seasonsApi } = await import("../utils/api/seasons.api");
+  const { emptyCriteria, richText } = await import("../utils/api/contract");
+  const mock = installMockTransport("chair", { delay: 0 });
+  try {
+    const recipient = (user_id: number, hours: number) => ({ user_id, hours, evaluation: 1 as const, completed_at: null });
+    const base = { description: richText("Работа"), assigned_at: "2026-10-01T10:00:00.000Z", deadline_at: "2026-10-10T10:00:00.000Z", criteria: emptyCriteria() };
+    const chair = await seasonsApi.createMerit({ ...base, season_id: "season-1", source_kind: "chair_merit", title: "Ремонт проектора", recipients: [recipient(101, 3), recipient(102, 8)] });
+    const block = await seasonsApi.createMerit({ ...base, season_id: "season-1", source_kind: "block_volunteer", scope: { kind: "block", id: "block-info" }, title: "Вёрстка", recipients: [recipient(101, 2)] });
+    // Nothing is edited yet: the creation is not an edit.
+    expect(await seasonsApi.meritJournal({ season_id: "season-1" })).toEqual({ items: [], next_cursor: null, total: 0, records: 0 });
+    await seasonsApi.updateMerit(chair.merit_id, { recipients: [recipient(101, 3)], reason: "Отмечен по ошибке", expected_revision: chair.revision });
+    const edited = await seasonsApi.updateMerit(block.merit_id, { title: "Вёрстка газеты", reason: "Уточнили название", expected_revision: block.revision });
+    await seasonsApi.updateMerit(block.merit_id, { recipients: [recipient(101, 4), recipient(103, 1)], deadline_at: "2026-10-11T10:00:00.000Z", reason: "Добавили верстальщика", expected_revision: edited.revision });
+    const all = await seasonsApi.meritJournal({ season_id: "season-1" });
+    expect(wireIssues("MeritJournalPage", all)).toEqual([]);
+    expect([all.total, all.records, all.items.map(item => item.entry.reason)]).toEqual([3, 2, ["Добавили верстальщика", "Уточнили название", "Отмечен по ошибке"]]);
+    const first = await seasonsApi.meritJournal({ season_id: "season-1", limit: 2 });
+    const rest = await seasonsApi.meritJournal({ season_id: "season-1", limit: 2, cursor: first.next_cursor });
+    expect([...first.items, ...rest.items].map(item => item.entry.id)).toEqual(all.items.map(item => item.entry.id));
+    expect(rest.next_cursor).toBeNull();
+    const team = await seasonsApi.meritJournal({ season_id: "season-1", team: { kind: "chair", id: null } });
+    expect(wireIssues("MeritJournalPage", team)).toEqual([]);
+    expect(team.items.map(item => item.merit.team)).toEqual([{ kind: "chair", id: null, title: null }]);
+    // A recipient keeps their own lines and the common changes of the records they receive now;
+    // Ivan, removed from the chair record, keeps only his removal.
+    const maria = await seasonsApi.meritJournal({ season_id: "season-1", user_id: 103 });
+    expect(maria.items.map(item => item.entry.changes.map(change => change.label))).toEqual([["Дедлайн", "Добавлен получатель"], ["Название"]]);
+    const ivan = await seasonsApi.meritJournal({ season_id: "season-1", user_id: 102 });
+    expect(wireIssues("MeritJournalPage", ivan)).toEqual([]);
+    expect(ivan.items.map(item => item.entry.changes.map(change => change.label))).toEqual([["Убран получатель"]]);
+    mock.state.seasons.find(season => season.season_id === "season-previous")!.state = "closed";
+    const closed = await seasonsApi.createMerit({ ...base, season_id: "season-previous", source_kind: "chair_merit", title: "Выступление на совете", recipients: [recipient(104, 2)] });
+    const summary = await seasonsApi.summary("season-previous");
+    await seasonsApi.correctSummary("season-previous", { expected_version: summary.version, reason: "Доклад отметили на совете",
+      changes: [{ kind: "merit", id: closed.merit_id, expected_revision: closed.revision, values: { recipients: [{ ...recipient(104, 2), evaluation: 1.5 }] } }] });
+    const corrected = await seasonsApi.meritJournal({ season_id: "season-previous" });
+    expect(wireIssues("MeritJournalPage", corrected)).toEqual([]);
+    expect(corrected.items.map(item => [item.entry.reason, item.entry.changes[0].label])).toEqual([["Доклад отметили на совете", "Исходные поля получателя"]]);
+  } finally { mock.restore(); }
+});

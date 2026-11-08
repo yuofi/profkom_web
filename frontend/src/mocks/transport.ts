@@ -7,6 +7,7 @@ import { createFixtures, mockBotLinkDeadline, mockNow, mockVkId, type MockRole }
 import { profileFeatureMock } from "./profileFeatures";
 import { broadcastMock } from "./broadcasts";
 import { botConsoleMock } from "./botConsole";
+import { meritJournalMock } from "./meritJournal";
 import {
   emptyCriteria,
   richText,
@@ -456,6 +457,9 @@ export function installMockTransport(
     url.searchParams.get("season_id")
       ? items.filter((x) => x.season_id === url.searchParams.get("season_id"))
       : items;
+  // Like the server: a reader without a manager's rights reads the merits of the scopes where a role grants `view_merits`.
+  const readsMerit = (merit: Merit) => !!state.session.assignments?.some((a) => a.capabilities?.includes("view_merits") && (a.scope_kind === "event" ? merit.event_id === a.scope_id : merit.scope?.kind === a.scope_kind && merit.scope.id === a.scope_id));
+  const meritJournal = meritJournalMock(state, () => state.manager ? state.merits : state.merits.filter(readsMerit));
 
   const taskHistory = new Map<string, TaskHistoryEvent[]>();
   const rememberTask = (task: Task, kind: string, description: string, from?: AssignmentStatus | TaskPublicStatus, to?: AssignmentStatus | TaskPublicStatus, changes?: TaskHistoryChange[]) => {
@@ -892,8 +896,10 @@ export function installMockTransport(
           changes.forEach((c) => {
             const a = recordFor(c)!;
             const values = { ...(c.values as Body) };delete values.template_selection;
+            const before = clone(a);
             Object.assign(a, values);
             a.revision++;
+            if (c.kind === "merit") meritJournal.remember(before as Merit, a as Merit, String(data.reason));
             if (c.kind === "task_inputs") {
               const task = state.tasks.find((t) => t.task_id === c.id);
               if (task && "deadline_at" in a) task.deadline_at = a.deadline_at;
@@ -2574,12 +2580,10 @@ export function installMockTransport(
         subevents: state.subevents.filter(sub => events.some(event => event.event_id === sub.event_id)).map(sub => ({ subevent_id: sub.subevent_id, event_id: sub.event_id, title: sub.title, capabilities: merit(publicSubevent(sub).capabilities) })),
       }];
     }
+    if (path === "/merits/history" && method === "get") return meritJournal.list(url.searchParams);
     if (path === "/merits" || parts[0] === "merits") {
-      if (!state.manager && method === "get" && !parts[1]) {
-        // Like the server: the list holds what the session's scopes may read (`view_merits`), else it is empty.
-        const reads = (merit: Merit) => !!state.session.assignments?.some((a) => a.capabilities?.includes("view_merits") && (a.scope_kind === "event" ? merit.event_id === a.scope_id : merit.scope?.kind === a.scope_kind && merit.scope.id === a.scope_id));
-        return list(clone(filter(state.merits.filter(reads), url)));
-      }
+      // Like the server: the list holds what the session's scopes may read (`view_merits`), else it is empty.
+      if (!state.manager && method === "get" && !parts[1]) return list(clone(filter(state.merits.filter(readsMerit), url)));
       if (!state.manager)
         return method === "get" && parts[1] ? fail(404, "not_found", "Запись недоступна") : denied();
       if (method === "get") {
@@ -2599,7 +2603,9 @@ export function installMockTransport(
         const refused = profileFeatures.checkTemplate(data.template_selection);
         if (refused) return refused;
         const fields = { ...data };delete fields.template_selection;
+        const before = clone(merit);
         Object.assign(merit, fields);
+        meritJournal.remember(before, merit, String(data.reason ?? ""));
         return changed(merit);
       }
       if (data.reason !== undefined && (typeof data.reason !== "string" || !data.reason.trim())) return fail(422, "invalid_input", "Причина не может быть пустой");
