@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
 import { act } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { change, field, mountWorkspace, submit, waitForPage } from "../../test/workspace";
@@ -132,7 +133,16 @@ it("filters the library on the page by words, team and kind; archived templates 
   const titles = () => [...page!.container.querySelectorAll("strong")].map(node => node.textContent);
   const filters = page.container.querySelector<HTMLElement>('[role="group"][aria-label="Фильтры шаблонов"]')!;
   expect(titles()).toEqual(["Ёлка во дворе", "Регистрация гостей", "Общий сбор"]);
-  expect([...filters.querySelectorAll("select")[0].querySelectorAll("option")].map(option => option.textContent)).toEqual(["Все команды", "Весь Профком", "Мероприятие: День математика"]);
+  // A team is named by itself under the group of its kind (owner 2026-11-08, item 9).
+  const [team, kind] = filters.querySelectorAll("select");
+  expect([...team.querySelectorAll("option")].map(option => option.textContent)).toEqual(["Все команды", "Весь Профком", "День математика"]);
+  expect([...team.querySelectorAll("optgroup")].map(group => `${group.label}: ${[...group.children].map(option => option.textContent).join(", ")}`)).toEqual(["Мероприятия: День математика"]);
+  expect(team.hasAttribute("title")).toBe(false);
+  // The search, one pair of equal lists with short options, the checkbox.
+  expect([...kind.querySelectorAll("option")].map(option => option.textContent)).toEqual(["Все виды", "Личные", "Командные"]);
+  expect([...filters.children].map(child => child.querySelectorAll("select").length)).toEqual([0, 2, 0]);
+  expect(team.parentElement!.parentElement).toBe(kind.parentElement!.parentElement);expect(team.parentElement!.className).toBe(kind.parentElement!.className);
+  expect([team, kind].map(select => select.parentElement!.firstChild!.textContent)).toEqual(["Команда", "Вид"]);
   // «е» finds «ё», in the title and in the description.
   await change(filters.querySelector<HTMLInputElement>('input[type="search"]')!, "ем");
   expect(titles()).toEqual(["Общий сбор"]);
@@ -141,6 +151,10 @@ it("filters the library on the page by words, team and kind; archived templates 
   await change(filters.querySelector<HTMLInputElement>('input[type="search"]')!, "");
   await change(filters.querySelectorAll("select")[0], "event:event-1");
   expect(titles()).toEqual(["Регистрация гостей"]);
+  // A chosen team too long for its field ends in «…»; its kind and full name are in the field's hint.
+  expect(team.title).toBe("Мероприятие: День математика");
+  await change(filters.querySelectorAll("select")[0], "global:");
+  expect(titles()).toEqual(["Общий сбор"]);expect(team.hasAttribute("title")).toBe(false);
   await change(filters.querySelectorAll("select")[0], "");
   await change(filters.querySelectorAll("select")[1], "personal");
   expect(titles()).toEqual(["Ёлка во дворе"]);
@@ -149,4 +163,34 @@ it("filters the library on the page by words, team and kind; archived templates 
   await change(filters.querySelectorAll("select")[1], "team");
   await change(filters.querySelector<HTMLInputElement>('input[type="search"]')!, "нет такого");
   expect(page.container.textContent).toContain("Нет шаблонов по этим условиям.");
+});
+
+it("ends a long chosen team in «…» where the site draws its own lists, and adds nothing where it does not", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const long = { kind: "subevent" as const, id: "sub-long", name: "Лекции приглашённых гостей прошлого учебного года" };
+  vi.spyOn(profileFeaturesApi, "templates").mockResolvedValue({ items: [personal("team", "Подготовка аудитории", { visibility: "team", scope: long })] });
+  vi.spyOn(profileFeaturesApi, "context").mockResolvedValue(context);
+  const supports = vi.fn((condition: string) => condition === "appearance: base-select");
+  vi.stubGlobal("CSS", { supports });
+  try {
+    page = await mountWorkspace(<KkrTemplateLibrary embedded />);await waitForPage(page);
+    const selects = [...page.container.querySelectorAll<HTMLSelectElement>('[role="group"][aria-label="Фильтры шаблонов"] select')];
+    // Both lists show their chosen option through the browser's <selectedcontent>, the only part of the field that takes «…».
+    for (const select of selects) {
+      expect(select.firstElementChild?.tagName).toBe("BUTTON");expect((select.firstElementChild as HTMLButtonElement).type).toBe("button");
+      expect(select.firstElementChild!.firstElementChild?.tagName).toBe("SELECTEDCONTENT");expect(select.querySelectorAll("button")).toHaveLength(1);
+    }
+    const [team] = selects;
+    expect([...team.options].map(option => option.textContent)).toEqual(["Все команды", long.name]);
+    await change(team, "subevent:sub-long");
+    expect(team.value).toBe("subevent:sub-long");expect(team.title).toBe(`Подмероприятие: ${long.name}`);expect(team.firstElementChild?.tagName).toBe("BUTTON");
+    expect(page.container.querySelectorAll("strong")).toHaveLength(1);
+    const css = readFileSync(`${__dirname}/ProfileFeatures.module.css`, "utf8");
+    expect(css).toMatch(/\.listFilter select:not\(\[multiple\]\) selectedcontent \{[^}]*overflow: hidden;[^}]*white-space: nowrap;[^}]*text-overflow: ellipsis;/);
+    await page.cleanup();page = undefined;
+    // Without such lists the select keeps its own options only.
+    supports.mockReturnValue(false);
+    page = await mountWorkspace(<KkrTemplateLibrary embedded />);await waitForPage(page);
+    for (const select of page.container.querySelectorAll("select")) expect(select.querySelector("button, selectedcontent")).toBeNull();
+  } finally { vi.unstubAllGlobals(); }
 });

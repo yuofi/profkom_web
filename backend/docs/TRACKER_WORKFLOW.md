@@ -120,6 +120,15 @@ season is open (`no_open_season`), legacy unscoped while one is planned or open
 hint is advice for the UI; `POST /tasks` still decides. The catalogue loads all places
 of a page in a fixed handful of queries.
 
+The UI (variant В, owner 2026-11-08, item 19) shows the place as the team's chip and a
+season pill coloured by `state` (open mint, planned lilac, summarizing peach, closed grey,
+linking to the season) beside the queue's title and in the catalogue's «Команда и
+сезон» column. When `task_creation.available` is false, a reader with `create_task`
+keeps «Создать задачу» in the toolbar as an `aria-disabled` button whose click only
+focuses it: a few words beside it (`queueCreationShort`; up to 1320 px wide and on a phone
+they take their own line under the toolbar, so the search keeps its width), the full reason
+(`queueCreationNotice`) as its description and in a hint on hover, keyboard focus or a tap.
+
 A locked catalogue entry exposes only safe ID/name/key and the viewer's own request
 state, not scope/team/season/owner/people/tasks/counts. Requests can be cancelled; the owner
 approves/rejects or revokes. Replaying an old approval cannot restore a revoked grant.

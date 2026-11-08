@@ -2,6 +2,12 @@ import { useEffect, useId, useLayoutEffect, useRef, type ReactNode, type RefObje
 import { createPortal } from "react-dom";
 import { ownedLayerTarget, useAnchoredLayer } from "./useAnchoredLayer";
 import s from "./AnchoredLayer.module.css";
+/** The site's list of choices opens inside the window (WorkspaceLayout.module.css) and takes the focus to its
+ *  option: Escape there closes the list only. */
+function listOpen() {
+  const select = document.activeElement?.closest("select");
+  try { return !!select && select.matches(":open"); } catch { return false; }
+}
 export function AnchoredPopover({ open, anchorRef, label, onRequestClose, children, busy = false, className = "", width = 400, initialFocusRef, focusRoot = false }: {
   open: boolean; anchorRef: RefObject<HTMLElement | null>; label: string; onRequestClose: () => void; children: ReactNode; busy?: boolean; className?: string; width?: number; initialFocusRef?: RefObject<HTMLElement | null>; focusRoot?: boolean;
 }) {
@@ -20,7 +26,7 @@ export function AnchoredPopover({ open, anchorRef, label, onRequestClose, childr
     const foreignDialog = (target: EventTarget | null) => target instanceof Element && !!target.closest("dialog") && target.closest("dialog") !== layer.current?.closest("dialog");
     const outside = (event: PointerEvent) => { if (!busy && !foreignDialog(event.target) && !ownedLayerTarget(event.target, layer.current) && !anchorRef.current?.contains(event.target as Node)) onRequestClose(); };
     const escape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || foreignDialog(document.activeElement)) return;
+      if (event.key !== "Escape" || event.defaultPrevented || listOpen() || foreignDialog(document.activeElement)) return;
       const activeLayer = document.activeElement?.closest("[data-anchored-popover]");
       if (activeLayer && activeLayer !== layer.current) return;
       if (!activeLayer && !anchorRef.current?.contains(document.activeElement)) {
@@ -34,7 +40,7 @@ export function AnchoredPopover({ open, anchorRef, label, onRequestClose, childr
   }, [open, busy, anchorRef, onRequestClose]);
   if (!open || !portal) return null;
   return createPortal(<div ref={layer} className={`${s.layer} ${s.popover} ${className}`} role="dialog" aria-modal="false" aria-labelledby={titleId} tabIndex={-1} data-row-action data-anchored-popover
-    onClick={event => event.stopPropagation()} onKeyDown={event => { if (event.key === "Escape" && !event.defaultPrevented) { event.preventDefault();event.stopPropagation();if (!busy) onRequestClose(); } }}>
+    onClick={event => event.stopPropagation()} onKeyDown={event => { if (event.key === "Escape" && !event.defaultPrevented && !listOpen()) { event.preventDefault();event.stopPropagation();if (!busy) onRequestClose(); } }}>
     <header className={s.header}><h2 id={titleId}>{label}</h2><button type="button" className={s.close} aria-label="Закрыть окно" disabled={busy} onClick={() => { if (!busy) onRequestClose(); }}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button></header>
     <div className={s.body} data-popover-body>{children}</div>
   </div>, portal);

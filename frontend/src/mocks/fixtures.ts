@@ -555,7 +555,17 @@ export function createFixtures(role: MockRole = "organizer") {
       created_at: mockNow,
       read_at: null,
       target: { kind: "task", id: "task-1" },
+      details: null,
     },
+    // The chair and the IT master hear of the service account's sign-ins (owner 2026-11-08, item 25).
+    ...(chair || role === "it" ? [
+      { id: "notification-service-failed", kind: "service_login_failed", created_at: "2026-10-18T09:12:00Z", read_at: null, target: null,
+        text: "Неудачные попытки входа в сервисный аккаунт (4 подряд): 18.10.2026 12:12 МСК, IP 127.0.0.1, Firefox 132, Windows",
+        details: { at: "2026-10-18T09:12:00Z", ip: "127.0.0.1", browser: "Firefox 132, Windows", failures: 4 } },
+      { id: "notification-service-login", kind: "service_login", created_at: "2026-10-18T08:42:00Z", read_at: "2026-10-18T08:50:00Z", target: null,
+        text: "Вход в сервисный аккаунт: 18.10.2026 11:42 МСК, IP 127.0.0.1, Chrome 131, macOS",
+        details: { at: "2026-10-18T08:42:00Z", ip: "127.0.0.1", browser: "Chrome 131, macOS", failures: null } },
+    ] : []),
   ];
   const registration: RegistrationApplication = {
     user_id: userId,

@@ -54,6 +54,14 @@ it("outside and Escape request closure without discarding a controlled form, and
   await act(async () => { option.dispatchEvent(new Event("pointerdown", { bubbles: true }));option.click(); });expect(requested).not.toHaveBeenCalled();expect(document.querySelector('[data-selected-value="known"]')).not.toBeNull();
   await act(async () => page!.container.querySelector('[data-outside]')!.dispatchEvent(new Event("pointerdown", { bubbles: true })));expect(requested).toHaveBeenCalledTimes(1);expect(document.querySelector('[data-anchored-popover]')).not.toBeNull();await act(async () => search.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));expect(requested).toHaveBeenCalledTimes(2);expect(document.querySelector('[data-selected-value="known"]')).not.toBeNull();
 });
+it("Escape on an open list of choices inside the window closes the list only", async () => {
+  const requested = vi.fn();function Probe() { const anchor = useRef<HTMLSpanElement>(null);return <><InteractiveChip kind="display" label="Якорь" anchorRef={anchor} /><AnchoredPopover open anchorRef={anchor} label="Фильтры" onRequestClose={requested}><select aria-label="Вид"><option>Все виды</option></select></AnchoredPopover></>; }
+  page = await mountWorkspace(<Probe />);const select = document.querySelector<HTMLSelectElement>('[data-anchored-popover] select')!;select.focus();
+  const matches = select.matches.bind(select), open = vi.spyOn(select, "matches").mockImplementation(selector => selector === ":open" || matches(selector));
+  await act(async () => select.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));expect(requested).not.toHaveBeenCalled();
+  // With the list closed, Escape closes the window as before.
+  open.mockRestore();await act(async () => select.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));expect(requested).toHaveBeenCalledTimes(1);
+});
 it("busy anchored form cannot close through Escape, outside pointer or close button", async () => {
   const requested = vi.fn();function Probe() { const anchor = useRef<HTMLSpanElement>(null);return <><InteractiveChip kind="display" label="Якорь" anchorRef={anchor} /><AnchoredPopover open anchorRef={anchor} label="Сохраняется" onRequestClose={requested} busy><input name="busy" /></AnchoredPopover></>; }
   page = await mountWorkspace(<Probe />);const layer = document.querySelector<HTMLElement>('[data-anchored-popover]')!;expect(button(layer, "Закрыть окно").disabled).toBe(true);await act(async () => { layer.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));document.body.dispatchEvent(new Event("pointerdown", { bubbles: true })); });expect(requested).not.toHaveBeenCalled();expect(layer.isConnected).toBe(true);

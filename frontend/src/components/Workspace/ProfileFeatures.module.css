@@ -33,12 +33,28 @@
 .preview { width: 80px; height: 80px; object-fit: cover; border-radius: 50%; }
 .templateTools { display: flex; flex-wrap: wrap; gap: 10px; padding-bottom: 14px; border-bottom: 1px solid var(--outline-variant); }
 .library { display: grid; gap: 14px; }
-/* The library's filters take the list's gap, not a page's margin. */
-.library .libraryFilters { margin-bottom: 0; }
-/* One even row (B4): each list is wide enough for its chosen words on one line, the checkbox keeps its own width. */
-.libraryFilters > .listFilter { flex: 1 1 200px; }
+/* The library's filters (B4; owner 2026-11-08, item 9): the search, one pair of equal lists and the checkbox, every
+   field 44 px on one bottom line and the checkbox centred on it. The pair stands side by side while each list has
+   150 px, else one under the other; on the page, in the 480 px window and on a phone alike. */
+.libraryFilters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.libraryFilters > .librarySearch { flex: 1 1 240px; min-width: 0; }
+.listFilters { flex: 1 1 312px; max-width: 560px; min-width: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: 12px; align-items: end; }
 .libraryFilters > .archivedFilter { flex: none; min-width: 0; }
+.libraryFilters label { white-space: nowrap; }
+/* A chosen value stays on one line and ends in «…» before the arrow when it is longer. The 480 px window is outside
+   the page: it brings the site's lists with it (`controls`, WorkspaceLayout.module.css), and where the browser has no
+   such list, the page's arrow. */
 .libraryFilters select { white-space: nowrap; text-overflow: ellipsis; }
+@supports (appearance: base-select) {
+  /* The list's button with the chosen value (selectedContent.ts) takes the room left of the arrow. */
+  .libraryFilters .listFilter select:not([multiple]) > button:first-child { display: block; flex: 1 1 auto; min-width: 0; margin: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: start; cursor: inherit; }
+  .libraryFilters .listFilter select:not([multiple]) selectedcontent { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  /* Both lists open equally wide: as their equal fields, at least 20rem, within the screen; a longer name wraps. */
+  .libraryFilters .listFilter select:not([multiple])::picker(select) { width: max(anchor-size(width), 20rem); max-width: calc(100vw - 16px); }
+}
+@supports not (appearance: base-select) {
+  .libraryFilters select:not([multiple]) { appearance: none; padding-right: 42px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23f2f69e' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 16px center; cursor: pointer; }
+}
 /* A template card's author and last editor: small words before each person's chip. */
 .authorship { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0; font-size: 13px; color: var(--on-surface-variant); }
 @media (max-width: 768px) { .roles { grid-template-columns: minmax(0, 1fr); } }

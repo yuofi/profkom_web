@@ -6,6 +6,7 @@ from datetime import datetime, timezone, timedelta
 from dataclasses import asdict
 from participation import dt
 import access
+from service_account import NOTICE_KINDS, notice_details, notice_text
 from database import (
     db,
     TaskORM,
@@ -152,8 +153,7 @@ NOTIFICATION_PAGE = 30
 
 
 def notification_text(n, p, uid, extra):
-    if n.kind in ("service_login", "service_login_failed"):
-        from service_account import notice_text
+    if n.kind in NOTICE_KINDS:
         return notice_text(n.kind, p)
     if n.kind.startswith("block_request_"):
         mine, theirs = REQUEST_TEXT.get(n.kind.removeprefix("block_request_"), ("Изменение заявки в блок{block}",) * 2)
@@ -288,6 +288,8 @@ def notification_views(s, uid, notifications):
                 created_at=n.created_at,
                 read_at=n.read_at if n.is_read else None,
                 target=target if allowed else None,
+                # The bell lays a sign-in notice out from its facts (owner 2026-11-08, item 25).
+                details=notice_details(n.kind, p) if allowed and n.kind in NOTICE_KINDS else None,
             )
         )
     return result

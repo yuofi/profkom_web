@@ -12,6 +12,8 @@ import { useNotificationCommands } from "../../utils/hooks/useWorkspace";
 import { useConfirmedNavigation } from "./unsavedChangesHooks";
 import { AnchoredPopover } from "./AnchoredPopover";
 import { Glyph, QueryState } from "./WorkspaceUI";
+import { ServiceSignInFacts, ServiceSignInTitle } from "./ServiceSignIn";
+import { signInDetails } from "../../utils/serviceSignIn";
 import s from "./NotificationBell.module.css";
 
 const BELL_PAGE = 20;
@@ -69,7 +71,9 @@ export function NotificationBell() {
         }}>
           <QueryState loading={query.isLoading} error={query.error ?? (denied ? count.error : null)} keepDataOnError={!!query.data && !denied} retry={() => { void query.refetch();void count.refetch(); }}>
             {items.length ? <ul>{items.map(notification => {
-              const route = targetRoute(notification.target), content = <><span className={s.text}>{notification.text}</span><time dateTime={notification.created_at}>{displayDate(notification.created_at)}</time></>;
+              const route = targetRoute(notification.target), signIn = signInDetails(notification);
+              const content = signIn ? <><ServiceSignInTitle className={s.text} kind={notification.kind} details={signIn} /><ServiceSignInFacts className={s.signInFacts} kind={notification.kind} details={signIn} /></>
+                : <><span className={s.text}>{notification.text}</span><time dateTime={notification.created_at}>{displayDate(notification.created_at)}</time></>;
               return <li key={notification.id} data-notification-id={notification.id} data-unread={!notification.read_at}>
                 {route ? <Link to={route} className={s.notice} data-notification-entry onClick={event => follow(event, route, notification)} onAuxClick={event => { if (event.button === 1) { setOpen(false);void read(notification); } }}>{content}</Link> : <div className={s.notice}>{content}{notification.kind === "access_revoked" && <small>Источник больше недоступен</small>}</div>}
                 {!notification.read_at && <button type="button" className={s.markRead} data-notification-entry={route ? undefined : true} aria-label={`Отметить прочитанным: ${notification.text}`} title="Отметить прочитанным" onClick={event => { if (document.activeElement === event.currentTarget) list.current?.focus();void read(notification, true); }}><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg></button>}

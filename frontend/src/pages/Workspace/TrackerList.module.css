@@ -97,3 +97,18 @@ a.person:hover { background: var(--surface-container-highest); color: var(--prim
 @media(max-width:768px) { .status { max-width:140px; } }
 /* From 480 px the key row has room for the deadline beside the status, as in the D-02 mockup. */
 @media(min-width:480px) and (max-width:768px) { .deadline { grid-column:2;grid-row:1; }.status { grid-column:3; }.assignees { grid-column:1 / -1; } }
+/* «Создать задачу» of a queue that takes no new task now (owner 2026-11-08, В8, variant В): a dashed, dimmed button
+   with a few words beside it; on a phone the words take their own line under the toolbar. */
+.refusedAnchor { flex:none; }
+.refusedCreate.refusedCreate { color:color-mix(in srgb,var(--on-surface) 55%,transparent);border-style:dashed;cursor:not-allowed; }
+.refusedCreate.refusedCreate:hover { background:transparent; }
+.refusedNote { font-size:12px;line-height:1.35;color:var(--error-container);max-width:190px; }
+.refusedTip { margin:0;font-size:13px;line-height:1.5;overflow-wrap:anywhere; }
+@media (max-width: 1100px) { .refusedCreate.refusedCreate { padding-inline:10px; } }
+/* Up to 1320 px the words beside the button would squeeze the search and push the filters out of the row: they take
+   their own line under the toolbar, as on a phone, and the search keeps the width it has in a queue that takes tasks. */
+@media (min-width: 769px) and (max-width: 1320px) {
+  .topbar.refusing { flex-wrap:wrap;row-gap:10px; }.topbar.refusing > .search { flex-basis:0; }
+  .topbar.refusing > .refusedNote { order:2;flex:1 0 100%;max-width:none; }
+}
+@media (max-width: 768px) { .topbar > .refusedNote { order:2;flex:1 0 100%;max-width:none; } }

@@ -81,6 +81,21 @@ it("applying a template changes only the draft's assessment fields and never sav
   expect(page.container.textContent).toContain("Проверьте поля и сохраните оценку");
 });
 
+it("the template window outside the page gives its filters and its editor the site's lists and boxes alike", async () => {
+  // Owner 2026-11-08, item 9: the window is portalled to <body>, so the site's controls come with the window itself.
+  vi.spyOn(profileFeaturesApi, "templates").mockResolvedValue({ items: [row] });
+  page = await mountWorkspace(<TemplateForm />);await waitForPage(page);
+  await act(async () => Array.from(page!.container.querySelectorAll("button")).find(button => button.textContent === "Сохранить как шаблон / Управление")!.click());
+  await waitForPage(page, () => !!document.querySelector('[data-anchored-popover] [role="group"][aria-label="Фильтры шаблонов"]'));
+  const layer = document.querySelector<HTMLElement>("[data-anchored-popover]")!;
+  expect(layer.parentElement).toBe(document.body);expect(layer.className).toMatch(/controls/);
+  expect(layer.querySelector('[role="group"][aria-label="Фильтры шаблонов"]')!.className).not.toMatch(/controls/);
+  await act(async () => Array.from(layer.querySelectorAll("button")).find(button => button.textContent === "Создать шаблон ККР")!.click());await waitForPage(page);
+  const editor = layer.querySelector<HTMLElement>('section[aria-label="Новый шаблон ККР"]')!;
+  expect(editor.querySelector('select[name="evaluation"]')?.closest('[class*="controls"]')).toBe(layer);
+  expect(editor.querySelector('input[type="checkbox"]')?.closest('[class*="controls"]')).toBe(layer);
+});
+
 it("denied profile history refresh removes cached past role information", async () => {
   const read = vi.spyOn(profileFeaturesApi, "activity").mockResolvedValue({ items: [{ scope: { kind: "event", id: "private", name: "Чувствительная история" }, role: "event_leader", started_at: null, ended_at: null, current: true, observed: false }] });
   page = await mountWorkspace(<ProfileActivity userId={101} />);

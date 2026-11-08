@@ -53,6 +53,26 @@
 .facts { display:flex;flex-wrap:wrap;align-items:flex-start;gap:12px 28px;margin-top:12px; }
 .facts>.owner { margin-top:0; }
 .place { display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;max-width:100%;min-width:0; }
+/* Variant В of В8 (owner 2026-11-08): the team and the season beside the queue's title. The season is a pill
+   coloured by its state as on the seasons page: open mint, planned lilac, summarizing peach, closed grey. */
+.titleRow { display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px; }
+.titleRow>h1 { margin:0; }
+.titleChips { display:inline-flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0; }
+.teamMissing { font-size:13px;opacity:.75; }
+.seasonPill { display:inline-flex;align-items:center;gap:6px;max-width:100%;box-sizing:border-box;font-size:12px;line-height:1.35;padding:5px 11px;border-radius:20px;text-decoration:none;color:var(--on-surface);background:var(--surface-container-high);vertical-align:middle; }
+.seasonPill::before { content:"";flex:0 0 7px;width:7px;height:7px;border-radius:50%;background:var(--on-surface-variant);opacity:.7; }
+.seasonPill:hover { background:var(--surface-container-highest); }
+.seasonPill:focus-visible { outline:2px solid var(--primary);outline-offset:3px; }
+.seasonText { min-width:0;overflow-wrap:break-word; }
+/* The state keeps its separator: on a narrow line both move under the title together. */
+.seasonState { opacity:.85;white-space:nowrap; }
+.seasonPill[data-state="open"] { color:var(--accent-mint);background:color-mix(in srgb,var(--accent-mint) 13%,var(--surface-container-low)); }
+.seasonPill[data-state="planned"] { color:var(--accent-lilac);background:color-mix(in srgb,var(--accent-lilac) 13%,var(--surface-container-low)); }
+.seasonPill[data-state="summarizing"] { color:var(--accent-peach);background:color-mix(in srgb,var(--accent-peach) 13%,var(--surface-container-low)); }
+.seasonPill:is([data-state="open"],[data-state="planned"],[data-state="summarizing"])::before { background:currentColor;opacity:1; }
+/* On the light header the pills are dark, as the team's chip is; the state keeps its colour. */
+.header .seasonPill { background:var(--surface-container-high); }
+.header .seasonPill:hover { background:var(--surface-container-highest); }
 @media(max-width:768px) { .headerActions { gap:8px; } }
 /* On a phone a queue is a block of its own (FIX6, owner 2026-11-08): the name with the key at the right,
    then the team and the owner under their small labels, side by side when each gets 160px, else one
@@ -68,4 +88,10 @@
   .table td[data-label] { flex:1 1 max(calc(50% - 6px),160px);min-width:auto;max-width:100%;overflow-wrap:break-word; }
   .table td[data-label] span { overflow-wrap:break-word; }
   .table td[data-label]::before { display:block;content:attr(data-label);margin-bottom:6px;color:var(--on-surface-variant);font-size:11px;line-height:1.4; }
+}
+/* The season pill is smaller on a phone; in a catalogue cell its state takes its own line, without the separator. */
+@media(max-width:768px) {
+  .seasonPill { font-size:11px;padding:4px 9px; }
+  .table .seasonState { display:block;white-space:normal; }
+  .table .seasonSeparator { display:none; }
 }

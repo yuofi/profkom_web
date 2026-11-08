@@ -277,6 +277,24 @@ def record(ip, agent, success, at=None, window=None):
         return None
 
 
+NOTICE_KINDS = ("service_login", "service_login_failed")
+
+
+def notice_details(kind, payload):
+    """The facts of a sign-in notice the bell lays out itself (owner 2026-11-08, item 25,
+    variant Б): the moment (ISO), the IP, the browser summary and, for a failed streak, how many
+    attempts in a row. The User-Agent itself is not kept, so it is never here."""
+    def text(key):
+        value = payload.get(key)
+        return value if isinstance(value, str) and value else None
+    failures = None
+    if kind == "service_login_failed":
+        failures = payload.get("failures")
+        if not isinstance(failures, int) or isinstance(failures, bool) or failures < 1:
+            failures = FAILURES_NOTICE
+    return dict(at=text("at"), ip=text("ip"), browser=text("browser"), failures=failures)
+
+
 def notice_text(kind, payload):
     """The bell's line of a sign-in notice: time in Moscow, IP and browser."""
     try:

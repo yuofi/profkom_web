@@ -91,6 +91,9 @@ def test_each_notification_says_what_happened_and_opens_its_object(client, super
     ]
     # Neither the request nor the applicant's name reaches someone who cannot review them.
     assert inbox(outsider) == [("access_revoked", "Доступ к объекту завершён", None)] * 2
+    # Only a service-account sign-in notice carries details (owner 2026-11-08, item 25).
+    for actor in (superuser, applicant, outsider):
+        assert {item["details"] for item in client.get("/api/notifications", headers=actor.headers).json()["items"]} == {None}
 
 
 def test_a_decided_block_request_notifies_the_applicant_with_its_id(client, make_user):

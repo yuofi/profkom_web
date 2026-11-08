@@ -17,6 +17,11 @@ export function queueCreationNotice(queue: Pick<TaskQueue, "season" | "task_crea
 /** Only creation the server is known to refuse stops it; an older server says nothing. */
 export const queueTakesTasks = (queue: Pick<TaskQueue, "task_creation">) => queue.task_creation?.available !== false;
 const SHORT_REASONS: Record<NonNullable<TaskQueueCreation["reason"]>, string> = { season_summarizing: "сезон подводит итоги", season_closed: "сезон закрыт", no_open_season: "нет открытого сезона", no_season: "нет сезона", team_missing: "команда недоступна" };
+/** The few words beside the disabled «Создать задачу» (owner 2026-11-08, В8, variant В); the full reason is queueCreationNotice. */
+export function queueCreationShort(queue: Pick<TaskQueue, "task_creation">) {
+  const reason = queue.task_creation?.reason, short = reason ? SHORT_REASONS[reason] : null;
+  return short ? `${short[0].toLocaleUpperCase("ru")}${short.slice(1)}: новые задачи не создаются` : "Новые задачи сейчас не создаются";
+}
 /** «KEY · Name · Team» for a plain option of a queue select; a queue that takes no task now says why. */
 export const queueOptionLabel = (queue: Pick<TaskQueue, "key" | "name" | "scope_title" | "task_creation">) =>
   [queue.key, queue.name, queue.scope_title, queueTakesTasks(queue) ? null : queue.task_creation?.reason ? SHORT_REASONS[queue.task_creation.reason] : "создать задачу нельзя"].filter(Boolean).join(" · ");
