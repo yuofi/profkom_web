@@ -9,7 +9,7 @@ import { number } from "../../components/Workspace/formValues";
 import { broadcastKeys, broadcastsApi } from "../../utils/api/broadcasts.api";
 import type { Broadcast, BroadcastCounts, Page as ListPage } from "../../utils/api/contract";
 import { directoryApi } from "../../utils/api/directory.api";
-import { fieldMessage, userMessage } from "../../utils/api/messages";
+import { ERROR_TEXTS, fieldMessage, userMessage } from "../../utils/api/messages";
 import { canRetainData, normalizeApiError } from "../../utils/api/request";
 import { createClientId } from "../../utils/clientId";
 import { displayDate, shortDate } from "../../utils/dates";
@@ -266,8 +266,9 @@ function BroadcastSenders() {
 export function BroadcastsPage() {
   const { session } = useSession();
   const sends = can(session, "send_broadcast"), manages = can(session, "manage_broadcast_senders");
+  // Also what stays after a refusal by the right: the session reread takes the forms away.
   if (!sends && !manages)
-    return <Page title="Рассылки"><Empty>Рассылки отправляют председатель, замы и участники, которым они дали это право.</Empty></Page>;
+    return <Page title="Рассылки"><Empty>{ERROR_TEXTS.broadcast_send_forbidden}</Empty></Page>;
   return (
     <Page title="Рассылки" description="Рассылка уходит в личные сообщения бота ВКонтакте всем, у кого он подключён, и приходит каждому участнику уведомлением на сайте.">
       <div className={s.stack}>

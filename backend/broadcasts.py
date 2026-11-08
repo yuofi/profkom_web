@@ -96,6 +96,11 @@ def enabled():
         raise NotFound(DISABLED, "bot_api_disabled")
 
 
+def may_send(uid):
+    """The right comes first, before the integration switch: 403 with the broadcasts' own code."""
+    require(uid, "broadcast.send", SEND, code="broadcast_send_forbidden")
+
+
 def title(text):
     """The first non-empty line, at most TITLE_LIMIT characters with «…»."""
     line = next(line.strip() for line in text.splitlines() if line.strip())
@@ -251,20 +256,20 @@ def register_routes(router):
 
     @router.get("/broadcasts/audience", response_model=Audience)
     def broadcast_audience(cur: User = Depends(get_current_user)):
-        require(cur.user_id, "broadcast.send", SEND)
+        may_send(cur.user_id)
         enabled()
         return audience()
 
     @router.post("/broadcasts", response_model=BroadcastOut)
     def create_broadcast(payload: BroadcastIn, cur: User = Depends(get_current_user)):
         """The chair, deputies and assigned senders (owner, 2026-11-04)."""
-        require(cur.user_id, "broadcast.send", SEND)
+        may_send(cur.user_id)
         enabled()
         return send(payload, cur.user_id, utcnow())
 
     @router.get("/broadcasts", response_model=Page[BroadcastOut])
     def list_broadcasts(cursor: str | None = None, cur: User = Depends(get_current_user)):
-        require(cur.user_id, "broadcast.send", SEND)
+        may_send(cur.user_id)
         return page(cursor)
 
     @router.get("/broadcasts/{broadcast_id}", response_model=BroadcastOut)
@@ -274,5 +279,5 @@ def register_routes(router):
 
     @router.post("/broadcasts/{broadcast_id}/cancel", response_model=BroadcastOut)
     def cancel_broadcast(broadcast_id: str, cur: User = Depends(get_current_user)):
-        require(cur.user_id, "broadcast.send", SEND)
+        may_send(cur.user_id)
         return cancel(broadcast_id, cur.user_id, utcnow())

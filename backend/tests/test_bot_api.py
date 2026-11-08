@@ -367,8 +367,9 @@ def test_it_master_by_block_name_owns_the_console_the_chair_does_not(client, tea
         status = client.get("/api/bot/console/status", headers=team[who].headers).status_code
         assert status == (200 if who == "it" else 403), who
         assert client.get("/api/bot/maintainers", headers=team[who].headers).status_code == status, who
-        assert client.get("/api/broadcasts/senders", headers=team[who].headers).status_code == (
-            200 if who in ("chair", "deputy") else 403), who
+        r = client.get("/api/broadcasts/senders", headers=team[who].headers)
+        assert (r.status_code, r.json()["detail"]["code"] if r.status_code == 403 else None) == (
+            (200, None) if who in ("chair", "deputy") else (403, "broadcast_senders_forbidden")), who
     assert access.IT_MASTER in access.relations(team["it"].user_id)
     assert access.IT_MASTER not in access.relations(team["other"].user_id)
 
@@ -425,7 +426,8 @@ def test_broadcast_senders_are_granted_by_the_chair_and_deputies(client, team):
     outsider = team["outsider"]
     url = f"/api/broadcasts/senders/{outsider.user_id}"
     for who in ("it", "other", "outsider"):
-        assert client.put(url, json={"sender": True}, headers=team[who].headers).status_code == 403, who
+        r = client.put(url, json={"sender": True}, headers=team[who].headers)
+        assert (r.status_code, code(r)) == (403, "broadcast_senders_forbidden"), who
     assert client.put(url, json={"sender": True}, headers=team["deputy"].headers).json() == {"user_id": outsider.user_id, "sender": True}
     assert caps(client, outsider) & (BOT_CAPS | BROADCAST_CAPS) == {"send_broadcast"}
     assert [i["user_id"] for i in client.get("/api/broadcasts/senders", headers=team["chair"].headers).json()["items"]] == [outsider.user_id]

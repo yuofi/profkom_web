@@ -195,7 +195,7 @@ def test_the_chair_deputies_and_senders_send_others_only_read(client, enabled, t
         actor = team[who]
         for method, path in (("GET", f"{URL}/audience"), ("POST", URL), ("GET", URL), ("POST", f"{URL}/{made[0]}/cancel")):
             r = client.request(method, path, headers=actor.headers, json={"text": "x"} if path == URL and method == "POST" else None)
-            assert (r.status_code, code(r)) == (403, "forbidden"), (who, method, path, r.text)
+            assert (r.status_code, code(r)) == (403, "broadcast_send_forbidden"), (who, method, path, r.text)
         page = client.get(f"{URL}/{made[0]}", headers=actor.headers)
         assert page.status_code == 200 and page.json()["counts"] is None, who
     assert client.get(f"{URL}/{made[0]}", headers=gone.headers).status_code in (401, 403)
@@ -207,6 +207,41 @@ def test_the_chair_deputies_and_senders_send_others_only_read(client, enabled, t
         assert ("send_broadcast" in caps) == can, who
 
 
+def test_a_removed_deputy_and_a_removed_sender_are_refused_with_the_broadcasts_own_codes(client, enabled, team, sender):
+    """Owner, 2026-11-08: a refusal says who may and whom to ask; its 403 always carries the
+    detail. The chair takes back a deputy's post and a sender's grant while their sessions stay
+    open: each request of the broadcast pages is refused by the right, the bell's page still reads."""
+    chair, deputy = team["chair"], team["deputy"]
+    linked(team["member"].user_id, 2201)
+    made = send(client, chair)["broadcast_id"]
+    send_codes = {"detail": {"code": "broadcast_send_forbidden", "message": broadcasts.SEND, "fields": {}}}
+    senders_codes = {"detail": {"code": "broadcast_senders_forbidden", "message": bot_api.SENDERS, "fields": {}}}
+    sending = (("GET", f"{URL}/audience", None), ("GET", URL, None), ("POST", URL, {"text": "x"}),
+               ("POST", f"{URL}/{made}/cancel", {}))
+    managing = (("GET", f"{URL}/senders", None), ("PUT", f"{URL}/senders/{team['member'].user_id}", {"sender": True}))
+
+    def refused(actor, routes, expected):
+        for method, path, payload in routes:
+            r = client.request(method, path, headers=actor.headers, json=payload)
+            assert (r.status_code, r.json()) == (403, expected), (method, path, r.text)
+            assert r.headers["content-type"] == "application/json"
+
+    # A sender sends but does not name senders.
+    refused(sender, managing, senders_codes)
+    lead = client.get("/api/leadership", headers=chair.headers).json()
+    client.put("/api/leadership/deputies", json={"user_ids": [], "expected_revision": lead["revision"]},
+               headers=chair.headers).raise_for_status()
+    client.put(f"{URL}/senders/{sender.user_id}", json={"sender": False}, headers=chair.headers).raise_for_status()
+    for actor in (deputy, sender):
+        refused(actor, sending, send_codes)
+        refused(actor, managing, senders_codes)
+        page = client.get(f"{URL}/{made}", headers=actor.headers)
+        assert page.status_code == 200 and page.json()["counts"] is None
+        caps = client.get("/api/session", headers=actor.headers).json()["capabilities"]
+        assert not {"send_broadcast", "manage_broadcast_senders"} & set(caps)
+    assert row(made)["state"] == "sending"
+
+
 def test_with_the_integration_off_audience_and_send_are_404_the_rest_works(client, team, monkeypatch):
     chair, member = team["chair"], team["member"]
     linked(member.user_id, 2101)
@@ -215,7 +250,8 @@ def test_with_the_integration_off_audience_and_send_are_404_the_rest_works(clien
     monkeypatch.setattr(settings, "BOT_API_TOKEN_SHA256", "")
     for r in (client.get(f"{URL}/audience", headers=chair.headers), post(client, chair)):
         assert (r.status_code, code(r)) == (404, "bot_api_disabled"), r.text
-    assert post(client, member).status_code == 403  # the right is checked first
+    r = post(client, member)
+    assert (r.status_code, code(r)) == (403, "broadcast_send_forbidden")  # the right is checked first
     assert [i["broadcast_id"] for i in client.get(URL, headers=chair.headers).json()["items"]] == [made]
     assert client.get(f"{URL}/{made}", headers=member.headers).status_code == 200
     r = client.post(f"{URL}/{made}/cancel", headers=chair.headers)

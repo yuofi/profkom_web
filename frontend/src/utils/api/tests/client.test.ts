@@ -6,6 +6,11 @@ import { api } from '../index';
 import { QueryClient } from '@tanstack/react-query';
 import { completeAuthentication, endSession } from '../../authSession';
 import { createFixtures } from '../../../mocks/fixtures';
+import { normalizeApiError } from '../request';
+import { ERROR_TEXTS, errorDetail, userMessage } from '../messages';
+import { supportApi } from '../support.api';
+import { filesApi } from '../files.api';
+import { seasonsApi } from '../seasons.api';
 
 let client: MockAdapter;
 let refresh: MockAdapter;
@@ -81,5 +86,33 @@ describe('Access token refresh', () => {
     expect(Cookies.get('access_token')).toBe(transition === 'login' ? 'new-account-token' : undefined);
     expect(client.history.get.filter((r) => r.url === '/old-private')).toHaveLength(1);
     queries.clear();
+  });
+});
+describe('File reads', () => {
+  const json = (detail: unknown) => new Blob([JSON.stringify({ detail })], { type: 'application/json' });
+  it('words a refused blob read by the API detail, and a page without one as unexplained', async () => {
+    // A support screenshot after the staff assignment was removed (support.py, _staff_required).
+    client.onGet('/support/tasks/WEBSUPPORT-1/screenshot').reply(403, json({ code: 'forbidden', message: 'Support staff access required', fields: {} }));
+    const staff = normalizeApiError(await supportApi.screenshot('WEBSUPPORT-1').catch((error: unknown) => error));
+    expect(staff).toMatchObject({ status: 403, code: 'forbidden', message: 'Support staff access required', explained: true });
+    expect(userMessage(staff)).toBe(ERROR_TEXTS.forbidden);
+    expect(errorDetail(staff)).toBe('forbidden: Support staff access required');
+    client.onGet('/seasons/s1/summary.xlsx').reply(404, json({ code: 'not_found', message: 'Season not found', fields: {} }));
+    await expect(seasonsApi.export('s1')).rejects.toMatchObject({ status: 404, code: 'not_found', message: 'Season not found' });
+    // An old route's string detail, then a proxy's own page and an empty body: no detail.
+    client.onGet('/files/f1/content').replyOnce(403, json('Not allowed'));
+    await expect(filesApi.content('f1')).rejects.toMatchObject({ status: 403, code: 'http_403', message: 'Not allowed', explained: true });
+    for (const body of ['<html><body><h1>403 Forbidden</h1></body></html>', '']) {
+      client.onGet('/files/f1/content').replyOnce(403, new Blob([body], { type: 'text/html' }));
+      const proxy = await filesApi.content('f1').catch((error: unknown) => error);
+      expect(proxy, body).toMatchObject({ status: 403, code: 'http_403', explained: false });
+      expect(userMessage(proxy)).toBe(ERROR_TEXTS.forbidden_unexplained);
+      expect(errorDetail(proxy)).toBe('http_403: Не удалось выполнить запрос');
+    }
+  });
+  it('leaves the bytes of a successful read alone', async () => {
+    const png = new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' });
+    client.onGet('/support/tasks/WEBSUPPORT-1/screenshot').reply(200, png);
+    expect(await supportApi.screenshot('WEBSUPPORT-1')).toBe(png);
   });
 });

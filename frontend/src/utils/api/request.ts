@@ -11,17 +11,21 @@ export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
   readonly fields: Record<string, unknown>;
+  /** False when an HTTP answer carried no detail at all, e.g. an HTML page of a proxy. */
+  readonly explained: boolean;
   constructor(
     message: string,
     status = 0,
     code = "client_error",
     fields: Record<string, unknown> = {},
+    explained = true,
   ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
     this.fields = fields;
+    this.explained = explained;
   }
   get blockers(): SeasonBlocker[] {
     return Array.isArray(this.fields.blockers)
@@ -64,10 +68,14 @@ export function normalizeApiError(error: unknown): ApiError {
         "validation_error",
         { errors: detail },
       );
+    // A blob the client (index.ts) could not read may still hold a detail: not "without one".
+    const explained = typeof detail === "string" || (typeof Blob !== "undefined" && error.response.data instanceof Blob);
     return new ApiError(
       typeof detail === "string" ? detail : "Не удалось выполнить запрос",
       status,
       `http_${status}`,
+      {},
+      explained,
     );
   }
   // A Russian message was written for the screen; anything else is a defect to hide.
