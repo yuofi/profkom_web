@@ -10,8 +10,10 @@ not marked edited and gets no version snapshot; the task activity records the ma
 
 Deletion is soft (``deleted_at``/``deleted_by_user_id``) and leaves no placeholder: the
 comment, its file bindings and its pending mention requests leave the task, earlier history
-entries stay as they are and one more entry says who deleted it. Access already granted by
-an approved mention stays. Repeating the deletion is a no-op.
+entries stay as they are and one more entry says who deleted it. A pending request stays
+pending and moves to another live comment when one written or edited since the request was
+raised still links the person (one request serves them all). Access already granted by an
+approved mention stays. Repeating the deletion is a no-op.
 """
 import json
 import re
@@ -109,6 +111,7 @@ def toggle_checklist(comment_id, uid, expected_body, offset, checked):
 
 def delete(comment_id, uid):
     from tracker import activity, can_comment, now, _file_refs
+    from tracker_collaboration import _comment_profile_ids
     from tracker_collaboration_models import TaskMentionRequestORM
     with db.atomic():
         with db._session() as session:
@@ -124,7 +127,18 @@ def delete(comment_id, uid):
             if files:
                 changes.append(dict(field="comment_attachments", label="Вложения комментария", comment_id=comment.comment_id, before=files, after=[]))
             activity(session, task, "comment_deleted", uid, "Комментарий удалён", at=stamp, changes=changes)
-            for row in session.query(TaskMentionRequestORM).filter_by(comment_id=comment.comment_id, status="pending"):
-                row.status, row.decided_at, row.decided_by_user_id = "cancelled", stamp, uid
+            pending = session.query(TaskMentionRequestORM).filter_by(comment_id=comment.comment_id, status="pending").all()
+            live = session.query(CommentORM).filter(
+                CommentORM.task_id == task.task_id, CommentORM.deleted_at.is_(None), CommentORM.comment_id != comment.comment_id,
+            ).order_by(CommentORM.created_at, CommentORM.comment_id).all() if pending else []
+            for row in pending:
                 row.revision += 1
+                # One pending request per task and person serves every comment that calls them since it
+                # was raised (tracker_collaboration._sync); it moves to the first such comment still live.
+                heir = next((other.comment_id for other in live if max(other.created_at or "", other.updated_at or "") >= row.created_at
+                             and row.target_user_id in _comment_profile_ids(_body(other))), None)
+                if heir:
+                    row.comment_id = heir
+                else:
+                    row.status, row.decided_at, row.decided_by_user_id = "cancelled", stamp, uid
             session.flush()

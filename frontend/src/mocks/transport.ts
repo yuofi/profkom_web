@@ -88,9 +88,12 @@ export function installMockTransport(
   } = {},
 ) {
   const state = createFixtures(role);
-  const commentMentions = (body: string) => {
+  const commentMentionIds = (body: string) => {
     const prose = body.replace(/^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\1[ \t]*$/gm, "").replace(/^(?: {4}|\t).*$/gm, "").replace(/(`+)[\s\S]*?\1(?!`)/g, "");
-    const ids = new Set([...prose.matchAll(/(?<!!|\\)\[(?:\\.|[^\]\\\n])*\]\(\/contacts\/([1-9][0-9]*)\)/g)].map(match => Number(match[1])));
+    return new Set([...prose.matchAll(/(?<!!|\\)\[(?:\\.|[^\]\\\n])*\]\(\/contacts\/([1-9][0-9]*)\)/g)].map(match => Number(match[1])));
+  };
+  const commentMentions = (body: string) => {
+    const ids = commentMentionIds(body);
     return clone(state.people.filter(person => person.user_id !== null && ids.has(person.user_id)));
   };
   // As task_comments._label: the checklist item as plain text, up to 80 characters.
@@ -1786,9 +1789,16 @@ export function installMockTransport(
       const task = comment && state.tasks.find(t => t.task_id === comment.task_id);
       if (!comment || !task || !readsTask(task)) return fail(404, "not_found", "Комментарий недоступен");
       if (method === "delete") {
-        // Like the server: no placeholder, files leave the task, pending mentions are cancelled.
+        // Like the server: no placeholder, files leave the task, pending mentions are cancelled
+        // unless a live comment written since still calls the person: the one request moves to it.
         state.comments = state.comments.filter(item => item.comment_id !== comment.comment_id);deletedComments.push(comment);
-        mentionRequests.filter(row => row.comment_id === comment.comment_id && row.status === "pending").forEach(row => { row.status = "cancelled";row.revision++;row.capabilities = []; });
+        const live = state.comments.filter(item => item.task_id === task.task_id).sort((a, b) => a.created_at.localeCompare(b.created_at) || a.comment_id.localeCompare(b.comment_id));
+        mentionRequests.filter(row => row.comment_id === comment.comment_id && row.status === "pending").forEach(row => {
+          row.revision++;
+          const heir = live.find(item => [item.created_at, item.updated_at ?? ""].some(at => at >= row.created_at) && row.target?.user_id != null && commentMentionIds(item.content.body).has(row.target.user_id));
+          if (heir) row.comment_id = heir.comment_id;
+          else { row.status = "cancelled";row.capabilities = []; }
+        });
         rememberTask(task, "comment_deleted", "Комментарий удалён", undefined, undefined, [{ field: "comment", label: "Комментарий", before: comment.content.body, after: null }]);
         return [204, null];
       }

@@ -59,3 +59,17 @@ it("the demo names a ticked item as plain text and shortens it like the server",
     `Отмечен пункт «${shortened}» в комментарии`,
   ]);
 });
+
+it("the demo moves a pending mention to a live comment that still calls the person", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const state = mock.state, task = state.tasks[0];task.created_by = state.user;
+  const outsider = state.people.find(person => person.user_id !== state.session.user_id)!;
+  const call = (text: string) => tasksApi.comment(task.task_id, richText(`${text} [${outsider.display_name}](/contacts/${outsider.user_id})`), [outsider.user_id!]);
+  const first = await call("Призыв"), second = await call("Ещё раз");
+  const pending = async () => (await taskCollaborationApi.mentions(task.task_id)).items.filter(row => row.target?.user_id === outsider.user_id);
+  expect(await pending()).toMatchObject([{ status: "pending", comment_id: first.comment_id, revision: 1 }]);
+  await tasksApi.deleteComment(first.comment_id);
+  expect(await pending()).toMatchObject([{ status: "pending", comment_id: second.comment_id, revision: 2, capabilities: ["approve_task_mention", "reject_task_mention"] }]);
+  await tasksApi.deleteComment(second.comment_id);
+  expect(await pending()).toMatchObject([{ status: "cancelled", comment_id: second.comment_id, revision: 3, capabilities: [] }]);
+});

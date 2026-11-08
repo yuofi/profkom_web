@@ -524,7 +524,7 @@ export interface TaskHistoryEvent {
 }
 export interface TaskMentionRequest {
   request_id:string;task_id:string;task_key:string|null;target:UserRef|null;requested_by:UserRef|null;
-  /** "cancelled": its comment was deleted before a decision. */
+  /** "cancelled": its comment was deleted before a decision. A pending request moves to another live comment that still calls the person. */
   comment_id:string|null;status:"pending"|"approved"|"rejected"|"cancelled";created_at:string;revision:number;capabilities:string[];
 }
 /** A person offered by GET /tasks/{id}/mention-candidates. */

@@ -191,6 +191,42 @@ def test_deletion_cancels_pending_mentions_keeps_granted_access_and_old_notifica
     assert client.get('/api/tasks/' + tid, headers=master.headers).status_code == 200
 
 
+def test_a_pending_mention_moves_to_a_live_comment_that_still_calls_the_person(client, work, make_user):
+    tid, author, master, outside = work['task']['task_id'], work['member'], work['master'], work['outside']
+    other = make_user()
+
+    def requests():
+        return client.get('/api/tasks/' + tid + '/mentions', headers=master.headers).json()['items']
+
+    def call(person, text):
+        # As the composer sends it: the explicit mention and its profile link in the body.
+        return comment(client, author, tid, f'{text} [Участник](/contacts/{person.user_id})', mentioned_user_ids=[person.user_id])['comment_id']
+
+    first, second = call(outside, 'Призыв'), call(outside, 'Ещё раз')
+    [request] = requests()
+    assert request['status'] == 'pending' and request['comment_id'] == first
+    assert client.delete('/api/comments/' + first, headers=master.headers).status_code == 204
+    [request] = requests()
+    assert request['status'] == 'pending' and request['comment_id'] == second and request['revision'] == 2
+    assert set(request['capabilities']) == {'approve_task_mention', 'reject_task_mention'}
+    with db._session() as s:
+        row = s.get(TaskMentionRequestORM, request['request_id'])
+        assert row.decided_at is None and row.decided_by_user_id is None
+    r = client.post('/api/tasks/' + tid + '/mentions/' + request['request_id'] + '/approve', headers=master.headers, json={'expected_revision': 2})
+    assert r.status_code == 200, r.text
+    assert client.get('/api/tasks/' + tid, headers=outside.headers).status_code == 200
+    # A deleted comment's link keeps nothing: the request goes once no live comment calls the person.
+    third, fourth = call(other, 'Призыв'), call(other, 'Повтор')
+    waiting = next(row for row in requests() if row['status'] == 'pending')
+    assert waiting['comment_id'] == third
+    assert client.delete('/api/comments/' + fourth, headers=master.headers).status_code == 204
+    assert next(row for row in requests() if row['request_id'] == waiting['request_id'])['comment_id'] == third
+    assert client.delete('/api/comments/' + third, headers=master.headers).status_code == 204
+    cancelled = next(row for row in requests() if row['request_id'] == waiting['request_id'])
+    assert cancelled['status'] == 'cancelled' and cancelled['capabilities'] == []
+    assert client.get('/api/tasks/' + tid, headers=other.headers).status_code == 404
+
+
 def test_mark_history_names_the_item_as_plain_text(client, work):
     tid, author, reader = work['task']['task_id'], work['member'], work['master']
     long_item = ' '.join(['**слово**'] * 30)
