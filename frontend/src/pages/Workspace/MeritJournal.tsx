@@ -54,14 +54,18 @@ export function MeritJournal({ seasonId, merits, names, people, peopleLoading = 
     queryFn: ({ pageParam, signal }) => seasonsApi.meritJournal({ season_id: seasonId, team, user_id: person ? Number(person) : null, cursor: pageParam, limit: MERIT_JOURNAL_PAGE }, signal),
     initialPageParam: null as string | null,
     getNextPageParam: last => last.next_cursor,
+    // Another team or participant keeps the season's previous list, dimmed, until its own arrives
+    // (as the tracker's list does); another season starts from the loading state.
+    placeholderData: (previous, previousQuery) => previousQuery?.queryKey[2] === seasonId ? previous : undefined,
   });
   const data = !query.error || canRetainData(query.error) ? query.data : undefined;
   const items = data?.pages.flatMap(page => page.items) ?? [], shown = items.length;
   const total = data?.pages[0]?.total ?? 0, records = data?.pages[0]?.records ?? 0;
+  const stale = query.isPlaceholderData;
   // As on /notifications: «Показать ещё» keeps the focus while its page loads (aria-disabled);
   // when the last page removes it, the focus moves to the first edit that page added.
   const list = useRef<HTMLDivElement>(null), more = useRef<HTMLButtonElement>(null), firstAdded = useRef<number | null>(null);
-  const loadingMore = query.isFetchingNextPage;
+  const loadingMore = query.isFetchingNextPage || stale;
   useEffect(() => {
     const index = firstAdded.current;
     if (index === null || loadingMore) return;
@@ -80,13 +84,13 @@ export function MeritJournal({ seasonId, merits, names, people, peopleLoading = 
     </div>
     <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!data}
       retry={() => void (query.isFetchNextPageError ? query.fetchNextPage() : query.refetch())}>
-      {total > 0 && <p className={j.summary}><strong>{total}</strong> {plural(total, "изменение", "изменения", "изменений")} в <strong>{records}</strong> {plural(records, "записи", "записях", "записях")} · сначала новые</p>}
-      {shown > 0 && <div ref={list} className={j.days}>{journalDays(items).map(day => <section key={day.day} className={j.day}>
+      {total > 0 && <p className={j.summary} data-stale={stale || undefined}><strong>{total}</strong> {plural(total, "изменение", "изменения", "изменений")} в <strong>{records}</strong> {plural(records, "записи", "записях", "записях")} · сначала новые</p>}
+      {shown > 0 && <div ref={list} className={j.days} aria-busy={stale || undefined}>{journalDays(items).map(day => <section key={day.day} className={j.day}>
         <h2>{day.heading}</h2>
         <ol className={j.entries}>{day.items.map(item => <JournalEntry key={item.entry.id} item={item} />)}</ol>
       </section>)}</div>}
-      {query.hasNextPage && <button ref={more} type="button" className={`${s.button} ${j.more}`} aria-disabled={loadingMore || undefined} aria-busy={loadingMore || undefined}
-        onClick={() => { if (loadingMore) return;firstAdded.current = shown;void query.fetchNextPage(); }}>{loadingMore ? "Загружаем…" : "Показать ещё"}</button>}
+      {query.hasNextPage && <button ref={more} type="button" className={`${s.button} ${j.more}`} aria-disabled={loadingMore || undefined} aria-busy={query.isFetchingNextPage || undefined}
+        onClick={() => { if (loadingMore) return;firstAdded.current = shown;void query.fetchNextPage(); }}>{query.isFetchingNextPage ? "Загружаем…" : "Показать ещё"}</button>}
       {data && !shown && <Empty>{team || person ? "Изменений по выбранным условиям нет." : "Изменений пока нет."}</Empty>}
     </QueryState>
   </section>;

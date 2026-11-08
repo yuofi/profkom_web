@@ -6,6 +6,7 @@
 .summary { margin:0;font-size:12px;line-height:1.5;color:var(--on-surface-variant); }
 .summary strong { color:var(--on-surface);font-weight:500; }
 .days { display:grid;gap:22px;min-width:0; }
+.summary[data-stale],.days[aria-busy=true] { opacity:.62; }
 .day h2 { margin:0 0 4px;font-size:13px;font-weight:500;line-height:1.4;color:var(--on-surface-variant); }
 .entries { list-style:none;margin:0;padding:0;display:grid; }
 .entries>li { display:grid;grid-template-columns:54px 220px minmax(0,1fr);align-items:start;gap:6px 16px;padding:12px 4px;border-bottom:1px solid color-mix(in srgb,var(--outline-variant) 16%,transparent); }

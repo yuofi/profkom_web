@@ -76,7 +76,14 @@ it("filters by team and participant through the URL and the request", async () =
   await mount();
   const options = [...field(page!.container, "team").querySelectorAll("option")].map(option => [option.value, option.textContent]);
   expect(options).toEqual([["", "Все команды"], ["block:block-info", "Блок «Инфо»"], ["chair", "Председатель"]]);
-  await change(field(page!.container, "team"), "block:block-info");await waitForPage(page!);
+  // While another team loads, the previous list stays on screen, dimmed and busy.
+  const read = seasonsApi.meritJournal;
+  let release = () => {};
+  vi.spyOn(seasonsApi, "meritJournal").mockImplementationOnce((query, signal) => new Promise(resolve => { release = () => resolve(read(query, signal)); }));
+  await change(field(page!.container, "team"), "block:block-info");
+  expect(journal()!.querySelectorAll('[aria-busy="true"] [data-journal-entry]')).toHaveLength(2);
+  await act(async () => release());await waitForPage(page!);
+  expect(journal()!.querySelector('[aria-busy="true"]')).toBeNull();
   expect(new URLSearchParams(where.at(-1)).get("team")).toBe("block:block-info");
   expect(requests().at(-1)).toMatchObject({ scope_kind: "block", scope_id: "block-info" });
   expect(entries().map(entry => entry.querySelector("strong")?.textContent)).toEqual(["Вёрстка газеты"]);
