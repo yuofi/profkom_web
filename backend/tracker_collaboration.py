@@ -120,9 +120,12 @@ def approve_assignment_access(session,task,target_uid,actor_uid):
 
 
 def _managers(session,task,facts=None):
+    """The people who manage the task's access: its author and its queue owner. The service
+    account is none of them (it is told nothing); is_manager still lets it act."""
     from task_queues import task_queue,active
     from tracker import _facts_for
     from support import is_support_queue,is_staff
+    from service_account import is_service_id
     facts=_facts_for(facts,task)
     queue=task_queue(session,task)
     author=task.created_by_user_id
@@ -130,7 +133,8 @@ def _managers(session,task,facts=None):
     if author and queue and is_support_queue(session,queue) and not cached(
             session,"support.is_staff",author,lambda:is_staff(session,author),copy_result=False):author=None
     return {uid for uid in (author,queue.owner_user_id if queue else None)
-            if uid and active(session,uid) and (facts.readable(uid) if facts else db.can_read_task(uid,task,session))}
+            if uid and not is_service_id(uid) and active(session,uid)
+            and (facts.readable(uid) if facts else db.can_read_task(uid,task,session))}
 
 
 def is_manager(session,task,uid,facts=None):

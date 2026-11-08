@@ -419,7 +419,8 @@ def can_edit_comment(session,comment,uid):
 
 
 def can_close(session,task,uid,facts=None):
-    """An unavailable author's queue owner may finish the task, with normal history."""
+    """An unavailable author's queue owner may finish the task, with normal history. The
+    service account is never an available author: a person finishes what it opened."""
     facts=_facts_for(facts,task)
     readable=facts.readable if facts else (lambda reader:db.can_read_task(reader,task,session))
     if not readable(uid):return False
@@ -427,7 +428,7 @@ def can_close(session,task,uid,facts=None):
     from service_account import is_service_id
     if is_service_id(uid):return True  # every right (owner, 2026-11-08)
     author=task.created_by_user_id
-    if author and active(session,author) and readable(author):return author==uid
+    if author and not is_service_id(author) and active(session,author) and readable(author):return author==uid
     queue=task_queue(session,task)
     return bool(queue and queue.owner_user_id==uid)
 

@@ -517,6 +517,82 @@ def test_it_cannot_be_chosen_for_anything(client, org):
         assert s.get(BlockORM, "IT").master_user_id != sid
 
 
+# ───────────────────────────── what it leaves behind ─────────────────────────────
+
+def test_a_queue_it_creates_belongs_to_a_person(client, org):
+    from database import TaskQueueORM
+    headers, master, chair, sid = org["headers"], org["master"], org["chair"], org["sid"]
+    block = {"kind": "block", "id": org["block"]["block_id"]}
+    r = client.post("/api/task-queues", headers=headers, json=dict(name="Отладка", key="DBG", scope=block, is_private=True))
+    assert r.status_code == 200, r.text
+    queue = r.json()
+    # The recovery chain's next owner: the block's master manages it and hears of requests.
+    assert queue["owner"]["user_id"] == master.user_id and queue["owner_unavailable"] is False
+    assert "manage_queue" in queue["capabilities"]  # the service account still holds every right
+    mine = client.get(f"/api/task-queues/{queue['queue_id']}", headers=master.headers).json()
+    assert "manage_queue" in mine["capabilities"]
+    asked = client.post(f"/api/task-queues/{queue['queue_id']}/access-requests", headers=org["member"].headers,
+                        json={"message": "Нужен доступ"})
+    assert asked.status_code == 200, asked.text
+    assert [k for k, _ in notices(master.user_id, "task_queue_access_request")] == ["task_queue_access_request"]
+    assert notices(sid, "task_queue_access_request") == []
+    # A named owner instead, never itself.
+    named = client.post("/api/task-queues", headers=headers, json=dict(
+        name="Отладка председателя", key="DBGC", scope={"kind": "chair", "id": "chair"}, owner_user_id=chair.user_id))
+    assert named.status_code == 200 and named.json()["owner"]["user_id"] == chair.user_id, named.text
+    itself = client.post("/api/task-queues", headers=headers, json=dict(name="Нельзя", key="DBGS", scope=block, owner_user_id=sid))
+    assert itself.status_code == 422 and itself.json()["detail"]["code"] == "unknown_user", itself.text
+    # A queue it held before (a row of an earlier version) is recovered at the startup pass.
+    import queue_ownership
+    from sqlalchemy import text
+    with database.engine.begin() as c:
+        c.execute(text("UPDATE task_queues SET owner_user_id = :sid WHERE queue_id = :q"), dict(sid=sid, q=queue["queue_id"]))
+    assert client.get(f"/api/task-queues/{queue['queue_id']}", headers=chair.headers).json()["owner_unavailable"] is True
+    assert queue_ownership.reconcile_existing() == 1
+    with db._session() as s:
+        assert s.get(TaskQueueORM, queue["queue_id"]).owner_user_id == master.user_id
+
+
+def test_with_no_one_to_own_it_a_queue_needs_a_named_owner(client, configured):
+    _, headers = service(client)
+    r = client.post("/api/task-queues", headers=headers, json=dict(name="Отладка", key="DBG", scope={"kind": "chair", "id": "chair"}))
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "queue_owner_required", r.text
+
+
+def test_a_person_finishes_the_task_it_opened(client, org):
+    from database import TaskORM
+    from tracker_collaboration import _managers
+    tid, master, member = org["task"]["task_id"], org["master"], org["member"]
+    with db._session() as s:
+        assert _managers(s, s.get(TaskORM, tid)) == {master.user_id}  # it is told of no access request
+    current = client.get(f"/api/tasks/{tid}", headers=member.headers).json()
+    assert client.post(f"/api/tasks/{tid}/status", headers=member.headers,
+                       json={"expected_revision": current["revision"], "status": "closed"}).status_code == 403
+    # The author is never available: its queue's owner closes and reopens the task.
+    current = client.get(f"/api/tasks/{tid}", headers=master.headers).json()
+    assert "closed" in current["allowed_statuses"], current["allowed_statuses"]
+    closed = client.post(f"/api/tasks/{tid}/status", headers=master.headers,
+                         json={"expected_revision": current["revision"], "status": "closed"})
+    assert closed.status_code == 200, closed.text
+    reopened = client.post(f"/api/tasks/{tid}/status", headers=master.headers,
+                           json={"expected_revision": closed.json()["revision"], "status": "open"})
+    assert reopened.status_code == 200, reopened.text
+
+
+def test_its_row_leaves_an_install_empty_for_the_first_chair(client, configured):
+    from database import LeadershipORM
+    from scripts.preset_db import set_admin
+    service_account.sync()
+    out = io.StringIO()
+    with redirect_stdout(out):
+        set_admin(custom_payload=dict(name="Председатель", surname="Первый", email="first@test.ru",
+                                      password="Synthetic-Chair-Pass-1", group_number="101", tg=""))
+    assert "Created the explicitly configured initial chair." in out.getvalue(), out.getvalue()
+    with db._session() as s:
+        chair = s.get(LeadershipORM, 1).chair_user_id
+    assert chair and chair != service_id()
+
+
 def test_the_hash_helper_reads_without_echo_and_prints_only_the_hash(monkeypatch):
     import importlib.util
     from pathlib import Path

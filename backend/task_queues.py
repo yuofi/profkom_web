@@ -695,7 +695,8 @@ def create(uid,name,key,scope=None,owner_user_id=None,is_private=False):
         import access
         if not active(session,uid):raise Forbidden('Only active approved users may create queues')
         if not access.allowed(uid,'queue.create',kind,sid):raise Forbidden('Only leaders may create queues in their own teams')
-        if owner_user_id is not None and owner_user_id!=uid:raise InvalidInput('Queue creator must be its initial owner')
+        from service_account import is_service_id
+        if owner_user_id is not None and owner_user_id!=uid and not is_service_id(uid):raise InvalidInput('Queue creator must be its initial owner')
         qid='queue-'+str(uuid.uuid4())
         if kind=='chair':
             if sid!='chair':raise InvalidInput('Invalid chair scope')
@@ -709,8 +710,21 @@ def create(uid,name,key,scope=None,owner_user_id=None,is_private=False):
         if session.query(TaskQueueORM).filter_by(key=key).first():raise Conflict('Queue key already exists','queue_key_conflict')
         q=TaskQueueORM(queue_id=qid,name=name.strip(),key=key,scope_kind=kind,scope_id=sid,
             owner_user_id=uid,is_private=is_private,is_default=False,next_task_number=1,revision=1,created_at=now())
+        if is_service_id(uid):q.owner_user_id=_owner_for_service(session,q,owner_user_id)
         session.add(q);session.commit()
         return projection(session,q,uid)
+
+
+def _owner_for_service(session,queue,owner_user_id):
+    """The service account owns no queue (no person could manage it): the named owner, else
+    the recovery chain's next owner (block master, HR master, chair)."""
+    if owner_user_id is not None:
+        _validate_owner(session,owner_user_id,queue.scope_kind,queue.scope_id)
+        return owner_user_id
+    from queue_ownership import _successor
+    successor=_successor(session,queue)
+    if successor is None:raise InvalidInput('Name the queue owner: the service account cannot own a queue','queue_owner_required')
+    return successor[0]
 
 
 def managed(session,queue_id,uid):
