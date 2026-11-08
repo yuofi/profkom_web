@@ -160,6 +160,9 @@ export function BlockPage() {
           Заявка: {requestStates[pending.state]} ·{" "}
           <RouteLink to="/blocks/requests">Открыть</RouteLink>
         </p>
+      ) : session?.service_account ? (
+        // The server refuses it any application (403, owner 2026-11-08): say so instead of the button.
+        <span className={`${s.muted} ${m.navNote}`}>Сервисный аккаунт не состоит в блоках</span>
       ) : (
         !member && (
           <ActionForm
