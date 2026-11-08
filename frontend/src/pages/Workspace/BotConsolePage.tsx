@@ -9,7 +9,7 @@ import { number } from "../../components/Workspace/formValues";
 import { botConsoleApi, botConsoleKeys } from "../../utils/api/botConsole.api";
 import type { BotCommand, BotCommandInput, BotConsoleStatus, BotLogError } from "../../utils/api/contract";
 import { directoryApi } from "../../utils/api/directory.api";
-import { userMessage } from "../../utils/api/messages";
+import { ERROR_TEXTS, userMessage } from "../../utils/api/messages";
 import { ApiError, canRetainData, normalizeApiError } from "../../utils/api/request";
 import { requestKey, type RequestKey } from "../../utils/clientId";
 import { copyText } from "../../utils/clipboard";
@@ -196,12 +196,13 @@ function UpdatesCard({ status, operates, now }: { status: BotConsoleStatus; oper
   const heartbeat = status.heartbeat, updates = heartbeat?.updates, check = updates?.check;
   const running = runningVersion(heartbeat), update = updateOffer(heartbeat), rollback = rollbackOffer(heartbeat);
   const changelog = update ? changelogFor(updates, update) : null, major = newerMajor(heartbeat);
-  // The server's requests name the VK of the person who asks (bot_console_vk_required).
-  const noVk = session?.bot_link?.state === "none";
+  // The server's requests name the VK of the person who asks (bot_console_vk_required). The service
+  // account has none and cannot link one (bot_console_service_vk): an open owner question, 2026-11-08.
+  const noVk = session?.bot_link?.state === "none", service = !!session?.service_account;
   const waiting = commandOpen(command.data);
   // After «Обновить» or «Откатить» the server works on: its job comes with the bot's reports.
   const server = serverWait(command.data, updates?.job, now);
-  const disabled = !status.enabled || !status.online;
+  const disabled = !status.enabled || !status.online || service;
   return (
     <Card title="Обновления">
       {!updates ? <p className={s.muted}>Бот этой версии не сообщает, что с обновлениями.</p> : <>
@@ -224,6 +225,7 @@ function UpdatesCard({ status, operates, now }: { status: BotConsoleStatus; oper
           <Facts rows={jobRows(updates.job)} />
         </div>}
         {operates && updatesAllowed(updates) && <div className={c.block}>
+          {service && <p className={s.muted}>{ERROR_TEXTS.bot_console_service_vk}</p>}
           {noVk && <p className={s.muted}>
             Проверять и ставить обновления из консоли можно с привязанным VK: сервер записывает, кто попросил.{" "}
             <Link to={`${getProfileSettingsRoute()}#${BOT_LINK_ANCHOR}`}>Привязать VK</Link>

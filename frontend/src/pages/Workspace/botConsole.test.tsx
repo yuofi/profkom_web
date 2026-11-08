@@ -369,6 +369,20 @@ it("asks for a VK link before the server's requests", async () => {
   expect(card("Управление")!.textContent).toContain("Ждёт бота");
 });
 
+it("tells the service account who updates the bot instead and holds its three update buttons", async () => {
+  // It has no VK and cannot link one (bot_link null): an open owner question, 2026-11-08.
+  await mount("it", {}, undefined, () => { mock!.state.session.service_account = true;mock!.state.session.bot_link = null; });
+  const updates = card("Обновления")!;
+  expect(updates.textContent).toContain(ERROR_TEXTS.bot_console_service_vk);
+  expect(ERROR_TEXTS.bot_console_service_vk).toContain("Попросите мастера блока IT или сопровождающего бота");
+  expect(updates.querySelector('a[href="/profile/settings#bot"]')).toBeNull();
+  for (const label of ["Обновить до 2.5.0", "Откатить на 2.3.0", "Проверить обновления"]) expect(button(label, updates)?.disabled, label).toBe(true);
+  // The restart and the log stay its own.
+  expect(button("Перезапустить бота")!.disabled).toBe(false);
+  // The demo refuses as the server does.
+  await expect(botConsoleApi.create({ kind: "updates_check", args: {}, idempotency_key: crypto.randomUUID() })).rejects.toMatchObject({ status: 409, code: "bot_console_service_vk" });
+});
+
 it("lists the commands newest first with who, when, state and message, pages on, and opens an output", async () => {
   await mount();
   const history = () => card("История команд")!;

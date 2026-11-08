@@ -898,6 +898,9 @@ capabilities. Архив аккаунта их снимает, восстано�
 - Бот не `online` — 409 `bot_offline`: команда до него не дойдёт.
 - Уже есть `pending` или `running` команда того же вида — 409 `bot_command_pending`; `update` и
   `rollback` считаются одним видом.
+- `updates_check`, `update`, `rollback` от сервисного аккаунта — 409 `bot_console_service_vk`:
+  VK у него нет и привязать его нельзя ([SERVICE_ACCOUNT.md](SERVICE_ACCOUNT.md), открытый
+  вопрос владельцу). Консоль держит эти три кнопки выключенными и говорит, к кому обратиться.
 - `updates_check`, `update`, `rollback` без привязанного VK у автора — 409
   `bot_console_vk_required`: серверу нужен VK ID автора запроса.
 - `restart` раньше чем через 2 минуты после прошлого `restart` (по его `created_at`, в любом
@@ -906,7 +909,7 @@ capabilities. Архив аккаунта их снимает, восстано�
   `kind` и `args` (после значений по умолчанию) возвращает ту же команду в её нынешнем
   состоянии; иначе — 409 `duplicate_request_key`.
 - Порядок проверок: право, интеграция, повтор по ключу (он отвечает, даже если бот уже не на
-  связи), затем `bot_offline`, `bot_command_pending`, `bot_console_vk_required`,
+  связи), затем `bot_offline`, `bot_command_pending`, `bot_console_service_vk`, `bot_console_vk_required`,
   `bot_command_rate_limited`. Отказ ничего не сохраняет.
 - Боту в `requested_by` уходят `user_id` автора, VK его привязки в момент создания (или `null`)
   и `display_name` автора на сайте — тот же, что в `requested_by` ответа.

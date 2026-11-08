@@ -428,6 +428,25 @@ def test_the_bot_console_is_open(client, configured, make_user):
     assert client.get("/api/bot/maintainers", headers=headers).status_code == 200
 
 
+def test_the_bot_console_refuses_its_update_requests_with_its_own_code(client, configured, monkeypatch):
+    """The update server needs the requester's VK and the service account has none (an open
+    owner question, 2026-11-08): its own refusal instead of a request to link a VK it cannot link."""
+    from bot_models import BotCommandORM
+    from test_bot_api import HASH as BOT_HASH
+    from test_bot_console import URL, beat
+    monkeypatch.setattr(settings, "BOT_API_TOKEN_SHA256", BOT_HASH)
+    monkeypatch.setattr(settings, "PUBLIC_SITE_URL", "https://profkom.example")
+    beat(client)
+    _, headers = service(client)
+    for kind, args in (("updates_check", {}), ("update", {"version": "2.5.0"}), ("rollback", {"version": "2.3.0"})):
+        r = client.post(f"{URL}/commands", headers=headers, json={"kind": kind, "args": args})
+        assert (r.status_code, r.json()["detail"]["code"]) == (409, "bot_console_service_vk"), (kind, r.text)
+    with db._session() as s:
+        assert s.query(BotCommandORM).count() == 0
+    # The log and a restart need no VK.
+    assert client.post(f"{URL}/commands", headers=headers, json={"kind": "logs"}).status_code == 200
+
+
 def test_no_deadline_banner_or_gate(client, configured, make_user, monkeypatch):
     from test_bot_api import HASH as BOT_HASH
     monkeypatch.setattr(settings, "BOT_API_TOKEN_SHA256", BOT_HASH)
