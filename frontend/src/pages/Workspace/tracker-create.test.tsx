@@ -30,6 +30,38 @@ it("opens a blank task-like editor with parameters, permits no assignees and omi
   await change(field(page.container, "title"), "Новая свободная задача");await change(field(form, "deadline"), "2026-10-29T18:00");await submit(form);await waitForPage(page, () => !!page!.container.textContent?.includes("Созданная задача") || !!page!.container.querySelector('[role="alert"]'));expect(page!.container.textContent).toContain("Созданная задача");
   expect(create).toHaveBeenCalledWith(expect.objectContaining({ queue_id: queue.queue_id, assignees: [], watcher_user_ids: [], file_ids: [], description: richText("") }));expect(create.mock.calls[0][0]).not.toHaveProperty("scope");
 });
+it("never offers the service account itself as an assignee or a watcher (owner 2026-11-08)", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const session = { ...mock.state.session, service_account: true };
+  // A queue with no team, as an older one: a person could only pick themselves there.
+  mock.state.queues.push({ ...mock.state.queues[0], queue_id: "unscoped", name: "Старая очередь", key: "OLD", scope: null, capabilities: ["create_task"] });
+  const create = vi.spyOn(tasksApi, "create");
+  const pages = <Routes><Route path="/tasks/new" element={<TrackerTaskCreatePage />} /><Route path="/tasks/:id" element={<p>Созданная задача</p>} /></Routes>;
+  const people = () => {
+    const parameters = page!.container.querySelector('[aria-label="Параметры новой задачи"]')!;
+    return ["Исполнители", "Наблюдатели"].map(name => [...parameters.querySelectorAll("h3")].find(node => node.textContent === name)!.closest("section")!);
+  };
+  page = await mountWorkspace(pages, { path: "/tasks/new?queue_id=unscoped", session });
+  await waitForPage(page, () => !!page!.container.querySelector("form") && !page!.container.textContent?.includes("Загрузка"));
+  const [assignees, watchers] = people();
+  expect(assignees.querySelector('[role="combobox"]')).toBeNull();expect(assignees.textContent).toContain("Сервисный аккаунт не может быть исполнителем.");
+  expect(watchers.querySelector('[role="combobox"]')).toBeNull();expect(watchers.textContent).toContain("Сервисный аккаунт не может быть наблюдателем.");
+  const form = page.container.querySelector("form")!;
+  await change(field(page.container, "title"), "Задача сервисного аккаунта");await submit(form);
+  await waitForPage(page, () => !!page!.container.textContent?.includes("Созданная задача") || !!page!.container.querySelector('[role="alert"]'));
+  expect(create).toHaveBeenCalledWith(expect.objectContaining({ queue_id: "unscoped", assignees: [], watcher_user_ids: [] }));
+  // The event's own queue, where only the author could be picked: nobody either.
+  await page.cleanup();
+  page = await mountWorkspace(pages, { path: "/tasks/new?scope_kind=event&scope_id=event-1", session });
+  await waitForPage(page, () => !!page!.container.querySelector("form"));
+  for (const section of people()) expect(section.querySelector('[role="combobox"]')).toBeNull();
+  // A queue of a team still lists its people: the server leaves the service account out of them.
+  await page.cleanup();
+  mock.state.queues.push({ ...mock.state.queues[0], queue_id: "scoped", name: "Очередь блока", key: "IND", scope: { kind: "block" as const, id: mock.state.blocks[0].block_id }, capabilities: ["create_task"] });
+  page = await mountWorkspace(pages, { path: "/tasks/new?queue_id=scoped", session });
+  await waitForPage(page, () => !!people()[0]?.querySelector('[role="combobox"]'));
+  expect(people()[1].querySelector('[role="combobox"]')).toBeNull();
+});
 it("hints the deadline range and shows the server's refusal at the deadline field", async () => {
   mock = installMockTransport("chair", { delay: 0 });
   const create = vi.spyOn(tasksApi, "create").mockRejectedValue(new ApiError("Dates", 422, "deadline_out_of_range", { deadline_at: "out_of_range", earliest: "2026-10-31T09:00:00+00:00", latest: "2026-12-31T20:59:59+00:00" }));
