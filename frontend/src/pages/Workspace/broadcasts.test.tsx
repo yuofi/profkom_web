@@ -13,6 +13,7 @@ import { broadcastsApi } from "../../utils/api/broadcasts.api";
 import { ERROR_TEXTS } from "../../utils/api/messages";
 import { ApiError, normalizeApiError } from "../../utils/api/request";
 import type { Session } from "../../utils/api/contract";
+import { UserProvider } from "../../utils/ctx";
 import { BroadcastPage, BroadcastsPage } from "./BroadcastPages";
 import {
   BROADCAST_POLL_MS, audienceHint, broadcastBadge, broadcastLength, broadcastPollInterval, excerpt, pausedBroadcastText,
@@ -207,13 +208,13 @@ it("names a refusal readably and keeps the draft", async () => {
 });
 
 it("says who sends and who names the senders when the server refuses by the right", async () => {
+  // The texts as they show until the session is reread; what stays then is tested below.
   await mount("chair-deputy");
   vi.spyOn(broadcastsApi, "create").mockRejectedValueOnce(new ApiError("Broadcast sender rights required", 403, "broadcast_send_forbidden"));
   await compose("Без права");
   await click(button("Да, отправить"));
   expect(alertText()).toContain(ERROR_TEXTS.broadcast_send_forbidden);
   expect(page!.container.querySelector("details code")?.textContent).toBe("broadcast_send_forbidden: Broadcast sender rights required");
-  expect(textarea().value).toBe("Без права");
   vi.spyOn(broadcastsApi, "setSender").mockRejectedValueOnce(new ApiError("Only the chair and deputies manage broadcast senders", 403, "broadcast_senders_forbidden"));
   const senders = [...page!.container.querySelectorAll("section")].find((item) => item.querySelector("h2")?.textContent === "Отправители")!;
   const form = senders.querySelector('[data-field-name="user"]')!.closest("form")!;
@@ -228,6 +229,45 @@ it("says who sends and who names the senders when the server refuses by the righ
   for (const call of [broadcastsApi.audience, () => broadcastsApi.list(), () => broadcastsApi.cancel("broadcast-3"),
     () => broadcastsApi.create({ text: "x", idempotency_key: "00000000-0000-4000-8000-000000000000" })])
     await expect(call()).rejects.toMatchObject({ status: 403, code: "broadcast_send_forbidden" });
+});
+
+it("leaves who may send and whom to ask once the session reread after a refusal takes the right away", async () => {
+  const card = (title: string) => [...page!.container.querySelectorAll("section")].find((item) => item.querySelector("h2")?.textContent === title);
+  // A deputy the chair removed, and a sender whose grant was taken back, with the page open.
+  const cases: [MockRole, string[], string[]][] = [
+    ["chair-deputy", [], ["send_broadcast", "manage_broadcast_senders"]],
+    ["organizer", ["send_broadcast"], ["send_broadcast"]],
+  ];
+  for (const [role, granted, removed] of cases) {
+    mock = installMockTransport(role, { delay: 0 });
+    mock.broadcasts.step = 0;
+    mock.state.session.capabilities = [...mock.state.session.capabilities, ...granted];
+    page = await mountWorkspace(<UserProvider>{pages}</UserProvider>, { role, path: "/broadcasts" });
+    await waitForPage(page, () => !!page!.container.querySelector("textarea"));
+    await compose("Без права");
+    mock.state.session.capabilities = mock.state.session.capabilities.filter((cap) => !removed.includes(cap));
+    await click(button("Да, отправить"));
+    // The 403 rereads the session, and the page keeps no form the right no longer allows.
+    await waitForPage(page, () => !page!.container.querySelector("textarea"));
+    expect(posts(), role).toHaveLength(1);
+    expect([...page.container.querySelectorAll("p")].map((item) => item.textContent), role).toContain(ERROR_TEXTS.broadcast_send_forbidden);
+    expect(text(), role).toContain("Попросите председателя или зама добавить вас в отправители.");
+    expect(card("Отправители"), role).toBeUndefined();
+    await page.cleanup();page = undefined;mock.restore();mock = undefined;
+  }
+  // A deputy left a sender: the senders card goes, the draft and the history stay.
+  mock = installMockTransport("chair-deputy", { delay: 0 });
+  mock.broadcasts.step = 0;
+  page = await mountWorkspace(<UserProvider>{pages}</UserProvider>, { role: "chair-deputy", path: "/broadcasts" });
+  await waitForPage(page, () => !!card("Отправители"));
+  await change(textarea(), "Черновик остаётся");
+  mock.state.session.capabilities = mock.state.session.capabilities.filter((cap) => cap !== "manage_broadcast_senders");
+  const form = card("Отправители")!.querySelector('[data-field-name="user"]')!.closest("form")!;
+  await pick(form, "user", "101");
+  await submit(form);
+  await waitForPage(page, () => !card("Отправители"));
+  expect(textarea().value).toBe("Черновик остаётся");
+  expect(row("Собрание актива")).toBeDefined();
 });
 
 it("does not blame a removed role for a 403 without any detail and keeps «Подробнее»", async () => {
