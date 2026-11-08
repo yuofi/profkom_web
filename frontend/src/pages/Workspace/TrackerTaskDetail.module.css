@@ -91,9 +91,11 @@
 .comment > header > button { flex: none; }
 /* The 36px «⋯» is centred on the 32px author chip and adds nothing to the header's height. */
 .comment > header > .iconButton { margin-block: -2px; }
-/* While a comment is edited its header ends with the words «Отменить редактирование»:
-   they move under the author and the date when the line is short, so the chip keeps its width. */
+/* While a comment is edited its header ends with the words «Отменить редактирование»: the header
+   wraps as before, the chip, the date and the words each moving to the next line when the line is short,
+   so the chip keeps its width. */
 .comment > header:has(> .subtleButton) { flex-wrap: wrap; align-items: center; }
+.comment > header:has(> .subtleButton) > .commentMeta { display: contents; }
 /* Deleting a comment asks once more, framed like hiding a history version. */
 .commentConfirm { display: grid; gap: 10px; border: 1px solid var(--error); padding: 12px; border-radius: 12px; }
 .commentConfirm p { margin: 0; font-size: 14px; line-height: 1.5; }
