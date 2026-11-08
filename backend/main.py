@@ -1358,16 +1358,19 @@ def register(payload: RegisterIn, response: Response):
 
 
 def _service_login(body: LoginIn, request: Request) -> dict:
-    """The service account's sign-in: the client's address limit first, then the configured
-    hash outside any transaction, then one short transaction for the counters, notices and
-    tokens. The password and the hash are never logged."""
+    """The service account's sign-in: an attempt of the client's address limit taken first
+    (one short transaction), then the configured hash outside any transaction, then one
+    short transaction for the counters, notices and tokens. The password and the hash are
+    never logged."""
     import service_account
     from settings import settings
     ip, agent = service_account.client_ip(request), request.headers.get("user-agent", "")
-    if service_account.throttled(ip):
+    window = service_account.reserve(ip)
+    if window is None:
         raise HTTPException(429, "Too many sign-in attempts; try again later",
                             headers={"Retry-After": str(service_account.THROTTLE_WINDOW_S)})
-    tokens = service_account.record(ip, agent, verify_password(body.password, settings.ROOT_PASSWORD_HASH))
+    tokens = service_account.record(ip, agent, verify_password(body.password, settings.ROOT_PASSWORD_HASH),
+                                    window=window)
     if tokens is None:
         raise HTTPException(401, "Invalid credentials")
     return tokens

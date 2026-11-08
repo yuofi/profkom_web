@@ -22,7 +22,7 @@ import database
 import service_account
 from database import BlockORM, ContactInfoORM, NotificationORM, RefreshTokenORM, UserORM, db
 from profile_features_models import NotificationDeliveryEventORM
-from service_account_models import ServiceLoginStateORM
+from service_account_models import ServiceLoginStateORM, ServiceLoginThrottleORM
 from settings import Settings, settings
 from test_proxy_client_ip import from_peer
 
@@ -134,6 +134,23 @@ def test_the_schema_upgrade_is_idempotent():
     assert columns.count("is_service") == 1 and "ux_users_service" in indexes
 
 
+def test_the_notice_key_upgrade_is_idempotent_and_keeps_the_count(tmp_path):
+    from sqlalchemy import create_engine
+    import service_account_models
+    old = create_engine(f"sqlite:///{tmp_path / 'old.db'}")
+    with old.begin() as c:
+        c.exec_driver_sql("CREATE TABLE service_login_state (state_id INTEGER PRIMARY KEY, "
+                          "failures INTEGER NOT NULL DEFAULT 0, last_failed_at VARCHAR)")
+        c.exec_driver_sql("INSERT INTO service_login_state VALUES (1, 4, '2026-11-08T00:00:00+00:00')")
+    service_account_models.upgrade(old)
+    service_account_models.upgrade(old)
+    with old.connect() as c:
+        columns = [r[1] for r in c.exec_driver_sql("PRAGMA table_info(service_login_state)")]
+        row = tuple(c.exec_driver_sql("SELECT failures, notice_key FROM service_login_state").one())
+    old.dispose()
+    assert columns.count("notice_key") == 1 and row == (4, None)
+
+
 # ───────────────────────────── sign-in ─────────────────────────────
 
 def test_sign_in_with_the_login_through_the_ordinary_form(client, configured, make_user):
@@ -218,13 +235,33 @@ def test_failed_sign_ins_are_limited_per_client(client, app, configured, make_us
     limited = attempt("203.0.113.7", PASSWORD)  # even the right password waits
     assert limited.status_code == 429 and limited.headers["Retry-After"] == str(service_account.THROTTLE_WINDOW_S)
     assert attempt("198.51.100.4", PASSWORD).status_code == 200
+    # A success gives its attempt back: only failures count.
+    with db._session() as s:
+        assert s.get(ServiceLoginThrottleORM, service_account._throttle_key("198.51.100.4")).count == 0
     # An ordinary account's sign-in is not counted or held by it.
     person = make_user()
     assert site.post("/api/auth/login", json={"email": person.email, "password": person.password},
                      headers={"X-Forwarded-For": "203.0.113.7"}).status_code == 200
     # The window passes.
     later = datetime.now(timezone.utc) + timedelta(seconds=service_account.THROTTLE_WINDOW_S)
-    assert service_account.throttled("203.0.113.7") and not service_account.throttled("203.0.113.7", later)
+    assert service_account.reserve("203.0.113.7") is None and service_account.reserve("203.0.113.7", later) is not None
+
+
+def test_parallel_attempts_of_one_client_stay_within_the_limit(client, app, configured):
+    """An attempt is taken before the password is checked: a burst gets no more than the limit."""
+    import asyncio
+    import httpx
+    service_account.sync()
+    burst = 3 * service_account.THROTTLE_LIMIT
+
+    async def attempts():
+        transport = httpx.ASGITransport(app=app, client=("203.0.113.8", 40000))
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
+            return await asyncio.gather(*(c.post("/api/auth/login", json={"email": LOGIN, "password": "Wrong-Password-123"})
+                                          for _ in range(burst)))
+
+    statuses = sorted(r.status_code for r in asyncio.run(attempts()))
+    assert statuses == [401] * service_account.THROTTLE_LIMIT + [429] * (burst - service_account.THROTTLE_LIMIT)
 
 
 # ───────────────────────────── notifications ─────────────────────────────
@@ -274,9 +311,9 @@ def test_without_an_it_block_only_the_chair_hears(client, configured, make_user,
     assert notices(lookalike.user_id) == []
 
 
-def test_three_failures_in_a_row_notify_and_a_success_resets_the_count(client, configured, watchers):
+def test_three_failures_in_a_row_notify_once_per_streak_and_a_success_resets_it(client, configured, watchers):
     chair, master, _ = watchers
-    wrong = lambda: sign_in(client, password="Wrong-Password-123")  # noqa: E731
+    wrong = lambda agent=AGENT: sign_in(client, password="Wrong-Password-123", agent=agent)  # noqa: E731
     assert [wrong().status_code for _ in range(2)] == [401, 401]
     assert notices(chair.user_id, "service_login_failed") == []
     assert sign_in(client).status_code == 200  # resets the count
@@ -291,10 +328,23 @@ def test_three_failures_in_a_row_notify_and_a_success_resets_the_count(client, c
     with db._session() as s:
         assert s.get(ServiceLoginStateORM, 1).failures == 3
         assert s.query(NotificationDeliveryEventORM).count() == 0
-    # Three more in a row: one more notice.
-    for _ in range(3):
-        wrong()
-    assert [p["failures"] for _, p in notices(chair.user_id, "service_login_failed")] == [3, 6]
+    # The streak goes on: its one notice tells the count and the last attempt, unread again.
+    assert client.post("/api/notifications/read-all", headers=chair.headers).status_code == 200
+    firefox = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0"
+    for _ in range(2):  # 7 failures from this client so far, 3 more to come: within its limit
+        wrong(firefox)
+    for person in (chair, master):
+        [(_, payload)] = notices(person.user_id, "service_login_failed")
+        assert payload["failures"] == 5 and payload["browser"] == "Firefox 131, Windows"
+        assert client.get("/api/notifications/unread-count", headers=person.headers).json()["count"] >= 1
+    [unread] = client.get("/api/notifications?unread=true", headers=chair.headers).json()["items"]
+    assert unread["text"].startswith("Неудачные попытки входа в сервисный аккаунт (5 подряд): "), unread["text"]
+    # A success ends the streak; the next one has its own notice.
+    assert sign_in(client).status_code == 200
+    assert [wrong().status_code for _ in range(3)] == [401] * 3
+    assert [p["failures"] for _, p in notices(chair.user_id, "service_login_failed")] == [5, 3]
+    with db._session() as s:
+        assert s.query(NotificationDeliveryEventORM).count() == 0
 
 
 @pytest.mark.parametrize("agent,summary", [
@@ -305,9 +355,12 @@ def test_three_failures_in_a_row_notify_and_a_success_resets_the_count(client, c
     ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 "
      "YaBrowser/24.10.0.0 Safari/537.36", "Яндекс Браузер 24, Windows"),
     ("curl/8.7.1", "curl/8.7.1"), ("", "неизвестный браузер"), ("<script>", "script"),
+    pytest.param("Chrome/" + "9" * 8000, "Chrome 9999", id="a long version"),
+    pytest.param("x" * 8000, "x" * 40, id="a long unknown agent"),
 ])
 def test_the_browser_is_a_short_summary(agent, summary):
     assert service_account.browser(agent) == summary
+    assert len(service_account.browser(agent)) <= service_account.BROWSER_MAX
 
 
 # ───────────────────────────── rights ─────────────────────────────

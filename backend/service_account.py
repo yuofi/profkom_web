@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import re
 import secrets
 import uuid
@@ -33,6 +34,7 @@ FAILURES_NOTICE = 3  # failed sign-ins in a row that notify
 # Failed service sign-ins from one address in a fixed window before 429.
 THROTTLE_WINDOW_S = 15 * 60
 THROTTLE_LIMIT = 10
+BROWSER_MAX = 60  # the longest User-Agent summary kept
 _SALT = secrets.token_bytes(32)
 MOSCOW = timezone(timedelta(hours=3))
 
@@ -174,36 +176,46 @@ _SYSTEMS = (("iPhone", "iOS"), ("iPad", "iPadOS"), ("Android", "Android"), ("Win
 
 
 def browser(user_agent):
-    """A short summary of a User-Agent: «Chrome 130, macOS»; never the raw header."""
+    """A short summary of a User-Agent: «Chrome 130, macOS»; never the raw header, never
+    longer than BROWSER_MAX."""
     agent = user_agent or ""
     name = next((f"{label} {match.group(1)}" for token, label in _BROWSERS
-                 for match in [re.search(re.escape(token) + r"/(\d+)", agent)] if match
+                 for match in [re.search(re.escape(token) + r"/(\d{1,4})", agent)] if match
                  and (token != "Version" or "Safari/" in agent)), None)
     system = next((label for token, label in _SYSTEMS if token in agent), None)
     parts = [part for part in (name, system) if part]
     if parts:
-        return ", ".join(parts)
+        return ", ".join(parts)[:BROWSER_MAX]
     other = re.sub(r"[^\w./ -]", "", agent.split(" ", 1)[0])[:40]
     return other or "неизвестный браузер"
 
 
-def _throttle_row(session, ip, window):
-    from service_account_models import ServiceLoginThrottleORM
-    key = hashlib.sha256(_SALT + ip.encode("utf-8")).hexdigest()
-    row = session.get(ServiceLoginThrottleORM, key)
-    if row is not None and row.window != window:
-        row.window, row.count = window, 0
-    return row, key
+def _throttle_key(ip):
+    return hashlib.sha256(_SALT + ip.encode("utf-8")).hexdigest()
 
 
-def throttled(ip, at=None):
-    """THROTTLE_LIMIT failed service sign-ins from `ip` in this window: 429 before the
-    password is looked at."""
+def reserve(ip, at=None):
+    """Takes one of the THROTTLE_LIMIT attempts of `ip` in this window before the password
+    is checked, in one short write transaction, so parallel attempts cannot all pass the
+    check: the window, or None when every attempt is taken (429). A failed attempt keeps
+    its slot; a successful one gives it back (`record`)."""
     from database import db
+    from service_account_models import ServiceLoginThrottleORM as T
     window = int((at or datetime.now(timezone.utc)).timestamp()) // THROTTLE_WINDOW_S
-    with db._session() as session:
-        row, _ = _throttle_row(session, ip, window)
-        return bool(row and row.count >= THROTTLE_LIMIT)
+    with db.atomic(), db._session() as session:
+        key = _throttle_key(ip)
+        row = session.get(T, key)
+        if row is None:
+            row = T(key=key, window=window, count=0)
+            session.add(row)
+        elif row.window != window:
+            row.window, row.count = window, 0
+        if row.count >= THROTTLE_LIMIT:
+            return None
+        row.count += 1
+        session.query(T).filter(T.window < window - 1).delete(synchronize_session=False)
+        session.commit()
+        return window
 
 
 def recipients(session):
@@ -215,17 +227,27 @@ def recipients(session):
     return sorted(uid for uid in result if isinstance(uid, int))
 
 
-def _notify(session, kind, at, ip, agent, failures=None):
+def _notify(session, kind, at, ip, agent, key=None, failures=None):
+    """A site-only notice to `recipients`. `key` names a failed streak's one notice: a later
+    failure of the streak brings it up to date (count, last attempt) and unread again
+    instead of adding another."""
+    from database import NotificationORM
     from notifications import emit
     payload = dict(at=at.isoformat(), ip=ip, browser=browser(agent))
     if failures is not None:
         payload["failures"] = failures
-    emit(session, recipients(session), kind, payload, f"{kind}:{uuid.uuid4()}")
+    people = recipients(session)
+    emit(session, people, kind, payload, key or f"{kind}:{uuid.uuid4()}")
+    if key and people:
+        session.query(NotificationORM).filter(NotificationORM.event_key == key, NotificationORM.user_id.in_(people)).update(
+            {"payload_json": json.dumps(payload, ensure_ascii=False), "is_read": False, "read_at": None},
+            synchronize_session=False)
 
 
-def record(ip, agent, success, at=None):
+def record(ip, agent, success, at=None, window=None):
     """One service sign-in attempt, in its own short transaction: the counters, the
-    notifications and, on success, the tokens of the service row (else None)."""
+    notifications and, on success, the tokens of the service row (else None). A success
+    gives back the attempt `reserve` took in `window`."""
     from auth import create_token_pair
     from database import db
     from service_account_models import ServiceLoginStateORM, ServiceLoginThrottleORM
@@ -238,22 +260,19 @@ def record(ip, agent, success, at=None):
             state = ServiceLoginStateORM(state_id=1, failures=0)
             session.add(state)
         if success:
-            state.failures, state.last_failed_at = 0, None
+            state.failures, state.last_failed_at, state.notice_key = 0, None, None
+            throttle = session.get(ServiceLoginThrottleORM, _throttle_key(ip)) if window is not None else None
+            if throttle is not None and throttle.window == window and throttle.count > 0:
+                throttle.count -= 1
             _notify(session, "service_login", at, ip, agent)
             session.commit()
             return create_token_pair(row.user_id)
         state.failures = (state.failures or 0) + 1
         state.last_failed_at = at.isoformat()
-        window = int(at.timestamp()) // THROTTLE_WINDOW_S
-        throttle, key = _throttle_row(session, ip, window)
-        if throttle is None:
-            throttle = ServiceLoginThrottleORM(key=key, window=window, count=0)
-            session.add(throttle)
-        throttle.count += 1
-        session.query(ServiceLoginThrottleORM).filter(ServiceLoginThrottleORM.window < window - 1).delete(
-            synchronize_session=False)
-        if state.failures % FAILURES_NOTICE == 0:
-            _notify(session, "service_login_failed", at, ip, agent, failures=state.failures)
+        if state.failures >= FAILURES_NOTICE:
+            # One notice per streak, from its third failure until a success.
+            state.notice_key = state.notice_key or f"service_login_failed:{uuid.uuid4()}"
+            _notify(session, "service_login_failed", at, ip, agent, key=state.notice_key, failures=state.failures)
         session.commit()
         return None
 

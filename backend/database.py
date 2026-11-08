@@ -709,6 +709,7 @@ import service_account_models
 
 Base.metadata.create_all(bind=engine)
 support_models.upgrade_tasks(engine)
+service_account_models.upgrade(engine)
 
 
 def _ensure_sqlite_material_deleted_at():
