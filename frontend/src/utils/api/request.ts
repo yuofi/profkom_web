@@ -68,7 +68,7 @@ export function normalizeApiError(error: unknown): ApiError {
         "validation_error",
         { errors: detail },
       );
-    // A body read as bytes (responseType "blob") may hold a detail unread: not "without one".
+    // A blob the client (index.ts) could not read may still hold a detail: not "without one".
     const explained = typeof detail === "string" || (typeof Blob !== "undefined" && error.response.data instanceof Blob);
     return new ApiError(
       typeof detail === "string" ? detail : "Не удалось выполнить запрос",

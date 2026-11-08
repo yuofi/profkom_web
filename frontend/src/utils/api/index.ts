@@ -34,6 +34,19 @@ api.interceptors.response.use(response => {
     return Promise.reject(error);
 });
 
+/** A file read (responseType "blob") gets its refusal as bytes too: the API's JSON detail is
+ *  read back so the error has its code; any other body (a proxy's page) becomes its text. */
+api.interceptors.response.use(undefined, async (error: unknown) => {
+    const response = (error as AxiosError).response;
+    if (response && typeof Blob !== "undefined" && response.data instanceof Blob) {
+        try {
+            const body = await response.data.text();
+            try { response.data = JSON.parse(body); } catch { response.data = body; }
+        } catch { /* unreadable: stays a blob */ }
+    }
+    return Promise.reject(error);
+});
+
 api.interceptors.request.use(
     (config) => {
         const tagged = config as CustomAxiosRequestConfig;
