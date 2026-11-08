@@ -21,6 +21,8 @@ import { returnPath } from "../../utils/returnPath";
 const LOGIN_TEXTS = {
   401: "Неверная почта или пароль. Если вы входили только через VK, войдите через VK.",
   403: "Вход недоступен: аккаунт заблокирован или в архиве.",
+  // A login without @ that is not the service account's: the server checks the address.
+  422: "Неправильный формат email",
 };
 const VK_TEXTS = {
   401: "Не удалось войти через VK. Повторите попытку.",
@@ -124,7 +126,16 @@ export const GreetingPage = () => {
               />
             ) : (
               <>
-                <FormTextField name="email" label="почта" type="email" />
+                {/* Text, not email: the service account signs in with its login here. */}
+                <FormTextField
+                  name="email"
+                  label="почта"
+                  type="text"
+                  inputMode="email"
+                  autoComplete="username"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                />
 
                 <FormTextField
                   name="password"

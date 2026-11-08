@@ -152,6 +152,9 @@ NOTIFICATION_PAGE = 30
 
 
 def notification_text(n, p, uid, extra):
+    if n.kind in ("service_login", "service_login_failed"):
+        from service_account import notice_text
+        return notice_text(n.kind, p)
     if n.kind.startswith("block_request_"):
         mine, theirs = REQUEST_TEXT.get(n.kind.removeprefix("block_request_"), ("Изменение заявки в блок{block}",) * 2)
         block = f" «{extra['block']}»" if extra.get("block") else ""

@@ -68,6 +68,7 @@ def unlinked_account(vk_id):
                 ExternalIdentityORM.subject.is_(None),
                 UserORM.account_state.notin_(("archived", "purged")),
                 ContactInfoORM.vk.like(f"%id{vk_id}%"),
+                __import__("service_account").visible(),
             )
         )
         return any(vk_id_of_link(link) == vk_id for _, link in rows)

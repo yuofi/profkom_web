@@ -9,6 +9,7 @@ from settings import settings
 from database import db, UserORM, LeadershipORM, RoleAssignmentORM
 from models import ContactInfo, User, Guide
 from auth import hash_password
+import service_account
 import uuid
 
 
@@ -82,7 +83,8 @@ def set_admin(superadmin=True, custom_payload=None):
             lead = s.get(LeadershipORM, 1)
             if lead and lead.chair_user_id:
                 return
-            if s.query(UserORM).count():
+            # People only: the service account's row leaves an install empty.
+            if s.query(UserORM).filter(service_account.visible()).count():
                 print(
                     "Existing accounts preserved. Map the initial chair by user_id using scripts/migrate_v13.py."
                 )

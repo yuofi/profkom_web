@@ -48,7 +48,7 @@ def user_ref(session, user_id):
 
 def profile_target(session, user_id):
     user = session.get(UserORM, user_id)
-    if not user or user.account_state != "active" or user.banned or not db.get_contact(user_id):
+    if not user or user.account_state != "active" or user.banned or user.is_service or not db.get_contact(user_id):
         fail(404, "Profile is unavailable")
     return user
 
@@ -315,7 +315,8 @@ def collect_delivery_event(session, recipient, kind, payload, event_key, prefere
         state = "not_connected"
         if channel == "vk" and bot_link.enabled():
             person = user if user is not None else session.get(UserORM, recipient)
-            if person is None or person.bot_link_state not in bot_link.SENDABLE:
+            # Never the service account, even with a link (owner, 2026-11-08).
+            if person is None or person.is_service or person.bot_link_state not in bot_link.SENDABLE:
                 continue
             state = "pending"
         if not session.query(NotificationDeliveryEventORM).filter_by(user_id=recipient, event_key=event_key, channel=channel).first():

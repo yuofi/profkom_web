@@ -31,6 +31,8 @@ export const ERROR_TEXTS: Record<string, string> = {
   task_type_conflict: "Сначала удалите связи, несовместимые с новым типом задачи.",
   task_epic_conflict: "У задачи уже есть эпик. Удалите прежнюю связь, чтобы выбрать другой.",
   queue_key_conflict: "Этот ключ очереди уже занят. Выберите другой ключ.",
+  // The service account owns no queue (backend/docs/SERVICE_ACCOUNT.md).
+  queue_owner_required: "Очереди нужен владелец, а назначить некого: сначала назначьте председателя или мастера блока.",
   not_found: "Объект не найден или недоступен.",
   conflict: "Запись изменилась. Обновите данные и проверьте ввод.",
   revision_conflict: "Запись изменилась. Обновите данные и проверьте ввод.",

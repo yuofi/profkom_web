@@ -832,3 +832,35 @@ def test_home_page_lists_every_area_for_the_chair_deputies_and_hr_master(org, ro
         assert (events, blocks) == (all_events, all_blocks)
     else:
         assert events < all_events and blocks <= all_blocks
+
+
+# Not rights questions: a state no one may act in (K19) and tasks whose assignee is the
+# actor itself (T1, T2), which the service account never is (422 unknown_user).
+SERVICE_REFUSED = {"K19", "T1", "T2"}
+
+
+def test_the_service_account_passes_every_other_rights_check(org, monkeypatch):
+    """The service account (backend/docs/SERVICE_ACCOUNT.md) is allowed what any role is,
+    the chair's own actions included, and advertises it in the capabilities."""
+    import auth
+    from types import SimpleNamespace
+    from settings import settings
+
+    monkeypatch.setattr(settings, "ROOT_LOGIN", "root")
+    monkeypatch.setattr(settings, "ROOT_PASSWORD_HASH", auth.hash_password("Synthetic-Service-Pass-1"))
+    signed = org.client.post("/api/auth/login", json={"email": "root", "password": "Synthetic-Service-Pass-1"})
+    assert signed.status_code == 200, signed.text
+    sid = db.get_user_by_email("service-account@system.invalid").user_id
+    org.people["service"] = SimpleNamespace(user_id=sid, headers={"Authorization": f"Bearer {signed.json()['access_token']}"})
+    try:
+        results, caps = run(org, "service")
+    finally:
+        del org.people["service"]
+    problems = []
+    for op in ops():
+        allowed = results[op.op] in op.ok
+        if allowed == (op.op in SERVICE_REFUSED):
+            problems.append(f"{op.op} {op.method}: HTTP {results[op.op]}")
+        if op.cap and op.cap[0] in caps and op.op not in SERVICE_REFUSED and op.cap[1] not in caps[op.cap[0]]:
+            problems.append(f"{op.op}: no capability {op.cap[1]} in {op.cap[0]}")
+    assert not problems, "\n  ".join(problems)

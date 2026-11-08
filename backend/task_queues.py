@@ -28,6 +28,12 @@ def active(session, uid):
     return bool(u and not u.banned and u.account_state=='active')
 
 
+def owns(session, queue, uid):
+    """The queue owner's commands; the service account holds every right (owner, 2026-11-08)."""
+    from service_account import is_service_id
+    return bool(queue and uid and (queue.owner_user_id==uid or is_service_id(uid)))
+
+
 def base_read(uid, queue):
     return queue.scope_kind=="queue" or db.can_view_scope(uid,queue.scope_kind,queue.scope_id)
 
@@ -327,6 +333,8 @@ def _global_readers(session, ids):
     result|={uid for uid in ids if uid in deputies}
     result|={row[0] for row in session.query(BlockORM.master_user_id).filter(BlockORM.is_hr == True)}  # noqa: E712
     result|=_role_holders(session,"block",_hr_block_names(),{"deputy_master"})
+    from service_account import is_service_id
+    result|={uid for uid in ids if is_service_id(uid)}  # access.all_queue_reader
     return result
 
 
@@ -385,7 +393,8 @@ def task_readers(session, task, uids):
     readers={row[0] for row in session.query(FeedbackORM.user_id).filter(FeedbackORM.task_id==task.task_id)}
     if is_support_queue(session,queue):
         staff={row[0] for row in session.query(SupportStaffORM.user_id).filter(SupportStaffORM.active.is_(True))}
-        return (readers|staff|_leaders(session))&ids
+        from service_account import is_service_id
+        return (readers|staff|_leaders(session)|{uid for uid in ids if is_service_id(uid)})&ids
     readers|=_global_readers(session,ids)
     if queue.key!="KKR":
         readers.add(queue.owner_user_id)
@@ -634,7 +643,7 @@ def projection(session, queue, uid, *, include_assignable=True, binding=None):
     if granted and not is_support_queue(session,queue):caps.append('create_task')
     if granted and queue.scope_kind!='queue' and access.allowed(uid,'task.assign_others',queue.scope_kind,queue.scope_id):caps.append('assign_task_others')
     from support import is_support_queue
-    if granted and queue.owner_user_id==uid and not is_support_queue(session,queue):caps+=['manage_queue','view_queue_requests']
+    if granted and owns(session,queue,uid) and not is_support_queue(session,queue):caps+=['manage_queue','view_queue_requests']
     from support import is_support_queue
     managed_control=queue.key=='KKR'
     if managed_control:caps=[]
@@ -650,7 +659,8 @@ def projection(session, queue, uid, *, include_assignable=True, binding=None):
         if queue.owner_user_id:_note_user(queue.owner_user_id)
         owner=_user_to_ref_dc(session.get(UserORM,queue.owner_user_id)) if queue.owner_user_id else None
         if include_assignable and 'assign_task_others' in caps:
-            result['assignable_users']=[asdict(_user_to_ref_dc(u)) for u in session.query(UserORM) if active(session,u.user_id) and can_read(session,queue,u.user_id) and db.is_member_or_leader_in_scope(u.user_id,queue.scope_kind,queue.scope_id)]
+            from service_account import visible
+            result['assignable_users']=[asdict(_user_to_ref_dc(u)) for u in session.query(UserORM).filter(visible()) if active(session,u.user_id) and can_read(session,queue,u.user_id) and db.is_member_or_leader_in_scope(u.user_id,queue.scope_kind,queue.scope_id)]
         from queue_ownership import owner_available
         result.update(scope=None if queue.scope_kind=="queue" else scope_out(ScopeRef(kind=queue.scope_kind,id=queue.scope_id)),
             owner=asdict(owner) if owner else None,owner_unavailable=not owner_available(session,queue),
@@ -729,6 +739,8 @@ def catalog(uid,cursor=None):
 
 
 def _validate_owner(session,uid,kind,sid):
+    from service_account import refuse
+    refuse(session,uid)
     if not active(session,uid) or (kind!='queue' and not db.can_view_scope(uid,kind,sid)):raise InvalidInput('Queue owner must be an active member or scope reader')
 
 
@@ -742,7 +754,8 @@ def create(uid,name,key,scope=None,owner_user_id=None,is_private=False):
         import access
         if not active(session,uid):raise Forbidden('Only active approved users may create queues')
         if not access.allowed(uid,'queue.create',kind,sid):raise Forbidden('Only leaders may create queues in their own teams')
-        if owner_user_id is not None and owner_user_id!=uid:raise InvalidInput('Queue creator must be its initial owner')
+        from service_account import is_service_id
+        if owner_user_id is not None and owner_user_id!=uid and not is_service_id(uid):raise InvalidInput('Queue creator must be its initial owner')
         qid='queue-'+str(uuid.uuid4())
         if kind=='chair':
             if sid!='chair':raise InvalidInput('Invalid chair scope')
@@ -757,8 +770,21 @@ def create(uid,name,key,scope=None,owner_user_id=None,is_private=False):
         if session.query(TaskQueueORM).filter_by(key=key).first():raise Conflict('Queue key already exists','queue_key_conflict')
         q=TaskQueueORM(queue_id=qid,name=name.strip(),key=key,scope_kind=kind,scope_id=sid,
             owner_user_id=uid,is_private=is_private,is_default=False,next_task_number=1,revision=1,created_at=now())
+        if is_service_id(uid):q.owner_user_id=_owner_for_service(session,q,owner_user_id)
         session.add(q);session.commit()
         return projection(session,q,uid)
+
+
+def _owner_for_service(session,queue,owner_user_id):
+    """The service account owns no queue (no person could manage it): the named owner, else
+    the recovery chain's next owner (block master, HR master, chair)."""
+    if owner_user_id is not None:
+        _validate_owner(session,owner_user_id,queue.scope_kind,queue.scope_id)
+        return owner_user_id
+    from queue_ownership import _successor
+    successor=_successor(session,queue)
+    if successor is None:raise InvalidInput('Name the queue owner: the service account cannot own a queue','queue_owner_required')
+    return successor[0]
 
 
 def managed(session,queue_id,uid):
@@ -767,7 +793,7 @@ def managed(session,queue_id,uid):
     if q.key=='KKR':raise Conflict('Control queue is managed automatically','control_epic_managed')
     from support import is_support_queue
     if is_support_queue(session,q):raise Forbidden('Use support settings to manage this queue')
-    if not can_read(session,q,uid) or q.owner_user_id!=uid:raise Forbidden('Only the queue owner can manage this queue')
+    if not can_read(session,q,uid) or not owns(session,q,uid):raise Forbidden('Only the queue owner can manage this queue')
     return q
 
 

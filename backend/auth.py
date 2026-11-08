@@ -18,6 +18,7 @@ from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 
 import bot_link
+import service_account
 from database import db
 from errors import Forbidden
 from models import User
@@ -137,7 +138,7 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
     user = db.get_user(user_id)
     if not user:
         raise HTTPException(401, "User not found")
-    if payload.get("sv", 0) != user.session_version:
+    if payload.get("sv", 0) != user.session_version or not service_account.session_allowed(user):
         raise HTTPException(401, "Session revoked")
     if user.banned:
         raise HTTPException(403, "User is banned")
@@ -182,19 +183,21 @@ def get_current_user_optional(token: Optional[str] = Depends(oauth2_scheme_optio
         user = db.get_user(user_id)
         if not user or user.banned or getattr(user, "account_state", "active") == "archived":
             return None
+        if not service_account.session_allowed(user):
+            return None
         return user
     except Exception:
         return None
 
 
 def require_admin(cur: User = Depends(get_current_user)) -> User:
-    if not db.is_tachki(cur.user_id):
+    if not (service_account.is_service(cur) or db.is_tachki(cur.user_id)):
         raise HTTPException(403, "Admin rights required")
     return cur
 
 
 def require_superuser(cur: User = Depends(get_current_user)) -> User:
-    if not db.is_chair(cur.user_id):
+    if not (service_account.is_service(cur) or db.is_chair(cur.user_id)):
         raise HTTPException(403, "SuperUser rights required")
     return cur
 
@@ -229,6 +232,8 @@ def refresh_tokens(refresh_token_value: str) -> dict:
     if not user:
         db.delete_refresh_token(refresh_token_value)
         raise HTTPException(401, "User not found")
+    if not service_account.session_allowed(user):
+        raise HTTPException(401, "Session revoked")
     if user.banned:
         db.delete_refresh_token(refresh_token_value)
         raise HTTPException(403, "User is banned")
@@ -331,7 +336,7 @@ def recheck_current_user(cur: User, *, working: bool = False) -> User:
     user = db.get_user(cur.user_id)
     if not user:
         raise HTTPException(401, "User not found")
-    if user.session_version != cur.session_version:
+    if user.session_version != cur.session_version or not service_account.session_allowed(user):
         raise HTTPException(401, "Session revoked")
     if user.banned:
         raise HTTPException(403, "User is banned")

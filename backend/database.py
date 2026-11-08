@@ -133,6 +133,9 @@ class UserORM(Base):
     # Copy of the HereBot VK link state (bot_models.BotLinkORM), NULL for none: the access gate
     # and /api/session read it from this row without another query (BOT_API.md, stage 2).
     bot_link_state = Column(String, nullable=True)
+    # The one service (root) account (service_account.py): written only by its startup step,
+    # never by registration, profile edits or imports; at most one row (ux_users_service).
+    is_service = Column(Boolean, default=False, nullable=False, server_default="0")
 
     contact = relationship("ContactInfoORM", back_populates="user", uselist=False)
 
@@ -706,9 +709,11 @@ import support_models
 import history_models
 import tracker_collaboration_models
 import bot_models
+import service_account_models
 
 Base.metadata.create_all(bind=engine)
 support_models.upgrade_tasks(engine)
+service_account_models.upgrade(engine)
 
 
 def _ensure_sqlite_material_deleted_at():
@@ -870,7 +875,8 @@ class SeasonNotReadyError(Conflict):
 def _roster_candidate(session, uid):
     """A candidate for a roster or the leadership: unknown → 422, not active → 409 (decision 42)."""
     u = session.get(UserORM, uid)
-    if not u:
+    # The service account is chosen for nothing (owner, 2026-11-08): as unknown as a missing one.
+    if not u or u.is_service:
         raise InvalidInput(f"Unknown user {uid}", "unknown_user", user_id=uid)
     if u.banned or getattr(u, "account_state", "active") != "active":
         raise Conflict(f"User {uid} must be active and approved", "inactive_user", user_id=uid)
@@ -1198,6 +1204,20 @@ def _ensure_sqlite_users_bot_link_state_column() -> None:
 
 
 _ensure_sqlite_users_bot_link_state_column()
+
+
+def _ensure_sqlite_users_is_service_column() -> None:
+    """Add is_service to SQLite DBs created before the service account; every existing account
+    stays ordinary. At most one service row."""
+    with engine.begin() as conn:
+        names = {r[1] for r in conn.execute(text("PRAGMA table_info(users)")).fetchall()}
+        if names and "is_service" not in names:
+            conn.execute(text("ALTER TABLE users ADD COLUMN is_service BOOLEAN NOT NULL DEFAULT 0"))
+        if names:
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ux_users_service ON users (is_service) WHERE is_service = 1"))
+
+
+_ensure_sqlite_users_is_service_column()
 
 
 def _ensure_sqlite_delivery_queue() -> None:
@@ -1663,6 +1683,7 @@ def _user_orm_to_dc(u: UserORM) -> UserDC:
         session_version=u.session_version,
         must_change_password=bool(u.must_change_password),
         bot_link_state=u.bot_link_state,
+        is_service=bool(u.is_service),
     )
 
 
@@ -1799,6 +1820,7 @@ def _user_to_ref_uncached(u: UserORM) -> UserRefDC:
     if not u:
         return None
     if u.account_state=='purged':return UserRefDC(user_id=None,display_name='Обезличенный участник',avatar_url=None)
+    if getattr(u, "is_service", False):return _service_ref()
     from directory import avatar_url
     return _user_ref_with_avatar(u, avatar_url(u.user_id))
 
@@ -1808,11 +1830,18 @@ def _user_ref_with_avatar(u: UserORM, photo_url) -> UserRefDC:
     if not u:
         return None
     if u.account_state=='purged':return UserRefDC(user_id=None,display_name='Обезличенный участник',avatar_url=None)
+    if getattr(u, "is_service", False):return _service_ref()
     display_name = f"Участник {u.user_id}"
     if u.contact:
         parts = [u.contact.surname, u.contact.name, u.contact.patronymic]
         display_name = " ".join([p for p in parts if p]).strip() or u.contact.kkr_name or display_name
     return UserRefDC(user_id=u.user_id, display_name=display_name, avatar_url=photo_url)
+
+
+def _service_ref() -> UserRefDC:
+    """The service account as an actor: its name, no profile link or avatar (owner, 2026-11-08)."""
+    from service_account import NAME
+    return UserRefDC(user_id=None, display_name=NAME, avatar_url=None)
 
 
 def _assignment_orm_to_dc(session: Session, a: AssignmentORM, current_user_id: Optional[int] = None, facts=None) -> AssignmentPublicDC:
@@ -2389,7 +2418,8 @@ class _SeasonSummaryData:
         from directory import avatar_urls
         self.session=session
         self.season=session.get(SeasonORM,season_id)
-        self.users=session.query(UserORM).options(joinedload(UserORM.contact)).all()
+        from service_account import visible
+        self.users=session.query(UserORM).options(joinedload(UserORM.contact)).filter(visible()).all()
         self.users_by_id={user.user_id:user for user in self.users}
         avatars=avatar_urls(session,self.users)
         self.refs={user.user_id:_user_ref_with_avatar(user,avatars[user.user_id]) for user in self.users}
@@ -3195,6 +3225,8 @@ class Database:
             if not u:
                 return None
 
+            if "is_service" in fields:
+                raise InvalidInput("The service account is made only by service_account.sync")
             if "blocks" in fields and fields["blocks"] is not None:
                 new_blocks = self._sync_blocks_for_user(session, user_id, fields["blocks"])
                 fields["blocks"] = new_blocks
@@ -3235,17 +3267,20 @@ class Database:
             return _contact_orm_to_dc(c)
 
     def list_contacts(self) -> List[ContactInfoDC]:
+        from service_account import visible
         with self._session() as session:
             rows = (
                 session.query(ContactInfoORM)
                 .options(joinedload(ContactInfoORM.user))
+                .filter(visible(ContactInfoORM.user_id))
                 .all()
             )
             return [_contact_orm_to_dc(c) for c in rows]
 
     def filter_contacts(self, **criteria) -> List[ContactInfoDC]:
         with self._session() as session:
-            q = session.query(ContactInfoORM).options(joinedload(ContactInfoORM.user))
+            from service_account import visible
+            q = session.query(ContactInfoORM).options(joinedload(ContactInfoORM.user)).filter(visible(ContactInfoORM.user_id))
             if criteria.get("group_number") is not None:
                 q = q.filter(ContactInfoORM.group_number == criteria["group_number"])
             if criteria.get("blocks") is not None:
@@ -3407,10 +3442,11 @@ class Database:
             if arr:
                 seen = set()
                 unique_arr = [x for x in arr if not (x in seen or seen.add(x))]
+                from service_account import visible
                 existing_uids = {
                     r[0]
                     for r in session.query(UserORM.user_id)
-                    .filter(UserORM.user_id.in_(unique_arr))
+                    .filter(UserORM.user_id.in_(unique_arr), visible())
                     .all()
                 }
                 real_user_ids = [uid for uid in unique_arr if uid in existing_uids]
@@ -3451,10 +3487,11 @@ class Database:
                 b.master = fields["master"]
                 if "master_user_id" not in fields:
                     if fields["master"]:
+                        from service_account import visible
                         mu = (
                             session.query(UserORM)
                             .join(ContactInfoORM, ContactInfoORM.user_id == UserORM.user_id)
-                            .filter(ContactInfoORM.kkr_name == fields["master"])
+                            .filter(ContactInfoORM.kkr_name == fields["master"], visible())
                             .first()
                         )
                         b.master_user_id = mu.user_id if mu else None
@@ -3481,10 +3518,11 @@ class Database:
             if arr is not None:
                 seen = set()
                 unique_arr = [x for x in arr if not (x in seen or seen.add(x))]
+                from service_account import visible
                 existing_uids = {
                     r[0]
                     for r in session.query(UserORM.user_id)
-                    .filter(UserORM.user_id.in_(unique_arr))
+                    .filter(UserORM.user_id.in_(unique_arr), visible())
                     .all()
                 }
                 real_arr = [uid for uid in unique_arr if uid in existing_uids]
@@ -4261,6 +4299,7 @@ class Database:
     ) -> ReportDC:
         if kind not in ("regular","final"):raise InvalidInput("Invalid report kind")
         if file_ids:raise InvalidInput("Create a draft before attaching report files")
+        from service_account import is_service_id
         with self._session() as session:
             if owner_kind == "event":
                 ev = session.get(EventORM, owner_id)
@@ -4268,7 +4307,7 @@ class Database:
                     raise NotFound("Event not found")
                 season_id = ev.season_id
                 series_id = ev.report_series_id
-                can_create = self.is_event_leader(user_id, owner_id) or self.is_event_leader_deputy(user_id, owner_id)
+                can_create = self.is_event_leader(user_id, owner_id) or self.is_event_leader_deputy(user_id, owner_id) or is_service_id(user_id)
                 s = session.get(SeasonORM, season_id)
                 if s and s.state == "closed":raise season_closed("Conflict: cannot create new reports in a closed season")
                 if not can_create:
@@ -4280,7 +4319,7 @@ class Database:
                 ev = session.get(EventORM, sub.event_id)
                 season_id = ev.season_id if ev else None
                 series_id = sub.report_series_id
-                can_create = self.is_subevent_leader(user_id, owner_id) or self.is_subevent_leader_deputy(user_id, owner_id)
+                can_create = self.is_subevent_leader(user_id, owner_id) or self.is_subevent_leader_deputy(user_id, owner_id) or is_service_id(user_id)
                 s = session.get(SeasonORM, season_id)
                 if s and s.state == "closed":raise season_closed("Conflict: cannot create new reports in a closed season")
                 if not can_create:
@@ -5418,6 +5457,8 @@ class Database:
             can_assign_others=scope_kind!="queue" and self.can_manage_scope(created_by_user_id,scope_kind,scope_id)
             selected={a.get("user_id") for a in assignees}|set(watcher_user_ids)
             if not can_assign_others and selected-{created_by_user_id}:raise Forbidden("Only self-assignment is allowed")
+            from service_account import refuse_all
+            refuse_all(session,selected)  # never an assignee or watcher (owner, 2026-11-08)
             for uid in selected:
                 if not can_read(session,queue,uid):raise InvalidInput("Participant must have access to this queue")
                 if uid!=created_by_user_id and not self.is_member_or_leader_in_scope(uid,scope_kind,scope_id):raise InvalidInput("Participant is outside the original scope")
@@ -6127,6 +6168,8 @@ class Database:
                 raise InvalidInput("Reason is required")
 
             # Check new assignee
+            from service_account import refuse
+            refuse(session, new_assignee_user_id)
             new_u = session.get(UserORM, new_assignee_user_id)
             if not new_u or new_u.banned or getattr(new_u, "account_state", "active") != "active":
                 raise InvalidInput(f"Invalid new assignee {new_assignee_user_id}: user must be active and approved", "inactive_user")

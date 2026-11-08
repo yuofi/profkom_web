@@ -44,6 +44,8 @@ def frozen(s, r, uid, editors_only=True):
 def editor(s, r, uid):
     if not active(s, uid):
         return False
+    if s.get(UserORM, uid).is_service:
+        return True  # every right, closed seasons included (owner, 2026-11-08)
     if s.get(SeasonORM, r.season_id).state == "closed":
         return frozen(s, r, uid)
     return access.allowed(uid, f"{r.owner_kind}.report.create", r.owner_kind, r.owner_id)

@@ -41,6 +41,7 @@ class User:
     category: str = "junior"       # "junior" | "activist"
     must_change_password: bool = False  # a temporary password is in use (АВ-52)
     bot_link_state: Optional[str] = None  # HereBot VK link state, None for none (BOT_API.md)
+    is_service: bool = False  # the service (root) account, made only by service_account.sync
 
 
 @dataclass

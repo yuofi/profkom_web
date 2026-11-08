@@ -55,13 +55,16 @@ def owner_available(session, queue, user_id=None):
     """The prospective owner needs active account + underlying scope read.
 
     Private-queue grants are unnecessary: ownership itself grants private read,
-    while it can never bypass the underlying block/subevent ACL.
+    while it can never bypass the underlying block/subevent ACL. The service account
+    is never an owner: a queue it holds passes to the next owner.
     """
     from task_queues import active, base_read
     from access import all_queue_reader
+    from service_account import refused
 
     uid = queue.owner_user_id if user_id is None else user_id
-    return bool(uid and active(session, uid) and (all_queue_reader(uid) or base_read(uid, queue)))
+    return bool(uid and active(session, uid) and not refused(session, uid)
+                and (all_queue_reader(uid) or base_read(uid, queue)))
 
 
 def _successor(session, queue):

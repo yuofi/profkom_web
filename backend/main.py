@@ -244,6 +244,13 @@ class LoginIn(BaseModel):
     email: EmailStr
     password: str
 
+    @field_validator("email", mode="wrap")
+    @classmethod
+    def _service_login(cls, value, handler):
+        # Exactly ROOT_LOGIN of the service account in place of an address (service_account.py).
+        import service_account
+        return value if service_account.login_matches(value) else handler(value)
+
 
 class ChangePasswordIn(BaseModel):
     old_password: Optional[str] = None
@@ -1357,13 +1364,40 @@ def register(payload: RegisterIn, response: Response):
     return tokens
 
 
+def _service_login(body: LoginIn, request: Request) -> dict:
+    """The service account's sign-in: an attempt of the client's address limit taken first
+    (one short transaction), then the configured hash outside any transaction, then one
+    short transaction for the counters, notices and tokens. The password and the hash are
+    never logged."""
+    import service_account
+    from settings import settings
+    ip, agent = service_account.client_ip(request), request.headers.get("user-agent", "")
+    window = service_account.reserve(ip)
+    if window is None:
+        raise HTTPException(429, "Too many sign-in attempts; try again later",
+                            headers={"Retry-After": str(service_account.THROTTLE_WINDOW_S)})
+    tokens = service_account.record(ip, agent, verify_password(body.password, settings.ROOT_PASSWORD_HASH),
+                                    window=window)
+    if tokens is None:
+        raise HTTPException(401, "Invalid credentials")
+    return tokens
+
+
 @router.post("/auth/login", response_model=TokenPair)
-def login(body: LoginIn, response: Response):
+def login(body: LoginIn, request: Request, response: Response):
     """
-    Authenticate with email + password → get tokens.
+    Authenticate with email + password → get tokens. ROOT_LOGIN in place of the address
+    signs in the service account (backend/docs/SERVICE_ACCOUNT.md).
     """
+    import service_account
+    if service_account.login_matches(body.email):
+        tokens = _service_login(body, request)
+        response.set_cookie(key="refresh_token", value=tokens["refresh_token"], httponly=True,
+                            max_age=REFRESH_TTL_DAYS * 24 * 60 * 60, samesite="none", secure=True)
+        return tokens
     user = db.get_user_by_email(str(body.email))
-    if not user:
+    # Its contact address is no sign-in: only ROOT_LOGIN reaches the service account.
+    if not user or service_account.is_service(user):
         raise HTTPException(401, "Invalid credentials")
 
     if not user.hashed_password:
@@ -1397,6 +1431,10 @@ def change_password(
     payload: ChangePasswordIn,
     cur: User = Depends(get_current_user),
 ):
+    import service_account
+    if service_account.is_service(cur):
+        raise HTTPException(403, "The service account password is set in the server configuration")
+
     def verify_old(user):
         if user.hashed_password:
             if not payload.old_password:
@@ -1439,6 +1477,8 @@ def vk_login(payload: VKLoginIn, response: Response):
 
 @router.post("/auth/vk/link")
 def link_vk(payload: VKLoginIn, cur: User = Depends(get_current_user)):
+    if cur.is_service:
+        raise HTTPException(403, "The service account signs in only with its login and password")
     from vk_auth import verified_identity
     subject = verified_identity(payload.access_token)["subject"]  # outside any transaction
     with db.atomic():
@@ -1532,7 +1572,7 @@ def get_profile(user_id: int, cur: User = Depends(get_current_user)):
     user = db.get_user(user_id)
     contact = db.get_contact(user_id)
     # A row without contacts is no participant: the same answer as a missing one (A-DIR-16).
-    if not user or user.account_state!="active" or not contact:
+    if not user or user.account_state!="active" or not contact or user.is_service:
         raise HTTPException(404, "User not found")
     return ProfileOut(**{**user.__dict__, "photo_url": __import__("directory").avatar_url(user_id), "kkr_score": user.kkr_score if access.allowed(cur.user_id, "kkr.view") else None}, kkr_name=contact.kkr_name, email=contact.email, tg=contact.tg)
 
@@ -1673,7 +1713,9 @@ def create_pgas(payload: PgasEntryIn, cur: User = Depends(require_pgas_admin)):
     from notifications import emit
     from database import UserORM
     with db._session() as session:
-        recipients = [recipient.user_id for recipient in session.query(UserORM).filter(UserORM.banned == False, UserORM.account_state == "active")]
+        import service_account
+        recipients = [recipient.user_id for recipient in session.query(UserORM).filter(
+            UserORM.banned == False, UserORM.account_state == "active", service_account.visible())]
         emit(session, recipients, "pgas_document.created", {"entry_id": created.entry_id},
              event_key=f"pgas-created:{created.entry_id}")
         session.commit()
@@ -3716,6 +3758,9 @@ register_support_worker(app)
 # After the support worker stops: the last connection copies -wal into the database file and
 # removes -wal/-shm (PB-31). uvicorn re-raises SIGTERM after shutdown, so atexit hooks never run.
 app.add_event_handler("shutdown", database_module.engine.dispose)
+# The service account follows ROOT_LOGIN/ROOT_PASSWORD_HASH of this start (SERVICE_ACCOUNT.md).
+import service_account
+app.add_event_handler("startup", service_account.sync)
 
 from tracker_collaboration import register_routes as register_tracker_collaboration_routes
 register_tracker_collaboration_routes(router)

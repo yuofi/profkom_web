@@ -551,6 +551,8 @@ def register_routes(router):
             version(m, payload.expected_revision)
             if m.owner_block_id:
                 fail(422, "Block guides use block leadership permissions")
+            from service_account import refuse_all
+            refuse_all(s, payload.user_ids)  # never a role holder (owner, 2026-11-08)
             for uid in payload.user_ids:
                 u = s.get(UserORM, uid)
                 if not u or u.account_state != "active" or u.banned:

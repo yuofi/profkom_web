@@ -72,7 +72,8 @@ def promote(session, season, closed_at):
     if duration <= 0:
         raise InvalidInput("Invalid season interval")
     threshold = duration / 2
-    for u in session.query(UserORM).filter_by(category="junior"):
+    from service_account import visible
+    for u in session.query(UserORM).filter_by(category="junior").filter(visible()):
         amount = participation_seconds(
             session,
             f"participant-{u.user_id}",

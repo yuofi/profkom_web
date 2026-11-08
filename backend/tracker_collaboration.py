@@ -18,6 +18,7 @@ from database import db, TaskORM, CommentORM, UserORM, _user_to_ref_dc
 from tracker_collaboration_models import TaskMentionRequestORM, TaskAccessGrantORM
 from errors import Forbidden, InvalidInput, NotFound, Conflict, revision_conflict
 from read_context import cached
+from service_account import visible
 
 
 def _comment_profile_ids(body):
@@ -60,7 +61,8 @@ def comment_mention_refs(comments):
         from directory import avatar_urls
         for start in range(0,len(ids),400):
             rows=session.query(UserORM).options(selectinload(UserORM.contact)).filter(
-                UserORM.user_id.in_(ids[start:start+400]),UserORM.account_state=='active',UserORM.banned.is_(False)).all()
+                UserORM.user_id.in_(ids[start:start+400]),UserORM.account_state=='active',UserORM.banned.is_(False),
+                visible()).all()
             avatars=avatar_urls(session,rows)
             for user in rows:
                 contact=user.contact
@@ -96,6 +98,8 @@ def grant_task_access(session, task_id, user_id, actor_uid, source="mention"):
     from tracker import now
     from task_queues import active
     if not active(session,user_id):raise InvalidInput("Mentioned user must be active and approved")
+    from service_account import refuse
+    refuse(session,user_id)  # it reads every task already and is never granted one
     row=session.get(TaskAccessGrantORM,(task_id,user_id))
     row=row or next((item for item in session.new if isinstance(item,TaskAccessGrantORM) and item.task_id==task_id and item.user_id==user_id),None)
     if row and row.active and row.source==source:return row
@@ -116,9 +120,12 @@ def approve_assignment_access(session,task,target_uid,actor_uid):
 
 
 def _managers(session,task,facts=None):
+    """The people who manage the task's access: its author and its queue owner. The service
+    account is none of them (it is told nothing); is_manager still lets it act."""
     from task_queues import task_queue,active
     from tracker import _facts_for
     from support import is_support_queue,is_staff
+    from service_account import is_service_id
     facts=_facts_for(facts,task)
     queue=task_queue(session,task)
     author=task.created_by_user_id
@@ -126,11 +133,21 @@ def _managers(session,task,facts=None):
     if author and queue and is_support_queue(session,queue) and not cached(
             session,"support.is_staff",author,lambda:is_staff(session,author),copy_result=False):author=None
     return {uid for uid in (author,queue.owner_user_id if queue else None)
-            if uid and active(session,uid) and (facts.readable(uid) if facts else db.can_read_task(uid,task,session))}
+            if uid and not is_service_id(uid) and active(session,uid)
+            and (facts.readable(uid) if facts else db.can_read_task(uid,task,session))}
+
+
+def is_manager(session,task,uid,facts=None):
+    """A task access manager; the service account manages every task it reads (owner, 2026-11-08)."""
+    if uid in _managers(session,task,facts):return True
+    from service_account import is_service_id
+    from tracker import _facts_for
+    facts=_facts_for(facts,task)
+    return is_service_id(uid) and (facts.readable(uid) if facts else db.can_read_task(uid,task,session))
 
 
 def _require_manager(session,task,uid,message):
-    if uid in _managers(session,task):return
+    if is_manager(session,task,uid):return
     from task_queues import task_queue
     from support import is_support_queue
     queue=task_queue(session,task)
@@ -151,7 +168,7 @@ def _projection(session,row,uid):
     target=_user_to_ref_dc(session.get(UserORM,row.target_user_id));requester=_user_to_ref_dc(session.get(UserORM,row.requested_by_user_id))
     task=session.get(TaskORM,row.task_id)
     caps=[]
-    if task and uid in _managers(session,task):
+    if task and is_manager(session,task,uid):
         if row.status=="pending":
             from tracker import is_control_task
             caps=["reject_task_mention"] if is_control_task(session,row.task_id) else ["approve_task_mention","reject_task_mention"]
@@ -178,6 +195,8 @@ def _sync(session,task,actor,user_ids,comment_id):
     ids=list(dict.fromkeys(user_ids))
     if len(ids)>100 or any(not isinstance(uid,int) or isinstance(uid,bool) or uid<=0 or not active(session,uid) for uid in ids):
         raise InvalidInput("Mentioned users must be active approved accounts")
+    from service_account import refuse_all
+    refuse_all(session,ids)  # never mentioned (owner, 2026-11-08)
     from tracker import is_control_task
     if is_control_task(session,task.task_id) and any(not db.can_read_task(uid,task,session) for uid in ids):
         raise Conflict("Control epic access follows current leadership roles","control_epic_managed")
@@ -228,7 +247,7 @@ def list_requests(task_id,uid,cursor=None):
     from api_contract import cursor_page
     with db._session() as session:
         task=visible_task(session,task_id,uid)
-        if uid not in _managers(session,task):return dict(items=[],next_cursor=None)
+        if not is_manager(session,task,uid):return dict(items=[],next_cursor=None)
         rows=session.query(TaskMentionRequestORM).filter_by(task_id=task_id).all()
         page=cursor_page(rows,lambda row:(row.created_at,row.request_id),cursor,descending=True)
         return dict(items=[_projection(session,row,uid) for row in page.items],next_cursor=page.next_cursor)
@@ -280,11 +299,11 @@ def candidates(task_id,uid):
     from support import is_support_queue
     with db._session() as session:
         task=visible_task(session,task_id,uid)
-        rows=[row for row in session.query(UserORM).options(selectinload(UserORM.contact)).order_by(UserORM.user_id) if active(session,row.user_id)]
+        rows=[row for row in session.query(UserORM).options(selectinload(UserORM.contact)).filter(visible()).order_by(UserORM.user_id) if active(session,row.user_id)]
         readers=task_readers(session,task,[row.user_id for row in rows])
         queue=task_queue(session,task)
         closed=bool(queue and is_support_queue(session,queue)) or is_control_task(session,task.task_id)
-        approver=not closed and uid in _managers(session,task)
+        approver=not closed and is_manager(session,task,uid)
         from database import _user_ref_with_avatar
         from directory import avatar_urls
         rows=[row for row in rows if not closed or row.user_id in readers];avatars=avatar_urls(session,rows)
