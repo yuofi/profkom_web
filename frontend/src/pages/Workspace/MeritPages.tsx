@@ -128,8 +128,13 @@ export function MeritEntryPage() {
   </Page>;
 }
 
-/** The common block of the merit form applies: «Одинаково для всех» with two or more recipients (B1). */
+/**
+ * «Одинаково для всех» (B1, owner 2026-11-08) holds "true" (on), "false" (off: unticked by the person,
+ * or an existing record opened with values that differ) or "" (untouched). An untouched box turns on
+ * by itself once there are two or more recipients; one the person unticked stays off for the form.
+ */
 const sameForAll = (values: Values) => values.same_for_all === "true" && ids(values, "users").length > 1;
+const untouchedSameForAll = (values: Values) => values.same_for_all !== "true" && values.same_for_all !== "false";
 /** A recipient's own fields count: no common block, or «Поправить отдельно» for them. */
 const ownValues = (user: string) => (values: Values) => !sameForAll(values) || values[`own_${user}`] === "true";
 const recipientKeys = ["hours", "evaluation", "completed"] as const;
@@ -164,9 +169,32 @@ function withCommonCopied(values: Values): Values {
   for (const user of ids(values, "users")) if (values[`own_${user}`] !== "true") for (const key of recipientKeys) next[`${key}_${user}`] = text(values, `common_${key}`);
   return next;
 }
-/** Fewer than two recipients end the common block the same way as unticking it. */
-const withRecipients = (values: Values): Values =>
-  values.same_for_all === "true" && ids(values, "users").length < 2 ? { ...withCommonCopied(values), same_for_all: "false" } : values;
+/**
+ * Two or more recipients turn an untouched box on the same way as ticking it, so nothing typed is
+ * lost. Fewer than two end the common block the same way as unticking it and leave the box untouched
+ * again; a box the person unticked stays off.
+ */
+function withRecipients(values: Values): Values {
+  const several = ids(values, "users").length > 1;
+  if (several && untouchedSameForAll(values)) return withCommonFromDraft({ ...values, same_for_all: "true" });
+  if (!several && values.same_for_all === "true") return { ...withCommonCopied(values), same_for_all: "" };
+  return values;
+}
+/** A saved recipient's values as the form holds them. */
+const savedRecipient = (merit: Merit | undefined, user: string): RecipientValues => {
+  const saved = merit?.recipients.find((r) => r.user_id === Number(user));
+  return { hours: String(saved?.hours ?? ""), evaluation: String(saved?.evaluation ?? ""), completed: saved?.completed_at ? moscowInput(saved.completed_at) : "" };
+};
+/**
+ * The box of an existing record opens on only when it has two or more recipients with the same
+ * hours, evaluation and completion date, so it hides no value that differs; those values are the
+ * common block. With fewer than two recipients the box is untouched, as in a new record.
+ */
+function savedSameForAll(merit: Merit | undefined): { box: string; common?: RecipientValues } {
+  if (!merit || merit.recipients.length < 2) return { box: "" };
+  const [first, ...rest] = merit.recipients.map((r) => savedRecipient(merit, String(r.user_id)));
+  return rest.every((other) => recipientKeys.every((key) => other[key] === first[key])) ? { box: "true", common: first } : { box: "false" };
+}
 /** Fields of the form that only shape the recipients' values on screen; a save sends their result. */
 const recipientField = (name: string) => name === "same_for_all" || /^(common|own|hours|evaluation|completed)_/.test(name);
 
@@ -194,6 +222,7 @@ function MeritEditor({
   const requestContextChange = useGuardedAction();
   const [templateSelection, setTemplateSelection] = useState<TemplateSelection | null>(null);
   const { perform, refresh } = useWorkspaceActions();
+  const saved = savedSameForAll(existing);
   const people = usePeopleOptions({ includeNonMembers: true });
   // An existing record needs the lists only for its scope name, so they never block its form.
   const own = useMeritContexts(seasonId, !shared);
@@ -300,11 +329,12 @@ function MeritEditor({
       )),
     },
     // «Одинаково для всех» (B1, owner 2026-11-08): one block of values for every selected
-    // recipient; one person may still get own values.
+    // recipient; one person may still get own values. On by default from two recipients.
     {
       name: "same_for_all",
       label: "Одинаково для всех",
       type: "checkbox" as const,
+      value: saved.box,
       visibleWhen: (values: Values) => ids(values, "users").length > 1,
       onChangeValues: (values: Values) => values.same_for_all === "true" ? withCommonFromDraft(values) : withCommonCopied(values),
     },
@@ -315,6 +345,7 @@ function MeritEditor({
       required: true,
       min: 0,
       compact: "common",
+      value: saved.common?.hours,
       visibleWhen: sameForAll,
     },
     {
@@ -323,6 +354,7 @@ function MeritEditor({
       type: "select" as const,
       required: true,
       compact: "common",
+      value: saved.common?.evaluation,
       visibleWhen: sameForAll,
       options: evaluationOptions,
     },
@@ -331,6 +363,7 @@ function MeritEditor({
       label: "Дата выполнения для всех, МСК",
       type: "datetime-local" as const,
       compact: "common",
+      value: saved.common?.completed,
       visibleWhen: sameForAll,
       required: (values: Values) => Number(values.common_evaluation) > 0,
     },
@@ -352,10 +385,7 @@ function MeritEditor({
         type: "number" as const,
         compact: `recipient_${p.value}`,
         min: 0,
-        value: String(
-          existing?.recipients.find((r) => r.user_id === Number(p.value))
-            ?.hours ?? "",
-        ),
+        value: savedRecipient(existing, p.value).hours,
       },
       {
         name: `evaluation_${p.value}`,
@@ -365,10 +395,7 @@ function MeritEditor({
         label: `Оценка: ${p.label}`,
         type: "select" as const,
         compact: `recipient_${p.value}`,
-        value: String(
-          existing?.recipients.find((r) => r.user_id === Number(p.value))
-            ?.evaluation ?? "",
-        ),
+        value: savedRecipient(existing, p.value).evaluation,
         options: evaluationOptions,
       },
       {
@@ -380,13 +407,7 @@ function MeritEditor({
         compact: `recipient_${p.value}`,
         // A positive evaluation needs the date of the result; the field says so before the submit does.
         required: (values: Values) => Number(values[`evaluation_${p.value}`]) > 0,
-        value: existing?.recipients.find((r) => r.user_id === Number(p.value))
-          ?.completed_at
-          ? moscowInput(
-              existing.recipients.find((r) => r.user_id === Number(p.value))!
-                .completed_at!,
-            )
-          : "",
+        value: savedRecipient(existing, p.value).completed,
       },
     ]),
     ...(existing ? [{ name: "reason", label: "Причина исправления", required: true, type: "textarea" as const }] : []),
