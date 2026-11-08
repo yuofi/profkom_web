@@ -69,3 +69,8 @@ it('shows the same warning in the closed-season popover, whose actions use the s
  await change(popover()!.querySelector('input')!,'Проверенное исправление');await act(async()=>submit.click());await waitForPage(page!);
  expect(save).toHaveBeenCalledExactlyOnceWith('season-1',{source_kind:'block',source_id:'block-it',value:12,expected_revision:1,reason:'Проверенное исправление',expected_summary_version:8});
 });
+it('names the new value in its question with the Russian decimal comma, as the table shows it (FIX1)',async()=>{
+ vi.spyOn(kkrApi,'coefficient');await mount();
+ await change(coefficient(),'10.5');await blur();await waitForPage(page!,()=>!!popover());
+ expect(popover()!.querySelector('p strong')?.textContent).toBe('10,5');
+});
