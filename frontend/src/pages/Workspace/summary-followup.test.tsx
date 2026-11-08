@@ -417,6 +417,8 @@ it("shows recipient inputs only for two selected people out of 100 and preserves
   expect(container.querySelectorAll('[name^="hours_"]')).toHaveLength(0);
   await pick(container, "users", "1001");
   await pick(container, "users", "1002");
+  // Each recipient's own values: «Одинаково для всех», ticked by default, is unticked.
+  await change(field(container, "same_for_all"), "false");
   expect(
     container.querySelectorAll(
       '[name^="hours_"], [name^="evaluation_"], [name^="completed_"]',

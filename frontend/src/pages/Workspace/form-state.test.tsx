@@ -172,6 +172,8 @@ it("A06: selected missing recipients keep their fields and values until explicit
   await settle(); await settle();
   const ids = mock.state.people.slice(0, 3).map((p) => p.user_id!);
   for (const id of ids.slice(0, 2)) await pick(page!.container, "users", String(id));
+  // Each recipient's own values: «Одинаково для всех», ticked by default, is unticked.
+  await change(field(page.container, "same_for_all"), "false");
   await meritBase(page.container);
   for (const id of ids.slice(0, 2)) { await change(field(page.container, `hours_${id}`), "7"); await change(field(page.container, `evaluation_${id}`), "0"); }
   await change(field(page.container, `evaluation_${ids[0]}`), "1");

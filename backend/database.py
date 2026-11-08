@@ -108,19 +108,16 @@ def _sqlite_journal(dbapi_connection, _record):
 atexit.register(engine.dispose)
 
 
-# The eight KKR criteria of the owner's KKR table (2026-11-08, docs/decisions/2026-11-08-owner-edits.md):
+# The five KKR criteria of the owner's KKR table (2026-11-08, docs/decisions/2026-11-08-owner-edits.md):
 # key, label and multiplier, in the table's order and wording. The formula, the stored defaults, the
 # readers, the export and history read this table; the frontend names them the same
-# (frontend/src/utils/kkrCriteria.ts). A record saved before a criterion existed lacks its key and
-# reads it as False, so its score does not change.
+# (frontend/src/utils/kkrCriteria.ts). A key the table does not name is ignored, so a stored record
+# with one scores as if it were absent.
 KKR_CRITERIA_TABLE = (
-    ("urgent", "Срочная задача", 1.5),
     ("unique", "Задача уникальная", 1.2),
-    ("monotonous", "Нудная / монотонная задача", 1.2),
+    ("in_person", "Требует очного присутствия", 1.2),
     ("creative", "Задача требует творческого подхода", 1.3),
     ("external_communication", "Требует общения с администрацией или людьми вне вуза", 1.1),
-    ("physical", "Требуется ли физическая сила", 1.2),
-    ("in_person", "Требует очного присутствия", 1.2),
     ("fixed_time", "Выполняется в определённое время", 1.1),
 )
 KKR_CRITERIA = {key: label for key, label, _ in KKR_CRITERIA_TABLE}
@@ -950,16 +947,15 @@ def calculate_kkr_score(
         except Exception:
             return 0.0
         available_days = max(0.0, (deadline_at - assigned_at).total_seconds() / 86400.0)
-        # The automatic urgency premium of a short deadline. The «Срочная задача» criterion
-        # (urgent ×1.5 in KKR_CRITERIA_TABLE) multiplies on top of it, as the owner's table was
-        # adopted on 2026-11-08. Whether the checkbox should replace this premium is an open
-        # question to the owner (A1); if it should, this line is the one place to change.
+        # The automatic urgency premium of a short deadline. It is the only urgency in the score
+        # (owner, 2026-11-08): no criterion adds to it.
         weight = float(hours) * (1.0 + 1.0 / math.sqrt(available_days + 1.0))
     else:
         # An absent deadline has neither urgency premium nor lateness penalty.
         weight = float(hours)
 
-    # A criterion the stored record lacks (saved before it existed) multiplies by nothing.
+    # Only the criteria of KKR_CRITERIA_TABLE multiply; a key the record lacks or the table does not
+    # name multiplies by nothing.
     criteria_factor = 1.0
     for k, v in KKR_FACTORS.items():
         if criteria_dict.get(k):

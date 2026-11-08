@@ -62,7 +62,7 @@ const plain = (value: unknown) => value === null || value === undefined || value
   : typeof value === "boolean" ? value ? "да" : "нет" : typeof value === "number" ? metricValue(value) : typeof value === "string" ? value : JSON.stringify(value);
 
 /** One recorded change as short lines: «Андреев Егор — часы: 3 → 4», «Получатели: +Иванов
- *  Алексей (2 ч, оценка 1)», «Критерий «Срочная задача»: нет → да», «Описание изменено». */
+ *  Алексей (2 ч, оценка 1)», «Критерий «Задача уникальная»: нет → да», «Описание изменено». */
 export function changeLines(change: HistoryChange): JournalLine[] {
   if (change.field === "recipients") {
     const before = recipient(change.before), after = recipient(change.after), name = shortName((after ?? before)?.user);

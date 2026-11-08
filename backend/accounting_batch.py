@@ -13,9 +13,7 @@ from database import ContributionORM, db, TaskORM, TaskTrackerORM, SeasonORM, As
 from registration import audit, now
 import access
 
-# The batch names every criterion of database.KKR_CRITERIA_TABLE. The criteria added on 2026-11-08
-# (urgent, monotonous, physical) may be omitted by a client that predates them and read as False.
-REQUIRED_CRITERIA = {'unique','creative','external_communication','in_person','fixed_time'}
+# The batch names exactly the criteria of database.KKR_CRITERIA_TABLE, no fewer and no more.
 
 
 def _load(session, task_id, uid, write=False):
@@ -75,7 +73,7 @@ def save(task_id, payload, uid):
         rows={r.assignment_id:r for r in session.query(AssignmentORM).filter_by(task_id=task_id)}
         given=[r.assignment_id for r in payload.assignments]
         if len(set(given))!=len(given) or set(given)!=set(rows):raise revision_conflict('The task assignees changed; reload accounting')
-        if not REQUIRED_CRITERIA<=set(payload.criteria)<=set(KKR_CRITERIA):raise InvalidInput('Invalid criteria')
+        if set(payload.criteria)!=set(KKR_CRITERIA):raise InvalidInput('Invalid criteria')
         criteria=criteria_flags(payload.criteria)
         reason=(payload.reason or '').strip()
         if season.state=='closed' and not reason:raise InvalidInput('A closed season correction requires a reason')
@@ -89,7 +87,7 @@ def save(task_id, payload, uid):
                 if value.hours is None or value.evaluation is None:raise InvalidInput('Hours and evaluation are required for every included assignee','missing_assessment')
                 assessment(value.evaluation,meta.closed_at or row.effective_completed_at)
         old_criteria=json.loads(task.criteria_json)
-        # A record saved without a later criterion equals the same choice with it unticked.
+        # A stored key the table does not name is ignored, so the same choice saved again is no change.
         if criteria_flags(old_criteria)!=criteria:
             task.criteria_json=json.dumps(criteria);meta.assessment_revision+=1
             audit(session,'task',task_id,uid,reason,{'criteria':old_criteria},{'criteria':criteria})

@@ -350,15 +350,12 @@ def delivery_event_allowed(session, event):
 
 
 class TemplateCriteria(Command):
-    """The KKR criteria in the order of database.KKR_CRITERIA_TABLE; a template saved before a
-    criterion existed lacks its key and reads it as False (template_values)."""
-    urgent: StrictBool = False
+    """The KKR criteria in the order of database.KKR_CRITERIA_TABLE; a stored template reads a key it
+    lacks as False and drops one the table does not name (template_values)."""
     unique: StrictBool = False
-    monotonous: StrictBool = False
+    in_person: StrictBool = False
     creative: StrictBool = False
     external_communication: StrictBool = False
-    physical: StrictBool = False
-    in_person: StrictBool = False
     fixed_time: StrictBool = False
 
 
@@ -400,7 +397,8 @@ def template_access(row, actor):
 
 
 def template_values(raw):
-    """Stored template values with every criterion: one the template was saved without is False."""
+    """Stored template values with exactly the table's criteria: a missing one is False, an unknown
+    one is dropped."""
     values = json.loads(raw)
     values["criteria"] = criteria_flags(values.get("criteria"))
     return values

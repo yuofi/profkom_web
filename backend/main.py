@@ -612,15 +612,11 @@ class SeasonCorrectionOut(BaseModel):
 # ─────────────────────────────────────────────────────────────
 
 class CriteriaSchema(Command):
-    """The KKR criteria in the order of database.KKR_CRITERIA_TABLE. Each defaults to False, so a
-    client that predates a criterion (urgent, monotonous, physical: 2026-11-08) still validates."""
-    urgent: bool = False
+    """The KKR criteria in the order of database.KKR_CRITERIA_TABLE; each defaults to False."""
     unique: bool = False
-    monotonous: bool = False
+    in_person: bool = False
     creative: bool = False
     external_communication: bool = False
-    physical: bool = False
-    in_person: bool = False
     fixed_time: bool = False
 
 

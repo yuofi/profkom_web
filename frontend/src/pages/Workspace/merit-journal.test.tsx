@@ -26,7 +26,7 @@ async function season() {
   const chair = await record({ title: "Ремонт проектора", recipients: [recipient(101, 3), recipient(102, 8)] });
   const block = await record({ source_kind: "block_volunteer", scope: { kind: "block", id: "block-info" }, title: "Вёрстка", recipients: [recipient(101, 2)] });
   await edit(chair, { recipients: [recipient(101, 3)] }, "Отмечен по ошибке");
-  await edit(block, { title: "Вёрстка газеты", recipients: [recipient(101, 4)], criteria: { ...emptyCriteria(), urgent: true } }, "Уточнили по табелю");
+  await edit(block, { title: "Вёрстка газеты", recipients: [recipient(101, 4)], criteria: { ...emptyCriteria(), in_person: true } }, "Уточнили по табелю");
   return { chair, block };
 }
 async function mount(path = "/seasons/season-1/merits?view=journal") {
@@ -61,7 +61,7 @@ it("switches to the journal of the season's edits, grouped by day, newest first,
   expect(newest.querySelector("a")?.textContent).toBe(mock!.state.user.display_name.split(" ").slice(0, 2).join(" "));
   expect(text(newest.querySelector("p"))).toBe("Вёрстка газетыБлок «Инфо»");
   expect([...newest.querySelectorAll('ul[aria-label="Что изменилось"] li')].map(line => line.textContent)).toEqual([
-    "Критерий «Срочная задача»: нет → да", "Анна Смирнова — часы: 2 → 4", "Название: «Вёрстка» → «Вёрстка газеты»"]);
+    "Критерий «Требует очного присутствия»: нет → да", "Анна Смирнова — часы: 2 → 4", "Название: «Вёрстка» → «Вёрстка газеты»"]);
   expect(text(newest)).toContain("Причина: Уточнили по табелю");
   const removed = older.querySelector('ul[aria-label="Что изменилось"] li')!;
   expect([removed.textContent, removed.getAttribute("data-tone")]).toEqual(["Получатели: −Иван Петров (было 8 ч)", "remove"]);

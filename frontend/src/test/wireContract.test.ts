@@ -315,7 +315,7 @@ it("checks GET /merits/history: each edit as GET /history shows it, its record a
   const entry = { id: "audit:12", source_kind: "audit", source_id: "12", target: { kind: "merit", id: "merit-1" }, changed_by: user,
     created_at: "2026-11-07T18:35:00.123456+00:00", description: "Изменены исходные поля ККР", reason: "Дубль: человек уже учтён",
     changes: [{ field: "recipients", label: "Убран получатель", before: { user, hours: 3, evaluation: 1, completed_at: null }, after: null },
-      { field: "criteria", label: "Критерии", before: { urgent: false }, after: { urgent: true } }],
+      { field: "criteria", label: "Критерии", before: { creative: false }, after: { creative: true } }],
     hidden: false, hidden_by: null, hidden_at: null, revision: 1, can_hide: true };
   const item = { entry, merit: { merit_id: "merit-1", title: "Обработка фотографий", source_kind: "block_volunteer", team: { kind: "block", id: "block-media", title: "Медиа" } } };
   const page = { items: [item], next_cursor: "WyIyMDI2LTExLTA3IiwgImF1ZGl0OjEyIl0=", total: 10, records: 9 };
