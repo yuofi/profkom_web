@@ -37,6 +37,14 @@ const moscowTime = new Intl.DateTimeFormat("ru-RU", {
 /** "15:55" by Moscow: where the day is already said. */
 export const displayTime = (value: string) =>
   Number.isNaN(Date.parse(value)) ? "—" : moscowTime.format(new Date(value));
+const moscowDay = new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", day: "numeric", month: "long" });
+const moscowDayYear = new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", day: "numeric", month: "long", year: "numeric" });
+/** "8 ноября, 05:42" by Moscow within the current Moscow year, "8 ноября 2025 г., 05:42" otherwise; null for no date. */
+export const dayMonthTime = (value: string | null | undefined, now = Date.now()) => {
+  if (!value || Number.isNaN(Date.parse(value))) return null;
+  const date = new Date(value), day = moscowYear.format(date) === moscowYear.format(now) ? moscowDay : moscowDayYear;
+  return keepParts(`${day.format(date)}, ${moscowTime.format(date)}`);
+};
 export const moscowInput = (value: string) =>
   new Date(Date.parse(value) + 3 * 3600_000).toISOString().slice(0, 16);
 export const toUtc = (value: string) =>

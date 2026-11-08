@@ -114,3 +114,30 @@ it("names a failed explicit mark and rereads, and only a revoked source is calle
   expect(panel()!.querySelector('[role="alert"]')?.textContent).toContain("Нет связи с сервером");
   expect(count.mock.calls.length).toBeGreaterThan(calls);
 });
+
+it("lays a service-account sign-in out as a titled notice over its facts and keeps plain text without them", async () => {
+  // Owner 2026-11-08, items 22-25, variant Б. The facts sit in the current Moscow year, so the line omits it.
+  const year = new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", year: "numeric" }).format(Date.now());
+  const transport = seed(), at = `${year}-11-08T02:42:00Z`, last = `${year}-11-08T02:51:00Z`;
+  transport.state.notifications = [
+    { id: "failed", kind: "service_login_failed", text: "Неудачные попытки входа в сервисный аккаунт (4 подряд): …", created_at: last, read_at: null, target: null,
+      details: { at: last, ip: "127.0.0.1", browser: "Firefox 132, Windows", failures: 4 } },
+    { id: "login", kind: "service_login", text: "Вход в сервисный аккаунт: …", created_at: at, read_at: null, target: null,
+      details: { at, ip: "127.0.0.1", browser: "Chrome 131, macOS", failures: null } },
+    { id: "older", kind: "service_login", text: "Вход в сервисный аккаунт: 01.11.2026 10:00 МСК, IP 10.0.0.1, Safari 18, macOS", created_at: `${year}-11-01T07:00:00Z`, read_at: "2026-11-01T07:05:00Z", target: null, details: null },
+  ];
+  page = await mountWorkspace(<NotificationBell />);await waitForPage(page);await open();
+  const entry = (id: string) => panel()!.querySelector<HTMLElement>(`[data-notification-id="${id}"]`)!;
+  const title = (id: string) => entry(id).querySelector<HTMLElement>("span[data-failed], span:first-child")!;
+  expect(title("login").textContent).toBe("Вход в сервисный аккаунт");expect(title("login").querySelector('[data-icon="security"]')).not.toBeNull();expect(title("login").hasAttribute("data-failed")).toBe(false);
+  expect(entry("login").textContent).toContain("8\u00a0ноября, 05:42 · IP 127.0.0.1 · Chrome 131, macOS");
+  expect(entry("login").querySelector("time")?.getAttribute("dateTime")).toBe(at);
+  expect(title("failed").textContent).toBe("Неудачные попытки входа в сервисный аккаунт · 4 подряд");expect(title("failed").querySelector('[data-icon="error"]')).not.toBeNull();expect(title("failed").hasAttribute("data-failed")).toBe(true);
+  expect(entry("failed").textContent).toContain("последняя 8\u00a0ноября, 05:51 · IP 127.0.0.1 · Firefox 132, Windows");
+  // The explicit mark still names the notice by its server text.
+  expect(entry("failed").querySelector('button[aria-label^="Отметить прочитанным: Неудачные попытки входа"]')).not.toBeNull();
+  // An older notice without facts reads as before.
+  expect(entry("older").textContent).toContain("Вход в сервисный аккаунт: 01.11.2026 10:00 МСК, IP 10.0.0.1, Safari 18, macOS");
+  expect(entry("older").querySelector("[data-failed], [data-icon]")).toBeNull();
+  expect(panel()!.textContent).not.toMatch(/Mozilla|AppleWebKit/);
+});
