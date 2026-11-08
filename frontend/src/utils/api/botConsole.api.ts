@@ -7,7 +7,7 @@ export const botConsoleApi = {
   status: (signal?: AbortSignal) => request<BotConsoleStatus>("get", "/bot/console/status", undefined, undefined, signal),
   /** A repeat changes nothing; the answer is the status. */
   pause: (paused: boolean) => request<BotConsoleStatus>("put", "/bot/console/pause", { paused }),
-  /** 409 bot_offline, bot_command_pending, bot_console_vk_required, duplicate_request_key;
+  /** 409 bot_offline, bot_command_pending, bot_console_service_vk, bot_console_vk_required, duplicate_request_key;
    *  429 bot_command_rate_limited. */
   create: (input: BotCommandInput) => request<BotCommand>("post", "/bot/console/commands", input),
   /** Newest first, 20 a page, `output` null. */

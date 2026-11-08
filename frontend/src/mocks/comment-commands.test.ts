@@ -86,3 +86,20 @@ it("the demo moves a pending mention to a live comment that still calls the pers
   await tasksApi.deleteComment(second.comment_id);
   expect(await pending()).toMatchObject([{ status: "cancelled", comment_id: second.comment_id, revision: 3, capabilities: [] }]);
 });
+
+it("the demo gives every reader of a task the three comment commands on any comment, as the server does", async () => {
+  const all = ["edit_comment", "toggle_comment_checklist", "delete_comment"];
+  // Chair and HR read task-1 but are not the seeded comment's author (owner 2026-11-08, V4/V5).
+  for (const role of ["chair", "hr", "organizer"] as const) {
+    mock = installMockTransport(role, { delay: 0 });
+    expect((await tasksApi.get("task-1")).capabilities, role).toContain("comment_task");
+    const seeded = (await tasksApi.comments("task-1")).items.find(item => item.comment_id === "comment-1")!;
+    expect(seeded.capabilities, role).toEqual(all);expect(wireIssues("Comment", seeded)).toEqual([]);
+    const body = seeded.content.body + "\n- [ ] Пункт";
+    const edited = await tasksApi.editComment(seeded.comment_id, richText(body));
+    expect(edited.capabilities, role).toEqual(all);
+    const ticked = await tasksApi.commentChecklist(seeded.comment_id, { expected_body: body, offset: offset(body, "Пункт"), checked: true });
+    expect(ticked.capabilities, role).toEqual(all);
+    mock.restore();mock = undefined;
+  }
+});

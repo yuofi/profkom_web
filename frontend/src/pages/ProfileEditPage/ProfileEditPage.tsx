@@ -1,6 +1,7 @@
 import { useState, useEffect, useId, useRef } from "react";
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
 import { useMe } from "../../utils/me";
+import { useSession } from "../../utils/session";
 import { authApi } from "../../utils/api/auth.api";
 import { profileFeaturesApi, type AvatarSelection, type ProfileEditorData } from "../../utils/api/profileFeatures.api";
 import { ProfileAvatarDraft } from "../../components/Workspace/ProfileAvatarDraft";
@@ -27,7 +28,10 @@ export const ProfileEditPage = () => {
   const passwordSaved = useRef(false);
   const passwordScope = useId();
   const requestLeave = useGuardedAction(passwordScope);
-  const editorQuery = useQuery({ queryKey: ["profileEditor"], queryFn: profileFeaturesApi.editor });
+  // The service account's name and address are the server's, its password the server's settings
+  // (backend/docs/SERVICE_ACCOUNT.md): no form to fill, nothing to read for it.
+  const { session } = useSession(), service = !!session?.service_account;
+  const editorQuery = useQuery({ queryKey: ["profileEditor"], queryFn: profileFeaturesApi.editor, enabled: !!session && !service });
   const baseline = useRef<ProfileEditorData | null>(null);
   const [avatar, setAvatar] = useState<AvatarSelection | null>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
@@ -197,6 +201,15 @@ export const ProfileEditPage = () => {
   });
 
   if (!user) return null;
+  if (service) return (
+    <Page title="Редактирование профиля" description="Сервисный аккаунт не показывается в контактах."
+      actions={<RouteLink to="/profile">К профилю</RouteLink>}>
+      <title>Редактирование профиля | Профком ВМК</title>
+      <Card title="Данные аккаунта">
+        <p className={s.muted}>Данные сервисного аккаунта задаёт сервер: имя и адрес — при первом запуске, пароль — в настройках сервера. Здесь их не меняют.</p>
+      </Card>
+    </Page>
+  );
 
   return (
     <Page

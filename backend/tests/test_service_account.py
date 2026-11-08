@@ -401,10 +401,88 @@ def test_chair_only_actions(client, configured, make_user):
     assert chair.user_id != service_id()
 
 
+def test_the_session_names_the_service_account(client, configured, make_user):
+    """The client leaves it out of every people choice and explains its refusals by this flag."""
+    person = make_user(super_user=True)
+    _, headers = service(client)
+    assert client.get("/api/session", headers=headers).json()["service_account"] is True
+    assert client.get("/api/session", headers=person.headers).json()["service_account"] is False
+
+
+def test_its_own_profile_opens_with_its_reserved_address(client, configured):
+    """«Мой профиль» and the task form read GET /profile/me: the reserved .invalid address
+    is no mailbox, yet it is the account's own contact row."""
+    sid, headers = service(client)
+    r = client.get("/api/profile/me", headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["user_id"] == sid and r.json()["name"] == NAME and r.json()["email"] == service_account.EMAIL
+    # Nobody else's contact gets past the address check that way.
+    from main import MeOut
+    with pytest.raises(ValidationError):
+        MeOut.model_validate({**r.json(), "email": "someone@system.invalid"})
+
+
+def test_its_own_profile_saves_back_its_reserved_address_which_stays_its_alone(client, configured, make_user):
+    """The editor sends back the address it read: the service account saves with its reserved
+    one unchanged, but takes no real address, and nobody else takes the reserved one."""
+    sid, headers = service(client)
+
+    def save(who, profile):
+        editor = client.get("/api/profile/me/editor", headers=who).json()
+        return client.patch("/api/profile/me/editor", headers=who, json=dict(
+            expected_revision=editor["revision"], expected_fingerprint=editor["fingerprint"], profile=profile))
+
+    editor = client.get("/api/profile/me/editor", headers=headers).json()
+    assert editor["contact"]["email"] == service_account.EMAIL
+    r = save(headers, {"email": service_account.EMAIL, "location": "Сервер"})
+    assert r.status_code == 200, r.text
+    assert r.json()["contact"]["email"] == service_account.EMAIL and r.json()["contact"]["location"] == "Сервер"
+    assert client.patch(f"/api/profile/{sid}", headers=headers, json={"email": service_account.EMAIL}).status_code == 200
+    # A real address would be squatted by an account nobody sees.
+    r = save(headers, {"email": "taken-by-root@example.com"})
+    assert r.status_code == 422 and r.json()["detail"]["fields"]["errors"][0]["loc"] == ["email"], r.text
+    assert client.patch(f"/api/profile/{sid}", headers=headers, json={"email": "taken-by-root@example.com"}).status_code == 422
+    person = make_user()
+    r = save(person.headers, {"email": service_account.EMAIL})
+    assert r.status_code == 422 and r.json()["detail"]["fields"]["errors"][0]["loc"] == ["email"], r.text
+    assert client.patch(f"/api/profile/{person.user_id}", headers=person.headers,
+                        json={"email": service_account.EMAIL}).status_code == 422
+    assert db.get_contact(sid).email == service_account.EMAIL
+    assert db.get_contact(person.user_id).email != service_account.EMAIL
+
+
+def test_nobody_takes_the_reserved_address_before_the_service_account_exists(client, make_user):
+    """With the account never configured no row holds the address: the startup step would
+    later stop on the unique contact address."""
+    person = make_user()
+    r = client.patch(f"/api/profile/{person.user_id}", headers=person.headers, json={"email": service_account.EMAIL})
+    assert r.status_code == 422, r.text
+    assert db.get_contact(person.user_id).email != service_account.EMAIL
+
+
 def test_the_bot_console_is_open(client, configured, make_user):
     _, headers = service(client)
     assert client.get("/api/bot/console/status", headers=headers).status_code == 200
     assert client.get("/api/bot/maintainers", headers=headers).status_code == 200
+
+
+def test_the_bot_console_refuses_its_update_requests_with_its_own_code(client, configured, monkeypatch):
+    """The update server needs the requester's VK and the service account has none (an open
+    owner question, 2026-11-08): its own refusal instead of a request to link a VK it cannot link."""
+    from bot_models import BotCommandORM
+    from test_bot_api import HASH as BOT_HASH
+    from test_bot_console import URL, beat
+    monkeypatch.setattr(settings, "BOT_API_TOKEN_SHA256", BOT_HASH)
+    monkeypatch.setattr(settings, "PUBLIC_SITE_URL", "https://profkom.example")
+    beat(client)
+    _, headers = service(client)
+    for kind, args in (("updates_check", {}), ("update", {"version": "2.5.0"}), ("rollback", {"version": "2.3.0"})):
+        r = client.post(f"{URL}/commands", headers=headers, json={"kind": kind, "args": args})
+        assert (r.status_code, r.json()["detail"]["code"]) == (409, "bot_console_service_vk"), (kind, r.text)
+    with db._session() as s:
+        assert s.query(BotCommandORM).count() == 0
+    # The log and a restart need no VK.
+    assert client.post(f"{URL}/commands", headers=headers, json={"kind": "logs"}).status_code == 200
 
 
 def test_no_deadline_banner_or_gate(client, configured, make_user, monkeypatch):

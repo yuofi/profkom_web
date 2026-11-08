@@ -39,6 +39,20 @@ it("puts the block's actions in one row under its name, the avatar and «Все 
   expect(texts(page!.container, "section > h2, section > div > h2")).toEqual(["О блоке", "Руководство", "Состав блока"]);
 });
 
+it("offers the service account no application: it is a member of no block (owner 2026-11-08)", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const join = vi.spyOn(membershipApi, "join");
+  page = await mountWorkspace(<Routes><Route path="/blocks/:id" element={<BlockPage />} /></Routes>,
+    { path: "/blocks/block-info", session: { ...mock.state.session, service_account: true } });
+  await waitForPage(page, () => !!page!.container.querySelector("h1")?.textContent?.trim());
+  expect(button(nav(), "Подать заявку в блок")).toBeUndefined();expect(nav().querySelector("form")).toBeNull();
+  const note = [...nav().querySelectorAll("span")].find(span => span.textContent === "Сервисный аккаунт не состоит в блоках")!;
+  expect(note.className).toMatch(/navNote/);
+  // Its other actions stay: it reads every block's tasks.
+  expect(texts(nav(), "a")).toContain("Задачи блока");
+  expect(join).not.toHaveBeenCalled();
+});
+
 it("keeps every action of a plain member reachable and shows no editors to them (D-05)", async () => {
   mock = installMockTransport("organizer", { delay: 0 });const block = await openBlock("organizer");
   expect(block.members.some(member => member.user.user_id === mock!.state.session.user_id)).toBe(true);

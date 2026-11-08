@@ -98,6 +98,10 @@ export function installMockTransport(
     const ids = commentMentionIds(body);
     return clone(state.people.filter(person => person.user_id !== null && ids.has(person.user_id)));
   };
+  /** A comment as the reader sees it. Like tracker.can_comment on the server: every reader of its
+   *  task edits, ticks and deletes any comment (owner 2026-11-08, V4/V5); the routes check the reading. */
+  const commentView = (comment: Comment): Comment => clone({ ...comment, mentioned_users: commentMentions(comment.content.body),
+    capabilities: state.session.account_state === "active" ? ["edit_comment", "toggle_comment_checklist", "delete_comment"] : [] });
   // As task_comments._label: the checklist item as plain text, up to 80 characters.
   const checklistLabel = (line: string) => {
     const kept: string[] = [];
@@ -1541,7 +1545,7 @@ export function installMockTransport(
       if (parts[2] === "comments") {
         if (method === "get")
           return list(
-            clone(state.comments.filter((c) => c.task_id === task.task_id).map(comment => ({...comment,mentioned_users:commentMentions(comment.content.body)}))),
+            state.comments.filter((c) => c.task_id === task.task_id).map(commentView),
           );
         // As on the server, a repeat of a deleted comment does not bring it back.
         const repeatedComment=repeated(data,task.task_id);if(repeatedComment)return repeatedComment[0]===200&&deletedComments.some(item=>item.comment_id===(repeatedComment[1] as Comment).comment_id)?fail(404,"comment_deleted","Комментарий удалён"):repeatedComment;
@@ -1834,14 +1838,14 @@ export function installMockTransport(
         const before = comment.content.body, offset = data.offset, checked = data.checked;
         if (typeof data.expected_body !== "string" || typeof offset !== "number" || typeof checked !== "boolean") return fail(422, "invalid_input", "Укажите отметку");
         const marked = (body: string) => body.slice(0, offset) + (checked ? "x" : " ") + body.slice(offset + 1);
-        if (data.expected_body !== before) return before === marked(data.expected_body) ? [200, clone({ ...comment, mentioned_users: commentMentions(before) })] : fail(409, "comment_changed", "Комментарий изменился");
+        if (data.expected_body !== before) return before === marked(data.expected_body) ? [200, commentView(comment)] : fail(409, "comment_changed", "Комментарий изменился");
         const prefix = before.slice(before.lastIndexOf("\n", offset - 1) + 1, offset);
         if (!/^(?:[ \t]*>[ \t]?)*[ \t]*(?:(?:[-+*]|\d{1,9}[.)])[ \t]+)+\[$/.test(prefix) || !/[ xX]/.test(before[offset] ?? "") || before[offset + 1] !== "]") return fail(403, "checklist_only", "Только отметки чеклиста");
-        if ((before[offset] !== " ") === checked) return [200, clone({ ...comment, mentioned_users: commentMentions(before) })];
+        if ((before[offset] !== " ") === checked) return [200, commentView(comment)];
         comment.content = richText(marked(before));
         const label = checklistLabel(comment.content.body.slice(offset + 2).split("\n")[0]);
         rememberTask(task, "comment_checklist_toggled", checked ? `Отмечен пункт «${label}» в комментарии` : `Снята отметка с пункта «${label}» в комментарии`, undefined, undefined, [{ field: "comment", label: "Комментарий", before, after: comment.content.body }]);
-        return [200, clone({ ...comment, mentioned_users: commentMentions(comment.content.body) })];
+        return [200, commentView(comment)];
       }
       const attachments=data.file_ids===undefined?comment.attachments:commentFiles(data.file_ids,task.task_id,comment.attachments);
       if(!attachments)return fail(422,"invalid_input","Некорректные файлы комментария");
@@ -1852,7 +1856,7 @@ export function installMockTransport(
       comment.mentioned_users = commentMentions(comment.content.body);
       rememberTask(task, "comment_edited", "Комментарий отредактирован", undefined, undefined, [{ field: "comment", label: "Комментарий", before, after: comment.content.body }]);
       comment.updated_at = mockNow;
-      return [200, clone(comment)];
+      return [200, commentView(comment)];
     }
     if (parts[0] === "reports" || path === "/report-history") {
       if (parts.length === 1) {

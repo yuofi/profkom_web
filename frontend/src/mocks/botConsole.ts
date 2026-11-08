@@ -221,6 +221,7 @@ export function botConsoleMock(state: Fixtures, enabled: () => boolean, linked: 
     if (!store.online) return fail(409, "bot_offline", "The bot is offline");
     if (store.commands.some((item) => (item.state === "pending" || item.state === "running") && group(item.kind) === group(kind)))
       return fail(409, "bot_command_pending", "A command of this kind is pending");
+    if (kind !== "restart" && kind !== "logs" && state.session.service_account) return fail(409, "bot_console_service_vk", "The service account has no VK");
     if (kind !== "restart" && kind !== "logs" && !linked()) return fail(409, "bot_console_vk_required", "A VK link is required");
     if (kind === "restart") {
       if (store.lastRestart !== null && Date.now() - store.lastRestart < 120_000) return fail(429, "bot_command_rate_limited", "Restarted less than 2 minutes ago");

@@ -167,6 +167,13 @@ class MeOut(ContactInfoOut):
     pgas_admin: bool = False
     has_password: bool = True
 
+    @field_validator("email", mode="wrap")
+    @classmethod
+    def _service_address(cls, value, handler):
+        # The service account's reserved .invalid address is no mailbox, yet its own (service_account.py).
+        import service_account
+        return value if value == service_account.EMAIL else handler(value)
+
 
 class PgasEntryIn(BaseModel):
     title: str = Field(..., min_length=1)
@@ -286,6 +293,13 @@ class ProfileUpdate(BaseModel):
     email: Optional[EmailStr] = None
     budget: Optional[bool] = None
 
+    @field_validator("email", mode="wrap")
+    @classmethod
+    def _service_address(cls, value, handler):
+        # The editor sends back the address MeOut showed; update_profile keeps this one to the service account.
+        import service_account
+        return value if value == service_account.EMAIL else handler(value)
+
     @field_validator("tg", "vk", mode="before")
     @classmethod
     def normalize_contact(cls, value, info):
@@ -385,6 +399,8 @@ class SessionOut(BaseModel):
     password_change_required: bool = False
     # None while the bot integration is off
     bot_link: Optional[SessionBotLinkOut] = None
+    # The service (root) account (SERVICE_ACCOUNT.md): never offered as a person; its refusals are explained
+    service_account: bool = False
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1597,6 +1613,12 @@ def update_profile(
     if not contact:
         raise HTTPException(500, "Contact info missing for user")
 
+    import service_account
+    if payload.email is not None and (payload.email == service_account.EMAIL) != service_account.is_service(target):
+        # The reserved address is the service account's alone and it keeps it: the address is unique,
+        # so a person holding it stops the startup step, and the account would hide a real one.
+        message = "Only the service account has the reserved service address"
+        raise InvalidInput(message, errors=[dict(type="value_error", loc=["email"], msg=message)])
     if payload.email is not None and payload.email != contact.email:
         if db.email_taken(str(payload.email), user_id):
             raise HTTPException(409, "Email already registered")
@@ -1883,6 +1905,7 @@ def get_session(cur: User = Depends(get_current_user)):
         pgas_admin=cur.pgas_admin,
         events_roles=cur.events_roles or "[]",
         bot_link=link,
+        service_account=bool(cur.is_service),
     )
 
 

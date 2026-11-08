@@ -20,6 +20,7 @@ from sqlalchemy.orm import defer
 
 import api_contract
 import request_keys
+import service_account
 from api_contract import Page
 from auth import get_current_user
 from bot_api import (COMMAND_KINDS, CONSOLE, OUTPUT_TTL, PENDING_BATCH, PENDING_VK, live_commands, online, require,
@@ -187,8 +188,9 @@ class CommandOut(BaseModel):
 def create(payload, uid, now):
     """POST /bot/console/commands in the request's write unit: a repeat with the same key
     returns the first command; then the bot must be online, no command of the same slot may
-    be open, the update requests need the author's VK, a restart waits 2 minutes after the
-    last one. The command, its requester (account, VK, display name) and the audit."""
+    be open, the update requests need the author's VK (the service account has none: its own
+    refusal), a restart waits 2 minutes after the last one. The command, its requester
+    (account, VK, display name) and the audit."""
     C, kind, args = BotCommandORM, payload.kind, payload.args
     key, digest = payload.idempotency_key, request_keys.digest(payload)
     with db._session() as s:
@@ -204,6 +206,9 @@ def create(payload, uid, now):
         if busy:
             raise Conflict("A command of this kind is waiting for the bot", "bot_command_pending")
         link = s.get(BotLinkORM, uid)
+        if kind in NEEDS_VK and service_account.is_service_id(uid):
+            # It has no VK to name; whether the update server should take one is an open owner question.
+            raise Conflict("The service account has no VK for the update requests", "bot_console_service_vk")
         if kind in NEEDS_VK and link is None:
             raise Conflict("The update requests name the requester's VK", "bot_console_vk_required")
         if kind == "restart" and last_restart is not None and last_restart > iso(now - RESTART_EVERY):

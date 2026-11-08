@@ -61,6 +61,9 @@ export interface Session {
   /** The VK link through HereBot (BOT_API.md, «Привязка VK»); null while the integration is
    *  off. An older server without stage 2 leaves it out, which reads as null. */
   bot_link?: SessionBotLink | null;
+  /** The service (root) account for debugging (SERVICE_ACCOUNT.md): never offered as an assignee,
+   *  watcher or any other person, and its refusals are explained. An older server leaves it out. */
+  service_account?: boolean;
 }
 /** The state of the VK link through HereBot: only `ok` meets the requirement. */
 export type BotLinkState = "none" | "ok" | "messages_denied" | "token_missing" | "token_invalid";
