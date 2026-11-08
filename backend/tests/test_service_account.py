@@ -401,6 +401,14 @@ def test_chair_only_actions(client, configured, make_user):
     assert chair.user_id != service_id()
 
 
+def test_the_session_names_the_service_account(client, configured, make_user):
+    """The client leaves it out of every people choice and explains its refusals by this flag."""
+    person = make_user(super_user=True)
+    _, headers = service(client)
+    assert client.get("/api/session", headers=headers).json()["service_account"] is True
+    assert client.get("/api/session", headers=person.headers).json()["service_account"] is False
+
+
 def test_its_own_profile_opens_with_its_reserved_address(client, configured):
     """«Мой профиль» and the task form read GET /profile/me: the reserved .invalid address
     is no mailbox, yet it is the account's own contact row."""

@@ -194,6 +194,7 @@ export function createFixtures(role: MockRole = "organizer") {
     assignments: active ? [assignment, ...(role === "hr" ? [mockBroadcasterAssignment(userId)] : [])] : [],
     // Stage 2 is on: a pending account still has to link the bot, an active one has.
     bot_link: role === "archived" ? null : { state: active ? "ok" : "none", required: !active, blocked: false, deadline: mockBotLinkDeadline },
+    service_account: false,
   };
   const profile: MeOut = {
     user_id: userId,

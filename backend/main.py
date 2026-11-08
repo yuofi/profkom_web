@@ -392,6 +392,8 @@ class SessionOut(BaseModel):
     password_change_required: bool = False
     # None while the bot integration is off
     bot_link: Optional[SessionBotLinkOut] = None
+    # The service (root) account (SERVICE_ACCOUNT.md): never offered as a person; its refusals are explained
+    service_account: bool = False
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1890,6 +1892,7 @@ def get_session(cur: User = Depends(get_current_user)):
         pgas_admin=cur.pgas_admin,
         events_roles=cur.events_roles or "[]",
         bot_link=link,
+        service_account=bool(cur.is_service),
     )
 
 

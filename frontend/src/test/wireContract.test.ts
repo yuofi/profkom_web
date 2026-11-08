@@ -46,6 +46,13 @@ it("accepts the site-wide bot and broadcast grants among session assignments", (
   expect(wireIssues("Session", { ...session, assignments: [{ ...site, scope_kind: "galaxy" }] })).not.toEqual([]);
 });
 
+it("accepts the service account flag of the session as a boolean only", () => {
+  const session = createFixtures("chair").session;
+  expect(wireIssues("Session", { ...session, service_account: true })).toEqual([]);
+  expect(wireIssues("Session", { ...session, service_account: undefined })).toEqual([]);
+  expect(wireIssues("Session", { ...session, service_account: "yes" })).not.toEqual([]);
+});
+
 it("checks the stage 2 VK link in the session and the application, including null", () => {
   const session = createFixtures("organizer").session;
   const link = { state: "token_missing", required: true, blocked: true, deadline: "2026-12-01T00:00:00+03:00" };
