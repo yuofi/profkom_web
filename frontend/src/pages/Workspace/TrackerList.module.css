@@ -105,4 +105,10 @@ a.person:hover { background: var(--surface-container-highest); color: var(--prim
 .refusedNote { font-size:12px;line-height:1.35;color:var(--error-container);max-width:190px; }
 .refusedTip { margin:0;font-size:13px;line-height:1.5;overflow-wrap:anywhere; }
 @media (max-width: 1100px) { .refusedCreate.refusedCreate { padding-inline:10px; } }
+/* Up to 1320 px the words beside the button would squeeze the search and push the filters out of the row: they take
+   their own line under the toolbar, as on a phone, and the search keeps the width it has in a queue that takes tasks. */
+@media (min-width: 769px) and (max-width: 1320px) {
+  .topbar.refusing { flex-wrap:wrap;row-gap:10px; }.topbar.refusing > .search { flex-basis:0; }
+  .topbar.refusing > .refusedNote { order:2;flex:1 0 100%;max-width:none; }
+}
 @media (max-width: 768px) { .topbar > .refusedNote { order:2;flex:1 0 100%;max-width:none; } }

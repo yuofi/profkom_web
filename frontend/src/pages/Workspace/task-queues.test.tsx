@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
 import { act } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
@@ -42,6 +43,7 @@ it("shows a queue's team and its season with its state in the directory and besi
   expect(title.textContent).toBe("Задачи встречи");expect(title.parentElement!.textContent).toMatch(/^Задачи встречи.*Лекции и встречи.*Осень и зима 2026 · открыт$/);
   expect(title.parentElement!.querySelector<HTMLAnchorElement>('a[href="/seasons/season-1"]')?.dataset.state).toBe("open");expect(header.textContent).not.toContain("Сезон");
   expect(page!.container.querySelector('a[title="Создать задачу"]')).not.toBeNull();expect(page!.container.querySelector('button[aria-disabled="true"]')).toBeNull();expect(page!.container.textContent).not.toContain("не создаются");
+  expect(page!.container.querySelector('a[title="Создать задачу"]')!.parentElement!.className).not.toMatch(/refusing/);
   await page!.cleanup();
   // A block queue shows its team only.
   await mount(`/tasks/queues/queue-${transport.state.blocks[0].block_id}`);
@@ -64,6 +66,8 @@ it.each([
   expect(document.getElementById(create.getAttribute("aria-describedby")!)?.textContent).toBe(reason);
   const short = [...page.container.querySelectorAll<HTMLElement>('[aria-hidden="true"]')].find(node => node.textContent === note);
   expect(short).toBeDefined();expect(create.closest("[data-row-action]")!.nextElementSibling!.nextElementSibling).toBe(short);
+  // On a laptop the words take their own line under the toolbar instead of squeezing the search (refusing toolbar).
+  expect(short!.parentElement!.className).toMatch(/topbar/);expect(short!.parentElement!.className).toMatch(/refusing/);
   expect(document.querySelector('[role="tooltip"]')).toBeNull();
   // A click or a tap only focuses it, which opens the full reason; nothing is created or opened.
   await act(async () => create.click());await waitForPage(page);
@@ -82,6 +86,14 @@ it("names each refusal briefly beside the button and fully in its hint", () => {
   expect(queueCreationShort(queue("team_missing"))).toBe("Команда недоступна: новые задачи не создаются");
   expect(queueCreationShort(queue(null))).toBe("Новые задачи сейчас не создаются");
   expect(queueCreationNotice(queue("season_closed"))).toBe("Сезон «Весна 2026» закрыт — новые задачи в этой очереди создать нельзя.");
+});
+it("a refusing queue's toolbar keeps the search, the views and the filters in one row on a laptop: its words go under it", () => {
+  const css = readFileSync(`${__dirname}/TrackerList.module.css`, "utf8");
+  const laptop = css.match(/@media \(min-width: 769px\) and \(max-width: 1320px\) \{([\s\S]*?)\n\}/)?.[1] ?? "";
+  expect(laptop).toMatch(/\.topbar\.refusing \{[^}]*flex-wrap:wrap/);expect(laptop).toMatch(/\.topbar\.refusing > \.search \{[^}]*flex-basis:0/);
+  expect(laptop).toMatch(/\.topbar\.refusing > \.refusedNote \{[^}]*order:2;flex:1 0 100%;max-width:none/);
+  // Labels fold into icons only at 1100 px, so the note leaves the row before the toolbar runs out of room.
+  expect(css).toMatch(/@media \(max-width: 1100px\) \{\n {2}\.toolLabel/);
 });
 it("a reader who may not create tasks in a closed season's queue sees no create button and no reason", async () => {
   transport = installMockTransport("leader", { delay: 0 });transport.state.seasons.find(season => season.season_id === "season-1")!.state = "closed";

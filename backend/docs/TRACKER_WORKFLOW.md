@@ -125,7 +125,8 @@ season pill coloured by `state` (open mint, planned lilac, summarizing peach, cl
 linking to the season) beside the queue's title and in the catalogue's «Команда и
 сезон» column. When `task_creation.available` is false, a reader with `create_task`
 keeps «Создать задачу» in the toolbar as an `aria-disabled` button whose click only
-focuses it: a few words beside it (`queueCreationShort`), the full reason
+focuses it: a few words beside it (`queueCreationShort`; up to 1320 px wide and on a phone
+they take their own line under the toolbar, so the search keeps its width), the full reason
 (`queueCreationNotice`) as its description and in a hint on hover, keyboard focus or a tap.
 
 A locked catalogue entry exposes only safe ID/name/key and the viewer's own request
