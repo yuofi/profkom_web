@@ -160,6 +160,25 @@ def test_deleted_comment_files_leave_the_task_but_stay_stored(client, work, mock
     assert next(item for item in history if item['kind'] == 'comment_deleted')['changes'][1]['before'] == ['comment.pdf']
 
 
+def test_a_file_shared_with_a_live_comment_stays_after_the_other_is_deleted(client, work, mock_s3):
+    tid, author, reader = work['task']['task_id'], work['member'], work['master']
+    fid = upload(client, author, mock_s3, tid)
+    first = post(client, author, tid, [fid], body='Первый с файлом').json()
+    second = post(client, author, tid, [fid], body='Второй с тем же файлом').json()
+    assert client.delete('/api/comments/' + first['comment_id'], headers=reader.headers).status_code == 204
+    [kept] = comments(client, reader, tid)
+    # The comment list feeds «Файлы из комментариев»: the live comment still offers the file.
+    assert kept['comment_id'] == second['comment_id'] and [item['file_id'] for item in kept['attachments']] == [fid]
+    for actor in (reader, author):
+        assert client.get('/api/files/' + fid + '/content', headers=actor.headers).content == DATA
+        assert client.get('/api/files/' + fid + '/download', headers=actor.headers).status_code == 200
+    [(_, _, changes)] = activities(tid, 'comment_deleted')
+    assert changes[1]['field'] == 'comment_attachments' and changes[1]['before'][0]['file_id'] == fid
+    # Once the last binding is deleted too, the file leaves the task.
+    assert client.delete('/api/comments/' + second['comment_id'], headers=reader.headers).status_code == 204
+    assert client.get('/api/files/' + fid + '/content', headers=reader.headers).status_code == 404
+
+
 def test_deletion_cancels_pending_mentions_keeps_granted_access_and_old_notifications(client, work, make_user):
     tid, author, master, outside = work['task']['task_id'], work['member'], work['master'], work['outside']
     other = make_user()

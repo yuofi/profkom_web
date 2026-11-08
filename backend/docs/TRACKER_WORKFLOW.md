@@ -148,11 +148,11 @@ activity `comment_checklist_toggled` («Отмечен пункт «…» в к�
 plain text: link text without its target, no emphasis or code marks, up to 80
 characters) carries the `comment` before/after. `DELETE /comments/{id}` (204,
 repeatable) soft-deletes with `deleted_at`/`deleted_by_user_id`: no placeholder, the
-comment leaves the list and the attachment tab, its files leave the task, its pending
-mention requests become `cancelled`. One pending request serves every comment that
-calls the person, so it instead moves (revision + 1) to the first live comment written
-or edited since the request that still links the person; access already granted by an
-approved mention stays. Earlier entries keep
+comment leaves the list and the attachment tab, its files leave the task unless a live
+comment still binds them, its pending mention requests become `cancelled`. One pending
+request serves every comment that calls the person, so it instead moves (revision + 1)
+to the first live comment written or edited since the request that still links the
+person; access already granted by an approved mention stays. Earlier entries keep
 their visibility and `comment_deleted` («Комментарий удалён») names who deleted it, with
 the last text as `before`. Editing, marking or re-creating (GL-07 key) a deleted comment
 is 404 `comment_deleted`. Notifications already sent still open the task. The UI puts
