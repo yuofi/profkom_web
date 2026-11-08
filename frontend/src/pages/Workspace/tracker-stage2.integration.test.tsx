@@ -23,7 +23,7 @@ async function openSeason() {
  expect(season.state).toBe('open');return season;
 }
 async function addLink(kind:TaskLinkKind,target:Task){
- await act(async()=>page!.container.querySelector<HTMLButtonElement>('[aria-label="Добавить связь"]')!.click());await waitForPage(page!);let modal=dialog("Добавить связь");expect(modal).toBeDefined();await change(modal.querySelector<HTMLSelectElement>('[name="relation_kind"]')!,kind);
+ await act(async()=>page!.container.querySelector<HTMLButtonElement>('[aria-label="Добавить связь"]')!.click());await waitForPage(page!);let modal=dialog("Добавить связь");expect(modal).toBeDefined();await act(async()=>modal.querySelector<HTMLInputElement>(`input[type="radio"][name="relation_kind"][value="${kind}"]`)!.click());
  modal=dialog("Добавить связь");const box=modal.querySelector<HTMLInputElement>('[role="combobox"]')!;await act(async()=>box.focus());await waitForPage(page!,()=>!![...modal.querySelectorAll('[role="option"]')].find(el=>el.querySelector("strong")?.textContent===target.task_key));const option=[...modal.querySelectorAll<HTMLElement>('[role="option"]')].find(el=>el.querySelector("strong")?.textContent===target.task_key)!;await act(async()=>option.click());await submit(modal.querySelector("form")!);await waitForPage(page!,()=>!dialog("Добавить связь"));
 }
 it("edits real planning/checklists, joins one epic and multiple milestones through +, and renders public diffs over HTTP",async()=>{

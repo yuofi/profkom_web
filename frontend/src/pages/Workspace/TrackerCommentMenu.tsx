@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ownedLayerTarget, useAnchoredLayer } from "../../components/Workspace/useAnchoredLayer";
+import { Glyph } from "../../components/Workspace/WorkspaceUI";
+import type { IconName } from "../../components/icons";
 import m from "./TaskClassificationMenu.module.css";
 import s from "./TrackerTaskDetail.module.css";
 
-export interface CommentMenuAction { label: string; onSelect: () => void }
+/** `icon` stands before the words; `danger` paints both in the site's danger colour (owner 2026-11-08, В5, variant Б). */
+export interface CommentMenuAction { label: string; onSelect: () => void; icon?: IconName; danger?: boolean }
 /** «⋯» of a comment header: the comment's commands in one menu, built like the task's
  *  classification menu (portal, arrows, Escape, focus back to the trigger). */
 export function TrackerCommentMenu({ actions, label = "Действия с комментарием", disabled = false }: { actions: CommentMenuAction[]; label?: string; disabled?: boolean }) {
@@ -38,6 +41,6 @@ export function TrackerCommentMenu({ actions, label = "Действия с ко�
       const items = [...(menu.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])];if (!items.length) return;
       const active = items.indexOf(document.activeElement as HTMLButtonElement), index = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (active + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
       items[index].focus();
-    }}>{actions.map(action => <button type="button" role="menuitem" key={action.label} tabIndex={-1} className={m.option} onClick={() => { close();action.onSelect(); }}><span>{action.label}</span></button>)}</div>, portal)}
+    }}>{actions.map(action => <button type="button" role="menuitem" key={action.label} tabIndex={-1} className={`${m.option} ${s.commentMenuItem} ${action.danger ? s.commentMenuDanger : ""}`} onClick={() => { close();action.onSelect(); }}>{action.icon && <Glyph name={action.icon} className={s.commentMenuIcon} />}<span>{action.label}</span></button>)}</div>, portal)}
   </>;
 }

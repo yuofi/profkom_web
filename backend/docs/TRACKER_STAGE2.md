@@ -46,6 +46,13 @@ POST `/api/tasks/{id}/links` accepts `expected_revision`, `target_task_id` and `
 - `milestone` / `milestone_member`: an ordinary task belongs to a milestone; multiple
   milestones are allowed, with the corresponding inverse view at each milestone.
 
+The «Добавить связь» dialog (TrackerTaskRelations) shows every kind the task may add as
+a radio card with a one-line explanation (owner 2026-11-08, В1): the parent with
+`edit_task`, the kinds above with `manage_task_links`; `epic`/`milestone` for an ordinary
+task, `epic_member` on an epic, `milestone_member` on a milestone. While the task already
+has an epic, «Входит в эпик» stays dimmed and the dialog says why; the server still
+answers 409 `task_epic_conflict`.
+
 Membership is separate from the existing traditional parent link. Existing parent
 relations are not rewritten when a task type changes. Source members of epic/milestone
 relations must have type `task`, targets the corresponding group type. A type edit that

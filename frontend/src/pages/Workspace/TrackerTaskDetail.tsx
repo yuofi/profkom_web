@@ -36,7 +36,7 @@ import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { requestKey, type RequestKey } from "../../utils/clientId";
 import { markDescription, useDialogHold, useTaskCommand, useTaskFormCommand } from "./taskCommands";
 import { TaskStatusMenu } from "./TaskStatusMenu";
-import { TrackerCommentMenu } from "./TrackerCommentMenu";
+import { TrackerCommentMenu, type CommentMenuAction } from "./TrackerCommentMenu";
 import { taskStatus } from "./trackerStatus";
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
 import { TrackerParentSelector } from "./TrackerParentSelector";
@@ -327,23 +327,38 @@ function useCommentChecklist(task:Task,comment:Comment,onError:(text:string)=>vo
 function CommentItemContent({ task, comment }: { task: Task; comment: Comment }) {
   const [editing,setEditing]=useState(false),[confirming,setConfirming]=useState(false),[deleting,setDeleting]=useState(false),[error,setError]=useState("");
   const leave=useGuardedAction(),client=useQueryClient(),{perform}=useWorkspaceActions(),marks=useCommentChecklist(task,comment,setError);
-  const header=useRef<HTMLElement>(null),confirmButton=useRef<HTMLButtonElement>(null);
-  useEffect(()=>{if(confirming)confirmButton.current?.focus();},[confirming]);
-  const cancelDelete=()=>{setConfirming(false);header.current?.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')?.focus();};
+  const article=useRef<HTMLElement>(null),header=useRef<HTMLElement>(null),confirmButton=useRef<HTMLButtonElement>(null),backToMenu=useRef(false),questionId=useId();
+  // The question takes the place of «⋯» (owner 2026-11-08, В5, variant Б): the focus moves into it and,
+  // when it is withdrawn, back to «⋯».
+  useEffect(()=>{
+    if(confirming){confirmButton.current?.focus();return;}
+    if(backToMenu.current){backToMenu.current=false;header.current?.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')?.focus();}
+  },[confirming]);
+  const cancelDelete=()=>{if(deleting)return;backToMenu.current=true;setConfirming(false);};
   // No placeholder stays (V5): the comment leaves the list, the history names who deleted it.
   const remove=async()=>{
     if(deleting)return;setDeleting(true);setError("");
-    try{await perform(async()=>{await tasksApi.deleteComment(comment.comment_id);client.setQueryData<Page<Comment>>(commentsKey(task),data=>data&&{...data,items:data.items.filter(item=>item.comment_id!==comment.comment_id)});});}
+    try{await perform(async()=>{await tasksApi.deleteComment(comment.comment_id);focusNeighbour(article.current);client.setQueryData<Page<Comment>>(commentsKey(task),data=>data&&{...data,items:data.items.filter(item=>item.comment_id!==comment.comment_id)});});}
     catch(failure){setError(userMessage(failure));setDeleting(false);void client.invalidateQueries({queryKey:commentsKey(task)});}
   };
-  const editable=can(comment,"edit_comment");
-  const actions=[...(editable?[{label:"Редактировать",onSelect:()=>{setConfirming(false);setError("");setEditing(true);}}]:[]),...(can(comment,"delete_comment")?[{label:"Удалить",onSelect:()=>{setError("");setConfirming(true);}}]:[])];
-  return <article className={s.comment} id={`task-comment-${comment.comment_id}`}>
-    <header ref={header}><div className={s.commentMeta}><PersonChip user={comment.author}/><time dateTime={comment.created_at}>{displayDate(comment.created_at)}{comment.updated_at?" · изменён":""}</time>{marks.pending.length>0&&<span role="status" className={s.savingNote}>Сохраняем отметку…</span>}</div>{editing&&editable?<button type="button" className={s.subtleButton} onClick={()=>leave(()=>setEditing(false))}>Отменить редактирование</button>:<TrackerCommentMenu actions={actions} disabled={deleting||marks.pending.length>0}/>}</header>
-    {confirming&&!editing&&<div role="alert" className={s.commentConfirm} onKeyDown={event=>{if(event.key==="Escape"&&!deleting){event.preventDefault();cancelDelete();}}}><p>Удалить комментарий? Удаление будет видно в истории задачи.</p><div className={w.row}><button ref={confirmButton} type="button" className={`${w.button} ${w.danger}`} disabled={deleting} onClick={()=>{void remove();}}>{deleting?"Удаляем…":"Удалить"}</button><button type="button" className={w.button} disabled={deleting} onClick={cancelDelete}>Отмена</button></div></div>}
-    {editing&&editable?<CommentComposer task={task} comment={comment} onSaved={()=>setEditing(false)}/>:<><MarkdownContent body={comment.content.body} mentionUsers={comment.mentioned_users??[]} onChecklistToggle={can(comment,"toggle_comment_checklist")?(offset,checked)=>{void marks.toggle(offset,checked);}:undefined} checklistDisabled={deleting||marks.pending.length>0} checklistPending={marks.pending}/>{comment.attachments?.length>0&&<section aria-label="Вложения комментария"><Attachments files={comment.attachments}/></section>}</>}
+  const editable=can(comment,"edit_comment"),asking=confirming&&!editing;
+  const actions:CommentMenuAction[]=[...(editable?[{label:"Редактировать",icon:"edit" as const,onSelect:()=>{setConfirming(false);setError("");setEditing(true);}}]:[]),...(can(comment,"delete_comment")?[{label:"Удалить",icon:"delete" as const,danger:true,onSelect:()=>{setError("");setConfirming(true);}}]:[])];
+  // While a deletion is sent its buttons stay focusable (aria-disabled): a refusal leaves the focus where it was.
+  return <article ref={article} tabIndex={-1} className={s.comment} id={`task-comment-${comment.comment_id}`} data-confirming={asking||undefined}>
+    <header ref={header}><div className={s.commentMeta}><PersonChip user={comment.author}/><time dateTime={comment.created_at}>{displayDate(comment.created_at)}{comment.updated_at?" · изменён":""}</time>{marks.pending.length>0&&<span role="status" className={s.savingNote}>Сохраняем отметку…</span>}</div>{editing&&editable?<button type="button" className={s.subtleButton} onClick={()=>leave(()=>setEditing(false))}>Отменить редактирование</button>
+      :asking?<div role="group" aria-labelledby={questionId} className={s.commentConfirm} onKeyDown={event=>{if(event.key==="Escape"){event.preventDefault();cancelDelete();}}}><span id={questionId}>Удалить комментарий?</span><button ref={confirmButton} type="button" className={`${s.subtleButton} ${s.confirmDelete}`} aria-disabled={deleting||undefined} aria-busy={deleting||undefined} onClick={()=>{void remove();}}>{deleting?"Удаляем…":"Удалить"}</button><button type="button" className={`${s.subtleButton} ${s.confirmCancel}`} aria-disabled={deleting||undefined} onClick={cancelDelete}>Отмена</button></div>
+      :<TrackerCommentMenu actions={actions} disabled={deleting||marks.pending.length>0}/>}</header>
+    {editing&&editable?<CommentComposer task={task} comment={comment} onSaved={()=>setEditing(false)}/>:<><MarkdownContent body={comment.content.body} mentionUsers={comment.mentioned_users??[]} onChecklistToggle={can(comment,"toggle_comment_checklist")?(offset,checked)=>{void marks.toggle(offset,checked);}:undefined} checklistDisabled={deleting||asking||marks.pending.length>0} checklistPending={marks.pending}/>{comment.attachments?.length>0&&<section aria-label="Вложения комментария"><Attachments files={comment.attachments}/></section>}</>}
     {error&&<p role="alert" className={w.error}>{error}</p>}
   </article>;
+}
+/** A deleted comment that held the focus hands it on: to the next comment's «⋯» (or that comment itself),
+ *  else to the comment above, else to the «Комментарии» tab. */
+function focusNeighbour(article:HTMLElement|null) {
+  if(!article?.contains(document.activeElement))return;
+  const comments=[...(article.parentElement?.children??[])].filter((item):item is HTMLElement=>item instanceof HTMLElement&&item.tagName==="ARTICLE");
+  const index=comments.indexOf(article),next=comments[index+1]??comments[index-1];
+  (next?next.querySelector<HTMLElement>(':scope > header [aria-haspopup="menu"]:not(:disabled)')??next:document.getElementById("task-tab-comments"))?.focus();
 }
 function sharedSubmissions(task: Task) {
   if (task.submissions) return task.submissions;

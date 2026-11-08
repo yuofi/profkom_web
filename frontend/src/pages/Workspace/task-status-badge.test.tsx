@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { createFixtures } from "../../mocks/fixtures";
@@ -26,6 +27,8 @@ const badges = (root: ParentNode) => [...root.querySelectorAll<HTMLElement>("[da
 const expectBadge = (badge: HTMLElement | undefined, status: TaskPublicStatus) => {
   expect(badge?.textContent).toBe(names[status]);expect(badge?.getAttribute("data-status")).toBe(status);
   expect(badge?.style.getPropertyValue("--tone")).toBe(`var(--accent-${tones[status]})`);
+  // Every badge measures all four names (owner 2026-11-08, В2): one width, whichever status it shows.
+  expect(badge?.querySelector<HTMLElement>("[data-sizer]")?.dataset.sizer?.split("\n")).toEqual(Object.values(names));
   // A badge is read-only: nothing to press or focus.
   expect(badge?.closest("button")).toBeNull();expect(badge?.getAttribute("tabindex")).toBeNull();expect(badge?.getAttribute("role")).toBeNull();
 };
@@ -35,6 +38,16 @@ it("the badge shows the four public statuses in the status chip's tones and maps
   const shown = badges(page.container);
   statuses.forEach((status, index) => expectBadge(shown[index], status));
   expectBadge(shown[4], "completed");expectBadge(shown[5], "open");
+});
+it("owner 2026-11-08, В2: every badge is as wide as the longest status name, in its own font, and shows only its own name", () => {
+  const css = readFileSync(`${__dirname}/TaskStatusBadge.module.css`, "utf8");
+  const rule = (selector: string) => css.match(new RegExp(`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\>]/g, "\\$&")} \\{([^}]*)\\}`))?.[1] ?? "";
+  expect(rule(".label::after")).toMatch(/content:attr\(data-sizer\);height:0;overflow:hidden;visibility:hidden;white-space:pre;/);
+  expect(rule(".label")).toMatch(/display:inline-flex;flex-direction:column;min-width:0;overflow:hidden;/);
+  // The name starts after the dot in every badge, not centred; a narrow column cuts it.
+  expect(rule(".label > span")).toMatch(/text-overflow:ellipsis/);expect(css).not.toMatch(/text-align:\s*center/);
+  // No pixel width stands in for the measured one.
+  expect(rule(".badge")).not.toMatch(/(?:^|;)\s*(?:min-)?width:\s*[1-9]/);expect(rule(".label")).not.toMatch(/width:\s*[1-9]/);
 });
 it("subtasks and related tasks show coloured statuses", async () => {
   const children = statuses.map(ref);
