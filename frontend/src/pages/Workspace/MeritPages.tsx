@@ -49,6 +49,7 @@ import type { TemplateSelection } from "../../utils/api/profileFeatures.api";
 import type { TemplateTarget } from "../../utils/kkrTemplates";
 import { HistoryDisclosure } from "../../components/Workspace/HistoryPanel";
 import { metricValue, sourceNames } from "./seasonAnalyticsView";
+import { MeritJournal } from "./MeritJournal";
 import u from "./SeasonWorkspace.module.css";
 const kinds: Record<MeritCreate["source_kind"], string> = {
   head_merit: "Особая заслуга на мероприятии",
@@ -574,7 +575,14 @@ export function MeritForm(props: ComponentProps<typeof MeritEditor>) {
 export function MeritsPage() {
   const { id = "" } = useParams();
   const { session } = useSession();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
+  // «Журнал изменений» (B9, owner 2026-11-08) stays in the URL, so a link or a reload keeps it.
+  const journal = params.get("view") === "journal";
+  const setView = (view: "records" | "journal") => setParams(previous => {
+    const next = new URLSearchParams(previous);
+    if (view === "journal") next.set("view", "journal");else next.delete("view");
+    return next;
+  }, { replace: true });
   const { seasons, season, missing } = useSubpageSeason(id);
   // An unknown season asks nothing about itself: the contexts wait for the season list (GL-21).
   const contexts = useMeritContexts(id, !!season);
@@ -599,31 +607,36 @@ export function MeritsPage() {
     >
       <div className={s.stack}>
         {(contexts.error || seasons.error) && <ErrorState error={contexts.error || seasons.error} />}
-        <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!query.data}>
-          {query.data?.items.length === 0 && <Empty>Записей пока нет.</Empty>}
-          {query.data?.items.map((m) => (
-            <Card key={m.merit_id} title={m.title}>
-              <p>
-                {kinds[m.source_kind]} · {displayDate(m.assigned_at)}
-              </p>
-              <ul className={s.list} aria-label="Получатели">
-                {m.recipients.map((r) => {
-                  const person = people.options.find((p) => p.value === String(r.user_id))?.user;
-                  return <li key={r.user_id} className={s.row}>{person ? <UserChip user={person} /> : <span>Участник #{r.user_id}</span>}<span className={s.muted}>{metricValue(r.hours)} ч · оценка {metricValue(r.evaluation)}{r.completed_at ? ` · выполнено ${displayDate(r.completed_at)}` : ""}</span></li>;
-                })}
-              </ul>
-              <Markdown content={m.description} />
-              <HistoryDisclosure kind="merit" id={m.merit_id} />
-              {can(m, "edit_assessment_inputs") && (
-                <details className={s.details}>
-                  <summary>Исправить исходные поля</summary>
-                  <MeritForm seasonId={id} existing={m} contexts={contexts} />
-                </details>
-              )}
-            </Card>
-          ))}
-        </QueryState>
-        {allowedKinds.length > 0 && (
+        <div className={u.chartModes} role="group" aria-label="Что показать">
+          <button type="button" aria-pressed={!journal} onClick={() => setView("records")}>Записи{query.data ? ` · ${query.data.items.length}` : ""}</button>
+          <button type="button" aria-pressed={journal} onClick={() => setView("journal")}>Журнал изменений</button>
+        </div>
+        {journal ? <MeritJournal seasonId={id} merits={query.data?.items} names={contexts.data} people={people.options} peopleLoading={people.isLoading} />
+          : <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!query.data}>
+            {query.data?.items.length === 0 && <Empty>Записей пока нет.</Empty>}
+            {query.data?.items.map((m) => (
+              <Card key={m.merit_id} title={m.title}>
+                <p>
+                  {kinds[m.source_kind]} · {displayDate(m.assigned_at)}
+                </p>
+                <ul className={s.list} aria-label="Получатели">
+                  {m.recipients.map((r) => {
+                    const person = people.options.find((p) => p.value === String(r.user_id))?.user;
+                    return <li key={r.user_id} className={s.row}>{person ? <UserChip user={person} /> : <span>Участник #{r.user_id}</span>}<span className={s.muted}>{metricValue(r.hours)} ч · оценка {metricValue(r.evaluation)}{r.completed_at ? ` · выполнено ${displayDate(r.completed_at)}` : ""}</span></li>;
+                  })}
+                </ul>
+                <Markdown content={m.description} />
+                <HistoryDisclosure kind="merit" id={m.merit_id} />
+                {can(m, "edit_assessment_inputs") && (
+                  <details className={s.details}>
+                    <summary>Исправить исходные поля</summary>
+                    <MeritForm seasonId={id} existing={m} contexts={contexts} />
+                  </details>
+                )}
+              </Card>
+            ))}
+          </QueryState>}
+        {!journal && allowedKinds.length > 0 && (
           <Card title="Учесть выполненную работу">
             {created.title && <p role="status" className={s.success}>Работа записана: {created.title}</p>}
             <MeritForm key={`${id}/${params.get("source_kind")}/${params.get("scope_id")}/${created.count}`} seasonId={id} contexts={contexts}
