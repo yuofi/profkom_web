@@ -64,7 +64,7 @@ export function meritJournalMock(state: Fixtures, readable: () => Merit[]) {
   const list = (search: URLSearchParams): Reply => {
     const seasonId = search.get("season_id"), kind = search.get("scope_kind"), scopeId = search.get("scope_id"), user = search.get("user_id");
     if (!seasonId) return fail(422, "invalid_input", "season_id is required");
-    if ((scopeId === null) !== (kind === null || kind === "chair")) return fail(422, "invalid_scope", "scope_id names the block, event or subevent of scope_kind; the chair has none");
+    if ((scopeId === null) !== (kind === null || kind === "chair")) return fail(422, "invalid_input", "scope_id names the block, event or subevent of scope_kind; the chair has none");
     const records = new Map(readable().filter(merit => merit.season_id === seasonId).map(merit => [merit.merit_id, merit]));
     const items = edits.flatMap(({ merit_id, entry }): MeritJournalItem[] => {
       const merit = records.get(merit_id), where = merit && team(merit);
@@ -78,7 +78,7 @@ export function meritJournalMock(state: Fixtures, readable: () => Merit[]) {
     }).reverse();
     const cursor = search.get("cursor"), limit = Math.min(Math.max(Number(search.get("limit") ?? 30) || 30, 1), 100);
     const start = cursor === null ? 0 : items.findIndex(item => item.entry.id === cursor) + 1;
-    if (cursor !== null && !start) return fail(422, "invalid_cursor", "Invalid cursor");
+    if (cursor !== null && !start) return fail(422, "invalid_input", "Invalid cursor");
     const page = items.slice(start, start + limit);
     return [200, { items: page, next_cursor: start + limit < items.length ? page.at(-1)!.entry.id : null, total: items.length,
       records: new Set(items.map(item => item.merit.merit_id)).size }];

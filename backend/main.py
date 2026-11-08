@@ -3402,7 +3402,7 @@ def merit_journal(
     id); `user_id` keeps what changed for that recipient. `total` and `records` count every
     page: the entries and the distinct records among them."""
     if (scope_id is None) != (scope_kind in (None, "chair")):
-        raise InvalidInput("scope_id names the block, event or subevent of scope_kind; the chair has none", "invalid_scope")
+        raise InvalidInput("scope_id names the block, event or subevent of scope_kind; the chair has none")
     from history import merit_journal as journal
     with db._session() as session:
         items = journal(session, cur.user_id, season_id, scope_kind, scope_id, user_id)

@@ -199,6 +199,9 @@ def test_team_filter_keeps_one_teams_records(client, world):
                    {"scope_kind": "galaxy", "scope_id": "x"}, {"user_id": "someone"}):
         response = client.get("/api/merits/history", headers=chair.headers, params={"season_id": world["sid"], **params})
         assert response.status_code == 422, params
+    # The page never sends a team without its id: no code of its own, the general input text.
+    mismatch = client.get("/api/merits/history", headers=chair.headers, params={"season_id": world["sid"], "scope_kind": "block"})
+    assert mismatch.json()["detail"]["code"] == "invalid_input"
     assert client.get("/api/merits/history", headers=chair.headers).status_code == 422
 
 
