@@ -16,6 +16,7 @@ import { text, number, type Values } from "./formValues";
 import { Card, Empty, QueryState } from "./WorkspaceUI";
 import { UserChip } from "./UserChip";
 import { evaluationOptions } from "../../utils/evaluations";
+import { metricValue } from "../../pages/Workspace/seasonAnalyticsView";
 import { criteriaFromValues, criteriaKeys, criteriaLabels } from "../../utils/kkrCriteria";
 import s from "./ProfileFeatures.module.css";
 import w from "./Workspace.module.css";
@@ -90,7 +91,7 @@ function LibraryEditor({ templates, context, initialValues }: { templates: KkrTe
     {templates.length > 0 && <LibraryFilters templates={templates} value={filter} onChange={setFilter} />}
     {!templates.length && !editing && <Empty>Пока нет доступных шаблонов.</Empty>}
     {templates.length > 0 && !shown.length && <Empty>Нет шаблонов по этим условиям.</Empty>}
-    {shown.map(row => row.template_id === template?.template_id ? <div key={row.template_id}>{editor}</div> : <div className={s.badge} key={row.template_id}><strong>{row.values.title}</strong><span>{row.visibility === "personal" ? "Личный" : templateOwner(row)} · {row.archived ? "В архиве" : `${row.values.hours} ч · оценка ${row.values.evaluation}`}</span><Authorship template={row} /><div className={w.row}>
+    {shown.map(row => row.template_id === template?.template_id ? <div key={row.template_id}>{editor}</div> : <div className={s.badge} key={row.template_id}><strong>{row.values.title}</strong><span>{row.visibility === "personal" ? "Личный" : templateOwner(row)} · {row.archived ? "В архиве" : `${metricValue(row.values.hours)} ч · оценка ${metricValue(row.values.evaluation)}`}</span><Authorship template={row} /><div className={w.row}>
       <button type="button" className={w.button} onClick={() => choose({ template: row, values: row.values })}>Изменить шаблон</button>
       {context.can_create_personal_template && <button type="button" className={w.button} onClick={() => choose({ values: { ...row.values, title: `${row.values.title} · копия` } })}>Копировать</button>}
     </div></div>)}

@@ -82,6 +82,17 @@ it("names the author of each template and, once it was changed, who saved it las
   expect(page.container.textContent).not.toMatch(/Создан/);
 });
 
+it("prints a template's fractional hours and evaluation with a decimal comma", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  vi.spyOn(profileFeaturesApi, "templates").mockResolvedValue({ items: [
+    { template_id: "interview", visibility: "personal", scope: null, revision: 1, archived: false, values: { title: "Собеседование", description: "", hours: 1.5, evaluation: 1.5, criteria: emptyCriteria() }, author, updated_by: author },
+  ] });
+  vi.spyOn(profileFeaturesApi, "context").mockResolvedValue(context);
+  page = await mountWorkspace(<KkrTemplateLibrary embedded />);await waitForPage(page);
+  const card = [...page.container.querySelectorAll("strong")].find(node => node.textContent === "Собеседование")!.parentElement!;
+  expect(card.textContent).toContain("1,5 ч · оценка 1,5");expect(card.textContent).not.toContain("1.5");
+});
+
 const values = { title: "Дежурство", description: "Смена у входа", hours: 2, evaluation: 1 as const, criteria: emptyCriteria() };
 const personal = (id: string, title: string, extra: Partial<KkrTemplate> = {}): KkrTemplate => ({ template_id: id, visibility: "personal", scope: null, revision: 1, archived: false, values: { ...values, title }, author, updated_by: author, ...extra });
 const cards = () => [...page!.container.querySelectorAll<HTMLElement>("strong, section h3")].map(node => node.textContent);

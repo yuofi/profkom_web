@@ -21,6 +21,7 @@ import { KkrTemplateTools } from "./KkrTemplateLibrary";
 import type { TemplateSelection } from "../../utils/api/profileFeatures.api";
 import { HistoryDisclosure } from "./HistoryPanel";
 import { criteriaKeys, criteriaLabels } from "../../utils/kkrCriteria";
+import { metricValue } from "../../pages/Workspace/seasonAnalyticsView";
 const accountingStates: Record<AssignmentStatus, { label: string; explanation: string }> = {
   assigned: { label: "Ожидает оценки", explanation: "Решение для ККР ещё не принято." },
   in_progress: { label: "Ожидает оценки", explanation: "Работа в процессе; решение для ККР ещё не принято." },
@@ -50,7 +51,7 @@ export function AssessmentPanel({ assignment, open = false, hasResult = false, s
         <div className={a.summary}>
           <UserChip user={assignment.assignee} />
           <div className={a.state}><span className={a.label}>Состояние ККР</span><strong data-accounting-state={status ?? "unknown"}>{state?.label ?? "Состояние не получено"}</strong></div>
-          <dl className={a.values}><div><dt>Часы</dt><dd data-accounting-hours>{inputs.hours ?? "не заданы"}</dd></div><div><dt>Оценка</dt><dd>{status === "cancelled" ? "не применяется" : inputs.evaluation ?? "не задана"}</dd></div></dl>
+          <dl className={a.values}><div><dt>Часы</dt><dd data-accounting-hours>{inputs.hours == null ? "не заданы" : metricValue(inputs.hours)}</dd></div><div><dt>Оценка</dt><dd>{status === "cancelled" ? "не применяется" : inputs.evaluation == null ? "не задана" : metricValue(inputs.evaluation)}</dd></div></dl>
         </div>
         <p className={a.explanation}>{state?.explanation ?? "Обновите данные учёта перед принятием решения."}</p>
         <p className={a.date}>Расчётная дата выполнения: {displayDate(inputs.effective_completed_at)}</p>

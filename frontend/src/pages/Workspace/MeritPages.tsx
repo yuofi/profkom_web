@@ -411,7 +411,7 @@ function MeritEditor({
                     recipientOptions.find((p) => p.value === String(r.user_id))
                       ?.label
                   }
-                  : часы {r.hours}, оценка {r.evaluation}, выполнено{" "}
+                  : часы {metricValue(r.hours)}, оценка {metricValue(r.evaluation)}, выполнено{" "}
                   {displayDate(r.completed_at)}
                 </li>
               ))}
@@ -609,7 +609,7 @@ export function MeritsPage() {
               <ul className={s.list} aria-label="Получатели">
                 {m.recipients.map((r) => {
                   const person = people.options.find((p) => p.value === String(r.user_id))?.user;
-                  return <li key={r.user_id} className={s.row}>{person ? <UserChip user={person} /> : <span>Участник #{r.user_id}</span>}<span className={s.muted}>{r.hours} ч · оценка {String(r.evaluation).replace(".", ",")}{r.completed_at ? ` · выполнено ${displayDate(r.completed_at)}` : ""}</span></li>;
+                  return <li key={r.user_id} className={s.row}>{person ? <UserChip user={person} /> : <span>Участник #{r.user_id}</span>}<span className={s.muted}>{metricValue(r.hours)} ч · оценка {metricValue(r.evaluation)}{r.completed_at ? ` · выполнено ${displayDate(r.completed_at)}` : ""}</span></li>;
                 })}
               </ul>
               <Markdown content={m.description} />
@@ -918,7 +918,7 @@ export function CorrectionsPage() {
   // Control epics keep no accounting of their own (no view_assessment_inputs), and only accepted or
   // not completed assignments carry an evaluation to correct.
   const accountable = tasks.data?.items.filter((t) => can(t, "view_assessment_inputs")) ?? [];
-  const savedValues = (saved: AssessmentInputs) => `${saved.hours ?? "—"} ч / оценка ${saved.evaluation ?? "—"}`;
+  const savedValues = (saved: AssessmentInputs) => `${metricValue(saved.hours)} ч / оценка ${metricValue(saved.evaluation)}`;
   const taskAssignments: EntityOption[] = accountable.flatMap((t) =>
     t.assignments.filter((a) => a.status === "accepted" || a.status === "not_completed").map((a) => {
       const saved = inputs.get(a.assignment_id);

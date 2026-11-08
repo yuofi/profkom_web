@@ -37,6 +37,17 @@ it("removes all cached version text after current history access is revoked", as
   await act(async () => { await page!.client.invalidateQueries({ queryKey: ["history", "task", "task-1"] }); });await waitForPage(page);
   expect(page.container.textContent).not.toContain("старую");expect(page.container.querySelector("del")).toBeNull();
 });
+it("prints recorded fractional hours and evaluations with a decimal comma", async () => {
+  const row = entry();row.changes = [
+    { field: "hours", label: "Часы", before: 2, after: 2.5 },
+    { field: "recipients", label: "Получатели", before: null, after: [{ user: people[1], hours: 1.5, evaluation: 1.5 }] },
+  ];
+  vi.spyOn(historyApi, "list").mockResolvedValue({ items: [row], next_cursor: null });
+  page = await mountWorkspace(<HistoryPanel kind="task" id="task-1" />);await waitForPage(page);
+  const text = page.container.textContent ?? "";
+  for (const shown of ["2,5", "Часы: 1,5", "Оценка: 1,5"]) expect(text).toContain(shown);
+  expect(text).not.toMatch(/\d\.\d/);
+});
 it("reads codes, moments, checklists and criteria in words and keeps JSON for nested data only", async () => {
   const row = entry();row.changes = [
     { field: "state", label: "Состояние сезона", before: "planned", after: "open" },
