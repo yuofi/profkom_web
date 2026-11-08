@@ -26,7 +26,9 @@ export interface Field {
     | "email"
     | "url"
     | "password"
-    | "markdown";
+    | "markdown"
+    /** A yes/no mark: its value is "true" or "false". */
+    | "checkbox";
   /** A function makes the field required depending on the other values. */
   required?: boolean | ((values: Values) => boolean);
   value?: string | string[];
@@ -41,6 +43,10 @@ export interface Field {
   min?: number;
   max?: number;
   whenSelected?: { name: string; value: string };
+  /** Shown only while this holds for the current values; a hidden field is not validated. */
+  visibleWhen?: (values: Values) => boolean;
+  /** A field whose change also sets other fields: given the values after its change, the values to set in one step. */
+  onChangeValues?: (values: Values) => Values;
   onSelectionChange?: (values: string[]) => void;
   /** A multiple choice of people asks before removing saved ones; marks need not. */
   confirmRemoval?: boolean;
@@ -61,14 +67,17 @@ const isRequired = (field: Field, values: Values) =>
   typeof field.required === "function" ? field.required(values) : !!field.required;
 
 const visible = (field: Field, values: Values) =>
-  !field.whenSelected ||
-  (Array.isArray(values[field.whenSelected.name]) &&
-    (values[field.whenSelected.name] as string[]).includes(
-      field.whenSelected.value,
-    ));
+  (!field.whenSelected ||
+    (Array.isArray(values[field.whenSelected.name]) &&
+      (values[field.whenSelected.name] as string[]).includes(
+        field.whenSelected.value,
+      ))) &&
+  (!field.visibleWhen || field.visibleWhen(values));
 
 const savedValues = (fields: Field[]): Values =>
-  Object.fromEntries(fields.map((f) => [f.name, f.value ?? (f.type === "multi" ? [] : "")]));
+  Object.fromEntries(fields.map((f) => [f.name, f.value ?? (f.type === "multi" ? [] : f.type === "checkbox" ? "false" : "")]));
+/** A saved value as the «saved values» list shows it. */
+const shownValue = (f: Field, value: string) => f.type === "checkbox" ? (value === "true" ? "Да" : "Нет") : value || "—";
 
 /** Where a chain of own saves (from → to) leads from `from`. */
 const follow = <K,>(chain: [K, K][], from: K) => {
@@ -118,6 +127,7 @@ export function ActionForm({
   beforeFields,
   confirm,
   actions,
+  failureActions,
 }: {
   title?: string;
   fields: Field[];
@@ -137,8 +147,11 @@ export function ActionForm({
   resetOnSuccess?: boolean;
   /** Clear one-shot decisions only after a successful save, retaining the other saved input. */
   resetFieldsOnSuccess?: string[];
-  /** Saving is offered only once one of these fields differs from its saved value (A-ROL-12). */
-  changeRequired?: string[];
+  /**
+   * Saving is offered only once one of these fields differs from its saved value (A-ROL-12),
+   * or once what the function derives from the values differs from what it derives from the saved ones.
+   */
+  changeRequired?: string[] | ((values: Values) => unknown);
   /** The look of the submit: the main action, a minor one, or one that takes something away. */
   variant?: "primary" | "quiet" | "danger";
   /** Source text or attachments edited outside Formik. */
@@ -156,6 +169,8 @@ export function ActionForm({
   confirm?: { text: ReactNode | ((values: Values) => ReactNode); label: string };
   /** Secondary controls in one row after the submit, such as a cancel link or a preview toggle. */
   actions?: ReactNode;
+  /** More ways on under a refusal, such as saving again without an applied template (B6). */
+  failureActions?: (failure: ApiError, form: FormikProps<Values>) => ReactNode;
 } & Versioning) {
   const formId = useId();
   const submitted = useRef(false);
@@ -362,7 +377,11 @@ export function ActionForm({
   const asking = pendingRemoval.length > 0 || awaitingCommand;
   useEffect(() => { if (asking && !form.isSubmitting) answer.current?.focus(); }, [asking, form.isSubmitting]);
   // A changed external state (an applied template) is a change too, even when the field values match.
-  const unchanged = !!changeRequired?.every((name) => JSON.stringify(form.values[name] ?? initialValues[name]) === JSON.stringify(savedValues(fields)[name])) && externalValue === externalBaseline;
+  const unchanged = (typeof changeRequired === "function"
+    ? JSON.stringify(changeRequired(currentValues)) === JSON.stringify(changeRequired(savedValues(fields)))
+    : !!changeRequired?.every((name) => JSON.stringify(form.values[name] ?? initialValues[name]) === JSON.stringify(savedValues(fields)[name]))) && externalValue === externalBaseline;
+  const setValue = (field: Field, value: string | string[]) =>
+    void (field.onChangeValues ? form.setValues(field.onChangeValues({ ...initialValues, ...form.values, [field.name]: value })) : form.setFieldValue(field.name, value));
   const replaceWithSaved = () => {
     form.resetForm({ values: savedValues(fields) });
     setHoldSavedInput(false);
@@ -405,6 +424,18 @@ export function ActionForm({
               required: isRequired(field, form.values),
               disabled: form.isSubmitting,
             };
+            if (field.type === "checkbox") return (
+              <div className={`${s.field} ${s.checkField} ${compact}`} key={field.name}>
+                <label className={s.check} id={`${id}-label`}>
+                  <input id={id} name={field.name} type="checkbox" value="true" onBlur={form.handleBlur} disabled={form.isSubmitting}
+                    checked={String(form.values[field.name] ?? initialValues[field.name]) === "true"}
+                    aria-describedby={props["aria-describedby"]}
+                    onChange={(e) => setValue(field, e.target.checked ? "true" : "false")} />
+                  {field.label}
+                </label>
+                {field.hint && <small>{field.hint}</small>}
+              </div>
+            );
             // The Markdown editor labels its own source field and keeps its toolbar, preview and frame.
             if (field.type === "markdown") return (
               <div key={field.name}>
@@ -412,7 +443,7 @@ export function ActionForm({
                   <MarkdownEditor name={field.name} label={`${field.label}${isRequired(field, form.values) ? " *" : ""}`} rows={field.rows} context="task" draft={false}
                     value={String(form.values[field.name] ?? initialValues[field.name])} placeholder={field.placeholder} disabled={form.isSubmitting}
                     required={props.required} invalid={!!error} describedBy={props["aria-describedby"]}
-                    onChange={(value) => void form.setFieldValue(field.name, value)} />
+                    onChange={(value) => setValue(field, value)} />
                 </Suspense>
                 {field.hint && <small>{field.hint}</small>}
                 {error && <span className={s.fieldError} id={`${id}-error`}>{String(error)}</span>}
@@ -429,10 +460,10 @@ export function ActionForm({
                 </label>
                 {field.type === "multi" && entityPicker ? (
                   <EntityPicker {...pickerProps} multiple value={(form.values[field.name] as string[] | undefined) ?? []}
-                    onChange={value => { void form.setFieldValue(field.name, value);setPendingRemoval([]);field.onSelectionChange?.(value); }} />
+                    onChange={value => { setValue(field, value);setPendingRemoval([]);field.onSelectionChange?.(value); }} />
                 ) : field.type === "select" && entityPicker ? (
                   <EntityPicker {...pickerProps} value={String(form.values[field.name] ?? initialValues[field.name] ?? "")}
-                    onChange={value => { void form.setFieldValue(field.name, value);field.onSelectionChange?.([value]); }} />
+                    onChange={value => { setValue(field, value);field.onSelectionChange?.([value]); }} />
                 ) : field.type === "multi" ? (
                   <RecipientPicker
                     id={id}
@@ -442,7 +473,7 @@ export function ActionForm({
                     options={field.options ?? []}
                     value={(form.values[field.name] as string[] | undefined) ?? []}
                     onChange={(value) => {
-                      void form.setFieldValue(field.name, value);
+                      setValue(field, value);
                       setPendingRemoval([]);
                       field.onSelectionChange?.(value);
                     }}
@@ -451,16 +482,14 @@ export function ActionForm({
                   <textarea
                     {...props}
                     value={String(form.values[field.name] ?? initialValues[field.name])}
-                    onChange={(e) =>
-                      void form.setFieldValue(field.name, e.target.value)
-                    }
+                    onChange={(e) => setValue(field, e.target.value)}
                   />
                 ) : field.type === "select" ? (
                   <select
                     {...props}
                     value={form.values[field.name] ?? initialValues[field.name]}
                     onChange={(e) => {
-                      void form.setFieldValue(field.name, e.target.value);
+                      setValue(field, e.target.value);
                       field.onSelectionChange?.([e.target.value]);
                     }}
                   >
@@ -479,9 +508,7 @@ export function ActionForm({
                     max={field.max}
                     step={field.type === "number" ? "any" : undefined}
                     value={String(form.values[field.name] ?? initialValues[field.name])}
-                    onChange={(e) =>
-                      void form.setFieldValue(field.name, e.target.value)
-                    }
+                    onChange={(e) => setValue(field, e.target.value)}
                   />
                 )}
                 {field.hint && <small>{field.hint}</small>}
@@ -536,6 +563,7 @@ export function ActionForm({
                 </button>
               </p>
             )}
+            {failureActions?.(failure, form)}
           </div>
         )}
         {failure && <ErrorDetail error={failure} />}
@@ -543,7 +571,7 @@ export function ActionForm({
           <div role="status" className={s.details}>
             <p>Запись изменилась на сервере. Ваш ввод сохранён. Сверьте актуальные значения перед сохранением.</p>
             <details><summary>Актуальные сохранённые значения</summary>
-              <dl>{fields.filter((f) => f.value !== undefined).map((f) => <div key={f.name}><dt>{f.label}</dt><dd>{Array.isArray(f.value) ? f.value.map((value) => f.options?.find((o) => o.value === value)?.label ?? value).join(", ") : f.value || "—"}</dd></div>)}</dl>
+              <dl>{fields.filter((f) => f.value !== undefined && visible(f, initialValues)).map((f) => <div key={f.name}><dt>{f.label}</dt><dd>{Array.isArray(f.value) ? f.value.map((value) => f.options?.find((o) => o.value === value)?.label ?? value).join(", ") : shownValue(f, f.value ?? "")}</dd></div>)}</dl>
               {savedDetails}
             </details>
             <button type="button" className={s.button} onClick={() => { setExpectedRevision(revision); setExpectedRevisionKey(revisionKey); setFailure(null); setMessage(""); }}>Сохранить мой ввод с обновлённой версией</button>

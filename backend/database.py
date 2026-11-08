@@ -943,12 +943,14 @@ XLSX_SOURCES = {
     "subevent_volunteer": "Волонтёрская работа подмероприятия",
     "master_bonus": "Бонус мастеру",
 }
-XLSX_CRITERIA = {
-    "unique": "Уникальная",
-    "creative": "Творческая",
-    "external_communication": "Общение вне вуза",
-    "in_person": "Очное присутствие",
-    "fixed_time": "В определённое время",
+# The five KKR criteria, in order, in the owner's KKR table wording (export, history); the
+# frontend names them the same (frontend/src/utils/kkrCriteria.ts).
+KKR_CRITERIA = {
+    "unique": "Уникальная задача",
+    "creative": "Требует творческого подхода",
+    "external_communication": "Требует общения с администрацией или людьми вне вуза",
+    "in_person": "Требует очного присутствия",
+    "fixed_time": "Выполняется в определённое время",
 }
 
 
@@ -957,7 +959,7 @@ def _xlsx_criteria(raw: str) -> str:
         chosen = json.loads(raw or "{}")
     except ValueError:
         return raw
-    return ", ".join(XLSX_CRITERIA.get(k, k) for k, v in chosen.items() if v) if isinstance(chosen, dict) else raw
+    return ", ".join(KKR_CRITERIA.get(k, k) for k, v in chosen.items() if v) if isinstance(chosen, dict) else raw
 
 
 def generate_summary_xlsx(summary: SeasonSummaryDC, contributions: list[CalculatedContributionDC]) -> bytes:
@@ -1214,6 +1216,26 @@ def _ensure_sqlite_bot_console() -> None:
 
 
 _ensure_sqlite_bot_console()
+
+
+def _ensure_sqlite_kkr_template_editor() -> None:
+    """The last editor of a KKR template. When the column is added, an existing template takes
+    the actor of its latest audited change, or its author when none was audited."""
+    with engine.begin() as conn:
+        names = {r[1] for r in conn.execute(text("PRAGMA table_info(kkr_templates)")).fetchall()}
+        if not names or "updated_by_user_id" in names:
+            return
+        conn.execute(text("ALTER TABLE kkr_templates ADD COLUMN updated_by_user_id INTEGER"))
+        # A removed account's audit rows carry 0 (account_cleanup): the editor stays unknown.
+        audited = ("FROM audit_logs a WHERE a.target_kind = 'kkr_template' "
+                   "AND a.target_id = kkr_templates.template_id")
+        conn.execute(text(
+            f"UPDATE kkr_templates SET updated_by_user_id = CASE WHEN EXISTS (SELECT 1 {audited}) "
+            f"THEN NULLIF((SELECT a.changed_by_user_id {audited} ORDER BY a.id DESC LIMIT 1), 0) "
+            "ELSE owner_user_id END"))
+
+
+_ensure_sqlite_kkr_template_editor()
 
 
 def _ensure_sqlite_file_records_columns() -> None:
@@ -2740,6 +2762,51 @@ def _report_write_lock(label, started, acquired, released):
     if wait > WRITE_LOCK_LOG_MS or hold > WRITE_LOCK_LOG_MS:
         _write_lock_log.warning("write unit %s waited %.0f ms and held the write lock %.0f ms",
                                 label or "-", wait, hold)
+
+
+def _same_moment(left, right) -> bool:
+    if not left or not right:
+        return not left and not right
+    try:
+        from participation import dt
+        return dt(left) == dt(right)
+    except (ValueError, TypeError, AttributeError, InvalidInput):
+        return left == right
+
+
+def _merit_state(m: "MeritORM") -> dict:
+    """The fields of a merit record that its history shows, as stored."""
+    return dict(title=m.title, description=json.loads(m.description_json or "{}"),
+                assigned_at=m.assigned_at, deadline_at=m.deadline_at,
+                criteria=json.loads(m.criteria_json or "{}"), recipients=json.loads(m.recipients_json or "[]"))
+
+
+def _merit_changed(field: str, old, new) -> bool:
+    if field in ("assigned_at", "deadline_at"):
+        return not _same_moment(old, new)
+    if field == "criteria":
+        return {k for k, v in (old or {}).items() if v} != {k for k, v in (new or {}).items() if v}
+    if field == "recipients":
+        def rows(items):
+            return {r.get("user_id"): r for r in items or [] if isinstance(r, dict)}
+        before, after = rows(old), rows(new)
+        return before.keys() != after.keys() or any(
+            float(before[k].get("hours") or 0) != float(after[k].get("hours") or 0)
+            or float(before[k].get("evaluation") or 0) != float(after[k].get("evaluation") or 0)
+            or not _same_moment(before[k].get("completed_at"), after[k].get("completed_at")) for k in before)
+    return old != new
+
+
+def _merit_edit_audit(session, m: "MeritORM", before: dict, actor: int, reason: str, stamp: str) -> None:
+    """One history entry per edit of a merit record (B9, owner 2026-11-08): the changed fields,
+    old and new, with the editor and the reason. An edit that changes nothing writes nothing."""
+    after = _merit_state(m)
+    changed = [field for field in after if _merit_changed(field, before[field], after[field])]
+    if changed:
+        session.add(AuditLogORM(target_kind="merit", target_id=m.merit_id, changed_by_user_id=actor, reason=reason,
+                                old_values_json=json.dumps({k: before[k] for k in changed}, ensure_ascii=False),
+                                new_values_json=json.dumps({k: after[k] for k in changed}, ensure_ascii=False),
+                                created_at=stamp))
 
 
 class Database:
@@ -6639,6 +6706,7 @@ class Database:
             candidate=dict(season_id=m.season_id,source_kind=m.source_kind,event_id=m.event_id,scope={"kind":m.scope_kind,"id":m.scope_id} if m.scope_kind else None,assigned_at=m.assigned_at,deadline_at=m.deadline_at,recipients=json.loads(m.recipients_json))
             candidate.update(values)
             validate(session,candidate)
+            before = _merit_state(m)
             if "title" in values:
                 m.title = values["title"]
             if "description" in values:
@@ -6663,6 +6731,7 @@ class Database:
 
             m.reason = reason
             m.revision += 1
+            _merit_edit_audit(session, m, before, user_id, reason, datetime.now(timezone.utc).isoformat())
             _recalculate_merit_contribution(session, m)
             from season_summaries import refresh
             refresh(session,m.season_id,user_id,reason)

@@ -75,6 +75,9 @@ export const ERROR_TEXTS: Record<string, string> = {
   support_queue_key_conflict: "Ключ очереди поддержки уже занят. Обратитесь к председателю.",
   template_archived: "Шаблон перенесён в архив. Выберите другой шаблон.",
   template_scope_mismatch: "Этот шаблон относится к другой команде. Выберите подходящий шаблон.",
+  // A save refused because of its template (B6): the form offers to save without it.
+  template_changed: "Шаблон изменили после того, как вы его подставили. Подставьте его заново или сохраните без шаблона.",
+  template_unavailable: "Шаблон вам больше недоступен. Сохраните без шаблона или выберите другой.",
   pagination_error: "Не удалось загрузить список целиком. Обновите страницу.",
   // HereBot service API (backend/docs/BOT_API.md): the bot reads these, a page never should.
   bot_api_disabled: "Связь с ботом на сайте выключена.",

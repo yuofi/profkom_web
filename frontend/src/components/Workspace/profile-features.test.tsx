@@ -58,7 +58,8 @@ function TemplateForm() {
   return <ActionForm fields={[{ name: "hours", label: "Часы", type: "number", value: "2" }, { name: "evaluation", label: "Оценка", value: "" }, { name: "completed", label: "Дата", value: "keep-date" }, { name: "reason", label: "Причина", value: "keep-reason" }]}
     beforeFields={form => <KkrTemplateTools form={form} mode="assessment" selection={selection} onSelection={setSelection} />} onSubmit={async () => {}} />;
 }
-const row: KkrTemplate = { template_id: "saved", visibility: "personal", scope: null, revision: 3, archived: false, values: { title: "Точная оценка", description: "Текст", hours: 7, evaluation: 1.5, criteria: emptyCriteria() } };
+const owner = { user_id: 101, display_name: "Анна Смирнова", avatar_url: null };
+const row: KkrTemplate = { template_id: "saved", visibility: "personal", scope: null, revision: 3, archived: false, values: { title: "Точная оценка", description: "Текст", hours: 7, evaluation: 1.5, criteria: emptyCriteria() }, author: owner, updated_by: owner };
 
 it("applying a template changes only the draft's assessment fields and never saves automatically", async () => {
   vi.spyOn(profileFeaturesApi, "templates").mockResolvedValue({ items: [row] });

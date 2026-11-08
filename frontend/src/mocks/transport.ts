@@ -848,9 +848,12 @@ export function installMockTransport(
             changes.some((c) => recordFor(c)!.revision !== c.expected_revision)
           )
             return conflict();
+          const refused = changes.map((c) => profileFeatures.checkTemplate((c.values as Body).template_selection)).find(Boolean);
+          if (refused) return refused;
           changes.forEach((c) => {
             const a = recordFor(c)!;
-            Object.assign(a, c.values);
+            const values = { ...(c.values as Body) };delete values.template_selection;
+            Object.assign(a, values);
             a.revision++;
             if (c.kind === "task_inputs") {
               const task = state.tasks.find((t) => t.task_id === c.id);
@@ -1381,6 +1384,7 @@ export function installMockTransport(
           if(!Array.isArray(given)||given.length!==assessments.length||new Set(given.map(row=>row.assignment_id)).size!==assessments.length)return conflict();
           for(const value of given){const row=assessments.find(item=>item.assignment.assignment_id===value.assignment_id);if(!row||value.expected_revision!==row.inputs.revision)return conflict();if(!value.excluded&&(value.hours===null||!Number.isFinite(value.hours)||value.hours<0||value.evaluation===null))return fail(422,"missing_assessment","Заполните часы и оценки");}
           if(closed&&!data.reason)return fail(422,"invalid_input","Укажите причину исправления");
+          const refused=profileFeatures.checkTemplate(data.template_selection);if(refused)return refused;
           if(JSON.stringify(inputs.criteria)!==JSON.stringify(data.criteria)){inputs.criteria=clone(data.criteria) as TaskInputs["criteria"];inputs.revision++;}
           for(const value of given){const row=assessments.find(item=>item.assignment.assignment_id===value.assignment_id)!;row.inputs.hours=value.hours;row.inputs.evaluation=value.excluded?null:value.evaluation;row.inputs.workflow_status=value.excluded?"cancelled":value.evaluation!>0?"accepted":"not_completed";row.inputs.effective_completed_at=task.closed_at??row.inputs.effective_completed_at;row.inputs.revision++;}
         }
@@ -2512,15 +2516,21 @@ export function installMockTransport(
       }
       if (method === "patch") {
         const merit = state.merits.find((m) => m.merit_id === parts[1]);
-        const extra = extraInputs(data, ["reason", "title", "description", "assigned_at", "deadline_at", "criteria", "recipients"]);
+        const extra = extraInputs(data, ["reason", "title", "description", "assigned_at", "deadline_at", "criteria", "recipients", "template_selection"]);
         if (extra) return extra;
         if (!merit || mismatch(data, merit)) return conflict();
-        Object.assign(merit, data);
+        const refused = profileFeatures.checkTemplate(data.template_selection);
+        if (refused) return refused;
+        const fields = { ...data };delete fields.template_selection;
+        Object.assign(merit, fields);
         return changed(merit);
       }
       if (data.reason !== undefined && (typeof data.reason !== "string" || !data.reason.trim())) return fail(422, "invalid_input", "Причина не может быть пустой");
+      const refused = profileFeatures.checkTemplate(data.template_selection);
+      if (refused) return refused;
+      const fields = { ...data };delete fields.template_selection;
       const merit: Merit = {
-        ...(data as unknown as Merit),
+        ...(fields as unknown as Merit),
         reason: data.reason === undefined ? "Создание записи учёта работы" : String(data.reason),
         merit_id: parts[1] ?? id("merit"),
         created_by: state.user,

@@ -145,7 +145,7 @@ def test_xlsx_values_are_russian(client, work, superuser):
     entries = [dict(zip(head, row)) for row in ledger[1:]]
     assert entries and {x["Сезон"] for x in entries} == {work["season"]["title"]}
     assert {x["Тип источника"] for x in entries} <= {"Задача блока", "Задача подмероприятия", "Бонус мастеру"}
-    assert {x["Критерии"] for x in entries if x["Назначение"]} == {"Уникальная, Очное присутствие"}
+    assert {x["Критерии"] for x in entries if x["Назначение"]} == {"Уникальная задача, Требует очного присутствия"}
 
 
 def test_help_notification_repeat_does_not_duplicate(client, work):

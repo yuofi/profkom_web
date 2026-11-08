@@ -34,6 +34,7 @@ import {
 import { canRetainData, normalizeApiError } from "../../utils/api/request";
 import { readsMerits } from "./meritAccess";
 import { evaluationOptions } from "../../utils/evaluations";
+import { criteriaFromValues, criteriaKeys, criteriaLabels } from "../../utils/kkrCriteria";
 import { UserChip } from "../../components/Workspace/UserChip";
 import { can, useSession } from "../../utils/session";
 import { toUtc, displayDate, moscowInput } from "../../utils/dates";
@@ -43,8 +44,9 @@ import {
 } from "../../utils/hooks/useWorkspace";
 import { useDebouncedValue } from "../../utils/hooks/useDebouncedValue";
 import s from "../../components/Workspace/Workspace.module.css";
-import { KkrTemplateTools } from "../../components/Workspace/KkrTemplateLibrary";
+import { KkrTemplateTools, TemplateRefusal } from "../../components/Workspace/KkrTemplateLibrary";
 import type { TemplateSelection } from "../../utils/api/profileFeatures.api";
+import type { TemplateTarget } from "../../utils/kkrTemplates";
 import { HistoryDisclosure } from "../../components/Workspace/HistoryPanel";
 import { metricValue, sourceNames } from "./seasonAnalyticsView";
 import u from "./SeasonWorkspace.module.css";
@@ -53,13 +55,6 @@ const kinds: Record<MeritCreate["source_kind"], string> = {
   chair_merit: "Заслуга председателя",
   block_volunteer: "Волонтёрская работа блока",
   subevent_volunteer: "Волонтёрская работа подмероприятия",
-};
-const criteriaLabels = {
-  unique: "Уникальная работа",
-  creative: "Творческая",
-  external_communication: "Общение вне вуза",
-  in_person: "Очное присутствие",
-  fixed_time: "В определённое время",
 };
 /** PATCH /merits/{id} takes only these fields; kind, season and scope stay as created (A-KKR-1). */
 function meritPatch({ title, description, assigned_at, deadline_at, criteria, recipients, template_selection }: MeritCreate & { template_selection?: TemplateSelection }): MeritPatch & { template_selection?: TemplateSelection } {
@@ -131,6 +126,48 @@ export function MeritEntryPage() {
     </QueryState>
   </Page>;
 }
+
+/** The common block of the merit form applies: «Одинаково для всех» with two or more recipients (B1). */
+const sameForAll = (values: Values) => values.same_for_all === "true" && ids(values, "users").length > 1;
+/** A recipient's own fields count: no common block, or «Поправить отдельно» for them. */
+const ownValues = (user: string) => (values: Values) => !sameForAll(values) || values[`own_${user}`] === "true";
+const recipientKeys = ["hours", "evaluation", "completed"] as const;
+type RecipientValues = Record<(typeof recipientKeys)[number], string>;
+const ownDraft = (values: Values, user: number): RecipientValues =>
+  Object.fromEntries(recipientKeys.map((key) => [key, text(values, `${key}_${user}`)])) as RecipientValues;
+/** A recipient's values as a save sends them: their own, or the common block's. */
+function recipientValues(values: Values, user: number): RecipientValues {
+  const own = ownValues(String(user))(values);
+  return Object.fromEntries(recipientKeys.map((key) => [key, text(values, own ? `${key}_${user}` : `common_${key}`)])) as RecipientValues;
+}
+/**
+ * Ticking «Одинаково для всех» changes nobody's values: the common block starts from the current
+ * draft of the first recipient with typed values, and whoever typed something else keeps it as own.
+ */
+function withCommonFromDraft(values: Values): Values {
+  const users = ids(values, "users");
+  const typed = (user: number) => recipientKeys.some((key) => ownDraft(values, user)[key]);
+  const source = users.find(typed) ?? users[0];
+  if (source === undefined) return values;
+  const common = ownDraft(values, source);
+  const next: Values = { ...values, ...Object.fromEntries(recipientKeys.map((key) => [`common_${key}`, common[key]])) };
+  for (const user of users) {
+    const draft = ownDraft(values, user);
+    if (recipientKeys.some((key) => draft[key] && draft[key] !== common[key])) next[`own_${user}`] = "true";
+  }
+  return next;
+}
+/** Unticking it gives every recipient without own values the common ones, so nothing typed is lost. */
+function withCommonCopied(values: Values): Values {
+  const next = { ...values };
+  for (const user of ids(values, "users")) if (values[`own_${user}`] !== "true") for (const key of recipientKeys) next[`${key}_${user}`] = text(values, `common_${key}`);
+  return next;
+}
+/** Fewer than two recipients end the common block the same way as unticking it. */
+const withRecipients = (values: Values): Values =>
+  values.same_for_all === "true" && ids(values, "users").length < 2 ? { ...withCommonCopied(values), same_for_all: "false" } : values;
+/** Fields of the form that only shape the recipients' values on screen; a save sends their result. */
+const recipientField = (name: string) => name === "same_for_all" || /^(common|own|hours|evaluation|completed)_/.test(name);
 
 function MeritEditor({
   seasonId,
@@ -207,6 +244,11 @@ function MeritEditor({
     : existing.source_kind === "block_volunteer" ? contexts.data?.blocks.find((x) => x.block_id === scopeId)?.name
     : existing.source_kind === "subevent_volunteer" ? contexts.data?.subs.find((x) => x.subevent_id === scopeId)?.title
     : contexts.data?.events.find((x) => x.event_id === scopeId)?.title;
+  // The team the server checks an applied template against (B3).
+  const templateTarget: TemplateTarget = source === "chair_merit" ? { kind: "chair", id: null }
+    : source === "head_merit" ? { kind: "event", id: scopeId }
+    : source === "block_volunteer" ? { kind: "block", id: scopeId }
+    : { kind: "subevent", id: scopeId, eventId: contexts.data?.subs.find((x) => x.subevent_id === scopeId)?.event_id };
   const fields: Field[] = [
     {
       name: "title",
@@ -237,18 +279,12 @@ function MeritEditor({
       compact: "period",
       value: existing ? moscowInput(existing.deadline_at) : "",
     },
-    ...Object.entries(criteriaLabels).map(([name, label]) => ({
+    ...criteriaKeys.map((name) => ({
       name,
-      label,
-      type: "select" as const,
+      label: criteriaLabels[name],
+      type: "checkbox" as const,
       compact: "criteria",
-      value: String(
-        existing?.criteria[name as keyof typeof criteriaLabels] ?? false,
-      ),
-      options: [
-        { value: "false", label: "Нет" },
-        { value: "true", label: "Да" },
-      ],
+      value: String(existing?.criteria[name] ?? false),
     })),
     {
       name: "users",
@@ -257,14 +293,59 @@ function MeritEditor({
       required: true,
       value: existing?.recipients.map((r) => String(r.user_id)),
       options: recipientOptions,
+      onChangeValues: withRecipients,
       onSelectionChange: (values) => setSelectedPeople(values.map((value) =>
         people.options.find((p) => p.value === value) ?? selectedPeople.find((p) => p.value === value) ?? { value, label: `Участник #${value}` },
       )),
     },
+    // «Одинаково для всех» (B1, owner 2026-11-08): one block of values for every selected
+    // recipient; one person may still get own values.
+    {
+      name: "same_for_all",
+      label: "Одинаково для всех",
+      type: "checkbox" as const,
+      visibleWhen: (values: Values) => ids(values, "users").length > 1,
+      onChangeValues: (values: Values) => values.same_for_all === "true" ? withCommonFromDraft(values) : withCommonCopied(values),
+    },
+    {
+      name: "common_hours",
+      label: "Часы для всех",
+      type: "number" as const,
+      required: true,
+      min: 0,
+      compact: "common",
+      visibleWhen: sameForAll,
+    },
+    {
+      name: "common_evaluation",
+      label: "Оценка для всех",
+      type: "select" as const,
+      required: true,
+      compact: "common",
+      visibleWhen: sameForAll,
+      options: evaluationOptions,
+    },
+    {
+      name: "common_completed",
+      label: "Дата выполнения для всех, МСК",
+      type: "datetime-local" as const,
+      compact: "common",
+      visibleWhen: sameForAll,
+      required: (values: Values) => Number(values.common_evaluation) > 0,
+    },
     ...recipientOptions.flatMap((p) => [
+      {
+        name: `own_${p.value}`,
+        whenSelected: { name: "users", value: p.value },
+        label: `Поправить отдельно: ${p.label}`,
+        type: "checkbox" as const,
+        compact: `recipient_${p.value}`,
+        visibleWhen: sameForAll,
+      },
       {
         name: `hours_${p.value}`,
         whenSelected: { name: "users", value: p.value },
+        visibleWhen: ownValues(p.value),
         required: true,
         label: `Часы: ${p.label}`,
         type: "number" as const,
@@ -278,6 +359,7 @@ function MeritEditor({
       {
         name: `evaluation_${p.value}`,
         whenSelected: { name: "users", value: p.value },
+        visibleWhen: ownValues(p.value),
         required: true,
         label: `Оценка: ${p.label}`,
         type: "select" as const,
@@ -291,6 +373,7 @@ function MeritEditor({
       {
         name: `completed_${p.value}`,
         whenSelected: { name: "users", value: p.value },
+        visibleWhen: ownValues(p.value),
         label: `Дата выполнения, МСК: ${p.label}`,
         type: "datetime-local" as const,
         compact: `recipient_${p.value}`,
@@ -387,9 +470,13 @@ function MeritEditor({
             revision={existing?.revision}
             revisionKey={summaryVersion === undefined ? undefined : String(summaryVersion)}
             fields={fields}
-            changeRequired={existing ? fields.filter(field => field.name !== "reason").map(field => field.name) : undefined}
+            changeRequired={existing ? (values: Values) => ({
+              ...Object.fromEntries(fields.filter((field) => field.name !== "reason" && !recipientField(field.name)).map((field) => [field.name, values[field.name]])),
+              recipients: ids(values, "users").map((user) => [user, recipientValues(values, user)]),
+            }) : undefined}
             externalState={templateSelection} savedExternalState={null} onReplaceWithSaved={() => setTemplateSelection(null)}
-            beforeFields={form => <KkrTemplateTools form={form} mode="merit" selection={templateSelection} onSelection={setTemplateSelection} />}
+            beforeFields={form => <KkrTemplateTools form={form} mode="merit" selection={templateSelection} onSelection={setTemplateSelection} target={templateTarget} />}
+            failureActions={(failure, form) => <TemplateRefusal failure={failure} form={form} mode="merit" selection={templateSelection} onSelection={setTemplateSelection} />}
             onConflict={async () => {
               await people.refetch();
               await refresh();
@@ -417,9 +504,7 @@ function MeritEditor({
               if (assigned > deadline)
                 throw Error("Дата выдачи позже дедлайна");
               const recipients = ids(v, "users").map((user_id) => {
-                const evaluation = text(v, `evaluation_${user_id}`),
-                  hours = text(v, `hours_${user_id}`),
-                  completed = text(v, `completed_${user_id}`);
+                const { evaluation, hours, completed } = recipientValues(v, user_id);
                 if (
                   !hours ||
                   !evaluation ||
@@ -454,15 +539,7 @@ function MeritEditor({
                 description: richText(text(v, "body")),
                 assigned_at: assigned,
                 deadline_at: deadline,
-                criteria: {
-                  ...emptyCriteria(),
-                  ...Object.fromEntries(
-                    Object.keys(criteriaLabels).map((k) => [
-                      k,
-                      text(v, k) === "true",
-                    ]),
-                  ),
-                },
+                criteria: { ...emptyCriteria(), ...criteriaFromValues(v) },
                 recipients,
                 ...(existing ? { reason: text(v, "reason") } : {}),
               };
@@ -672,18 +749,12 @@ function ClosedCorrectionEditor({
         required: true,
         value: data.record.deadline_at ? moscowInput(data.record.deadline_at) : "",
       },
-      ...Object.entries(criteriaLabels).map(([name, label]) => ({
+      ...criteriaKeys.map((name) => ({
         name,
-        label,
-        type: "select" as const,
-        required: true,
-        value: String(
-          data.record.criteria[name as keyof typeof criteriaLabels],
-        ),
-        options: [
-          { value: "true", label: "Да" },
-          { value: "false", label: "Нет" },
-        ],
+        label: criteriaLabels[name],
+        type: "checkbox" as const,
+        compact: "criteria",
+        value: String(data.record.criteria[name]),
       })),
     ];
   if (data?.kind === "assessment_inputs")
@@ -744,7 +815,8 @@ function ClosedCorrectionEditor({
                     <div key={f.name}>
                       <dt>{f.label}</dt>
                       <dd>
-                        {f.options?.find((o) => o.value === f.value)?.label ??
+                        {f.type === "checkbox" ? (f.value === "true" ? "Да" : "Нет")
+                          : f.options?.find((o) => o.value === f.value)?.label ??
                           f.value ??
                           "—"}
                       </dd>
@@ -776,12 +848,7 @@ function ClosedCorrectionEditor({
                     values = {
                       assigned_at,
                       deadline_at,
-                      criteria: Object.fromEntries(
-                        Object.keys(criteriaLabels).map((k) => [
-                          k,
-                          text(v, k) === "true",
-                        ]),
-                      ),
+                      criteria: criteriaFromValues(v),
                     };
                   } else {
                     const evaluation = number(v, "evaluation");
