@@ -179,7 +179,11 @@ person; access already granted by an approved mention stays. Earlier entries kee
 their visibility and `comment_deleted` («Комментарий удалён») names who deleted it, with
 the last text as `before`. Editing, marking or re-creating (GL-07 key) a deleted comment
 is 404 `comment_deleted`. Notifications already sent still open the task. The UI puts
-«Редактировать» and «Удалить» in the comment's «⋯» menu; deletion asks once more.
+«Редактировать» (a pencil) and «Удалить» (a trash can, in the danger colour) in the comment's
+«⋯» menu. Deletion asks once more in the comment's own header (owner 2026-11-08, В5):
+«Удалить комментарий? Удалить / Отмена» stands in place of «⋯» and the comment fades until
+answered; Escape or «Отмена» return to «⋯», and after the deletion the focus moves to the
+neighbouring comment.
 
 ## Files, hierarchy and history
 
