@@ -1520,7 +1520,8 @@ export function installMockTransport(
           return list(
             clone(state.comments.filter((c) => c.task_id === task.task_id).map(comment => ({...comment,mentioned_users:commentMentions(comment.content.body)}))),
           );
-        const repeatedComment=repeated(data,task.task_id);if(repeatedComment)return repeatedComment;
+        // As on the server, a repeat of a deleted comment does not bring it back.
+        const repeatedComment=repeated(data,task.task_id);if(repeatedComment)return repeatedComment[0]===200&&deletedComments.some(item=>item.comment_id===(repeatedComment[1] as Comment).comment_id)?fail(404,"comment_deleted","Комментарий удалён"):repeatedComment;
         const attachments=commentFiles(data.file_ids??[],task.task_id);if(!attachments)return fail(422,"invalid_input","Некорректные файлы комментария");
         if(!publicSubmission(data.content).body.trim()&&!attachments.length)return fail(422,"invalid_input","Добавьте текст или файл");
         const comment = {
@@ -1799,7 +1800,10 @@ export function installMockTransport(
           if (heir) row.comment_id = heir.comment_id;
           else { row.status = "cancelled";row.capabilities = []; }
         });
-        rememberTask(task, "comment_deleted", "Комментарий удалён", undefined, undefined, [{ field: "comment", label: "Комментарий", before: comment.content.body, after: null }]);
+        rememberTask(task, "comment_deleted", "Комментарий удалён", undefined, undefined, [
+          { field: "comment", label: "Комментарий", before: comment.content.body, after: null },
+          ...(comment.attachments.length ? [{ field: "comment_attachments", label: "Вложения комментария", before: comment.attachments.map(file => file.name), after: [] }] : []),
+        ]);
         return [204, null];
       }
       if (parts[2] === "checklist") {
