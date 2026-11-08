@@ -81,6 +81,11 @@ old-version backfill, repeated GET without SQL writes, and public season-move re
 safe history and atomic parent-link rollback. See `docs/SEASON_ANALYTICS.md` for the
 durable metric definitions and closed-season completeness rules.
 
+`test_kkr_criteria.py` pins the eight criteria of the owner's table (order, wording,
+multipliers) against every criteria shape and the frontend labels, shows that a record
+or template stored with the five earlier criteria keeps its score and revision through
+old (five-key) and current clients, and that each new criterion multiplies its factor,
+`urgent` on top of the automatic deadline premium.
 `test_kkr_iteration.py` covers atomic multi-assignee accounting, season coefficients,
 managed accounting controls and immutable approved snapshots, and the KKR summon circle
 (HR master and HR deputy, open/summarizing seasons only) for every role.
