@@ -50,7 +50,7 @@ def test_open_season_edit_records_each_changed_field_recipient_and_criterion(cli
     assert changes[("Название", None)]["before"] == "Synthetic accepted work"
     assert changes[("Название", None)]["after"] == "Synthetic corrected work"
     assert changes[("Дедлайн", None)]["after"] == moved
-    # Only the criterion that changed, not all five.
+    # Only the criterion that changed, not all eight.
     assert (changes[("Критерии", None)]["before"], changes[("Критерии", None)]["after"]) == ({"creative": False}, {"creative": True})
     changed = changes[("Исходные поля получателя", recipient.user_id)]
     assert changed["before"] == {"user": changed["before"]["user"], "hours": 2} and changed["after"]["hours"] == 5

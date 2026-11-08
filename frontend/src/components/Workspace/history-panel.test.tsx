@@ -51,7 +51,7 @@ it("reads codes, moments, checklists and criteria in words and keeps JSON for ne
   vi.spyOn(historyApi, "list").mockResolvedValue({ items: [row], next_cursor: null });
   page = await mountWorkspace(<HistoryPanel kind="season" id="season-1" />);await waitForPage(page);
   const text = page.container.textContent ?? "";
-  for (const shown of ["Запланирован", "Открыт", "9 апр. 2027 г., 03:27", "Нет", "Да", "Заместитель главорга", "Позвать гостей", "Уникальная задача: Нет", "Требует очного присутствия: Да", "Часы: 2", "Дата выполнения: 22 окт. 2026 г., 10:00"]) expect(text.replace(/\u00a0/g, " ")).toContain(shown);
+  for (const shown of ["Запланирован", "Открыт", "9 апр. 2027 г., 03:27", "Нет", "Да", "Заместитель главорга", "Позвать гостей", "Задача уникальная: Нет", "Требует очного присутствия: Да", "Часы: 2", "Дата выполнения: 22 окт. 2026 г., 10:00"]) expect(text.replace(/\u00a0/g, " ")).toContain(shown);
   for (const raw of ["planned", "2027-04-09T", "deputy_event_leader", "[\"", "\"unique\"", "in_person"]) expect(text).not.toContain(raw);
   expect(page.container.querySelectorAll("li li")).not.toHaveLength(0);
   expect(page.container.querySelector(`a[href="/contacts/${people[1].user_id}"]`)).not.toBeNull();

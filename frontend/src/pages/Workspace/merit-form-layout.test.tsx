@@ -38,7 +38,7 @@ it("marks the result date required for a positive evaluation, names the evaluati
   expect(recipients.textContent).toContain("Анна");expect(recipients.textContent).toContain("3 ч · оценка 0");
 });
 
-it("ticks the five criteria as checkboxes named as on every other screen", async () => {
+it("ticks the eight criteria as checkboxes named as on every other screen", async () => {
   mock = installMockTransport("chair", { delay: 0 });
   page = await mountWorkspace(<Routes><Route path="/seasons/:id/merits" element={<MeritsPage />} /></Routes>, { path: "/seasons/season-1/merits?source_kind=chair_merit" });
   await waitForPage(page);await settle();
@@ -49,10 +49,10 @@ it("ticks the five criteria as checkboxes named as on every other screen", async
   const userId = String(mock.state.people[0].user_id);
   await pick(page.container, "users", userId);
   for (const [name, value] of Object.entries({ title: "Выезд", body: "Работа", assigned: "2026-10-01T13:00", deadline: "2026-10-10T13:00", [`hours_${userId}`]: "2", [`evaluation_${userId}`]: "0", creative: "true", in_person: "true" })) await change(field(page.container, name), value);
-  expect(boxes.map(box => box.checked)).toEqual([false, true, false, true, false]);
+  expect(boxes.map(box => box.checked)).toEqual(criteriaKeys.map(key => key === "creative" || key === "in_person"));
   await submit(form);await waitForPage(page);
   const sent = JSON.parse(mock.adapter.history.post.find(request => request.url === "/merits")!.data);
-  expect(sent.criteria).toEqual({ unique: false, creative: true, external_communication: false, in_person: true, fixed_time: false });
+  expect(sent.criteria).toEqual({ ...emptyCriteria(), creative: true, in_person: true });
 });
 
 it("offers a chair merit only templates the server takes for it: personal and «Весь Профком»", async () => {
