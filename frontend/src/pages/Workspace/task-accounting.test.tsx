@@ -29,7 +29,7 @@ async function click(label: string, root: ParentNode = page!.container) {
 it("labels private credited/excluded state independently from the public task status", async () => {
   await mountAccounting(inputs({ workflow_status: "accepted", evaluation: 1.5 }), assignment({ status: "cancelled" }));
   expect(page!.container.querySelector('[data-accounting-state="accepted"]')?.textContent).toBe("Зачтено");
-  expect(page!.container.textContent).toContain("Изменить");expect(page!.container.textContent).toContain("1.5");
+  expect(page!.container.textContent).toContain("Изменить");expect(page!.container.textContent).toContain("1,5");expect(page!.container.textContent).not.toContain("1.5");
   expect(page!.container.querySelector('a[href="/contacts/101"]')).not.toBeNull();
   await page!.cleanup();page = undefined;
   vi.mocked(tasksApi.assessment).mockResolvedValue(inputs({ workflow_status: "cancelled", evaluation: null }));

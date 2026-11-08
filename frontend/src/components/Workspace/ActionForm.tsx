@@ -11,6 +11,7 @@ import { RecipientPicker } from "./RecipientPicker";
 import { EntityPicker, type EntityKind, type EntityOption } from "./EntityPicker";
 import { advanceOwn, recordOwnChange, useOwnRevisions } from "./ownRevisions";
 import { useUnsavedChanges } from "./unsavedChangesHooks";
+import { metricValue } from "../../pages/Workspace/seasonAnalyticsView";
 // The editor stays in its own chunk: forms without a markdown field do not load it.
 const MarkdownEditor = lazy(() => import("./MarkdownEditor").then((module) => ({ default: module.MarkdownEditor })));
 export interface Field {
@@ -78,8 +79,10 @@ const visible = (field: Field, values: Values) =>
 
 const savedValues = (fields: Field[]): Values =>
   Object.fromEntries(fields.map((f) => [f.name, f.value ?? (f.type === "multi" ? [] : f.type === "checkbox" ? "false" : "")]));
-/** A saved value as the «saved values» list shows it. */
-const shownValue = (f: Field, value: string) => f.type === "checkbox" ? (value === "true" ? "Да" : "Нет") : value || "—";
+/** A saved value as the «saved values» list shows it: a choice by its words, a number with the Russian comma. */
+const shownValue = (f: Field, value: string) => f.type === "checkbox" ? (value === "true" ? "Да" : "Нет")
+  : f.type === "number" && value.trim() !== "" && Number.isFinite(Number(value)) ? metricValue(Number(value))
+  : f.options?.find((o) => o.value === value)?.label ?? (value || "—");
 
 /** Where a chain of own saves (from → to) leads from `from`. */
 const follow = <K,>(chain: [K, K][], from: K) => {

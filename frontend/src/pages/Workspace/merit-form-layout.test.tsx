@@ -38,6 +38,20 @@ it("marks the result date required for a positive evaluation, names the evaluati
   expect(recipients.textContent).toContain("Анна");expect(recipients.textContent).toContain("3 ч · оценка 0");
 });
 
+it("prints a recipient's fractional hours and evaluation on the card with a decimal comma", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  page = await mountWorkspace(<Routes><Route path="/seasons/:id/merits" element={<MeritsPage />} /></Routes>, { path: "/seasons/season-1/merits?source_kind=chair_merit" });
+  await waitForPage(page);await settle();
+  const form = page.container.querySelector("form")!;
+  const userId = String(mock.state.people[0].user_id);
+  await pick(page.container, "users", userId);
+  for (const [name, value] of Object.entries({ title: "Фотосъёмка", body: "Работа", assigned: "2026-10-01T13:00", deadline: "2026-10-10T13:00", [`hours_${userId}`]: "2.5", [`evaluation_${userId}`]: "1.5", [`completed_${userId}`]: "2026-10-09T13:00" })) await change(field(page.container, name), value);
+  await submit(form);await waitForPage(page);
+  const card = [...page.container.querySelectorAll("section")].find(section => section.querySelector("h2")?.textContent === "Фотосъёмка")!;
+  const recipients = card.querySelector('ul[aria-label="Получатели"]')!;
+  expect(recipients.textContent).toContain("2,5 ч · оценка 1,5");expect(recipients.textContent).not.toContain("2.5");
+});
+
 it("ticks the eight criteria as checkboxes named as on every other screen", async () => {
   mock = installMockTransport("chair", { delay: 0 });
   page = await mountWorkspace(<Routes><Route path="/seasons/:id/merits" element={<MeritsPage />} /></Routes>, { path: "/seasons/season-1/merits?source_kind=chair_merit" });

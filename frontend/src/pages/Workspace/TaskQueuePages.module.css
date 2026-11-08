@@ -53,4 +53,19 @@
 .facts { display:flex;flex-wrap:wrap;align-items:flex-start;gap:12px 28px;margin-top:12px; }
 .facts>.owner { margin-top:0; }
 .place { display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;max-width:100%;min-width:0; }
-@media(max-width:768px) { .table th,.table td { padding:12px 5px; }.table th { font-size:10px; }.queueName { font-size:12px; }.table .key { font-size:10px; }.table th:first-child { width:29%; }.table th:nth-child(2) { width:17%; }.table th:nth-child(3) { width:27%; }.table th:nth-child(4) { width:27%; }.headerActions { gap:8px; } }
+@media(max-width:768px) { .headerActions { gap:8px; } }
+/* On a phone a queue is a block of its own (FIX6, owner 2026-11-08): the name with the key at the right,
+   then the team and the owner under their small labels, side by side when each gets 160px, else one
+   under the other. A cell is never narrower than the longest word of its chips (the chip's own
+   letter-by-letter wrap is turned off here), so a name wraps between words only. */
+@media(max-width:768px) {
+  .table,.table tbody { display:block; }
+  .table thead { position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap; }
+  .table tbody tr { display:flex;flex-wrap:wrap;align-items:flex-start;gap:12px;padding:16px 4px;border-bottom:1px solid color-mix(in srgb,var(--outline-variant) 35%,transparent); }
+  .table td { display:block;padding:0;border:0;min-width:0; }
+  .table td:first-child { flex:1 1 60%; }
+  .table td.key { flex:none;max-width:40%;padding-top:2px; }
+  .table td[data-label] { flex:1 1 max(calc(50% - 6px),160px);min-width:auto;max-width:100%;overflow-wrap:break-word; }
+  .table td[data-label] span { overflow-wrap:break-word; }
+  .table td[data-label]::before { display:block;content:attr(data-label);margin-bottom:6px;color:var(--on-surface-variant);font-size:11px;line-height:1.4; }
+}

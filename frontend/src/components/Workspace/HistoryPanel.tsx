@@ -6,6 +6,7 @@ import type { UserRef } from "../../utils/api/contract";
 import { displayDate } from "../../utils/dates";
 import { UserChip } from "./UserChip";
 import { historyKeyNames, historyText } from "./historyValues";
+import { metricValue } from "../../pages/Workspace/seasonAnalyticsView";
 import { Empty, QueryState } from "./WorkspaceUI";
 import s from "./HistoryPanel.module.css";
 import w from "./Workspace.module.css";
@@ -17,6 +18,8 @@ function Value({ value, field }: { value: unknown; field: string }) {
   if (Array.isArray(value) && value.every(person)) return <div className={w.row}>{value.map((user, index) => <UserChip user={user} key={`${user.user_id}/${index}`} />)}</div>;
   if (value === null || value === undefined) return <>Не задано</>;
   if (typeof value === "boolean") return <>{value ? "Да" : "Нет"}</>;
+  // Fractional hours, evaluations and KKR read with a comma; whole numbers (ids among them) stay as recorded.
+  if (typeof value === "number" && !Number.isInteger(value)) return <>{metricValue(value)}</>;
   if (typeof value !== "object") return <>{historyText(String(value), field)}</>;
   if (Array.isArray(value)) return value.length ? <ul className={s.items}>{value.map((item, index) => <li key={index}><Value value={item} field={field} /></li>)}</ul> : <>Пусто</>;
   const entries = Object.entries(value);

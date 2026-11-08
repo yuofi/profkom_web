@@ -5,6 +5,7 @@ import { can } from "../../utils/session";
 import { canRetainData } from "../../utils/api/request";
 import { getTaskRoute } from "../../utils/routes";
 import { displayDate } from "../../utils/dates";
+import { metricValue } from "../../pages/Workspace/seasonAnalyticsView";
 import { HoverCard } from "./HoverCard";
 import { InteractiveChip } from "./InteractiveChip";
 import s from "./AccountingChip.module.css";
@@ -27,6 +28,6 @@ function AccountingPreview({ item }: { item: UnresolvedAssignment }) {
   if (!allowed || query.error && !canRetainData(query.error)) return <div className={s.preview}><strong>Учёт ККР недоступен</strong><p>Нет доступа к расчётным данным назначения.</p></div>;
   const data = query.data;
   return <div className={s.preview}><small>Учёт работы · ККР</small><strong>{data?.workflow_status ? names[data.workflow_status] : names[assignment.status]}</strong><p>{assignment.assignee.display_name}</p>
-    {query.isLoading ? <p role="status">Загружаем учёт…</p> : data ? <><dl><div><dt>Часы</dt><dd>{data.hours ?? "Не заданы"}</dd></div><div><dt>Оценка</dt><dd>{data.evaluation ?? "Не выставлена"}</dd></div>{data.effective_completed_at && <div><dt>Дата работы</dt><dd>{displayDate(data.effective_completed_at)}</dd></div>}</dl><p className={s.hint}>{assessable(item) ? "Нажмите на чип, чтобы открыть оценку этого исполнителя в задаче." : "Оценка станет доступна после закрытия задачи."}</p></> : <p>Не удалось загрузить расчётные данные.</p>}
+    {query.isLoading ? <p role="status">Загружаем учёт…</p> : data ? <><dl><div><dt>Часы</dt><dd>{data.hours == null ? "Не заданы" : metricValue(data.hours)}</dd></div><div><dt>Оценка</dt><dd>{data.evaluation == null ? "Не выставлена" : metricValue(data.evaluation)}</dd></div>{data.effective_completed_at && <div><dt>Дата работы</dt><dd>{displayDate(data.effective_completed_at)}</dd></div>}</dl><p className={s.hint}>{assessable(item) ? "Нажмите на чип, чтобы открыть оценку этого исполнителя в задаче." : "Оценка станет доступна после закрытия задачи."}</p></> : <p>Не удалось загрузить расчётные данные.</p>}
   </div>;
 }

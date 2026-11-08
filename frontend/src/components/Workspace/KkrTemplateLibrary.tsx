@@ -16,6 +16,7 @@ import { text, number, type Values } from "./formValues";
 import { Card, Empty, QueryState } from "./WorkspaceUI";
 import { UserChip } from "./UserChip";
 import { evaluationOptions } from "../../utils/evaluations";
+import { metricValue } from "../../pages/Workspace/seasonAnalyticsView";
 import { criteriaFromValues, criteriaKeys, criteriaLabels } from "../../utils/kkrCriteria";
 import s from "./ProfileFeatures.module.css";
 import w from "./Workspace.module.css";
@@ -90,7 +91,7 @@ function LibraryEditor({ templates, context, initialValues }: { templates: KkrTe
     {templates.length > 0 && <LibraryFilters templates={templates} value={filter} onChange={setFilter} />}
     {!templates.length && !editing && <Empty>Пока нет доступных шаблонов.</Empty>}
     {templates.length > 0 && !shown.length && <Empty>Нет шаблонов по этим условиям.</Empty>}
-    {shown.map(row => row.template_id === template?.template_id ? <div key={row.template_id}>{editor}</div> : <div className={s.badge} key={row.template_id}><strong>{row.values.title}</strong><span>{row.visibility === "personal" ? "Личный" : templateOwner(row)} · {row.archived ? "В архиве" : `${row.values.hours} ч · оценка ${row.values.evaluation}`}</span><Authorship template={row} /><div className={w.row}>
+    {shown.map(row => row.template_id === template?.template_id ? <div key={row.template_id}>{editor}</div> : <div className={s.badge} key={row.template_id}><strong>{row.values.title}</strong><span>{row.visibility === "personal" ? "Личный" : templateOwner(row)} · {row.archived ? "В архиве" : `${metricValue(row.values.hours)} ч · оценка ${metricValue(row.values.evaluation)}`}</span><Authorship template={row} /><div className={w.row}>
       <button type="button" className={w.button} onClick={() => choose({ template: row, values: row.values })}>Изменить шаблон</button>
       {context.can_create_personal_template && <button type="button" className={w.button} onClick={() => choose({ values: { ...row.values, title: `${row.values.title} · копия` } })}>Копировать</button>}
     </div></div>)}
@@ -115,10 +116,10 @@ function LibraryFilters({ templates, value, onChange }: { templates: KkrTemplate
   const set = (next: Partial<LibraryFilter>) => onChange({ ...value, ...next });
   return <div className={`${w.filters} ${s.libraryFilters}`} role="group" aria-label="Фильтры шаблонов">
     <label className={`${w.field} ${w.search}`}>Поиск<input type="search" value={value.search} placeholder="Название или описание" onChange={event => set({ search: event.target.value })} /></label>
-    <label className={w.field}>Команда<select value={value.team} onChange={event => set({ team: event.target.value })}><option value="">Все команды</option>
+    <label className={`${w.field} ${s.listFilter}`}>Команда<select value={value.team} onChange={event => set({ team: event.target.value })}><option value="">Все команды</option>
       {[...teams].sort((a, b) => a[1].localeCompare(b[1], "ru")).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-    <label className={w.field}>Вид<select value={value.kind} onChange={event => set({ kind: event.target.value as LibraryFilter["kind"] })}><option value="">Личные и командные</option><option value="personal">Личные</option><option value="team">Командные</option></select></label>
-    <div className={`${w.field} ${w.checkField}`}><label className={w.check}><input type="checkbox" checked={value.archived} onChange={event => set({ archived: event.target.checked })} />Показать архивные</label></div>
+    <label className={`${w.field} ${s.listFilter}`}>Вид<select value={value.kind} onChange={event => set({ kind: event.target.value as LibraryFilter["kind"] })}><option value="">Личные и командные</option><option value="personal">Личные</option><option value="team">Командные</option></select></label>
+    <div className={`${w.field} ${w.checkField} ${s.archivedFilter}`}><label className={w.check}><input type="checkbox" checked={value.archived} onChange={event => set({ archived: event.target.checked })} />Показать архивные</label></div>
   </div>;
 }
 

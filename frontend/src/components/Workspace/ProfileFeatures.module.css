@@ -35,6 +35,10 @@
 .library { display: grid; gap: 14px; }
 /* The library's filters take the list's gap, not a page's margin. */
 .library .libraryFilters { margin-bottom: 0; }
+/* One even row (B4): each list is wide enough for its chosen words on one line, the checkbox keeps its own width. */
+.libraryFilters > .listFilter { flex: 1 1 200px; }
+.libraryFilters > .archivedFilter { flex: none; min-width: 0; }
+.libraryFilters select { white-space: nowrap; text-overflow: ellipsis; }
 /* A template card's author and last editor: small words before each person's chip. */
 .authorship { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0; font-size: 13px; color: var(--on-surface-variant); }
 @media (max-width: 768px) { .roles { grid-template-columns: minmax(0, 1fr); } }
