@@ -8,7 +8,8 @@ import { createFixtures, type MockRole } from "../../mocks/fixtures";
 import { installMockTransport } from "../../mocks/transport";
 import { taskQueuesApi } from "../../utils/api/taskQueues.api";
 import { tasksApi } from "../../utils/api/tasks.api";
-import type { TaskQueueAccessRequest } from "../../utils/api/contract";
+import type { TaskQueueAccessRequest, TaskQueueCreation } from "../../utils/api/contract";
+import { queueCreationNotice, queueCreationShort } from "./queuePlace";
 import { ApiError } from "../../utils/api/request";
 import { mountWorkspace, waitForPage, change, submit } from "../../test/workspace";
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
@@ -27,24 +28,67 @@ it("shows a locked queue in the directory without its owner or scope", async () 
   // Nor its team or season (owner 2026-11-08, В8).
   expect(card.textContent).toContain("Скрыта");expect(card.textContent).not.toContain("Лекции и встречи");expect(card.textContent).not.toContain("Осень и зима 2026");expect(card.querySelector('a[href^="/seasons/"]')).toBeNull();
 });
-it("shows a queue's team and its event season in the directory and on the queue page (owner 2026-11-08, В8)", async () => {
+it("shows a queue's team and its season with its state in the directory and beside the queue's title (owner 2026-11-08, В8, variant В)", async () => {
   transport = installMockTransport("leader", { delay: 0 });
   await mount("/tasks/queues");
-  const row = page!.container.querySelector<HTMLAnchorElement>('a[href="/tasks/queues/queue-tasks"]')!.closest("tr")!;
-  expect(row.textContent).toContain("Лекции и встречи");expect(row.querySelector('a[href="/seasons/season-1"]')?.textContent).toBe("Осень и зима 2026");
+  const row = page!.container.querySelector<HTMLAnchorElement>('a[href="/tasks/queues/queue-tasks"]')!.closest("tr")!, pill = row.querySelector<HTMLAnchorElement>('a[href="/seasons/season-1"]')!;
+  expect(row.textContent).toContain("Лекции и встречи");expect(pill.textContent).toBe("Осень и зима 2026 · открыт");expect(pill.dataset.state).toBe("open");expect(pill.title).toBe("Сезон «Осень и зима 2026» открыт");
   const block = page!.container.querySelector<HTMLAnchorElement>(`a[href="/tasks/queues/queue-${transport.state.blocks[0].block_id}"]`)!.closest("tr")!;
   expect(block.textContent).toContain(transport.state.blocks[0].name);expect(block.querySelector('a[href^="/seasons/"]')).toBeNull();
   await page!.cleanup();
   await mount("/tasks/queues/queue-tasks");
-  const header = page!.container.querySelector("header")!;
-  expect(header.textContent).toContain("Команда");expect(header.textContent).toContain("Лекции и встречи");expect(header.querySelector('a[href="/seasons/season-1"]')?.textContent).toBe("Осень и зима 2026");
-  expect(page!.container.querySelector('a[title="Создать задачу"]')).not.toBeNull();expect(page!.container.textContent).not.toContain("создать нельзя");
+  const header = page!.container.querySelector("header")!, title = header.querySelector("h1")!;
+  // The team and the season stand in the title's row; the old «Команда» and «Сезон» captions are gone.
+  expect(title.textContent).toBe("Задачи встречи");expect(title.parentElement!.textContent).toMatch(/^Задачи встречи.*Лекции и встречи.*Осень и зима 2026 · открыт$/);
+  expect(title.parentElement!.querySelector<HTMLAnchorElement>('a[href="/seasons/season-1"]')?.dataset.state).toBe("open");expect(header.textContent).not.toContain("Сезон");
+  expect(page!.container.querySelector('a[title="Создать задачу"]')).not.toBeNull();expect(page!.container.querySelector('button[aria-disabled="true"]')).toBeNull();expect(page!.container.textContent).not.toContain("не создаются");
+  await page!.cleanup();
+  // A block queue shows its team only.
+  await mount(`/tasks/queues/queue-${transport.state.blocks[0].block_id}`);
+  const blockTitle = page!.container.querySelector("header h1")!;
+  expect(blockTitle.parentElement!.textContent).toContain(transport.state.blocks[0].name);expect(page!.container.querySelector('header a[href^="/seasons/"]')).toBeNull();expect(page!.container.querySelector('a[title="Создать задачу"]')).not.toBeNull();
 });
-it.each([["closed", "Сезон «Осень и зима 2026» закрыт — новые задачи в этой очереди создать нельзя.", "Осень и зима 2026 · закрыт"], ["summarizing", "Сезон «Осень и зима 2026» подводит итоги — новые задачи в этой очереди создать нельзя.", "Осень и зима 2026 · подводит итоги"]] as const)("a queue whose event season is %s explains that it takes no task and offers no «Создать задачу»", async (state, notice, chip) => {
+it.each([
+  ["closed", "Сезон «Осень и зима 2026» закрыт — новые задачи в этой очереди создать нельзя.", "Осень и зима 2026 · закрыт", "Сезон закрыт: новые задачи не создаются"],
+  ["summarizing", "Сезон «Осень и зима 2026» подводит итоги — новые задачи в этой очереди создать нельзя.", "Осень и зима 2026 · подводит итоги", "Сезон подводит итоги: новые задачи не создаются"],
+] as const)("a queue whose event season is %s keeps «Создать задачу» disabled with its reason for mouse, keyboard, touch and screen readers", async (state, reason, pill, note) => {
   transport = installMockTransport("leader", { delay: 0 });transport.state.seasons.find(season => season.season_id === "season-1")!.state = state;
+  function Location() { return <output data-location>{useLocation().pathname}</output>; }
+  page = await mountWorkspace(<><Routes><Route path="/tasks/queues/:id" element={<TaskQueuePage />} /></Routes><Location /></>, { path: "/tasks/queues/queue-tasks", role: "leader" });await waitForPage(page);
+  const season = page.container.querySelector<HTMLAnchorElement>('header a[href="/seasons/season-1"]')!;
+  expect(season.textContent).toBe(pill);expect(season.dataset.state).toBe(state);expect(page.container.querySelector("h1")?.textContent).toBe("Задачи встречи");
+  // No banner and no working link: the button stays in place, disabled.
+  expect([...page.container.querySelectorAll('[role="status"]')].some(node => node.textContent === reason)).toBe(false);expect(page.container.querySelector('a[title="Создать задачу"]')).toBeNull();
+  const create = button("Создать задачу");
+  expect(create.getAttribute("aria-disabled")).toBe("true");expect(create.disabled).toBe(false);
+  expect(document.getElementById(create.getAttribute("aria-describedby")!)?.textContent).toBe(reason);
+  const short = [...page.container.querySelectorAll<HTMLElement>('[aria-hidden="true"]')].find(node => node.textContent === note);
+  expect(short).toBeDefined();expect(create.closest("[data-row-action]")!.nextElementSibling!.nextElementSibling).toBe(short);
+  expect(document.querySelector('[role="tooltip"]')).toBeNull();
+  // A click or a tap only focuses it, which opens the full reason; nothing is created or opened.
+  await act(async () => create.click());await waitForPage(page);
+  expect(document.activeElement).toBe(create);expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(reason);
+  expect(page.container.querySelector("[data-location]")?.textContent).toBe("/tasks/queues/queue-tasks");
+  await act(async () => create.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));expect(document.querySelector('[role="tooltip"]')).toBeNull();
+  // Keyboard focus opens it too.
+  await act(async () => create.blur());await act(async () => create.focus());expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(reason);
+});
+it("names each refusal briefly beside the button and fully in its hint", () => {
+  const queue = (reason: TaskQueueCreation["reason"]) => ({ season: { season_id: "s", title: "Весна 2026", state: "closed" as const }, task_creation: { available: false, reason } });
+  expect(queueCreationShort(queue("season_closed"))).toBe("Сезон закрыт: новые задачи не создаются");
+  expect(queueCreationShort(queue("season_summarizing"))).toBe("Сезон подводит итоги: новые задачи не создаются");
+  expect(queueCreationShort(queue("no_open_season"))).toBe("Нет открытого сезона: новые задачи не создаются");
+  expect(queueCreationShort(queue("no_season"))).toBe("Нет сезона: новые задачи не создаются");
+  expect(queueCreationShort(queue("team_missing"))).toBe("Команда недоступна: новые задачи не создаются");
+  expect(queueCreationShort(queue(null))).toBe("Новые задачи сейчас не создаются");
+  expect(queueCreationNotice(queue("season_closed"))).toBe("Сезон «Весна 2026» закрыт — новые задачи в этой очереди создать нельзя.");
+});
+it("a reader who may not create tasks in a closed season's queue sees no create button and no reason", async () => {
+  transport = installMockTransport("leader", { delay: 0 });transport.state.seasons.find(season => season.season_id === "season-1")!.state = "closed";
+  vi.spyOn(taskQueuesApi, "get").mockImplementation(async id => { const queue = (await taskQueuesApi.catalog()).items.find(item => item.queue_id === id)!;return { ...queue, capabilities: queue.capabilities.filter(capability => capability !== "create_task") }; });
   await mount("/tasks/queues/queue-tasks");
-  expect(page!.container.querySelector('[role="status"]')?.textContent).toBe(notice);expect(page!.container.querySelector('a[href="/seasons/season-1"]')?.textContent).toBe(chip);
-  expect(page!.container.querySelector('a[title="Создать задачу"]')).toBeNull();expect(page!.container.querySelector("h1")?.textContent).toBe("Задачи встречи");
+  expect(page!.container.querySelector("h1")?.textContent).toBe("Задачи встречи");expect(page!.container.querySelector('header a[href="/seasons/season-1"]')?.textContent).toBe("Осень и зима 2026 · закрыт");
+  expect([...page!.container.querySelectorAll("a, button")].some(node => node.textContent?.includes("Создать задачу"))).toBe(false);expect(page!.container.textContent).not.toContain("не создаются");
 });
 it("a locked service queue without an access request is plain text in the directory and explains itself", async () => {
   transport = installMockTransport("organizer", { delay: 0 });transport.state.queues[0].is_private = true;

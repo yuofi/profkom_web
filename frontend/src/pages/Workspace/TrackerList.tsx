@@ -2,7 +2,7 @@ import { TaskClassificationMenu } from "./TaskClassificationMenu";
 import { TrackerHomeLink } from "../../components/Workspace/TrackerHomeLink";
 import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
 import { EntityPicker } from "../../components/Workspace/EntityPicker";
-import { useEffect, useRef, useState, type MouseEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type MouseEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useDebouncedValue } from "../../utils/hooks/useDebouncedValue";
@@ -27,7 +27,8 @@ import { taskTypeNames, taskPriorityNames } from "./trackerPlanning";
 import { trackerTaskRead } from "./trackerTaskRead";
 import { UserChip } from "../../components/Workspace/UserChip";
 import { publicStatusNames as statusNames } from "./trackerStatus";
-import { queueTakesTasks } from "./queuePlace";
+import { queueCreationNotice, queueCreationShort, queueTakesTasks } from "./queuePlace";
+import { HoverCard } from "../../components/Workspace/HoverCard";
 import w from "../../components/Workspace/Workspace.module.css";
 import s from "./TrackerList.module.css";
 
@@ -173,6 +174,8 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
   if (filters.unfinished === "true") active.push({ key: "unfinished", label: "Незавершённые" });
   if (filters.overdue === "true") active.push({ key: "overdue", label: "Просроченные" });
   const atDefaults = !queue && [...params.keys()].every(key => !selectionKeys.includes(key) || defaultKeys.includes(key)) && filters.unfinished === "true" && (currentSeasonFilter || !currentSeason.data && !filters.season_id);
+  // A queue that takes no new task now keeps «Создать задачу» in place, disabled, with its reason (owner 2026-11-08, В8).
+  const refusal = queue && can(queue, "create_task") && !queueTakesTasks(queue) ? queueCreationNotice(queue) : null;
   return <section className={s.page}>
     {header ?? <BrandedHeader className={s.header}>
       <div><TrackerHomeLink /><h1 className={w.title}>Задачи</h1><p className={w.description}>Одна совместная работа — одна задача и общий статус.</p></div>
@@ -180,6 +183,7 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
     </BrandedHeader>}
     <div className={s.topbar}>
       <label className={s.search}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg><input type="search" aria-label="Поиск задач" placeholder="Название или ключ" value={filters.q} onChange={(event) => update("q", event.target.value, true)} /></label>
+      {queue && refusal && <RefusedCreate queue={queue} reason={refusal} />}
       {(queue ? can(queue, "create_task") && queueTakesTasks(queue) : canCreateInScope || ((!createAccess.error || canRetainData(createAccess.error)) && createAccess.data?.can_create_task === true)) && <Link className={w.linkButton} to={getTaskCreateRoute({ queueId: queue?.queue_id, ...(scope ? { scope } : {}) })} title="Создать задачу"><Glyph name="add" /><span className={s.toolLabel}>Создать задачу</span></Link>}
       <div className={s.views} aria-label="Представление задач">
         {([["list", "Список"], ["calendar", "Календарь"], ["gantt", "Гантт"]] as const).map(([key, label]) => <button key={key} type="button" aria-pressed={view === key} onClick={() => update("view", key === "list" ? "" : key)}>{label}</button>)}
@@ -231,6 +235,19 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
     </footer>}
 
   </section>;
+}
+/** «Создать задачу» of a queue that takes no new task now (owner 2026-11-08, В8, variant В): disabled in place with a
+ *  few words beside it; the full reason opens on hover, keyboard focus or a tap and is the button's description. */
+function RefusedCreate({ queue, reason }: { queue: TaskQueue; reason: string }) {
+  const described = useId();
+  return <>
+    <HoverCard className={s.refusedAnchor} delay={150} content={() => <p className={s.refusedTip}>{reason}</p>}>
+      {/* A tap focuses the button, which opens the hint on a phone too; the click does nothing else. */}
+      <button type="button" className={`${w.linkButton} ${s.refusedCreate}`} aria-disabled="true" aria-describedby={described} onClick={event => event.currentTarget.focus()}><Glyph name="add" /><span className={s.toolLabel}>Создать задачу</span></button>
+    </HoverCard>
+    <span id={described} hidden>{reason}</span>
+    <span className={s.refusedNote} aria-hidden="true">{queueCreationShort(queue)}</span>
+  </>;
 }
 /** One line per row (D-02): the first person stays visible, the rest are named in one accessible counter beside them;
  *  the task page lists everyone, and a tap on the counter opens it as the rest of the row does. */

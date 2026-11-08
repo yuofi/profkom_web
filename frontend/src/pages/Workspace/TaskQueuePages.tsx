@@ -14,17 +14,15 @@ import { useScopeMembers } from "../../components/Workspace/ScopeMembers";
 import { text, number } from "../../components/Workspace/formValues";
 import { Empty, QueryState, RouteLink } from "../../components/Workspace/WorkspaceUI";
 import { taskQueuesApi } from "../../utils/api/taskQueues.api";
-import type { ScopeRef, TaskQueue, TaskQueueAccessRequest, TaskQueueCatalog, UserRef } from "../../utils/api/contract";
+import type { ScopeRef, TaskQueue, TaskQueueAccessRequest, TaskQueueCatalog, TaskQueueSeason, UserRef } from "../../utils/api/contract";
 import { normalizeApiError } from "../../utils/api/request";
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { can } from "../../utils/session";
-import { getTaskQueueRoute, getTaskQueuesRoute } from "../../utils/routes";
+import { getSeasonRoute, getTaskQueueRoute, getTaskQueuesRoute } from "../../utils/routes";
 import { displayDate } from "../../utils/dates";
 import { TrackerListPage } from "./TrackerList";
 import { trackerTaskRead } from "./trackerTaskRead";
 import { prefetchRead } from "../../utils/routePrefetch";
-import { queueCreationNotice } from "./queuePlace";
-import { QueueSeasonChip } from "./QueueSeasonChip";
 import w from "../../components/Workspace/Workspace.module.css";
 import s from "./TaskQueuePages.module.css";
 
@@ -80,13 +78,25 @@ export function TaskQueuePage() {
 function QueuePlace({ queue }: { queue: TaskQueue }) {
   const team = queue.scope && queue.scope_title ? <TeamChip scope={queue.scope} title={queue.scope_title} />
     : queue.scope ? queue.scope_title === null && <span className={w.muted}>Команда недоступна</span> : <span className={w.muted}>Без команды</span>;
-  return <span className={s.place}>{team}{queue.season && <QueueSeasonChip season={queue.season} />}</span>;
+  return <span className={s.place}>{team}{queue.season && <SeasonPill season={queue.season} />}</span>;
+}
+const seasonStates: Record<TaskQueueSeason["state"], string> = { planned: "запланирован", open: "открыт", summarizing: "подводит итоги", closed: "закрыт" };
+/** The season with its state, coloured as on the seasons page, linking to the season (owner 2026-11-08, В8, variant В). */
+function SeasonPill({ season }: { season: TaskQueueSeason }) {
+  const state = seasonStates[season.state];
+  return <Link className={s.seasonPill} data-state={season.state} to={getSeasonRoute(season.season_id)} title={`Сезон «${season.title}» ${state}`}>
+    <span className={s.seasonText}>{season.title} <span className={s.seasonState}><span className={s.seasonSeparator}>· </span>{state}</span></span>
+  </Link>;
 }
 function LockIcon() { return <svg aria-hidden="true" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="5" y="10" width="14" height="11" rx="2" /><path d="M8 10V6a4 4 0 0 1 8 0v4" /><path d="M12 14v3" /></svg>; }
+/** The team and the season stand beside the title (owner 2026-11-08, В8, variant В); a queue that takes no task
+ *  now says so at its disabled «Создать задачу» in the list's toolbar. */
 function QueueHeader({ queue }: { queue: TaskQueue }) {
-  const notice = can(queue, "create_task") ? queueCreationNotice(queue) : null;
-  return <><BrandedHeader className={s.header}><div><TrackerHomeLink /><nav className={s.breadcrumbs} aria-label="Навигация очереди"><Link to={getTaskQueuesRoute()}>Очереди</Link><span aria-hidden="true">›</span><span>{queue.name}</span></nav><h1 className={w.title}>{queue.name}</h1><p><span className={s.key}>{queue.key}</span> · {queue.is_private ? "Закрытая очередь" : queue.scope ? "Для участников команды" : "Для всех активных пользователей"}</p>
-    <div className={s.facts}>{queue.scope && queue.scope_title !== undefined && <div className={s.owner}><small>Команда</small>{queue.scope_title ? <TeamChip scope={queue.scope} title={queue.scope_title} /> : <span>Команда недоступна</span>}</div>}{queue.season && <div className={s.owner}><small>Сезон</small><QueueSeasonChip season={queue.season} /></div>}{queue.owner && <Owner user={queue.owner} />}</div></div><RouteLink to="/tasks">Все задачи</RouteLink></BrandedHeader>{queue.owner_unavailable && <p role="status" className={w.warning}>Владелец очереди недоступен. Передача владения ожидает доступного руководителя.</p>}{notice && <p role="status" className={w.warning}>{notice}</p>}{can(queue, "manage_queue") && <details className={s.manage}><summary>Настройки очереди и доступ</summary><div className={s.manageBody}><QueueEditor queue={queue} /><QueueRequests queue={queue} /></div></details>}</>;
+  const team = queue.scope && queue.scope_title !== undefined ? queue.scope_title ? <TeamChip scope={queue.scope} title={queue.scope_title} /> : <span className={s.teamMissing}>Команда недоступна</span> : null;
+  return <><BrandedHeader className={s.header}><div><TrackerHomeLink /><nav className={s.breadcrumbs} aria-label="Навигация очереди"><Link to={getTaskQueuesRoute()}>Очереди</Link><span aria-hidden="true">›</span><span>{queue.name}</span></nav>
+    <div className={s.titleRow}><h1 className={w.title}>{queue.name}</h1>{(team || queue.season) && <span className={s.titleChips}>{team}{queue.season && <SeasonPill season={queue.season} />}</span>}</div>
+    <p><span className={s.key}>{queue.key}</span> · {queue.is_private ? "Закрытая очередь" : queue.scope ? "Для участников команды" : "Для всех активных пользователей"}</p>
+    {queue.owner && <div className={s.facts}><Owner user={queue.owner} /></div>}</div><RouteLink to="/tasks">Все задачи</RouteLink></BrandedHeader>{queue.owner_unavailable && <p role="status" className={w.warning}>Владелец очереди недоступен. Передача владения ожидает доступного руководителя.</p>}{can(queue, "manage_queue") && <details className={s.manage}><summary>Настройки очереди и доступ</summary><div className={s.manageBody}><QueueEditor queue={queue} /><QueueRequests queue={queue} /></div></details>}</>;
 }
 function Owner({ user }: { user: UserRef }) {
   return <div className={s.owner}><small>Владелец очереди</small><UserChip user={user} /></div>;
