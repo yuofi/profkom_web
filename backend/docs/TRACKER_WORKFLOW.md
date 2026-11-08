@@ -26,6 +26,12 @@ working status never acknowledges or overwrites private accounting.
 watcher role and sets `in_progress`. A direct status choice never self-assigns.
 Repeated satisfied commands are idempotent; stale revisions roll back.
 
+The site calls neither `take` nor `submit-result` (owner 2026-11-08, В6): there are no
+«Взять в работу» and «Сдать результат» buttons, support tickets included. A result is
+written in a comment; the task's «Результаты работы» section shows only results already
+submitted. Both endpoints and the `take_task`/`submit_task_result` capabilities remain
+for earlier clients and tests.
+
 A reader and an assignee have the same base public rights: read, change ordinary
 working status, submit a result, toggle checkmarks, edit any comment, self-join/watch.
 These roles alone do not authorize description, type, priority, planning or
@@ -90,15 +96,28 @@ source or stable chair work `chair`. Ordinary readers cannot create queues. Old
 unscoped queues are compatibility data, not a supported new source choice; explicit
 rebinding preserves history and never guesses source identity from personal names.
 
-A queue has an immutable unique uppercase ASCII-letter key; task numbers advance
-monotonically within it. Existing UUID URLs stay valid. Scope ACL and private-queue
+A queue has an immutable unique key `^[A-Z][A-Z0-9]{0,31}$`: an uppercase ASCII letter,
+then uppercase ASCII letters or digits (owner 2026-11-08, В9; the create form turns lower
+case into capitals, the server does not). `KKR` and `WEBSUPPORT` are reserved (409
+`control_queue_conflict` / `queue_key_conflict`). Task numbers advance monotonically
+within a queue. Existing UUID URLs stay valid. Scope ACL and private-queue
 owner/grant checks govern reading. An approved explicit queue grant works without
 ordinary team membership, and never grants private accounting/report authority.
 Chair/deputies and actual HR master/deputy read ordinary queues globally. The
 WEBSUPPORT queue and managed KKR controls have stricter dedicated gates.
 
+A queue has no season of its own (owner 2026-11-08, В8). A granted queue DTO (item and
+catalogue) carries its place: `scope_title` (the team), `season` `{season_id,title,state}`
+for event/subevent queues (the event's season) and a `task_creation` hint
+`{available,reason}` that repeats the `POST /tasks` rule: event/subevent while the event
+season is planned or open (`season_summarizing`, `season_closed`), block/chair while a
+season is open (`no_open_season`), legacy unscoped while one is planned or open
+(`no_season`), `team_missing` for a vanished scope. KKR and WEBSUPPORT get `null`. The
+hint is advice for the UI; `POST /tasks` still decides. The catalogue loads all places
+of a page in a fixed handful of queries.
+
 A locked catalogue entry exposes only safe ID/name/key and the viewer's own request
-state, not scope/owner/people/tasks/counts. Requests can be cancelled; the owner
+state, not scope/team/season/owner/people/tasks/counts. Requests can be cancelled; the owner
 approves/rejects or revokes. Replaying an old approval cannot restore a revoked grant.
 Session `access_revision` includes current role, ownership, privacy and grants.
 Ownership recovery is described in [QUEUE_OWNERSHIP](QUEUE_OWNERSHIP.md); GET never

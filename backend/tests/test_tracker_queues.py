@@ -64,8 +64,16 @@ def test_queue_keys_catalog_scope_creation_and_default_compatibility(client,work
     assert {x['task_id'] for x in r.json()['items']}=={t1['task_id'],t2['task_id']}
     body=dict(name='Повтор',key='TEST',scope=w['payload']['scope'],owner_user_id=w['master'].user_id)
     assert client.post('/api/task-queues',headers=w['master'].headers,json=body).status_code==409
-    for key in ('test','T1','ПРОФ','T-A',''):
-        assert client.post('/api/task-queues',headers=w['master'].headers,json={**body,'key':key}).status_code==422
+    # A Latin capital first, then capitals or digits (owner 2026-11-08, В9); 'Т1' starts with a Cyrillic Т.
+    for key in ('test','1T','T-1','\u04221','ПРОФ','T-A','T1a','','A'*33):
+        assert client.post('/api/task-queues',headers=w['master'].headers,json={**body,'key':key}).status_code==422,key
+    digits=client.post('/api/task-queues',headers=w['master'].headers,json={**body,'key':'T1'})
+    assert digits.status_code==200,digits.text
+    assert create_in(client,w,digits.json(),title='С цифрой в ключе')['task_key']=='T1-1'
+    assert client.post('/api/task-queues',headers=w['master'].headers,json={**body,'key':'Q2026'}).status_code==200
+    for key,code in (('KKR','control_queue_conflict'),('WEBSUPPORT','queue_key_conflict')):
+        reserved=client.post('/api/task-queues',headers=w['master'].headers,json={**body,'key':key})
+        assert (reserved.status_code,reserved.json()['detail']['code'])==(409,code),reserved.text
     assert client.patch('/api/task-queues/'+q['queue_id'],headers=w['master'].headers,json={'expected_revision':1,'key':'OTHER'}).status_code==422
     catalog=client.get('/api/task-queues',headers=w['master'].headers).json()
     assert any(x['id']==w['block']['block_id'] for x in catalog['create_scopes'])

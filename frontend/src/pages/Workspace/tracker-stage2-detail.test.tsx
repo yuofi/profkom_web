@@ -59,17 +59,30 @@ it("a denied relation search removes cached options",async()=>{
  page=await mountWorkspace(<TrackerParentSelector value="" onChange={()=>{}} label="Связанная задача"/>,{client});await act(async()=>page!.container.querySelector<HTMLInputElement>('[role="combobox"]')!.focus());await waitForPage(page);expect(page.container.textContent).toContain("Скрытый вариант");await act(async()=>{await client.invalidateQueries({queryKey:key});});await waitForPage(page);expect(page.container.querySelectorAll('[role="option"]')).toHaveLength(0);expect(page.container.textContent).not.toContain("Скрытый вариант");
 });
 
-it("Enter in a checklist item adds the next item instead of submitting, Backspace in an empty one removes it",async()=>{
+it("Enter in a checklist item adds the next item instead of submitting; Backspace only edits text",async()=>{
  const submitted=vi.fn();let latest:ChecklistDraft[]=[];
  function Wrapper(){const[items,setItems]=useState<ChecklistDraft[]>([{key:"a",text:"Первый",checked:false},{key:"b",text:"Третий",checked:false}]);latest=items;return <form onSubmit={event=>{event.preventDefault();submitted();}}><ChecklistDraftFields items={items} onChange={setItems}/></form>;}
  page=await mountWorkspace(<Wrapper/>);
  const press=async(field:HTMLInputElement,key:string)=>{let kept=true;await act(async()=>{kept=field.dispatchEvent(new KeyboardEvent("keydown",{key,bubbles:true,cancelable:true}));});return kept;};
  const first=page.container.querySelector<HTMLInputElement>('[aria-label="Пункт чеклиста 1"]')!;
  expect(await press(first,"Enter")).toBe(false);expect(submitted).not.toHaveBeenCalled();
- expect(latest.map(item=>item.text)).toEqual(["Первый","","Третий"]);expect(document.activeElement).toBe(page.container.querySelector('[aria-label="Пункт чеклиста 2"]'));
- expect(await press(document.activeElement as HTMLInputElement,"Backspace")).toBe(false);
- expect(latest.map(item=>item.text)).toEqual(["Первый","Третий"]);expect(document.activeElement).toBe(page.container.querySelector('[aria-label="Пункт чеклиста 1"]'));
- expect(await press(page.container.querySelector<HTMLInputElement>('[aria-label="Пункт чеклиста 1"]')!,"Backspace")).toBe(true);expect(latest).toHaveLength(2);
+ expect(latest.map(item=>item.text)).toEqual(["Первый","","Третий"]);const empty=page.container.querySelector<HTMLInputElement>('[aria-label="Пункт чеклиста 2"]')!;expect(document.activeElement).toBe(empty);
+ // Backspace in an empty item keeps it and its focus: the browser's own text editing is not prevented.
+ expect(await press(empty,"Backspace")).toBe(true);
+ expect(latest.map(item=>item.text)).toEqual(["Первый","","Третий"]);expect(document.activeElement).toBe(empty);
+ expect(await press(first,"Backspace")).toBe(true);expect(latest).toHaveLength(3);
+ // Only «×» removes an item.
+ await act(async()=>page!.container.querySelector<HTMLButtonElement>('[aria-label="Удалить пункт 2"]')!.click());
+ expect(latest.map(item=>item.text)).toEqual(["Первый","Третий"]);
+});
+it("held or repeated Backspace in an empty checklist item keeps it and leaves the previous item untouched",async()=>{
+ let latest:ChecklistDraft[]=[];const onChange=vi.fn();
+ function Wrapper(){const[items,setItems]=useState<ChecklistDraft[]>([{key:"a",text:"Первый",checked:true},{key:"b",text:"",checked:false}]);latest=items;return <ChecklistDraftFields items={items} onChange={next=>{onChange(next);setItems(next);}}/>;}
+ page=await mountWorkspace(<Wrapper/>);
+ const empty=page.container.querySelector<HTMLInputElement>('[aria-label="Пункт чеклиста 2"]')!;await act(async()=>empty.focus());
+ for(const repeat of [false,true,true,true,true])await act(async()=>{empty.dispatchEvent(new KeyboardEvent("keydown",{key:"Backspace",repeat,bubbles:true,cancelable:true}));});
+ expect(onChange).not.toHaveBeenCalled();expect(latest).toEqual([{key:"a",text:"Первый",checked:true},{key:"b",text:"",checked:false}]);
+ expect(document.activeElement).toBe(empty);expect(page.container.querySelector<HTMLInputElement>('[aria-label="Пункт чеклиста 1"]')!.value).toBe("Первый");
 });
 it("an empty checklist is one compact add action for its editor",async()=>{
  page=await mountWorkspace(<TrackerTaskChecklist task={{...task(),checklist:[]}}/>);

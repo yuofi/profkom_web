@@ -1,0 +1,4 @@
+/* The look of the status chip (TaskStatusMenu.module.css) at list size, without the menu affordances. */
+.badge { display:inline-flex;align-items:center;gap:5px;max-width:100%;min-width:0;box-sizing:border-box;padding:2px 8px;border:1px solid color-mix(in srgb,var(--tone,var(--primary)) 35%,transparent);border-radius:7px;background:color-mix(in srgb,var(--tone,var(--primary)) 14%,var(--surface-container-low));color:var(--tone,var(--on-surface));font-size:11px;font-weight:500;line-height:1.5;white-space:nowrap;vertical-align:middle; }
+.dot { display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--tone,var(--primary));flex:0 0 auto; }
+.label { min-width:0;overflow:hidden;text-overflow:ellipsis; }

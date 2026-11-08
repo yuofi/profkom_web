@@ -7,6 +7,7 @@ import { change, commentAction, field, mountWorkspace, submit, waitForPage } fro
 import { eventsApi } from "../../utils/api/events.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { tasksApi } from "../../utils/api/tasks.api";
+import { submitTaskResult } from "../../test/taskResults";
 import { taskQueuesApi } from "../../utils/api/taskQueues.api";
 import { emptyCriteria, richText, type TaskPublicStatus, type Task } from "../../utils/api/contract";
 import { TaskPage } from "./TaskPages";
@@ -32,7 +33,7 @@ async function submittedTasks(peopleCount: number, taskCount = 1) {
   const tasks: Task[] = [];
   for (let i = 0;i < taskCount;i++) tasks.push(await tasksApi.create({ season_id: season.season_id, scope: { kind: "subevent", id: sub.subevent_id }, title: `Задача для решения ${i}`, description: richText("Сдать общий результат"), deadline_at: new Date(Date.now() + 86400000).toISOString(), criteria: emptyCriteria(), assignees: people.map((person, index) => ({ user_id: person.user_id, hours: index + 2 })) }));
   await liveLogin(people[0].email);
-  for (const task of tasks) await tasksApi.submitResult(task.task_id, { expected_revision: task.revision, text: richText("Одна общая сдача"), links: [], file_ids: [] });
+  for (const task of tasks) await submitTaskResult(task.task_id, { expected_revision: task.revision, text: richText("Одна общая сдача"), links: [], file_ids: [] });
   const session = await liveLogin();return { tasks: await Promise.all(tasks.map(task => tasksApi.get(task.task_id))), session };
 }
 const taskActionsSettled = () => ![...page!.container.querySelectorAll<HTMLButtonElement>("button")].some(button => (button.disabled || button.getAttribute("aria-disabled") === "true") && (button.matches('[aria-haspopup="menu"][aria-label^="Статус задачи:"],[aria-label^="Убрать исполнителя:"]') || ["Стать исполнителем", "Наблюдать", "Перестать наблюдать", "Взять в работу", "Нужна помощь", "Сдать результат"].includes(button.textContent?.trim() ?? "")));

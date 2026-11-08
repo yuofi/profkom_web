@@ -112,7 +112,6 @@ function TaskContent({ task, assignmentId, accountingRequested=false, back }: { 
       {(copied || saved) && <p className={`${w.muted} ${s.headerNotice}`} role="status">{copied || saved}</p>}
       {manualLink && <label className={s.manualLink}>Скопируйте ссылку вручную<input readOnly value={manualLink} autoFocus onFocus={event => event.currentTarget.select()} onKeyDown={event => { if (event.key === "Escape") setManualLink(""); }} /></label>}
       {back && <Link className={s.backLink} to={back.to}>{back.label}</Link>}
-      <TaskStatusMenu task={task} variant="actions" onClosed={()=>setKkrOpen(true)} />
     </BrandedHeader>
     <div className={s.workspace}>
       <div className={s.main}>
@@ -240,7 +239,7 @@ function TaskPeopleParameters({ task }: { task: Task }) {
 }
 function TaskFilesEditor({ task, onClose, onSend, onSaved }: { task: Task; onClose: () => void; onSend?: () => void; onSaved?: () => void }) {
   const [files, setFiles] = useState<FileRef[]>(task.attachments ?? []), [uploading, setUploading] = useState(false), [busy, setBusy] = useState(false);const { refresh } = useWorkspaceActions(), save = useTaskFormCommand(task.task_id, onSend);
-  return <TrackerTaskDialog title="Файлы к постановке задачи" onClose={onClose} busy={busy || uploading}><p className={w.muted}>Эти файлы доступны читателям задачи после сохранения. Результат работы сдаётся отдельно.</p>
+  return <TrackerTaskDialog title="Файлы к постановке задачи" onClose={onClose} busy={busy || uploading}><p className={w.muted}>Эти файлы доступны читателям задачи после сохранения. Результат работы прикладывайте к комментарию.</p>
     <ActionForm fields={[]} revision={task.revision} record={`task:${task.task_id}`} onConflict={refresh} externalState={files} savedExternalState={task.attachments ?? []} externalBusy={uploading}
       onReplaceWithSaved={() => setFiles(task.attachments ?? [])} savedDetails={<div><p>Сохранённые вложения задачи:</p><Attachments files={task.attachments ?? []} /></div>} submitLabel="Сохранить вложения"
       onSubmit={async (_values, expectedRevision) => { setBusy(true);try { const saved = await save(expectedRevision!, expected => tasksApi.update(task.task_id, { expected_revision: expected, file_ids: files.map(file => file.file_id) }));onSaved?.();onClose();return saved; } finally { setBusy(false); } }}>
@@ -355,7 +354,8 @@ function TaskAttachments({ task, order, commentsQuery, onShowComment }: { task: 
   const submissions = [...sharedSubmissions(task)].sort((a, b) => (order === "newest" ? -1 : 1) * a.submitted_at.localeCompare(b.submitted_at));
   const comments=[...(commentsQuery.data?.items??[])].filter(comment=>comment.attachments?.length).sort((a,b)=>(order==="newest"?-1:1)*a.created_at.localeCompare(b.created_at));
   return <div className={s.attachmentSections}><section><h3>Файлы к постановке задачи</h3>{instructionFiles.length ? <Attachments files={instructionFiles} /> : <Empty>К задаче пока не прикреплены файлы.</Empty>}</section>
-    <section><h3>Результаты работы</h3>{!submissions.length && <Empty>Результат пока не отправлен.</Empty>}{submissions.map((submission, index) => <article className={s.submission} key={submission.submission_id}><header><strong>Сдача {order === "newest" ? submissions.length - index : index + 1}</strong><time dateTime={submission.submitted_at}>{displayDate(submission.submitted_at)}</time>{submission.submitted_by ? <PersonChip user={submission.submitted_by} /> : <span className={w.muted}>Автор не указан</span>}</header><MarkdownContent body={submission.text.body} />{submission.links.length > 0 && <ul>{submission.links.map(link => <li key={link}><a href={link} target="_blank" rel="noopener noreferrer">{link}</a></li>)}</ul>}<Attachments files={submission.files} /></article>)}</section>
+    {/* Results are written in comments now (owner 2026-11-08, В6): only results sent earlier keep this section. */}
+    {submissions.length > 0 && <section><h3>Результаты работы</h3>{submissions.map((submission, index) => <article className={s.submission} key={submission.submission_id}><header><strong>Сдача {order === "newest" ? submissions.length - index : index + 1}</strong><time dateTime={submission.submitted_at}>{displayDate(submission.submitted_at)}</time>{submission.submitted_by ? <PersonChip user={submission.submitted_by} /> : <span className={w.muted}>Автор не указан</span>}</header><MarkdownContent body={submission.text.body} />{submission.links.length > 0 && <ul>{submission.links.map(link => <li key={link}><a href={link} target="_blank" rel="noopener noreferrer">{link}</a></li>)}</ul>}<Attachments files={submission.files} /></article>)}</section>}
     <section aria-label="Файлы из комментариев"><h3>Файлы из комментариев</h3><QueryState loading={commentsQuery.isLoading} error={commentsQuery.error} keepDataOnError={!!commentsQuery.data}>{comments.length?comments.map(comment=><article className={s.submission} key={comment.comment_id}><header><PersonChip user={comment.author}/><time dateTime={comment.created_at}>{displayDate(comment.created_at)}</time><button type="button" className={s.subtleButton} onClick={()=>onShowComment(comment.comment_id)}>К комментарию</button></header><Attachments files={comment.attachments}/></article>):<Empty>В комментариях пока нет файлов.</Empty>}</QueryState></section>
   </div>;
 }

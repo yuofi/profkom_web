@@ -27,6 +27,7 @@ import { taskTypeNames, taskPriorityNames } from "./trackerPlanning";
 import { trackerTaskRead } from "./trackerTaskRead";
 import { UserChip } from "../../components/Workspace/UserChip";
 import { publicStatusNames as statusNames } from "./trackerStatus";
+import { queueTakesTasks } from "./queuePlace";
 import w from "../../components/Workspace/Workspace.module.css";
 import s from "./TrackerList.module.css";
 
@@ -179,7 +180,7 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
     </BrandedHeader>}
     <div className={s.topbar}>
       <label className={s.search}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg><input type="search" aria-label="Поиск задач" placeholder="Название или ключ" value={filters.q} onChange={(event) => update("q", event.target.value, true)} /></label>
-      {(queue ? can(queue, "create_task") : canCreateInScope || ((!createAccess.error || canRetainData(createAccess.error)) && createAccess.data?.can_create_task === true)) && <Link className={w.linkButton} to={getTaskCreateRoute({ queueId: queue?.queue_id, ...(scope ? { scope } : {}) })} title="Создать задачу"><Glyph name="add" /><span className={s.toolLabel}>Создать задачу</span></Link>}
+      {(queue ? can(queue, "create_task") && queueTakesTasks(queue) : canCreateInScope || ((!createAccess.error || canRetainData(createAccess.error)) && createAccess.data?.can_create_task === true)) && <Link className={w.linkButton} to={getTaskCreateRoute({ queueId: queue?.queue_id, ...(scope ? { scope } : {}) })} title="Создать задачу"><Glyph name="add" /><span className={s.toolLabel}>Создать задачу</span></Link>}
       <div className={s.views} aria-label="Представление задач">
         {([["list", "Список"], ["calendar", "Календарь"], ["gantt", "Гантт"]] as const).map(([key, label]) => <button key={key} type="button" aria-pressed={view === key} onClick={() => update("view", key === "list" ? "" : key)}>{label}</button>)}
       </div>
@@ -216,7 +217,7 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
             <td className={s.key} data-label="Ключ"><div className={s.keyRow}><div className={s.classificationControls}><TaskClassificationMenu task={task} field="task_type" iconOnly /><TaskClassificationMenu task={task} field="priority" iconOnly /></div><span className={s.keyName}><span className={s.keyText}>{task.task_key ?? "Задача"}</span><TrackerFavoriteButton task={task} compact /></span></div></td>
             <td className={s.taskTitle}><Link to={getTaskRoute(task.task_id)}>{task.title}</Link></td>
             <td className={s.assignees} data-label="Исполнители"><Assignees people={task.assignees ?? task.assignments.map((assignment) => assignment.assignee)} /></td>
-            <td className={s.status} data-label="Статус"><TaskStatusMenu task={task} variant="chip" onClosed={saved => { if (can(saved, "view_assessment_inputs")) navigate(`${getTaskRoute(saved.task_id)}?kkr=1`); }} /></td>
+            <td className={s.status} data-label="Статус"><TaskStatusMenu task={task} onClosed={saved => { if (can(saved, "view_assessment_inputs")) navigate(`${getTaskRoute(saved.task_id)}?kkr=1`); }} /></td>
             <td className={s.deadline} data-label="Дедлайн">{task.deadline_at ? <><span className={s.cellLabel}>Дедлайн: </span><ListDate value={task.deadline_at} label="Дедлайн" /></> : <span>Без дедлайна</span>}</td>
             {showScope && <td className={s.scope} data-label="Команда"><span title={task.scope_title ?? undefined}>{task.scope_title ?? (task.scope.kind === "block" ? "Блок" : task.scope.kind === "subevent" ? "Подмероприятие" : "Очередь")}</span></td>}
             <td className={s.updated} data-label="Обновлено">{task.updated_at ? <ListDate value={task.updated_at} label="Обновлено" /> : "Нет данных"}</td>

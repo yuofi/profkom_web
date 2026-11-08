@@ -5,6 +5,7 @@ import { HelmetProvider } from "react-helmet-async";
 import { afterEach, expect, it } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
 import { tasksApi } from "../../utils/api/tasks.api";
+import { submitTaskResult } from "../../test/taskResults";
 import { reportsApi } from "../../utils/api/reports.api";
 import { materialsApi } from "../../utils/api/materials.api";
 import { membershipApi } from "../../utils/api/membership.api";
@@ -55,12 +56,13 @@ it("keeps public submission/status separate from explicit private acceptance and
   mock = installMockTransport("leader", { delay: 0 });
   const task = await tasksApi.create({ season_id: "season-1", scope: { kind: "subevent", id: mock.state.subevents[0].subevent_id }, title: "Задача приёмки", description: richText("Описание"), deadline_at: "2026-10-25T12:00:00Z", criteria: emptyCriteria(), assignees: [{ user_id: mock.state.session.user_id, hours: 2 }, { user_id: 101, hours: 3 }] });
   const before = await Promise.all(task.assignments.map(item => tasksApi.assessment(item.assignment_id)));
+  // Results sent before the change stay (owner 2026-11-08, В6): the site itself sends no new ones.
+  const first = await submitTaskResult(task.task_id, { expected_revision: task.revision, text: richText("Первая сдача"), links: [], file_ids: [] });
+  await submitTaskResult(task.task_id, { expected_revision: first.revision, text: richText("Исправленная сдача"), links: [], file_ids: [] });
   page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TaskPage />} /></Routes>, { role: "leader", path: `/tasks/${task.task_id}` });await waitForPage(page);
+  expect([...page.container.querySelectorAll("button")].some(button => ["Взять в работу", "Сдать результат"].includes(button.textContent ?? ""))).toBe(false);
   const publicStatus = async (label: string) => { await act(async () => page!.container.querySelector<HTMLButtonElement>('button[aria-label^="Статус задачи:"]')!.click());await settle();await click(page!.container.querySelector('[role="menu"]')!, label);await waitForPage(page!); };
-  await click(page.container, "Взять в работу");await waitForPage(page);expect((await tasksApi.get(task.task_id)).status).toBe("in_progress");
-  await click(page.container, "Сдать результат");let submission = form(page.container.querySelector("dialog")!, "Отправить результат");await change(field(submission, "body"), "Первая сдача");await submit(submission);await waitForPage(page);
-  await publicStatus("В работе");let saved = await tasksApi.get(task.task_id);expect(saved.status).toBe("in_progress");expect(saved.submissions?.map(item => item.text.body)).toEqual(["Первая сдача"]);
-  await click(page.container, "Сдать результат");submission = form(page.container.querySelector("dialog")!, "Отправить результат");await change(field(submission, "body"), "Исправленная сдача");await submit(submission);await waitForPage(page);
+  await publicStatus("В работе");let saved = await tasksApi.get(task.task_id);expect(saved.status).toBe("in_progress");expect(saved.submissions?.map(item => item.text.body)).toEqual(["Первая сдача", "Исправленная сдача"]);
   await publicStatus("Закрыта");saved = await tasksApi.get(task.task_id);expect(saved.status).toBe("closed");expect(saved.submissions?.map(item => item.text.body)).toEqual(["Первая сдача", "Исправленная сдача"]);
   const publicOnly = await Promise.all(saved.assignments.map(item => tasksApi.assessment(item.assignment_id)));
   expect(publicOnly.map(item => [item.hours, item.evaluation, item.effective_completed_at, item.workflow_status, item.workflow_revision])).toEqual(before.map(item => [item.hours, item.evaluation, item.effective_completed_at, item.workflow_status, item.workflow_revision]));

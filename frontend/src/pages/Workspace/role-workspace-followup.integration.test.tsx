@@ -10,6 +10,7 @@ import { seasonsApi } from "../../utils/api/seasons.api";
 import { taskQueuesApi } from "../../utils/api/taskQueues.api";
 import { directoryApi } from "../../utils/api/directory.api";
 import { tasksApi } from "../../utils/api/tasks.api";
+import { submitTaskResult } from "../../test/taskResults";
 import { richText, type Task } from "../../utils/api/contract";
 import { moscowInput } from "../../utils/dates";
 import { SubeventPage } from "./EventPages";
@@ -46,7 +47,7 @@ it("an event head selects a child team's organizer, records private KKR and crea
   const createTask = vi.spyOn(tasksApi, "create");await submit(page.container.querySelector("form")!);await waitForPage(page);
   expect(page.container.querySelector('[role="alert"]')?.textContent).toBeUndefined();expect(createTask).toHaveBeenCalledTimes(1);
   let task = await api<Task>(() => createTask.mock.results[0].value as ReturnType<typeof tasksApi.create>);expect(task.queue?.queue_id).toBeTruthy();expect(task.scope).toMatchObject({ kind: "subevent", id: sub.subevent_id });expect(task.assignees?.map(user => user.user_id)).toEqual([organizer.user_id]);
-  await page.cleanup();page = undefined;await liveLogin(organizer.email);task = await tasksApi.get(task.task_id);await tasksApi.submitResult(task.task_id, { expected_revision: task.revision, text: richText("Выполненная работа организатора") });
+  await page.cleanup();page = undefined;await liveLogin(organizer.email);task = await tasksApi.get(task.task_id);await submitTaskResult(task.task_id, { expected_revision: task.revision, text: richText("Выполненная работа организатора") });
   session = await liveLogin(head.email);task = await tasksApi.get(task.task_id);task=await tasksApi.changeStatus(task.task_id,{expected_revision:task.revision,status:"closed"});const publicStatus = task.status;
   page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage />} /></Routes>, { path: `/tasks/${task.task_id}`, session });await waitForPage(page);
   await click(button(page.container,"Оценить работу"));const form=page.container.querySelector<HTMLFormElement>('dialog form:has(table)')!;

@@ -6,7 +6,7 @@
 .identity { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: 4px 8px; min-width: 0; }
 .key { font-size: 11px; font-weight: 600; color: var(--accent-lilac); max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
 .title { font-size: 14px; line-height: 1.35; font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.identity small { grid-column: 1 / -1; color: var(--on-surface-variant); font-size: 11px; }
+.identity .status { grid-column: 1 / -1; justify-self: start; }
 .deadline { font-size: 11px; line-height: 1.4; text-align: right; max-width: 105px; color: var(--on-surface-variant); }
 .overdue .deadline { color: var(--accent-rose); font-weight: 500; }
 .arrow { color: var(--on-surface-variant); font-size: 20px; }

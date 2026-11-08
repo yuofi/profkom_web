@@ -24,6 +24,27 @@ it("shows a locked queue in the directory without its owner or scope", async () 
   await mount("/tasks/queues?access=all", "organizer");
   const card = page!.container.querySelector<HTMLAnchorElement>('a[href="/tasks/queues/queue-tasks"]')!.closest('tr')!;
   expect(card.textContent).toContain("TASK");expect(card.textContent).toContain("Нет доступа");expect(card.textContent).not.toContain(transport.state.people[3].display_name);expect(card.querySelector("img")).toBeNull();
+  // Nor its team or season (owner 2026-11-08, В8).
+  expect(card.textContent).toContain("Скрыта");expect(card.textContent).not.toContain("Лекции и встречи");expect(card.textContent).not.toContain("Осень и зима 2026");expect(card.querySelector('a[href^="/seasons/"]')).toBeNull();
+});
+it("shows a queue's team and its event season in the directory and on the queue page (owner 2026-11-08, В8)", async () => {
+  transport = installMockTransport("leader", { delay: 0 });
+  await mount("/tasks/queues");
+  const row = page!.container.querySelector<HTMLAnchorElement>('a[href="/tasks/queues/queue-tasks"]')!.closest("tr")!;
+  expect(row.textContent).toContain("Лекции и встречи");expect(row.querySelector('a[href="/seasons/season-1"]')?.textContent).toBe("Осень и зима 2026");
+  const block = page!.container.querySelector<HTMLAnchorElement>(`a[href="/tasks/queues/queue-${transport.state.blocks[0].block_id}"]`)!.closest("tr")!;
+  expect(block.textContent).toContain(transport.state.blocks[0].name);expect(block.querySelector('a[href^="/seasons/"]')).toBeNull();
+  await page!.cleanup();
+  await mount("/tasks/queues/queue-tasks");
+  const header = page!.container.querySelector("header")!;
+  expect(header.textContent).toContain("Команда");expect(header.textContent).toContain("Лекции и встречи");expect(header.querySelector('a[href="/seasons/season-1"]')?.textContent).toBe("Осень и зима 2026");
+  expect(page!.container.querySelector('a[title="Создать задачу"]')).not.toBeNull();expect(page!.container.textContent).not.toContain("создать нельзя");
+});
+it.each([["closed", "Сезон «Осень и зима 2026» закрыт — новые задачи в этой очереди создать нельзя.", "Осень и зима 2026 · закрыт"], ["summarizing", "Сезон «Осень и зима 2026» подводит итоги — новые задачи в этой очереди создать нельзя.", "Осень и зима 2026 · подводит итоги"]] as const)("a queue whose event season is %s explains that it takes no task and offers no «Создать задачу»", async (state, notice, chip) => {
+  transport = installMockTransport("leader", { delay: 0 });transport.state.seasons.find(season => season.season_id === "season-1")!.state = state;
+  await mount("/tasks/queues/queue-tasks");
+  expect(page!.container.querySelector('[role="status"]')?.textContent).toBe(notice);expect(page!.container.querySelector('a[href="/seasons/season-1"]')?.textContent).toBe(chip);
+  expect(page!.container.querySelector('a[title="Создать задачу"]')).toBeNull();expect(page!.container.querySelector("h1")?.textContent).toBe("Задачи встречи");
 });
 it("a locked service queue without an access request is plain text in the directory and explains itself", async () => {
   transport = installMockTransport("organizer", { delay: 0 });transport.state.queues[0].is_private = true;
@@ -94,15 +115,33 @@ it("sends the owner's exact request revision and hides controls for participants
   expect(decide).toHaveBeenCalledWith("queue-tasks", "request-local", "approve", 4);expect(page!.container.textContent).toContain("Доступ одобрен");expect(button("Отозвать доступ")).toBeDefined();
   await page!.cleanup();page = undefined;transport.restore();transport = undefined;vi.restoreAllMocks();transport = installMockTransport("organizer", { delay: 0 });await mount("/tasks/queues/queue-tasks", "organizer");expect(page!.container.textContent).not.toContain("Настройки очереди и доступ");
 });
-it("validates an uppercase-only key before creating a named queue", async () => {
+it("validates a key of a leading Latin letter and capitals or digits, upper-cases it while typed, keeps service keys reserved", async () => {
   transport = installMockTransport("leader", { delay: 0 });await mount("/tasks/queues");await act(async () => button("Создать очередь").click());await waitForPage(page!);const create = vi.spyOn(taskQueuesApi, "create");
-  await change(page!.container.querySelector<HTMLInputElement>('input[name="name"]')!, "Веб-сайт");await change(page!.container.querySelector<HTMLInputElement>('input[name="key"]')!, "IT WEB-2");await submit(page!.container.querySelector<HTMLFormElement>('dialog form')!);await waitForPage(page!);
-  expect(create).not.toHaveBeenCalled();expect(page!.container.textContent).toContain("только заглавные английские буквы");
-  await change(page!.container.querySelector<HTMLInputElement>('input[name="key"]')!, "ITWEB");await submit(page!.container.querySelector<HTMLFormElement>('dialog form')!);await waitForPage(page!);
-  expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: "Веб-сайт", key: "ITWEB", is_private: false }));expect(page!.container.querySelector("h1")?.textContent).toBe("Веб-сайт");
+  const key = () => page!.container.querySelector<HTMLInputElement>('input[name="key"]')!, send = async () => { await submit(page!.container.querySelector<HTMLFormElement>('dialog form')!);await waitForPage(page!); };
+  expect(page!.container.textContent).toContain("Латинские заглавные буквы A–Z и цифры, первым символом — буква");
+  await change(page!.container.querySelector<HTMLInputElement>('input[name="name"]')!, "Веб-сайт");
+  // 'Т1' starts with a Cyrillic Т.
+  for (const wrong of ["IT WEB-2", "1TWEB", "T-1", "\u04221"]) {
+    await change(key(), wrong);await send();
+    expect(create).not.toHaveBeenCalled();expect(page!.container.textContent).toContain("Ключ начинается с латинской буквы и содержит только латинские буквы A–Z и цифры");
+  }
+  await change(key(), "kkr");expect(key().value).toBe("KKR");await send();
+  expect(create).not.toHaveBeenCalled();expect(page!.container.textContent).toContain("Ключ KKR зарезервирован для служебной очереди");
+  await change(key(), "it2web");expect(key().value).toBe("IT2WEB");await send();
+  expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: "Веб-сайт", key: "IT2WEB", is_private: false }));expect(page!.container.querySelector("h1")?.textContent).toBe("Веб-сайт");
   const wire = transport!.adapter.history.post.find(request => request.url?.endsWith("/task-queues"))!;
   const body = JSON.parse(wire.data);expect(body.scope).toEqual({ kind: "event", id: transport!.state.events[0].event_id });
-  expect(transport!.state.queues.find(q => q.key === "ITWEB")?.owner?.user_id).toBe(transport!.state.session.user_id);
+  expect(transport!.state.queues.find(q => q.key === "IT2WEB")?.owner?.user_id).toBe(transport!.state.session.user_id);
+});
+it("keeps the caret where a lower-case letter is typed inside the key", async () => {
+  transport = installMockTransport("leader", { delay: 0 });await mount("/tasks/queues");await act(async () => button("Создать очередь").click());await waitForPage(page!);
+  const key = page!.container.querySelector<HTMLInputElement>('input[name="key"]')!, setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+  await change(key, "ITWEB");
+  // What a browser leaves after «x» is typed between IT and WEB: the raw letter and the caret behind it.
+  await act(async () => { setValue.call(key, "ITxWEB");key.setSelectionRange(3, 3);key.dispatchEvent(new Event("input", { bubbles: true })); });
+  expect(key.value).toBe("ITXWEB");expect([key.selectionStart, key.selectionEnd]).toEqual([3, 3]);
+  await act(async () => { setValue.call(key, "ITXyWEB");key.setSelectionRange(4, 4);key.dispatchEvent(new Event("input", { bubbles: true })); });
+  expect(key.value).toBe("ITXYWEB");expect(key.selectionStart).toBe(4);
 });
 it("removes only the queue filter in the global task list", async () => {
   transport = installMockTransport("leader", { delay: 0 });const list = vi.spyOn(tasksApi, "listPage");await mount("/tasks?queue_id=queue-tasks&mine=true");
@@ -112,7 +151,7 @@ it("removes only the queue filter in the global task list", async () => {
 
 it("renders the requested queue columns while ordinary readers cannot create a queue", async () => {
   transport = installMockTransport("organizer", { delay: 0 });await mount("/tasks/queues", "organizer");
-  expect([...page!.container.querySelectorAll("thead th")].map(node => node.textContent)).toEqual(["Имя очереди", "Ключ очереди", "Владелец очереди"]);
+  expect([...page!.container.querySelectorAll("thead th")].map(node => node.textContent)).toEqual(["Имя очереди", "Ключ очереди", "Команда и сезон", "Владелец очереди"]);
   expect(page!.container.querySelector('tr a[href^="/contacts/"] img')).not.toBeNull();
   expect(button("Создать очередь")).toBeUndefined();expect(page!.container.querySelector("dialog")).toBeNull();
   await expect(taskQueuesApi.create({ name: "Своя очередь", key: "SELFQUEUE", scope: { kind: "block", id: transport!.state.blocks[0].block_id }, is_private: false })).rejects.toMatchObject({ status: 403 });

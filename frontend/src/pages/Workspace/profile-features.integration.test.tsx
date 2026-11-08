@@ -8,6 +8,7 @@ import { profileFeaturesApi } from "../../utils/api/profileFeatures.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { eventsApi } from "../../utils/api/events.api";
 import { tasksApi } from "../../utils/api/tasks.api";
+import { submitTaskResult } from "../../test/taskResults";
 import { taskQueuesApi } from "../../utils/api/taskQueues.api";
 import { richText, emptyCriteria } from "../../utils/api/contract";
 import { UserProvider } from "../../utils/ctx";
@@ -79,7 +80,7 @@ it("real template fills the assessment draft and persists only with the normal K
   let team = await eventsApi.createSubevent(event.event_id, { title: "Команда шаблонного оценивания", description: richText("") });
   team = await eventsApi.organizers(team.subevent_id, [worker.user_id], { expected_revision: team.revision });
   const task = await tasksApi.create({ season_id: active.season_id, scope: { kind: "subevent", id: team.subevent_id }, title: "Шаблонная оценка HTTP", description: richText("Сохранённое описание задачи"), deadline_at: new Date(Date.now() + 3600000).toISOString(), assignees: [{ user_id: worker.user_id, hours: 0 }] });
-  await liveLogin(worker.email);const current = await tasksApi.get(task.task_id);await tasksApi.submitResult(task.task_id, { expected_revision: current.revision, text: richText("Фактический результат") });
+  await liveLogin(worker.email);const current = await tasksApi.get(task.task_id);await submitTaskResult(task.task_id, { expected_revision: current.revision, text: richText("Фактический результат") });
   const session = await liveLogin();
   // KKR is filled after the author's closure (SE-12).
   await tasksApi.changeStatus(task.task_id, { expected_revision: (await tasksApi.get(task.task_id)).revision, status: "closed" });

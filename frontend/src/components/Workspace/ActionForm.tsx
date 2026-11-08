@@ -52,6 +52,8 @@ export interface Field {
   confirmRemoval?: boolean;
   /** Short fields of one group share a row (dates, hours and evaluation, yes/no criteria); a new group starts a new row. */
   compact?: string;
+  /** A plain text field rewrites what is typed, e.g. into capitals; the value stays editable as usual. */
+  normalize?: (value: string) => string;
 }
 type Refresh = () => unknown | Promise<unknown>;
 /**
@@ -508,7 +510,17 @@ export function ActionForm({
                     max={field.max}
                     step={field.type === "number" ? "any" : undefined}
                     value={String(form.values[field.name] ?? initialValues[field.name])}
-                    onChange={(e) => setValue(field, e.target.value)}
+                    autoCapitalize={field.normalize ? "characters" : undefined}
+                    onChange={(e) => {
+                      const input = e.target, value = field.normalize ? field.normalize(input.value) : input.value;
+                      if (value !== input.value) {
+                        // Rewritten here, React finds the DOM already equal to the state and leaves the caret where it was typed.
+                        const { selectionStart, selectionEnd } = input;
+                        input.value = value;
+                        if (selectionStart !== null && selectionEnd !== null) input.setSelectionRange(selectionStart, selectionEnd);
+                      }
+                      setValue(field, value);
+                    }}
                   />
                 )}
                 {field.hint && <small>{field.hint}</small>}

@@ -16,6 +16,7 @@ import { workspaceApi } from "../workspace.api";
 import { materialsApi } from "../materials.api";
 import { directoryApi } from "../directory.api";
 import { contactsApi } from "../contacts.api";
+import { submitTaskResult } from "../../../test/taskResults";
 let mock: ReturnType<typeof installMockTransport> | undefined;
 afterEach(() => {
   mock?.restore();
@@ -448,7 +449,7 @@ describe("API commands through mock transport", () => {
     const fixture = useMock("leader");
     const task = fixture.state.tasks[0];
     const a = task.assignments[0];
-    await tasksApi.submitResult(task.task_id, { expected_revision: task.revision, text: richText("Фактическая сдача"), links: [], file_ids: [] });
+    await submitTaskResult(task.task_id, { expected_revision: task.revision, text: richText("Фактическая сдача"), links: [], file_ids: [] });
     const publicRevision = task.revision;
     const initial = await tasksApi.assessment(a.assignment_id);
     const body = { expected_revision: initial.workflow_revision!, evaluation: 1, reason: "Лишнее поле" } as never;

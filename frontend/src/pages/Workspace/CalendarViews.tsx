@@ -10,7 +10,7 @@ import { toneStyle, type Tone } from "../../components/Workspace/sections";
 import { eventPeriod } from "./eventDates";
 import { calendarDayLayout, coversWholeDay, dayStart, type TimedCalendarItem } from "./calendarLayout";
 import { useNarrowScreen } from "./useNarrowScreen";
-import { statusNames } from "./trackerStatus";
+import { TaskStatusBadge } from "./TaskStatusBadge";
 import c from "./calendar.module.css";
 
 const KINDS: Record<CalendarItem["kind"], { label: string; tone: Tone }> = {
@@ -24,7 +24,7 @@ function CalendarPreview({ item, season }: { item: CalendarItem; season: string 
   return <div className={c.preview} style={toneStyle(KINDS[item.kind].tone)}>
     <small className={c.previewKind}>{KINDS[item.kind].label}{item.task_key ? ` · ${item.task_key}` : ""}</small>
     <h3>{route ? <Link to={route}>{item.title}</Link> : item.title}</h3><p>{eventPeriod(item)}</p>
-    {item.status && <p>{statusNames[item.status]}</p>}
+    {item.status && <p><TaskStatusBadge status={item.status} /></p>}
     <InteractiveChip kind="link" to={getSeasonRoute(item.season_id)} className={c.seasonChip}
       label={<span className={c.seasonLabel}><span className={c.seasonPrefix}>Сезон:</span><span className={c.seasonName}>{season}</span></span>}
       title={`Сезон: ${season}`} ariaLabel={`Открыть сезон: ${season}`}

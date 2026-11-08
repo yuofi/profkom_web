@@ -476,6 +476,8 @@ def _letters(number):
 
 
 PLACEHOLDER_QUEUE_NAME='Задачи команды Команда'
+# A Latin capital first, then capitals or digits; lower case is not folded here (owner 2026-11-08, В9).
+QUEUE_KEY='[A-Z][A-Z0-9]{0,31}'
 
 
 def _scope_title(session, kind, scope_id):
@@ -483,6 +485,58 @@ def _scope_title(session, kind, scope_id):
     model={'block':BlockORM,'event':EventORM,'subevent':SubeventORM}.get(kind)
     obj=session.get(model,scope_id) if model else None
     return (obj.name if kind=='block' else obj.title) if obj else 'Команда'
+
+
+CHAIR_SCOPE_TITLE='Работа председателя'
+
+
+def queue_bindings(session, queues):
+    """queue_id -> the queue's team, its event season and whether a task can be created now.
+
+    A queue has no season of its own (owner 2026-11-08, В8). An event or subevent queue
+    shows its event's season and takes new tasks while that season is planned or open;
+    block and chair queues take them in an open season, legacy independent ones in a
+    planned or open one, as database.create_task decides. Service queues (KKR, support)
+    are left to the caller. A fixed handful of reads for any number of queues.
+    """
+    from database import SeasonORM
+    queues=[queue for queue in queues if queue is not None]
+    if not queues:return {}
+    ids={}
+    for queue in queues:ids.setdefault(queue.scope_kind,set()).add(queue.scope_id)
+    seasons={row.season_id:row for row in session.query(SeasonORM.season_id,SeasonORM.title,SeasonORM.state)}
+    states={row.state for row in seasons.values()}
+    subevents={row.subevent_id:row for row in session.query(SubeventORM.subevent_id,SubeventORM.title,SubeventORM.event_id).filter(
+        SubeventORM.subevent_id.in_(sorted(ids['subevent'])))} if ids.get('subevent') else {}
+    event_ids=set(ids.get('event',()))|{row.event_id for row in subevents.values()}
+    events={row.event_id:row for row in session.query(EventORM.event_id,EventORM.title,EventORM.season_id).filter(
+        EventORM.event_id.in_(sorted(event_ids)))} if event_ids else {}
+    blocks={row.name for row in session.query(BlockORM.name).filter(BlockORM.name.in_(sorted(ids['block'])))} if ids.get('block') else set()
+    def creation(reason):return dict(available=reason is None,reason=reason)
+    result={}
+    for queue in queues:
+        kind,sid=queue.scope_kind,queue.scope_id
+        title,season,reason=None,None,None
+        if kind in ('event','subevent'):
+            sub=subevents.get(sid) if kind=='subevent' else None
+            event=events.get(sub.event_id if sub else sid) if kind=='event' or sub else None
+            title=(sub.title if sub else event.title if kind=='event' and event else None)
+            row=seasons.get(event.season_id) if event else None
+            if row:
+                season=dict(season_id=row.season_id,title=row.title,state=row.state)
+                reason=None if row.state in ('planned','open') else 'season_summarizing' if row.state=='summarizing' else 'season_closed'
+            else:reason='team_missing'
+            if title is None:reason='team_missing'
+        elif kind=='block':
+            title=sid if sid in blocks else None
+            reason='team_missing' if title is None else None if 'open' in states else 'no_open_season'
+        elif kind=='chair':
+            title=CHAIR_SCOPE_TITLE
+            reason=None if 'open' in states else 'no_open_season'
+        else:
+            reason=None if states&{'planned','open'} else 'no_season'
+        result[queue.queue_id]=dict(scope_title=title,season=season,task_creation=creation(reason))
+    return result
 
 
 def rename_placeholder_event_queues(session):
@@ -571,7 +625,7 @@ def _prime_catalog(session, queues, uid):
         prime_rows(session,"queue.self_request",(queue.queue_id,uid),[latest[queue.queue_id]] if queue.queue_id in latest else [])
 
 
-def projection(session, queue, uid, *, include_assignable=True):
+def projection(session, queue, uid, *, include_assignable=True, binding=None):
     import access
     granted=can_read(session,queue,uid)
     request=_self_request(session,queue,uid)
@@ -601,6 +655,10 @@ def projection(session, queue, uid, *, include_assignable=True):
         result.update(scope=None if queue.scope_kind=="queue" else scope_out(ScopeRef(kind=queue.scope_kind,id=queue.scope_id)),
             owner=asdict(owner) if owner else None,owner_unavailable=not owner_available(session,queue),
             is_private=queue.is_private,revision=queue.revision,created_at=queue.created_at)
+        # Only readers who see the scope see where the queue lives (owner 2026-11-08, В8).
+        place=dict(binding if binding is not None else queue_bindings(session,[queue])[queue.queue_id])
+        if managed_control or is_support_queue(session,queue):place['task_creation']=None
+        result.update(**place)
     return result
 
 
@@ -665,7 +723,8 @@ def catalog(uid,cursor=None):
                 if access.allowed(uid,'queue.create',kind,sid):
                     scopes.append(dict(**scope_out(ScopeRef(kind=kind,id=sid)),title=obj.name if kind=='block' else obj.title))
         priority={'chair':0,'event':1,'block':2,'subevent':3}
-        return dict(items=[projection(session,q,uid,include_assignable=False) for q in page.items],next_cursor=page.next_cursor,can_create_queue=active(session,uid) and bool(scopes),
+        places=queue_bindings(session,page.items)
+        return dict(items=[projection(session,q,uid,include_assignable=False,binding=places[q.queue_id]) for q in page.items],next_cursor=page.next_cursor,can_create_queue=active(session,uid) and bool(scopes),
             create_scopes=sorted(scopes,key=lambda s:(priority[s['kind']],s['title'],s['id'])))
 
 
@@ -692,8 +751,9 @@ def create(uid,name,key,scope=None,owner_user_id=None,is_private=False):
             if not scope_object:raise NotFound('Queue scope not found')
             if not db.can_view_scope(uid,kind,sid):raise Forbidden('Cannot create queue outside a readable scope')
         if not name.strip():raise InvalidInput('Queue name is required')
-        if not re.fullmatch('[A-Z]+',key):raise InvalidInput('Queue key must contain uppercase ASCII letters only')
+        if not re.fullmatch(QUEUE_KEY,key):raise InvalidInput('Queue key must start with an uppercase ASCII letter followed by uppercase ASCII letters or digits')
         if key=='KKR':raise Conflict('Queue key KKR is reserved for accounting control','control_queue_conflict')
+        if key=='WEBSUPPORT':raise Conflict('Queue key WEBSUPPORT is reserved for website support','queue_key_conflict')
         if session.query(TaskQueueORM).filter_by(key=key).first():raise Conflict('Queue key already exists','queue_key_conflict')
         q=TaskQueueORM(queue_id=qid,name=name.strip(),key=key,scope_kind=kind,scope_id=sid,
             owner_user_id=uid,is_private=is_private,is_default=False,next_task_number=1,revision=1,created_at=now())

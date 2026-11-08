@@ -491,6 +491,24 @@ export interface TaskQueue extends TaskQueueRef {
   revision?: number;
   created_at?: string | null;
   owner_unavailable?: boolean;
+  /** Readers who see `scope` also see where the queue lives (owner 2026-11-08, В8): the
+   *  team's title (null for an independent queue), the season of an event or subevent
+   *  queue (a queue has no season of its own) and whether a task can be created now. */
+  scope_title?: string | null;
+  season?: TaskQueueSeason | null;
+  /** Null for the service queues (KKR control, website support). */
+  task_creation?: TaskQueueCreation | null;
+}
+export interface TaskQueueSeason {
+  season_id: string;
+  title: string;
+  state: SeasonState;
+}
+/** The rule of POST /tasks: an event's season planned or open; for block and chair queues an
+ *  open season; for an independent queue a planned or open one. */
+export interface TaskQueueCreation {
+  available: boolean;
+  reason: "season_summarizing" | "season_closed" | "no_open_season" | "no_season" | "team_missing" | null;
 }
 export interface TaskQueueCatalog extends Page<TaskQueue> {
   can_create_queue?: boolean;
