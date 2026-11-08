@@ -1,17 +1,19 @@
 import { useId, useRef, useState, type MouseEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import type { Notification, NotificationDetails } from "../../utils/api/contract";
+import type { Notification } from "../../utils/api/contract";
 import { workspaceApi } from "../../utils/api/workspace.api";
 import { canRetainData } from "../../utils/api/request";
 import { userMessage } from "../../utils/api/messages";
 import { targetRoute } from "../../utils/routes";
-import { dayMonthTime, displayDate } from "../../utils/dates";
+import { displayDate } from "../../utils/dates";
 import { isWorkingSession, useSession } from "../../utils/session";
 import { useNotificationCommands } from "../../utils/hooks/useWorkspace";
 import { useConfirmedNavigation } from "./unsavedChangesHooks";
 import { AnchoredPopover } from "./AnchoredPopover";
 import { Glyph, QueryState } from "./WorkspaceUI";
+import { ServiceSignInFacts, ServiceSignInTitle } from "./ServiceSignIn";
+import { signInDetails } from "../../utils/serviceSignIn";
 import s from "./NotificationBell.module.css";
 
 const BELL_PAGE = 20;
@@ -69,8 +71,9 @@ export function NotificationBell() {
         }}>
           <QueryState loading={query.isLoading} error={query.error ?? (denied ? count.error : null)} keepDataOnError={!!query.data && !denied} retry={() => { void query.refetch();void count.refetch(); }}>
             {items.length ? <ul>{items.map(notification => {
-              const route = targetRoute(notification.target), signIn = SIGN_IN_KINDS.includes(notification.kind) && notification.details;
-              const content = signIn ? <ServiceSignIn kind={notification.kind} details={signIn} /> : <><span className={s.text}>{notification.text}</span><time dateTime={notification.created_at}>{displayDate(notification.created_at)}</time></>;
+              const route = targetRoute(notification.target), signIn = signInDetails(notification);
+              const content = signIn ? <><ServiceSignInTitle className={s.text} kind={notification.kind} details={signIn} /><ServiceSignInFacts className={s.signInFacts} kind={notification.kind} details={signIn} /></>
+                : <><span className={s.text}>{notification.text}</span><time dateTime={notification.created_at}>{displayDate(notification.created_at)}</time></>;
               return <li key={notification.id} data-notification-id={notification.id} data-unread={!notification.read_at}>
                 {route ? <Link to={route} className={s.notice} data-notification-entry onClick={event => follow(event, route, notification)} onAuxClick={event => { if (event.button === 1) { setOpen(false);void read(notification); } }}>{content}</Link> : <div className={s.notice}>{content}{notification.kind === "access_revoked" && <small>Источник больше недоступен</small>}</div>}
                 {!notification.read_at && <button type="button" className={s.markRead} data-notification-entry={route ? undefined : true} aria-label={`Отметить прочитанным: ${notification.text}`} title="Отметить прочитанным" onClick={event => { if (document.activeElement === event.currentTarget) list.current?.focus();void read(notification, true); }}><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg></button>}
@@ -81,21 +84,5 @@ export function NotificationBell() {
         <Link className={s.all} to="/notifications" onClick={event => follow(event, "/notifications")}>Все уведомления <span aria-hidden="true">→</span></Link>
       </div>
     </AnchoredPopover>
-  </>;
-}
-
-const SIGN_IN_KINDS = ["service_login", "service_login_failed"];
-/** A service-account sign-in (owner 2026-11-08, item 25, variant Б): a title with its icon over a muted line of
- *  when, from which IP and in which browser; failed attempts in a row take the danger colour and their number. */
-function ServiceSignIn({ kind, details }: { kind: string; details: NotificationDetails }) {
-  const failed = kind === "service_login_failed", moment = dayMonthTime(details.at);
-  return <>
-    <span className={`${s.text} ${s.signInTitle}`} data-failed={failed || undefined}>
-      <Glyph name={failed ? "error" : "security"} className={s.signInIcon} />
-      {failed ? `Неудачные попытки входа в сервисный аккаунт${details.failures ? ` · ${details.failures} подряд` : ""}` : "Вход в сервисный аккаунт"}
-    </span>
-    <span className={s.signInFacts}>
-      {failed && "последняя "}{moment ? <time dateTime={details.at!}>{moment}</time> : "время неизвестно"} · IP {details.ip ?? "неизвестен"} · {details.browser ?? "неизвестный браузер"}
-    </span>
   </>;
 }

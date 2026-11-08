@@ -1,0 +1,6 @@
+/* A service-account sign-in notice (owner 2026-11-08, item 25, variant Б); the icon follows the size of its title. */
+.title .icon { font-size: 1.3em; vertical-align: -0.25em; margin-right: 0.45em; }
+.title[data-failed] { color: var(--error-container); }
+/* The facts take the muted colour and size of the date they stand in for (NotificationBell, the page's row). */
+.facts { overflow-wrap: anywhere; }
+.facts time { font: inherit; color: inherit; }

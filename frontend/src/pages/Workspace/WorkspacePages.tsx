@@ -40,6 +40,8 @@ import { can, useSession } from "../../utils/session";
 import { canRetainData } from "../../utils/api/request";
 import { useDebouncedValue } from "../../utils/hooks/useDebouncedValue";
 import { useConfirmedNavigation } from "../../components/Workspace/unsavedChangesHooks";
+import { ServiceSignInFacts, ServiceSignInTitle } from "../../components/Workspace/ServiceSignIn";
+import { signInDetails } from "../../utils/serviceSignIn";
 function useSeasons() {
   return useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
 }
@@ -240,7 +242,9 @@ export function NotificationsPage() {
       </div>
       <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!query.data} retry={() => { void query.refetch(); }}>
         {items.length > 0 && <ul ref={list} className={n.list}>{items.map(item => {
-          const route = targetRoute(item.target);
+          const route = targetRoute(item.target), signIn = signInDetails(item);
+          // A service-account sign-in reads as in the bell: its title, then its facts in place of the date (variant Б).
+          const text = signIn ? <ServiceSignInTitle kind={item.kind} details={signIn} /> : item.text;
           return <li key={item.id} className={n.row} data-unread={!item.read_at}>
             <div className={n.body}>
               {route ? <Link className={n.text} to={route}
@@ -252,8 +256,8 @@ export function NotificationsPage() {
                   navigate(route, done);
                 }}
                 onAuxClick={event => { if (event.button === 1 && !item.read_at) void read(item.id).catch(() => undefined); }}
-              >{item.text}</Link> : <span className={n.text} tabIndex={-1}>{item.text}</span>}
-              <small className={s.muted}><time dateTime={item.created_at}>{displayDate(item.created_at)}</time>{item.kind === "access_revoked" && " · Источник больше недоступен"}</small>
+              >{text}</Link> : <span className={n.text} tabIndex={-1}>{text}</span>}
+              <small className={s.muted}>{signIn ? <ServiceSignInFacts kind={item.kind} details={signIn} /> : <time dateTime={item.created_at}>{displayDate(item.created_at)}</time>}{item.kind === "access_revoked" && " · Источник больше недоступен"}</small>
             </div>
             {!item.read_at && <Badge tone="yellow">Новое</Badge>}
             {!item.read_at && <ActionForm fields={[]} submitLabel="Отметить прочитанным" variant="quiet" onSubmit={async () => { await read(item.id); }} />}

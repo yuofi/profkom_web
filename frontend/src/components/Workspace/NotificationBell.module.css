@@ -7,10 +7,6 @@
 .notice { flex:1;display:grid;gap:6px;min-width:0;padding:13px 11px;color:var(--on-surface);text-decoration:none!important;font-size:12px;line-height:1.45; }.notice:hover { background:var(--surface-container-highest); }.notice .text { overflow-wrap:anywhere; }.list li[data-unread=true] .text { font-weight:600; }.notice time,.notice small { color:var(--on-surface-variant);font-size:10px;line-height:1.45; }.notice small { opacity:.7; }
 .markRead { flex:0 0 32px;display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:7px;margin:10px 4px 0 0;border:0;border-radius:8px;background:transparent;color:var(--accent-peach);cursor:pointer; }.markRead:hover { background:var(--surface-container-highest);color:var(--primary); }.markRead svg { fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round; }
 .all { display:flex;justify-content:space-between;align-items:center;padding:7px 2px 1px;color:var(--primary);text-decoration:none;font-size:12px;border-top:1px solid var(--outline-variant); }.all:hover { text-decoration:underline; }.empty { margin:0;padding:24px 12px;text-align:center;font-size:13px;color:var(--on-surface-variant); }.error { margin:0;color:var(--error);font-size:12px;line-height:1.5; }
-/* A service-account sign-in (owner 2026-11-08, item 25, variant Б): a shield or a danger-coloured warning before the
-   title, then a muted line of its facts in place of the date. */
-.signInTitle .signInIcon { font-size:16px;vertical-align:-3px;margin-right:6px; }
-.signInTitle[data-failed] { color:var(--error-container); }
-.signInFacts { color:var(--on-surface-variant);opacity:.75;font-size:11px;line-height:1.45;overflow-wrap:anywhere; }
-.notice .signInFacts time { font-size:inherit;color:inherit; }
+/* A service-account sign-in's line of facts (ServiceSignIn) stands in place of the date, a little larger. */
+.signInFacts { color:var(--on-surface-variant);opacity:.75;font-size:11px;line-height:1.45; }.notice .signInFacts time { font-size:inherit;color:inherit; }
 @media(max-width:520px) { .bell { width:40px;height:40px;border-radius:12px; }.panel { padding:14px!important; }.list { max-height:49svh; }.notice { padding:12px 9px; } }

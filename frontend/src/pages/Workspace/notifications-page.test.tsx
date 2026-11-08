@@ -66,3 +66,28 @@ it("moves the focus to the text of a new row that has no link and no action (smo
   const css = readFileSync(`${__dirname}/Notifications.module.css`, "utf8");
   expect(css.match(/(?:^|\n)([^{}]*\.text:focus-visible[^{}]*)\{([^}]*)\}/)?.[2]).toMatch(/outline:\s*2px solid var\(--primary\);[\s\S]*outline-offset:\s*2px/);
 });
+it("lays a service-account sign-in out as in the bell: its title, then its facts in place of the date (owner 2026-11-08, variant Б)", async () => {
+  const year = new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", year: "numeric" }).format(Date.now());
+  const at = `${year}-11-08T02:42:00Z`, last = `${year}-11-08T02:51:00Z`;
+  mock = installMockTransport("chair", { delay: 0 });
+  mock.state.notifications = [
+    { id: "failed", kind: "service_login_failed", text: "Неудачные попытки входа в сервисный аккаунт (4 подряд): …", created_at: last, read_at: null, target: null,
+      details: { at: last, ip: "127.0.0.1", browser: "Firefox 132, Windows", failures: 4 } },
+    { id: "login", kind: "service_login", text: "Вход в сервисный аккаунт: …", created_at: at, read_at: "2026-11-08T03:00:00Z", target: null,
+      details: { at, ip: "127.0.0.1", browser: "Chrome 131, macOS", failures: null } },
+    { id: "older", kind: "service_login", text: "Вход в сервисный аккаунт: 01.11.2026 10:00 МСК, IP 10.0.0.1, Safari 18, macOS", created_at: `${year}-11-01T07:00:00Z`, read_at: "2026-11-01T07:05:00Z", target: null, details: null },
+  ];
+  page = await mountWorkspace(<Routes><Route path="/notifications" element={<NotificationsPage />} /></Routes>, { path: "/notifications" });await waitForPage(page);
+  const [failed, login, older] = [...rows()];
+  const title = (row: Element) => row.querySelector<HTMLElement>('[tabindex="-1"] > span')!, facts = (row: Element) => row.querySelector("small")!;
+  expect(title(failed).textContent).toBe("Неудачные попытки входа в сервисный аккаунт · 4 подряд");expect(title(failed).hasAttribute("data-failed")).toBe(true);
+  expect(title(failed).querySelector('[data-icon="error"]')?.getAttribute("aria-hidden")).toBe("true");
+  expect(facts(failed).textContent).toBe("последняя 8\u00a0ноября, 05:51 · IP 127.0.0.1 · Firefox 132, Windows");expect(facts(failed).querySelector("time")?.getAttribute("dateTime")).toBe(last);
+  expect(title(login).textContent).toBe("Вход в сервисный аккаунт");expect(title(login).querySelector('[data-icon="security"]')).not.toBeNull();expect(title(login).hasAttribute("data-failed")).toBe(false);
+  expect(facts(login).textContent).toBe("8\u00a0ноября, 05:42 · IP 127.0.0.1 · Chrome 131, macOS");
+  // The date is said once, and the read controls stay as on any other notice.
+  expect(failed.textContent).not.toContain("г.,");expect(failed.textContent).toContain("Новое");expect(button("Отметить прочитанным")).toBeDefined();
+  // An older notice without facts reads as before.
+  expect(older.querySelector('[tabindex="-1"]')?.textContent).toBe("Вход в сервисный аккаунт: 01.11.2026 10:00 МСК, IP 10.0.0.1, Safari 18, macOS");
+  expect(older.querySelector("[data-failed], [data-icon]")).toBeNull();expect(facts(older).querySelector("time")?.getAttribute("dateTime")).toBe(`${year}-11-01T07:00:00Z`);
+});
