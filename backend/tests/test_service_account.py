@@ -115,7 +115,8 @@ def test_the_startup_step_makes_one_row_idempotently_and_resets_any_legacy_flag(
 
 def test_only_the_startup_step_marks_the_account(client, configured, make_user):
     person = make_user()
-    with pytest.raises(ValueError):
+    from errors import InvalidInput
+    with pytest.raises(InvalidInput):
         db.update_user(person.user_id, is_service=True)
     assert not db.get_user(person.user_id).is_service
     service_account.sync()

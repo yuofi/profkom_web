@@ -3138,7 +3138,7 @@ class Database:
                 return None
 
             if "is_service" in fields:
-                raise ValueError("The service account is made only by service_account.sync")
+                raise InvalidInput("The service account is made only by service_account.sync")
             if "blocks" in fields and fields["blocks"] is not None:
                 new_blocks = self._sync_blocks_for_user(session, user_id, fields["blocks"])
                 fields["blocks"] = new_blocks
