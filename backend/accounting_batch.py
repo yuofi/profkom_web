@@ -9,11 +9,13 @@ from validation import Command, hours as validate_hours, assessment
 from errors import InvalidInput, Forbidden, NotFound, revision_conflict, Conflict
 from auth import get_current_user
 from models import User
-from database import ContributionORM, db, TaskORM, TaskTrackerORM, SeasonORM, AssignmentORM, UserORM, _user_to_ref_dc, _recalculate_assignment_contribution
+from database import ContributionORM, db, TaskORM, TaskTrackerORM, SeasonORM, AssignmentORM, UserORM, _user_to_ref_dc, _recalculate_assignment_contribution, KKR_CRITERIA, criteria_flags
 from registration import audit, now
 import access
 
-CRITERIA = {'unique','creative','external_communication','in_person','fixed_time'}
+# The batch names every criterion of database.KKR_CRITERIA_TABLE. The criteria added on 2026-11-08
+# (urgent, monotonous, physical) may be omitted by a client that predates them and read as False.
+REQUIRED_CRITERIA = {'unique','creative','external_communication','in_person','fixed_time'}
 
 
 def _load(session, task_id, uid, write=False):
@@ -43,7 +45,7 @@ def projection(task_id, uid):
                 excluded=row.status=='cancelled',effective_completed_at=row.effective_completed_at,revision=row.inputs_revision,
                 is_current=row.assignment_id in current))
         return dict(task_id=task_id,public_revision=task.revision,revision=meta.assessment_revision,
-            criteria=json.loads(task.criteria_json),closed_at=meta.closed_at,season_closed=season.state=='closed',
+            criteria=criteria_flags(task.criteria_json),closed_at=meta.closed_at,season_closed=season.state=='closed',
             assigned_at=task.assigned_at,deadline_at=task.deadline_at,assignments=rows,
             capabilities=(['edit_assessment_inputs'] if editable else [])+(['edit_assessment_dates'] if access.allowed(uid,'task.dates.edit',task.scope_kind,task.scope_id,state=season.state) else []))
 
@@ -73,7 +75,8 @@ def save(task_id, payload, uid):
         rows={r.assignment_id:r for r in session.query(AssignmentORM).filter_by(task_id=task_id)}
         given=[r.assignment_id for r in payload.assignments]
         if len(set(given))!=len(given) or set(given)!=set(rows):raise revision_conflict('The task assignees changed; reload accounting')
-        if set(payload.criteria)!=CRITERIA:raise InvalidInput('Invalid criteria')
+        if not REQUIRED_CRITERIA<=set(payload.criteria)<=set(KKR_CRITERIA):raise InvalidInput('Invalid criteria')
+        criteria=criteria_flags(payload.criteria)
         reason=(payload.reason or '').strip()
         if season.state=='closed' and not reason:raise InvalidInput('A closed season correction requires a reason')
         reason=reason or 'Заполнение ККР закрытой задачи'
@@ -86,9 +89,10 @@ def save(task_id, payload, uid):
                 if value.hours is None or value.evaluation is None:raise InvalidInput('Hours and evaluation are required for every included assignee','missing_assessment')
                 assessment(value.evaluation,meta.closed_at or row.effective_completed_at)
         old_criteria=json.loads(task.criteria_json)
-        if old_criteria!=payload.criteria:
-            task.criteria_json=json.dumps(payload.criteria);meta.assessment_revision+=1
-            audit(session,'task',task_id,uid,reason,{'criteria':old_criteria},{'criteria':payload.criteria})
+        # A record saved without a later criterion equals the same choice with it unticked.
+        if criteria_flags(old_criteria)!=criteria:
+            task.criteria_json=json.dumps(criteria);meta.assessment_revision+=1
+            audit(session,'task',task_id,uid,reason,{'criteria':old_criteria},{'criteria':criteria})
         stamp=now()
         for value in payload.assignments:
             row=rows[value.assignment_id]
@@ -105,7 +109,7 @@ def save(task_id, payload, uid):
             if payload.template_selection:
                 from profile_features import capture_template_use
                 capture_template_use(session,uid,payload.template_selection,'assessment',row.assignment_id,
-                    dict(hours=row.hours,evaluation=row.evaluation,criteria=payload.criteria))
+                    dict(hours=row.hours,evaluation=row.evaluation,criteria=criteria))
         session.flush()
         if any(score is not None and not math.isfinite(score) for (score,) in session.query(ContributionORM.score).filter(ContributionORM.assignment_id.in_(rows))):
             raise InvalidInput("Accounting result must be finite")

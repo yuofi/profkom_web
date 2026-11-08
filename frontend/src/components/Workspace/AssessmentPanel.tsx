@@ -20,13 +20,7 @@ import s from "./Workspace.module.css";
 import { KkrTemplateTools } from "./KkrTemplateLibrary";
 import type { TemplateSelection } from "../../utils/api/profileFeatures.api";
 import { HistoryDisclosure } from "./HistoryPanel";
-const criteriaNames: Record<string, string> = {
-  unique: "Уникальная задача",
-  creative: "Творческий подход",
-  external_communication: "Общение вне вуза",
-  in_person: "Очное присутствие",
-  fixed_time: "Выполнение в определённое время",
-};
+import { criteriaKeys, criteriaLabels } from "../../utils/kkrCriteria";
 const accountingStates: Record<AssignmentStatus, { label: string; explanation: string }> = {
   assigned: { label: "Ожидает оценки", explanation: "Решение для ККР ещё не принято." },
   in_progress: { label: "Ожидает оценки", explanation: "Работа в процессе; решение для ККР ещё не принято." },
@@ -158,11 +152,11 @@ export function TaskInputsPanel({ task }: { task: Task }) {
               },
             ]
           : []),
-        ...Object.entries(criteriaNames).map(([name, label]) => ({
+        ...criteriaKeys.map((name) => ({
           name,
-          label,
+          label: criteriaLabels[name],
           type: "select" as const,
-          value: String(inputs.criteria[name as keyof typeof inputs.criteria]),
+          value: String(inputs.criteria[name]),
           options: [
             { value: "false", label: "Нет" },
             { value: "true", label: "Да" },
@@ -189,10 +183,10 @@ export function TaskInputsPanel({ task }: { task: Task }) {
         {inputs && !can(inputs, "edit_assessment_inputs") && (
           <>
             <ul>
-              {Object.entries(criteriaNames).map(([key, label]) => (
+              {criteriaKeys.map((key) => (
                 <li key={key}>
-                  {label}:{" "}
-                  {inputs.criteria[key as keyof typeof inputs.criteria]
+                  {criteriaLabels[key]}:{" "}
+                  {inputs.criteria[key]
                     ? "да"
                     : "нет"}
                 </li>
@@ -222,7 +216,7 @@ export function TaskInputsPanel({ task }: { task: Task }) {
                   criteria: {
                     ...emptyCriteria(),
                     ...Object.fromEntries(
-                      Object.keys(criteriaNames).map((k) => [
+                      criteriaKeys.map((k) => [
                         k,
                         text(v, k) === "true",
                       ]),

@@ -8,6 +8,7 @@ import { profileFeatureMock } from "./profileFeatures";
 import { broadcastMock } from "./broadcasts";
 import { botConsoleMock } from "./botConsole";
 import {
+  emptyCriteria,
   richText,
   type AssignmentStatus,
   type TaskPublicStatus,
@@ -1360,7 +1361,8 @@ export function installMockTransport(
         task_id: task.task_id,
         assigned_at: mockNow,
         deadline_at: task.deadline_at,
-        criteria: clone(data.criteria) as TaskInputs["criteria"],
+        // As on the server, a criterion the client did not name is false.
+        criteria: { ...emptyCriteria(), ...clone(data.criteria ?? {}) } as TaskInputs["criteria"],
         revision: 1,
         capabilities: inputsCaps(),
       });

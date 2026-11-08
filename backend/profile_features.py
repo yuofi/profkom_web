@@ -15,7 +15,7 @@ import access
 import bot_link
 from auth import get_current_user
 from database import (db, UserORM, BlockORM, EventORM, SubeventORM, RoleAssignmentORM,
-                      FileRecordORM, MeritORM, AssignmentORM, TaskORM, _roster_candidate)
+                      FileRecordORM, MeritORM, AssignmentORM, TaskORM, _roster_candidate, criteria_flags)
 from domain_models import MembershipORM, ScopeTenureORM, BlockMetaORM, ProfileMetadataORM, ObjectDeletionORM
 from models import User
 from registration import Revision, audit, fail, now, version
@@ -350,9 +350,14 @@ def delivery_event_allowed(session, event):
 
 
 class TemplateCriteria(Command):
+    """The KKR criteria in the order of database.KKR_CRITERIA_TABLE; a template saved before a
+    criterion existed lacks its key and reads it as False (template_values)."""
+    urgent: StrictBool = False
     unique: StrictBool = False
+    monotonous: StrictBool = False
     creative: StrictBool = False
     external_communication: StrictBool = False
+    physical: StrictBool = False
     in_person: StrictBool = False
     fixed_time: StrictBool = False
 
@@ -394,11 +399,18 @@ def template_access(row, actor):
     return row.owner_user_id == actor if row.visibility == "personal" else kkr_manager(actor, row.scope_kind, row.scope_id)
 
 
+def template_values(raw):
+    """Stored template values with every criterion: one the template was saved without is False."""
+    values = json.loads(raw)
+    values["criteria"] = criteria_flags(values.get("criteria"))
+    return values
+
+
 def template_dto(session, row):
     # The author and whoever saved the current revision; a removed account reads «Бывший участник».
     return dict(template_id=row.template_id, visibility=row.visibility,
         scope=scope_data(session, row.scope_kind, row.scope_id) if row.visibility == "team" else None,
-        values=json.loads(row.values_json), revision=row.revision, archived=row.archived,
+        values=template_values(row.values_json), revision=row.revision, archived=row.archived,
         author=user_ref(session, row.owner_user_id), updated_by=user_ref(session, row.updated_by_user_id))
 
 
@@ -750,4 +762,4 @@ def register_routes(router):
     def prepare_template(template_id: str, payload: Revision, cur: User = Depends(get_current_user)):
         with db._session() as s:
             row = selected_template(s, cur.user_id, dict(template_id=template_id, revision=payload.expected_revision))
-            return dict(selection=dict(template_id=row.template_id, revision=row.revision), values=json.loads(row.values_json))
+            return dict(selection=dict(template_id=row.template_id, revision=row.revision), values=template_values(row.values_json))

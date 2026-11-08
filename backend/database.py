@@ -108,6 +108,39 @@ def _sqlite_journal(dbapi_connection, _record):
 atexit.register(engine.dispose)
 
 
+# The eight KKR criteria of the owner's KKR table (2026-11-08, docs/decisions/2026-11-08-owner-edits.md):
+# key, label and multiplier, in the table's order and wording. The formula, the stored defaults, the
+# readers, the export and history read this table; the frontend names them the same
+# (frontend/src/utils/kkrCriteria.ts). A record saved before a criterion existed lacks its key and
+# reads it as False, so its score does not change.
+KKR_CRITERIA_TABLE = (
+    ("urgent", "Срочная задача", 1.5),
+    ("unique", "Задача уникальная", 1.2),
+    ("monotonous", "Нудная / монотонная задача", 1.2),
+    ("creative", "Задача требует творческого подхода", 1.3),
+    ("external_communication", "Требует общения с администрацией или людьми вне вуза", 1.1),
+    ("physical", "Требуется ли физическая сила", 1.2),
+    ("in_person", "Требует очного присутствия", 1.2),
+    ("fixed_time", "Выполняется в определённое время", 1.1),
+)
+KKR_CRITERIA = {key: label for key, label, _ in KKR_CRITERIA_TABLE}
+KKR_FACTORS = {key: factor for key, _, factor in KKR_CRITERIA_TABLE}
+NO_CRITERIA_JSON = json.dumps(dict.fromkeys(KKR_CRITERIA, False), separators=(",", ":"))
+
+
+def criteria_flags(stored) -> dict:
+    """Every criterion as a boolean, in table order, from stored criteria JSON or a dict.
+    A key the record lacks is False; an unknown key or unreadable JSON is ignored."""
+    if stored is None or isinstance(stored, str):
+        try:
+            stored = json.loads(stored or "{}")
+        except ValueError:
+            stored = {}
+    if not isinstance(stored, dict):
+        stored = {}
+    return {key: bool(stored.get(key, False)) for key in KKR_CRITERIA}
+
+
 Base = declarative_base()
 
 
@@ -332,7 +365,7 @@ class TaskORM(Base):
     description_json = Column(Text, nullable=False, default='{"format":"markdown","body":""}')
     deadline_at = Column(String, nullable=True)
     assigned_at = Column(String, nullable=False)
-    criteria_json = Column(Text, nullable=False, default='{"unique":false,"creative":false,"external_communication":false,"in_person":false,"fixed_time":false}')
+    criteria_json = Column(Text, nullable=False, default=NO_CRITERIA_JSON)
     created_by_user_id = Column(Integer, nullable=False)
     created_at = Column(String, nullable=False)
     revision = Column(Integer, default=1, nullable=False)
@@ -573,7 +606,7 @@ class MeritORM(Base):
     description_json = Column(Text, nullable=False, default='{"format":"markdown","body":""}')
     assigned_at = Column(String, nullable=False)
     deadline_at = Column(String, nullable=False)
-    criteria_json = Column(Text, nullable=False, default='{"unique":false,"creative":false,"external_communication":false,"in_person":false,"fixed_time":false}')
+    criteria_json = Column(Text, nullable=False, default=NO_CRITERIA_JSON)
     recipients_json = Column(Text, nullable=False, default='[]')
     reason = Column(Text, nullable=False)
     created_by_user_id = Column(Integer, nullable=False)
@@ -917,20 +950,18 @@ def calculate_kkr_score(
         except Exception:
             return 0.0
         available_days = max(0.0, (deadline_at - assigned_at).total_seconds() / 86400.0)
+        # The automatic urgency premium of a short deadline. The «Срочная задача» criterion
+        # (urgent ×1.5 in KKR_CRITERIA_TABLE) multiplies on top of it, as the owner's table was
+        # adopted on 2026-11-08. Whether the checkbox should replace this premium is an open
+        # question to the owner (A1); if it should, this line is the one place to change.
         weight = float(hours) * (1.0 + 1.0 / math.sqrt(available_days + 1.0))
     else:
         # An absent deadline has neither urgency premium nor lateness penalty.
         weight = float(hours)
 
-    factors = {
-        "unique": 1.2,
-        "creative": 1.3,
-        "external_communication": 1.1,
-        "in_person": 1.2,
-        "fixed_time": 1.1,
-    }
+    # A criterion the stored record lacks (saved before it existed) multiplies by nothing.
     criteria_factor = 1.0
-    for k, v in factors.items():
+    for k, v in KKR_FACTORS.items():
         if criteria_dict.get(k):
             criteria_factor *= v
 
@@ -966,23 +997,18 @@ XLSX_SOURCES = {
     "subevent_volunteer": "Волонтёрская работа подмероприятия",
     "master_bonus": "Бонус мастеру",
 }
-# The five KKR criteria, in order, in the owner's KKR table wording (export, history); the
-# frontend names them the same (frontend/src/utils/kkrCriteria.ts).
-KKR_CRITERIA = {
-    "unique": "Уникальная задача",
-    "creative": "Требует творческого подхода",
-    "external_communication": "Требует общения с администрацией или людьми вне вуза",
-    "in_person": "Требует очного присутствия",
-    "fixed_time": "Выполняется в определённое время",
-}
 
 
 def _xlsx_criteria(raw: str) -> str:
+    """The ticked criteria by their KKR_CRITERIA_TABLE names, in table order; an unknown key as is."""
     try:
         chosen = json.loads(raw or "{}")
     except ValueError:
         return raw
-    return ", ".join(KKR_CRITERIA.get(k, k) for k, v in chosen.items() if v) if isinstance(chosen, dict) else raw
+    if not isinstance(chosen, dict):
+        return raw
+    unknown = [k for k, v in chosen.items() if v and k not in KKR_CRITERIA]
+    return ", ".join([label for key, label in KKR_CRITERIA.items() if chosen.get(key)] + unknown)
 
 
 def generate_summary_xlsx(summary: SeasonSummaryDC, contributions: list[CalculatedContributionDC]) -> bytes:
@@ -2083,18 +2109,7 @@ def _comment_orm_to_dc(session: Session, c: CommentORM, current_user_id: Optiona
 def _merit_orm_to_dc(session: Session, m: MeritORM, current_user_id: Optional[int] = None) -> MeritDC:
     u = session.get(UserORM, m.created_by_user_id)
     creator_ref = _user_to_ref_dc(u) or UserRefDC(user_id=m.created_by_user_id, display_name=f"Участник {m.created_by_user_id}", avatar_url=None)
-    crit_dict = {}
-    try:
-        crit_dict = json.loads(m.criteria_json or "{}")
-    except Exception:
-        pass
-    crit = CriteriaDC(
-        unique=bool(crit_dict.get("unique", False)),
-        creative=bool(crit_dict.get("creative", False)),
-        external_communication=bool(crit_dict.get("external_communication", False)),
-        in_person=bool(crit_dict.get("in_person", False)),
-        fixed_time=bool(crit_dict.get("fixed_time", False)),
-    )
+    crit = CriteriaDC(**criteria_flags(m.criteria_json))
     recips = []
     try:
         recips = json.loads(m.recipients_json or "[]")
@@ -6269,18 +6284,7 @@ class Database:
             import access
             if not access.scope_inputs(current_user_id, t.scope_kind, t.scope_id, t.season_id):
                 raise Forbidden("Forbidden: cannot view task assessment inputs")
-            crit_dict = {}
-            try:
-                crit_dict = json.loads(t.criteria_json or "{}")
-            except Exception:
-                pass
-            crit = CriteriaDC(
-                unique=bool(crit_dict.get("unique", False)),
-                creative=bool(crit_dict.get("creative", False)),
-                external_communication=bool(crit_dict.get("external_communication", False)),
-                in_person=bool(crit_dict.get("in_person", False)),
-                fixed_time=bool(crit_dict.get("fixed_time", False)),
-            )
+            crit = CriteriaDC(**criteria_flags(t.criteria_json))
             from tracker import metadata
             return TaskInputsDC(
                 task_id=t.task_id,

@@ -596,9 +596,14 @@ class SeasonCorrectionOut(BaseModel):
 # ─────────────────────────────────────────────────────────────
 
 class CriteriaSchema(Command):
+    """The KKR criteria in the order of database.KKR_CRITERIA_TABLE. Each defaults to False, so a
+    client that predates a criterion (urgent, monotonous, physical: 2026-11-08) still validates."""
+    urgent: bool = False
     unique: bool = False
+    monotonous: bool = False
     creative: bool = False
     external_communication: bool = False
+    physical: bool = False
     in_person: bool = False
     fixed_time: bool = False
 
@@ -2202,13 +2207,7 @@ def _to_merit_out(m) -> MeritOut:
         description=RichTextSchema(format=m.description.format, body=m.description.body),
         assigned_at=m.assigned_at,
         deadline_at=m.deadline_at,
-        criteria=CriteriaSchema(
-            unique=m.criteria.unique,
-            creative=m.criteria.creative,
-            external_communication=m.criteria.external_communication,
-            in_person=m.criteria.in_person,
-            fixed_time=m.criteria.fixed_time,
-        ),
+        criteria=CriteriaSchema(**vars(m.criteria)),
         recipients=m.recipients,
         reason=m.reason,
         created_by=_to_user_ref_out(m.created_by),
@@ -2238,13 +2237,7 @@ def _to_task_inputs_out(t) -> TaskInputsOut:
         task_id=t.task_id,
         assigned_at=t.assigned_at,
         deadline_at=t.deadline_at,
-        criteria=CriteriaSchema(
-            unique=t.criteria.unique,
-            creative=t.criteria.creative,
-            external_communication=t.criteria.external_communication,
-            in_person=t.criteria.in_person,
-            fixed_time=t.criteria.fixed_time,
-        ),
+        criteria=CriteriaSchema(**vars(t.criteria)),
         revision=t.revision,
         capabilities=t.capabilities,
     )
@@ -2917,13 +2910,7 @@ def create_task(payload: TaskCreateIn, cur: User = Depends(get_current_user)):
     if scope_kind=="block":
         from membership import legacy_name
         scope_id=legacy_name(scope_id)
-    crit_dict = {
-        "unique": payload.criteria.unique,
-        "creative": payload.criteria.creative,
-        "external_communication": payload.criteria.external_communication,
-        "in_person": payload.criteria.in_person,
-        "fixed_time": payload.criteria.fixed_time,
-    }
+    crit_dict = payload.criteria.model_dump()
     assignees = [a.model_dump() for a in payload.assignees]
     import request_keys
     request_hash = request_keys.digest(payload)

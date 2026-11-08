@@ -7,7 +7,7 @@ import { createFixtures, people } from "../../mocks/fixtures";
 import { mountWorkspace, waitForPage, settle, change, submit, commentAction } from "../../test/workspace";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
-import { richText, type Task, type Comment, type FileRef } from "../../utils/api/contract";
+import { emptyCriteria, richText, type Task, type Comment, type FileRef } from "../../utils/api/contract";
 import { TrackerTaskPage } from "./TrackerTaskDetail";
 import { TaskStatusMenu } from "./TaskStatusMenu";
 import { taskStatus, taskTransitions } from "./trackerStatus";
@@ -637,7 +637,7 @@ it("planning and file dialogs close after a successful save and the card confirm
 });
 it("moves the deadline only through reasoned assessment inputs and tells other managers who moves it", async () => {
   let task = makeTask({ capabilities: ["read_task", "view_assessment_inputs", "edit_task"], deadline_at: "2026-11-10T15:00:00Z" });
-  const inputs = { task_id: task.task_id, assigned_at: "2026-10-20T09:00:00Z", deadline_at: task.deadline_at, criteria: { unique: false, creative: false, external_communication: false, in_person: false, fixed_time: false }, revision: 3, capabilities: ["edit_assessment_inputs", "edit_assessment_dates"] };
+  const inputs = { task_id: task.task_id, assigned_at: "2026-10-20T09:00:00Z", deadline_at: task.deadline_at, criteria: emptyCriteria(), revision: 3, capabilities: ["edit_assessment_inputs", "edit_assessment_dates"] };
   const read = vi.spyOn(tasksApi, "inputs").mockResolvedValue(inputs);
   const update = vi.spyOn(tasksApi, "updateInputs").mockImplementation(async (_id, data) => { task = { ...task, deadline_at: data.deadline_at!, revision: task.revision + 1 };return { ...inputs, deadline_at: data.deadline_at!, revision: 4 }; });
   const edit = vi.spyOn(tasksApi, "update");
@@ -667,7 +667,7 @@ it("in a closed season the deadline hint names only the chair, the deputies and 
   const seasons = hr.seasons.map(season => season.season_id === "season-previous" ? { ...season, state: "closed" as const } : season);
   vi.spyOn(seasonsApi, "list").mockResolvedValue({ items: seasons, next_cursor: null });vi.spyOn(tasksApi, "get").mockResolvedValue(task);
   vi.spyOn(tasksApi, "comments").mockResolvedValue({ items: [], next_cursor: null });vi.spyOn(historyApi, "list").mockResolvedValue({ items: [], next_cursor: null });
-  vi.spyOn(tasksApi, "inputs").mockResolvedValue({ task_id: task.task_id, assigned_at: "2026-07-01T09:00:00Z", deadline_at: task.deadline_at, criteria: { unique: false, creative: false, external_communication: false, in_person: false, fixed_time: false }, revision: 2, capabilities: [] });
+  vi.spyOn(tasksApi, "inputs").mockResolvedValue({ task_id: task.task_id, assigned_at: "2026-07-01T09:00:00Z", deadline_at: task.deadline_at, criteria: emptyCriteria(), revision: 2, capabilities: [] });
   page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage />} /></Routes>, { path: `/tasks/${task.task_id}`, session: hr.session });await waitForPage(page);
   const text = page.container.textContent!;
   expect(text).toContain("Срок закрытого сезона переносят председатель, замы и мастер HR");expect(text).not.toContain("его заместитель");expect(text).not.toContain("Перенести срок");
