@@ -1,6 +1,6 @@
 import clsx from "clsx";
 import type { NotificationDetails } from "../../utils/api/contract";
-import { dayMonthTime } from "../../utils/dates";
+import { displayDate } from "../../utils/dates";
 import { Glyph } from "./WorkspaceUI";
 import s from "./ServiceSignIn.module.css";
 
@@ -15,9 +15,10 @@ export function ServiceSignInTitle({ kind, details, className }: Parts) {
     {failed ? `Неудачные попытки входа в сервисный аккаунт${details.failures ? ` · ${details.failures} подряд` : ""}` : "Вход в сервисный аккаунт"}
   </span>;
 }
-/** Its muted line in place of the notice's date: when (the last attempt of a failed streak), from which IP, in which browser. */
+/** Its muted line in place of the notice's date: when (the last attempt of a failed streak), from which IP, in which browser.
+ *  The time reads as every other notice's date in the same list (displayDate). */
 export function ServiceSignInFacts({ kind, details, className }: Parts) {
-  const moment = dayMonthTime(details.at);
+  const moment = details.at && !Number.isNaN(Date.parse(details.at)) ? displayDate(details.at) : null;
   return <span className={clsx(className, s.facts)}>
     {kind === "service_login_failed" && "последняя "}{moment ? <time dateTime={details.at!}>{moment}</time> : "время неизвестно"} · IP {details.ip ?? "неизвестен"} · {details.browser ?? "неизвестный браузер"}
   </span>;

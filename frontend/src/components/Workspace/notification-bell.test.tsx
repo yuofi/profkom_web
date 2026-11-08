@@ -116,7 +116,7 @@ it("names a failed explicit mark and rereads, and only a revoked source is calle
 });
 
 it("lays a service-account sign-in out as a titled notice over its facts and keeps plain text without them", async () => {
-  // Owner 2026-11-08, items 22-25, variant Б. The facts sit in the current Moscow year, so the line omits it.
+  // Owner 2026-11-08, items 22-25, variant Б. The facts' time reads as every other notice's date in the list.
   const year = new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", year: "numeric" }).format(Date.now());
   const transport = seed(), at = `${year}-11-08T02:42:00Z`, last = `${year}-11-08T02:51:00Z`;
   transport.state.notifications = [
@@ -130,10 +130,10 @@ it("lays a service-account sign-in out as a titled notice over its facts and kee
   const entry = (id: string) => panel()!.querySelector<HTMLElement>(`[data-notification-id="${id}"]`)!;
   const title = (id: string) => entry(id).querySelector<HTMLElement>("span[data-failed], span:first-child")!;
   expect(title("login").textContent).toBe("Вход в сервисный аккаунт");expect(title("login").querySelector('[data-icon="security"]')).not.toBeNull();expect(title("login").hasAttribute("data-failed")).toBe(false);
-  expect(entry("login").textContent).toContain("8\u00a0ноября, 05:42 · IP 127.0.0.1 · Chrome 131, macOS");
+  expect(entry("login").textContent).toContain(`8\u00a0нояб.\u00a0${year}\u00a0г., 05:42 · IP 127.0.0.1 · Chrome 131, macOS`);
   expect(entry("login").querySelector("time")?.getAttribute("dateTime")).toBe(at);
   expect(title("failed").textContent).toBe("Неудачные попытки входа в сервисный аккаунт · 4 подряд");expect(title("failed").querySelector('[data-icon="error"]')).not.toBeNull();expect(title("failed").hasAttribute("data-failed")).toBe(true);
-  expect(entry("failed").textContent).toContain("последняя 8\u00a0ноября, 05:51 · IP 127.0.0.1 · Firefox 132, Windows");
+  expect(entry("failed").textContent).toContain(`последняя 8\u00a0нояб.\u00a0${year}\u00a0г., 05:51 · IP 127.0.0.1 · Firefox 132, Windows`);
   // The explicit mark still names the notice by its server text.
   expect(entry("failed").querySelector('button[aria-label^="Отметить прочитанным: Неудачные попытки входа"]')).not.toBeNull();
   // An older notice without facts reads as before.

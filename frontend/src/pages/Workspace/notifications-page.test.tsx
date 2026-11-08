@@ -82,11 +82,11 @@ it("lays a service-account sign-in out as in the bell: its title, then its facts
   const title = (row: Element) => row.querySelector<HTMLElement>('[tabindex="-1"] > span')!, facts = (row: Element) => row.querySelector("small")!;
   expect(title(failed).textContent).toBe("Неудачные попытки входа в сервисный аккаунт · 4 подряд");expect(title(failed).hasAttribute("data-failed")).toBe(true);
   expect(title(failed).querySelector('[data-icon="error"]')?.getAttribute("aria-hidden")).toBe("true");
-  expect(facts(failed).textContent).toBe("последняя 8\u00a0ноября, 05:51 · IP 127.0.0.1 · Firefox 132, Windows");expect(facts(failed).querySelector("time")?.getAttribute("dateTime")).toBe(last);
+  expect(facts(failed).textContent).toBe(`последняя 8\u00a0нояб.\u00a0${year}\u00a0г., 05:51 · IP 127.0.0.1 · Firefox 132, Windows`);expect(facts(failed).querySelector("time")?.getAttribute("dateTime")).toBe(last);
   expect(title(login).textContent).toBe("Вход в сервисный аккаунт");expect(title(login).querySelector('[data-icon="security"]')).not.toBeNull();expect(title(login).hasAttribute("data-failed")).toBe(false);
-  expect(facts(login).textContent).toBe("8\u00a0ноября, 05:42 · IP 127.0.0.1 · Chrome 131, macOS");
+  expect(facts(login).textContent).toBe(`8\u00a0нояб.\u00a0${year}\u00a0г., 05:42 · IP 127.0.0.1 · Chrome 131, macOS`);
   // The date is said once, and the read controls stay as on any other notice.
-  expect(failed.textContent).not.toContain("г.,");expect(failed.textContent).toContain("Новое");expect(button("Отметить прочитанным")).toBeDefined();
+  expect(failed.querySelectorAll("time")).toHaveLength(1);expect(login.querySelectorAll("time")).toHaveLength(1);expect(failed.textContent).toContain("Новое");expect(button("Отметить прочитанным")).toBeDefined();
   // An older notice without facts reads as before.
   expect(older.querySelector('[tabindex="-1"]')?.textContent).toBe("Вход в сервисный аккаунт: 01.11.2026 10:00 МСК, IP 10.0.0.1, Safari 18, macOS");
   expect(older.querySelector("[data-failed], [data-icon]")).toBeNull();expect(facts(older).querySelector("time")?.getAttribute("dateTime")).toBe(`${year}-11-01T07:00:00Z`);

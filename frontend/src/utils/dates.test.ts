@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { dayMonthTime, displayDate, shortDate } from "./dates";
+import { displayDate, shortDate } from "./dates";
 
 // Moscow is UTC+3: 31 Dec 21:30 UTC is already 1 January there.
 const newYearNight = "2026-12-31T21:30:00Z";
@@ -20,10 +20,4 @@ it("D-02: keeps the year on both sides of a Moscow New Year, as the full date do
 });
 it("D-02: an empty or broken value reads as a dash", () => {
   expect(shortDate(null)).toBe("—");expect(shortDate(undefined)).toBe("—");expect(shortDate("not a date")).toBe("—");
-});
-it("a sign-in notice names the day with the full month and the Moscow time, and the year only for another year", () => {
-  expect(dayMonthTime("2026-11-08T02:42:00Z", Date.parse("2026-11-08T09:00:00Z"))).toBe(`${nbsp("8 ноября")}, 05:42`);
-  expect(dayMonthTime(newYearNight, Date.parse("2026-12-31T20:59:00Z"))).toBe(`${nbsp("1 января 2027 г.")}, 00:30`);
-  expect(dayMonthTime(newYearNight, Date.parse("2026-12-31T21:00:00Z"))).toBe(`${nbsp("1 января")}, 00:30`);
-  expect(dayMonthTime(null)).toBeNull();expect(dayMonthTime("")).toBeNull();expect(dayMonthTime("not a date")).toBeNull();
 });
