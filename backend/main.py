@@ -293,6 +293,13 @@ class ProfileUpdate(BaseModel):
     email: Optional[EmailStr] = None
     budget: Optional[bool] = None
 
+    @field_validator("email", mode="wrap")
+    @classmethod
+    def _service_address(cls, value, handler):
+        # The editor sends back the address MeOut showed; update_profile keeps this one to the service account.
+        import service_account
+        return value if value == service_account.EMAIL else handler(value)
+
     @field_validator("tg", "vk", mode="before")
     @classmethod
     def normalize_contact(cls, value, info):
@@ -1606,6 +1613,12 @@ def update_profile(
     if not contact:
         raise HTTPException(500, "Contact info missing for user")
 
+    import service_account
+    if payload.email is not None and (payload.email == service_account.EMAIL) != service_account.is_service(target):
+        # The reserved address is the service account's alone and it keeps it: the address is unique,
+        # so a person holding it stops the startup step, and the account would hide a real one.
+        message = "Only the service account has the reserved service address"
+        raise InvalidInput(message, errors=[dict(type="value_error", loc=["email"], msg=message)])
     if payload.email is not None and payload.email != contact.email:
         if db.email_taken(str(payload.email), user_id):
             raise HTTPException(409, "Email already registered")
