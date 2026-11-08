@@ -44,3 +44,18 @@ it("the demo deletes a comment without a placeholder, withdraws its files and ca
   expect(requests).toHaveLength(1);expect(requests[0]).toMatchObject({ status: "cancelled", capabilities: [] });expect(wireIssues("TaskMentionRequest", requests[0])).toEqual([]);
   expect((await tasksApi.history(task.task_id)).items.at(-1)).toMatchObject({ kind: "comment_deleted", description: "Комментарий удалён", changes: [{ field: "comment", before: "Лишний", after: null }] });
 });
+
+it("the demo names a ticked item as plain text and shortens it like the server", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const task = mock.state.tasks[0], long = Array(30).fill("**слово**").join(" ");
+  let body = `- [ ] Позвонить **срочно** [Ивану](/contacts/12)\n- [ ] \`npm run build\` и \\*звёздочки\\* _курсивом_\n- [ ] ${long}`;
+  const made = await tasksApi.comment(task.task_id, richText(body));
+  for (const label of ["Позвонить", "`npm", "**слово**"]) body = (await tasksApi.commentChecklist(made.comment_id, { expected_body: body, offset: offset(body, label), checked: true })).content.body;
+  const shortened = Array(30).fill("слово").join(" ").slice(0, 79).trimEnd() + "…";
+  expect(shortened).toHaveLength(80);
+  expect((await tasksApi.history(task.task_id)).items.filter(event => event.kind === "comment_checklist_toggled").map(event => event.description)).toEqual([
+    "Отмечен пункт «Позвонить срочно Ивану» в комментарии",
+    "Отмечен пункт «npm run build и *звёздочки* курсивом» в комментарии",
+    `Отмечен пункт «${shortened}» в комментарии`,
+  ]);
+});

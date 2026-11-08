@@ -144,11 +144,13 @@ control epics included) may also tick a comment's checklist and delete a comment
 `expected_body`, a UTF-16 `offset` and a strict `checked`: another current body is 409
 `comment_changed` unless it is exactly this mark (a lost-answer repeat), a non-marker is
 403 `checklist_only`. The comment is not marked edited and gets no version snapshot; the
-activity `comment_checklist_toggled` («Отмечен пункт «…» в комментарии») carries the
-`comment` before/after. `DELETE /comments/{id}` (204, repeatable) soft-deletes with
-`deleted_at`/`deleted_by_user_id`: no placeholder, the comment leaves the list and the
-attachment tab, its files leave the task, its pending mention requests become
-`cancelled`; access already granted by an approved mention stays. Earlier entries keep
+activity `comment_checklist_toggled` («Отмечен пункт «…» в комментарии», the item as
+plain text: link text without its target, no emphasis or code marks, up to 80
+characters) carries the `comment` before/after. `DELETE /comments/{id}` (204,
+repeatable) soft-deletes with `deleted_at`/`deleted_by_user_id`: no placeholder, the
+comment leaves the list and the attachment tab, its files leave the task, its pending
+mention requests become `cancelled`; access already granted by an approved mention
+stays. Earlier entries keep
 their visibility and `comment_deleted` («Комментарий удалён») names who deleted it, with
 the last text as `before`. Editing, marking or re-creating (GL-07 key) a deleted comment
 is 404 `comment_deleted`. Notifications already sent still open the task. The UI puts

@@ -191,6 +191,23 @@ def test_deletion_cancels_pending_mentions_keeps_granted_access_and_old_notifica
     assert client.get('/api/tasks/' + tid, headers=master.headers).status_code == 200
 
 
+def test_mark_history_names_the_item_as_plain_text(client, work):
+    tid, author, reader = work['task']['task_id'], work['member'], work['master']
+    long_item = ' '.join(['**слово**'] * 30)
+    body = f'- [ ] Позвонить **срочно** [Ивану](/contacts/12)\n- [ ] `npm run build` и \\*звёздочки\\* _курсивом_\n- [ ] {long_item}'
+    cid = comment(client, author, tid, body)['comment_id']
+    for label in ('Позвонить', '`npm', '**слово**'):
+        r = tick(client, reader, cid, body, utf16(body[:body.index('] ' + label) - 1]))
+        assert r.status_code == 200, r.text
+        body = r.json()['content']['body']
+    descriptions = [description for _, description, _ in activities(tid, 'comment_checklist_toggled')]
+    shortened = ' '.join(['слово'] * 30)[:79].rstrip() + '…'
+    assert descriptions == ['Отмечен пункт «Позвонить срочно Ивану» в комментарии',
+                            'Отмечен пункт «npm run build и *звёздочки* курсивом» в комментарии',
+                            f'Отмечен пункт «{shortened}» в комментарии']
+    assert len(shortened) == 80
+
+
 def test_repeated_create_of_a_deleted_comment_is_not_returned(client, work):
     tid, author = work['task']['task_id'], work['member']
     key = '6f1c2f4e-8d55-4b5a-9a43-6d3c2c1b0a99'

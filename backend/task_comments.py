@@ -14,11 +14,19 @@ entries stay as they are and one more entry says who deleted it. Access already 
 an approved mention stays. Repeating the deletion is a no-op.
 """
 import json
+import re
 
 from database import db, TaskORM, CommentORM, _comment_orm_to_dc
 from errors import Conflict, Forbidden, NotFound
 
 LABEL_LIMIT = 80
+_SLOT = re.compile("\ue000([0-9]+)\ue001")
+# A backslash escape or a code span, whichever starts first; both are literal text.
+_LITERAL = re.compile(r"\\([!-/:-@\[-`{-~])|(`+)(.+?)(?<!`)\2(?!`)")
+_LINK = re.compile(r"!?\[((?:\\.|[^\]\\\n])*)\]\((?:[^()\n]|\([^()\n]*\))*\)")
+_AUTOLINK = re.compile(r"<((?:https?|mailto):[^>\s]*)>")
+_STRONG = re.compile(r"(\*\*|__|~~)(?=\S)(.+?)(?<=\S)\1")
+_EMPHASIS = re.compile(r"(?<![\w*])\*(?=\S)(.+?)(?<=\S)\*(?![\w*])|(?<![\w_])_(?=\S)(.+?)(?<=\S)_(?![\w_])")
 
 
 def _readable(session, comment_id, uid):
@@ -39,9 +47,25 @@ def _body(comment):
     return content.get("body", "") if isinstance(content, dict) else str(comment.content_json or "")
 
 
+def _plain(text):
+    """Inline Markdown as a reader sees it: link text without its target, no emphasis or code marks."""
+    kept = []
+
+    def literal(match):
+        kept.append(match[1] or match[3].strip() or match[3])
+        return "\ue000%d\ue001" % (len(kept) - 1)
+
+    text = _LITERAL.sub(literal, _SLOT.sub("", text))
+    text = _AUTOLINK.sub(r"\1", _LINK.sub(r"\1", text))
+    for _ in range(3):
+        text = _STRONG.sub(r"\2", text)
+    text = _EMPHASIS.sub(lambda match: match[1] or match[2], text)
+    return " ".join(_SLOT.sub(lambda match: kept[int(match[1])], text).split())
+
+
 def _label(body, index):
-    """The item's own line after its marker, for the history description."""
-    text = body[index + 2:].split("\n", 1)[0].strip()
+    """The item's own line after its marker, as plain text, for the history description."""
+    text = _plain(body[index + 2:].split("\n", 1)[0])
     if len(text) > LABEL_LIMIT:
         text = text[:LABEL_LIMIT - 1].rstrip() + "…"
     return text or "без текста"

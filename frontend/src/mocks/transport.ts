@@ -93,6 +93,20 @@ export function installMockTransport(
     const ids = new Set([...prose.matchAll(/(?<!!|\\)\[(?:\\.|[^\]\\\n])*\]\(\/contacts\/([1-9][0-9]*)\)/g)].map(match => Number(match[1])));
     return clone(state.people.filter(person => person.user_id !== null && ids.has(person.user_id)));
   };
+  // As task_comments._label: the checklist item as plain text, up to 80 characters.
+  const checklistLabel = (line: string) => {
+    const kept: string[] = [];
+    // A backslash escape or a code span is literal text: set it aside first.
+    let text = line.replace(/\uE000[0-9]+\uE001/g, "").replace(/\\([!-/:-@[-`{-~])|(`+)(.+?)(?<!`)\2(?!`)/gu, (_match, escaped?: string, _fence?: string, code?: string) => {
+      kept.push(escaped ?? (code!.trim() || code!));
+      return `\uE000${kept.length - 1}\uE001`;
+    });
+    text = text.replace(/!?\[((?:\\.|[^\]\\\n])*)\]\((?:[^()\n]|\([^()\n]*\))*\)/gu, "$1").replace(/<((?:https?|mailto):[^>\s]*)>/gu, "$1");
+    for (let pass = 0; pass < 3; pass++) text = text.replace(/(\*\*|__|~~)(?=\S)(.+?)(?<=\S)\1/gu, "$2");
+    text = text.replace(/(?<![\p{L}\p{N}_*])\*(?=\S)(.+?)(?<=\S)\*(?![\p{L}\p{N}_*])|(?<![\p{L}\p{N}_])_(?=\S)(.+?)(?<=\S)_(?![\p{L}\p{N}_])/gu, (_match, star?: string, underscore?: string) => star ?? underscore ?? "");
+    const chars = [...text.replace(/\uE000([0-9]+)\uE001/g, (_match, index: string) => kept[Number(index)]).split(/\s+/).filter(Boolean).join(" ")];
+    return (chars.length > 80 ? chars.slice(0, 79).join("").trimEnd() + "…" : chars.join("")) || "без текста";
+  };
 
   const profileFeatures = profileFeatureMock(state, () => taskHistory);
   if (options.scenario === "empty") {
@@ -1788,7 +1802,7 @@ export function installMockTransport(
         if (!/^(?:[ \t]*>[ \t]?)*[ \t]*(?:(?:[-+*]|\d{1,9}[.)])[ \t]+)+\[$/.test(prefix) || !/[ xX]/.test(before[offset] ?? "") || before[offset + 1] !== "]") return fail(403, "checklist_only", "Только отметки чеклиста");
         if ((before[offset] !== " ") === checked) return [200, clone({ ...comment, mentioned_users: commentMentions(before) })];
         comment.content = richText(marked(before));
-        const label = comment.content.body.slice(offset + 2).split("\n")[0].trim() || "без текста";
+        const label = checklistLabel(comment.content.body.slice(offset + 2).split("\n")[0]);
         rememberTask(task, "comment_checklist_toggled", checked ? `Отмечен пункт «${label}» в комментарии` : `Снята отметка с пункта «${label}» в комментарии`, undefined, undefined, [{ field: "comment", label: "Комментарий", before, after: comment.content.body }]);
         return [200, clone({ ...comment, mentioned_users: commentMentions(comment.content.body) })];
       }
