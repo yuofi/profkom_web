@@ -401,6 +401,19 @@ def test_chair_only_actions(client, configured, make_user):
     assert chair.user_id != service_id()
 
 
+def test_its_own_profile_opens_with_its_reserved_address(client, configured):
+    """«Мой профиль» and the task form read GET /profile/me: the reserved .invalid address
+    is no mailbox, yet it is the account's own contact row."""
+    sid, headers = service(client)
+    r = client.get("/api/profile/me", headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["user_id"] == sid and r.json()["name"] == NAME and r.json()["email"] == service_account.EMAIL
+    # Nobody else's contact gets past the address check that way.
+    from main import MeOut
+    with pytest.raises(ValidationError):
+        MeOut.model_validate({**r.json(), "email": "someone@system.invalid"})
+
+
 def test_the_bot_console_is_open(client, configured, make_user):
     _, headers = service(client)
     assert client.get("/api/bot/console/status", headers=headers).status_code == 200

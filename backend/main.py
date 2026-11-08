@@ -167,6 +167,13 @@ class MeOut(ContactInfoOut):
     pgas_admin: bool = False
     has_password: bool = True
 
+    @field_validator("email", mode="wrap")
+    @classmethod
+    def _service_address(cls, value, handler):
+        # The service account's reserved .invalid address is no mailbox, yet its own (service_account.py).
+        import service_account
+        return value if value == service_account.EMAIL else handler(value)
+
 
 class PgasEntryIn(BaseModel):
     title: str = Field(..., min_length=1)
