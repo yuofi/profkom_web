@@ -45,8 +45,8 @@ export interface Field {
   whenSelected?: { name: string; value: string };
   /** Shown only while this holds for the current values; a hidden field is not validated. */
   visibleWhen?: (values: Values) => boolean;
-  /** A checkbox that also sets other fields: the values after its change, set in one step. */
-  onCheck?: (checked: boolean, values: Values) => Values;
+  /** A field whose change also sets other fields: given the values after its change, the values to set in one step. */
+  onChangeValues?: (values: Values) => Values;
   onSelectionChange?: (values: string[]) => void;
   /** A multiple choice of people asks before removing saved ones; marks need not. */
   confirmRemoval?: boolean;
@@ -147,8 +147,11 @@ export function ActionForm({
   resetOnSuccess?: boolean;
   /** Clear one-shot decisions only after a successful save, retaining the other saved input. */
   resetFieldsOnSuccess?: string[];
-  /** Saving is offered only once one of these fields differs from its saved value (A-ROL-12). */
-  changeRequired?: string[];
+  /**
+   * Saving is offered only once one of these fields differs from its saved value (A-ROL-12),
+   * or once what the function derives from the values differs from what it derives from the saved ones.
+   */
+  changeRequired?: string[] | ((values: Values) => unknown);
   /** The look of the submit: the main action, a minor one, or one that takes something away. */
   variant?: "primary" | "quiet" | "danger";
   /** Source text or attachments edited outside Formik. */
@@ -374,7 +377,11 @@ export function ActionForm({
   const asking = pendingRemoval.length > 0 || awaitingCommand;
   useEffect(() => { if (asking && !form.isSubmitting) answer.current?.focus(); }, [asking, form.isSubmitting]);
   // A changed external state (an applied template) is a change too, even when the field values match.
-  const unchanged = !!changeRequired?.every((name) => JSON.stringify(form.values[name] ?? initialValues[name]) === JSON.stringify(savedValues(fields)[name])) && externalValue === externalBaseline;
+  const unchanged = (typeof changeRequired === "function"
+    ? JSON.stringify(changeRequired(currentValues)) === JSON.stringify(changeRequired(savedValues(fields)))
+    : !!changeRequired?.every((name) => JSON.stringify(form.values[name] ?? initialValues[name]) === JSON.stringify(savedValues(fields)[name]))) && externalValue === externalBaseline;
+  const setValue = (field: Field, value: string | string[]) =>
+    void (field.onChangeValues ? form.setValues(field.onChangeValues({ ...initialValues, ...form.values, [field.name]: value })) : form.setFieldValue(field.name, value));
   const replaceWithSaved = () => {
     form.resetForm({ values: savedValues(fields) });
     setHoldSavedInput(false);
@@ -423,10 +430,7 @@ export function ActionForm({
                   <input id={id} name={field.name} type="checkbox" value="true" onBlur={form.handleBlur} disabled={form.isSubmitting}
                     checked={String(form.values[field.name] ?? initialValues[field.name]) === "true"}
                     aria-describedby={props["aria-describedby"]}
-                    onChange={(e) => {
-                      const value = e.target.checked ? "true" : "false";
-                      void (field.onCheck ? form.setValues(field.onCheck(e.target.checked, { ...initialValues, ...form.values, [field.name]: value })) : form.setFieldValue(field.name, value));
-                    }} />
+                    onChange={(e) => setValue(field, e.target.checked ? "true" : "false")} />
                   {field.label}
                 </label>
                 {field.hint && <small>{field.hint}</small>}
@@ -439,7 +443,7 @@ export function ActionForm({
                   <MarkdownEditor name={field.name} label={`${field.label}${isRequired(field, form.values) ? " *" : ""}`} rows={field.rows} context="task" draft={false}
                     value={String(form.values[field.name] ?? initialValues[field.name])} placeholder={field.placeholder} disabled={form.isSubmitting}
                     required={props.required} invalid={!!error} describedBy={props["aria-describedby"]}
-                    onChange={(value) => void form.setFieldValue(field.name, value)} />
+                    onChange={(value) => setValue(field, value)} />
                 </Suspense>
                 {field.hint && <small>{field.hint}</small>}
                 {error && <span className={s.fieldError} id={`${id}-error`}>{String(error)}</span>}
@@ -456,10 +460,10 @@ export function ActionForm({
                 </label>
                 {field.type === "multi" && entityPicker ? (
                   <EntityPicker {...pickerProps} multiple value={(form.values[field.name] as string[] | undefined) ?? []}
-                    onChange={value => { void form.setFieldValue(field.name, value);setPendingRemoval([]);field.onSelectionChange?.(value); }} />
+                    onChange={value => { setValue(field, value);setPendingRemoval([]);field.onSelectionChange?.(value); }} />
                 ) : field.type === "select" && entityPicker ? (
                   <EntityPicker {...pickerProps} value={String(form.values[field.name] ?? initialValues[field.name] ?? "")}
-                    onChange={value => { void form.setFieldValue(field.name, value);field.onSelectionChange?.([value]); }} />
+                    onChange={value => { setValue(field, value);field.onSelectionChange?.([value]); }} />
                 ) : field.type === "multi" ? (
                   <RecipientPicker
                     id={id}
@@ -469,7 +473,7 @@ export function ActionForm({
                     options={field.options ?? []}
                     value={(form.values[field.name] as string[] | undefined) ?? []}
                     onChange={(value) => {
-                      void form.setFieldValue(field.name, value);
+                      setValue(field, value);
                       setPendingRemoval([]);
                       field.onSelectionChange?.(value);
                     }}
@@ -478,16 +482,14 @@ export function ActionForm({
                   <textarea
                     {...props}
                     value={String(form.values[field.name] ?? initialValues[field.name])}
-                    onChange={(e) =>
-                      void form.setFieldValue(field.name, e.target.value)
-                    }
+                    onChange={(e) => setValue(field, e.target.value)}
                   />
                 ) : field.type === "select" ? (
                   <select
                     {...props}
                     value={form.values[field.name] ?? initialValues[field.name]}
                     onChange={(e) => {
-                      void form.setFieldValue(field.name, e.target.value);
+                      setValue(field, e.target.value);
                       field.onSelectionChange?.([e.target.value]);
                     }}
                   >
@@ -506,9 +508,7 @@ export function ActionForm({
                     max={field.max}
                     step={field.type === "number" ? "any" : undefined}
                     value={String(form.values[field.name] ?? initialValues[field.name])}
-                    onChange={(e) =>
-                      void form.setFieldValue(field.name, e.target.value)
-                    }
+                    onChange={(e) => setValue(field, e.target.value)}
                   />
                 )}
                 {field.hint && <small>{field.hint}</small>}

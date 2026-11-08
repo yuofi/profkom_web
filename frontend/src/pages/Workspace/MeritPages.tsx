@@ -132,11 +132,30 @@ const sameForAll = (values: Values) => values.same_for_all === "true" && ids(val
 /** A recipient's own fields count: no common block, or «Поправить отдельно» for them. */
 const ownValues = (user: string) => (values: Values) => !sameForAll(values) || values[`own_${user}`] === "true";
 const recipientKeys = ["hours", "evaluation", "completed"] as const;
-/** Ticking «Одинаково для всех» starts the common block from the first recipient's values, if it is empty. */
-function withCommonFromFirst(values: Values): Values {
-  const first = ids(values, "users")[0];
-  if (first === undefined || recipientKeys.some((key) => text(values, `common_${key}`))) return values;
-  return { ...values, ...Object.fromEntries(recipientKeys.map((key) => [`common_${key}`, text(values, `${key}_${first}`)])) };
+type RecipientValues = Record<(typeof recipientKeys)[number], string>;
+const ownDraft = (values: Values, user: number): RecipientValues =>
+  Object.fromEntries(recipientKeys.map((key) => [key, text(values, `${key}_${user}`)])) as RecipientValues;
+/** A recipient's values as a save sends them: their own, or the common block's. */
+function recipientValues(values: Values, user: number): RecipientValues {
+  const own = ownValues(String(user))(values);
+  return Object.fromEntries(recipientKeys.map((key) => [key, text(values, own ? `${key}_${user}` : `common_${key}`)])) as RecipientValues;
+}
+/**
+ * Ticking «Одинаково для всех» changes nobody's values: the common block starts from the current
+ * draft of the first recipient with typed values, and whoever typed something else keeps it as own.
+ */
+function withCommonFromDraft(values: Values): Values {
+  const users = ids(values, "users");
+  const typed = (user: number) => recipientKeys.some((key) => ownDraft(values, user)[key]);
+  const source = users.find(typed) ?? users[0];
+  if (source === undefined) return values;
+  const common = ownDraft(values, source);
+  const next: Values = { ...values, ...Object.fromEntries(recipientKeys.map((key) => [`common_${key}`, common[key]])) };
+  for (const user of users) {
+    const draft = ownDraft(values, user);
+    if (recipientKeys.some((key) => draft[key] && draft[key] !== common[key])) next[`own_${user}`] = "true";
+  }
+  return next;
 }
 /** Unticking it gives every recipient without own values the common ones, so nothing typed is lost. */
 function withCommonCopied(values: Values): Values {
@@ -144,11 +163,11 @@ function withCommonCopied(values: Values): Values {
   for (const user of ids(values, "users")) if (values[`own_${user}`] !== "true") for (const key of recipientKeys) next[`${key}_${user}`] = text(values, `common_${key}`);
   return next;
 }
-/** A saved recipient's values differ from the first recipient's, which start the common block. */
-function differsFromFirst(merit: Merit, user: number) {
-  const first = merit.recipients[0], own = merit.recipients.find((r) => r.user_id === user);
-  return !!first && !!own && (own.hours !== first.hours || own.evaluation !== first.evaluation || own.completed_at !== first.completed_at);
-}
+/** Fewer than two recipients end the common block the same way as unticking it. */
+const withRecipients = (values: Values): Values =>
+  values.same_for_all === "true" && ids(values, "users").length < 2 ? { ...withCommonCopied(values), same_for_all: "false" } : values;
+/** Fields of the form that only shape the recipients' values on screen; a save sends their result. */
+const recipientField = (name: string) => name === "same_for_all" || /^(common|own|hours|evaluation|completed)_/.test(name);
 
 function MeritEditor({
   seasonId,
@@ -274,6 +293,7 @@ function MeritEditor({
       required: true,
       value: existing?.recipients.map((r) => String(r.user_id)),
       options: recipientOptions,
+      onChangeValues: withRecipients,
       onSelectionChange: (values) => setSelectedPeople(values.map((value) =>
         people.options.find((p) => p.value === value) ?? selectedPeople.find((p) => p.value === value) ?? { value, label: `Участник #${value}` },
       )),
@@ -285,7 +305,7 @@ function MeritEditor({
       label: "Одинаково для всех",
       type: "checkbox" as const,
       visibleWhen: (values: Values) => ids(values, "users").length > 1,
-      onCheck: (checked: boolean, values: Values) => checked ? withCommonFromFirst(values) : withCommonCopied(values),
+      onChangeValues: (values: Values) => values.same_for_all === "true" ? withCommonFromDraft(values) : withCommonCopied(values),
     },
     {
       name: "common_hours",
@@ -295,7 +315,6 @@ function MeritEditor({
       min: 0,
       compact: "common",
       visibleWhen: sameForAll,
-      value: String(existing?.recipients[0]?.hours ?? ""),
     },
     {
       name: "common_evaluation",
@@ -304,7 +323,6 @@ function MeritEditor({
       required: true,
       compact: "common",
       visibleWhen: sameForAll,
-      value: String(existing?.recipients[0]?.evaluation ?? ""),
       options: evaluationOptions,
     },
     {
@@ -314,7 +332,6 @@ function MeritEditor({
       compact: "common",
       visibleWhen: sameForAll,
       required: (values: Values) => Number(values.common_evaluation) > 0,
-      value: existing?.recipients[0]?.completed_at ? moscowInput(existing.recipients[0].completed_at) : "",
     },
     ...recipientOptions.flatMap((p) => [
       {
@@ -324,8 +341,6 @@ function MeritEditor({
         type: "checkbox" as const,
         compact: `recipient_${p.value}`,
         visibleWhen: sameForAll,
-        // A saved recipient whose values differ from the common ones keeps them.
-        value: String(!!existing && differsFromFirst(existing, Number(p.value))),
       },
       {
         name: `hours_${p.value}`,
@@ -455,7 +470,10 @@ function MeritEditor({
             revision={existing?.revision}
             revisionKey={summaryVersion === undefined ? undefined : String(summaryVersion)}
             fields={fields}
-            changeRequired={existing ? fields.filter(field => field.name !== "reason").map(field => field.name) : undefined}
+            changeRequired={existing ? (values: Values) => ({
+              ...Object.fromEntries(fields.filter((field) => field.name !== "reason" && !recipientField(field.name)).map((field) => [field.name, values[field.name]])),
+              recipients: ids(values, "users").map((user) => [user, recipientValues(values, user)]),
+            }) : undefined}
             externalState={templateSelection} savedExternalState={null} onReplaceWithSaved={() => setTemplateSelection(null)}
             beforeFields={form => <KkrTemplateTools form={form} mode="merit" selection={templateSelection} onSelection={setTemplateSelection} target={templateTarget} />}
             failureActions={(failure, form) => <TemplateRefusal failure={failure} form={form} mode="merit" selection={templateSelection} onSelection={setTemplateSelection} />}
@@ -486,10 +504,7 @@ function MeritEditor({
               if (assigned > deadline)
                 throw Error("Дата выдачи позже дедлайна");
               const recipients = ids(v, "users").map((user_id) => {
-                const own = ownValues(String(user_id))(v);
-                const evaluation = text(v, own ? `evaluation_${user_id}` : "common_evaluation"),
-                  hours = text(v, own ? `hours_${user_id}` : "common_hours"),
-                  completed = text(v, own ? `completed_${user_id}` : "common_completed");
+                const { evaluation, hours, completed } = recipientValues(v, user_id);
                 if (
                   !hours ||
                   !evaluation ||
