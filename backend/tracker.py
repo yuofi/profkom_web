@@ -182,6 +182,9 @@ def install_activity_hooks():
                             before=json.loads(before or '{}').get('body','');after=json.loads(after or '{}').get('body','')
                         changes.append(dict(field=field,label=label,before=before,after=after))
                     activity(session,obj,"task_updated",actor,"Изменены параметры задачи",changes=changes)
+            elif isinstance(obj,CommentORM) and obj.comment_id in session.info.get("comment_activity_written",()):
+                # The command wrote its own activity (a checklist mark is not an edit).
+                session.info["comment_activity_written"].discard(obj.comment_id)
             elif isinstance(obj,CommentORM) and any(inspect(obj).attrs[name].history.has_changes() for name in ('content_json','files_json')):
                 task=session.get(TaskORM,obj.task_id)
                 if task:
@@ -410,9 +413,14 @@ def can_edit_description(session,task,uid,facts=None):
     return can_edit_public(session,task,uid,facts)
 
 
-def can_edit_comment(session,comment,uid):
-    task=session.get(TaskORM,comment.task_id)
+def can_comment(session,task,uid):
+    """Who may comment: every current reader (closed seasons and control epics too). The same
+    circle ticks comment checklists and deletes comments (owner 2026-11-08, V4/V5)."""
     return bool(task and db.can_read_task(uid,task,session))
+
+
+def can_edit_comment(session,comment,uid):
+    return can_comment(session,session.get(TaskORM,comment.task_id),uid)
 
 
 def can_close(session,task,uid,facts=None):

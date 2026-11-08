@@ -7,7 +7,7 @@ import { TeamChip } from "../../components/Workspace/TeamChip";
 import { TrackerHomeLink } from "../../components/Workspace/TrackerHomeLink";
 import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { Attachments, AttachmentPicker } from "../../components/Workspace/Attachments";
@@ -28,7 +28,7 @@ import { seasonsApi } from "../../utils/api/seasons.api";
 import { TaskSeasonParameter } from "./TaskSeasonParameter";
 import { TaskDeadlineParameter, TaskDeadlineValue } from "./TaskDeadlineParameter";
 import { userMessage } from "../../utils/api/messages";
-import { richText, type Comment, type FileRef, type Revision, type Task } from "../../utils/api/contract";
+import { richText, type Comment, type FileRef, type Page, type Revision, type Task } from "../../utils/api/contract";
 import { can } from "../../utils/session";
 import { displayDate } from "../../utils/dates";
 import { getSeasonRoute, getTaskRoute, getTaskQueueRoute, getTaskQueuesRoute } from "../../utils/routes";
@@ -36,6 +36,7 @@ import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { requestKey, type RequestKey } from "../../utils/clientId";
 import { markDescription, useDialogHold, useTaskCommand, useTaskFormCommand } from "./taskCommands";
 import { TaskStatusMenu } from "./TaskStatusMenu";
+import { TrackerCommentMenu } from "./TrackerCommentMenu";
 import { taskStatus } from "./trackerStatus";
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
 import { TrackerParentSelector } from "./TrackerParentSelector";
@@ -306,11 +307,43 @@ function CommentComposer({ task, comment, onSaved }: { task: Task; comment?: Com
 function CommentItem({ task, comment }: { task: Task; comment: Comment }) {
   return <UnsavedChangesScope><CommentItemContent task={task} comment={comment}/></UnsavedChangesScope>;
 }
+const commentsKey=(task:Task)=>["tasks",task.task_id,"comments"];
+/** Any reader ticks a comment's checklist (V4): one mark at a time per comment, against the
+ *  body the reader saw; the answer replaces the comment in the list, a refusal rereads it. */
+function useCommentChecklist(task:Task,comment:Comment,onError:(text:string)=>void) {
+  const client=useQueryClient(),{perform}=useWorkspaceActions(),saving=useRef<number|null>(null),[pending,setPending]=useState<readonly number[]>([]);
+  const toggle=async(offset:number,checked:boolean)=>{
+    if(saving.current!==null)return;
+    saving.current=offset;setPending([offset]);onError("");
+    try{await perform(async()=>{
+      const saved=await tasksApi.commentChecklist(comment.comment_id,{expected_body:comment.content.body,offset,checked});
+      client.setQueryData<Page<Comment>>(commentsKey(task),data=>data&&{...data,items:data.items.map(item=>item.comment_id===saved.comment_id?saved:item)});
+      return saved;
+    });}
+    catch(failure){onError(userMessage(failure,{checklist_only:"Этот пункт нельзя отметить: обновите комментарии и попробуйте снова."}));void client.invalidateQueries({queryKey:commentsKey(task)});}
+    finally{saving.current=null;setPending([]);}
+  };
+  return {pending,toggle};
+}
 function CommentItemContent({ task, comment }: { task: Task; comment: Comment }) {
-  const [editing,setEditing]=useState(false);const leave=useGuardedAction();
+  const [editing,setEditing]=useState(false),[confirming,setConfirming]=useState(false),[deleting,setDeleting]=useState(false),[error,setError]=useState("");
+  const leave=useGuardedAction(),client=useQueryClient(),{perform}=useWorkspaceActions(),marks=useCommentChecklist(task,comment,setError);
+  const header=useRef<HTMLElement>(null),confirmButton=useRef<HTMLButtonElement>(null);
+  useEffect(()=>{if(confirming)confirmButton.current?.focus();},[confirming]);
+  const cancelDelete=()=>{setConfirming(false);header.current?.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')?.focus();};
+  // No placeholder stays (V5): the comment leaves the list, the history names who deleted it.
+  const remove=async()=>{
+    if(deleting)return;setDeleting(true);setError("");
+    try{await perform(async()=>{await tasksApi.deleteComment(comment.comment_id);client.setQueryData<Page<Comment>>(commentsKey(task),data=>data&&{...data,items:data.items.filter(item=>item.comment_id!==comment.comment_id)});});}
+    catch(failure){setError(userMessage(failure));setDeleting(false);void client.invalidateQueries({queryKey:commentsKey(task)});}
+  };
+  const editable=can(comment,"edit_comment");
+  const actions=[...(editable?[{label:"Редактировать",onSelect:()=>{setConfirming(false);setError("");setEditing(true);}}]:[]),...(can(comment,"delete_comment")?[{label:"Удалить",onSelect:()=>{setError("");setConfirming(true);}}]:[])];
   return <article className={s.comment} id={`task-comment-${comment.comment_id}`}>
-    <header><PersonChip user={comment.author}/><time dateTime={comment.created_at}>{displayDate(comment.created_at)}{comment.updated_at?" · изменён":""}</time>{can(comment,"edit_comment")&&<button type="button" className={s.subtleButton} onClick={()=>{if(editing)leave(()=>setEditing(false));else setEditing(true);}}>{editing?"Отменить редактирование":"Редактировать"}</button>}</header>
-    {editing&&can(comment,"edit_comment")?<CommentComposer task={task} comment={comment} onSaved={()=>setEditing(false)}/>:<><MarkdownContent body={comment.content.body} mentionUsers={comment.mentioned_users??[]}/>{comment.attachments?.length>0&&<section aria-label="Вложения комментария"><Attachments files={comment.attachments}/></section>}</>}
+    <header ref={header}><PersonChip user={comment.author}/><time dateTime={comment.created_at}>{displayDate(comment.created_at)}{comment.updated_at?" · изменён":""}</time>{marks.pending.length>0&&<span role="status" className={s.savingNote}>Сохраняем отметку…</span>}{editing&&editable?<button type="button" className={s.subtleButton} onClick={()=>leave(()=>setEditing(false))}>Отменить редактирование</button>:<TrackerCommentMenu actions={actions} disabled={deleting||marks.pending.length>0}/>}</header>
+    {confirming&&!editing&&<div role="alert" className={s.commentConfirm} onKeyDown={event=>{if(event.key==="Escape"&&!deleting){event.preventDefault();cancelDelete();}}}><p>Удалить комментарий? Удаление будет видно в истории задачи.</p><div className={w.row}><button ref={confirmButton} type="button" className={`${w.button} ${w.danger}`} disabled={deleting} onClick={()=>{void remove();}}>{deleting?"Удаляем…":"Удалить"}</button><button type="button" className={w.button} disabled={deleting} onClick={cancelDelete}>Отмена</button></div></div>}
+    {editing&&editable?<CommentComposer task={task} comment={comment} onSaved={()=>setEditing(false)}/>:<><MarkdownContent body={comment.content.body} mentionUsers={comment.mentioned_users??[]} onChecklistToggle={can(comment,"toggle_comment_checklist")?(offset,checked)=>{void marks.toggle(offset,checked);}:undefined} checklistDisabled={deleting||marks.pending.length>0} checklistPending={marks.pending}/>{comment.attachments?.length>0&&<section aria-label="Вложения комментария"><Attachments files={comment.attachments}/></section>}</>}
+    {error&&<p role="alert" className={w.error}>{error}</p>}
   </article>;
 }
 function sharedSubmissions(task: Task) {

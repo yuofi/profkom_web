@@ -202,6 +202,7 @@ def purge(as_of=None, dry_run=True):
                                      "season_coefficients": ("updated_by_user_id",),
                                      "task_access_grants": ("granted_by_user_id",),
                                      "task_mention_requests": ("decided_by_user_id",),
+                                     "task_comments": ("deleted_by_user_id",),
                                      "task_activity": ("actor_user_id",), "summary_versions": ("changed_by_user_id",)}.get(table.name, ()):
                             if record[name] == uid:
                                 updates[name] = None

@@ -10,7 +10,7 @@ import { seasonsApi } from '../../utils/api/seasons.api';
 import { historyApi } from '../../utils/api/history.api';
 import { ApiError } from '../../utils/api/request';
 import { richText,type Comment,type FileRef } from '../../utils/api/contract';
-import { mountWorkspace,waitForPage,change,settle,submit } from '../../test/workspace';
+import { mountWorkspace,waitForPage,change,settle,submit,commentAction } from '../../test/workspace';
 let page:Awaited<ReturnType<typeof mountWorkspace>>|undefined;
 afterEach(async()=>{await page?.cleanup();page=undefined;vi.restoreAllMocks();});
 const file:FileRef={file_id:'comment-file',name:'comment-notes.txt',mime_type:'text/plain',size_bytes:18};
@@ -46,7 +46,7 @@ it('upload stays in the comment draft, POST binds it, reread renders it and shar
  expect(page!.container.querySelector('[aria-label="Файлы из комментариев"]')?.textContent).toContain(file.name);expect(read).toHaveBeenCalledTimes(reads);
  await act(async()=>[...page!.container.querySelectorAll<HTMLButtonElement>('[aria-label="Файлы из комментариев"] button')].find(button=>button.textContent==='К комментарию')!.click());await settle();expect(page!.container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Комментарии');
 
- const openEdit=async()=>{await act(async()=>[...article.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Редактировать')!.click());await settle();return article.querySelector('[data-markdown-editor="comment"]')!;};
+ const openEdit=async()=>{await commentAction(article,'Редактировать');return article.querySelector('[data-markdown-editor="comment"]')!;};
  let editor=await openEdit();await change(editor.querySelector('textarea')!,'Правка другим читателем');await submit(editor.closest('form')!);await waitForPage(page!,()=>!article.querySelector('form'));
  expect(edit).toHaveBeenLastCalledWith('persisted-comment',richText('Правка другим читателем'),[],[file.file_id]);
  article=page!.container.querySelector('article')!;editor=await openEdit();await act(async()=>article.querySelector<HTMLButtonElement>(`[aria-label="Убрать файл из комментария: ${file.name}"]`)!.click());await submit(editor.closest('form')!);await waitForPage(page!,()=>!article.querySelector('form'));

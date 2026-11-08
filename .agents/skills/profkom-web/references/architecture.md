@@ -175,3 +175,7 @@ Comment PATCH preserves attachments when file_ids is omitted and removes them wi
 an explicit empty list. Historical attachment metadata does not publish removed
 bytes. The composer retains files across failed saves and blocks submission during
 upload; the task attachment tab reuses the comments query rather than refetching it.
+Whoever may comment (`tracker.can_comment`, every reader) also ticks a comment's checklist
+against the body seen (409 `comment_changed`; no edit mark, no snapshot) and soft-deletes it
+(`deleted_at`): no placeholder, files withdrawn, pending mentions cancelled, history names the
+deleter (owner 2026-11-08, V4/V5; task_comments.py, TRACKER_WORKFLOW.md).

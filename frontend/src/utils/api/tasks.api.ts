@@ -130,4 +130,10 @@ export const tasksApi = {
     request<Comment>("post", `/tasks/${idPath(id)}/comments`, { content, mentioned_user_ids, ...(file_ids === undefined ? {} : {file_ids}), ...(idempotency_key ? { idempotency_key } : {}) }),
   editComment: (id: string, content: RichText, mentioned_user_ids: number[] = [], file_ids?: string[]) =>
     request<Comment>("patch", `/comments/${idPath(id)}`, { content, mentioned_user_ids, ...(file_ids === undefined ? {} : {file_ids}) }),
+  /** Marks one task marker of a comment by its UTF-16 offset in the body the reader saw;
+   * another current body is 409 comment_changed. The comment is not marked edited. */
+  commentChecklist: (id: string, data: { expected_body: string; offset: number; checked: boolean }) =>
+    request<Comment>("post", `/comments/${idPath(id)}/checklist`, data),
+  /** Deletes for everyone, without a placeholder; the task history keeps who did it. */
+  deleteComment: (id: string) => request<void>("delete", `/comments/${idPath(id)}`),
 };

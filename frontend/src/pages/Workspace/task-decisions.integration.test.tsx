@@ -3,7 +3,7 @@ import { act } from "react";
 import { afterEach, expect, it } from "vitest";
 import { Route, Routes } from "react-router-dom";
 import { liveLogin, liveParticipant } from "../../test/liveApi";
-import { change, field, mountWorkspace, submit, waitForPage } from "../../test/workspace";
+import { change, commentAction, field, mountWorkspace, submit, waitForPage } from "../../test/workspace";
 import { eventsApi } from "../../utils/api/events.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { tasksApi } from "../../utils/api/tasks.api";
@@ -102,7 +102,7 @@ it("feedback: an assignee saves checklist/description and edits a shared comment
   await expect(tasksApi.update(task.task_id,{expected_revision:current.revision,description:richText("Переписанное описание")})).rejects.toMatchObject({status:403});
   expect([...page.container.querySelectorAll('section[aria-label="Описание задачи"] button')].some(button=>button.textContent?.trim()==="Редактировать")).toBe(false);
   const article = [...page.container.querySelectorAll("article")].find(node => node.textContent?.includes("Комментарий автора задачи"))!;
-  await act(async () => [...article.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === "Редактировать")!.click());await waitForPage(page);
+  await commentAction(article, "Редактировать");await waitForPage(page);
   const form = article.querySelector("form")!;await change(field(form, "body"), "Общая правка исполнителя");await submit(form);await waitForPage(page, () => !article.querySelector("form"));
   const savedComment = (await tasksApi.comments(task.task_id)).items.find(item => item.comment_id === comment.comment_id)!;
   expect(savedComment.content.body).toBe("Общая правка исполнителя");expect(savedComment.author.user_id).toBe(comment.author.user_id);

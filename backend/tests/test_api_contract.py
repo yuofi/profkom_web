@@ -189,6 +189,8 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ('PATCH', '/api/assignments/{assignment_id}/assessment-inputs'),
     ('PATCH', '/api/blocks/{block_name}'),
     ('PATCH', '/api/comments/{comment_id}'),
+    ('POST', '/api/comments/{comment_id}/checklist'),
+    ('DELETE', '/api/comments/{comment_id}'),
     ('PATCH', '/api/contacts/archive/{contact_id}'),
     ('PATCH', '/api/events/{event_id}'),
     ('PATCH', '/api/materials/{material_id}'),

@@ -530,6 +530,10 @@ class CommentORM(Base):
     # A repeated comment with the same key returns this one (GL-07); NULL for older rows.
     idempotency_key = Column(String, nullable=True)
     request_hash = Column(String, nullable=True)
+    # Soft deletion (task_comments.py): the row stays for history, mention requests and file
+    # bindings; NULL for every live and every older comment.
+    deleted_at = Column(String, nullable=True)
+    deleted_by_user_id = Column(Integer, nullable=True)
     __table_args__ = (Index("ux_task_comments_idempotency_key", "idempotency_key", unique=True),)
 
 
@@ -815,6 +819,19 @@ def _ensure_sqlite_comment_files_column() -> None:
 
 
 _ensure_sqlite_comment_files_column()
+
+
+def _ensure_sqlite_comment_deletion_columns() -> None:
+    """Existing comments stay live (NULL); text, history, files and indexes are kept."""
+    with engine.begin() as connection:
+        names = {row[1] for row in connection.execute(text("PRAGMA table_info(task_comments)"))}
+        if names and "deleted_at" not in names:
+            connection.execute(text("ALTER TABLE task_comments ADD COLUMN deleted_at VARCHAR"))
+        if names and "deleted_by_user_id" not in names:
+            connection.execute(text("ALTER TABLE task_comments ADD COLUMN deleted_by_user_id INTEGER"))
+
+
+_ensure_sqlite_comment_deletion_columns()
 
 
 def _ensure_sqlite_request_key_columns() -> None:
@@ -2001,8 +2018,11 @@ def _task_orm_to_dc(session: Session, t: TaskORM, current_user_id: Optional[int]
 def _comment_orm_to_dc(session: Session, c: CommentORM, current_user_id: Optional[int] = None) -> CommentDC:
     u = session.get(UserORM, c.author_user_id)
     author_ref = _user_to_ref_dc(u) or UserRefDC(user_id=c.author_user_id, display_name=f"Участник {c.author_user_id}", avatar_url=None)
-    from tracker import can_edit_comment
+    from tracker import can_edit_comment, can_comment
     caps = ["edit_comment"] if current_user_id and can_edit_comment(session,c,current_user_id) else []
+    task = session.get(TaskORM, c.task_id) if current_user_id else None
+    if task and can_comment(session, task, current_user_id):
+        caps += ["toggle_comment_checklist", "delete_comment"]
     hist = []
     try:
         hist = json.loads(c.history_json or "[]")
@@ -6886,7 +6906,7 @@ class Database:
                 raise NotFound("Task not found")
             if not (self.can_read_task(current_user_id,t,session)):
                 raise NotFound("Task not found")
-            rows = session.query(CommentORM).filter(CommentORM.task_id == task_id).order_by(CommentORM.created_at.asc()).all()
+            rows = session.query(CommentORM).filter(CommentORM.task_id == task_id, CommentORM.deleted_at.is_(None)).order_by(CommentORM.created_at.asc()).all()
             return [_comment_orm_to_dc(session, c, current_user_id) for c in rows]
 
     def create_comment(self, task_id: str, content: dict, author_user_id: int, file_ids: Optional[list[str]] = None) -> CommentDC:
@@ -6894,8 +6914,9 @@ class Database:
             t = session.get(TaskORM, task_id)
             if not t:
                 raise NotFound("Task not found")
-            if not (self.can_read_task(author_user_id,t,session)):
-                raise NotFound("Task not found")  # like its GET (GL-24)
+            from tracker import can_comment
+            if not can_comment(session,t,author_user_id):
+                raise NotFound("Task not found")  # every reader comments; others get its GET's 404 (GL-24)
 
             body = content.get("body", "") if isinstance(content, dict) else str(content)
             file_ids = [] if file_ids is None else file_ids
@@ -6926,6 +6947,7 @@ class Database:
                 raise NotFound("Comment not found")
             task=session.get(TaskORM,c.task_id)
             if not task or not self.can_read_task(user_id,task,session):raise NotFound("Comment not found")  # like its GET (GL-24)
+            if c.deleted_at:raise NotFound("Comment was deleted","comment_deleted")
             # Comments are not accounting inputs: control epics accept them like creation does;
             # their mention restrictions stay in tracker_collaboration._sync.
             from tracker import can_edit_comment
