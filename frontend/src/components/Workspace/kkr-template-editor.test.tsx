@@ -133,6 +133,12 @@ it("filters the library on the page by words, team and kind; archived templates 
   const filters = page.container.querySelector<HTMLElement>('[role="group"][aria-label="Фильтры шаблонов"]')!;
   expect(titles()).toEqual(["Ёлка во дворе", "Регистрация гостей", "Общий сбор"]);
   expect([...filters.querySelectorAll("select")[0].querySelectorAll("option")].map(option => option.textContent)).toEqual(["Все команды", "Весь Профком", "Мероприятие: День математика"]);
+  // The search, one pair of equal lists with short options, the checkbox (owner 2026-11-08, item 9).
+  const [team, kind] = filters.querySelectorAll("select");
+  expect([...kind.querySelectorAll("option")].map(option => option.textContent)).toEqual(["Все виды", "Личные", "Командные"]);
+  expect([...filters.children].map(child => child.querySelectorAll("select").length)).toEqual([0, 2, 0]);
+  expect(team.parentElement!.parentElement).toBe(kind.parentElement!.parentElement);expect(team.parentElement!.className).toBe(kind.parentElement!.className);
+  expect([team, kind].map(select => select.parentElement!.firstChild!.textContent)).toEqual(["Команда", "Вид"]);
   // «е» finds «ё», in the title and in the description.
   await change(filters.querySelector<HTMLInputElement>('input[type="search"]')!, "ем");
   expect(titles()).toEqual(["Общий сбор"]);

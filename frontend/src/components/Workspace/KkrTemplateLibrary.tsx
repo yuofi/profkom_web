@@ -20,6 +20,7 @@ import { metricValue } from "../../pages/Workspace/seasonAnalyticsView";
 import { criteriaFromValues, criteriaKeys, criteriaLabels } from "../../utils/kkrCriteria";
 import s from "./ProfileFeatures.module.css";
 import w from "./Workspace.module.css";
+import l from "./WorkspaceLayout.module.css";
 const emptyValues = (): TemplateValues => ({ title: "", description: "", hours: 0, evaluation: 1, criteria: emptyCriteria() });
 type EditorChoice = { template?: KkrTemplate; values: TemplateValues };
 const scopeKinds = { block: "Блок", event: "Мероприятие", subevent: "Подмероприятие", global: "Весь Профком" } as const;
@@ -114,11 +115,14 @@ function LibraryFilters({ templates, value, onChange }: { templates: KkrTemplate
   const teams = new Map<string, string>();
   for (const row of templates) if (row.visibility === "team" && row.scope) teams.set(teamKey(row), row.scope.kind === "global" ? "Весь Профком" : `${scopeKinds[row.scope.kind]}: ${row.scope.name}`);
   const set = (next: Partial<LibraryFilter>) => onChange({ ...value, ...next });
-  return <div className={`${w.filters} ${s.libraryFilters}`} role="group" aria-label="Фильтры шаблонов">
-    <label className={`${w.field} ${w.search}`}>Поиск<input type="search" value={value.search} placeholder="Название или описание" onChange={event => set({ search: event.target.value })} /></label>
-    <label className={`${w.field} ${s.listFilter}`}>Команда<select value={value.team} onChange={event => set({ team: event.target.value })}><option value="">Все команды</option>
-      {[...teams].sort((a, b) => a[1].localeCompare(b[1], "ru")).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-    <label className={`${w.field} ${s.listFilter}`}>Вид<select value={value.kind} onChange={event => set({ kind: event.target.value as LibraryFilter["kind"] })}><option value="">Личные и командные</option><option value="personal">Личные</option><option value="team">Командные</option></select></label>
+  // The two lists are one pair of equal fields, on the page and in the 480 px window alike (owner 2026-11-08, item 9).
+  return <div className={`${s.libraryFilters} ${l.controls}`} role="group" aria-label="Фильтры шаблонов">
+    <label className={`${w.field} ${s.librarySearch}`}>Поиск<input type="search" value={value.search} placeholder="Название или описание" onChange={event => set({ search: event.target.value })} /></label>
+    <div className={s.listFilters}>
+      <label className={`${w.field} ${s.listFilter}`}>Команда<select value={value.team} onChange={event => set({ team: event.target.value })}><option value="">Все команды</option>
+        {[...teams].sort((a, b) => a[1].localeCompare(b[1], "ru")).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+      <label className={`${w.field} ${s.listFilter}`}>Вид<select value={value.kind} onChange={event => set({ kind: event.target.value as LibraryFilter["kind"] })}><option value="">Все виды</option><option value="personal">Личные</option><option value="team">Командные</option></select></label>
+    </div>
     <div className={`${w.field} ${w.checkField} ${s.archivedFilter}`}><label className={w.check}><input type="checkbox" checked={value.archived} onChange={event => set({ archived: event.target.checked })} />Показать архивные</label></div>
   </div>;
 }
