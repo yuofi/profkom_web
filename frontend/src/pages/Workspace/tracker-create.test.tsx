@@ -131,11 +131,46 @@ it("names each queue's team in the select and refuses a queue whose event season
   page = await mountWorkspace(<Routes><Route path="/tasks/new" element={<TrackerTaskCreatePage />} /></Routes>, { path: "/tasks/new?queue_id=queue-tasks" });
   await waitForPage(page, () => !!page!.container.querySelector("#task-queue-notice"));
   const form = page.container.querySelector("form")!, select = field(form, "queue") as HTMLSelectElement;
-  expect([...select.options].find(option => option.value === "queue-tasks")?.textContent).toBe("TASK · Задачи встречи · Лекции и встречи");
+  expect([...select.options].find(option => option.value === "queue-tasks")?.textContent).toBe("TASK · Задачи встречи · Лекции и встречи · сезон закрыт");
   expect([...select.options].find(option => option.value === `queue-${mock!.state.blocks[0].block_id}`)?.textContent).toBe(`INFO · ${mock.state.blocks[0].name} · ${mock.state.blocks[0].name}`);
   const notice = "Сезон «Осень и зима 2026» закрыт — новые задачи в этой очереди создать нельзя.";
   expect(page.container.querySelector("#task-queue-notice")?.textContent).toBe(notice);expect(select.getAttribute("aria-describedby")).toBe("task-queue-notice");
   await change(field(page.container, "title"), "Задача в закрытом сезоне");await submit(form);await waitForPage(page);
   expect(create).not.toHaveBeenCalled();expect(page.container.querySelector('[role="alert"]')?.textContent).toContain(notice);
   await change(select, `queue-${mock.state.blocks[0].block_id}`);await waitForPage(page, () => !page!.container.querySelector("#task-queue-notice"));expect(select.hasAttribute("aria-describedby")).toBe(false);
+});
+it("without a chosen queue starts with one that takes a task now (owner 2026-11-08, В8)", async () => {
+  mock = installMockTransport("chair", { delay: 0 });mock.state.seasons.find(season => season.season_id === "season-1")!.state = "closed";
+  page = await mountWorkspace(<Routes><Route path="/tasks/new" element={<TrackerTaskCreatePage />} /></Routes>, { path: "/tasks/new" });
+  await waitForPage(page, () => !!page!.container.querySelector("form"));
+  const select = field(page.container.querySelector("form")!, "queue") as HTMLSelectElement;
+  // The catalogue lists the closed season's event queue first; it stays in the select but is not chosen.
+  expect(select.options[0].value).toBe("queue-tasks");expect(select.value).toBe(`queue-${mock.state.blocks[0].block_id}`);
+  expect(page.container.querySelector("#task-queue-notice")).toBeNull();
+});
+it("offers chair work only an open season, also after another queue's planned one was chosen", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  mock.state.queues.push({ ...mock.state.queues[0], queue_id: "free", name: "Общая очередь", key: "FREE", scope: null }, { ...mock.state.queues[0], queue_id: "chair-work", name: "Работа председателя", key: "CHAIR", scope: { kind: "chair", id: "chair" } });
+  const create = vi.spyOn(tasksApi, "create");
+  page = await mountWorkspace(<Routes><Route path="/tasks/new" element={<TrackerTaskCreatePage />} /><Route path="/tasks/:id" element={<p>Созданная задача</p>} /></Routes>, { path: "/tasks/new?queue_id=free" });
+  await waitForPage(page, () => !!page!.container.querySelector("form"));
+  const form = page.container.querySelector("form")!, season = () => field(form, "season") as HTMLSelectElement;
+  expect([...season().options].map(option => option.value)).toContain("season-next");await change(season(), "season-next");expect(season().value).toBe("season-next");
+  await change(field(form, "queue"), "chair-work");await waitForPage(page);
+  expect([...season().options].map(option => option.value)).toEqual(["season-previous", "season-1"]);expect(season().value).toBe("season-previous");
+  await change(field(page.container, "title"), "Работа председателя в открытом сезоне");await submit(form);
+  await waitForPage(page, () => !!page!.container.textContent?.includes("Созданная задача") || !!page!.container.querySelector('[role="alert"]'));
+  expect(create).toHaveBeenCalledWith(expect.objectContaining({ queue_id: "chair-work", season_id: "season-previous" }));
+});
+it("refuses chair work without an open season before asking the server", async () => {
+  mock = installMockTransport("chair", { delay: 0 });mock.state.seasons.forEach(season => { if (season.state === "open") season.state = "closed"; });
+  mock.state.queues.push({ ...mock.state.queues[0], queue_id: "chair-work", name: "Работа председателя", key: "CHAIR", scope: { kind: "chair", id: "chair" } });
+  const create = vi.spyOn(tasksApi, "create");
+  page = await mountWorkspace(<Routes><Route path="/tasks/new" element={<TrackerTaskCreatePage />} /></Routes>, { path: "/tasks/new?queue_id=chair-work" });
+  await waitForPage(page, () => !!page!.container.querySelector("#task-queue-notice"));
+  const form = page.container.querySelector("form")!;
+  expect([...(field(form, "season") as HTMLSelectElement).options]).toHaveLength(0);
+  expect(page.container.querySelector("#task-queue-notice")?.textContent).toBe("Сейчас нет открытого сезона — новые задачи в этой очереди создать нельзя.");
+  await change(field(page.container, "title"), "Работа без открытого сезона");await submit(form);await waitForPage(page);
+  expect(create).not.toHaveBeenCalled();expect(page.container.querySelector('[role="alert"]')).not.toBeNull();
 });

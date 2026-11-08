@@ -27,7 +27,7 @@ import { getTaskRoute, getTaskQueueRoute, getTaskQueuesRoute, getBlockRoute, get
 import { useWorkspaceActions } from "../../utils/hooks/useWorkspace";
 import { requestKey, type RequestKey } from "../../utils/clientId";
 import { TrackerParentSelector } from "./TrackerParentSelector";
-import { queueCreationNotice, queueOptionLabel } from "./queuePlace";
+import { queueCreationNotice, queueOptionLabel, queueTakesTasks } from "./queuePlace";
 import w from "../../components/Workspace/Workspace.module.css";
 import s from "./TaskCreateForm.module.css";
 
@@ -47,7 +47,8 @@ export function TaskCreateForm({ scope, queueId, parentTaskId }: { scope?: Scope
   const catalog = useQuery({ queryKey: ["tasks", "queues", "catalog"], queryFn: taskQueuesApi.catalog });
   const seasons = useQuery({ queryKey: ["seasons"], queryFn: seasonsApi.list });
   const queues = (catalog.data?.items ?? []).filter(queue => can(queue, "create_task") && (!scope || queue.scope?.kind === scope.kind && queue.scope.id === scope.id));
-  const initialQueue = queueId ? queues.find(queue => queue.queue_id === queueId) : queues[0];
+  // Without a chosen queue the first one that takes a task now comes first (owner 2026-11-08, В8).
+  const initialQueue = queueId ? queues.find(queue => queue.queue_id === queueId) : queues.find(queueTakesTasks) ?? queues[0];
   const fallbackEnabled = !!scope && !queueId && !initialQueue && !!catalog.data && (!catalog.error || canRetainData(catalog.error));
   const fallback = useQuery({ queryKey: ["tasks", "create-scope", scope?.kind, scope?.id], enabled: fallbackEnabled, queryFn: async (): Promise<ScopedCreation | null> => {
     if (!scope) return null;
@@ -104,7 +105,11 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId, fal
     setAssignees(previous => previous.every(id => allowed.has(id)) ? previous : previous.filter(id => allowed.has(id)));
   }
   const eventScope=creationScope?.kind==="subevent"||creationScope?.kind==="event";
-  const seasonId = eventScope ? fallback?.seasonId ?? context.data ?? "" : season;
+  // Block and chair work need an open season, as database.create_task decides.
+  const openSeasonOnly = creationScope?.kind === "block" || creationScope?.kind === "chair";
+  const seasonChoices = seasons.filter(item => openSeasonOnly ? item.state === "open" : ["open", "planned"].includes(item.state));
+  const chosenSeason = seasonChoices.some(item => item.season_id === season) ? season : seasonChoices[0]?.season_id ?? "";
+  const seasonId = eventScope ? fallback?.seasonId ?? context.data ?? "" : chosenSeason;
   useEffect(() => { if (previousSeason.current && seasonId && previousSeason.current !== seasonId) setParentId("");if (seasonId) previousSeason.current = seasonId; }, [seasonId]);
   const seasonEnd = seasons.find(item => item.season_id === seasonId)?.ends_at;
   // A season past its end but not closed yet allows no deadline; min above max would only confuse.
@@ -129,8 +134,8 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId, fal
         if (planned.starts_at && deadlineAt && Date.parse(planned.starts_at) > Date.parse(deadlineAt)) throw Error("Плановое начало не может быть позже дедлайна");
         if (checklist.some(item => !item.text.trim())) throw Error("Заполните каждый пункт чеклиста");
         const selectedSeason = seasons.find(item => item.season_id === seasonId);
+        if (openSeasonOnly && selectedSeason?.state !== "open") throw Error(creationScope?.kind === "chair" ? "Для работы председателя нужен открытый сезон" : "Для задачи блока нужен открытый сезон");
         if (!selectedSeason || !["open", "planned"].includes(selectedSeason.state)) throw Error("Выберите открытый или запланированный сезон");
-        if (creationScope?.kind === "block" && selectedSeason.state !== "open") throw Error("Для задачи блока нужен открытый сезон");
         if (!session) throw Error("Войдите в аккаунт");
         setSaving(true);
         try {
@@ -156,7 +161,7 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId, fal
         <aside className={s.parameters} aria-label="Параметры новой задачи"><h2>Параметры</h2>
           <TaskPlanningFields value={planning} onChange={setPlanning} disabled={saving} deadline={deadline ? toUtc(deadline) : undefined} />
           {queue ? <><label className={`${w.field} ${s.field}`}>Очередь<select name="queue" value={queue?.queue_id ?? queueId} disabled={saving} aria-describedby={creationNotice ? "task-queue-notice" : undefined} onChange={event => { setQueueId(event.target.value);setAssignees([]); }}>{queues.map(item => <option key={item.queue_id} value={item.queue_id}>{queueOptionLabel(item)}</option>)}</select></label>{creationNotice && <p id="task-queue-notice" role="status" className={w.warning}>{creationNotice}</p>}</> : <div className={s.field}><span>Очередь</span><strong>Очередь команды по умолчанию</strong><small className={w.muted}>Задача появится в очереди этой команды.</small></div>}
-          {eventScope ? <div className={s.field}><span>Сезон</span><span className={s.fixedValue}><Glyph name="calendar_month" />{!fallback && context.isLoading ? "Загрузка…" : seasons.find(item => item.season_id === seasonId)?.title ?? "Не определён"}</span><small className={w.muted}>Определяется мероприятием.</small>{context.error && <QueryState loading={false} error={context.error}>{null}</QueryState>}</div> : <label className={`${w.field} ${s.field}`}>Сезон<select name="season" value={season} onChange={event => setSeason(event.target.value)} disabled={saving} required>{seasons.filter(item => creationScope?.kind === "block" ? item.state === "open" : ["open", "planned"].includes(item.state)).map(item => <option key={item.season_id} value={item.season_id}>{item.title}</option>)}</select></label>}
+          {eventScope ? <div className={s.field}><span>Сезон</span><span className={s.fixedValue}><Glyph name="calendar_month" />{!fallback && context.isLoading ? "Загрузка…" : seasons.find(item => item.season_id === seasonId)?.title ?? "Не определён"}</span><small className={w.muted}>Определяется мероприятием.</small>{context.error && <QueryState loading={false} error={context.error}>{null}</QueryState>}</div> : <label className={`${w.field} ${s.field}`}>Сезон<select name="season" value={chosenSeason} onChange={event => setSeason(event.target.value)} disabled={saving} required>{seasonChoices.map(item => <option key={item.season_id} value={item.season_id}>{item.title}</option>)}</select></label>}
           <label className={`${w.field} ${s.field}`}>Дедлайн, МСК<input name="deadline" type="datetime-local" value={deadline} min={seasonEnded ? undefined : moscowInput(new Date().toISOString())} max={seasonEnd ? moscowInput(seasonEnd) : undefined} aria-invalid={!!deadlineError || undefined} aria-describedby={deadlineError ? "task-deadline-error" : undefined} onChange={event => { setDeadline(event.target.value);setDeadlineError(""); }}  disabled={saving} />{deadlineError ? <small id="task-deadline-error" className={w.fieldError}>{deadlineError}</small> : seasonEnded && <small className={w.muted}>Сезон закончился {displayDate(seasonEnd)}, МСК: дедлайн в нём поставить нельзя.</small>}</label>
           <section className={s.people}><h3 id={assigneesLabel}>Исполнители</h3>{selectedQueue ? <QueryState loading={queuePending} error={queueDetails.error} retry={() => void queueDetails.refetch()}>{queueReady ? <PeopleChoices people={queue?.scope && can(queue, "assign_task_others") ? queue.assignable_users ?? [] : [self]} value={assignees} onChange={chooseAssignees} name="users" labelledBy={assigneesLabel} disabled={saving} /> : !queueDetails.error && !queuePending ? <Empty>Создание задачи в этой очереди недоступно.</Empty> : null}</QueryState> : fallback?.canAssignOthers ? <LegacyScopedAssignees scope={fallback.scope} value={assignees} onChange={chooseAssignees} labelledBy={assigneesLabel} disabled={saving} /> : <PeopleChoices people={[self]} value={assignees} onChange={chooseAssignees} name="users" labelledBy={assigneesLabel} disabled={saving} />}</section>
           <section className={s.people}><h3 id={watchersLabel}>Наблюдатели</h3><PeopleChoices people={[self]} value={watch && session ? [String(session.user_id)] : []} onChange={value => setWatch(value.length > 0)} name="watchers" labelledBy={watchersLabel} disabled={saving || selfAssigned} />{selfAssigned && <small className={w.muted}>Исполнитель уже получает уведомления.</small>}</section>
