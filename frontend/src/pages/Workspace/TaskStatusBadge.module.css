@@ -1,4 +1,9 @@
 /* The look of the status chip (TaskStatusMenu.module.css) at list size, without the menu affordances. */
 .badge { display:inline-flex;align-items:center;gap:5px;max-width:100%;min-width:0;box-sizing:border-box;padding:2px 8px;border:1px solid color-mix(in srgb,var(--tone,var(--primary)) 35%,transparent);border-radius:7px;background:color-mix(in srgb,var(--tone,var(--primary)) 14%,var(--surface-container-low));color:var(--tone,var(--on-surface));font-size:11px;font-weight:500;line-height:1.5;white-space:nowrap;vertical-align:middle; }
 .dot { display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--tone,var(--primary));flex:0 0 auto; }
-.label { min-width:0;overflow:hidden;text-overflow:ellipsis; }
+/* One badge width for every status (owner 2026-11-08, В2), as the status chip: the hidden sizer lists all four names,
+   so the label box is as wide as the longest one in the badge's own font. The dot and the name start at the same
+   place in every badge; a narrower column cuts the name instead of widening the row. */
+.label { display:inline-flex;flex-direction:column;min-width:0;overflow:hidden; }
+.label > span { overflow:hidden;text-overflow:ellipsis; }
+.label::after { content:attr(data-sizer);height:0;overflow:hidden;visibility:hidden;white-space:pre; }
