@@ -67,8 +67,9 @@ hand-out and builds the text from the bell's own wording ([BOT_API](BOT_API.md),
 Personal templates remain owner-only; team templates use current original KKR scope
 permissions. They never grant access to a team, assignment, recipient or private field.
 Values include a work title/description, hours, evaluation and the KKR criteria flags
-(`database.KKR_CRITERIA_TABLE`). A template saved before a criterion existed lacks its
-key; the DTO and prepare answer it as false (`profile_features.template_values`).
+(`database.KKR_CRITERIA_TABLE`). The DTO and prepare answer exactly the table's keys
+(`profile_features.template_values`): a stored template that lacks one reads it as false,
+and a key the table does not name is dropped.
 GET/list, versioned edit/archive, copying and prepare all preserve ownership/scope.
 The DTO names `author` (`owner_user_id`) and `updated_by` (`updated_by_user_id`, set on
 create and every PATCH) as user refs; there is no creation date in it. The column is

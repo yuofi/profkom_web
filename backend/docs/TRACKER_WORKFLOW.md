@@ -68,10 +68,10 @@ and without closed-season changes.
 After observed public closure, the unified accounting editor saves common task
 criteria plus all assignee rows atomically. `accounting_batch.py` validates every
 revision and private right; a bad later row rolls back the whole command. The criteria
-are the keys of `database.KKR_CRITERIA_TABLE`: an unknown key or a missing one of the
-five original keys is 422, while `urgent`, `monotonous` and `physical` (2026-11-08) may
-be omitted and read as false. A record stored without them equals the same choice with
-them unticked, so it gets no new revision or audit entry. New
+are exactly the keys of `database.KKR_CRITERIA_TABLE`: an unknown key or a missing one
+is 422. A stored key the table does not name is ignored (`criteria_flags`), so a record
+carrying one equals the same choice without it and gets no new revision or audit entry.
+The automatic deadline premium is the only urgency; no criterion adds to it. New
 accounting uses the actual server closure time. Unknown legacy dates are never
 reconstructed. Deadline-free tasks receive no urgency premium or lateness penalty.
 
