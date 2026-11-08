@@ -482,9 +482,16 @@ export function ActionForm({
                     step={field.type === "number" ? "any" : undefined}
                     value={String(form.values[field.name] ?? initialValues[field.name])}
                     autoCapitalize={field.normalize ? "characters" : undefined}
-                    onChange={(e) =>
-                      void form.setFieldValue(field.name, field.normalize ? field.normalize(e.target.value) : e.target.value)
-                    }
+                    onChange={(e) => {
+                      const input = e.target, value = field.normalize ? field.normalize(input.value) : input.value;
+                      if (value !== input.value) {
+                        // Rewritten here, React finds the DOM already equal to the state and leaves the caret where it was typed.
+                        const { selectionStart, selectionEnd } = input;
+                        input.value = value;
+                        if (selectionStart !== null && selectionEnd !== null) input.setSelectionRange(selectionStart, selectionEnd);
+                      }
+                      void form.setFieldValue(field.name, value);
+                    }}
                   />
                 )}
                 {field.hint && <small>{field.hint}</small>}

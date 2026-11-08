@@ -133,6 +133,16 @@ it("validates a key of a leading Latin letter and capitals or digits, upper-case
   const body = JSON.parse(wire.data);expect(body.scope).toEqual({ kind: "event", id: transport!.state.events[0].event_id });
   expect(transport!.state.queues.find(q => q.key === "IT2WEB")?.owner?.user_id).toBe(transport!.state.session.user_id);
 });
+it("keeps the caret where a lower-case letter is typed inside the key", async () => {
+  transport = installMockTransport("leader", { delay: 0 });await mount("/tasks/queues");await act(async () => button("Создать очередь").click());await waitForPage(page!);
+  const key = page!.container.querySelector<HTMLInputElement>('input[name="key"]')!, setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+  await change(key, "ITWEB");
+  // What a browser leaves after «x» is typed between IT and WEB: the raw letter and the caret behind it.
+  await act(async () => { setValue.call(key, "ITxWEB");key.setSelectionRange(3, 3);key.dispatchEvent(new Event("input", { bubbles: true })); });
+  expect(key.value).toBe("ITXWEB");expect([key.selectionStart, key.selectionEnd]).toEqual([3, 3]);
+  await act(async () => { setValue.call(key, "ITXyWEB");key.setSelectionRange(4, 4);key.dispatchEvent(new Event("input", { bubbles: true })); });
+  expect(key.value).toBe("ITXYWEB");expect(key.selectionStart).toBe(4);
+});
 it("removes only the queue filter in the global task list", async () => {
   transport = installMockTransport("leader", { delay: 0 });const list = vi.spyOn(tasksApi, "listPage");await mount("/tasks?queue_id=queue-tasks&mine=true");
   expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ queue_id: "queue-tasks", mine: "true" }), expect.any(AbortSignal));await act(async () => page!.container.querySelector<HTMLButtonElement>('[aria-label="Убрать фильтр: Очередь"]')!.click());await waitForPage(page!);
