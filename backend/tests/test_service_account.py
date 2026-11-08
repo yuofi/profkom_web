@@ -347,6 +347,35 @@ def test_three_failures_in_a_row_notify_once_per_streak_and_a_success_resets_it(
         assert s.query(NotificationDeliveryEventORM).count() == 0
 
 
+def test_the_bell_gets_the_facts_of_a_sign_in_notice_without_the_user_agent(client, configured, watchers):
+    """Variant Б of item 25 (owner 2026-11-08): the bell lays a sign-in notice out from its
+    facts; the plain text stays for anything that reads only the text."""
+    chair, master, other = watchers
+    assert sign_in(client).status_code == 200
+    assert [sign_in(client, password="Wrong-Password-123").status_code for _ in range(4)] == [401] * 4
+    for person in (chair, master):
+        items = client.get("/api/notifications", headers=person.headers).json()["items"]
+        [(_, signed)] = notices(person.user_id, "service_login")
+        [(_, failed)] = notices(person.user_id, "service_login_failed")
+        by_kind = {item["kind"]: item for item in items}
+        assert by_kind["service_login"]["details"] == {"at": signed["at"], "ip": "testclient", "browser": "Chrome 130, macOS", "failures": None}
+        assert by_kind["service_login_failed"]["details"] == {"at": failed["at"], "ip": "testclient", "browser": "Chrome 130, macOS", "failures": 4}
+        assert by_kind["service_login"]["text"].startswith("Вход в сервисный аккаунт: ")
+        # The header itself is neither kept nor shown.
+        assert "Mozilla" not in json.dumps(items) and "AppleWebKit" not in json.dumps(items)
+    assert notices(other.user_id) == []
+
+
+def test_sign_in_details_take_only_their_own_facts():
+    assert service_account.notice_details("service_login", {"at": "2026-11-08T02:42:00+00:00", "ip": "127.0.0.1", "browser": "Chrome 131, macOS",
+                                                            "failures": 9, "user_agent": "Mozilla/5.0"}) \
+        == {"at": "2026-11-08T02:42:00+00:00", "ip": "127.0.0.1", "browser": "Chrome 131, macOS", "failures": None}
+    # An older or odd payload: what is missing or of another type is null, a streak counts at least three.
+    for failures in (None, True, 0, "4"):
+        assert service_account.notice_details("service_login_failed", {"at": 5, "ip": "", "failures": failures}) \
+            == {"at": None, "ip": None, "browser": None, "failures": service_account.FAILURES_NOTICE}
+
+
 @pytest.mark.parametrize("agent,summary", [
     (AGENT, "Chrome 130, macOS"),
     ("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0", "Firefox 131, Windows"),

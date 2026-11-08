@@ -108,6 +108,28 @@ it("keeps every fixture session and application, and the demo bot answers, on th
   }
 });
 
+it("checks a sign-in notice's facts for the bell and keeps the User-Agent off the wire", async () => {
+  const notice = { id: "n-1", kind: "service_login_failed", text: "Неудачные попытки входа в сервисный аккаунт (4 подряд): …", created_at: "2026-11-08T02:51:00Z", read_at: null, target: null };
+  const details = { at: "2026-11-08T02:51:00Z", ip: "127.0.0.1", browser: "Chrome 131, macOS", failures: 4 };
+  expect(wireIssues("Notification", { ...notice, details })).toEqual([]);
+  expect(wireIssues("Notification", { ...notice, details: { at: null, ip: null, browser: null, failures: null } })).toEqual([]);
+  // Any other kind, and an older server without the field.
+  expect(wireIssues("Notification", { ...notice, details: null })).toEqual([]);
+  expect(wireIssues("Notification", notice)).toEqual([]);
+  expect(wireIssues("NotificationDetails", { ...details, user_agent: "Mozilla/5.0" })).toContain("NotificationDetails.user_agent: unexpected field");
+  expect(wireIssues("NotificationDetails", { ...details, failures: "4" })).not.toEqual([]);
+  const { installMockTransport } = await import("../mocks/transport");
+  const { workspaceApi } = await import("../utils/api/workspace.api");
+  for (const [role, notices] of [["chair", 2], ["it", 2], ["organizer", 0]] as const) {
+    const mock = installMockTransport(role, { delay: 0 });
+    try {
+      const items = (await workspaceApi.notifications()).items;
+      for (const item of items) expect(wireIssues("Notification", item), `${role} ${item.id}`).toEqual([]);
+      expect(items.filter(item => item.details).length, role).toBe(notices);
+    } finally { mock.restore(); }
+  }
+});
+
 it("checks the notification settings with the stage 3 channels and from an older server without them", () => {
   const off = { email: false, telegram: false, vk: false };
   const settings = { revision: 1, preferences: { tracker: off, applications: off, pgas: off }, delivery_status: "not_connected" };

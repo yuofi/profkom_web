@@ -1244,6 +1244,16 @@ class ReportVersionOut(BaseModel):
     published_by: Optional[UserRefOut] = None
 
 
+class NotificationDetailsOut(BaseModel):
+    """The facts of a service-account sign-in notice (owner 2026-11-08, item 25, variant Б): its
+    moment (ISO), IP, short browser summary and, for failed attempts in a row, their number. The
+    User-Agent itself is not kept."""
+    at: Optional[str] = None
+    ip: Optional[str] = None
+    browser: Optional[str] = None
+    failures: Optional[int] = None
+
+
 class NotificationOut(BaseModel):
     id: str
     kind: str
@@ -1251,6 +1261,8 @@ class NotificationOut(BaseModel):
     created_at: str
     read_at: Optional[str] = None
     target: Optional[dict] = None
+    # Only service_login and service_login_failed carry details; every other kind has null.
+    details: Optional[NotificationDetailsOut] = None
 
 
 class DashboardOut(BaseModel):

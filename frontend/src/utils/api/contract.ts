@@ -906,6 +906,16 @@ export interface Notification {
   created_at: string;
   read_at: string | null;
   target: Target | null;
+  /** Only `service_login` and `service_login_failed`; null for other kinds, absent from an older server. */
+  details?: NotificationDetails | null;
+}
+/** The facts of a service-account sign-in notice (owner 2026-11-08, item 25, variant Б): its moment,
+ *  IP, short browser summary and, for failed attempts in a row, their number. No User-Agent. */
+export interface NotificationDetails {
+  at: string | null;
+  ip: string | null;
+  browser: string | null;
+  failures: number | null;
 }
 export interface CalendarItem {
   all_day?: boolean;
