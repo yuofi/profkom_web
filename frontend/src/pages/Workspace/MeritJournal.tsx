@@ -3,7 +3,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { EntityPicker, type EntityOption } from "../../components/Workspace/EntityPicker";
 import { UserChip } from "../../components/Workspace/UserChip";
-import { Empty, QueryState } from "../../components/Workspace/WorkspaceUI";
+import { Empty, Loading, QueryState } from "../../components/Workspace/WorkspaceUI";
 import type { Merit, MeritJournalItem } from "../../utils/api/contract";
 import { canRetainData } from "../../utils/api/request";
 import { seasonsApi } from "../../utils/api/seasons.api";
@@ -91,7 +91,8 @@ export function MeritJournal({ seasonId, merits, names, people, peopleLoading = 
       </section>)}</div>}
       {query.hasNextPage && <button ref={more} type="button" className={`${s.button} ${j.more}`} aria-disabled={loadingMore || undefined} aria-busy={query.isFetchingNextPage || undefined}
         onClick={() => { if (loadingMore) return;firstAdded.current = shown;void query.fetchNextPage(); }}>{query.isFetchingNextPage ? "Загружаем…" : "Показать ещё"}</button>}
-      {data && !shown && <Empty>{team || person ? "Изменений по выбранным условиям нет." : "Изменений пока нет."}</Empty>}
+      {/* An empty previous list says nothing about the new conditions: the loading line until they answer. */}
+      {data && !shown && (stale ? <Loading /> : <Empty>{team || person ? "Изменений по выбранным условиям нет." : "Изменений пока нет."}</Empty>)}
     </QueryState>
   </section>;
 }

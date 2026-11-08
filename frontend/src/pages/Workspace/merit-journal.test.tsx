@@ -102,6 +102,37 @@ it("filters by team and participant through the URL and the request", async () =
   expect(entries()).toHaveLength(2);
 });
 
+it("does not carry an empty answer over to other conditions while they load", async () => {
+  await season();
+  await mount("/seasons/season-1/merits?view=journal&team=block%3Ablock-info&person=102");
+  expect(text(journal())).toContain("Изменений по выбранным условиям нет.");
+  const read = seasonsApi.meritJournal;
+  let release = () => {};
+  const hold = () => vi.spyOn(seasonsApi, "meritJournal").mockImplementationOnce((query, signal) => new Promise(resolve => { release = () => resolve(read(query, signal)); }));
+  const empty = () => ["Изменений по выбранным условиям нет.", "Изменений пока нет."].filter(message => text(journal()).includes(message));
+  const loading = () => journal()!.querySelector('[role="status"]')?.textContent;
+  // The participant alone has an edit in another team: no empty text before it arrives.
+  hold();
+  await change(field(page!.container, "team"), "");
+  expect(empty()).toEqual([]);
+  expect(loading()).toBe("Загружаем данные…");
+  await act(async () => release());await waitForPage(page!);
+  expect(loading()).toBeUndefined();
+  expect(entries().map(entry => text(entry.querySelector("ul")))).toEqual(["Получатели: −Иван Петров (было 8 ч)"]);
+  // A season without edits: clearing a participant that matched nothing does not claim «пока нет» early.
+  await page!.cleanup();page = undefined;mock!.restore();vi.restoreAllMocks();
+  mock = installMockTransport("chair", { delay: 0 });
+  await record({ title: "Без правок", recipients: [recipient(101, 2)] });
+  await mount("/seasons/season-1/merits?view=journal&person=101");
+  expect(text(journal())).toContain("Изменений по выбранным условиям нет.");
+  hold();
+  await change(field(page!.container, "person"), "");
+  expect(empty()).toEqual([]);
+  expect(loading()).toBe("Загружаем данные…");
+  await act(async () => release());await waitForPage(page!);
+  expect(empty()).toEqual(["Изменений пока нет."]);
+});
+
 it("shows more edits on request and hands the focus to the first added one after the last page", async () => {
   mock = installMockTransport("chair", { delay: 0 });
   let merit = await record({ title: "Правка 0", recipients: [recipient(101, 1)] });
