@@ -6723,6 +6723,25 @@ class Database:
             session.commit()
             return _merit_orm_to_dc(session, m, created_by_user_id)
 
+    def visible_merit_rows(
+        self,
+        session: Session,
+        current_user_id: int,
+        season_id: Optional[str] = None,
+        source_kind: Optional[str] = None,
+        event_id: Optional[str] = None,
+    ) -> list[MeritORM]:
+        """The merit records GET /merits lists for this reader, newest first."""
+        q = session.query(MeritORM)
+        if season_id:
+            q = q.filter(MeritORM.season_id == season_id)
+        if source_kind:
+            q = q.filter(MeritORM.source_kind == source_kind)
+        if event_id:
+            q = q.filter(MeritORM.event_id == event_id)
+        from merit_rules import can_manage
+        return [m for m in q.order_by(MeritORM.created_at.desc()).all() if can_manage(m, current_user_id)]
+
     def list_merits(
         self,
         current_user_id: int,
@@ -6731,17 +6750,8 @@ class Database:
         event_id: Optional[str] = None,
     ) -> list[MeritDC]:
         with self._session() as session:
-            q = session.query(MeritORM)
-            if season_id:
-                q = q.filter(MeritORM.season_id == season_id)
-            if source_kind:
-                q = q.filter(MeritORM.source_kind == source_kind)
-            if event_id:
-                q = q.filter(MeritORM.event_id == event_id)
-
-            rows = q.order_by(MeritORM.created_at.desc()).all()
-            from merit_rules import can_manage
-            return [_merit_orm_to_dc(session, m, current_user_id) for m in rows if can_manage(m, current_user_id)]
+            rows = self.visible_merit_rows(session, current_user_id, season_id, source_kind, event_id)
+            return [_merit_orm_to_dc(session, m, current_user_id) for m in rows]
 
     def get_merit(self, merit_id: str, current_user_id: int) -> MeritDC:
         with self._session() as session:

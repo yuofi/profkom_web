@@ -7,7 +7,7 @@ import json
 from typing import Literal
 
 from fastapi import Depends
-from sqlalchemy import event, text as sql_text
+from sqlalchemy import event, select, text as sql_text
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,7 @@ from domain_models import BlockMetaORM, MembershipORM, ScopeTenureORM
 from history_models import HistoryRedactionORM
 from event_workspace_models import EventWorkspaceMetaORM
 from models import User
+from read_context import cached_current, orm_get, orm_rows, prime_get
 from registration import Revision, audit, fail, now
 from participation import dt
 from profile_features import user_ref
@@ -42,9 +43,17 @@ def _loads(value, fallback):
 
 
 def _block_id(identifier):
-    with db._session() as session:
-        meta = session.get(BlockMetaORM, identifier) or session.query(BlockMetaORM).filter_by(legacy_name=identifier).first()
-        return meta.block_id if meta else identifier
+    def load():
+        with db._session() as session:
+            meta = session.get(BlockMetaORM, identifier) or session.query(BlockMetaORM).filter_by(legacy_name=identifier).first()
+            return meta.block_id if meta else identifier
+    return cached_current("history.block_id", identifier, load, copy_result=False)
+
+
+def _tenures(session, person, kind):
+    """A person's role intervals of one scope kind; one read request loads each set once."""
+    return orm_rows(session, "history.tenures", (person, kind),
+                    lambda: session.query(ScopeTenureORM).filter_by(user_id=person, scope_kind=kind).all())
 
 
 def _block_history_id(session, identifier):
@@ -140,10 +149,13 @@ def _same_object(session, kind, identifier, raw_kind, raw_id):
     return str(identifier) == str(raw_id)
 
 
-def _audit_rows(session, kind, identifier, target, actor):
+def _audit_rows(session, kind, identifier, target, actor, candidates=None):
+    """The object's audit rows and whether they are private; `candidates` (in created_at, id
+    order) replaces the read of the whole log when the caller has already selected them."""
     assignments = {row.assignment_id for row in session.query(AssignmentORM).filter_by(task_id=identifier)} if kind == "task" else set()
     private = kind in {"assignment", "merit"} or kind == "task" and _private_task(session, target, actor)
-    for row in session.query(AuditLogORM).order_by(AuditLogORM.created_at, AuditLogORM.id):
+    rows = session.query(AuditLogORM).order_by(AuditLogORM.created_at, AuditLogORM.id) if candidates is None else candidates
+    for row in rows:
         raw_kind, raw_id = _canonical_audit(session, row)
         if _same_object(session, kind, identifier, raw_kind, raw_id):
             if kind == "task" and not private:
@@ -233,17 +245,20 @@ def _scope_aliases(kind, identifier):
 
 def _historically_in_scope(session, person, kind, identifier, at):
     aliases = _scope_aliases(kind, identifier)
-    for row in session.query(ScopeTenureORM).filter_by(user_id=person, scope_kind=kind):
+    for row in _tenures(session, person, kind):
         same = getattr(row, "scope_block_id", None) == _block_id(identifier) if kind == "block" else row.scope_id in aliases
         if same and _within(row, at):
             return True
     if kind == "block":
-        for row in session.query(MembershipORM).filter_by(user_id=person):
+        for row in orm_rows(session, "history.memberships", person,
+                            lambda: session.query(MembershipORM).filter_by(user_id=person).all()):
             start = row.joined_at or row.observed_since
             if row.block_id == _block_id(identifier) and start and dt(start) <= at and (not row.left_at or at < dt(row.left_at)):
                 return True
     if kind == "event":
-        return any(_historically_in_scope(session, person, "subevent", child.subevent_id, at) for child in session.query(SubeventORM).filter_by(event_id=identifier))
+        children = orm_rows(session, "history.subevents", identifier,
+                            lambda: session.query(SubeventORM).filter_by(event_id=identifier).all())
+        return any(_historically_in_scope(session, person, "subevent", child.subevent_id, at) for child in children)
     return False
 
 
@@ -252,7 +267,7 @@ def _historical_supervisor(session, supervisor, subject, kind, identifier, stamp
         return False
     at = dt(stamp)
     global_leader = any(row.role in {"chair", "deputy_chair"} and _within(row, at)
-                        for row in session.query(ScopeTenureORM).filter_by(user_id=supervisor, scope_kind="global"))
+                        for row in _tenures(session, supervisor, "global"))
     if global_leader:
         return True
     if not kind or kind == "queue":
@@ -261,7 +276,7 @@ def _historical_supervisor(session, supervisor, subject, kind, identifier, stamp
     roles = {"block": {"master", "deputy_master"}, "event": {"event_leader", "deputy_event_leader"}, "subevent": {"subevent_leader", "deputy_subevent_leader"}}
     aliases = _scope_aliases(kind, identifier)
     direct = any(row.role in roles.get(kind, set()) and (getattr(row, "scope_block_id", None) == _block_id(identifier) if kind == "block" else row.scope_id in aliases) and _within(row, at)
-                 for row in session.query(ScopeTenureORM).filter_by(user_id=supervisor, scope_kind=kind))
+                 for row in _tenures(session, supervisor, kind))
     if direct and _historically_in_scope(session, subject, kind, identifier, at):
         return True
     if kind == "subevent":
@@ -282,7 +297,7 @@ def may_hide(session, actor, author, kind, target, stamp):
 
 
 def _entry(session, source_kind, source_id, kind, identifier, target, actor, author, stamp, description, changes, reason=None):
-    marker = session.get(HistoryRedactionORM, (source_kind, str(source_id)))
+    marker = orm_get(session, HistoryRedactionORM, (source_kind, str(source_id)))
     return dict(id=f"{source_kind}:{source_id}", source_kind=source_kind, source_id=str(source_id),
         target=dict(kind=kind, id=identifier), changed_by=user_ref(session, author), created_at=stamp,
         description="Версия скрыта" if marker else description,
@@ -290,6 +305,20 @@ def _entry(session, source_kind, source_id, kind, identifier, target, actor, aut
         hidden=bool(marker), hidden_by=user_ref(session, marker.redacted_by_user_id) if marker else None,
         hidden_at=marker.redacted_at if marker else None, revision=2 if marker else 1,
         can_hide=not marker and may_hide(session, actor, author, kind, target, stamp))
+
+
+def _audit_entries(session, kind, identifier, target, actor, candidates=None):
+    """The history entries of the object's audit rows (see _audit_rows for `candidates`)."""
+    result = []
+    for row, private in _audit_rows(session, kind, identifier, target, actor, candidates):
+        changes = _audit_changes(session, row, private)
+        marker = orm_get(session, HistoryRedactionORM, ("audit", str(row.id)))
+        if changes or marker:
+            result.append(_entry(session, "audit", row.id, kind, identifier, target, actor,
+                row.changed_by_user_id, row.created_at,
+                "Изменены исходные поля ККР" if private else "Изменены параметры и состав",
+                changes, row.reason if private else None))
+    return result
 
 
 def history_items(session, kind, identifier, actor):
@@ -300,15 +329,99 @@ def history_items(session, kind, identifier, actor):
         for row in session.query(TaskActivityORM).filter_by(task_id=identifier):
             result.append(_entry(session, "activity", row.event_id, kind, identifier, target, actor,
                 row.actor_user_id, row.created_at, row.description, public_changes(session, row, actor)))
-    for row, private in _audit_rows(session, kind, identifier, target, actor):
-        changes = _audit_changes(session, row, private)
-        marker = session.get(HistoryRedactionORM, ("audit", str(row.id)))
-        if changes or marker:
-            result.append(_entry(session, "audit", row.id, kind, identifier, target, actor,
-                row.changed_by_user_id, row.created_at,
-                "Изменены исходные поля ККР" if private else "Изменены параметры и состав",
-                changes, row.reason if private else None))
+    result.extend(_audit_entries(session, kind, identifier, target, actor))
     return result
+
+
+def _merit_team(merit):
+    """The team a merit record counts for: the chair, its event, block (stable id) or subevent."""
+    if merit.source_kind == "chair_merit":
+        return "chair", None
+    if merit.source_kind == "head_merit":
+        return "event", merit.event_id
+    if merit.source_kind == "block_volunteer":
+        from membership import block_id_for
+        return "block", block_id_for(merit.scope_id)
+    return "subevent", merit.scope_id
+
+
+def _recipient_of(change):
+    """The user id of the recipient a `recipients` change names, as the reader sees it."""
+    side = change.get("after") or change.get("before") or {}
+    return (side.get("user") or {}).get("user_id") if isinstance(side, dict) else None
+
+
+def _for_person(entry, recipients, person):
+    """`entry` under the participant filter: kept when it changes `person` as a recipient, or
+    changes common fields of a record they receive; it then shows only those common lines and
+    their own recipient lines. A hidden version shows no changes, so it touches nobody."""
+    if entry["hidden"]:
+        return None
+    own = any(change["field"] == "recipients" and _recipient_of(change) == person for change in entry["changes"])
+    common = any(change["field"] != "recipients" for change in entry["changes"])
+    if not own and not (common and person in recipients):
+        return None
+    return {**entry, "changes": [change for change in entry["changes"]
+                                 if change["field"] != "recipients" or _recipient_of(change) == person]}
+
+
+def merit_journal(session, actor, season_id, scope_kind=None, scope_id=None, user_id=None):
+    """Every edit (not the creation) of the season's merit records the reader may see, newest
+    first: GET /merits decides the records, and each entry is the one GET /history?target_kind=merit
+    shows for its record (hidden versions, private inputs, can_hide). The journal reads the
+    season's audit rows and the redaction markers once instead of the whole log per record."""
+    merits = db.visible_merit_rows(session, actor, season_id=season_id)
+    teams = {merit.merit_id: _merit_team(merit) for merit in merits}
+    if scope_kind:
+        merits = [merit for merit in merits if teams[merit.merit_id] == (scope_kind, scope_id)]
+    visible = {merit.merit_id for merit in merits}
+    edits = {}
+    if visible:
+        season_merits = select(MeritORM.merit_id).where(MeritORM.season_id == season_id)
+        for row in (session.query(AuditLogORM)
+                    .filter(AuditLogORM.target_kind == "merit", AuditLogORM.target_id.in_(season_merits))
+                    .order_by(AuditLogORM.created_at, AuditLogORM.id)):
+            # The creation row is the one without previous values.
+            if row.target_id in visible and _loads(row.old_values_json, {}):
+                edits.setdefault(row.target_id, []).append(row)
+    sources = sorted(str(row.id) for rows in edits.values() for row in rows)
+    markers = {}
+    for offset in range(0, len(sources), 500):
+        for marker in session.query(HistoryRedactionORM).filter(HistoryRedactionORM.source_kind == "audit",
+                                                               HistoryRedactionORM.source_id.in_(sources[offset:offset + 500])):
+            markers[marker.source_id] = marker
+    for source in sources:
+        prime_get(session, HistoryRedactionORM, ("audit", source), markers.get(source))
+    titles = _team_titles(session, [merit for merit in merits if merit.merit_id in edits], teams)
+    items = []
+    for merit in merits:
+        if merit.merit_id not in edits:
+            continue
+        kind, team_id = teams[merit.merit_id]
+        record = dict(merit_id=merit.merit_id, title=merit.title, source_kind=merit.source_kind,
+                      team=dict(kind=kind, id=team_id, title=titles.get((kind, team_id))))
+        recipients = {item.get("user_id") for item in _loads(merit.recipients_json, []) if isinstance(item, dict)}
+        for entry in _audit_entries(session, "merit", merit.merit_id, merit, actor, edits[merit.merit_id]):
+            if user_id is not None:
+                entry = _for_person(entry, recipients, user_id)
+            if entry is not None:
+                items.append(dict(entry=entry, merit=record))
+    return items
+
+
+def _team_titles(session, merits, teams):
+    """Current names of the records' teams: an event's or subevent's title, a block's name (the
+    record keeps it, renames included); the chair has none."""
+    titles = {}
+    for kind, model, key in (("event", EventORM, EventORM.event_id), ("subevent", SubeventORM, SubeventORM.subevent_id)):
+        ids = sorted({teams[merit.merit_id][1] for merit in merits if teams[merit.merit_id][0] == kind and teams[merit.merit_id][1]})
+        for offset in range(0, len(ids), 500):
+            for team_id, title in session.query(key, model.title).filter(key.in_(ids[offset:offset + 500])):
+                titles[(kind, team_id)] = title
+    for merit in merits:
+        if teams[merit.merit_id][0] == "block":
+            titles[teams[merit.merit_id]] = merit.scope_id
+    return titles
 
 
 def _comment_subject(session, row):

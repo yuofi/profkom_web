@@ -122,7 +122,12 @@ it("INT-06: actual response shapes, null relations and populated IDs match the p
   const comment = check("Comment", await tasksApi.comment(task.task_id, richText("Comment")));
   const editedComment = check("Comment", await tasksApi.editComment(comment.comment_id, richText("Edited comment")));
   expect(editedComment.history?.[0]?.content).toEqual(richText("Comment"));
-  check("Merit", await seasonsApi.createMerit({ season_id: season.season_id, source_kind: "chair_merit", title: "Wire merit", description: richText("Contribution"), assigned_at: new Date(Date.now() - 3600000).toISOString(), deadline_at: new Date(Date.now() + 3600000).toISOString(), criteria: emptyCriteria(), recipients: [{ user_id: person.user_id, hours: 1, evaluation: 1, completed_at: new Date(Date.now() - 60000).toISOString() }], reason: "Wire acceptance" }));
+  const merit = check("Merit", await seasonsApi.createMerit({ season_id: season.season_id, source_kind: "chair_merit", title: "Wire merit", description: richText("Contribution"), assigned_at: new Date(Date.now() - 3600000).toISOString(), deadline_at: new Date(Date.now() + 3600000).toISOString(), criteria: emptyCriteria(), recipients: [{ user_id: person.user_id, hours: 1, evaluation: 1, completed_at: new Date(Date.now() - 60000).toISOString() }], reason: "Wire acceptance" }));
+  // B9: the season journal holds the record's edit, not its creation.
+  check("Merit", await seasonsApi.updateMerit(merit.merit_id, { title: "Wire merit, corrected", recipients: [{ ...merit.recipients[0], hours: 2 }], reason: "Wire journal", expected_revision: merit.revision }));
+  const journal = check("MeritJournalPage", await seasonsApi.meritJournal({ season_id: season.season_id }));
+  expect(journal.items.filter(item => item.merit.merit_id === merit.merit_id).map(item => [item.entry.reason, item.entry.changes.map(change => change.field)])).toEqual([["Wire journal", ["recipients", "title"]]]);
+  check("MeritJournalPage", await seasonsApi.meritJournal({ season_id: season.season_id, team: { kind: "chair", id: null }, user_id: person.user_id, limit: 1 }));
   (await seasonsApi.assessments({ season_id: season.season_id })).items.forEach(c => check("Contribution", c));
   // Opt-in light reads the pages use instead of fan-outs (PB-11, PF-13, PF-19, PF-06, PF-15, PB-22).
   const withDeputies = check("Event", await eventsApi.get(event.event_id, { include_deputies: true }));

@@ -730,6 +730,24 @@ export interface Merit extends MeritCreate, Versioned {
   created_by: UserRef;
   created_at: string;
 }
+export type HistoryTargetKind = "task" | "assignment" | "merit" | "season" | "block" | "event" | "subevent" | "leadership";
+/** One changed value of a history entry; before/after keep the recorded shape (a recipient is {user, hours, …}). */
+export interface HistoryChange { field: string; label: string; before: unknown; after: unknown; before_users?: UserRef[]; after_users?: UserRef[] }
+/** GET /history: one recorded version of an object; a hidden version keeps no changes or reason. */
+export interface HistoryEntry {
+  id: string; source_kind: "activity" | "audit"; source_id: string; target: { kind: HistoryTargetKind; id: string };
+  changed_by: UserRef; created_at: string; description: string; changes: HistoryChange[]; reason: string | null;
+  hidden: boolean; hidden_by: UserRef | null; hidden_at: string | null; revision: number; can_hide: boolean;
+}
+/** The team a merit record counts for: `id` is the stable block id of a block, null for the chair, as is `title`. */
+export interface MeritTeam { kind: "chair" | "block" | "event" | "subevent"; id: string | null; title: string | null }
+/** GET /merits/history (B9, owner 2026-11-08): one edit of a season's merit record, as GET /history shows it. */
+export interface MeritJournalItem {
+  entry: HistoryEntry;
+  merit: { merit_id: string; title: string; source_kind: MeritCreate["source_kind"]; team: MeritTeam };
+}
+/** A page of the journal; `total` edits in `records` distinct records count every page. */
+export interface MeritJournalPage extends Page<MeritJournalItem> { total: number; records: number }
 export type Decision = "golden_red_bull" | "kick_warning" | "kick" | "nice";
 export interface SummaryRow {
   participant_id: string;

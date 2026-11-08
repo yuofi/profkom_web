@@ -1,0 +1,34 @@
+/* The season journal of merit record edits (B9, variant В of 2026-11-08). The filters share one
+   width; the labels and fields read as the season toolbar's (SeasonWorkspace .toolbar). */
+.filters { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start; }
+.filters label { display:grid;gap:7px;font-size:12px;color:var(--on-surface-variant); }
+.filters label>select { font-size:14px;color:var(--on-surface); }
+.summary { margin:0;font-size:12px;line-height:1.5;color:var(--on-surface-variant); }
+.summary strong { color:var(--on-surface);font-weight:500; }
+.days { display:grid;gap:22px;min-width:0; }
+.summary[data-stale],.days[aria-busy=true] { opacity:.62; }
+.day h2 { margin:0 0 4px;font-size:13px;font-weight:500;line-height:1.4;color:var(--on-surface-variant); }
+.entries { list-style:none;margin:0;padding:0;display:grid; }
+.entries>li { display:grid;grid-template-columns:54px 220px minmax(0,1fr);align-items:start;gap:6px 16px;padding:12px 4px;border-bottom:1px solid color-mix(in srgb,var(--outline-variant) 16%,transparent); }
+.entries>li>* { min-width:0; }
+/* «Показать ещё» hands the focus to the first added edit once the list has no more pages. */
+.entries>li:focus-visible { outline:2px solid var(--primary);outline-offset:-2px;border-radius:8px; }
+.entries>li>time { font-size:13px;color:var(--on-surface-variant);font-variant-numeric:tabular-nums;padding-top:4px; }
+.record { display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;margin:0; }
+.record strong { font-size:14px;font-weight:500;overflow-wrap:anywhere; }
+.record small { font-size:11px;color:var(--on-surface-variant);opacity:.8;overflow-wrap:anywhere; }
+.lines { list-style:none;margin:6px 0 0;padding:0;display:grid;gap:4px;font-size:13px;line-height:1.5; }
+.lines>li { overflow-wrap:anywhere; }
+.lines>li[data-tone="add"] { color:var(--accent-mint); }
+.lines>li[data-tone="remove"] { color:var(--accent-rose); }
+.note { margin:6px 0 0;font-size:13px;line-height:1.5;color:var(--on-surface-variant);opacity:.7; }
+.reason { margin:6px 0 0;font-size:12px;line-height:1.5;color:var(--on-surface-variant);overflow-wrap:anywhere; }
+.reason>span { opacity:.7; }
+.more { justify-self:start; }
+
+@media (max-width:768px) {
+  .filters { grid-template-columns:minmax(0,1fr); }
+  /* Time and author on the first line, the record, its changes and the reason under them. */
+  .entries>li { grid-template-columns:46px minmax(0,1fr);padding:12px 2px; }
+  .entries>li>:nth-child(3) { grid-column:1/-1; }
+}

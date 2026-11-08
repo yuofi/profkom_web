@@ -1032,6 +1032,36 @@ class MeritOut(BaseModel):
     capabilities: list[str] = []
 
 
+MeritTeamKind = Literal["chair", "block", "event", "subevent"]
+
+
+class MeritJournalTeamOut(BaseModel):
+    """The team a record counts for; `id` is the stable block id for a block, none for the chair."""
+    kind: MeritTeamKind
+    id: Optional[str]
+    title: Optional[str]
+
+
+class MeritJournalRecordOut(BaseModel):
+    merit_id: str
+    title: str
+    source_kind: str
+    team: MeritJournalTeamOut
+
+
+class MeritJournalItemOut(BaseModel):
+    # The entry exactly as GET /history?target_kind=merit gives it for the record.
+    entry: dict
+    merit: MeritJournalRecordOut
+
+
+class MeritJournalPageOut(BaseModel):
+    items: list[MeritJournalItemOut]
+    next_cursor: Optional[str] = None
+    total: int
+    records: int
+
+
 class MasterBonusBasisItemOut(BaseModel):
     participant_id: str
     user: UserRefOut
@@ -3353,6 +3383,33 @@ def list_merit_contexts(season_id: Optional[str] = None, cur: User = Depends(get
     """Blocks, events and subevents with their merit capabilities for the merit forms."""
     from merit_rules import contexts
     return contexts(cur.user_id, season_id)
+
+
+# Registered before /merits/{merit_id}, which would take "history" for an id.
+@router.get("/merits/history", response_model=MeritJournalPageOut)
+def merit_journal(
+    season_id: str,
+    scope_kind: Optional[MeritTeamKind] = None,
+    scope_id: Optional[str] = None,
+    user_id: Optional[int] = None,
+    cursor: Optional[str] = None,
+    limit: int = Query(30, ge=1, le=100),
+    cur: User = Depends(get_current_user),
+):
+    """The season journal (B9, owner 2026-11-08): every edit of the merit records GET /merits
+    lists for the reader, newest first, each entry as GET /history shows it for its record.
+    `scope_kind`/`scope_id` keep one team's records (the chair has no id, a block is its stable
+    id); `user_id` keeps what changed for that recipient. `total` and `records` count every
+    page: the entries and the distinct records among them."""
+    if (scope_id is None) != (scope_kind in (None, "chair")):
+        raise InvalidInput("scope_id names the block, event or subevent of scope_kind; the chair has none")
+    from history import merit_journal as journal
+    with db._session() as session:
+        items = journal(session, cur.user_id, season_id, scope_kind, scope_id, user_id)
+    page = cursor_page(items, lambda item: (item["entry"]["created_at"], item["entry"]["id"]), cursor,
+                       descending=True, limit=limit)
+    return MeritJournalPageOut(items=page.items, next_cursor=page.next_cursor, total=len(items),
+                               records=len({item["merit"]["merit_id"] for item in items}))
 
 
 @router.post("/merits", response_model=MeritOut)
