@@ -52,7 +52,7 @@ it("prints a recipient's fractional hours and evaluation on the card with a deci
   expect(recipients.textContent).toContain("2,5 ч · оценка 1,5");expect(recipients.textContent).not.toContain("2.5");
 });
 
-it("ticks the eight criteria as checkboxes named as on every other screen", async () => {
+it("ticks the five criteria as checkboxes named as on every other screen", async () => {
   mock = installMockTransport("chair", { delay: 0 });
   page = await mountWorkspace(<Routes><Route path="/seasons/:id/merits" element={<MeritsPage />} /></Routes>, { path: "/seasons/season-1/merits?source_kind=chair_merit" });
   await waitForPage(page);await settle();

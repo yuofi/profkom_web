@@ -218,13 +218,10 @@ class FileRef:
 @dataclass
 class Criteria:
     """The KKR criteria in the order of database.KKR_CRITERIA_TABLE (owner's table, 2026-11-08)."""
-    urgent: bool = False
     unique: bool = False
-    monotonous: bool = False
+    in_person: bool = False
     creative: bool = False
     external_communication: bool = False
-    physical: bool = False
-    in_person: bool = False
     fixed_time: bool = False
 
 

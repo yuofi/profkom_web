@@ -99,7 +99,7 @@ def edit_all(client, world):
     edit(client, chair, records["chair"], "Часы по табелю", recipients=[recipient(people[0], hours=3), recipient(people[1])])
     edit(client, chair, records["chair"], "Уточнили название", title="Отчёт профкома для ректората")
     edit(client, chair, records["block"], "Забыли второго", recipients=[recipient(people[0]), recipient(people[3], hours=4)])
-    edit(client, chair, records["other"], "Нужно было к утру", criteria={"urgent": True})
+    edit(client, chair, records["other"], "Нужно было к утру", criteria={"fixed_time": True})
     edit(client, head, records["event"], "Вели два часа", recipients=[recipient(people[1], evaluation=1.5)])
     edit(client, head, records["subevent"], "Дубль", recipients=[recipient(people[2])])
 
@@ -154,7 +154,7 @@ def test_participant_filter_keeps_their_changes_and_common_changes_of_records_th
     first, second, third = people[0], people[1], people[2]
     record = records["chair"]
     edit(client, chair, record, "Оба по табелю", recipients=[recipient(first, hours=3), recipient(second, hours=5)])
-    edit(client, chair, record, "Срочная", criteria={"urgent": True}, title="Отчёт за октябрь")
+    edit(client, chair, record, "Очно", criteria={"in_person": True}, title="Отчёт за октябрь")
     edit(client, chair, record, "Второй не участвовал", recipients=[recipient(first, hours=3)])
     edit(client, chair, record, "Описание", description={"format": "markdown", "body": "Подробнее"})
     edit(client, chair, records["other"], "Третьему оценка", recipients=[recipient(third, evaluation=0)])
@@ -165,7 +165,7 @@ def test_participant_filter_keeps_their_changes_and_common_changes_of_records_th
 
     assert shown(first) == [
         ("Описание", [("Описание", None)]),
-        ("Срочная", [("Критерии", None), ("Название", None)]),
+        ("Очно", [("Критерии", None), ("Название", None)]),
         ("Оба по табелю", [("Исходные поля получателя", first.user_id)]),
     ]
     # Removed from the record: their own lines stay, later common changes no longer concern them.

@@ -441,15 +441,12 @@ export interface ContinuableSeries extends ReportSeries {
   latest: { title: string; season_id: string; season_title: string | null } | null;
 }
 /** The KKR criteria in the order of the owner's table (utils/kkrCriteria.ts names them). The
- *  server answers with every key; a record saved before a criterion existed reads it as false. */
+ *  server answers with exactly these keys: a missing one reads as false, an unknown one is dropped. */
 export interface Criteria {
-  urgent: boolean;
   unique: boolean;
-  monotonous: boolean;
+  in_person: boolean;
   creative: boolean;
   external_communication: boolean;
-  physical: boolean;
-  in_person: boolean;
   fixed_time: boolean;
 }
 export type AssignmentStatus =
@@ -1048,12 +1045,9 @@ export interface SeasonReadiness {
 }
 export const richText = (body = ""): RichText => ({ format: "markdown", body });
 export const emptyCriteria = (): Criteria => ({
-  urgent: false,
   unique: false,
-  monotonous: false,
+  in_person: false,
   creative: false,
   external_communication: false,
-  physical: false,
-  in_person: false,
   fixed_time: false,
 });

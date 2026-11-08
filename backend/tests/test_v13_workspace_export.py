@@ -125,7 +125,7 @@ def _sheet(z, n):
 def test_xlsx_values_are_russian(client, work, superuser):
     """2.13: the export names categories, decisions, sources and criteria as the screens do."""
     with db._session() as s:
-        s.get(TaskORM, work["task"]["task_id"]).criteria_json = '{"in_person": true, "unique": true, "creative": false, "urgent": true}'
+        s.get(TaskORM, work["task"]["task_id"]).criteria_json = '{"in_person": true, "unique": true, "creative": false, "fixed_time": true}'
         s.commit()
     accept(client, work)
     summary = close(client, work, superuser)
@@ -146,7 +146,7 @@ def test_xlsx_values_are_russian(client, work, superuser):
     assert entries and {x["Сезон"] for x in entries} == {work["season"]["title"]}
     assert {x["Тип источника"] for x in entries} <= {"Задача блока", "Задача подмероприятия", "Бонус мастеру"}
     # The owner's wording in the owner's order (2026-11-08), whatever the stored order.
-    assert {x["Критерии"] for x in entries if x["Назначение"]} == {"Срочная задача, Задача уникальная, Требует очного присутствия"}
+    assert {x["Критерии"] for x in entries if x["Назначение"]} == {"Задача уникальная, Требует очного присутствия, Выполняется в определённое время"}
 
 
 def test_help_notification_repeat_does_not_duplicate(client, work):

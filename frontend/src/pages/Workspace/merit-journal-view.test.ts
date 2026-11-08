@@ -18,8 +18,8 @@ it("says a recipient's added, removed and changed inputs in one short line each"
 });
 
 it("names criteria, the title, the dates and the description in words", () => {
-  expect(changeLines({ field: "criteria", label: "Критерии", before: { urgent: false, physical: true }, after: { urgent: true, physical: false } }).map(line => line.text))
-    .toEqual(["Критерий «Срочная задача»: нет → да", "Критерий «Требуется ли физическая сила»: да → нет"]);
+  expect(changeLines({ field: "criteria", label: "Критерии", before: { fixed_time: true, unique: false }, after: { fixed_time: false, unique: true } }).map(line => line.text))
+    .toEqual(["Критерий «Задача уникальная»: нет → да", "Критерий «Выполняется в определённое время»: да → нет"]);
   expect(changeLines({ field: "title", label: "Название", before: "Экскурсия", after: "Экскурсия для первокурсников" }))
     .toEqual([{ text: "Название: «Экскурсия» → «Экскурсия для первокурсников»" }]);
   expect(changeLines({ field: "description", label: "Описание", before: "Старый текст", after: "Новый текст" })).toEqual([{ text: "Описание изменено" }]);
