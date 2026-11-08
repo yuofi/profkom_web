@@ -41,14 +41,14 @@
 .listFilters { flex: 1 1 312px; max-width: 560px; min-width: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: 12px; align-items: end; }
 .libraryFilters > .archivedFilter { flex: none; min-width: 0; }
 .libraryFilters label { white-space: nowrap; }
-/* A chosen value stays on one line. The 480 px window is outside the page: the filters bring the site's lists with
-   them (`controls`, WorkspaceLayout.module.css), and where the browser has no such list, the page's arrow. */
+/* A chosen value stays on one line and ends in «…» before the arrow when it is longer. The 480 px window is outside
+   the page: it brings the site's lists with it (`controls`, WorkspaceLayout.module.css), and where the browser has no
+   such list, the page's arrow. */
 .libraryFilters select { white-space: nowrap; text-overflow: ellipsis; }
 @supports (appearance: base-select) {
-  /* A long chosen team is cut before the arrow, which keeps its place at the field's right. */
-  .libraryFilters .listFilter:has(> select) { position: relative; }
-  .libraryFilters .listFilter select:not([multiple]) { padding-right: 40px; overflow: clip; overflow-clip-margin: content-box; }
-  .libraryFilters .listFilter select:not([multiple])::picker-icon { position: absolute; right: 16px; bottom: 22px; translate: 0 50%; margin: 0; }
+  /* The list's button with the chosen value (selectedContent.ts) takes the room left of the arrow. */
+  .libraryFilters .listFilter select:not([multiple]) > button:first-child { display: block; flex: 1 1 auto; min-width: 0; margin: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: start; cursor: inherit; }
+  .libraryFilters .listFilter select:not([multiple]) selectedcontent { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   /* Both lists open equally wide: as their equal fields, at least 20rem, within the screen; a longer name wraps. */
   .libraryFilters .listFilter select:not([multiple])::picker(select) { width: max(anchor-size(width), 20rem); max-width: calc(100vw - 16px); }
 }

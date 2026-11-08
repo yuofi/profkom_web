@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import type { FormikProps } from "formik";
 import { emptyCriteria } from "../../utils/api/contract";
-import { profileFeaturesApi, type FeaturesContext, type KkrTemplate, type TemplateSelection, type TemplateValues } from "../../utils/api/profileFeatures.api";
+import { profileFeaturesApi, type FeatureScope, type FeaturesContext, type KkrTemplate, type TemplateSelection, type TemplateValues } from "../../utils/api/profileFeatures.api";
 import { ApiError, canRetainData, normalizeApiError } from "../../utils/api/request";
 import { templateRefused, useFittingTemplates, type TemplateTarget } from "../../utils/kkrTemplates";
 import { userMessage } from "../../utils/api/messages";
@@ -12,6 +12,7 @@ import { AnchoredPopover } from "./AnchoredPopover";
 import { UnsavedChangesScope } from "./UnsavedChanges";
 import { useGuardedAction } from "./unsavedChangesHooks";
 import { EntityPicker } from "./EntityPicker";
+import { selectedContent } from "./selectedContent";
 import { text, number, type Values } from "./formValues";
 import { Card, Empty, QueryState } from "./WorkspaceUI";
 import { UserChip } from "./UserChip";
@@ -111,17 +112,24 @@ function matches(row: KkrTemplate, filter: LibraryFilter) {
     && (!filter.team || (row.visibility === "team" && teamKey(row) === filter.team))
     && (!search || folded(`${row.values.title} ${row.values.description}`).includes(search));
 }
+const teamGroups = [["block", "Блоки"], ["event", "Мероприятия"], ["subevent", "Подмероприятия"]] as const;
 function LibraryFilters({ templates, value, onChange }: { templates: KkrTemplate[]; value: LibraryFilter; onChange: (value: LibraryFilter) => void }) {
-  const teams = new Map<string, string>();
-  for (const row of templates) if (row.visibility === "team" && row.scope) teams.set(teamKey(row), row.scope.kind === "global" ? "Весь Профком" : `${scopeKinds[row.scope.kind]}: ${row.scope.name}`);
+  const teams = new Map<string, FeatureScope>();
+  for (const row of templates) if (row.visibility === "team" && row.scope) teams.set(teamKey(row), row.scope);
+  const options = (kind: FeatureScope["kind"]) => [...teams].filter(([, scope]) => scope.kind === kind).sort((a, b) => a[1].name.localeCompare(b[1].name, "ru"))
+    .map(([key, scope]) => <option key={key} value={key}>{kind === "global" ? "Весь Профком" : scope.name}</option>);
+  const chosen = teams.get(value.team);
   const set = (next: Partial<LibraryFilter>) => onChange({ ...value, ...next });
   // The two lists are one pair of equal fields, on the page and in the 480 px window alike (owner 2026-11-08, item 9).
-  return <div className={`${s.libraryFilters} ${l.controls}`} role="group" aria-label="Фильтры шаблонов">
+  // A team is named by itself under the group of its kind, so a long name is not hidden behind «Подмероприятие:».
+  return <div className={s.libraryFilters} role="group" aria-label="Фильтры шаблонов">
     <label className={`${w.field} ${s.librarySearch}`}>Поиск<input type="search" value={value.search} placeholder="Название или описание" onChange={event => set({ search: event.target.value })} /></label>
     <div className={s.listFilters}>
-      <label className={`${w.field} ${s.listFilter}`}>Команда<select value={value.team} onChange={event => set({ team: event.target.value })}><option value="">Все команды</option>
-        {[...teams].sort((a, b) => a[1].localeCompare(b[1], "ru")).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-      <label className={`${w.field} ${s.listFilter}`}>Вид<select value={value.kind} onChange={event => set({ kind: event.target.value as LibraryFilter["kind"] })}><option value="">Все виды</option><option value="personal">Личные</option><option value="team">Командные</option></select></label>
+      <label className={`${w.field} ${s.listFilter}`}>Команда<select ref={selectedContent} value={value.team} title={chosen && chosen.kind !== "global" ? `${scopeKinds[chosen.kind]}: ${chosen.name}` : undefined} onChange={event => set({ team: event.target.value })}>
+        <option value="">Все команды</option>{options("global")}
+        {teamGroups.map(([kind, label]) => { const group = options(kind);return group.length > 0 && <optgroup key={kind} label={label}>{group}</optgroup>; })}
+      </select></label>
+      <label className={`${w.field} ${s.listFilter}`}>Вид<select ref={selectedContent} value={value.kind} onChange={event => set({ kind: event.target.value as LibraryFilter["kind"] })}><option value="">Все виды</option><option value="personal">Личные</option><option value="team">Командные</option></select></label>
     </div>
     <div className={`${w.field} ${w.checkField} ${s.archivedFilter}`}><label className={w.check}><input type="checkbox" checked={value.archived} onChange={event => set({ archived: event.target.checked })} />Показать архивные</label></div>
   </div>;
@@ -220,5 +228,6 @@ export function TemplateRefusal({ failure, form, mode, selection, onSelection }:
 }
 function TemplatePopover({ open, anchor, close, initialValues }: { open: boolean; anchor: React.RefObject<HTMLButtonElement | null>; close: () => void; initialValues: TemplateValues }) {
   const leave = useGuardedAction();
-  return <AnchoredPopover open={open} anchorRef={anchor} label="Шаблоны ККР" onRequestClose={() => leave(close)} width={480}><KkrTemplateLibrary embedded initialValues={initialValues} /></AnchoredPopover>;
+  // The window is portalled outside the page: `controls` gives its filters and its editor the site's lists and boxes.
+  return <AnchoredPopover open={open} anchorRef={anchor} label="Шаблоны ККР" onRequestClose={() => leave(close)} width={480} className={l.controls}><KkrTemplateLibrary embedded initialValues={initialValues} /></AnchoredPopover>;
 }
