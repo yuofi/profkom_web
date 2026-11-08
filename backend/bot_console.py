@@ -189,7 +189,8 @@ def create(payload, uid, now):
     """POST /bot/console/commands in the request's write unit: a repeat with the same key
     returns the first command; then the bot must be online, no command of the same slot may
     be open, the update requests need the author's VK (the service account has none: its own
-    refusal), a restart waits 2 minutes after the last one. The command, its requester (account, VK, display name) and the audit."""
+    refusal), a restart waits 2 minutes after the last one. The command, its requester
+    (account, VK, display name) and the audit."""
     C, kind, args = BotCommandORM, payload.kind, payload.args
     key, digest = payload.idempotency_key, request_keys.digest(payload)
     with db._session() as s:
