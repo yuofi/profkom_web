@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Task, Criteria } from '../../utils/api/contract';
 import { kkrApi, type AccountingBatch } from '../../utils/api/kkr.api';
@@ -13,20 +13,22 @@ import { criteriaLabels } from '../../utils/kkrCriteria';
 import { ActionForm } from './ActionForm';
 import { templateRefused, useFittingTemplates, type TemplateTarget } from '../../utils/kkrTemplates';
 import { text } from './formValues';
-import { useUnsavedChanges } from './unsavedChangesHooks';
-import { UserChip } from './UserChip';
+import { useGuardedAction, useUnsavedChanges } from './unsavedChangesHooks';
+import { KkrExecutors } from './KkrExecutors';
 import { QueryState, Empty } from './WorkspaceUI';
 import s from './AssessmentPanel.module.css';
 import w from './Workspace.module.css';
+import u from './UnifiedKkrEditor.module.css';
 
-/** The KKR window's form. It has no close button of its own: ✕, Escape and the backdrop of the
- *  window close it through the unsaved-changes guard (A3, owner 2026-11-08). */
-export function UnifiedKkrEditor({task}: {task:Task}) {
+/** The KKR window's form. Its bar at the window's bottom holds «Закрыть» and «Сохранить ККР» (owner A2);
+ *  «Закрыть», ✕, Escape and the backdrop close the window through the unsaved-changes guard (A3). */
+export function UnifiedKkrEditor({task,onClose}: {task:Task;onClose?:()=>void}) {
   const query=useQuery({queryKey:['accounting-batch',task.task_id],queryFn:()=>kkrApi.batch(task.task_id),enabled:can(task,'view_assessment_inputs')});
   if (!can(task,'view_assessment_inputs')) return <Empty>Учёт ККР доступен уполномоченным руководителям.</Empty>;
-  return <QueryState loading={query.isLoading} error={query.error} retry={()=>void query.refetch()}>{query.data&&<BatchEditor taskId={task.task_id} saved={query.data} target={task.scope.kind==='queue'?{kind:'chair',id:null}:{kind:task.scope.kind,id:task.scope.id}}/>}</QueryState>;
+  return <QueryState loading={query.isLoading} error={query.error} retry={()=>void query.refetch()}>{query.data&&<BatchEditor taskId={task.task_id} saved={query.data} onClose={onClose} target={task.scope.kind==='queue'?{kind:'chair',id:null}:{kind:task.scope.kind,id:task.scope.id}}/>}</QueryState>;
 }
-function BatchEditor({taskId,saved,target}:{taskId:string;saved:AccountingBatch;target:TemplateTarget}) {
+function BatchEditor({taskId,saved,target,onClose}:{taskId:string;saved:AccountingBatch;target:TemplateTarget;onClose?:()=>void}) {
+  const formId=useId(),leave=useGuardedAction(),message=useRef<HTMLDivElement>(null);
   const client=useQueryClient();const [template,setTemplate]=useState<TemplateSelection|null>(null);const templates=useQuery({queryKey:['kkrTemplates'],queryFn:profileFeaturesApi.templates,enabled:can(saved,'edit_assessment_inputs')});
   // Only templates the server takes for this task's team (B3).
   const offered=useFittingTemplates(templates.data?.items,target);const [draft,setDraft]=useState(saved),[baseline,setBaseline]=useState(saved),[reason,setReason]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false);
@@ -63,21 +65,28 @@ function BatchEditor({taskId,saved,target}:{taskId:string;saved:AccountingBatch;
     } catch(e){setError(userMessage(e));} finally {setBusy(false);}
   };
   const patch=(id:string,values:Partial<AccountingBatch['assignments'][number]>)=>setDraft(value=>({...value,assignments:value.assignments.map(row=>row.assignment_id===id?{...row,...values}:row)}));
-  return <section><form className={s.unified} onSubmit={event=>{event.preventDefault();void save();}}>
+  // The outcome of a save stands above the bar: the window scrolls to it when the bar was pressed further up.
+  useEffect(()=>{if(notice||error)message.current?.scrollIntoView?.({block:'nearest'});},[notice,error]);
+  return <section className={u.batch}><form id={formId} className={s.unified} onSubmit={event=>{event.preventDefault();void save();}}>
     <p className={w.muted}>Дата выполнения для ККР: {displayDate(saved.closed_at)}{!saved.closed_at?' · У прежней закрытой задачи дата закрытия не зафиксирована. Сохраняется известная расчётная дата.':''}</p>
     {saved.season_closed&&<p className={w.warning}>Закрытый сезон: исправление создаст новую версию итогов. Укажите причину.</p>}
     {stale&&<p className={w.warning}>Данные изменились. <button type="button" className={w.button} onClick={()=>{setDraft(saved);setBaseline(saved);setReason('');}}>Загрузить сохранённые</button></p>}
     {editable&&offered.length>0&&<label className={`${w.field} ${s.templateField}`}>Применить шаблон<select aria-label="Шаблон ККР" value={template?.template_id??''} disabled={busy||stale} onChange={event=>{const chosen=offered.find(item=>item.template_id===event.target.value);if(!chosen){setTemplate(null);return;}setBusy(true);setRefusal('');void apply(chosen).catch(e=>setError(userMessage(e))).finally(()=>setBusy(false));}}><option value="">Выберите шаблон</option>{offered.map(item=><option key={item.template_id} value={item.template_id}>{item.values.title}</option>)}</select></label>}
     <fieldset disabled={!editable||busy||stale}><legend>Общие признаки задачи</legend><div className={s.criteria}>{Object.entries(criteriaLabels).map(([key,label])=><label key={key}><input type="checkbox" checked={draft.criteria[key as keyof Criteria]} onChange={event=>setDraft(value=>({...value,criteria:{...value.criteria,[key]:event.target.checked}}))}/>{label}</label>)}</div></fieldset>
-    <div className={s.accountingTableWrap}><table className={s.accountingTable}><thead><tr><th>Исполнитель</th><th>Часы</th><th>Оценка</th><th>Учёт</th></tr></thead><tbody>{draft.assignments.map(row=><tr key={row.assignment_id}><td><UserChip user={row.assignee}/>{!row.is_current&&<small>Прежний исполнитель</small>}</td><td data-label="Часы"><div className={w.field}><input aria-label={`Часы: ${row.assignee.display_name}`} type="number" step="any" min="0" required={!row.excluded} disabled={!editable||busy||stale||row.excluded} value={row.hours??''} onChange={event=>patch(row.assignment_id,{hours:event.target.value===''?null:Number(event.target.value)})}/></div></td><td data-label="Оценка"><div className={w.field}><select aria-label={`Оценка: ${row.assignee.display_name}`} required={!row.excluded} disabled={!editable||busy||stale||row.excluded} value={row.evaluation??''} onChange={event=>patch(row.assignment_id,{evaluation:event.target.value===''?null:Number(event.target.value) as -1|0|1|1.5})}><option value="">Выберите</option><option value="-1">−1 · Не выполнено</option><option value="0">0 · Не выполнено</option><option value="1">1 · Зачтено</option><option value="1.5">1,5 · Зачтено</option></select></div></td><td data-label="Учёт"><label><input type="checkbox" disabled={!editable||busy||stale} checked={row.excluded} onChange={event=>patch(row.assignment_id,{excluded:event.target.checked})}/>Исключить</label></td></tr>)}</tbody></table></div>
+    <KkrExecutors rows={draft.assignments} disabled={!editable||busy||stale} onPatch={patch}/>
     {saved.season_closed&&editable&&<label className={w.field}>Причина исправления<textarea required value={reason} disabled={busy} onChange={event=>setReason(event.target.value)}/></label>}
-    {notice&&<p role="status">{notice}</p>}
-    {error&&<div className={w.error} role="alert">{error}{refusal&&editable&&<div className={w.row}>
-      <button type="button" className={w.button} disabled={busy||stale} onClick={()=>void save(true)}>Сохранить без шаблона</button>
-      {refusal==='template_changed'&&template&&<button type="button" className={w.button} disabled={busy||stale} onClick={()=>void reapply()}>Подставить заново</button>}
-    </div>}</div>}
-    {editable&&<div className={w.row}><button type="submit" className={`${w.button} ${w.primary}`} disabled={busy||stale}>{busy?'Сохраняем…':'Сохранить ККР'}</button></div>}
-  </form>{can(saved,'edit_assessment_dates')&&<AccountingDates taskId={taskId}/>}</section>;
+    {(notice||error)&&<div ref={message} className={u.messages}>
+      {notice&&<p role="status">{notice}</p>}
+      {error&&<div className={w.error} role="alert">{error}{refusal&&editable&&<div className={w.row}>
+        <button type="button" className={w.button} disabled={busy||stale} onClick={()=>void save(true)}>Сохранить без шаблона</button>
+        {refusal==='template_changed'&&template&&<button type="button" className={w.button} disabled={busy||stale} onClick={()=>void reapply()}>Подставить заново</button>}
+      </div>}</div>}
+    </div>}
+  </form>{can(saved,'edit_assessment_dates')&&<AccountingDates taskId={taskId}/>}
+  {(onClose||editable)&&<div className={u.footer}>
+    {onClose&&<button type="button" className={w.button} disabled={busy} onClick={()=>leave(onClose)}>Закрыть</button>}
+    {editable&&<button type="submit" form={formId} className={`${w.button} ${w.primary}`} disabled={busy||stale}>{busy?'Сохраняем…':'Сохранить ККР'}</button>}
+  </div>}</section>;
 }
 
 function AccountingDates({taskId}:{taskId:string}) {

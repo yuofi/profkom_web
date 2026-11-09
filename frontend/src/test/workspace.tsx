@@ -154,6 +154,17 @@ export function field(container: ParentNode, name: string) {
   if (!element) throw Error(`Missing field ${name}`);
   return element;
 }
+/** Chooses an evaluation in the KKR window: the radio button of `value` in «Оценка: <name>», or in every
+ *  executor's group when no name is given. */
+export async function evaluate(container: ParentNode, value: string, name?: string) {
+  const groups = [...container.querySelectorAll<HTMLElement>(name ? `[role="radiogroup"][aria-label="Оценка: ${name}"]` : '[role="radiogroup"][aria-label^="Оценка:"]')];
+  if (!groups.length) throw Error(`Missing evaluation ${name ?? ""}`);
+  for (const group of groups) {
+    const radio = group.querySelector<HTMLInputElement>(`input[type="radio"][value="${value}"]`);
+    if (!radio) throw Error(`Missing evaluation value ${value}`);
+    await act(async () => radio.click());
+  }
+}
 /** Opens the «⋯» menu of a comment (an `article`) and chooses one of its actions. */
 export async function commentAction(article: ParentNode, label: string) {
   const trigger = article.querySelector<HTMLButtonElement>('header [aria-haspopup="menu"]');

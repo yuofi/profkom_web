@@ -12,6 +12,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ActionForm } from "../../components/Workspace/ActionForm";
 import { Attachments, AttachmentPicker } from "../../components/Workspace/Attachments";
 import { UnifiedKkrEditor } from "../../components/Workspace/UnifiedKkrEditor";
+import { TaskAccountingSection } from "./TaskAccountingSection";
 import { AnchoredPopover } from "../../components/Workspace/AnchoredPopover";
 import { EntityPicker } from "../../components/Workspace/EntityPicker";
 import { taskCollaborationApi } from "../../utils/api/taskCollaboration.api";
@@ -129,7 +130,7 @@ function TaskContent({ task, assignmentId, accountingRequested=false, back }: { 
         <TrackerTaskRelations task={task} onEditParent={() => setEditor("parent")} editing={linking} onEditingChange={setLinking} />
         {assignmentId && !task.assignments.some(item => item.assignment_id === assignmentId) && <Empty>Назначение больше недоступно.</Empty>}
         {assignmentId && !hasAccounting && task.assignments.some(item => item.assignment_id === assignmentId) && <p role="status" className={s.accountingNotice}>{taskStatus(task) === "closed" ? "Учёт работы по этой задаче вам недоступен." : "Оценка исполнителя станет доступна после закрытия задачи."}</p>}
-        {hasAccounting && <section className={s.accounting} aria-label="Учёт работы и ККР"><div className={s.sectionHeading}><h2>Учёт работы и ККР</h2><button type="button" onClick={()=>setKkrOpen(true)}>Оценить работу</button></div></section>}
+        {hasAccounting && <TaskAccountingSection task={task} onOpen={()=>setKkrOpen(true)} />}
         <TaskMentionApprovals task={task} />
         <TaskActivity task={task} />
         {task.queue?.key === "WEBSUPPORT" && <SupportTaskPanel task={task} />}
@@ -153,7 +154,7 @@ function TaskContent({ task, assignmentId, accountingRequested=false, back }: { 
         </div></details>
       </aside>
     </div>
-    {kkrOpen && hasAccounting && <UnsavedChangesScope><TrackerTaskDialog title="Учёт работы и ККР" onClose={()=>setKkrOpen(false)}><UnifiedKkrEditor task={task} /></TrackerTaskDialog></UnsavedChangesScope>}
+    {kkrOpen && hasAccounting && <UnsavedChangesScope><TrackerTaskDialog title="Учёт работы и ККР" onClose={()=>setKkrOpen(false)}><UnifiedKkrEditor task={task} onClose={()=>setKkrOpen(false)} /></TrackerTaskDialog></UnsavedChangesScope>}
     {editor && (editorHold.held || (editor === "description" ? descriptionEditable : editor === "parent" ? can(task, "edit_task") : editor === "planning" ? can(task,"edit_task_metadata") : can(task, "attach_task_file"))) && <UnsavedChangesScope>{editor === "description" ? <DescriptionEditor task={task} onClose={closeEditor} onSend={editorHold.hold} onSaved={savedEditor} /> : editor === "parent" ? <ParentTaskEditor task={task} onClose={closeEditor} onSend={editorHold.hold} onSaved={savedEditor} /> : editor === "planning" ? <TaskPlanningEditor task={task} onClose={closeEditor} onSend={editorHold.hold} onSaved={savedEditor} /> : <TaskFilesEditor task={task} onClose={closeEditor} onSend={editorHold.hold} onSaved={savedEditor} />}</UnsavedChangesScope>}
   </>;
 }
