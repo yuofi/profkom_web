@@ -221,6 +221,12 @@ def mock_s3(monkeypatch) -> dict[str, Any]:
     monkeypatch.setattr(s3_service.s3_client,"head_object",head_object)
     monkeypatch.setattr(s3_service.s3_client,"get_object",get_object)
     monkeypatch.setattr(s3_service.s3_client,"put_object",put_object)
+    import vk_avatar
+    monkeypatch.setattr(vk_avatar, "storage_client", lambda: s3_service.s3_client)
+    def avatar_download(url):
+        calls["upload"].append({"url": url, "folder": "avatars"})
+        return b"\xff\xd8\xffsynthetic\xff\xd9", "image/jpeg"
+    monkeypatch.setattr(vk_avatar, "download", avatar_download)
     return calls
 
 

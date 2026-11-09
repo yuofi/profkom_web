@@ -44,6 +44,8 @@
 .masterBlock { display: inline; }
 .masterBlock .blockLink { color: var(--on-background); font-weight: 500; }
 .masterIcon { width: 14px; height: 14px; margin-right: 4px; vertical-align: -3px; color: var(--accent-mint); }
+.leadership { display: flex; align-items: flex-start; gap: 5px; margin: 4px 0 0; font-size: 12px; line-height: 1.4; font-weight: 500; color: var(--accent-gold); }
+.leadershipIcon { flex: 0 0 16px; margin-top: 1px; }
 
 
 /* Native stretched profile link keeps the full card clickable while nested

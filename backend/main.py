@@ -13,7 +13,7 @@ from validation import Command
 from datetime import datetime, timezone
 from typing import List, Optional, Union, Literal
 
-from fastapi import FastAPI, HTTPException, Depends, APIRouter, Request, Response, Cookie, Body, Query, status
+from fastapi import FastAPI, HTTPException, Depends, APIRouter, Request, Response, Cookie, Body, Query, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict, model_serializer
 
@@ -1516,7 +1516,7 @@ def change_password(
 
 
 @router.post("/auth/vk", response_model=TokenPair)
-def vk_login(payload: VKLoginIn, response: Response):
+def vk_login(payload: VKLoginIn, response: Response, background_tasks: BackgroundTasks):
     from vk_auth import login_user, verified_identity
     # VK answers first, outside any transaction (A-ROL-15); then one short transaction.
     identity = verified_identity(payload.access_token)
@@ -1529,6 +1529,8 @@ def vk_login(payload: VKLoginIn, response: Response):
             from notifications import registration_submitted
             registration_submitted(session,application)
         tokens = create_token_pair(user.user_id)
+    from vk_avatar import import_avatar
+    background_tasks.add_task(import_avatar, user.user_id, identity["subject"], identity.get("avatar"))
     response.set_cookie(key="refresh_token", value=tokens["refresh_token"], httponly=True,
                         max_age=REFRESH_TTL_DAYS*86400, samesite="none", secure=True)
     return tokens

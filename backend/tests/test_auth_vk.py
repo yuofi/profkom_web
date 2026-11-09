@@ -1,12 +1,8 @@
 """
-Тесты эндпоинта POST /api/auth/vk (main.py:344).
+Тесты эндпоинта POST /api/auth/vk.
 
 Сеть НЕ трогается никогда: фикстура `mock_vk` подменяет urllib.request.urlopen,
-фикстура `mock_s3` (autouse) подменяет upload_image_from_url.
-
-Часть тестов помечена @pytest.mark.xfail(strict=True) — это НЕ «сломанные тесты»,
-а зафиксированные дефекты бэкенда: тест утверждает КОРРЕКТНОЕ поведение и
-покраснеет ровно в тот момент, когда баг починят (и маркер надо будет снять).
+фикстура `mock_s3` (autouse) подменяет загрузку аватара и клиент хранилища.
 """
 from __future__ import annotations
 
@@ -310,17 +306,19 @@ def test_bez_telefona_sushchestvuyushchiy_ne_zatiraetsya(client, mock_vk, make_u
 # ─────────────────────────────────────────────────────────────
 #  4. Аватар и S3
 # ─────────────────────────────────────────────────────────────
-def test_avatar_novogo_polzovatelya_ne_skachivaetsya(client, mock_vk, mock_s3):
+def test_avatar_novogo_polzovatelya_importiruetsya(client, mock_vk, mock_s3):
     mock_vk(user_id='777',avatar='https://sun1.vk.com/avatar.jpg?cs=400x400')
     r=_post(client,access_token='tok')
-    assert r.status_code==200 and db.get_user(_sub(r.json()['access_token'])).photo_url is None
-    assert mock_s3['upload']==[]
+    from directory import avatar_url
+    assert r.status_code==200
+    assert avatar_url(_sub(r.json()['access_token'])).startswith('/api/files/')
+    assert len(mock_s3['upload']) == 1
 
 
-def test_avatar_bez_cs_ne_skachivaetsya(client, mock_vk, mock_s3):
+def test_avatar_bez_cs_importiruetsya(client, mock_vk, mock_s3):
     mock_vk(user_id='777',avatar='https://sun1.vk.com/avatar.jpg')
     _post(client,access_token='tok')
-    assert mock_s3['upload']==[]
+    assert len(mock_s3['upload']) == 1
 
 
 def test_bez_avatara_s3_ne_vyzyvaetsya(client, mock_vk, mock_s3):
@@ -332,17 +330,19 @@ def test_bez_avatara_s3_ne_vyzyvaetsya(client, mock_vk, mock_s3):
     assert mock_s3["upload"] == [], "загрузка в S3 при отсутствии аватара"
 
 
-def test_avatar_ne_skachivaetsya_sushchestvuyushchemu_bez_photo_url(client, mock_vk, mock_s3, make_user):
+def test_avatar_importiruetsya_sushchestvuyushchemu_bez_photo_url(client, mock_vk, mock_s3, make_user):
     existing=make_user(email='one@test.ru');db.link_external_identity(existing.user_id,'vk:777')
     mock_vk(user_id='777',avatar='https://sun1.vk.com/avatar.jpg')
     r=_post(client,access_token='tok')
     assert _sub(r.json()['access_token'])==existing.user_id
-    assert db.get_user(existing.user_id).photo_url is None and mock_s3['upload']==[]
+    from directory import avatar_url
+    assert avatar_url(existing.user_id).startswith('/api/files/') and len(mock_s3['upload']) == 1
 
 
 def test_avatar_ne_perezapisyvaetsya_esli_photo_url_uzhe_est(client, mock_vk, mock_s3, make_user):
     """У пользователя уже есть аватар → повторной загрузки в S3 нет."""
     victim = make_user(email="ivan@test.ru", photo_url="https://cdn.test/old.jpg")
+    db.link_external_identity(victim.user_id, 'vk:777')
     mock_vk(user_id="777", email="ivan@test.ru", avatar="https://sun1.vk.com/p.jpg?cs=400x400")
 
     _post(client, access_token="vk-access-token")
@@ -351,10 +351,10 @@ def test_avatar_ne_perezapisyvaetsya_esli_photo_url_uzhe_est(client, mock_vk, mo
     assert db.get_user(victim.user_id).photo_url == "https://cdn.test/old.jpg", "photo_url затёрт"
 
 
-def test_vk_photo_query_ne_vyzyvaet_skachivanie(client, mock_vk, mock_s3):
+def test_vk_photo_query_sohranyaetsya_pri_importe(client, mock_vk, mock_s3):
     mock_vk(user_id='777',avatar='https://sun1.vk.com/avatar.jpg?cs=400x400&secret=synthetic')
     _post(client,access_token='tok')
-    assert mock_s3['upload']==[]
+    assert mock_s3['upload'][0]['url'] == 'https://sun1.vk.com/avatar.jpg?cs=400x400&secret=synthetic'
 
 
 # ─────────────────────────────────────────────────────────────

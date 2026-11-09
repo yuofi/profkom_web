@@ -21,6 +21,7 @@ import { text, number } from "../../components/Workspace/formValues";
 import { Avatar } from "../../components/Avatar/Avatar";
 import { directoryApi } from "../../utils/api/directory.api";
 import { membershipApi } from "../../utils/api/membership.api";
+import { sessionApi } from "../../utils/api/session.api";
 import { normalizeApiError, canRetainData } from "../../utils/api/request";
 import type { ArchivedAccount, FormerContact, ParticipantCategory } from "../../utils/api/contract";
 import { can, useSession } from "../../utils/session";
@@ -90,6 +91,8 @@ export function DirectoryPage() {
   });
   const blockDirectory = useQuery({ queryKey: ["workspaceBlocks"], queryFn: membershipApi.blocks });
   const blockCards = (!blockDirectory.error || canRetainData(blockDirectory.error) ? blockDirectory.data : undefined) ?? [];
+  const leadership = useQuery({ queryKey: ["leadership"], queryFn: sessionApi.leadership });
+  const leaders = !leadership.error || canRetainData(leadership.error) ? leadership.data : undefined;
   const [search, setSearch] = useState("");
   const [block, setBlock] = useState("");
   const [category, setCategory] = useState("");
@@ -287,6 +290,10 @@ export function DirectoryPage() {
             void query.refetch();
           }}
         >
+          {leadership.isError && <div role="alert" className={s.muted}>
+            Роли руководства не удалось обновить. <button type="button" className={s.button}
+              onClick={() => { void leadership.refetch(); }}>Повторить загрузку ролей</button>
+          </div>}
           {filtered && filtered.length > 0 && (
             <p className={s.results} role="status">
               Показано контактов: {filtered.length} из {active.length}
@@ -301,6 +308,16 @@ export function DirectoryPage() {
                   <div className={d.identity}>
                     <h2><Link className={d.profileLink} to={`/contacts/${p.user_id}`}>{p.surname} {p.name} {p.patronymic}</Link></h2>
                     <p className={d.summary}>{p.group_number || "Группа не указана"}</p>
+                    {(leaders?.chair?.user_id === p.user_id || leaders?.deputies.some(person => person.user_id === p.user_id)) && (
+                      <p className={d.leadership}>
+                        <svg className={d.leadershipIcon} width="16" height="16" viewBox="0 0 24 24"
+                          fill={leaders?.chair?.user_id === p.user_id ? "currentColor" : "none"}
+                          stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="m3 6 5 4 4-6 4 6 5-4-2 12H5L3 6Z" /><path d="M5 21h14" />
+                        </svg>
+                        <span>{leaders?.chair?.user_id === p.user_id ? "Председатель" : "Заместитель председателя"}</span>
+                      </p>
+                    )}
                     <div className={d.blocks}>{[...new Set([...p.blocks.split(",").map(name => name.trim()).filter(Boolean), ...blockCards.filter(block => block.master?.user.user_id === p.user_id).map(block => block.name)])].map((name, index) => {
                       const item = blockCards.find(block => block.name === name);
                       const master = item?.master?.user.user_id === p.user_id;
