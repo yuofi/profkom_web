@@ -36,6 +36,19 @@ async function mount(path = "/tasks", responder?: (params: object) => TaskListPa
 }
 const button = (text: string) => Array.from(page!.container.querySelectorAll("button")).find(node => node.textContent?.trim() === text)!;
 
+it("a new selection never shows «Подходящих задач нет» before its own answer when the earlier answer was empty", async () => {
+  const empty = { items: [], next_cursor: null, total: 0, scopes: [], assignees: [] };
+  const { task, list } = await mount("/tasks?season_id=season-1&unfinished=true", () => empty);
+  expect(page!.container.textContent).toContain("Подходящих задач нет.");
+  const pending: ((response: TaskListPageResponse) => void)[] = [];
+  list.mockImplementation(() => new Promise<TaskListPageResponse>(resolve => { pending.push(resolve); }));
+  await act(async () => page!.container.querySelector<HTMLButtonElement>('button[aria-label="Убрать фильтр: Незавершённые"]')!.click());await settle();
+  expect(pending).toHaveLength(1);
+  expect(page!.container.textContent).not.toContain("Подходящих задач нет.");expect(page!.container.textContent).not.toContain("На странице: 0");
+  expect(page!.container.querySelector('[role="status"]')?.textContent).toBe("Загружаем данные…");
+  await act(async () => pending[0]({ ...empty, items: [task], total: 1 }));await waitForPage(page!, () => page!.container.querySelectorAll("tbody tr").length === 1);
+  expect(page!.container.textContent).toContain("На странице: 1");expect(page!.container.querySelector('[aria-busy="true"]')).toBeNull();
+});
 it("PF-04: resting on the task's link or cell starts the task; resting on a person's chip in the row starts nothing", async () => {
   const { task } = await mount();
   const get = vi.spyOn(tasksApi, "get"), comments = vi.spyOn(tasksApi, "comments");

@@ -73,6 +73,9 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
   // The previous page stays on screen while the next selection loads; a refused read still has no data.
   const query = useQuery({ ...read.list, enabled: !searchPending && !needsDefaults && view === "list", placeholderData: keepPreviousData });
   const listBusy = searchPending || query.isPlaceholderData;
+  // An earlier answer without rows is not this selection's answer: the list reads as loading, and the
+  // empty text and the «На странице: 0» line wait for the reply (the same rule as «Оставшаяся работа»).
+  const listLoading = view === "list" && listBusy && !query.data?.items.length;
   const timeline = useQuery({ ...read.planning, enabled: view !== "list" && !searchPending && !needsDefaults });
   const selection = Object.fromEntries(Object.entries({ queue_id: filters.queue_id, season_id: filters.season_id, scope_kind: filters.scope_kind, scope_id: filters.scope_id }).filter(([, value]) => value !== ""));
   const scopeFiltered = !queue && !!filters.scope_kind && !!filters.scope_id;
@@ -213,7 +216,7 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
       {!active.length && !needsDefaults && <span className={s.filterHint}>Показаны все доступные вам задачи</span>}
       {active.length > 1 && !atDefaults && !(filters.season_id && currentSeason.isLoading) && <button type="button" className={s.clear} onClick={() => { const next = new URLSearchParams();["view", "month", "zoom"].forEach(key => { const value = params.get(key);if (value) next.set(key, value); });setParams(next); }}>Сбросить все</button>}
     </div>
-    <QueryState loading={needsDefaults || (view === "list" ? query.isLoading : timeline.isLoading)} error={error} keepDataOnError={view === "list" ? !!query.data : !!timeline.data} retry={() => { if (view === "list") void query.refetch();else void timeline.refetch(); }}>
+    <QueryState loading={needsDefaults || (view === "list" ? query.isLoading || listLoading : timeline.isLoading)} error={error} keepDataOnError={view === "list" ? !!query.data : !!timeline.data} retry={() => { if (view === "list") void query.refetch();else void timeline.refetch(); }}>
       {view === "calendar" ? <TrackerCalendar tasks={tasks} range={range} month={month} onMonth={value => update("month", value)} /> : view === "gantt" ? <TrackerGantt tasks={tasks} range={range} month={month} onMonth={value => update("month", value)} zoom={zoom} onZoom={value => update("zoom", value)} /> : tasks.length ? <div className={s.tableWrap} aria-busy={listBusy || undefined}>
         <table className={s.table} aria-label="Список задач" {...columnFit(tasks)}>
           <thead><tr><th scope="col" className={s.colKey}>Ключ</th><th scope="col">Задача</th><th scope="col" className={s.colAssignees}>Исполнители</th><th scope="col" className={s.colStatus}>Статус</th><th scope="col" className={s.colDeadline} aria-sort={filters.sort === "deadline" ? filters.order === "desc" ? "descending" : "ascending" : "none"}><button onClick={() => changeSort("deadline")}>Дедлайн {filters.sort === "deadline" && (filters.order === "asc" ? "↑" : "↓")}</button></th>{showScope && <th scope="col" className={s.colScope}>Команда</th>}<th scope="col" className={s.colUpdated} aria-sort={filters.sort === "updated" ? filters.order === "desc" ? "descending" : "ascending" : "none"}><button onClick={() => changeSort("updated")}>Обновлено {filters.sort === "updated" && (filters.order === "asc" ? "↑" : "↓")}</button></th></tr></thead>
@@ -229,7 +232,7 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
         </table>
       </div> : <Empty>Подходящих задач нет. Измените фильтры или создайте задачу на странице своей команды.</Empty>}
     </QueryState>
-    {view === "list" && query.data && (!error || canRetainData(error)) && <footer className={s.pagination}>
+    {view === "list" && query.data && !listLoading && (!error || canRetainData(error)) && <footer className={s.pagination}>
       <span aria-live="polite">На странице: {tasks.length}{query.data.total != null && ` · Всего: ${query.data.total}`}</span>
       {(cursor || query.data.next_cursor) && <div><button className={w.button} disabled={!cursor || listBusy} onClick={goBack}>Назад</button><span>Страница {pageNumber}</span><button className={w.button} disabled={!query.data.next_cursor || listBusy} onClick={() => query.data?.next_cursor && turnPage(query.data.next_cursor)}>Далее</button></div>}
     </footer>}
