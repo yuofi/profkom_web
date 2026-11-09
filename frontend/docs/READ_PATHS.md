@@ -30,6 +30,11 @@ new event or subevent may continue from `GET /report-series/continuable`
 (`["reports", "series", "continuable", parentEventId]`, reread with `["reports"]`
 after every workspace command).
 
+A closed task whose reader may see accounting inputs reads its KKR batch
+(`GET /tasks/{id}/accounting-batch`, `["accounting-batch", taskId]`) for the line under
+«Учёт работы и ККР». The KKR window reads and saves under the same key: it opens with
+the values already read (rereading them in the background) and a save updates the line at once.
+
 Directory-card avatars use native lazy loading so off-screen protected images do
 not all start together. The shared Avatar leaves its loading behavior unchanged
 unless explicitly selected; primary profile images and editing previews retain
