@@ -193,6 +193,22 @@ it("D-02: list dates drop the current year, keep another year's, and name the da
   const updated = page!.container.querySelector<HTMLTimeElement>("tbody td[data-label='Обновлено'] time")!;
   expect(updated.title).toBe(`Обновлено: ${displayDate(thisYear)}`);expect(updated.textContent).not.toContain(String(year));
 });
+it("from 1360 px the key column fits the page's longest key and a date column with a year fits that date (owner 2026-11-09)", async () => {
+  const year = Number(new Intl.DateTimeFormat("en", { timeZone: "Europe/Moscow", year: "numeric" }).format(Date.now()));
+  const thisYear = `${year}-06-15T09:00:00Z`, fixture = createFixtures("chair").tasks[0];
+  await mount("/tasks?mine=false", () => ({ items: [
+    { ...fixture, task_id: "task-a", task_key: "QB-1", deadline_at: thisYear, updated_at: thisYear },
+    { ...fixture, task_id: "task-b", task_key: "SCHOOL-1180", deadline_at: `${year + 1}-01-14T06:00:00Z`, updated_at: thisYear },
+  ], next_cursor: null, total: 2, scopes: [], assignees: [] }));
+  const table = page!.container.querySelector<HTMLTableElement>('table[aria-label="Список задач"]')!;
+  expect(table.style.getPropertyValue("--key-chars")).toBe("11");expect(table.hasAttribute("data-year-deadline")).toBe(true);expect(table.hasAttribute("data-year-updated")).toBe(false);
+  const css = readFileSync(`${__dirname}/TrackerList.module.css`, "utf8");
+  const wide = css.match(/@media \(min-width: 1360px\) \{([^@]*)\}/)?.[1] ?? "";
+  // 104 px of type, priority and star beside the key, 7.6 px a character: SCHOOL-1180 gets 188 px, a short key keeps 150.
+  expect(wide).toMatch(/\.table \.colKey \{ width: clamp\(150px, calc\(104px \+ var\(--key-chars, 0\) \* 7\.6px\), 220px\); \}/);
+  expect(wide).toMatch(/\.table\[data-year-deadline\] \.colDeadline, \.table\[data-year-updated\] \.colUpdated \{ width: 114px; \}/);
+  expect(wide).toMatch(/\.table :is\(td\.deadline, td\.updated\) time \{ white-space: nowrap; \}/);
+});
 it("D-02: the key cell is one row of type, priority, key and star, the key and its star wrapping together", async () => {
   await mount();
   const row = page!.container.querySelector("td[data-label='Ключ'] [class*='keyRow']")!;

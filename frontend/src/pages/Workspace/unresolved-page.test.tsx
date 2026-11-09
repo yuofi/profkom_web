@@ -52,6 +52,26 @@ it("the server applies the URL season filter and the unavailable-only checkbox a
   await act(async () => page!.container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());await waitForPage(page, () => page!.container.querySelectorAll("tbody tr").length === 1);
   expect(read).toHaveBeenCalledTimes(2);expect(read.mock.calls[1][0]).toMatchObject({ season_id: "season-1", orphaned_only: true, include_total: true });expect(page.container.textContent).toContain("Назначений: 1");
 });
+it("a new filter never shows the empty text before its own answer: earlier rows stay dimmed, an empty earlier answer reads as loading", async () => {
+  const row = item();const pending: ((items: UnresolvedAssignment[]) => void)[] = [];
+  const read = vi.spyOn(tasksApi, "unresolved").mockImplementation(async (params) => {
+    if ((params as { season_id?: string }).season_id === "season-empty") return { items: [], next_cursor: null, total: 0 };
+    const items = await new Promise<UnresolvedAssignment[]>(resolve => { pending.push(resolve); });return { items, next_cursor: null, total: items.length };
+  });
+  page = await mountWorkspace(<Routes><Route path="/tasks/unresolved" element={<UnresolvedPage />} /></Routes>, { path: "/tasks/unresolved?season_id=season-empty" });await waitForPage(page);
+  expect(page.container.textContent).toContain("В выбранном сезоне нет незавершённых назначений.");
+  // «Все сезоны»: the same page with a new key; the earlier answer was empty, so the page is loading, not empty.
+  await act(async () => page!.container.querySelector<HTMLAnchorElement>('a[href="/tasks/unresolved"]')!.click());await settle();
+  expect(read).toHaveBeenCalledTimes(2);expect(pending).toHaveLength(1);
+  expect(page.container.textContent).not.toContain("Оставшейся работы нет.");expect(page.container.textContent).not.toContain("Назначений: 0");expect(page.container.querySelector('[role="status"]')?.textContent).toBe("Загружаем данные…");
+  await act(async () => pending[0]([row]));await waitForPage(page, () => page!.container.querySelectorAll("tbody tr").length === 1);
+  expect(page.container.textContent).toContain("Назначений: 1");expect(page.container.querySelector('[aria-busy="true"]')).toBeNull();
+  // The unavailable-only filter: the rows stay, marked busy, until its answer; only a loaded empty answer says so.
+  await act(async () => page!.container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());await settle();
+  expect(pending).toHaveLength(2);expect(page.container.querySelectorAll("tbody tr")).toHaveLength(1);expect(page.container.querySelector("table")?.parentElement?.getAttribute("aria-busy")).toBe("true");expect(page.container.textContent).not.toContain("Оставшейся работы нет.");
+  await act(async () => pending[1]([]));await waitForPage(page, () => !!page!.container.textContent?.includes("Оставшейся работы нет."));
+  expect(page.container.textContent).toContain("Нет назначений без доступного исполнителя.");expect(page.container.querySelector("table")).toBeNull();expect(page.container.textContent).toContain("Назначений: 0");
+});
 it("renders the first page at once, reads the next cursor only on «Показать ещё» and keeps the keyboard focus (smoke FS-1)", async () => {
   const first = Array.from({ length: 3 }, (_, index) => item({ task_id: `task-${index}`, task_title: `Первая страница ${index}`, assignment: { ...item().assignment, assignment_id: `first-${index}` } }));
   const second = item({ task_id: "task-next", task_title: "Следующая страница", assignment: { ...item().assignment, assignment_id: "next" } });

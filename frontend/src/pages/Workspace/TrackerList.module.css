@@ -55,6 +55,14 @@ a.person:hover { background: var(--surface-container-highest); color: var(--prim
 .table td.deadline, .table td.updated { overflow-wrap: normal; }
 /* A short date stays on one line; a date of another year keeps its year and may break after the comma. */
 @media (min-width: 769px) { .table :is(td.deadline, td.updated) time:not([data-full]) { white-space: nowrap; } }
+/* From 1360 px a long key (SCHOOL-1180) and a date with its year stay on one line too (owner 2026-11-09). The key column
+   grows with the longest key on the page (--key-chars: 104 px of icons and star, 7.6 px a character, up to 220 px); a
+   date column that shows a year somewhere fits «28 февр. 2027 г., 23:59». Narrower, the widths above stay. */
+@media (min-width: 1360px) {
+  .table .colKey { width: clamp(150px, calc(104px + var(--key-chars, 0) * 7.6px), 220px); }
+  .table[data-year-deadline] .colDeadline, .table[data-year-updated] .colUpdated { width: 114px; }
+  .table :is(td.deadline, td.updated) time { white-space: nowrap; }
+}
 /* The column header names a date on a wide screen; the phone row has no header, so a screen reader hears this word. */
 .cellLabel { display: none; }
 .scope > span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
